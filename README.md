@@ -5,7 +5,7 @@ An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the roo
 **Live demo: <https://bound-less-kk.web.app>**
 
 > **Built with AI tools — [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com), and [Lovable](https://lovable.dev).**
-> That's part of the point: this project doubles as a deliberate exercise in modern AI-assisted engineering — the v2 zoom engine, its test harness, and the current UI were designed, debugged, and shipped in collaboration with these tools.
+> This project was an exercise in modern AI-assisted engineering — the v2 zoom engine, its test harness, and the current UI were designed, debugged, and shipped in collaboration with these tools.
 
 ![Ink sketch of a treehouse village on an infinite canvas](src/Images/ui/canvas-main.jpg)
 
