@@ -9,15 +9,15 @@
  * Metadata stays on the parent so gallery listing never downloads drawings.
  */
 import {
-    collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch,
+    collection, doc, getDoc, getDocs, writeBatch,
 } from "firebase/firestore";
-import { db } from "./firebaseApp";
+import { getDb } from "./firebaseApp";
 
 const CHUNK_CHARS = 900000;
 
-const canvasesCol = (uid) => collection(db, "users", uid, "canvases");
-const canvasDoc = (uid, id) => doc(db, "users", uid, "canvases", id);
-const partDoc = (uid, id, i) => doc(db, "users", uid, "canvases", id, "parts", String(i));
+const canvasesCol = (uid) => collection(getDb(), "users", uid, "canvases");
+const canvasDoc = (uid, id) => doc(getDb(), "users", uid, "canvases", id);
+const partDoc = (uid, id, i) => doc(getDb(), "users", uid, "canvases", id, "parts", String(i));
 
 /** entry: { id, name, savedAt, levels, strokes }; json: kobin-1 JSON string. */
 export async function cloudSaveCanvas(uid, entry, json) {
@@ -28,7 +28,7 @@ export async function cloudSaveCanvas(uid, entry, json) {
     const prev = await getDoc(canvasDoc(uid, entry.id));
     const prevParts = prev.exists() ? prev.data().parts || 0 : 0;
 
-    const batch = writeBatch(db);
+    const batch = writeBatch(getDb());
     batch.set(canvasDoc(uid, entry.id), {
         name: entry.name || "Untitled canvas",
         savedAt: entry.savedAt || new Date().toISOString(),
@@ -64,7 +64,7 @@ export async function cloudLoadCanvas(uid, id) {
 export async function cloudDeleteCanvas(uid, id) {
     const parent = await getDoc(canvasDoc(uid, id));
     const n = parent.exists() ? parent.data().parts || 0 : 0;
-    const batch = writeBatch(db);
+    const batch = writeBatch(getDb());
     for (let i = 0; i < n; i++) batch.delete(partDoc(uid, id, i));
     batch.delete(canvasDoc(uid, id));
     await batch.commit();

@@ -9,7 +9,9 @@ import Button from "../Components/ui/Button";
 import Input from "../Components/ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
-import { newCanvasId, slotKey, upsertIndexEntry, statsFromDoc } from "../storage/localCanvases";
+import { newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw } from "../storage/localCanvases";
+import useUser from "../cloud/useUser";
+import { cloudSaveCanvas, cloudLoadCanvas } from "../cloud/canvasSync";
 import {
     computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
     validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
@@ -99,6 +101,7 @@ export default function CanvasEditor() {
         if (canvasId === "new") history.replace(`/canvas/${realId}${location.search}`);
     }, [canvasId, realId, history, location.search]);
     const engine = useKobinEngine({ storageKey: slotKey(realId) });
+    const { user } = useUser();
     const editorRef = useRef(null);
     const fileRef = useRef(null);
     const colorSectionRef = useRef(null);
@@ -168,15 +171,45 @@ export default function CanvasEditor() {
 
     const persistCanvas = async (name) => {
         const doc = await engine.saveToLocalStorage(name);
-        if (doc) {
-            upsertIndexEntry({
-                id: realId,
-                name: (doc.meta && doc.meta.name) || name || "Untitled canvas",
-                ...statsFromDoc(doc),
-            });
+        if (!doc) return { local: false, cloud: false };
+        const entry = {
+            id: realId,
+            name: (doc.meta && doc.meta.name) || name || "Untitled canvas",
+            savedAt: new Date().toISOString(),
+            ...statsFromDoc(doc),
+        };
+        upsertIndexEntry(entry);
+        let cloud = false;
+        if (user) {
+            try {
+                await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
+                cloud = true;
+            } catch (err) {
+                console.warn("cloud save failed", err);
+            }
         }
-        return !!doc;
+        return { local: true, cloud };
     };
+
+    // Opening a canvas that isn't in this browser (e.g. saved from another
+    // device): pull it from the account once the engine is up.
+    useEffect(() => {
+        if (!engine.engineReady || !user) return;
+        if (loadCanvasRaw(realId)) return;
+        let stale = false;
+        (async () => {
+            try {
+                const json = await cloudLoadCanvas(user.uid, realId);
+                if (stale || !json) return;
+                engine.engineRef.current.loadDrawing(JSON.parse(json));
+                await engine.saveToLocalStorage();
+                const nm = engine.docMeta()?.name;
+                if (nm && nm !== "untitled") setCanvasTitle(nm);
+            } catch (err) { /* offline or not ours — stay blank */ }
+        })();
+        return () => { stale = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [engine.engineReady, user, realId]);
 
     const commitScaleDef = (def) => {
         const valid = validateScaleDef(def);
@@ -661,9 +694,12 @@ export default function CanvasEditor() {
                 onOpenChange={setSaveOpen}
                 defaultName={canvasTitle}
                 onSave={async (name) => {
-                    const ok = await persistCanvas(name);
+                    const r = await persistCanvas(name);
                     setCanvasTitle(name);
-                    showToast(ok ? "Saved to browser" : "Couldn't save — storage may be full");
+                    showToast(!r.local ? "Couldn't save — storage may be full"
+                        : !user ? "Saved to browser"
+                        : r.cloud ? "Saved to your account"
+                        : "Saved here — cloud sync failed");
                 }}
             />
 

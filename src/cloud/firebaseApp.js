@@ -4,6 +4,9 @@
  * The web config below is public by design (it identifies the project; access
  * control lives in Firestore security rules + Auth). Modular v9 SDK so the
  * bundler tree-shakes what the app doesn't use.
+ *
+ * Init is LAZY (memoized getters) so merely importing this module — e.g. from
+ * a jsdom test that never signs in — starts no SDK machinery.
  */
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
@@ -18,6 +21,16 @@ const firebaseConfig = {
     appId: "1:119856093116:web:f391611f9fcb6608e3bdb9",
 };
 
-export const firebaseApp = initializeApp(firebaseConfig);
-export const auth = getAuth(firebaseApp);
-export const db = getFirestore(firebaseApp);
+let app = null;
+export function getFirebaseApp() {
+    if (!app) app = initializeApp(firebaseConfig);
+    return app;
+}
+
+export function getFirebaseAuth() {
+    return getAuth(getFirebaseApp());
+}
+
+export function getDb() {
+    return getFirestore(getFirebaseApp());
+}
