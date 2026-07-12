@@ -14,7 +14,7 @@ An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the roo
 - **Infinite zoom** — the canvas re-anchors itself every ×3,000 of magnification, so zoom depth is limited by your patience, not by floating-point precision or SVG limits. Draw detail at any depth and find it again on the way back out.
 - **A full drawing kit** — pen, pencil, highlighter, and straight-line tools; select / move / restyle; undo-redo across everything.
 - **Real-world scale** — drag across anything you've drawn and declare "this is 1 inch" (or 40 meters, or 3 miles). A scale bar then tracks every zoom, walking a ladder of sensible units from millimeters to miles as you dive and climb.
-- **Local-first saving** — work autosaves to your browser and never leaves your machine. Drawings export and import as `.boundless.json` files, and can be exported as SVG.
+- **Local-first saving** — work autosaves to your browser and stays there by default. Sign in with Google to sync canvases to your account and pick them up on any device. Drawings also export and import as `.boundless.json` files, plus SVG export.
 
 ## How the engine works
 
@@ -49,11 +49,9 @@ Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in 
 
 ## Roadmap
 
-- Accounts and cloud saving (Firebase Auth + Firestore), layered on top of local-first storage
-- True multi-canvas — today the gallery is a front for a single local drawing
-- Scene bookmarks that jump to saved depths (the UI is in place)
+- Scene bookmarks that jump to saved depths, with real canvas thumbnails (the UI is in place)
 - Rotation and measurement tools
 
 ## History
 
-bound.less began in 2021 as a university team project by Michael Sawchuk, Kobin Kempe, Anuja Mehta, and Nolan Raghu, which proved out the idea but stopped at SVG's practical zoom limits. This repository is Kobin Kempe's continuation: the v2 level-crossing engine, the drawing/select/erase toolset, the real-unit scale system, and the current interface.
+bound.less began in 2021 as a university team project by Michael Sawchuk, Kobin Kempe, Anuja Mehta, and Nolan Raghu, which proved out the idea but stopped at SVG's practical zoom limits. This repository is Kobin Kempe's continuation: the v2 level-crossing engine, the drawing and selection toolset, the real-unit scale system, account sync, and the current interface.
