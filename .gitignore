@@ -1,0 +1,31 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# debug reports posted by devices on the LAN (tools/report-server.js)
+/.kobin-reports
+
+# production
+/build
+
+# deploy cache
+/.firebase
+
+# editors & local tooling
+/.idea
+/.claude
+.DS_Store
+
+# env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,56 @@
+# bound.less
+
+An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the room inside — then keep going.
+
+**Live demo: <https://bound-less-kk.web.app>**
+
+![Ink sketch of a treehouse village on an infinite canvas](src/Images/ui/canvas-main.jpg)
+
+## What it does
+
+- **Infinite zoom** — the canvas re-anchors itself every ×3,000 of magnification, so zoom depth is limited by your patience, not by floating-point precision or SVG limits. Draw detail at any depth and find it again on the way back out.
+- **A full drawing kit** — pen, pencil, highlighter, and straight-line tools; a partial eraser that genuinely cuts strokes into pieces; an object eraser; select / move / restyle with undo-redo across all of it.
+- **Real-world scale** — drag across anything you've drawn and declare "this is 1 inch" (or 40 meters, or 3 miles). A scale bar then tracks every zoom, walking a ladder of sensible units from millimeters to miles as you dive and climb.
+- **Local-first saving** — work autosaves to your browser and never leaves your machine. Drawings export and import as `.boundless.json` files, and can be exported as SVG.
+
+## How the engine works
+
+The interesting problem: browsers (and doubles) give out long before "infinite." The engine in [`src/engine/`](src/engine) treats depth as a chain of **levels**, each ×3,000 the magnification of the last, and keeps all geometry in the coordinate frame of the level where it was drawn:
+
+| Piece | Job |
+| --- | --- |
+| `Camera` | Level-local view transform; crosses between levels when zoom passes enter/exit thresholds (with hysteresis so the boundary doesn't flicker) |
+| `Document` | Strokes live in their home level; ids double as z-order; undo/redo as operation log; spatial index for hit-testing |
+| `LevelMap` / `TileStore` | Cross-level views are *derived*: bidirectional tiles with empty / solid / edge classification, so a stroke magnified ×3,000⁵ collapses to bounded tile fills instead of exploding |
+| `Renderer` | The only owner of Two.js; persistent per-object SVG groups, updated by diffing, with per-level scene retention so level crossings reattach instead of rebuilding |
+| `geometry/` | Curve-capsule outlines (Tiller–Hanson offset fitting) keep wide strokes exact at any zoom; polygon clipping bakes tiles; centerline cutting powers the partial eraser |
+| `persist.js` | Versioned save format (`kobin-1`) with validation and migration from the legacy dev format |
+| `scaleBar/` | The real-unit scale system: unit catalogs, preference "ladders," and sticky per-session display choices |
+
+The suite is ~290 Jest tests, including a fidelity harness that replays recorded drawings and compares rendered ink against ground truth pixel-for-pixel across level crossings. The full design history — bugs, dead ends, measured perf wins (one pathological tile bake went from 585 s to 550 ms) — lives in [`docs/issue-log.md`](docs/issue-log.md) and the design documents beside it.
+
+## Run it locally
+
+Requires **Node 14** — the toolchain is an older Create React App setup.
+
+```bash
+npm install
+npm start        # http://localhost:3000
+npm test         # jest suite
+npm run build    # production build to build/
+```
+
+Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in `firebase.json`).
+
+**Dev tools:** append `?dev` to a canvas URL (e.g. `/#/canvas/new?dev`) to reveal the engine's developer panel — live level/zoom/object readouts and rendering toggles. `/#/v2` is the raw engine test harness.
+
+## Roadmap
+
+- Accounts and cloud saving (Firebase Auth + Firestore), layered on top of local-first storage
+- True multi-canvas — today the gallery is a front for a single local drawing
+- Scene bookmarks that jump to saved depths (the UI is in place)
+- Rotation, measurement tools, and a paint-style eraser for fills
+
+## History
+
+bound.less began in 2021 as a university team project by Michael Sawchuk, Kobin Kempe, Anuja Mehta, and Nolan Raghu, which proved out the idea but stopped at SVG's practical zoom limits. This repository is Kobin Kempe's continuation: the v2 level-crossing engine, the drawing/select/erase toolset, the real-unit scale system, and the current interface.

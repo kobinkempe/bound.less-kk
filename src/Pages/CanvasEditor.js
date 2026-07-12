@@ -1,0 +1,704 @@
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { Link, useParams, useLocation } from "react-router-dom";
+import {
+    Home, Layers, Pen, Pencil, Eraser, Highlighter,
+    ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
+    CircleOff, Undo2, Redo2, Palette, Trash2, Save,
+} from "lucide-react";
+import Button from "../Components/ui/Button";
+import Input from "../Components/ui/Input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
+import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
+import {
+    computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
+    validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
+    shouldApplyScaleSessionWriteBack,
+} from "../engine/scaleBar";
+import ScaleUnitPicker, { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
+import ColorPickerPopover from "../Components/editor/ColorPickerPopover";
+import WidthOpacityPanel from "../Components/editor/WidthOpacityPanel";
+import SelectionEditPanel from "../Components/editor/SelectionEditPanel";
+import FileActionsMenu from "../Components/editor/FileActionsMenu";
+import SaveDrawingDialog from "../Components/editor/SaveDrawingDialog";
+import ScaleDragBar from "../Components/editor/ScaleDragBar";
+import "../Stylesheets/boundless-ui.css";
+import sceneDoor from "../Images/ui/scene-door.jpg";
+import sceneBalloon from "../Images/ui/scene-balloon.jpg";
+import sceneStairs from "../Images/ui/scene-stairs.jpg";
+
+/** Phase 1 stub: static scene bookmarks (Phase 2 → meta.scenes + engine.jumpTo). */
+const SCENES = [
+    { id: "door", name: "The Little Door", zoom: 42, image: sceneDoor },
+    { id: "balloon", name: "Balloon Ride", zoom: 7.5, image: sceneBalloon },
+    { id: "stairs", name: "Hollow Stairs", zoom: 260, image: sceneStairs },
+];
+
+const CANVAS_NAMES = {
+    "wonder-tree": "Wonder Tree",
+    "north-point": "North Point",
+    "field-notes": "Field Notes",
+    new: "Untitled canvas",
+};
+
+const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
+
+/** Pen width presets — highlighter renders at width × 2.5 in the engine. */
+const PEN_WIDTH = 12;
+const HIGHLIGHTER_WIDTH = 26;
+const PENCIL_WIDTH = 5;
+const LINE_WIDTH = 12;
+
+const DRAW_TOOL_IDS = new Set(["pen", "pencil", "highlighter", "line"]);
+
+const TOOL_SECTIONS = [
+    {
+        id: "history",
+        items: [
+            { id: "undo", icon: Undo2, label: "Undo (Ctrl+Z)", action: (e) => e.undo() },
+            { id: "redo", icon: Redo2, label: "Redo (Ctrl+Y)", action: (e) => e.redo() },
+        ],
+    },
+    {
+        id: "draw",
+        items: [
+            { id: "pen", icon: Pen, label: "Pen", penType: "freehand", width: PEN_WIDTH },
+            { id: "pencil", icon: Pencil, label: "Pencil", penType: "freehand", width: PENCIL_WIDTH },
+            { id: "highlighter", icon: Highlighter, label: "Highlighter", penType: "highlight", width: HIGHLIGHTER_WIDTH },
+            { id: "line", icon: Slash, label: "Straight line", penType: "straight", width: LINE_WIDTH },
+        ],
+    },
+    {
+        id: "erase",
+        items: [
+            { id: "eraser", icon: Eraser, label: "Eraser (partial)", tool: "erasePartial" },
+            { id: "erase-object", icon: CircleOff, label: "Erase object", tool: "erase" },
+        ],
+    },
+    {
+        id: "nav",
+        items: [
+            { id: "select", icon: MousePointer2, label: "Select / edit", tool: "select" },
+            { id: "pan", icon: Hand, label: "Pan", tool: "pan" },
+        ],
+    },
+];
+
+export default function CanvasEditor() {
+    const { canvasId } = useParams();
+    const location = useLocation();
+    // Dev tools are hidden unless the URL carries ?dev (e.g. /#/canvas/new?dev).
+    const devUnlocked = useMemo(
+        () => new URLSearchParams(location.search).has("dev"),
+        [location.search],
+    );
+    const engine = useKobinEngine();
+    const editorRef = useRef(null);
+    const fileRef = useRef(null);
+    const colorSectionRef = useRef(null);
+    const paletteAnchorRef = useRef(null);
+    const drawToolRefs = useRef({});
+    const sizeAnchorRef = useRef(null);
+    const fileAnchorRef = useRef(null);
+    const scaleHudRef = useRef(null);
+    const scaleLabelRef = useRef(null);
+
+    const [toolsOpen, setToolsOpen] = useState(true);
+    const [scenesOpen, setScenesOpen] = useState(false);
+    const [activeTool, setActiveTool] = useState("pen");
+    const [hintDismissed, setHintDismissed] = useState(false);
+    const [toast, setToast] = useState(null);
+    const [devOpen, setDevOpen] = useState(false);
+    const [colorOpen, setColorOpen] = useState(false);
+    const [sizeOpen, setSizeOpen] = useState(false);
+    const [fileOpen, setFileOpen] = useState(false);
+    const [wipeOpen, setWipeOpen] = useState(false);
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [editingName, setEditingName] = useState(false);
+    const [nameDraft, setNameDraft] = useState("");
+    const [canvasTitle, setCanvasTitle] = useState("Untitled canvas");
+
+    const [scaleDef, setScaleDef] = useState(null);
+    const [defineMode, setDefineMode] = useState(false);
+    const [dragStart, setDragStart] = useState(null);
+    const [dragEnd, setDragEnd] = useState(null);
+    const [pendingBar, setPendingBar] = useState(null);
+    const [scaleValue, setScaleValue] = useState("1");
+    const [scaleUnit, setScaleUnit] = useState("in");
+    // Durable display session: sticky ladder (L8), user preferred range
+    // (L5/L12), incumbent unit (L2). Owned here; the engine never mutates it.
+    const [scaleSession, setScaleSession] = useState(null);
+    const [unitPickerOpen, setUnitPickerOpen] = useState(false);
+
+    useEffect(() => {
+        const t = setTimeout(() => setHintDismissed(true), 15000);
+        return () => clearTimeout(t);
+    }, []);
+
+    useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(() => setToast(null), 2500);
+        return () => clearTimeout(t);
+    }, [toast]);
+
+    useEffect(() => {
+        if (!defineMode) return;
+        const onKey = (e) => { if (e.key === "Escape") { setDefineMode(false); setDragStart(null); setDragEnd(null); } };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [defineMode]);
+
+    useEffect(() => {
+        if (!engine.engineReady) return;
+        const def = validateScaleDef(engine.engineRef.current?.docMeta?.scaleDef);
+        if (def) {
+            setScaleDef(def);
+            // Fresh session from the anchor unit (L9 — ladder by priority).
+            setScaleSession(clearDisplayPrefs(null, def));
+        }
+        const name = engine.docMeta()?.name || CANVAS_NAMES[canvasId] || canvasId || "Untitled canvas";
+        setCanvasTitle(name);
+    }, [engine.engineReady, canvasId]);
+
+    const commitScaleDef = (def) => {
+        const valid = validateScaleDef(def);
+        if (!valid) return;
+        setScaleDef(valid);
+        // Redefining the scale resets all display preferences (L9).
+        setScaleSession(clearDisplayPrefs(null, valid));
+        engine.patchDocMeta({ scaleDef: valid });
+    };
+
+    const clearScaleDef = () => {
+        setScaleDef(null);
+        setScaleSession(null);
+        engine.patchDocMeta({ scaleDef: null });
+    };
+
+    const hudBundle = useMemo(() => {
+        if (!scaleDef || !scaleSession) return null;
+        // Absolute resolve at the target zoom on the sticky session (L1/L8).
+        // Persist returned session (userBand teardown I-02 + incumbent/lastReading).
+        const { reading, session: nextSession } = computeScale(
+            engine.status.effectiveZoom,
+            scaleDef,
+            scaleSession,
+        );
+        if (!reading) return null;
+        return { reading, nextSession, sourceSession: scaleSession };
+    }, [scaleDef, scaleSession, engine.status.effectiveZoom]);
+
+    // Write back computeScale session so clearUserBandIfExited sticks (ZS-01 / UP3).
+    // A6: skip stale unbanded next when live s already holds a fresher band.
+    useEffect(() => {
+        if (!hudBundle?.nextSession) return;
+        const next = hudBundle.nextSession;
+        const sourceSession = hudBundle.sourceSession;
+        setScaleSession((s) => {
+            if (!s) return s;
+            if (!shouldApplyScaleSessionWriteBack(s, next, { sourceSession })) {
+                return s;
+            }
+            const sameBand =
+                (!s.userBand && !next.userBand) ||
+                (s.userBand &&
+                    next.userBand &&
+                    s.userBand.unit === next.userBand.unit &&
+                    s.userBand.logLo === next.userBand.logLo &&
+                    s.userBand.logHi === next.userBand.logHi);
+            if (
+                s.ladderId === next.ladderId &&
+                s.incumbentUnit === next.incumbentUnit &&
+                sameBand &&
+                s.lastReading?.unit === next.lastReading?.unit &&
+                s.lastReading?.value === next.lastReading?.value
+            ) {
+                return s;
+            }
+            return next;
+        });
+    }, [hudBundle]);
+
+    const hud = hudBundle?.reading ?? null;
+    const scaleLabel = hud
+        ? formatScaleLabel(hud)
+        : zoomLabel(engine.status.effectiveZoom);
+
+    const startRename = () => {
+        setNameDraft(canvasTitle);
+        setEditingName(true);
+    };
+
+    const commitRename = async () => {
+        const trimmed = nameDraft.trim() || "Untitled canvas";
+        engine.patchDocMeta({ name: trimmed });
+        setCanvasTitle(trimmed);
+        setEditingName(false);
+        await engine.saveToLocalStorage(trimmed);
+    };
+
+    const showToast = (msg) => setToast(msg);
+
+    const selectTool = (t) => {
+        if (t.action) { t.action(engine); return; }
+        if (DRAW_TOOL_IDS.has(t.id) && activeTool === t.id) {
+            setSizeOpen((o) => !o);
+            setColorOpen(false);
+            return;
+        }
+        setSizeOpen(false);
+        setActiveTool(t.id);
+        if (t.tool) engine.setTool(t.tool);
+        else if (t.penType) {
+            engine.pickPen(t.penType);
+            if (t.width != null) engine.setWidth(t.width);
+        }
+    };
+
+    sizeAnchorRef.current = DRAW_TOOL_IDS.has(activeTool)
+        ? (drawToolRefs.current[activeTool] ?? null)
+        : null;
+
+    const rel = (e) => {
+        const r = editorRef.current.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    const onDefineDown = (e) => {
+        if (!defineMode || e.button !== 0) return;
+        const p = rel(e);
+        setDragStart(p);
+        setDragEnd(p);
+        e.currentTarget.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    };
+    const onDefineMove = (e) => {
+        if (!defineMode || !dragStart) return;
+        setDragEnd(rel(e));
+    };
+    const onDefineUp = () => {
+        if (!defineMode || !dragStart || !dragEnd) return;
+        const px = Math.hypot(dragEnd.x - dragStart.x, dragEnd.y - dragStart.y);
+        if (px >= MIN_DRAG_PX) setPendingBar({ a: dragStart, b: dragEnd, px });
+        setDragStart(null);
+        setDragEnd(null);
+        setDefineMode(false);
+    };
+    const onDefineWheel = (e) => {
+        e.preventDefault();
+        const E = engine.engineRef.current;
+        if (!E || !editorRef.current) return;
+        const r = editorRef.current.getBoundingClientRect();
+        E.zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY);
+    };
+
+    const liveBar = defineMode && dragStart && dragEnd
+        ? { a: dragStart, b: dragEnd }
+        : null;
+
+    const dbgBtn = (active) => ({ className: `bl-dev-btn${active ? " active" : ""}` });
+
+    return (
+        <div className="bl-editor" ref={editorRef}>
+            <div
+                ref={engine.hostRef}
+                className="bl-editor-host"
+                style={{ cursor: defineMode ? "crosshair" : engine.cursor }}
+            />
+
+            {defineMode && (
+                <div
+                    className="bl-scale-define-overlay"
+                    onPointerDown={onDefineDown}
+                    onPointerMove={onDefineMove}
+                    onPointerUp={onDefineUp}
+                    onPointerCancel={onDefineUp}
+                    onWheel={onDefineWheel}
+                />
+            )}
+            {defineMode && (
+                <div className="bl-scale-define-banner">Drag across something whose length you know</div>
+            )}
+            {liveBar && <ScaleDragBar a={liveBar.a} b={liveBar.b} label="drag…" />}
+            {pendingBar && <ScaleDragBar a={pendingBar.a} b={pendingBar.b} label="?" />}
+
+            <div className="bl-editor-overlay bl-editor-top-left bl-flex bl-gap-2">
+                <Link to="/canvases">
+                    <Button variant="outline" size="icon" className="bl-shadow-panel" title="Back to canvases">
+                        <Home size={16} />
+                    </Button>
+                </Link>
+                <div className="bl-editor-chip bl-editor-title-chip">
+                    {editingName ? (
+                        <input
+                            className="bl-title-input"
+                            value={nameDraft}
+                            onChange={(e) => setNameDraft(e.target.value)}
+                            onBlur={commitRename}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                                if (e.key === "Escape") setEditingName(false);
+                            }}
+                            aria-label="Canvas name"
+                            autoFocus
+                        />
+                    ) : (
+                        <button type="button" className="bl-title-btn" onClick={startRename} title="Rename canvas">
+                            <span className="bl-font-display bl-text-sm bl-title-text">{canvasTitle}</span>
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <div className="bl-editor-overlay bl-editor-top-right">
+                <div className="bl-editor-top-right-group">
+                    <div className="bl-scenes-anchor">
+                        <Button
+                            size="sm"
+                            variant={scenesOpen ? "default" : "outline"}
+                            className="bl-shadow-panel bl-flex bl-gap-2"
+                            onClick={() => { setScenesOpen((o) => !o); setHintDismissed(true); }}
+                        >
+                            <Layers size={16} /> Scenes
+                        </Button>
+                        {scenesOpen && (
+                            <div className="bl-scenes-panel">
+                                <div className="bl-flex bl-items-center bl-justify-between" style={{ marginBottom: "0.5rem" }}>
+                                    <p className="bl-text-xs bl-uppercase bl-text-muted" style={{ fontWeight: 600 }}>
+                                        Scenes in this canvas
+                                    </p>
+                                    <button type="button" className="bl-tool-btn" onClick={() => setScenesOpen(false)} aria-label="Close scenes">
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                                <div className="bl-flex bl-flex-col bl-gap-2" style={{ maxHeight: "16rem", overflowY: "auto" }}>
+                                    {SCENES.map((s) => (
+                                        <button
+                                            key={s.id}
+                                            type="button"
+                                            className="bl-scene-item"
+                                            onClick={() => {
+                                                setScenesOpen(false);
+                                                showToast("Scene bookmarks coming in Phase 2");
+                                            }}
+                                        >
+                                            <img src={s.image} alt={s.name} className="bl-scene-thumb" />
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
+                                                <p className="bl-text-xs bl-text-muted">at {zoomLabel(s.zoom)}</p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    {devUnlocked && (
+                        <button type="button" className="bl-dev-btn bl-shadow-panel" onClick={() => setDevOpen(!devOpen)} title="Developer tools">
+                            Dev
+                        </button>
+                    )}
+                </div>
+                {devUnlocked && devOpen && (
+                    <div className="bl-dev-panel">
+                        <div><b>LEVEL:</b> {engine.status.level}</div>
+                        <div><b>zoom:</b> {zoomLabel(engine.status.effectiveZoom)}</div>
+                        <div><b>inScale:</b> {engine.status.inScale.toFixed(3)}</div>
+                        <div><b>objects:</b> {engine.status.objects}</div>
+                        <div style={{ marginTop: 6 }}>
+                            <button {...dbgBtn(engine.opGroups)} onClick={() => engine.setOpGroups(!engine.opGroups)}>αSeam</button>
+                            <button {...dbgBtn(engine.preBake)} onClick={() => engine.setPreBake(!engine.preBake)}>PreBake</button>
+                            <button {...dbgBtn(engine.retainScenes)} onClick={() => engine.setRetainScenes(!engine.retainScenes)}>Retain</button>
+                            <button {...dbgBtn(false)} onClick={engine.sendReport}>{engine.reportLabel}</button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div className="bl-editor-overlay bl-editor-left">
+                {toolsOpen ? (
+                    <div className="bl-tool-rail">
+                        <div className="bl-tool-rail-body">
+                            {TOOL_SECTIONS.map((section, si) => (
+                                <div key={section.id} className="bl-tool-section">
+                                    {si > 0 && <div className="bl-tool-divider" />}
+                                    {section.items.map((t) => (
+                                        <button
+                                            key={t.id}
+                                            ref={(el) => {
+                                                if (DRAW_TOOL_IDS.has(t.id)) drawToolRefs.current[t.id] = el;
+                                            }}
+                                            type="button"
+                                            title={t.label}
+                                            className={`bl-tool-btn${activeTool === t.id ? " active" : ""}`}
+                                            onClick={() => selectTool(t)}
+                                        >
+                                            <t.icon size={16} />
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                            <div className="bl-tool-section bl-tool-section--colors" ref={colorSectionRef}>
+                                <div className="bl-tool-divider" />
+                                <div className="bl-swatch-grid">
+                                    {SWATCHES.map((c) => (
+                                        <button
+                                            key={c}
+                                            type="button"
+                                            aria-label={`Color ${c}`}
+                                            className={`bl-swatch${engine.color === c ? " active" : ""}`}
+                                            style={{ backgroundColor: c }}
+                                            onClick={() => engine.setColor(c)}
+                                        />
+                                    ))}
+                                </div>
+                                <button
+                                    ref={paletteAnchorRef}
+                                    type="button"
+                                    className="bl-tool-btn"
+                                    title="Custom color"
+                                    onClick={() => { setColorOpen((o) => !o); setSizeOpen(false); }}
+                                >
+                                    <Palette size={16} />
+                                </button>
+                            </div>
+                            <div className="bl-tool-section">
+                                <div className="bl-tool-divider" />
+                                <button type="button" className="bl-tool-btn" title="Wipe canvas" onClick={() => setWipeOpen(true)}>
+                                    <Trash2 size={16} />
+                                </button>
+                                <div className="bl-popover-anchor" ref={fileAnchorRef}>
+                                    <button type="button" className="bl-tool-btn" title="File" onClick={() => setFileOpen((o) => !o)}>
+                                        <Save size={16} />
+                                    </button>
+                                    {fileOpen && (
+                                        <FileActionsMenu
+                                            onSave={() => setSaveOpen(true)}
+                                            onDownload={() => engine.saveDrawing(canvasTitle)}
+                                            onOpenFile={() => fileRef.current?.click()}
+                                            onExportSvg={engine.exportSvg}
+                                            onClose={() => setFileOpen(false)}
+                                            anchorRef={fileAnchorRef}
+                                        />
+                                    )}
+                                </div>
+                                <button type="button" className="bl-tool-btn" title="Minimize tools" onClick={() => setToolsOpen(false)}>
+                                    <ChevronLeft size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <button type="button" className="bl-tool-rail bl-tool-btn" style={{ width: "2.5rem", height: "2.5rem" }}
+                        onClick={() => setToolsOpen(true)} title="Show tools">
+                        <ChevronRight size={16} />
+                    </button>
+                )}
+            </div>
+
+            {colorOpen && (
+                <ColorPickerPopover
+                    color={engine.color}
+                    onChange={engine.setColor}
+                    onClose={() => setColorOpen(false)}
+                    anchorRef={paletteAnchorRef}
+                    stayOpenRef={colorSectionRef}
+                />
+            )}
+            {sizeOpen && (
+                <WidthOpacityPanel
+                    width={engine.width}
+                    opacity={engine.opacity}
+                    onWidthChange={engine.setWidth}
+                    onOpacityChange={engine.setOpacity}
+                    onClose={() => setSizeOpen(false)}
+                    anchorRef={sizeAnchorRef}
+                    layoutKey={activeTool}
+                />
+            )}
+
+            <div className="bl-editor-overlay bl-editor-bottom-right bl-scale-controls">
+                {scaleDef && (
+                    <Button variant="ghost" size="sm" className="bl-text-muted" onClick={clearScaleDef}>Clear</Button>
+                )}
+                <Button variant="outline" size="sm" className="bl-shadow-panel bl-flex bl-gap-2"
+                    onClick={() => { setPendingBar(null); setDefineMode(true); }} title="Define scale by dragging">
+                    <Ruler size={14} /> Set scale
+                </Button>
+                <div className="bl-scale-hud" ref={scaleHudRef}>
+                    <div className="bl-scale-bar" style={{ width: hud ? hud.barPx : BAR_PX_TARGET }} />
+                    {scaleDef ? (
+                        <button
+                            ref={scaleLabelRef}
+                            type="button"
+                            className="bl-text-xs bl-scale-label bl-scale-label-btn"
+                            onClick={() => setUnitPickerOpen((v) => !v)}
+                            title="Change unit"
+                        >
+                            {scaleLabel}
+                        </button>
+                    ) : (
+                        <span className="bl-text-xs bl-scale-label">{scaleLabel}</span>
+                    )}
+                </div>
+            </div>
+
+            {scaleDef && hud && (
+                <ScaleUnitPicker
+                    open={unitPickerOpen}
+                    onOpenChange={setUnitPickerOpen}
+                    anchorRef={scaleHudRef}
+                    currentUnit={hud.unit}
+                    ladderId={scaleSession?.ladderId ?? hud.ladderId}
+                    mpp={hud.metersPerPx}
+                    session={scaleSession}
+                    onPickUnit={(unit) => {
+                        // L5–L7 / L12: preferred picks switch ladders; other
+                        // picks install a user preferred range — no pins.
+                        // Functional update so a pending write-back cannot
+                        // supply a stale pre-pick session to applyUnitPick.
+                        const mpp = hud.metersPerPx;
+                        setScaleSession((s) => {
+                            if (!s || !(mpp > 0)) return s;
+                            const { session: next, reading } = applyUnitPick(
+                                unit,
+                                mpp,
+                                s,
+                            );
+                            return reading
+                                ? { ...next, lastReading: reading }
+                                : next;
+                        });
+                        setUnitPickerOpen(false);
+                    }}
+                />
+            )}
+
+            {engine.status.selection && (
+                <SelectionEditPanel
+                    selection={engine.status.selection}
+                    onColor={(c) => engine.restyleSelection({ color: c })}
+                    onWidth={(v) => engine.restyleSelection({ widthPx: v })}
+                    onOpacity={(v) => engine.restyleSelection({ opacity: v })}
+                    onDelete={engine.deleteSelection}
+                    onDone={engine.deselect}
+                />
+            )}
+
+            {!hintDismissed && (
+                <div className="bl-hint">Scroll or pinch to zoom — open Scenes to bookmark a view</div>
+            )}
+
+            {toast && <div className="bl-toast">{toast}</div>}
+
+            <input
+                ref={fileRef}
+                type="file"
+                accept=".json,.boundless.json,application/json"
+                style={{ display: "none" }}
+                onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    if (!window.confirm(`Load "${f.name}"? Your current drawing will be replaced.`)) return;
+                    try {
+                        await engine.loadDrawingFile(f);
+                        showToast("Drawing loaded");
+                    } catch (err) {
+                        window.alert("Couldn't load that file: " + (err?.message || err));
+                    }
+                }}
+            />
+
+            <ScaleValueDialog
+                open={!!pendingBar}
+                onOpenChange={(o) => { if (!o) setPendingBar(null); }}
+                value={scaleValue}
+                setValue={setScaleValue}
+                unit={scaleUnit}
+                setUnit={setScaleUnit}
+                ladderId={scaleSession?.ladderId ?? null}
+                onSave={() => {
+                    const parsed = parseFloat(scaleValue);
+                    if (!pendingBar || isNaN(parsed) || parsed <= 0) return;
+                    commitScaleDef({
+                        value: parsed,
+                        unit: scaleUnit,
+                        barPx: pendingBar.px,
+                        zoomAt: engine.status.effectiveZoom,
+                    });
+                    setPendingBar(null);
+                    showToast("Scale set");
+                }}
+            />
+
+            <SaveDrawingDialog
+                open={saveOpen}
+                onOpenChange={setSaveOpen}
+                defaultName={canvasTitle}
+                onSave={async (name) => {
+                    await engine.saveToLocalStorage(name);
+                    showToast("Saved to browser");
+                }}
+            />
+
+            <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Wipe canvas?</DialogTitle>
+                        <DialogDescription>This clears everything. You can undo with Ctrl+Z.</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setWipeOpen(false)}>Cancel</Button>
+                        <Button onClick={() => { engine.clear(); setWipeOpen(false); }}>Wipe</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function ScaleValueDialog({ open, onOpenChange, value, setValue, unit, setUnit, ladderId, onSave }) {
+    const parsed = parseFloat(value);
+    const valid = !isNaN(parsed) && parsed > 0;
+    const [moreLevel, setMoreLevel] = useState(0);
+
+    useEffect(() => {
+        if (!open) setMoreLevel(0);
+    }, [open]);
+
+    // Set-scale rungs 7a–7d (mm→mi ultra-standard first, then outward).
+    const picker = setScaleUnits(moreLevel, { ladderId });
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange} className="bl-dialog--scale">
+            <DialogHeader>
+                <DialogTitle>This length equals…</DialogTitle>
+                <DialogDescription>
+                    Enter what your dragged line represents in real-world units.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="bl-scale-form-row">
+                <div className="bl-scale-field">
+                    <label className="bl-label" htmlFor="scale-length">Length</label>
+                    <Input id="scale-length" type="number" min="0" step="any" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+                </div>
+            </div>
+            <div className="bl-scale-unit-picker-section">
+                <label className="bl-label">Unit</label>
+                <ScaleUnitButtonGrid
+                    units={picker.units}
+                    selected={unit}
+                    onSelect={setUnit}
+                    hasMore={picker.hasMore}
+                    showFullTable={picker.showFullTable}
+                    isFullCatalog={picker.isFullCatalog}
+                    onMore={() => setMoreLevel(picker.nextMoreLevel)}
+                />
+            </div>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button disabled={!valid} onClick={onSave}>Set scale</Button>
+            </DialogFooter>
+        </Dialog>
+    );
+}
