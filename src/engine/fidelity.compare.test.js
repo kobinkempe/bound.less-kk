@@ -60,7 +60,12 @@ function groundTruth(E, level) {
 }
 
 describe("fidelity: the new engine reproduces the drawing's true ink (per real snapshot)", () => {
-    if (!files.length) { test("no snapshots", () => expect(files.length).toBeGreaterThan(0)); return; }
+    if (!files.length) {
+        // Gitignored device recordings: skip on fresh clones, fail loudly with
+        // KOBIN_REQUIRE_REPORTS=1 (guards against fixtures silently going missing).
+        (process.env.KOBIN_REQUIRE_REPORTS ? test : test.skip)("no snapshots", () => expect(files.length).toBeGreaterThan(0));
+        return;
+    }
     test.each(files)("%s", (file) => {
         const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
         const snap = report.snapshot;

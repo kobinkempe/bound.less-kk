@@ -7,9 +7,12 @@ const DEFAULT_STATUS = { level: 0, inScale: 1, effectiveZoom: 1, nearCross: fals
 
 /**
  * Shared KobinEngine lifecycle: mount, pointer input, autosave, tool sync.
- * Used by CanvasV2 (dev harness) and CanvasEditor (product shell).
+ * Used by CanvasEditor (product shell); CanvasV2 (dev harness) has its own copy.
+ *
+ * `storageKey` picks the localStorage autosave slot — CanvasEditor passes a
+ * per-canvas key; the default is the legacy single-slot key.
  */
-export default function useKobinEngine() {
+export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
     const errsRef = useRef([]);
@@ -63,7 +66,8 @@ export default function useKobinEngine() {
         window.__kobinEngine = engine;
 
         try {
-            const saved = localStorage.getItem(AUTOSAVE_KEY) || localStorage.getItem("kobinSnapshot");
+            const saved = localStorage.getItem(storageKey)
+                || (storageKey === AUTOSAVE_KEY ? localStorage.getItem("kobinSnapshot") : null);
             if (saved) engine.loadDrawing(JSON.parse(saved));
         } catch (err) { console.warn("kobin autosave restore failed", err); }
 
@@ -72,7 +76,7 @@ export default function useKobinEngine() {
         let dirty = false;
         const unsubDirty = engine.doc.subscribe(() => { dirty = true; });
         const save = () => {
-            try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(engine.serializeDrawing())); dirty = false; } catch (err) { /* quota */ }
+            try { localStorage.setItem(storageKey, JSON.stringify(engine.serializeDrawing())); dirty = false; } catch (err) { /* quota */ }
         };
         const idleSave = () => {
             if (!dirty) return;
@@ -246,13 +250,14 @@ export default function useKobinEngine() {
 
     const saveToLocalStorage = async (name) => {
         const eng = E();
-        if (!eng) return false;
+        if (!eng) return null;
         if (name) patchDocMeta({ name });
         try {
-            localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(eng.serializeDrawing()));
-            return true;
+            const doc = eng.serializeDrawing();
+            localStorage.setItem(storageKey, JSON.stringify(doc));
+            return doc;
         } catch (err) {
-            return false;
+            return null;
         }
     };
 
@@ -273,7 +278,7 @@ export default function useKobinEngine() {
         if (!eng || !file) return;
         const raw = JSON.parse(await file.text());
         eng.loadDrawing(raw);
-        try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(eng.serializeDrawing())); } catch (err) { /* quota */ }
+        try { localStorage.setItem(storageKey, JSON.stringify(eng.serializeDrawing())); } catch (err) { /* quota */ }
     };
 
     const exportSvg = () => {

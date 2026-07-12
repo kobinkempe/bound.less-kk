@@ -1,10 +1,16 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/Dialog";
 
 export default function SaveDrawingDialog({ open, onOpenChange, defaultName, onSave }) {
     const [name, setName] = useState(defaultName || "Untitled canvas");
+
+    // Re-seed from the live title each time the dialog opens (the component
+    // stays mounted, so the initial useState value goes stale after renames).
+    useEffect(() => {
+        if (open) setName(defaultName || "Untitled canvas");
+    }, [open, defaultName]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>

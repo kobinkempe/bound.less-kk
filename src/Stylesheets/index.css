@@ -1,3 +1,9 @@
+html {
+  /* Match the bl-ui paper tone so overscroll/rubber-banding doesn't flash. */
+  background-color: #f7f2e9;
+  background-color: oklch(0.972 0.014 84);
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

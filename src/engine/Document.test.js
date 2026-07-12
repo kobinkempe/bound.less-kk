@@ -117,8 +117,13 @@ describe("spatial index (ISSUE-17)", () => {
 describe("dev-0 natives byte-compat over real reports", () => {
     const dir = path.join(__dirname, "..", "..", ".kobin-reports");
     const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")) : [];
-    test("there are report snapshots to check", () => { expect(files.length).toBeGreaterThan(0); });
-    test.each(files)("%s natives survive loadNatives -> serializeNatives unchanged", (file) => {
+    // Gitignored device recordings: skip on fresh clones, fail loudly with
+    // KOBIN_REQUIRE_REPORTS=1 (guards against fixtures silently going missing).
+    (files.length || process.env.KOBIN_REQUIRE_REPORTS ? test : test.skip)(
+        "there are report snapshots to check",
+        () => { expect(files.length).toBeGreaterThan(0); },
+    );
+    (files.length ? test.each(files) : test.skip.each(["(no reports)"]))("%s natives survive loadNatives -> serializeNatives unchanged", (file) => {
         const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
         const snapNatives = report.snapshot && report.snapshot.natives;
         if (!snapNatives) return; // some reports may predate the snapshot field

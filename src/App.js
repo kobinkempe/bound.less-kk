@@ -20,9 +20,14 @@ function App() {
             <Route path="/canvases">
               <CanvasesV2 />
             </Route>
-            <Route path="/canvas/:canvasId">
-              <CanvasEditor />
-            </Route>
+            <Route
+              path="/canvas/:canvasId"
+              render={({ match }) => (
+                // Keyed so switching canvases remounts the editor (and its
+                // engine + autosave slot) — v5 reuses the element otherwise.
+                <CanvasEditor key={match.params.canvasId} />
+              )}
+            />
             <Route exact path="/">
               <HomeV2 />
             </Route>

@@ -139,9 +139,14 @@ describe("engine serializeDrawing / loadDrawing", () => {
         expect(() => E.loadDrawing({ some: "junk" })).toThrow(/not a/i);
         expect(countNatives(E)).toBe(1); // decode failed BEFORE any state change
     });
-    test("real report snapshots load as drawings", () => {
-        const dir = path.join(__dirname, "..", "..", ".kobin-reports");
-        const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")) : [];
+    // .kobin-reports fixtures are gitignored recordings from Kobin's devices —
+    // fresh clones skip these; set KOBIN_REQUIRE_REPORTS=1 to fail loudly instead.
+    const reportsDir = path.join(__dirname, "..", "..", ".kobin-reports");
+    const reportFiles = fs.existsSync(reportsDir) ? fs.readdirSync(reportsDir).filter((f) => f.endsWith(".json")) : [];
+    const requireReports = !!process.env.KOBIN_REQUIRE_REPORTS;
+    (reportFiles.length || requireReports ? test : test.skip)("real report snapshots load as drawings", () => {
+        const dir = reportsDir;
+        const files = reportFiles;
         expect(files.length).toBeGreaterThan(0);
         for (const file of files) {
             const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
@@ -153,8 +158,9 @@ describe("engine serializeDrawing / loadDrawing", () => {
             E.destroy(); engines.pop();
         }
     });
-    test("pixelation report snapshot loads at deep zoom level", () => {
-        const reportPath = path.join(__dirname, "..", "..", ".kobin-reports", "report-2026-07-09T05-56-11-154Z.json");
+    const pixelationReportPath = path.join(reportsDir, "report-2026-07-09T05-56-11-154Z.json");
+    (fs.existsSync(pixelationReportPath) || requireReports ? test : test.skip)("pixelation report snapshot loads at deep zoom level", () => {
+        const reportPath = pixelationReportPath;
         expect(fs.existsSync(reportPath)).toBe(true);
         const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
         expect(report.camera.level).toBe(-1);

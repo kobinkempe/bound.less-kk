@@ -4,12 +4,15 @@ An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the roo
 
 **Live demo: <https://bound-less-kk.web.app>**
 
+> **Built with AI tools — [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com), and [Lovable](https://lovable.dev).**
+> That's part of the point: this project doubles as a deliberate exercise in modern AI-assisted engineering — the v2 zoom engine, its test harness, and the current UI were designed, debugged, and shipped in collaboration with these tools.
+
 ![Ink sketch of a treehouse village on an infinite canvas](src/Images/ui/canvas-main.jpg)
 
 ## What it does
 
 - **Infinite zoom** — the canvas re-anchors itself every ×3,000 of magnification, so zoom depth is limited by your patience, not by floating-point precision or SVG limits. Draw detail at any depth and find it again on the way back out.
-- **A full drawing kit** — pen, pencil, highlighter, and straight-line tools; a partial eraser that genuinely cuts strokes into pieces; an object eraser; select / move / restyle with undo-redo across all of it.
+- **A full drawing kit** — pen, pencil, highlighter, and straight-line tools; select / move / restyle; undo-redo across everything.
 - **Real-world scale** — drag across anything you've drawn and declare "this is 1 inch" (or 40 meters, or 3 miles). A scale bar then tracks every zoom, walking a ladder of sensible units from millimeters to miles as you dive and climb.
 - **Local-first saving** — work autosaves to your browser and never leaves your machine. Drawings export and import as `.boundless.json` files, and can be exported as SVG.
 
@@ -23,7 +26,7 @@ The interesting problem: browsers (and doubles) give out long before "infinite."
 | `Document` | Strokes live in their home level; ids double as z-order; undo/redo as operation log; spatial index for hit-testing |
 | `LevelMap` / `TileStore` | Cross-level views are *derived*: bidirectional tiles with empty / solid / edge classification, so a stroke magnified ×3,000⁵ collapses to bounded tile fills instead of exploding |
 | `Renderer` | The only owner of Two.js; persistent per-object SVG groups, updated by diffing, with per-level scene retention so level crossings reattach instead of rebuilding |
-| `geometry/` | Curve-capsule outlines (Tiller–Hanson offset fitting) keep wide strokes exact at any zoom; polygon clipping bakes tiles; centerline cutting powers the partial eraser |
+| `geometry/` | Curve-capsule outlines (Tiller–Hanson offset fitting) keep wide strokes exact at any zoom; polygon clipping bakes the cross-level tiles |
 | `persist.js` | Versioned save format (`kobin-1`) with validation and migration from the legacy dev format |
 | `scaleBar/` | The real-unit scale system: unit catalogs, preference "ladders," and sticky per-session display choices |
 
@@ -49,7 +52,7 @@ Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in 
 - Accounts and cloud saving (Firebase Auth + Firestore), layered on top of local-first storage
 - True multi-canvas — today the gallery is a front for a single local drawing
 - Scene bookmarks that jump to saved depths (the UI is in place)
-- Rotation, measurement tools, and a paint-style eraser for fills
+- Rotation and measurement tools
 
 ## History
 

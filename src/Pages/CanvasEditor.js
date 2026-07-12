@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
-import { Link, useParams, useLocation } from "react-router-dom";
+import { Link, useParams, useLocation, useHistory } from "react-router-dom";
 import {
     Home, Layers, Pen, Pencil, Eraser, Highlighter,
     ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
@@ -9,6 +9,7 @@ import Button from "../Components/ui/Button";
 import Input from "../Components/ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
+import { newCanvasId, slotKey, upsertIndexEntry, statsFromDoc } from "../storage/localCanvases";
 import {
     computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
     validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
@@ -32,13 +33,6 @@ const SCENES = [
     { id: "balloon", name: "Balloon Ride", zoom: 7.5, image: sceneBalloon },
     { id: "stairs", name: "Hollow Stairs", zoom: 260, image: sceneStairs },
 ];
-
-const CANVAS_NAMES = {
-    "wonder-tree": "Wonder Tree",
-    "north-point": "North Point",
-    "field-notes": "Field Notes",
-    new: "Untitled canvas",
-};
 
 const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
 
@@ -86,12 +80,25 @@ const TOOL_SECTIONS = [
 export default function CanvasEditor() {
     const { canvasId } = useParams();
     const location = useLocation();
+    const history = useHistory();
     // Dev tools are hidden unless the URL carries ?dev (e.g. /#/canvas/new?dev).
     const devUnlocked = useMemo(
         () => new URLSearchParams(location.search).has("dev"),
         [location.search],
     );
-    const engine = useKobinEngine();
+    // "/canvas/new" mints a real id before the engine mounts, so the fresh
+    // canvas gets its own empty autosave slot. The memo stays stable across
+    // the history.replace that swaps "new" for the minted id.
+    const mintedIdRef = useRef(null);
+    const realId = useMemo(() => {
+        if (canvasId !== "new") return canvasId;
+        if (!mintedIdRef.current) mintedIdRef.current = newCanvasId();
+        return mintedIdRef.current;
+    }, [canvasId]);
+    useEffect(() => {
+        if (canvasId === "new") history.replace(`/canvas/${realId}${location.search}`);
+    }, [canvasId, realId, history, location.search]);
+    const engine = useKobinEngine({ storageKey: slotKey(realId) });
     const editorRef = useRef(null);
     const fileRef = useRef(null);
     const colorSectionRef = useRef(null);
@@ -155,9 +162,21 @@ export default function CanvasEditor() {
             // Fresh session from the anchor unit (L9 — ladder by priority).
             setScaleSession(clearDisplayPrefs(null, def));
         }
-        const name = engine.docMeta()?.name || CANVAS_NAMES[canvasId] || canvasId || "Untitled canvas";
-        setCanvasTitle(name);
+        const raw = engine.docMeta()?.name;
+        setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
     }, [engine.engineReady, canvasId]);
+
+    const persistCanvas = async (name) => {
+        const doc = await engine.saveToLocalStorage(name);
+        if (doc) {
+            upsertIndexEntry({
+                id: realId,
+                name: (doc.meta && doc.meta.name) || name || "Untitled canvas",
+                ...statsFromDoc(doc),
+            });
+        }
+        return !!doc;
+    };
 
     const commitScaleDef = (def) => {
         const valid = validateScaleDef(def);
@@ -233,7 +252,7 @@ export default function CanvasEditor() {
         engine.patchDocMeta({ name: trimmed });
         setCanvasTitle(trimmed);
         setEditingName(false);
-        await engine.saveToLocalStorage(trimmed);
+        await persistCanvas(trimmed);
     };
 
     const showToast = (msg) => setToast(msg);
@@ -303,6 +322,12 @@ export default function CanvasEditor() {
                 ref={engine.hostRef}
                 className="bl-editor-host"
                 style={{ cursor: defineMode ? "crosshair" : engine.cursor }}
+                onPointerDownCapture={() => {
+                    // The engine preventDefaults pointerdown, which suppresses the
+                    // native blur — so returning to the drawing mid-rename would
+                    // otherwise leave the title input stuck open (esp. on phones).
+                    if (editingName) document.activeElement?.blur();
+                }}
             />
 
             {defineMode && (
@@ -636,8 +661,9 @@ export default function CanvasEditor() {
                 onOpenChange={setSaveOpen}
                 defaultName={canvasTitle}
                 onSave={async (name) => {
-                    await engine.saveToLocalStorage(name);
-                    showToast("Saved to browser");
+                    const ok = await persistCanvas(name);
+                    setCanvasTitle(name);
+                    showToast(ok ? "Saved to browser" : "Couldn't save — storage may be full");
                 }}
             />
 

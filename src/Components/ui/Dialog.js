@@ -1,6 +1,9 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 
 export function Dialog({ open, onOpenChange, children, className = "" }) {
+    // A click only dismisses when the press STARTED on the overlay too —
+    // otherwise selecting text in the dialog and releasing outside closes it.
+    const pressStartedOnOverlay = useRef(false);
     useEffect(() => {
         if (!open) return;
         const onKey = (e) => { if (e.key === "Escape") onOpenChange(false); };
@@ -9,8 +12,15 @@ export function Dialog({ open, onOpenChange, children, className = "" }) {
     }, [open, onOpenChange]);
     if (!open) return null;
     return (
-        <div className="bl-dialog-overlay" onClick={() => onOpenChange(false)}>
-            <div className={`bl-dialog ${className}`.trim()} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div
+            className="bl-dialog-overlay"
+            onPointerDown={(e) => { pressStartedOnOverlay.current = e.target === e.currentTarget; }}
+            onClick={(e) => {
+                if (pressStartedOnOverlay.current && e.target === e.currentTarget) onOpenChange(false);
+                pressStartedOnOverlay.current = false;
+            }}
+        >
+            <div className={`bl-dialog ${className}`.trim()} role="dialog" aria-modal="true">
                 {children}
             </div>
         </div>
