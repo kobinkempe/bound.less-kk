@@ -62,7 +62,11 @@ export default function CanvasesV2() {
         <div className="bl-flex bl-items-center bl-gap-3">
             <span className="bl-text-sm bl-text-muted bl-hidden-sm">Saves to this browser</span>
             <Button variant="outline" size="sm"
-                onClick={() => signInWithGoogle().catch(() => setSyncNote("Sign-in didn't complete."))}>
+                onClick={() => signInWithGoogle().catch((err) => {
+                    if (err?.code === "auth/popup-closed-by-user"
+                        || err?.code === "auth/cancelled-popup-request") return;
+                    setSyncNote(`Sign-in didn't complete (${err?.code || err?.message || "unknown error"}).`);
+                })}>
                 Sign in
             </Button>
         </div>

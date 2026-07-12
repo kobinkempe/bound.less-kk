@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-    GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+    GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged,
 } from "firebase/auth";
 import { getFirebaseAuth } from "./firebaseApp";
 
@@ -14,8 +14,20 @@ export default function useUser() {
 
 export async function signInWithGoogle() {
     const provider = new GoogleAuthProvider();
-    const cred = await signInWithPopup(getFirebaseAuth(), provider);
-    return cred.user;
+    const auth = getFirebaseAuth();
+    try {
+        const cred = await signInWithPopup(auth, provider);
+        return cred.user;
+    } catch (err) {
+        // Phones (and strict browsers) block popups — fall back to the
+        // full-page redirect flow; onAuthStateChanged picks it up on return.
+        if (err && (err.code === "auth/popup-blocked"
+            || err.code === "auth/operation-not-supported-in-this-environment")) {
+            await signInWithRedirect(auth, provider);
+            return null;
+        }
+        throw err;
+    }
 }
 
 export function signOutUser() {
