@@ -108,6 +108,35 @@ export function migrateLegacyAutosave() {
     }
 }
 
+// ---- scene thumbnails (JPEG data URLs, keyed per canvas + scene) ----
+
+export const thumbKey = (canvasId, sceneId) => `kobin.thumb.${canvasId}.${sceneId}`;
+
+/** { sceneId: { hash, data } } for the requested scenes (missing ones absent). */
+export function loadThumbs(canvasId, sceneIds) {
+    const out = {};
+    for (const sid of sceneIds) {
+        try {
+            const raw = localStorage.getItem(thumbKey(canvasId, sid));
+            if (raw) out[sid] = JSON.parse(raw);
+        } catch (err) { /* ignore */ }
+    }
+    return out;
+}
+
+export function saveThumbs(canvasId, map) {
+    for (const [sid, t] of Object.entries(map)) {
+        try { localStorage.setItem(thumbKey(canvasId, sid), JSON.stringify(t)); } catch (err) { /* quota */ }
+    }
+}
+
+export function loadCoverThumb(canvasId) {
+    try {
+        const raw = localStorage.getItem(thumbKey(canvasId, "cover"));
+        return raw ? JSON.parse(raw).data || null : null;
+    } catch (err) { return null; }
+}
+
 /** "Edited just now" / "Edited 3 hours ago" / "Edited May 4" */
 export function editedLabel(savedAt) {
     const t = Date.parse(savedAt);

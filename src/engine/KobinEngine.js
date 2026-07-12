@@ -24,6 +24,7 @@ import { cutPolylineWithDisc } from "./geometry/cut";
 import { bboxOf, levelFactor } from "./geometry/derive";
 import { encodeDrawing, decodeDrawing } from "./persist";
 import { validateScaleDef } from "./scaleBar";
+import { computeSceneProposals, coverProposal, matchScenes, splitProposals } from "./scenes";
 
 const DEFAULTS = {
     enter: 300, base: 0.1, exit: 0.05, bufferScreens: 1, scale: 1000, arcTolerancePx: 0.25,
@@ -81,7 +82,7 @@ export default class KobinEngine {
         this.selection = null;        // { id, level, obj } — obj is the LIVE native
         this._dragSel = null;         // { last:[sx,sy], dx, dy, moved } during a select-drag
         this._activeRestyle = null;   // { id, op } — coalesces a slider/color gesture into one undo op
-        this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null };
+        this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], hiddenScenes: [], sceneSeq: 1 };
         this.renderer.setSelection(() => this._selectionRect());
         // The selected object can vanish under us (eraser, cut, undo, wipe, load).
         this.doc.subscribe((ev) => {
@@ -543,6 +544,9 @@ export default class KobinEngine {
             name: doc.meta.name,
             createdAt: doc.meta.createdAt,
             scaleDef: doc.meta.scaleDef ?? null,
+            scenes: doc.meta.scenes ?? [],
+            hiddenScenes: doc.meta.hiddenScenes ?? [],
+            sceneSeq: doc.meta.sceneSeq ?? 1,
         };
         return doc;
     }
@@ -555,11 +559,108 @@ export default class KobinEngine {
             name: d.meta.name,
             createdAt: d.meta.createdAt,
             scaleDef: d.meta.scaleDef ?? null,
+            scenes: d.meta.scenes ?? [],
+            hiddenScenes: d.meta.hiddenScenes ?? [],
+            sceneSeq: d.meta.sceneSeq ?? 1,
         };
         this.renderer.clear();
         this._render();
         this._queueIdleFits();
         return true;
+    }
+
+    // ---- scenes (auto-scene spec: engine/scenes.js) ----
+    // Frame a rect (in `level`'s frame coords) in the viewport. The computed
+    // inScale may land outside [exit, enter]; _maybeCross normalizes it through
+    // the ordinary crossing machinery, creating level records as needed.
+    jumpTo(level, rect) {
+        if (!rect || !(rect.w > 0) || !(rect.h > 0)) return false;
+        if (level !== 0 && !this.lm.get(level)) return false; // no frame chain
+        if (this._drawing) this.pointerUp();
+        const s = Math.min(this.width / rect.w, this.height / rect.h);
+        if (!(s > 0) || !Number.isFinite(s)) return false;
+        this.cam.set({
+            activeLevel: level, inScale: s,
+            inPanX: (this.width - rect.w * s) / 2 - rect.x * s,
+            inPanY: (this.height - rect.h * s) / 2 - rect.y * s,
+        });
+        this.cam._maybeCross();
+        this.renderer.clear();
+        this._render();
+        this._queueIdleFits();
+        return true;
+    }
+    // Recompute proposals and reconcile with the persisted scene state.
+    refreshScenes() {
+        const state = {
+            scenes: this.docMeta.scenes || [],
+            hidden: this.docMeta.hiddenScenes || [],
+            seq: this.docMeta.sceneSeq || 1,
+        };
+        const merged = matchScenes(state, computeSceneProposals(this.doc.nativesByLevel), coverProposal(this.doc.nativesByLevel));
+        this.docMeta = { ...this.docMeta, scenes: merged.scenes, hiddenScenes: merged.hidden, sceneSeq: merged.seq };
+        return merged.scenes;
+    }
+    renameScene(id, name) {
+        const s = (this.docMeta.scenes || []).find((x) => x.id === id);
+        if (!s || !name || !name.trim()) return false;
+        s.name = name.trim().slice(0, 120);
+        s.pinned = true; // a named scene never auto-drops
+        return true;
+    }
+    // Deleting also suppresses the frame so the same cluster can't resurrect.
+    deleteScene(id) {
+        const scenes = this.docMeta.scenes || [];
+        const s = scenes.find((x) => x.id === id);
+        if (!s || s.id === "cover") return false;
+        this.docMeta.scenes = scenes.filter((x) => x.id !== id);
+        this.docMeta.hiddenScenes = [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }];
+        return true;
+    }
+    // Split: half-gap re-cluster. Children are pinned (so they survive the next
+    // full-gap recompute) and the parent frame is suppressed (so it doesn't
+    // come back as a fresh scene).
+    splitScene(id) {
+        const scenes = this.docMeta.scenes || [];
+        const s = scenes.find((x) => x.id === id);
+        if (!s || s.id === "cover") return null;
+        const parts = splitProposals(s, this.doc.nativesByLevel);
+        if (!parts || parts.length < 2) return null;
+        let seq = this.docMeta.sceneSeq || 1;
+        const children = parts.map((p) => ({
+            id: `s${seq}`, name: `Scene ${seq++}`,
+            level: p.level, rect: p.rect, hash: p.hash,
+            pinned: true, auto: true,
+        }));
+        const idx = scenes.findIndex((x) => x.id === id);
+        const next = scenes.slice();
+        next.splice(idx, 1, ...children);
+        this.docMeta = {
+            ...this.docMeta,
+            scenes: next,
+            hiddenScenes: [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }],
+            sceneSeq: seq,
+        };
+        return children;
+    }
+    // The effective zoom a scene's frame is viewed at (for "at 240×" labels).
+    sceneZoom(s) {
+        const inScale = Math.min(this.width / s.rect.w, this.height / s.rect.h);
+        return this.lm.effectiveZoom(s.level, inScale);
+    }
+    // Manual bookmark of the current view (always pinned, never auto-dropped).
+    bookmarkView(name) {
+        const win = this.cam.frameWindow(0);
+        const rect = { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top };
+        let seq = this.docMeta.sceneSeq || 1;
+        const s = {
+            id: `s${seq}`, name: (name && name.trim()) || `Scene ${seq}`,
+            level: this.cam.activeLevel, rect,
+            pinned: true, auto: false,
+        };
+        seq += 1;
+        this.docMeta = { ...this.docMeta, scenes: [...(this.docMeta.scenes || []), s], sceneSeq: seq };
+        return s;
     }
 
     // ---- status + ported BUG invariants ----

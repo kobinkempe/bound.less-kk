@@ -7,7 +7,7 @@ import "../Stylesheets/boundless-ui.css";
 import placeholderThumb from "../Images/ui/canvas-botanical.jpg";
 import {
     readIndex, migrateLegacyAutosave, editedLabel, depthLabel, newCanvasId,
-    loadCanvasRaw,
+    loadCanvasRaw, loadCoverThumb,
 } from "../storage/localCanvases";
 import useUser, { signInWithGoogle, signOutUser } from "../cloud/useUser";
 import { cloudListCanvases, cloudSaveCanvas } from "../cloud/canvasSync";
@@ -16,6 +16,7 @@ export default function CanvasesV2() {
     const history = useHistory();
     const { user, ready } = useUser();
     const [canvases, setCanvases] = useState([]);
+    const [cloudCovers, setCloudCovers] = useState({});
     const [syncNote, setSyncNote] = useState(null);
 
     const refresh = useCallback(async () => {
@@ -34,6 +35,9 @@ export default function CanvasesV2() {
                 if (raw) await cloudSaveCanvas(user.uid, entry, raw);
             }
             if (missing.length) cloud = await cloudListCanvases(user.uid);
+            const covers = {};
+            for (const c of cloud) if (c.thumbs?.cover?.data) covers[c.id] = c.thumbs.cover.data;
+            setCloudCovers(covers);
             // Merge by id — freshest savedAt wins the metadata.
             const byId = new Map();
             for (const e of [...local, ...cloud]) {
@@ -102,7 +106,11 @@ export default function CanvasesV2() {
                     {canvases.map((c) => (
                         <Link key={c.id} to={`/canvas/${c.id}`} className="bl-canvas-card">
                             <div className="bl-canvas-thumb">
-                                <img src={placeholderThumb} alt={`Canvas: ${c.name}`} loading="lazy" />
+                                <img
+                                    src={loadCoverThumb(c.id) || cloudCovers[c.id] || placeholderThumb}
+                                    alt={`Canvas: ${c.name}`}
+                                    loading="lazy"
+                                />
                             </div>
                             <div className="bl-canvas-meta">
                                 <div>

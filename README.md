@@ -14,7 +14,8 @@ An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the roo
 - **Infinite zoom** — the canvas re-anchors itself every ×3,000 of magnification, so zoom depth is limited by your patience, not by floating-point precision or SVG limits. Draw detail at any depth and find it again on the way back out.
 - **A full drawing kit** — pen, pencil, highlighter, and straight-line tools; select / move / restyle; undo-redo across everything.
 - **Real-world scale** — drag across anything you've drawn and declare "this is 1 inch" (or 40 meters, or 3 miles). A scale bar then tracks every zoom, walking a ladder of sensible units from millimeters to miles as you dive and climb.
-- **Local-first saving** — work autosaves to your browser and stays there by default. Sign in with Google to sync canvases to your account and pick them up on any device. Drawings also export and import as `.boundless.json` files, plus SVG export.
+- **Auto-scenes** — the coherent drawings hidden inside a canvas are discovered automatically by deterministic ink clustering, rendered into thumbnails, and listed in the Scenes panel as one-tap jump targets at their natural zoom. Rename, split, or delete them; bookmark any view by hand.
+- **Local-first saving** — work autosaves to your browser and stays there by default. Sign in with Google to sync canvases (thumbnails included) to your account and pick them up on any device. Drawings also export and import as `.boundless.json` files, plus SVG export.
 
 ## How the engine works
 
@@ -49,7 +50,7 @@ Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in 
 
 ## Roadmap
 
-- Scene bookmarks that jump to saved depths, with real canvas thumbnails (the UI is in place)
+- AI-suggested scene names (Gemini's free tier — once the build toolchain modernizes enough for Firebase AI Logic)
 - Rotation and measurement tools
 
 ## History

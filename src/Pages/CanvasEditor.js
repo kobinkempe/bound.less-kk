@@ -4,12 +4,16 @@ import {
     Home, Layers, Pen, Pencil, Eraser, Highlighter,
     ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
     CircleOff, Undo2, Redo2, Palette, Trash2, Save,
+    Bookmark, Scissors,
 } from "lucide-react";
 import Button from "../Components/ui/Button";
 import Input from "../Components/ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
-import { newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw } from "../storage/localCanvases";
+import {
+    newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw,
+    loadThumbs, saveThumbs,
+} from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
 import { cloudSaveCanvas, cloudLoadCanvas } from "../cloud/canvasSync";
 import {
@@ -25,16 +29,7 @@ import FileActionsMenu from "../Components/editor/FileActionsMenu";
 import SaveDrawingDialog from "../Components/editor/SaveDrawingDialog";
 import ScaleDragBar from "../Components/editor/ScaleDragBar";
 import "../Stylesheets/boundless-ui.css";
-import sceneDoor from "../Images/ui/scene-door.jpg";
-import sceneBalloon from "../Images/ui/scene-balloon.jpg";
-import sceneStairs from "../Images/ui/scene-stairs.jpg";
-
-/** Phase 1 stub: static scene bookmarks (Phase 2 → meta.scenes + engine.jumpTo). */
-const SCENES = [
-    { id: "door", name: "The Little Door", zoom: 42, image: sceneDoor },
-    { id: "balloon", name: "Balloon Ride", zoom: 7.5, image: sceneBalloon },
-    { id: "stairs", name: "Hollow Stairs", zoom: 260, image: sceneStairs },
-];
+import { renderThumbs } from "../storage/thumbnails";
 
 const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
 
@@ -114,6 +109,9 @@ export default function CanvasEditor() {
 
     const [toolsOpen, setToolsOpen] = useState(true);
     const [scenesOpen, setScenesOpen] = useState(false);
+    const [scenes, setScenes] = useState([]);
+    const [sceneThumbs, setSceneThumbs] = useState({});
+    const [sceneRename, setSceneRename] = useState(null); // { id, draft }
     const [activeTool, setActiveTool] = useState("pen");
     const [hintDismissed, setHintDismissed] = useState(false);
     const [toast, setToast] = useState(null);
@@ -169,7 +167,26 @@ export default function CanvasEditor() {
         setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
     }, [engine.engineReady, canvasId]);
 
+    // Regenerate thumbnails for scenes whose content hash changed; returns the
+    // fresh entries (and folds them into state + localStorage).
+    const ensureThumbs = async (doc, list) => {
+        try {
+            const existing = loadThumbs(realId, list.map((s) => s.id));
+            const fresh = await renderThumbs(doc, list, existing);
+            if (Object.keys(fresh).length) {
+                saveThumbs(realId, fresh);
+                setSceneThumbs((t) => ({ ...t, ...fresh }));
+            }
+            return fresh;
+        } catch (err) {
+            console.warn("thumbnails failed", err);
+            return {};
+        }
+    };
+
     const persistCanvas = async (name) => {
+        const E = engine.engineRef.current;
+        if (E) setScenes(E.refreshScenes()); // scenes ride the save file (docMeta)
         const doc = await engine.saveToLocalStorage(name);
         if (!doc) return { local: false, cloud: false };
         const entry = {
@@ -179,16 +196,70 @@ export default function CanvasEditor() {
             ...statsFromDoc(doc),
         };
         upsertIndexEntry(entry);
+        const fresh = await ensureThumbs(doc, doc.meta.scenes || []);
         let cloud = false;
         if (user) {
             try {
-                await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
+                await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc), Object.keys(fresh).length ? fresh : null);
                 cloud = true;
             } catch (err) {
                 console.warn("cloud save failed", err);
             }
         }
         return { local: true, cloud };
+    };
+
+    // Opening the panel recomputes scenes (cheap) and freshens stale thumbs.
+    const openScenesPanel = () => {
+        setScenesOpen((o) => {
+            if (!o) {
+                const E = engine.engineRef.current;
+                if (E) {
+                    const list = E.refreshScenes();
+                    setScenes(list);
+                    setSceneThumbs(loadThumbs(realId, list.map((s) => s.id)));
+                    ensureThumbs(E.serializeDrawing(), list);
+                }
+            }
+            return !o;
+        });
+        setHintDismissed(true);
+    };
+
+    const jumpToScene = (s) => {
+        engine.engineRef.current?.jumpTo(s.level, s.rect);
+        setScenesOpen(false);
+    };
+    const commitSceneRename = () => {
+        if (!sceneRename) return;
+        const E = engine.engineRef.current;
+        if (E && E.renameScene(sceneRename.id, sceneRename.draft)) {
+            setScenes([...E.docMeta.scenes]);
+            persistCanvas();
+        }
+        setSceneRename(null);
+    };
+    const removeScene = (s) => {
+        const E = engine.engineRef.current;
+        if (E && E.deleteScene(s.id)) {
+            setScenes([...E.docMeta.scenes]);
+            persistCanvas();
+        }
+    };
+    const splitSceneRow = (s) => {
+        const E = engine.engineRef.current;
+        const children = E && E.splitScene(s.id);
+        if (!children) { showToast("Nothing to split here"); return; }
+        setScenes([...E.docMeta.scenes]);
+        persistCanvas();
+    };
+    const bookmarkCurrentView = () => {
+        const E = engine.engineRef.current;
+        if (!E) return;
+        E.bookmarkView();
+        setScenes([...E.docMeta.scenes]);
+        persistCanvas();
+        showToast("View bookmarked");
     };
 
     // Opening a canvas that isn't in this browser (e.g. saved from another
@@ -199,10 +270,11 @@ export default function CanvasEditor() {
         let stale = false;
         (async () => {
             try {
-                const json = await cloudLoadCanvas(user.uid, realId);
-                if (stale || !json) return;
-                engine.engineRef.current.loadDrawing(JSON.parse(json));
+                const res = await cloudLoadCanvas(user.uid, realId);
+                if (stale || !res || !res.json) return;
+                engine.engineRef.current.loadDrawing(JSON.parse(res.json));
                 await engine.saveToLocalStorage();
+                if (res.thumbs) saveThumbs(realId, res.thumbs);
                 const nm = engine.docMeta()?.name;
                 if (nm && nm !== "untitled") setCanvasTitle(nm);
             } catch (err) { /* offline or not ours — stay blank */ }
@@ -416,7 +488,7 @@ export default function CanvasEditor() {
                             size="sm"
                             variant={scenesOpen ? "default" : "outline"}
                             className="bl-shadow-panel bl-flex bl-gap-2"
-                            onClick={() => { setScenesOpen((o) => !o); setHintDismissed(true); }}
+                            onClick={openScenesPanel}
                         >
                             <Layers size={16} /> Scenes
                         </Button>
@@ -431,24 +503,64 @@ export default function CanvasEditor() {
                                     </button>
                                 </div>
                                 <div className="bl-flex bl-flex-col bl-gap-2" style={{ maxHeight: "16rem", overflowY: "auto" }}>
-                                    {SCENES.map((s) => (
-                                        <button
-                                            key={s.id}
-                                            type="button"
-                                            className="bl-scene-item"
-                                            onClick={() => {
-                                                setScenesOpen(false);
-                                                showToast("Scene bookmarks coming in Phase 2");
-                                            }}
-                                        >
-                                            <img src={s.image} alt={s.name} className="bl-scene-thumb" />
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                                <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
-                                                <p className="bl-text-xs bl-text-muted">at {zoomLabel(s.zoom)}</p>
+                                    {scenes.length === 0 && (
+                                        <p className="bl-text-xs bl-text-muted" style={{ padding: "0.25rem 0" }}>
+                                            Draw something — scenes are found automatically.
+                                        </p>
+                                    )}
+                                    {scenes.map((s) => (
+                                        <div key={s.id} className="bl-scene-item">
+                                            <button type="button" className="bl-scene-jump" onClick={() => jumpToScene(s)}>
+                                                {sceneThumbs[s.id]?.data
+                                                    ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
+                                                    : <div className="bl-scene-thumb bl-scene-thumb-placeholder" />}
+                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                    {sceneRename?.id === s.id ? (
+                                                        <input
+                                                            className="bl-scene-name-input"
+                                                            value={sceneRename.draft}
+                                                            onChange={(e) => setSceneRename({ id: s.id, draft: e.target.value })}
+                                                            onBlur={commitSceneRename}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Enter") { e.preventDefault(); commitSceneRename(); }
+                                                                if (e.key === "Escape") setSceneRename(null);
+                                                            }}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            aria-label="Scene name"
+                                                            autoFocus
+                                                        />
+                                                    ) : (
+                                                        <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
+                                                    )}
+                                                    <p className="bl-text-xs bl-text-muted">
+                                                        at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
+                                                    </p>
+                                                </div>
+                                            </button>
+                                            <div className="bl-scene-actions">
+                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Rename scene"
+                                                    onClick={() => setSceneRename({ id: s.id, draft: s.name })}>
+                                                    <Pencil size={13} />
+                                                </button>
+                                                {s.id !== "cover" && (
+                                                    <>
+                                                        <button type="button" className="bl-tool-btn bl-scene-action" title="Split scene"
+                                                            onClick={() => splitSceneRow(s)}>
+                                                            <Scissors size={13} />
+                                                        </button>
+                                                        <button type="button" className="bl-tool-btn bl-scene-action" title="Remove scene"
+                                                            onClick={() => removeScene(s)}>
+                                                            <X size={13} />
+                                                        </button>
+                                                    </>
+                                                )}
                                             </div>
-                                        </button>
+                                        </div>
                                     ))}
                                 </div>
+                                <button type="button" className="bl-scene-bookmark" onClick={bookmarkCurrentView}>
+                                    <Bookmark size={14} /> Bookmark this view
+                                </button>
                             </div>
                         )}
                     </div>

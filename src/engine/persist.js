@@ -44,6 +44,9 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
         app: "bound.less",
     };
     if (decoded.scaleDef) outMeta.scaleDef = decoded.scaleDef;
+    if (decoded.scenes) outMeta.scenes = decoded.scenes;
+    if (decoded.hiddenScenes) outMeta.hiddenScenes = decoded.hiddenScenes;
+    if (decoded.sceneSeq) outMeta.sceneSeq = decoded.sceneSeq;
     return {
         format: FORMAT,
         version: VERSION,
@@ -112,7 +115,38 @@ function decodeMeta(m, { lenient = false } = {}) {
         const sd = decodeScaleDef(m.scaleDef, { lenient });
         if (sd) out.scaleDef = sd;
     }
+    // Scenes are regenerable, so validation is ALWAYS lenient: malformed
+    // entries are dropped silently rather than failing the whole drawing.
+    if (m && Array.isArray(m.scenes)) {
+        const scenes = m.scenes.filter(validScene).map(cloneScene);
+        if (scenes.length) out.scenes = scenes;
+    }
+    if (m && Array.isArray(m.hiddenScenes)) {
+        const hidden = m.hiddenScenes.filter((h) => h && Number.isInteger(h.level) && validRect(h.rect))
+            .map((h) => ({ level: h.level, rect: cloneRect(h.rect) }));
+        if (hidden.length) out.hiddenScenes = hidden;
+    }
+    if (m && Number.isInteger(m.sceneSeq) && m.sceneSeq > 0) out.sceneSeq = m.sceneSeq;
     return out;
+}
+
+function validRect(r) {
+    return r && isFiniteNum(r.x) && isFiniteNum(r.y)
+        && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
+}
+function validScene(s) {
+    return s && typeof s.id === "string" && s.id
+        && typeof s.name === "string"
+        && Number.isInteger(s.level) && validRect(s.rect);
+}
+function cloneRect(r) { return { x: r.x, y: r.y, w: r.w, h: r.h }; }
+function cloneScene(s) {
+    return {
+        id: s.id.slice(0, 40), name: s.name.slice(0, 120),
+        level: s.level, rect: cloneRect(s.rect),
+        pinned: !!s.pinned, auto: !!s.auto,
+        ...(typeof s.hash === "string" ? { hash: s.hash.slice(0, 20) } : {}),
+    };
 }
 
 function decodeCamera(c) {
