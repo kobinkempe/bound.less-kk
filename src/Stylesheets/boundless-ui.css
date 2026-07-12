@@ -73,7 +73,13 @@
 .bl-min-h-screen { min-height: 100vh; }
 
 /* Nav / header */
-.bl-nav { display: flex; align-items: center; justify-content: space-between; padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 0 1.25rem; }
+.bl-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  /* Vertical only — a padding SHORTHAND here used to zero out the
+     horizontal inset inherited from .bl-container on the same element. */
+  padding-top: calc(1.25rem + env(safe-area-inset-top, 0px));
+  padding-bottom: 1.25rem;
+}
 .bl-nav-bordered { border-bottom: 1px solid var(--border); background: oklch(0.985 0.01 88 / 0.6); padding-top: env(safe-area-inset-top, 0px); }
 .bl-brand { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: inherit; }
 .bl-brand-icon {
@@ -381,7 +387,11 @@
   padding: 0.5rem 1rem; font-size: 0.8125rem; box-shadow: var(--shadow-panel);
 }
 
-.bl-footer { padding: 2rem 0 calc(2rem + env(safe-area-inset-bottom, 0px)); font-size: 0.75rem; color: var(--muted-foreground); }
+.bl-footer {
+  padding-top: 2rem;
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
 .bl-relative { position: relative; }
 .bl-text-muted { color: var(--muted-foreground); }
 .bl-text-xs { font-size: 0.75rem; }

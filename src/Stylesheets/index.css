@@ -1,3 +1,10 @@
+/* The bl-ui design system was ported from Tailwind, whose preflight makes
+   border-box universal — without this, every width:100% + padding element
+   (dialogs, inputs) overflows narrow phone viewports. */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html {
   /* Match the bl-ui paper tone so overscroll/rubber-banding doesn't flash. */
   background-color: #f7f2e9;
