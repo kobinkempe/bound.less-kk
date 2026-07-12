@@ -320,7 +320,9 @@ export default function CanvasEditor() {
         const p = rel(e);
         setDragStart(p);
         setDragEnd(p);
-        e.currentTarget.setPointerCapture(e.pointerId);
+        // The pointer can already be gone (rapid tap-release) — capture is
+        // best-effort; the window-level move/up handlers still track the drag.
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* no active pointer */ }
         e.preventDefault();
     };
     const onDefineMove = (e) => {
@@ -377,7 +379,7 @@ export default function CanvasEditor() {
                 <div className="bl-scale-define-banner">Drag across something whose length you know</div>
             )}
             {liveBar && <ScaleDragBar a={liveBar.a} b={liveBar.b} label="drag…" />}
-            {pendingBar && <ScaleDragBar a={pendingBar.a} b={pendingBar.b} label="?" />}
+            {pendingBar && <ScaleDragBar a={pendingBar.a} b={pendingBar.b} label="?" dashed={false} />}
 
             <div className="bl-editor-overlay bl-editor-top-left bl-flex bl-gap-2">
                 <Link to="/canvases">

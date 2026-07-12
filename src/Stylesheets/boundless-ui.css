@@ -492,15 +492,18 @@
 }
 .bl-scale-drag-line { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
 .bl-scale-drag-bar {
-  position: absolute; height: 3px; background: var(--primary);
-  box-shadow: 0 0 0 1px var(--card);
+  position: absolute; height: 0;
+  border-top: 2px dashed var(--primary);
 }
+.bl-scale-drag-bar--solid { border-top-style: solid; }
 .bl-scale-drag-dot {
-  position: absolute; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--primary); border: 2px solid var(--card);
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--primary); box-shadow: 0 0 0 2px var(--card);
+  transform: translate(-50%, -50%);
 }
 .bl-scale-drag-label {
-  position: absolute; transform: translateX(-50%);
-  font-size: 0.6875rem; font-weight: 600; padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem; background: var(--card); border: 1px solid var(--border);
+  position: absolute; transform: translate(-50%, -50%);
+  font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem; background: var(--ink); color: var(--ink-foreground);
+  box-shadow: var(--shadow-panel); white-space: nowrap;
 }
