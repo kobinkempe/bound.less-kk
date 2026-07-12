@@ -51,7 +51,11 @@
 .bl-shadow-card { box-shadow: var(--shadow-card); }
 
 /* Layout */
-.bl-container { max-width: 72rem; margin: 0 auto; padding: 0 1.5rem; }
+.bl-container {
+  max-width: 72rem; margin: 0 auto;
+  /* viewport-fit=cover: keep content out of notches and rounded corners. */
+  padding: 0 calc(1.5rem + env(safe-area-inset-right, 0px)) 0 calc(1.5rem + env(safe-area-inset-left, 0px));
+}
 .bl-flex { display: flex; }
 .bl-flex-col { flex-direction: column; }
 .bl-items-center { align-items: center; }
@@ -69,8 +73,8 @@
 .bl-min-h-screen { min-height: 100vh; }
 
 /* Nav / header */
-.bl-nav { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 0; }
-.bl-nav-bordered { border-bottom: 1px solid var(--border); background: oklch(0.985 0.01 88 / 0.6); }
+.bl-nav { display: flex; align-items: center; justify-content: space-between; padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 0 1.25rem; }
+.bl-nav-bordered { border-bottom: 1px solid var(--border); background: oklch(0.985 0.01 88 / 0.6); padding-top: env(safe-area-inset-top, 0px); }
 .bl-brand { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: inherit; }
 .bl-brand-icon {
   display: flex; height: 2rem; width: 2rem; align-items: center; justify-content: center;
@@ -153,11 +157,11 @@
 .bl-editor-host { position: absolute; inset: 0; background: #fff; touch-action: none; }
 .bl-editor-overlay { position: absolute; z-index: 10; pointer-events: none; }
 .bl-editor-overlay > * { pointer-events: auto; }
-.bl-editor-top-left { top: 1rem; left: 1rem; }
-.bl-editor-top-right { top: 1rem; right: 1rem; }
-.bl-editor-left { top: 50%; transform: translateY(-50%); left: 1rem; }
-.bl-editor-bottom-left { bottom: 1rem; left: 1rem; }
-.bl-editor-bottom-right { bottom: 1rem; right: 1rem; }
+.bl-editor-top-left { top: calc(1rem + env(safe-area-inset-top, 0px)); left: calc(1rem + env(safe-area-inset-left, 0px)); }
+.bl-editor-top-right { top: calc(1rem + env(safe-area-inset-top, 0px)); right: calc(1rem + env(safe-area-inset-right, 0px)); }
+.bl-editor-left { top: 50%; transform: translateY(-50%); left: calc(1rem + env(safe-area-inset-left, 0px)); }
+.bl-editor-bottom-left { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); left: calc(1rem + env(safe-area-inset-left, 0px)); }
+.bl-editor-bottom-right { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); right: calc(1rem + env(safe-area-inset-right, 0px)); }
 .bl-editor-chip {
   border-radius: 0.5rem; border: 1px solid var(--border); background: var(--card);
   padding: 0.5rem 0.75rem; box-shadow: var(--shadow-panel);
@@ -331,16 +335,22 @@
 /* Dialog */
 .bl-dialog-overlay {
   position: fixed; inset: 0; z-index: 100; background: oklch(0 0 0 / 0.45);
-  overflow-y: auto; padding: 1rem;
+  overflow-y: auto;
+  padding: 1rem calc(1rem + env(safe-area-inset-right, 0px))
+    calc(1rem + env(safe-area-inset-bottom, 0px)) calc(1rem + env(safe-area-inset-left, 0px));
+  /* .bl-editor sets touch-action:none on its whole subtree — restore touch
+     scrolling here or tall dialogs can't be scrolled back on-screen on phones. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .bl-dialog {
   width: 100%; max-width: 24rem; border-radius: var(--radius); border: 1px solid var(--border);
   background: var(--card); padding: 1.5rem; box-shadow: var(--shadow-panel);
-  margin: 10vh auto 1rem;
+  margin: min(10vh, 2.5rem) auto 1rem;
 }
 .bl-dialog--scale {
   max-width: 28rem;
-  max-height: calc(100vh - 12vh - 2rem);
+  max-height: calc(100vh - 6rem);
   overflow-y: auto;
 }
 .bl-dialog-title { font-family: var(--font-display); font-size: 1.125rem; font-weight: 600; }
@@ -371,7 +381,7 @@
   padding: 0.5rem 1rem; font-size: 0.8125rem; box-shadow: var(--shadow-panel);
 }
 
-.bl-footer { padding: 2rem 0; font-size: 0.75rem; color: var(--muted-foreground); }
+.bl-footer { padding: 2rem 0 calc(2rem + env(safe-area-inset-bottom, 0px)); font-size: 0.75rem; color: var(--muted-foreground); }
 .bl-relative { position: relative; }
 .bl-text-muted { color: var(--muted-foreground); }
 .bl-text-xs { font-size: 0.75rem; }

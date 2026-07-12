@@ -24,10 +24,14 @@ export default function useAnchorPopoverStyle(
             const popH = popoverRef?.current?.offsetHeight ?? 200;
 
             if (placement === "above-right") {
+                // Clamp so a tall popover slides down over the anchor instead
+                // of running off the top of a short (phone) viewport.
+                let above = window.innerHeight - r.top + gap;
+                above = Math.min(above, window.innerHeight - popH - margin);
                 setStyle({
                     position: "fixed",
                     right: Math.max(margin, window.innerWidth - r.right),
-                    bottom: Math.max(margin, window.innerHeight - r.top + gap),
+                    bottom: Math.max(margin, above),
                     zIndex: 50,
                 });
                 return;
