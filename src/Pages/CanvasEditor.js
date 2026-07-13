@@ -173,6 +173,14 @@ export default function CanvasEditor() {
         try {
             const existing = loadThumbs(realId, list.map((s) => s.id));
             const fresh = await renderThumbs(doc, list, existing);
+            // The primary scene (first in the list) doubles as the gallery
+            // cover — alias its thumb under the "cover" key that the gallery
+            // and the cloud thumbnail budget already prioritize.
+            const primary = list[0];
+            const primaryThumb = primary && (fresh[primary.id] || existing[primary.id]);
+            if (primaryThumb && (!existing.cover || existing.cover.hash !== primaryThumb.hash)) {
+                fresh.cover = primaryThumb;
+            }
             if (Object.keys(fresh).length) {
                 saveThumbs(realId, fresh);
                 setSceneThumbs((t) => ({ ...t, ...fresh }));
@@ -253,13 +261,13 @@ export default function CanvasEditor() {
         setScenes([...E.docMeta.scenes]);
         persistCanvas();
     };
-    const bookmarkCurrentView = () => {
+    const captureCurrentView = () => {
         const E = engine.engineRef.current;
         if (!E) return;
-        E.bookmarkView();
+        const r = E.captureView();
         setScenes([...E.docMeta.scenes]);
         persistCanvas();
-        showToast("View bookmarked");
+        showToast(r.retargeted ? `Reframed "${r.scene.name}"` : "View captured");
     };
 
     // Opening a canvas that isn't in this browser (e.g. saved from another
@@ -509,7 +517,7 @@ export default function CanvasEditor() {
                                         </p>
                                     )}
                                     {scenes.map((s) => (
-                                        <div key={s.id} className="bl-scene-item">
+                                        <div key={s.id} className="bl-scene-item" style={s.depth ? { marginLeft: `${Math.min(s.depth, 4) * 0.75}rem` } : undefined}>
                                             <button type="button" className="bl-scene-jump" onClick={() => jumpToScene(s)}>
                                                 {sceneThumbs[s.id]?.data
                                                     ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
@@ -542,24 +550,20 @@ export default function CanvasEditor() {
                                                     onClick={() => setSceneRename({ id: s.id, draft: s.name })}>
                                                     <Pencil size={13} />
                                                 </button>
-                                                {s.id !== "cover" && (
-                                                    <>
-                                                        <button type="button" className="bl-tool-btn bl-scene-action" title="Split scene"
-                                                            onClick={() => splitSceneRow(s)}>
-                                                            <Scissors size={13} />
-                                                        </button>
-                                                        <button type="button" className="bl-tool-btn bl-scene-action" title="Remove scene"
-                                                            onClick={() => removeScene(s)}>
-                                                            <X size={13} />
-                                                        </button>
-                                                    </>
-                                                )}
+                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Split scene"
+                                                    onClick={() => splitSceneRow(s)}>
+                                                    <Scissors size={13} />
+                                                </button>
+                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Remove scene"
+                                                    onClick={() => removeScene(s)}>
+                                                    <X size={13} />
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <button type="button" className="bl-scene-bookmark" onClick={bookmarkCurrentView}>
-                                    <Bookmark size={14} /> Bookmark this view
+                                <button type="button" className="bl-scene-bookmark" onClick={captureCurrentView}>
+                                    <Bookmark size={14} /> Capture this view
                                 </button>
                             </div>
                         )}

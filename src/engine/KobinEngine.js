@@ -24,7 +24,10 @@ import { cutPolylineWithDisc } from "./geometry/cut";
 import { bboxOf, levelFactor } from "./geometry/derive";
 import { encodeDrawing, decodeDrawing } from "./persist";
 import { validateScaleDef } from "./scaleBar";
-import { computeSceneProposals, coverProposal, matchScenes, splitProposals } from "./scenes";
+import {
+    computeSceneProposals, matchScenes, splitMembers, resolveCapture, levelHash,
+    JOIN_WINDOWS, WINDOW_WIDTHS,
+} from "./scenes";
 
 const DEFAULTS = {
     enter: 300, base: 0.1, exit: 0.05, bufferScreens: 1, scale: 1000, arcTolerancePx: 0.25,
@@ -318,6 +321,7 @@ export default class KobinEngine {
             this.store.live = null;               // stroke is final: bbox/flatten may cache now
             this.doc.finalize(o);                 // index + update finer tiles (off-screen)
             this.doc.pushUndo({ op: "add", id: o.id });
+            this._noteInkAdded(o);                // provisional scene assignment
             this._render();
             this._queueIdleFits();                // prefit the outline off the pen-up frame
         }
@@ -569,7 +573,13 @@ export default class KobinEngine {
         return true;
     }
 
-    // ---- scenes (auto-scene spec: engine/scenes.js) ----
+    // ---- scenes (auto-scenes v2: docs/auto-scenes-design-bible.md) ----
+    _sceneProj() {
+        return {
+            mapRect: (rect, from, to) => this.lm.mapRect(rect, from, to),
+            widthFactor: (from, to) => levelFactor(from, to, this.lm.records, this.cfg.base),
+        };
+    }
     // Frame a rect (in `level`'s frame coords) in the viewport. The computed
     // inScale may land outside [exit, enter]; _maybeCross normalizes it through
     // the ordinary crossing machinery, creating level records as needed.
@@ -590,47 +600,110 @@ export default class KobinEngine {
         this._queueIdleFits();
         return true;
     }
-    // Recompute proposals and reconcile with the persisted scene state.
+    // The real recompute — gated on per-level ink hashes, so it's free when
+    // nothing changed since the last resolve (bible: evaluation schedule).
     refreshScenes() {
+        const hashes = {};
+        let changed = false;
+        for (const Ls of Object.keys(this.doc.nativesByLevel)) {
+            const L = +Ls;
+            if (!(this.doc.nativesByLevel[L] || []).length) continue;
+            hashes[L] = levelHash(this.doc.nativesByLevel, L);
+            if (!this._levelHashes || this._levelHashes[L] !== hashes[L]) changed = true;
+        }
+        if (this._levelHashes) {
+            for (const L of Object.keys(this._levelHashes)) if (!(L in hashes)) changed = true;
+        }
+        if (!changed && this._sceneMembers && !this._scenesProvisional) {
+            return this.docMeta.scenes || [];
+        }
+        const proj = this._sceneProj();
+        const proposals = computeSceneProposals(this.doc.nativesByLevel, proj);
+        // Provisional scenes participate in matching so their ids/numbers
+        // survive the resolve; unmatched (unpinned) ones drop naturally.
         const state = {
             scenes: this.docMeta.scenes || [],
             hidden: this.docMeta.hiddenScenes || [],
             seq: this.docMeta.sceneSeq || 1,
         };
-        const merged = matchScenes(state, computeSceneProposals(this.doc.nativesByLevel), coverProposal(this.doc.nativesByLevel));
+        const merged = matchScenes(state, proposals, proj);
+        for (const s of merged.scenes) delete s.provisional;
         this.docMeta = { ...this.docMeta, scenes: merged.scenes, hiddenScenes: merged.hidden, sceneSeq: merged.seq };
+        this._sceneMembers = merged.members;
+        this._levelHashes = hashes;
+        this._scenesProvisional = false;
         return merged.scenes;
+    }
+    // Pen-up freshness: assign the new stroke to an existing scene at its
+    // level or open a provisional one. No clustering runs here; the next
+    // refreshScenes() (Scenes panel / Save) resolves everything properly.
+    _noteInkAdded(o) {
+        this._scenesProvisional = true;
+        const L = this.cam.activeLevel;
+        const b = bboxOf(o);
+        const w = o.lwFrame || 1e-9;
+        const rect = { x: b.x0, y: b.y0, w: Math.max(b.x1 - b.x0, w), h: Math.max(b.y1 - b.y0, w) };
+        const T = JOIN_WINDOWS * WINDOW_WIDTHS * w;
+        for (const s of this.docMeta.scenes || []) {
+            if (s.level !== L || s.captured) continue;
+            const gx = Math.max(0, Math.max(s.rect.x - (rect.x + rect.w), rect.x - (s.rect.x + s.rect.w)));
+            const gy = Math.max(0, Math.max(s.rect.y - (rect.y + rect.h), rect.y - (s.rect.y + s.rect.h)));
+            if (gx <= T && gy <= T) {
+                s.rect = {
+                    x: Math.min(s.rect.x, rect.x), y: Math.min(s.rect.y, rect.y),
+                    w: Math.max(s.rect.x + s.rect.w, rect.x + rect.w) - Math.min(s.rect.x, rect.x),
+                    h: Math.max(s.rect.y + s.rect.h, rect.y + rect.h) - Math.min(s.rect.y, rect.y),
+                };
+                s.hash = ""; // thumbnail refresh at next resolve
+                return;
+            }
+        }
+        let seq = this.docMeta.sceneSeq || 1;
+        const pad = 0.1 * Math.max(rect.w, rect.h);
+        const s = {
+            id: `s${seq}`, name: `Scene ${seq}`, level: L,
+            rect: { x: rect.x - pad, y: rect.y - pad, w: rect.w + 2 * pad, h: rect.h + 2 * pad },
+            pinned: false, auto: true, provisional: true, depth: 0,
+        };
+        seq += 1;
+        this.docMeta = { ...this.docMeta, scenes: [...(this.docMeta.scenes || []), s], sceneSeq: seq };
     }
     renameScene(id, name) {
         const s = (this.docMeta.scenes || []).find((x) => x.id === id);
         if (!s || !name || !name.trim()) return false;
         s.name = name.trim().slice(0, 120);
         s.pinned = true; // a named scene never auto-drops
+        delete s.provisional;
         return true;
     }
     // Deleting also suppresses the frame so the same cluster can't resurrect.
     deleteScene(id) {
         const scenes = this.docMeta.scenes || [];
         const s = scenes.find((x) => x.id === id);
-        if (!s || s.id === "cover") return false;
+        if (!s) return false;
         this.docMeta.scenes = scenes.filter((x) => x.id !== id);
         this.docMeta.hiddenScenes = [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }];
         return true;
     }
-    // Split: half-gap re-cluster. Children are pinned (so they survive the next
-    // full-gap recompute) and the parent frame is suppressed (so it doesn't
-    // come back as a fresh scene).
+    // Split: half-gap re-cluster of the scene's members. Children are pinned
+    // (they survive the next full-gap recompute) and the parent frame is
+    // suppressed (it can't come back as a fresh scene).
     splitScene(id) {
         const scenes = this.docMeta.scenes || [];
         const s = scenes.find((x) => x.id === id);
-        if (!s || s.id === "cover") return null;
-        const parts = splitProposals(s, this.doc.nativesByLevel);
+        if (!s) return null;
+        const ids = this._sceneMembers && this._sceneMembers[id];
+        const memberObjs = ids && ids.length
+            ? ids.map((i) => this.doc.getById(i)).filter(Boolean).map((r) => ({ o: r.obj, level: r.level }))
+            : this.doc.queryRect(s.level, { left: s.rect.x, top: s.rect.y, right: s.rect.x + s.rect.w, bottom: s.rect.y + s.rect.h })
+                .map((o) => ({ o, level: s.level }));
+        const parts = splitMembers(memberObjs, s.level, this._sceneProj());
         if (!parts || parts.length < 2) return null;
         let seq = this.docMeta.sceneSeq || 1;
         const children = parts.map((p) => ({
             id: `s${seq}`, name: `Scene ${seq++}`,
             level: p.level, rect: p.rect, hash: p.hash,
-            pinned: true, auto: true,
+            pinned: true, auto: true, depth: s.depth || 0,
         }));
         const idx = scenes.findIndex((x) => x.id === id);
         const next = scenes.slice();
@@ -641,6 +714,10 @@ export default class KobinEngine {
             hiddenScenes: [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }],
             sceneSeq: seq,
         };
+        if (this._sceneMembers) {
+            delete this._sceneMembers[id];
+            parts.forEach((p, i) => { this._sceneMembers[children[i].id] = p.memberIds; });
+        }
         return children;
     }
     // The effective zoom a scene's frame is viewed at (for "at 240×" labels).
@@ -648,19 +725,36 @@ export default class KobinEngine {
         const inScale = Math.min(this.width / s.rect.w, this.height / s.rect.h);
         return this.lm.effectiveZoom(s.level, inScale);
     }
-    // Manual bookmark of the current view (always pinned, never auto-dropped).
-    bookmarkView(name) {
+    // Capture this view (bible §4): retarget the matching scene or create a
+    // new pinned one. Captured frames are never auto-reframed by recomputes.
+    captureView(name) {
         const win = this.cam.frameWindow(0);
-        const rect = { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top };
+        const view = {
+            level: this.cam.activeLevel,
+            rect: { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top },
+        };
+        const target = resolveCapture(view, this.docMeta.scenes || [], this._sceneProj());
+        if (target) {
+            target.level = view.level;
+            target.rect = view.rect;
+            target.pinned = true;
+            target.captured = true;
+            target.hash = `cap${Date.now().toString(36)}`;
+            delete target.provisional;
+            if (name && name.trim()) target.name = name.trim().slice(0, 120);
+            this.docMeta = { ...this.docMeta };
+            return { scene: target, retargeted: true };
+        }
         let seq = this.docMeta.sceneSeq || 1;
         const s = {
             id: `s${seq}`, name: (name && name.trim()) || `Scene ${seq}`,
-            level: this.cam.activeLevel, rect,
-            pinned: true, auto: false,
+            level: view.level, rect: view.rect,
+            pinned: true, auto: false, captured: true, depth: 0,
+            hash: `cap${Date.now().toString(36)}`,
         };
         seq += 1;
         this.docMeta = { ...this.docMeta, scenes: [...(this.docMeta.scenes || []), s], sceneSeq: seq };
-        return s;
+        return { scene: s, retargeted: false };
     }
 
     // ---- status + ported BUG invariants ----

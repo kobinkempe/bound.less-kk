@@ -146,6 +146,9 @@ function cloneScene(s) {
         level: s.level, rect: cloneRect(s.rect),
         pinned: !!s.pinned, auto: !!s.auto,
         ...(typeof s.hash === "string" ? { hash: s.hash.slice(0, 20) } : {}),
+        ...(Number.isInteger(s.depth) && s.depth >= 0 ? { depth: s.depth } : {}),
+        ...(typeof s.parent === "string" && s.parent ? { parent: s.parent.slice(0, 40) } : {}),
+        ...(s.captured ? { captured: true } : {}),
     };
 }
 
