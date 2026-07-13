@@ -27,7 +27,12 @@ export const JOIN_WINDOWS = 1.5;    // join across gaps ≤ 1.5 windows (coarser
 export const CHUNK_WINDOWS = 1;     // long strokes chunked into ≤ 1-window pieces
 export const CHUNK_PAIR_RATIO = 4;  // chunk-vs-chunk only within 4× width
 export const DETAIL_RATIO = 16;     // pocket members ≥ 16× finer than scene median
-export const POCKET_EXTENT_FRAC = 1 / 50; // pocket extent ≤ parent extent / 50
+// Echo guard: a nested scene must be meaningfully smaller than its parent —
+// a "pocket" spanning most of the parent is just the parent's view again.
+// (Was 1/50; the Star incident showed merged interior compositions are LARGE
+// relative to their parent and were being rejected before recursion could
+// descend into them. Tiny deep detail passes either way.)
+export const POCKET_EXTENT_FRAC = 1 / 3;
 export const POCKET_RECURSION = 6;
 export const FRAME_QUANTILE = 0.05; // frame = per-axis [5%,95%] ink-mass core
 export const FRAME_PAD_FRAC = 0.10;
@@ -338,13 +343,30 @@ function buildScene(members, anchor, proj, out, parentIndex, depth) {
     if (!detail.length) return;
     const parentExtent = Math.max(rect.w, rect.h);
     const byId = new Map(members.map((m) => [m.id, m]));
-    for (const cluster of clusterItems(detail)) {
+    pocketize(detail, parentExtent, byId, proj, out, index, depth + 1);
+}
+
+/**
+ * Cluster a detail subset and emit qualifying pockets. An echo-rejected
+ * cluster (≈ as large as the parent — the parent's view again) emits NO
+ * scene, but we still DESCEND into its own finer bands: a rejected mixed
+ * cluster must not swallow the deep detail inside it.
+ */
+function pocketize(detailItems, parentExtent, byId, proj, out, parentIndex, depth) {
+    if (depth > POCKET_RECURSION || !detailItems.length) return;
+    for (const cluster of clusterItems(detailItems)) {
         const box = outerBox(cluster.map((c) => c.box));
         const extent = Math.max(box.x1 - box.x0, box.y1 - box.y0);
-        if (extent > parentExtent * POCKET_EXTENT_FRAC) continue;
-        const pocketMembers = cluster.map((c) => byId.get(c.id)).filter(Boolean);
-        const pocketAnchor = Math.min(...pocketMembers.map((m) => m.level));
-        buildScene(pocketMembers, pocketAnchor, proj, out, index, depth + 1);
+        if (extent <= parentExtent * POCKET_EXTENT_FRAC) {
+            const pocketMembers = cluster.map((c) => byId.get(c.id)).filter(Boolean);
+            if (!pocketMembers.length) continue;
+            const pocketAnchor = Math.min(...pocketMembers.map((m) => m.level));
+            buildScene(pocketMembers, pocketAnchor, proj, out, parentIndex, depth);
+        } else {
+            const wc = Math.max(...cluster.map((m) => m.w));
+            const finer = cluster.filter((m) => m.w <= wc / DETAIL_RATIO);
+            pocketize(finer, extent, byId, proj, out, parentIndex, depth + 1);
+        }
     }
 }
 

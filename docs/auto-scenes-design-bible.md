@@ -40,7 +40,7 @@ Code: `src/engine/scenes.js` (pure rules) + the scene methods on
 | `CHUNK_WINDOWS` | 1 | long strokes are split into ≤ 1-window pieces for geometry |
 | `CHUNK_PAIR_RATIO` | 4 | chunk-vs-chunk only between strokes within 4× width; wider pairs test coarse chunks vs. the fine stroke's whole box |
 | `DETAIL_RATIO` | 16 | pocket members are ≥ 16× finer than the scene's **coarsest** member |
-| `POCKET_EXTENT_FRAC` | 1/50 | a pocket qualifies when its extent ≤ parent extent / 50 |
+| `POCKET_EXTENT_FRAC` | 1/3 | echo guard: a nested scene must be ≤ 1/3 of its parent's extent (else it's the parent's view again) |
 | `POCKET_RECURSION` | 6 | max nesting depth of pockets inside pockets |
 | `FRAME_QUANTILE` | 0.05 | frame = per-axis [5%, 95%] of painted-ink mass |
 | `FRAME_PAD_FRAC` | 0.10 | + 10% padding per side |
@@ -84,8 +84,13 @@ regression, 2026-07-13), fine strokes dominate the population, a median
 reference sees no detail, and every interior scene silently vanishes.
 Re-cluster the detail subset at its own scale, ignoring connectivity to the
 parent's ink (a cascade of intermediate marks cannot hide a deep detail).
-Every resulting cluster with extent ≤ parent extent × `POCKET_EXTENT_FRAC`
-becomes a nested scene (parent link recorded); recurse to
+Every resulting cluster becomes a nested scene UNLESS it spans more than
+`POCKET_EXTENT_FRAC` (1/3) of the parent's extent — the **echo guard**: a
+"pocket" nearly as large as its parent is just the parent's view again, not
+a findable sub-scene. (This was originally a 1/50 smallness gate; the Star
+incident showed interior compositions merged by outer ink are LARGE
+relative to their parent and were rejected before recursion could descend —
+losing entire subtrees.) Parent links are recorded; recurse to
 `POCKET_RECURSION`. This is both the slow-zoom answer (a continual dive
 yields a chain of nested scenes) and the draw-around-it answer (interior
 compositions survive an outer merge as pockets, keeping their ids).

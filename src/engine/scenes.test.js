@@ -117,13 +117,35 @@ describe("pockets — nested scenes with no minimum", () => {
         expect(pocket).toBeTruthy();
         expect(pocket.memberIds.sort()).toEqual(deep.map((d) => d.id).sort());
     });
-    test("detail too large relative to its parent is not a pocket", () => {
+    test("a detail cluster spanning most of the parent is an echo, not a pocket", () => {
         const parent = [...blob(0, 0, 10), ...blob(3000, 0, 10)];
-        // 20× finer, mutually joined (gap 400 < 900×0.5), but their cluster
-        // spans ~400 units > parentExtent/50 → stays merged, no pocket.
-        const wide = [dot(500, 0, 0.5), dot(900, 0, 0.5)];
+        // 20× finer and mutually joined (gaps ≤ 900×0.5), but the chain spans
+        // ~2/3 of the parent's extent → it's just the parent again; no pocket.
+        const wide = [dot(500, 0, 0.5), dot(900, 0, 0.5), dot(1300, 0, 0.5),
+            dot(1700, 0, 0.5), dot(2100, 0, 0.5), dot(2500, 0, 0.5)];
         const scenes = computeSceneProposals({ 0: [...parent, ...wide] }, proj);
         expect(scenes.filter((s) => s.depth > 0)).toHaveLength(0);
+    });
+    test("an echo-rejected mixed cluster must not swallow the deep detail inside it", () => {
+        const parent = [...blob(0, 0, 10), ...blob(3000, 0, 10)];
+        // Fine sprinkle spanning ~2/3 of the parent (echo — no scene of its own)…
+        const sprinkle = [dot(500, 0, 0.5), dot(900, 0, 0.5), dot(1300, 0, 0.5),
+            dot(1700, 0, 0.5), dot(2100, 0, 0.5), dot(2500, 0, 0.5)];
+        // …with one much-deeper dot sitting among it.
+        const deep = dot(1000, 0, 0.01);
+        const scenes = computeSceneProposals({ 0: [...parent, ...sprinkle, deep] }, proj);
+        const nested = scenes.filter((s) => s.depth > 0);
+        expect(nested).toHaveLength(1);
+        expect(nested[0].memberIds).toEqual([deep.id]);
+    });
+    test("a mid-size sub-composition (between 1/50 and 1/3 of parent) DOES nest", () => {
+        const parent = [...blob(0, 0, 10), ...blob(9000, 0, 10)];
+        // ~700 units wide inside a ~11k parent → well under the echo guard.
+        const sub = [dot(4000, 0, 0.5), dot(4350, 0, 0.5), dot(4700, 0, 0.5)];
+        const scenes = computeSceneProposals({ 0: [...parent, ...sub] }, proj);
+        const pocket = scenes.find((s) => s.depth === 1);
+        expect(pocket).toBeTruthy();
+        expect(pocket.memberIds.sort()).toEqual(sub.map((d) => d.id).sort());
     });
 });
 
