@@ -127,6 +127,39 @@ describe("pockets — nested scenes with no minimum", () => {
     });
 });
 
+describe("the Star regression — outer ink must not erase interior scenes", () => {
+    test("coarse surrounding ink merges everything, but interior compositions come back as pockets with stable ids", () => {
+        // Two separate fine pictures at level 0 (as if scenes built up)…
+        const picA = [...blob(0, 0, 1), ...blob(100, 60, 1)];
+        const picB = [...blob(3 * JOIN, 0, 1), ...blob(3 * JOIN + 90, 50, 1)];
+        const before = matchScenes({ scenes: [], hidden: [], seq: 1 },
+            computeSceneProposals({ 0: [...picA, ...picB] }, proj), proj);
+        expect(before.scenes).toHaveLength(2);
+        const [idA, idB] = before.scenes.map((s) => s.id);
+
+        // …then the user zooms way out (level −1) and draws a huge ring
+        // around both. Its width in level-0 terms is ×3000 the pen — its join
+        // window swallows both pictures into one cluster anchored at −1.
+        const ring = [];
+        for (let i = 0; i < 4; i++) ring.push(dot(i * 2, 0, 5)); // level −1 units, w=5
+        const natives = { "-1": ring, 0: [...picA, ...picB] };
+        const proposals = computeSceneProposals(natives, proj);
+        const tops = proposals.filter((p) => p.depth === 0);
+        expect(tops).toHaveLength(1);
+        expect(tops[0].level).toBe(-1);
+
+        // The interior pictures must SURVIVE as pockets…
+        const pockets = proposals.filter((p) => p.depth === 1);
+        expect(pockets.length).toBeGreaterThanOrEqual(2);
+
+        // …and matching must carry their ids/names through the merge.
+        const after = matchScenes(before, proposals, proj);
+        const ids = after.scenes.map((s) => s.id);
+        expect(ids).toContain(idA);
+        expect(ids).toContain(idB);
+    });
+});
+
 describe("frames and primary", () => {
     test("wispy outliers don't blow up the frame (90% ink core)", () => {
         const dense = [];

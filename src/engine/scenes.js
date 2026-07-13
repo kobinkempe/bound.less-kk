@@ -296,14 +296,17 @@ export function computeSceneProposals(nativesByLevel, proj) {
     return order;
 }
 
+// Geometry reaches this many levels below a scene's anchor. Finer projection
+// only UNDERFLOWS floats (harmless), but keep a sane cap; pockets re-anchor
+// at their own coarsest level, so recursion regains reach at every step.
+const GEOMETRY_CHAIN = 4;
+
 /** Members (any levels) → one scene + its pockets, appended to `out`. */
 function buildScene(members, anchor, proj, out, parentIndex, depth) {
-    // Geometry uses members within anchor..anchor+2 (deeper ink is inside
-    // pockets spatially and beyond frame precision anyway).
     const inFrame = [];
     for (const m of members) {
         if (m.level === anchor) { inFrame.push(m); continue; }
-        if (m.level - anchor > 2) continue;
+        if (m.level - anchor > GEOMETRY_CHAIN) continue;
         const chunks = mapChunks(m.chunks, m.level, anchor, proj);
         const f = proj.widthFactor(m.level, anchor);
         if (!chunks || f == null) continue;
@@ -323,8 +326,15 @@ function buildScene(members, anchor, proj, out, parentIndex, depth) {
     // 3) Pockets: much-finer members, re-clustered at their own scale,
     // qualifying purely by extent ratio. Connectivity to parent ink is
     // ignored by construction (we only cluster the fine subset).
+    //
+    // The detail reference is the COARSEST member — the composition's
+    // structural scale — NOT the median: when outer zoomed-out ink merges
+    // whole compositions (the "Star" regression), fine strokes dominate the
+    // population and a median reference sees no detail at all, silently
+    // erasing every interior scene.
     if (depth >= POCKET_RECURSION) return;
-    const detail = inFrame.filter((m) => m.w <= wMed / DETAIL_RATIO);
+    const wCoarse = Math.max(...inFrame.map((m) => m.w));
+    const detail = inFrame.filter((m) => m.w <= wCoarse / DETAIL_RATIO);
     if (!detail.length) return;
     const parentExtent = Math.max(rect.w, rect.h);
     const byId = new Map(members.map((m) => [m.id, m]));

@@ -39,7 +39,7 @@ Code: `src/engine/scenes.js` (pure rules) + the scene methods on
 | `JOIN_WINDOWS` | 1.5 | ink joins across gaps ≤ 1.5 windows **of the coarser stroke** |
 | `CHUNK_WINDOWS` | 1 | long strokes are split into ≤ 1-window pieces for geometry |
 | `CHUNK_PAIR_RATIO` | 4 | chunk-vs-chunk only between strokes within 4× width; wider pairs test coarse chunks vs. the fine stroke's whole box |
-| `DETAIL_RATIO` | 16 | pocket members are ≥ 16× finer than the scene's median width |
+| `DETAIL_RATIO` | 16 | pocket members are ≥ 16× finer than the scene's **coarsest** member |
 | `POCKET_EXTENT_FRAC` | 1/50 | a pocket qualifies when its extent ≤ parent extent / 50 |
 | `POCKET_RECURSION` | 6 | max nesting depth of pockets inside pockets |
 | `FRAME_QUANTILE` | 0.05 | frame = per-axis [5%, 95%] of painted-ink mass |
@@ -77,12 +77,18 @@ and pockets then separate it.
 **Qualification.** None. Every cluster is a scene.
 
 **Pockets (nested scenes).** Within each scene, take only member strokes
-≥ `DETAIL_RATIO` finer than the scene's median width and re-cluster just
-those, at their own scale, ignoring connectivity to the parent's ink (a
-cascade of intermediate marks cannot hide a deep detail). Every resulting
-cluster with extent ≤ parent extent × `POCKET_EXTENT_FRAC` becomes a nested
-scene (parent link recorded); recurse to `POCKET_RECURSION`. This is the
-slow-zoom answer: a continual dive yields a chain of nested scenes.
+≥ `DETAIL_RATIO` finer than the scene's **coarsest** member — the
+composition's structural scale, deliberately not the median: when outer
+zoomed-out ink merges whole compositions into one cluster (the "Star"
+regression, 2026-07-13), fine strokes dominate the population, a median
+reference sees no detail, and every interior scene silently vanishes.
+Re-cluster the detail subset at its own scale, ignoring connectivity to the
+parent's ink (a cascade of intermediate marks cannot hide a deep detail).
+Every resulting cluster with extent ≤ parent extent × `POCKET_EXTENT_FRAC`
+becomes a nested scene (parent link recorded); recurse to
+`POCKET_RECURSION`. This is both the slow-zoom answer (a continual dive
+yields a chain of nested scenes) and the draw-around-it answer (interior
+compositions survive an outer merge as pockets, keeping their ids).
 
 ## 2. Scene thumbnail determination
 
@@ -145,9 +151,11 @@ One button — **Capture this view** — with two outcomes:
   monitor could show both (capture merges them).
 - A connecting trail of ink chains everything it touches into one scene
   (split or capture to taste).
-- Scenes spanning 3+ levels are anchored at their coarsest level; ink deeper
-  than anchor+2 contributes membership but not frame geometry (it lives
-  inside pockets anyway).
+- Scenes spanning many levels are anchored at their coarsest level; ink
+  deeper than anchor+4 contributes membership but not frame geometry
+  (pockets re-anchor at their own coarsest level, regaining reach at every
+  recursion step — fine-direction projection only underflows floats, which
+  is harmless).
 - v1 documents carried a synthetic "cover" scene; it is dropped on first v2
   recompute (the primary scene takes its role).
 
