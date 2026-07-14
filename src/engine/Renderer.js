@@ -28,6 +28,22 @@ import { strokeOutlineCurves } from "./geometry/curveOutline";
 
 const perfRendererNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+// Re-anchor budget: browsers rasterize SVG paths in FLOAT32 (Skia stores path
+// points as float32, and Two.js matrices are Float32Array), so a vertex at
+// frame coordinate c carries an absolute error of ~c/2^23 frame units, i.e.
+// (c·inScale)/2^23 on-screen px. Zoom-out → pan → zoom-in manufactures huge
+// coordinates (a pan of N screens at a coarse level is N×3000 frame units one
+// crossing deeper), and strokes drawn out there keep them forever — they
+// rendered visibly "pixelly" (~8 px vertex snapping at |c|≈8e6, inScale 15).
+// The engine's own math is float64 and exact; only what's HANDED TO THE
+// BROWSER must stay small. So every anchor is built relative to a per-scene
+// origin (chosen at the view center) and the origin is folded back into the
+// world transform in float64 JS. When the view drifts so far from the origin
+// that c·inScale approaches this budget (~0.18 px of float32 error), the scene
+// re-anchors: rebuild paths against a fresh origin. That's a ~1.9e6-screen-px
+// drift — a rare, full-rebuild-priced event, like a level flip.
+const REORIGIN_PX = 1.5e6;
+
 // Absolute device-px fat gate (replaces polygonizeWidthFrac = 1/3 screen): a
 // screen-fraction gate flips representation per device (a phone would fatten
 // strokes a desktop draws normally). Skia's extreme-width mis-stroke was
@@ -154,7 +170,8 @@ export default class Renderer {
     // combined signature (unchanged id => paths reused), inserted at their
     // id-sorted position (global z-order), and dropped when their id vanishes.
     render(list, level) {
-        this._activateLevel(level); // swaps to this level's retained subtree (or the shared one)
+        const sc = this._activateLevel(level); // swaps to this level's retained subtree (or the shared one)
+        this._maybeReorigin(sc);
         const pad = this.outlinePad(list);
         const vw = this.cam.frameWindow(pad);
         this._pendingFatLw = 0; // recounted below
@@ -207,10 +224,57 @@ export default class Renderer {
         for (const entry of this._groups.values()) if (entry.fadeTag != null) this._applyOpacity(entry, entry.pieces[0]);
     }
     syncWorld() {
+        // Fold the active scene's origin into the world transform IN FLOAT64
+        // (screen = inScale·(p − O) + [inPan + inScale·O]): anchors are stored
+        // origin-relative (small), and the bracketed translation is ~screen-
+        // sized whenever the view is near the content, so nothing large ever
+        // reaches Two.js' Float32Array matrices or the browser's float32
+        // rasterizer. The cancellation between inPan (~ −inScale·viewCenter)
+        // and inScale·O happens here, in JS doubles, where it's exact.
+        const o = this._origin();
         this.world.scale = this.cam.inScale;
-        this.world.translation.x = this.cam.inPanX; this.world.translation.y = this.cam.inPanY;
+        this.world.translation.x = this.cam.inPanX + this.cam.inScale * o.x;
+        this.world.translation.y = this.cam.inPanY + this.cam.inScale * o.y;
         this._renderTileDebug();
         this._renderSelection();
+    }
+
+    // ---- per-scene local origin (float32-safe path coordinates) ----
+    _origin() {
+        const sc = this._scenes.get(this._level);
+        return (sc && sc.origin) || Renderer._ZERO;
+    }
+    _viewCenter() {
+        const w = this.cam.frameWindow(0);
+        return { x: Math.round((w.left + w.right) / 2), y: Math.round((w.top + w.bottom) / 2) };
+    }
+    // Screen-px distance between the view center and the scene's origin — the
+    // quantity that bounds the browser-side float32 error of on-screen vertices.
+    _driftPx(sc) {
+        if (!sc || !sc.origin) return 0;
+        const c = this._viewCenter();
+        return Math.max(Math.abs(c.x - sc.origin.x), Math.abs(c.y - sc.origin.y)) * this.cam.inScale;
+    }
+    // True when a camera-only move has drifted past the budget: the engine must
+    // promote it to a full render so _maybeReorigin can rebuild. Never mid-
+    // stroke — the live path's anchors are origin-relative and a swap under the
+    // pen would desync them (a real pan can't cover 1.5e6 px in one gesture;
+    // this only fires on programmatic jumps).
+    needsReorigin() {
+        if (this._live) return false;
+        return this._driftPx(this._scenes.get(this._level)) > REORIGIN_PX;
+    }
+    // Re-anchor the scene on a fresh origin: wipe its groups (keeping the Map /
+    // array IDENTITY — _groups and _order alias them) so the diff pass in
+    // render() rebuilds every path origin-relative. Costs one level-flip-sized
+    // rebuild, at a once-per-1.9e6-screen-px cadence.
+    _maybeReorigin(sc) {
+        if (!sc || this._live) return;
+        if (this._driftPx(sc) <= REORIGIN_PX) return;
+        sc.origin = this._viewCenter();
+        for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
+        sc.groups.clear();
+        sc.order.length = 0;
     }
 
     // Make `level` the active scene: point `_groups`/`_order`/`_activeRoot` at
@@ -223,7 +287,7 @@ export default class Renderer {
         let sc = this._scenes.get(key);
         if (this._level === key && sc) { sc.seq = ++this._activateSeq; return sc; }
         if (this._activeRoot && this._activeRoot.parent) this.world.remove(this._activeRoot);
-        if (!sc) { sc = { root: new Two.Group(), groups: new Map(), order: [], seq: 0 }; this._scenes.set(key, sc); }
+        if (!sc) { sc = { root: new Two.Group(), groups: new Map(), order: [], seq: 0, origin: this._viewCenter() }; this._scenes.set(key, sc); }
         this.world.add(sc.root);
         this._level = key; this._activeRoot = sc.root;
         this._groups = sc.groups; this._order = sc.order;
@@ -337,11 +401,12 @@ export default class Renderer {
         if (o.type === "fill") polys = o.polys;
         else if (this.outlineMode) polys = this._fatPolys(o, vw, curved);
         if (polys) {
+            const og = this._origin();
             const verts = [];
             for (const poly of polys) {
                 if (poly.length < 2) continue;
                 for (let i = 0; i < poly.length; i++) {
-                    const a = new Two.Anchor(poly[i][0], poly[i][1]);
+                    const a = new Two.Anchor(poly[i][0] - og.x, poly[i][1] - og.y);
                     a.command = i === 0 ? Two.Commands.move : Two.Commands.line;
                     verts.push(a);
                 }
@@ -354,8 +419,9 @@ export default class Renderer {
                 group.add(path);
             }
         } else if (o.type !== "fill") {
+            const og = this._origin();
             const pOp = this.opacityGroups ? 1 : (o.opacity == null ? 1 : o.opacity);
-            const path = new Two.Path(o.pts.map(([x, y]) => new Two.Anchor(x, y)), false, curved);
+            const path = new Two.Path(o.pts.map(([x, y]) => new Two.Anchor(x - og.x, y - og.y)), false, curved);
             path.noFill(); path.stroke = o.color; path.linewidth = o.lwFrame; path.cap = "round"; path.join = "round"; path.opacity = pOp;
             group.add(path);
         }
@@ -395,7 +461,9 @@ export default class Renderer {
         // controls.left (C2). Controls are stored RELATIVE (Two.js default).
         // Each loop ends exactly at its start point and the path stays open —
         // fill auto-closes subpaths, and Two's `closed` flag would draw a stray
-        // closing segment across loops.
+        // closing segment across loops. Anchor positions are ORIGIN-RELATIVE
+        // (controls are already relative offsets, so only x/y shift).
+        const og = this._origin();
         const verts = [];
         for (const loop of loops) {
             const n = loop.length;
@@ -414,7 +482,7 @@ export default class Renderer {
                     if (k < n) { const t = loop[k]; rx = t[1][0] - x; ry = t[1][1] - y; }
                     cmd = Two.Commands.curve;
                 }
-                verts.push(new Two.Anchor(x, y, lx, ly, rx, ry, cmd));
+                verts.push(new Two.Anchor(x - og.x, y - og.y, lx, ly, rx, ry, cmd));
             }
         }
         if (!verts.length) return;
@@ -488,13 +556,19 @@ export default class Renderer {
     }
 
     // ---- live in-progress stroke (immediate feedback, outside the diff) ----
+    // Origin-relative like every other path, and parented under the ACTIVE
+    // SCENE ROOT (not `world`): the scene origin folds into the world transform
+    // in float64, so live ink lands pixel-identical to its finalized rendering.
+    // _maybeReorigin/needsReorigin never fire while _live exists, so the origin
+    // is stable for the whole gesture.
     addLive(o, straight) {
-        const live = new Two.Path([new Two.Anchor(o.pts[0][0], o.pts[0][1])], false, !straight);
+        const og = this._origin();
+        const live = new Two.Path([new Two.Anchor(o.pts[0][0] - og.x, o.pts[0][1] - og.y)], false, !straight);
         live.noFill(); live.stroke = o.color; live.linewidth = o.lwFrame; live.cap = "round"; live.join = "round"; live.opacity = o.opacity == null ? 1 : o.opacity;
-        this.world.add(live); this._live = live; this._liveModel = o; return live;
+        (this._activeRoot || this.world).add(live); this._live = live; this._liveModel = o; return live;
     }
-    extendLive(p) { if (this._live) this._live.vertices.push(new Two.Anchor(p[0], p[1])); }
-    setLiveEnd(p) { if (this._live) { const v = this._live.vertices[1]; if (v) { v.x = p[0]; v.y = p[1]; } } }
+    extendLive(p) { if (this._live) { const og = this._origin(); this._live.vertices.push(new Two.Anchor(p[0] - og.x, p[1] - og.y)); } }
+    setLiveEnd(p) { if (this._live) { const v = this._live.vertices[1]; if (v) { const og = this._origin(); v.x = p[0] - og.x; v.y = p[1] - og.y; } } }
     endLive() { if (this._live && this._live.parent) this._live.parent.remove(this._live); this._live = null; this._liveModel = null; }
 
     // Selection highlight: fn returns { level, rect } (the selected object's
@@ -547,3 +621,6 @@ export default class Renderer {
         }
     }
 }
+
+// Shared fallback origin for the pre-first-render window (no scene yet).
+Renderer._ZERO = { x: 0, y: 0 };

@@ -196,7 +196,7 @@ export default class KobinEngine {
     panBy(dx, dy) {
         const t0 = perfNow();
         this.cam.panBy(dx, dy);
-        if (this._visibleChanged() || this.renderer.needsRebake()) this._render();
+        if (this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsReorigin()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf("pan", t0);
     }
@@ -207,7 +207,7 @@ export default class KobinEngine {
         const crossed = this.cam.zoomFactorAt(sx, sy, factor);
         // needsFatFlip: lazy-pending fat strokes approaching the gate must flip
         // to their outline representation BEFORE raw stroking becomes unsafe.
-        if (crossed || this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsFatFlip()) this._render();
+        if (crossed || this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsFatFlip() || this.renderer.needsReorigin()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
         this._maybePrebake();
