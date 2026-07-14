@@ -510,20 +510,23 @@ export default function CanvasEditor() {
                                         <X size={14} />
                                     </button>
                                 </div>
-                                <div className="bl-flex bl-flex-col bl-gap-2" style={{ maxHeight: "16rem", overflowY: "auto" }}>
+                                <div className="bl-flex bl-flex-col bl-gap-2" style={{ maxHeight: "16rem", overflowY: "auto", overflowX: "hidden" }}>
                                     {scenes.length === 0 && (
                                         <p className="bl-text-xs bl-text-muted" style={{ padding: "0.25rem 0" }}>
                                             Draw something — scenes are found automatically.
                                         </p>
                                     )}
                                     {scenes.map((s) => (
-                                        <div key={s.id} className="bl-scene-item" style={s.depth ? { marginLeft: `${Math.min(s.depth, 4) * 0.75}rem` } : undefined}>
-                                            <button type="button" className="bl-scene-jump" onClick={() => jumpToScene(s)}>
-                                                {sceneThumbs[s.id]?.data
-                                                    ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
-                                                    : <div className="bl-scene-thumb bl-scene-thumb-placeholder" />}
-                                                <div style={{ minWidth: 0, flex: 1 }}>
-                                                    {sceneRename?.id === s.id ? (
+                                        <div key={s.id} className={`bl-scene-item${s.depth ? " bl-scene-item--nested" : ""}`}>
+                                            {sceneRename?.id === s.id ? (
+                                                /* While renaming, the row must NOT be a button — a
+                                                   selection-drag releasing outside the input would
+                                                   otherwise fire the jump and close the panel. */
+                                                <div className="bl-scene-jump">
+                                                    {sceneThumbs[s.id]?.data
+                                                        ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
+                                                        : <div className="bl-scene-thumb bl-scene-thumb-placeholder" />}
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
                                                         <input
                                                             className="bl-scene-name-input"
                                                             value={sceneRename.draft}
@@ -533,18 +536,27 @@ export default function CanvasEditor() {
                                                                 if (e.key === "Enter") { e.preventDefault(); commitSceneRename(); }
                                                                 if (e.key === "Escape") setSceneRename(null);
                                                             }}
-                                                            onClick={(e) => e.stopPropagation()}
                                                             aria-label="Scene name"
                                                             autoFocus
                                                         />
-                                                    ) : (
-                                                        <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
-                                                    )}
-                                                    <p className="bl-text-xs bl-text-muted">
-                                                        at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
-                                                    </p>
+                                                        <p className="bl-text-xs bl-text-muted">
+                                                            at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            </button>
+                                            ) : (
+                                                <button type="button" className="bl-scene-jump" onClick={() => jumpToScene(s)}>
+                                                    {sceneThumbs[s.id]?.data
+                                                        ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
+                                                        : <div className="bl-scene-thumb bl-scene-thumb-placeholder" />}
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
+                                                        <p className="bl-text-xs bl-text-muted">
+                                                            at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            )}
                                             <div className="bl-scene-actions">
                                                 <button type="button" className="bl-tool-btn bl-scene-action" title="Rename scene"
                                                     onClick={() => setSceneRename({ id: s.id, draft: s.name })}>

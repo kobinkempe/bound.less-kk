@@ -164,7 +164,13 @@
 .bl-editor-overlay { position: absolute; z-index: 10; pointer-events: none; }
 .bl-editor-overlay > * { pointer-events: auto; }
 .bl-editor-top-left { top: calc(1rem + env(safe-area-inset-top, 0px)); left: calc(1rem + env(safe-area-inset-left, 0px)); }
-.bl-editor-top-right { top: calc(1rem + env(safe-area-inset-top, 0px)); right: calc(1rem + env(safe-area-inset-right, 0px)); }
+.bl-editor-top-right {
+  top: calc(1rem + env(safe-area-inset-top, 0px));
+  right: calc(1rem + env(safe-area-inset-right, 0px));
+  /* Above the tool rail (also z-10 but later in the DOM) so an open Scenes
+     panel isn't painted under it on narrow windows. */
+  z-index: 12;
+}
 .bl-editor-left { top: 50%; transform: translateY(-50%); left: calc(1rem + env(safe-area-inset-left, 0px)); }
 .bl-editor-bottom-left { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); left: calc(1rem + env(safe-area-inset-left, 0px)); }
 .bl-editor-bottom-right { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); right: calc(1rem + env(safe-area-inset-right, 0px)); }
@@ -232,11 +238,17 @@
   background: var(--card); padding: 0.75rem; box-shadow: var(--shadow-panel);
 }
 .bl-scene-item {
-  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  display: flex; align-items: center; gap: 0.5rem;
   border-radius: 0.5rem; border: 1px solid var(--border); background: var(--background);
   padding: 0.5rem; text-align: left; transition: border-color 0.15s;
 }
 .bl-scene-item:hover { border-color: var(--ring); }
+/* Nested scenes get ONE subtle inset regardless of depth — a staircase of
+   margins is ugly and overflows the panel into a horizontal scrollbar. */
+.bl-scene-item--nested {
+  margin-left: 0.9rem;
+  border-left: 3px solid var(--accent);
+}
 .bl-scene-jump {
   display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0;
   border: none; background: transparent; padding: 0; cursor: pointer;

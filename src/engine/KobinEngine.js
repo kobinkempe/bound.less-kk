@@ -585,7 +585,10 @@ export default class KobinEngine {
     // the ordinary crossing machinery, creating level records as needed.
     jumpTo(level, rect) {
         if (!rect || !(rect.w > 0) || !(rect.h > 0)) return false;
-        if (level !== 0 && !this.lm.get(level)) return false; // no frame chain
+        // A level is reachable when a record chain connects it to level 0.
+        // Its OWN record may not exist — negative levels are defined by the
+        // records of the levels above them (lm.get(-2) is legitimately empty).
+        if (level !== 0 && levelFactor(level, 0, this.lm.records, this.cfg.base) == null) return false;
         if (this._drawing) this.pointerUp();
         const s = Math.min(this.width / rect.w, this.height / rect.h);
         if (!(s > 0) || !Number.isFinite(s)) return false;
