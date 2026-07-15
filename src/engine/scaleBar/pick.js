@@ -1,21 +1,62 @@
 /**
- * applyUnitPick — constraint 5 / L5–L7 / L12 (no far-pin; user bands only).
+ * applyUnitPick — constraint 5 (user overrides).
  *
- * Order (Opus / finalist correction): find the ladders where the pick is the
- * AUTO-PREFERRED unit first, then take the highest priority among that subset
- * — never "highest owner then test preferred-ness there".
+ * L6: if the picked unit is the AUTO-preferred unit on some ladder at this mpp,
+ *     just switch to the highest-priority such ladder — no user range.
+ * L5/L12: otherwise switch by ownership and install a UserPreferenceRange that
+ *     spans `[min(current, flip-down), max(current, flip-up)]`, where the flip
+ *     points are the edges of the unit's NATURAL auto-interval (where the auto
+ *     rule would hand off to a finer / coarser unit). Those edges are derived
+ *     from the resolver itself — there is no hardcoded far-edge table.
+ * L7: any pick of a different unit tears down the active user range first.
  *
- * L6 dest is always highestPriority(preferredLadders) — no stay-on-sticky
- * when sticky is a lower-priority ladder that also prefers the pick (I-15 / B.7).
+ * The installed range persists until a user action (see UserPreferenceRange);
+ * zoom never clears it.
  */
 
 import { LADDER_PRIORITY, BAR_PX_MIN, BAR_PX_MAX, BAR_PX_TARGET } from "./constants";
 import { laddersOwning, highestPriorityLadder } from "./membership";
-import { buildUserBand, extraNiceFor } from "./preference";
+import { extraNiceFor, bandLogInterval } from "./preference";
+import { UserPreferenceRange } from "./preferenceRange";
 import { resolveReading } from "./resolve";
 import { bestInBoundsNice } from "./nice";
-import { log10 } from "./logMath";
+import { unitLog10Meters } from "./catalog";
+import { log10, safeExp10, targetLogLen } from "./logMath";
 import { createSession } from "./session";
+
+/**
+ * The unit's natural auto-interval on a ladder: the log-length span over which
+ * the AUTO rule (no user band, no incumbent) selects this unit. Its lower/upper
+ * edges ARE the unit's flip-down / flip-up points (constraint 5). Scanned once
+ * per pick (a user action), so the ~400-sample cost is irrelevant. Returns
+ * `{ loLog, hiLog }` (padded by a step for inclusive re-entry) or null if the
+ * unit is never auto-preferred on that ladder.
+ */
+function autoSpanForUnit(ladderId, unit) {
+    const logUnit = unitLog10Meters(unit);
+    if (!Number.isFinite(logUnit)) return null;
+    const session = createSession(ladderId);
+    const logTarget = log10(BAR_PX_TARGET);
+    const step = 0.04;
+    let loLog = null;
+    let hiLog = null;
+    for (let d = -8; d <= 8 + 1e-9; d += step) {
+        const worldLog = logUnit + d; // reading ≈ 10^d of the unit
+        const mpp = safeExp10(worldLog - logTarget);
+        if (!(mpp > 0)) continue;
+        const auto = resolveReading(mpp, session, {
+            ladderId,
+            ignoreUserBand: true,
+            ignoreIncumbent: true,
+        });
+        if (auto && auto.unit === unit) {
+            if (loLog === null) loLog = worldLog;
+            hiLog = worldLog;
+        }
+    }
+    if (loLog === null) return null;
+    return { loLog: loLog - step, hiLog: hiLog + step };
+}
 
 /**
  * @returns {{ session: ScaleSession, reading: ScaleReading }}
@@ -23,10 +64,7 @@ import { createSession } from "./session";
 export function applyUnitPick(pickedUnit, mpp, session) {
     let s = session || createSession();
 
-    // L7 — any other-unit pick while a userBand is still active tears it down
-    // first, then normal resolve runs. Under pool-exit I-02 the band can remain
-    // active with tLog outside the install [logLo, logHi], so do not gate on
-    // the stored interval alone.
+    // L7 — a different-unit pick tears down any active user range first.
     if (s.userBand && pickedUnit !== s.userBand.unit) {
         s = { ...s, userBand: null };
     }
@@ -43,7 +81,7 @@ export function applyUnitPick(pickedUnit, mpp, session) {
         if (probe?.unit === pickedUnit) preferredLadders.push(ladderId);
     }
     if (preferredLadders.length) {
-        // L6 / B.7 / I-15: always highest priority among preferred ladders.
+        // Preferred elsewhere → switch only (highest priority), no user range.
         const dest = highestPriorityLadder(preferredLadders);
         const reading = resolveReading(mpp, {
             ladderId: dest,
@@ -61,9 +99,8 @@ export function applyUnitPick(pickedUnit, mpp, session) {
     }
 
     // L5 / L12 — non-preferred (or off-ladder) pick: switch by ownership,
-    // quantize the pick onto a nice in-bounds stop (never cold-search Planck),
-    // and install a user preferred range from that stop through the unit's
-    // standard band / far edge on the destination ladder.
+    // quantize onto a nice in-bounds stop, and install a user range from the
+    // current view to the unit's natural flip edges.
     const owners = laddersOwning(pickedUnit);
     const dest = owners.includes(s.ladderId)
         ? s.ladderId
@@ -83,13 +120,21 @@ export function applyUnitPick(pickedUnit, mpp, session) {
         return { session: s, reading };
     }
 
-    // Full bar-window headroom at install mpp (Hybrid B⁺): fine/target side
-    // via BAR_PX_MIN and coarse side via BAR_PX_MAX, unioned with pick↔far.
-    const logMpp = log10(mpp);
-    const userBand = buildUserBand(dest, pickedUnit, niceStop.logLen, {
-        logBarMin: log10(BAR_PX_MIN) + logMpp,
-        logBarMax: log10(BAR_PX_MAX) + logMpp,
-    });
+    const currentLog = targetLogLen(mpp);
+    const span = autoSpanForUnit(dest, pickedUnit);
+    let logLo;
+    let logHi;
+    if (span) {
+        logLo = Math.min(currentLog, niceStop.logLen, span.loLog);
+        logHi = Math.max(currentLog, niceStop.logLen, span.hiLog);
+    } else {
+        // Never auto-preferred (absorbed / edge unit): fall back to the §5 band.
+        const bi = bandLogInterval(dest, pickedUnit);
+        logLo = Math.min(currentLog, niceStop.logLen, Number.isFinite(bi.logLo) ? bi.logLo : currentLog);
+        logHi = Math.max(currentLog, niceStop.logLen, Number.isFinite(bi.logHi) ? bi.logHi : currentLog);
+    }
+    const userBand = new UserPreferenceRange({ ladderId: dest, unit: pickedUnit, logLo, logHi });
+
     const reading = {
         value: niceStop.value,
         niceValue: niceStop.niceValue,

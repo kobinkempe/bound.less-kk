@@ -1,28 +1,26 @@
 /**
- * Absolute reading resolver on the log-length spine (hardened Option 03).
+ * Absolute reading resolver on the log-length spine.
  *
  * resolveReading(mpp, session, opts) picks the winner at the TARGET mpp only
- * (L1 — no walk traces), on the sticky ladder only (L8 — never re-derives
- * via stackForUnit), with the bible-4 lexicographic preference order:
+ * (L1 — no walk traces), on the sticky ladder only (L8), by the owner's unified
+ * rule: **the lowest in-range number wins**, where a unit's range is its §5
+ * preference band, and the DEFAULT range (for any value outside a preference
+ * band) has lower bound 1. Preference-range hits rank above default-eligible
+ * stops; that single rule subsumes the old band / prefer-≥1 / handoff tiers:
  *
- *   0. userHit         — any in-pool stop of the active userBand unit (I-02)
- *   1. promoteNextGe1  — `1 <next>` beats finer unit bandHit (I-01 / §5)
- *   2. bandHit         — stop inside its standard preferred band
- *   3. handoffWinner   — explicit overlap winners (L3 / L4 / §5 notes)
- *   4. incumbentHold   — droppable hysteresis incumbent (L2); exit = still in pool
- *   5. preferGe1       — lower displayed number ≥ 1 (constraint 4.3)
- *   6. floorPull       — all-sub-1 pools prefer the finest rung (sci floor)
- *   7. barTarget       — closeness to BAR_PX_TARGET (in log space)
- *   8. unitRank, value — stable ties
+ *   0. userHit    — the user's range claims the stop (bounded), outranks all
+ *   1. bandHit    — value is inside the unit's §5 preference range (Tier A)
+ *   2. incumbent  — droppable ~5% hysteresis hold (L2 anti-flicker)
+ *   3. lowNumber  — lowest displayed number: raw within Tier A (so 1/16 in beats
+ *                   50 mil), else the lowest value ≥ 1 (Tier B; 1 ft beats 10 in)
+ *   4. floorPull  — all-sub-1 pools prefer the finest rung (sci floor)
+ *   5. barTarget  — closeness to BAR_PX_TARGET (in log space)
+ *   6. unitRank, value — stable ties
  *
- * This ORDER is locked (implementation doc §B.6) and is intentionally not
- * configurable; the data it consumes (bands, handoffs, nice, bar bounds) is.
- *
- * L2 enter (~5% past incumbent band edge): when the incumbent is active and
- * a neighbor would win only via band/prefer tiers, require targetLogLen past
- * the incumbent band edge by HYSTERESIS_ENTER_PAST_EDGE before releasing.
- * Promote and handoff winners (L3/L4 / §5) sit above incumbent and are never
- * blocked by the enter margin.
+ * Examples that used to need explicit handoffs and now fall out of the rule:
+ * `200 yd` (Tier A, 200) < `500 ft` (Tier A, 500); `0.5 mi` (Tier A) beats
+ * `500 yd` (Tier A, 500); `0.25 mi` beats `1320 ft`; `mi` (Tier A) beats an
+ * out-of-band `yd` (Tier B). The DATA (ranges, nice, bounds) is config.
  */
 
 import {
@@ -32,16 +30,10 @@ import {
     LADDER_IDS,
     HYSTERESIS_ENTER_PAST_EDGE,
 } from "./constants";
-import { ladderForStack } from "./membership";
-import {
-    bandFor,
-    bandLogInterval,
-    extraNiceFor,
-    handoffSuppressedUnits,
-    promoteSuppressedUnits,
-    userBandShouldClear,
-} from "./preference";
-import { niceValuesForUnit, bestInBoundsNice } from "./nice";
+import { ladder } from "./ladder";
+import { bandLogInterval } from "./preference";
+import { toUserRange } from "./preferenceRange";
+import { bestInBoundsNice } from "./nice";
 import { log10, safeExp10, targetLogLen } from "./logMath";
 
 const REL_EPS = 1e-9;
@@ -60,53 +52,11 @@ export function pastIncumbentEnterEdge(ladderId, incumbentUnit, tLog) {
 }
 
 /**
- * All grammar-legal Stops on the ladder whose bar fits [BAR_PX_MIN, BAR_PX_MAX].
- * Everything is computed on the log spine so float extremes never throw (L11).
+ * All grammar-legal stops on the ladder whose bar fits [BAR_PX_MIN, BAR_PX_MAX]
+ * (now owned by the Ladder; kept as a named export for callers/tests).
  */
 export function candidatesOnLadder(ladderId, mpp) {
-    if (!(mpp > 0) || !Number.isFinite(mpp)) return [];
-    const ladder = ladderForStack(ladderId);
-    const logMpp = log10(mpp);
-    const logBarMin = log10(BAR_PX_MIN);
-    const logBarMax = log10(BAR_PX_MAX);
-    const stops = [];
-
-    for (let rank = 0; rank < ladder.length; rank++) {
-        const rung = ladder[rank];
-        const logUnit = rung.log10Meters;
-        if (!Number.isFinite(logUnit)) continue;
-        // Display-magnitude window whose bar lands inside the bounds.
-        const logMagLo = logBarMin + logMpp - logUnit;
-        const logMagHi = logBarMax + logMpp - logUnit;
-        // Values outside the float envelope cannot be represented — neighbors
-        // (or the floor/ceiling unit in sci form) absorb those regions.
-        if (logMagHi < -320 || logMagLo > 306) continue;
-        const magLo = safeExp10(logMagLo);
-        const magHi = safeExp10(logMagHi);
-        const values = niceValuesForUnit(rung.name, {
-            magLo: magLo * (1 - 1e-7),
-            magHi: magHi * (1 + 1e-7),
-            extraValues: extraNiceFor(ladderId, rung.name),
-        });
-        for (const v of values) {
-            const logLen = log10(v.value) + logUnit;
-            const barPx = safeExp10(logLen - logMpp);
-            if (!(barPx > 0) || !Number.isFinite(barPx)) continue;
-            if (barPx < BAR_PX_MIN * (1 - REL_EPS) || barPx > BAR_PX_MAX * (1 + REL_EPS)) continue;
-            stops.push({
-                ladderId,
-                unit: rung.name,
-                rank,
-                niceValue: v.value,
-                value: v.value,
-                logLen,
-                barPx: Math.min(BAR_PX_MAX, Math.max(BAR_PX_MIN, barPx)),
-                form: v.form,
-                label: v.label,
-            });
-        }
-    }
-    return stops;
+    return ladder(ladderId).candidatesAt(mpp);
 }
 
 /**
@@ -114,11 +64,12 @@ export function candidatesOnLadder(ladderId, mpp) {
  * Always returns a bounded bar (clamped) — never throws (L11).
  */
 export function extremeCandidates(ladderId, mpp) {
-    const ladder = ladderForStack(ladderId);
-    if (!ladder.length || !(mpp > 0)) return [];
+    const L = ladder(ladderId);
+    const rungs = L.rungs;
+    if (!rungs.length || !(mpp > 0)) return [];
     const tLog = targetLogLen(mpp);
-    const floor = ladder[0];
-    const ceiling = ladder[ladder.length - 1];
+    const floor = rungs[0];
+    const ceiling = rungs[rungs.length - 1];
     const useFloor = tLog < (floor.log10Meters + ceiling.log10Meters) / 2;
     const rung = useFloor ? floor : ceiling;
     const stop = bestInBoundsNice(
@@ -127,13 +78,13 @@ export function extremeCandidates(ladderId, mpp) {
         BAR_PX_MIN,
         BAR_PX_MAX,
         BAR_PX_TARGET,
-        extraNiceFor(ladderId, rung.name),
+        L.extraNiceFor(rung.name),
     );
     if (!stop) return [];
     return [{
         ladderId,
         unit: rung.name,
-        rank: useFloor ? 0 : ladder.length - 1,
+        rank: useFloor ? 0 : rungs.length - 1,
         niceValue: stop.niceValue,
         value: stop.value,
         logLen: stop.logLen,
@@ -177,86 +128,57 @@ export function resolveReading(mpp, session, opts = {}) {
     if (!(mpp > 0) || !Number.isFinite(mpp)) return null;
     const ladderId =
         opts.ladderId || session?.ladderId || LADDER_IDS.STANDARD_METRIC;
+    const L = ladder(ladderId);
 
-    let pool = candidatesOnLadder(ladderId, mpp);
+    let pool = L.candidatesAt(mpp);
     if (!pool.length) pool = extremeCandidates(ladderId, mpp);
     if (!pool.length) return null;
 
     const tLog = targetLogLen(mpp);
     const ignoreAll = !!opts.ignoreAllPrefs;
-    // I-02 / Proposal A: pool-exit + coarse far-edge cap. userHit = any
-    // in-pool stop of the preferred unit (not gated on install [logLo, logHi]).
-    let userBand =
+
+    // User preferred range (constraint 5): forces its unit for any of its stops
+    // inside the span; persists (never zoom-cleared).
+    let userRange =
         !ignoreAll && !opts.ignoreUserBand && session?.userBand
-            ? session.userBand
+            ? toUserRange(session.userBand)
             : null;
-    if (userBand && userBandShouldClear(userBand, tLog, pool, LOG_EPS)) {
-        userBand = null;
+    if (userRange && userRange.shouldClear(tLog, pool, LOG_EPS)) {
+        userRange = null;
     }
-    const incumbent =
-        !opts.ignoreIncumbent && session?.incumbentUnit
-            ? session.incumbentUnit
-            : null;
 
+    // Collapse the pool to ONE representative stop per unit — the reading that
+    // unit would actually show at this zoom (its nice value closest to the bar
+    // target). This is what makes "lowest number" compare UNITS, not values of
+    // the same unit (so `1 in` at target beats `0.5 in`), and it makes the whole
+    // resolve a pure function of mpp — cold and walked agree by construction, so
+    // there is no incumbent hysteresis to tune (preference ranges, which are
+    // wide, are the anti-flicker mechanism — bible Q4).
+    const byUnit = new Map();
     for (const s of pool) {
-        s.userHit = Boolean(userBand && s.unit === userBand.unit);
-        if (ignoreAll) {
-            s.bandHit = false;
-        } else {
-            const band = bandFor(ladderId, s.unit);
-            s.bandHit =
-                s.niceValue >= band.lo * (1 - REL_EPS) &&
-                s.niceValue <= band.hi * (1 + REL_EPS);
-        }
+        s.userHit = Boolean(userRange && userRange.claims(s));
+        s.bandHit = ignoreAll ? false : L.preferenceFor(s.unit).claims(s);
+        const cur = byUnit.get(s.unit);
+        if (!cur) { byUnit.set(s.unit, s); continue; }
+        // keep a userHit rep, then the bar-target-closest.
+        if (s.userHit && !cur.userHit) { byUnit.set(s.unit, s); continue; }
+        if (cur.userHit && !s.userHit) continue;
+        if (Math.abs(s.logLen - tLog) < Math.abs(cur.logLen - tLog)) byUnit.set(s.unit, s);
     }
+    const reps = [...byUnit.values()];
+    const allSubOne = reps.every((s) => s.niceValue < 1);
 
-    const bandHitUnits = new Set(pool.filter((s) => s.bandHit).map((s) => s.unit));
-    const onesInPool = new Set(
-        pool.filter((s) => Math.abs(s.niceValue - 1) <= REL_EPS).map((s) => s.unit),
-    );
-    const promoteSuppressed = ignoreAll
-        ? new Set()
-        : promoteSuppressedUnits(ladderId, onesInPool, bandHitUnits);
-    const suppressed = ignoreAll
-        ? new Set()
-        : handoffSuppressedUnits(ladderId, bandHitUnits);
-    // Exit condition (L2): incumbent holds only while it still has any stop
-    // inside the full allowed bar range (incumbent still in pool).
-    const incumbentActive = Boolean(
-        incumbent && pool.some((s) => s.unit === incumbent),
-    );
-    // Enter condition (L2): neighbors that would win only via band/prefer are
-    // blocked until ~5% past the incumbent band edge. Handoff/promote keys sit
-    // above incumbent and are unaffected.
-    const enterReleased =
-        !incumbentActive || pastIncumbentEnterEdge(ladderId, incumbent, tLog);
-    const allSubOne = pool.every((s) => s.niceValue < 1);
-
-    /**
-     * Band-hit credit for scoring. Raw bandHit still drives handoff/promote
-     * sets; enter margin only strips neighbor band credit until released —
-     * unless handoff/promote already elevates that neighbor over the incumbent.
-     */
-    const scoreBandHit = (s) => {
-        if (!s.bandHit) return false;
-        if (!incumbentActive || enterReleased || s.unit === incumbent) return true;
-        if (suppressed.has(incumbent) && !suppressed.has(s.unit)) return true;
-        if (promoteSuppressed.has(incumbent) && !promoteSuppressed.has(s.unit)) {
-            return true;
-        }
-        return false;
-    };
+    // Lowest in-range number: within a unit's §5 preference band (Tier A) the raw
+    // value counts (so a sub-1 stop like 1/16 in beats 50 mil); otherwise only
+    // values ≥ 1 are eligible (default lower bound 1), so 1 ft beats 10 in and
+    // neither loses to a sub-1 default stop.
+    const lowNumber = (s) =>
+        s.bandHit ? s.niceValue : (s.niceValue >= 1 ? s.niceValue : Infinity);
 
     const keyFor = (s) => [
-        s.userHit ? 0 : 1,
-        // I-01 promoteNextGe1: demote finer-unit bandHits when 1<next> fits.
-        promoteSuppressed.has(s.unit) ? 1 : 0,
-        scoreBandHit(s) ? 0 : 1,
-        s.bandHit && suppressed.has(s.unit) ? 1 : 0,
-        incumbentActive && !enterReleased
-            ? (s.unit === incumbent ? 0 : 1)
-            : 0,
-        s.niceValue >= 1 ? s.niceValue : Infinity,
+        s.userHit ? 0 : 1,   // user range
+        s.bandHit ? 0 : 1,   // Tier A: inside the §5 preference band
+        lowNumber(s),        // lowest in-range number
         allSubOne ? s.rank : 0,
         Math.abs(s.logLen - tLog),
         s.rank,
@@ -265,7 +187,7 @@ export function resolveReading(mpp, session, opts = {}) {
 
     let best = null;
     let bestKey = null;
-    for (const s of pool) {
+    for (const s of reps) {
         const key = keyFor(s);
         if (!bestKey) {
             best = s;

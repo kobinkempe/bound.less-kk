@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import KobinEngine from "../engine/KobinEngine";
+import { formatScaleNumber } from "../engine/scaleBar";
 
 export const AUTOSAVE_KEY = "kobinAutosave";
 
@@ -339,6 +340,12 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
 }
 
 export function fmtZoom(z) {
+    if (!(z > 0) || !Number.isFinite(z)) return "1";
+    // Human-friendly k / M only in the range where the quotient stays short;
+    // beyond that (and below .001) fall to the scale bar's automatic scientific
+    // notation, so extreme zooms never render as giant plain decimals like
+    // "1500646128030403.00M" (the divide-by-1e6 quotient was still ~1e15).
+    if (z >= 1e9 || z < 1e-3) return formatScaleNumber(z);
     if (z >= 1e6) return (z / 1e6).toFixed(2) + "M";
     if (z >= 1e3) return (z / 1e3).toFixed(2) + "k";
     return z.toFixed(2);

@@ -50,15 +50,16 @@ export {
 export {
     bandFor,
     bandLogInterval,
-    buildUserBand,
-    promoteTarget,
     extraNiceFor,
-    userBandFarEdge,
-    userBandExited,
-    userBandUnitMissingFromPool,
-    userBandShouldClear,
-    HANDOFF_WINNERS,
 } from "./preference";
+export {
+    PreferenceRange,
+    StandardPreferenceRange,
+    UserPreferenceRange,
+    RANGE_PRIORITY,
+    toUserRange,
+} from "./preferenceRange";
+export { Ladder, ladder, ALL_LADDERS } from "./ladder";
 
 export {
     log10,

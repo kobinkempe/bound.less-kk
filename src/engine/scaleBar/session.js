@@ -11,7 +11,7 @@
 
 import { LADDER_IDS } from "./constants";
 import { stackForUnit } from "./membership";
-import { userBandShouldClear } from "./preference";
+import { toUserRange } from "./preferenceRange";
 import { targetLogLen } from "./logMath";
 import { candidatesOnLadder, extremeCandidates } from "./resolve";
 
@@ -34,7 +34,8 @@ export function clearUserBandIfExited(session, mpp) {
     const ladderId = session.userBand.ladderId || session.ladderId;
     let pool = candidatesOnLadder(ladderId, mpp);
     if (!pool.length) pool = extremeCandidates(ladderId, mpp);
-    if (!userBandShouldClear(session.userBand, targetLogLen(mpp), pool)) {
+    const range = toUserRange(session.userBand);
+    if (!range.shouldClear(targetLogLen(mpp), pool)) {
         return session;
     }
     return { ...session, userBand: null };

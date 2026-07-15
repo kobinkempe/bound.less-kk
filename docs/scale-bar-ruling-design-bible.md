@@ -117,14 +117,17 @@ When choosing among candidates that fit bar bounds, prefer in order:
 
 ### Constraint 5 — User preference overrides
 
+> **Updated 2026-07-15 (owner-clarified — supersedes the earlier far-edge / zoom-teardown model).** The two changes from the prior text: (a) the range spans the unit's NATURAL flip edges extended to the current view, not "quantized pick → hardcoded far edge"; (b) a user range PERSISTS through zoom and is torn down only by a user action (sticky re-entry ON). The old (d) zoom-exit teardown and the `USER_BAND_FAR_EDGE` table are removed.
+
 User picks override auto preference as follows:
 
-1. **Unit not on current ladder** (or not preferred at this zoom) → switch to the appropriate ladder (highest-preference ladder if the unit exists on multiple). Then create a **user preferred range on that new ladder** for the picked unit from the **quantized nice reading** (L5), not raw pre-nice size, through the unit’s **normal far edge** on that ladder (L12 — may exceed §5 preferred hi; e.g. mi through ~2000 mi, yd through 5000 yd). Example: µm-scale → inches yields ≈ `10⁻⁵`–`10⁻⁴ in` (nice) through far edge `10 in`.  
-   - Exception: if rule 3 applies (unit is the preferred auto unit on the destination ladder at this zoom), **only switch ladders** — do **not** create a user preferred range (L6).
-2. **Unit on current ladder but not the preferred unit at this zoom** → same user-range construction as rule 1 (quantized nice → far edge).  
-   - Every unit has a **standard preferred band** derived from the “prefer lower numbers ≥ 1” rule together with bar-length bounds and nice numbers (§5 PROPOSED table) — used for auto `bandHit`, not as the user-range hi when far edge exceeds it (L12).  
-   - User preferred ranges outrank standard preferred ranges.  
-   - Tear down on: (a) L7 other-unit pick while a `userBand` is still active, (b) L6 preferred pick (return to auto), (c) ladder switch / clear, (d) **auto exit** when the preferred unit leaves the bar pool **or** `targetLogLen > logHi` (I-02 / A-pool hybrid — sticky re-entry rejected). Do **not** clear solely because `tLog < logLo`. Install extent still includes bar min/max headroom at pick mpp (Hybrid B⁺); CanvasEditor A6 write-back race guard retained. Tier-0 `userHit` = any in-pool stop of `userBand.unit` (not gated on install `[logLo, logHi]`).  
+1. **Unit not on current ladder** (or not the preferred unit at this zoom) → switch to the appropriate ladder (highest-preference ladder if the unit exists on multiple), then create a **user preferred range on that new ladder** for the picked unit.
+   - **Span** = `[ min(currentSize, flipDown), max(currentSize, flipUp) ]`, where `flipDown` / `flipUp` are the edges of the unit's **natural auto-interval** — where the auto rule would hand the unit off to a finer / coarser neighbour. These edges are **derived from the resolver** (`pick.js#autoSpanForUnit`), NOT a hardcoded far edge. Examples: at 2 mi pick `yd` → `[200 yd (flip-down), current]`; at µm pick `in` → `[current, ~1 ft (flip-up)]`; at 1 km pick `cm` → `[1 cm (flip-down), current]`.
+   - Exception: if rule 3 applies (unit is the preferred auto unit on the destination ladder at this zoom), **only switch ladders** — no user range (L6).
+2. **Unit on current ladder but not the preferred unit at this zoom** → same user-range construction as rule 1.
+   - Every unit has a **standard preferred band** (§5 table) used for auto `bandHit`; user preferred ranges **outrank** standard ranges.
+   - The range forces its unit for any in-pool stop **inside the span**; outside the span the auto rule resumes, but the range stays installed.
+   - **Teardown (user actions only):** (a) L7 pick of a different unit, (b) L6 preferred pick (return to auto), (c) ladder switch / clear scale. **Zoom NEVER tears it down** — zooming out of the span and back re-shows the unit (sticky re-entry). "Persists until the user makes a change." CanvasEditor A6 write-back race guard retained.
    - Switching ladders invalidates any prior user preferred range (then rule 1 may install a new one on the destination ladder).
 3. **Unit not preferred on current ladder, but is the preferred unit on another ladder** → **only switch ladders** (highest preference if tied — always `highestPriority(preferredLadders)`, I-15). **Do not** create a user preferred range. Example: at `5 hm`, select `m`.
 

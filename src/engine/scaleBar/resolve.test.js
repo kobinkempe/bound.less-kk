@@ -452,8 +452,9 @@ describe("scaleBar/resolveReading", () => {
         ).toBe(true);
     });
 
-    test("ZS-01: dm sticky CanvasEditor-style session round-trip via computeScale", () => {
-        // Fixed scaleDef; vary effectiveZoom like the editor (I-02 / UP3).
+    test("ZS-01: dm user range is STICKY across a CanvasEditor-style round-trip", () => {
+        // Constraint 5: the user range persists through zoom and re-shows the
+        // unit on zoom-back (no zoom teardown, sticky re-entry).
         const scaleDef = { value: 1, unit: "cm", barPx: BAR_PX_TARGET, zoomAt: 100 };
         const cmMpp = mppForReading(1, "cm");
         const qpcMpp = mppForReading(1, "Qpc");
@@ -463,16 +464,16 @@ describe("scaleBar/resolveReading", () => {
         const { session: withDm } = applyUnitPick("dm", cmMpp, session);
         expect(withDm.userBand?.unit).toBe("dm");
 
-        // Zoom out to Qpc — computeScale must clear userBand on returned session.
+        // Zoom out to Qpc — dm leaves its span (auto takes over) but band persists.
         const atQpc = computeScale(zQpc, scaleDef, withDm);
-        expect(atQpc.session.userBand).toBeNull();
+        expect(atQpc.session.userBand).not.toBeNull();
+        expect(atQpc.reading.unit).not.toBe("dm");
 
-        // Persist session (editor write-back), then zoom back to ~1 cm.
+        // Persist session (editor write-back), then zoom back to ~1 cm → dm returns.
         session = atQpc.session;
         const back = computeScale(100, scaleDef, session);
-        expect(back.session.userBand).toBeNull();
+        expect(back.session.userBand?.unit).toBe("dm");
         expectBarInBounds(back.reading);
-        expect(back.reading.unit).not.toBe("dm");
-        expect(["mm", "cm"]).toContain(back.reading.unit);
+        expect(back.reading.unit).toBe("dm");
     });
 });
