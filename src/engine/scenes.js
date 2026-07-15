@@ -16,11 +16,34 @@
  * scene, and pockets (much-finer ink inside a scene) become nested scenes
  * regardless of stroke count — the tiniest dot 3000× deep is a scene.
  *
- * The injected projector `proj`:
- *   proj.mapRect(rect{x0,y0,x1,y1}, fromLevel, toLevel) -> rect | null
- *   proj.widthFactor(fromLevel, toLevel)                -> number | null
+ * The injected projector `proj`. `level` is an opaque FRAME KEY — an integer
+ * depth on the spine, or a frame id like "2~1" for a locally-anchored sibling
+ * (docs/local-frames-design-bible.md). proj carries both the transforms and the
+ * frame-tree adjacency; when the adjacency helpers are absent it falls back to
+ * integer-depth arithmetic (spine), so numeric callers/tests are unchanged:
+ *   proj.mapRect(rect{left,top,right,bottom}, fromKey, toKey) -> rect | null
+ *   proj.widthFactor(fromKey, toKey)                          -> number | null
+ *   proj.depthOf(key)            -> int          (default: Number(key))
+ *   proj.childrenOf(key, keys[]) -> keys[]        (default: keys one depth finer)
  */
 import { bboxOf } from "./geometry/derive";
+
+// Frame-key helpers, defaulting to spine (integer-depth) semantics.
+const depthFn = (proj) => (proj && proj.depthOf) || ((k) => Number(k));
+// Canonical output key: a pure-integer key (spine, "0"/"-1") becomes the
+// integer depth; a sibling frame id ("2~1") stays a string. Keeps spine scene
+// levels integer-typed (matching persisted saves + the numeric spec tests)
+// while carrying frame ids only where a local frame actually exists.
+const normKey = (k) => {
+    if (typeof k === "number") return k;
+    const n = Number(k);
+    return (Number.isFinite(n) && String(n) === k) ? n : k;
+};
+const childrenFn = (proj) => {
+    if (proj && proj.childrenOf) return proj.childrenOf;
+    const d = depthFn(proj);
+    return (k, keys) => keys.filter((x) => d(x) === d(k) + 1);
+};
 
 export const WINDOW_WIDTHS = 600;   // window side = 600 × stroke width
 export const JOIN_WINDOWS = 1.5;    // join across gaps ≤ 1.5 windows (coarser stroke)
@@ -252,26 +275,34 @@ function frameOfItems(items) {
  * ordered primary-first, parents before pockets. `proj` per module header.
  */
 export function computeSceneProposals(nativesByLevel, proj) {
-    const levels = Object.keys(nativesByLevel).map(Number)
-        .filter((L) => (nativesByLevel[L] || []).length).sort((a, b) => a - b);
-    if (!levels.length) return [];
+    const depthOf = depthFn(proj);
+    const childrenOf = childrenFn(proj);
+    const keys = Object.keys(nativesByLevel)
+        .filter((k) => (nativesByLevel[k] || []).length)
+        .sort((a, b) => depthOf(a) - depthOf(b));
+    if (!keys.length) return [];
 
-    // 1) Union across adjacent level-pair windows, keyed by stroke id.
+    // 1) Union across adjacent frame-pair windows (parent ← each child), keyed
+    // by stroke id. Sibling frames never stitch to each other — they only meet
+    // through a shared parent, which is exactly the tree edge we project across.
     const parent = new Map();
     const find = (i) => { let r = i; while (parent.get(r) !== r) r = parent.get(r); let c = i; while (parent.get(c) !== c) { const n = parent.get(c); parent.set(c, r); c = n; } return r; };
     const union = (i, j) => { const ri = find(i), rj = find(j); if (ri !== rj) parent.set(ri, rj); };
-    const byLevel = new Map(levels.map((L) => [L, itemsAtLevel(nativesByLevel, L)]));
-    for (const items of byLevel.values()) for (const it of items) parent.set(it.id, it.id);
+    const byKey = new Map(keys.map((k) => [k, itemsAtLevel(nativesByLevel, k)]));
+    for (const items of byKey.values()) for (const it of items) parent.set(it.id, it.id);
 
-    for (const L of levels) {
-        const own = byLevel.get(L);
-        const finer = byLevel.has(L + 1) ? byLevel.get(L + 1) : [];
+    for (const F of keys) {
+        const own = byKey.get(F);
         const projected = [];
-        for (const it of finer) {
-            const chunks = mapChunks(it.chunks, L + 1, L, proj);
-            const f = proj.widthFactor(L + 1, L);
-            if (!chunks || f == null) continue;
-            projected.push({ id: it.id, level: L + 1, w: it.w * f, chunks, box: outerBox(chunks) });
+        for (const childKey of childrenOf(F, keys)) {
+            const finer = byKey.get(childKey) || [];
+            const f = proj.widthFactor(childKey, F);
+            if (f == null) continue;
+            for (const it of finer) {
+                const chunks = mapChunks(it.chunks, childKey, F, proj);
+                if (!chunks) continue;
+                projected.push({ id: it.id, level: childKey, w: it.w * f, chunks, box: outerBox(chunks) });
+            }
         }
         const window = own.concat(projected);
         for (let i = 0; i < window.length; i++) {
@@ -283,7 +314,7 @@ export function computeSceneProposals(nativesByLevel, proj) {
 
     // 2) Components → top-level scenes, geometry in each anchor frame.
     const groups = new Map();
-    for (const [L, items] of byLevel) {
+    for (const items of byKey.values()) {
         for (const it of items) {
             const r = find(it.id);
             if (!groups.has(r)) groups.set(r, []);
@@ -293,7 +324,7 @@ export function computeSceneProposals(nativesByLevel, proj) {
 
     const out = [];
     for (const members of groups.values()) {
-        const anchor = Math.min(...members.map((m) => m.level));
+        const anchor = members.reduce((a, m) => (depthOf(m.level) < depthOf(a) ? m.level : a), members[0].level);
         buildScene(members, anchor, proj, out, -1, 0);
     }
     // Primary-first among top-level scenes; pockets already follow parents.
@@ -308,10 +339,11 @@ const GEOMETRY_CHAIN = 4;
 
 /** Members (any levels) → one scene + its pockets, appended to `out`. */
 function buildScene(members, anchor, proj, out, parentIndex, depth) {
+    const depthOf = depthFn(proj);
     const inFrame = [];
     for (const m of members) {
         if (m.level === anchor) { inFrame.push(m); continue; }
-        if (m.level - anchor > GEOMETRY_CHAIN) continue;
+        if (depthOf(m.level) - depthOf(anchor) > GEOMETRY_CHAIN) continue;
         const chunks = mapChunks(m.chunks, m.level, anchor, proj);
         const f = proj.widthFactor(m.level, anchor);
         if (!chunks || f == null) continue;
@@ -324,7 +356,7 @@ function buildScene(members, anchor, proj, out, parentIndex, depth) {
         / Math.max(wMed * wMed, 1e-24);
     const index = out.length;
     out.push({
-        level: anchor, rect, hash: membersHash(members), size,
+        level: normKey(anchor), rect, hash: membersHash(members), size,
         memberIds: members.map((m) => m.id), parentIndex, depth,
     });
 
@@ -360,7 +392,8 @@ function pocketize(detailItems, parentExtent, byId, proj, out, parentIndex, dept
         if (extent <= parentExtent * POCKET_EXTENT_FRAC) {
             const pocketMembers = cluster.map((c) => byId.get(c.id)).filter(Boolean);
             if (!pocketMembers.length) continue;
-            const pocketAnchor = Math.min(...pocketMembers.map((m) => m.level));
+            const dOf = depthFn(proj);
+            const pocketAnchor = pocketMembers.reduce((a, m) => (dOf(m.level) < dOf(a) ? m.level : a), pocketMembers[0].level);
             buildScene(pocketMembers, pocketAnchor, proj, out, parentIndex, depth);
         } else {
             const wc = Math.max(...cluster.map((m) => m.w));
@@ -410,8 +443,9 @@ export function rectIoU(a, b) {
 /** Compare two {level, rect} frames, projecting through ≤2 records if needed. */
 export function framesIoU(a, b, proj) {
     if (a.level === b.level) return rectIoU(a.rect, b.rect);
-    if (Math.abs(a.level - b.level) > 2) return 0;
-    const [fine, coarse] = a.level > b.level ? [a, b] : [b, a];
+    const depthOf = depthFn(proj);
+    if (Math.abs(depthOf(a.level) - depthOf(b.level)) > 2) return 0;
+    const [fine, coarse] = depthOf(a.level) > depthOf(b.level) ? [a, b] : [b, a];
     const m = proj.mapRect(
         { left: fine.rect.x, top: fine.rect.y, right: fine.rect.x + fine.rect.w, bottom: fine.rect.y + fine.rect.h },
         fine.level, coarse.level,
@@ -480,9 +514,10 @@ export function matchScenes(state, proposals, proj) {
  * report that a new one is needed. view: { level, rect }.
  */
 export function resolveCapture(view, scenes, proj) {
+    const depthOf = depthFn(proj);
     let best = null, bestIoU = 0;
     for (const s of scenes) {
-        if (Math.abs(s.level - view.level) > 2) continue;
+        if (Math.abs(depthOf(s.level) - depthOf(view.level)) > 2) continue;
         const zoomRatio = ratioOfExtents(view, s, proj);
         if (zoomRatio == null || zoomRatio > RETARGET_ZOOM || zoomRatio < 1 / RETARGET_ZOOM) continue;
         const iou = framesIoU(view, { level: s.level, rect: s.rect }, proj);
@@ -494,10 +529,15 @@ export function resolveCapture(view, scenes, proj) {
 }
 
 function ratioOfExtents(view, s, proj) {
-    const f = view.level === s.level ? 1 : proj.widthFactor(Math.max(view.level, s.level), Math.min(view.level, s.level));
+    const depthOf = depthFn(proj);
+    const dv = depthOf(view.level), ds = depthOf(s.level);
+    // widthFactor from the DEEPER key to the SHALLOWER (finer→coarser, <1).
+    const deeper = dv >= ds ? view.level : s.level;
+    const shallower = dv >= ds ? s.level : view.level;
+    const f = view.level === s.level ? 1 : proj.widthFactor(deeper, shallower);
     if (f == null) return null;
-    const ev = Math.max(view.rect.w, view.rect.h) * (view.level >= s.level ? f : 1);
-    const es = Math.max(s.rect.w, s.rect.h) * (s.level > view.level ? f : 1);
+    const ev = Math.max(view.rect.w, view.rect.h) * (dv >= ds ? f : 1);
+    const es = Math.max(s.rect.w, s.rect.h) * (ds > dv ? f : 1);
     return ev > es ? ev / es : es / ev;
 }
 

@@ -112,7 +112,7 @@ describe("selection", () => {
         E.setTool("select");
         E.pointerDown(400, 300);
         expect(E.selection).not.toBeNull();
-        expect(E.selection.level).toBe(0); // the native's home, not the active level
+        expect(E.selection.level).toBe("0"); // the native's home FRAME id, not the active level
         E.pointerMove(430, 300);
         E.pointerUp();
         const after = E.nativesByLevel[0][0].pts;

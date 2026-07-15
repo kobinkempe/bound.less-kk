@@ -62,7 +62,11 @@ describe("magnify chain (upContent)", () => {
         const ts = mkStore(M, d);
         const t0 = Date.now();
         const pieces = ts.content(0, win(M, 0));
-        expect(Date.now() - t0).toBeLessThan(1000);
+        // "No runaway": a genuine chain explosion was SECONDS-to-minutes (the old
+        // 167 s / 583 s Clipper blowups). This asserts termination, not perf —
+        // solo it runs ~0.5 s; the wide bound just absorbs parallel-worker
+        // contention that used to flake the old 1000 ms guard.
+        expect(Date.now() - t0).toBeLessThan(5000);
         expect(pieces.length).toBeGreaterThan(0);
         expect(ts.size()).toBeLessThanOrEqual(512);
     });

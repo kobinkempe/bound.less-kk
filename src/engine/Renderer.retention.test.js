@@ -128,10 +128,11 @@ describe("engine wires the active level into retention", () => {
         let guard = 0;
         while (E.activeLevel > 0 && guard++ < 80) E.zoomFactorAt(ax, ay, 0.7); // back down
         expect(E.activeLevel).toBe(0);
-        // both levels are retained (per-level subtrees exist)
+        // both levels are retained (per-frame subtrees exist; spine frame ids
+        // are the depth as a string)
         expect(E.renderer._scenes.size).toBeGreaterThanOrEqual(2);
-        expect(E.renderer._scenes.has(0)).toBe(true);
-        expect(E.renderer._scenes.has(1)).toBe(true);
+        expect(E.renderer._scenes.has("0")).toBe(true);
+        expect(E.renderer._scenes.has("1")).toBe(true);
     });
 
     test("with retention off the engine keeps a single shared scene", () => {

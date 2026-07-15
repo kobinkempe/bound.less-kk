@@ -40,7 +40,7 @@ test("strokes drawn far from the level origin render with small path coordinates
     // aftermath, minus the crossings — what matters is coordinate magnitude).
     E.panBy(-2.5e6, 0);
     // The pan itself must have re-anchored the scene near the new view center.
-    const sc = E.renderer._scenes.get(E.activeLevel);
+    const sc = E.renderer._scenes.get(E.cam.frame);
     expect(Math.abs(sc.origin.x)).toBeGreaterThan(1.5e6);
     expect(E.renderer.needsReorigin()).toBe(false);
     // Draw here: native coordinates are genuinely huge…

@@ -111,20 +111,25 @@ export default class Document {
     allocId() { return this._nextId++; }
 
     // ---- storage primitives ----
-    levels() { return Object.keys(this.nativesByLevel).map(Number); }
+    // Keys are FRAME ids (strings). Spine frame ids are the depth as a string
+    // ("0", "1", "-2"), so legacy per-level data and integer-level callers keep
+    // working through plain object-key coercion; sibling frames ("2~1") slot in
+    // with no special cases. All entry points normalize to String.
+    levels() { return Object.keys(this.nativesByLevel); }
     at(level) { return this.nativesByLevel[level] || []; }
-    _idx(level) { return this._index[level] || (this._index[level] = new LevelIndex()); }
+    _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
 
     // Add a newly drawn object as a native of `level`. `live` = still growing
     // (a stroke between pointerDown and pointerUp): kept out of the spatial
     // index until finalize().
     add(o, level, { live = false } = {}) {
-        if (!this.nativesByLevel[level]) this.nativesByLevel[level] = [];
-        this.nativesByLevel[level].push(o);
-        o._home = level;
+        const k = String(level);
+        if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
+        this.nativesByLevel[k].push(o);
+        o._home = k;
         if (live) this._pending.add(o);
-        else this._idx(level).add(o);
-        this._emit({ kind: "add", id: o.id, level, obj: o, live });
+        else this._idx(k).add(o);
+        this._emit({ kind: "add", id: o.id, level: k, obj: o, live });
         return o;
     }
     // The stroke is done: geometry is immutable from here on -> index it and
@@ -136,16 +141,17 @@ export default class Document {
     }
 
     // Find a native by id (same scan removeById does, without the splice).
+    // `level` in the returned record is the FRAME id (string) the object homes in.
     getById(id) {
         for (const Ls of Object.keys(this.nativesByLevel)) {
             const arr = this.nativesByLevel[Ls];
             const o = arr && arr.find((x) => x.id === id);
-            if (o) return { obj: o, level: +Ls };
+            if (o) return { obj: o, level: Ls };
         }
         return null;
     }
 
-    // Remove a native by id from whichever level holds it (derived copies carry
+    // Remove a native by id from whichever frame holds it (derived copies carry
     // the source id, so this is "erase everywhere").
     removeById(id) {
         for (const Ls of Object.keys(this.nativesByLevel)) {
@@ -153,23 +159,23 @@ export default class Document {
             const i = arr ? arr.findIndex((o) => o.id === id) : -1;
             if (i < 0) continue;
             const [obj] = arr.splice(i, 1);
-            const L = +Ls;
             this._pending.delete(obj);
-            this._idx(L).remove(obj);
-            this._emit({ kind: "remove", id, level: L, obj });
-            return { obj, level: L, index: i };
+            this._idx(Ls).remove(obj);
+            this._emit({ kind: "remove", id, level: Ls, obj });
+            return { obj, level: Ls, index: i };
         }
         return null;
     }
     // Re-insert at a remembered position (undo of an erase). Position only
     // affects the array; z-order is by id, which the object kept.
     insertAt(obj, level, index) {
-        if (!this.nativesByLevel[level]) this.nativesByLevel[level] = [];
-        const arr = this.nativesByLevel[level];
+        const k = String(level);
+        if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
+        const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
-        obj._home = level;
-        this._idx(level).add(obj);
-        this._emit({ kind: "add", id: obj.id, level, obj });
+        obj._home = k;
+        this._idx(k).add(obj);
+        this._emit({ kind: "add", id: obj.id, level: k, obj });
     }
 
     // ---- edit primitives (selection / US-10) ----
@@ -236,9 +242,10 @@ export default class Document {
     // Spatial query: indexed objects intersecting rect (lw-inflated bboxes),
     // plus every still-growing live stroke at that level (unindexable).
     queryRect(level, rect) {
+        const k = String(level);
         const out = [];
-        if (this._index[level]) this._index[level].query(rect, out);
-        for (const o of this._pending) if (o._home === level) out.push(o);
+        if (this._index[k]) this._index[k].query(rect, out);
+        for (const o of this._pending) if (o._home === k) out.push(o);
         return out;
     }
 
@@ -329,7 +336,7 @@ export default class Document {
         this._index = {};
         this._pending = new Set();
         for (const Ls of Object.keys(natives)) {
-            for (const o of natives[Ls] || []) { o._home = +Ls; this._idx(+Ls).add(o); }
+            for (const o of natives[Ls] || []) { o._home = Ls; this._idx(Ls).add(o); }
         }
         this._emit({ kind: "reset" });
     }

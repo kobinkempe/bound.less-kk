@@ -8,10 +8,17 @@
  *     format:  "boundless-drawing",     // sniffable magic
  *     version: 1,                        // integer; readers reject newer
  *     meta:    { name, createdAt, modifiedAt, app },
- *     camera:  { activeLevel, inScale, inPanX, inPanY },
- *     crossings: { level: { s, t:{x,y}, grid:{w,h,ox,oy} } },
- *     natives:   { level: [ stroke | fill, ... ] },
+ *     camera:  { activeLevel, frame?, inScale, inPanX, inPanY },
+ *     crossings: { level: { s, t:{x,y}, grid:{w,h,ox,oy} } }
+ *              | { __frames: [ { id, parent, depth, edge:{s,t}, grid } ] },
+ *     natives:   { frameId: [ stroke | fill, ... ] },
  *   }
+ *
+ * Frame keys: a canvas that only ever zoomed keeps integer-depth keys (the
+ * "spine" — byte-identical to kobin-1). Once a far pan-then-zoom spawns a local
+ * frame (see docs/local-frames-design-bible.md), `crossings` becomes the
+ * `{ __frames }` tree and `natives`/`camera.frame` carry string frame ids like
+ * "2~1". Both shapes decode; old files (integer-only) are unchanged.
  *
  * The payload shapes (camera/crossings/natives) are exactly what the engine's
  * collaborators serialize (Camera.state / LevelMap.serialize /
@@ -54,6 +61,7 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
         camera: {
             activeLevel: camera.activeLevel, inScale: camera.inScale,
             inPanX: camera.inPanX, inPanY: camera.inPanY,
+            ...(camera.frame != null ? { frame: camera.frame } : {}),
         },
         crossings: crossings || {},
         natives: natives || {},
@@ -122,7 +130,7 @@ function decodeMeta(m, { lenient = false } = {}) {
         if (scenes.length) out.scenes = scenes;
     }
     if (m && Array.isArray(m.hiddenScenes)) {
-        const hidden = m.hiddenScenes.filter((h) => h && Number.isInteger(h.level) && validRect(h.rect))
+        const hidden = m.hiddenScenes.filter((h) => h && isFrameKey(h.level) && validRect(h.rect))
             .map((h) => ({ level: h.level, rect: cloneRect(h.rect) }));
         if (hidden.length) out.hiddenScenes = hidden;
     }
@@ -134,10 +142,14 @@ function validRect(r) {
     return r && isFiniteNum(r.x) && isFiniteNum(r.y)
         && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
 }
+// A frame key: an integer depth (spine) or a "<depth>~<n>" sibling frame id.
+function isFrameKey(v) {
+    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(~\d+)?$/.test(v));
+}
 function validScene(s) {
     return s && typeof s.id === "string" && s.id
         && typeof s.name === "string"
-        && Number.isInteger(s.level) && validRect(s.rect);
+        && isFrameKey(s.level) && validRect(s.rect);
 }
 function cloneRect(r) { return { x: r.x, y: r.y, w: r.w, h: r.h }; }
 function cloneScene(s) {
@@ -160,37 +172,59 @@ function decodeCamera(c) {
         inPanX: c.inPanX == null ? 0 : c.inPanX,
         inPanY: c.inPanY == null ? 0 : c.inPanY,
     };
+    // Optional frame id (local-frames): a non-empty string identifying the
+    // active frame; the engine falls back to the spine at `activeLevel` if absent.
+    if (c.frame != null) {
+        if (typeof c.frame !== "string" || !c.frame) throw new Error("bad camera: frame must be a non-empty string");
+        out.frame = c.frame;
+    }
     if (!Number.isInteger(out.activeLevel)) throw new Error("bad camera: activeLevel must be an integer");
     if (!isFiniteNum(out.inScale) || out.inScale <= 0) throw new Error("bad camera: inScale must be a positive number");
     if (!isFiniteNum(out.inPanX) || !isFiniteNum(out.inPanY)) throw new Error("bad camera: pan must be finite");
     return out;
 }
 
+// A frame edge record must have finite s > 0 and t.{x,y}; grid optional but sane.
+function validEdgeRec(r, allowNullEdge) {
+    if (!r) return false;
+    if (r.grid && !(isFiniteNum(r.grid.w) && r.grid.w > 0 && isFiniteNum(r.grid.h) && r.grid.h > 0 &&
+        isFiniteNum(r.grid.ox) && isFiniteNum(r.grid.oy))) return false;
+    if (allowNullEdge && (r.edge == null)) return true; // root frame: no edge
+    const e = allowNullEdge ? r.edge : r;
+    return e && isFiniteNum(e.s) && e.s > 0 && e.t && isFiniteNum(e.t.x) && isFiniteNum(e.t.y);
+}
+
 function decodeCrossings(cr) {
     if (cr == null) return {};
     if (typeof cr !== "object" || Array.isArray(cr)) throw new Error("bad crossings: expected an object");
+    // Frame-tree shape (local-frames): validate each frame node and pass through.
+    if (Array.isArray(cr.__frames)) {
+        const ids = new Set();
+        for (const f of cr.__frames) {
+            if (!f || typeof f.id !== "string" || !f.id) throw new Error("bad frames: each frame needs a string id");
+            if (ids.has(f.id)) throw new Error(`bad frames: duplicate frame id ${f.id}`);
+            ids.add(f.id);
+            if (!Number.isInteger(f.depth)) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
+            if (f.parent != null && typeof f.parent !== "string") throw new Error(`bad frames: frame ${f.id} parent must be a string`);
+            if (!validEdgeRec(f, true)) throw new Error(`bad frames: frame ${f.id} edge/grid is malformed`);
+        }
+        return cr;
+    }
     for (const l of Object.keys(cr)) {
         if (!Number.isInteger(+l)) throw new Error(`bad crossings: level "${l}" is not an integer`);
-        const r = cr[l];
-        if (!r || !isFiniteNum(r.s) || r.s <= 0 || !r.t || !isFiniteNum(r.t.x) || !isFiniteNum(r.t.y)) {
-            throw new Error(`bad crossings: level ${l} record needs finite s > 0 and t.{x,y}`);
-        }
-        // grid is optional (LevelMap derives one), but if present must be sane
-        if (r.grid && !(isFiniteNum(r.grid.w) && r.grid.w > 0 && isFiniteNum(r.grid.h) && r.grid.h > 0 &&
-            isFiniteNum(r.grid.ox) && isFiniteNum(r.grid.oy))) {
-            throw new Error(`bad crossings: level ${l} grid is malformed`);
-        }
+        if (!validEdgeRec(cr[l], false)) throw new Error(`bad crossings: level ${l} record needs finite s > 0 and t.{x,y} (and sane grid)`);
     }
     return cr;
 }
 
 function decodeNatives(n) {
     if (n == null) return { 0: [] };
-    if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of levels");
+    if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of frames");
     const seen = new Set();
     for (const l of Object.keys(n)) {
-        if (!Number.isInteger(+l)) throw new Error(`bad natives: level "${l}" is not an integer`);
-        if (!Array.isArray(n[l])) throw new Error(`bad natives: level ${l} is not an array`);
+        // keys are frame ids: integer depths (spine) OR "<depth>~<n>" siblings.
+        if (!(Number.isInteger(+l) || /^-?\d+~\d+$/.test(l))) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
+        if (!Array.isArray(n[l])) throw new Error(`bad natives: frame ${l} is not an array`);
         for (const o of n[l]) {
             if (!o || typeof o !== "object") throw new Error(`bad object at level ${l}: not an object`);
             if (!Number.isInteger(o.id) || o.id < 1) throw new Error(`bad object at level ${l}: id must be a positive integer`);

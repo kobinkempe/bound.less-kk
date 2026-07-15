@@ -305,6 +305,16 @@ the home canvas. The fixed bug invariants live in `KnownBugs.fixed.test.js` (gre
   sub-pixel clusters; a tile with thousands of tiny strokes would stall. Not yet hit.
 - **ISSUE-19 — Re-anchoring for very long pans (US-11).** `reanchor` is unimplemented;
   float headroom is large so this is low priority.
+  **2026-07-14 — WRONG, and now the top priority; overridden by the new design in
+  `local-frames-design-bible.md`.** "Headroom is large" ignored the ×3000^k pan
+  amplification across crossings: one real zoom-out→pan→zoom-in dance put the view at
+  2.1e17 units in the level-2 frame, where float64 resolves 32 units = 42 px — pen
+  input visibly snapped to a grid and the damage is permanent in the stored points
+  (level-1 ink at 7.1e13 likewise carries anchor noise ≈ 30% of pen width → the
+  round-join scallops on inherited fat strokes). Fix = the K-groups frame tree
+  (locally-anchored sibling frames per region, spawned at crossings past
+  REUSE_RADIUS); the 2026-07-14 renderer origin rebase (float32 layer) stays
+  necessary underneath it.
 - **ISSUE-20 (open; mitigated) — paint slowness.** Smaller dirty sets + window-clipped fills reduce pressure; still watch on-device.  
   Original note: Desktop `Page.captureScreenshot`
   repeatedly times out (30 s) on these scenes while JS stays responsive — the SVG *paint*

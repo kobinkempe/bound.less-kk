@@ -109,7 +109,7 @@ export default class KobinEngine {
     get levelObjects() { return { [this.cam.activeLevel]: this._lastList }; }
     get tiles() {
         const out = {};
-        for (const key of this.store._tileKeys()) { const L = +key.split("|")[0]; (out[L] = out[L] || { size: 0 }).size++; }
+        for (const key of this.store._tileKeys()) { const L = key.split("|")[0]; (out[L] = out[L] || { size: 0 }).size++; }
         return out;
     }
     get _hasFat() { return this.renderer._hasFat; }
@@ -168,26 +168,27 @@ export default class KobinEngine {
     // level's own live natives, merged in id order (global z-order).
     _buildList() {
         const win = this.cam.frameWindow(0);
-        const derived = this.store.content(this.cam.activeLevel, win);
-        const own = this.doc.at(this.cam.activeLevel);
+        const F = this.cam.frame;
+        const derived = this.store.content(F, win);
+        const own = this.doc.at(F);
         const list = derived.concat(own);
         // z defaults to id (creation order); cut pieces carry their source's z
         // so a stroke stays at its depth after a boolean erase splits it.
         list.sort((a, b) => ((a.z != null ? a.z : a.id) - (b.z != null ? b.z : b.id)) || (a.id - b.id));
-        this._lastRange = this.lm.tileRange(this.cam.activeLevel, win);
+        this._lastRange = this.lm.tileRange(F, win);
         return list;
     }
     _render() {
         const t0 = perfNow();
         this._lastList = this._buildList();
-        this.renderer.render(this._lastList, this.cam.activeLevel);
+        this.renderer.render(this._lastList, this.cam.frame);
         this.renderer.update();
         this._emit();
         this._perf("render", t0, false, { n: this._lastList.length, fat: this.renderer._hasFat });
     }
     // True if the visible tile set changed since the last full render.
     _visibleChanged() {
-        const r = this.lm.tileRange(this.cam.activeLevel, this.cam.frameWindow(0));
+        const r = this.lm.tileRange(this.cam.frame, this.cam.frameWindow(0));
         const p = this._lastRange;
         return !p || r.i0 !== p.i0 || r.i1 !== p.i1 || r.j0 !== p.j0 || r.j1 !== p.j1;
     }
@@ -224,22 +225,26 @@ export default class KobinEngine {
     _maybePrebake() {
         if (this._prebakeQueued) return;
         if (this.cam.inScale <= this.cfg.enter * 0.8) return;
-        const child = this.cam.activeLevel + 1;
-        if (!this.lm.get(child)) {
+        const parent = this.cam.frame;
+        // Find (or, if allowed, define early) the child FRAME this upward
+        // approach will cross into — reusing a nearby sibling or spawning one.
+        let child = this.lm.findChild(parent, this.cam.inScale, this.cam.inPanX, this.cam.inPanY);
+        if (!child) {
             if (!this.preBake) return;
-            this.lm.ensureUp(child, this.cam.inScale, this.cam.inPanX, this.cam.inPanY);
+            child = this.lm.ensureChild(parent, this.cam.inScale, this.cam.inPanX, this.cam.inPanY);
         }
+        const childId = child.id;
         this._prebakeQueued = true;
         const idle = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn) => setTimeout(fn, 30);
         idle(() => {
             this._prebakeQueued = false;
             if (this._destroyed) return;
-            if (this.cam.inScale <= this.cfg.enter * 0.8 || !this.lm.get(child)) return;
-            const childWin = this.lm.mapRect(this.cam.frameWindow(0), this.cam.activeLevel, child);
+            if (this.cam.inScale <= this.cfg.enter * 0.8 || !this.lm.frame(childId)) return;
+            const childWin = this.lm.mapRectF(this.cam.frameWindow(0), parent, childId);
             if (!childWin) return;
-            const pins = this.store._pins;         // keep the VISIBLE tiles pinned —
-            this.store.content(child, childWin);   // bakes + caches; render untouched
-            this.store._pins = pins;               // prebaked tiles stay evictable
+            const pins = this.store._pins;          // keep the VISIBLE tiles pinned —
+            this.store.content(childId, childWin);  // bakes + caches; render untouched
+            this.store._pins = pins;                // prebaked tiles stay evictable
         });
     }
 
@@ -257,7 +262,7 @@ export default class KobinEngine {
             if (this._destroyed) return;
             const t0 = perfNow();
             let more = false, fitted = 0;
-            for (const o of this.doc.at(this.cam.activeLevel)) {
+            for (const o of this.doc.at(this.cam.frame)) {
                 if (o.type !== "stroke" || o._outline || o === this._drawing) continue;
                 if (o.lwFrame * this.cfg.enter <= gate) continue;
                 if (perfNow() - t0 > 8) { more = true; break; }
@@ -287,7 +292,7 @@ export default class KobinEngine {
         const op = highlight ? Math.min(this.opacity, 0.45) : this.opacity;
         const o = { type: "stroke", origin: "native", id: this.doc.allocId(), pts: [p], lwFrame: lw, color: this.color, opacity: op, paths: [] };
         this.store.live = o; // exempt from bbox/flatten caches until it stops growing
-        this.doc.add(o, this.cam.activeLevel, { live: true });
+        this.doc.add(o, this.cam.frame, { live: true });
         this.renderer.addLive(o, straight);
         this.renderer.update();
         this._drawing = o; this._drawStartT = Date.now();
@@ -374,18 +379,18 @@ export default class KobinEngine {
     _cutNative(id, pActive, Re) {
         const rec = this.doc.getById(id);
         if (!rec) return false;
-        const { obj: o, level: H } = rec;
-        const L = this.cam.activeLevel;
+        const { obj: o, level: H } = rec;      // H is the object's home FRAME id
+        const F = this.cam.frame;
         // no centerline to cut -> the object eraser's semantics
         if (o.type !== "stroke") return this._eraseWhole(id);
-        const f = levelFactor(H, L, this.lm.records, this.cfg.base); // home -> active scale
-        if (f == null || Math.abs(H - L) > 4) return false; // no record chain / magnify precision
+        const f = this.lm.frameFactor(H, F); // home -> active scale
+        if (f == null || Math.abs(this.lm.depthOf(H) - this.lm.depthOf(F)) > 4) return false; // no chain / magnify precision
         // An eraser that can't span the painted band would gouge a hole ~lw wide
         // from a single touch (the cut clears the FULL width over the cut span).
         // Skip those — a magnified coarse stroke is thousands of px wide, and
         // deleting it outright would be worse; the object eraser covers that.
         if (o.lwFrame * f * this.cam.inScale > 6 * this._eraserRadiusPx()) return false;
-        const c = this.lm.mapPoint(pActive, L, H);
+        const c = this.lm.mapPointF(pActive, F, H);
         if (!c) return false;
         // r = eraser radius + half the stroke width: every centerline point whose
         // painted disc the eraser touches is removed, and the surviving pieces'
@@ -436,7 +441,7 @@ export default class KobinEngine {
         const ddy = (sy - d.last[1]) / this.cam.inScale;
         d.last = [sx, sy];
         if (!ddx && !ddy) return;
-        const f = levelFactor(this.cam.activeLevel, s.level, this.lm.records, this.cfg.base);
+        const f = this.lm.frameFactor(this.cam.frame, s.level);
         if (f == null) return;
         const hx = ddx * f, hy = ddy * f;
         this.doc.moveById(s.id, hx, hy); // change event invalidates old+new tiles
@@ -451,7 +456,7 @@ export default class KobinEngine {
         const s = this.selection; if (!s) return false;
         const p = { ...patch };
         if (p.widthPx != null) {
-            const f = levelFactor(s.level, this.cam.activeLevel, this.lm.records, this.cfg.base);
+            const f = this.lm.frameFactor(s.level, this.cam.frame);
             if (f != null && f > 0 && s.obj.type === "stroke") p.lwFrame = Math.max(1e-12, p.widthPx / (f * this.cam.inScale));
             delete p.widthPx;
         }
@@ -481,7 +486,7 @@ export default class KobinEngine {
     }
     _selectionStatus() {
         const s = this.selection; if (!s) return null;
-        const f = levelFactor(s.level, this.cam.activeLevel, this.lm.records, this.cfg.base);
+        const f = this.lm.frameFactor(s.level, this.cam.frame);
         return {
             id: s.id, type: s.obj.type, level: s.level,
             color: s.obj.color,
@@ -511,8 +516,8 @@ export default class KobinEngine {
         const capture = () => ({ crossings: this.lm.serialize(), camera: this.cam.state() });
         const restore = (ext) => { this.lm.load(ext.crossings); this.cam.set(ext.camera); };
         this.doc.clear(capture(), capture, restore); // reset event clears the tile cache
-        this.lm.records = {}; this.lm._derivedGrids = null;
-        this.cam.set({ activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
+        this.lm.reset();
+        this.cam.set({ frame: "0", activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
         this.renderer.clear();
         this._render();
     }
@@ -574,26 +579,39 @@ export default class KobinEngine {
     }
 
     // ---- scenes (auto-scenes v2: docs/auto-scenes-design-bible.md) ----
+    // Scenes speak FRAME KEYS (see scenes.js). Provide the transforms plus the
+    // tree adjacency (depthOf / childrenOf) so clustering stitches across frame
+    // edges — parent ← each child — instead of depth±1, and sibling frames (far
+    // apart by construction) never merge.
+    // Canonical scene key for the active frame: the depth int on the spine, the
+    // frame id for a local sibling — matching scenes.js `normKey` so provisional
+    // and captured scenes reconcile with computed proposals.
+    _sceneKey() {
+        const f = this.cam.frame;
+        const d = this.lm.depthOf(f);
+        return String(d) === f ? d : f;
+    }
     _sceneProj() {
         return {
-            mapRect: (rect, from, to) => this.lm.mapRect(rect, from, to),
-            widthFactor: (from, to) => levelFactor(from, to, this.lm.records, this.cfg.base),
+            mapRect: (rect, from, to) => this.lm.mapRectF(rect, from, to),
+            widthFactor: (from, to) => this.lm.frameFactor(from, to),
+            depthOf: (k) => { const d = this.lm.depthOf(k); return d == null ? Number(k) : d; },
+            childrenOf: (k, keys) => { const f = this.lm.frameFor(k); const id = f && f.id; return id == null ? [] : keys.filter((x) => this.lm.parentOf(x) === id); },
         };
     }
-    // Frame a rect (in `level`'s frame coords) in the viewport. The computed
-    // inScale may land outside [exit, enter]; _maybeCross normalizes it through
-    // the ordinary crossing machinery, creating level records as needed.
-    jumpTo(level, rect) {
+    // Frame a rect (in `frameKey`'s coords) in the viewport. `frameKey` is a
+    // frame id or a legacy depth int; it must exist in the frame tree. The
+    // computed inScale may land outside [exit, enter]; _maybeCross normalizes it
+    // through the ordinary crossing machinery.
+    jumpTo(frameKey, rect) {
         if (!rect || !(rect.w > 0) || !(rect.h > 0)) return false;
-        // A level is reachable when a record chain connects it to level 0.
-        // Its OWN record may not exist — negative levels are defined by the
-        // records of the levels above them (lm.get(-2) is legitimately empty).
-        if (level !== 0 && levelFactor(level, 0, this.lm.records, this.cfg.base) == null) return false;
+        const f = this.lm.frameFor(frameKey);
+        if (!f) return false; // unreachable frame / depth
         if (this._drawing) this.pointerUp();
         const s = Math.min(this.width / rect.w, this.height / rect.h);
         if (!(s > 0) || !Number.isFinite(s)) return false;
         this.cam.set({
-            activeLevel: level, inScale: s,
+            frame: f.id, activeLevel: f.depth, inScale: s,
             inPanX: (this.width - rect.w * s) / 2 - rect.x * s,
             inPanY: (this.height - rect.h * s) / 2 - rect.y * s,
         });
@@ -609,10 +627,9 @@ export default class KobinEngine {
         const hashes = {};
         let changed = false;
         for (const Ls of Object.keys(this.doc.nativesByLevel)) {
-            const L = +Ls;
-            if (!(this.doc.nativesByLevel[L] || []).length) continue;
-            hashes[L] = levelHash(this.doc.nativesByLevel, L);
-            if (!this._levelHashes || this._levelHashes[L] !== hashes[L]) changed = true;
+            if (!(this.doc.nativesByLevel[Ls] || []).length) continue;
+            hashes[Ls] = levelHash(this.doc.nativesByLevel, Ls);
+            if (!this._levelHashes || this._levelHashes[Ls] !== hashes[Ls]) changed = true;
         }
         if (this._levelHashes) {
             for (const L of Object.keys(this._levelHashes)) if (!(L in hashes)) changed = true;
@@ -642,13 +659,13 @@ export default class KobinEngine {
     // refreshScenes() (Scenes panel / Save) resolves everything properly.
     _noteInkAdded(o) {
         this._scenesProvisional = true;
-        const L = this.cam.activeLevel;
+        const F = this._sceneKey();
         const b = bboxOf(o);
         const w = o.lwFrame || 1e-9;
         const rect = { x: b.x0, y: b.y0, w: Math.max(b.x1 - b.x0, w), h: Math.max(b.y1 - b.y0, w) };
         const T = JOIN_WINDOWS * WINDOW_WIDTHS * w;
         for (const s of this.docMeta.scenes || []) {
-            if (s.level !== L || s.captured) continue;
+            if (s.level !== F || s.captured) continue;
             const gx = Math.max(0, Math.max(s.rect.x - (rect.x + rect.w), rect.x - (s.rect.x + s.rect.w)));
             const gy = Math.max(0, Math.max(s.rect.y - (rect.y + rect.h), rect.y - (s.rect.y + s.rect.h)));
             if (gx <= T && gy <= T) {
@@ -664,7 +681,7 @@ export default class KobinEngine {
         let seq = this.docMeta.sceneSeq || 1;
         const pad = 0.1 * Math.max(rect.w, rect.h);
         const s = {
-            id: `s${seq}`, name: `Scene ${seq}`, level: L,
+            id: `s${seq}`, name: `Scene ${seq}`, level: F,
             rect: { x: rect.x - pad, y: rect.y - pad, w: rect.w + 2 * pad, h: rect.h + 2 * pad },
             pinned: false, auto: true, provisional: true, depth: 0,
         };
@@ -733,7 +750,7 @@ export default class KobinEngine {
     captureView(name) {
         const win = this.cam.frameWindow(0);
         const view = {
-            level: this.cam.activeLevel,
+            level: this._sceneKey(),
             rect: { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top },
         };
         const target = resolveCapture(view, this.docMeta.scenes || [], this._sceneProj());
@@ -783,7 +800,7 @@ export default class KobinEngine {
         for (const key of this.store._tileKeys()) {
             const [Ls, , ij] = key.split("|");
             const [i, j] = ij.split(",").map(Number);
-            out.push({ level: +Ls, i, j, rect: this.lm.tileRect(+Ls, i, j) });
+            out.push({ level: Ls, i, j, rect: this.lm.tileRect(Ls, i, j) });
         }
         return out;
     }

@@ -1,5 +1,13 @@
 # Tile grid + deep-detail behavior — report
 
+> **⚠️ Partially overridden by the new design in `local-frames-design-bible.md`
+> (2026-07-14).** The claim below that "tile coordinates stay bounded per level, so
+> wide panning is precision-safe" is **false**: a pan of D units at a coarse level
+> becomes D×3000^k in a level k deeper, and one measured dance put the view at
+> 2.1e17 units, where float64 quantizes pen input to a 42px grid. Levels are being
+> replaced by a tree of locally-anchored frames ("K-groups"); the per-frame tile
+> mechanics described here otherwise remain accurate.
+
 **Branch:** `v2` · **File:** `src/engine/KobinEngineV0.js` · Commits `7e66a06` (tiles), `daadd10` (world-anchored natives)
 
 Covers four asks: (1) deeper levels rebake the polygonized shape, (2) deep detail
