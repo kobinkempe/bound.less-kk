@@ -108,12 +108,15 @@ Inches show **`1/8`, `1/16`, `1/32`** before switching back to decimals at **`.0
 
 ### Constraint 4 — Unit choice preference (auto)
 
-When choosing among candidates that fit bar bounds, prefer in order:
+> **Updated 2026-07-15 (owner-clarified — supersedes the earlier handoff/promote tiers).** The old explicit handoff-winner pairs (L3/L4) and promote-to-1 rule (I-01) are subsumed by one rule and were removed from the code.
+
+When choosing among candidates that fit bar bounds:
 
 1. **Stay on the current ladder** (one of the five ladders; ladders are named constants). Auto resolve never re-derives ladder from ownership (L8).
-2. **Choose a unit inside a custom preferred range** for that ladder (see §5 PROPOSED table). Preferred ranges are constants.
-3. **Explicit handoff winners** (L3 / L4): e.g. `200 yd` over `500 ft`; ultra any in-band `mi` over `ft` once that mi stop fits (earliest cutover when **`0.25 mi` fits**).
-4. **Prefer a lower number ≥ 1** (e.g. `1 ft` over `10 in` when both fit) — including **promote to `1` of the next coarser unit** even while the finer unit’s standard band still hits (I-01). Long magnitude examples live in **§5**.
+2. **The lowest in-range number wins.** A unit's range is its §5 preferred band where one applies; the **default range has lower bound 1**. Preference ranges override the default only where they apply; where there is no preference range, default behavior still applies. One representative stop per unit (bar-target-closest) is compared.
+   - In-range (band-hit) units beat default-range units: `mi` beats an out-of-band `yd`.
+   - Among band-hits, the actual lowest number wins even below 1: `1/16 in` over `50 mil`, `200 yd` over `500 ft`, `.5 mi` over `500 yd`.
+   - Among default-range units, lowest number ≥ 1 wins: `1 ft` over `10 in`.
 
 ### Constraint 5 — User preference overrides
 
@@ -131,7 +134,7 @@ User picks override auto preference as follows:
    - Switching ladders invalidates any prior user preferred range (then rule 1 may install a new one on the destination ladder).
 3. **Unit not preferred on current ladder, but is the preferred unit on another ladder** → **only switch ladders** (highest preference if tied — always `highestPriority(preferredLadders)`, I-15). **Do not** create a user preferred range. Example: at `5 hm`, select `m`.
 
-**Anti-flicker / hysteresis:** **Preferred ranges** (standard + user) are the primary mechanism (Q4). **L2 enter ~5%** (`HYSTERESIS_ENTER_PAST_EDGE`) is wired in the resolver: when the incumbent is active, neighbors that would win only via band/prefer tiers require target length ~5% past the incumbent band edge before release. Handoff / promote winners (L3/L4 / §5) are never blocked by enter. Do not reintroduce a separate minUnit hysteresis.
+**Anti-flicker / hysteresis:** **Preferred ranges** (standard + user) are the sole mechanism (Q4) — band WIDTH is the anti-flicker. The incumbent enter-hysteresis was removed 2026-07-15 with the unified rule: resolve is now a pure function of zoom (cold and walked resolves always agree). Do not reintroduce a separate minUnit hysteresis. (`HYSTERESIS_ENTER_PAST_EDGE` / `pastIncumbentEnterEdge` remain exported as an unused helper.)
 
 ### Constraint 6 — HUD popover rungs
 

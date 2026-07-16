@@ -286,6 +286,8 @@
 .bl-scale-bar::before { left: 0; }
 .bl-scale-bar::after { right: 0; }
 .bl-scale-label { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Exponents as plain digits in <sup> (SciText) — uniform glyphs, no line-height inflation. */
+.bl-sci-sup { font-size: 0.7em; line-height: 0; vertical-align: baseline; position: relative; top: -0.5em; }
 .bl-scale-label-btn {
   border: none; background: transparent; padding: 0; cursor: pointer; color: inherit;
   font: inherit; border-radius: 0.25rem;

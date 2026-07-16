@@ -22,6 +22,7 @@ import {
     shouldApplyScaleSessionWriteBack,
 } from "../engine/scaleBar";
 import ScaleUnitPicker, { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
+import SciText from "../Components/ui/SciText";
 import ColorPickerPopover from "../Components/editor/ColorPickerPopover";
 import WidthOpacityPanel from "../Components/editor/WidthOpacityPanel";
 import SelectionEditPanel from "../Components/editor/SelectionEditPanel";
@@ -540,7 +541,7 @@ export default function CanvasEditor() {
                                                             autoFocus
                                                         />
                                                         <p className="bl-text-xs bl-text-muted">
-                                                            at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
+                                                            at <SciText text={zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)} />
                                                         </p>
                                                     </div>
                                                 </div>
@@ -552,7 +553,7 @@ export default function CanvasEditor() {
                                                     <div style={{ minWidth: 0, flex: 1 }}>
                                                         <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
                                                         <p className="bl-text-xs bl-text-muted">
-                                                            at {zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)}
+                                                            at <SciText text={zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)} />
                                                         </p>
                                                     </div>
                                                 </button>
@@ -589,7 +590,7 @@ export default function CanvasEditor() {
                 {devUnlocked && devOpen && (
                     <div className="bl-dev-panel">
                         <div><b>LEVEL:</b> {engine.status.level}</div>
-                        <div><b>zoom:</b> {zoomLabel(engine.status.effectiveZoom)}</div>
+                        <div><b>zoom:</b> <SciText text={zoomLabel(engine.status.effectiveZoom)} /></div>
                         <div><b>inScale:</b> {engine.status.inScale.toFixed(3)}</div>
                         <div><b>objects:</b> {engine.status.objects}</div>
                         <div style={{ marginTop: 6 }}>
@@ -722,10 +723,10 @@ export default function CanvasEditor() {
                             onClick={() => setUnitPickerOpen((v) => !v)}
                             title="Change unit"
                         >
-                            {scaleLabel}
+                            <SciText text={scaleLabel} />
                         </button>
                     ) : (
-                        <span className="bl-text-xs bl-scale-label">{scaleLabel}</span>
+                        <span className="bl-text-xs bl-scale-label"><SciText text={scaleLabel} /></span>
                     )}
                 </div>
             </div>
