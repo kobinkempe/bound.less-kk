@@ -7,7 +7,6 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../Components/ui/Dialog";
 import BrandLogo from "../Components/BrandLogo";
-import useClickAway from "../Components/editor/useClickAway";
 import "../Stylesheets/boundless-ui.css";
 import placeholderThumb from "../Images/ui/canvas-botanical.jpg";
 import {
@@ -474,9 +473,23 @@ export default function CanvasesV2() {
     );
 }
 
-/** Right-aligned dropdown reusing the editor's file-menu styling. */
+/**
+ * Right-aligned dropdown reusing the editor's file-menu styling. Clicks
+ * inside the anchor (the ⋮ button that opened it) are left to that button's
+ * own toggle — if the click-away also fired, close-then-toggle would reopen
+ * the menu and the ⋮ would feel stuck open.
+ */
 function PopMenu({ onClose, children }) {
-    const ref = useClickAway(onClose);
+    const ref = useRef(null);
+    useEffect(() => {
+        const handler = (e) => {
+            const anchor = ref.current && ref.current.parentElement;
+            if (anchor && anchor.contains(e.target)) return;
+            onClose();
+        };
+        document.addEventListener("click", handler, true);
+        return () => document.removeEventListener("click", handler, true);
+    }, [onClose]);
     return (
         <div ref={ref} className="bl-popover bl-file-menu">
             {children}
