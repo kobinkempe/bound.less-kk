@@ -13,6 +13,7 @@ import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
 import {
     newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw,
     loadThumbs, saveThumbs, readIndex, backupCanvasSlot, trashCanvas, removeCanvas,
+    duplicateCanvas,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
 import {
@@ -142,6 +143,7 @@ export default function CanvasEditor() {
     const [sizeOpen, setSizeOpen] = useState(false);
     const [fileOpen, setFileOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [leaveOpen, setLeaveOpen] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [nameDraft, setNameDraft] = useState("");
@@ -335,6 +337,32 @@ export default function CanvasEditor() {
         showToast(r.retargeted ? `Reframed "${r.scene.name}"` : "View captured");
     };
 
+    // Browser closed (or tab killed) on a never-saved drawing: file it as a
+    // draft so the gallery lists it instead of stranding it in a hidden slot.
+    // In-app exits go through the keep/discard dialog instead.
+    useEffect(() => {
+        const fileDraft = () => {
+            try {
+                if (readIndex().some((e) => e.id === realId)) return;
+                const E = engine.engineRef.current;
+                if (!E) return;
+                const doc = E.serializeDrawing();
+                const stats = statsFromDoc(doc);
+                if (stats.strokes === 0) return;
+                const nm = doc.meta && doc.meta.name;
+                upsertIndexEntry({
+                    id: realId,
+                    name: (nm && nm !== "untitled" ? nm : null) || "Untitled canvas",
+                    savedAt: new Date().toISOString(),
+                    ...stats,
+                });
+            } catch (err) { /* best-effort */ }
+        };
+        window.addEventListener("beforeunload", fileDraft);
+        return () => window.removeEventListener("beforeunload", fileDraft);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [realId]);
+
     // Pull from the account once the engine is up — when this browser has no
     // copy, OR when the cloud copy is fresher than the local one (edited on
     // another device since; freshest-wins now that autosave bumps savedAt).
@@ -502,7 +530,49 @@ export default function CanvasEditor() {
             try { await cloudTrashCanvas(user.uid, realId); }
             catch (err) { console.warn("cloud delete failed", err); }
         }
+        // The gallery shows a "Canvas deleted — Undo" toast for binned deletes
+        // (empty scratch just vanishes — there's nothing to undo).
+        if (!indexed && stats.strokes === 0) history.push("/canvases");
+        else history.push({ pathname: "/canvases", state: { deleted: { id: realId, name: canvasTitle } } });
+    };
+
+    // Unsaved canvases (no gallery entry yet) don't silently vanish: leaving
+    // via Home asks keep-as-draft vs discard, and an unexpected browser close
+    // files the drawing as a draft automatically (beforeunload effect below).
+    const hasUnsavedDraft = () => {
+        if (readIndex().some((e) => e.id === realId)) return false;
+        const E = engine.engineRef.current;
+        if (!E) return false;
+        try { return statsFromDoc(E.serializeDrawing()).strokes > 0; } catch (err) { return false; }
+    };
+    const onLeaveEditor = (e) => {
+        if (!hasUnsavedDraft()) return; // saved or empty — navigate normally
+        e.preventDefault();
+        setLeaveOpen(true);
+    };
+    const keepDraft = async () => {
+        const doc = await engine.saveToLocalStorage();
+        upsertIndexEntry({
+            id: realId,
+            name: canvasTitle || "Untitled canvas",
+            savedAt: new Date().toISOString(),
+            ...(doc ? statsFromDoc(doc) : {}),
+        });
+        setLeaveOpen(false);
         history.push("/canvases");
+    };
+    const discardDraft = () => {
+        engine.disablePersist();
+        removeCanvas(realId);
+        setLeaveOpen(false);
+        history.push("/canvases");
+    };
+
+    const duplicateCurrent = async () => {
+        await engine.saveToLocalStorage(); // freshest strokes ride into the copy
+        const entry = duplicateCanvas(realId, null, canvasTitle);
+        if (!entry) { showToast("Couldn't duplicate — storage may be full"); return; }
+        history.push(`/canvas/${entry.id}`); // editor remounts on the copy
     };
 
     const selectTool = (t) => {
@@ -597,7 +667,7 @@ export default function CanvasEditor() {
             {pendingBar && <ScaleDragBar a={pendingBar.a} b={pendingBar.b} label="?" dashed={false} />}
 
             <div className="bl-editor-overlay bl-editor-top-left bl-flex bl-gap-2">
-                <Link to="/canvases">
+                <Link to="/canvases" onClick={onLeaveEditor}>
                     <Button variant="outline" size="icon" className="bl-shadow-panel" title="Back to canvases">
                         <Home size={16} />
                     </Button>
@@ -799,6 +869,7 @@ export default function CanvasEditor() {
                                             onDownload={() => engine.saveDrawing(canvasTitle)}
                                             onOpenFile={() => fileRef.current?.click()}
                                             onExportSvg={engine.exportSvg}
+                                            onDuplicate={duplicateCurrent}
                                             onDelete={() => setDeleteOpen(true)}
                                             onClose={() => setFileOpen(false)}
                                             anchorRef={fileAnchorRef}
@@ -979,6 +1050,21 @@ export default function CanvasEditor() {
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</Button>
                         <Button onClick={deleteCanvas}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Keep this drawing?</DialogTitle>
+                        <DialogDescription>
+                            This canvas hasn’t been saved. Keep it in your gallery as a draft, or discard it.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={discardDraft}>Discard</Button>
+                        <Button onClick={keepDraft}>Keep draft</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

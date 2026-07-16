@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useHistory } from "react-router-dom";
-import { Plus, MoreVertical, Pencil, Download, Trash2, FolderOpen, RotateCcw } from "lucide-react";
+import { Link, useHistory, useLocation } from "react-router-dom";
+import { Plus, MoreVertical, Pencil, Download, Trash2, FolderOpen, RotateCcw, Copy } from "lucide-react";
 import Button from "../Components/ui/Button";
 import Input from "../Components/ui/Input";
 import {
@@ -13,17 +13,18 @@ import placeholderThumb from "../Images/ui/canvas-botanical.jpg";
 import {
     readIndex, migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel, newCanvasId,
     loadCanvasRaw, saveCanvasRaw, loadCoverThumb, upsertIndexEntry, statsFromDoc,
-    trashCanvas, readTrash, restoreCanvas, renameCanvasLocal,
+    trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, purgeTrashEntry, duplicateCanvas,
 } from "../storage/localCanvases";
 import { decodeDrawing } from "../engine/persist";
 import useUser, { signInWithGoogle, signOutUser } from "../cloud/useUser";
 import {
     cloudListCanvases, cloudSaveCanvas, cloudLoadCanvas,
-    cloudTrashCanvas, cloudRestoreCanvas, cloudRenameCanvas,
+    cloudTrashCanvas, cloudRestoreCanvas, cloudRenameCanvas, cloudDeleteCanvas,
 } from "../cloud/canvasSync";
 
 export default function CanvasesV2() {
     const history = useHistory();
+    const location = useLocation();
     const { user, ready } = useUser();
     const fileRef = useRef(null);
     const [canvases, setCanvases] = useState([]);
@@ -36,6 +37,8 @@ export default function CanvasesV2() {
     const [deleteFor, setDeleteFor] = useState(null); // canvas entry pending delete
     const [trashOpen, setTrashOpen] = useState(false);
     const [trashItems, setTrashItems] = useState([]);
+    const [purgeConfirm, setPurgeConfirm] = useState(null); // trash items pending permanent delete
+    const [toast, setToast] = useState(null); // { msg, undoId }
 
     const refresh = useCallback(async () => {
         // First visit after the multi-canvas update: adopt the old single-slot
@@ -85,6 +88,33 @@ export default function CanvasesV2() {
 
     useEffect(() => { refresh(); }, [refresh]);
 
+    // Arriving from an editor-initiated delete: show the undo toast once.
+    useEffect(() => {
+        const del = location.state && location.state.deleted;
+        if (!del) return;
+        setToast({ msg: "Canvas deleted —", undoId: del.id });
+        history.replace({ pathname: "/canvases", state: null });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(() => setToast(null), 6000);
+        return () => clearTimeout(t);
+    }, [toast]);
+
+    const undoDelete = async () => {
+        const id = toast && toast.undoId;
+        setToast(null);
+        if (!id) return;
+        restoreCanvas(id);
+        if (user) {
+            try { await cloudRestoreCanvas(user.uid, id); }
+            catch (err) { setSyncNote("Restored here — cloud restore didn't go through."); }
+        }
+        refresh();
+    };
+
     // ---- card actions ----
 
     const downloadCanvas = async (c) => {
@@ -121,7 +151,21 @@ export default function CanvasesV2() {
             try { await cloudTrashCanvas(user.uid, c.id); }
             catch (err) { setSyncNote("Deleted here — cloud delete didn't go through."); }
         }
+        setToast({ msg: "Canvas deleted —", undoId: c.id });
         refresh();
+    };
+
+    const duplicateFromGallery = async (c) => {
+        let entry = duplicateCanvas(c.id, null, c.name);
+        if (!entry && user) {
+            // Cloud-only canvas (no local slot) — fetch the drawing first.
+            try {
+                const res = await cloudLoadCanvas(user.uid, c.id);
+                if (res && res.json) entry = duplicateCanvas(c.id, res.json, c.name);
+            } catch (err) { /* fall through */ }
+        }
+        if (!entry) { setSyncNote("Couldn't duplicate that canvas."); return; }
+        refresh(); // signed in: the catch-up upsync pushes the copy to the account
     };
 
     // ---- page menu actions ----
@@ -150,6 +194,19 @@ export default function CanvasesV2() {
         }
         setTrashItems((items) => items.filter((i) => i.id !== t.id));
         refresh();
+    };
+
+    const purgeItems = async () => {
+        const items = purgeConfirm || [];
+        setPurgeConfirm(null);
+        for (const t of items) {
+            purgeTrashEntry(t.id);
+            if (user) {
+                try { await cloudDeleteCanvas(user.uid, t.id); }
+                catch (err) { setSyncNote("Some account copies couldn't be deleted — they'll reappear in the bin."); }
+            }
+        }
+        setTrashItems((prev) => prev.filter((i) => !items.some((t) => t.id === i.id)));
     };
 
     const importFile = async (f) => {
@@ -239,7 +296,8 @@ export default function CanvasesV2() {
 
                 <div className="bl-gallery-grid">
                     {canvases.map((c) => (
-                        <Link key={c.id} to={`/canvas/${c.id}`} className="bl-canvas-card">
+                        <Link key={c.id} to={`/canvas/${c.id}`}
+                            className={`bl-canvas-card${menuFor === c.id ? " bl-canvas-card--raised" : ""}`}>
                             <div className="bl-canvas-thumb">
                                 <img
                                     src={loadCoverThumb(c.id) || cloudCovers[c.id] || placeholderThumb}
@@ -266,6 +324,10 @@ export default function CanvasesV2() {
                                                 <button type="button" className="bl-file-menu-item"
                                                     onClick={() => { setMenuFor(null); setRenameDraft(c.name || ""); setRenameFor(c); }}>
                                                     <Pencil size={14} /> Rename canvas
+                                                </button>
+                                                <button type="button" className="bl-file-menu-item"
+                                                    onClick={() => { setMenuFor(null); duplicateFromGallery(c); }}>
+                                                    <Copy size={14} /> Duplicate canvas
                                                 </button>
                                                 <button type="button" className="bl-file-menu-item"
                                                     onClick={() => { setMenuFor(null); downloadCanvas(c); }}>
@@ -361,16 +423,53 @@ export default function CanvasesV2() {
                                         <div className="bl-canvas-name">{t.name || "Untitled canvas"}</div>
                                         <div className="bl-canvas-edited">{deletedLabel(t.deletedAt)}</div>
                                     </div>
-                                    <Button variant="outline" size="sm" onClick={() => restoreItem(t)}>Restore</Button>
+                                    <div className="bl-flex bl-items-center bl-gap-2" style={{ flex: "none" }}>
+                                        <Button variant="ghost" size="sm" className="bl-danger-text"
+                                            onClick={() => setPurgeConfirm([t])}>
+                                            Delete forever
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={() => restoreItem(t)}>Restore</Button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     )}
                     <DialogFooter>
+                        {trashItems.length > 0 && (
+                            <Button variant="outline" size="sm" className="bl-danger-text"
+                                onClick={() => setPurgeConfirm(trashItems)}>
+                                Empty bin
+                            </Button>
+                        )}
                         <Button variant="ghost" onClick={() => setTrashOpen(false)}>Close</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={!!purgeConfirm} onOpenChange={(o) => { if (!o) setPurgeConfirm(null); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete forever?</DialogTitle>
+                        <DialogDescription>
+                            {purgeConfirm && purgeConfirm.length === 1
+                                ? `“${purgeConfirm[0].name || "Untitled canvas"}” will be permanently deleted`
+                                : `${purgeConfirm ? purgeConfirm.length : 0} canvases will be permanently deleted`}
+                            {user ? ", here and from your account" : ""}. This can’t be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setPurgeConfirm(null)}>Cancel</Button>
+                        <Button onClick={purgeItems}>Delete forever</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {toast && (
+                <div className="bl-toast bl-toast--action">
+                    {toast.msg}
+                    {toast.undoId && <button type="button" onClick={undoDelete}>Undo</button>}
+                </div>
+            )}
         </div>
     );
 }

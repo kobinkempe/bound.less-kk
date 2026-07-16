@@ -208,6 +208,43 @@ export function restoreCanvas(id) {
     return t;
 }
 
+/** Permanently remove a trash entry: index row, stored slot, thumbnails. */
+export function purgeTrashEntry(id) {
+    const list = readTrash();
+    try { localStorage.removeItem(trashSlotKey(id)); } catch (err) { /* ignore */ }
+    removeThumbs(id);
+    writeTrash(list.filter((e) => e.id !== id));
+}
+
+/**
+ * Copy a canvas into a fresh slot + index entry named "<name> copy", cover
+ * thumb included. `fallbackJson`/`fallbackName` cover cloud-only canvases
+ * whose drawing was fetched separately. Returns the new entry, or null.
+ */
+export function duplicateCanvas(id, fallbackJson = null, fallbackName = null) {
+    const json = loadCanvasRaw(id) || fallbackJson;
+    if (!json) return null;
+    let doc;
+    try { doc = JSON.parse(json); } catch (err) { return null; }
+    const entry = readIndex().find((e) => e.id === id);
+    const metaName = doc.meta && doc.meta.name;
+    const base = (entry && entry.name)
+        || fallbackName
+        || (metaName && metaName !== "untitled" ? metaName : null)
+        || "Untitled canvas";
+    const name = base + " copy";
+    doc.meta = { ...(doc.meta || {}), name };
+    const newId = newCanvasId();
+    if (!saveCanvasRaw(newId, JSON.stringify(doc))) return null;
+    try {
+        const cover = localStorage.getItem(thumbKey(id, "cover"));
+        if (cover) localStorage.setItem(thumbKey(newId, "cover"), cover);
+    } catch (err) { /* thumb is a nicety */ }
+    const newEntry = { id: newId, name, savedAt: new Date().toISOString(), ...statsFromDoc(doc) };
+    upsertIndexEntry(newEntry);
+    return newEntry;
+}
+
 /**
  * Rename without opening the editor: freshens the index entry and the slot's
  * embedded meta.name so the next cloud pull/save carries the new name.

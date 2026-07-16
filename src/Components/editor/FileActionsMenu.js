@@ -1,11 +1,12 @@
 import React, { useRef } from "react";
-import { FolderOpen, Download, Trash2 } from "lucide-react";
+import { FolderOpen, Download, Trash2, Copy } from "lucide-react";
 import useClickAway from "./useClickAway";
 
 export default function FileActionsMenu({
     onDownload,
     onOpenFile,
     onExportSvg,
+    onDuplicate,
     onDelete,
     onClose,
     anchorRef,
@@ -21,6 +22,9 @@ export default function FileActionsMenu({
             </button>
             <button type="button" className="bl-file-menu-item" onClick={() => { onOpenFile(); onClose(); }}>
                 <FolderOpen size={14} /> Load from file…
+            </button>
+            <button type="button" className="bl-file-menu-item" onClick={() => { onDuplicate(); onClose(); }}>
+                <Copy size={14} /> Duplicate canvas
             </button>
             <div className="bl-file-menu-divider" />
             <button type="button" className="bl-file-menu-item bl-file-menu-item--danger" onClick={() => { onDelete(); onClose(); }}>

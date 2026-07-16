@@ -4,6 +4,7 @@ import {
     migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel,
     packSlot, unpackSlot, loadCanvasRaw, saveCanvasRaw, backupCanvasSlot,
     trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, thumbKey,
+    purgeTrashEntry, duplicateCanvas,
 } from "./localCanvases";
 
 const sampleDoc = (name = "Sample") => ({
@@ -194,5 +195,44 @@ describe("localCanvases", () => {
     test("deletedLabel mirrors editedLabel wording", () => {
         expect(deletedLabel(new Date().toISOString())).toBe("Deleted just now");
         expect(deletedLabel("garbage")).toBe("Deleted");
+    });
+
+    test("purgeTrashEntry permanently removes entry, slot, and thumbs", () => {
+        saveCanvasRaw("p1", JSON.stringify(sampleDoc("Purged")));
+        upsertIndexEntry({ id: "p1", name: "Purged" });
+        localStorage.setItem(thumbKey("p1", "cover"), JSON.stringify({ hash: "h", data: "d" }));
+        trashCanvas("p1");
+        purgeTrashEntry("p1");
+        expect(readTrash()).toEqual([]);
+        expect(localStorage.getItem(trashSlotKey("p1"))).toBeNull();
+        expect(localStorage.getItem(thumbKey("p1", "cover"))).toBeNull();
+        expect(restoreCanvas("p1")).toBeNull();
+    });
+
+    test("duplicateCanvas copies content under '<name> copy' with its own id + thumb", () => {
+        const json = JSON.stringify(sampleDoc("Original"));
+        saveCanvasRaw("o1", json);
+        upsertIndexEntry({ id: "o1", name: "Original", strokes: 4, levels: 4 });
+        localStorage.setItem(thumbKey("o1", "cover"), JSON.stringify({ hash: "h", data: "img" }));
+
+        const copy = duplicateCanvas("o1");
+        expect(copy).not.toBeNull();
+        expect(copy.id).not.toBe("o1");
+        expect(copy.name).toBe("Original copy");
+        expect(copy.strokes).toBe(4);
+        const copyDoc = JSON.parse(loadCanvasRaw(copy.id));
+        expect(copyDoc.meta.name).toBe("Original copy");
+        expect(copyDoc.natives).toEqual(sampleDoc().natives);
+        expect(localStorage.getItem(thumbKey(copy.id, "cover"))).toBe(localStorage.getItem(thumbKey("o1", "cover")));
+        expect(readIndex().map((e) => e.id)).toContain("o1"); // original untouched
+        expect(loadCanvasRaw("o1")).toBe(json);
+    });
+
+    test("duplicateCanvas falls back to supplied json/name for cloud-only canvases", () => {
+        const json = JSON.stringify(sampleDoc("untitled"));
+        expect(duplicateCanvas("nope")).toBeNull();
+        const copy = duplicateCanvas("nope", json, "Cloudy");
+        expect(copy.name).toBe("Cloudy copy");
+        expect(JSON.parse(loadCanvasRaw(copy.id)).meta.name).toBe("Cloudy copy");
     });
 });

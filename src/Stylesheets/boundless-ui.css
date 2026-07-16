@@ -129,6 +129,7 @@
    align-items:start keeps every card its natural height. */
 .bl-gallery-grid { display: grid; gap: 1.5rem; align-items: start; }
 .bl-canvas-card {
+  position: relative;
   display: flex; flex-direction: column; min-width: 0;
   border-radius: 0.75rem; border: 1px solid var(--border);
   background: var(--card); box-shadow: var(--shadow-card); text-decoration: none; color: inherit;
@@ -136,6 +137,10 @@
   /* No overflow:hidden here — the ⋮ menu must escape the card. The thumb
      rounds its own top corners and clips its hover zoom itself. */
 }
+/* While a card's ⋮ menu is open, keep the whole card above its siblings —
+   hovering a later card creates a stacking context (transform) that would
+   otherwise paint over the open menu. */
+.bl-canvas-card--raised { z-index: 30; }
 .bl-canvas-card:hover { transform: translateY(-2px); text-decoration: none; }
 .bl-brand:hover { text-decoration: none; }
 .bl-canvas-thumb {
@@ -506,10 +511,11 @@
 }
 
 .bl-new-canvas-btn {
-  aspect-ratio: 4/3; min-height: unset;
-  /* Match the row's card heights (thumb + meta) — the aspect ratio is only
-     the intrinsic contribution when the tile sits alone in its row. */
+  /* Stretch to the row's card height. NO aspect-ratio here: with a stretched
+     (definite) height it transfers back into WIDTH and blows past the grid
+     column. The base min-height covers the tile-alone-in-a-row case. */
   align-self: stretch;
+  min-width: 0;
 }
 .bl-new-canvas-btn:hover { background: var(--paper-deep); }
 
@@ -555,6 +561,14 @@
 .bl-trash-row:last-child { border-bottom: none; }
 .bl-trash-row .bl-canvas-name, .bl-trash-row .bl-canvas-edited {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bl-danger-text { color: var(--destructive); }
+
+/* Toast with an inline action ("Canvas deleted — Undo") */
+.bl-toast--action { display: flex; align-items: center; gap: 0.5rem; }
+.bl-toast--action button {
+  border: none; background: none; padding: 0; color: inherit;
+  font-size: inherit; font-weight: 600; text-decoration: underline; cursor: pointer;
 }
 
 .bl-scale-define-overlay {
