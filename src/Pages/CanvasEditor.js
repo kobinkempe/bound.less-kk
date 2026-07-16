@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Link, useParams, useLocation, useHistory } from "react-router-dom";
 import {
     Home, Layers, Pen, Pencil, Eraser, Highlighter,
     ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
-    CircleOff, Undo2, Redo2, Palette, Trash2, Save,
+    CircleOff, Undo2, Redo2, Palette, Save, MoreVertical,
     Bookmark, Scissors,
 } from "lucide-react";
 import Button from "../Components/ui/Button";
@@ -12,10 +12,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
 import {
     newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw,
-    loadThumbs, saveThumbs,
+    loadThumbs, saveThumbs, readIndex, backupCanvasSlot, trashCanvas, removeCanvas,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
-import { cloudSaveCanvas, cloudLoadCanvas } from "../cloud/canvasSync";
+import {
+    cloudSaveCanvas, cloudLoadCanvas, cloudGetCanvasMeta, cloudTrashCanvas,
+} from "../cloud/canvasSync";
 import {
     computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
     validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
@@ -96,7 +98,26 @@ export default function CanvasEditor() {
     useEffect(() => {
         if (canvasId === "new") history.replace(`/canvas/${realId}${location.search}`);
     }, [canvasId, realId, history, location.search]);
-    const engine = useKobinEngine({ storageKey: slotKey(realId) });
+    // Cloud-dirty tracking: every local autosave marks the canvas as needing a
+    // cloud push (drawings used to sync ONLY on explicit Save, so a canvas
+    // autosaved on one device opened empty/stale on another). The index entry
+    // is freshened too, so savedAt reflects the last edit and freshest-wins
+    // pulls can compare local vs cloud honestly. Unsaved scratch canvases
+    // (no index entry yet) stay local-only until first explicitly saved.
+    const cloudDirtyRef = useRef(false);
+    const onAutosave = useCallback((doc) => {
+        const entry = readIndex().find((e) => e.id === realId);
+        if (!entry) return;
+        const nm = doc.meta && doc.meta.name;
+        upsertIndexEntry({
+            ...entry,
+            name: (nm && nm !== "untitled" ? nm : null) || entry.name,
+            savedAt: new Date().toISOString(),
+            ...statsFromDoc(doc),
+        });
+        cloudDirtyRef.current = true;
+    }, [realId]);
+    const engine = useKobinEngine({ storageKey: slotKey(realId), onAutosave });
     const { user } = useUser();
     const editorRef = useRef(null);
     const fileRef = useRef(null);
@@ -120,7 +141,7 @@ export default function CanvasEditor() {
     const [colorOpen, setColorOpen] = useState(false);
     const [sizeOpen, setSizeOpen] = useState(false);
     const [fileOpen, setFileOpen] = useState(false);
-    const [wipeOpen, setWipeOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [nameDraft, setNameDraft] = useState("");
@@ -198,9 +219,12 @@ export default function CanvasEditor() {
         if (E) setScenes(E.refreshScenes()); // scenes ride the save file (docMeta)
         const doc = await engine.saveToLocalStorage(name);
         if (!doc) return { local: false, cloud: false };
+        // The engine's default meta name is lowercase "untitled" — never let it
+        // become a visible gallery/cloud label.
+        const metaName = doc.meta && doc.meta.name;
         const entry = {
             id: realId,
-            name: (doc.meta && doc.meta.name) || name || "Untitled canvas",
+            name: (metaName && metaName !== "untitled" ? metaName : null) || name || "Untitled canvas",
             savedAt: new Date().toISOString(),
             ...statsFromDoc(doc),
         };
@@ -211,12 +235,52 @@ export default function CanvasEditor() {
             try {
                 await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc), Object.keys(fresh).length ? fresh : null);
                 cloud = true;
+                cloudDirtyRef.current = false;
             } catch (err) {
                 console.warn("cloud save failed", err);
+                cloudDirtyRef.current = true; // autosync retries
+                showToast("Saved to this browser — cloud sync failed");
             }
         }
         return { local: true, cloud };
     };
+
+    // Background cloud sync: push the latest autosaved state every 30s while
+    // signed in and dirty, and on tab-hide (phones background the tab long
+    // before a user thinks to press Save). Thumbs aren't regenerated here —
+    // the server merge keeps the previously stored set.
+    const cloudAutosync = useCallback(async () => {
+        if (!user || !cloudDirtyRef.current) return;
+        const E = engine.engineRef.current;
+        if (!E) return;
+        const entry = readIndex().find((e) => e.id === realId);
+        if (!entry) return; // never explicitly saved — stays local-only
+        cloudDirtyRef.current = false; // claim; re-set on failure
+        try {
+            const doc = E.serializeDrawing();
+            await cloudSaveCanvas(user.uid, {
+                ...entry,
+                savedAt: new Date().toISOString(),
+                ...statsFromDoc(doc),
+            }, JSON.stringify(doc), null);
+        } catch (err) {
+            cloudDirtyRef.current = true;
+            console.warn("cloud autosync failed", err);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, realId]);
+
+    useEffect(() => {
+        if (!user) return;
+        const timer = setInterval(cloudAutosync, 30000);
+        const onHide = () => { if (document.visibilityState === "hidden") cloudAutosync(); };
+        document.addEventListener("visibilitychange", onHide);
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener("visibilitychange", onHide);
+            cloudAutosync(); // last push when leaving the editor
+        };
+    }, [user, cloudAutosync]);
 
     // Opening the panel recomputes scenes (cheap) and freshens stale thumbs.
     const openScenesPanel = () => {
@@ -271,18 +335,42 @@ export default function CanvasEditor() {
         showToast(r.retargeted ? `Reframed "${r.scene.name}"` : "View captured");
     };
 
-    // Opening a canvas that isn't in this browser (e.g. saved from another
-    // device): pull it from the account once the engine is up.
+    // Pull from the account once the engine is up — when this browser has no
+    // copy, OR when the cloud copy is fresher than the local one (edited on
+    // another device since; freshest-wins now that autosave bumps savedAt).
     useEffect(() => {
         if (!engine.engineReady || !user) return;
-        if (loadCanvasRaw(realId)) return;
         let stale = false;
         (async () => {
             try {
+                const localRaw = loadCanvasRaw(realId);
+                if (localRaw) {
+                    const meta = await cloudGetCanvasMeta(user.uid, realId);
+                    const localAt = readIndex().find((e) => e.id === realId)?.savedAt || "";
+                    if (!meta || String(meta.savedAt || "") <= String(localAt)) return;
+                }
                 const res = await cloudLoadCanvas(user.uid, realId);
                 if (stale || !res || !res.json) return;
-                engine.engineRef.current.loadDrawing(JSON.parse(res.json));
-                await engine.saveToLocalStorage();
+                const parsed = JSON.parse(res.json);
+                // Never replace a local drawing with an empty cloud copy (the
+                // stale-cloud shape of the bug this pull is here to fix).
+                if (localRaw && statsFromDoc(parsed).strokes === 0) return;
+                backupCanvasSlot(realId); // recoverable if this merge was wrong
+                engine.engineRef.current.loadDrawing(parsed);
+                // Gallery renames only touch the cloud parent doc — its name
+                // outranks whatever is embedded in the drawing JSON.
+                const cloudName = res.meta && res.meta.name;
+                if (cloudName && cloudName !== "untitled") engine.patchDocMeta({ name: cloudName });
+                const doc = await engine.saveToLocalStorage();
+                if (doc) {
+                    const nm2 = doc.meta && doc.meta.name;
+                    upsertIndexEntry({
+                        id: realId,
+                        name: (nm2 && nm2 !== "untitled" ? nm2 : null) || "Untitled canvas",
+                        savedAt: new Date().toISOString(),
+                        ...statsFromDoc(doc),
+                    });
+                }
                 if (res.thumbs) saveThumbs(realId, res.thumbs);
                 const nm = engine.docMeta()?.name;
                 if (nm && nm !== "untitled") setCanvasTitle(nm);
@@ -370,6 +458,52 @@ export default function CanvasEditor() {
     };
 
     const showToast = (msg) => setToast(msg);
+
+    const saveToastFor = (r) =>
+        !r.local ? "Couldn't save — storage may be full"
+        : !user ? "Saved to browser"
+        : r.cloud ? "Saved to your account"
+        : "Saved here — cloud sync failed";
+
+    // Save button: an already-named canvas saves straight away; the name
+    // dialog only appears for the first save of an untitled canvas.
+    const handleSave = async () => {
+        if (!canvasTitle || canvasTitle === "Untitled canvas") {
+            setSaveOpen(true);
+            return;
+        }
+        const r = await persistCanvas(canvasTitle);
+        showToast(saveToastFor(r));
+    };
+
+    // Delete = move to the recycle bin (local trash + cloud tombstone), then
+    // back to the gallery. Persistence is disabled FIRST so the engine's
+    // unmount autosave can't recreate the slot, and the dirty flag cleared so
+    // the unmount autosync can't re-push the cloud copy.
+    const deleteCanvas = async () => {
+        const doc = await engine.saveToLocalStorage(); // freshest strokes ride into the bin
+        engine.disablePersist();
+        cloudDirtyRef.current = false;
+        const stats = doc ? statsFromDoc(doc) : { strokes: 0, levels: 0 };
+        const indexed = readIndex().some((e) => e.id === realId);
+        if (!indexed && stats.strokes === 0) {
+            // Never-saved empty scratch — nothing worth a recycle-bin row.
+            removeCanvas(realId);
+        } else {
+            trashCanvas(realId, {
+                id: realId,
+                name: canvasTitle,
+                savedAt: new Date().toISOString(),
+                ...stats,
+            });
+        }
+        setDeleteOpen(false);
+        if (user) {
+            try { await cloudTrashCanvas(user.uid, realId); }
+            catch (err) { console.warn("cloud delete failed", err); }
+        }
+        history.push("/canvases");
+    };
 
     const selectTool = (t) => {
         if (t.action) { t.action(engine); return; }
@@ -652,19 +786,20 @@ export default function CanvasEditor() {
                             </div>
                             <div className="bl-tool-section">
                                 <div className="bl-tool-divider" />
-                                <button type="button" className="bl-tool-btn" title="Wipe canvas" onClick={() => setWipeOpen(true)}>
-                                    <Trash2 size={16} />
+                                <button type="button" className="bl-tool-btn"
+                                    title={user ? "Save to cloud" : "Save to browser"} onClick={handleSave}>
+                                    <Save size={16} />
                                 </button>
                                 <div className="bl-popover-anchor" ref={fileAnchorRef}>
-                                    <button type="button" className="bl-tool-btn" title="File" onClick={() => setFileOpen((o) => !o)}>
-                                        <Save size={16} />
+                                    <button type="button" className="bl-tool-btn" title="Canvas actions" onClick={() => setFileOpen((o) => !o)}>
+                                        <MoreVertical size={16} />
                                     </button>
                                     {fileOpen && (
                                         <FileActionsMenu
-                                            onSave={() => setSaveOpen(true)}
                                             onDownload={() => engine.saveDrawing(canvasTitle)}
                                             onOpenFile={() => fileRef.current?.click()}
                                             onExportSvg={engine.exportSvg}
+                                            onDelete={() => setDeleteOpen(true)}
                                             onClose={() => setFileOpen(false)}
                                             anchorRef={fileAnchorRef}
                                         />
@@ -824,25 +959,26 @@ export default function CanvasEditor() {
                 open={saveOpen}
                 onOpenChange={setSaveOpen}
                 defaultName={canvasTitle}
+                signedIn={!!user}
                 onSave={async (name) => {
                     const r = await persistCanvas(name);
                     setCanvasTitle(name);
-                    showToast(!r.local ? "Couldn't save — storage may be full"
-                        : !user ? "Saved to browser"
-                        : r.cloud ? "Saved to your account"
-                        : "Saved here — cloud sync failed");
+                    showToast(saveToastFor(r));
                 }}
             />
 
-            <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Wipe canvas?</DialogTitle>
-                        <DialogDescription>This clears everything. You can undo with Ctrl+Z.</DialogDescription>
+                        <DialogTitle>Delete canvas?</DialogTitle>
+                        <DialogDescription>
+                            “{canvasTitle}” moves to the recycle bin{user ? " (here and in your account)" : ""} —
+                            restore it from the canvases page within 30 days.
+                        </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="ghost" onClick={() => setWipeOpen(false)}>Cancel</Button>
-                        <Button onClick={() => { engine.clear(); setWipeOpen(false); }}>Wipe</Button>
+                        <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                        <Button onClick={deleteCanvas}>Delete</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

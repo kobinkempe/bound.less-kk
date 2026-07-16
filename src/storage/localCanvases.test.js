@@ -1,7 +1,9 @@
 import {
-    INDEX_KEY, LEGACY_AUTOSAVE_KEY, slotKey, newCanvasId,
+    INDEX_KEY, LEGACY_AUTOSAVE_KEY, slotKey, trashSlotKey, newCanvasId,
     readIndex, upsertIndexEntry, removeCanvas, statsFromDoc,
-    migrateLegacyAutosave, editedLabel, depthLabel,
+    migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel,
+    packSlot, unpackSlot, loadCanvasRaw, saveCanvasRaw, backupCanvasSlot,
+    trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, thumbKey,
 } from "./localCanvases";
 
 const sampleDoc = (name = "Sample") => ({
@@ -66,7 +68,7 @@ describe("localCanvases", () => {
         expect(entry).not.toBeNull();
         expect(entry.name).toBe("My drawing");
         expect(entry.strokes).toBe(4);
-        expect(localStorage.getItem(slotKey(entry.id))).toBe(raw);
+        expect(loadCanvasRaw(entry.id)).toBe(raw); // stored compressed, reads back verbatim
         expect(localStorage.getItem(LEGACY_AUTOSAVE_KEY)).toBe(raw);
         expect(readIndex()).toHaveLength(1);
         // Second call is a no-op.
@@ -95,5 +97,102 @@ describe("localCanvases", () => {
         expect(depthLabel(0)).toBe("Surface level");
         expect(depthLabel(1)).toBe("Surface level");
         expect(depthLabel(3)).toBe("3 levels deep");
+    });
+
+    test("packSlot/unpackSlot round-trip; slots store much smaller than raw", () => {
+        const json = JSON.stringify(sampleDoc("Big")).repeat(50);
+        const packed = packSlot(json);
+        expect(unpackSlot(packed)).toBe(json);
+        expect(packed.length).toBeLessThan(json.length / 2);
+    });
+
+    test("unpackSlot passes legacy plain-JSON slots through untouched", () => {
+        const raw = JSON.stringify(sampleDoc("Old"));
+        expect(unpackSlot(raw)).toBe(raw);
+        expect(unpackSlot(null)).toBeNull();
+        // A legacy slot written before compression still loads via loadCanvasRaw.
+        localStorage.setItem(slotKey("legacy"), raw);
+        expect(loadCanvasRaw("legacy")).toBe(raw);
+    });
+
+    test("saveCanvasRaw stores compressed; loadCanvasRaw restores; backup stashes", () => {
+        const json = JSON.stringify(sampleDoc("Round trip"));
+        expect(saveCanvasRaw("rt", json)).toBe(true);
+        expect(localStorage.getItem(slotKey("rt")).startsWith("lz1:")).toBe(true);
+        expect(loadCanvasRaw("rt")).toBe(json);
+        backupCanvasSlot("rt");
+        expect(localStorage.getItem(slotKey("rt") + ".bak")).toBe(localStorage.getItem(slotKey("rt")));
+    });
+
+    test("trashCanvas moves entry + slot to the bin; restoreCanvas brings both back", () => {
+        const json = JSON.stringify(sampleDoc("Doomed"));
+        saveCanvasRaw("d1", json);
+        upsertIndexEntry({ id: "d1", name: "Doomed", strokes: 4, levels: 4, savedAt: "2026-07-01T00:00:00Z" });
+
+        const t = trashCanvas("d1");
+        expect(t.name).toBe("Doomed");
+        expect(t.deletedAt).toBeTruthy();
+        expect(readIndex()).toEqual([]);
+        expect(localStorage.getItem(slotKey("d1"))).toBeNull();
+        expect(localStorage.getItem(trashSlotKey("d1"))).not.toBeNull();
+        expect(readTrash().map((e) => e.id)).toEqual(["d1"]);
+
+        const r = restoreCanvas("d1");
+        expect(r.id).toBe("d1");
+        expect(readTrash()).toEqual([]);
+        expect(localStorage.getItem(trashSlotKey("d1"))).toBeNull();
+        expect(loadCanvasRaw("d1")).toBe(json); // slot back verbatim
+        const entry = readIndex().find((e) => e.id === "d1");
+        expect(entry.name).toBe("Doomed");
+        expect(entry.savedAt).toBe("2026-07-01T00:00:00Z"); // original edit time survives
+    });
+
+    test("trashCanvas with no index entry uses the fallback; nothing → null", () => {
+        saveCanvasRaw("scratch", JSON.stringify(sampleDoc("scratch")));
+        const t = trashCanvas("scratch", { id: "scratch", name: "Scratch", strokes: 4, levels: 4 });
+        expect(t.name).toBe("Scratch");
+        expect(readTrash()).toHaveLength(1);
+        expect(trashCanvas("ghost")).toBeNull(); // no entry, no slot, no fallback
+        expect(readTrash()).toHaveLength(1);
+    });
+
+    test("cloud-only trash rows (no slot) restore without minting a broken index entry", () => {
+        trashCanvas("cloudy", { id: "cloudy", name: "Cloud only" });
+        expect(localStorage.getItem(trashSlotKey("cloudy"))).toBeNull();
+        const r = restoreCanvas("cloudy");
+        expect(r.name).toBe("Cloud only");
+        expect(readTrash()).toEqual([]);
+        expect(readIndex()).toEqual([]); // comes back via the cloud listing instead
+    });
+
+    test("expired trash entries purge on read (slot + thumbs included)", () => {
+        saveCanvasRaw("old", JSON.stringify(sampleDoc("Old")));
+        upsertIndexEntry({ id: "old", name: "Old" });
+        localStorage.setItem(thumbKey("old", "cover"), JSON.stringify({ hash: "h", data: "d" }));
+        trashCanvas("old");
+        // Backdate the deletion past the 30-day TTL.
+        const list = JSON.parse(localStorage.getItem("kobin.trash"));
+        list[0].deletedAt = new Date(Date.now() - 31 * 24 * 3600e3).toISOString();
+        localStorage.setItem("kobin.trash", JSON.stringify(list));
+
+        expect(readTrash()).toEqual([]);
+        expect(localStorage.getItem(trashSlotKey("old"))).toBeNull();
+        expect(localStorage.getItem(thumbKey("old", "cover"))).toBeNull();
+        expect(restoreCanvas("old")).toBeNull();
+    });
+
+    test("renameCanvasLocal updates the index entry and the slot's embedded meta", () => {
+        saveCanvasRaw("rn", JSON.stringify(sampleDoc("Before")));
+        upsertIndexEntry({ id: "rn", name: "Before", savedAt: "2026-07-01T00:00:00Z" });
+        renameCanvasLocal("rn", "After", "2026-07-16T00:00:00Z");
+        const entry = readIndex().find((e) => e.id === "rn");
+        expect(entry.name).toBe("After");
+        expect(entry.savedAt).toBe("2026-07-16T00:00:00Z");
+        expect(JSON.parse(loadCanvasRaw("rn")).meta.name).toBe("After");
+    });
+
+    test("deletedLabel mirrors editedLabel wording", () => {
+        expect(deletedLabel(new Date().toISOString())).toBe("Deleted just now");
+        expect(deletedLabel("garbage")).toBe("Deleted");
     });
 });

@@ -3,7 +3,7 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/Dialog";
 
-export default function SaveDrawingDialog({ open, onOpenChange, defaultName, onSave }) {
+export default function SaveDrawingDialog({ open, onOpenChange, defaultName, onSave, signedIn = false }) {
     const [name, setName] = useState(defaultName || "Untitled canvas");
 
     // Re-seed from the live title each time the dialog opens (the component
@@ -18,7 +18,9 @@ export default function SaveDrawingDialog({ open, onOpenChange, defaultName, onS
                 <DialogHeader>
                     <DialogTitle>Save canvas</DialogTitle>
                     <DialogDescription>
-                        Saves to your browser storage. Use Download for a portable file.
+                        {signedIn
+                            ? "Saves to your account (and this browser)."
+                            : "Saves to your browser storage. Sign in on the canvases page to sync across devices."}
                     </DialogDescription>
                 </DialogHeader>
                 <div>

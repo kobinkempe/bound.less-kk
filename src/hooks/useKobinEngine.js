@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import KobinEngine from "../engine/KobinEngine";
 import { formatScaleNumber } from "../engine/scaleBar";
+import { packSlot, unpackSlot } from "../storage/localCanvases";
 
 export const AUTOSAVE_KEY = "kobinAutosave";
 
@@ -12,11 +13,18 @@ const DEFAULT_STATUS = { level: 0, inScale: 1, effectiveZoom: 1, nearCross: fals
  *
  * `storageKey` picks the localStorage autosave slot — CanvasEditor passes a
  * per-canvas key; the default is the legacy single-slot key.
+ * `onAutosave(doc)` fires after each successful local autosave — CanvasEditor
+ * uses it to mark the canvas cloud-dirty and freshen the gallery index.
  */
-export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
+export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
     const errsRef = useRef([]);
+    const onAutosaveRef = useRef(null);
+    onAutosaveRef.current = onAutosave;
+    // Deleting a canvas flips this off so the unmount/beforeunload autosave
+    // can't quietly recreate the slot that was just moved to the recycle bin.
+    const persistRef = useRef(true);
     const [engineReady, setEngineReady] = useState(false);
     const [tool, setTool] = useState("pen");
     const [penType, setPenType] = useState("freehand");
@@ -67,8 +75,10 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
         window.__kobinEngine = engine;
 
         try {
-            const saved = localStorage.getItem(storageKey)
-                || (storageKey === AUTOSAVE_KEY ? localStorage.getItem("kobinSnapshot") : null);
+            const saved = unpackSlot(
+                localStorage.getItem(storageKey)
+                || (storageKey === AUTOSAVE_KEY ? localStorage.getItem("kobinSnapshot") : null),
+            );
             if (saved) engine.loadDrawing(JSON.parse(saved));
         } catch (err) { console.warn("kobin autosave restore failed", err); }
 
@@ -77,7 +87,15 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
         let dirty = false;
         const unsubDirty = engine.doc.subscribe(() => { dirty = true; });
         const save = () => {
-            try { localStorage.setItem(storageKey, JSON.stringify(engine.serializeDrawing())); dirty = false; } catch (err) { /* quota */ }
+            if (!persistRef.current) return;
+            try {
+                const doc = engine.serializeDrawing();
+                localStorage.setItem(storageKey, packSlot(JSON.stringify(doc)));
+                dirty = false;
+                onAutosaveRef.current?.(doc);
+            } catch (err) {
+                console.warn("kobin autosave failed (storage quota?)", err);
+            }
         };
         const idleSave = () => {
             if (!dirty) return;
@@ -251,11 +269,11 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
 
     const saveToLocalStorage = async (name) => {
         const eng = E();
-        if (!eng) return null;
+        if (!eng || !persistRef.current) return null;
         if (name) patchDocMeta({ name });
         try {
             const doc = eng.serializeDrawing();
-            localStorage.setItem(storageKey, JSON.stringify(doc));
+            localStorage.setItem(storageKey, packSlot(JSON.stringify(doc)));
             return doc;
         } catch (err) {
             return null;
@@ -279,7 +297,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
         if (!eng || !file) return;
         const raw = JSON.parse(await file.text());
         eng.loadDrawing(raw);
-        try { localStorage.setItem(storageKey, JSON.stringify(eng.serializeDrawing())); } catch (err) { /* quota */ }
+        try { localStorage.setItem(storageKey, packSlot(JSON.stringify(eng.serializeDrawing()))); } catch (err) { /* quota */ }
     };
 
     const exportSvg = () => {
@@ -325,6 +343,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY } = {}) {
         sendReport,
         cursor,
         patchDocMeta,
+        disablePersist: () => { persistRef.current = false; },
         saveToLocalStorage,
         saveDrawing,
         loadDrawingFile,
