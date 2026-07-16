@@ -4,7 +4,7 @@ import {
     migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel,
     packSlot, unpackSlot, loadCanvasRaw, saveCanvasRaw, backupCanvasSlot,
     trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, thumbKey,
-    purgeTrashEntry, duplicateCanvas,
+    purgeTrashEntry, duplicateCanvas, stashOverwrittenVersion, getDeviceId,
 } from "./localCanvases";
 
 const sampleDoc = (name = "Sample") => ({
@@ -234,5 +234,28 @@ describe("localCanvases", () => {
         const copy = duplicateCanvas("nope", json, "Cloudy");
         expect(copy.name).toBe("Cloudy copy");
         expect(JSON.parse(loadCanvasRaw(copy.id)).meta.name).toBe("Cloudy copy");
+    });
+
+    test("stashOverwrittenVersion files the losing copy in the bin under a fresh id", () => {
+        const json = JSON.stringify(sampleDoc("Solar System"));
+        const t = stashOverwrittenVersion(json, "Solar System");
+        expect(t.name).toBe("Solar System (overwritten)");
+        expect(t.strokes).toBe(4);
+        expect(t.deletedAt).toBeTruthy();
+        expect(readTrash().map((e) => e.id)).toEqual([t.id]);
+        // Restoring resurrects it as its OWN canvas with the disambiguated name.
+        const r = restoreCanvas(t.id);
+        expect(r.id).toBe(t.id);
+        const doc = JSON.parse(loadCanvasRaw(t.id));
+        expect(doc.meta.name).toBe("Solar System (overwritten)");
+        expect(doc.natives).toEqual(sampleDoc().natives);
+        expect(readIndex().find((e) => e.id === t.id).name).toBe("Solar System (overwritten)");
+        expect(stashOverwrittenVersion("not json", "X")).toBeNull();
+    });
+
+    test("getDeviceId is stable per browser", () => {
+        const a = getDeviceId();
+        expect(a).toBeTruthy();
+        expect(getDeviceId()).toBe(a);
     });
 });

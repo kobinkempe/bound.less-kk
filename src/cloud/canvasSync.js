@@ -84,6 +84,7 @@ export async function cloudSaveCanvas(uid, entry, json, thumbs = null) {
     const prev = await getDoc(canvasDoc(uid, entry.id));
     const prevParts = prev.exists() ? prev.data().parts || 0 : 0;
     const prevThumbs = prev.exists() ? prev.data().thumbs || null : null;
+    const prevEditing = prev.exists() ? prev.data().editing || null : null;
     const mergedThumbs = thumbs || prevThumbs
         ? boundedThumbs({ ...(prevThumbs || {}), ...(thumbs || {}) })
         : null;
@@ -109,6 +110,9 @@ export async function cloudSaveCanvas(uid, entry, json, thumbs = null) {
         parts: chunks.length,
         codec,
         ...(mergedThumbs ? { thumbs: mergedThumbs } : {}),
+        // Whole-doc set — carry the presence heartbeat through, or a save
+        // would blank the "open on another device" signal for up to 30s.
+        ...(prevEditing ? { editing: prevEditing } : {}),
     });
     for (let i = chunks.length; i < prevParts; i++) finalBatch.delete(partDoc(uid, entry.id, i));
     await finalBatch.commit();
@@ -188,6 +192,27 @@ export async function cloudRenameCanvas(uid, id, name, savedAt = new Date().toIS
     if (!parent.exists()) return false;
     await setDoc(canvasDoc(uid, id), { name, savedAt }, { merge: true });
     return true;
+}
+
+// ---- presence heartbeat ("open on another device" warning) ----
+// The editor stamps `editing: { device, at }` on the parent doc every 30s
+// while a signed-in canvas is open in a visible tab. Another device seeing a
+// fresh stamp that isn't its own shows the overwrite warning banner.
+
+/** Stamp our heartbeat. Call only for canvases that already exist in cloud. */
+export async function cloudSetEditing(uid, id, deviceId) {
+    await setDoc(canvasDoc(uid, id), {
+        editing: { device: deviceId, at: new Date().toISOString() },
+    }, { merge: true });
+}
+
+/** Clear our heartbeat on exit — but never clobber another device's. */
+export async function cloudClearEditing(uid, id, deviceId) {
+    const parent = await getDoc(canvasDoc(uid, id));
+    if (!parent.exists()) return;
+    const cur = parent.data().editing;
+    if (!cur || cur.device !== deviceId) return;
+    await setDoc(canvasDoc(uid, id), { editing: null }, { merge: true });
 }
 
 export async function cloudDeleteCanvas(uid, id) {

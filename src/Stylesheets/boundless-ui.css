@@ -564,6 +564,23 @@
 }
 .bl-danger-text { color: var(--destructive); }
 
+/* "Open on another device" overwrite warning */
+.bl-remote-banner {
+  position: absolute; top: calc(4.5rem + env(safe-area-inset-top, 0px));
+  left: 50%; transform: translateX(-50%); z-index: 14;
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  max-width: min(36rem, calc(100vw - 2rem));
+  border-radius: 0.5rem; border: 1px solid var(--border);
+  border-left: 3px solid var(--destructive);
+  background: var(--card); padding: 0.625rem 0.75rem;
+  box-shadow: var(--shadow-panel); font-size: 0.8125rem; line-height: 1.45;
+}
+.bl-remote-banner button {
+  flex: none; border: none; background: none; cursor: pointer;
+  color: var(--muted-foreground); padding: 0.125rem; border-radius: 0.25rem;
+}
+.bl-remote-banner button:hover { color: var(--foreground); background: var(--accent); }
+
 /* Toast with an inline action ("Canvas deleted — Undo") */
 .bl-toast--action { display: flex; align-items: center; gap: 0.5rem; }
 .bl-toast--action button {

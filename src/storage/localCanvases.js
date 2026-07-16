@@ -49,6 +49,20 @@ export function newCanvasId() {
     );
 }
 
+/** Stable per-browser id — lets a device recognize its own cloud heartbeat. */
+export function getDeviceId() {
+    try {
+        let id = localStorage.getItem("kobin.device");
+        if (!id) {
+            id = newCanvasId();
+            localStorage.setItem("kobin.device", id);
+        }
+        return id;
+    } catch (err) {
+        return "unknown";
+    }
+}
+
 export function readIndex() {
     try {
         const raw = localStorage.getItem(INDEX_KEY);
@@ -205,6 +219,34 @@ export function restoreCanvas(id) {
     }
     try { localStorage.removeItem(trashSlotKey(id)); } catch (err) { /* ignore */ }
     writeTrash(list.filter((e) => e.id !== id));
+    return t;
+}
+
+/**
+ * File the losing side of a cross-device overwrite in the recycle bin. The
+ * snapshot gets a FRESH id and a "(overwritten)" name, so restoring it
+ * becomes its own canvas instead of fighting the live one for the same slot.
+ * Returns the trash entry, or null if the snapshot couldn't be stored.
+ */
+export function stashOverwrittenVersion(json, name) {
+    let doc;
+    try { doc = JSON.parse(json); } catch (err) { return null; }
+    const label = (name || "Untitled canvas") + " (overwritten)";
+    doc.meta = { ...(doc.meta || {}), name: label };
+    const id = newCanvasId();
+    try {
+        localStorage.setItem(trashSlotKey(id), packSlot(JSON.stringify(doc)));
+    } catch (err) {
+        return null; // quota — the .bak fallback still exists
+    }
+    const t = {
+        id,
+        name: label,
+        savedAt: new Date().toISOString(),
+        ...statsFromDoc(doc),
+        deletedAt: new Date().toISOString(),
+    };
+    writeTrash([t, ...readTrash().filter((e) => e.id !== id)]);
     return t;
 }
 

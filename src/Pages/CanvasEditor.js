@@ -13,11 +13,12 @@ import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
 import {
     newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw,
     loadThumbs, saveThumbs, readIndex, backupCanvasSlot, trashCanvas, removeCanvas,
-    duplicateCanvas,
+    duplicateCanvas, stashOverwrittenVersion, getDeviceId,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
 import {
     cloudSaveCanvas, cloudLoadCanvas, cloudGetCanvasMeta, cloudTrashCanvas,
+    cloudSetEditing, cloudClearEditing,
 } from "../cloud/canvasSync";
 import {
     computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
@@ -144,6 +145,8 @@ export default function CanvasEditor() {
     const [fileOpen, setFileOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [leaveOpen, setLeaveOpen] = useState(false);
+    const [remoteEditing, setRemoteEditing] = useState(false);
+    const [remoteBannerDismissed, setRemoteBannerDismissed] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [nameDraft, setNameDraft] = useState("");
@@ -337,6 +340,35 @@ export default function CanvasEditor() {
         showToast(r.retargeted ? `Reframed "${r.scene.name}"` : "View captured");
     };
 
+    // Presence heartbeat: while a signed-in cloud canvas is open in a visible
+    // tab, stamp `editing` on its parent doc every 30s and watch for a fresh
+    // stamp from a DIFFERENT device — that shows the overwrite warning banner.
+    useEffect(() => {
+        if (!user || !engine.engineReady) return;
+        const device = getDeviceId();
+        const FRESH_MS = 2 * 60 * 1000; // ~4 missed beats before the banner clears
+        let stopped = false;
+        const beat = async () => {
+            if (stopped || document.visibilityState !== "visible") return;
+            try {
+                const meta = await cloudGetCanvasMeta(user.uid, realId);
+                if (stopped || !meta) return; // not in the cloud (yet) — nothing to guard
+                const e = meta.editing;
+                setRemoteEditing(!!(e && e.device && e.device !== device
+                    && Date.now() - Date.parse(e.at) < FRESH_MS));
+                await cloudSetEditing(user.uid, realId, device);
+            } catch (err) { /* offline — try again next beat */ }
+        };
+        beat();
+        const timer = setInterval(beat, 30000);
+        return () => {
+            stopped = true;
+            clearInterval(timer);
+            cloudClearEditing(user.uid, realId, device).catch(() => {});
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, engine.engineReady, realId]);
+
     // Browser closed (or tab killed) on a never-saved drawing: file it as a
     // draft so the gallery lists it instead of stranding it in a hidden slot.
     // In-app exits go through the keep/discard dialog instead.
@@ -383,6 +415,23 @@ export default function CanvasEditor() {
                 // Never replace a local drawing with an empty cloud copy (the
                 // stale-cloud shape of the bug this pull is here to fix).
                 if (localRaw && statsFromDoc(parsed).strokes === 0) return;
+                // A competing save is about to overwrite real local work —
+                // file this device's version in the recycle bin (restorable
+                // via "Restore deleted canvases"). Metadata-only refreshes
+                // (e.g. a rename elsewhere) don't clutter the bin.
+                if (localRaw) {
+                    try {
+                        const localParsed = JSON.parse(localRaw);
+                        if (statsFromDoc(localParsed).strokes > 0
+                            && JSON.stringify(localParsed.natives) !== JSON.stringify(parsed.natives)) {
+                            const entry = readIndex().find((e) => e.id === realId);
+                            stashOverwrittenVersion(localRaw,
+                                (entry && entry.name)
+                                || (localParsed.meta && localParsed.meta.name !== "untitled" && localParsed.meta.name)
+                                || "Untitled canvas");
+                        }
+                    } catch (err) { /* unparseable local — the .bak below still covers it */ }
+                }
                 backupCanvasSlot(realId); // recoverable if this merge was wrong
                 engine.engineRef.current.loadDrawing(parsed);
                 // Gallery renames only touch the cloud parent doc — its name
@@ -981,6 +1030,20 @@ export default function CanvasEditor() {
 
             {!hintDismissed && (
                 <div className="bl-hint">Scroll or pinch to zoom — open Scenes to bookmark a view</div>
+            )}
+
+            {remoteEditing && !remoteBannerDismissed && (
+                <div className="bl-remote-banner" role="alert">
+                    <span>
+                        “{canvasTitle}” is open on another device — please save and close on your
+                        other device to avoid it overwriting your changes on this device. You can
+                        restore your overwritten changes on the Your canvases page by clicking
+                        “Restore deleted canvases”.
+                    </span>
+                    <button type="button" title="Dismiss" onClick={() => setRemoteBannerDismissed(true)}>
+                        <X size={14} />
+                    </button>
+                </div>
             )}
 
             {toast && <div className="bl-toast">{toast}</div>}
