@@ -213,6 +213,90 @@ export function strokeOutline(points, width, opts = {}) {
     return solution.map((poly) => poly.map((pt) => [pt.X / scale, pt.Y / scale]));
 }
 
+// Signed (shoelace) area of one ring; sign encodes orientation.
+function ringSignedArea(ring) {
+    let s = 0;
+    for (let i = 0, n = ring.length; i < n; i++) {
+        const a = ring[i], b = ring[(i + 1) % n];
+        s += a[0] * b[1] - b[0] * a[1];
+    }
+    return s / 2;
+}
+
+/**
+ * Net inked area of a compound ring set (outers positive, holes cancel).
+ * The engine compares this before/after an erase to skip grazing no-ops.
+ */
+export function netRingsArea(rings) {
+    return Math.abs(rings.reduce((s, r) => s + ringSignedArea(r), 0));
+}
+
+/**
+ * The eraser's swept footprint: a round-capped capsule from `a` to `b` with
+ * radius r (a === b degenerates to a circle). One convex ring.
+ */
+export function capsulePoly(a, b, r, segs = 24) {
+    const half = Math.max(4, segs >> 1);
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    const out = [];
+    if (len < 1e-12) {
+        const n = half * 2;
+        for (let i = 0; i < n; i++) {
+            const t = (i / n) * 2 * Math.PI;
+            out.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]);
+        }
+        return out;
+    }
+    const base = Math.atan2(dy, dx) + Math.PI / 2; // a's left-side normal
+    for (let i = 0; i <= half; i++) {              // cap sweeping behind a
+        const t = base + (i / half) * Math.PI;
+        out.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]);
+    }
+    for (let i = 0; i <= half; i++) {              // cap sweeping past b
+        const t = base + Math.PI + (i / half) * Math.PI;
+        out.push([b[0] + r * Math.cos(t), b[1] + r * Math.sin(t)]);
+    }
+    return out;
+}
+
+/**
+ * Boolean difference: subject rings minus clip rings (nonzero rule on both
+ * sides). Returns DISJOINT REGIONS — each entry is one region's rings (outer
+ * first, then its holes) — so every leftover can become its own fill native
+ * with a tight bbox. Empty array = nothing survives.
+ */
+export function subtractPolys(subjectPolys, clipPolys, opts = {}) {
+    if (!subjectPolys || subjectPolys.length === 0) return [];
+    let mag = 1;
+    for (const poly of subjectPolys) { const m = maxMagnitude(poly); if (m > mag) mag = m; }
+    for (const poly of clipPolys || []) { const m = maxMagnitude(poly); if (m > mag) mag = m; }
+    const scale = Math.max(1, Math.min(opts.scale || 1000, Math.floor(SAFE_RANGE / mag)));
+    const toPath = (poly) => poly.map(([x, y]) => ({ X: Math.round(x * scale), Y: Math.round(y * scale) }));
+    const c = new ClipperLib.Clipper();
+    c.AddPaths(subjectPolys.map(toPath), ClipperLib.PolyType.ptSubject, true);
+    if (clipPolys && clipPolys.length) c.AddPaths(clipPolys.map(toPath), ClipperLib.PolyType.ptClip, true);
+    const sol = new ClipperLib.Paths();
+    c.Execute(ClipperLib.ClipType.ctDifference, sol,
+        ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+    // Clipper marks outers/holes by orientation. Each outer founds a region;
+    // each hole joins the smallest outer that contains it (checking smallest
+    // first assigns holes to their immediate outer under nesting).
+    const outers = [], holes = [];
+    for (const path of sol) {
+        const ring = path.map((pt) => [pt.X / scale, pt.Y / scale]);
+        if (ring.length < 3) continue;
+        (ClipperLib.Clipper.Orientation(path) ? outers : holes).push(ring);
+    }
+    const regions = outers.map((ring) => ({ area: Math.abs(ringSignedArea(ring)), rings: [ring] }));
+    regions.sort((a, b) => a.area - b.area);
+    for (const hole of holes) {
+        const home = regions.find((rg) => windingAt([rg.rings[0]], hole[0]) !== 0);
+        if (home) home.rings.push(hole);
+    }
+    return regions.map((rg) => rg.rings);
+}
+
 /**
  * Clip filled polygons to an axis-aligned rectangle (the bake window).
  * @param {Array<Array<[number,number]>>} polys

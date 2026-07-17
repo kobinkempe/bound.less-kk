@@ -31,6 +31,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     const [color, setColor] = useState("#000000");
     const [width, setWidth] = useState(12);
     const [opacity, setOpacity] = useState(1);
+    const [eraserSize, setEraserSize] = useState(16);
     const [opGroups, setOpGroups] = useState(true);
     const [outline, setOutline] = useState(false);
     const [preBake, setPreBake] = useState(true);
@@ -222,6 +223,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     useEffect(() => { engineRef.current && engineRef.current.setColor(color); }, [color]);
     useEffect(() => { engineRef.current && engineRef.current.setWidth(width); }, [width]);
     useEffect(() => { engineRef.current && engineRef.current.setOpacity(opacity); }, [opacity]);
+    useEffect(() => { engineRef.current && engineRef.current.setEraserSize(eraserSize); }, [eraserSize]);
     useEffect(() => { engineRef.current && engineRef.current.setOpacityGroups(opGroups); }, [opGroups]);
     useEffect(() => { engineRef.current && engineRef.current.setOutlineMode(outline); }, [outline]);
     useEffect(() => { engineRef.current && engineRef.current.setPreBake(preBake); }, [preBake]);
@@ -329,6 +331,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         color, setColor,
         width, setWidth,
         opacity, setOpacity,
+        eraserSize, setEraserSize,
         opGroups, setOpGroups,
         outline, setOutline,
         preBake, setPreBake,

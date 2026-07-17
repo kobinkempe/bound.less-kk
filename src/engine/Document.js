@@ -227,6 +227,22 @@ export default class Document {
         }, rec.level));
         return { removed: rec, pieces };
     }
+    // Replace a native with the region(s) an AREA erase left of its ink. Each
+    // region (rings: outer + holes) becomes its own fill native with a fresh
+    // id inheriting the source's z/color/opacity — disjoint leftovers select
+    // and re-erase independently, with tight bboxes. Same event/undo shape
+    // as cutById.
+    eraseReplaceById(id, regions) {
+        const rec = this.removeById(id);
+        if (!rec) return null;
+        const src = rec.obj;
+        const z = src.z != null ? src.z : src.id;
+        const pieces = regions.map((polys) => this.add({
+            type: "fill", origin: src.origin, id: this.allocId(), z, polys,
+            color: src.color, opacity: src.opacity, paths: [],
+        }, rec.level));
+        return { removed: rec, pieces };
+    }
     _bboxNow(o) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         const scan = (pts) => { for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; } };

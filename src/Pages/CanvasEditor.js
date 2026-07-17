@@ -626,8 +626,8 @@ export default function CanvasEditor() {
 
     const selectTool = (t) => {
         if (t.action) { t.action(engine); return; }
-        if (DRAW_TOOL_IDS.has(t.id) && activeTool === t.id) {
-            setSizeOpen((o) => !o);
+        if ((DRAW_TOOL_IDS.has(t.id) || t.id === "eraser") && activeTool === t.id) {
+            setSizeOpen((o) => !o); // draw tools: width/opacity; eraser: its size
             setColorOpen(false);
             return;
         }
@@ -640,7 +640,7 @@ export default function CanvasEditor() {
         }
     };
 
-    sizeAnchorRef.current = DRAW_TOOL_IDS.has(activeTool)
+    sizeAnchorRef.current = (DRAW_TOOL_IDS.has(activeTool) || activeTool === "eraser")
         ? (drawToolRefs.current[activeTool] ?? null)
         : null;
 
@@ -685,8 +685,24 @@ export default function CanvasEditor() {
 
     const dbgBtn = (active) => ({ className: `bl-dev-btn${active ? " active" : ""}` });
 
+    // The eraser's footprint ring follows the pointer via direct DOM writes —
+    // a React state update per pointermove would re-render the whole editor.
+    const eraserRingRef = useRef(null);
+    const moveEraserRing = (e) => {
+        const el = eraserRingRef.current;
+        if (!el) return;
+        const r = engine.eraserSize;
+        el.style.transform = `translate(${e.clientX - r}px, ${e.clientY - r}px)`;
+        el.style.opacity = "1";
+    };
+    const hideEraserRing = () => {
+        if (eraserRingRef.current) eraserRingRef.current.style.opacity = "0";
+    };
+
     return (
-        <div className="bl-editor" ref={editorRef}>
+        <div className="bl-editor" ref={editorRef}
+            onPointerMove={activeTool === "eraser" ? moveEraserRing : undefined}
+            onPointerLeave={activeTool === "eraser" ? hideEraserRing : undefined}>
             <div
                 ref={engine.hostRef}
                 className="bl-editor-host"
@@ -867,7 +883,7 @@ export default function CanvasEditor() {
                                         <button
                                             key={t.id}
                                             ref={(el) => {
-                                                if (DRAW_TOOL_IDS.has(t.id)) drawToolRefs.current[t.id] = el;
+                                                if (DRAW_TOOL_IDS.has(t.id) || t.id === "eraser") drawToolRefs.current[t.id] = el;
                                             }}
                                             type="button"
                                             title={t.label}
@@ -948,7 +964,18 @@ export default function CanvasEditor() {
                     stayOpenRef={colorSectionRef}
                 />
             )}
-            {sizeOpen && (
+            {sizeOpen && (activeTool === "eraser" ? (
+                <WidthOpacityPanel
+                    width={engine.eraserSize}
+                    onWidthChange={engine.setEraserSize}
+                    widthLabel="Eraser size"
+                    minWidth={4}
+                    maxWidth={90}
+                    onClose={() => setSizeOpen(false)}
+                    anchorRef={sizeAnchorRef}
+                    layoutKey={activeTool}
+                />
+            ) : (
                 <WidthOpacityPanel
                     width={engine.width}
                     opacity={engine.opacity}
@@ -958,7 +985,7 @@ export default function CanvasEditor() {
                     anchorRef={sizeAnchorRef}
                     layoutKey={activeTool}
                 />
-            )}
+            ))}
 
             <div className="bl-editor-overlay bl-editor-bottom-right bl-scale-controls">
                 {scaleDef && (
@@ -1047,6 +1074,14 @@ export default function CanvasEditor() {
             )}
 
             {toast && <div className="bl-toast">{toast}</div>}
+
+            {activeTool === "eraser" && (
+                <div
+                    ref={eraserRingRef}
+                    className="bl-eraser-ring"
+                    style={{ width: engine.eraserSize * 2, height: engine.eraserSize * 2 }}
+                />
+            )}
 
             <input
                 ref={fileRef}

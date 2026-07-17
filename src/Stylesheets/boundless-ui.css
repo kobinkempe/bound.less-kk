@@ -588,6 +588,18 @@
   font-size: inherit; font-weight: 600; text-decoration: underline; cursor: pointer;
 }
 
+/* Eraser footprint ring — positioned by direct transform writes on pointermove.
+   Dual-tone edge (white band in dark rails) so it reads on ink and paper alike. */
+.bl-eraser-ring {
+  position: absolute; left: 0; top: 0; z-index: 9; pointer-events: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.9); border-radius: 9999px;
+  box-shadow:
+    0 0 0 1.5px rgba(43, 38, 32, 0.6),
+    inset 0 0 0 1.5px rgba(43, 38, 32, 0.6);
+  opacity: 0; transform: translate(-200px, -200px);
+  box-sizing: border-box;
+}
+
 .bl-scale-define-overlay {
   position: absolute; inset: 0; z-index: 5;
   touch-action: none; cursor: crosshair;

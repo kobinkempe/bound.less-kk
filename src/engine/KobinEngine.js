@@ -18,9 +18,13 @@ import Document from "./Document";
 import Camera from "./Camera";
 import TileStore from "./TileStore";
 import Renderer from "./Renderer";
-import { strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve } from "./geometry/clipperOutline";
-import { distToPolyline, windingOfPoint } from "./geometry/hittest";
-import { cutPolylineWithDisc } from "./geometry/cut";
+import {
+    strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve,
+    capsulePoly, subtractPolys, netRingsArea,
+} from "./geometry/clipperOutline";
+import {
+    distToPolyline, windingOfPoint, distSegToPolyline, capsuleTouchesRings,
+} from "./geometry/hittest";
 import { bboxOf, levelFactor } from "./geometry/derive";
 import { encodeDrawing, decodeDrawing } from "./persist";
 import { validateScaleDef } from "./scaleBar";
@@ -77,6 +81,7 @@ export default class KobinEngine {
         this.retainScenes = true;  // keep each level's SVG subtree so a flip swaps it in instead of rebuilding
         this._idleFitScheduled = false;
         this._drawing = null; this._panLast = null; this._erasing = false; this._drawStartT = 0;
+        this._eraserPx = 16; this._lastErasePt = null;
         this._lastList = []; this._lastRange = null;
         this.perfLog = [];
         this.geom = { strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve };
@@ -279,7 +284,7 @@ export default class KobinEngine {
     pointerDown(sx, sy) {
         if (this.tool === "pan") { this._panLast = [sx, sy]; return; }
         if (this.tool === "erase") { this._erasing = true; this.eraseAt(sx, sy); return; }
-        if (this.tool === "erasePartial") { this._erasing = true; this.erasePartialAt(sx, sy); return; }
+        if (this.tool === "erasePartial") { this._erasing = true; this._lastErasePt = null; this.erasePartialAt(sx, sy); return; }
         if (this.tool === "select") {
             const id = this.select(sx, sy);
             this._dragSel = id != null ? { last: [sx, sy], dx: 0, dy: 0, moved: false } : null;
@@ -330,7 +335,7 @@ export default class KobinEngine {
             this._render();
             this._queueIdleFits();                // prefit the outline off the pen-up frame
         }
-        this._panLast = null; this._erasing = false;
+        this._panLast = null; this._erasing = false; this._lastErasePt = null;
     }
     cancelStroke() {
         const o = this._drawing; if (!o) return;
@@ -354,52 +359,60 @@ export default class KobinEngine {
         this.doc.pushUndo({ op: "erase", obj: rec.obj, level: rec.level, index: rec.index });
         return true;
     }
-    // Boolean/true eraser (tool "erasePartial"): a disc of _eraserRadiusPx()
-    // device px that CUTS stroke geometry instead of removing objects. Unlike
-    // the object eraser it takes EVERY stroke whose ink the disc touches (that
-    // is how rubbing feels), not just the topmost point-hit.
-    _eraserRadiusPx() { return Math.max(6, this.penWidth); }
+    // Area ("ink") eraser (tool "erasePartial"): the pointer sweeps a
+    // round-capped capsule of _eraserRadiusPx() device px that is boolean-
+    // subtracted from the PAINTED ink of every object it touches — what a
+    // rubber does, at any stroke width and any zoom. A touched stroke bakes
+    // into its filled outline; each disjoint leftover becomes its own object
+    // (tight selection, independent re-erase).
+    _eraserRadiusPx() { return this._eraserPx; }
+    setEraserSize(px) { this._eraserPx = Math.min(200, Math.max(2, +px || 16)); }
     erasePartialAt(sx, sy) {
-        const p = this.cam.screenToFrame(sx, sy);
+        const p1 = this.cam.screenToFrame(sx, sy);
+        const p0 = this._lastErasePt || p1;
+        this._lastErasePt = p1;
         const Re = this._eraserRadiusPx() / this.cam.inScale; // active-frame units
         const ids = new Set();
         for (const o of this._lastList) {
-            if (o.type === "fill") { if (windingOfPoint(o.polys, p) !== 0) ids.add(o.id); }
-            else {
+            if (o.type === "fill") {
+                if (capsuleTouchesRings(p0, p1, Re, o.polys)) ids.add(o.id);
+            } else {
                 const pts = (o.origin === "native" && o.pts.length > 2) ? flattenCurve(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter) : o.pts;
-                if (distToPolyline(pts, p) <= o.lwFrame / 2 + Re) ids.add(o.id);
+                if (distSegToPolyline(p0, p1, pts) <= o.lwFrame / 2 + Re) ids.add(o.id);
             }
         }
         let changed = false;
-        for (const id of ids) if (this._cutNative(id, p, Re)) changed = true;
+        for (const id of ids) if (this._eraseNative(id, p0, p1, Re)) changed = true;
         if (changed) this._render();
         return changed;
     }
-    // Cut one native with the eraser disc, in the native's own home frame.
-    _cutNative(id, pActive, Re) {
+    // Subtract the swept capsule from one native's painted ink, in the
+    // native's own home frame (small coordinates — full float precision).
+    _eraseNative(id, p0Active, p1Active, Re) {
         const rec = this.doc.getById(id);
         if (!rec) return false;
         const { obj: o, level: H } = rec;      // H is the object's home FRAME id
         const F = this.cam.frame;
-        // no centerline to cut -> the object eraser's semantics
-        if (o.type !== "stroke") return this._eraseWhole(id);
-        const f = this.lm.frameFactor(H, F); // home -> active scale
+        const f = this.lm.frameFactor(H, F);   // home -> active scale
         if (f == null || Math.abs(this.lm.depthOf(H) - this.lm.depthOf(F)) > 4) return false; // no chain / magnify precision
-        // An eraser that can't span the painted band would gouge a hole ~lw wide
-        // from a single touch (the cut clears the FULL width over the cut span).
-        // Skip those — a magnified coarse stroke is thousands of px wide, and
-        // deleting it outright would be worse; the object eraser covers that.
-        if (o.lwFrame * f * this.cam.inScale > 6 * this._eraserRadiusPx()) return false;
-        const c = this.lm.mapPointF(pActive, F, H);
-        if (!c) return false;
-        // r = eraser radius + half the stroke width: every centerline point whose
-        // painted disc the eraser touches is removed, and the surviving pieces'
-        // round caps land exactly tangent to the eraser disc.
-        const r = Re / f + o.lwFrame / 2;
-        const runs = cutPolylineWithDisc(o.pts, c, r);
-        if (runs == null) return false;                    // disc missed the centerline
-        if (!runs.length) return this._eraseWhole(id);     // nothing survives
-        const cut = this.doc.cutById(id, runs);
+        const a = this.lm.mapPointF(p0Active, F, H);
+        const b = this.lm.mapPointF(p1Active, F, H);
+        if (!a || !b) return false;
+        const r = Re / f;                              // eraser radius in home units
+        const displayScale = f * this.cam.inScale;     // home units -> on-screen px
+        // The painted ink as rings: fills bring their own; strokes bake their
+        // outline exactly as the fat-render path would paint it (round caps).
+        const subject = o.type === "fill"
+            ? o.polys
+            : strokeOutline(o.pts, o.lwFrame, { curved: o.origin === "native" && o.pts.length > 2, displayScale });
+        if (!subject.length) return this._eraseWhole(id);
+        const regions = subtractPolys(subject, [capsulePoly(a, b, r)]);
+        if (!regions.length) return this._eraseWhole(id); // nothing survives
+        // Grazing pass: if (practically) no ink was removed, leave the object
+        // alone — a tangent brush-by must not churn a stroke into a fill.
+        const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
+        if (netRingsArea(subject) - kept < 1e-4 * r * r) return false;
+        const cut = this.doc.eraseReplaceById(id, regions);
         if (!cut) return false;
         this.doc.pushUndo({ op: "cut", removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) });
         return true;
