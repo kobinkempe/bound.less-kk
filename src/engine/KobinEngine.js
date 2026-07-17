@@ -20,7 +20,7 @@ import TileStore from "./TileStore";
 import Renderer from "./Renderer";
 import {
     strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve,
-    capsulePoly, subtractPolys, netRingsArea,
+    subtractPolys, netRingsArea,
 } from "./geometry/clipperOutline";
 import {
     distToPolyline, windingOfPoint, distSegToPolyline, capsuleTouchesRings,
@@ -32,6 +32,10 @@ import {
     computeSceneProposals, matchScenes, splitMembers, resolveCapture, levelHash,
     JOIN_WINDOWS, WINDOW_WIDTHS,
 } from "./scenes";
+
+// Eraser strokes paint in the canvas background color — visually "erased"
+// the instant they're drawn, before any geometry work happens.
+const ERASE_COLOR = "#ffffff";
 
 const DEFAULTS = {
     enter: 300, base: 0.1, exit: 0.05, bufferScreens: 1, scale: 1000, arcTolerancePx: 0.25,
@@ -81,7 +85,12 @@ export default class KobinEngine {
         this.retainScenes = true;  // keep each level's SVG subtree so a flip swaps it in instead of rebuilding
         this._idleFitScheduled = false;
         this._drawing = null; this._panLast = null; this._erasing = false; this._drawStartT = 0;
-        this._eraserPx = 16; this._lastErasePt = null;
+        this._eraserPx = 16;
+        // Deferred area erase: committed eraser strokes bake into the ink
+        // beneath them one object per idle slice (see "deferred erase baking").
+        this._eraseCommits = new Map(); // eraser stroke id -> its eraseCommit undo op
+        this._bakeDone = new Map();     // eraser stroke id -> Set of object ids handled
+        this._bakeTimer = null;
         this._lastList = []; this._lastRange = null;
         this.perfLog = [];
         this.geom = { strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve };
@@ -156,7 +165,11 @@ export default class KobinEngine {
         this._render();
         this._perf("resize", t0, true, { w, h });
     }
-    destroy() { this._destroyed = true; this.store.destroy(); this.renderer.destroy(); }
+    destroy() {
+        this._destroyed = true;
+        if (this._bakeTimer != null) { clearTimeout(this._bakeTimer); this._bakeTimer = null; }
+        this.store.destroy(); this.renderer.destroy();
+    }
 
     // ---- perf log ----
     _perf(op, t0, always, extra) {
@@ -284,7 +297,25 @@ export default class KobinEngine {
     pointerDown(sx, sy) {
         if (this.tool === "pan") { this._panLast = [sx, sy]; return; }
         if (this.tool === "erase") { this._erasing = true; this.eraseAt(sx, sy); return; }
-        if (this.tool === "erasePartial") { this._erasing = true; this._lastErasePt = null; this.erasePartialAt(sx, sy); return; }
+        if (this.tool === "erasePartial") {
+            // The eraser IS a stroke: background-colored ink through the pen
+            // pipeline, so the gesture costs nothing no matter how complex
+            // the drawing is. Baking into the ink beneath happens later.
+            this._erasing = true;
+            const p = this.cam.screenToFrame(sx, sy);
+            const o = {
+                type: "stroke", origin: "native", erase: true, bakePx: this.cam.inScale,
+                id: this.doc.allocId(), pts: [p],
+                lwFrame: (2 * this._eraserPx) / this.cam.inScale,
+                color: ERASE_COLOR, opacity: 1, paths: [],
+            };
+            this.store.live = o;
+            this.doc.add(o, this.cam.frame, { live: true });
+            this.renderer.addLive(o, false);
+            this.renderer.update();
+            this._drawing = o; this._drawStartT = Date.now();
+            return;
+        }
         if (this.tool === "select") {
             const id = this.select(sx, sy);
             this._dragSel = id != null ? { last: [sx, sy], dx: 0, dy: 0, moved: false } : null;
@@ -309,7 +340,7 @@ export default class KobinEngine {
             this._panLast = [sx, sy]; this.panBy(dx, dy); return;
         }
         if (this.tool === "erase") { if (this._erasing) this.eraseAt(sx, sy); return; }
-        if (this.tool === "erasePartial") { if (this._erasing) this.erasePartialAt(sx, sy); return; }
+        // "erasePartial" falls through: the eraser trail is this._drawing.
         if (this.tool === "select") { if (this._dragSel && this.selection) this._dragSelection(sx, sy); return; }
         if (this._drawing) {
             const p = this.cam.screenToFrame(sx, sy);
@@ -330,12 +361,21 @@ export default class KobinEngine {
             this.renderer.endLive();
             this.store.live = null;               // stroke is final: bbox/flatten may cache now
             this.doc.finalize(o);                 // index + update finer tiles (off-screen)
-            this.doc.pushUndo({ op: "add", id: o.id });
-            this._noteInkAdded(o);                // provisional scene assignment
+            if (o.erase) {
+                // ONE undo op for the whole eraser gesture; background baking
+                // appends its per-object replacements to op.baked later.
+                const op = { op: "eraseCommit", strokeId: o.id, strokeRec: null, baked: [] };
+                this.doc.pushUndo(op);
+                this._eraseCommits.set(o.id, op);
+                this._scheduleBake();
+            } else {
+                this.doc.pushUndo({ op: "add", id: o.id });
+                this._noteInkAdded(o);            // provisional scene assignment
+            }
             this._render();
             this._queueIdleFits();                // prefit the outline off the pen-up frame
         }
-        this._panLast = null; this._erasing = false; this._lastErasePt = null;
+        this._panLast = null; this._erasing = false;
     }
     cancelStroke() {
         const o = this._drawing; if (!o) return;
@@ -359,63 +399,160 @@ export default class KobinEngine {
         this.doc.pushUndo({ op: "erase", obj: rec.obj, level: rec.level, index: rec.index });
         return true;
     }
-    // Area ("ink") eraser (tool "erasePartial"): the pointer sweeps a
-    // round-capped capsule of _eraserRadiusPx() device px that is boolean-
-    // subtracted from the PAINTED ink of every object it touches — what a
-    // rubber does, at any stroke width and any zoom. A touched stroke bakes
-    // into its filled outline; each disjoint leftover becomes its own object
-    // (tight selection, independent re-erase).
+    // ---- deferred erase baking ----
+    // An eraser stroke commits instantly as background-colored ink; z-order
+    // alone makes the picture correct everywhere (it covers only what was
+    // below it when drawn). Baking then folds it into each object beneath —
+    // boolean-subtracting its painted footprint from theirs, in that object's
+    // home frame — ONE object per idle slice, so the UI never stalls. Baking
+    // only has to beat the next SELECTION of an affected object: select()
+    // flushes that one object's pending erasures synchronously first.
     _eraserRadiusPx() { return this._eraserPx; }
     setEraserSize(px) { this._eraserPx = Math.min(200, Math.max(2, +px || 16)); }
-    erasePartialAt(sx, sy) {
-        const p1 = this.cam.screenToFrame(sx, sy);
-        const p0 = this._lastErasePt || p1;
-        this._lastErasePt = p1;
-        const Re = this._eraserRadiusPx() / this.cam.inScale; // active-frame units
-        const ids = new Set();
-        for (const o of this._lastList) {
-            if (o.type === "fill") {
-                if (capsuleTouchesRings(p0, p1, Re, o.polys)) ids.add(o.id);
-            } else {
-                const pts = (o.origin === "native" && o.pts.length > 2) ? flattenCurve(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter) : o.pts;
-                if (distSegToPolyline(p0, p1, pts) <= o.lwFrame / 2 + Re) ids.add(o.id);
+    _zOf(o) { return o.z != null ? o.z : o.id; }
+    _eraseStrokes() {
+        const out = [];
+        for (const k of this.doc.levels()) {
+            for (const o of this.doc.at(k)) if (o.erase) out.push({ obj: o, level: k });
+        }
+        out.sort((a, b) => this._zOf(a.obj) - this._zOf(b.obj)); // oldest first
+        return out;
+    }
+    _doneSet(eid) {
+        let s = this._bakeDone.get(eid);
+        if (!s) { s = new Set(); this._bakeDone.set(eid, s); }
+        return s;
+    }
+    _scheduleBake(delay = 400) {
+        if (this._bakeTimer != null) return;
+        this._bakeTimer = setTimeout(() => { this._bakeTimer = null; this._bakeTick(); }, delay);
+    }
+    _bakeTick() {
+        // Stay out of the user's way — retry when the pointer is idle.
+        if (this._drawing || this._erasing || this._dragSel || this._panLast) { this._scheduleBake(400); return; }
+        for (const Erec of this._eraseStrokes()) {
+            const target = this._nextEraseTarget(Erec);
+            if (target) {
+                if (this._bakeOne(Erec, target)) this._render();
+                this._scheduleBake(80); // one object per slice
+                return;
+            }
+            // Every object beneath is handled — the white stroke has served
+            // its purpose; consume it silently (undo goes via its commit op).
+            this.doc.removeById(Erec.obj.id);
+            this._eraseCommits.delete(Erec.obj.id);
+            this._bakeDone.delete(Erec.obj.id);
+            this._render();
+            this._scheduleBake(80);
+            return;
+        }
+    }
+    // First not-yet-handled object beneath eraser stroke E (cheap filters:
+    // z-below, frame chain within the precision guard, ink proximity).
+    _nextEraseTarget(Erec) {
+        const E = Erec.obj, HE = Erec.level;
+        const done = this._doneSet(E.id);
+        for (const k of this.doc.levels()) {
+            if (this.lm.frameFactor(k, HE) == null) continue;
+            if (Math.abs(this.lm.depthOf(k) - this.lm.depthOf(HE)) > 4) continue;
+            for (const o of this.doc.at(k)) {
+                if (o.erase || done.has(o.id)) continue;
+                if (this._zOf(o) >= this._zOf(E)) continue;
+                if (!this._eraseMayTouch(E, HE, o, k)) { done.add(o.id); continue; }
+                return { obj: o, level: k };
             }
         }
-        let changed = false;
-        for (const id of ids) if (this._eraseNative(id, p0, p1, Re)) changed = true;
-        if (changed) this._render();
-        return changed;
+        return null;
     }
-    // Subtract the swept capsule from one native's painted ink, in the
-    // native's own home frame (small coordinates — full float precision).
-    _eraseNative(id, p0Active, p1Active, Re) {
-        const rec = this.doc.getById(id);
-        if (!rec) return false;
-        const { obj: o, level: H } = rec;      // H is the object's home FRAME id
-        const F = this.cam.frame;
-        const f = this.lm.frameFactor(H, F);   // home -> active scale
-        if (f == null || Math.abs(this.lm.depthOf(H) - this.lm.depthOf(F)) > 4) return false; // no chain / magnify precision
-        const a = this.lm.mapPointF(p0Active, F, H);
-        const b = this.lm.mapPointF(p1Active, F, H);
-        if (!a || !b) return false;
-        const r = Re / f;                              // eraser radius in home units
-        const displayScale = f * this.cam.inScale;     // home units -> on-screen px
-        // The painted ink as rings: fills bring their own; strokes bake their
-        // outline exactly as the fat-render path would paint it (round caps).
+    // Proximity prefilter in the target's home frame (coarse control points —
+    // the subtract itself is the arbiter, its no-op guard eats false hits).
+    _eraseMayTouch(E, HE, o, HO) {
+        const Ep = this.lm.projectF(E, HE, HO);
+        if (!Ep) return false;
+        const rE = Ep.lwFrame / 2;
+        const n = Ep.pts.length;
+        const segs = n > 1 ? n - 1 : 1;
+        for (let i = 0; i < segs; i++) {
+            const a = Ep.pts[i], b = Ep.pts[Math.min(i + 1, n - 1)];
+            if (o.type === "fill") {
+                if (capsuleTouchesRings(a, b, rE, o.polys)) return true;
+            } else if (distSegToPolyline(a, b, o.pts) <= rE + o.lwFrame / 2) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // Subtract eraser stroke E's painted footprint from one object, silently
+    // (the doc changes ride E's eraseCommit undo op, not ops of their own).
+    _bakeOne(Erec, target) {
+        const E = Erec.obj, HE = Erec.level;
+        const { obj: o, level: HO } = target;
+        const done = this._doneSet(E.id);
+        done.add(o.id);
+        if (!this.doc.getById(o.id)) return false;
+        const Ep = this.lm.projectF(E, HE, HO);
+        if (!Ep) return false;
+        // Outline fidelity anchors to the ERASE-TIME zoom, capped so a giant
+        // magnified stroke can't explode the flatten (the "few seconds per
+        // bite" failure of the synchronous eraser).
+        const fScr = (E.bakePx || 1) * (this.lm.frameFactor(HO, HE) || 1); // erase-time px per HO unit
+        const spanOf = (obj) => { const b = bboxOf(obj, null); return Math.hypot(b.x1 - b.x0, b.y1 - b.y0) || 1; };
+        const dsClip = Math.max(1e-9, Math.min(fScr, 25000 / spanOf(Ep)));
+        const dsSubj = Math.max(1e-9, Math.min(fScr, 25000 / spanOf(o)));
+        const clip = strokeOutline(Ep.pts, Ep.lwFrame, { curved: Ep.pts.length > 2, displayScale: dsClip });
+        if (!clip.length) return false;
         const subject = o.type === "fill"
             ? o.polys
-            : strokeOutline(o.pts, o.lwFrame, { curved: o.origin === "native" && o.pts.length > 2, displayScale });
-        if (!subject.length) return this._eraseWhole(id);
-        const regions = subtractPolys(subject, [capsulePoly(a, b, r)]);
-        if (!regions.length) return this._eraseWhole(id); // nothing survives
-        // Grazing pass: if (practically) no ink was removed, leave the object
-        // alone — a tangent brush-by must not churn a stroke into a fill.
-        const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
-        if (netRingsArea(subject) - kept < 1e-4 * r * r) return false;
-        const cut = this.doc.eraseReplaceById(id, regions);
-        if (!cut) return false;
-        this.doc.pushUndo({ op: "cut", removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) });
+            : strokeOutline(o.pts, o.lwFrame, { curved: o.origin === "native" && o.pts.length > 2, displayScale: dsSubj });
+        if (!subject.length) return false;
+        const regions = subtractPolys(subject, clip);
+        let bakedStep;
+        if (regions.length) {
+            // Grazing pass: (practically) no ink removed — leave it alone.
+            const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
+            const rE = Ep.lwFrame / 2;
+            if (netRingsArea(subject) - kept < 1e-4 * rE * rE) return false;
+            const cut = this.doc.eraseReplaceById(o.id, regions);
+            if (!cut) return false;
+            bakedStep = { removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) };
+            for (const pc of bakedStep.pieces) done.add(pc.obj.id); // results are already net of E
+        } else {
+            const rec = this.doc.removeById(o.id); // nothing survives
+            if (!rec) return false;
+            bakedStep = { removed: rec, pieces: [] };
+        }
+        const op = this._eraseCommits.get(E.id);
+        if (op && op.op === "eraseCommit") op.baked.push(bakedStep);
         return true;
+    }
+    // Selection barrier: bake everything still pending over ONE object, now.
+    // Returns true if the object changed (caller re-renders and re-hits).
+    _flushErasesFor(id) {
+        const rec = this.doc.getById(id);
+        if (!rec || rec.obj.erase) return false;
+        for (const Erec of this._eraseStrokes()) {
+            const E = Erec.obj;
+            if (this._zOf(E) <= this._zOf(rec.obj)) continue;
+            if (this._doneSet(E.id).has(id)) continue;
+            if (!this._eraseMayTouch(E, Erec.level, rec.obj, rec.level)) { this._doneSet(E.id).add(id); continue; }
+            if (this._bakeOne(Erec, { obj: rec.obj, level: rec.level })) return true;
+        }
+        return false;
+    }
+    /** Bake every pending eraser stroke to completion (tests, power tools). */
+    flushErases() {
+        let guard = 0;
+        while (guard++ < 10000) {
+            const strokes = this._eraseStrokes();
+            if (!strokes.length) break;
+            const Erec = strokes[0];
+            const target = this._nextEraseTarget(Erec);
+            if (target) { this._bakeOne(Erec, target); continue; }
+            this.doc.removeById(Erec.obj.id);
+            this._eraseCommits.delete(Erec.obj.id);
+            this._bakeDone.delete(Erec.obj.id);
+        }
+        this._render();
     }
 
     // ---- selection / edit (US-10) ----
@@ -423,15 +560,22 @@ export default class KobinEngine {
     // object eraser). Selecting through a derived piece selects the NATIVE —
     // edits apply at its home level and re-derive everywhere.
     select(sx, sy) {
-        const id = this._hitTest(sx, sy);
-        if (id == null) { this.deselect(); return null; }
-        const rec = this.doc.getById(id);
-        if (!rec) { this.deselect(); return null; }
-        if (!this.selection || this.selection.id !== id) this._activeRestyle = null;
-        this.selection = { id, level: rec.level, obj: rec.obj };
-        this.renderer.syncCameraOnly(); this.renderer.update();
-        this._emit();
-        return id;
+        for (let guard = 0; guard < 8; guard++) {
+            const id = this._hitTest(sx, sy);
+            if (id == null) { this.deselect(); return null; }
+            // Erase barrier: anything still pending over this object bakes
+            // NOW — the flush may split it or delete it, so re-hit after.
+            if (this._flushErasesFor(id)) { this._render(); continue; }
+            const rec = this.doc.getById(id);
+            if (!rec) { this.deselect(); return null; }
+            if (!this.selection || this.selection.id !== id) this._activeRestyle = null;
+            this.selection = { id, level: rec.level, obj: rec.obj };
+            this.renderer.syncCameraOnly(); this.renderer.update();
+            this._emit();
+            return id;
+        }
+        this.deselect();
+        return null;
     }
     deselect() {
         if (!this.selection) return;
@@ -513,18 +657,25 @@ export default class KobinEngine {
         const slack = 6 / this.cam.inScale;
         for (let i = list.length - 1; i >= 0; i--) { // topmost first
             const o = list[i];
-            if (o.type === "fill") { if (windingOfPoint(o.polys, p) !== 0) return o.id; }
+            let hit = false;
+            if (o.type === "fill") hit = windingOfPoint(o.polys, p) !== 0;
             else {
                 const pts = (o.origin === "native" && o.pts.length > 2) ? flattenCurve(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter) : o.pts;
-                if (distToPolyline(pts, p) <= o.lwFrame / 2 + slack) return o.id;
+                hit = distToPolyline(pts, p) <= o.lwFrame / 2 + slack;
             }
+            if (!hit) continue;
+            // Pending eraser ink is invisible to picking — the click falls
+            // through to whatever it covers (select() then flushes its bake).
+            const nat = this.doc.getById(o.id);
+            if (nat && nat.obj.erase) continue;
+            return o.id;
         }
         return null;
     }
 
     // ---- undo / redo / clear ----
-    undo() { this._activeRestyle = null; if (!this.doc.undo()) return false; this._render(); return true; }
-    redo() { this._activeRestyle = null; if (!this.doc.redo()) return false; this._render(); return true; }
+    undo() { this._activeRestyle = null; if (!this.doc.undo()) return false; this._scheduleBake(); this._render(); return true; }
+    redo() { this._activeRestyle = null; if (!this.doc.redo()) return false; this._scheduleBake(); this._render(); return true; }
     clear() {
         const capture = () => ({ crossings: this.lm.serialize(), camera: this.cam.state() });
         const restore = (ext) => { this.lm.load(ext.crossings); this.cam.set(ext.camera); };
@@ -577,6 +728,9 @@ export default class KobinEngine {
         this.lm.load(d.crossings);
         this.doc.loadNatives(d.natives); // reset event clears tiles + selection
         this.cam.set(d.camera);
+        this._eraseCommits.clear();
+        this._bakeDone.clear();
+        this._scheduleBake(); // resume baking any eraser strokes the file carried
         this.docMeta = {
             name: d.meta.name,
             createdAt: d.meta.createdAt,

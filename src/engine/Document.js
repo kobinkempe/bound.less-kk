@@ -329,6 +329,34 @@ export default class Document {
                 for (const pc of pcs) this.insertAt(pc.obj, pc.level, pc.index);
                 return { op: "cut", removed: r || op.removed, pieces: op.pieces };
             }
+            // Deferred area erase. "eraseCommit" is pushed ONCE per eraser
+            // gesture; background baking APPENDS to op.baked afterwards (no
+            // ops of its own — Ctrl+Z must never undo a system-initiated
+            // bake). The op object is MUTATED and reused across undo/redo so
+            // the engine's append target stays valid.
+            case "eraseCommit": {
+                // Undo the whole gesture: reverse its bakes newest-first,
+                // then take the white eraser stroke itself out of the doc.
+                for (let i = op.baked.length - 1; i >= 0; i--) {
+                    const st = op.baked[i];
+                    for (const pc of st.pieces) this.removeById(pc.obj.id);
+                    this.insertAt(st.removed.obj, st.removed.level, st.removed.index);
+                }
+                op.strokeRec = this.removeById(op.strokeId); // null if baking consumed it
+                op.op = "eraseRevert";
+                return op;
+            }
+            case "eraseRevert": {
+                // Redo: restore the eraser stroke (unless it had been fully
+                // consumed) and re-apply every bake in order.
+                if (op.strokeRec) this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
+                for (const st of op.baked) {
+                    this.removeById(st.removed.obj.id);
+                    for (const pc of st.pieces) this.insertAt(pc.obj, pc.level, 1e9);
+                }
+                op.op = "eraseCommit";
+                return op;
+            }
             case "clear": {
                 const curNatives = this.nativesByLevel;
                 const curExternal = op.onExternal ? op.onExternal() : undefined;
@@ -371,6 +399,9 @@ export default class Document {
                     : { type: o.type, origin: o.origin, id: o.id, pts: o.pts, lwFrame: o.lwFrame, color: o.color, opacity: o.opacity };
                 if (o.type === "fill" && o.covers) rec.covers = true;
                 if (o.z != null && o.z !== o.id) rec.z = o.z;
+                // Pending eraser strokes (deferred area erase) must survive a
+                // save so baking can resume after a reload.
+                if (o.erase) { rec.erase = true; if (o.bakePx != null) rec.bakePx = o.bakePx; }
                 return rec;
             });
         }

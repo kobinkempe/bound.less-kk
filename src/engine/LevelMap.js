@@ -257,16 +257,25 @@ export default class LevelMap {
         if (!a || !b) return null;
         return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
     }
-    // Chain a native's points + width from its home frame into another frame.
+    // Chain a native's geometry + width from its home frame into another frame.
+    // Handles both strokes (pts) and fills (polys — e.g. area-erase bakes).
     projectF(o, homeId, toId) {
         const f = this.frameFactor(homeId, toId);
         if (f == null) return null;
         const path = this.framePath(homeId, toId);
         const base = this.cfg.base;
-        let pts = o.pts;
-        for (const id of path.up) { const e = this.frames.get(id).edge; pts = pts.map(([x, y]) => [(x * base - e.t.x) / e.s, (y * base - e.t.y) / e.s]); }
-        for (const id of path.down) { const e = this.frames.get(id).edge; pts = pts.map(([x, y]) => [(x * e.s + e.t.x) / base, (y * e.s + e.t.y) / base]); }
-        return { type: "stroke", origin: "derived", id: o.id, z: o.z, pts, lwFrame: o.lwFrame * f, color: o.color, opacity: o.opacity, paths: [] };
+        const mapAll = (src) => {
+            let pts = src;
+            for (const id of path.up) { const e = this.frames.get(id).edge; pts = pts.map(([x, y]) => [(x * base - e.t.x) / e.s, (y * base - e.t.y) / e.s]); }
+            for (const id of path.down) { const e = this.frames.get(id).edge; pts = pts.map(([x, y]) => [(x * e.s + e.t.x) / base, (y * e.s + e.t.y) / base]); }
+            return pts;
+        };
+        if (o.type === "fill") {
+            return { type: "fill", origin: "derived", id: o.id, z: o.z, polys: o.polys.map(mapAll),
+                color: o.color, opacity: o.opacity, paths: [] };
+        }
+        return { type: "stroke", origin: "derived", id: o.id, z: o.z, pts: mapAll(o.pts),
+            lwFrame: o.lwFrame * f, color: o.color, opacity: o.opacity, paths: [] };
     }
 
     // ---- legacy depth-int walks (spine; scenes/persist/dev UIs) ----

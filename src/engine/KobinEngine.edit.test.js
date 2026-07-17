@@ -170,7 +170,7 @@ describe("selection", () => {
     });
 });
 
-describe("area (partial) erase", () => {
+describe("deferred area erase", () => {
     // Total inked bbox of a fill piece.
     const bboxOfPolys = (polys) => {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -180,100 +180,147 @@ describe("area (partial) erase", () => {
         }
         return { x0, y0, x1, y1 };
     };
-
-    test("erasing the middle of a stroke bakes two ink pieces split at the eraser edge", () => {
-        const E = mkEngine();
-        drawStroke(E, [[300, 300], [500, 300]]); // lwFrame 13
-        const src = E.nativesByLevel[0][0];
+    const eraseGesture = (E, pts) => {
         E.setTool("erasePartial");
-        E.setEraserSize(13);
-        E.pointerDown(400, 300); E.pointerUp();
-        const natives = E.nativesByLevel[0];
-        expect(natives).toHaveLength(2);
-        const boxes = natives.map((p) => bboxOfPolys(p.polys)).sort((a, b) => a.x0 - b.x0);
-        // Left piece: the round cap reaches lw/2 past x=300. The kept ink's
-        // inner edge is where the disc crosses the band edge:
-        // 400 ∓ sqrt(13² − 6.5²) ≈ 400 ∓ 11.26 (± capsule polygonization).
-        expect(boxes[0].x0).toBeCloseTo(293.5, 0);
-        expect(boxes[0].x1).toBeGreaterThan(387.5);
-        expect(boxes[0].x1).toBeLessThan(389.5);
-        expect(boxes[1].x0).toBeGreaterThan(410.5);
-        expect(boxes[1].x0).toBeLessThan(412.5);
-        expect(boxes[1].x1).toBeCloseTo(506.5, 0);
-        for (const p of natives) {
-            expect(p.type).toBe("fill");         // baked to painted ink...
-            expect(p.id).not.toBe(src.id);       // ...as new objects...
-            expect(p.z).toBe(src.id);            // ...at the original's depth
-            expect(p.color).toBe(src.color);
-            expect(p.origin).toBe("native");
-        }
-    });
+        E.pointerDown(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) E.pointerMove(pts[i][0], pts[i][1]);
+        E.pointerUp();
+    };
 
-    test("erase undo restores the original stroke; redo re-erases", () => {
+    test("the gesture commits instantly as background ink — no geometry work", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 300], [500, 300]]);
-        const id = E.nativesByLevel[0][0].id;
-        E.setTool("erasePartial");
-        E.pointerDown(400, 300); E.pointerUp();
+        const src = E.nativesByLevel[0][0];
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]);
+        const natives = E.nativesByLevel[0];
+        expect(natives).toHaveLength(2);              // untouched stroke + eraser ink
+        expect(natives[0]).toBe(src);                 // literally untouched
+        const trail = natives[1];
+        expect(trail.erase).toBe(true);
+        expect(trail.type).toBe("stroke");
+        expect(trail.color).toBe("#ffffff");
+        expect(trail.lwFrame).toBeCloseTo(26, 9);     // 2 × eraser radius
+        // The white ink is invisible to picking — the covered stroke is hit.
+        expect(E._hitTest(400, 300)).toBe(src.id);
+    });
+
+    test("one undo removes the whole eraser stroke; redo brings it back", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]);
+        eraseGesture(E, [[350, 300], [400, 300], [450, 300]]);
         expect(E.nativesByLevel[0]).toHaveLength(2);
-        E.undo();
+        E.undo(); // ONE op for the whole gesture
         expect(E.nativesByLevel[0]).toHaveLength(1);
-        expect(E.nativesByLevel[0][0].id).toBe(id);
-        expect(E.nativesByLevel[0][0].type).toBe("stroke"); // the REAL stroke is back
-        expect(E.nativesByLevel[0][0].pts).toEqual([[300, 300], [500, 300]]);
+        expect(E.nativesByLevel[0][0].type).toBe("stroke");
+        expect(E.nativesByLevel[0][0].erase).toBeUndefined();
         E.redo();
-        expect(E.nativesByLevel[0]).toHaveLength(2);
+        expect(E.nativesByLevel[0].filter((o) => o.erase)).toHaveLength(1);
         E.undo(); E.undo(); // un-erase, then undo the draw itself
         expect(countNatives(E)).toBe(0);
     });
 
-    test("an eraser that covers the whole stroke erases the object", () => {
+    test("baking splits the ink at the eraser edge and consumes the white stroke", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]); // lwFrame 13
+        const src = E.nativesByLevel[0][0];
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        const natives = E.nativesByLevel[0];
+        expect(natives).toHaveLength(2);              // two pieces, eraser consumed
+        const boxes = natives.map((p) => bboxOfPolys(p.polys)).sort((a, b) => a.x0 - b.x0);
+        // Kept ink's inner edges: 400 ∓ sqrt(13² − 6.5²) ≈ 400 ∓ 11.26.
+        expect(boxes[0].x0).toBeCloseTo(293.5, 0);
+        expect(boxes[0].x1).toBeGreaterThan(387);   // ±~1.5px: the eraser dot is a
+        expect(boxes[0].x1).toBeLessThan(390.5);    // polygonized offset circle
+        expect(boxes[1].x0).toBeGreaterThan(409.5);
+        expect(boxes[1].x0).toBeLessThan(413);
+        expect(boxes[1].x1).toBeCloseTo(506.5, 0);
+        for (const p of natives) {
+            expect(p.type).toBe("fill");
+            expect(p.erase).toBeUndefined();
+            expect(p.z).toBe(src.id);                 // pieces at the original's depth
+            expect(p.color).toBe(src.color);
+        }
+    });
+
+    test("undo AFTER baking still reverts the whole gesture in one step", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]);
+        const id = E.nativesByLevel[0][0].id;
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        expect(E.nativesByLevel[0].map((o) => o.type)).toEqual(["fill", "fill"]);
+        E.undo(); // one op: un-bakes AND removes the (consumed) eraser stroke
+        expect(E.nativesByLevel[0]).toHaveLength(1);
+        expect(E.nativesByLevel[0][0].id).toBe(id);
+        expect(E.nativesByLevel[0][0].type).toBe("stroke");
+        expect(E.nativesByLevel[0][0].pts).toEqual([[300, 300], [500, 300]]);
+        E.redo(); // re-applies the bake (the white stroke stays consumed)
+        expect(E.nativesByLevel[0].map((o) => o.type).sort()).toEqual(["fill", "fill"]);
+        E.undo(); E.undo();
+        expect(countNatives(E)).toBe(0);
+    });
+
+    test("selection is barred until the touched object bakes", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]);
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]);
+        E.setTool("select");
+        // Selecting the surviving left half forces THIS object's bake first.
+        E.pointerDown(320, 300); E.pointerUp();
+        expect(E.selection).not.toBeNull();
+        expect(E.selection.obj.type).toBe("fill");
+        // The erased gap is genuinely empty to selection.
+        E.pointerDown(400, 300); E.pointerUp();
+        expect(E.selection).toBeNull();
+    });
+
+    test("an eraser that covers the whole stroke removes the object on bake", () => {
         const E = mkEngine();
         drawStroke(E, [[400, 300], [420, 300]]);
-        E.setTool("erasePartial");
-        E.setEraserSize(90); // radius 90 dwarfs the ~33px ink
-        E.pointerDown(410, 300); E.pointerUp();
+        E.setEraserSize(90);
+        eraseGesture(E, [[410, 300]]);
+        E.flushErases();
         expect(countNatives(E)).toBe(0);
         E.undo();
         expect(countNatives(E)).toBe(1);
         expect(E.nativesByLevel[0][0].pts).toEqual([[400, 300], [420, 300]]);
     });
 
-    test("rubbing across two overlapping strokes erases both", () => {
+    test("one gesture bakes into every stroke beneath it", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 295], [500, 295]]);
         drawStroke(E, [[300, 305], [500, 305]]);
-        E.setTool("erasePartial");
         E.setEraserSize(16);
-        E.pointerDown(400, 300); E.pointerUp(); // disc spans both ink bands
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
         expect(E.nativesByLevel[0]).toHaveLength(4); // each split in two
         for (const p of E.nativesByLevel[0]) expect(p.type).toBe("fill");
     });
 
-    test("a moving eraser erases along the whole swept path, not just the samples", () => {
+    test("the swept trail erases along its whole path", () => {
         const E = mkEngine();
         drawStroke(E, [[400, 200], [400, 400]]); // vertical stroke
-        E.setTool("erasePartial");
         E.setEraserSize(10);
-        // One fast drag whose SAMPLES land either side of the stroke — only
-        // the swept capsule between them crosses it.
-        E.pointerDown(300, 300);
-        E.pointerMove(500, 300);
-        E.pointerUp();
+        eraseGesture(E, [[300, 300], [500, 300]]);
+        E.flushErases();
         const natives = E.nativesByLevel[0];
         expect(natives).toHaveLength(2); // split above/below the sweep
         const boxes = natives.map((p) => bboxOfPolys(p.polys)).sort((a, b) => a.y0 - b.y0);
-        expect(boxes[0].y1).toBeLessThan(300);   // upper piece ends above the sweep
-        expect(boxes[1].y0).toBeGreaterThan(300); // lower piece starts below it
+        expect(boxes[0].y1).toBeLessThan(300);
+        expect(boxes[1].y0).toBeGreaterThan(300);
     });
 
-    test("erased pieces keep the original's z-order under later strokes", () => {
+    test("baked pieces keep the original's z-order under later strokes", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 300], [500, 300]]);              // A (bottom)
         drawStroke(E, [[400, 200], [400, 400]]);              // B (top, crosses A)
         const idB = E.nativesByLevel[0][1].id;
-        E.setTool("erasePartial");
-        E.pointerDown(320, 300); E.pointerUp();               // erase A away from B
+        eraseGesture(E, [[320, 300]]);                        // erase A away from B
+        E.flushErases();
         const order = E._objs().map((o) => (o.z != null ? o.z : o.id));
         expect(order).toEqual([...order].sort((a, b) => a - b)); // render list sorted by z
         const zs = E._objs().filter((o) => o.id !== idB).map((o) => o.z);
@@ -285,11 +332,10 @@ describe("area (partial) erase", () => {
         const E = mkEngine();
         drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
         zoomToLevel1(E); // the stroke is now thousands of px wide on screen
-        E.setTool("erasePartial");
-        const before = countNatives(E);
-        expect(E.erasePartialAt(400, 300)).toBe(true); // the old engine refused this
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
         const natives = Object.values(E.nativesByLevel).flat();
-        expect(natives.length).toBeGreaterThanOrEqual(before);
+        expect(natives.length).toBeGreaterThanOrEqual(1);
         for (const p of natives) expect(p.type).toBe("fill");
         // The erased spot is really empty: no object's ink covers it now.
         expect(E._hitTest(400, 300)).toBeNull();
@@ -298,32 +344,52 @@ describe("area (partial) erase", () => {
         expect(E.nativesByLevel[0][0].pts).toHaveLength(4);
     });
 
-    test("erasing an already-baked piece subtracts again (fills erase too)", () => {
+    test("erasing an already-baked piece subtracts again", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 300], [500, 300]]);
-        E.setTool("erasePartial");
         E.setEraserSize(13);
-        E.pointerDown(340, 300); E.pointerUp();
+        eraseGesture(E, [[340, 300]]);
+        E.flushErases();
         expect(E.nativesByLevel[0]).toHaveLength(2);
-        E.pointerDown(440, 300); E.pointerUp(); // second bite hits the right-hand FILL
+        eraseGesture(E, [[440, 300]]); // second gesture bites the right-hand FILL
+        E.flushErases();
         expect(E.nativesByLevel[0]).toHaveLength(3);
         for (const p of E.nativesByLevel[0]) expect(p.type).toBe("fill");
     });
 
-    test("erased pieces survive a save/load round-trip with their z", () => {
+    test("a PENDING eraser stroke survives save/load and resumes baking", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 300], [500, 300]]);
         const srcId = E.nativesByLevel[0][0].id;
-        E.setTool("erasePartial");
-        E.pointerDown(400, 300); E.pointerUp();
-        const doc = JSON.parse(JSON.stringify(E.serializeDrawing({ name: "erases" })));
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]); // no flush — still pending
+        const doc = JSON.parse(JSON.stringify(E.serializeDrawing({ name: "pending" })));
         const E2 = mkEngine();
         E2.loadDrawing(doc);
+        const loaded = E2.nativesByLevel[0];
+        expect(loaded).toHaveLength(2);
+        const trail = loaded.find((o) => o.erase);
+        expect(trail).toBeTruthy();                   // the flag survived the file
+        expect(trail.bakePx).toBeCloseTo(1, 9);
+        E2.flushErases();                             // ...and still bakes after reload
         const pieces = E2.nativesByLevel[0];
         expect(pieces).toHaveLength(2);
         for (const p of pieces) {
             expect(p.type).toBe("fill");
             expect(p.z).toBe(srcId);
         }
+    });
+
+    test("REGRESSION: baked fills render when zooming back OUT (projectF/bake-down)", () => {
+        const E = mkEngine();
+        zoomToLevel1(E);
+        drawStroke(E, [[350, 280], [450, 320]]); // homes in the level-1 frame
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases(); // fills now live in a DEEPER frame than level 0
+        expect(() => {
+            let guard = 0;
+            while (E.activeLevel > 0 && guard++ < 60) E.zoomAt(400, 300, 1000);
+        }).not.toThrow(); // TileStore._bakeDown used to crash on fill natives
+        expect(E.activeLevel).toBe(0);
     });
 });

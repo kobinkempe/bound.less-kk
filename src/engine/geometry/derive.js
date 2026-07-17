@@ -250,5 +250,5 @@ export function levelFactor(H, L, records, base) {
 // (`enter`) — the view-independent minify cull/fade measure (BUG-04's fade tag).
 export function projectedSizePx(o, f, cfg, live) {
     const b = bboxOf(o, live);
-    return (Math.hypot(b.x1 - b.x0, b.y1 - b.y0) + o.lwFrame) * f * cfg.enter;
+    return (Math.hypot(b.x1 - b.x0, b.y1 - b.y0) + (o.lwFrame || 0)) * f * cfg.enter;
 }

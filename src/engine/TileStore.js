@@ -30,7 +30,7 @@
  * the active frame, so finishing a stroke never invalidates an on-screen tile.
  */
 import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf } from "./geometry/derive";
-import { flattenCurve, clipPolylineToRect } from "./geometry/clipperOutline";
+import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/clipperOutline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
 const PER_LEVEL_CAP = 64; // cached tiles per frame
@@ -189,6 +189,14 @@ export default class TileStore {
                     bAtF.bottom + lwF < rect.top || bAtF.top - lwF > rect.bottom) continue;
                 const d = this.lm.projectF(o, G, F);
                 if (!d) continue;
+                if (d.type === "fill") {
+                    // Area-erase bakes travel as fills — clip their rings like
+                    // deriveStep does (winding preserved, holes stay holes).
+                    const tp = clipRingsToRect(d.polys, rect);
+                    if (tp.length) objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                        opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+                    continue;
+                }
                 const pts = (o.origin === "native" && d.pts.length > 2)
                     ? flattenCurve(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base) : d.pts;
                 const lw = d.lwFrame;
@@ -269,6 +277,13 @@ export default class TileStore {
             bAtF.bottom + lwF < rect.top || bAtF.top - lwF > rect.bottom) return;
         const d = this.lm.projectF(o, H, F);
         if (!d) return;
+        if (d.type === "fill") {
+            // Area-erase bakes travel as fills (same handling as _bakeDown).
+            const tp = clipRingsToRect(d.polys, rect);
+            if (tp.length) tile.objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+            return;
+        }
         const pts = (o.origin === "native" && d.pts.length > 2)
             ? flattenCurve(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base) : d.pts;
         const lw = d.lwFrame;
