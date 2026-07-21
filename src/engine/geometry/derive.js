@@ -226,7 +226,13 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
         // Shrink the ceded rect by the seam pad so the parent overlaps its
         // attached re-home patches. Renderer groups the family by editId, so
         // this is safe for transparent as well as opaque ink.
-        const cutHoles = holes ? insetWindows(holes, pad) : null;
+        // Home-level window rendering still clips geometry by TILE, so `pad`
+        // may be a relatively large tile-seam overlap. That much inset on a
+        // small ownership window would visibly refill the erase. Callers that
+        // render a source in its own frame can provide the much smaller
+        // parent/child overlap independently.
+        const holePad = opts.windowPad != null ? opts.windowPad : pad;
+        const cutHoles = holes ? insetWindows(holes, holePad) : null;
         const fillRegions = cutHoles ? rectSubtract(crect, cutHoles) : [crect];
         if (!fillRegions.length) continue; // wholly ceded to children
         const tag = (piece) => { if (carry) piece.windows = carry; out.push(piece); };
@@ -247,7 +253,9 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // crossing over a 425-stroke drawing take 167 SECONDS. Moderately
             // wide inherited pieces render as strokes and, if they approach the
             // display gate in-level, get cached curve-capsule outlines instead.)
-            if (o.lwFrame * s > W * cfg.polygonizeWidthFrac) {
+            const forceOutline = typeof opts.forceOutline === "function"
+                ? opts.forceOutline(o) : !!opts.forceOutline;
+            if (forceOutline || o.lwFrame * s > W * cfg.polygonizeWidthFrac) {
                 const half = lw / 2;
                 const ew = { left: rect.left - half, top: rect.top - half, right: rect.right + half, bottom: rect.bottom + half };
                 // Flatten the displayed spline BEFORE clipping (shared chords, see

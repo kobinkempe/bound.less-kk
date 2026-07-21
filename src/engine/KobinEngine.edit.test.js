@@ -361,18 +361,47 @@ describe("deferred area erase", () => {
         eraseGesture(E, [[400, 300]]);
         E.flushErases();
         expect(E._hitTest(400, 300)).toBeNull();
-        // Out to the source's own level: the window is ~3000x smaller than the
-        // eraser there, so it falls under the cull and the source draws whole —
-        // which is correct, the hole genuinely is invisible from out here.
+        // Out to the source's own level. An adjacent-level re-home window is
+        // still tens/hundreds of screen pixels immediately after this crossing:
+        // the parent must be cut there while downContent supplies its child.
         let guard = 0;
         while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
         expect(E.activeLevel).toBe(0);
         E._render();
+        expect(E._hitTest(400, 300)).toBeNull();
+        const source = E.nativesByLevel[0][0];
+        expect(E._objs().some((o) => o.id === source.id && o !== source)).toBe(true);
         // Back in — the hole is still exactly where it was, at full fidelity.
         zoomToLevel1(E);
         E._render();
         expect(E._hitTest(400, 300)).toBeNull();
         expect(E._hitTest(400, 330)).not.toBeNull();
+    });
+
+    test("a re-homed FILL keeps its cutout when its own parent frame activates", () => {
+        const E = mkEngine();
+        const src = {
+            type: "fill", origin: "native", id: E.doc.allocId(), z: 1,
+            polys: [[[360, 260], [440, 260], [440, 340], [360, 340]]],
+            color: "#000", opacity: 0.45, paths: [],
+        };
+        E.doc.add(src, "0");
+        E._render();
+        zoomToLevel1(E);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        expect(src.windows).toHaveLength(1);
+        expect(E._hitTest(400, 300)).toBeNull();
+
+        let guard = 0;
+        while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
+        expect(E.activeLevel).toBe(0);
+        E._render();
+        expect(E._hitTest(400, 300)).toBeNull();
+        // The uncut native is no longer rendered directly; its tile-bounded
+        // parent pieces and minified child share one logical opacity group.
+        expect(E._objs().some((o) => o.id === src.id && o !== src)).toBe(true);
+        expect(E._objs().some((o) => o.editId === src.id)).toBe(true);
     });
 
     test("boundary patches edit as one family; enclosed offshoots stay independent", () => {

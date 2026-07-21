@@ -26,10 +26,12 @@
  * would need to MAGNIFY into F from another branch — the up-chain's lateral
  * pickup, deferred (Stage 3 remainder). It cannot arise in a spine.
  *
- * Own natives(F) are NOT baked into F's own tiles — they render live (curved) at
- * the active frame, so finishing a stroke never invalidates an on-screen tile.
+ * Ordinary own natives(F) are NOT baked into F's own tiles — they render live
+ * (curved) at the active frame. The narrow exception is a native with ownership
+ * windows: ownContent clips that parent through visible tiles so its re-homed
+ * descendants can remain visible across the outward boundary.
  */
-import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, splitWindows, seamPad, padRect } from "./geometry/derive";
+import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, displayChords, splitWindows, seamPad, padRect } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/clipperOutline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
@@ -97,6 +99,49 @@ export default class TileStore {
         this._pins = nowVisible; // only currently-visible tiles are pinned
         this._evict();
         return out;
+    }
+
+    // Own natives ordinarily render live, outside the tile cache. A native that
+    // has ceded ownership windows is the exception: its parent representation
+    // must be visibly cut even while ITS OWN frame is active, with descendant
+    // re-home patches arriving through downContent to fill the surviving ink.
+    //
+    // Clip these few window-owning natives through the visible tiles. Fills use
+    // the float ring clip; strokes are first represented as their display-faithful
+    // outline so a window can cut a hole inside a very wide band without relying
+    // on the centerline. Geometry remains tile-bounded and is grouped by logical
+    // id in Renderer, exactly like ordinary Kobinized pieces.
+    ownContent(F, windowRect) {
+        const cf = this.lm.frameFor(F);
+        if (!cf) return [];
+        F = cf.id;
+        const plain = [], cut = [];
+        const range = this.lm.tileRange(F, windowRect);
+        const zero = { x: 0, y: 0 };
+        for (const o of this.doc.at(F)) {
+            const sw = splitWindows(o, this.cfg.base, zero, this.cfg);
+            if (!sw || !sw.apply.length) { plain.push(o); continue; }
+
+            // Native splines need the same sub-pixel-at-deepest-zoom chords as
+            // their displayed curve before the analytic outline is tiled.
+            const source = o.type === "stroke" && o.origin === "native" && o.pts.length > 2
+                ? { type: "stroke", origin: "derived", id: o.id, z: o.z,
+                    pts: displayChords(o, this.cfg, this.live), lwFrame: o.lwFrame,
+                    color: o.color, opacity: o.opacity, windows: o.windows, paths: [] }
+                : o;
+            const overlapSafe = o.opacity == null || o.opacity >= 1 || this.opacityGroups;
+            const windowPad = overlapSafe ? 2 / this.cfg.enter : 0; // ~1 px at an outward crossing
+            for (let i = range.i0; i <= range.i1; i++) {
+                for (let j = range.j0; j <= range.j1; j++) {
+                    deriveStep([source], this.cfg.base, zero, this.lm.tileRect(F, i, j), F, {
+                        cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups,
+                        live: this.live, parentCurved: false, childCurved: false,
+                        forceOutline: source.type === "stroke", windowPad,
+                    }, cut);
+                }
+            }
+        }
+        return plain.concat(cut);
     }
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----

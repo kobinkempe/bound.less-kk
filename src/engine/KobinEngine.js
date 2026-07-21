@@ -208,7 +208,7 @@ export default class KobinEngine {
         const win = this.cam.frameWindow(0);
         const F = this.cam.frame;
         const derived = this.store.content(F, win);
-        const own = this.doc.at(F);
+        const own = this.store.ownContent(F, win);
         const list = derived.concat(own);
         // Renderer grouping follows logical edit ownership for re-homed
         // boundary patches. That lets parent/patch overlap close AA seams while
