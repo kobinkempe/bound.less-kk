@@ -90,7 +90,6 @@ export default class KobinEngine {
         // beneath them one object per idle slice (see "deferred erase baking").
         this._eraseCommits = new Map(); // eraser stroke id -> its eraseCommit undo op
         this._bakeDone = new Map();     // eraser stroke id -> Set of object ids handled
-        this._maskKeep = new Map();     // eraser stroke id -> Set of GIANT object ids it must keep covering
         this._bakeTimer = null;
         this._lastList = []; this._lastRange = null;
         this.perfLog = [];
@@ -424,11 +423,6 @@ export default class KobinEngine {
         if (!s) { s = new Set(); this._bakeDone.set(eid, s); }
         return s;
     }
-    _maskSet(eid) {
-        let s = this._maskKeep.get(eid);
-        if (!s) { s = new Set(); this._maskKeep.set(eid, s); }
-        return s;
-    }
     _scheduleBake(delay = 400) {
         if (this._bakeTimer != null) return;
         this._bakeTimer = setTimeout(() => { this._bakeTimer = null; this._bakeTick(); }, delay);
@@ -443,33 +437,15 @@ export default class KobinEngine {
                 this._scheduleBake(80); // one object per slice
                 return;
             }
-            if (this._maybeConsume(Erec)) {
-                this._render();
-                this._scheduleBake(80);
-                return;
-            }
-            // Kept alive as a permanent mask — nothing to do; check the next.
+            // Every object beneath is handled — the white stroke has served
+            // its purpose; consume it silently (undo goes via its commit op).
+            this.doc.removeById(Erec.obj.id);
+            this._eraseCommits.delete(Erec.obj.id);
+            this._bakeDone.delete(Erec.obj.id);
+            this._render();
+            this._scheduleBake(80);
+            return;
         }
-    }
-    // Consume a fully-handled white stroke — unless it is the PERMANENT erase
-    // of a masked giant beneath it, or something beneath sits in a frame the
-    // precision guard won't let us reach (its cover is all the erase it gets).
-    _maybeConsume(Erec) {
-        const E = Erec.obj, HE = Erec.level;
-        const masks = this._maskKeep.get(E.id);
-        if (masks) { for (const id of masks) if (this.doc.getById(id)) return false; }
-        for (const k of this.doc.levels()) {
-            if (this.lm.frameFactor(k, HE) != null
-                && Math.abs(this.lm.depthOf(k) - this.lm.depthOf(HE)) <= 4) continue;
-            for (const o of this.doc.at(k)) {
-                if (!o.erase && this._zOf(o) < this._zOf(E)) return false;
-            }
-        }
-        this.doc.removeById(E.id);
-        this._eraseCommits.delete(E.id);
-        this._bakeDone.delete(E.id);
-        this._maskKeep.delete(E.id);
-        return true;
     }
     // First not-yet-handled object beneath eraser stroke E (cheap filters:
     // z-below, frame chain within the precision guard, ink proximity).
@@ -516,44 +492,27 @@ export default class KobinEngine {
         if (!this.doc.getById(o.id)) return false;
         const Ep = this.lm.projectF(E, HE, HO);
         if (!Ep) return false;
+        // Outline fidelity anchors to the ERASE-TIME zoom, capped so a giant
+        // magnified stroke can't explode the flatten (the "few seconds per
+        // bite" failure of the synchronous eraser).
         const fScr = (E.bakePx || 1) * (this.lm.frameFactor(HO, HE) || 1); // erase-time px per HO unit
-        const b = bboxOf(o, null);
-        const span = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) + (o.lwFrame || 0);
-        // A GIANT (over ~100k on-screen px at erase-time zoom) cannot take a
-        // faithful hole: Clipper's integer range can't span that dynamic
-        // range, and quantized holes shrink to whole-frame-unit facets (or
-        // vanish — the "black poking through" bug). Instead its eraser stroke
-        // stays as PERMANENT background ink: adaptive-rendered, pixel-perfect
-        // at every zoom, and one shape across every layer it covers.
-        // _maybeConsume keeps the white stroke alive; _hitTest treats covered
-        // points as empty.
-        if (span * fScr > 1e5) {
-            this._maskSet(E.id).add(o.id);
-            return false;
-        }
-        // Bake in coordinates LOCAL to the object (bbox center): raw frame
-        // coordinates would spend integer range on distance-from-origin
-        // instead of hole precision. With span·fScr bounded above, the scale
-        // below is always sub-pixel at erase-time zoom.
-        const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-        const shift = (pts, sx, sy) => pts.map(([x, y]) => [x + sx, y + sy]);
-        const clip = strokeOutline(shift(Ep.pts, -cx, -cy), Ep.lwFrame,
-            { curved: Ep.pts.length > 2, displayScale: fScr });
+        const spanOf = (obj) => { const b = bboxOf(obj, null); return Math.hypot(b.x1 - b.x0, b.y1 - b.y0) || 1; };
+        const dsClip = Math.max(1e-9, Math.min(fScr, 25000 / spanOf(Ep)));
+        const dsSubj = Math.max(1e-9, Math.min(fScr, 25000 / spanOf(o)));
+        const clip = strokeOutline(Ep.pts, Ep.lwFrame, { curved: Ep.pts.length > 2, displayScale: dsClip });
         if (!clip.length) return false;
         const subject = o.type === "fill"
-            ? o.polys.map((r) => shift(r, -cx, -cy))
-            : strokeOutline(shift(o.pts, -cx, -cy), o.lwFrame,
-                { curved: o.origin === "native" && o.pts.length > 2, displayScale: fScr });
+            ? o.polys
+            : strokeOutline(o.pts, o.lwFrame, { curved: o.origin === "native" && o.pts.length > 2, displayScale: dsSubj });
         if (!subject.length) return false;
-        const regions = subtractPolys(subject, clip, { scale: Math.max(1000, Math.round(100 * fScr)) });
+        const regions = subtractPolys(subject, clip);
         let bakedStep;
         if (regions.length) {
             // Grazing pass: (practically) no ink removed — leave it alone.
             const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
             const rE = Ep.lwFrame / 2;
             if (netRingsArea(subject) - kept < 1e-4 * rE * rE) return false;
-            const cut = this.doc.eraseReplaceById(o.id,
-                regions.map((rings) => rings.map((r) => shift(r, cx, cy))));
+            const cut = this.doc.eraseReplaceById(o.id, regions);
             if (!cut) return false;
             bakedStep = { removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) };
             for (const pc of bakedStep.pieces) done.add(pc.obj.id); // results are already net of E
@@ -580,15 +539,18 @@ export default class KobinEngine {
         }
         return false;
     }
-    /** Bake every pending eraser stroke to completion (tests, power tools).
-     *  Strokes masking a giant stay — they ARE that giant's erase. */
+    /** Bake every pending eraser stroke to completion (tests, power tools). */
     flushErases() {
-        for (const Erec of this._eraseStrokes()) {
-            let target, guard = 0;
-            while ((target = this._nextEraseTarget(Erec)) && guard++ < 10000) {
-                this._bakeOne(Erec, target);
-            }
-            this._maybeConsume(Erec);
+        let guard = 0;
+        while (guard++ < 10000) {
+            const strokes = this._eraseStrokes();
+            if (!strokes.length) break;
+            const Erec = strokes[0];
+            const target = this._nextEraseTarget(Erec);
+            if (target) { this._bakeOne(Erec, target); continue; }
+            this.doc.removeById(Erec.obj.id);
+            this._eraseCommits.delete(Erec.obj.id);
+            this._bakeDone.delete(Erec.obj.id);
         }
         this._render();
     }
@@ -706,23 +668,9 @@ export default class KobinEngine {
             // through to whatever it covers (select() then flushes its bake).
             const nat = this.doc.getById(o.id);
             if (nat && nat.obj.erase) continue;
-            // And a point sitting UNDER eraser ink is "erased" for picking,
-            // even when what's beneath is a masked giant that never bakes.
-            if (nat && this._coveredByEraseInk(p, this._zOf(nat.obj))) continue;
             return o.id;
         }
         return null;
-    }
-    // Is this active-frame point covered by a pending eraser stroke above z?
-    _coveredByEraseInk(p, z) {
-        for (const Erec of this._eraseStrokes()) {
-            const E = Erec.obj;
-            if (this._zOf(E) <= z) continue;
-            const pe = this.lm.mapPointF(p, this.cam.frame, Erec.level);
-            if (!pe) continue;
-            if (distToPolyline(E.pts, pe) <= E.lwFrame / 2) return true;
-        }
-        return false;
     }
 
     // ---- undo / redo / clear ----
@@ -782,7 +730,6 @@ export default class KobinEngine {
         this.cam.set(d.camera);
         this._eraseCommits.clear();
         this._bakeDone.clear();
-        this._maskKeep.clear();
         this._scheduleBake(); // resume baking any eraser strokes the file carried
         this.docMeta = {
             name: d.meta.name,
