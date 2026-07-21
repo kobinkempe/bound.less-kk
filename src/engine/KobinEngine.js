@@ -490,6 +490,17 @@ export default class KobinEngine {
         const done = this._doneSet(E.id);
         done.add(o.id);
         if (!this.doc.getById(o.id)) return false;
+        // Resolve the gesture's undo op BEFORE touching the document — a bake
+        // that cannot record itself must not mutate anything (unrecorded
+        // bakes were how duplicated, stacked geometry formed). After a reload
+        // the commit map is empty, so resumed baking re-registers a fresh op,
+        // which also makes a resumed erase undoable again.
+        let op = this._eraseCommits.get(E.id);
+        if (!op || op.op !== "eraseCommit") {
+            op = { op: "eraseCommit", strokeId: E.id, strokeRec: null, baked: [] };
+            this.doc.pushUndo(op);
+            this._eraseCommits.set(E.id, op);
+        }
         const Ep = this.lm.projectF(E, HE, HO);
         if (!Ep) return false;
         // Outline fidelity anchors to the ERASE-TIME zoom, capped so a giant
@@ -521,8 +532,7 @@ export default class KobinEngine {
             if (!rec) return false;
             bakedStep = { removed: rec, pieces: [] };
         }
-        const op = this._eraseCommits.get(E.id);
-        if (op && op.op === "eraseCommit") op.baked.push(bakedStep);
+        op.baked.push(bakedStep); // op resolved above — every bake is recorded
         return true;
     }
     // Selection barrier: bake everything still pending over ONE object, now.

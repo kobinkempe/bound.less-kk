@@ -380,6 +380,83 @@ describe("deferred area erase", () => {
         }
     });
 
+    test("a bake resumed after load is RECORDED — one undo reverts it", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]);
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]); // pending — not yet baked
+        const doc = JSON.parse(JSON.stringify(E.serializeDrawing({ name: "p" })));
+        const E2 = mkEngine();
+        E2.loadDrawing(doc);
+        expect(E2.doc.canUndo()).toBe(false);  // a load starts a clean history
+        E2.flushErases();                       // resumed bake re-registers its op
+        expect(E2.nativesByLevel[0].map((o) => o.type).sort()).toEqual(["fill", "fill"]);
+        expect(E2.doc.canUndo()).toBe(true);    // ...so it is undoable
+        E2.undo();
+        const after = E2.nativesByLevel[0];
+        expect(after).toHaveLength(1);
+        expect(after[0].type).toBe("stroke");
+        expect(after[0].pts).toEqual([[300, 300], [500, 300]]);
+    });
+
+    test("stale erase replays can never double-stack ink (doc-level guards)", () => {
+        // Deferred baking means an op's recorded objects can be consumed by a
+        // LATER erase while the op sits mid-stack. Replaying it blindly used
+        // to resurrect stale copies on top of the newer bake's pieces.
+        const d = new Document();
+        const src = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0], [100, 0]], lwFrame: 10, color: "#000", opacity: 1, paths: [] };
+        d.add(src, 0);
+        const region = (x1) => [[[0, -5], [x1, -5], [x1, 5], [0, 5]]];
+        const cut1 = d.eraseReplaceById(src.id, region(40));
+        const op1 = {
+            op: "eraseCommit", strokeId: 9999, strokeRec: null,
+            baked: [{ removed: cut1.removed, pieces: cut1.pieces.map((obj) => ({ obj, level: "0" })) }],
+        };
+        d._invert(op1);                                  // undo: piece out, src back
+        expect(d.at("0").map((o) => o.id)).toEqual([src.id]);
+        const cut2 = d.eraseReplaceById(src.id, region(60)); // later erase consumes src
+        d._invert(op1);                                  // stale REDO replay of op1
+        const ids = d.at("0").map((o) => o.id);
+        expect(ids).toEqual([cut2.pieces[0].id]);        // only the later bake's piece
+        expect(ids).not.toContain(src.id);               // no resurrected source...
+        expect(ids).not.toContain(cut1.pieces[0].id);    // ...and no stale piece
+        // And the mirrored guard: un-baking a step whose pieces are already
+        // gone must not resurrect the source over their replacement.
+        const op2 = {
+            op: "eraseCommit", strokeId: 9998, strokeRec: null,
+            baked: [{ removed: cut1.removed, pieces: cut1.pieces.map((obj) => ({ obj, level: "0" })) }],
+        };
+        d._invert(op2);                                  // pieces absent -> src must stay out
+        expect(d.at("0").map((o) => o.id)).toEqual([cut2.pieces[0].id]);
+    });
+
+    test("eraser-made fills Kobinize at a crossing: chopped to tile size, ink/hole preserved", () => {
+        const E = mkEngine();
+        drawStroke(E, [[300, 300], [500, 300]]);
+        E.setEraserSize(13);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases(); // two level-0 fill pieces
+        // Zoom INTO the left piece's ink (not the gap) across a crossing.
+        let guard = 0;
+        while (E.activeLevel < 1 && guard++ < 60) E.zoomAt(330, 300, -1000);
+        expect(E.activeLevel).toBeGreaterThanOrEqual(1);
+        const g = E.lm.grid(E.cam.frame);
+        const derived = E._objs().filter((o) => o.type === "fill");
+        expect(derived.length).toBeGreaterThan(0);
+        for (const p of derived) {
+            let x0 = 1 / 0, y0 = 1 / 0, x1 = -1 / 0, y1 = -1 / 0;
+            for (const r of p.polys) for (const [x, y] of r) {
+                x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+                y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+            }
+            // Bounded by the TILE, never by the (much larger) source object.
+            expect(x1 - x0).toBeLessThanOrEqual(g.w * 1.02);
+            expect(y1 - y0).toBeLessThanOrEqual(g.h * 1.02);
+        }
+        // Deep inside the piece the covered tiles must still paint its ink.
+        expect(E._hitTest(330, 300)).not.toBeNull();
+    });
+
     test("REGRESSION: baked fills render when zooming back OUT (projectF/bake-down)", () => {
         const E = mkEngine();
         zoomToLevel1(E);

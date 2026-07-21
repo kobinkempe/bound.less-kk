@@ -337,10 +337,17 @@ export default class Document {
             case "eraseCommit": {
                 // Undo the whole gesture: reverse its bakes newest-first,
                 // then take the white eraser stroke itself out of the doc.
+                // Replay is RESILIENT: deferred baking means a step's objects
+                // can have been consumed by a LATER erase in the meantime, so
+                // never insert an object whose ink is already represented —
+                // stale replays were how duplicated, stacked geometry formed.
                 for (let i = op.baked.length - 1; i >= 0; i--) {
                     const st = op.baked[i];
-                    for (const pc of st.pieces) this.removeById(pc.obj.id);
-                    this.insertAt(st.removed.obj, st.removed.level, st.removed.index);
+                    let took = st.pieces.length === 0; // whole-removal bake: nothing to take out
+                    for (const pc of st.pieces) if (this.removeById(pc.obj.id)) took = true;
+                    if (took && !this.getById(st.removed.obj.id)) {
+                        this.insertAt(st.removed.obj, st.removed.level, st.removed.index);
+                    }
                 }
                 op.strokeRec = this.removeById(op.strokeId); // null if baking consumed it
                 op.op = "eraseRevert";
@@ -348,11 +355,18 @@ export default class Document {
             }
             case "eraseRevert": {
                 // Redo: restore the eraser stroke (unless it had been fully
-                // consumed) and re-apply every bake in order.
-                if (op.strokeRec) this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
+                // consumed) and re-apply every bake in order — skipping any
+                // step whose source has since been consumed elsewhere (its
+                // ink lives in that later bake's pieces now).
+                if (op.strokeRec && !this.getById(op.strokeRec.obj.id)) {
+                    this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
+                }
                 for (const st of op.baked) {
-                    this.removeById(st.removed.obj.id);
-                    for (const pc of st.pieces) this.insertAt(pc.obj, pc.level, 1e9);
+                    const r = this.removeById(st.removed.obj.id);
+                    if (!r && st.pieces.length) continue;
+                    for (const pc of st.pieces) {
+                        if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
+                    }
                 }
                 op.op = "eraseCommit";
                 return op;
