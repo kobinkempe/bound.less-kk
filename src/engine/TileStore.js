@@ -29,7 +29,7 @@
  * Own natives(F) are NOT baked into F's own tiles — they render live (curved) at
  * the active frame, so finishing a stroke never invalidates an on-screen tile.
  */
-import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf } from "./geometry/derive";
+import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, splitWindows, seamPad, padRect } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/clipperOutline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
@@ -136,7 +136,7 @@ export default class TileStore {
         for (const o of parentObjs) {
             const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live);
             if (tier === "empty") continue;
-            if (tier === "solid") objs.push(solidQuad(o, rect));
+            if (tier === "solid") objs.push(this._solid(o, rec, rect));
             else edges.push(o);
         }
         deriveStep(edges, rec.s, rec.t, rect, F, {
@@ -145,6 +145,16 @@ export default class TileStore {
             childCurved: () => false,
         }, objs);
         return objs;
+    }
+
+    // A solid tile quad, overlapped into its neighbours (seam hairline) and
+    // carrying any window still too small to punch at this step.
+    _solid(o, rec, rect) {
+        const sw = splitWindows(o, rec.s, rec.t, this.cfg);
+        return solidQuad(o, rect, {
+            pad: seamPad(o, rect, this.opacityGroups),
+            windows: sw && sw.carry,
+        });
     }
 
     // ---- direct projection (downContent): every non-ancestor frame, depth ≥ F ----
@@ -191,8 +201,9 @@ export default class TileStore {
                 if (!d) continue;
                 if (d.type === "fill") {
                     // Area-erase bakes travel as fills — clip their rings like
-                    // deriveStep does (winding preserved, holes stay holes).
-                    const tp = clipRingsToRect(d.polys, rect);
+                    // deriveStep does (winding preserved, holes stay holes), with
+                    // the same seam overlap so tile edges leave no AA hairline.
+                    const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
                     if (tp.length) objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
                         opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
                     continue;
@@ -256,7 +267,7 @@ export default class TileStore {
         const rect = this.lm.tileRect(F, tile.i, tile.j);
         const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live);
         if (tier === "empty") return;
-        if (tier === "solid") { tile.objs.push(solidQuad(o, rect)); return; }
+        if (tier === "solid") { tile.objs.push(this._solid(o, rec, rect)); return; }
         deriveStep([o], rec.s, rec.t, rect, F, {
             cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
             parentCurved: (p) => p.origin === "native",
@@ -279,7 +290,7 @@ export default class TileStore {
         if (!d) return;
         if (d.type === "fill") {
             // Area-erase bakes travel as fills (same handling as _bakeDown).
-            const tp = clipRingsToRect(d.polys, rect);
+            const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
             if (tp.length) tile.objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
                 opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
             return;

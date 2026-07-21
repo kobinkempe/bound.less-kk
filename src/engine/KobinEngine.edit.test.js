@@ -6,7 +6,7 @@
  * preservation, fat/magnified strokes getting real holes; and the
  * move/edit tile-invalidation (no ghost ink after editing what a tile baked).
  */
-import KobinEngine from "./KobinEngine";
+import KobinEngine, { regionTouchesWindow } from "./KobinEngine";
 import Document from "./Document";
 
 jest.setTimeout(30000);
@@ -328,20 +328,234 @@ describe("deferred area erase", () => {
         for (const z of zs) expect(z).toBeLessThan(idB);      // pieces still BELOW B
     });
 
-    test("a magnified fat stroke gets a real hole nicked through it", () => {
+    test("a magnified fat stroke gets a real hole nicked through it — by RE-HOMING", () => {
         const E = mkEngine();
         drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
         zoomToLevel1(E); // the stroke is now thousands of px wide on screen
         eraseGesture(E, [[400, 300]]);
         E.flushErases();
-        const natives = Object.values(E.nativesByLevel).flat();
-        expect(natives.length).toBeGreaterThanOrEqual(1);
-        for (const p of natives) expect(p.type).toBe("fill");
+        // The level-0 source is NOT rewritten — baking a hole this much finer
+        // than its own units is what used to quantize it into facets. It keeps
+        // its geometry and records the rect it ceded.
+        const src = E.nativesByLevel[0][0];
+        expect(src.type).toBe("stroke");
+        expect(src.pts).toHaveLength(4);
+        expect(src.windows).toHaveLength(1);
+        // The surviving ink around the cut re-homes as fills of the erase level.
+        const kids = E.nativesByLevel[E.cam.frame] || [];
+        expect(kids.length).toBeGreaterThanOrEqual(1);
+        for (const k of kids) { expect(k.type).toBe("fill"); expect(k.srcId).toBe(src.id); }
         // The erased spot is really empty: no object's ink covers it now.
         expect(E._hitTest(400, 300)).toBeNull();
-        E.undo(); // and the original stroke comes back whole
-        expect(E.nativesByLevel[0][0].type).toBe("stroke");
-        expect(E.nativesByLevel[0][0].pts).toHaveLength(4);
+        // ...and just outside the cut the ink is still there.
+        expect(E._hitTest(400, 330)).not.toBeNull();
+        E.undo(); // the window is handed back and the children go away
+        expect(E.nativesByLevel[0][0].windows).toBeUndefined();
+        expect(E.nativesByLevel[E.cam.frame] || []).toHaveLength(0);
+    });
+
+    test("a re-homed hole survives zooming out and back in", () => {
+        const E = mkEngine();
+        drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
+        zoomToLevel1(E);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        expect(E._hitTest(400, 300)).toBeNull();
+        // Out to the source's own level: the window is ~3000x smaller than the
+        // eraser there, so it falls under the cull and the source draws whole —
+        // which is correct, the hole genuinely is invisible from out here.
+        let guard = 0;
+        while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
+        expect(E.activeLevel).toBe(0);
+        E._render();
+        // Back in — the hole is still exactly where it was, at full fidelity.
+        zoomToLevel1(E);
+        E._render();
+        expect(E._hitTest(400, 300)).toBeNull();
+        expect(E._hitTest(400, 330)).not.toBeNull();
+    });
+
+    test("boundary patches edit as one family; enclosed offshoots stay independent", () => {
+        const d = new Document();
+        const src = { type: "fill", origin: "native", id: d.allocId(),
+            polys: [[[0, 0], [100, 0], [100, 100], [0, 100]]], color: "#000", opacity: 1, paths: [] };
+        d.add(src, "0");
+        const attached = [[[10, 20], [40, 20], [40, 80], [10, 80]]];
+        const offshoot = [[[50, 40], [60, 40], [60, 50], [50, 50]]];
+        const step = d.eraseRehomeById(src.id, "1", [
+            { polys: attached, attached: true },
+            { polys: offshoot, attached: false },
+        ], { x0: 0, y0: 0, x1: 1, y1: 1 }, { x0: 10, y0: 10, x1: 90, y1: 90 });
+        const linked = step.pieces[0].obj, loose = step.pieces[1].obj;
+        expect(d.editGroup(linked.id).map((r) => r.obj.id).sort((a, b) => a - b))
+            .toEqual([src.id, linked.id].sort((a, b) => a - b));
+        expect(d.editGroup(loose.id).map((r) => r.obj.id)).toEqual([loose.id]);
+        // The ownership metadata is durable, not a runtime-only cache.
+        const d2 = new Document();
+        d2.loadNatives(JSON.parse(JSON.stringify(d.serializeNatives())));
+        expect(d2.editGroup(linked.id)).toHaveLength(2);
+        expect(d2.editGroup(loose.id)).toHaveLength(1);
+    });
+
+    test("boolean-grid rounding cannot detach a patch that touches its re-home window", () => {
+        // Captured from the browser: each corner rounded just outside W on both
+        // axes, so the old 1e-7-span check missed every boundary contact.
+        const W = { left: 1601.895752866762, top: 1830.7380032763274,
+            right: 2032.6576359906499, bottom: 3405.711138448042 };
+        const rounded = [[
+            [1601.8956944287058, 1830.7375708621848],
+            [2032.657694428706, 1830.7375708621848],
+            [2032.657694428706, 3405.711570862185],
+            [1601.8956944287058, 3405.711570862185],
+        ]];
+        expect(regionTouchesWindow(rounded, W, 1.1e-3)).toBe(true);
+        const detached = rounded.map((ring) => ring.map(([x, y]) => [x + 10, y + 10]));
+        expect(regionTouchesWindow(detached, W, 1.1e-3)).toBe(false);
+    });
+
+    test("selecting a re-homed boundary patch moves, restyles, deletes and undoes the whole attached family", () => {
+        const E = mkEngine();
+        drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
+        const src = E.nativesByLevel[0][0];
+        zoomToLevel1(E);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        const kids = (E.nativesByLevel[E.cam.frame] || []).filter((o) => o.editId === src.id);
+        expect(kids.length).toBeGreaterThan(0);
+        E._render();
+        expect(E.renderer._groups.has(src.id)).toBe(true);
+        for (const kid of kids) expect(E.renderer._groups.has(kid.id)).toBe(false); // one opacity group, no transparent seam
+        const beforeSrc = src.pts.map((p) => [...p]);
+        const beforeKid = kids[0].polys[0][0].slice();
+        const beforeWindow = { ...src.windows[0] };
+
+        E.setTool("select");
+        E.pointerDown(400, 330);
+        expect(E.selection && E.selection.editId).toBe(src.id);
+        E.pointerMove(430, 330); E.pointerUp();
+        expect(src.pts).not.toEqual(beforeSrc);
+        expect(kids[0].polys[0][0]).not.toEqual(beforeKid);
+        expect(src.windows[0]).not.toEqual(beforeWindow);
+        E.undo();
+        expect(src.pts).toEqual(beforeSrc);
+        expect(kids[0].polys[0][0]).toEqual(beforeKid);
+        expect(src.windows[0]).toEqual(beforeWindow);
+
+        const originalColors = new Map(E.doc.editGroup(src.id).map((r) => [r.obj.id, r.obj.color]));
+        E.restyleSelection({ color: "#ff0000", opacity: 0.5 });
+        for (const r of E.doc.editGroup(src.id)) {
+            expect(r.obj.color).toBe("#ff0000");
+            expect(r.obj.opacity).toBe(0.5);
+        }
+        E.undo();
+        for (const r of E.doc.editGroup(src.id)) expect(r.obj.color).toBe(originalColors.get(r.obj.id));
+
+        const familyCount = E.doc.editGroup(src.id).length;
+        E.deleteSelection();
+        expect(E.doc.editGroup(src.id)).toHaveLength(0);
+        E.undo();
+        expect(E.doc.editGroup(src.id)).toHaveLength(familyCount);
+    });
+
+    test("moving a straight-band rehome carries its cutout instead of leaving boundary patches behind", () => {
+        // Mirrors the narrow live editor viewport that first exposed this.
+        const E = mkEngine(407, 765);
+        drawStroke(E, [[150, 390], [350, 390]]);
+        const src = E.nativesByLevel[0][0];
+        let guard = 0;
+        while (E.activeLevel < 1 && guard++ < 60) E.zoomAt(270, 390, -1000);
+        expect(E.activeLevel).toBe(1);
+        E.setEraserSize(16);
+        const trail = Array.from({ length: 80 }, (_, i) => [
+            270.17 + 0.31 * Math.sin(i / 5),
+            300.13 + (170.29 * i) / 79,
+        ]);
+        eraseGesture(E, trail);
+        E.flushErases();
+        expect(E._hitTest(270, 390)).toBeNull();
+
+        const kids = E.nativesByLevel[E.cam.frame] || [];
+        expect(kids.length).toBeGreaterThan(0);
+        expect(kids.every((o) => o.editId === src.id)).toBe(true);
+        E._render();
+        const sigBefore = E.renderer._groups.get(src.id).sig;
+
+        E.setTool("select");
+        E.pointerDown(330, 380);
+        expect(E.selection && E.selection.editId).toBe(src.id);
+        E.pointerMove(360, 420); E.pointerUp();
+        E._render();
+        expect(E.renderer._groups.get(src.id).sig).not.toBe(sigBefore);
+
+        // The old cutout is filled again and the whole family owns the new one.
+        expect(E._hitTest(270, 390)).not.toBeNull();
+        expect(E._hitTest(300, 430)).toBeNull();
+        E.undo();
+        expect(E._hitTest(270, 390)).toBeNull();
+    });
+
+    test("a coarse erase over a zoomed-out re-home family does not resurrect or double-stack its fine patch", () => {
+        const E = mkEngine();
+        drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
+        zoomToLevel1(E);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        const fineState = JSON.parse(JSON.stringify(E.doc.serializeNatives()));
+
+        let guard = 0;
+        while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
+        expect(E.activeLevel).toBe(0);
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        const ids = Object.values(E.nativesByLevel).flat().map((o) => o.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        E.undo();
+        expect(E.doc.serializeNatives()).toEqual(fineState);
+    });
+
+    test("a moved re-home family survives coarse erase undo and returns with its fine cutout", () => {
+        const E = mkEngine(1280, 720);
+        E.setWidth(12);
+        drawStroke(E, [[150, 390], [190, 390], [230, 390], [270, 390], [310, 390], [350, 390]]);
+        E.zoomAt(270, 390, -8800);
+        E.setEraserSize(16);
+        eraseGesture(E, [[270, 300], [270, 340], [270, 380], [270, 420], [270, 470]]);
+        E.flushErases();
+        expect(E._hitTest(270, 390)).toBeNull();
+
+        E.setTool("select");
+        E.pointerDown(330, 380); E.pointerMove(360, 420); E.pointerUp();
+        expect(E._hitTest(300, 430)).toBeNull();
+        const fineState = JSON.parse(JSON.stringify(E.doc.serializeNatives()));
+
+        E.zoomAt(300, 430, 8800);
+        expect(E.activeLevel).toBe(0);
+        eraseGesture(E, [[300, 390], [300, 410], [300, 430], [300, 450], [300, 470]]);
+        E.flushErases();
+        E.undo();
+        expect(E.doc.serializeNatives()).toEqual(fineState);
+
+        E.zoomAt(300, 430, -8800);
+        E._render();
+        expect(E._hitTest(300, 430)).toBeNull();
+    });
+
+    test("overlapping fine erase windows compose, and one undo removes only the newer bite", () => {
+        const E = mkEngine();
+        drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
+        zoomToLevel1(E);
+        eraseGesture(E, [[395, 300]]);
+        E.flushErases();
+        const first = JSON.parse(JSON.stringify(E.doc.serializeNatives()));
+        eraseGesture(E, [[410, 300]]); // overlaps the first window substantially
+        E.flushErases();
+        const ids = Object.values(E.nativesByLevel).flat().map((o) => o.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(E._hitTest(395, 300)).toBeNull();
+        expect(E._hitTest(410, 300)).toBeNull();
+        E.undo();
+        expect(E.doc.serializeNatives()).toEqual(first);
+        expect(E._hitTest(395, 300)).toBeNull();
     });
 
     test("erasing an already-baked piece subtracts again", () => {

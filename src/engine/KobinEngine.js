@@ -19,13 +19,13 @@ import Camera from "./Camera";
 import TileStore from "./TileStore";
 import Renderer from "./Renderer";
 import {
-    strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve,
-    subtractPolys, netRingsArea,
+    strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear,
+    strokeStripNear, subtractPolys, netRingsArea,
 } from "./geometry/clipperOutline";
 import {
     distToPolyline, windingOfPoint, distSegToPolyline, capsuleTouchesRings,
 } from "./geometry/hittest";
-import { bboxOf, levelFactor } from "./geometry/derive";
+import { bboxOf, levelFactor, rectSubtract } from "./geometry/derive";
 import { encodeDrawing, decodeDrawing } from "./persist";
 import { validateScaleDef } from "./scaleBar";
 import {
@@ -36,6 +36,18 @@ import {
 // Eraser strokes paint in the canvas background color — visually "erased"
 // the instant they're drawn, before any geometry work happens.
 const ERASE_COLOR = "#ffffff";
+
+export function regionTouchesWindow(polys, W, tolerance = 0) {
+    const span = Math.max(W.right - W.left, W.bottom - W.top, 1);
+    const eps = Math.max(1e-9, span * 1e-9, tolerance);
+    for (const ring of polys || []) for (const [x, y] of ring) {
+        if ((Math.abs(x - W.left) <= eps || Math.abs(x - W.right) <= eps) &&
+            y >= W.top - eps && y <= W.bottom + eps) return true;
+        if ((Math.abs(y - W.top) <= eps || Math.abs(y - W.bottom) <= eps) &&
+            x >= W.left - eps && x <= W.right + eps) return true;
+    }
+    return false;
+}
 
 const DEFAULTS = {
     enter: 300, base: 0.1, exit: 0.05, bufferScreens: 1, scale: 1000, arcTolerancePx: 0.25,
@@ -97,15 +109,23 @@ export default class KobinEngine {
 
         // selection / edit state (US-10)
         this.selection = null;        // { id, level, obj } — obj is the LIVE native
-        this._dragSel = null;         // { last:[sx,sy], dx, dy, moved } during a select-drag
+        this._dragSel = null;         // { last:[sx,sy], moves:Map, moved } during a select-drag
         this._activeRestyle = null;   // { id, op } — coalesces a slider/color gesture into one undo op
         this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], hiddenScenes: [], sceneSeq: 1 };
         this.renderer.setSelection(() => this._selectionRect());
         // The selected object can vanish under us (eraser, cut, undo, wipe, load).
         this.doc.subscribe((ev) => {
             if (!this.selection) return;
-            if (ev.kind === "reset" || (ev.kind === "remove" && ev.id === this.selection.id)) {
+            if (ev.kind === "reset") {
                 this.selection = null; this._activeRestyle = null; this._dragSel = null;
+            } else if (ev.kind === "remove") {
+                const family = this.doc.editGroup(this.selection.editId);
+                if (!family.length) {
+                    this.selection = null; this._activeRestyle = null; this._dragSel = null;
+                } else if (ev.id === this.selection.id) {
+                    const next = family[0];
+                    this.selection = { ...this.selection, id: next.obj.id, level: next.level, obj: next.obj };
+                }
             }
         });
 
@@ -190,6 +210,13 @@ export default class KobinEngine {
         const derived = this.store.content(F, win);
         const own = this.doc.at(F);
         const list = derived.concat(own);
+        // Renderer grouping follows logical edit ownership for re-homed
+        // boundary patches. That lets parent/patch overlap close AA seams while
+        // applying transparent opacity only once to the family.
+        for (const o of list) {
+            const rec = this.doc.getById(o.id);
+            if (rec && rec.obj.editId != null) o.editId = rec.obj.editId;
+        }
         // z defaults to id (creation order); cut pieces carry their source's z
         // so a stroke stays at its depth after a boolean erase splits it.
         list.sort((a, b) => ((a.z != null ? a.z : a.id) - (b.z != null ? b.z : b.id)) || (a.id - b.id));
@@ -318,7 +345,7 @@ export default class KobinEngine {
         }
         if (this.tool === "select") {
             const id = this.select(sx, sy);
-            this._dragSel = id != null ? { last: [sx, sy], dx: 0, dy: 0, moved: false } : null;
+            this._dragSel = id != null ? { last: [sx, sy], moves: new Map(), moved: false } : null;
             return;
         }
         const p = this.cam.screenToFrame(sx, sy);
@@ -354,7 +381,10 @@ export default class KobinEngine {
         if (this._dragSel) {
             const d = this._dragSel; this._dragSel = null;
             // one undo op for the whole drag, in the object's home-frame units
-            if (d.moved && this.selection) this.doc.pushUndo({ op: "move", id: this.selection.id, dx: d.dx, dy: d.dy });
+            if (d.moved && this.selection) {
+                const moves = [...d.moves].map(([id, v]) => ({ id, dx: v.dx, dy: v.dy }));
+                this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
+            }
         }
         if (this._drawing) {
             const o = this._drawing; this._drawing = null;
@@ -394,9 +424,21 @@ export default class KobinEngine {
         return true;
     }
     _eraseWhole(id) {
-        const rec = this.doc.removeById(id);
-        if (!rec) return false;
-        this.doc.pushUndo({ op: "erase", obj: rec.obj, level: rec.level, index: rec.index });
+        const family = this.doc.editGroup(id);
+        if (!family.length) return false;
+        if (family.length === 1 && family[0].obj.editId == null) {
+            const rec = this.doc.removeById(id);
+            if (!rec) return false;
+            this.doc.pushUndo({ op: "erase", obj: rec.obj, level: rec.level, index: rec.index });
+            return true;
+        }
+        const records = [];
+        for (const member of family) {
+            const rec = this.doc.removeById(member.obj.id);
+            if (rec) records.push(rec);
+        }
+        if (!records.length) return false;
+        this.doc.pushUndo({ op: "eraseMany", records });
         return true;
     }
     // ---- deferred erase baking ----
@@ -501,6 +543,11 @@ export default class KobinEngine {
             this.doc.pushUndo(op);
             this._eraseCommits.set(E.id, op);
         }
+        // A target homed SHALLOWER than the erase re-homes instead of baking:
+        // projecting the eraser down into its frame shrinks the footprint by
+        // ~3000 per level, far below anything the boolean's integer grid can
+        // hold, which is what made small erases on magnified objects blocky.
+        if (this.lm.depthOf(HO) < this.lm.depthOf(HE)) return this._bakeRehome(op, Erec, target, done);
         const Ep = this.lm.projectF(E, HE, HO);
         if (!Ep) return false;
         // Outline fidelity anchors to the ERASE-TIME zoom, capped so a giant
@@ -533,6 +580,104 @@ export default class KobinEngine {
             bakedStep = { removed: rec, pieces: [] };
         }
         op.baked.push(bakedStep); // op resolved above — every bake is recorded
+        return true;
+    }
+    // Re-homing bake: cut the hole at the level the user drew it at.
+    //
+    // Everything happens in the ERASER's frame, where the eraser is a few dozen
+    // pixels and the window around it is screen-sized, so the boolean's integer
+    // grid is thousands of times finer than a pixel no matter how astronomically
+    // magnified the target is. The target itself is not modified — it only
+    // records the rect it has ceded (see derive.js "windows"), and the ink that
+    // survives inside that rect becomes natives of the eraser's level.
+    _bakeRehome(op, Erec, target, done) {
+        const E = Erec.obj, HE = Erec.level;
+        const { obj: o, level: HO } = target;
+        const rE = E.lwFrame / 2;
+        // Window = the eraser's painted footprint, with a radius of margin so
+        // the children keep a little context around the cut.
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const p of E.pts) {
+            if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+            if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+        }
+        if (!(x0 <= x1)) return false;
+        const W = { left: x0 - 2 * rE, top: y0 - 2 * rE, right: x1 + 2 * rE, bottom: y1 + 2 * rE };
+        const d = this.lm.projectF(o, HO, HE);
+        if (!d) return false;
+        // The target's ink inside the window, in eraser-frame coords. The clip
+        // is float Sutherland-Hodgman, so pulling a screen-sized piece out of a
+        // giant costs nothing in precision.
+        const cx = (W.left + W.right) / 2, cy = (W.top + W.bottom) / 2;
+        // Ink this object has ALREADY ceded to deeper children is not ours to
+        // re-home — re-cutting it here would resurrect ink a finer erase had
+        // removed. (Reachable by erasing deep, zooming out a level, erasing the
+        // same object again.) Same guillotine the derive path uses.
+        const prior = [];
+        for (const w of o.windows || []) {
+            const r = this.lm.mapRectF({ left: w.x0, top: w.y0, right: w.x1, bottom: w.y1 }, HO, HE);
+            if (r && r.right > W.left && r.left < W.right && r.bottom > W.top && r.top < W.bottom) {
+                prior.push({ x0: r.left, y0: r.top, x1: r.right, y1: r.bottom });
+            }
+        }
+        const parts = prior.length ? rectSubtract(W, prior) : [W];
+        if (!parts.length) return false; // wholly owned by deeper children already
+        let subject;
+        if (d.type === "fill") {
+            subject = clipRingsToRect(d.polys, W);
+        } else {
+            // A stroke magnified this far has an astronomically long centerline;
+            // window it and use the analytic strip, exactly as deriveStep's
+            // "mega" tier does — exact inside the window, which is all we need.
+            const lw = d.lwFrame, half = lw / 2;
+            const diag = Math.hypot(W.right - W.left, W.bottom - W.top);
+            const ew = { left: W.left - half, top: W.top - half, right: W.right + half, bottom: W.bottom + half };
+            const lrect = { left: W.left - cx, top: W.top - cy, right: W.right - cx, bottom: W.bottom - cy };
+            const curved = o.origin === "native" && d.pts.length > 2;
+            const cpts = curved
+                ? flattenCurveNear(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base, W, Math.max(0, half - diag), half + diag)
+                : d.pts;
+            const eq = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+            subject = [];
+            for (const run of clipPolylineToRect(cpts, ew)) {
+                if (!run.length) continue;
+                const strip = clipRingsToRect(
+                    strokeStripNear(run.map(([x, y]) => [x - cx, y - cy]), lw, lrect,
+                        { startCap: eq(run[0], cpts[0]), endCap: eq(run[run.length - 1], cpts[cpts.length - 1]) }),
+                    lrect);
+                for (const p of strip) subject.push(p.map(([x, y]) => [x + cx, y + cy]));
+            }
+        }
+        if (prior.length) {
+            const kept = [];
+            for (const rg of parts) for (const p of clipRingsToRect(subject, rg)) kept.push(p);
+            subject = kept;
+        }
+        if (!subject.length) return false; // window holds none of this object's ink
+        const clip = strokeOutline(E.pts, E.lwFrame, { curved: E.pts.length > 2, displayScale: E.bakePx || 1 });
+        if (!clip.length) return false;
+        // Translate to the window centre before the boolean: the integer budget
+        // then buys resolution instead of distance-from-origin.
+        const off = (rings) => rings.map((r) => r.map(([x, y]) => [x - cx, y - cy]));
+        const back = (rings) => rings.map(([x, y]) => [x + cx, y + cy]);
+        const regions = subtractPolys(off(subject), off(clip)).map((rg) => rg.map(back));
+        // Grazing pass: (practically) no ink removed — leave the object alone.
+        const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
+        if (netRingsArea(subject) - kept < 1e-4 * rE * rE) return false;
+        const wHO = this.lm.mapRectF(W, HE, HO);
+        if (!wHO) return false;
+        // subtractPolys rounds to a 0.001-unit grid. Treat contact within that
+        // grid — or a quarter erase-time pixel, whichever is larger — as real
+        // boundary contact. Otherwise a quantized corner can land microscopically
+        // outside W on both axes and an attached patch becomes a loose offshoot.
+        const attachTol = Math.max(1.1e-3, 0.25 / (E.bakePx || 1));
+        const specs = regions.map((polys) => ({ polys, attached: regionTouchesWindow(polys, W, attachTol) }));
+        const step = this.doc.eraseRehomeById(o.id, HE, specs,
+            { x0: wHO.left, y0: wHO.top, x1: wHO.right, y1: wHO.bottom },
+            { x0: W.left, y0: W.top, x1: W.right, y1: W.bottom });
+        if (!step) return false;
+        for (const pc of step.pieces) done.add(pc.obj.id); // already net of E
+        op.baked.push(step);
         return true;
     }
     // Selection barrier: bake everything still pending over ONE object, now.
@@ -578,8 +723,9 @@ export default class KobinEngine {
             if (this._flushErasesFor(id)) { this._render(); continue; }
             const rec = this.doc.getById(id);
             if (!rec) { this.deselect(); return null; }
-            if (!this.selection || this.selection.id !== id) this._activeRestyle = null;
-            this.selection = { id, level: rec.level, obj: rec.obj };
+            const editId = this.doc.editKey(rec.obj);
+            if (!this.selection || this.selection.editId !== editId) this._activeRestyle = null;
+            this.selection = { id, editId, level: rec.level, obj: rec.obj };
             this.renderer.syncCameraOnly(); this.renderer.update();
             this._emit();
             return id;
@@ -593,9 +739,22 @@ export default class KobinEngine {
         this.renderer.syncCameraOnly(); this.renderer.update();
         this._emit();
     }
-    // The overlay rect: lw-padded bbox in the object's home frame.
+    // The overlay is the VISIBLE union of a logical edit family in the active
+    // frame. This stays tight around a re-homed patch instead of exposing the
+    // astronomical bbox of its coarse source, while a drag still moves every
+    // boundary-attached member as one object.
     _selectionRect() {
         const s = this.selection; if (!s) return null;
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+        for (const o of this._lastList) {
+            const rec = this.doc.getById(o.id);
+            if (!rec || this.doc.editKey(rec.obj) !== s.editId) continue;
+            const b = bboxOf(o, this.store.live);
+            const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
+            left = Math.min(left, b.x0 - m); top = Math.min(top, b.y0 - m);
+            right = Math.max(right, b.x1 + m); bottom = Math.max(bottom, b.y1 + m);
+        }
+        if (left !== Infinity) return { level: this.cam.frame, rect: { left, top, right, bottom } };
         const b = bboxOf(s.obj, this.store.live);
         const m = s.obj.type === "fill" ? 0 : (s.obj.lwFrame || 0) / 2;
         return { level: s.level, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
@@ -608,11 +767,17 @@ export default class KobinEngine {
         const ddy = (sy - d.last[1]) / this.cam.inScale;
         d.last = [sx, sy];
         if (!ddx && !ddy) return;
-        const f = this.lm.frameFactor(this.cam.frame, s.level);
-        if (f == null) return;
-        const hx = ddx * f, hy = ddy * f;
-        this.doc.moveById(s.id, hx, hy); // change event invalidates old+new tiles
-        d.dx += hx; d.dy += hy; d.moved = true;
+        let moved = false;
+        for (const rec of this.doc.editGroup(s.editId)) {
+            const f = this.lm.frameFactor(this.cam.frame, rec.level);
+            if (f == null) continue;
+            const hx = ddx * f, hy = ddy * f;
+            this.doc.moveById(rec.obj.id, hx, hy); // invalidates old+new tiles
+            const total = d.moves.get(rec.obj.id) || { dx: 0, dy: 0 };
+            total.dx += hx; total.dy += hy; d.moves.set(rec.obj.id, total);
+            moved = true;
+        }
+        d.moved = d.moved || moved;
         this._render();
     }
     // Restyle the selection. patch: { color?, opacity?, widthPx? } — widthPx is
@@ -621,26 +786,34 @@ export default class KobinEngine {
     // coalesces into ONE undo op per selection session.
     restyleSelection(patch) {
         const s = this.selection; if (!s) return false;
-        const p = { ...patch };
-        if (p.widthPx != null) {
-            const f = this.lm.frameFactor(s.level, this.cam.frame);
-            if (f != null && f > 0 && s.obj.type === "stroke") p.lwFrame = Math.max(1e-12, p.widthPx / (f * this.cam.inScale));
-            delete p.widthPx;
-        }
         const top = this.doc._undo[this.doc._undo.length - 1];
-        const open = this._activeRestyle && this._activeRestyle.id === s.id && top === this._activeRestyle.op;
-        const r = this.doc.restyleById(s.id, p);
-        if (!r || !Object.keys(r.after).length) return false;
+        const open = this._activeRestyle && this._activeRestyle.editId === s.editId && top === this._activeRestyle.op;
+        const changes = [];
+        for (const rec of this.doc.editGroup(s.editId)) {
+            const p = { ...patch };
+            if (p.widthPx != null) {
+                const f = this.lm.frameFactor(rec.level, this.cam.frame);
+                if (f != null && f > 0 && rec.obj.type === "stroke") p.lwFrame = Math.max(1e-12, p.widthPx / (f * this.cam.inScale));
+                delete p.widthPx;
+            }
+            const r = this.doc.restyleById(rec.obj.id, p);
+            if (r && Object.keys(r.after).length) changes.push({ id: rec.obj.id, before: r.before, after: r.after });
+        }
+        if (!changes.length) return false;
         if (open) {
             const op = this._activeRestyle.op;
-            for (const k of Object.keys(r.after)) {
-                if (!(k in op.before)) op.before[k] = r.before[k]; // undo returns to session start
-                op.after[k] = r.after[k];
+            for (const ch of changes) {
+                let dst = op.changes.find((x) => x.id === ch.id);
+                if (!dst) { dst = { id: ch.id, before: {}, after: {} }; op.changes.push(dst); }
+                for (const k of Object.keys(ch.after)) {
+                    if (!(k in dst.before)) dst.before[k] = ch.before[k];
+                    dst.after[k] = ch.after[k];
+                }
             }
         } else {
-            const op = { op: "restyle", id: s.id, before: r.before, after: r.after };
+            const op = { op: "restyleMany", changes };
             this.doc.pushUndo(op);
-            this._activeRestyle = { id: s.id, op };
+            this._activeRestyle = { editId: s.editId, op };
         }
         this._render();
         return true;

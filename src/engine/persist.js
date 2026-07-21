@@ -231,6 +231,12 @@ function decodeNatives(n) {
             if (seen.has(o.id)) throw new Error(`bad natives: duplicate id ${o.id}`);
             seen.add(o.id);
             if (o.z != null && !isFiniteNum(o.z)) throw new Error(`bad object ${o.id}: z must be a number`);
+            if (o.srcId != null && (!Number.isInteger(o.srcId) || o.srcId < 1)) throw new Error(`bad object ${o.id}: srcId must be a positive integer`);
+            if (o.editId != null && (!Number.isInteger(o.editId) || o.editId < 1)) throw new Error(`bad object ${o.id}: editId must be a positive integer`);
+            if (o.attachRect != null && !validOwnedRect(o.attachRect)) throw new Error(`bad object ${o.id}: attachRect is malformed`);
+            if (o.windows != null && (!Array.isArray(o.windows) || !o.windows.every(validOwnedRect))) {
+                throw new Error(`bad object ${o.id}: windows must be finite, non-empty rects`);
+            }
             if (o.type === "stroke") {
                 if (!validPts(o.pts) || o.pts.length < 1) throw new Error(`bad stroke ${o.id}: pts must be a non-empty array of finite [x,y]`);
                 if (!isFiniteNum(o.lwFrame) || o.lwFrame <= 0) throw new Error(`bad stroke ${o.id}: lwFrame must be a positive number`);
@@ -248,5 +254,9 @@ function decodeNatives(n) {
 
 function validPts(pts) {
     return Array.isArray(pts) && pts.every((p) => Array.isArray(p) && isFiniteNum(p[0]) && isFiniteNum(p[1]));
+}
+function validOwnedRect(r) {
+    return r && isFiniteNum(r.x0) && isFiniteNum(r.y0) && isFiniteNum(r.x1) && isFiniteNum(r.y1) &&
+        r.x1 > r.x0 && r.y1 > r.y0;
 }
 function isFiniteNum(v) { return typeof v === "number" && Number.isFinite(v); }

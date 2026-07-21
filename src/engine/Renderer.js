@@ -165,8 +165,9 @@ export default class Renderer {
 
     // ---- full render of an object-piece list ----
     // The list may hold SEVERAL pieces with the same id (tile fragments of one
-    // object) — they all belong in that id's single group, at full opacity, with
-    // the object's opacity applied once on the group. Groups are diffed by a
+    // object), or several boundary-attached re-home natives with one editId.
+    // They all belong in one group, at full opacity, with the logical object's
+    // opacity applied once on the group. Groups are diffed by a
     // combined signature (unchanged id => paths reused), inserted at their
     // id-sorted position (global z-order), and dropped when their id vanishes.
     render(list, level) {
@@ -177,7 +178,16 @@ export default class Renderer {
         this._pendingFatLw = 0; // recounted below
         this._fitSpentMs = 0;   // per-render outline-fitting budget
         const byId = new Map();
-        for (const o of list) { let a = byId.get(o.id); if (!a) { a = []; byId.set(o.id, a); } a.push(o); }
+        for (const o of list) {
+            // A sub-pixel down-piece may carry a per-piece fade. Keep that one
+            // separate: applying its fade to the shared family group would fade
+            // the coarse parent too. Once fully present (or in its own/deeper
+            // frame), it rejoins the family's single opacity group.
+            const renderId = o.editId != null && o.fadeTag == null ? o.editId : o.id;
+            let a = byId.get(renderId);
+            if (!a) { a = []; byId.set(renderId, a); }
+            a.push(o);
+        }
         let reorder = false;
         let rebuilt = 0;        // groups (re)built this pass — 0 => a fully cached crossing
         for (const [id, pieces] of byId) {

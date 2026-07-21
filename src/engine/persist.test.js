@@ -70,6 +70,21 @@ describe("format encode/decode", () => {
         const d = decodeDrawing(encodeDrawing(sampleParts()));
         expect(d.natives[1][0].z).toBe(1);
     });
+    test("re-home ownership metadata round-trips and is validated", () => {
+        const parts = sampleParts();
+        Object.assign(parts.natives[1][0], {
+            srcId: 1, editId: 1,
+            attachRect: { x0: 1, y0: 1, x1: 10, y1: 10 },
+            windows: [{ x0: 2, y0: 2, x1: 3, y1: 3 }],
+        });
+        const d = decodeDrawing(encodeDrawing(parts));
+        expect(d.natives[1][0].srcId).toBe(1);
+        expect(d.natives[1][0].editId).toBe(1);
+        expect(d.natives[1][0].attachRect).toEqual({ x0: 1, y0: 1, x1: 10, y1: 10 });
+        expect(d.natives[1][0].windows).toEqual([{ x0: 2, y0: 2, x1: 3, y1: 3 }]);
+        parts.natives[1][0].windows = [{ x0: 5, y0: 0, x1: 4, y1: 1 }];
+        expect(() => decodeDrawing(encodeDrawing(parts))).toThrow(/windows/);
+    });
     test("scaleDef round-trips in meta", () => {
         const scaleDef = { value: 1, unit: "in", barPx: 120, zoomAt: 42 };
         const doc = encodeDrawing({ ...sampleParts(), meta: { name: "scaled", scaleDef } });

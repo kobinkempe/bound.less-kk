@@ -60,6 +60,93 @@ export function flatChords(o, level, tpts, cfg, live) {
     return pts;
 }
 
+// ---- seams ----
+// Adjacent tiles' pieces of the SAME object are clipped slightly PAST the tile
+// so they OVERLAP instead of abutting — abutting edges each half-cover the seam
+// pixel and antialiasing leaves a hairline. Overlap is safe whenever the pieces
+// composite as a union rather than stacking: always for OPAQUE ink, and for
+// translucent ink once per-object opacity groups union it before opacity
+// applies. 5e-4 of a tile is ~1 px at a level's SHALLOWEST in-level zoom, which
+// is where the pad has to earn its keep (deeper in, it only grows).
+const SEAM_FRAC = 5e-4;
+export function seamPad(o, rect, opacityGroups) {
+    const opaque = o.opacity == null || o.opacity >= 1;
+    if (!opaque && !opacityGroups) return 0;
+    return (rect.right - rect.left) * SEAM_FRAC;
+}
+export function padRect(rect, p) {
+    return p ? { left: rect.left - p, top: rect.top - p, right: rect.right + p, bottom: rect.bottom + p } : rect;
+}
+
+// ---- windows: regions a parent has ceded to re-homed children ----
+// An erase made at a level DEEPER than an object's home cannot be baked into
+// that object: Clipper's integer grid is fixed in the object's OWN units, so a
+// hole thousands of times finer than the object's own scale rounds away (that
+// was the blocky-erase failure). Instead the erase RE-HOMES — the surviving ink
+// becomes natives of the level the erase was made at, and the parent records
+// the rect it gave up. Rendering subtracts that rect wherever the parent is
+// magnified enough to resolve it.
+//
+// A window is always sub-pixel at the parent's own level (it is at most
+// eraser/~3000 there), so ONLY the magnify chain ever applies one — and when it
+// is too small to resolve, the re-homed children are equally sub-pixel and the
+// existing cull drops them, so parent-whole and parent-with-hole agree.
+export function mapWindows(wins, s, t, base) {
+    if (!wins || !wins.length) return null;
+    return wins.map((w) => ({
+        x0: (w.x0 * s + t.x) / base, y0: (w.y0 * s + t.y) / base,
+        x1: (w.x1 * s + t.x) / base, y1: (w.y1 * s + t.y) / base,
+    }));
+}
+// Split an object's windows, mapped into the child frame, into the ones big
+// enough to punch here and the ones to carry forward to a deeper step.
+export function splitWindows(o, s, t, cfg) {
+    const wins = mapWindows(o.windows, s, t, cfg.base);
+    if (!wins) return null;
+    const lo = cfg.fadeLoPx != null ? cfg.fadeLoPx : 0.15;
+    const apply = [], carry = [];
+    for (const w of wins) {
+        (Math.max(w.x1 - w.x0, w.y1 - w.y0) * cfg.enter >= lo ? apply : carry).push(w);
+    }
+    return { apply, carry: carry.length ? carry : null };
+}
+// rect minus axis-aligned holes -> disjoint rects (guillotine, ≤4 per hole).
+// Pure float, deliberately: a Clipper difference would quantize the hole back
+// onto the integer grid, which is the whole thing re-homing exists to avoid.
+export function rectSubtract(rect, holes) {
+    let regions = [{ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }];
+    for (const h of holes) {
+        const next = [];
+        for (const r of regions) {
+            if (h.x1 <= r.left || h.x0 >= r.right || h.y1 <= r.top || h.y0 >= r.bottom) { next.push(r); continue; }
+            const cx0 = Math.max(r.left, h.x0), cx1 = Math.min(r.right, h.x1);
+            const cy0 = Math.max(r.top, h.y0), cy1 = Math.min(r.bottom, h.y1);
+            if (r.top < cy0) next.push({ left: r.left, top: r.top, right: r.right, bottom: cy0 });
+            if (cy1 < r.bottom) next.push({ left: r.left, top: cy1, right: r.right, bottom: r.bottom });
+            if (r.left < cx0) next.push({ left: r.left, top: cy0, right: cx0, bottom: cy1 });
+            if (cx1 < r.right) next.push({ left: cx1, top: cy0, right: r.right, bottom: cy1 });
+        }
+        regions = next;
+        if (!regions.length) break;
+    }
+    return regions;
+}
+function insetWindows(windows, wanted) {
+    if (!wanted) return windows;
+    return windows.map((w) => {
+        // Never consume a tiny window entirely: at most one quarter of its
+        // short side, leaving a real hole while still overlapping its boundary.
+        const p = Math.min(wanted, Math.max(0, (w.x1 - w.x0) / 4), Math.max(0, (w.y1 - w.y0) / 4));
+        return { x0: w.x0 + p, y0: w.y0 + p, x1: w.x1 - p, y1: w.y1 - p, _seam: p };
+    });
+}
+function clipRingsToRegions(rings, regions) {
+    if (regions.length === 1) return clipRingsToRect(rings, regions[0]);
+    const out = [];
+    for (const rg of regions) for (const p of clipRingsToRect(rings, rg)) out.push(p);
+    return out;
+}
+
 // ---- symmetric size policy: the magnify mirror of the minify cull ----
 // Classify one parent object against one child tile. `s, t` map parent→child.
 export function classifyUp(o, s, t, rect, cfg, live) {
@@ -71,6 +158,14 @@ export function classifyUp(o, s, t, rect, cfg, live) {
     const by0 = (b.y0 * s + t.y) / base, by1 = (b.y1 * s + t.y) / base;
     // EMPTY: the band cannot reach the tile.
     if (bx1 + half < rect.left || bx0 - half > rect.right || by1 + half < rect.top || by0 - half > rect.bottom) return "empty";
+    // A resolvable window over this tile means real geometry has to be cut —
+    // a tile-covering quad could not express the hole.
+    const sw = splitWindows(o, s, t, cfg);
+    if (sw) {
+        for (const w of sw.apply) {
+            if (w.x1 >= rect.left && w.x0 <= rect.right && w.y1 >= rect.top && w.y0 <= rect.bottom) return "edge";
+        }
+    }
     if (o.type === "fill") {
         // A covering fill that still covers the whole child tile stays SOLID.
         if (o.covers && bx0 <= rect.left && bx1 >= rect.right && by0 <= rect.top && by1 >= rect.bottom) return "solid";
@@ -89,11 +184,16 @@ export function classifyUp(o, s, t, rect, cfg, live) {
 }
 
 // The tile-covering quad a SOLID object stands in for. 4 vertices forever —
-// this is what bounds the magnify chain.
-export function solidQuad(o, rect) {
-    return { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
-        opacity: o.opacity, polys: [[[rect.left, rect.top], [rect.right, rect.top],
-            [rect.right, rect.bottom], [rect.left, rect.bottom]]], paths: [] };
+// this is what bounds the magnify chain. `opts.pad` overlaps the quad into its
+// neighbours (seam hairline); `opts.windows` are windows too small to punch
+// here, handed on so a deeper step can punch them once they resolve.
+export function solidQuad(o, rect, opts = {}) {
+    const r = padRect(rect, opts.pad || 0);
+    const q = { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
+        opacity: o.opacity, polys: [[[r.left, r.top], [r.right, r.top],
+            [r.right, r.bottom], [r.left, r.bottom]]], paths: [] };
+    if (opts.windows && opts.windows.length) q.windows = opts.windows;
+    return q;
 }
 
 // ---- exact port of KobinEngineV0._deriveInto (the "edge" tier) ----
@@ -104,28 +204,39 @@ export function solidQuad(o, rect) {
 export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
     const { cfg, width: W, opacityGroups, live } = opts;
     const base = cfg.base;
-    // Seam pad: with per-object opacity groups, adjacent tiles' fill pieces may
-    // safely OVERLAP a little (the group unions them before opacity applies), so
-    // instead of abutting exactly — which leaves an AA hairline where each edge
-    // half-covers the seam pixel — fills are clipped slightly PAST the tile.
-    const pad = opacityGroups ? (rect.right - rect.left) * 5e-4 : 0;
-    const crect = pad ? { left: rect.left - pad, top: rect.top - pad, right: rect.right + pad, bottom: rect.bottom + pad } : rect;
     const curvedP = typeof opts.parentCurved === "function" ? opts.parentCurved : () => opts.parentCurved;
     const curvedC = typeof opts.childCurved === "function" ? opts.childCurved : () => opts.childCurved;
     for (const o of parentObjs) {
+        // Seam pad (see seamPad): per-object, because whether overlap is safe
+        // depends on the object's own opacity.
+        const pad = seamPad(o, rect, opacityGroups);
+        const crect = padRect(rect, pad);
         // Cull on the transformed bbox before any geometry work (the clip operates
         // on raw points, so the point bbox plus the stroke-width margin is safe).
         const b = bboxOf(o, live);
         const m = o.type === "fill" ? pad : o.lwFrame * (s / base);
         if ((b.x1 * s + t.x) / base < rect.left - m || (b.x0 * s + t.x) / base > rect.right + m ||
             (b.y1 * s + t.y) / base < rect.top - m || (b.y0 * s + t.y) / base > rect.bottom + m) continue;
+        // Windows this object has ceded to re-homed children: clip to the tile
+        // MINUS the resolvable ones. With none, `regions` is the plain tile and
+        // every path below is byte-identical to the pre-window behaviour.
+        const sw = splitWindows(o, s, t, cfg);
+        const holes = sw && sw.apply.length ? sw.apply : null;
+        const carry = sw && sw.carry;
+        // Shrink the ceded rect by the seam pad so the parent overlaps its
+        // attached re-home patches. Renderer groups the family by editId, so
+        // this is safe for transparent as well as opaque ink.
+        const cutHoles = holes ? insetWindows(holes, pad) : null;
+        const fillRegions = cutHoles ? rectSubtract(crect, cutHoles) : [crect];
+        if (!fillRegions.length) continue; // wholly ceded to children
+        const tag = (piece) => { if (carry) piece.windows = carry; out.push(piece); };
         if (o.type === "fill") {
             // Float clip (Sutherland-Hodgman), NOT Clipper: runs once per crossing
             // forever, and Clipper's magnitude-capped integer scale quantized
             // giant/deep geometry by whole frame-units.
-            const tp = clipRingsToRect(
-                o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base])), crect);
-            if (tp.length) out.push({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [] });
+            const tp = clipRingsToRegions(
+                o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base])), fillRegions);
+            if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [] });
         } else {
             const lw = o.lwFrame * (s / base);
             const tpts = o.pts.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base]);
@@ -199,7 +310,8 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                         for (const p of op) polys.push(p.map(([x, y]) => [x + cx, y + cy]));
                     }
                 }
-                if (polys.length) out.push({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys, paths: [] });
+                const fp = holes ? clipRingsToRegions(polys, fillRegions) : polys;
+                if (fp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: fp, paths: [] });
             } else {
                 // Small stroke: stays a stroke. If the child renders straight but the
                 // parent displayed a spline, hand the child the flattened spline.
@@ -207,8 +319,20 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 // Extend the centerline clip by lw so clip-end caps fall beyond the
                 // tile; fills clip to the exact rect -> adjacent tiles abut cleanly.
                 const ew = { left: rect.left - lw, top: rect.top - lw, right: rect.right + lw, bottom: rect.bottom + lw };
-                for (const run of clipPolylineToRect(spts, ew)) {
-                    if (run.length) out.push({ type: "stroke", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, pts: run, lwFrame: lw, paths: [] });
+                // Holes are subtracted from the EXTENDED rect (so tile seams keep
+                // their overhang) and grown by half a linewidth, so the round cap
+                // the clip leaves behind stops at the window edge instead of
+                // bulging into ground the children own.
+                const runRegions = cutHoles
+                    ? rectSubtract(ew, cutHoles.map((h) => {
+                        const grow = Math.max(0, lw / 2 - (h._seam || 0));
+                        return { x0: h.x0 - grow, y0: h.y0 - grow, x1: h.x1 + grow, y1: h.y1 + grow };
+                    }))
+                    : [ew];
+                for (const rg of runRegions) {
+                    for (const run of clipPolylineToRect(spts, rg)) {
+                        if (run.length) tag({ type: "stroke", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, pts: run, lwFrame: lw, paths: [] });
+                    }
                 }
             }
         }

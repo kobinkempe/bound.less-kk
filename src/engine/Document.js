@@ -25,6 +25,19 @@
 const CELL = 2048;          // frame units; typical strokes span 10-1000
 const BIG = CELL * 4;       // larger than this goes to the per-level overflow list
 
+function regionTouchesRect(polys, rect) {
+    if (!rect) return false;
+    const span = Math.max(rect.x1 - rect.x0, rect.y1 - rect.y0, 1);
+    const eps = Math.max(1e-9, span * 1e-7);
+    for (const ring of polys || []) for (const [x, y] of ring) {
+        if ((Math.abs(x - rect.x0) <= eps || Math.abs(x - rect.x1) <= eps) &&
+            y >= rect.y0 - eps && y <= rect.y1 + eps) return true;
+        if ((Math.abs(y - rect.y0) <= eps || Math.abs(y - rect.y1) <= eps) &&
+            x >= rect.x0 - eps && x <= rect.x1 + eps) return true;
+    }
+    return false;
+}
+
 class LevelIndex {
     constructor() { this.cells = new Map(); this.big = new Set(); this.boxes = new Map(); this.objs = new Map(); }
     _key(cx, cy) { return cx + "," + cy; }
@@ -151,6 +164,23 @@ export default class Document {
         return null;
     }
 
+    // Re-homed boundary patches share one logical editing identity even though
+    // their geometry lives in several frames. Fully enclosed leftovers have no
+    // editId and therefore remain ordinary, independently editable natives.
+    editKey(o) { return o && o.editId != null ? o.editId : o && o.id; }
+    editGroup(idOrObj) {
+        const rec = typeof idOrObj === "object" ? { obj: idOrObj } : this.getById(idOrObj);
+        const key = rec ? this.editKey(rec.obj) : idOrObj;
+        if (key == null) return [];
+        const out = [];
+        for (const level of Object.keys(this.nativesByLevel)) {
+            for (const obj of this.nativesByLevel[level] || []) {
+                if (this.editKey(obj) === key) out.push({ obj, level });
+            }
+        }
+        return out;
+    }
+
     // Remove a native by id from whichever frame holds it (derived copies carry
     // the source id, so this is "erase everywhere").
     removeById(id) {
@@ -193,6 +223,9 @@ export default class Document {
         const oldBbox = this._bboxNow(o);
         const shift = (pts) => { for (const p of pts) { p[0] += dx; p[1] += dy; } };
         if (o.type === "fill") { for (const poly of o.polys) shift(poly); } else shift(o.pts);
+        const shiftRect = (r) => { r.x0 += dx; r.x1 += dx; r.y0 += dy; r.y1 += dy; };
+        for (const w of o.windows || []) shiftRect(w);
+        if (o.attachRect) shiftRect(o.attachRect);
         this._afterEdit(o, rec.level, oldBbox, o.lwFrame);
         return rec;
     }
@@ -237,11 +270,83 @@ export default class Document {
         if (!rec) return null;
         const src = rec.obj;
         const z = src.z != null ? src.z : src.id;
-        const pieces = regions.map((polys) => this.add({
-            type: "fill", origin: src.origin, id: this.allocId(), z, polys,
-            color: src.color, opacity: src.opacity, paths: [],
-        }, rec.level));
+        const editKey = this.editKey(src);
+        const pieces = regions.map((polys) => {
+            const obj = {
+                type: "fill", origin: src.origin, id: this.allocId(), z, polys,
+                color: src.color, opacity: src.opacity, paths: [],
+            };
+            // A nested/window-owning patch cannot safely detach without also
+            // repartitioning its descendants, so keep that family conservative.
+            // Otherwise an attached patch becomes independent as soon as an
+            // erase leaves a region that no longer touches its attachment rect.
+            const remainsAttached = src.windows && src.windows.length
+                ? true
+                : (src.attachRect ? regionTouchesRect(polys, src.attachRect) : src.editId != null);
+            if (remainsAttached) {
+                obj.editId = editKey;
+                if (src.srcId != null) obj.srcId = src.srcId;
+                if (src.attachRect) obj.attachRect = { ...src.attachRect };
+            }
+            if (src.windows && src.windows.length) obj.windows = src.windows.map((w) => ({ ...w }));
+            return this.add(obj, rec.level);
+        });
         return { removed: rec, pieces };
+    }
+    // Re-home an area erase instead of baking it into the source. Used when the
+    // erase happened at a level DEEPER than the source's home, where a boolean
+    // in the source's own units would quantize the hole away (see derive.js,
+    // "windows"). The ink that survives inside `window` becomes fill natives of
+    // `level` — the level the erase was made at, where everything is
+    // screen-scale and the subtraction is exact — and the source merely records
+    // the rect it has ceded. The source's own geometry is left untouched, so
+    // this is lossless: zoom out and the window falls under the cull, zoom in
+    // and the children carry the detail.
+    eraseRehomeById(id, level, regions, window, attachRect) {
+        const rec = this.getById(id);
+        if (!rec) return null;
+        const src = rec.obj;
+        const z = src.z != null ? src.z : src.id;
+        const editKey = this.editKey(src);
+        const pieces = regions.map((region) => {
+            const polys = region.polys || region;
+            const obj = {
+                type: "fill", origin: src.origin, id: this.allocId(), z, polys,
+                color: src.color, opacity: src.opacity, paths: [],
+            };
+            if (region.attached) {
+                obj.editId = editKey;
+                obj.srcId = src.id;
+                obj.attachRect = { ...attachRect };
+            }
+            return this.add(obj, level);
+        });
+        if (!this.addWindow(id, window)) return null;
+        return {
+            window: { srcId: id, srcLevel: rec.level, rect: window },
+            pieces: pieces.map((obj) => ({ obj, level: String(level) })),
+        };
+    }
+    addWindow(id, rect) {
+        const rec = this.getById(id);
+        if (!rec) return false;
+        const o = rec.obj;
+        if (!o.windows) o.windows = [];
+        o.windows.push(rect);
+        this._afterEdit(o, rec.level, this._bboxNow(o), o.lwFrame);
+        return true;
+    }
+    // Removes by IDENTITY — undo hands back the very rect it recorded, so a
+    // second window with equal bounds is never taken by mistake.
+    removeWindow(id, rect) {
+        const rec = this.getById(id);
+        if (!rec || !rec.obj.windows) return false;
+        const i = rec.obj.windows.indexOf(rect);
+        if (i < 0) return false;
+        rec.obj.windows.splice(i, 1);
+        if (!rec.obj.windows.length) delete rec.obj.windows;
+        this._afterEdit(rec.obj, rec.level, this._bboxNow(rec.obj), rec.obj.lwFrame);
+        return true;
     }
     _bboxNow(o) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -310,9 +415,28 @@ export default class Document {
                 this.moveById(op.id, -op.dx, -op.dy);
                 return { op: "move", id: op.id, dx: -op.dx, dy: -op.dy };
             }
+            case "moveMany": {
+                for (const m of op.moves) this.moveById(m.id, -m.dx, -m.dy);
+                return { op: "moveMany", moves: op.moves.map((m) => ({ id: m.id, dx: -m.dx, dy: -m.dy })) };
+            }
             case "restyle": {
                 this.restyleById(op.id, op.before);
                 return { op: "restyle", id: op.id, before: op.after, after: op.before };
+            }
+            case "restyleMany": {
+                for (const ch of op.changes) this.restyleById(ch.id, ch.before);
+                return { op: "restyleMany", changes: op.changes.map((ch) => ({ id: ch.id, before: ch.after, after: ch.before })) };
+            }
+            case "eraseMany": {
+                for (let i = op.records.length - 1; i >= 0; i--) {
+                    const rec = op.records[i];
+                    if (!this.getById(rec.obj.id)) this.insertAt(rec.obj, rec.level, rec.index);
+                }
+                return { op: "removeMany", records: op.records };
+            }
+            case "removeMany": {
+                for (const rec of op.records) this.removeById(rec.obj.id);
+                return { op: "eraseMany", records: op.records };
             }
             // "cut" = the boolean erase HAS been applied (original out, pieces
             // in). Undoing removes the pieces (reverse replay needs reverse
@@ -343,6 +467,13 @@ export default class Document {
                 // stale replays were how duplicated, stacked geometry formed.
                 for (let i = op.baked.length - 1; i >= 0; i--) {
                     const st = op.baked[i];
+                    // Re-homed step: drop the children and hand the ceded rect
+                    // back to the source (which was never modified otherwise).
+                    if (st.window) {
+                        for (const pc of st.pieces) this.removeById(pc.obj.id);
+                        this.removeWindow(st.window.srcId, st.window.rect);
+                        continue;
+                    }
                     let took = st.pieces.length === 0; // whole-removal bake: nothing to take out
                     for (const pc of st.pieces) if (this.removeById(pc.obj.id)) took = true;
                     if (took && !this.getById(st.removed.obj.id)) {
@@ -362,6 +493,12 @@ export default class Document {
                     this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
                 }
                 for (const st of op.baked) {
+                    if (st.window) {
+                        if (!this.getById(st.window.srcId)) continue; // source consumed since
+                        for (const pc of st.pieces) if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
+                        this.addWindow(st.window.srcId, st.window.rect);
+                        continue;
+                    }
                     const r = this.removeById(st.removed.obj.id);
                     if (!r && st.pieces.length) continue;
                     for (const pc of st.pieces) {
@@ -413,6 +550,14 @@ export default class Document {
                     : { type: o.type, origin: o.origin, id: o.id, pts: o.pts, lwFrame: o.lwFrame, color: o.color, opacity: o.opacity };
                 if (o.type === "fill" && o.covers) rec.covers = true;
                 if (o.z != null && o.z !== o.id) rec.z = o.z;
+                // Re-homed erases: the rects a source has ceded, and the back
+                // pointer from each child to the source it came out of.
+                if (o.windows && o.windows.length) {
+                    rec.windows = o.windows.map((w) => ({ x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }));
+                }
+                if (o.srcId != null) rec.srcId = o.srcId;
+                if (o.editId != null) rec.editId = o.editId;
+                if (o.attachRect) rec.attachRect = { ...o.attachRect };
                 // Pending eraser strokes (deferred area erase) must survive a
                 // save so baking can resume after a reload.
                 if (o.erase) { rec.erase = true; if (o.bakePx != null) rec.bakePx = o.bakePx; }

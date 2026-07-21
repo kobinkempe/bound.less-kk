@@ -4,7 +4,7 @@
  * plus unit tests for the NEW classify tiers (the symmetric magnify size policy).
  */
 import KobinEngineV0 from "../KobinEngineV0";
-import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx } from "./derive";
+import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad } from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 
 jest.setTimeout(30000);
@@ -66,6 +66,17 @@ describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
             parentCurved: true, childCurved: true,
         }, []);
         expect(newOut).toEqual(oldOut);
+    });
+});
+
+describe("tile seam overlap", () => {
+    const rect = { left: 0, top: 0, right: 24000, bottom: 18000 };
+    test("opaque ink gets a buffer even when opacity grouping is disabled", () => {
+        expect(seamPad({ opacity: 1 }, rect, false)).toBeGreaterThan(0);
+    });
+    test("transparent ink gets a buffer when per-object opacity grouping makes overlap safe", () => {
+        expect(seamPad({ opacity: 0.35 }, rect, true)).toBeGreaterThan(0);
+        expect(seamPad({ opacity: 0.35 }, rect, false)).toBe(0);
     });
 });
 
