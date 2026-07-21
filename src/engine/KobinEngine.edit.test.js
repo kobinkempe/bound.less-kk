@@ -27,11 +27,12 @@ const drawStroke = (E, pts) => {
     E.pointerUp();
 };
 const countNatives = (E) => Object.values(E.nativesByLevel).reduce((a, arr) => a + arr.length, 0);
-const zoomToLevel1 = (E) => {
+const zoomToLevel = (E, n) => {
     let guard = 0;
-    while (E.activeLevel < 1 && guard++ < 40) E.zoomAt(400, 300, -1000);
-    expect(E.activeLevel).toBeGreaterThanOrEqual(1);
+    while (E.activeLevel < n && guard++ < 60 * n) E.zoomAt(400, 300, -1000);
+    expect(E.activeLevel).toBeGreaterThanOrEqual(n);
 };
+const zoomToLevel1 = (E) => zoomToLevel(E, 1);
 
 describe("selection", () => {
     test("tap selects the topmost object; empty tap deselects", () => {
@@ -201,8 +202,10 @@ describe("deferred area erase", () => {
         expect(trail.type).toBe("stroke");
         expect(trail.color).toBe("#ffffff");
         expect(trail.lwFrame).toBeCloseTo(26, 9);     // 2 × eraser radius
-        // The white ink is invisible to picking — the covered stroke is hit.
-        expect(E._hitTest(400, 300)).toBe(src.id);
+        // Covered points read as erased even BEFORE baking; the rest of the
+        // stroke is still pickable.
+        expect(E._hitTest(400, 300)).toBeNull();
+        expect(E._hitTest(320, 300)).toBe(src.id);
     });
 
     test("one undo removes the whole eraser stroke; redo brings it back", () => {
@@ -355,6 +358,39 @@ describe("deferred area erase", () => {
         E.flushErases();
         expect(E.nativesByLevel[0]).toHaveLength(3);
         for (const p of E.nativesByLevel[0]) expect(p.type).toBe("fill");
+    });
+
+    test("REGRESSION: a deep-zoom GIANT keeps the white ink as its permanent erase", () => {
+        // At level 2 an integer boolean would quantize the hole to whole
+        // frame-units (14,000-px facets / vanished holes — the "black poking
+        // through" bug). Giants mask instead of baking.
+        const E = mkEngine();
+        drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);
+        zoomToLevel(E, 2); // ~9,000,000× — the stroke dwarfs the screen
+        eraseGesture(E, [[400, 300]]);
+        E.flushErases();
+        const all = Object.values(E.nativesByLevel).flat();
+        expect(all.some((o) => o.erase)).toBe(true);               // white ink persists...
+        const giant = all.find((o) => !o.erase);
+        expect(giant.type).toBe("stroke");                          // ...and the giant is untouched
+        expect(giant.pts).toHaveLength(4);
+        // The covered point is "erased" for picking and selection.
+        expect(E._hitTest(400, 300)).toBeNull();
+        E.setTool("select");
+        E.pointerDown(400, 300); E.pointerUp();
+        expect(E.selection).toBeNull();
+        // An uncovered point still selects the giant as a live stroke.
+        const pt = [[150, 150], [650, 450], [200, 450], [600, 150]]
+            .find((q) => E._hitTest(q[0], q[1]) != null);
+        if (pt) {
+            E.pointerDown(pt[0], pt[1]); E.pointerUp();
+            expect(E.selection).not.toBeNull();
+            expect(E.selection.obj.type).toBe("stroke");
+        }
+        // Undo still reverts the gesture in one step.
+        E.undo();
+        expect(Object.values(E.nativesByLevel).flat().some((o) => o.erase)).toBe(false);
+        expect(E.nativesByLevel[0][0].pts).toHaveLength(4);
     });
 
     test("a PENDING eraser stroke survives save/load and resumes baking", () => {
