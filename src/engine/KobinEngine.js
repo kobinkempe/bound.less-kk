@@ -654,16 +654,24 @@ export default class KobinEngine {
             subject = kept;
         }
         if (!subject.length) return false; // window holds none of this object's ink
-        const clip = strokeOutline(E.pts, E.lwFrame, { curved: E.pts.length > 2, displayScale: E.bakePx || 1 });
-        if (!clip.length) return false;
-        // Translate to the window centre before the boolean: the integer budget
-        // then buys resolution instead of distance-from-origin.
+        // Translate BEFORE outlining the eraser as well as before the boolean.
+        // strokeOutline uses the same magnitude-limited integer backend: at a
+        // far local-frame coordinate it can otherwise round a screen-sized
+        // eraser below one integer unit and return no polygon at all. Keeping
+        // every operation local also makes the grazing area test numerically
+        // stable (shoelace areas at 1e9 coordinates lose small differences).
         const off = (rings) => rings.map((r) => r.map(([x, y]) => [x - cx, y - cy]));
         const back = (rings) => rings.map(([x, y]) => [x + cx, y + cy]);
-        const regions = subtractPolys(off(subject), off(clip)).map((rg) => rg.map(back));
+        const subjectLocal = off(subject);
+        const eraseLocal = E.pts.map(([x, y]) => [x - cx, y - cy]);
+        const clipLocal = strokeOutline(eraseLocal, E.lwFrame,
+            { curved: E.pts.length > 2, displayScale: E.bakePx || 1 });
+        if (!clipLocal.length) return false;
+        const localRegions = subtractPolys(subjectLocal, clipLocal);
         // Grazing pass: (practically) no ink removed — leave the object alone.
-        const kept = regions.reduce((s, rings) => s + netRingsArea(rings), 0);
-        if (netRingsArea(subject) - kept < 1e-4 * rE * rE) return false;
+        const kept = localRegions.reduce((s, rings) => s + netRingsArea(rings), 0);
+        if (netRingsArea(subjectLocal) - kept < 1e-4 * rE * rE) return false;
+        const regions = localRegions.map((rg) => rg.map(back));
         const wHO = this.lm.mapRectF(W, HE, HO);
         if (!wHO) return false;
         // subtractPolys rounds to a 0.001-unit grid. Treat contact within that

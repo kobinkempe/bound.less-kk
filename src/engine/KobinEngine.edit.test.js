@@ -354,6 +354,30 @@ describe("deferred area erase", () => {
         expect(E.nativesByLevel[E.cam.frame] || []).toHaveLength(0);
     });
 
+    test("a far-frame re-home outlines the eraser locally before its boolean", () => {
+        const E = mkEngine();
+        const src = {
+            type: "stroke", origin: "native", id: E.doc.allocId(), z: 1,
+            pts: [[-100, 0], [100, 0]], lwFrame: 1000,
+            color: "#000", opacity: 1, paths: [],
+        };
+        E.doc.add(src, "0");
+        // Deliberately place the child frame's useful coordinates near 1e9.
+        // At that magnitude the old global-coordinate outline rounded this
+        // 16-unit eraser below the integer backend's grid and returned empty.
+        const child = E.lm.ensureChild("0", E.cfg.enter, 1e8, 0);
+        const eraser = {
+            type: "stroke", origin: "native", id: E.doc.allocId(), z: 2,
+            pts: [[1e9 - 100, 0], [1e9 + 100, 0]], lwFrame: 16,
+            color: "#fff", opacity: 1, paths: [], erase: true, bakePx: 1,
+        };
+        E.doc.add(eraser, child.id);
+
+        expect(E._bakeOne({ obj: eraser, level: child.id }, { obj: src, level: "0" })).toBe(true);
+        expect(src.windows).toHaveLength(1);
+        expect(E.doc.at(child.id).some((o) => !o.erase && o.srcId === src.id)).toBe(true);
+    });
+
     test("a re-homed hole survives zooming out and back in", () => {
         const E = mkEngine();
         drawStroke(E, [[390, 290], [420, 310], [400, 330], [370, 320]]);

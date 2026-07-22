@@ -6,6 +6,7 @@
 import KobinEngineV0 from "../KobinEngineV0";
 import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad } from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
+import { windingOfPoint } from "./hittest";
 
 jest.setTimeout(30000);
 
@@ -77,6 +78,49 @@ describe("tile seam overlap", () => {
     test("transparent ink gets a buffer when per-object opacity grouping makes overlap safe", () => {
         expect(seamPad({ opacity: 0.35 }, rect, true)).toBeGreaterThan(0);
         expect(seamPad({ opacity: 0.35 }, rect, false)).toBe(0);
+    });
+
+    test("a tiny ownership window gets pixel-sized overlap, never tile-sized refill", () => {
+        const cfg = { base: 0.1, enter: 300, fadeLoPx: 0.15,
+            arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, scale: 1000 };
+        const f = cfg.enter / cfg.base;
+        const window = { x0: 1000 / f, y0: 1000 / f, x1: 1000.45 / f, y1: 1000.45 / f };
+        const parent = {
+            type: "fill", origin: "native", id: 90, z: 90, covers: true,
+            color: "#000", opacity: 1, paths: [], windows: [window],
+            polys: [[[-10, -10], [10, -10], [10, 10], [-10, 10]]],
+        };
+        const out = deriveStep([parent], cfg.enter, { x: 0, y: 0 }, rect, 1, {
+            cfg, width: 800, opacityGroups: true, live: null,
+            parentCurved: false, childCurved: false,
+        }, []);
+        const rings = out.flatMap((o) => o.polys || []);
+        // Two/enter leaves a small parent-child overlap at the left boundary.
+        expect(windingOfPoint(rings, [1000.002, 1000.2])).not.toBe(0);
+        // But 0.02 units into this 0.45-unit window is still ceded. The former
+        // tile seam pad was capped to 1/4 of the window (=0.1125) and refilled
+        // this point, drawing a rectangular box around the detailed child ink.
+        expect(windingOfPoint(rings, [1000.02, 1000.2])).toBe(0);
+        expect(windingOfPoint(rings, [1000.225, 1000.225])).toBe(0);
+    });
+
+    test("a window through a fat displayed band cuts area, not its centerline", () => {
+        const cfg = { base: 0.1, enter: 300, fadeLoPx: 0.15, fatWidthPx: 4000,
+            arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, scale: 1000 };
+        const f = cfg.enter / cfg.base;
+        const parent = mkStroke(91, [[0, 3], [8, 3]], 0.33, {
+            windows: [{ x0: 1000 / f, y0: 8999.5 / f, x1: 1001 / f, y1: 9000.5 / f }],
+        });
+        const out = deriveStep([parent], cfg.enter, { x: 0, y: 0 }, rect, 1, {
+            cfg, width: 800, opacityGroups: true, live: null,
+            parentCurved: false, childCurved: false,
+        }, []);
+        expect(out.length).toBeGreaterThan(0);
+        expect(out.every((o) => o.type === "fill")).toBe(true);
+        const rings = out.flatMap((o) => o.polys || []);
+        expect(windingOfPoint(rings, [1000.5, 9000])).toBe(0);       // ceded window
+        expect(windingOfPoint(rings, [1000.5, 9100])).not.toBe(0);  // same band, above it
+        expect(windingOfPoint(rings, [1000.5, 8900])).not.toBe(0);  // same band, below it
     });
 });
 

@@ -226,14 +226,18 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
         // Shrink the ceded rect by the seam pad so the parent overlaps its
         // attached re-home patches. Renderer groups the family by editId, so
         // this is safe for transparent as well as opaque ink.
-        // Home-level window rendering still clips geometry by TILE, so `pad`
-        // may be a relatively large tile-seam overlap. That much inset on a
-        // small ownership window would visibly refill the erase. Callers that
-        // render a source in its own frame can provide the much smaller
-        // parent/child overlap independently.
-        const holePad = opts.windowPad != null ? opts.windowPad : pad;
+        // Tile seam padding is deliberately large enough to overlap adjacent
+        // tile antialiasing at the shallowest zoom. Ownership windows are much
+        // smaller and can first resolve several crossings later; using that
+        // tile-sized pad here refilled up to 25% of a tiny window, producing a
+        // visible rectangular box around each re-homed erase. Give parent and
+        // child a fixed deepest-zoom overlap instead. It propagates to about
+        // two pixels at the next crossing, regardless of tile/window size.
+        const holePad = opts.windowPad != null ? opts.windowPad : (pad ? 2 / cfg.enter : 0);
         const cutHoles = holes ? insetWindows(holes, holePad) : null;
         const fillRegions = cutHoles ? rectSubtract(crect, cutHoles) : [crect];
+        const cutsStrokeArea = !!(cutHoles && cutHoles.some((h) =>
+            h.x1 > crect.left && h.x0 < crect.right && h.y1 > crect.top && h.y0 < crect.bottom));
         if (!fillRegions.length) continue; // wholly ceded to children
         const tag = (piece) => { if (carry) piece.windows = carry; out.push(piece); };
         if (o.type === "fill") {
@@ -255,7 +259,12 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // display gate in-level, get cached curve-capsule outlines instead.)
             const forceOutline = typeof opts.forceOutline === "function"
                 ? opts.forceOutline(o) : !!opts.forceOutline;
-            if (forceOutline || o.lwFrame * s > W * cfg.polygonizeWidthFrac) {
+            // A centerline clip cannot express an ownership window cut through
+            // the INTERIOR of a wide band: growing the window by half a stroke
+            // and round-capping the runs removes a large lens around the tiny
+            // ceded rect. Any window intersecting this tile therefore forces
+            // the same area outline used for an ordinarily gate-wide stroke.
+            if (forceOutline || cutsStrokeArea || o.lwFrame * s > W * cfg.polygonizeWidthFrac) {
                 const half = lw / 2;
                 const ew = { left: rect.left - half, top: rect.top - half, right: rect.right + half, bottom: rect.bottom + half };
                 // Flatten the displayed spline BEFORE clipping (shared chords, see

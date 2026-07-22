@@ -51,6 +51,16 @@ const REORIGIN_PX = 1.5e6;
 // (Default; overridable as cfg.fatWidthPx.)
 const FAT_WIDTH_PX = 500;
 
+// Renderer outlines are cubic loops. The crossing bake's analytic polyline
+// strip is polygonal, so represent each edge as an exact line cubic when an
+// inherited centerline needs to use that same handoff geometry.
+function lineLoops(rings) {
+    return rings.filter((ring) => ring.length >= 3).map((ring) => ring.map((p, i) => {
+        const q = ring[(i + 1) % ring.length];
+        return [[p[0], p[1]], [p[0], p[1]], [q[0], q[1]], [q[0], q[1]]];
+    }));
+}
+
 export default class Renderer {
     constructor(container, camera, cfg, opts = {}) {
         this.cam = camera; this.cfg = cfg;
@@ -448,13 +458,25 @@ export default class Renderer {
         if (o._outline) return o._outline;
         let pts = o.pts;
         const useCurved = curved && pts.length > 2;
-        // Pre-flattened (inherited) centerlines carry entry-fidelity chords —
-        // decimate at that SAME fidelity ((arcTol·0.5)/base, the tolerance the
-        // chords were cut to) before building capsules: the outline is then
-        // exactly as accurate as the geometry it outlines, and dense chord
-        // runs shrink 10-100× instead of turning into one capsule per chord
-        // (the earlier /enter tolerance removed nothing and OOM'd).
-        if (!useCurved && pts.length > 2) pts = decimatePolyline(pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base);
+        // Inherited centerlines are the geometry the NEXT crossing will bake.
+        // Decimating them at entry-scale tolerance (/base) made the in-level
+        // outline visibly differ from that handoff geometry at deep zoom (the
+        // reported edge moved ~10 px although the camera was exact). Preserve
+        // deepest-in-level fidelity here; the renderer's separate view-window
+        // path still bounds work for genuinely huge strokes.
+        if (!useCurved && pts.length > 2) pts = decimatePolyline(pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter);
+        if (!useCurved && pts.length > 2) {
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            for (const [x, y] of pts) {
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+            const half = o.lwFrame / 2;
+            const rect = { left: x0 - half, top: y0 - half, right: x1 + half, bottom: y1 + half };
+            o._outline = lineLoops(strokeStripNear(pts, o.lwFrame, rect,
+                { startCap: true, endCap: true }));
+            return o._outline;
+        }
         const loops = strokeOutlineCurves(pts, o.lwFrame, {
             curved: useCurved,
             fitTol: (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter,

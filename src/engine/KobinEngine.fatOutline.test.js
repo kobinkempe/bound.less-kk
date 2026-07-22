@@ -21,6 +21,7 @@ import KobinEngine from "./KobinEngine";
 import { flattenLoops } from "./geometry/curveOutline";
 import { flattenCurve } from "./geometry/clipperOutline";
 import { windingOfPoint, distToPolyline } from "./geometry/hittest";
+import { deriveStep } from "./geometry/derive";
 
 jest.setTimeout(60000);
 
@@ -124,6 +125,31 @@ describe("fat handoff at the crossing (pixel-constant fidelity)", () => {
                 expect(windingOfPoint(polysBack, p0) !== 0).toBe(truthDist(p0) <= half);
             }
         }
+    });
+    test("an inherited polyline outline matches the analytic strip used by its next bake", () => {
+        const E = mkEngine(800, 600);
+        const pts = [];
+        for (let i = 0; i <= 80; i++) pts.push([-8 + i * 0.2, 0.8 * Math.sin(i * 0.31)]);
+        const o = { type: "stroke", origin: "inherited", id: 71, z: 71,
+            pts, lwFrame: 3, color: "#000", opacity: 1, paths: [] };
+        const before = flattenLoops(E.renderer.ensureOutline(o, false), 1e-5);
+        const rect = { left: -24000, top: -18000, right: 24000, bottom: 18000 };
+        const after = deriveStep([o], E.cfg.enter, { x: 0, y: 0 }, rect, 1, {
+            cfg: E.cfg, width: 800, opacityGroups: true, live: null,
+            parentCurved: false, childCurved: false,
+        }, []);
+        expect(after.length).toBeGreaterThan(0);
+        let checked = 0;
+        for (let x = rect.left + 250; x < rect.right; x += 500) {
+            for (let y = -6500; y <= 6500; y += 250) {
+                const p = [x / 3000, y / 3000];
+                // Avoid asserting on the sub-pixel fidelity band itself.
+                if (Math.abs(distToPolyline(pts, p) - o.lwFrame / 2) * 3000 < 2) continue;
+                expect(pieceInk(after, [x, y])).toBe(windingOfPoint(before, p) !== 0);
+                checked++;
+            }
+        }
+        expect(checked).toBeGreaterThan(1000);
     });
 });
 
