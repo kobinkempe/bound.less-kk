@@ -74,6 +74,7 @@ const withinGap = (a, b, T) => rectGapX(a, b) <= T && rectGapY(a, b) <= T;
 
 /** Effective width of an object in its own frame (fills get a synthetic one). */
 function widthOf(o) {
+    if (o.sceneWidth != null && o.sceneWidth > 0) return o.sceneWidth;
     if (o.type === "stroke") return o.lwFrame || 1e-9;
     const b = bboxOf(o);
     return Math.max(b.x1 - b.x0, b.y1 - b.y0, 1e-9) / WINDOW_WIDTHS;

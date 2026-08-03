@@ -39,6 +39,25 @@ describe("camera + crossings", () => {
         expect(back[0]).toBeCloseTo(400, 3);
         expect(back[1]).toBeCloseTo(300, 3);
     });
+    test("zooming out and back to a deep frame preserves its local focal residue", () => {
+        const E = mkEngine();
+        const focus = [523, 177];
+        let guard = 0;
+        while (E.activeLevel < 5 && guard++ < 200) E.zoomAt(...focus, -1000);
+        expect(E.activeLevel).toBe(5);
+        const deepFrame = E.cam.frame;
+        const local = E.screenToFrame(...focus);
+
+        guard = 0;
+        while (E.activeLevel > 0 && guard++ < 200) E.zoomAt(...focus, 1000);
+        guard = 0;
+        while (E.activeLevel < 5 && guard++ < 200) E.zoomAt(...focus, -1000);
+
+        expect(E.cam.frame).toBe(deepFrame);
+        const returned = E.screenToFrame(...focus);
+        expect(returned[0]).toBeCloseTo(local[0], 8);
+        expect(returned[1]).toBeCloseTo(local[1], 8);
+    });
     test("crossing records pin on first entry and re-entry reuses them", () => {
         const E = mkEngine();
         let guard = 0;

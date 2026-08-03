@@ -75,6 +75,47 @@ export default function CanvasV2() {
             const saved = localStorage.getItem(AUTOSAVE_KEY) || localStorage.getItem("kobinSnapshot");
             if (saved) engine.loadDrawing(JSON.parse(saved));
         } catch (err) { console.warn("kobin autosave restore failed", err); }
+        // `/#/v2?report` is a local diagnostic route: hydrate the exact newest
+        // report state in the real SVG renderer. This keeps report inspection
+        // out of the product editor while avoiding hand-extracted fixtures.
+        const reportParams = new URLSearchParams((window.location.hash.split("?")[1] || ""));
+        if (reportParams.has("report")) {
+            setReportLabel("Loading report…");
+            const reportFile = reportParams.get("file");
+            const reportPath = reportFile
+                ? `/report/${encodeURIComponent(reportFile)}`
+                : "/latest";
+            fetch(`http://${window.location.hostname}:3001${reportPath}`)
+                .then((r) => {
+                    if (!r.ok) throw new Error(`report server ${r.status}`);
+                    return r.json();
+                })
+                .then((raw) => {
+                    engine.loadDrawing(raw && raw.snapshot ? raw.snapshot : raw);
+                    // Reports carry camera pan in the sender's viewport pixels.
+                    // Preserve its world-space center when this inspection tab
+                    // has a different size, otherwise the reported feature can
+                    // land completely outside the diagnostic screenshot.
+                    if (raw && raw.screen && raw.screen.w > 0 && raw.screen.h > 0) {
+                        const c = engine.cam.state();
+                        const center = [
+                            (raw.screen.w / 2 - c.inPanX) / c.inScale,
+                            (raw.screen.h / 2 - c.inPanY) / c.inScale,
+                        ];
+                        engine.cam.set({
+                            ...c,
+                            inPanX: window.innerWidth / 2 - center[0] * c.inScale,
+                            inPanY: window.innerHeight / 2 - center[1] * c.inScale,
+                        });
+                        engine._render();
+                    }
+                    setReportLabel("Report loaded");
+                })
+                .catch((err) => {
+                    setReportLabel(`Load failed: ${err && err.message ? err.message : err}`);
+                    console.warn("kobin report restore failed", err);
+                });
+        }
         // Autosave: serializing a large drawing is a main-thread stringify of
         // megabytes — doing it blindly every 4 s made pure BROWSING hitch
         // periodically. Only save when the document actually changed, and do
@@ -118,7 +159,10 @@ export default function CanvasV2() {
             pointers.set(e.pointerId, p);
             if (pointers.size === 1) {
                 ignoreId = null;
-                engine.pointerDown(p[0], p[1]);
+                engine.pointerDown(p[0], p[1], {
+                    ctrlKey: e.ctrlKey,
+                    metaKey: e.metaKey,
+                });
             } else if (pointers.size === 2) {
                 // The gesture is a pinch. A stroke that JUST started was the first
                 // finger landing, not a mark: cancel it. An older stroke is real work:
@@ -294,7 +338,10 @@ export default function CanvasV2() {
             if (!window.confirm(`Load "${f.name}"? Your current drawing will be replaced (a backup stays in this browser).`)) return;
             // belt-and-braces: keep the pre-load autosave recoverable
             try { const cur = localStorage.getItem(AUTOSAVE_KEY); if (cur) localStorage.setItem(AUTOSAVE_KEY + ".backup", cur); } catch (err) { /* quota */ }
-            E.loadDrawing(raw); // throws a readable Error on anything malformed
+            // The development report server wraps the exact drawing state in
+            // `{ snapshot }`. Accept that wrapper here so a reported failure
+            // can be loaded directly without hand-extracting a second file.
+            E.loadDrawing(raw && raw.snapshot ? raw.snapshot : raw);
         } catch (err) {
             window.alert("Couldn't load that file: " + (err && err.message ? err.message : err));
         }
@@ -423,16 +470,11 @@ export default function CanvasV2() {
                     <Typography align="center" style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
                         edit {status.selection.type === "fill" ? "fill" : "stroke"} · level {status.selection.level}
                     </Typography>
-                    <HexColorPicker className="small" color={toHex(status.selection.color)}
-                        onChange={(c) => engineRef.current && engineRef.current.restyleSelection({ color: c })} />
-                    {status.selection.widthPx != null && <>
-                        <Typography align="center" style={{ fontSize: 13, marginTop: 6 }}>width {Math.round(status.selection.widthPx)}px</Typography>
-                        <Slider min={1} max={90} value={Math.min(90, Math.max(1, Math.round(status.selection.widthPx)))}
-                            onChange={(e, v) => engineRef.current && engineRef.current.restyleSelection({ widthPx: v })} />
-                    </>}
-                    <Typography align="center" style={{ fontSize: 13 }}>opacity {Math.round(status.selection.opacity * 100)}%</Typography>
-                    <Slider min={0.1} max={1} step={0.05} value={status.selection.opacity}
-                        onChange={(e, v) => engineRef.current && engineRef.current.restyleSelection({ opacity: v })} />
+                    <Typography align="center" style={{ fontSize: 13 }}>
+                        {status.selection.count > 1
+                            ? `${status.selection.count} objects selected`
+                            : "1 object selected"}
+                    </Typography>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
                         <button style={{ padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12,
                             border: "1px solid #fecaca", background: "#fff", color: "#b91c1c" }}

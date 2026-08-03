@@ -110,6 +110,31 @@ describe("format encode/decode", () => {
         ["a duplicate id", { format: FORMAT, version: 1, natives: { 0: [
             { type: "stroke", id: 1, pts: [[0, 0]], lwFrame: 1 }, { type: "stroke", id: 1, pts: [[1, 1]], lwFrame: 1 }] } }],
         ["a bad crossing record", { format: FORMAT, version: 1, natives: {}, crossings: { 1: { s: 0, t: { x: 0, y: 0 } } } }],
+        ["a bad frame anchor", { format: FORMAT, version: 1, natives: {}, crossings: {
+            1: { s: 300, t: { x: 0, y: 0 }, anchor: { parent: [0, Infinity], child: [0, 0] } },
+        } }],
+        ["conflicting shared placements", { format: FORMAT, version: 1, natives: { 0: [
+            { type: "stroke", id: 1, pts: [[0, 0]], lwFrame: 1,
+                placements: [{ id: "p", frame: "0", dx: 1, dy: 2 }] },
+            { type: "stroke", id: 2, pts: [[1, 1]], lwFrame: 1,
+                placements: [{ id: "p", frame: "0", dx: 2, dy: 2 }] },
+        ] } }],
+        ["a missing hierarchy source", { format: FORMAT, version: 1, natives: { 1: [
+            { type: "fill", id: 2, editId: 1, srcId: 1,
+                polys: [[[0, 0], [1, 0], [1, 1]]], paths: [] },
+        ] } }],
+        ["a hierarchy logical-id mismatch", { format: FORMAT, version: 1, natives: {
+            0: [{ type: "fill", id: 1, editId: 10,
+                polys: [[[0, 0], [1, 0], [1, 1]]], paths: [] }],
+            1: [{ type: "fill", id: 2, editId: 20, srcId: 1,
+                polys: [[[0, 0], [1, 0], [1, 1]]], paths: [] }],
+        } }],
+        ["a cyclic hierarchy", { format: FORMAT, version: 1, natives: {
+            0: [{ type: "fill", id: 1, editId: 10, srcId: 2,
+                polys: [[[0, 0], [1, 0], [1, 1]]], paths: [] }],
+            1: [{ type: "fill", id: 2, editId: 10, srcId: 1,
+                polys: [[[0, 0], [1, 0], [1, 1]]], paths: [] }],
+        } }],
     ])("decode rejects %s", (label, raw) => {
         expect(() => decodeDrawing(raw)).toThrow();
     });

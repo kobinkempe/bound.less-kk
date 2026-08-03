@@ -169,7 +169,14 @@ function capScale(desired, points, margin = 0) {
     return Math.max(1, Math.min(desired, Math.floor(SAFE_RANGE / m)));
 }
 function pickScale(center, width, optScale, displayScale) {
-    const desired = Math.min(1e7, Math.max(optScale || 1000, Math.round(100 * displayScale)));
+    // An explicit scale is a fidelity contract from the caller. In particular,
+    // tile-local erase baking asks for a quarter-pixel grid (4*displayScale);
+    // silently raising that to 100*displayScale retained roughly 25x too many
+    // boolean vertices and could wedge the renderer. Legacy callers that omit
+    // `scale` retain the old conservative default.
+    const desired = optScale != null
+        ? Math.min(1e7, Math.max(1, Math.round(optScale)))
+        : Math.min(1e7, Math.max(1000, Math.round(100 * displayScale)));
     return capScale(desired, center, width); // offset radius ~width/2 pushes coords out; width is a safe margin
 }
 
@@ -279,11 +286,14 @@ export function subtractPolys(subjectPolys, clipPolys, opts = {}) {
     const sol = new ClipperLib.Paths();
     c.Execute(ClipperLib.ClipType.ctDifference, sol,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+    const cleaned = opts.simplify != null && opts.simplify > 0
+        ? ClipperLib.Clipper.CleanPolygons(sol, Math.max(1, opts.simplify * scale))
+        : sol;
     // Clipper marks outers/holes by orientation. Each outer founds a region;
     // each hole joins the smallest outer that contains it (checking smallest
     // first assigns holes to their immediate outer under nesting).
     const outers = [], holes = [];
-    for (const path of sol) {
+    for (const path of cleaned) {
         const ring = path.map((pt) => [pt.X / scale, pt.Y / scale]);
         if (ring.length < 3) continue;
         (ClipperLib.Clipper.Orientation(path) ? outers : holes).push(ring);

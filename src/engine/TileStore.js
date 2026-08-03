@@ -40,6 +40,15 @@ const DOWN_MAX_SIZE = 5e5; // generous upper bound on a native's frame extent (p
                            // used only to skip a frame whose content is guaranteed
                            // sub-cull at F.
 
+function logicalMeta(src, dst) {
+    if (src.editId != null) dst.editId = src.editId;
+    if (src.srcId != null) dst.srcId = src.srcId;
+    if (src.attachRect) dst.attachRect = { ...src.attachRect };
+    if (src.eraseCell) dst.eraseCell = { ...src.eraseCell };
+    if (src._rev != null) dst._rev = src._rev;
+    return dst;
+}
+
 export default class TileStore {
     constructor(levelMap, doc, cfg) {
         this.lm = levelMap;
@@ -50,15 +59,27 @@ export default class TileStore {
         this.opacityGroups = true;
         this.live = null;    // the in-progress stroke, exempt from bbox/flatten caches
         this.cache = new Map(); // "F|dir|i,j" -> { level, dir, i, j, objs, epoch, lru }
+        // Placed ancestors need the same bounded, one-edge-at-a-time derivation
+        // as ordinary upContent.  Keeping it separate avoids polluting the
+        // shared cache with per-object placement state.
+        this.placedCache = new Map();
         this._clock = 0;
         this._epoch = 0;
         this._pins = new Set(); // keys protected from eviction during a bake/render
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
-    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); }
+    destroy() {
+        if (this._unsub) this._unsub();
+        this.cache.clear();
+        this.placedCache.clear();
+    }
 
     setOpacityGroups(v) { if (v !== this.opacityGroups) { this.opacityGroups = v; this.bumpEpoch(); } }
-    bumpEpoch() { this._epoch++; this.cache.clear(); }
+    bumpEpoch() {
+        this._epoch++;
+        this.cache.clear();
+        this.placedCache.clear();
+    }
 
     // ---- helpers ----
     _depth(frameId) { const d = this.lm.depthOf(frameId); return d == null ? 0 : d; }
@@ -119,6 +140,7 @@ export default class TileStore {
         const range = this.lm.tileRange(F, windowRect);
         const zero = { x: 0, y: 0 };
         for (const o of this.doc.at(F)) {
+            if (o.placements && o.placements.length) continue; // rendered by placedContent
             const sw = splitWindows(o, this.cfg.base, zero, this.cfg);
             if (!sw || !sw.apply.length) { plain.push(o); continue; }
 
@@ -129,19 +151,206 @@ export default class TileStore {
                     pts: displayChords(o, this.cfg, this.live), lwFrame: o.lwFrame,
                     color: o.color, opacity: o.opacity, windows: o.windows, paths: [] }
                 : o;
-            const overlapSafe = o.opacity == null || o.opacity >= 1 || this.opacityGroups;
-            const windowPad = overlapSafe ? 2 / this.cfg.enter : 0; // ~1 px at an outward crossing
             for (let i = range.i0; i <= range.i1; i++) {
                 for (let j = range.j0; j <= range.j1; j++) {
                     deriveStep([source], this.cfg.base, zero, this.lm.tileRect(F, i, j), F, {
                         cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups,
                         live: this.live, parentCurved: false, childCurved: false,
-                        forceOutline: source.type === "stroke", windowPad,
+                        forceOutline: source.type === "stroke", windowPad: 0,
                     }, cut);
                 }
             }
         }
         return plain.concat(cut);
+    }
+
+    _translatePlacedPiece(o, dx, dy) {
+        if (!dx && !dy) return o;
+        const shift = (ring) => ring.map(([x, y]) => [x + dx, y + dy]);
+        const common = {
+            type: o.type, origin: o.origin, id: o.id, z: o.z,
+            color: o.color, opacity: o.opacity, paths: [],
+        };
+        const out = o.type === "fill"
+            ? { ...common, polys: o.polys.map(shift) }
+            : { ...common, pts: shift(o.pts), lwFrame: o.lwFrame };
+        if (o.covers) out.covers = true;
+        if (o.windows && o.windows.length) {
+            out.windows = o.windows.map((w) => ({
+                ...w,
+                x0: w.x0 + dx, x1: w.x1 + dx,
+                y0: w.y0 + dy, y1: w.y1 + dy,
+            }));
+        }
+        if (o.attachRect) {
+            out.attachRect = {
+                ...o.attachRect,
+                x0: o.attachRect.x0 + dx, x1: o.attachRect.x1 + dx,
+                y0: o.attachRect.y0 + dy, y1: o.attachRect.y1 + dy,
+            };
+        }
+        if (o.editId != null) out.editId = o.editId;
+        if (o.srcId != null) out.srcId = o.srcId;
+        if (o.eraseCell) out.eraseCell = { ...o.eraseCell };
+        if (o.fadeTag != null) out.fadeTag = o.fadeTag;
+        if (o.curved != null) out.curved = o.curved;
+        if (o._rev != null) out._rev = o._rev;
+        return out;
+    }
+
+    // Assign every movement to the earliest frame on the home->view chain in
+    // which its vector is representable.  A move made at level 15 is far below
+    // a root Number's ULP, so applying it at root would silently lose it; after
+    // a few bounded crossings it becomes an ordinary local translation.
+    _placedUpPlan(o, H, F) {
+        const path = this.lm.framePath(H, F);
+        if (!path || path.up.length) return null;
+        const frames = [String(H), ...path.down.map(String)];
+        const deltas = new Map();
+        const deferred = [];
+        const minLocal = 1e-7;
+        for (const move of o.placements || []) {
+            let chosen = null;
+            let chosenDelta = { x: 0, y: 0 };
+            for (const frame of frames) {
+                const factor = this.lm.frameFactor(move.frame, frame);
+                if (factor == null) continue;
+                const dx = (move.dx || 0) * factor;
+                const dy = (move.dy || 0) * factor;
+                if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
+                if (Math.max(Math.abs(dx), Math.abs(dy)) < minLocal) continue;
+                chosen = frame;
+                chosenDelta = { x: dx, y: dy };
+                break;
+            }
+            // A movement that is still below this frame's numeric/display
+            // resolution must not be rounded into geometry. Re-home callers
+            // carry it to their child, where later 3000x crossings make it an
+            // ordinary local translation.
+            if (chosen == null) { deferred.push(move); continue; }
+            const prior = deltas.get(chosen) || { x: 0, y: 0 };
+            deltas.set(chosen, {
+                x: prior.x + chosenDelta.x,
+                y: prior.y + chosenDelta.y,
+            });
+        }
+        const signature = (o.placements || []).map((p) =>
+            `${p.id || ""}@${p.frame}:${p.dx || 0},${p.dy || 0}`).join("|");
+        return { deltas, deferred, signature };
+    }
+
+    // Derive one placed ancestor into one destination tile.  Placement is
+    // injected as a local translation at the planned frame; the requested tile
+    // is inverse-shifted before looking up its parent.  Consequently every
+    // polygonization and SOLID decision sees tile-sized numbers, just like
+    // ordinary Kobinization, instead of a level-0 polygon spanning 3000^15.
+    _placedUpTile(o, H, F, i, j, plan) {
+        const key = `${this._epoch}|${o.id}|${o._rev || 0}|${H}>${F}|${i},${j}|${plan.signature}`;
+        const hit = this.placedCache.get(key);
+        if (hit) return hit;
+        const frame = this.lm.frame(F);
+        const parentId = frame && frame.parent;
+        const rec = frame && frame.edge;
+        if (!parentId || !rec) return [];
+        const rect = this.lm.tileRect(F, i, j);
+        const delta = plan.deltas.get(String(F)) || { x: 0, y: 0 };
+        const sourceRect = {
+            left: rect.left - delta.x, top: rect.top - delta.y,
+            right: rect.right - delta.x, bottom: rect.bottom - delta.y,
+        };
+        const parentObjs = [];
+        if (String(parentId) === String(H)) {
+            const homeDelta = plan.deltas.get(String(H)) || { x: 0, y: 0 };
+            parentObjs.push(this._translatePlacedPiece(o, homeDelta.x, homeDelta.y));
+        } else {
+            const pr = this.lm.rectToParent(sourceRect, F);
+            const range = this.lm.tileRange(parentId, pr);
+            for (let pi = range.i0; pi <= range.i1; pi++) {
+                for (let pj = range.j0; pj <= range.j1; pj++) {
+                    for (const p of this._placedUpTile(o, H, parentId, pi, pj, plan)) {
+                        parentObjs.push(p);
+                    }
+                }
+            }
+        }
+        const raw = [];
+        const edges = [];
+        for (const p of parentObjs) {
+            const tier = classifyUp(p, rec.s, rec.t, sourceRect, this.cfg, this.live);
+            if (tier === "empty") continue;
+            if (tier === "solid") raw.push(this._solid(p, rec, sourceRect));
+            else edges.push(p);
+        }
+        deriveStep(edges, rec.s, rec.t, sourceRect, F, {
+            cfg: this.cfg, width: this.lm.width,
+            opacityGroups: this.opacityGroups, live: this.live,
+            parentCurved: (p) => p.origin === "native",
+            childCurved: () => false,
+        }, raw);
+        const out = (delta.x || delta.y)
+            ? raw.map((p) => this._translatePlacedPiece(p, delta.x, delta.y))
+            : raw;
+        this.placedCache.set(key, out);
+        return out;
+    }
+
+    // Placed ancestors magnify through the same bounded chain as ordinary
+    // upContent.  Same-frame and minifying/cross-branch objects remain safe to
+    // project directly with floating expansions.
+    placedContent(F, windowRect) {
+        const cf = this.lm.frameFor(F);
+        if (!cf) return [];
+        F = cf.id;
+        const out = [];
+        const zero = { x: 0, y: 0 };
+        for (const H of this.doc.levels()) {
+            const factor = this.lm.frameFactor(H, F);
+            if (factor == null) continue;
+            for (const o of this.doc.at(H)) {
+                if (!o.placements || !o.placements.length) continue;
+                if (String(H) !== String(F) && this.lm.isAncestor(H, F)) {
+                    const plan = this._placedUpPlan(o, H, F);
+                    if (!plan) continue;
+                    const range = this.lm.tileRange(F, windowRect);
+                    for (let i = range.i0; i <= range.i1; i++) {
+                        for (let j = range.j0; j <= range.j1; j++) {
+                            for (const p of this._placedUpTile(o, H, F, i, j, plan)) out.push(p);
+                        }
+                    }
+                    continue;
+                }
+                const d = this.lm.projectPlacedF(o, H, F);
+                if (!d) continue;
+                let fadeTag = null;
+                if (!this.lm.isAncestor(H, F) && H !== F) {
+                    fadeTag = projectedSizePx(o, factor, this.cfg, this.live);
+                    if (fadeTag < this.fadeLoPx) continue;
+                }
+                const b = bboxOf(d, this.live);
+                const half = d.type === "fill" ? 0 : (d.lwFrame || 0) / 2;
+                const clippedWindow = {
+                    left: Math.max(windowRect.left, b.x0 - half),
+                    top: Math.max(windowRect.top, b.y0 - half),
+                    right: Math.min(windowRect.right, b.x1 + half),
+                    bottom: Math.min(windowRect.bottom, b.y1 + half),
+                };
+                if (clippedWindow.left > clippedWindow.right || clippedWindow.top > clippedWindow.bottom) continue;
+                const range = this.lm.tileRange(F, clippedWindow);
+                const start = out.length;
+                for (let i = range.i0; i <= range.i1; i++) {
+                    for (let j = range.j0; j <= range.j1; j++) {
+                        deriveStep([d], this.cfg.base, zero, this.lm.tileRect(F, i, j), F, {
+                            cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups,
+                            live: this.live, parentCurved: d.origin === "native", childCurved: false,
+                            forceOutline: d.type === "stroke" &&
+                                d.lwFrame * this.cfg.enter > this.lm.width * this.cfg.polygonizeWidthFrac,
+                        }, out);
+                    }
+                }
+                if (fadeTag != null) for (let i = start; i < out.length; i++) out[i].fadeTag = fadeTag;
+            }
+        }
+        return out;
     }
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----
@@ -175,7 +384,7 @@ export default class TileStore {
                 for (const o of pt.objs) parentObjs.push(o);
             }
         }
-        for (const o of this.doc.at(parentId)) parentObjs.push(o);
+        for (const o of this.doc.at(parentId)) if (!o.placements || !o.placements.length) parentObjs.push(o);
         const objs = [];
         const edges = [];
         for (const o of parentObjs) {
@@ -235,6 +444,7 @@ export default class TileStore {
             if (f == null) continue;
             if (DOWN_MAX_SIZE * f * enter < this.fadeLoPx) continue; // this frame is sub-cull
             for (const o of this.doc.at(G)) {
+                if (o.placements && o.placements.length) continue;
                 const tag = projectedSizePx(o, f, this.cfg, this.live); // size at F's deepest zoom
                 if (tag < this.fadeLoPx) continue;                     // cull (invisible by construction)
                 const b = bboxOf(o, this.live);
@@ -249,8 +459,8 @@ export default class TileStore {
                     // deriveStep does (winding preserved, holes stay holes), with
                     // the same seam overlap so tile edges leave no AA hairline.
                     const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
-                    if (tp.length) objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                        opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+                    if (tp.length) objs.push(logicalMeta(o, { type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                        opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] }));
                     continue;
                 }
                 const pts = (o.origin === "native" && d.pts.length > 2)
@@ -258,8 +468,8 @@ export default class TileStore {
                 const lw = d.lwFrame;
                 const ew = { left: rect.left - lw, top: rect.top - lw, right: rect.right + lw, bottom: rect.bottom + lw };
                 for (const run of clipPolylineToRect(pts, ew)) {
-                    if (run.length) objs.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
-                        opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
+                    if (run.length) objs.push(logicalMeta(o, { type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
+                        opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] }));
                 }
             }
         }
@@ -268,7 +478,9 @@ export default class TileStore {
 
     // ---- document changes: INCREMENTAL tile updates ----
     _onDoc(ev) {
+        this.placedCache.clear();
         if (ev.kind === "reset") { this.cache.clear(); return; }
+        if (ev.kind === "placementBatch") { this.cache.clear(); return; }
         if (!ev.obj) return;
         if (ev.kind === "remove") { this._removeObject(ev.id); return; }
         if (ev.kind === "add" && ev.live) return; // still growing; finalize announces
@@ -284,6 +496,7 @@ export default class TileStore {
         }
     }
     _addObject(o, H) {
+        if (o.placements && o.placements.length) return; // uncached placedContent path
         for (const [key, tile] of this.cache) {
             const F = tile.level;
             if (F === H) continue;
@@ -336,8 +549,8 @@ export default class TileStore {
         if (d.type === "fill") {
             // Area-erase bakes travel as fills (same handling as _bakeDown).
             const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
-            if (tp.length) tile.objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+            if (tp.length) tile.objs.push(logicalMeta(o, { type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] }));
             return;
         }
         const pts = (o.origin === "native" && d.pts.length > 2)
@@ -345,8 +558,8 @@ export default class TileStore {
         const lw = d.lwFrame;
         const ew = { left: rect.left - lw, top: rect.top - lw, right: rect.right + lw, bottom: rect.bottom + lw };
         for (const run of clipPolylineToRect(pts, ew)) {
-            if (run.length) tile.objs.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
+            if (run.length) tile.objs.push(logicalMeta(o, { type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
+                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] }));
         }
     }
     // rect is {left,top,right,bottom}; b is a bbox {x0,y0,x1,y1}.

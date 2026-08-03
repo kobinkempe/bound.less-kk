@@ -130,7 +130,10 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             pointers.set(e.pointerId, p);
             if (pointers.size === 1) {
                 ignoreId = null;
-                engine.pointerDown(p[0], p[1]);
+                engine.pointerDown(p[0], p[1], {
+                    ctrlKey: e.ctrlKey,
+                    metaKey: e.metaKey,
+                });
             } else if (pointers.size === 2) {
                 if (engine._drawing && Date.now() - engine._drawStartT < 400) engine.cancelStroke();
                 else engine.pointerUp();

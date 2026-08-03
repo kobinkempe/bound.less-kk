@@ -96,7 +96,11 @@ export function decodeDrawing(raw) {
             meta: decodeMeta(null),
             camera: decodeCamera(raw.camera),
             crossings: decodeCrossings(raw.crossings),
-            natives: decodeNatives(raw.natives),
+            // Historical dev snapshots could be captured between the remove
+            // and insert halves of an incremental hierarchy rewrite. Recover
+            // those reports as additional logical roots; versioned files keep
+            // the stricter integrity contract.
+            natives: decodeNatives(raw.natives, { allowOrphans: true }),
         };
     }
     throw new Error("not a bound.less drawing (unrecognized format)");
@@ -184,11 +188,21 @@ function decodeCamera(c) {
     return out;
 }
 
-// A frame edge record must have finite s > 0 and t.{x,y}; grid optional but sane.
+function validFrameAnchor(a) {
+    return a && Array.isArray(a.parent) && a.parent.length === 2
+        && a.parent.every(isFiniteNum)
+        && Array.isArray(a.child) && a.child.length === 2
+        && a.child.every(isFiniteNum);
+}
+
+// A frame edge record must have finite s > 0 and t.{x,y}; grid/anchor are
+// optional but, when present, must be finite. Anchors preserve local residues
+// through very deep branch-to-branch projections.
 function validEdgeRec(r, allowNullEdge) {
     if (!r) return false;
     if (r.grid && !(isFiniteNum(r.grid.w) && r.grid.w > 0 && isFiniteNum(r.grid.h) && r.grid.h > 0 &&
         isFiniteNum(r.grid.ox) && isFiniteNum(r.grid.oy))) return false;
+    if (r.anchor != null && !validFrameAnchor(r.anchor)) return false;
     if (allowNullEdge && (r.edge == null)) return true; // root frame: no edge
     const e = allowNullEdge ? r.edge : r;
     return e && isFiniteNum(e.s) && e.s > 0 && e.t && isFiniteNum(e.t.x) && isFiniteNum(e.t.y);
@@ -217,10 +231,12 @@ function decodeCrossings(cr) {
     return cr;
 }
 
-function decodeNatives(n) {
+function decodeNatives(n, { allowOrphans = false } = {}) {
     if (n == null) return { 0: [] };
     if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of frames");
     const seen = new Set();
+    const placementDefs = new Map();
+    const objects = new Map();
     for (const l of Object.keys(n)) {
         // keys are frame ids: integer depths (spine) OR "<depth>~<n>" siblings.
         if (!(Number.isInteger(+l) || /^-?\d+~\d+$/.test(l))) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
@@ -230,12 +246,32 @@ function decodeNatives(n) {
             if (!Number.isInteger(o.id) || o.id < 1) throw new Error(`bad object at level ${l}: id must be a positive integer`);
             if (seen.has(o.id)) throw new Error(`bad natives: duplicate id ${o.id}`);
             seen.add(o.id);
+            objects.set(o.id, o);
             if (o.z != null && !isFiniteNum(o.z)) throw new Error(`bad object ${o.id}: z must be a number`);
             if (o.srcId != null && (!Number.isInteger(o.srcId) || o.srcId < 1)) throw new Error(`bad object ${o.id}: srcId must be a positive integer`);
             if (o.editId != null && (!Number.isInteger(o.editId) || o.editId < 1)) throw new Error(`bad object ${o.id}: editId must be a positive integer`);
             if (o.attachRect != null && !validOwnedRect(o.attachRect)) throw new Error(`bad object ${o.id}: attachRect is malformed`);
             if (o.windows != null && (!Array.isArray(o.windows) || !o.windows.every(validOwnedRect))) {
                 throw new Error(`bad object ${o.id}: windows must be finite, non-empty rects`);
+            }
+            if (o.placements != null && (!Array.isArray(o.placements) || !o.placements.every(validPlacement))) {
+                throw new Error(`bad object ${o.id}: placements are malformed`);
+            }
+            if (o.placements) {
+                const local = new Set();
+                for (const p of o.placements) {
+                    const key = `${typeof p.id}:${p.id}`;
+                    if (local.has(key)) throw new Error(`bad object ${o.id}: duplicate placement ${p.id}`);
+                    local.add(key);
+                    const prior = placementDefs.get(key);
+                    if (prior && (prior.frame !== p.frame || prior.dx !== p.dx || prior.dy !== p.dy)) {
+                        throw new Error(`bad placement ${p.id}: shared records disagree`);
+                    }
+                    if (!prior) placementDefs.set(key, p);
+                }
+            }
+            if (o.eraseCell != null && !validEraseCell(o.eraseCell)) {
+                throw new Error(`bad object ${o.id}: eraseCell is malformed`);
             }
             if (o.type === "stroke") {
                 if (!validPts(o.pts) || o.pts.length < 1) throw new Error(`bad stroke ${o.id}: pts must be a non-empty array of finite [x,y]`);
@@ -249,6 +285,26 @@ function decodeNatives(n) {
             }
         }
     }
+    for (const [id, o] of objects) {
+        if (o.srcId == null) continue;
+        const source = objects.get(o.srcId);
+        if (!source) {
+            if (allowOrphans) continue;
+            throw new Error(`bad object ${id}: srcId ${o.srcId} is missing`);
+        }
+        const childKey = o.editId != null ? o.editId : o.id;
+        const sourceKey = source.editId != null ? source.editId : source.id;
+        if (childKey !== sourceKey) {
+            throw new Error(`bad object ${id}: source and child logical ids disagree`);
+        }
+        const chain = new Set([id]);
+        let cursor = source;
+        while (cursor && cursor.srcId != null) {
+            if (chain.has(cursor.id)) throw new Error(`bad object ${id}: cyclic srcId hierarchy`);
+            chain.add(cursor.id);
+            cursor = objects.get(cursor.srcId);
+        }
+    }
     return n;
 }
 
@@ -257,6 +313,16 @@ function validPts(pts) {
 }
 function validOwnedRect(r) {
     return r && isFiniteNum(r.x0) && isFiniteNum(r.y0) && isFiniteNum(r.x1) && isFiniteNum(r.y1) &&
-        r.x1 > r.x0 && r.y1 > r.y0;
+        r.x1 > r.x0 && r.y1 > r.y0 &&
+        (r.seam == null || (isFiniteNum(r.seam) && r.seam >= 0));
+}
+function validPlacement(p) {
+    return p && (typeof p.id === "string" || Number.isInteger(p.id))
+        && typeof p.frame === "string" && p.frame
+        && isFiniteNum(p.dx) && isFiniteNum(p.dy);
+}
+function validEraseCell(c) {
+    return c && typeof c.frame === "string" && c.frame
+        && Number.isInteger(c.i) && Number.isInteger(c.j);
 }
 function isFiniteNum(v) { return typeof v === "number" && Number.isFinite(v); }

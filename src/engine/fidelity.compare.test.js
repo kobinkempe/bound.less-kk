@@ -21,7 +21,6 @@ import fs from "fs";
 import path from "path";
 import KobinEngine from "./KobinEngine";
 import { windingOfPoint, distToPolyline, } from "./geometry/hittest";
-import { projectNative } from "./geometry/derive";
 import { flattenCurve } from "./geometry/clipperOutline";
 
 jest.setTimeout(120000);
@@ -40,19 +39,37 @@ function inked(list, p) {
     }
     return false;
 }
+// Ground-truth natives include both a parent and the child cells to which it
+// ceded ownership. A raw union would count the parent's pre-erase ink inside
+// those windows and call the renderer "missing" precisely where it correctly
+// shows the child result. Evaluate canonical ownership, not storage overlap.
+function ownedInked(list, p) {
+    for (const o of list) {
+        if ((o.windows || []).some((w) =>
+            p[0] >= w.x0 && p[0] <= w.x1 &&
+            p[1] >= w.y0 && p[1] <= w.y1)) continue;
+        if (o.type === "fill") {
+            if (windingOfPoint(o.polys, p) !== 0) return true;
+        } else if (o.pts && distToPolyline(o.pts, p) <= o.lwFrame / 2) {
+            return true;
+        }
+    }
+    return false;
+}
 // Ground truth: every native projected to `level`, its centerline flattened to
 // the SAME displayed spline the engine bands around (so the comparison is fair —
 // straight chords vs the Catmull-Rom spline disagree right at a band edge).
-function groundTruth(E, level) {
+function groundTruth(E) {
     const gt = [];
     for (const Hs of Object.keys(E.nativesByLevel)) {
-        const H = +Hs;
         for (const o of E.nativesByLevel[Hs]) {
             // Flatten the spline at HOME (bounded coords — flattening a projected
             // giant would explode), then project the polyline.
-            const flat = o.pts.length > 2
+            const flat = o.type === "stroke" && o.pts.length > 2
                 ? { ...o, pts: flattenCurve(o.pts, (E.cfg.arcTolerancePx * 0.5) / E.cfg.enter) } : o;
-            const d = projectNative(flat, H, level, E.crossings, E.cfg.base);
+            const d = flat.placements && flat.placements.length
+                ? E.lm.projectPlacedF(flat, Hs, E.cam.frame)
+                : E.lm.projectF(flat, Hs, E.cam.frame);
             if (d) gt.push(d);
         }
     }
@@ -75,13 +92,13 @@ describe("fidelity: the new engine reproduces the drawing's true ink (per real s
 
         const win = E._frameWindow(0);
         const rendered = E._objs() || [];
-        const gt = groundTruth(E, E.activeLevel);
+        const gt = groundTruth(E);
 
         const N = 24, M = 16;
         let truthInk = 0, matched = 0, extra = 0;
         for (let a = 0; a < N; a++) for (let b = 0; b < M; b++) {
             const p = [win.left + (a + 0.5) / N * (win.right - win.left), win.top + (b + 0.5) / M * (win.bottom - win.top)];
-            const t = inked(gt, p), r = inked(rendered, p);
+            const t = ownedInked(gt, p), r = inked(rendered, p);
             if (t) { truthInk++; if (r) matched++; } else if (r) extra++;
         }
         // No BUG-05 explosion: the old engine's up-projection produced strokes

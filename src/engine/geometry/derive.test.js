@@ -4,7 +4,10 @@
  * plus unit tests for the NEW classify tiers (the symmetric magnify size policy).
  */
 import KobinEngineV0 from "../KobinEngineV0";
-import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad } from "./derive";
+import {
+    deriveStep, projectNative, classifyUp, solidQuad, bboxOf,
+    levelFactor, projectedSizePx, seamPad, polygonizeStrokeInTile,
+} from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 import { windingOfPoint } from "./hittest";
 
@@ -22,6 +25,70 @@ afterEach(() => { while (engines.length) engines.pop().destroy(); });
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const mkStroke = (id, pts, lw, extra = {}) => ({ type: "stroke", origin: "native", id, pts, lwFrame: lw, color: "#123456", opacity: 1, paths: [], ...extra });
+
+describe("shared curve-faithful tile polygonization", () => {
+    test("ordinary tile bakes follow the displayed spline, not pointer-sample chords", () => {
+        // The displayed cubic through these three anchors passes near (11,50);
+        // the raw first chord is more than twelve units away there. This probe
+        // therefore catches the exact regression that made baked erasers look
+        // angular even when their live SVG stroke was smooth.
+        const stroke = mkStroke(91, [[0, 0], [50, 100], [100, 0]], 12);
+        const rect = { left: -20, top: -20, right: 120, bottom: 120 };
+        const cfg = {
+            base: 0.1, enter: 300, arcTolerancePx: 0.25,
+            lineTolPx: 0.25, fatWidthPx: 4000,
+            polygonizeWidthFrac: 1 / 3, scale: 1000,
+            fadeLoPx: 0.15, cullPx: 0.3,
+        };
+        const curved = polygonizeStrokeInTile(stroke, rect, {
+            cfg, displayScale: 1, curved: true,
+        });
+        const chorded = polygonizeStrokeInTile(stroke, rect, {
+            cfg, displayScale: 1, curved: false,
+        });
+        expect(windingOfPoint(curved, [11, 50])).not.toBe(0);
+        expect(windingOfPoint(chorded, [11, 50])).toBe(0);
+
+        const out = deriveStep([stroke], cfg.base, { x: 0, y: 0 }, rect, "1", {
+            cfg, width: 800, opacityGroups: true, live: null,
+            parentCurved: true, childCurved: false, forceOutline: true,
+        }, []);
+        expect(out).toHaveLength(1);
+        expect(out[0].type).toBe("fill");
+        expect(windingOfPoint(out[0].polys, [11, 50])).not.toBe(0);
+    });
+
+    test("the true mega-stroke fallback stays clipped and vertex-bounded", () => {
+        const stroke = mkStroke(
+            92,
+            [[-1e8, 0], [0, 0], [1e8, 0]],
+            20,
+        );
+        const rect = { left: -100, top: -100, right: 100, bottom: 100 };
+        const cfg = {
+            base: 0.1, enter: 300, arcTolerancePx: 0.25,
+            lineTolPx: 0.25, fatWidthPx: 4000,
+            polygonizeWidthFrac: 1 / 3, scale: 1000,
+            fadeLoPx: 0.15, cullPx: 0.3,
+        };
+        const rings = polygonizeStrokeInTile(stroke, rect, {
+            cfg, displayScale: 1, curved: true,
+        });
+
+        expect(rings.length).toBeGreaterThan(0);
+        expect(windingOfPoint(rings, [0, 0])).not.toBe(0);
+        const vertices = rings.reduce((n, ring) => n + ring.length, 0);
+        expect(vertices).toBeLessThan(200);
+        for (const ring of rings) {
+            for (const [x, y] of ring) {
+                expect(x).toBeGreaterThanOrEqual(rect.left - 1e-9);
+                expect(x).toBeLessThanOrEqual(rect.right + 1e-9);
+                expect(y).toBeGreaterThanOrEqual(rect.top - 1e-9);
+                expect(y).toBeLessThanOrEqual(rect.bottom + 1e-9);
+            }
+        }
+    });
+});
 
 // A parent-object zoo covering every _deriveInto branch: small (stays stroke),
 // gate-wide (Clipper outline), mega (analytic strip), curved multi-point
@@ -80,7 +147,7 @@ describe("tile seam overlap", () => {
         expect(seamPad({ opacity: 0.35 }, rect, false)).toBe(0);
     });
 
-    test("a tiny ownership window gets pixel-sized overlap, never tile-sized refill", () => {
+    test("a tiny ownership window is ceded exactly; overlap belongs to the child guard", () => {
         const cfg = { base: 0.1, enter: 300, fadeLoPx: 0.15,
             arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, scale: 1000 };
         const f = cfg.enter / cfg.base;
@@ -95,11 +162,12 @@ describe("tile seam overlap", () => {
             parentCurved: false, childCurved: false,
         }, []);
         const rings = out.flatMap((o) => o.polys || []);
-        // Two/enter leaves a small parent-child overlap at the left boundary.
-        expect(windingOfPoint(rings, [1000.002, 1000.2])).not.toBe(0);
-        // But 0.02 units into this 0.45-unit window is still ceded. The former
-        // tile seam pad was capped to 1/4 of the window (=0.1125) and refilled
-        // this point, drawing a rectangular box around the detailed child ink.
+        // The parent stops exactly at the ownership boundary. Any overlap that
+        // hides raster seams is carried by the child's already-erased guard;
+        // letting the parent intrude even 0.002 units repaints erased ink and
+        // produces a rectangular box around the child patch.
+        expect(windingOfPoint(rings, [999.998, 1000.2])).not.toBe(0);
+        expect(windingOfPoint(rings, [1000.002, 1000.2])).toBe(0);
         expect(windingOfPoint(rings, [1000.02, 1000.2])).toBe(0);
         expect(windingOfPoint(rings, [1000.225, 1000.225])).toBe(0);
     });

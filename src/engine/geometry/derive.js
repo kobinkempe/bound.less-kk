@@ -25,7 +25,11 @@
  * magnify (H < L) is only used step-by-step through tiles (coordinates grow —
  * composed long jumps cancel catastrophically, which is WHY the chain exists).
  */
-import { strokeOutline, strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear } from "./clipperOutline";
+import {
+    strokeOutline, strokeStripNear, clipRingsToRect, clipPolylineToRect,
+    flattenCurve, flattenCurveNear, decimatePolyline,
+} from "./clipperOutline";
+import { strokeOutlineCurves, flattenLoops } from "./curveOutline";
 
 // Object bbox in its own frame. Cached on the object: geometry is immutable once
 // the stroke is finished (only the live in-progress stroke still grows).
@@ -78,6 +82,84 @@ export function padRect(rect, p) {
     return p ? { left: rect.left - p, top: rect.top - p, right: rect.right + p, bottom: rect.bottom + p } : rect;
 }
 
+/**
+ * Polygonize one stroke inside a bounded tile window.
+ *
+ * This is the shared outline path for ordinary Kobinization and area erasure.
+ * Normal strokes use the same fitted cubic curve capsules as the renderer,
+ * flattened only after the outline has been fitted. Only a genuinely
+ * astronomical span/radius takes the analytic-strip fallback.
+ */
+export function polygonizeStrokeInTile(o, rect, opts = {}) {
+    if (!o || !o.pts || !o.pts.length || !(o.lwFrame > 0)) return [];
+    const cfg = opts.cfg || {};
+    const displayScale = Math.max(1e-9, opts.displayScale || cfg.base || 1);
+    const arcTolerancePx = cfg.arcTolerancePx != null ? cfg.arcTolerancePx : 0.25;
+    const lineTolerancePx = cfg.lineTolPx != null ? cfg.lineTolPx : arcTolerancePx;
+    const curved = !!opts.curved && o.pts.length > 2;
+    const cx = (rect.left + rect.right) / 2;
+    const cy = (rect.top + rect.bottom) / 2;
+    const localRect = {
+        left: rect.left - cx, top: rect.top - cy,
+        right: rect.right - cx, bottom: rect.bottom - cy,
+    };
+    const pts = o.pts.map(([x, y]) => [x - cx, y - cy]);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of pts) {
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    const half = o.lwFrame / 2;
+    const diag = Math.hypot(rect.right - rect.left, rect.bottom - rect.top);
+    const span = Math.hypot(x1 - x0, y1 - y0);
+    const mega = !!opts.forceStrip || span > 20 * diag || half > 4 * diag;
+    const back = (ring) => ring.map(([x, y]) => [x + cx, y + cy]);
+
+    // A non-curved inherited centerline is already the shared flattened curve
+    // from the preceding handoff. Keep using the renderer's analytic strip for
+    // that representation: fitting fresh per-segment capsules would subtly
+    // move joins at the next crossing.
+    const inheritedPolyline = !curved && pts.length > 2;
+    if (!mega && !inheritedPolyline) {
+        const fitTol = Math.max(1e-12, (arcTolerancePx * 0.5) / displayScale);
+        const loops = strokeOutlineCurves(pts, o.lwFrame, {
+            curved,
+            fitTol,
+            lineTol: Math.max(1e-12, lineTolerancePx / displayScale),
+            enterScale: displayScale,
+        });
+        const rings = flattenLoops(loops, fitTol);
+        return clipRingsToRect(rings, localRect).map(back);
+    }
+
+    // The only point-based path is the load-bearing giant fallback. Its curve
+    // is flattened in the annulus that can affect this tile, at the same
+    // pixel-derived tolerance as the fitted outline above.
+    const ew = {
+        left: localRect.left - half, top: localRect.top - half,
+        right: localRect.right + half, bottom: localRect.bottom + half,
+    };
+    const cpts = curved
+        ? flattenCurveNear(
+            pts, (arcTolerancePx * 0.5) / displayScale,
+            localRect, Math.max(0, half - diag), half + diag,
+        )
+        : (inheritedPolyline
+            ? decimatePolyline(pts, (arcTolerancePx * 0.5) / displayScale)
+            : pts);
+    const eq = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+    const out = [];
+    for (const run of clipPolylineToRect(cpts, ew)) {
+        if (!run.length) continue;
+        const strips = strokeStripNear(run, o.lwFrame, localRect, {
+            startCap: eq(run[0], cpts[0]),
+            endCap: eq(run[run.length - 1], cpts[cpts.length - 1]),
+        });
+        for (const ring of clipRingsToRect(strips, localRect)) out.push(back(ring));
+    }
+    return out;
+}
+
 // ---- windows: regions a parent has ceded to re-homed children ----
 // An erase made at a level DEEPER than an object's home cannot be baked into
 // that object: Clipper's integer grid is fixed in the object's OWN units, so a
@@ -93,10 +175,15 @@ export function padRect(rect, p) {
 // existing cull drops them, so parent-whole and parent-with-hole agree.
 export function mapWindows(wins, s, t, base) {
     if (!wins || !wins.length) return null;
-    return wins.map((w) => ({
-        x0: (w.x0 * s + t.x) / base, y0: (w.y0 * s + t.y) / base,
-        x1: (w.x1 * s + t.x) / base, y1: (w.y1 * s + t.y) / base,
-    }));
+    const f = Math.abs(s / base);
+    return wins.map((w) => {
+        const out = {
+            x0: (w.x0 * s + t.x) / base, y0: (w.y0 * s + t.y) / base,
+            x1: (w.x1 * s + t.x) / base, y1: (w.y1 * s + t.y) / base,
+        };
+        if (w.seam != null) out.seam = Math.abs(w.seam * f);
+        return out;
+    });
 }
 // Split an object's windows, mapped into the child frame, into the ones big
 // enough to punch here and the ones to carry forward to a deeper step.
@@ -136,9 +223,19 @@ function insetWindows(windows, wanted) {
     return windows.map((w) => {
         // Never consume a tiny window entirely: at most one quarter of its
         // short side, leaving a real hole while still overlapping its boundary.
-        const p = Math.min(wanted, Math.max(0, (w.x1 - w.x0) / 4), Math.max(0, (w.y1 - w.y0) / 4));
+        const requested = wanted;
+        const p = Math.min(requested, Math.max(0, (w.x1 - w.x0) / 4), Math.max(0, (w.y1 - w.y0) / 4));
         return { x0: w.x0 + p, y0: w.y0 + p, x1: w.x1 - p, y1: w.y1 - p, _seam: p };
     });
+}
+
+function copyLogicalMeta(src, dst) {
+    if (src.editId != null) dst.editId = src.editId;
+    if (src.srcId != null) dst.srcId = src.srcId;
+    if (src.attachRect) dst.attachRect = { ...src.attachRect };
+    if (src.eraseCell) dst.eraseCell = { ...src.eraseCell };
+    if (src._rev != null) dst._rev = src._rev;
+    return dst;
 }
 function clipRingsToRegions(rings, regions) {
     if (regions.length === 1) return clipRingsToRect(rings, regions[0]);
@@ -189,9 +286,9 @@ export function classifyUp(o, s, t, rect, cfg, live) {
 // here, handed on so a deeper step can punch them once they resolve.
 export function solidQuad(o, rect, opts = {}) {
     const r = padRect(rect, opts.pad || 0);
-    const q = { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
+    const q = copyLogicalMeta(o, { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
         opacity: o.opacity, polys: [[[r.left, r.top], [r.right, r.top],
-            [r.right, r.bottom], [r.left, r.bottom]]], paths: [] };
+            [r.right, r.bottom], [r.left, r.bottom]]], paths: [] });
     if (opts.windows && opts.windows.length) q.windows = opts.windows;
     return q;
 }
@@ -233,13 +330,21 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
         // visible rectangular box around each re-homed erase. Give parent and
         // child a fixed deepest-zoom overlap instead. It propagates to about
         // two pixels at the next crossing, regardless of tile/window size.
-        const holePad = opts.windowPad != null ? opts.windowPad : (pad ? 2 / cfg.enter : 0);
+        // Ownership windows are exact. Seam overlap comes from the CHILD's
+        // already-derived guard geometry, not from letting the untouched
+        // parent intrude into the child cell: the latter repaints any erase
+        // crossing the tile edge and produces a rectangular/choppy cut.
+        const holePad = opts.windowPad != null ? opts.windowPad : 0;
         const cutHoles = holes ? insetWindows(holes, holePad) : null;
         const fillRegions = cutHoles ? rectSubtract(crect, cutHoles) : [crect];
         const cutsStrokeArea = !!(cutHoles && cutHoles.some((h) =>
             h.x1 > crect.left && h.x0 < crect.right && h.y1 > crect.top && h.y0 < crect.bottom));
         if (!fillRegions.length) continue; // wholly ceded to children
-        const tag = (piece) => { if (carry) piece.windows = carry; out.push(piece); };
+        const tag = (piece) => {
+            copyLogicalMeta(o, piece);
+            if (carry) piece.windows = carry;
+            out.push(piece);
+        };
         if (o.type === "fill") {
             // Float clip (Sutherland-Hodgman), NOT Clipper: runs once per crossing
             // forever, and Clipper's magnitude-capped integer scale quantized
@@ -280,12 +385,18 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 // into a hundreds-of-ms Clipper offset). Both route to the analytic
                 // strip, which is exact inside the tile window.
                 const mega = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) * (s / base) > 20 * tdiag || half > 4 * tdiag;
-                let cpts;
-                if (curvedP(o) && o.pts.length > 2 && mega) {
-                    cpts = flattenCurveNear(tpts, (cfg.arcTolerancePx * 0.5) / base,
-                        crect, Math.max(0, half - tdiag), half + tdiag);
-                } else {
-                    cpts = (curvedP(o) && o.pts.length > 2) ? flatChords(o, level, tpts, cfg, live) : tpts;
+                let cpts = null;
+                if (mega) {
+                    cpts = curvedP(o) && o.pts.length > 2
+                        ? flattenCurveNear(tpts, (cfg.arcTolerancePx * 0.5) / base,
+                            crect, Math.max(0, half - tdiag), half + tdiag)
+                        : tpts;
+                } else if (cfg.fatWidthPx == null) {
+                    // Preserve the legacy golden path exactly; production
+                    // configs use polygonizeStrokeInTile below.
+                    cpts = (curvedP(o) && o.pts.length > 2)
+                        ? flatChords(o, level, tpts, cfg, live)
+                        : tpts;
                 }
                 // Offset in TILE-LOCAL coords so precision is set by the tile size.
                 const cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
@@ -300,7 +411,21 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 // needs NO union, so the engine (cfg.fatWidthPx present) routes
                 // ALL fat bakes through the O(n) analytic strip; the legacy
                 // Clipper branch survives only for the V0 golden comparisons.
-                if (!mega && cfg.fatWidthPx == null) {
+                if (!mega && cfg.fatWidthPx != null) {
+                    // Bounded strokes use the same fitted cubic outline as the
+                    // in-level renderer. The outline is flattened after curve
+                    // fitting, so pointer samples never become visible corners.
+                    for (const p of polygonizeStrokeInTile({
+                        ...o,
+                        origin: curvedP(o) ? "native" : "derived",
+                        pts: tpts,
+                        lwFrame: lw,
+                    }, crect, {
+                        cfg,
+                        displayScale: base,
+                        curved: curvedP(o),
+                    })) polys.push(p);
+                } else if (!mega) {
                     // Non-mega band (bounded centerline): offset the WHOLE centerline and
                     // clip the resulting RINGS to the tile. Clipping the CENTERLINE first
                     // (to `ew`) truncates the band, dropping coverage of tile-interior

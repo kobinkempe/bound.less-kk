@@ -26,6 +26,11 @@
  * a grid.
  */
 
+import {
+    expansionOf, growExpansion, scaleExpansion,
+    sumExpansions, estimateExpansion,
+} from "./geometry/expansion";
+
 // A crossing reuses an existing child frame only when the projected entry
 // view-centre lands within this radius of the child's origin (child units).
 // Big enough that hand-scale work never spawns siblings (1e9 units ≈ 1.25M
@@ -45,8 +50,8 @@ export default class LevelMap {
     }
 
     // ---- frame primitives ----
-    _addFrame(id, parent, edge, depth, grid) {
-        const f = { id, parent, edge, depth, grid };
+    _addFrame(id, parent, edge, depth, grid, anchor = null) {
+        const f = { id, parent, edge, depth, grid, anchor };
         this.frames.set(id, f);
         if (!this._spine.has(depth) && id === String(depth)) this._spine.set(depth, id);
         return f;
@@ -98,9 +103,19 @@ export default class LevelMap {
         if (best) return best;
         const k = this.cfg.enter / inScale;
         const edge = { s: this.cfg.enter, t: { x: inPanX * k, y: inPanY * k } };
+        const parentAnchor = [
+            (this.width / 2 - inPanX) / inScale,
+            (this.height / 2 - inPanY) / inScale,
+        ];
+        const childAnchor = [
+            (parentAnchor[0] * edge.s + edge.t.x) / this.cfg.base,
+            (parentAnchor[1] * edge.s + edge.t.y) / this.cfg.base,
+        ];
         const spineId = String(depth);
         const id = (!this.frames.has(spineId)) ? spineId : depth + "~" + (++this._seq);
-        return this._addFrame(id, parentId, edge, depth, this.makeGrid());
+        return this._addFrame(id, parentId, edge, depth, this.makeGrid(), {
+            parent: parentAnchor, child: childAnchor,
+        });
     }
     // Cross DOWN (coarser) out of `childId` when it has no parent yet: create a
     // new root anchored at the current view (pan' = 0 by the ensureDown formula)
@@ -116,6 +131,17 @@ export default class LevelMap {
         child.edge = {
             s: this.cfg.enter,
             t: { x: -inPanX * this.cfg.base / inScale, y: -inPanY * this.cfg.base / inScale },
+        };
+        const childAnchor = [
+            (this.width / 2 - inPanX) / inScale,
+            (this.height / 2 - inPanY) / inScale,
+        ];
+        child.anchor = {
+            child: childAnchor,
+            parent: [
+                (childAnchor[0] * this.cfg.base - child.edge.t.x) / child.edge.s,
+                (childAnchor[1] * this.cfg.base - child.edge.t.y) / child.edge.s,
+            ],
         };
         if (!child.grid) child.grid = this.makeGrid();
         return child.edge;
@@ -251,6 +277,74 @@ export default class LevelMap {
         for (const id of path.down) { const e = this.frames.get(id).edge; if (!e) return null; x = (x * e.s + e.t.x) / base; y = (y * e.s + e.t.y) / base; }
         return [x, y];
     }
+    // Precision-preserving projection for objects carrying frame-anchored
+    // placement components. Unlike mapping a deep point to a shallow Number,
+    // adding a move, and mapping it back, this retains every cancellation term
+    // until the result is local to `toId`.
+    mapPointPlacedF(p, fromId, toId, placements) {
+        placements = placements || [];
+        const path = this.framePath(fromId, toId);
+        if (!path) return null;
+        const base = this.cfg.base;
+        let x = expansionOf(p[0]), y = expansionOf(p[1]);
+        for (const id of path.up) {
+            const frame = this.frames.get(id), e = frame.edge; if (!e) return null;
+            const childAnchor = frame.anchor ? frame.anchor.child : [0, 0];
+            const parentAnchor = frame.anchor
+                ? frame.anchor.parent : [-e.t.x / e.s, -e.t.y / e.s];
+            x = growExpansion(x, -childAnchor[0]); x = scaleExpansion(x, base / e.s);
+            x = growExpansion(x, parentAnchor[0]);
+            y = growExpansion(y, -childAnchor[1]); y = scaleExpansion(y, base / e.s);
+            y = growExpansion(y, parentAnchor[1]);
+        }
+        const from = this._frameFor(fromId);
+        const commonId = path.up.length
+            ? this.frames.get(path.up[path.up.length - 1]).parent
+            : from.id;
+        // Add every movement at the path's common ancestor BEFORE descending.
+        // Mapping geometry and movement separately all the way to a far child
+        // creates two ~3000^N numbers whose final Number subtraction destroys
+        // the local residue. At the common ancestor they are ordinary local
+        // values; the destination edge translations then cancel them together.
+        for (const move of placements) {
+            const mp = this.framePath(move.frame, commonId);
+            if (!mp) continue;
+            let dx = expansionOf(move.dx || 0), dy = expansionOf(move.dy || 0);
+            for (const id of mp.up) {
+                const e = this.frames.get(id).edge; if (!e) return null;
+                dx = scaleExpansion(dx, base / e.s); dy = scaleExpansion(dy, base / e.s);
+            }
+            for (const id of mp.down) {
+                const e = this.frames.get(id).edge; if (!e) return null;
+                dx = scaleExpansion(dx, e.s / base); dy = scaleExpansion(dy, e.s / base);
+            }
+            x = sumExpansions(x, dx); y = sumExpansions(y, dy);
+        }
+        for (const id of path.down) {
+            const frame = this.frames.get(id), e = frame.edge; if (!e) return null;
+            const childAnchor = frame.anchor ? frame.anchor.child : [0, 0];
+            const parentAnchor = frame.anchor
+                ? frame.anchor.parent : [-e.t.x / e.s, -e.t.y / e.s];
+            x = growExpansion(x, -parentAnchor[0]); x = scaleExpansion(x, e.s / base);
+            x = growExpansion(x, childAnchor[0]);
+            y = growExpansion(y, -parentAnchor[1]); y = scaleExpansion(y, e.s / base);
+            y = growExpansion(y, childAnchor[1]);
+        }
+        return [estimateExpansion(x), estimateExpansion(y)];
+    }
+    mapRectPlacedF(rect, fromId, toId, placements) {
+        const pts = [
+            [rect.left, rect.top], [rect.right, rect.top],
+            [rect.right, rect.bottom], [rect.left, rect.bottom],
+        ].map((p) => this.mapPointPlacedF(p, fromId, toId, placements));
+        if (pts.some((p) => !p)) return null;
+        return {
+            left: Math.min(...pts.map((p) => p[0])),
+            top: Math.min(...pts.map((p) => p[1])),
+            right: Math.max(...pts.map((p) => p[0])),
+            bottom: Math.max(...pts.map((p) => p[1])),
+        };
+    }
     mapRectF(rect, fromId, toId) {
         const a = this.mapPointF([rect.left, rect.top], fromId, toId);
         const b = this.mapPointF([rect.right, rect.bottom], fromId, toId);
@@ -270,12 +364,61 @@ export default class LevelMap {
             for (const id of path.down) { const e = this.frames.get(id).edge; pts = pts.map(([x, y]) => [(x * e.s + e.t.x) / base, (y * e.s + e.t.y) / base]); }
             return pts;
         };
-        if (o.type === "fill") {
-            return { type: "fill", origin: "derived", id: o.id, z: o.z, polys: o.polys.map(mapAll),
-                color: o.color, opacity: o.opacity, paths: [] };
+        const common = {
+            origin: "derived", id: o.id, z: o.z,
+            color: o.color, opacity: o.opacity, paths: [],
+        };
+        const out = o.type === "fill"
+            ? { ...common, type: "fill", polys: o.polys.map(mapAll) }
+            : { ...common, type: "stroke", pts: mapAll(o.pts), lwFrame: o.lwFrame * f };
+        if (o.windows && o.windows.length) {
+            out.windows = o.windows.map((w) => {
+                const [a, b] = mapAll([[w.x0, w.y0], [w.x1, w.y1]]);
+                const rec = {
+                    x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]),
+                    x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]),
+                };
+                if (w.seam != null) rec.seam = Math.abs(w.seam * f);
+                return rec;
+            });
         }
-        return { type: "stroke", origin: "derived", id: o.id, z: o.z, pts: mapAll(o.pts),
-            lwFrame: o.lwFrame * f, color: o.color, opacity: o.opacity, paths: [] };
+        if (o.editId != null) out.editId = o.editId;
+        if (o.srcId != null) out.srcId = o.srcId;
+        if (o.eraseCell) out.eraseCell = { ...o.eraseCell };
+        if (o._rev != null) out._rev = o._rev;
+        return out;
+    }
+    projectPlacedF(o, homeId, toId) {
+        if (!o.placements || !o.placements.length) return this.projectF(o, homeId, toId);
+        const f = this.frameFactor(homeId, toId);
+        if (f == null) return null;
+        const mapAll = (src) => src.map((p) => this.mapPointPlacedF(p, homeId, toId, o.placements));
+        const common = {
+            origin: o.origin, id: o.id, z: o.z, color: o.color,
+            opacity: o.opacity, paths: [],
+        };
+        let out;
+        if (o.type === "fill") {
+            out = { ...common, type: "fill", polys: o.polys.map(mapAll) };
+        } else {
+            out = { ...common, type: "stroke", pts: mapAll(o.pts), lwFrame: o.lwFrame * f };
+        }
+        if (o.windows && o.windows.length) {
+            out.windows = o.windows.map((w) => {
+                const r = this.mapRectPlacedF(
+                    { left: w.x0, top: w.y0, right: w.x1, bottom: w.y1 },
+                    homeId, toId, o.placements);
+                if (!r) return null;
+                const rec = { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom };
+                if (w.seam != null) rec.seam = Math.abs(w.seam * f);
+                return rec;
+            }).filter(Boolean);
+        }
+        if (o.editId != null) out.editId = o.editId;
+        if (o.srcId != null) out.srcId = o.srcId;
+        if (o.eraseCell) out.eraseCell = { ...o.eraseCell };
+        if (o._rev != null) out._rev = o._rev;
+        return out;
     }
 
     // ---- legacy depth-int walks (spine; scenes/persist/dev UIs) ----
@@ -317,7 +460,15 @@ export default class LevelMap {
             const out = {};
             for (const [depth, id] of this._spine) {
                 const f = this.frames.get(id);
-                if (f && f.edge) out[depth] = { s: f.edge.s, t: { x: f.edge.t.x, y: f.edge.t.y }, grid: f.grid ? { ...f.grid } : this.makeGrid() };
+                if (f && f.edge) {
+                    out[depth] = {
+                        s: f.edge.s, t: { x: f.edge.t.x, y: f.edge.t.y },
+                        grid: f.grid ? { ...f.grid } : this.makeGrid(),
+                    };
+                    if (f.anchor) out[depth].anchor = {
+                        parent: [...f.anchor.parent], child: [...f.anchor.child],
+                    };
+                }
             }
             return out;
         }
@@ -326,6 +477,7 @@ export default class LevelMap {
                 id: f.id, parent: f.parent, depth: f.depth,
                 edge: f.edge ? { s: f.edge.s, t: { x: f.edge.t.x, y: f.edge.t.y } } : null,
                 grid: f.grid ? { ...f.grid } : null,
+                anchor: f.anchor ? { parent: [...f.anchor.parent], child: [...f.anchor.child] } : null,
             })),
         };
     }
@@ -336,7 +488,12 @@ export default class LevelMap {
         this._seq = 0;
         if (crossings && crossings.__frames) {
             for (const f of crossings.__frames) {
-                this._addFrame(f.id, f.parent, f.edge ? { s: f.edge.s, t: { x: f.edge.t.x, y: f.edge.t.y } } : null, f.depth, f.grid ? { ...f.grid } : null);
+                this._addFrame(
+                    f.id, f.parent,
+                    f.edge ? { s: f.edge.s, t: { x: f.edge.t.x, y: f.edge.t.y } } : null,
+                    f.depth, f.grid ? { ...f.grid } : null,
+                    f.anchor ? { parent: [...f.anchor.parent], child: [...f.anchor.child] } : null,
+                );
                 const m = /^(-?\d+)~(\d+)$/.exec(f.id);
                 if (m) this._seq = Math.max(this._seq, +m[2]);
             }
@@ -352,7 +509,8 @@ export default class LevelMap {
             const r = (crossings || {})[d];
             this._addFrame(String(d), d === lo ? null : String(d - 1),
                 r ? { s: r.s, t: { x: r.t.x, y: r.t.y } } : null, d,
-                r && r.grid ? { ...r.grid } : null);
+                r && r.grid ? { ...r.grid } : null,
+                r && r.anchor ? { parent: [...r.anchor.parent], child: [...r.anchor.child] } : null);
         }
     }
     // Ensure a spine frame exists at `depth` (used when loading natives at

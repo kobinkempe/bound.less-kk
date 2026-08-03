@@ -269,6 +269,9 @@ describe("deferred area erase", () => {
         E.setEraserSize(13);
         eraseGesture(E, [[400, 300]]);
         E.setTool("select");
+        // The agreed interaction barrier is the selection attempt, not merely
+        // switching tools: the white preview remains until the user clicks.
+        expect(E.nativesByLevel[0].some((o) => o.erase)).toBe(true);
         // Selecting the surviving left half forces THIS object's bake first.
         E.pointerDown(320, 300); E.pointerUp();
         expect(E.selection).not.toBeNull();
@@ -374,7 +377,9 @@ describe("deferred area erase", () => {
         E.doc.add(eraser, child.id);
 
         expect(E._bakeOne({ obj: eraser, level: child.id }, { obj: src, level: "0" })).toBe(true);
-        expect(src.windows).toHaveLength(1);
+        // The footprint straddles a Kobin grid line, so the tile-core design
+        // owns both touched cells instead of one arbitrary bbox window.
+        expect(src.windows.length).toBeGreaterThanOrEqual(1);
         expect(E.doc.at(child.id).some((o) => !o.erase && o.srcId === src.id)).toBe(true);
     });
 
@@ -486,13 +491,24 @@ describe("deferred area erase", () => {
         E.pointerDown(400, 330);
         expect(E.selection && E.selection.editId).toBe(src.id);
         E.pointerMove(430, 330); E.pointerUp();
-        expect(src.pts).not.toEqual(beforeSrc);
-        expect(kids[0].polys[0][0]).not.toEqual(beforeKid);
-        expect(src.windows[0]).not.toEqual(beforeWindow);
+        // Movement is a shared frame-anchored placement now. Canonical parent,
+        // child, and ownership-window coordinates stay untouched, so their
+        // relative placement remains exact even across very deep levels.
+        expect(src.pts).toEqual(beforeSrc);
+        expect(kids[0].polys[0][0]).toEqual(beforeKid);
+        expect(src.windows[0]).toEqual(beforeWindow);
+        expect(src.placements).toHaveLength(1);
+        expect(kids[0].placements).toHaveLength(1);
+        expect(src.placements[0]).toBe(kids[0].placements[0]);
+        expect(src.placements[0]).toMatchObject({
+            frame: String(E.cam.frame), dx: 30 / E.cam.inScale, dy: 0,
+        });
         E.undo();
         expect(src.pts).toEqual(beforeSrc);
         expect(kids[0].polys[0][0]).toEqual(beforeKid);
         expect(src.windows[0]).toEqual(beforeWindow);
+        expect(src.placements).toBeUndefined();
+        expect(kids[0].placements).toBeUndefined();
 
         const originalColors = new Map(E.doc.editGroup(src.id).map((r) => [r.obj.id, r.obj.color]));
         E.restyleSelection({ color: "#ff0000", opacity: 0.5 });

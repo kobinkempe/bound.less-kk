@@ -20,22 +20,24 @@ import TileStore from "./TileStore";
 import Renderer from "./Renderer";
 import {
     strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear,
-    strokeStripNear, subtractPolys, netRingsArea,
+    strokeStripNear, subtractPolys, netRingsArea, decimatePolyline,
 } from "./geometry/clipperOutline";
 import {
-    distToPolyline, windingOfPoint, distSegToPolyline, capsuleTouchesRings,
+    distToPolyline, windingOfPoint, capsuleTouchesRings,
+    ringsFullyInsideLasso, ringsTouchRings,
 } from "./geometry/hittest";
-import { bboxOf, levelFactor, rectSubtract } from "./geometry/derive";
+import { bboxOf, rectSubtract, polygonizeStrokeInTile } from "./geometry/derive";
 import { encodeDrawing, decodeDrawing } from "./persist";
 import { validateScaleDef } from "./scaleBar";
 import {
     computeSceneProposals, matchScenes, splitMembers, resolveCapture, levelHash,
-    JOIN_WINDOWS, WINDOW_WIDTHS,
+    chunksOf, JOIN_WINDOWS, WINDOW_WIDTHS,
 } from "./scenes";
 
 // Eraser strokes paint in the canvas background color — visually "erased"
 // the instant they're drawn, before any geometry work happens.
 const ERASE_COLOR = "#ffffff";
+const ERASE_PENDING = Symbol("erase-connectivity-pending");
 
 export function regionTouchesWindow(polys, W, tolerance = 0) {
     const span = Math.max(W.right - W.left, W.bottom - W.top, 1);
@@ -47,6 +49,143 @@ export function regionTouchesWindow(polys, W, tolerance = 0) {
             x >= W.left - eps && x <= W.right + eps) return true;
     }
     return false;
+}
+
+function ringsReachRectBoundary(polys, rect, tolerance = 0) {
+    const eps = Math.max(1e-9, tolerance);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const ring of polys || []) for (const [x, y] of ring) {
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    if (x0 === Infinity) return false;
+    return (x0 <= rect.left + eps && x1 >= rect.left - eps && y1 >= rect.top - eps && y0 <= rect.bottom + eps) ||
+        (x0 <= rect.right + eps && x1 >= rect.right - eps && y1 >= rect.top - eps && y0 <= rect.bottom + eps) ||
+        (y0 <= rect.top + eps && y1 >= rect.top - eps && x1 >= rect.left - eps && x0 <= rect.right + eps) ||
+        (y0 <= rect.bottom + eps && y1 >= rect.bottom - eps && x1 >= rect.left - eps && x0 <= rect.right + eps);
+}
+
+function ringsBox(rings) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const ring of rings || []) for (const [x, y] of ring) {
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    return { x0, y0, x1, y1 };
+}
+
+function boxesMeet(a, b, tolerance = 0) {
+    return a && b && a.x0 !== Infinity && b.x0 !== Infinity &&
+        a.x1 >= b.x0 - tolerance && b.x1 >= a.x0 - tolerance &&
+        a.y1 >= b.y0 - tolerance && b.y1 >= a.y0 - tolerance;
+}
+
+function rectAsBox(rect) {
+    return {
+        x0: rect.left != null ? rect.left : rect.x0,
+        y0: rect.top != null ? rect.top : rect.y0,
+        x1: rect.right != null ? rect.right : rect.x1,
+        y1: rect.bottom != null ? rect.bottom : rect.y1,
+    };
+}
+
+// Exact-ish boundary summaries for the local topology gate. A single boolean
+// "touches right" loses information when two strands use different intervals
+// of the same edge. Sampling the nonzero fill between every polygon/edge
+// intersection preserves those intervals, so removing one strand cannot be
+// hidden by another strand that still touches the edge.
+function edgeIntervals(rings, rect, side, tolerance = 0) {
+    const vertical = side === "left" || side === "right";
+    const span = vertical ? rect.right - rect.left : rect.bottom - rect.top;
+    const inset = Math.min(Math.max(1e-9, tolerance * 0.25), Math.max(1e-9, span * 1e-6));
+    const fixed = side === "left" ? rect.left + inset
+        : side === "right" ? rect.right - inset
+            : side === "top" ? rect.top + inset : rect.bottom - inset;
+    const lo = vertical ? rect.top : rect.left;
+    const hi = vertical ? rect.bottom : rect.right;
+    const cuts = [lo, hi];
+    for (const ring of rings || []) {
+        for (let i = 0; i < ring.length; i++) {
+            const a = ring[i], b = ring[(i + 1) % ring.length];
+            const av = vertical ? a[0] : a[1], bv = vertical ? b[0] : b[1];
+            const at = vertical ? a[1] : a[0], bt = vertical ? b[1] : b[0];
+            if (av === bv) {
+                if (Math.abs(av - fixed) <= inset) {
+                    cuts.push(Math.max(lo, Math.min(hi, at)), Math.max(lo, Math.min(hi, bt)));
+                }
+                continue;
+            }
+            const u = (fixed - av) / (bv - av);
+            if (u >= 0 && u <= 1) cuts.push(Math.max(lo, Math.min(hi, at + u * (bt - at))));
+        }
+    }
+    cuts.sort((a, b) => a - b);
+    const unique = cuts.filter((v, i) => i === 0 || v - cuts[i - 1] > Math.max(1e-9, tolerance * 1e-3));
+    const out = [];
+    for (let i = 0; i + 1 < unique.length; i++) {
+        const a = unique[i], b = unique[i + 1];
+        if (b - a <= 1e-12) continue;
+        const t = (a + b) / 2;
+        const p = vertical ? [fixed, t] : [t, fixed];
+        if (windingOfPoint(rings, p) !== 0) out.push([a, b]);
+    }
+    return out;
+}
+
+function intervalsCover(before, after, tolerance = 0) {
+    const eps = Math.max(1e-9, tolerance);
+    for (const [a0, a1] of before) {
+        let cursor = a0;
+        for (const [b0, b1] of after) {
+            if (b1 < cursor - eps) continue;
+            if (b0 > cursor + eps) break;
+            cursor = Math.max(cursor, b1);
+            if (cursor >= a1 - eps) break;
+        }
+        if (cursor < a1 - eps) return false;
+    }
+    return true;
+}
+
+function localCutNeedsGlobalScan(actions, tolerance) {
+    const nodes = [];
+    const actionCells = new Set(actions.map((a) => `${a.tile.i},${a.tile.j}`));
+    const neighbour = (tile, side) => {
+        if (tile.i == null || tile.j == null) return false;
+        const di = side === "left" ? -1 : side === "right" ? 1 : 0;
+        const dj = side === "top" ? -1 : side === "bottom" ? 1 : 0;
+        return actionCells.has(`${tile.i + di},${tile.j + dj}`);
+    };
+    for (const action of actions) {
+        for (const spec of action.specs) nodes.push({ action, polys: spec.polys });
+        const after = action.specs.flatMap((s) => s.polys);
+        for (const side of ["left", "right", "top", "bottom"]) {
+            // A port removed on an edge between two edited tiles is accounted
+            // for by the region graph below. Only a lost OUTER port can hide
+            // an untouched component beyond the local action set.
+            if (neighbour(action.tile, side)) continue;
+            const beforePorts = edgeIntervals(action.subject, action.tile.core, side, tolerance);
+            if (beforePorts.length &&
+                !intervalsCover(beforePorts, edgeIntervals(after, action.tile.core, side, tolerance), tolerance)) {
+                return true;
+            }
+        }
+    }
+    if (!nodes.length) return true;
+    const parent = nodes.map((_, i) => i);
+    const find = (i) => {
+        while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            if (ringsTouchRings(nodes[i].polys, nodes[j].polys, tolerance)) {
+                const a = find(i), b = find(j);
+                if (a !== b) parent[b] = a;
+            }
+        }
+    }
+    return new Set(nodes.map((_, i) => find(i))).size > 1;
 }
 
 const DEFAULTS = {
@@ -102,30 +241,44 @@ export default class KobinEngine {
         // beneath them one object per idle slice (see "deferred erase baking").
         this._eraseCommits = new Map(); // eraser stroke id -> its eraseCommit undo op
         this._bakeDone = new Map();     // eraser stroke id -> Set of object ids handled
+        this._eraseTileMasks = new Map(); // eraser id -> tile-key -> shared outline rings
+        this._eraseSplitScans = new Map(); // eraser id -> logical id -> incremental home-cell hierarchy
+        this._syncEraseFlush = false;
         this._bakeTimer = null;
         this._lastList = []; this._lastRange = null;
         this.perfLog = [];
         this.geom = { strokeOutline, clipRingsToRect, clipPolylineToRect, flattenCurve };
 
-        // selection / edit state (US-10)
-        this.selection = null;        // { id, level, obj } — obj is the LIVE native
-        this._dragSel = null;         // { last:[sx,sy], moves:Map, moved } during a select-drag
+        // Selection is a set of LOGICAL edit ids. `selection` remains a
+        // backwards-compatible primary record and carries count/keys for a
+        // lasso selection.
+        this.selection = null;
+        this._selected = new Map();   // editId -> { id, editId, level, obj }
+        this._selectionPrimary = null;
+        this._dragSel = null;         // pending click, lasso, or selected-family drag
+        this._placementSeq = 1;
         this._activeRestyle = null;   // { id, op } — coalesces a slider/color gesture into one undo op
         this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], hiddenScenes: [], sceneSeq: 1 };
-        this.renderer.setSelection(() => this._selectionRect());
+        this.renderer.setSelection(() => this._selectionOverlay());
         // The selected object can vanish under us (eraser, cut, undo, wipe, load).
         this.doc.subscribe((ev) => {
-            if (!this.selection) return;
             if (ev.kind === "reset") {
-                this.selection = null; this._activeRestyle = null; this._dragSel = null;
+                this._selected.clear(); this.selection = null; this._selectionPrimary = null;
+                this._activeRestyle = null; this._dragSel = null;
+                this._eraseCommits.clear(); this._bakeDone.clear();
+                this._eraseTileMasks.clear(); this._eraseSplitScans.clear();
             } else if (ev.kind === "remove") {
-                const family = this.doc.editGroup(this.selection.editId);
-                if (!family.length) {
-                    this.selection = null; this._activeRestyle = null; this._dragSel = null;
-                } else if (ev.id === this.selection.id) {
-                    const next = family[0];
-                    this.selection = { ...this.selection, id: next.obj.id, level: next.level, obj: next.obj };
+                for (const [key, selected] of [...this._selected]) {
+                    const family = this.doc.editGroup(key);
+                    if (!family.length) {
+                        this._selected.delete(key);
+                        if (this._selectionPrimary === key) this._selectionPrimary = null;
+                    } else if (ev.id === selected.id) {
+                        const next = family[0];
+                        this._selected.set(key, { id: next.obj.id, editId: key, level: next.level, obj: next.obj });
+                    }
                 }
+                this._syncSelection();
             }
         });
 
@@ -209,7 +362,8 @@ export default class KobinEngine {
         const F = this.cam.frame;
         const derived = this.store.content(F, win);
         const own = this.store.ownContent(F, win);
-        const list = derived.concat(own);
+        const placed = this.store.placedContent(F, win);
+        const list = derived.concat(own, placed);
         // Renderer grouping follows logical edit ownership for re-homed
         // boundary patches. That lets parent/patch overlap close AA seams while
         // applying transparent opacity only once to the family.
@@ -321,7 +475,7 @@ export default class KobinEngine {
 
     // ---- pointer / drawing ----
     screenToFrame(sx, sy) { return this.cam.screenToFrame(sx, sy); }
-    pointerDown(sx, sy) {
+    pointerDown(sx, sy, modifiers = {}) {
         if (this.tool === "pan") { this._panLast = [sx, sy]; return; }
         if (this.tool === "erase") { this._erasing = true; this.eraseAt(sx, sy); return; }
         if (this.tool === "erasePartial") {
@@ -344,8 +498,25 @@ export default class KobinEngine {
             return;
         }
         if (this.tool === "select") {
-            const id = this.select(sx, sy);
-            this._dragSel = id != null ? { last: [sx, sy], moves: new Map(), moved: false } : null;
+            const id = this._resolvedHit(sx, sy);
+            const rec = id == null ? null : this.doc.getById(id);
+            const hitKey = rec ? this.doc.editKey(rec.obj) : null;
+            const ctrl = !!(modifiers.ctrlKey || modifiers.metaKey);
+            // Preserve today's direct-drag affordance: a press on ink selects
+            // it immediately, so dragging that selected ink moves it. A drag
+            // beginning on empty canvas is the lasso.
+            if (!ctrl && (hitKey == null || !this._selected.has(hitKey))) {
+                this._selected.clear();
+                if (rec) this._selectRecord(rec);
+                this._syncSelection();
+                this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+            }
+            this._dragSel = {
+                mode: "pending", start: [sx, sy], last: [sx, sy], points: [[sx, sy]],
+                ctrl,
+                hitId: id, hitKey, moved: false, moves: new Map(), placement: null, ids: [],
+                records: null, usePlacement: null, dx: 0, dy: 0,
+            };
             return;
         }
         const p = this.cam.screenToFrame(sx, sy);
@@ -368,7 +539,27 @@ export default class KobinEngine {
         }
         if (this.tool === "erase") { if (this._erasing) this.eraseAt(sx, sy); return; }
         // "erasePartial" falls through: the eraser trail is this._drawing.
-        if (this.tool === "select") { if (this._dragSel && this.selection) this._dragSelection(sx, sy); return; }
+        if (this.tool === "select") {
+            const d = this._dragSel;
+            if (!d) return;
+            if (d.mode === "pending" && Math.hypot(sx - d.start[0], sy - d.start[1]) >= 4) {
+                // Dragging an ALREADY selected object moves the selection.
+                // Everywhere else starts the freeform lasso.
+                if (!d.ctrl && d.hitKey != null && this._selected.has(d.hitKey)) {
+                    d.mode = "move";
+                } else {
+                    d.mode = "lasso";
+                }
+            }
+            if (d.mode === "move") this._dragSelection(sx, sy);
+            else if (d.mode === "lasso") {
+                if (Math.hypot(sx - d.last[0], sy - d.last[1]) >= 1.5) {
+                    d.points.push([sx, sy]); d.last = [sx, sy];
+                    this.renderer.syncCameraOnly(); this.renderer.update();
+                }
+            }
+            return;
+        }
         if (this._drawing) {
             const p = this.cam.screenToFrame(sx, sy);
             const o = this._drawing;
@@ -380,10 +571,47 @@ export default class KobinEngine {
     pointerUp() {
         if (this._dragSel) {
             const d = this._dragSel; this._dragSel = null;
-            // one undo op for the whole drag, in the object's home-frame units
-            if (d.moved && this.selection) {
-                const moves = [...d.moves].map(([id, v]) => ({ id, dx: v.dx, dy: v.dy }));
-                this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
+            let committedMove = false;
+            if (d.mode === "pending") {
+                this.select(d.start[0], d.start[1], { toggle: d.ctrl });
+            } else if (d.mode === "lasso") {
+                this._finishLasso(d);
+            } else if (d.mode === "move" && d.moved && this.selection) {
+                const t0 = perfNow();
+                this.renderer.clearDragPreview();
+                if (d.usePlacement) {
+                    d.placement = {
+                        id: `mv-${Date.now().toString(36)}-${this._placementSeq++}`,
+                        frame: String(this.cam.frame), dx: d.dx, dy: d.dy,
+                    };
+                    const ids = this.doc.addPlacementMany(d.ids, d.placement);
+                    if (ids.length) {
+                        this.doc.pushUndo({ op: "placeMany", ids, placement: d.placement });
+                    }
+                } else {
+                    // one undo op for a precision-safe direct drag in each
+                    // object's own home-frame units
+                    const moves = [];
+                    for (const rec of d.records || []) {
+                        const f = this.lm.frameFactor(this.cam.frame, rec.level);
+                        if (f == null) continue;
+                        const move = { id: rec.obj.id, dx: d.dx * f, dy: d.dy * f };
+                        if (this.doc.moveById(move.id, move.dx, move.dy)) moves.push(move);
+                    }
+                    if (moves.length) {
+                        this.doc.pushUndo(moves.length === 1
+                            ? { op: "move", ...moves[0] }
+                            : { op: "moveMany", moves });
+                    }
+                }
+                this._render();
+                this._perf("moveCommit", t0, true, { n: d.ids.length || 1 });
+                committedMove = true;
+            } else if (d.mode === "move") {
+                this.renderer.clearDragPreview();
+            }
+            if (!committedMove) {
+                this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
             }
         }
         if (this._drawing) {
@@ -473,17 +701,24 @@ export default class KobinEngine {
         // Stay out of the user's way — retry when the pointer is idle.
         if (this._drawing || this._erasing || this._dragSel || this._panLast) { this._scheduleBake(400); return; }
         for (const Erec of this._eraseStrokes()) {
+            const scanT = perfNow();
             const target = this._nextEraseTarget(Erec);
+            this._perf("eraseScan", scanT, false, {
+                gesture: Erec.obj.id, ...(this._lastEraseScan || {}),
+            });
             if (target) {
-                if (this._bakeOne(Erec, target)) this._render();
+                const bakeT = perfNow();
+                if (this._bakeOne(Erec, target) === true) this._render();
+                this._perf("eraseBake", bakeT, false, {
+                    gesture: Erec.obj.id, target: target.obj.id,
+                    targetFrame: String(target.level),
+                });
                 this._scheduleBake(80); // one object per slice
                 return;
             }
             // Every object beneath is handled — the white stroke has served
             // its purpose; consume it silently (undo goes via its commit op).
-            this.doc.removeById(Erec.obj.id);
-            this._eraseCommits.delete(Erec.obj.id);
-            this._bakeDone.delete(Erec.obj.id);
+            this._consumeErase(Erec);
             this._render();
             this._scheduleBake(80);
             return;
@@ -494,60 +729,1011 @@ export default class KobinEngine {
     _nextEraseTarget(Erec) {
         const E = Erec.obj, HE = Erec.level;
         const done = this._doneSet(E.id);
-        for (const k of this.doc.levels()) {
+        const stats = { checked: 0, bboxPassed: 0, exactChecked: 0 };
+        // Existing descendants own the finest canonical ink. Process them
+        // before their parents so a coarse gesture cannot replace a family
+        // summary and accidentally mark still-unerased child cells as done.
+        const levels = this.doc.levels()
+            .filter((k) => this.lm.frameFactor(k, HE) != null)
+            .sort((a, b) => this.lm.depthOf(b) - this.lm.depthOf(a));
+        for (const k of levels) {
             if (this.lm.frameFactor(k, HE) == null) continue;
-            if (Math.abs(this.lm.depthOf(k) - this.lm.depthOf(HE)) > 4) continue;
             for (const o of this.doc.at(k)) {
                 if (o.erase || done.has(o.id)) continue;
                 if (this._zOf(o) >= this._zOf(E)) continue;
+                stats.checked++;
+                if (!this._eraseBoundsMayTouch(E, HE, o, k)) { done.add(o.id); continue; }
+                stats.bboxPassed++;
+                stats.exactChecked++;
                 if (!this._eraseMayTouch(E, HE, o, k)) { done.add(o.id); continue; }
+                this._lastEraseScan = stats;
                 return { obj: o, level: k };
             }
         }
+        this._lastEraseScan = stats;
         return null;
+    }
+    _eraseBoundsMayTouch(E, HE, o, HO) {
+        let eb = E._eraseBounds;
+        if (!eb) {
+            const b = bboxOf(E, this.store.live), half = (E.lwFrame || 0) / 2;
+            eb = E._eraseBounds = {
+                left: b.x0 - half, top: b.y0 - half,
+                right: b.x1 + half, bottom: b.y1 + half,
+            };
+        }
+        const b = bboxOf(o, this.store.live), half = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
+        const source = {
+            left: b.x0 - half, top: b.y0 - half,
+            right: b.x1 + half, bottom: b.y1 + half,
+        };
+        const mapped = o.placements && o.placements.length
+            ? this.lm.mapRectPlacedF(source, HO, HE, o.placements)
+            : this.lm.mapRectF(source, HO, HE);
+        if (!mapped) return true; // the exact path remains the safe arbiter
+        return mapped.right >= eb.left && mapped.left <= eb.right &&
+            mapped.bottom >= eb.top && mapped.top <= eb.bottom;
     }
     // Proximity prefilter in the target's home frame (coarse control points —
     // the subtract itself is the arbiter, its no-op guard eats false hits).
+    _eraseTiles(E, HE, target = null) {
+        const r = E.lwFrame / 2;
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+        for (const [x, y] of E.pts) {
+            left = Math.min(left, x - r); top = Math.min(top, y - r);
+            right = Math.max(right, x + r); bottom = Math.max(bottom, y + r);
+        }
+        if (left === Infinity) return [];
+        let range = this.lm.tileRange(HE, { left, top, right, bottom });
+        if (target) {
+            const { obj, level } = target;
+            const d = obj.placements && obj.placements.length
+                ? this.lm.projectPlacedF(obj, level, HE)
+                : this.lm.projectF(obj, level, HE);
+            if (!d) return [];
+            const b = bboxOf(d, this.store.live);
+            const half = d.type === "fill" ? 0 : (d.lwFrame || 0) / 2;
+            const tr = this.lm.tileRange(HE, {
+                left: b.x0 - half, top: b.y0 - half,
+                right: b.x1 + half, bottom: b.y1 + half,
+            });
+            range = {
+                i0: Math.max(range.i0, tr.i0), i1: Math.min(range.i1, tr.i1),
+                j0: Math.max(range.j0, tr.j0), j1: Math.min(range.j1, tr.j1),
+            };
+            if (range.i0 > range.i1 || range.j0 > range.j1) return [];
+        }
+        const out = [];
+        for (let i = range.i0; i <= range.i1; i++) {
+            for (let j = range.j0; j <= range.j1; j++) {
+                out.push({ i, j, core: this.lm.tileRect(HE, i, j) });
+            }
+        }
+        return out;
+    }
+    // Two pixels at frame entry is persistent overscan for opaque and
+    // transparent logical groups. Canonical ownership remains the tile core.
+    _eraseTileGuard() { return 2 / this.cfg.base; }
+    _eraseBooleanOpts(E) {
+        const display = Math.max(1e-9, E.bakePx || this.cfg.base);
+        return {
+            scale: Math.max(1, Math.round(4 * display)),
+            simplify: 0.25 / display,
+        };
+    }
+    _strokeRingsInRect(o, rect, displayScale, preferStrip = false) {
+        return polygonizeStrokeInTile(o, rect, {
+            cfg: this.cfg,
+            displayScale,
+            curved: (o.origin === "native" || o.curved === true) && o.pts.length > 2,
+            forceStrip: preferStrip,
+        });
+    }
+    _tileSourcePieces(o, HO, HE, tile) {
+        if ((!o.placements || !o.placements.length) && HO !== HE && this.lm.isAncestor(HO, HE)) {
+            return this.store._ensureUp(HE, tile.i, tile.j).objs.filter((p) => p.id === o.id);
+        }
+        if (o.placements && o.placements.length && HO !== HE && this.lm.isAncestor(HO, HE)) {
+            const plan = this.store._placedUpPlan(o, HO, HE);
+            return plan
+                ? this.store._placedUpTile(o, HO, HE, tile.i, tile.j, plan)
+                    .filter((p) => p.id === o.id)
+                : [];
+        }
+        if ((!o.placements || !o.placements.length) && HO === HE) {
+            if (o.windows && o.windows.length) {
+                return this.store.ownContent(HE, tile.core).filter((p) => p.id === o.id);
+            }
+            return [o];
+        }
+        const projected = o.placements && o.placements.length
+            ? this.lm.projectPlacedF(o, HO, HE)
+            : this.lm.projectF(o, HO, HE);
+        return projected ? [projected] : [];
+    }
+    _tileSubjectRings(o, HO, HE, tile, E) {
+        const guard = this._eraseTileGuard();
+        const rect = {
+            left: tile.core.left - guard, top: tile.core.top - guard,
+            right: tile.core.right + guard, bottom: tile.core.bottom + guard,
+        };
+        const out = [];
+        for (const p of this._tileSourcePieces(o, HO, HE, tile)) {
+            if (p.type === "fill") {
+                for (const ring of clipRingsToRect(p.polys, rect)) out.push(ring);
+            } else {
+                for (const ring of this._strokeRingsInRect(
+                    p, rect, E.bakePx || this.cfg.base,
+                )) out.push(ring);
+            }
+        }
+        if (!out.length || !o.windows || !o.windows.length) return out;
+        // Render derivation deliberately overlaps a ceded boundary to hide AA
+        // seams. That overlap is not canonical ownership and must not be baked
+        // again on a later erase.
+        const holes = [];
+        for (const w of o.windows) {
+            const mapped = this.lm.mapRectPlacedF(
+                { left: w.x0, top: w.y0, right: w.x1, bottom: w.y1 },
+                HO, HE, o.placements || [],
+            );
+            if (mapped && mapped.right > rect.left && mapped.left < rect.right &&
+                mapped.bottom > rect.top && mapped.top < rect.bottom) {
+                holes.push({ x0: mapped.left, y0: mapped.top, x1: mapped.right, y1: mapped.bottom });
+            }
+        }
+        if (!holes.length) return out;
+        const ownership = rectSubtract(rect, holes);
+        const exact = [];
+        for (const region of ownership) {
+            for (const ring of clipRingsToRect(out, region)) exact.push(ring);
+        }
+        return exact;
+    }
+    _eraseTileMask(E, HE, tile) {
+        let byTile = this._eraseTileMasks.get(E.id);
+        if (!byTile) { byTile = new Map(); this._eraseTileMasks.set(E.id, byTile); }
+        const key = `${HE}|${tile.i},${tile.j}`;
+        if (byTile.has(key)) return byTile.get(key);
+        const guard = this._eraseTileGuard();
+        const rect = {
+            left: tile.core.left - guard, top: tile.core.top - guard,
+            right: tile.core.right + guard, bottom: tile.core.bottom + guard,
+        };
+        const mask = this._strokeRingsInRect(E, rect, E.bakePx || this.cfg.base);
+        byTile.set(key, mask);
+        return mask;
+    }
+    // Precision-safe prefilter in the eraser frame. Ancestor geometry comes
+    // from the same chained Kobin tiles used for rendering.
     _eraseMayTouch(E, HE, o, HO) {
-        const Ep = this.lm.projectF(E, HE, HO);
-        if (!Ep) return false;
-        const rE = Ep.lwFrame / 2;
-        const n = Ep.pts.length;
-        const segs = n > 1 ? n - 1 : 1;
-        for (let i = 0; i < segs; i++) {
-            const a = Ep.pts[i], b = Ep.pts[Math.min(i + 1, n - 1)];
-            if (o.type === "fill") {
-                if (capsuleTouchesRings(a, b, rE, o.polys)) return true;
-            } else if (distSegToPolyline(a, b, o.pts) <= rE + o.lwFrame / 2) {
-                return true;
+        const hitPts = E._eraseHitFlat || (E._eraseHitFlat = (
+            E.pts.length > 2
+                ? flattenCurve(E.pts, (this.cfg.arcTolerancePx * 0.5) / Math.max(E.bakePx || 1, 1e-9))
+                : E.pts
+        ));
+        const r = E.lwFrame / 2;
+        const segs = hitPts.length > 1 ? hitPts.length - 1 : 1;
+        for (const tile of this._eraseTiles(E, HE)) {
+            const rings = this._tileSubjectRings(o, HO, HE, tile, E);
+            if (!rings.length) continue;
+            for (let i = 0; i < segs; i++) {
+                const a = hitPts[i], b = hitPts[Math.min(i + 1, hitPts.length - 1)];
+                if (capsuleTouchesRings(a, b, r, rings)) return true;
             }
         }
         return false;
     }
+    _subtractTile(subject, mask, tile, E) {
+        if (!subject.length || !mask.length) return null;
+        const cx = (tile.core.left + tile.core.right) / 2;
+        const cy = (tile.core.top + tile.core.bottom) / 2;
+        const off = (rings) => rings.map((ring) => ring.map(([x, y]) => [x - cx, y - cy]));
+        const backRegion = (region) => region.map((ring) => ring.map(([x, y]) => [x + cx, y + cy]));
+        const opts = this._eraseBooleanOpts(E);
+        // First normalize the overlapping overscan/analytic-strip rings. The
+        // boolean then sees one canonical nonzero subject, and the explicit
+        // pixel tolerance bounds retained vertices independently of grid scale.
+        const normalizedRegions = subtractPolys(off(subject), [], opts);
+        const normalized = normalizedRegions.flat();
+        if (!normalized.length) return null;
+        const before = normalizedRegions.reduce((sum, rg) => sum + netRingsArea(rg), 0);
+        const regions = subtractPolys(normalized, off(mask), opts);
+        const kept = regions.reduce((sum, rg) => sum + netRingsArea(rg), 0);
+        const r = E.lwFrame / 2;
+        if (before - kept < Math.max(1e-12, 1e-4 * r * r)) return null;
+        return regions.map(backRegion);
+    }
+    _normalizeTile(subject, tile, E) {
+        if (!subject.length) return [];
+        const cx = (tile.core.left + tile.core.right) / 2;
+        const cy = (tile.core.top + tile.core.bottom) / 2;
+        const local = subject.map((ring) => ring.map(([x, y]) => [x - cx, y - cy]));
+        return subtractPolys(local, [], this._eraseBooleanOpts(E))
+            .map((region) => region.map((ring) => ring.map(([x, y]) => [x + cx, y + cy])));
+    }
+    _halfOpenTileRange(frame, rect) {
+        const g = this.lm.grid(frame);
+        const ex = Math.max(g.w * 1e-12, Math.abs(rect.right) * Number.EPSILON * 4);
+        const ey = Math.max(g.h * 1e-12, Math.abs(rect.bottom) * Number.EPSILON * 4);
+        return this.lm.tileRange(frame, {
+            left: rect.left, top: rect.top,
+            right: rect.right > rect.left ? rect.right - ex : rect.right,
+            bottom: rect.bottom > rect.top ? rect.bottom - ey : rect.bottom,
+        });
+    }
+    _eraseCellOwnership(o, H) {
+        if (!o.eraseCell) return null;
+        const cellFrame = String(o.eraseCell.frame);
+        const core = this.lm.tileRect(cellFrame, o.eraseCell.i, o.eraseCell.j);
+        return o.placements && o.placements.length
+            ? this.lm.mapRectPlacedF(core, cellFrame, H, o.placements)
+            : this.lm.mapRectF(core, cellFrame, H);
+    }
+    _hierarchyTileTask(rec, actionsByCell) {
+        const o = rec.obj, H = rec.level;
+        const d = o.placements && o.placements.length
+            ? this.lm.projectPlacedF(o, H, H) : o;
+        const b = bboxOf(d || o, this.store.live);
+        const half = (d || o).type === "fill" ? 0 : ((d || o).lwFrame || 0) / 2;
+        // eraseCell geometry deliberately extends past its tile for rendering.
+        // That guard is duplicate paint, not canonical ownership. Scanning its
+        // bbox used to turn one cell into a 3x3 family of real rectangles during
+        // connectivity materialization (the reported boxed erase fragments).
+        const ownership = this._eraseCellOwnership(o, H);
+        let range = ownership
+            ? this._halfOpenTileRange(H, ownership)
+            : this.lm.tileRange(H, {
+                left: b.x0 - half, top: b.y0 - half,
+                right: b.x1 + half, bottom: b.y1 + half,
+            });
+        if (!ownership && actionsByCell && actionsByCell.size) {
+            for (const action of actionsByCell.values()) {
+                range = {
+                    i0: Math.min(range.i0, action.tile.i), i1: Math.max(range.i1, action.tile.i),
+                    j0: Math.min(range.j0, action.tile.j), j1: Math.max(range.j1, action.tile.j),
+                };
+            }
+        }
+        return { rec, range, ownership, i: range.i0, j: range.j0, done: false };
+    }
+    _startHierarchicalSplitScan(Erec, target, family, actions, signature) {
+        const actionsByCell = new Map();
+        for (const action of actions || []) {
+            if (action.tile.i == null || action.tile.j == null) continue;
+            actionsByCell.set(`${action.tile.i},${action.tile.j}`, action);
+        }
+        const tasks = family.map((rec) => this._hierarchyTileTask(
+            rec, rec.obj.id === target.obj.id ? actionsByCell : null,
+        ));
+        return {
+            kind: "hierarchy", signature, family,
+            targetId: target.obj.id, actionsByCell, tasks, taskIndex: 0,
+            own: new Map(), draftSeq: 1,
+        };
+    }
+    _collectHierarchicalSplit(scan, E) {
+        const budget = this._syncEraseFlush ? Infinity : 64;
+        const localE = { bakePx: this.cfg.base, lwFrame: E.lwFrame };
+        let processed = 0;
+        while (scan.taskIndex < scan.tasks.length && processed++ < budget) {
+            const task = scan.tasks[scan.taskIndex];
+            if (task.done) { scan.taskIndex++; processed--; continue; }
+            const { rec } = task;
+            const tile = {
+                i: task.i, j: task.j,
+                core: this.lm.tileRect(rec.level, task.i, task.j),
+            };
+            const cellKey = `${task.i},${task.j}`;
+            const action = rec.obj.id === scan.targetId ? scan.actionsByCell.get(cellKey) : null;
+            const regions = action
+                ? action.specs.map((spec) => spec.polys)
+                : this._normalizeTile(
+                    this._tileSubjectRings(rec.obj, rec.level, rec.level, tile, localE),
+                    tile, localE,
+                );
+            const ownedRect = task.ownership ? {
+                left: Math.max(tile.core.left, task.ownership.left),
+                top: Math.max(tile.core.top, task.ownership.top),
+                right: Math.min(tile.core.right, task.ownership.right),
+                bottom: Math.min(tile.core.bottom, task.ownership.bottom),
+            } : tile.core;
+            let regionIndex = 0;
+            for (const region of regions) {
+                if (ownedRect.left >= ownedRect.right || ownedRect.top >= ownedRect.bottom) {
+                    regionIndex++;
+                    continue;
+                }
+                // Topology uses only canonical ownership. renderPolys keeps the
+                // validated overlap guard that hides antialiasing seams.
+                const clipped = clipRingsToRect(region, ownedRect);
+                if (!clipped.length) { regionIndex++; continue; }
+                const coreRegions = this._normalizeTile(clipped, tile, localE);
+                let part = 0;
+                for (const corePolys of coreRegions) {
+                    if (netRingsArea(corePolys) <= 1e-12) { part++; continue; }
+                    let list = scan.own.get(rec.obj.id);
+                    if (!list) { list = []; scan.own.set(rec.obj.id, list); }
+                    list.push({
+                        oldId: rec.obj.id, level: rec.level,
+                        i: tile.i, j: tile.j, core: tile.core,
+                        polys: corePolys, renderPolys: region,
+                        sourceKey: `${rec.obj.id}|${cellKey}|${regionIndex}`,
+                        part,
+                    });
+                    part++;
+                }
+                regionIndex++;
+            }
+            task.i++;
+            if (task.i > task.range.i1) { task.i = task.range.i0; task.j++; }
+            if (task.j > task.range.j1) task.done = true;
+        }
+        return scan.taskIndex >= scan.tasks.length ||
+            scan.tasks.slice(scan.taskIndex).every((task) => task.done);
+    }
+    _hierarchyWindowForChild(parentRec, childRec) {
+        if (!childRec.obj.attachRect) return null;
+        const ar = childRec.obj.attachRect;
+        const mappedAttach = this.lm.mapRectF({
+            left: ar.x0, top: ar.y0, right: ar.x1, bottom: ar.y1,
+        }, childRec.level, parentRec.level);
+        if (!mappedAttach) return null;
+        let best = null, bestScore = Infinity;
+        for (const w of parentRec.obj.windows || []) {
+            const wr = this.lm.mapRectPlacedF({
+                left: w.x0, top: w.y0, right: w.x1, bottom: w.y1,
+            }, parentRec.level, parentRec.level, parentRec.obj.placements || []);
+            if (!wr) continue;
+            const score = Math.abs(wr.left - mappedAttach.left) +
+                Math.abs(wr.top - mappedAttach.top) +
+                Math.abs(wr.right - mappedAttach.right) +
+                Math.abs(wr.bottom - mappedAttach.bottom);
+            if (score < bestScore) {
+                bestScore = score;
+                best = {
+                    x0: wr.left, y0: wr.top, x1: wr.right, y1: wr.bottom,
+                    ...(w.seam != null ? { seam: w.seam } : {}),
+                };
+            }
+        }
+        return best || {
+            x0: mappedAttach.left, y0: mappedAttach.top,
+            x1: mappedAttach.right, y1: mappedAttach.bottom,
+        };
+    }
+    _mapHierarchyProxy(summary, fromLevel, toLevel, localE) {
+        const out = [];
+        for (const geom of summary.proxyGeoms || []) {
+            const d = this.lm.projectF({
+                type: "fill", origin: "derived", id: -1,
+                polys: geom.polys, color: "#000", opacity: 1, paths: [],
+            }, fromLevel, toLevel);
+            if (!d || !d.polys.length) continue;
+            const b = ringsBox(d.polys);
+            const range = this.lm.tileRange(toLevel, {
+                left: b.x0, top: b.y0, right: b.x1, bottom: b.y1,
+            });
+            for (let i = range.i0; i <= range.i1; i++) {
+                for (let j = range.j0; j <= range.j1; j++) {
+                    const core = this.lm.tileRect(toLevel, i, j);
+                    const renderRect = {
+                        left: core.left - this._eraseTileGuard(),
+                        top: core.top - this._eraseTileGuard(),
+                        right: core.right + this._eraseTileGuard(),
+                        bottom: core.bottom + this._eraseTileGuard(),
+                    };
+                    const renderPolys = clipRingsToRect(d.polys, renderRect);
+                    const corePolys = clipRingsToRect(d.polys, core);
+                    if (!corePolys.length || netRingsArea(corePolys) <= 1e-12) continue;
+                    out.push({
+                        i, j, core, polys: corePolys, renderPolys,
+                        box: ringsBox(corePolys), localE,
+                    });
+                }
+            }
+        }
+        return out;
+    }
+    _summarizeHierarchyObject(rec, childrenById, recById, scan, memo, visiting, localE) {
+        if (memo.has(rec.obj.id)) return memo.get(rec.obj.id);
+        if (visiting.has(rec.obj.id)) return [];
+        visiting.add(rec.obj.id);
+        const items = [];
+        for (const node of scan.own.get(rec.obj.id) || []) {
+            items.push({
+                kind: "own", sourceKey: node.sourceKey,
+                geoms: [{
+                    i: node.i, j: node.j, core: node.core,
+                    polys: node.polys, renderPolys: node.renderPolys,
+                    box: ringsBox(node.polys),
+                }],
+            });
+        }
+        for (const childRec of childrenById.get(rec.obj.id) || []) {
+            const childSummaries = this._summarizeHierarchyObject(
+                childRec, childrenById, recById, scan, memo, visiting, localE,
+            );
+            const window = this._hierarchyWindowForChild(rec, childRec);
+            for (const summary of childSummaries) {
+                items.push({
+                    kind: "child", childRec, summary, window,
+                    geoms: this._mapHierarchyProxy(summary, childRec.level, rec.level, localE),
+                });
+            }
+        }
+        visiting.delete(rec.obj.id);
+        if (!items.length) { memo.set(rec.obj.id, []); return []; }
+
+        const parent = items.map((_, i) => i);
+        const find = (i) => {
+            let r = i;
+            while (parent[r] !== r) r = parent[r];
+            while (parent[i] !== i) { const n = parent[i]; parent[i] = r; i = n; }
+            return r;
+        };
+        const union = (a, b) => {
+            const ra = find(a), rb = find(b);
+            if (ra !== rb) parent[rb] = ra;
+        };
+        const sourceOwners = new Map();
+        items.forEach((item, index) => {
+            if (!item.sourceKey) return;
+            if (sourceOwners.has(item.sourceKey)) union(index, sourceOwners.get(item.sourceKey));
+            else sourceOwners.set(item.sourceKey, index);
+        });
+        const buckets = new Map();
+        items.forEach((item, itemIndex) => {
+            for (const geom of item.geoms) {
+                const key = `${geom.i},${geom.j}`;
+                if (!buckets.has(key)) buckets.set(key, []);
+                buckets.get(key).push({ itemIndex, geom });
+            }
+        });
+        // Parent/child proxy vertices have each been simplified to a
+        // quarter-pixel grid at this frame. Use that same fidelity envelope
+        // when matching the two sides of an ownership boundary; a tiny exact
+        // epsilon would strand one side after legitimate simplification.
+        const tol = Math.max(1e-7, 0.3 / Math.max(this.cfg.base, 1e-9));
+        const directions = [[0, 0], [1, -1], [1, 0], [1, 1], [0, 1]];
+        for (const [key, refs] of buckets) {
+            const [i, j] = key.split(",").map(Number);
+            for (const [di, dj] of directions) {
+                const others = buckets.get(`${i + di},${j + dj}`);
+                if (!others) continue;
+                for (let ai = 0; ai < refs.length; ai++) {
+                    const a = refs[ai];
+                    for (let bi = 0; bi < others.length; bi++) {
+                        const b = others[bi];
+                        if (a.itemIndex === b.itemIndex) continue;
+                        if (di === 0 && dj === 0 && bi <= ai) continue;
+                        const aiItem = items[a.itemIndex], biItem = items[b.itemIndex];
+                        // Two components already proved separate inside the
+                        // SAME child must not be rejoined merely because their
+                        // coarse parent proxies overlap after simplification.
+                        // They may still join through a real parent-remainder
+                        // item, which is the only globally meaningful route.
+                        if (aiItem.kind === "child" && biItem.kind === "child" &&
+                            aiItem.childRec.obj.id === biItem.childRec.obj.id) continue;
+                        if (!boxesMeet(a.geom.box, b.geom.box, tol)) continue;
+                        if (ringsTouchRings(a.geom.polys, b.geom.polys, tol)) {
+                            union(a.itemIndex, b.itemIndex);
+                        }
+                    }
+                }
+            }
+        }
+
+        const groups = new Map();
+        items.forEach((item, index) => {
+            const root = find(index);
+            if (!groups.has(root)) groups.set(root, []);
+            groups.get(root).push(item);
+        });
+        const outputs = [];
+        for (const group of groups.values()) {
+            const byCell = new Map();
+            for (const item of group) for (const geom of item.geoms) {
+                const key = `${geom.i},${geom.j}`;
+                if (!byCell.has(key)) byCell.set(key, { core: geom.core, rings: [] });
+                for (const ring of geom.renderPolys || geom.polys) byCell.get(key).rings.push(ring);
+            }
+            const currentDrafts = [];
+            const proxyGeoms = [];
+            for (const [key, cell] of byCell) {
+                const [i, j] = key.split(",").map(Number);
+                const renderRect = {
+                    left: cell.core.left - this._eraseTileGuard(),
+                    top: cell.core.top - this._eraseTileGuard(),
+                    right: cell.core.right + this._eraseTileGuard(),
+                    bottom: cell.core.bottom + this._eraseTileGuard(),
+                };
+                const clipped = clipRingsToRect(cell.rings, renderRect);
+                const regions = this._normalizeTile(clipped, { core: cell.core }, localE);
+                for (const polys of regions) {
+                    const canonical = clipRingsToRect(polys, cell.core);
+                    if (!canonical.length || netRingsArea(canonical) <= 1e-12) continue;
+                    const draft = {
+                        token: `eh-${scan.draftSeq++}`,
+                        oldId: rec.obj.id, level: rec.level, polys,
+                        cell: { frame: String(rec.level), i, j },
+                        attachRect: {
+                            x0: cell.core.left, y0: cell.core.top,
+                            x1: cell.core.right, y1: cell.core.bottom,
+                        },
+                        windows: [],
+                        style: rec.obj,
+                    };
+                    currentDrafts.push(draft);
+                    proxyGeoms.push({
+                        i, j, core: cell.core, polys,
+                        renderPolys: polys, box: ringsBox(canonical),
+                    });
+                }
+            }
+            // Preserve a topology-only proxy even when parent-level
+            // simplification legitimately makes a sub-pixel child invisible.
+            if (!proxyGeoms.length) {
+                for (const item of group) for (const geom of item.geoms) proxyGeoms.push(geom);
+            }
+
+            const childItems = group.filter((item) => item.kind === "child");
+            for (const child of childItems) {
+                if (!child.window) continue;
+                const wb = rectAsBox(child.window);
+                const candidates = currentDrafts.filter((draft) => {
+                    const core = this.lm.tileRect(
+                        draft.level, draft.cell.i, draft.cell.j,
+                    );
+                    return boxesMeet(rectAsBox(core), wb, this._eraseTileGuard());
+                });
+                for (const draft of candidates) {
+                    if (!draft.windows.some((w) =>
+                        w.x0 === child.window.x0 && w.y0 === child.window.y0 &&
+                        w.x1 === child.window.x1 && w.y1 === child.window.y1)) {
+                        draft.windows.push({ ...child.window });
+                    }
+                }
+                const owner = candidates[0] || currentDrafts[0];
+                if (owner) {
+                    for (const childDraft of child.summary.topDrafts || []) {
+                        childDraft.parentToken = owner.token;
+                    }
+                }
+            }
+            const drafts = new Set(currentDrafts);
+            for (const item of childItems) {
+                for (const draft of item.summary.drafts || []) drafts.add(draft);
+            }
+            outputs.push({
+                level: rec.level, ownerOldId: rec.obj.id,
+                proxyGeoms, topDrafts: currentDrafts, drafts,
+            });
+        }
+        memo.set(rec.obj.id, outputs);
+        return outputs;
+    }
+    _finishHierarchicalSplit(scan, Erec, target, op, done) {
+        const family = scan.family;
+        const recById = new Map(family.map((rec) => [rec.obj.id, rec]));
+        const childrenById = new Map();
+        const roots = [];
+        for (const rec of family) {
+            if (rec.obj.srcId != null && recById.has(rec.obj.srcId)) {
+                if (!childrenById.has(rec.obj.srcId)) childrenById.set(rec.obj.srcId, []);
+                childrenById.get(rec.obj.srcId).push(rec);
+            } else {
+                roots.push(rec);
+            }
+        }
+        const localE = { bakePx: this.cfg.base, lwFrame: Erec.obj.lwFrame };
+        const memo = new Map(), visiting = new Set();
+        const rootOutputs = [];
+        for (const root of roots) {
+            for (const output of this._summarizeHierarchyObject(
+                root, childrenById, recById, scan, memo, visiting, localE,
+            )) rootOutputs.push(output);
+        }
+        if (!rootOutputs.length) {
+            const step = this.doc.eraseMaterializeFamily(
+                family.map((rec) => rec.obj.id), Erec.level, [], target.obj,
+            );
+            if (!step) return false;
+            for (const rec of step.removedMany) done.add(rec.obj.id);
+            op.baked.push(step);
+            return true;
+        }
+
+        // Multiple historical roots can still represent one logical family.
+        // Merge only when their compact root proxies actually touch; tiles and
+        // storage ancestry never manufacture user-visible object identity.
+        const parent = rootOutputs.map((_, i) => i);
+        const find = (i) => {
+            while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+            return i;
+        };
+        const union = (a, b) => {
+            const ra = find(a), rb = find(b);
+            if (ra !== rb) parent[rb] = ra;
+        };
+        const tol = Math.max(1e-7, 0.3 / Math.max(this.cfg.base, 1e-9));
+        for (let i = 0; i < rootOutputs.length; i++) {
+            for (let j = i + 1; j < rootOutputs.length; j++) {
+                // Outputs from one physical root were separated by the complete
+                // recursive summary above. A coarse proxy overlap cannot
+                // overrule that result.
+                if (rootOutputs[i].ownerOldId === rootOutputs[j].ownerOldId) continue;
+                if (String(rootOutputs[i].level) !== String(rootOutputs[j].level)) continue;
+                let touches = false;
+                for (const a of rootOutputs[i].proxyGeoms) {
+                    for (const b of rootOutputs[j].proxyGeoms) {
+                        if (!boxesMeet(a.box || ringsBox(a.polys), b.box || ringsBox(b.polys), tol)) continue;
+                        if (ringsTouchRings(a.polys, b.polys, tol)) { touches = true; break; }
+                    }
+                    if (touches) break;
+                }
+                if (touches) union(i, j);
+            }
+        }
+        const components = new Map();
+        rootOutputs.forEach((output, index) => {
+            const root = find(index);
+            if (!components.has(root)) components.set(root, new Set());
+            for (const draft of output.drafts) components.get(root).add(draft);
+        });
+        if (components.size <= 1) return false;
+
+        const specs = [];
+        for (const drafts of components.values()) {
+            const logicalId = this.doc.allocId();
+            for (const draft of drafts) {
+                specs.push({
+                    token: draft.token, parentToken: draft.parentToken,
+                    level: draft.level, polys: draft.polys,
+                    logicalId, cell: draft.cell, attachRect: draft.attachRect,
+                    windows: draft.windows, style: draft.style,
+                });
+            }
+        }
+        const step = this.doc.eraseMaterializeFamily(
+            family.map((rec) => rec.obj.id), Erec.level, specs, target.obj,
+        );
+        if (!step) return false;
+        for (const rec of step.removedMany) done.add(rec.obj.id);
+        // The materialization rebuilt the WHOLE hierarchy, while `actions`
+        // may have erased only one covered physical cell. Do not blanket-mark
+        // every rebuilt piece as net of this gesture: the scheduler must visit
+        // the remaining child cells that the same eraser footprint covers.
+        op.baked.push(step);
+        return true;
+    }
+    _materializeHierarchicalSplit(op, Erec, target, done, actions) {
+        const E = Erec.obj;
+        const logicalKey = this.doc.editKey(target.obj);
+        const family = this.doc.editGroup(logicalKey);
+        if (!family.length) return false;
+        let byFamily = this._eraseSplitScans.get(E.id);
+        if (!byFamily) {
+            byFamily = new Map();
+            this._eraseSplitScans.set(E.id, byFamily);
+        }
+        const scanKey = `hier:${logicalKey}`;
+        const actionSig = (actions || []).map((a) =>
+            `${a.tile.i},${a.tile.j}:${a.specs.length}`).sort().join("|");
+        const signature = `${family.map((r) => r.obj.id).sort((a, b) => a - b).join(",")};${actionSig}`;
+        let scan = byFamily.get(scanKey);
+        if (!scan || scan.signature !== signature) {
+            scan = this._startHierarchicalSplitScan(Erec, target, family, actions, signature);
+            byFamily.set(scanKey, scan);
+        }
+        if (!this._collectHierarchicalSplit(scan, E)) return ERASE_PENDING;
+        byFamily.delete(scanKey);
+        if (!byFamily.size) this._eraseSplitScans.delete(E.id);
+        return this._finishHierarchicalSplit(scan, Erec, target, op, done);
+    }
+    _windowForSource(core, o, HO, HE, E) {
+        let baseCore = core;
+        if (o.placements && o.placements.length) {
+            const plain = this.lm.mapPointPlacedF([0, 0], HO, HE, []);
+            const placed = this.lm.mapPointPlacedF([0, 0], HO, HE, o.placements);
+            if (!plain || !placed) return null;
+            const dx = placed[0] - plain[0], dy = placed[1] - plain[1];
+            baseCore = {
+                left: core.left - dx, top: core.top - dy,
+                right: core.right - dx, bottom: core.bottom - dy,
+            };
+        }
+        const r = this.lm.mapRectPlacedF(baseCore, HE, HO, []);
+        if (!r) return null;
+        return {
+            x0: r.left, y0: r.top, x1: r.right, y1: r.bottom,
+        };
+    }
+    // Persist one ordinary Kobin edge of ownership on the way to a much deeper
+    // erase. A root-to-level-15 window would be too tiny to summarize in the
+    // root's Number coordinates and would make final connectivity scan
+    // 3000^15 render cells. Relaying one edge at a time keeps every window and
+    // every topology decision tile-local. These child pieces are NOT net of
+    // the eraser yet, so the scheduler intentionally processes them next.
+    _rehomeTowardErase(op, Erec, target) {
+        const E = Erec.obj, HE = Erec.level;
+        const { obj: o, level: HO } = target;
+        const path = this.lm.framePath(HO, HE);
+        if (!path || path.down.length <= 1) return null;
+        const childFrame = path.down[0];
+        const placementPlan = o.placements && o.placements.length
+            ? this.store._placedUpPlan(o, HO, childFrame) : null;
+        const deferredPlacements = placementPlan ? placementPlan.deferred : [];
+        const localEraser = this.lm.projectF(E, HE, childFrame);
+        if (!localEraser) return false;
+        localEraser.bakePx = this.cfg.base;
+        const actions = [];
+        for (const tile of this._eraseTiles(localEraser, childFrame)) {
+            const subject = this._tileSubjectRings(o, HO, childFrame, tile, localEraser);
+            if (!subject.length) continue;
+            const regions = this._normalizeTile(subject, tile, localEraser);
+            if (!regions.length) continue;
+            const window = this._windowForSource(tile.core, o, HO, childFrame, localEraser);
+            if (!window) continue;
+            actions.push({
+                window,
+                attachRect: {
+                    x0: tile.core.left, y0: tile.core.top,
+                    x1: tile.core.right, y1: tile.core.bottom,
+                },
+                specs: regions.map((polys) => ({
+                    polys,
+                    attached: true, // a storage relay never changes identity
+                    cell: { frame: String(childFrame), i: tile.i, j: tile.j },
+                })),
+            });
+        }
+        let changed = false;
+        for (const action of actions) {
+            const step = this.doc.eraseRehomeById(
+                o.id, childFrame, action.specs, action.window, action.attachRect,
+                { inheritPlacement: false, placements: deferredPlacements },
+            );
+            if (!step) continue;
+            op.baked.push(step);
+            changed = true;
+        }
+        return changed;
+    }
+    _bakeTiled(op, Erec, target, done) {
+        const E = Erec.obj, HE = Erec.level;
+        const { obj: o, level: HO } = target;
+        const actions = [];
+        for (const tile of this._eraseTiles(E, HE, target)) {
+            const subject = this._tileSubjectRings(o, HO, HE, tile, E);
+            if (!subject.length) continue;
+            const regions = this._subtractTile(subject, this._eraseTileMask(E, HE, tile), tile, E);
+            if (!regions) continue;
+            const window = this._windowForSource(tile.core, o, HO, HE, E);
+            if (!window) continue;
+            const tol = Math.max(1 / Math.max(E.bakePx || 1, 1e-9), 1e-9);
+            const specs = [];
+            const subjectReachesBoundary = ringsReachRectBoundary(subject, tile.core, tol);
+            for (const polys of regions) {
+                // Overscan-only remnants are derivation guards, not owned ink.
+                if (netRingsArea(clipRingsToRect(polys, tile.core)) <= 1e-12) continue;
+                specs.push({
+                    polys,
+                    attached: ringsReachRectBoundary(polys, tile.core, tol),
+                    cell: { frame: String(HE), i: tile.i, j: tile.j },
+                });
+            }
+            actions.push({
+                tile, window, specs, subject, subjectReachesBoundary,
+                attachRect: {
+                    x0: tile.core.left, y0: tile.core.top,
+                    x1: tile.core.right, y1: tile.core.bottom,
+                },
+            });
+        }
+        const surviving = actions.flatMap((a) => a.specs);
+        // A source wholly enclosed by the edited cell and still connected after
+        // subtraction remains the same logical object. If several enclosed
+        // regions survive, the erase is a true global split and each keeps the
+        // fresh physical/logical id assigned by Document.
+        if (surviving.length === 1 && !actions.some((a) => a.subjectReachesBoundary)) {
+            surviving[0].attached = true;
+        }
+        // More than one touched tile, zero survivors, or several local regions
+        // can all split ink outside the edited cell. Resolve the complete
+        // family graph before committing any windows. This is also what
+        // prevents an entirely ceded source from lingering as a selectable
+        // phantom object.
+        const topologyTolerance = Math.max(0.5 / Math.max(E.bakePx || 1, 1e-9), 1e-9);
+        const needsConnectivity = localCutNeedsGlobalScan(actions, topologyTolerance);
+        if (needsConnectivity) {
+            const topology = this._materializeHierarchicalSplit(
+                op, Erec, target, done, actions,
+            );
+            if (topology === ERASE_PENDING || topology === true) return topology;
+        }
+        let changed = false;
+        // Calculate all adjacent cells against the same pre-mutation source,
+        // then commit. A window added for tile A must not clip tile B's guard
+        // while the same gesture is still deriving it.
+        for (const action of actions) {
+            const step = this.doc.eraseRehomeById(
+                o.id, HE, action.specs, action.window, action.attachRect,
+                { inheritPlacement: false },
+            );
+            if (!step) continue;
+            for (const pc of step.pieces) done.add(pc.obj.id);
+            op.baked.push(step);
+            changed = true;
+        }
+        return changed;
+    }
+    _bakeCell(op, Erec, target, done, checkTopology = false) {
+        const E = Erec.obj, o = target.obj;
+        const source = o.placements && o.placements.length
+            ? this.lm.projectPlacedF(o, target.level, target.level) : o;
+        if (!source) return false;
+        const b = bboxOf(source, null);
+        const pad = E.lwFrame + this._eraseTileGuard();
+        const rect = {
+            left: b.x0 - pad, top: b.y0 - pad,
+            right: b.x1 + pad, bottom: b.y1 + pad,
+        };
+        const subject = source.type === "fill"
+            ? source.polys
+            : this._strokeRingsInRect(source, rect, E.bakePx || this.cfg.base);
+        const mask = this._strokeRingsInRect(E, rect, E.bakePx || this.cfg.base);
+        const tile = { core: rect };
+        const regions = this._subtractTile(subject, mask, tile, E);
+        if (!regions) return false;
+        if (checkTopology && localCutNeedsGlobalScan([{
+            tile, subject, specs: regions.map((polys) => ({ polys })),
+        }], Math.max(0.5 / Math.max(E.bakePx || 1, 1e-9), 1e-9))) {
+            const range = this.lm.tileRange(target.level, {
+                left: b.x0, top: b.y0, right: b.x1, bottom: b.y1,
+            });
+            const actions = [];
+            for (let i = range.i0; i <= range.i1; i++) {
+                for (let j = range.j0; j <= range.j1; j++) {
+                    const core = this.lm.tileRect(target.level, i, j);
+                    const guardRect = {
+                        left: core.left - this._eraseTileGuard(),
+                        top: core.top - this._eraseTileGuard(),
+                        right: core.right + this._eraseTileGuard(),
+                        bottom: core.bottom + this._eraseTileGuard(),
+                    };
+                    const cellSubject = clipRingsToRect(subject, guardRect);
+                    if (!cellSubject.length) continue;
+                    const specs = [];
+                    for (const region of regions) {
+                        const polys = clipRingsToRect(region, guardRect);
+                        if (polys.length && netRingsArea(clipRingsToRect(polys, core)) > 1e-12) {
+                            specs.push({ polys });
+                        }
+                    }
+                    actions.push({ tile: { i, j, core }, subject: cellSubject, specs });
+                }
+            }
+            const topology = this._materializeHierarchicalSplit(
+                op, Erec, target, done, actions,
+            );
+            if (topology === ERASE_PENDING || topology === true) return topology;
+        }
+        let bakedStep;
+        if (regions.length) {
+            let storedRegions = regions;
+            if (o.placements && o.placements.length) {
+                const inverse = o.placements.map((p) => ({
+                    ...p, dx: -(p.dx || 0), dy: -(p.dy || 0),
+                }));
+                storedRegions = regions.map((region) => region.map((ring) => ring.map((p) =>
+                    this.lm.mapPointPlacedF(p, target.level, target.level, inverse),
+                )));
+                if (storedRegions.some((region) =>
+                    region.some((ring) => ring.some((p) => !p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]))))) {
+                    return false;
+                }
+            }
+            const cut = this.doc.eraseReplaceById(o.id, storedRegions);
+            if (!cut) return false;
+            bakedStep = {
+                removed: cut.removed,
+                pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })),
+            };
+            for (const pc of bakedStep.pieces) done.add(pc.obj.id);
+        } else {
+            const rec = this.doc.removeById(o.id);
+            if (!rec) return false;
+            bakedStep = { removed: rec, pieces: [] };
+        }
+        op.baked.push(bakedStep);
+        return true;
+    }
+    _fitsOneEraseTile(o, HE) {
+        const b = bboxOf(o, null);
+        const half = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
+        const range = this.lm.tileRange(HE, {
+            left: b.x0 - half, top: b.y0 - half,
+            right: b.x1 + half, bottom: b.y1 + half,
+        });
+        return range.i0 === range.i1 && range.j0 === range.j1;
+    }
+    _eraserInFrame(E, HE, targetFrame) {
+        if (String(HE) === String(targetFrame)) return E;
+        const f = this.lm.frameFactor(HE, targetFrame);
+        if (!(f > 0)) return null;
+        const projected = this.lm.projectF(E, HE, targetFrame);
+        if (!projected) return null;
+        // Affine projection preserves the original spline. `projectF` normally
+        // labels projected render pieces as derived polylines, but an eraser
+        // projected into an existing child cell must retain curve semantics.
+        projected.origin = "native";
+        projected.curved = true;
+        projected.erase = true;
+        // A coarse-view gesture can project to less than one pixel per whole
+        // child cell unit. Using that coarse display scale as the boolean
+        // simplifier would legally clean away fine canonical child ink before
+        // the user zoomed back in. Every persistent cell gets at least the
+        // ordinary Kobin tile-entry fidelity; a genuinely finer erase keeps
+        // its higher erase-time fidelity.
+        projected.bakePx = Math.max(
+            this.cfg.base,
+            (E.bakePx || this.cfg.base) / f,
+        );
+        return projected;
+    }
     // Subtract eraser stroke E's painted footprint from one object, silently
     // (the doc changes ride E's eraseCommit undo op, not ops of their own).
     _bakeOne(Erec, target) {
-        const E = Erec.obj, HE = Erec.level;
+        const gesture = Erec.obj, gestureFrame = Erec.level;
         const { obj: o, level: HO } = target;
-        const done = this._doneSet(E.id);
-        done.add(o.id);
-        if (!this.doc.getById(o.id)) return false;
+        const done = this._doneSet(gesture.id);
+        if (!this.doc.getById(o.id)) { done.add(o.id); return false; }
         // Resolve the gesture's undo op BEFORE touching the document — a bake
         // that cannot record itself must not mutate anything (unrecorded
         // bakes were how duplicated, stacked geometry formed). After a reload
         // the commit map is empty, so resumed baking re-registers a fresh op,
         // which also makes a resumed erase undoable again.
-        let op = this._eraseCommits.get(E.id);
+        let op = this._eraseCommits.get(gesture.id);
         if (!op || op.op !== "eraseCommit") {
-            op = { op: "eraseCommit", strokeId: E.id, strokeRec: null, baked: [] };
+            op = { op: "eraseCommit", strokeId: gesture.id, strokeRec: null, baked: [] };
             this.doc.pushUndo(op);
-            this._eraseCommits.set(E.id, op);
+            this._eraseCommits.set(gesture.id, op);
         }
+        // If this gesture covers an already-existing child/sibling cell, bake
+        // in that cell's own bounded frame. Re-homing it back upward would
+        // invert the ownership hierarchy and leave the real child ink uncut.
+        let workRec = Erec;
+        if (String(HO) !== String(gestureFrame) &&
+            !this.lm.isAncestor(HO, gestureFrame)) {
+            const projected = this._eraserInFrame(gesture, gestureFrame, HO);
+            if (!projected) { done.add(o.id); return false; }
+            workRec = { obj: projected, level: HO };
+        }
+        const E = workRec.obj, HE = workRec.level;
         // A target homed SHALLOWER than the erase re-homes instead of baking:
         // projecting the eraser down into its frame shrinks the footprint by
         // ~3000 per level, far below anything the boolean's integer grid can
         // hold, which is what made small erases on magnified objects blocky.
-        if (this.lm.depthOf(HO) < this.lm.depthOf(HE)) return this._bakeRehome(op, Erec, target, done);
+        let result;
+        const relay = this._rehomeTowardErase(op, workRec, target);
+        if (relay != null) {
+            result = relay;
+        } else if (HO === HE && o.eraseCell && String(o.eraseCell.frame) === String(HE)) {
+            // This is already the canonical cell for this tile. Rewrite it;
+            // nesting another same-frame ownership window would grow one layer
+            // per gesture and eventually recreate the old box/seam failures.
+            result = this._bakeCell(op, workRec, target, done, true);
+        } else if (HO === HE && this._fitsOneEraseTile(o, HE) &&
+            (!o.placements || !o.placements.length) &&
+            (!o.windows || !o.windows.length)) {
+            result = this._bakeCell(op, workRec, target, done);
+        } else {
+            result = this._bakeTiled(op, workRec, target, done);
+        }
+        if (result !== ERASE_PENDING) done.add(o.id);
+        return result;
+        /*
         const Ep = this.lm.projectF(E, HE, HO);
         if (!Ep) return false;
         // Outline fidelity anchors to the ERASE-TIME zoom, capped so a giant
@@ -581,6 +1767,7 @@ export default class KobinEngine {
         }
         op.baked.push(bakedStep); // op resolved above — every bake is recorded
         return true;
+        */
     }
     // Re-homing bake: cut the hole at the level the user drew it at.
     //
@@ -688,105 +1875,316 @@ export default class KobinEngine {
         op.baked.push(step);
         return true;
     }
-    // Selection barrier: bake everything still pending over ONE object, now.
-    // Returns true if the object changed (caller re-renders and re-hits).
-    _flushErasesFor(id) {
-        const rec = this.doc.getById(id);
-        if (!rec || rec.obj.erase) return false;
-        for (const Erec of this._eraseStrokes()) {
-            const E = Erec.obj;
-            if (this._zOf(E) <= this._zOf(rec.obj)) continue;
-            if (this._doneSet(E.id).has(id)) continue;
-            if (!this._eraseMayTouch(E, Erec.level, rec.obj, rec.level)) { this._doneSet(E.id).add(id); continue; }
-            if (this._bakeOne(Erec, { obj: rec.obj, level: rec.level })) return true;
+    _consumeErase(Erec) {
+        const id = Erec && Erec.obj && Erec.obj.id;
+        if (id == null) return;
+        this.doc.removeById(id);
+        this._eraseCommits.delete(id);
+        this._bakeDone.delete(id);
+        this._eraseTileMasks.delete(id);
+        this._eraseSplitScans.delete(id);
+    }
+    _flushEraseGesture(Erec) {
+        const t0 = perfNow();
+        let changed = false;
+        let steps = 0;
+        const priorSync = this._syncEraseFlush;
+        this._syncEraseFlush = true;
+        try {
+            for (let guard = 0; guard < 10000; guard++) {
+                const live = this.doc.getById(Erec.obj.id);
+                if (!live) break;
+                const target = this._nextEraseTarget({ obj: live.obj, level: live.level });
+                if (!target) {
+                    this._consumeErase({ obj: live.obj, level: live.level });
+                    break;
+                }
+                steps++;
+                changed = this._bakeOne({ obj: live.obj, level: live.level }, target) === true || changed;
+            }
+        } finally {
+            this._syncEraseFlush = priorSync;
+        }
+        this._perf("eraseFlush", t0, true, {
+            gesture: Erec.obj.id, steps,
+        });
+        return changed;
+    }
+    _gestureMayTouchKeys(Erec, keys) {
+        for (const key of keys) {
+            for (const rec of this.doc.editGroup(key)) {
+                if (this._zOf(Erec.obj) <= this._zOf(rec.obj)) continue;
+                if (this._doneSet(Erec.obj.id).has(rec.obj.id)) continue;
+                if (this._eraseMayTouch(Erec.obj, Erec.level, rec.obj, rec.level)) return true;
+            }
         }
         return false;
     }
+    // Selection is the synchronous barrier promised by the deferred eraser.
+    // If a pending gesture affects a logical object, finish that WHOLE gesture
+    // (all objects under it), not merely the physical fragment that was hit.
+    // Earlier gestures complete first so a later gesture cannot skip their
+    // replacement pieces.
+    _flushErasesForKeys(keys) {
+        const wanted = new Set((keys || []).filter((k) => k != null));
+        if (!wanted.size) return false;
+        const strokes = this._eraseStrokes();
+        let last = -1;
+        for (let i = 0; i < strokes.length; i++) {
+            if (this._gestureMayTouchKeys(strokes[i], wanted)) last = i;
+        }
+        if (last < 0) return false;
+        let changed = false;
+        for (let i = 0; i <= last; i++) changed = this._flushEraseGesture(strokes[i]) || changed;
+        return changed;
+    }
+    _flushErasesFor(id) {
+        const rec = this.doc.getById(id);
+        if (!rec || rec.obj.erase) return false;
+        return this._flushErasesForKeys([this.doc.editKey(rec.obj)]);
+    }
     /** Bake every pending eraser stroke to completion (tests, power tools). */
     flushErases() {
+        const t0 = perfNow();
         let guard = 0;
+        let steps = 0;
         while (guard++ < 10000) {
             const strokes = this._eraseStrokes();
             if (!strokes.length) break;
             const Erec = strokes[0];
             const target = this._nextEraseTarget(Erec);
-            if (target) { this._bakeOne(Erec, target); continue; }
-            this.doc.removeById(Erec.obj.id);
-            this._eraseCommits.delete(Erec.obj.id);
-            this._bakeDone.delete(Erec.obj.id);
+            if (target) { steps++; this._bakeOne(Erec, target); continue; }
+            this._consumeErase(Erec);
         }
         this._render();
+        this._perf("eraseFlushAll", t0, true, { steps, iterations: guard - 1 });
     }
 
-    // ---- selection / edit (US-10) ----
-    // Tap-select the topmost object under the point (same hit policy as the
-    // object eraser). Selecting through a derived piece selects the NATIVE —
-    // edits apply at its home level and re-derive everywhere.
-    select(sx, sy) {
-        for (let guard = 0; guard < 8; guard++) {
-            const id = this._hitTest(sx, sy);
-            if (id == null) { this.deselect(); return null; }
-            // Erase barrier: anything still pending over this object bakes
-            // NOW — the flush may split it or delete it, so re-hit after.
-            if (this._flushErasesFor(id)) { this._render(); continue; }
-            const rec = this.doc.getById(id);
-            if (!rec) { this.deselect(); return null; }
-            const editId = this.doc.editKey(rec.obj);
-            if (!this.selection || this.selection.editId !== editId) this._activeRestyle = null;
-            this.selection = { id, editId, level: rec.level, obj: rec.obj };
-            this.renderer.syncCameraOnly(); this.renderer.update();
-            this._emit();
-            return id;
+    // ---- selection / edit ----
+    _syncSelection() {
+        if (!this._selected.size) {
+            this.selection = null; this._selectionPrimary = null; this._activeRestyle = null;
+            return;
         }
-        this.deselect();
+        if (!this._selected.has(this._selectionPrimary)) {
+            this._selectionPrimary = [...this._selected.keys()].pop();
+        }
+        const rec = this._selected.get(this._selectionPrimary);
+        this.selection = {
+            ...rec, count: this._selected.size, keys: [...this._selected.keys()],
+        };
+    }
+    _selectRecord(rec) {
+        if (!rec) return null;
+        const editId = this.doc.editKey(rec.obj);
+        const selected = { id: rec.obj.id, editId, level: rec.level, obj: rec.obj };
+        this._selected.set(editId, selected);
+        this._selectionPrimary = editId;
+        return selected;
+    }
+    // Resolve pending erase work before a click is allowed to choose its final
+    // object. Baking can split/delete the hit, hence the re-hit loop.
+    _resolvedHit(sx, sy) {
+        for (let guard = 0; guard < 16; guard++) {
+            const id = this._hitTest(sx, sy);
+            if (id == null) return null;
+            if (this._flushErasesFor(id)) { this._render(); continue; }
+            return this.doc.getById(id) ? id : null;
+        }
         return null;
     }
-    deselect() {
-        if (!this.selection) return;
-        this.selection = null; this._activeRestyle = null; this._dragSel = null;
-        this.renderer.syncCameraOnly(); this.renderer.update();
-        this._emit();
+    select(sx, sy, { toggle = false } = {}) {
+        const id = this._resolvedHit(sx, sy);
+        if (id == null) {
+            if (!toggle) this.deselect();
+            return null;
+        }
+        const rec = this.doc.getById(id);
+        if (!rec) { if (!toggle) this.deselect(); return null; }
+        const key = this.doc.editKey(rec.obj);
+        this._activeRestyle = null;
+        if (toggle && this._selected.has(key)) {
+            this._selected.delete(key);
+            if (this._selectionPrimary === key) this._selectionPrimary = null;
+        } else {
+            if (!toggle) this._selected.clear();
+            this._selectRecord(rec);
+        }
+        this._syncSelection();
+        this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+        return id;
     }
-    // The overlay is the VISIBLE union of a logical edit family in the active
-    // frame. This stays tight around a re-homed patch instead of exposing the
-    // astronomical bbox of its coarse source, while a drag still moves every
-    // boundary-attached member as one object.
-    _selectionRect() {
-        const s = this.selection; if (!s) return null;
+    deselect() {
+        if (!this.selection && !this._selected.size) return;
+        this._selected.clear(); this.selection = null; this._selectionPrimary = null;
+        this._activeRestyle = null; this._dragSel = null;
+        this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+    }
+    _selectionRectForKey(key) {
         let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
         for (const o of this._lastList) {
             const rec = this.doc.getById(o.id);
-            if (!rec || this.doc.editKey(rec.obj) !== s.editId) continue;
+            if (!rec || this.doc.editKey(rec.obj) !== key) continue;
             const b = bboxOf(o, this.store.live);
             const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
             left = Math.min(left, b.x0 - m); top = Math.min(top, b.y0 - m);
             right = Math.max(right, b.x1 + m); bottom = Math.max(bottom, b.y1 + m);
         }
         if (left !== Infinity) return { level: this.cam.frame, rect: { left, top, right, bottom } };
-        const b = bboxOf(s.obj, this.store.live);
-        const m = s.obj.type === "fill" ? 0 : (s.obj.lwFrame || 0) / 2;
-        return { level: s.level, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
+        const selected = this._selected.get(key);
+        if (!selected) return null;
+        const o = selected.obj;
+        const d = o.placements && o.placements.length
+            ? this.lm.projectPlacedF(o, selected.level, this.cam.frame)
+            : this.lm.projectF(o, selected.level, this.cam.frame);
+        if (!d) return null;
+        const b = bboxOf(d, this.store.live), m = d.type === "fill" ? 0 : (d.lwFrame || 0) / 2;
+        return { level: this.cam.frame, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
     }
-    // One drag step: screen delta -> active-frame delta -> home-frame delta
-    // (transforms are scale+translate, so a delta only scales).
+    _selectionOverlay() {
+        const d = this._dragSel;
+        let rects = [...this._selected.keys()].map((key) => this._selectionRectForKey(key)).filter(Boolean);
+        if (d && d.mode === "move" && (d.dx || d.dy)) {
+            rects = rects.map(({ level, rect }) => ({
+                level,
+                rect: {
+                    left: rect.left + d.dx, top: rect.top + d.dy,
+                    right: rect.right + d.dx, bottom: rect.bottom + d.dy,
+                },
+            }));
+        }
+        const lasso = d && d.mode === "lasso" ? { points: d.points, closed: false } : null;
+        if (!rects.length && !lasso) return null;
+        return { rects, lasso };
+    }
+    _selectedRecords() {
+        const out = [], seen = new Set();
+        for (const key of this._selected.keys()) {
+            for (const rec of this.doc.editGroup(key)) {
+                if (seen.has(rec.obj.id)) continue;
+                seen.add(rec.obj.id); out.push(rec);
+            }
+        }
+        return out;
+    }
     _dragSelection(sx, sy) {
-        const d = this._dragSel, s = this.selection;
+        const t0 = perfNow();
+        const d = this._dragSel;
         const ddx = (sx - d.last[0]) / this.cam.inScale;
         const ddy = (sy - d.last[1]) / this.cam.inScale;
         d.last = [sx, sy];
         if (!ddx && !ddy) return;
-        let moved = false;
-        for (const rec of this.doc.editGroup(s.editId)) {
-            const f = this.lm.frameFactor(this.cam.frame, rec.level);
-            if (f == null) continue;
-            const hx = ddx * f, hy = ddy * f;
-            this.doc.moveById(rec.obj.id, hx, hy); // invalidates old+new tiles
-            const total = d.moves.get(rec.obj.id) || { dx: 0, dy: 0 };
-            total.dx += hx; total.dy += hy; d.moves.set(rec.obj.id, total);
-            moved = true;
+        const records = d.records || (d.records = this._selectedRecords());
+        if (!records.length) return;
+        if (d.usePlacement == null) {
+            const activeDepth = this.lm.depthOf(this.cam.frame);
+            d.usePlacement = records.length > 1 || this._selected.size > 1 ||
+                records.some((r) => r.obj.placements && r.obj.placements.length) ||
+                records.some((r) => Math.abs(this.lm.depthOf(r.level) - activeDepth) > 3);
+            d.ids = records.map((r) => r.obj.id);
         }
-        d.moved = d.moved || moved;
-        this._render();
+        d.dx += ddx; d.dy += ddy; d.moved = true;
+        // Pointer-rate work is now just one transform per visible logical
+        // group. Canonical geometry, indexes, tiles, and placement records are
+        // touched once on pointer-up.
+        this.renderer.setDragPreview([...this._selected.keys()], d.dx, d.dy);
+        this.renderer.update();
+        this._emit();
+        this._perf("movePreview", t0, false, { n: records.length });
+    }
+    _logicalKeys() {
+        const out = [], seen = new Set();
+        for (const level of this.doc.levels()) for (const o of this.doc.at(level)) {
+            if (o.erase) continue;
+            const key = this.doc.editKey(o);
+            if (!seen.has(key)) { seen.add(key); out.push(key); }
+        }
+        return out;
+    }
+    _lassoCandidates(screenPoints) {
+        if (!screenPoints || screenPoints.length < 3) return [];
+        const activeLasso = screenPoints.map(([x, y]) => this.cam.screenToFrame(x, y));
+        const out = [];
+        for (const key of this._logicalKeys()) {
+            let rejected = false, sawInk = false;
+            for (const rec of this.doc.editGroup(key)) {
+                const o = rec.obj;
+                // Bring the lasso to the object's bounded home frame instead
+                // of minifying a level-15 detail into a sub-ULP root polygon.
+                // Inverse placement makes this a test against canonical ink.
+                const inverse = (o.placements || []).map((p) => ({
+                    ...p, dx: -(p.dx || 0), dy: -(p.dy || 0),
+                }));
+                const lasso = activeLasso.map((p) =>
+                    this.lm.mapPointPlacedF(p, this.cam.frame, rec.level, inverse));
+                if (lasso.some((p) => !p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]))) {
+                    rejected = true; break;
+                }
+                const xs = lasso.map((p) => p[0]), ys = lasso.map((p) => p[1]);
+                const lb = {
+                    x0: Math.min(...xs), y0: Math.min(...ys),
+                    x1: Math.max(...xs), y1: Math.max(...ys),
+                };
+                const b = bboxOf(o, this.store.live);
+                const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
+                if (b.x0 - m < lb.x0 || b.x1 + m > lb.x1 ||
+                    b.y0 - m < lb.y0 || b.y1 + m > lb.y1) {
+                    rejected = true; break;
+                }
+                const rings = o.type === "fill"
+                    ? o.polys
+                    : polygonizeStrokeInTile(o, {
+                        left: b.x0 - m, top: b.y0 - m,
+                        right: b.x1 + m, bottom: b.y1 + m,
+                    }, {
+                        cfg: this.cfg,
+                        displayScale: this.cfg.enter,
+                        curved: o.origin === "native" && o.pts.length > 2,
+                    });
+                if (!rings.length) { rejected = true; break; }
+                const f = Math.abs(this.lm.frameFactor(rec.level, this.cam.frame) || 0);
+                const eps = 0.5 / Math.max(1e-300, this.cam.inScale * f);
+                if (!ringsFullyInsideLasso(rings, lasso, eps)) {
+                    rejected = true; break;
+                }
+                sawInk = true;
+            }
+            if (!rejected && sawInk) out.push(key);
+        }
+        return out;
+    }
+    _finishLasso(d) {
+        const points = decimatePolyline(d.points, 1.25);
+        if (points.length < 3) {
+            if (!d.ctrl) this.deselect();
+            return;
+        }
+        // Lasso candidates cannot be known safely before baking: an object that
+        // currently extends outside the lasso can be split by pending erase ink
+        // into a newly bounded component inside it. Lasso release is therefore
+        // the same synchronous interaction barrier as a click. Finish pending
+        // gestures first, then evaluate final logical objects exactly once.
+        if (this._eraseStrokes().length) this.flushErases();
+        const keys = this._lassoCandidates(points);
+        if (!d.ctrl) {
+            this._selected.clear();
+            for (const key of keys) {
+                const family = this.doc.editGroup(key);
+                if (family.length) this._selectRecord(family[0]);
+            }
+        } else {
+            const addsSomething = keys.some((key) => !this._selected.has(key));
+            if (addsSomething) {
+                for (const key of keys) {
+                    const family = this.doc.editGroup(key);
+                    if (family.length) this._selectRecord(family[0]);
+                }
+            } else {
+                for (const key of keys) this._selected.delete(key);
+            }
+        }
+        this._syncSelection();
+        this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
     }
     // Restyle the selection. patch: { color?, opacity?, widthPx? } — widthPx is
     // the width ON SCREEN at the current view; it converts through the level
@@ -794,10 +2192,13 @@ export default class KobinEngine {
     // coalesces into ONE undo op per selection session.
     restyleSelection(patch) {
         const s = this.selection; if (!s) return false;
+        const selectionKey = [...this._selected.keys()].sort().join("|");
         const top = this.doc._undo[this.doc._undo.length - 1];
-        const open = this._activeRestyle && this._activeRestyle.editId === s.editId && top === this._activeRestyle.op;
+        const open = this._activeRestyle &&
+            this._activeRestyle.selectionKey === selectionKey &&
+            top === this._activeRestyle.op;
         const changes = [];
-        for (const rec of this.doc.editGroup(s.editId)) {
+        for (const rec of this._selectedRecords()) {
             const p = { ...patch };
             if (p.widthPx != null) {
                 const f = this.lm.frameFactor(rec.level, this.cam.frame);
@@ -821,14 +2222,23 @@ export default class KobinEngine {
         } else {
             const op = { op: "restyleMany", changes };
             this.doc.pushUndo(op);
-            this._activeRestyle = { editId: s.editId, op };
+            this._activeRestyle = { selectionKey, op };
         }
         this._render();
         return true;
     }
     deleteSelection() {
-        const s = this.selection; if (!s) return false;
-        if (!this._eraseWhole(s.id)) return false; // doc event drops the selection
+        if (!this.selection) return false;
+        const keys = [...this._selected.keys()];
+        if (this._flushErasesForKeys(keys)) this._render();
+        const records = [];
+        for (const rec of this._selectedRecords()) {
+            const removed = this.doc.removeById(rec.obj.id);
+            if (removed) records.push(removed);
+        }
+        if (!records.length) return false;
+        this.doc.pushUndo({ op: "eraseMany", records });
+        this._selected.clear(); this._syncSelection();
         this._render();
         return true;
     }
@@ -837,6 +2247,8 @@ export default class KobinEngine {
         const f = this.lm.frameFactor(s.level, this.cam.frame);
         return {
             id: s.id, type: s.obj.type, level: s.level,
+            count: this._selected.size,
+            keys: [...this._selected.keys()],
             color: s.obj.color,
             opacity: s.obj.opacity == null ? 1 : s.obj.opacity,
             widthPx: s.obj.type === "stroke" && f != null ? s.obj.lwFrame * f * this.cam.inScale : null,
@@ -921,6 +2333,8 @@ export default class KobinEngine {
         this.cam.set(d.camera);
         this._eraseCommits.clear();
         this._bakeDone.clear();
+        this._eraseTileMasks.clear();
+        this._eraseSplitScans.clear();
         this._scheduleBake(); // resume baking any eraser strokes the file carried
         this.docMeta = {
             name: d.meta.name,
@@ -957,6 +2371,81 @@ export default class KobinEngine {
             childrenOf: (k, keys) => { const f = this.lm.frameFor(k); const id = f && f.id; return id == null ? [] : keys.filter((x) => this.lm.parentOf(x) === id); },
         };
     }
+    // Scenes operate on logical objects, never persistent erase cells. A
+    // re-home family normally has one canonical root plus local descendants;
+    // that root is sufficient for its global extent. A globally materialized
+    // component has several root cells, so combine their projected chunks into
+    // one synthetic item carrying the logical id. Placement is resolved by the
+    // same expansion-aware projector used by rendering and selection.
+    _sceneLogicalState() {
+        const natives = {};
+        const byId = new Map();
+        for (const key of this._logicalKeys()) {
+            const family = this.doc.editGroup(key).filter((r) => !r.obj.erase);
+            if (!family.length) continue;
+            const familyIds = new Set(family.map((r) => r.obj.id));
+            let roots = family.filter((r) => r.obj.srcId == null || !familyIds.has(r.obj.srcId));
+            if (!roots.length) roots = [family[0]];
+            roots.sort((a, b) => this.lm.depthOf(a.level) - this.lm.depthOf(b.level));
+            const anchor = roots[0].level;
+            const projected = roots.map((r) => {
+                const o = r.obj;
+                const d = o.placements && o.placements.length
+                    ? this.lm.projectPlacedF(o, r.level, anchor)
+                    : this.lm.projectF(o, r.level, anchor);
+                return d && { o: d, source: o };
+            }).filter(Boolean);
+            if (!projected.length) continue;
+
+            let synthetic;
+            if (projected.length === 1) {
+                synthetic = { ...projected[0].o, id: key, paths: [] };
+            } else {
+                const polys = [];
+                for (const { o } of projected) {
+                    if (o.type === "fill") {
+                        for (const ring of o.polys) polys.push(ring);
+                    } else {
+                        const b = bboxOf(o, this.store.live);
+                        const m = (o.lwFrame || 0) / 2;
+                        polys.push([[b.x0 - m, b.y0 - m], [b.x1 + m, b.y0 - m],
+                            [b.x1 + m, b.y1 + m], [b.x0 - m, b.y1 + m]]);
+                    }
+                }
+                synthetic = {
+                    type: "fill", origin: "native", id: key, polys,
+                    color: projected[0].o.color, opacity: projected[0].o.opacity,
+                    paths: [],
+                };
+            }
+
+            const sceneChunks = [];
+            const widths = [];
+            for (const { o } of projected) {
+                const b = bboxOf(o, this.store.live);
+                const w = o.type === "stroke"
+                    ? Math.max(o.lwFrame || 0, 1e-9)
+                    : Math.max(b.x1 - b.x0, b.y1 - b.y0, 1e-9) / WINDOW_WIDTHS;
+                widths.push(w);
+                if (o.type === "stroke") {
+                    for (const c of chunksOf(o)) sceneChunks.push({ ...c });
+                } else {
+                    sceneChunks.push({
+                        x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1,
+                        len: 2 * ((b.x1 - b.x0) + (b.y1 - b.y0)) || w,
+                    });
+                }
+            }
+            synthetic.sceneWidth = Math.max(...widths);
+            synthetic._sceneChunks = sceneChunks;
+            synthetic._sceneChunksPts = synthetic.pts;
+            synthetic._sceneChunksN = synthetic.pts ? synthetic.pts.length : -1;
+            if (!natives[anchor]) natives[anchor] = [];
+            natives[anchor].push(synthetic);
+            byId.set(key, { o: synthetic, level: anchor });
+        }
+        return { natives, byId };
+    }
     // Frame a rect (in `frameKey`'s coords) in the viewport. `frameKey` is a
     // frame id or a legacy depth int; it must exist in the frame tree. The
     // computed inScale may land outside [exit, enter]; _maybeCross normalizes it
@@ -982,11 +2471,12 @@ export default class KobinEngine {
     // The real recompute — gated on per-level ink hashes, so it's free when
     // nothing changed since the last resolve (bible: evaluation schedule).
     refreshScenes() {
+        const logical = this._sceneLogicalState();
         const hashes = {};
         let changed = false;
-        for (const Ls of Object.keys(this.doc.nativesByLevel)) {
-            if (!(this.doc.nativesByLevel[Ls] || []).length) continue;
-            hashes[Ls] = levelHash(this.doc.nativesByLevel, Ls);
+        for (const Ls of Object.keys(logical.natives)) {
+            if (!(logical.natives[Ls] || []).length) continue;
+            hashes[Ls] = levelHash(logical.natives, Ls);
             if (!this._levelHashes || this._levelHashes[Ls] !== hashes[Ls]) changed = true;
         }
         if (this._levelHashes) {
@@ -996,7 +2486,7 @@ export default class KobinEngine {
             return this.docMeta.scenes || [];
         }
         const proj = this._sceneProj();
-        const proposals = computeSceneProposals(this.doc.nativesByLevel, proj);
+        const proposals = computeSceneProposals(logical.natives, proj);
         // Provisional scenes participate in matching so their ids/numbers
         // survive the resolve; unmatched (unpinned) ones drop naturally.
         const state = {
@@ -1071,10 +2561,17 @@ export default class KobinEngine {
         const s = scenes.find((x) => x.id === id);
         if (!s) return null;
         const ids = this._sceneMembers && this._sceneMembers[id];
+        const logical = this._sceneLogicalState();
         const memberObjs = ids && ids.length
-            ? ids.map((i) => this.doc.getById(i)).filter(Boolean).map((r) => ({ o: r.obj, level: r.level }))
-            : this.doc.queryRect(s.level, { left: s.rect.x, top: s.rect.y, right: s.rect.x + s.rect.w, bottom: s.rect.y + s.rect.h })
-                .map((o) => ({ o, level: s.level }));
+            ? ids.map((i) => logical.byId.get(i)).filter(Boolean)
+            : [...logical.byId.values()].filter(({ o, level }) => {
+                const b = bboxOf(o, this.store.live);
+                const r = level === s.level
+                    ? { left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }
+                    : this.lm.mapRectF({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }, level, s.level);
+                return r && r.right >= s.rect.x && r.left <= s.rect.x + s.rect.w &&
+                    r.bottom >= s.rect.y && r.top <= s.rect.y + s.rect.h;
+            });
         const parts = splitMembers(memberObjs, s.level, this._sceneProj());
         if (!parts || parts.length < 2) return null;
         let seq = this.docMeta.sceneSeq || 1;

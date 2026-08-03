@@ -133,6 +133,35 @@ describe("transforms and walks", () => {
         expect(q[0]).toBeCloseTo(p[0], 9);
         expect(q[1]).toBeCloseTo(p[1], 9);
     });
+    test("a shared coarse placement preserves a level-15 detail on a new moved branch", () => {
+        const { M } = mkMap();
+        const rootPoint = [123.25, -47.5];
+        const buildBranch = (start, focus) => {
+            let parent = start, p = focus;
+            for (let depth = 0; depth < 15; depth++) {
+                const panX = 400 - p[0] * 300;
+                const panY = 300 - p[1] * 300;
+                const child = M.ensureChild(parent, 300, panX, panY);
+                p = M.mapPointPlacedF(p, parent, child.id, []);
+                parent = child.id;
+            }
+            return { frame: parent, point: p };
+        };
+        const old = buildBranch("0", rootPoint);
+        const tinyOffset = [0.125, -0.375];
+        const tinyPoint = [old.point[0] + tinyOffset[0], old.point[1] + tinyOffset[1]];
+        const move = { id: "shared", frame: "0", dx: 37, dy: 19 };
+
+        // Zooming into the moved corner creates/reuses frames around the moved
+        // root location, rather than evaluating both objects in the obsolete
+        // far-away branch.
+        const movedRoot = [rootPoint[0] + move.dx, rootPoint[1] + move.dy];
+        const fresh = buildBranch("0", movedRoot);
+        const largeAtFresh = M.mapPointPlacedF(rootPoint, "0", fresh.frame, [move]);
+        const tinyAtFresh = M.mapPointPlacedF(tinyPoint, old.frame, fresh.frame, [move]);
+        expect(tinyAtFresh[0] - largeAtFresh[0]).toBeCloseTo(tinyOffset[0], 8);
+        expect(tinyAtFresh[1] - largeAtFresh[1]).toBeCloseTo(tinyOffset[1], 8);
+    });
 });
 
 describe("serialization (dev-0 crossings shape)", () => {
@@ -147,5 +176,16 @@ describe("serialization (dev-0 crossings shape)", () => {
         M2.load(snap);
         expect(M2.serialize()).toEqual(snap);
         expect(M2.records[-2].t).toEqual({ x: -1, y: 2 }); // negative string keys land as numbers
+    });
+    test("new frame anchors round-trip while legacy records remain loadable", () => {
+        const { M } = mkMap();
+        const child = M.ensureChild("0", 300, -1234.5, 678.25);
+        const snap = JSON.parse(JSON.stringify(M.serialize()));
+        expect(snap[1].anchor).toEqual(child.anchor);
+        const M2 = new LevelMap(M.cfg, 800, 600);
+        M2.load(snap);
+        expect(M2.frame("1").anchor).toEqual(child.anchor);
+        expect(M2.mapPointPlacedF([12.25, -8.5], "0", "1", []))
+            .toEqual(M.mapPointPlacedF([12.25, -8.5], "0", "1", []));
     });
 });

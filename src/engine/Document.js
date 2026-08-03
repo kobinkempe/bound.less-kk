@@ -140,6 +140,7 @@ export default class Document {
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
         o._home = k;
+        if (!(o._rev > 0)) o._rev = 1;
         if (live) this._pending.add(o);
         else this._idx(k).add(o);
         this._emit({ kind: "add", id: o.id, level: k, obj: o, live });
@@ -204,6 +205,7 @@ export default class Document {
         const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
         obj._home = k;
+        if (!(obj._rev > 0)) obj._rev = 1;
         this._idx(k).add(obj);
         this._emit({ kind: "add", id: obj.id, level: k, obj });
     }
@@ -228,6 +230,76 @@ export default class Document {
         if (o.attachRect) shiftRect(o.attachRect);
         this._afterEdit(o, rec.level, oldBbox, o.lwFrame);
         return rec;
+    }
+    // Frame-anchored placement is the precision-safe movement primitive. The
+    // same placement object may be shared by every member of a multiselect;
+    // geometry stays in its bounded home frame and render projection evaluates
+    // the movement only after cancelling against the destination frame.
+    addPlacement(id, placement) {
+        const rec = this.getById(id);
+        if (!rec || !placement) return false;
+        const o = rec.obj;
+        if (!o.placements) o.placements = [];
+        if (o.placements.some((p) => p.id === placement.id)) return false;
+        o.placements.push(placement);
+        this._afterEdit(o, rec.level, this._bboxNow(o), o.lwFrame);
+        return true;
+    }
+    // Add one immutable placement reference to many objects with a single
+    // cache-invalidation event. Geometry and the home-frame spatial index do
+    // not change; emitting one batch avoids O(objects × cached tiles) work.
+    addPlacementMany(ids, placement) {
+        if (!placement) return [];
+        const changed = [];
+        for (const id of ids || []) {
+            const rec = this.getById(id);
+            if (!rec) continue;
+            const o = rec.obj;
+            if (!o.placements) o.placements = [];
+            if (o.placements.some((p) => p.id === placement.id)) continue;
+            o.placements.push(placement);
+            o._rev = (o._rev || 0) + 1;
+            changed.push(id);
+        }
+        if (changed.length) this._emit({
+            kind: "placementBatch", ids: changed, placement, added: true,
+        });
+        return changed;
+    }
+    touchPlacement(id) {
+        const rec = this.getById(id);
+        if (!rec) return false;
+        this._afterEdit(rec.obj, rec.level, this._bboxNow(rec.obj), rec.obj.lwFrame);
+        return true;
+    }
+    removePlacement(id, placementId) {
+        const rec = this.getById(id);
+        if (!rec || !rec.obj.placements) return false;
+        const i = rec.obj.placements.findIndex((p) => p.id === placementId);
+        if (i < 0) return false;
+        rec.obj.placements.splice(i, 1);
+        if (!rec.obj.placements.length) delete rec.obj.placements;
+        this._afterEdit(rec.obj, rec.level, this._bboxNow(rec.obj), rec.obj.lwFrame);
+        return true;
+    }
+    removePlacementMany(ids, placementId) {
+        const changed = [];
+        for (const id of ids || []) {
+            const rec = this.getById(id);
+            if (!rec || !rec.obj.placements) continue;
+            const o = rec.obj;
+            const i = o.placements.findIndex((p) => p.id === placementId);
+            if (i < 0) continue;
+            o.placements.splice(i, 1);
+            if (!o.placements.length) delete o.placements;
+            o._rev = (o._rev || 0) + 1;
+            changed.push(id);
+        }
+        if (changed.length) this._emit({
+            kind: "placementBatch", ids: changed,
+            placementId, added: false,
+        });
+        return changed;
     }
     // patch ⊂ { color, opacity, lwFrame }. Returns { obj, level, before, after }
     // (before/after hold only the touched keys — the undo op's payload).
@@ -254,10 +326,15 @@ export default class Document {
         if (!rec) return null;
         const src = rec.obj;
         const z = src.z != null ? src.z : src.id;
-        const pieces = runs.map((pts) => this.add({
-            type: "stroke", origin: src.origin, id: this.allocId(), z, pts,
-            lwFrame: src.lwFrame, color: src.color, opacity: src.opacity, paths: [],
-        }, rec.level));
+        const pieces = runs.map((pts) => {
+            const obj = {
+                type: "stroke", origin: src.origin, id: this.allocId(), z, pts,
+                lwFrame: src.lwFrame, color: src.color, opacity: src.opacity, paths: [],
+            };
+            if (src.placements && src.placements.length) obj.placements = src.placements.slice();
+            if (src.eraseCell) obj.eraseCell = { ...src.eraseCell };
+            return this.add(obj, rec.level);
+        });
         return { removed: rec, pieces };
     }
     // Replace a native with the region(s) an AREA erase left of its ink. Each
@@ -276,6 +353,7 @@ export default class Document {
                 type: "fill", origin: src.origin, id: this.allocId(), z, polys,
                 color: src.color, opacity: src.opacity, paths: [],
             };
+            if (src.placements && src.placements.length) obj.placements = src.placements.slice();
             // A nested/window-owning patch cannot safely detach without also
             // repartitioning its descendants, so keep that family conservative.
             // Otherwise an attached patch becomes independent as soon as an
@@ -289,6 +367,7 @@ export default class Document {
                 if (src.attachRect) obj.attachRect = { ...src.attachRect };
             }
             if (src.windows && src.windows.length) obj.windows = src.windows.map((w) => ({ ...w }));
+            if (src.eraseCell) obj.eraseCell = { ...src.eraseCell };
             return this.add(obj, rec.level);
         });
         return { removed: rec, pieces };
@@ -302,7 +381,7 @@ export default class Document {
     // the rect it has ceded. The source's own geometry is left untouched, so
     // this is lossless: zoom out and the window falls under the cull, zoom in
     // and the children carry the detail.
-    eraseRehomeById(id, level, regions, window, attachRect) {
+    eraseRehomeById(id, level, regions, window, attachRect, opts = {}) {
         const rec = this.getById(id);
         if (!rec) return null;
         const src = rec.obj;
@@ -314,6 +393,11 @@ export default class Document {
                 type: "fill", origin: src.origin, id: this.allocId(), z, polys,
                 color: src.color, opacity: src.opacity, paths: [],
             };
+            const placements = opts.placements != null
+                ? opts.placements
+                : (opts.inheritPlacement !== false ? src.placements : null);
+            if (placements && placements.length) obj.placements = placements.slice();
+            if (region.cell) obj.eraseCell = { ...region.cell };
             if (region.attached) {
                 obj.editId = editKey;
                 obj.srcId = src.id;
@@ -326,6 +410,50 @@ export default class Document {
             window: { srcId: id, srcLevel: rec.level, rect: window },
             pieces: pieces.map((obj) => ({ obj, level: String(level) })),
         };
+    }
+    // Replace every physical member of one logical family with canonical
+    // tile-cell fills in `level`. Used only after bounded connectivity analysis
+    // has captured the complete family and proved a true global split.
+    eraseMaterializeFamily(ids, level, specs, styleSource) {
+        const removedMany = [];
+        for (const id of ids) {
+            const rec = this.removeById(id);
+            if (rec) removedMany.push(rec);
+        }
+        if (!removedMany.length) return null;
+        const src = styleSource || removedMany[0].obj;
+        const prepared = [], tokenIds = new Map();
+        for (const spec of specs) {
+            const style = spec.style || src;
+            const z = style.z != null ? style.z : style.id;
+            const obj = {
+                type: "fill", origin: style.origin, id: this.allocId(), z,
+                polys: spec.polys, color: style.color, opacity: style.opacity, paths: [],
+            };
+            if (spec.logicalId != null) obj.editId = spec.logicalId;
+            if (spec.attachRect) obj.attachRect = { ...spec.attachRect };
+            if (spec.cell) obj.eraseCell = { ...spec.cell };
+            if (spec.windows && spec.windows.length) {
+                obj.windows = spec.windows.map((w) => ({ ...w }));
+            }
+            if (spec.placements && spec.placements.length) {
+                obj.placements = spec.placements.slice();
+            }
+            const targetLevel = String(spec.level != null ? spec.level : level);
+            prepared.push({ spec, obj, level: targetLevel });
+            if (spec.token != null) tokenIds.set(spec.token, obj.id);
+        }
+        const pieces = [];
+        for (const item of prepared) {
+            const { spec, obj } = item;
+            if (spec.parentToken != null && tokenIds.has(spec.parentToken)) {
+                obj.srcId = tokenIds.get(spec.parentToken);
+            } else if (spec.srcId != null) {
+                obj.srcId = spec.srcId;
+            }
+            pieces.push({ obj: this.add(obj, item.level), level: item.level });
+        }
+        return { removedMany, pieces };
     }
     addWindow(id, rect) {
         const rec = this.getById(id);
@@ -356,6 +484,7 @@ export default class Document {
     }
     _afterEdit(o, level, oldBbox, oldLw) {
         delete o._bbox; delete o._dispFlat; delete o._flat; delete o._outline; // geometry caches are stale
+        o._rev = (o._rev || 0) + 1;
         if (!this._pending.has(o)) { this._idx(level).remove(o); this._idx(level).add(o); }
         this._emit({ kind: "change", id: o.id, level, obj: o, oldBbox, oldLw });
     }
@@ -419,6 +548,14 @@ export default class Document {
                 for (const m of op.moves) this.moveById(m.id, -m.dx, -m.dy);
                 return { op: "moveMany", moves: op.moves.map((m) => ({ id: m.id, dx: -m.dx, dy: -m.dy })) };
             }
+            case "placeMany": {
+                this.removePlacementMany(op.ids, op.placement.id);
+                return { op: "unplaceMany", ids: op.ids, placement: op.placement };
+            }
+            case "unplaceMany": {
+                this.addPlacementMany(op.ids, op.placement);
+                return { op: "placeMany", ids: op.ids, placement: op.placement };
+            }
             case "restyle": {
                 this.restyleById(op.id, op.before);
                 return { op: "restyle", id: op.id, before: op.after, after: op.before };
@@ -467,6 +604,17 @@ export default class Document {
                 // stale replays were how duplicated, stacked geometry formed.
                 for (let i = op.baked.length - 1; i >= 0; i--) {
                     const st = op.baked[i];
+                    if (st.removedMany) {
+                        let took = st.pieces.length === 0;
+                        for (const pc of st.pieces) if (this.removeById(pc.obj.id)) took = true;
+                        if (took) {
+                            for (let j = st.removedMany.length - 1; j >= 0; j--) {
+                                const rec = st.removedMany[j];
+                                if (!this.getById(rec.obj.id)) this.insertAt(rec.obj, rec.level, rec.index);
+                            }
+                        }
+                        continue;
+                    }
                     // Re-homed step: drop the children and hand the ceded rect
                     // back to the source (which was never modified otherwise).
                     if (st.window) {
@@ -493,6 +641,15 @@ export default class Document {
                     this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
                 }
                 for (const st of op.baked) {
+                    if (st.removedMany) {
+                        let took = st.removedMany.length === 0;
+                        for (const rec of st.removedMany) if (this.removeById(rec.obj.id)) took = true;
+                        if (!took && st.pieces.length) continue;
+                        for (const pc of st.pieces) {
+                            if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
+                        }
+                        continue;
+                    }
                     if (st.window) {
                         if (!this.getById(st.window.srcId)) continue; // source consumed since
                         for (const pc of st.pieces) if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
@@ -553,11 +710,20 @@ export default class Document {
                 // Re-homed erases: the rects a source has ceded, and the back
                 // pointer from each child to the source it came out of.
                 if (o.windows && o.windows.length) {
-                    rec.windows = o.windows.map((w) => ({ x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }));
+                    rec.windows = o.windows.map((w) => ({
+                        x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1,
+                        ...(w.seam != null ? { seam: w.seam } : {}),
+                    }));
                 }
                 if (o.srcId != null) rec.srcId = o.srcId;
                 if (o.editId != null) rec.editId = o.editId;
                 if (o.attachRect) rec.attachRect = { ...o.attachRect };
+                if (o.eraseCell) rec.eraseCell = { ...o.eraseCell };
+                if (o.placements && o.placements.length) {
+                    rec.placements = o.placements.map((p) => ({
+                        id: p.id, frame: String(p.frame), dx: p.dx, dy: p.dy,
+                    }));
+                }
                 // Pending eraser strokes (deferred area erase) must survive a
                 // save so baking can resume after a reload.
                 if (o.erase) { rec.erase = true; if (o.bakePx != null) rec.bakePx = o.bakePx; }
@@ -569,9 +735,21 @@ export default class Document {
     loadNatives(snapNatives) {
         if (!snapNatives) return false;
         const natives = {};
+        const placements = new Map();
         let maxId = 0;
         for (const l of Object.keys(snapNatives)) {
-            natives[l] = snapNatives[l].map((o) => ({ ...o, paths: [] }));
+            natives[l] = snapNatives[l].map((o) => {
+                const copy = { ...o, paths: [] };
+                if (o.placements && o.placements.length) {
+                    copy.placements = o.placements.map((p) => {
+                        const key = `${typeof p.id}:${p.id}`;
+                        let shared = placements.get(key);
+                        if (!shared) { shared = { ...p, frame: String(p.frame) }; placements.set(key, shared); }
+                        return shared;
+                    });
+                }
+                return copy;
+            });
             for (const o of natives[l]) if (o.id >= maxId) maxId = o.id;
         }
         this._nextId = Math.max(this._nextId, maxId + 1); // never reuse an id

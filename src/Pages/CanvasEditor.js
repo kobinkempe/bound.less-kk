@@ -1047,9 +1047,6 @@ export default function CanvasEditor() {
             {engine.status.selection && (
                 <SelectionEditPanel
                     selection={engine.status.selection}
-                    onColor={(c) => engine.restyleSelection({ color: c })}
-                    onWidth={(v) => engine.restyleSelection({ widthPx: v })}
-                    onOpacity={(v) => engine.restyleSelection({ opacity: v })}
                     onDelete={engine.deleteSelection}
                     onDone={engine.deselect}
                 />

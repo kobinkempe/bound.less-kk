@@ -18,19 +18,30 @@ fs.mkdirSync(DIR, { recursive: true });
 http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "content-type");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-    if (req.method === "GET" && req.url === "/latest") {
-        // newest report, so the dev box can pull a device's state into its own page
+    if (req.method === "GET" && (req.url === "/latest" || req.url.startsWith("/report/"))) {
+        // Newest report, or one explicitly named report for regression
+        // reconstruction. Keep the named route basename-only: this endpoint
+        // must never become an arbitrary filesystem reader.
         const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".json")).sort();
         if (!files.length) { res.writeHead(404); res.end("no reports"); return; }
+        let selected = files[files.length - 1];
+        if (req.url.startsWith("/report/")) {
+            let requested = "";
+            try { requested = decodeURIComponent(req.url.slice("/report/".length)); } catch (e) { /* bad encoding */ }
+            if (!requested || path.basename(requested) !== requested || !files.includes(requested)) {
+                res.writeHead(404); res.end("report not found"); return;
+            }
+            selected = requested;
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(fs.readFileSync(path.join(DIR, files[files.length - 1])));
+        res.end(fs.readFileSync(path.join(DIR, selected)));
         return;
     }
     if (req.method !== "POST") {
         res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("kobin report server: POST a JSON report here; GET /latest for the newest report");
+        res.end("kobin report server: POST a JSON report here; GET /latest or /report/<filename>");
         return;
     }
     let body = "";

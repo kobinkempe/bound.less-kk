@@ -72,6 +72,8 @@ export default class Renderer {
         this.tileDebugGroup = this.two.makeGroup();
         this.selGroup = this.two.makeGroup(); // selection highlight (screen space, above everything)
         this._selRectFn = null;               // () -> { level, rect } | null
+        this._dragPreview = null;
+        this._previewedGroups = new Map();
         this._groups = new Map();   // id -> { group, sig, z, pieces, fadeTag }
         this._order = [];           // ids sorted by (z, id) — z defaults to id;
                                     // cut pieces inherit their source's z so they
@@ -219,7 +221,14 @@ export default class Renderer {
                 entry.group.remove(entry.group.children);
             }
             entry.pieces = pieces; entry.sig = sig; entry.fadeTag = rep.fadeTag;
-            for (const o of pieces) this._buildInto(entry.group, o, vw);
+            // Build every fill fragment in a logical family as ONE compound
+            // path. Adjacent tile cells are then rasterized as one nonzero
+            // fill instead of separate antialiased SVG edges; persistent
+            // overscan remains a safety margin, but no tile line can emerge
+            // merely because two child paths were composited separately.
+            const fills = pieces.filter((o) => o.type === "fill");
+            if (fills.length) this._buildFillPiecesInto(entry.group, fills);
+            for (const o of pieces) if (o.type !== "fill") this._buildInto(entry.group, o, vw);
             this._applyOpacity(entry, rep);
         }
         for (const [id, entry] of this._groups) {
@@ -368,11 +377,12 @@ export default class Renderer {
     // pieces without changing any count, and a count-only signature would leave
     // stale paths on screen. First+last vertex anchor the signature cheaply.
     _sig(o, vw) {
+        const rev = "r" + (o._rev || 0) + ":";
         // opacity is in the signature because in non-group mode it's painted on
         // the PATH — a restyle would otherwise leave stale paths behind.
         if (o.type === "fill") {
             const f0 = o.polys[0][0], ln = o.polys[o.polys.length - 1], l0 = ln[ln.length - 1];
-            return "f" + o.id + ":" + o.polys.length + ":" + o.polys.reduce((s, p) => s + p.length, 0)
+            return rev + "f" + o.id + ":" + o.polys.length + ":" + o.polys.reduce((s, p) => s + p.length, 0)
                 + ":" + f0[0].toFixed(2) + "," + f0[1].toFixed(2) + ":" + l0[0].toFixed(2) + "," + l0[1].toFixed(2) + ":" + o.color + ":" + o.opacity;
         }
         const a = o.pts[0], z = o.pts[o.pts.length - 1];
@@ -389,11 +399,11 @@ export default class Renderer {
             const sm = this._strokeMode(o);
             const m = sm === "outline" ? "O"
                 : (sm === "pending" && o.lwFrame * this.cam.inScale > this._gatePx() ? "F" : "s");
-            return m + o.id + ":" + o.pts.length + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + o.color + ":" + o.opacity;
+            return rev + m + o.id + ":" + o.pts.length + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + o.color + ":" + o.opacity;
         }
         // window-dependent bake: quantize the window so small pans inside the pad reuse
         const q = (v) => Math.round(v / (Math.max(1, (vw.right - vw.left)) * 0.1));
-        return "F" + o.id + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + q(vw.left) + "," + q(vw.top) + "," + q(vw.right) + "," + q(vw.bottom) + ":" + o.color + ":" + o.opacity;
+        return rev + "F" + o.id + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + q(vw.left) + "," + q(vw.top) + "," + q(vw.right) + "," + q(vw.bottom) + ":" + o.color + ":" + o.opacity;
     }
 
     _buildInto(group, o, vw) {
@@ -421,23 +431,7 @@ export default class Renderer {
         if (o.type === "fill") polys = o.polys;
         else if (this.outlineMode) polys = this._fatPolys(o, vw, curved);
         if (polys) {
-            const og = this._origin();
-            const verts = [];
-            for (const poly of polys) {
-                if (poly.length < 2) continue;
-                for (let i = 0; i < poly.length; i++) {
-                    const a = new Two.Anchor(poly[i][0] - og.x, poly[i][1] - og.y);
-                    a.command = i === 0 ? Two.Commands.move : Two.Commands.line;
-                    verts.push(a);
-                }
-            }
-            if (verts.length) {
-                const pOp = this.opacityGroups ? 1 : (o.opacity == null ? 1 : o.opacity);
-                const path = new Two.Path(verts, true, false, true);
-                path.fill = o.color; path.noStroke(); path.opacity = pOp;
-                if (this.debug) { path.stroke = "red"; path.linewidth = 1 / this.cam.inScale; }
-                group.add(path);
-            }
+            this._buildFillPiecesInto(group, [{ ...o, polys }]);
         } else if (o.type !== "fill") {
             const og = this._origin();
             const pOp = this.opacityGroups ? 1 : (o.opacity == null ? 1 : o.opacity);
@@ -445,6 +439,28 @@ export default class Renderer {
             path.noFill(); path.stroke = o.color; path.linewidth = o.lwFrame; path.cap = "round"; path.join = "round"; path.opacity = pOp;
             group.add(path);
         }
+    }
+    _buildFillPiecesInto(group, pieces) {
+        if (!pieces || !pieces.length) return;
+        const og = this._origin();
+        const verts = [];
+        for (const o of pieces) {
+            for (const poly of o.polys || []) {
+                if (poly.length < 2) continue;
+                for (let i = 0; i < poly.length; i++) {
+                    const a = new Two.Anchor(poly[i][0] - og.x, poly[i][1] - og.y);
+                    a.command = i === 0 ? Two.Commands.move : Two.Commands.line;
+                    verts.push(a);
+                }
+            }
+        }
+        if (!verts.length) return;
+        const rep = pieces[0];
+        const pOp = this.opacityGroups ? 1 : (rep.opacity == null ? 1 : rep.opacity);
+        const path = new Two.Path(verts, true, false, true);
+        path.fill = rep.color; path.noStroke(); path.opacity = pOp;
+        if (this.debug) { path.stroke = "red"; path.linewidth = 1 / this.cam.inScale; }
+        group.add(path);
     }
 
     // Fat strokes as filled curve-capsule outlines (geometry/curveOutline.js):
@@ -608,18 +624,63 @@ export default class Renderer {
     // corners walk the record chain like the tile-debug overlay — and refreshed
     // on every world sync, so it tracks pans/zooms and drag-moves for free.
     setSelection(fn) { this._selRectFn = fn; this._renderSelection(); }
+    setDragPreview(keys, dx, dy) {
+        const wanted = new Set(keys || []);
+        this._dragPreview = { keys: wanted, dx, dy };
+        for (const [id, entry] of this._groups) {
+            if (!wanted.has(id)) {
+                const old = this._previewedGroups.get(entry.group);
+                if (old) {
+                    entry.group.translation.x = old[0];
+                    entry.group.translation.y = old[1];
+                    this._previewedGroups.delete(entry.group);
+                }
+                continue;
+            }
+            if (!this._previewedGroups.has(entry.group)) {
+                this._previewedGroups.set(entry.group, [
+                    entry.group.translation.x,
+                    entry.group.translation.y,
+                ]);
+            }
+            const old = this._previewedGroups.get(entry.group);
+            entry.group.translation.x = old[0] + dx;
+            entry.group.translation.y = old[1] + dy;
+        }
+        this._renderSelection();
+    }
+    clearDragPreview() {
+        for (const [group, old] of this._previewedGroups) {
+            group.translation.x = old[0];
+            group.translation.y = old[1];
+        }
+        this._previewedGroups.clear();
+        this._dragPreview = null;
+        this._renderSelection();
+    }
     _renderSelection() {
         this.selGroup.remove(this.selGroup.children);
         const sel = this._selRectFn && this._selRectFn();
         if (!sel) return;
-        const { level, rect } = sel;
-        const c = [[rect.left, rect.top], [rect.right, rect.top], [rect.right, rect.bottom], [rect.left, rect.bottom]]
-            .map(([x, y]) => this.cam.levelPointToScreen(level, x, y));
-        if (c.some((p) => !p)) return;
-        const path = new Two.Path(c.map(([x, y]) => new Two.Anchor(x, y)), true, false);
-        path.noFill(); path.stroke = "#4f46e5"; path.linewidth = 1.5; path.opacity = 0.9;
-        if (path.dashes) { path.dashes.length = 0; path.dashes.push(6, 4); }
-        this.selGroup.add(path);
+        const rects = sel.rects || (sel.rect ? [sel] : []);
+        for (const { level, rect } of rects) {
+            const c = [[rect.left, rect.top], [rect.right, rect.top], [rect.right, rect.bottom], [rect.left, rect.bottom]]
+                .map(([x, y]) => this.cam.levelPointToScreen(level, x, y));
+            if (c.some((p) => !p)) continue;
+            const path = new Two.Path(c.map(([x, y]) => new Two.Anchor(x, y)), true, false);
+            path.noFill(); path.stroke = "#4f46e5"; path.linewidth = 1.5; path.opacity = 0.9;
+            if (path.dashes) { path.dashes.length = 0; path.dashes.push(6, 4); }
+            this.selGroup.add(path);
+        }
+        if (sel.lasso && sel.lasso.points && sel.lasso.points.length > 1) {
+            const path = new Two.Path(
+                sel.lasso.points.map(([x, y]) => new Two.Anchor(x, y)),
+                !!sel.lasso.closed, false);
+            path.fill = sel.lasso.closed ? "rgba(79,70,229,0.08)" : "transparent";
+            path.stroke = "#4f46e5"; path.linewidth = 1.75; path.opacity = 0.95;
+            if (path.dashes) { path.dashes.length = 0; path.dashes.push(5, 3); }
+            this.selGroup.add(path);
+        }
     }
 
     setOpacityGroups(v) { this.opacityGroups = v; }
@@ -631,6 +692,7 @@ export default class Renderer {
     setDebug(v) { this.debug = v; }
     setTileDebug(v, fn) { this.tileDebug = v; this._tileRectsFn = fn || this._tileRectsFn; if (!v) this.tileDebugGroup.remove(this.tileDebugGroup.children); }
     clear() {
+        this.clearDragPreview();
         for (const sc of this._scenes.values()) {
             for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
             if (sc.root.parent) sc.root.parent.remove(sc.root);
