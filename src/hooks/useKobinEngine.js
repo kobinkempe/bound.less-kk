@@ -3,6 +3,8 @@ import KobinEngine from "../engine/KobinEngine";
 import { formatScaleNumber } from "../engine/scaleBar";
 import { packSlot, unpackSlot } from "../storage/localCanvases";
 
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
 export const AUTOSAVE_KEY = "kobinAutosave";
 
 const DEFAULT_STATUS = { level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0 };
@@ -16,6 +18,22 @@ const DEFAULT_STATUS = { level: 0, inScale: 1, effectiveZoom: 1, nearCross: fals
  * `onAutosave(doc)` fires after each successful local autosave — CanvasEditor
  * uses it to mark the canvas cloud-dirty and freshen the gallery index.
  */
+// The ctrl cursor: the normal arrow with a badge saying what the click will do.
+// Drawn rather than borrowed because no standard cursor keyword means "add to
+// selection", and `copy` (the closest) shows a plus that means duplicate.
+// #c8603f is the terracotta the selection indicator uses, taken from the design
+// file so the badge and the ants are visibly the same colour.
+const signCursor = (plus) => {
+    const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'>"
+        + "<path d='M4,2 L4,20 L9,15.5 L12.5,23 L15.5,21.6 L12.2,14.5 L18.5,14.2 Z' "
+        + "fill='#fff' stroke='#2b2320' stroke-width='1.4' stroke-linejoin='round'/>"
+        + "<circle cx='20' cy='20' r='7' fill='#c8603f' stroke='#fff' stroke-width='1.5'/>"
+        + "<path d='" + (plus ? "M20,16.7 L20,23.3 M16.7,20 L23.3,20" : "M16.7,20 L23.3,20")
+        + "' stroke='#fff' stroke-width='1.9' stroke-linecap='round'/></svg>";
+    return "url(\"data:image/svg+xml," + encodeURIComponent(svg) + "\") 4 2, default";
+};
+const SIGN_CURSOR = { "+": signCursor(true), "-": signCursor(false) };
+
 export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
@@ -35,13 +53,22 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     const [opGroups, setOpGroups] = useState(true);
     const [outline, setOutline] = useState(false);
     const [preBake, setPreBake] = useState(true);
+    const [trace, setTrace] = useState(false);   // dev: log every op (see KobinEngine.setTrace)
+    // "+" or "-" while ctrl is held with the select tool, or null. It says what
+    // the next ctrl-click will DO, so it has to be answered by hit-testing the
+    // point rather than by the modifier alone.
+    const [ctrlSign, setCtrlSign] = useState(null);
     const [lazyFat, setLazyFat] = useState(true);
     const [retainScenes, setRetainScenes] = useState(true);
     const [debug, setDebug] = useState(false);
     const [kdebug, setKdebug] = useState(false);
     const [tiledebug, setTiledebug] = useState(false);
+    const [erasedebug, setErasedebug] = useState(false);
     const [status, setStatus] = useState(DEFAULT_STATUS);
     const [reportLabel, setReportLabel] = useState("Report");
+    // Set when an autosave throws. The work is not being persisted, and that
+    // has to be visible somewhere other than the console.
+    const [saveError, setSaveError] = useState(null);
 
     const patchDocMeta = useCallback((patch) => {
         const E = engineRef.current;
@@ -86,16 +113,99 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         setEngineReady(true);
 
         let dirty = false;
-        const unsubDirty = engine.doc.subscribe(() => { dirty = true; });
-        const save = () => {
+        // A monotonic counter over document changes. `dirty` alone cannot tell
+        // "there is work to do" from "the same work that just failed".
+        let docSeq = 0;
+        const unsubDirty = engine.doc.subscribe(() => { dirty = true; docSeq += 1; });
+
+        // AUTOSAVE FAILURE HANDLING (2026-08-25).
+        //
+        // `dirty = false` used to sit AFTER the localStorage write, so a throw
+        // left it set and the 4 s interval re-ran the identical doomed work for
+        // ever. Measured on a 4.1 MB document: ~960 ms of main-thread JS every
+        // 4 s, 249 long frames, 69 s blocked out of a 118 s session, and the
+        // heap climbing 151 -> 529 MB. It read as "zooming is laggy" because
+        // zooming keeps dirtying the document, so the interval always found
+        // work -- the interval was the only thing that was actually periodic.
+        //
+        // It was also INVISIBLE: notePerf sat after the write too, so a failing
+        // save left no entry at all, and reports showed an anonymous
+        // requestIdleCallback burning a second. Both paths are timed now.
+        let failedSeq = -1;      // docSeq at the last failure
+        let failCount = 0;
+        let skipUntil = 0;
+        const isQuota = (err) => !!err && (
+            err.name === "QuotaExceededError"
+            || err.name === "NS_ERROR_DOM_QUOTA_REACHED"
+            || err.code === 22 || err.code === 1014);
+
+        const save = (force = false) => {
             if (!persistRef.current) return;
+            if (!force) {
+                // The document has not changed since the attempt that failed,
+                // so the same bytes would fail the same way -- and finding that
+                // out costs a second of main thread. Skip without serializing.
+                if (failedSeq === docSeq) return;
+                // Still backing off from a recent failure.
+                if (now() < skipUntil) return;
+            }
+            let json = null, packed = null;
+            let tStr = 0, tPack = 0, tPut = 0;
+            const tSer = now();
             try {
+                // TIMED in three parts, because "the save is slow" is not
+                // actionable and these three have wildly different costs:
+                // serializing walks every object, lz-string compression is
+                // CPU-bound (~100 ms measured on a 195 KB document), and the
+                // localStorage write is a synchronous disk hit.
                 const doc = engine.serializeDrawing();
-                localStorage.setItem(storageKey, packSlot(JSON.stringify(doc)));
+                tStr = now();
+                json = JSON.stringify(doc);
+                tPack = now();
+                packed = packSlot(json);
+                tPut = now();
+                localStorage.setItem(storageKey, packed);
+                const tEnd = now();
+                engine.notePerf?.("autosave", tSer, {
+                    ok: 1, chars: json.length, packed: packed.length,
+                    serMs: +(tStr - tSer).toFixed(1),
+                    jsonMs: +(tPack - tStr).toFixed(1),
+                    packMs: +(tPut - tPack).toFixed(1),
+                    putMs: +(tEnd - tPut).toFixed(1),
+                });
+                failedSeq = -1; failCount = 0; skipUntil = 0;
                 dirty = false;
+                setSaveError(null);
                 onAutosaveRef.current?.(doc);
             } catch (err) {
-                console.warn("kobin autosave failed (storage quota?)", err);
+                const quota = isQuota(err);
+                // `dirty` deliberately stays set: the work really is unsaved,
+                // and a later change (or an unload) should still try. What must
+                // not happen is retrying THIS state on the next tick.
+                failedSeq = docSeq;
+                failCount = Math.min(failCount + 1, 6);
+                skipUntil = now() + 4000 * Math.pow(2, failCount);   // 8s -> 256s
+                engine.notePerf?.("autosaveFail", tSer, {
+                    ok: 0, quota: quota ? 1 : 0,
+                    err: String((err && err.name) || err).slice(0, 60),
+                    chars: json ? json.length : 0,
+                    packed: packed ? packed.length : 0,
+                    serMs: +((tStr || now()) - tSer).toFixed(1),
+                    jsonMs: tPack ? +(tPack - tStr).toFixed(1) : 0,
+                    packMs: tPut ? +(tPut - tPack).toFixed(1) : 0,
+                    backoffS: Math.round((skipUntil - now()) / 1000),
+                });
+                // Reports carry `errors`, and a save that never lands is
+                // exactly the kind of thing a report should be showing.
+                errsRef.current.push({ t: Date.now(),
+                    msg: "autosave failed" + (quota ? " (storage full)" : "")
+                        + ": " + String((err && err.message) || err).slice(0, 120) });
+                if (errsRef.current.length > 50) errsRef.current.shift();
+                setSaveError({ quota, at: Date.now(),
+                    message: quota
+                        ? "Storage is full - changes are not being saved."
+                        : "Autosave failed - changes are not being saved." });
+                console.warn("kobin autosave failed" + (quota ? " (storage full)" : ""), err);
             }
         };
         const idleSave = () => {
@@ -104,7 +214,10 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             idle(() => { if (dirty) save(); });
         };
         const saveTimer = setInterval(idleSave, 4000);
-        window.addEventListener("beforeunload", save);
+        // Last chance on the way out: ignore the backoff. It may be the only
+        // attempt left, and a tab close is not a hot loop.
+        const saveOnUnload = () => save(true);
+        window.addEventListener("beforeunload", saveOnUnload);
 
         const onErr = (e) => {
             errsRef.current.push({ t: Date.now(), msg: String((e && (e.message || e.reason)) || e) });
@@ -130,7 +243,12 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             pointers.set(e.pointerId, p);
             if (pointers.size === 1) {
                 ignoreId = null;
-                engine.pointerDown(p[0], p[1]);
+                // Ctrl reaches the engine, which has always implemented
+                // add/remove on it — `_pointerDown` toggles the object under
+                // the pointer, and a ctrl lasso adds (or subtracts, when drawn
+                // wholly inside the selection). The flag was simply never
+                // passed, so none of that was reachable from the UI.
+                engine.pointerDown(p[0], p[1], e.ctrlKey || e.metaKey);
             } else if (pointers.size === 2) {
                 if (engine._drawing && Date.now() - engine._drawStartT < 400) engine.cancelStroke();
                 else engine.pointerUp();
@@ -199,8 +317,8 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             clearTimeout(resizeT);
             clearTimeout(th.timer);
             unsubDirty();
-            save();
-            window.removeEventListener("beforeunload", save);
+            save(true);   // last chance before this engine goes away — no backoff
+            window.removeEventListener("beforeunload", saveOnUnload);
             window.removeEventListener("error", onErr);
             window.removeEventListener("unhandledrejection", onErr);
             host.removeEventListener("pointerdown", down);
@@ -227,11 +345,13 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     useEffect(() => { engineRef.current && engineRef.current.setOpacityGroups(opGroups); }, [opGroups]);
     useEffect(() => { engineRef.current && engineRef.current.setOutlineMode(outline); }, [outline]);
     useEffect(() => { engineRef.current && engineRef.current.setPreBake(preBake); }, [preBake]);
+    useEffect(() => { engineRef.current && engineRef.current.setTrace(trace); }, [trace]);
     useEffect(() => { engineRef.current && engineRef.current.setLazyOutlines(lazyFat); }, [lazyFat]);
     useEffect(() => { engineRef.current && engineRef.current.setRetainScenes(retainScenes); }, [retainScenes]);
     useEffect(() => { engineRef.current && engineRef.current.setDebug(debug); }, [debug]);
     useEffect(() => { engineRef.current && engineRef.current.setKDebug(kdebug); }, [kdebug]);
     useEffect(() => { engineRef.current && engineRef.current.setTileDebug(tiledebug); }, [tiledebug]);
+    useEffect(() => { engineRef.current && engineRef.current.setEraseDebug(erasedebug); }, [erasedebug]);
 
     const pickPen = (type) => { setPenType(type); setTool("pen"); };
     const E = () => engineRef.current;
@@ -252,9 +372,38 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
                     tiles: Object.fromEntries(Object.entries(eng.tiles).map(([l, m]) => [l, m.size])),
                     rendered: (eng.levelObjects[eng.activeLevel] || []).length,
                 },
-                flags: { opacityGroups: eng.opacityGroups, outlineMode: eng.outlineMode, hasFat: eng._hasFat },
+                flags: { opacityGroups: eng.opacityGroups, outlineMode: eng.outlineMode, hasFat: eng._hasFat, retainScenes: !!eng.retainScenes, preBake: !!eng.preBake, trace: !!eng.trace },
                 perf: eng.perfLog,
+                // What no JS timer can see: the gap between animation frames, which is
+                // the number the user actually feels. Buckets plus the worst few frames,
+                // wall-clock stamped so a bad frame lines up against `perf` and `journal`.
+                frames: eng.frameMeter ? eng.frameMeter.report() : null,
+                // Chrome's own account of every slow frame: script vs style-and-layout
+                // vs everything left over (paint/raster/composite), with the slowest
+                // scripts named. This is what the frame meter could never tell us.
+                longFrames: eng.longFrames ? eng.longFrames.report() : null,
+                // Does the SESSION accumulate? A refresh cures the slowness, so the
+                // suspect is heap/cache growth rather than the drawing or the machine.
+                growth: eng.growth ? eng.growth.report() : null,
+                // input -> pixels, in three phases. The third (presentMs) is the only
+                // measure that reaches past the main thread to the compositor.
+                eventLatency: eng.eventLatency ? eng.eventLatency.report() : null,
+                // Zoom and pan steps are far too frequent to log one by one (300-entry
+                // cap); this is their distribution instead, including how many crossed
+                // 8, 16 and 50 ms. Two reports came back with no zoom entries at all
+                // because every step sat under the log threshold.
+                fast: eng.fastStats ? eng.fastStats() : null,
                 errors: errsRef.current,
+                // WHAT WAS DONE, not just what is left — see CanvasV2's copy.
+                journal: eng.journal,
+                families: eng.reportFamilies(),
+                counters: {
+                    dustCulled: eng._dustCulled || 0,
+                    boolSeals: eng._boolFailures || 0,
+                    bakeRepairs: eng._bakeRepairs || 0,
+                    lastSeal: eng._lastBoolFailure || null,
+                    lastBakeRepair: eng._lastBakeRepair || null,
+                },
                 snapshot: eng.snapshot(),
             };
             const r = await fetch(`http://${window.location.hostname}:3001/report`, {
@@ -318,9 +467,47 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         URL.revokeObjectURL(a.href);
     };
 
+    // Ctrl's meaning, shown on the cursor. Only wired while the select tool is
+    // active: the modifier does nothing for the other tools, and hit-testing on
+    // every pointer move for a cursor nobody will see is pure cost.
+    useEffect(() => {
+        if (tool !== "select") { setCtrlSign(null); return undefined; }
+        const host = hostRef.current;
+        if (!host) return undefined;
+        let pt = null;
+        const signAt = () => {
+            const E = engineRef.current;
+            if (!E || !pt) return "+";
+            const id = E.hitTestAt(pt[0], pt[1]);
+            const sel = E.selection;
+            return id != null && sel && sel.ids.indexOf(id) >= 0 ? "-" : "+";
+        };
+        const onMove = (e) => {
+            const r = host.getBoundingClientRect();
+            pt = [e.clientX - r.left, e.clientY - r.top];
+            setCtrlSign((e.ctrlKey || e.metaKey) ? signAt() : null);
+        };
+        const onDown = (e) => { if (e.ctrlKey || e.metaKey) setCtrlSign(signAt()); };
+        const onUp = (e) => { if (!(e.ctrlKey || e.metaKey)) setCtrlSign(null); };
+        // Blur matters: alt-tabbing away with ctrl down never delivers the
+        // keyup, and the cursor would stay wrong until the next press.
+        const clear = () => setCtrlSign(null);
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("keydown", onDown);
+        window.addEventListener("keyup", onUp);
+        window.addEventListener("blur", clear);
+        return () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("keydown", onDown);
+            window.removeEventListener("keyup", onUp);
+            window.removeEventListener("blur", clear);
+        };
+    }, [tool, hostRef, engineRef]);
+
     const cursor = tool === "pan" ? "grab"
         : (tool === "erase" || tool === "erasePartial") ? "cell"
-        : tool === "select" ? "default" : "crosshair";
+        : tool === "select" ? (ctrlSign ? SIGN_CURSOR[ctrlSign] : "default")
+        : "crosshair";
 
     return {
         hostRef,
@@ -335,12 +522,15 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         opGroups, setOpGroups,
         outline, setOutline,
         preBake, setPreBake,
+        trace, setTrace,
         lazyFat, setLazyFat,
         retainScenes, setRetainScenes,
         debug, setDebug,
         kdebug, setKdebug,
         tiledebug, setTiledebug,
+        erasedebug, setErasedebug,
         status,
+        saveError,
         reportLabel,
         pickPen,
         sendReport,

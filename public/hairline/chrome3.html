@@ -1,0 +1,28 @@
+<meta charset="utf-8">
+<title>hairline A/B</title>
+<style>
+ body{margin:0;padding:8px;background:#fff;font:11px ui-monospace,monospace}
+ .lab{color:#000;margin:6px 0 1px}
+ svg{display:block;border:1px solid #bbb}
+</style>
+<div id="w"></div>
+<script>
+// Geometry identical to the first grid (same cell size and amplitude), so the
+// only thing changing between rows is the SVG coordinate scale.
+const CW = 240, CH = 56, PAD = 8, NSEG = 90, T = 0.165;
+function sliverD(w, K) {
+  const len = (CW-2*PAD)/K, x0 = PAD/K, y = (CH/2)/K, amp = (CH*0.26)/K, h = w/2;
+  const top=[], bot=[];
+  for (let i=0;i<=NSEG;i++){ const t=i/NSEG, X=x0+t*len, yy=y+amp*Math.sin(t*Math.PI*2);
+    const m=amp*Math.cos(t*Math.PI*2)*Math.PI*2/len, q=Math.hypot(1,m);
+    top.push([X-(m/q)*h, yy+(1/q)*h]); bot.push([X+(m/q)*h, yy-(1/q)*h]); }
+  const seg=(p)=>{let s="";for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],dx=(b[0]-a[0])/3;
+    s+="C"+(a[0]+dx)+","+a[1]+" "+(b[0]-dx)+","+b[1]+" "+b[0]+","+b[1]+" ";}return s;};
+  return "M"+top[0][0]+","+top[0][1]+" "+seg(top)+"L"+bot[NSEG][0]+","+bot[NSEG][1]+" "+seg(bot.slice().reverse())+"Z";
+}
+document.getElementById("w").innerHTML = [1, 8, 50, 400].map((K) =>
+  '<div class="lab">K='+K+'  path width='+(T/K).toPrecision(3)+'  (on-screen '+T+' px in every row)</div>'
+  + '<svg width="'+CW+'" height="'+CH+'"><g transform="matrix('+K+',0,0,'+K+',0,0)">'
+  + '<path d="'+sliverD(T/K, K)+'" fill="#000"/></g></svg>').join("");
+document.title = "ready3";
+</script>

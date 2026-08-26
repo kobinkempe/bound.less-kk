@@ -1,0 +1,92 @@
+<meta charset="utf-8">
+<title>hairline: same on-screen size, different SVG coordinate sizes</title>
+<style>
+ body{margin:0;padding:14px;background:#fff;color:#111;font:12px ui-monospace,monospace}
+ h1{font-size:14px;margin:0 0 4px} .meta{color:#666;margin-bottom:10px}
+ table{border-collapse:collapse} td,th{padding:2px 4px;text-align:center;font-size:11px}
+ th{color:#444;font-weight:600}
+ .cell{border:1px solid #ddd;background:#fff}
+ svg{display:block}
+ .num{color:#0a0;font-size:10px}
+ .num.bad{color:#c00;font-weight:700}
+</style>
+<h1>Same on-screen thickness across each row. SVG coordinates shrink left&rarr;right; the group transform grows to compensate.</h1>
+<div class="meta" id="meta"></div>
+<table id="t"></table>
+<script>
+const CW = 250, CH = 54, PAD = 8;          // cell size in CSS px
+const TS = [0.60, 0.35, 0.25, 0.20, 0.165, 0.10];   // on-screen thickness (px)
+const KS = [1, 8, 50, 400, 3200];                    // transform multiplier
+const NSEG = 90;
+
+// A filled sliver following a gentle S — this is what bound.less paints
+// (Renderer._buildOutlineInto: fill, noStroke), not an SVG stroke.
+function sliverD(w, K) {
+  const len = (CW - 2 * PAD) / K, x0 = PAD / K, y = (CH / 2) / K, amp = (CH * 0.26) / K, h = w / 2;
+  const top = [], bot = [];
+  for (let i = 0; i <= NSEG; i++) {
+    const t = i / NSEG, X = x0 + t * len, yy = y + amp * Math.sin(t * Math.PI * 2);
+    const m = amp * Math.cos(t * Math.PI * 2) * Math.PI * 2 / len, q = Math.hypot(1, m);
+    top.push([X - (m / q) * h, yy + (1 / q) * h]);
+    bot.push([X + (m / q) * h, yy - (1 / q) * h]);
+  }
+  const seg = (p) => { let s = "";
+    for (let i = 1; i < p.length; i++) { const a = p[i-1], b = p[i], dx = (b[0]-a[0])/3;
+      s += "C" + (a[0]+dx) + "," + a[1] + " " + (b[0]-dx) + "," + b[1] + " " + b[0] + "," + b[1] + " "; }
+    return s; };
+  return "M" + top[0][0] + "," + top[0][1] + " " + seg(top)
+    + "L" + bot[NSEG][0] + "," + bot[NSEG][1] + " " + seg(bot.slice().reverse()) + "Z";
+}
+function cellSVG(T, K) {
+  const w = T / K;
+  return '<svg class="cell" width="' + CW + '" height="' + CH + '">'
+    + '<g transform="matrix(' + K + ',0,0,' + K + ',0,0)">'
+    + '<path d="' + sliverD(w, K) + '" fill="#000"/></g></svg>';
+}
+
+// build the LIVE grid
+let html = "<tr><th></th>" + KS.map((k) => "<th>K = " + k + "</th>").join("") + "</tr>";
+for (const T of TS) {
+  html += '<tr><th>' + T.toFixed(3) + ' px</th>';
+  for (const K of KS) html += '<td>' + cellSVG(T, K) + '<div class="num" id="n_' + T + '_' + K + '">…</div></td>';
+  html += "</tr>";
+}
+document.getElementById("t").innerHTML = html;
+document.getElementById("meta").textContent =
+  "dpr=" + devicePixelRatio + "   " + navigator.userAgent;
+
+// canvas cross-check (CPU rasterization of the same markup) so we can tell
+// live compositing apart from re-rasterization
+const cv = document.createElement("canvas"); cv.width = CW; cv.height = CH;
+const cx = cv.getContext("2d", { willReadFrequently: true });
+function measure(T, K) {
+  return new Promise((res) => {
+    const xml = '<svg xmlns="http://www.w3.org/2000/svg" width="' + CW + '" height="' + CH + '">'
+      + '<g transform="matrix(' + K + ',0,0,' + K + ',0,0)">'
+      + '<path d="' + sliverD(T / K, K) + '" fill="#000"/></g></svg>';
+    const img = new Image();
+    img.onload = () => { cx.clearRect(0,0,CW,CH); cx.drawImage(img,0,0);
+      const d = cx.getImageData(0,0,CW,CH).data; let ink = 0;
+      for (let i = 3; i < d.length; i += 4) ink += d[i];
+      res(ink / 255); };
+    img.onerror = () => res(NaN);
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  });
+}
+(async () => {
+  const results = {};
+  for (const T of TS) {
+    const ref = await measure(T, 1);
+    for (const K of KS) {
+      const got = await measure(T, K);
+      const r = got / (ref || 1);
+      results[T + "/" + K] = +r.toFixed(3);
+      const el = document.getElementById("n_" + T + "_" + K);
+      el.textContent = r.toFixed(2);
+      if (r < 0.5) el.className = "num bad";
+    }
+  }
+  window.__results = results;
+  document.title = "ready";
+})();
+</script>

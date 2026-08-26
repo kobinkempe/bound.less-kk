@@ -74,7 +74,7 @@ describe("KNOWN BUGS — fixed (green on the new engine)", () => {
         let guard = 0;
         while (E.activeLevel < 1 && guard++ < 40) E.zoomAt(400, 300, -1000);
         drawStroke(E, [[300, 300], [500, 300], [500, 320]]); // sizable stroke at level 1
-        const id = E.nativesByLevel[1][0].id;
+        const id = E.doc.at(E.cam.frame)[0].id;
         guard = 0;
         while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000); // back to level 0
         expect(E.activeLevel).toBe(0);

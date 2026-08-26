@@ -1,0 +1,77 @@
+<!-- @dsCard group="Context" -->
+<meta charset="utf-8">
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Karla:wght@400;500;600&display=swap");
+:root {
+  --ink: oklch(0.29 0.025 55);
+  --primary: oklch(0.6 0.17 35);
+  --paper: oklch(0.972 0.014 84);
+  --card: oklch(0.985 0.01 88);
+  --paper-deep: oklch(0.945 0.018 82);
+  --border: oklch(0.87 0.02 78);
+  --muted: oklch(0.52 0.03 60);
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Karla", ui-sans-serif, system-ui, sans-serif;
+  --shadow-card: 0 1px 3px oklch(0.28 0.03 50 / 0.08), 0 6px 20px oklch(0.28 0.03 50 / 0.08);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+h1 { font-family: var(--font-display); font-size: 1.75rem; font-weight: 600; letter-spacing: -.02em; margin: 0 0 .5rem; }
+h2 { font-family: var(--font-sans); font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+     text-transform: uppercase; color: var(--muted); margin: 2.25rem 0 .75rem; }
+p { font-size: .9375rem; line-height: 1.7; max-width: 50rem; margin: 0 0 .875rem; }
+.lede { font-size: 1.0625rem; color: var(--muted); max-width: 50rem; line-height: 1.65; margin-bottom: 0; }
+.badge { display: inline-block; margin-bottom: .75rem; padding: .25rem .75rem; border-radius: 9999px;
+  border: 1px solid var(--border); background: var(--paper-deep); font-size: .6875rem; font-weight: 500;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .875rem; margin: 1.25rem 0 0; }
+.stat { border-radius: .75rem; background: var(--paper-deep); padding: .875rem 1rem; }
+.stat .n { font-family: var(--font-display); font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; }
+.stat .k { font-size: .75rem; color: var(--muted); margin-top: .125rem; line-height: 1.4; }
+.cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .875rem; }
+.c { border-radius: .75rem; border: 1px solid var(--border); background: var(--card); padding: .875rem 1rem; box-shadow: var(--shadow-card); }
+.c .t { font-family: var(--font-display); font-size: .9375rem; font-weight: 600; margin-bottom: .25rem; }
+.c .d { font-size: .8125rem; color: var(--muted); line-height: 1.6; }
+.c .v { font-size: .75rem; margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+.rule { border-radius: .75rem; border: 1px solid var(--border); border-left: 3px solid var(--primary);
+  background: var(--card); padding: 1rem 1.25rem; box-shadow: var(--shadow-card); }
+.rule .t { font-family: var(--font-display); font-size: 1rem; font-weight: 600; margin-bottom: .375rem; }
+.rule p { margin: 0; font-size: .875rem; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8125em;
+  background: var(--paper-deep); padding: .1em .35em; border-radius: .25rem; }
+</style>
+
+<div class="badge">Context</div>
+<h1>Selecting things in an infinite canvas</h1>
+<p class="lede">bound.less is a vector drawing surface with no zoom limit. You can draw at one scale, zoom in past several level breaks, and keep drawing at a scale where the earlier marks are thousands of screens wide. Selection has to survive that.</p>
+
+<h2>Why the usual answer fails</h2>
+<p>Every drawing tool marks a selection by outlining its bounding box, and that works because in every other tool the bounding box is roughly screen-sized. Here it is not. The selection rectangle is computed in the coordinates of the frame you are currently looking from, so an object that lives several levels away projects to something enormous &mdash; and crucially, that happens because of the <em>depth difference</em>, not because the object is large. A small mark, viewed from far enough in, has an astronomical bounding box.</p>
+<p>Once that box is bigger than the screen, it carries no information: all four of its edges are somewhere off in the dark, and what you see is nothing at all. The tool is drawing very hard and showing you nothing.</p>
+
+<h2>What it cost</h2>
+<p>Measured live in a real session on 22 August 2026, after an erase, a move, and a zoom out past a level break:</p>
+<div class="stats">
+  <div class="stat"><div class="n">877,395 px</div><div class="k">Width of the selection rectangle, on a 1504 px screen</div></div>
+  <div class="stat"><div class="n">350,958</div><div class="k">Dashes placed per frame, all of them off screen</div></div>
+  <div class="stat"><div class="n">315 ms</div><div class="k">Per frame, against 17 ms with the same box undashed</div></div>
+  <div class="stat"><div class="n">0.15 ms</div><div class="k">Of actual JavaScript &mdash; which is why no profiler found it</div></div>
+</div>
+<p style="margin-top:1.25rem">That last number is the whole story. Dashing a stroke is rasterizer work, so the function that caused a one-second stall reported a sixth of a millisecond of its own time. Five separate root-cause theories were proposed and disproved before the rectangle was measured directly.</p>
+
+<h2>The four cases any option must answer</h2>
+<div class="cases">
+  <div class="c"><div class="t">1. On screen</div><div class="d">The object fits comfortably in the view. The ordinary case, and the only one existing tools ever have to handle.</div><div class="v">Every option works here.</div></div>
+  <div class="c"><div class="t">2. Partly off screen</div><div class="d">The object runs past an edge. Some of its bounds are visible, some are not.</div><div class="v">Most options work; the box starts losing meaning.</div></div>
+  <div class="c"><div class="t">3. Huge, partly visible</div><div class="d">One edge is barely inside the view and the rest extends far past it. This is what a coarse object looks like from a deep frame.</div><div class="v">Where the bounding box became a performance hazard.</div></div>
+  <div class="c"><div class="t">4. Covers the view</div><div class="d">The object is larger than the screen in every direction. No edge of it is visible anywhere.</div><div class="v">A bounding box shows literally nothing here.</div></div>
+</div>
+
+<h2>The constraint</h2>
+<div class="rule">
+  <div class="t">Bounded work per frame, whatever the zoom</div>
+  <p>Whatever replaces the box must cost the same at any depth. Anything proportional to the selection's projected size &mdash; a stroked perimeter, a dash pattern, a path that leaves the viewport &mdash; reintroduces the same failure in a new shape. In practice this means clipping to the viewport before stroking, animating opacity rather than geometry, and preferring a fixed number of marks over an outline whose length depends on the object.</p>
+</div>
+
+<h2>Where it stands</h2>
+<p>A placeholder guard now ships in <code>Renderer.selectionDrawable()</code>: the outline is drawn only when it overlaps the viewport <em>and</em> is at most three viewports across. Both conditions mean &ldquo;there is something to look at&rdquo;. Cases 3 and 4 therefore show no selection indicator at all right now &mdash; deliberately, as a stopgap. The options in the Selection group are the candidates to replace it.</p>

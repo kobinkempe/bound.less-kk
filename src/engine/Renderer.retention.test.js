@@ -123,16 +123,17 @@ describe("engine wires the active level into retention", () => {
         const E = mkEngine();
         drawStroke(E, [[100, 300], [250, 260], [400, 300], [550, 340], [700, 300]]);
         const ax = 400, ay = 300;
-        while (E.inScale * 1.4 < 320) E.zoomFactorAt(ax, ay, 1.4); // cross up into level 1
-        expect(E.activeLevel).toBe(1);
         let guard = 0;
+        while (E.activeLevel < 1 && guard++ < 80) E.zoomFactorAt(ax, ay, 1.4); // cross up into level 1
+        expect(E.activeLevel).toBe(1);
+        const deep = E.cam.frame;   // a lattice cell — only the ORIGIN chain is named "1"
+        guard = 0;
         while (E.activeLevel > 0 && guard++ < 80) E.zoomFactorAt(ax, ay, 0.7); // back down
         expect(E.activeLevel).toBe(0);
-        // both levels are retained (per-frame subtrees exist; spine frame ids
-        // are the depth as a string)
+        // both frames are retained (per-frame subtrees exist)
         expect(E.renderer._scenes.size).toBeGreaterThanOrEqual(2);
-        expect(E.renderer._scenes.has("0")).toBe(true);
-        expect(E.renderer._scenes.has("1")).toBe(true);
+        expect(E.renderer._scenes.has(E.cam.frame)).toBe(true);
+        expect(E.renderer._scenes.has(deep)).toBe(true);
     });
 
     test("with retention off the engine keeps a single shared scene", () => {

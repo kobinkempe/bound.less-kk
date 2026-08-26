@@ -168,6 +168,48 @@ function capScale(desired, points, margin = 0) {
     const m = maxMagnitude(points, margin);
     return Math.max(1, Math.min(desired, Math.floor(SAFE_RANGE / m)));
 }
+
+/**
+ * A LOCAL origin for the integer lattice — the fix for "polygonize with
+ * reference to your tile, not to somewhere far away".
+ *
+ * Clipper works on integers, so every boolean has to pick a scale, and the scale
+ * is capped by the largest coordinate in play. Measuring that from the FRAME
+ * ORIGIN makes precision fall off linearly with how far the drawing has been
+ * panned: measured on a plain stroke, the lattice is 1.0e-3 units at the origin,
+ * 1.5e-2 at 6e5 units out, and 1.1e-1 at 4e6 — which is 0.3 px, 4.5 px and
+ * 33 px respectively at the level's deepest zoom. That is the pixellation, and
+ * it has nothing to do with the shape being worked on; only with where it sits.
+ *
+ * The subtlety is that simply re-centring on the geometry would ALSO be wrong:
+ * the lattice would then be anchored somewhere different for every call, so two
+ * booleans over abutting geometry would round a shared edge two different ways
+ * and open a hairline crack between them.
+ *
+ * So: pick the scale from the geometry's own EXTENT (position-independent), and
+ * then snap the local origin to that same lattice. `Math.round((x - ox) * scale)`
+ * with `ox * scale` an exact integer is identical to `Math.round(x * scale)`
+ * evaluated on the global grid — the same grid every caller has always used —
+ * but computed on small numbers, so nothing is lost to the cap.
+ */
+function localFrame(polySets, desired = 1000, margin = 0) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const polys of polySets) {
+        for (const poly of polys || []) {
+            for (const p of poly) {
+                if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+                if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+            }
+        }
+    }
+    if (!(x0 <= x1)) return { scale: Math.max(1, desired), ox: 0, oy: 0 };
+    const half = Math.max((x1 - x0) / 2, (y1 - y0) / 2, 1) + Math.abs(margin || 0);
+    const scale = Math.max(1, Math.min(desired, Math.floor(SAFE_RANGE / half)));
+    // Snap the origin ONTO the lattice, so the grid is the global one.
+    const ox = Math.round(((x0 + x1) / 2) * scale) / scale;
+    const oy = Math.round(((y0 + y1) / 2) * scale) / scale;
+    return { scale, ox, oy };
+}
 function pickScale(center, width, optScale, displayScale) {
     const desired = Math.min(1e7, Math.max(optScale || 1000, Math.round(100 * displayScale)));
     return capScale(desired, center, width); // offset radius ~width/2 pushes coords out; width is a safe margin
@@ -268,13 +310,33 @@ export function capsulePoly(a, b, r, segs = 24) {
  */
 export function subtractPolys(subjectPolys, clipPolys, opts = {}) {
     if (!subjectPolys || subjectPolys.length === 0) return [];
-    let mag = 1;
-    for (const poly of subjectPolys) { const m = maxMagnitude(poly); if (m > mag) mag = m; }
-    for (const poly of clipPolys || []) { const m = maxMagnitude(poly); if (m > mag) mag = m; }
-    const scale = Math.max(1, Math.min(opts.scale || 1000, Math.floor(SAFE_RANGE / mag)));
-    const toPath = (poly) => poly.map(([x, y]) => ({ X: Math.round(x * scale), Y: Math.round(y * scale) }));
+    const { scale, ox, oy } = localFrame([subjectPolys, clipPolys], opts.scale || 1000);
+    const toPath = (poly) => poly.map(([x, y]) => ({ X: Math.round((x - ox) * scale), Y: Math.round((y - oy) * scale) }));
+    let subject = subjectPolys.map(toPath);
+    // MERGE THE SUBJECT FIRST when it is more than one ring.
+    //
+    // "Disjoint regions" is this function's contract, and a difference alone
+    // does not honour it: Clipper keeps ABUTTING subject paths as separate
+    // output paths even under the nonzero rule, edge-sharing or not. Measured on
+    // three rectangles stacked edge to edge — one gesture through them returned
+    // FOUR regions where the identical single rectangle returned two.
+    //
+    // Abutting rings are not a corner case here. A parent that has ceded a tile
+    // is stored as the guillotine cells around the hole (geometry/cede.js keeps
+    // the cut exact by never running a boolean), so every object that has been
+    // deep-erased arrives in this shape. Without the merge, the next ordinary
+    // erase shatters it into one native per cell, each its own object — the
+    // band comes apart into horizontal strips at the old tile's edges.
+    if (subject.length > 1) {
+        const u = new ClipperLib.Clipper();
+        u.AddPaths(subject, ClipperLib.PolyType.ptSubject, true);
+        const merged = new ClipperLib.Paths();
+        u.Execute(ClipperLib.ClipType.ctUnion, merged,
+            ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        if (merged.length) subject = merged;
+    }
     const c = new ClipperLib.Clipper();
-    c.AddPaths(subjectPolys.map(toPath), ClipperLib.PolyType.ptSubject, true);
+    c.AddPaths(subject, ClipperLib.PolyType.ptSubject, true);
     if (clipPolys && clipPolys.length) c.AddPaths(clipPolys.map(toPath), ClipperLib.PolyType.ptClip, true);
     const sol = new ClipperLib.Paths();
     c.Execute(ClipperLib.ClipType.ctDifference, sol,
@@ -284,7 +346,7 @@ export function subtractPolys(subjectPolys, clipPolys, opts = {}) {
     // first assigns holes to their immediate outer under nesting).
     const outers = [], holes = [];
     for (const path of sol) {
-        const ring = path.map((pt) => [pt.X / scale, pt.Y / scale]);
+        const ring = path.map((pt) => [pt.X / scale + ox, pt.Y / scale + oy]);
         if (ring.length < 3) continue;
         (ClipperLib.Clipper.Orientation(path) ? outers : holes).push(ring);
     }
@@ -305,25 +367,22 @@ export function subtractPolys(subjectPolys, clipPolys, opts = {}) {
  */
 export function clipPolysToRect(polys, rect, opts = {}) {
     if (!polys || polys.length === 0) return [];
-    // Cap the integer scale so the largest coordinate (poly points or rect corners) stays
-    // inside clipper-lib's fast range -- deep-level frame coords would otherwise hit Int128.
-    let mag = Math.max(Math.abs(rect.left), Math.abs(rect.right), Math.abs(rect.top), Math.abs(rect.bottom));
-    for (const poly of polys) { const m = maxMagnitude(poly); if (m > mag) mag = m; }
-    const scale = Math.max(1, Math.min(opts.scale || 1000, Math.floor(SAFE_RANGE / mag)));
-    const subj = polys.map((poly) => poly.map(([x, y]) => ({ X: Math.round(x * scale), Y: Math.round(y * scale) })));
-    const clip = [
-        { X: Math.round(rect.left * scale), Y: Math.round(rect.top * scale) },
-        { X: Math.round(rect.right * scale), Y: Math.round(rect.top * scale) },
-        { X: Math.round(rect.right * scale), Y: Math.round(rect.bottom * scale) },
-        { X: Math.round(rect.left * scale), Y: Math.round(rect.bottom * scale) },
-    ];
+    // Local lattice origin — see localFrame. Measuring the scale from the frame
+    // origin instead makes precision fall off with how far the drawing has been
+    // panned, which shows up as pixellation once you zoom in on it.
+    const corners = [[[rect.left, rect.top], [rect.right, rect.bottom]]];
+    const { scale, ox, oy } = localFrame([polys, corners], opts.scale || 1000);
+    const subj = polys.map((poly) => poly.map(([x, y]) => ({ X: Math.round((x - ox) * scale), Y: Math.round((y - oy) * scale) })));
+    const L = Math.round((rect.left - ox) * scale), R = Math.round((rect.right - ox) * scale);
+    const T = Math.round((rect.top - oy) * scale), B = Math.round((rect.bottom - oy) * scale);
+    const clip = [{ X: L, Y: T }, { X: R, Y: T }, { X: R, Y: B }, { X: L, Y: B }];
     const c = new ClipperLib.Clipper();
     c.AddPaths(subj, ClipperLib.PolyType.ptSubject, true);
     c.AddPath(clip, ClipperLib.PolyType.ptClip, true);
     const sol = new ClipperLib.Paths();
     c.Execute(ClipperLib.ClipType.ctIntersection, sol,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-    return sol.map((poly) => poly.map((pt) => [pt.X / scale, pt.Y / scale]));
+    return sol.map((poly) => poly.map((pt) => [pt.X / scale + ox, pt.Y / scale + oy]));
 }
 
 /**

@@ -17,12 +17,13 @@
  * blank out content that is genuinely there (the BUG-05 symptom). We require the
  * new engine to reproduce at least most of the true ink.
  */
+import { loadFixture } from "./__testkit__/legacyFixture";
 import fs from "fs";
 import path from "path";
 import KobinEngine from "./KobinEngine";
 import { windingOfPoint, distToPolyline, } from "./geometry/hittest";
-import { projectNative } from "./geometry/derive";
 import { flattenCurve } from "./geometry/clipperOutline";
+import { insideShape } from "./geometry/arcShape";
 
 jest.setTimeout(120000);
 
@@ -35,24 +36,38 @@ afterEach(() => { while (engines.length) { try { engines.pop().destroy(); } catc
 
 function inked(list, p) {
     for (const o of list) {
-        if (o.type === "fill") { if (windingOfPoint(o.polys, p) !== 0) return true; }
+        // A resolved perimeter answers this exactly, and it is now what almost
+        // every native is; the polyline branch survives for a stroke that has
+        // not resolved yet, and the ring branch for legacy fills and for the
+        // tile pieces the renderer still produces as polygons.
+        if (o.type === "shape") { if (insideShape(o.loops, p)) return true; }
+        else if (o.type === "fill") { if (windingOfPoint(o.polys, p) !== 0) return true; }
         else if (o.pts && distToPolyline(o.pts, p) <= o.lwFrame / 2) return true;
     }
     return false;
 }
-// Ground truth: every native projected to `level`, its centerline flattened to
+// Ground truth: every native projected to `frame`, its centerline flattened to
 // the SAME displayed spline the engine bands around (so the comparison is fair —
 // straight chords vs the Catmull-Rom spline disagree right at a band edge).
-function groundTruth(E, level) {
+//
+// FILL natives (what an area erase leaves behind) carry `polys` and have no
+// `pts` at all, so they must project as rings, not as a centerline — reading
+// o.pts.length on one throws, and every snapshot containing an erase used to
+// take the whole comparison down with it.
+function groundTruth(E, frame) {
     const gt = [];
     for (const Hs of Object.keys(E.nativesByLevel)) {
-        const H = +Hs;
         for (const o of E.nativesByLevel[Hs]) {
             // Flatten the spline at HOME (bounded coords — flattening a projected
             // giant would explode), then project the polyline.
-            const flat = o.pts.length > 2
-                ? { ...o, pts: flattenCurve(o.pts, (E.cfg.arcTolerancePx * 0.5) / E.cfg.enter) } : o;
-            const d = projectNative(flat, H, level, E.crossings, E.cfg.base);
+            // A SHAPE is already the truth — it is a resolved perimeter, and a
+            // frame hop keeps it one (uniform scale, so an arc stays an arc).
+            // Reading `o.pts` on one threw, and every snapshot recorded since
+            // the arc pipeline landed took the whole comparison down with it.
+            const src = (o.type === "fill" || o.type === "shape") ? o
+                : (o.pts.length > 2
+                    ? { ...o, pts: flattenCurve(o.pts, (E.cfg.arcTolerancePx * 0.5) / E.cfg.enter) } : o);
+            const d = E.lm.projectF(src, Hs, frame);
             if (d) gt.push(d);
         }
     }
@@ -71,11 +86,11 @@ describe("fidelity: the new engine reproduces the drawing's true ink (per real s
         const snap = report.snapshot;
         if (!snap || !snap.natives) return;
         const w = (report.screen && report.screen.w) || 800, h = (report.screen && report.screen.h) || 600;
-        const E = mk(w, h); E.loadSnapshot(JSON.parse(JSON.stringify(snap)));
+        const E = mk(w, h); loadFixture(E, JSON.parse(JSON.stringify(snap)));
 
         const win = E._frameWindow(0);
         const rendered = E._objs() || [];
-        const gt = groundTruth(E, E.activeLevel);
+        const gt = groundTruth(E, E.cam.frame);
 
         const N = 24, M = 16;
         let truthInk = 0, matched = 0, extra = 0;

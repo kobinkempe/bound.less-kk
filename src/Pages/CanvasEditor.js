@@ -29,7 +29,6 @@ import ScaleUnitPicker, { ScaleUnitButtonGrid } from "../Components/editor/Scale
 import SciText from "../Components/ui/SciText";
 import ColorPickerPopover from "../Components/editor/ColorPickerPopover";
 import WidthOpacityPanel from "../Components/editor/WidthOpacityPanel";
-import SelectionEditPanel from "../Components/editor/SelectionEditPanel";
 import FileActionsMenu from "../Components/editor/FileActionsMenu";
 import SaveDrawingDialog from "../Components/editor/SaveDrawingDialog";
 import ScaleDragBar from "../Components/editor/ScaleDragBar";
@@ -140,6 +139,15 @@ export default function CanvasEditor() {
     const [hintDismissed, setHintDismissed] = useState(false);
     const [toast, setToast] = useState(null);
     const [devOpen, setDevOpen] = useState(false);
+    // DEV EXPERIMENT (2026-08-22). Every instrument says the main thread is idle
+    // during the freezes — script 0 ms, render 0.3 ms, and input handlers
+    // totalling ONE millisecond against 34.9 s spent waiting for pixels. So the
+    // cost is in presentation, and the standing hypothesis is that at deep zoom
+    // the SVG's layer bounds run to millions of pixels and Blink's layer /
+    // invalidation machinery suffers for it. `contain: paint` bounds the layer
+    // to the host's own box. If presentMs collapses with this on, that is the
+    // answer; if it does not, the hypothesis is dead and we look elsewhere.
+    const [clipHost, setClipHost] = useState(false);
     const [colorOpen, setColorOpen] = useState(false);
     const [sizeOpen, setSizeOpen] = useState(false);
     const [fileOpen, setFileOpen] = useState(false);
@@ -196,10 +204,19 @@ export default function CanvasEditor() {
 
     // Regenerate thumbnails for scenes whose content hash changed; returns the
     // fresh entries (and folds them into state + localStorage).
+    // renderThumbs builds a WHOLE SECOND ENGINE and loads the drawing into it,
+    // then rasterizes one image per scene. It is far and away the most expensive
+    // thing the editor does, and until 2026-08-21 it was invisible.
     const ensureThumbs = async (doc, list) => {
+        const tThumb = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        const noteThumbs = (n) => {
+            try { engine.engineRef.current?.notePerf?.("thumbs", tThumb, { scenes: n }); }
+            catch (err) { /* diagnostics must never break a save */ }
+        };
         try {
             const existing = loadThumbs(realId, list.map((s) => s.id));
             const fresh = await renderThumbs(doc, list, existing);
+            noteThumbs(Object.keys(fresh).length);
             // The primary scene (first in the list) doubles as the gallery
             // cover — alias its thumb under the "cover" key that the gallery
             // and the cloud thumbnail budget already prioritize.
@@ -221,7 +238,10 @@ export default function CanvasEditor() {
 
     const persistCanvas = async (name) => {
         const E = engine.engineRef.current;
+        const tSave = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        const tScenes = tSave;
         if (E) setScenes(E.refreshScenes()); // scenes ride the save file (docMeta)
+        if (E) E.notePerf?.("scenes", tScenes, { where: "save" });
         const doc = await engine.saveToLocalStorage(name);
         if (!doc) return { local: false, cloud: false };
         // The engine's default meta name is lowercase "untitled" — never let it
@@ -235,6 +255,7 @@ export default function CanvasEditor() {
         };
         upsertIndexEntry(entry);
         const fresh = await ensureThumbs(doc, doc.meta.scenes || []);
+        if (E) E.notePerf?.("saveTotal", tSave, { scenes: (doc.meta.scenes || []).length });
         let cloud = false;
         if (user) {
             try {
@@ -706,7 +727,8 @@ export default function CanvasEditor() {
             <div
                 ref={engine.hostRef}
                 className="bl-editor-host"
-                style={{ cursor: defineMode ? "crosshair" : engine.cursor }}
+                style={{ cursor: defineMode ? "crosshair" : engine.cursor,
+                    ...(clipHost ? { contain: "paint" } : null) }}
                 onPointerDownCapture={() => {
                     // The engine preventDefaults pointerdown, which suppresses the
                     // native blur — so returning to the drawing mid-rename would
@@ -866,6 +888,21 @@ export default function CanvasEditor() {
                             <button {...dbgBtn(engine.opGroups)} onClick={() => engine.setOpGroups(!engine.opGroups)}>αSeam</button>
                             <button {...dbgBtn(engine.preBake)} onClick={() => engine.setPreBake(!engine.preBake)}>PreBake</button>
                             <button {...dbgBtn(engine.retainScenes)} onClick={() => engine.setRetainScenes(!engine.retainScenes)}>Retain</button>
+                            <button
+                                {...dbgBtn(engine.trace)}
+                                onClick={() => engine.setTrace(!engine.trace)}
+                                title="Trace: log EVERY operation instead of only those over 8 ms, and keep a much deeper log. Off by default because one pinch would otherwise flood the log. Turn on, reproduce the problem, then Report."
+                            >Trace</button>
+                            <button
+                                {...dbgBtn(clipHost)}
+                                onClick={() => setClipHost(!clipHost)}
+                                title="Clip: bound the canvas layer with CSS `contain: paint`. An experiment — at deep zoom the SVG's layer bounds reach millions of pixels, and this tests whether that is what stalls presentation. Reproduce with it OFF, then ON, and Report each time."
+                            >Clip</button>
+                            <button
+                                {...dbgBtn(engine.erasedebug)}
+                                onClick={() => engine.setErasedebug(!engine.erasedebug)}
+                                title="Erase debug: a colour per real shape, orange outlines, GREEN where pieces are joined across a tile edge, black = temporary tile, yellow = eraser mark"
+                            >Erase</button>
                             <button {...dbgBtn(false)} onClick={engine.sendReport}>{engine.reportLabel}</button>
                         </div>
                     </div>
@@ -1041,17 +1078,6 @@ export default function CanvasEditor() {
                         });
                         setUnitPickerOpen(false);
                     }}
-                />
-            )}
-
-            {engine.status.selection && (
-                <SelectionEditPanel
-                    selection={engine.status.selection}
-                    onColor={(c) => engine.restyleSelection({ color: c })}
-                    onWidth={(v) => engine.restyleSelection({ widthPx: v })}
-                    onOpacity={(v) => engine.restyleSelection({ opacity: v })}
-                    onDelete={engine.deleteSelection}
-                    onDone={engine.deselect}
                 />
             )}
 

@@ -39,17 +39,58 @@ describe("camera + crossings", () => {
         expect(back[0]).toBeCloseTo(400, 3);
         expect(back[1]).toBeCloseTo(300, 3);
     });
-    test("crossing records pin on first entry and re-entry reuses them", () => {
+    test("re-entering the same place returns the SAME frame, not a new one", () => {
+        // The old model pinned a record on first entry and hoped to reuse it;
+        // whether it did was a distance test against where you happened to be
+        // (F-B). A frame is a lattice cell now, so this is a lookup and the
+        // question cannot be answered any other way.
         const E = mkEngine();
         let guard = 0;
         while (E.activeLevel < 1 && guard++ < 40) E.zoomAt(400, 300, -1000);
         expect(E.activeLevel).toBeGreaterThanOrEqual(1);
-        expect(E.crossings[1].s).toBe(300); // pinned at enter
-        const t = { ...E.crossings[1].t };
+        const first = E.cam.frame;
+        const edge = { ...E.lm.frame(first).edge.t };
+        const nFrames = E.lm.frames.size;
         for (let i = 0; i < 6; i++) E.zoomAt(400, 300, 1000); // back below
         guard = 0;
         while (E.activeLevel < 1 && guard++ < 40) E.zoomAt(400, 300, -1000); // re-enter
-        expect(E.crossings[1].t).toEqual(t); // record unchanged
+        expect(E.cam.frame).toBe(first);                        // same cell
+        expect(E.lm.frame(first).edge.t).toEqual(edge);         // same edge, derived not stored
+        expect(E.lm.frames.size).toBe(nFrames);                 // and nothing was minted
+    });
+});
+
+describe("loading leaves the camera in a legal state", () => {
+    test("a snapshot recording an out-of-band zoom is settled on load", () => {
+        // A file records whatever the camera was, and nothing guarantees that is
+        // inside [exit, enter]. Until it was settled, the first interaction after
+        // a load paid for the crossing: measured on one of Kobin's recordings,
+        // the first pan cost 200 ms and every pan after it cost 0.2 ms.
+        const E = mkEngine();
+        drawStroke(E, [[100, 100], [200, 150], [260, 260]]);
+        const snap = JSON.parse(JSON.stringify(E.snapshot()));
+        snap.camera.inScale = E.cfg.exit / 8;          // four crossings below the band
+        const F = mkEngine();
+        F.loadSnapshot(snap);
+        expect(F.cam.inScale).toBeGreaterThanOrEqual(F.cfg.exit);
+        expect(F.cam.inScale).toBeLessThanOrEqual(F.cfg.enter);
+        expect(F.activeLevel).toBeLessThan(0);         // it really did cross down
+        // ...and the very next pan is cheap, because there is nothing left to do.
+        const t0 = Date.now();
+        for (let i = 0; i < 10; i++) { F.panBy(3, 0); F.panBy(-3, 0); }
+        expect(Date.now() - t0).toBeLessThan(400);
+    });
+
+    test("an over-zoomed snapshot settles the other way too", () => {
+        const E = mkEngine();
+        drawStroke(E, [[100, 100], [200, 150]]);
+        const snap = JSON.parse(JSON.stringify(E.snapshot()));
+        snap.camera.inScale = E.cfg.enter * 8;
+        const F = mkEngine();
+        F.loadSnapshot(snap);
+        expect(F.cam.inScale).toBeGreaterThanOrEqual(F.cfg.exit);
+        expect(F.cam.inScale).toBeLessThanOrEqual(F.cfg.enter);
+        expect(F.activeLevel).toBeGreaterThan(0);
     });
 });
 
@@ -121,7 +162,8 @@ describe("robustness (ported OOM guard)", () => {
         while (E.activeLevel < 1 && guard++ < 400) E.zoomAt(400, 300, -1000); // back in
         expect(E.activeLevel).toBeGreaterThanOrEqual(1);
         expect(Date.now() - t0).toBeLessThan(5000);
-        expect(E.tiles[1] && E.tiles[1].size).toBeGreaterThan(0);
+        const tiles = E.tiles[E.cam.frame];
+        expect(tiles && tiles.size).toBeGreaterThan(0);
     });
 });
 
@@ -151,7 +193,8 @@ describe("z-order + incremental render", () => {
         let guard = 0;
         while (E.activeLevel < 1 && guard++ < 40) E.zoomAt(400, 300, -1000);
         drawStroke(E, [[380, 280], [420, 320], [400, 360]]);
-        const idA = E.nativesByLevel[1][E.nativesByLevel[1].length - 1].id;
+        const atA = E.doc.at(E.cam.frame);
+        const idA = atA[atA.length - 1].id;
         // B: newer, drawn at level 0 (coarser) over the same spot -> reaches level 1 as up-content
         guard = 0;
         while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);

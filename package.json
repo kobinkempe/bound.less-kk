@@ -26,6 +26,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:quick": "react-scripts test --watchAll=false --testPathIgnorePatterns=slow.test.js",
+    "test:slow": "react-scripts test --watchAll=false --testPathPattern=slow.test.js",
+    "test:all": "react-scripts test --watchAll=false",
     "eject": "react-scripts eject",
     "report-server": "node tools/report-server.js"
   },

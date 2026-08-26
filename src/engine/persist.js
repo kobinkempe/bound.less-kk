@@ -35,6 +35,8 @@
  */
 
 import { validateScaleDef } from "./scaleBar";
+import { inDigit, tilePhase, W as FRAME_W } from "./frameLattice";
+import { validEncodedLoops, encodedLoopsWellFormed, repairLoops, decodeLoops, encodeLoops } from "./geometry/arcShape";
 
 export const FORMAT = "boundless-drawing";
 export const VERSION = 1;
@@ -143,8 +145,12 @@ function validRect(r) {
         && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
 }
 // A frame key: an integer depth (spine) or a "<depth>~<n>" sibling frame id.
+// A frame key: a depth int (the spine, still written that way) or a lattice
+// cell path built from one, e.g. "0/12,-3/0,1". The old free-floating sibling
+// form ("2~1") cannot occur any more and is not accepted — a scene naming one
+// would point at a frame that no document can contain.
 function isFrameKey(v) {
-    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(~\d+)?$/.test(v));
+    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(\/-?\d+,-?\d+)*$/.test(v));
 }
 function validScene(s) {
     return s && typeof s.id === "string" && s.id
@@ -194,26 +200,45 @@ function validEdgeRec(r, allowNullEdge) {
     return e && isFiniteNum(e.s) && e.s > 0 && e.t && isFiniteNum(e.t.x) && isFiniteNum(e.t.y);
 }
 
+// A frame is a LATTICE CELL now, so the whole tree is (id, parent, depth, i, j):
+// the edge is derived from the cell index and the grid is a constant. The two
+// older shapes — the per-depth {s, t} dict and the free-floating `__frames`
+// tree — described frames anchored wherever the camera happened to be when they
+// were first crossed into, and no cell index reproduces that. Converting one
+// would mean rewriting every stored coordinate, which is precisely the
+// operation this design exists to avoid, so a legacy file is REFUSED with a
+// clear error and never half-converted (D8).
 function decodeCrossings(cr) {
-    if (cr == null) return {};
+    if (cr == null) return { __lattice: 1, frames: [] };
     if (typeof cr !== "object" || Array.isArray(cr)) throw new Error("bad crossings: expected an object");
-    // Frame-tree shape (local-frames): validate each frame node and pass through.
-    if (Array.isArray(cr.__frames)) {
-        const ids = new Set();
-        for (const f of cr.__frames) {
-            if (!f || typeof f.id !== "string" || !f.id) throw new Error("bad frames: each frame needs a string id");
-            if (ids.has(f.id)) throw new Error(`bad frames: duplicate frame id ${f.id}`);
-            ids.add(f.id);
-            if (!Number.isInteger(f.depth)) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
-            if (f.parent != null && typeof f.parent !== "string") throw new Error(`bad frames: frame ${f.id} parent must be a string`);
-            if (!validEdgeRec(f, true)) throw new Error(`bad frames: frame ${f.id} edge/grid is malformed`);
+    if (!cr.__lattice) {
+        if (Array.isArray(cr.__frames) || Object.keys(cr).length) {
+            const e = new Error("This drawing was saved in the pre-lattice format and cannot be opened.");
+            e.code = "LEGACY_FORMAT";
+            throw e;
         }
-        return cr;
+        return { __lattice: 1, frames: [] };
     }
-    for (const l of Object.keys(cr)) {
-        if (!Number.isInteger(+l)) throw new Error(`bad crossings: level "${l}" is not an integer`);
-        if (!validEdgeRec(cr[l], false)) throw new Error(`bad crossings: level ${l} record needs finite s > 0 and t.{x,y} (and sane grid)`);
+    if (!Array.isArray(cr.frames)) throw new Error("bad frames: expected a frames array");
+    const ids = new Set();
+    const outOfRange = [];
+    for (const f of cr.frames) {
+        if (!f || typeof f.id !== "string" || !f.id) throw new Error("bad frames: each frame needs a string id");
+        if (ids.has(f.id)) throw new Error(`bad frames: duplicate frame id ${f.id}`);
+        ids.add(f.id);
+        if (!Number.isInteger(f.depth)) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
+        if (f.parent != null && typeof f.parent !== "string") throw new Error(`bad frames: frame ${f.id} parent must be a string`);
+        if (!Number.isInteger(f.i) || !Number.isInteger(f.j)) throw new Error(`bad frames: frame ${f.id} cell must be integers`);
+        // NOT fatal, deliberately. A build before 2026-08-21 could mint a cell
+        // just outside the range (`LevelMap.cellChild` — the view centre drifting
+        // a few hundred units past the parent's square), and refusing the file
+        // here meant the drawing could not be opened AT ALL. The session that
+        // produced it ran perfectly well with that address, so loading it is
+        // strictly better than losing it. The mint is fixed; this is only about
+        // not punishing the files it already wrote.
+        if (!inDigit(f.i) || !inDigit(f.j)) outOfRange.push(f.id);
     }
+    if (outOfRange.length) cr.__outOfRangeCells = outOfRange;
     return cr;
 }
 
@@ -222,20 +247,37 @@ function decodeNatives(n) {
     if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of frames");
     const seen = new Set();
     for (const l of Object.keys(n)) {
-        // keys are frame ids: integer depths (spine) OR "<depth>~<n>" siblings.
-        if (!(Number.isInteger(+l) || /^-?\d+~\d+$/.test(l))) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
+        // keys are frame ids: an integer depth (the spine) or a cell path built
+        // from one, e.g. "0/12,-3/0,1".
+        if (!/^-?\d+(\/-?\d+,-?\d+)*$/.test(l)) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
         if (!Array.isArray(n[l])) throw new Error(`bad natives: frame ${l} is not an array`);
+        // Objects that turn out to be nothing at all are DROPPED here rather
+        // than refused — see the shape branch below.
+        const survivors = [];
         for (const o of n[l]) {
             if (!o || typeof o !== "object") throw new Error(`bad object at level ${l}: not an object`);
             if (!Number.isInteger(o.id) || o.id < 1) throw new Error(`bad object at level ${l}: id must be a positive integer`);
             if (seen.has(o.id)) throw new Error(`bad natives: duplicate id ${o.id}`);
             seen.add(o.id);
             if (o.z != null && !isFiniteNum(o.z)) throw new Error(`bad object ${o.id}: z must be a number`);
-            if (o.srcId != null && (!Number.isInteger(o.srcId) || o.srcId < 1)) throw new Error(`bad object ${o.id}: srcId must be a positive integer`);
             if (o.editId != null && (!Number.isInteger(o.editId) || o.editId < 1)) throw new Error(`bad object ${o.id}: editId must be a positive integer`);
             if (o.attachRect != null && !validOwnedRect(o.attachRect)) throw new Error(`bad object ${o.id}: attachRect is malformed`);
-            if (o.windows != null && (!Array.isArray(o.windows) || !o.windows.every(validOwnedRect))) {
-                throw new Error(`bad object ${o.id}: windows must be finite, non-empty rects`);
+            // The object's tile-grid phase (bible D4/6.6) — two numbers inside
+            // one frame, which is where a chop and therefore a freeze happens.
+            // Garbage is still refused: a phase that is not two finite numbers
+            // would silently move every cut on the object.
+            //
+            // But a phase is MODULAR, and normalising one is exact. A file
+            // written before 2026-08-21 can carry a phase of exactly W — the
+            // same grid as 0, arrived at by float rounding in `tilePhase` — and
+            // rejecting it made the drawing unopenable over a value that means
+            // precisely what 0 means.
+            if (o.tile != null) {
+                if (!(Array.isArray(o.tile) && o.tile.length === 2
+                    && isFiniteNum(o.tile[0]) && isFiniteNum(o.tile[1]))) {
+                    throw new Error(`bad object ${o.id}: tile phase is malformed`);
+                }
+                o.tile = [tilePhase(o.tile[0]), tilePhase(o.tile[1])];
             }
             if (o.type === "stroke") {
                 if (!validPts(o.pts) || o.pts.length < 1) throw new Error(`bad stroke ${o.id}: pts must be a non-empty array of finite [x,y]`);
@@ -244,10 +286,33 @@ function decodeNatives(n) {
                 if (!Array.isArray(o.polys) || !o.polys.length || !o.polys.every(validPts)) {
                     throw new Error(`bad fill ${o.id}: polys must be arrays of finite [x,y] rings`);
                 }
+            } else if (o.type === "shape") {
+                // A resolved perimeter: closed chains of arcs and lines, stored
+                // as flat number arrays (see arcShape.encodeLoops). Every loop
+                // must actually CLOSE — an open one would be painted shut with a
+                // straight line across the drawing, which is the single worst
+                // failure this geometry has.
+                if (!encodedLoopsWellFormed(o.loops)) {
+                    throw new Error(`bad shape ${o.id}: loops must be arrays of finite numbers`);
+                }
+                // Closure is REPAIRED, not refused. An unclosed chain is damage
+                // one build of ours could do (arcShape.repairLoops says how),
+                // and a drawing that cannot be opened over one such object is a
+                // worse outcome than a drawing with one object mended.
+                if (!validEncodedLoops(o.loops)) {
+                    const fixed = repairLoops(decodeLoops(o.loops), o.w);
+                    // Nothing left once the chains are closed and the dust is
+                    // dropped: the object was already painting nothing, and
+                    // carrying it forward is what made the drawing unopenable.
+                    if (!fixed.length) continue;
+                    o.loops = encodeLoops(fixed);
+                }
             } else {
                 throw new Error(`bad object ${o.id}: unknown type "${o && o.type}"`);
             }
+            survivors.push(o);
         }
+        n[l] = survivors;
     }
     return n;
 }

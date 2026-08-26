@@ -1,0 +1,41 @@
+<!-- @dsCard group="Selection" -->
+<meta charset="utf-8">
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Karla:wght@400;500;600&display=swap");
+:root {
+  --ink: oklch(0.29 0.025 55); --primary: oklch(0.6 0.17 35); --paper: oklch(0.972 0.014 84); --card: oklch(0.985 0.01 88);
+  --paper-deep: oklch(0.945 0.018 82); --border: oklch(0.87 0.02 78); --muted: oklch(0.52 0.03 60); --accent: oklch(0.9 0.03 78);
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Karla", ui-sans-serif, system-ui, sans-serif;
+  --shadow-panel: 0 2px 8px oklch(0.28 0.03 50 / .08), 0 8px 32px oklch(0.28 0.03 50 / .1);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; margin: 0 0 .35rem; }
+h2 { font-family: var(--font-display); font-size: 1.0625rem; font-weight: 600; margin: 0 0 .5rem; }
+.sub { color: var(--muted); font-size: .9375rem; margin: 0 0 1.5rem; max-width: 54rem; line-height: 1.65; }
+.badge { display: inline-block; margin-bottom: .75rem; padding: .25rem .75rem; border-radius: 9999px;
+  border: 1px solid var(--border); background: var(--paper-deep); font-size: .6875rem; font-weight: 500;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1.25rem; }
+.case { border-radius: .75rem; border: 1px solid var(--border); background: var(--card);
+  box-shadow: var(--shadow-panel); overflow: hidden; }
+.case svg { display: block; width: 100%; height: auto; background: #fff; }
+.case .meta { padding: .625rem .875rem; border-top: 1px solid var(--border); }
+.case .nm { font-family: var(--font-display); font-size: .875rem; font-weight: 600; }
+.case .ds { font-size: .75rem; color: var(--muted); margin-top: .125rem; }
+.notes { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;
+  display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1.25rem; }
+.notes h3 { font-family: var(--font-sans); font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 .375rem; }
+.notes p { margin: 0; font-size: .8125rem; line-height: 1.65; }
+@keyframes ants { to { stroke-dashoffset: -24; } }
+@keyframes breathe { 0%, 100% { stroke-opacity: .4; stroke-width: 2; } 50% { stroke-opacity: 1; stroke-width: 3.5; } }
+@keyframes wash { 0%, 100% { fill-opacity: .07; } 50% { fill-opacity: .2; } }
+@keyframes chev { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+</style>
+<div class="badge">Selection indicator</div>
+<h1>Clamped frame</h1>
+<p class="sub">The outline that exists today, pinned to the view when the selection runs past it. The frame itself becomes the message: what you selected continues beyond the screen.</p>
+<div class="grid"><div class="case"><svg viewBox="0 0 340 200" role="img" aria-label="1. On screen"><defs><clipPath id="cframe0"><rect x="0" y="0" width="340" height="200"/></clipPath></defs><g clip-path="url(#cframe0)"><path d="M85.76,42 L224.24,42 Q248,42 248,65.76 L248,126.24 Q248,150 224.24,150 L85.76,150 Q62,150 62,126.24 L62,65.76 Q62,42 85.76,42 Z" fill="var(--ink)" fill-opacity=".12" stroke="var(--ink)" stroke-width="1.6" stroke-opacity=".45"/><rect x="62" y="42" width="186" height="108" rx="3" fill="none" stroke="var(--primary)" stroke-width="1.6" stroke-dasharray="7 5" style="animation:ants 1.2s linear infinite"/></g></svg><div class="meta"><div class="nm">1. On screen</div><div class="ds">Fits comfortably inside the view</div></div></div><div class="case"><svg viewBox="0 0 340 200" role="img" aria-label="2. Partly off screen"><defs><clipPath id="cframe1"><rect x="0" y="0" width="340" height="200"/></clipPath></defs><g clip-path="url(#cframe1)"><path d="M213.44,28 L466.56,28 Q500,28 500,61.44 L500,146.56 Q500,180 466.56,180 L213.44,180 Q180,180 180,146.56 L180,61.44 Q180,28 213.44,28 Z" fill="var(--ink)" fill-opacity=".12" stroke="var(--ink)" stroke-width="1.6" stroke-opacity=".45"/><rect x="180" y="28" width="144" height="152" rx="3" fill="none" stroke="var(--primary)" stroke-width="1.6" stroke-dasharray="7 5" style="animation:ants 1.2s linear infinite"/></g></svg><div class="meta"><div class="nm">2. Partly off screen</div><div class="ds">Runs past one edge</div></div></div><div class="case"><svg viewBox="0 0 340 200" role="img" aria-label="3. Huge, partly visible"><defs><clipPath id="cframe2"><rect x="0" y="0" width="340" height="200"/></clipPath></defs><g clip-path="url(#cframe2)"><path d="M-752.24,-600 L-19.76,-600 Q268,-600 268,-312.24 L268,712.24 Q268,1000 -19.76,1000 L-752.24,1000 Q-1040,1000 -1040,712.24 L-1040,-312.24 Q-1040,-600 -752.24,-600 Z" fill="var(--ink)" fill-opacity=".12" stroke="var(--ink)" stroke-width="1.6" stroke-opacity=".45"/><rect x="16" y="16" width="252" height="168" rx="3" fill="none" stroke="var(--primary)" stroke-width="1.6" stroke-dasharray="7 5" style="animation:ants 1.2s linear infinite"/></g></svg><div class="meta"><div class="nm">3. Huge, partly visible</div><div class="ds">One edge inside, the rest far off</div></div></div><div class="case"><svg viewBox="0 0 340 200" role="img" aria-label="4. Covers the view"><defs><clipPath id="cframe3"><rect x="0" y="0" width="340" height="200"/></clipPath></defs><g clip-path="url(#cframe3)"><path d="M-935.6,-870 L1275.6,-870 Q1720,-870 1720,-425.6 L1720,705.6 Q1720,1150 1275.6,1150 L-935.6,1150 Q-1380,1150 -1380,705.6 L-1380,-425.6 Q-1380,-870 -935.6,-870 Z" fill="var(--ink)" fill-opacity=".12" stroke="var(--ink)" stroke-width="1.6" stroke-opacity=".45"/><rect x="16" y="16" width="308" height="168" rx="3" fill="none" stroke="var(--primary)" stroke-width="1.6" stroke-dasharray="7 5" style="animation:ants 1.2s linear infinite"/></g></svg><div class="meta"><div class="nm">4. Covers the view</div><div class="ds">No edge on screen at all</div></div></div></div>
+<div class="notes"><div><h3>How it is built</h3><p>Smallest possible change. Same code path as today, clamping the four projected corners before the path is built.</p></div><div><h3>Why choose it</h3><p>Bounded by construction. The frame can never exceed the viewport, so the dash count is fixed no matter how deep you are.</p></div><div><h3>What to watch</h3><p>Says nothing about WHICH object is selected when several overlap, and reads as chrome rather than as a property of the drawing.</p></div></div>

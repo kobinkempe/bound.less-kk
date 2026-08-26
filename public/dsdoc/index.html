@@ -1,0 +1,68 @@
+<meta charset="utf-8">
+<style>
+:root{--ink:oklch(0.29 0.025 55);--primary:oklch(0.6 0.17 35);--paper:oklch(0.972 0.014 84);--card:oklch(0.985 0.01 88);--border:oklch(0.87 0.02 78);--muted:oklch(0.52 0.03 60)}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:var(--paper);color:var(--ink);font-family:system-ui,sans-serif}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.125rem;margin-top:1.125rem}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:.75rem;padding:1rem}
+.stage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.625rem}
+.stage figure{margin:0}
+.stage svg{display:block;width:100%;height:auto;border-radius:.5rem;border:1px solid var(--border)}
+@keyframes ants{to{stroke-dashoffset:var(--ao,-32px)}}
+</style>
+<div class="grid" id="grid"></div>
+<script>
+// Verbatim from components/selection/covers-the-view-shimmer.html — the scene
+// table, the ant construction, and applyScale. Everything not needed to measure
+// the ants (shimmer options, palettes, controls) is stripped; nothing that
+// affects ant geometry is changed.
+const SC=[
+ {id:"cover",n:"Zoomed to cover",marks:[{d:"M-90,320 C 130,120 250,300 560,70",w:680}],dash:[26,20],band:7},
+ {id:"half",n:"Half-covering, at the edge",marks:[{d:"M-170,-50 C 70,40 220,110 175,350",w:310},{d:"M-40,196 C 150,148 300,242 480,184",w:150,other:1}],dash:[22,16],band:6},
+ {id:"round",n:"Round object",marks:[{d:"M220,42 C 302,42 358,94 358,150 C 358,208 300,258 218,258 C 138,258 82,206 82,148 C 82,92 140,42 220,42 Z",w:17}],dash:[13,10],band:4.5},
+ {id:"thin",n:"Thin strokes",px:1,ant:1,marks:[{d:"M-20,214 C 70,58 172,292 282,140 C 342,58 392,120 462,78",w:3}],dash:[6,5],band:1.75},
+ {id:"tiny",n:"Tiny objects",px:1,ant:.7,marks:[{d:"M62,96 C 74,82 90,102 104,88",w:3},{dot:.5,c:[398,226],sm:1}],dash:[4,3.5],band:1.5}
+];
+SC.forEach(s=>{s.dash=s.dash||[5,4];s.band=s.band||2});
+let place="edge",small="trace",SCALE=0;
+const VB=[440,300];
+function svg(s,u){
+ const W=VB[0],H=VB[1];
+ const SM=s.marks.filter(m=>!m.other),OM=s.marks.filter(m=>m.other);
+ let defs="";
+ const k=s.ant||1,b=5*k,PW={outside:[b,.6],edge:[b*.5,-b*.5],inside:[0,-b]},pw=PW[place]||PW.outside;
+ const TR=SM.filter(m=>!(m.sm&&small!=="trace"));
+ defs+=`<mask id="rg${u}" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/>${TR.map(m=>`<path class="rm" data-mw="${m.w}" data-ero="${pw[1]}" d="${m.d}" fill="${m.fill?"#000":"none"}" stroke="#000" stroke-width="${m.w}" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</mask>`;
+ const antLayer=`<g mask="url(#rg${u})">${TR.map(m=>`<path class="ap" data-mw="${m.w}" data-inf="${pw[0]}" d="${m.d}" fill="none" stroke="var(--primary)" stroke-width="${m.w+5}" stroke-dasharray="5 4" stroke-linecap="butt" style="--ao:-18px;animation:ants .8s linear infinite"/>`).join("")}</g>`;
+ const paths=SM.map(m=>`<path d="${m.d}" fill="${m.fill?"#2f6ad0":"none"}" stroke="#2f6ad0" stroke-width="${m.w}" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+ return `<svg data-scene="${s.id}" viewBox="0 0 ${W} ${H}"><defs>${defs}</defs><rect width="${W}" height="${H}" fill="#faf4ec"/>${paths}${antLayer}${OM.map(m=>`<path d="${m.d}" fill="none" stroke="#7a7f86" stroke-width="${m.w}" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</svg>`;
+}
+function build(s0){
+ const sc=SCALE||.425;
+ return Object.assign({},s0,{marks:s0.marks.map(m=>{
+  if(m.dot){const r=+(m.dot/2/sc).toFixed(2),cx=m.c[0],cy=m.c[1];
+   return {sm:m.sm,c:m.c,d:`M${(cx-r).toFixed(2)},${cy} a${r},${r} 0 1,0 ${(r*2).toFixed(2)},0 a${r},${r} 0 1,0 ${(-r*2).toFixed(2)},0`,w:0,fill:1};}
+  return s0.px?Object.assign({},m,{w:+(m.w/sc).toFixed(2)}):m;})});
+}
+function applyScale(){
+ document.querySelectorAll("#grid svg").forEach(sv=>{
+  const sc=sv.getBoundingClientRect().width/VB[0];if(!sc)return;
+  const k=+sv.dataset.ant||1,px=v=>v/sc;
+  const on=px(5*k),off=px(4*k);
+  sv.querySelectorAll("path.ap").forEach(p=>{p.setAttribute("stroke-width",Math.max(px(.5),+p.dataset.mw+px(+p.dataset.inf)).toFixed(2));p.setAttribute("stroke-dasharray",on.toFixed(2)+" "+off.toFixed(2));p.style.setProperty("--ao",(-(on+off)*2).toFixed(2)+"px");});
+  sv.querySelectorAll("path.rm").forEach(p=>p.setAttribute("stroke-width",Math.max(0,+p.dataset.mw+px(+p.dataset.ero)).toFixed(2)));
+ });
+}
+function render(){
+ document.getElementById("grid").innerHTML=SC.map(s0=>{
+  const s=build(s0);
+  return `<section class="panel"><div class="stage"><figure>${svg(s,s.id)}</figure></div></section>`;
+ }).join("");
+ SC.forEach(s0=>{const sv=document.querySelector(`svg[data-scene="${s0.id}"]`);if(sv)sv.dataset.ant=s0.ant||1;});
+ applyScale();
+ const probe=document.querySelector("#grid svg");
+ if(probe){const sc=probe.getBoundingClientRect().width/VB[0];if(sc&&Math.abs(sc-SCALE)>.01){SCALE=sc;render();}}
+}
+new ResizeObserver(()=>applyScale()).observe(document.body);
+render();
+</script>

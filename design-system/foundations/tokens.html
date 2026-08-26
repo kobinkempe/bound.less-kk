@@ -1,0 +1,108 @@
+<!-- @dsCard group="Foundations" -->
+<meta charset="utf-8">
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Karla:wght@400;500;600&display=swap");
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.972 0.014 84);
+  --foreground: oklch(0.29 0.025 55);
+  --card: oklch(0.985 0.01 88);
+  --primary: oklch(0.6 0.17 35);
+  --primary-foreground: oklch(0.985 0.01 88);
+  --secondary: oklch(0.93 0.018 82);
+  --muted-foreground: oklch(0.52 0.03 60);
+  --accent: oklch(0.9 0.03 78);
+  --destructive: oklch(0.55 0.2 27);
+  --border: oklch(0.87 0.02 78);
+  --ring: oklch(0.6 0.17 35);
+  --ink: oklch(0.29 0.025 55);
+  --paper: oklch(0.972 0.014 84);
+  --paper-deep: oklch(0.945 0.018 82);
+  --shadow-panel: 0 2px 8px oklch(0.28 0.03 50 / 0.08), 0 8px 32px oklch(0.28 0.03 50 / 0.1);
+  --shadow-card: 0 1px 3px oklch(0.28 0.03 50 / 0.08), 0 6px 20px oklch(0.28 0.03 50 / 0.08);
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Karla", ui-sans-serif, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; margin: 0 0 .35rem; }
+h2 { font-family: var(--font-sans); font-size: .6875rem; font-weight: 600; letter-spacing: .05em;
+     text-transform: uppercase; color: var(--muted-foreground); margin: 2rem 0 .75rem; }
+.sub { color: var(--muted-foreground); font-size: .9375rem; margin: 0 0 .5rem; max-width: 54rem; line-height: 1.65; }
+.badge { display: inline-block; margin-bottom: .75rem; padding: .25rem .75rem; border-radius: 9999px;
+  border: 1px solid var(--border); background: var(--paper-deep); font-size: .6875rem; font-weight: 500;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .875rem; }
+.sw { border-radius: .75rem; border: 1px solid var(--border); background: var(--card); overflow: hidden; box-shadow: var(--shadow-card); }
+.sw .chip { height: 68px; }
+.sw .lbl { padding: .5rem .625rem .625rem; }
+.sw .nm { font-size: .8125rem; font-weight: 600; }
+.sw .val { font-size: .6875rem; color: var(--muted-foreground); font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: .125rem; word-break: break-all; }
+.specimen { border-radius: .75rem; border: 1px solid var(--border); background: var(--card); padding: 1.25rem 1.5rem; box-shadow: var(--shadow-card); }
+.disp-xl { font-family: var(--font-display); font-size: 3rem; line-height: 1.05; font-weight: 600; letter-spacing: -.02em; }
+.disp-md { font-family: var(--font-display); font-size: 1.25rem; font-weight: 600; letter-spacing: -.02em; margin-top: 1rem; }
+.body { font-size: 1rem; margin-top: .75rem; line-height: 1.6; max-width: 44rem; }
+.small { font-size: .8125rem; color: var(--muted-foreground); margin-top: .5rem; }
+.row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.tool-btn { display: flex; height: 2.25rem; width: 2.25rem; align-items: center; justify-content: center;
+  border-radius: .5rem; border: none; background: transparent; color: var(--foreground); font-size: 1rem; }
+.tool-btn.hover { background: var(--accent); }
+.tool-btn.active { background: var(--primary); color: var(--primary-foreground); }
+.chip-ui { border-radius: .5rem; border: 1px solid var(--border); background: var(--card);
+  padding: .5rem .75rem; box-shadow: var(--shadow-panel); font-size: .8125rem; }
+.flag { margin-top: 2rem; border-radius: .75rem; border: 1px solid var(--border);
+  border-left: 3px solid var(--destructive); background: var(--card); padding: 1rem 1.25rem; box-shadow: var(--shadow-card); }
+.flag h3 { font-family: var(--font-display); font-size: 1rem; font-weight: 600; margin: 0 0 .375rem; }
+.flag p { margin: 0; font-size: .875rem; line-height: 1.65; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8125em;
+  background: var(--paper-deep); padding: .1em .35em; border-radius: .25rem; }
+</style>
+
+<div class="badge">Foundations</div>
+<h1>bound.less design tokens</h1>
+<p class="sub">The warm paper-and-ink sketchbook palette, taken verbatim from <code>src/Stylesheets/boundless-ui.css</code>. Colours are authored in oklch; these are the live values, not an approximation of them.</p>
+
+<h2>Palette</h2>
+<div class="swatches">
+  <div class="sw"><div class="chip" style="background: oklch(0.972 0.014 84)"></div><div class="lbl"><div class="nm">paper / background</div><div class="val">oklch(0.972 0.014 84)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.945 0.018 82)"></div><div class="lbl"><div class="nm">paper-deep</div><div class="val">oklch(0.945 0.018 82)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.985 0.01 88)"></div><div class="lbl"><div class="nm">card / popover</div><div class="val">oklch(0.985 0.01 88)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.29 0.025 55)"></div><div class="lbl"><div class="nm">ink / foreground</div><div class="val">oklch(0.29 0.025 55)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.6 0.17 35)"></div><div class="lbl"><div class="nm">primary / ring</div><div class="val">oklch(0.6 0.17 35)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.9 0.03 78)"></div><div class="lbl"><div class="nm">accent</div><div class="val">oklch(0.9 0.03 78)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.93 0.018 82)"></div><div class="lbl"><div class="nm">secondary / muted</div><div class="val">oklch(0.93 0.018 82)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.87 0.02 78)"></div><div class="lbl"><div class="nm">border / input</div><div class="val">oklch(0.87 0.02 78)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.52 0.03 60)"></div><div class="lbl"><div class="nm">muted-foreground</div><div class="val">oklch(0.52 0.03 60)</div></div></div>
+  <div class="sw"><div class="chip" style="background: oklch(0.55 0.2 27)"></div><div class="lbl"><div class="nm">destructive</div><div class="val">oklch(0.55 0.2 27)</div></div></div>
+</div>
+
+<h2>Type</h2>
+<div class="specimen">
+  <div class="disp-xl">Draw at any scale</div>
+  <div class="disp-md">Fraunces &middot; display, 600</div>
+  <p class="body">Karla carries every piece of running text in the product &mdash; labels, panels, tool tips, scene names. Fraunces appears only for titles and object names, where the serif does the work of signalling that this is a sketchbook and not a spreadsheet.</p>
+  <p class="small">--font-display: "Fraunces", Georgia, serif &nbsp;&middot;&nbsp; --font-sans: "Karla", ui-sans-serif, system-ui, sans-serif</p>
+</div>
+
+<h2>Editor chrome</h2>
+<div class="specimen">
+  <div class="row">
+    <div class="tool-btn">&#9998;</div>
+    <div class="tool-btn hover">&#9711;</div>
+    <div class="tool-btn active">&#9632;</div>
+    <div style="width:1px; height:2rem; background: var(--border)"></div>
+    <div class="chip-ui">1&nbsp;&micro;m</div>
+    <div class="chip-ui" style="font-family: var(--font-display); font-weight: 600">Untitled canvas</div>
+  </div>
+  <p class="small">Tool buttons are 2.25rem square at 0.5rem radius: transparent at rest, <code>--accent</code> on hover, <code>--primary</code> when active. Floating chips and panels sit on <code>--card</code> with a 1px <code>--border</code> and <code>--shadow-panel</code>. Panel radius is 0.75rem.</p>
+</div>
+
+<h2>Surface note</h2>
+<div class="specimen">
+  <p class="body" style="margin-top:0">The drawing host itself is pure white (<code>#fff</code>), not paper. The warm palette is the chrome <em>around</em> the canvas; the canvas is a white sheet. Anything drawn as an overlay on the artwork &mdash; selection included &mdash; is judged against white, not against <code>--paper</code>.</p>
+</div>
+
+<div class="flag">
+  <h3>Off-palette today</h3>
+  <p>The selection outline in <code>Renderer.js</code> is hard-coded to <code>#4f46e5</code>, a cold indigo with no relationship to any token above. It predates this palette. Every option in the Selection group uses <code>--primary</code> (terracotta) or <code>--ink</code> instead, which is a visible change from what currently ships.</p>
+</div>

@@ -44,6 +44,7 @@ export default function CanvasV2() {
     const [debug, setDebug] = useState(false);
     const [kdebug, setKdebug] = useState(false);
     const [tiledebug, setTiledebug] = useState(false);
+    const [erasedebug, setErasedebug] = useState(false);
     const [status, setStatus] = useState({ level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0 });
     const [reportLabel, setReportLabel] = useState("Report");
     const [devOpen, setDevOpen] = useState(false);
@@ -80,9 +81,27 @@ export default function CanvasV2() {
         // periodically. Only save when the document actually changed, and do
         // the work in an idle slice.
         let dirty = false;
-        const unsubDirty = engine.doc.subscribe(() => { dirty = true; });
-        const save = () => {
-            try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(engine.serializeDrawing())); dirty = false; } catch (err) { /* quota */ }
+        // See useKobinEngine for the full account: `dirty = false` after the
+        // write meant a throw left it set, and the 4 s interval then re-ran the
+        // same doomed serialize for ever -- ~960 ms of main thread each time on
+        // a large document. Skip a state that has already failed, and back off.
+        let docSeq = 0, failedSeq = -1, failCount = 0, skipUntil = 0;
+        const unsubDirty = engine.doc.subscribe(() => { dirty = true; docSeq += 1; });
+        const save = (force = false) => {
+            if (!force) {
+                if (failedSeq === docSeq) return;
+                if (performance.now() < skipUntil) return;
+            }
+            try {
+                localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(engine.serializeDrawing()));
+                dirty = false;
+                failedSeq = -1; failCount = 0; skipUntil = 0;
+            } catch (err) {
+                failedSeq = docSeq;
+                failCount = Math.min(failCount + 1, 6);
+                skipUntil = performance.now() + 4000 * Math.pow(2, failCount);
+                console.warn("kobin autosave failed (storage full?)", err);
+            }
         };
         const idleSave = () => {
             if (!dirty) return;
@@ -90,7 +109,8 @@ export default function CanvasV2() {
             idle(() => { if (dirty) save(); });
         };
         const saveTimer = setInterval(idleSave, 4000);
-        window.addEventListener("beforeunload", save);
+        const saveOnUnload = () => save(true);
+        window.addEventListener("beforeunload", saveOnUnload);
 
         // Capture JS errors for debug reports (phones have no visible console).
         const onErr = (e) => {
@@ -193,8 +213,8 @@ export default function CanvasV2() {
             clearTimeout(resizeT);
             clearTimeout(th.timer);
             unsubDirty();
-            save(); // hot reload / unmount keeps the drawing
-            window.removeEventListener("beforeunload", save);
+            save(true); // hot reload / unmount keeps the drawing — no backoff
+            window.removeEventListener("beforeunload", saveOnUnload);
             window.removeEventListener("error", onErr);
             window.removeEventListener("unhandledrejection", onErr);
             host.removeEventListener("pointerdown", down);
@@ -225,6 +245,7 @@ export default function CanvasV2() {
     useEffect(() => { engineRef.current && engineRef.current.setDebug(debug); }, [debug]);
     useEffect(() => { engineRef.current && engineRef.current.setKDebug(kdebug); }, [kdebug]);
     useEffect(() => { engineRef.current && engineRef.current.setTileDebug(tiledebug); }, [tiledebug]);
+    useEffect(() => { engineRef.current && engineRef.current.setEraseDebug(erasedebug); }, [erasedebug]);
 
     const pickPen = (type) => { setPenType(type); setTool("pen"); setOptionDisplay("none"); };
     const toggleOption = (name) => setOptionDisplay(optionDisplay === name ? "none" : name);
@@ -251,9 +272,41 @@ export default function CanvasV2() {
                     tiles: Object.fromEntries(Object.entries(E.tiles).map(([l, m]) => [l, m.size])),
                     rendered: (E.levelObjects[E.activeLevel] || []).length,
                 },
-                flags: { opacityGroups: E.opacityGroups, outlineMode: E.outlineMode, hasFat: E._hasFat },
+                flags: { opacityGroups: E.opacityGroups, outlineMode: E.outlineMode, hasFat: E._hasFat, retainScenes: !!E.retainScenes, preBake: !!E.preBake },
                 perf: E.perfLog,
+                // What no JS timer can see: the gap between animation frames, which is
+                // the number the user actually feels. Buckets plus the worst few frames,
+                // wall-clock stamped so a bad frame lines up against `perf` and `journal`.
+                frames: E.frameMeter ? E.frameMeter.report() : null,
+                // Chrome's own account of every slow frame: script vs style-and-layout
+                // vs everything left over (paint/raster/composite), with the slowest
+                // scripts named. This is what the frame meter could never tell us.
+                longFrames: E.longFrames ? E.longFrames.report() : null,
+                // Does the SESSION accumulate? A refresh cures the slowness, so the
+                // suspect is heap/cache growth rather than the drawing or the machine.
+                growth: E.growth ? E.growth.report() : null,
+                // input -> pixels, in three phases. The third (presentMs) is the only
+                // measure that reaches past the main thread to the compositor.
+                eventLatency: E.eventLatency ? E.eventLatency.report() : null,
+                // Zoom and pan steps are far too frequent to log one by one (300-entry
+                // cap); this is their distribution instead, including how many crossed
+                // 8, 16 and 50 ms. Two reports came back with no zoom entries at all
+                // because every step sat under the log threshold.
+                fast: E.fastStats ? E.fastStats() : null,
                 errors: errsRef.current,
+                // WHAT WAS DONE, not just what is left: the last 40 gestures with
+                // their pointer paths, what each erase cut, and whether the
+                // object came apart. A snapshot alone cannot answer "the split
+                // was wrong" — it shows the result and hides the gesture.
+                journal: E.journal,
+                families: E.reportFamilies(),
+                counters: {
+                    dustCulled: E._dustCulled || 0,
+                    boolSeals: E._boolFailures || 0,
+                    bakeRepairs: E._bakeRepairs || 0,
+                    lastSeal: E._lastBoolFailure || null,
+                    lastBakeRepair: E._lastBakeRepair || null,
+                },
                 snapshot: E.snapshot(),
             };
             const r = await fetch(`http://${window.location.hostname}:3001/report`, {
@@ -415,24 +468,16 @@ export default function CanvasV2() {
                 </div>
             </div>
 
-            {/* selection edit panel (select tool): restyle / delete the selected object */}
+            {/* selection panel (select tool): what is selected, and delete */}
             {status.selection && (
                 <div style={{ position: "absolute", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 10,
                     background: "rgba(255,255,255,.97)", borderRadius: 10, boxShadow: "0 2px 10px rgba(0,0,0,.25)",
                     padding: "10px 14px", width: 190 }}>
                     <Typography align="center" style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
-                        edit {status.selection.type === "fill" ? "fill" : "stroke"} · level {status.selection.level}
+                        {status.selection.count > 1
+                            ? `${status.selection.count} objects selected`
+                            : `${status.selection.type === "stroke" ? "stroke" : "shape"} · level ${status.selection.level}`}
                     </Typography>
-                    <HexColorPicker className="small" color={toHex(status.selection.color)}
-                        onChange={(c) => engineRef.current && engineRef.current.restyleSelection({ color: c })} />
-                    {status.selection.widthPx != null && <>
-                        <Typography align="center" style={{ fontSize: 13, marginTop: 6 }}>width {Math.round(status.selection.widthPx)}px</Typography>
-                        <Slider min={1} max={90} value={Math.min(90, Math.max(1, Math.round(status.selection.widthPx)))}
-                            onChange={(e, v) => engineRef.current && engineRef.current.restyleSelection({ widthPx: v })} />
-                    </>}
-                    <Typography align="center" style={{ fontSize: 13 }}>opacity {Math.round(status.selection.opacity * 100)}%</Typography>
-                    <Slider min={0.1} max={1} step={0.05} value={status.selection.opacity}
-                        onChange={(e, v) => engineRef.current && engineRef.current.restyleSelection({ opacity: v })} />
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
                         <button style={{ padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12,
                             border: "1px solid #fecaca", background: "#fff", color: "#b91c1c" }}
@@ -470,6 +515,7 @@ export default function CanvasV2() {
                         <button style={dbgBtn(debug)} onClick={() => setDebug(!debug)}>Edges</button>
                         <button style={dbgBtn(kdebug)} onClick={() => setKdebug(!kdebug)}>K-Debug</button>
                         <button style={dbgBtn(tiledebug)} onClick={() => setTiledebug(!tiledebug)}>Tiles</button>
+                        <button style={dbgBtn(erasedebug)} onClick={() => setErasedebug(!erasedebug)} title="Erase debug: one colour per real shape, orange outlines, GREEN where pieces are joined across a tile edge, black = temporary tile, yellow = eraser mark">Erase</button>
                         <button style={dbgBtn(false)} onClick={sendReport} title="send drawing state + perf log to the dev machine">{reportLabel}</button>
                     </div>
                 </>}

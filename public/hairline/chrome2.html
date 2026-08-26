@@ -1,0 +1,50 @@
+<meta charset="utf-8">
+<title>hairline cliff: where</title>
+<style>
+ body{margin:0;padding:12px;background:#fff;color:#111;font:12px ui-monospace,monospace}
+ h2{font-size:13px;margin:14px 0 4px} .meta{color:#666}
+ .row{display:flex;align-items:center;gap:6px;margin:3px 0}
+ .lab{width:150px;text-align:right;color:#333;font-size:11px}
+ svg{display:block;border:1px solid #e2e2e2;background:#fff}
+</style>
+<div class="meta" id="meta"></div>
+
+<h2>A — on-screen thickness FIXED at 0.165 px (F-Z's own). Only the SVG coordinate scale changes.</h2>
+<div id="A"></div>
+
+<h2>B — transform FIXED at K = 50 (близко to the app's 50.16). How thick must ink be to survive?</h2>
+<div id="B"></div>
+
+<h2>C — control: same thicknesses as B, but K = 1 (coordinates at natural size)</h2>
+<div id="C"></div>
+
+<script>
+const CW = 900, CH = 34, PAD = 6, NSEG = 120;
+function sliverD(w, K) {
+  const len = (CW - 2*PAD)/K, x0 = PAD/K, y = (CH/2)/K, amp = (CH*0.22)/K, h = w/2;
+  const top = [], bot = [];
+  for (let i = 0; i <= NSEG; i++) {
+    const t = i/NSEG, X = x0 + t*len, yy = y + amp*Math.sin(t*Math.PI*2);
+    const m = amp*Math.cos(t*Math.PI*2)*Math.PI*2/len, q = Math.hypot(1, m);
+    top.push([X - (m/q)*h, yy + (1/q)*h]); bot.push([X + (m/q)*h, yy - (1/q)*h]);
+  }
+  const seg = (p) => { let s=""; for (let i=1;i<p.length;i++){const a=p[i-1],b=p[i],dx=(b[0]-a[0])/3;
+    s += "C"+(a[0]+dx)+","+a[1]+" "+(b[0]-dx)+","+b[1]+" "+b[0]+","+b[1]+" ";} return s; };
+  return "M"+top[0][0]+","+top[0][1]+" "+seg(top)+"L"+bot[NSEG][0]+","+bot[NSEG][1]+" "+seg(bot.slice().reverse())+"Z";
+}
+function cell(T, K) {
+  return '<svg width="'+CW+'" height="'+CH+'"><g transform="matrix('+K+',0,0,'+K+',0,0)">'
+    + '<path d="'+sliverD(T/K, K)+'" fill="#000"/></g></svg>';
+}
+function panel(id, rows) {
+  document.getElementById(id).innerHTML = rows.map(([lab, T, K]) =>
+    '<div class="row"><div class="lab">'+lab+'</div>'+cell(T, K)+'</div>').join("");
+}
+const KA = [1, 1.5, 2, 3, 4, 6, 8, 12, 16, 32, 64];
+panel("A", KA.map((K) => ["K="+K+"  w="+(0.165/K).toPrecision(3), 0.165, K]));
+const TB = [0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.70, 1.00, 1.50, 2.00, 3.00];
+panel("B", TB.map((T) => ["T="+T.toFixed(2)+"px  w="+(T/50).toPrecision(3), T, 50]));
+panel("C", TB.map((T) => ["T="+T.toFixed(2)+"px  w="+T.toPrecision(3), T, 1]));
+document.getElementById("meta").textContent = "dpr="+devicePixelRatio+"   "+navigator.userAgent;
+document.title = "ready2";
+</script>

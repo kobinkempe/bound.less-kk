@@ -1,0 +1,77 @@
+<meta charset="utf-8">
+<title>hairline threshold v3</title>
+<style>body{font:13px ui-monospace,monospace;padding:16px}pre{white-space:pre}</style>
+<pre id="out">running…</pre>
+<script>
+// v3: ABSOLUTE normalization (expected = T * on-screen arclength), fine sweep
+// through the suspected cliff, stroke vs filled-sliver vs filled-cubic-loop.
+const L = 600, CW = 700, CH = 60, Y = CH / 2;
+const AMP_PX = 12;
+
+function arcLenPx() {                       // on-screen arclength of the sine centerline
+  let s = 0, N = 4000, py = Y, px = 20;
+  for (let i = 1; i <= N; i++) {
+    const t = i / N, X = 20 + t * L, yy = Y + AMP_PX * Math.sin(t * Math.PI * 2);
+    s += Math.hypot(X - px, yy - py); px = X; py = yy;
+  }
+  return s;
+}
+const ARC = arcLenPx();
+
+function mk(kind, w, K) {
+  const len = L / K, y = Y / K, x0 = 20 / K, h = w / 2, amp = AMP_PX / K;
+  const open = '<svg xmlns="http://www.w3.org/2000/svg" width="' + CW + '" height="' + CH + '"><g transform="scale(' + K + ')">';
+  if (kind === "stroke") {
+    return open + '<path d="M' + x0 + ',' + y + ' L' + (x0 + len) + ',' + y
+      + '" fill="none" stroke="#000" stroke-width="' + w + '"/></g></svg>';
+  }
+  if (kind === "fillRect") {
+    const d = 'M' + x0 + ',' + (y - h) + ' L' + (x0 + len) + ',' + (y - h)
+      + ' L' + (x0 + len) + ',' + (y + h) + ' L' + x0 + ',' + (y + h) + ' Z';
+    return open + '<path d="' + d + '" fill="#000"/></g></svg>';
+  }
+  const N = 60, top = [], bot = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, X = x0 + t * len, yy = y + amp * Math.sin(t * Math.PI * 2);
+    const m = amp * Math.cos(t * Math.PI * 2) * Math.PI * 2 / len, q = Math.hypot(1, m);
+    top.push([X - (m / q) * h, yy + (1 / q) * h]);
+    bot.push([X + (m / q) * h, yy - (1 / q) * h]);
+  }
+  const seg = (p) => { let s = ""; for (let i = 1; i < p.length; i++) { const a = p[i-1], b = p[i], dx = (b[0]-a[0])/3;
+    s += "C" + (a[0]+dx) + "," + a[1] + " " + (b[0]-dx) + "," + b[1] + " " + b[0] + "," + b[1] + " "; } return s; };
+  const d = "M" + top[0][0] + "," + top[0][1] + " " + seg(top)
+    + "L" + bot[N][0] + "," + bot[N][1] + " " + seg(bot.slice().reverse()) + "Z";
+  return open + '<path d="' + d + '" fill="#000"/></g></svg>';
+}
+const cv = document.createElement("canvas"); cv.width = CW; cv.height = CH;
+const cx = cv.getContext("2d", { willReadFrequently: true });
+function ink(kind, w, K) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => { cx.clearRect(0,0,CW,CH); cx.drawImage(img,0,0);
+      const d = cx.getImageData(0,0,CW,CH).data; let a = 0;
+      for (let i = 3; i < d.length; i += 4) a += d[i]; res(a/255); };
+    img.onerror = () => res(NaN);
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(mk(kind, w, K));
+  });
+}
+const KS = [1, 16, 256, 4096];
+const TS = [0.10,0.14,0.16,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.30,0.50,1.00];
+(async () => {
+  const R = ["dpr=" + devicePixelRatio + "   expected = T x on-screen length. 1.00 = correct, 0.00 = nothing painted.", ""];
+  for (const kind of ["stroke", "fillRect", "fillCurve"]) {
+    const LEN = kind === "fillCurve" ? ARC : L;
+    R.push("=== " + kind + " ===   (length " + LEN.toFixed(0) + " px)");
+    R.push("  T(px) \ K |" + KS.map((k) => String(k).padStart(9)).join(""));
+    R.push("  ----------+" + KS.map(() => "---------").join(""));
+    for (const T of TS) {
+      const row = [];
+      for (const K of KS) row.push(((await ink(kind, T / K, K)) / (T * LEN)).toFixed(2).padStart(9));
+      R.push("  " + T.toFixed(2).padStart(8) + "  |" + row.join(""));
+    }
+    R.push("");
+  }
+  document.getElementById("out").textContent = R.join("\n");
+  document.title = "done3";
+})();
+</script>

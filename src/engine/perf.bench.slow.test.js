@@ -10,6 +10,7 @@
  *
  * Timings are also printed so the numbers can go in the design report.
  */
+import { loadFixture } from "./__testkit__/legacyFixture";
 import fs from "fs";
 import path from "path";
 import KobinEngineV0 from "./KobinEngineV0";
@@ -40,8 +41,13 @@ describe("perf: incremental re-render vs full teardown on the BUG-05 scene", () 
         const w = report.screen.w, h = report.screen.h;
         const A = mk(KobinEngineV0, w, h); engines.push(A);
         const B = mk(KobinEngine, w, h); engines.push(B);
+        // V0 is the PRE-LATTICE engine and still speaks the format these
+        // recordings are written in — it is the baseline precisely because it
+        // has not changed. Only the new engine needs the snapshot re-expressed
+        // in lattice coordinates; the picture is the same either way, so the
+        // comparison is still like for like.
         A.loadSnapshot(JSON.parse(JSON.stringify(snap)));
-        B.loadSnapshot(JSON.parse(JSON.stringify(snap)));
+        loadFixture(B, JSON.parse(JSON.stringify(snap)));
 
         const tA = time(() => { A._renderActive(); A.two.update(); }, 20);
         const tB = time(() => { B._render(); }, 20);
@@ -62,8 +68,8 @@ describe("perf: new vs old on real snapshots (no bad regression)", () => {
 
         const A = mk(KobinEngineV0, w, h); engines.push(A);
         const B = mk(KobinEngine, w, h); engines.push(B);
-        A.loadSnapshot(JSON.parse(JSON.stringify(snap)));
-        B.loadSnapshot(JSON.parse(JSON.stringify(snap)));
+        A.loadSnapshot(JSON.parse(JSON.stringify(snap)));   // V0 reads the original format
+        loadFixture(B, JSON.parse(JSON.stringify(snap)));
 
         const tA = time(() => { A.panBy(3, 0); A.panBy(-3, 0); }, 6);
         const tB = time(() => { B.panBy(3, 0); B.panBy(-3, 0); }, 6);

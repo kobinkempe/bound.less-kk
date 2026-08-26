@@ -27,6 +27,7 @@
  *   proj.childrenOf(key, keys[]) -> keys[]        (default: keys one depth finer)
  */
 import { bboxOf } from "./geometry/derive";
+import { pieceBBox } from "./geometry/arcShape";
 
 // Frame-key helpers, defaulting to spine (integer-depth) semantics.
 const depthFn = (proj) => (proj && proj.depthOf) || ((k) => Number(k));
@@ -75,6 +76,11 @@ const withinGap = (a, b, T) => rectGapX(a, b) <= T && rectGapY(a, b) <= T;
 /** Effective width of an object in its own frame (fills get a synthetic one). */
 function widthOf(o) {
     if (o.type === "stroke") return o.lwFrame || 1e-9;
+    // A baked shape keeps `w`, the pen that drew it, precisely because
+    // clustering is width-relative and a resolved perimeter has no linewidth
+    // left to read. Without it a long stroke would take a synthetic width off
+    // its own bounding box and cluster as though it were a blob.
+    if (o.w > 0) return o.w;
     const b = bboxOf(o);
     return Math.max(b.x1 - b.x0, b.y1 - b.y0, 1e-9) / WINDOW_WIDTHS;
 }
@@ -86,13 +92,48 @@ function widthOf(o) {
  * Document, which also drops _bbox).
  */
 export function chunksOf(o) {
-    if (o._sceneChunks && o._sceneChunksPts === o.pts && o._sceneChunksN === (o.pts ? o.pts.length : -1)) {
+    // `_ver` is in the key because point-array identity alone cannot see a FILL
+    // move: a fill has no `pts`, so the old key compared undefined with
+    // undefined and matched forever. Moving an erase-made fill therefore left
+    // its chunks — and so the whole scene graph — at the position it used to
+    // have. Document._afterEdit bumps `_ver` on every geometry edit.
+    if (o._sceneChunks && o._sceneChunksPts === o.pts &&
+        o._sceneChunksN === (o.pts ? o.pts.length : -1) && o._sceneChunksVer === o._ver) {
         return o._sceneChunks;
     }
     const w = widthOf(o);
     const maxSide = CHUNK_WINDOWS * WINDOW_WIDTHS * w;
     const out = [];
-    if (o.type !== "stroke" || !o.pts || o.pts.length === 0) {
+    if (o.type === "shape" && o.loops) {
+        // Walk the perimeter and box it up the same way a centerline is boxed.
+        // Collapsing a shape to ONE chunk (what the old fill branch did) makes a
+        // long erased stroke read as a single blob the size of its bounding box,
+        // and clustering then joins things at opposite ends of it.
+        let c = null;
+        const push = () => { if (c) out.push(c); c = null; };
+        for (const loop of o.loops) {
+            for (const p of loop) {
+                const b = pieceBBox(p);
+                if (c) {
+                    const nx0 = Math.min(c.x0, b[0]), ny0 = Math.min(c.y0, b[1]);
+                    const nx1 = Math.max(c.x1, b[2]), ny1 = Math.max(c.y1, b[3]);
+                    if (nx1 - nx0 > maxSide || ny1 - ny0 > maxSide) push();
+                }
+                if (!c) c = { x0: b[0], y0: b[1], x1: b[2], y1: b[3], len: 0 };
+                else {
+                    c.x0 = Math.min(c.x0, b[0]); c.y0 = Math.min(c.y0, b[1]);
+                    c.x1 = Math.max(c.x1, b[2]); c.y1 = Math.max(c.y1, b[3]);
+                }
+                c.len += p.line ? Math.hypot(p.B[0] - p.A[0], p.B[1] - p.A[1])
+                    : Math.abs(p.r * p.sweep);
+            }
+        }
+        push();
+        if (!out.length) {
+            const b = bboxOf(o);
+            out.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, len: w });
+        }
+    } else if (o.type !== "stroke" || !o.pts || o.pts.length === 0) {
         const b = bboxOf(o);
         out.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, len: 2 * ((b.x1 - b.x0) + (b.y1 - b.y0)) || w });
     } else {
@@ -135,6 +176,7 @@ export function chunksOf(o) {
     o._sceneChunks = out;
     o._sceneChunksPts = o.pts;
     o._sceneChunksN = o.pts ? o.pts.length : -1;
+    o._sceneChunksVer = o._ver;
     return out;
 }
 
@@ -164,7 +206,7 @@ function mapChunks(chunks, from, to, proj) {
 /** One item = one object viewed in some working frame. */
 function itemsAtLevel(nativesByLevel, L) {
     return (nativesByLevel[L] || [])
-        .filter((o) => o.type === "stroke" || o.type === "fill")
+        .filter((o) => o.type === "stroke" || o.type === "fill" || o.type === "shape")
         .map((o) => ({ id: o.id, level: L, w: widthOf(o), chunks: chunksOf(o) }))
         .map((it) => ({ ...it, box: outerBox(it.chunks) }));
 }

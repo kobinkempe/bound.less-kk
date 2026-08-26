@@ -26,12 +26,13 @@
  * would need to MAGNIFY into F from another branch — the up-chain's lateral
  * pickup, deferred (Stage 3 remainder). It cannot arise in a spine.
  *
- * Ordinary own natives(F) are NOT baked into F's own tiles — they render live
- * (curved) at the active frame. The narrow exception is a native with ownership
- * windows: ownContent clips that parent through visible tiles so its re-homed
- * descendants can remain visible across the outward boundary.
+ * Own natives(F) are NOT baked into F's own tiles — they render live (curved) at
+ * the active frame. There is no exception: since an erase below an object's home
+ * CUTS the ceded tile out of the parent's own geometry (see geometry/cede.js),
+ * every native's stored rings are already the rings to paint, and nothing has to
+ * be re-derived per view.
  */
-import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, displayChords, splitWindows, seamPad, padRect } from "./geometry/derive";
+import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, padRect, shapeRingsInRect, shapeTol } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/clipperOutline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
@@ -53,11 +54,29 @@ export default class TileStore {
         this._clock = 0;
         this._epoch = 0;
         this._pins = new Set(); // keys protected from eviction during a bake/render
+        this._batch = false;    // a drag: many changes to the same objects, per frame
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
     destroy() { if (this._unsub) this._unsub(); this.cache.clear(); }
 
     setOpacityGroups(v) { if (v !== this.opacityGroups) { this.opacityGroups = v; this.bumpEpoch(); } }
+    /**
+     * BATCH mode — on for the length of a drag.
+     *
+     * A change normally updates every cached tile that could hold the object,
+     * because one edit is cheaper to patch in than to re-derive. A drag is not
+     * one edit: it is one per pointer event per member, and patching a tile the
+     * camera cannot see is work thrown away sixty times a second. Measured on
+     * Kobin's own document — a nine-member family, 5,810 arc pieces, 45 cached
+     * tiles — that was 105 ms of the 130 ms each pointermove cost, i.e. seven
+     * frames a second on a drag that should be free.
+     *
+     * In batch mode a tile that is not currently on screen is DROPPED instead
+     * of patched: it is stale either way, and rebuilding it later, once, only
+     * happens if the camera ever goes back to it. Visible tiles are still
+     * patched, so what the user is looking at stays exact.
+     */
+    setBatch(on) { this._batch = !!on; }
     bumpEpoch() { this._epoch++; this.cache.clear(); }
 
     // ---- helpers ----
@@ -101,47 +120,24 @@ export default class TileStore {
         return out;
     }
 
-    // Own natives ordinarily render live, outside the tile cache. A native that
-    // has ceded ownership windows is the exception: its parent representation
-    // must be visibly cut even while ITS OWN frame is active, with descendant
-    // re-home patches arriving through downContent to fill the surviving ink.
+    // The active frame's own natives, which render live (curved) outside the tile
+    // cache. This is a plain read now, and that is the whole point of cutting the
+    // ceded tile out of the parent instead of recording a window over it.
     //
-    // Clip these few window-owning natives through the visible tiles. Fills use
-    // the float ring clip; strokes are first represented as their display-faithful
-    // outline so a window can cut a hole inside a very wide band without relying
-    // on the centerline. Geometry remains tile-bounded and is grouped by logical
-    // id in Renderer, exactly like ordinary Kobinized pieces.
-    ownContent(F, windowRect) {
+    // It used to re-derive: a parent that had ceded a window still held whole
+    // geometry, so its hole existed only as a rect and had to be subtracted per
+    // view, every render, by polygonizing the band and clipping it to the tile
+    // minus the window. Two defects came straight out of that. The result was
+    // cached against the view, and the fast zoom path skips `_render`, so an
+    // in-level zoom left the cache describing a window 15.8x13.1 px wide while
+    // the object on screen was 3018x1608 px — a stale picture until something
+    // forced a redraw. And when it did rebuild, it cost 232–386 ms per render
+    // with six to nine objects on screen. Neither can recur: a cut parent's
+    // stored rings ARE the rings to paint, at every view.
+    ownContent(F) {
         const cf = this.lm.frameFor(F);
         if (!cf) return [];
-        F = cf.id;
-        const plain = [], cut = [];
-        const range = this.lm.tileRange(F, windowRect);
-        const zero = { x: 0, y: 0 };
-        for (const o of this.doc.at(F)) {
-            const sw = splitWindows(o, this.cfg.base, zero, this.cfg);
-            if (!sw || !sw.apply.length) { plain.push(o); continue; }
-
-            // Native splines need the same sub-pixel-at-deepest-zoom chords as
-            // their displayed curve before the analytic outline is tiled.
-            const source = o.type === "stroke" && o.origin === "native" && o.pts.length > 2
-                ? { type: "stroke", origin: "derived", id: o.id, z: o.z,
-                    pts: displayChords(o, this.cfg, this.live), lwFrame: o.lwFrame,
-                    color: o.color, opacity: o.opacity, windows: o.windows, paths: [] }
-                : o;
-            const overlapSafe = o.opacity == null || o.opacity >= 1 || this.opacityGroups;
-            const windowPad = overlapSafe ? 2 / this.cfg.enter : 0; // ~1 px at an outward crossing
-            for (let i = range.i0; i <= range.i1; i++) {
-                for (let j = range.j0; j <= range.j1; j++) {
-                    deriveStep([source], this.cfg.base, zero, this.lm.tileRect(F, i, j), F, {
-                        cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups,
-                        live: this.live, parentCurved: false, childCurved: false,
-                        forceOutline: source.type === "stroke", windowPad,
-                    }, cut);
-                }
-            }
-        }
-        return plain.concat(cut);
+        return this.doc.at(cf.id);
     }
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----
@@ -176,6 +172,7 @@ export default class TileStore {
             }
         }
         for (const o of this.doc.at(parentId)) parentObjs.push(o);
+        for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
         const edges = [];
         for (const o of parentObjs) {
@@ -192,14 +189,49 @@ export default class TileStore {
         return objs;
     }
 
-    // A solid tile quad, overlapped into its neighbours (seam hairline) and
-    // carrying any window still too small to punch at this step.
+    /**
+     * Natives of the cells AROUND `parentId`, translated into its coordinates.
+     *
+     * THE UNCLE, and why it stopped being a corner case. A frame used to be a
+     * region anchored wherever you first crossed into it, so coarse content that
+     * mattered was almost always on your own branch and "coarser, off-branch"
+     * was a curiosity the design deferred. A cell is about three screens wide:
+     * zoom in a little off-centre and the camera shifts to the next cell along,
+     * and ink that is right there on screen is suddenly in a SIBLING of your
+     * ancestor — coarser than you, not an ancestor, so the magnify chain skipped
+     * it and the down path skipped it too, and it simply vanished.
+     *
+     * Invariant 2 is what makes this cheap and complete: an object never extends
+     * past its frame's immediate neighbours, so the ring of eight is the whole
+     * of it. Applied at every step of the chain, it covers uncles at any depth.
+     * Neighbouring cells' origins differ by whole frames, so the translation is
+     * exact, and nothing is minted just because a tile was looked at.
+     */
+    _ringNatives(parentId, rect) {
+        const out = [];
+        for (const G of this.lm.peekRing(parentId)) {
+            if (!this.doc.at(G.id).length) continue;
+            // Ask the neighbour's own spatial index, in ITS coordinates, rather
+            // than scanning every native it holds: this runs on every up-bake,
+            // for eight cells, and a linear scan there is what a drag over a
+            // crowded document feels.
+            const inG = this.lm.mapRectF(rect, parentId, G.id);
+            if (!inG) continue;
+            for (const o of this.doc.queryRect(G.id, inG)) {
+                const d = this.lm.projectF(o, G.id, parentId);
+                if (!d) continue;
+                // Keep the ORIGIN: a native translated into the cell next door is
+                // still a native, and the magnify step treats natives as curved.
+                d.origin = o.origin;
+                out.push(d);
+            }
+        }
+        return out;
+    }
+
+    // A solid tile quad, overlapped into its neighbours (seam hairline).
     _solid(o, rec, rect) {
-        const sw = splitWindows(o, rec.s, rec.t, this.cfg);
-        return solidQuad(o, rect, {
-            pad: seamPad(o, rect, this.opacityGroups),
-            windows: sw && sw.carry,
-        });
+        return solidQuad(o, rect, { pad: seamPad(o, this.cfg, this.opacityGroups) });
     }
 
     // ---- direct projection (downContent): every non-ancestor frame, depth ≥ F ----
@@ -244,26 +276,51 @@ export default class TileStore {
                     bAtF.bottom + lwF < rect.top || bAtF.top - lwF > rect.bottom) continue;
                 const d = this.lm.projectF(o, G, F);
                 if (!d) continue;
-                if (d.type === "fill") {
-                    // Area-erase bakes travel as fills — clip their rings like
-                    // deriveStep does (winding preserved, holes stay holes), with
-                    // the same seam overlap so tile edges leave no AA hairline.
-                    const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
-                    if (tp.length) objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                        opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
-                    continue;
-                }
-                const pts = (o.origin === "native" && d.pts.length > 2)
-                    ? flattenCurve(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base) : d.pts;
-                const lw = d.lwFrame;
-                const ew = { left: rect.left - lw, top: rect.top - lw, right: rect.right + lw, bottom: rect.bottom + lw };
-                for (const run of clipPolylineToRect(pts, ew)) {
-                    if (run.length) objs.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
-                        opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
-                }
+                this._downPieces(o, d, rect, tag, objs);
             }
         }
         return objs;
+    }
+
+    // One minified piece of `o` (already projected into F as `d`) clipped to one
+    // tile. Shared by the full bake and the incremental append so the two can
+    // never drift apart — they did once already (the fill branch was fixed in
+    // _bakeDown and the same bug survived in _appendDown until a regression test
+    // caught it). Both directions overlap their tile by the same seam pad the
+    // magnify path uses, strokes included.
+    _downPieces(o, d, rect, tag, out) {
+        const pad = seamPad(o, this.cfg, this.opacityGroups);
+        if (d.type === "shape") {
+            // A resolved perimeter minifies exactly (arcs are closed under a
+            // similarity), so all that happens here is a clip to the padded tile
+            // and a flatten at the level's own display fidelity.
+            const { rings, covered } = shapeRingsInRect(d.loops, padRect(rect, pad), shapeTol(this.cfg));
+            if (rings.length) {
+                const piece = { type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                    opacity: o.opacity, polys: rings, fadeTag: tag, paths: [] };
+                if (covered) piece.covers = true;
+                out.push(piece);
+            }
+            return out;
+        }
+        if (d.type === "fill") {
+            // Area-erase bakes travel as fills — clip their rings like
+            // deriveStep does (winding preserved, holes stay holes), with
+            // the same seam overlap so tile edges leave no AA hairline.
+            const tp = clipRingsToRect(d.polys, padRect(rect, pad));
+            if (tp.length) out.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
+                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+            return out;
+        }
+        const pts = (o.origin === "native" && d.pts.length > 2)
+            ? flattenCurve(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base) : d.pts;
+        const lw = d.lwFrame;
+        const ew = padRect(rect, pad + lw);
+        for (const run of clipPolylineToRect(pts, ew)) {
+            if (run.length) out.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
+                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
+        }
+        return out;
     }
 
     // ---- document changes: INCREMENTAL tile updates ----
@@ -276,7 +333,8 @@ export default class TileStore {
         if (ev.kind === "change") { this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
     }
     _removeObject(id) {
-        for (const [, tile] of this.cache) {
+        for (const [key, tile] of this.cache) {
+            if (this._batch && !this._pins.has(key)) { this.cache.delete(key); continue; }
             if (!tile.objs.length) continue;
             let has = false;
             for (const p of tile.objs) if (p.id === id) { has = true; break; }
@@ -285,11 +343,17 @@ export default class TileStore {
     }
     _addObject(o, H) {
         for (const [key, tile] of this.cache) {
+            if (this._batch && !this._pins.has(key)) { this.cache.delete(key); continue; }
             const F = tile.level;
             if (F === H) continue;
             if (tile.dir === "up") {
-                // F inherits H magnified only if H is a coarser ancestor of F.
-                if (!this.lm.isAncestor(H, F)) continue;
+                // F inherits H magnified if H is a coarser ancestor — or a cell
+                // beside one, which `_ringNatives` pulls in. The ring case is
+                // rarer and harder to patch precisely, so it invalidates.
+                if (!this.lm.isAncestor(H, F)) {
+                    if (this._depth(H) < this._depth(F)) this.cache.delete(key);
+                    continue;
+                }
                 if (this.lm.parentOf(F) === H) { this._appendUp(tile, o); continue; }
                 // chained content: correctness needs the intermediate tiles'
                 // pieces — invalidate (footprint test at H is exact and cheap)
@@ -333,21 +397,7 @@ export default class TileStore {
             bAtF.bottom + lwF < rect.top || bAtF.top - lwF > rect.bottom) return;
         const d = this.lm.projectF(o, H, F);
         if (!d) return;
-        if (d.type === "fill") {
-            // Area-erase bakes travel as fills (same handling as _bakeDown).
-            const tp = clipRingsToRect(d.polys, padRect(rect, seamPad(o, rect, this.opacityGroups)));
-            if (tp.length) tile.objs.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
-            return;
-        }
-        const pts = (o.origin === "native" && d.pts.length > 2)
-            ? flattenCurve(d.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.base) : d.pts;
-        const lw = d.lwFrame;
-        const ew = { left: rect.left - lw, top: rect.top - lw, right: rect.right + lw, bottom: rect.bottom + lw };
-        for (const run of clipPolylineToRect(pts, ew)) {
-            if (run.length) tile.objs.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
-        }
+        this._downPieces(o, d, rect, tag, tile.objs);
     }
     // rect is {left,top,right,bottom}; b is a bbox {x0,y0,x1,y1}.
     _overlaps(rect, b, margin) {

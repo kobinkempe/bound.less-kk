@@ -33,7 +33,7 @@
  *   enterScale — frame→px factor at the deepest zoom; sizes cap-arc segments
  *             so kappa-arc error also stays under fitTol on screen.
  */
-import { controlsFor } from "./clipperOutline";
+import { controlsFor, decimatePolyline, strokeStripNear } from "./clipperOutline";
 
 const MAX_FIT_DEPTH = 12;
 
@@ -45,7 +45,7 @@ const hyp = (v) => Math.hypot(v[0], v[1]);
 const perp = (v) => [-v[1], v[0]];
 const unit = (v) => { const l = hyp(v); return l > 0 ? [v[0] / l, v[1] / l] : null; };
 
-function cubicAt(c, t) {
+export function cubicAt(c, t) {
     const s = 1 - t;
     const a = s * s * s, b = 3 * s * s * t, d = 3 * s * t * t, e = t * t * t;
     return [a * c[0][0] + b * c[1][0] + d * c[2][0] + e * c[3][0],
@@ -55,27 +55,54 @@ function cubicAt(c, t) {
 // endpoint anchors have degenerate handles by construction) the LIMIT tangent
 // is what the curve actually leaves along (e.g. direction c2−c0 at t=0, NOT the
 // chord); recover it with a tiny central difference of positions.
-function cubicTangent(c, t) {
+export function cubicTangent(c, t) {
     const s = 1 - t;
     const dx = 3 * s * s * (c[1][0] - c[0][0]) + 6 * s * t * (c[2][0] - c[1][0]) + 3 * t * t * (c[3][0] - c[2][0]);
     const dy = 3 * s * s * (c[1][1] - c[0][1]) + 6 * s * t * (c[2][1] - c[1][1]) + 3 * t * t * (c[3][1] - c[2][1]);
-    const u = unit([dx, dy]);
+    // "Vanishes" has to be measured against the curve's own size, not against
+    // zero. The offset fitter routinely emits cubics whose last two control
+    // points agree to the last ULP, and normalising a 1e-13 difference yields a
+    // confident unit vector pointing in an arbitrary direction — measured as a
+    // phantom 146 degree kink at a join that is in fact perfectly smooth.
+    const scale = Math.abs(c[1][0] - c[0][0]) + Math.abs(c[1][1] - c[0][1])
+        + Math.abs(c[2][0] - c[1][0]) + Math.abs(c[2][1] - c[1][1])
+        + Math.abs(c[3][0] - c[2][0]) + Math.abs(c[3][1] - c[2][1]);
+    const eps = scale * 1e-9;
+    const u = (dx * dx + dy * dy) > eps * eps ? unit([dx, dy]) : null;
     if (u) return u;
+    // The derivative vanished. At an END that is the ordinary case — the
+    // spline's outer anchors have coincident handles by construction — and the
+    // limit direction is exactly `c2 − c0` at the start and `c3 − c1` at the
+    // end. Take it from the CONTROL POLYGON rather than by differencing
+    // positions.
+    //
+    // The numeric difference this replaces was measurably wrong. Over h = 1e-4
+    // a degenerate handle moves the point by ~3e-8 of the cubic's length, which
+    // at frame coordinates of a few thousand is 2e-5 of displacement against a
+    // 1e-12 ulp — about 4e-8 radians of noise, DIFFERENT at the two ends. A
+    // straight two-point stroke therefore came out with its start and end
+    // tangents disagreeing, so its two offset rails were not collinear and its
+    // edge carried a 4e-6-unit step. That is invisible where it is made and
+    // multiplied by 3000 at every crossing: 0.01 units one level down, 34 units
+    // three levels down, which is a plainly visible notch in the ink.
+    if (t <= 0) return unit(sub(c[2], c[0])) || unit(sub(c[3], c[0])) || [1, 0];
+    if (t >= 1) return unit(sub(c[3], c[1])) || unit(sub(c[3], c[0])) || [1, 0];
+    // A cusp strictly inside the curve: no closed form, so difference positions.
     const h = 1e-4;
     const t0 = Math.max(0, t - h), t1 = Math.min(1, t + h);
     return unit(sub(cubicAt(c, t1), cubicAt(c, t0))) || unit(sub(c[3], c[0]));
 }
-function splitCubic(c, t) {
+export function splitCubic(c, t) {
     const m = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
     const p01 = m(c[0], c[1]), p12 = m(c[1], c[2]), p23 = m(c[2], c[3]);
     const p012 = m(p01, p12), p123 = m(p12, p23), mid = m(p012, p123);
     return [[c[0], p01, p012, mid], [mid, p123, p23, c[3]]];
 }
-const lineCubic = (p0, p1) => [[p0[0], p0[1]], [p0[0], p0[1]], [p1[0], p1[1]], [p1[0], p1[1]]];
+export const lineCubic = (p0, p1) => [[p0[0], p0[1]], [p0[0], p0[1]], [p1[0], p1[1]], [p1[0], p1[1]]];
 
 // Perpendicular deviation of the control points from the chord (an upper bound
 // on the curve's own deviation — the curve lies inside its control hull).
-function chordDeviation(c) {
+export function chordDeviation(c) {
     const d = sub(c[3], c[0]);
     const L = hyp(d);
     if (L < 1e-12) return Math.max(hyp(sub(c[1], c[0])), hyp(sub(c[2], c[0])));
@@ -112,7 +139,7 @@ function arcSegments(center, r, a0, sweep, enterScale, fitTol) {
 // Semicircular cap at `center`: from center+n·r through center+t̂·r (t̂ = the
 // outward tangent) to center−n·r; the sweep sign is chosen so the arc's
 // midpoint lands on the tangent side.
-function capArcs(center, nvec, tvec, r, enterScale, fitTol) {
+export function capArcs(center, nvec, tvec, r, enterScale, fitTol) {
     const a0 = Math.atan2(nvec[1], nvec[0]);
     const aMid = Math.atan2(tvec[1], tvec[0]);
     let d = aMid - a0;
@@ -179,7 +206,7 @@ function offsetError(c, r, fitted) {
 }
 
 // One side of one centerline cubic: fitted offset cubics, subdivided to fitTol.
-function fitOffset(c, r, fitTol, depth, out) {
+export function fitOffset(c, r, fitTol, depth, out) {
     // flat-relative-to-tolerance pieces offset exactly as a line
     if (chordDeviation(c) <= fitTol * 0.5) {
         const u = unit(sub(c[3], c[0]));
@@ -220,7 +247,7 @@ function chain(segs) {
 }
 
 // A full-circle loop (the 1-point "dot" stroke).
-function circleLoop(center, r, enterScale, fitTol) {
+export function circleLoop(center, r, enterScale, fitTol) {
     const segs = arcSegments(center, r, 0, 2 * Math.PI, enterScale, fitTol);
     segs[segs.length - 1][3] = segs[0][0]; // watertight closure
     return chain(segs);
@@ -327,6 +354,74 @@ export function strokeOutlineCurves(pts, width, opts = {}) {
     // every piece degenerate (all points coincide): it's a dot
     if (!loops.length) loops.push(circleLoop(pts[0], r, enterScale, fitTol));
     return loops;
+}
+
+// ---- THE ONE outline builder (fat ink strokes AND eraser strokes) ----
+// Renderer outlines are cubic loops. A polyline centerline (an already-flattened
+// derived piece) has no spline to offset, so its exact band comes from the
+// analytic strip; represent each of its edges as a degenerate line cubic so the
+// caller always receives one uniform kind of thing.
+export function lineLoops(rings) {
+    return rings.filter((ring) => ring.length >= 3).map((ring) => ring.map((p, i) => {
+        const q = ring[(i + 1) % ring.length];
+        return [[p[0], p[1]], [p[0], p[1]], [q[0], q[1]], [q[0], q[1]]];
+    }));
+}
+
+// Could this stroke EVER paint wider than the fat gate anywhere in its level's
+// zoom range? Evaluated per OBJECT, not per view, so the representation never
+// switches mid-gesture. An eraser is a stroke and goes through this same gate.
+export function isFatEver(o, cfg) {
+    return o && o.type === "stroke" &&
+        o.lwFrame * cfg.enter > (cfg.fatWidthPx != null ? cfg.fatWidthPx : 500);
+}
+
+/**
+ * A stroke's painted outline as closed loops of cubics, in its own frame,
+ * cached on the object.
+ *
+ * This is the single definition of "how a stroke becomes an outline", and both
+ * callers that matter share it: the renderer's fat-stroke display, and the
+ * eraser's footprint. An eraser IS a stroke, so it is polygonized by the same
+ * rule — above the gate as CURVES, not as points, which is what keeps a cut
+ * edge smooth at any zoom instead of exact at exactly one.
+ */
+export function strokeLoops(o, cfg, opts = {}) {
+    if (o._outline) return o._outline;
+    const curved = !!opts.curved && o.pts.length > 2;
+    const fitTol = (cfg.arcTolerancePx * 0.5) / cfg.enter;
+    let loops;
+    if (!curved && o.pts.length > 2) {
+        // Pre-flattened polyline: decimate to what this level can show, then
+        // take the exact analytic band.
+        const pts = decimatePolyline(o.pts, fitTol);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const [x, y] of pts) {
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+        const half = o.lwFrame / 2;
+        const rect = { left: x0 - half, top: y0 - half, right: x1 + half, bottom: y1 + half };
+        loops = lineLoops(strokeStripNear(pts, o.lwFrame, rect, { startCap: true, endCap: true }));
+    } else {
+        loops = strokeOutlineCurves(o.pts, o.lwFrame, {
+            curved,
+            fitTol,
+            lineTol: (cfg.lineTolPx != null ? cfg.lineTolPx : 0.25) / cfg.enter,
+            enterScale: cfg.enter,
+        });
+    }
+    if (o !== opts.live) o._outline = loops;
+    return loops;
+}
+
+export function loopsBbox(loops) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const loop of loops) for (const seg of loop) for (const p of seg) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+    }
+    return { x0, y0, x1, y1 };
 }
 
 // ---- flatten (tests + hit helpers; NOT used in the render hot path) ----
