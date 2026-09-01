@@ -1,0 +1,1255 @@
+<title>The bound.less Logical Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root{
+  --paper:#f2f4f6; --surface:#ffffff; --surface-2:#e9edf1;
+  --ink:#191d22; --muted:#616a75; --rule:#d5dae0; --rule-strong:#b3bcc6;
+  --object:#c8603f; --object-soft:#f6e2da;
+  --space:#3d6b8c; --space-soft:#dde8f0;
+  --warn:#8a6d12; --warn-soft:#f6efd8;
+  --code-bg:#eef1f4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
+    --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
+    --object:#e07a56; --object-soft:#3a2620;
+    --space:#74a8cc; --space-soft:#1d2c36;
+    --warn:#cfae4e; --warn-soft:#312a16;
+    --code-bg:#232830;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
+  --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
+  --object:#e07a56; --object-soft:#3a2620;
+  --space:#74a8cc; --space-soft:#1d2c36;
+  --warn:#cfae4e; --warn-soft:#312a16;
+  --code-bg:#232830;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17px; line-height:1.62; margin:0;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1220px;margin:0 auto;padding:0 24px 120px}
+
+/* ---- masthead ---- */
+.mast{border-bottom:1px solid var(--rule-strong);padding:56px 0 22px;margin-bottom:40px}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 18px;
+}
+h1{
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  font-weight:700;font-size:clamp(2.5rem,5.6vw,3.9rem);line-height:.99;
+  letter-spacing:-.015em;margin:0 0 16px;text-wrap:balance;
+}
+h1 .thin{font-weight:500;color:var(--muted)}
+.standfirst{font-size:1.13rem;max-width:60ch;margin:0 0 22px}
+.mast-meta{
+  display:flex;flex-wrap:wrap;gap:8px 28px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--muted);letter-spacing:.02em;
+}
+.mast-meta b{color:var(--ink);font-weight:500}
+
+.howto{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0;
+  border:1px solid var(--rule-strong);margin:26px 0 0;
+}
+.howto div{padding:13px 16px;border-right:1px solid var(--rule)}
+.howto div:last-child{border-right:none}
+.howto b{
+  display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;margin-bottom:5px;font-weight:500;
+}
+.howto p{font-size:14px;line-height:1.45;margin:0;color:var(--muted)}
+.howto .a b{color:var(--ink)}
+.howto .b b{color:var(--object)}
+
+/* ---- layout ---- */
+.cols{display:grid;grid-template-columns:196px minmax(0,1fr);gap:52px;align-items:start}
+nav.toc{position:sticky;top:24px;font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t;margin:0 0 2px}
+nav.toc a{
+  display:flex;gap:9px;text-decoration:none;color:var(--muted);
+  font-size:13.5px;line-height:1.35;padding:3px 0;
+}
+nav.toc a::before{
+  content:counter(t,decimal-leading-zero);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+  color:var(--rule-strong);padding-top:2px;flex:0 0 auto;
+}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--object)}
+nav.toc a:hover::before{color:var(--object)}
+nav.toc li.last a{border-top:1px solid var(--rule);margin-top:8px;padding-top:8px}
+.toc-note{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+  color:var(--muted);margin-top:20px;padding-top:12px;border-top:1px solid var(--rule);
+  line-height:1.6;
+}
+
+main{min-width:0}
+section{margin:0 0 64px;scroll-margin-top:20px}
+section::after{content:"";display:block;clear:both}
+
+/* the prose measure — asides live to the right of it */
+section > p, section > ul, section > ol, section > .callout,
+section > .rule-list, section > h3, section > h4, section > .decision{max-width:620px}
+
+h2{
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  font-weight:700;font-size:1.8rem;line-height:1.1;letter-spacing:-.01em;
+  margin:0 0 6px;text-wrap:balance;display:flex;align-items:baseline;gap:14px;
+}
+h2 .num{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.72rem;font-weight:500;
+  color:var(--object);letter-spacing:.08em;flex:0 0 auto;
+}
+.sub{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 22px;padding-bottom:14px;border-bottom:1px solid var(--rule);max-width:none !important;
+}
+h3{
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  font-weight:600;font-size:1.14rem;margin:32px 0 8px;text-wrap:balance;
+}
+h4{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-weight:600;font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--muted);margin:26px 0 8px;
+}
+p{margin:0 0 15px}
+strong{font-weight:600}
+a{color:var(--object)}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.85em;background:var(--code-bg);padding:.1em .34em;border-radius:2px;word-break:break-word}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
+
+ul,ol{margin:0 0 15px;padding-left:1.25em}
+li{margin:0 0 7px}
+li::marker{color:var(--rule-strong)}
+
+/* a locked decision, quoted from the design record */
+.decision{
+  border-left:2px solid var(--ink);padding:12px 0 12px 18px;margin:0 0 20px;
+}
+.decision .tag{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  display:block;margin-bottom:5px;
+}
+.decision p{margin:0}
+.decision q{font-style:italic;color:var(--muted)}
+
+.rule-list{list-style:none;padding:0;margin:0 0 20px;counter-reset:r}
+.rule-list li{counter-increment:r;position:relative;padding-left:38px;margin:0 0 14px}
+.rule-list li::before{
+  content:counter(r);position:absolute;left:0;top:.2em;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;font-weight:600;
+  color:var(--surface);background:var(--object);
+  width:22px;height:22px;display:grid;place-items:center;border-radius:50%;
+}
+
+.callout{border-left:2px solid var(--object);background:var(--surface);padding:14px 18px;margin:0 0 20px}
+.callout.space{border-left-color:var(--space)}
+.callout p:last-child{margin-bottom:0}
+.callout .lbl{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--object);display:block;margin-bottom:5px;
+}
+.callout.space .lbl{color:var(--space)}
+
+/* ═══ THE MARGIN NOTE — what the code actually does ═══ */
+aside.note{
+  float:right;clear:right;width:236px;margin:4px 0 20px 30px;
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  font-size:13.5px;line-height:1.44;
+  border-top:2px solid var(--object);padding-top:9px;color:var(--ink);
+}
+aside.note.ok{border-top-color:var(--space)}
+aside.note.warn{border-top-color:var(--warn)}
+aside.note.stale-note{border-top-color:var(--rule-strong)}
+aside.note p{margin:0 0 8px}
+aside.note p:last-child{margin-bottom:0}
+aside.note .hd{
+  display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:7px;
+}
+aside.note .who{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+}
+aside.note .st{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase;padding:1px 5px;border:1px solid currentColor;border-radius:2px;
+  color:var(--object);
+}
+aside.note.ok .st{color:var(--space)}
+aside.note.warn .st{color:var(--warn)}
+aside.note.stale-note .st{color:var(--muted)}
+aside.note code{font-size:.84em;background:var(--code-bg);padding:.05em .28em}
+aside.note .where{
+  display:block;margin-top:8px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9.5px;color:var(--muted);word-break:break-word;
+}
+
+/* ---- tables ---- */
+.tw{overflow-x:auto;margin:0 0 22px;border-top:1px solid var(--rule-strong);border-bottom:1px solid var(--rule-strong)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 14px 8px 0;vertical-align:top;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:none}
+th{
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  font-weight:600;font-size:11px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--muted);padding-top:11px;padding-bottom:9px;white-space:nowrap;
+}
+td.n{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;color:var(--ink)}
+td.k.nw{white-space:nowrap}
+td.d{font-family:"Source Serif 4",serif;font-size:15px;line-height:1.45}
+
+/* ---- figures ---- */
+figure{margin:30px 0;border-top:1px solid var(--rule-strong);padding-top:14px;clear:both}
+figure .fig-head{display:flex;gap:14px;align-items:baseline;margin-bottom:14px;font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif}
+figure .fig-n{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);flex:0 0 auto;padding-top:2px}
+figure .fig-t{font-weight:600;font-size:1rem;line-height:1.3}
+.fig-body{overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
+figcaption{font-size:14px;color:var(--muted);margin-top:12px;max-width:66ch;line-height:1.5}
+figcaption b{color:var(--ink);font-weight:600}
+
+.svg-l{font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-size:12px;font-weight:600;fill:var(--ink)}
+.svg-s{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;fill:var(--muted)}
+.svg-o{fill:var(--object)}
+.svg-sp{fill:var(--space)}
+
+.strip{display:flex;flex-wrap:wrap;margin:0 0 22px;border:1px solid var(--rule-strong);clear:both}
+.strip div{flex:1 1 100px;min-width:100px;padding:10px 11px;border-right:1px solid var(--rule);
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-size:12.5px;line-height:1.35}
+.strip div:last-child{border-right:none}
+.strip b{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:var(--object);margin-bottom:4px;font-weight:500}
+
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;
+  border:1px solid currentColor;border-radius:2px;vertical-align:1px;white-space:nowrap}
+.pill.differs{color:var(--object)}
+.pill.notbuilt{color:var(--object)}
+.pill.stale{color:var(--muted)}
+.pill.viol{color:var(--warn)}
+.pill.ok{color:var(--space)}
+
+hr.hard{border:none;border-top:1px solid var(--rule-strong);margin:56px 0 40px;clear:both}
+footer{border-top:1px solid var(--rule-strong);margin-top:20px;padding-top:20px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--muted);line-height:1.7;max-width:76ch}
+
+:focus-visible{outline:2px solid var(--object);outline-offset:2px}
+
+@media (max-width:1060px){
+  aside.note{float:none;width:auto;margin:0 0 20px;max-width:620px}
+}
+@media (max-width:900px){
+  .cols{grid-template-columns:1fr;gap:0}
+  nav.toc{position:static;margin-bottom:36px;border-bottom:1px solid var(--rule);padding-bottom:18px}
+  nav.toc ol{columns:2;column-gap:24px}
+  body{font-size:16px}
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">The design as decided · annotated with what the code does instead</p>
+  <h1>The bound.less<br><span class="thin">Logical Design</span></h1>
+  <p class="standfirst">A drawing surface with no bottom. You can zoom in forever, and the ink stays exact all the way down. Everything here exists to make that one sentence true.</p>
+  <div class="mast-meta">
+    <span>Design of record · <b>2026-08-19</b></span>
+    <span>Code as at <b>f92c1d1</b>, branch <b>arc-pipeline</b></span>
+    <span>Annotated <b>2026-08-26</b></span>
+    <span><b>21</b> divergences found</span>
+  </div>
+
+  <div class="howto">
+    <div class="a"><b>The main column</b><p>The design as agreed, in the order it has to be understood. Decisions carry their reference — D1, §6.6 — so you can find them in the source documents.</p></div>
+    <div class="b"><b>The margin</b><p>What the code actually does where it differs. Every one names the file. Nothing is in the margin unless the code and the design genuinely part company.</p></div>
+    <div class="a"><b>Section 17</b><p>All twenty-one divergences in one table, sorted by whether they need action — for when you want the register rather than the argument.</p></div>
+  </div>
+</header>
+
+<div class="cols">
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#s1">The one hard problem</a></li>
+    <li><a href="#s2">Four ideas</a></li>
+    <li><a href="#s3">The numbers</a></li>
+    <li><a href="#s4">The parts</a></li>
+    <li><a href="#s5">Space: cells</a></li>
+    <li><a href="#s6">Position: addresses</a></li>
+    <li><a href="#s7">Ink: arcs</a></li>
+    <li><a href="#s8">The object's own grid</a></li>
+    <li><a href="#s9">Painting a view</a></li>
+    <li><a href="#s10">Erasing</a></li>
+    <li><a href="#s11">The exact cut</a></li>
+    <li><a href="#s12">Identity &amp; selection</a></li>
+    <li><a href="#s13">Saving</a></li>
+    <li><a href="#s14">Scenes &amp; the scale bar</a></li>
+    <li><a href="#s15">Watching itself</a></li>
+    <li><a href="#s16">Deliberately not built</a></li>
+    <li class="last"><a href="#s17">The divergence register</a></li>
+  </ol>
+  <p class="toc-note">Two colours run through every diagram.<br><br>
+  <span style="color:var(--space)">▬ Slate</span> is <b>space</b> — cells, frames, the render cache. Fixed.<br><br>
+  <span style="color:var(--object)">▬ Terracotta</span> is <b>the object</b> — its ink and its own cutting grid. Travels with it.</p>
+</nav>
+
+<main>
+
+<!-- ═══════════════ 1 ═══════════════ -->
+<section id="s1">
+  <h2><span class="num">01</span> The one hard problem</h2>
+  <p class="sub">Why any of the rest of this exists</p>
+
+  <p>Zooming in makes things bigger. Zoom in far enough and the numbers describing them get bigger too — and a computer's numbers run out. Not gracefully: they get coarse, then wrong, then silent.</p>
+
+  <p>bound.less zooms by a factor of <strong>4,096 per level</strong>. Five levels down is a magnification of about 1.15 × 10<sup>18</sup>. If the app simply multiplied coordinates on the way down, a stroke five levels deep would be written at numbers around 7 × 10<sup>18</sup>, where the smallest difference a computer can still tell apart is over a thousand — so a 40-unit mark collapses to nothing at all. That was measured; it is not a worry.</p>
+
+  <p>Three separate failures come from the same source, and each one is a section of this document:</p>
+
+  <div class="tw">
+  <table>
+    <tr><th style="width:70px">Failure</th><th>What went wrong</th><th style="width:80px">Fixed by</th></tr>
+    <tr><td class="k">A</td><td class="d">A magnified copy of a stroke was stored as a many-sided polygon. The next level down blew up <em>one of its sides</em> to fill the screen. The painted edge ended up 263 pixels from where the shape said it was.</td><td class="k">§7, §9</td></tr>
+    <tr><td class="k">B</td><td class="d">Which region you were "in" depended on how you got there. Aiming one pixel differently on the way down created entirely new regions from three levels deep. Returning to a spot only worked because people steer by what they can see.</td><td class="k">§5</td></tr>
+    <tr><td class="k">C</td><td class="d">Dragging a group destroyed its deepest members. At five levels of separation, 82.9% of a deep piece's area was lost — the pieces stayed in register with each other, so the object did not move wrongly, it came apart.</td><td class="k">§6</td></tr>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="lbl">The governing rule</span>
+    <p>Never do arithmetic on a number far larger than the answer you want. Every operation is performed in coordinates sized to the thing being computed — never sized to how far that thing sits from the origin, and never sized to how deep it is.</p>
+  </div>
+</section>
+
+<!-- ═══════════════ 2 ═══════════════ -->
+<section id="s2">
+  <h2><span class="num">02</span> Four ideas</h2>
+  <p class="sub">Everything else follows from these</p>
+
+  <ol class="rule-list">
+    <li><strong>Space is a grid of nested boxes, and a position is an address in it.</strong> Not one enormous coordinate system, but a tree of small ones. Where something is, is a list of whole-number steps — one per level — plus a small leftover. Moving something is arithmetic on that list, and its shape is never touched.</li>
+    <li><strong>Ink is made of circular arcs, and stays arcs.</strong> A drawn stroke becomes the exact outline of its painted area — a closed chain of line segments and circular arcs. Enlarging an arc gives an arc; cutting an arc gives an arc. Nothing is approximated by a polygon along the way.</li>
+    <li><strong>Every object carries its own cutting grid.</strong> Ink gets chopped into tiles for storage and display. Those tile lines belong to the <em>object</em>, not to space — so however far the object is moved, the chops land on exactly the same points of it.</li>
+    <li><strong>Never take a shortcut across levels.</strong> Every transform is applied one level at a time. Combining five levels into a single multiplication looks equivalent and is not: it destroys the small differences that carry the detail.</li>
+  </ol>
+
+  <div class="callout space">
+    <span class="lbl">Two words, kept strictly apart</span>
+    <p>A <strong>frame</strong> is one box of the fixed grid of space. It never moves; it decides which objects are <em>looked at</em>. A <strong>tile</strong> is where an object is <em>cut</em>. They are the same size — 131,072 units — but they are different grids, and a frame is never permitted to cut anything.</p>
+    <p style="margin-top:10px">Confusing the two is the most expensive mistake available in this codebase. It has been made twice and caught twice, and §8 is what it costs.</p>
+  </div>
+</section>
+
+<!-- ═══════════════ 3 ═══════════════ -->
+<section id="s3">
+  <h2><span class="num">03</span> The numbers</h2>
+  <p class="sub">Every constant that shapes behaviour, and why it is that value</p>
+
+  <aside class="note stale-note">
+    <div class="hd"><span class="who">In the code</span><span class="st">doc stale</span></div>
+    <p>The frame lattice document proposes these constants twice, and only the second set is real. Its §5.2 still argues for a ratio of <strong>3,000</strong>, boxes of <strong>96,000</strong> units and a 4,800-pixel canvas ceiling — superseded by its own §0 before anything was built.</p>
+    <p>Section 6 has the same problem: it works its examples in <strong>base 3,000</strong> with digits running −1500 to 1500. The code is base 4,096, digits −2048 to 2047.</p>
+    <p>Read §0 and §10 of that document. Sections 1–9 are the argument, not the specification.</p>
+    <span class="where">frameLattice.js</span>
+  </aside>
+
+  <p>Almost every constant is a power of two. That is deliberate: multiplying or dividing by a power of two is <em>exact</em> — only the exponent moves, and not a single digit of precision is lost. The old values were neither exact nor evenly divisible by each other, so every box origin in the previous build was already slightly wrong before anything was drawn.</p>
+
+  <h4>The lattice</h4>
+  <div class="tw">
+  <table>
+    <tr><th style="width:120px">Name</th><th class="n" style="width:110px">Value</th><th>What it is</th></tr>
+    <tr><td class="k nw">BASE</td><td class="n">1/16</td><td class="d">The shallowest zoom a level is drawn at — 2<sup>−4</sup>.</td></tr>
+    <tr><td class="k nw">ENTER</td><td class="n">256</td><td class="d">Zoom past this and you cross into the next level down — 2<sup>8</sup>.</td></tr>
+    <tr><td class="k nw">EXIT</td><td class="n">1/32</td><td class="d">Zoom below this and you cross back out — 2<sup>−5</sup>. Deliberately half of BASE, so crossing back and forth needs a real change of zoom and cannot flutter.</td></tr>
+    <tr><td class="k nw">R</td><td class="n">4,096</td><td class="d">The crossing ratio, ENTER ÷ BASE. One level down is 4,096× bigger. Exactly 12 bits, so one step of an address is exactly one 12-bit digit.</td></tr>
+    <tr><td class="k nw">W</td><td class="n">131,072</td><td class="d">The width of a box in its own units — 2<sup>17</sup>. Also the width of a tile.</td></tr>
+    <tr><td class="k nw">G</td><td class="n">32</td><td class="d">The width of a child box measured in its parent's units, W ÷ R. A whole number, so a box origin costs no precision at all.</td></tr>
+    <tr><td class="k nw">T_UNIT</td><td class="n">8,192</td><td class="d">One address digit's worth of shift, G × ENTER. A whole number for every digit a box can hold.</td></tr>
+    <tr><td class="k nw">digit range</td><td class="n">−2048 … 2047</td><td class="d">Balanced around zero, so an object settles in the <em>nearest</em> box rather than the containing one — it sits near the middle and overlaps fewer neighbours.</td></tr>
+    <tr><td class="k nw">MAX_CANVAS_PX</td><td class="n">4,096</td><td class="d">The widest screen for which "a screen is never wider than a box" holds without help. Covers 4K comfortably.</td></tr>
+  </table>
+  </div>
+
+  <aside class="note warn">
+    <div class="hd"><span class="who">In the code</span><span class="st">unenforced</span></div>
+    <p><code>MAX_CANVAS_PX</code> is declared and asserted in one unit test. <strong>Nothing in the running app checks it.</strong> A canvas wider than 4,096 px is never refused, warned about, or clamped.</p>
+    <p>The design calls invariant 1 a convenience rather than a requirement, so this is probably fine — but "probably fine" is currently resting on nobody having a wider display.</p>
+    <span class="where">frameLattice.js:56 — declared, never read</span>
+  </aside>
+
+  <h4>Fidelity and display</h4>
+  <div class="tw">
+  <table>
+    <tr><th style="width:120px">Name</th><th class="n" style="width:110px">Value</th><th>What it is</th></tr>
+    <tr><td class="k nw">arcTolerancePx</td><td class="n">0.25 px</td><td class="d">The visual budget. Nothing the engine approximates may sit further than a quarter of a pixel from the truth.</td></tr>
+    <tr><td class="k nw">shapeTol<br>freezeTol</td><td class="n">≈ 4.88e-4</td><td class="d">The same quarter-pixel expressed in a level's own units at its deepest zoom. Both the flattening tolerance and the curve-becomes-a-line threshold — identical on purpose, so the swap can never be seen at the moment it happens. Depends on nothing but the config: not the canvas, not the tile, not the camera.</td></tr>
+    <tr><td class="k nw">SEAM_PX</td><td class="n">1.5 px</td><td class="d">How far neighbouring pieces of one object overlap, so anti-aliasing leaves no hairline. Measured where a tile is smallest on screen; in units, 1.5 ÷ EXIT = <span class="mono">48</span>.</td></tr>
+    <tr><td class="k nw">cullPx<br>fadeLoPx</td><td class="n">0.3 / 0.15</td><td class="d">Content smaller than 0.3 px fades out; below 0.15 px it is dropped. Both measured at the level's deepest zoom, so the verdict does not flicker as the camera moves.</td></tr>
+    <tr><td class="k nw">fatWidthPx</td><td class="n">4,000</td><td class="d">A stroke that could ever paint wider than this is drawn as its outline rather than a stroked line, because browser stroking of enormous widths misbehaves. Roughly a 6× margin over the measured failure point.</td></tr>
+    <tr><td class="k nw">DUST_FRACTION</td><td class="n">0.01</td><td class="d">A cut fragment thinner than 1% of the pen that drew it is not made into an object. These are the "small pixel dots" a near-tangent cut leaves behind.</td></tr>
+    <tr><td class="k nw">REORIGIN_PX</td><td class="n">1.5e6</td><td class="d">How far the view may drift from a scene's local origin before every path is rebuilt around a fresh one, keeping the numbers handed to the browser small enough for its own lower-precision maths.</td></tr>
+  </table>
+  </div>
+
+  <h4>Budgets and caps</h4>
+  <div class="tw">
+  <table>
+    <tr><th style="width:120px">Name</th><th class="n" style="width:110px">Value</th><th>What it is</th></tr>
+    <tr><td class="k nw">chunk target</td><td class="n">1 ms</td><td class="d">Every long job aims each burst of work at about a millisecond and re-tunes from what the last burst cost. Capped at 64 items, so a burst sized on cheap work cannot overrun on expensive work.</td></tr>
+    <tr><td class="k nw">ERASE_SLICE_MS</td><td class="n">8 ms</td><td class="d">How long one round of folding an eraser into the ink beneath it may run before yielding.</td></tr>
+    <tr><td class="k nw">CAM_IDLE_MS</td><td class="n">120 ms</td><td class="d">Background work waits this long after the camera stops — but no more than <span class="mono">BAKE_STARVE_MS</span> = 1,500 ms in total, so a restless camera cannot starve it.</td></tr>
+    <tr><td class="k nw">tile cache</td><td class="n">512 / 64</td><td class="d">Cached tiles in total, and per frame. Least-recently-used is evicted; anything on screen is protected.</td></tr>
+    <tr><td class="k nw">undo depth</td><td class="n">200</td><td class="d">Actions kept. One gesture is always one action, however much geometry it touched.</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 4 ═══════════════ -->
+<section id="s4">
+  <h2><span class="num">04</span> The parts</h2>
+  <p class="sub">Each with one job and no reach into another's</p>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 1</span><span class="fig-t">What talks to what</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 330" width="760" role="img" aria-label="Module diagram: the engine facade routes input to Camera, Document, TileStore and Renderer, which rest on the geometry layer.">
+      <defs><marker id="ar1" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--rule-strong)"/></marker></defs>
+      <rect x="255" y="10" width="250" height="42" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/>
+      <text x="380" y="30" text-anchor="middle" class="svg-l">KobinEngine</text>
+      <text x="380" y="44" text-anchor="middle" class="svg-s">the facade — routes input, owns nothing</text>
+      <g>
+        <rect x="14" y="92" width="168" height="60" fill="var(--space-soft)" stroke="var(--space)" stroke-width="1.2"/>
+        <text x="98" y="112" text-anchor="middle" class="svg-l">LevelMap</text>
+        <text x="98" y="127" text-anchor="middle" class="svg-s">the grid of boxes,</text>
+        <text x="98" y="139" text-anchor="middle" class="svg-s">and every transform</text>
+      </g>
+      <g>
+        <rect x="196" y="92" width="168" height="60" fill="var(--space-soft)" stroke="var(--space)" stroke-width="1.2"/>
+        <text x="280" y="112" text-anchor="middle" class="svg-l">Camera</text>
+        <text x="280" y="127" text-anchor="middle" class="svg-s">view, zoom, and the</text>
+        <text x="280" y="139" text-anchor="middle" class="svg-s">crossing state machine</text>
+      </g>
+      <g>
+        <rect x="378" y="92" width="168" height="60" fill="var(--object-soft)" stroke="var(--object)" stroke-width="1.2"/>
+        <text x="462" y="112" text-anchor="middle" class="svg-l">Document</text>
+        <text x="462" y="127" text-anchor="middle" class="svg-s">every object, undo,</text>
+        <text x="462" y="139" text-anchor="middle" class="svg-s">the spatial index</text>
+      </g>
+      <g>
+        <rect x="560" y="92" width="186" height="60" fill="var(--space-soft)" stroke="var(--space)" stroke-width="1.2"/>
+        <text x="653" y="112" text-anchor="middle" class="svg-l">TileStore</text>
+        <text x="653" y="127" text-anchor="middle" class="svg-s">the cache of what</text>
+        <text x="653" y="139" text-anchor="middle" class="svg-s">other levels look like</text>
+      </g>
+      <rect x="196" y="182" width="350" height="42" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.2"/>
+      <text x="371" y="202" text-anchor="middle" class="svg-l">Renderer</text>
+      <text x="371" y="216" text-anchor="middle" class="svg-s">the only thing that touches the drawing library</text>
+      <rect x="14" y="254" width="732" height="62" fill="var(--surface)" stroke="var(--rule-strong)" stroke-width="1.2" stroke-dasharray="3 3"/>
+      <text x="380" y="273" text-anchor="middle" class="svg-l">Geometry — pure functions, no state, no camera, no library</text>
+      <text x="380" y="292" text-anchor="middle" class="svg-s">biarc (the pen) · arcPerimeter (resolve a stroke) · arcShape (measure, transform, cut)</text>
+      <text x="380" y="306" text-anchor="middle" class="svg-s">freeze (chop &amp; straighten) · derive (build a tile) · connect · lasso · hittest</text>
+      <path d="M330,52 L280,88" stroke="var(--rule-strong)" fill="none" marker-end="url(#ar1)"/>
+      <path d="M300,52 L120,88" stroke="var(--rule-strong)" fill="none" marker-end="url(#ar1)"/>
+      <path d="M430,52 L462,88" stroke="var(--rule-strong)" fill="none" marker-end="url(#ar1)"/>
+      <path d="M460,52 L630,88" stroke="var(--rule-strong)" fill="none" marker-end="url(#ar1)"/>
+      <path d="M380,52 L371,178" stroke="var(--rule-strong)" fill="none" marker-end="url(#ar1)"/>
+      <path d="M545,140 L505,182" stroke="var(--object)" stroke-dasharray="2 2" fill="none" marker-end="url(#ar1)"/>
+      <text x="568" y="172" class="svg-s svg-o">changes ⇒ invalidate</text>
+    </svg>
+    </div>
+    <figcaption>The facade holds no geometry and no ordering logic of its own. <b>The Document is the only source of truth;</b> everything shown at any other level is a derived copy carrying the original's identity, which is why deleting one object erases it everywhere at once.</figcaption>
+  </figure>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">dead modules</span></div>
+    <p>Two geometry modules the design documents name by file are <strong>no longer imported by anything</strong> that runs.</p>
+    <p><code>geometry/cede.js</code> — the erase document's §2.6 says this is what cuts a tile out of a parent. It isn't: <code>Document.cedeTileById</code> does it with the arc boolean. Three source files still refer readers to it in comments.</p>
+    <p><code>geometry/erase.js</code> — the whole "carry the cut as a recipe" module. That decision was reversed in 2026-08-05 and the file was left behind.</p>
+    <p>Both still carry long, confident header comments describing how erasing works. Neither describes how erasing works.</p>
+    <span class="where">geometry/cede.js · geometry/erase.js — 0 production importers</span>
+  </aside>
+
+  <div class="tw">
+  <table>
+    <tr><th style="width:140px">Part</th><th>Owns</th><th style="width:165px">Deliberately does not</th></tr>
+    <tr><td class="k nw">KobinEngine</td><td class="d">Input routing, tool state, the deferred work queues, diagnostics.</td><td class="d">Geometry, z-order, transforms.</td></tr>
+    <tr><td class="k nw">LevelMap</td><td class="d">The tree of boxes, their edges, and every pure transform between any two of them.</td><td class="d">Know about the camera or objects.</td></tr>
+    <tr><td class="k nw">Camera</td><td class="d">Where you are looking and how far in. Crosses levels; steps sideways when the view leaves its box.</td><td class="d">Touch geometry.</td></tr>
+    <tr><td class="k nw">Document</td><td class="d">Objects by home level, the id counter (which is also the drawing order), undo/redo, a spatial index.</td><td class="d">Know about the camera, tiles, or the drawing library.</td></tr>
+    <tr><td class="k nw">TileStore</td><td class="d">Cached views of ink from other levels, in both directions, patched as the document changes.</td><td class="d">Cache the current level's own objects — they are drawn live.</td></tr>
+    <tr><td class="k nw">Renderer</td><td class="d">The scene graph, one group per object, and the per-frame difference. The only file that imports the drawing library.</td><td class="d">Decide what is visible.</td></tr>
+    <tr><td class="k nw">Geometry</td><td class="d">Arcs, outlines, cutting, chopping, connectivity, hit-testing — all pure functions.</td><td class="d">Hold any state at all.</td></tr>
+  </table>
+  </div>
+
+  <aside class="note ok">
+    <div class="hd"><span class="who">In the code</span><span class="st">as designed</span></div>
+    <p>The claim that no boolean goes through an integer polygon library is <strong>true</strong>, and worth confirming because it is the load-bearing one.</p>
+    <p>The library is still present for stroke outlining and flattening, but its only subtraction function is called from the dead <code>erase.js</code> and from tests. Nothing in the live cut path touches it.</p>
+    <span class="where">clipperOutline.subtractPolys — no live caller</span>
+  </aside>
+</section>
+
+<!-- ═══════════════ 5 ═══════════════ -->
+<section id="s5">
+  <h2><span class="num">05</span> Space: a grid of nested boxes</h2>
+  <p class="sub">Where you are is a division, not a memory</p>
+
+  <div class="decision">
+    <span class="tag">Principle P4</span>
+    <p>Which frame you are in is a function of <strong>where you are</strong>, not of how you got there.</p>
+  </div>
+
+  <p>Space is divided, at every level, into square boxes 131,072 units across. Each contains 4,096 × 4,096 child boxes, each 32 of the parent's units wide. A <strong>frame</strong> is one of these boxes.</p>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">doc corrected</span></div>
+    <p>The design's §5.1 gives a box the extent <code>[i·G, (i+1)·G)</code> — cornered on its index. That is wrong and was corrected during the build.</p>
+    <p>The reason is in the diagram opposite: cornering puts the world origin on a box corner, so zooming into it walks to the corner of every box at every depth, and every cut splits four ways. Measured while building the first version — a hole cut at the view centre straddled four tiles at six consecutive depths.</p>
+    <p>Tiles are centred on their index too, for the same reason one level down.</p>
+    <span class="where">frameLattice.cellOf — a round, not a floor</span>
+  </aside>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 2</span><span class="fig-t">The descent, and why boxes are centred on their index</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 268" width="760" role="img" aria-label="Left: nested boxes centred on the origin. Right: the wrong scheme, where the origin lands on a corner.">
+      <text x="20" y="18" class="svg-l">Centred on the index — what the engine does</text>
+      <rect x="20" y="30" width="200" height="200" fill="none" stroke="var(--space)" stroke-width="1.6"/>
+      <line x1="20" y1="130" x2="220" y2="130" stroke="var(--rule)" stroke-dasharray="2 3"/>
+      <line x1="120" y1="30" x2="120" y2="230" stroke="var(--rule)" stroke-dasharray="2 3"/>
+      <rect x="70" y="80" width="100" height="100" fill="none" stroke="var(--space)" stroke-width="1.3"/>
+      <rect x="95" y="105" width="50" height="50" fill="none" stroke="var(--space)" stroke-width="1.1"/>
+      <rect x="107.5" y="117.5" width="25" height="25" fill="none" stroke="var(--space)" stroke-width="1"/>
+      <circle cx="120" cy="130" r="3" fill="var(--object)"/>
+      <text x="128" y="127" class="svg-s svg-o">origin</text>
+      <text x="24" y="46" class="svg-s svg-sp">level 0</text>
+      <text x="74" y="96" class="svg-s svg-sp">level 1</text>
+      <text x="20" y="248" class="svg-s">the origin maps to itself at every level;</text>
+      <text x="20" y="262" class="svg-s">the descent is a chain of concentric boxes</text>
+      <text x="440" y="18" class="svg-l">Cornered on the origin — the trap</text>
+      <rect x="440" y="30" width="200" height="200" fill="none" stroke="var(--rule-strong)" stroke-width="1.6"/>
+      <line x1="440" y1="130" x2="640" y2="130" stroke="var(--rule)" stroke-dasharray="2 3"/>
+      <line x1="540" y1="30" x2="540" y2="230" stroke="var(--rule)" stroke-dasharray="2 3"/>
+      <rect x="540" y="130" width="100" height="100" fill="none" stroke="var(--rule-strong)" stroke-width="1.3"/>
+      <rect x="540" y="130" width="50" height="50" fill="none" stroke="var(--rule-strong)" stroke-width="1.1"/>
+      <rect x="540" y="130" width="25" height="25" fill="none" stroke="var(--rule-strong)" stroke-width="1"/>
+      <circle cx="540" cy="130" r="4" fill="none" stroke="var(--object)" stroke-width="1.6"/>
+      <path d="M540,130 m-9,-9 l18,18 M540,130 m9,-9 l-18,18" stroke="var(--object)" stroke-width="1.4"/>
+      <text x="440" y="248" class="svg-s">the origin sits on a corner at every depth —</text>
+      <text x="440" y="262" class="svg-s">anything drawn there straddles four boxes for ever</text>
+    </svg>
+    </div>
+    <figcaption>"Which box am I in" is a <b>round</b>, not a floor. That one choice makes the origin a fixed point of the whole descent.</figcaption>
+  </figure>
+
+  <h3>The edge between a parent and a child</h3>
+  <p>Every box knows one thing about its parent: how to convert a coordinate. It is always the same shape — subtract the child box's centre, then multiply by 4,096. The centre is a whole number and the multiplier is a power of two, so <strong>the conversion is exact in both directions.</strong></p>
+  <p>Subtracting <em>before</em> scaling is not cosmetic. Doing it the other way forms a huge product and then adds a huge offset of the opposite sign, which throws away the small digits before the addition can recover them.</p>
+
+  <h3>Four things that fall out of a fixed grid</h3>
+  <ul>
+    <li><strong>Returning is a lookup.</strong> Same place, same box, always — failure B has nothing left to fail at.</li>
+    <li><strong>Neighbours are countable.</strong> The box next door is index ± 1; when that runs off the end of the range it carries up to the parent, exactly as a long addition carries.</li>
+    <li><strong>Boxes cannot overlap.</strong> An object is never ambiguously in two of them.</li>
+    <li><strong>Whole mechanisms were deleted, not tuned.</strong> The reuse radius, the nearest-frame search and sibling-spawning are gone.</li>
+  </ul>
+
+  <h3>The two invariants</h3>
+  <div class="decision">
+    <span class="tag">Invariant 1</span>
+    <p><strong>A screen is never wider than a box.</strong> Holds unaided up to a 4,096-pixel canvas. A convenience, not a requirement.</p>
+  </div>
+  <div class="decision">
+    <span class="tag">Invariant 2 — load-bearing</span>
+    <p><strong>An object never reaches past its box's immediate neighbours.</strong> This is what makes "what else could overlap here?" answerable by checking eight boxes instead of searching.</p>
+  </div>
+
+  <p>Invariant 2 is enforced two ways. A stroke drawn too wide is <strong>promoted</strong> to the level above at pen-up, dividing every coordinate by 4,096 — a change of units, not a loss of accuracy. And an object dragged out of its box is re-homed into the box it now sits in when the drag ends.</p>
+
+  <h3>Crossing, and stepping sideways</h3>
+  <p>The camera keeps its in-level zoom inside the band from 1/32 to 256. Past the top it crosses <em>down</em> into the child box the view centre falls in; past the bottom it crosses <em>up</em> into its parent. A box is only about three screens across, so panning can also walk you clean out of one — the camera then <strong>shifts sideways</strong> into the neighbour, which is pure bookkeeping and exact, because the offset is a whole number of boxes.</p>
+  <p>A sideways shift never fires while the pen is down. A live stroke's samples are being written against its box's origin; moving the box mid-gesture would append later points against a different origin and tear the stroke in half. It waits, and the over-wide stroke is promoted at pen-up.</p>
+
+  <h3>The uncle</h3>
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">added</span></div>
+    <p>The uncle is not in the design at all. Its §5.4 treats coarser off-branch content as a curiosity that "cannot arise in a spine".</p>
+    <p>It arises constantly, and it was found by an erase test that cut a hole and then could not find the object. The pickup of eight neighbouring boxes at every step of the chain was added afterwards and measured at no cost.</p>
+    <span class="where">TileStore._ringNatives</span>
+  </aside>
+  <p>Because a box is only three screens wide, zooming in slightly off-centre puts you in the box next door — and ink that is plainly on screen is suddenly a <em>sibling of your ancestor</em>: coarser than you, but not above you. The magnify chain skipped it and the minify path skipped it too, so it vanished. The fix is to pick up the eight neighbouring boxes' objects at every step of the chain. Invariant 2 is what makes that complete, and neighbouring origins differ by whole boxes, so the translation costs nothing in accuracy.</p>
+</section>
+
+<!-- ═══════════════ 6 ═══════════════ -->
+<section id="s6">
+  <h2><span class="num">06</span> Position is an address</h2>
+  <p class="sub">A move is arithmetic on a list of whole numbers</p>
+
+  <div class="decision">
+    <span class="tag">Principle P5</span>
+    <p>Position is an address, not a coordinate: a path of integer box indices plus one small local offset. <strong>A move is integer arithmetic on that path.</strong></p>
+  </div>
+
+  <p>The path is not stored on the object; it <em>is</em> the chain of boxes it sits in, shared with everything else in them. The object holds a pointer to its box and its own local coordinates.</p>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 3</span><span class="fig-t">A drag, expanded into digits</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 220" width="760" role="img" aria-label="A displacement made at one level is written as digits at successive levels, with the remainder carried down.">
+      <text x="14" y="18" class="svg-l">A 100-unit nudge made at level 0, written in base 4,096</text>
+      <line x1="14" y1="42" x2="746" y2="42" stroke="var(--rule-strong)"/>
+      <text x="14" y="60" class="svg-s">made here</text>
+      <g>
+        <rect x="14" y="70" width="130" height="72" fill="var(--space-soft)" stroke="var(--space)"/>
+        <text x="79" y="90" text-anchor="middle" class="svg-l">level 0</text>
+        <text x="79" y="107" text-anchor="middle" class="svg-s">whole boxes moved</text>
+        <text x="79" y="128" text-anchor="middle" class="svg-l svg-o">0</text>
+      </g>
+      <g>
+        <rect x="164" y="70" width="130" height="72" fill="var(--space-soft)" stroke="var(--space)"/>
+        <text x="229" y="90" text-anchor="middle" class="svg-l">level 1</text>
+        <text x="229" y="107" text-anchor="middle" class="svg-s">whole boxes moved</text>
+        <text x="229" y="128" text-anchor="middle" class="svg-l svg-o">+3</text>
+      </g>
+      <g>
+        <rect x="314" y="70" width="130" height="72" fill="var(--space-soft)" stroke="var(--space)"/>
+        <text x="379" y="90" text-anchor="middle" class="svg-l">level 2</text>
+        <text x="379" y="107" text-anchor="middle" class="svg-s">whole boxes moved</text>
+        <text x="379" y="128" text-anchor="middle" class="svg-l svg-o">+512</text>
+      </g>
+      <g>
+        <rect x="464" y="70" width="130" height="72" fill="var(--space-soft)" stroke="var(--space)"/>
+        <text x="529" y="90" text-anchor="middle" class="svg-l">level 3</text>
+        <text x="529" y="107" text-anchor="middle" class="svg-s">whole boxes moved</text>
+        <text x="529" y="128" text-anchor="middle" class="svg-l svg-o">0</text>
+      </g>
+      <g>
+        <rect x="614" y="70" width="132" height="72" fill="var(--object-soft)" stroke="var(--object)"/>
+        <text x="680" y="90" text-anchor="middle" class="svg-l">leftover</text>
+        <text x="680" y="107" text-anchor="middle" class="svg-s">added to coordinates</text>
+        <text x="680" y="128" text-anchor="middle" class="svg-l svg-o">&lt; 1 box</text>
+      </g>
+      <path d="M144,106 L162,106 M294,106 L312,106 M444,106 L462,106 M594,106 L612,106" stroke="var(--rule-strong)" stroke-width="1.2"/>
+      <text x="14" y="172" class="svg-s">An object at level 0 takes the whole nudge into its coordinates. An object at level 3 takes digits 1 to 3</text>
+      <text x="14" y="186" class="svg-s">and NOTHING ELSE — its geometry is never read or written. They stay in register because the digits are</text>
+      <text x="14" y="200" class="svg-s">identical for both, and whole numbers do not round.</text>
+    </svg>
+    </div>
+    <figcaption>Everything a whole box or larger becomes a change of <b>address</b>: the object is re-homed into the box that many steps along, its shape untouched, because neighbouring boxes' origins differ by exactly one box width. Only the leftover — always under one box, at any depth — ever reaches geometry.</figcaption>
+  </figure>
+
+  <aside class="note stale-note">
+    <div class="hd"><span class="who">In the code</span><span class="st">doc superseded</span></div>
+    <p>The erase document's §5.1 specifies something else entirely: position as a <strong>sparse map of per-level offsets</strong>, applied during the descent, with residue bookkeeping to make a slow drag match a fast one.</p>
+    <p>None of that was built. The lattice made it unnecessary — exact integer arithmetic gives path-independence for free — and that document's §5.4 residue tracking was deleted rather than ported.</p>
+    <p>That section still reads as current. It is the single most misleading page in the design records.</p>
+    <span class="where">LevelMap.displaceFrame · Document.rehomeById</span>
+  </aside>
+
+  <h3>Five consequences</h3>
+  <ul>
+    <li><strong>Deep members are not translated at all.</strong> They are addressed relative to their ancestor, so adjusting the shared ancestor's digit moves them exactly, with no arithmetic on their geometry. Failure C is not mitigated; it is unreachable.</li>
+    <li><strong>A slow drag lands exactly where a fast one does.</strong> Each step is recomputed from where the drag <em>started</em>, not from the last event, so forty one-pixel steps and one forty-pixel flick are literally the same arithmetic on the same numbers.</li>
+    <li><strong>Drag-and-return is bit-exact,</strong> and so is undo — which restores the geometry the drag started from rather than translating by the negative.</li>
+    <li><strong>An address may extend below the object's own level.</strong> Moving something nine million units at level 5 is a real, visible one-unit move at level 3, arrived at by accumulation. A local coordinate holds about three levels of this before its own precision gives out — which is also where the digits stop being meaningful, and the two bounds agreeing is the reassuring part.</li>
+    <li><strong>Selection becomes a tree query.</strong> A box wholly inside the lasso contributes its entire subtree with no per-object test; wholly outside, it and everything under it is skipped.</li>
+  </ul>
+
+  <p>A drag with the camera <em>above</em> the object works the other way and is safe by the opposite argument: the displacement measured in that object's units is the drag divided by 4,096 per level of separation, and shrinking a number cannot make it explode.</p>
+</section>
+
+<!-- ═══════════════ 7 ═══════════════ -->
+<section id="s7">
+  <h2><span class="num">07</span> Ink is arcs</h2>
+  <p class="sub">From pen samples to an exact outline</p>
+
+  <div class="decision">
+    <span class="tag">Decision D1</span>
+    <p>A piece is <strong>its two endpoints and its bulge</strong>. Centre and radius are derived, never carried — they are redundant, and they are the only part that can explode.</p>
+  </div>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">not built</span></div>
+    <p>A piece still carries <code>{line, C, r, a0, sweep, A, B}</code> — centre and radius included, in memory and in the save file. This is the last decision from the design's locked list still outstanding, and it is acknowledged as such.</p>
+    <p>What holds the guarantee up is narrower than the design intends. The straightness test <em>is</em> bulge-only, so no radius can spoil a freeze. But finding where a curve meets a grid line reads the stored centre directly: <code>u = (k − C[axis]) / r</code>.</p>
+    <p>That is safe only structurally — a line is never chopped, and by the third crossing everything is a line, so a curve is only ever chopped at shallow depths where its centre is an ordinary number. A structural argument standing in for a representation change.</p>
+    <span class="where">arcPerimeter.subPiece · freeze.arcCuts:96</span>
+  </aside>
+
+  <p>A drawn stroke is not stored as a line with a width. At pen-up it <strong>resolves</strong> into the exact outline of the area it paints: one closed chain of straight segments and circular arcs. That outline <em>is</em> the object from then on; the centreline is dropped.</p>
+
+  <h3>Why arcs, and not curves</h3>
+  <p>The reason is the offset. Widening a stroke means finding the curve that runs a fixed distance either side of its centreline. For a general curve that offset <em>is not a curve of the same kind</em> — it has to be approximated, and then every question asked afterwards (where do the two edges cross? which bits are buried under the pen?) is asked of an approximation while burial is judged against the exact centreline. The two disagree, and at a shallow crossing the disagreement is amplified enormously. That was a whole family of bugs.</p>
+  <p>The offset of a circular arc is <em>a circular arc</em> — same centre, radius plus or minus the pen. Exact, and drawable directly by both the browser's vector formats. Two arcs cross where two circles cross: one square root, no iteration, and no chance of finding one crossing twice at two slightly different places.</p>
+  <p>One arc cannot replace one curve segment — an arc through two points with the direction fixed at both ends is over-determined. <em>Two</em> arcs meeting smoothly have exactly the freedom needed, so the pen builds pairs, and the smoothness the user already sees is unchanged.</p>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 4</span><span class="fig-t">A piece, and the only measurement that matters</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 200" width="760" role="img" aria-label="An arc piece with endpoints A and B, its chord, and the bulge measured from the chord.">
+      <path d="M80,150 A 260 260 0 0 1 380,150" fill="none" stroke="var(--object)" stroke-width="2.4"/>
+      <line x1="80" y1="150" x2="380" y2="150" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <line x1="230" y1="150" x2="230" y2="106" stroke="var(--space)" stroke-width="1.6"/>
+      <circle cx="80" cy="150" r="4" fill="var(--object)"/>
+      <circle cx="380" cy="150" r="4" fill="var(--object)"/>
+      <text x="70" y="170" class="svg-l svg-o">A</text>
+      <text x="378" y="170" class="svg-l svg-o">B</text>
+      <text x="222" y="176" class="svg-s">the chord</text>
+      <text x="240" y="122" class="svg-s svg-sp">the bulge</text>
+      <text x="80" y="30" class="svg-l">the design says store</text>
+      <text x="80" y="48" class="svg-s">A · B · bulge</text>
+      <text x="80" y="70" class="svg-l">the code stores</text>
+      <text x="80" y="88" class="svg-s">A · B · centre · radius · start angle · sweep</text>
+      <line x1="440" y1="26" x2="440" y2="180" stroke="var(--rule)"/>
+      <text x="466" y="42" class="svg-l">the straightness test</text>
+      <text x="466" y="66" class="svg-s">bulge = (half the chord) × tan(sweep ÷ 4)</text>
+      <text x="466" y="94" class="svg-s">The centre and the radius NEVER appear.</text>
+      <text x="466" y="110" class="svg-s">That matters: by the time a curve is straight</text>
+      <text x="466" y="126" class="svg-s">enough for this to fire, its centre is billions</text>
+      <text x="466" y="142" class="svg-s">of units away and computing it is already the</text>
+      <text x="466" y="158" class="svg-s">unsafe step. Measuring locally has no ceiling.</text>
+    </svg>
+    </div>
+    <figcaption>Everything the engine needs from a piece is computable from its two endpoints and how far it bulges: its midpoint, how to split it in half, even the control handles for drawing it. <b>The bulge is a ratio, so magnification cannot touch it at all.</b></figcaption>
+  </figure>
+
+  <h3>Resolving a stroke — eight phases, all interruptible</h3>
+  <p>Build both edges plus the two end caps as one closed chain, cut it wherever it crosses itself, throw away the fragments buried under the pen, stitch the survivors into closed loops. Every step is exact except the last judgement, which is a measurement by nature.</p>
+
+  <div class="strip">
+    <div><b>1 centreline</b>The pen's arc chain — already built while drawing, one sample at a time</div>
+    <div><b>2 chain</b>Both edges and both caps as one closed ring</div>
+    <div><b>3 oracle</b>Index the centreline for distance queries</div>
+    <div><b>4 pre-cull</b>Drop pieces wholly inside the pen</div>
+    <div><b>5 cut</b>Split at every self-crossing</div>
+    <div><b>6 classify</b>Keep the fragments not buried</div>
+    <div><b>7 stitch</b>Walk survivors into closed loops</div>
+    <div><b>8 finish</b>Drop hairlines, fix handedness, check the joins</div>
+  </div>
+
+  <p>Three details carry real weight:</p>
+  <ul>
+    <li><strong>The edge point at a shared corner is computed once and given to both neighbours.</strong> The chain is watertight because it was <em>built</em> that way, not because the arithmetic happened to agree.</li>
+    <li><strong>Consecutive pieces are never tested against each other.</strong> They share a point and a direction, which makes their circles touch — and two touching circles meet at exactly the one point they already share. An immediate neighbour has nothing to contribute and everything to confuse.</li>
+    <li><strong>Every phase can stop mid-item and resume.</strong> Deferring between whole objects is not enough: one heavy stroke was an indivisible multi-second job with no point inside it where control came back. Each burst re-tunes towards a millisecond, and nothing is published until the whole thing is done — so a half-resolved outline can never be drawn, stored, or cut against.</li>
+  </ul>
+
+  <h3>What if it does not close?</h3>
+  <p>An outline that fails to close is not a shape: it paints nothing, its inside/outside test means nothing, and the save format refuses the whole drawing over one of them. So a failed resolve is <strong>sealed</strong> — the broken ends chained together on the cheapest joins available and closed with straight lines, the resulting slivers dropped. It is an honest closed shape rather than a pretence the geometry was right, and how much edge was fabricated is recorded, because a seal a fifth of the pen wide is invisible while one at 45% of the loop is a straight line drawn across the middle of a stroke.</p>
+</section>
+
+<!-- ═══════════════ 8 ═══════════════ -->
+<section id="s8">
+  <h2><span class="num">08</span> The object's own grid</h2>
+  <p class="sub">Where ink gets chopped, and where a curve becomes a line</p>
+
+  <p>Ink cannot be carried down whole — a level-0 object shown at level 5 is 10<sup>18</sup> times its own size. So at each crossing it is <em>chopped</em> into tile-sized pieces and only the relevant pieces continue. Chopping raises a question with a surprising amount riding on it: <strong>whose grid?</strong></p>
+
+  <div class="decision">
+    <span class="tag">Decision D4 · §6.6</span>
+    <p><strong>Frames belong to space; tiles belong to the object.</strong> Same size, different grids. Freeze only on the object's own tile boundaries, never on a frame clip.</p>
+  </div>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 5</span><span class="fig-t">Move the object; the cuts must not slide</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 274" width="760" role="img" aria-label="Left: chopping on the fixed grid of space slides the cuts along the object when it moves. Right: chopping on the object's own grid keeps them in place.">
+      <text x="14" y="18" class="svg-l">Chopped on the grid of SPACE — wrong</text>
+      <g stroke="var(--space)" stroke-width="1">
+        <line x1="14" y1="34" x2="14" y2="200"/><line x1="94" y1="34" x2="94" y2="200"/>
+        <line x1="174" y1="34" x2="174" y2="200"/><line x1="254" y1="34" x2="254" y2="200"/>
+        <line x1="334" y1="34" x2="334" y2="200"/>
+      </g>
+      <path d="M40,70 Q160,44 300,86" fill="none" stroke="var(--object)" stroke-width="2.4"/>
+      <circle cx="94" cy="59" r="3.5" fill="var(--ink)"/><circle cx="174" cy="53" r="3.5" fill="var(--ink)"/><circle cx="254" cy="66" r="3.5" fill="var(--ink)"/>
+      <text x="40" y="112" class="svg-s">cuts land here</text>
+      <path d="M70,160 Q190,134 330,176" fill="none" stroke="var(--object)" stroke-width="2.4" opacity=".55"/>
+      <circle cx="94" cy="155" r="3.5" fill="var(--ink)"/><circle cx="174" cy="141" r="3.5" fill="var(--ink)"/><circle cx="254" cy="150" r="3.5" fill="var(--ink)"/>
+      <text x="40" y="200" class="svg-s">…moved 30 units: cuts land somewhere ELSE on the object</text>
+      <text x="14" y="228" class="svg-s">every chord changes ⇒ every straightened line moves ⇒</text>
+      <text x="14" y="242" class="svg-s">two curves that crossed at a point now cross ¼ px away — and 4,096× that one level down</text>
+      <text x="420" y="18" class="svg-l">Chopped on the OBJECT's grid — right</text>
+      <g stroke="var(--object)" stroke-width="1" stroke-dasharray="3 3">
+        <line x1="420" y1="34" x2="420" y2="200"/><line x1="500" y1="34" x2="500" y2="200"/>
+        <line x1="580" y1="34" x2="580" y2="200"/><line x1="660" y1="34" x2="660" y2="200"/>
+        <line x1="740" y1="34" x2="740" y2="200"/>
+      </g>
+      <path d="M446,70 Q566,44 706,86" fill="none" stroke="var(--object)" stroke-width="2.4"/>
+      <circle cx="500" cy="59" r="3.5" fill="var(--ink)"/><circle cx="580" cy="53" r="3.5" fill="var(--ink)"/><circle cx="660" cy="66" r="3.5" fill="var(--ink)"/>
+      <g stroke="var(--object)" stroke-width="1" stroke-dasharray="3 3" opacity=".55">
+        <line x1="450" y1="120" x2="450" y2="200"/><line x1="530" y1="120" x2="530" y2="200"/>
+        <line x1="610" y1="120" x2="610" y2="200"/><line x1="690" y1="120" x2="690" y2="200"/>
+      </g>
+      <path d="M476,160 Q596,134 736,176" fill="none" stroke="var(--object)" stroke-width="2.4" opacity=".55"/>
+      <circle cx="530" cy="149" r="3.5" fill="var(--ink)"/><circle cx="610" cy="143" r="3.5" fill="var(--ink)"/><circle cx="690" cy="156" r="3.5" fill="var(--ink)"/>
+      <text x="420" y="200" class="svg-s">…moved: the same points of the object, every time</text>
+      <text x="420" y="228" class="svg-s">the grid is TWO NUMBERS — where the lines</text>
+      <text x="420" y="242" class="svg-s">sit within one tile. A whole-box move cannot</text>
+      <text x="420" y="256" class="svg-s">change them: boxes are exactly one tile apart.</text>
+    </svg>
+    </div>
+    <figcaption>Re-homing changes an object's local coordinates by exactly one box width, so <b>the whole-box part of any move leaves the grid offset untouched</b> — only the sub-box leftover moves it, and it moves it by exactly the amount it moves the ink. Two numbers, and no bookkeeping.</figcaption>
+  </figure>
+
+  <h3>The freeze</h3>
+  <div class="decision">
+    <span class="tag">Decisions D2 · D3</span>
+    <p>Keep the freeze, for cheapness — <q>the arc will get comically straight anyway</q>. And <strong>freeze at the same time every time you bake it</strong>: determinism, not lateness, is the requirement.</p>
+  </div>
+
+  <p>Once a piece has been chopped, the engine asks: does it still bulge more than a quarter of a pixel? If not, it is <strong>replaced by the straight line between its own two endpoints</strong> — and from that moment the line is the truth. Nothing can consult what it replaced; at that depth the replaced arc's centre is not even a computable number.</p>
+
+  <div class="callout">
+    <span class="lbl">Three rules that make the freeze safe</span>
+    <ol class="rule-list" style="margin-top:10px">
+      <li><strong>It is measured on the piece visible at this level, never on a sub-piece.</strong> The old code flattened a curve into eight hundred tiny chords at once. Each was within a quarter pixel of the span it was fitted to — and then the next level magnified <em>one of them</em> to fill the screen.</li>
+      <li><strong>The replacement is the chord between the piece's <em>own</em> endpoints</strong> — never a best fit. Both endpoints are unchanged to the last bit, so a neighbouring piece that has not frozen still meets them exactly.</li>
+      <li><strong>The decision can never un-happen.</strong> One level deeper you see a smaller portion of the same curve, so it bulges less. Nothing needs storing, and no user ever sees a line turn back into a curve.</li>
+    </ol>
+  </div>
+
+  <p>In practice a normal pen stroke first freezes at the third crossing and is entirely straight lines by the fourth.</p>
+
+  <aside class="note warn">
+    <div class="hd"><span class="who">In the code</span><span class="st">principle violated</span></div>
+    <p><strong>The chop and the freeze happen in exactly one place</strong> — the render chain. Neither runs on the erase path.</p>
+    <p>When an erase descends to cut ink that lives at a coarser level, the ink is carried down by a plain projection and clip. It arrives as unfrozen arcs. So at the depth where you are looking at a straight line, the cut is computed against the curve that line replaced.</p>
+    <p>The design's own §4.3 says the opposite in as many words: after the freeze <em>there is no true arc — nothing in the system can consult it.</em> The build note that added this calls it deliberate, on the grounds that what is stored should stay exact. Both cannot be right.</p>
+    <p>It is also how a 6.5 × 10<sup>10</sup> radius reached a routine that had to intersect it with a radius of 21 — the arithmetic failure of §11.</p>
+    <span class="where">derive.js:548 — the only call to chopFreezeLoops<br>KobinEngine._inkShapeInRect → projectF + clipShapeToRect</span>
+  </aside>
+
+  <h3>The seam, and the two boundaries</h3>
+  <p>Neighbouring painted pieces have to overlap by about a pixel, or anti-aliasing leaves a visible hairline down every boundary — composite two half-covered opaque fills and a quarter of the background still shows through. So the clip rect is the tile <em>grown by the seam pad</em>, still a property of the object and the tile, and therefore identical in every cache square that holds it.</p>
+  <p>But the overhang's own ends are <strong>not</strong> the object's edge — they are a duplicate of what the next tile holds properly, cut short. If the level below measured one for straightness it would freeze it to a chord that tile disagrees with. So the clip <em>marks</em> the ends it made, those marks survive every transform, and a piece carrying one stays a curve.</p>
+
+  <div class="tw">
+  <table>
+    <tr><th style="width:180px">Boundary</th><th>What happens at it</th></tr>
+    <tr><td class="k">a box edge (space)</td><td class="d">Both sides hold <em>the same piece</em>, merely clipped — same freeze verdict, same line or same curve. <strong>No kink at all.</strong> A frame never cuts anything.</td></tr>
+    <tr><td class="k">a tile edge (the object)</td><td class="d">A frozen piece can meet an unfrozen one. They share an endpoint exactly, and the change in direction is bounded by the sweep that permitted the freeze: about 0.06°. Invisible.</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 9 ═══════════════ -->
+<section id="s9">
+  <h2><span class="num">09</span> Painting a view</h2>
+  <p class="sub">Three kinds of content, one z-order</p>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 6</span><span class="fig-t">Everything that can appear in one view</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 250" width="760" role="img" aria-label="Coarser ink arrives by a chained magnify, finer ink by direct projection, and the current level's own objects are drawn live.">
+      <defs><marker id="ar6" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--rule-strong)"/></marker></defs>
+      <rect x="270" y="100" width="220" height="56" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6"/>
+      <text x="380" y="124" text-anchor="middle" class="svg-l">the view</text>
+      <text x="380" y="140" text-anchor="middle" class="svg-s">merged in id order = drawing order</text>
+      <rect x="14" y="20" width="200" height="52" fill="var(--space-soft)" stroke="var(--space)"/>
+      <text x="114" y="40" text-anchor="middle" class="svg-l">COARSER ink, above you</text>
+      <text x="114" y="56" text-anchor="middle" class="svg-s">magnified one level at a time,</text>
+      <text x="114" y="68" text-anchor="middle" class="svg-s">each step cached as a tile</text>
+      <path d="M214,52 Q250,60 268,104" fill="none" stroke="var(--space)" stroke-width="1.4" marker-end="url(#ar6)"/>
+      <rect x="546" y="20" width="200" height="52" fill="var(--space-soft)" stroke="var(--space)"/>
+      <text x="646" y="40" text-anchor="middle" class="svg-l">FINER ink, below you</text>
+      <text x="646" y="56" text-anchor="middle" class="svg-s">shrunk in one direct jump —</text>
+      <text x="646" y="68" text-anchor="middle" class="svg-s">safe at any distance</text>
+      <path d="M546,52 Q510,60 492,104" fill="none" stroke="var(--space)" stroke-width="1.4" marker-end="url(#ar6)"/>
+      <rect x="280" y="196" width="200" height="42" fill="var(--object-soft)" stroke="var(--object)"/>
+      <text x="380" y="215" text-anchor="middle" class="svg-l">YOUR OWN ink</text>
+      <text x="380" y="230" text-anchor="middle" class="svg-s">never cached — drawn live, curves and all</text>
+      <path d="M380,196 L380,160" fill="none" stroke="var(--object)" stroke-width="1.4" marker-end="url(#ar6)"/>
+      <text x="14" y="120" class="svg-s" style="font-size:9px">chained, because</text>
+      <text x="14" y="132" class="svg-s" style="font-size:9px">a combined jump</text>
+      <text x="14" y="144" class="svg-s" style="font-size:9px">upward cancels</text>
+      <text x="14" y="156" class="svg-s" style="font-size:9px">catastrophically</text>
+      <text x="600" y="120" class="svg-s" style="font-size:9px">one jump is fine:</text>
+      <text x="600" y="132" class="svg-s" style="font-size:9px">shrinking never</text>
+      <text x="600" y="144" class="svg-s" style="font-size:9px">grows an error</text>
+    </svg>
+    </div>
+    <figcaption>These three classes never overlap, which is the invariant the cache rests on. Anything too small to matter is dropped before it is cached at all, and content just above that threshold <b>fades continuously</b> rather than popping in.</figcaption>
+  </figure>
+
+  <h3>Going up: the chain</h3>
+  <p>A tile is built from its <em>parent's</em> tile. That is why failure A was so damaging — whatever a tile held was inherited by everything below it. The chain now carries exact arcs: clipping an arc against a rectangle gives an exact sub-arc, and enlarging an arc gives an arc, so the chain stays exact however deep it goes. <strong>Nothing along it is ever frozen to a line</strong>; that happens once, at paint time, against nothing that is stored.</p>
+  <p>Two shortcuts keep the cost bounded. A coarse object that floods a whole tile with no edge in it is replaced by a four-cornered rectangle, so geometry can never outgrow a tile. And a shape lying wholly inside a tile has nothing to clip and passes straight through — the common case for anything shown from a finer level, worth 5.5 ms per tile per member down to 0.2.</p>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">differs</span></div>
+    <p>The minify path <strong>still flattens to polygons</strong>. The design's fix for failure A is stated for the chain in general; only the magnify half of it was built.</p>
+    <p>It is safe for exactly one structural reason: a minified tile is a <strong>leaf</strong>. The chain reads the parent's magnified tiles and its objects, never its minified ones, so a polygon made here can never be inherited or used as an operand.</p>
+    <p>This is safety by arrangement, not by construction. Feed a minified tile into a derivation and failure A comes straight back.</p>
+    <span class="where">TileStore._downPieces → shapeRingsInRect</span>
+  </aside>
+
+  <h3>Going down: direct projection</h3>
+  <p>Finer ink is shrunk in a single jump, safe at any distance because the coordinates only get smaller. Content is measured at the level's deepest zoom, so the size verdict is view-independent and does not flicker as the camera moves.</p>
+
+  <h3>Drawing it</h3>
+  <ul>
+    <li><strong>One group per object, sorted by id.</strong> Ids are handed out in creation order, so id <em>is</em> drawing order — a newer object always draws over an older one regardless of which of the three classes it arrived by.</li>
+    <li><strong>Rebuild only what changed.</strong> Each group carries a signature of its pieces; a pure camera move touches nothing but one transform.</li>
+    <li><strong>A family paints as one path.</strong> When an erase has split an object across levels its pieces meet exactly, with no overlap — and two separately-composited shapes meeting like that leave up to a quarter of the background showing. Drawn as one path, coverage accumulates before anything composites.</li>
+    <li><strong>Translucent ink is grouped, then faded.</strong> Pieces are drawn at full strength inside a group whose opacity is the object's, so overlapping pieces union rather than double-darkening.</li>
+    <li><strong>Two workarounds for browser limits,</strong> both measured rather than guessed: paths are written relative to a per-scene local origin, re-anchored when the view drifts too far; and an object whose features are very small <em>in the numbers handed over</em> — however much the transform then enlarges them — is rescaled by a power of two with its own transform divided by the same, which is pixel-identical by construction.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 10 ═══════════════ -->
+<section id="s10">
+  <h2><span class="num">10</span> Erasing</h2>
+  <p class="sub">The hardest thing in the app, and the rule that makes it simple</p>
+
+  <div class="decision">
+    <span class="tag">The rule · erase §2</span>
+    <p><strong>An erase cuts the representation at the level it was made in.</strong> At an object's own level that representation <em>is</em> the object, so it is cut in place. Anywhere else it is a tile, so the cut is made there. One rule, two outcomes — no depth threshold to tune.</p>
+  </div>
+
+  <p>Why this is necessary: zooming 4,096× per level makes "the object is far bigger than the eraser" the normal case. Four levels down, the eraser's radius is about 3 × 10<sup>−17</sup> of the object's own extent — an order of magnitude <em>below</em> what a computer can distinguish at all. The hole's coordinates and the object's are the same number. No change of grid, range or origin reaches this.</p>
+
+  <aside class="note stale-note">
+    <div class="hd"><span class="who">In the code</span><span class="st">doc reversed</span></div>
+    <p>The erase document's §4.1 specifies the cut as a <strong>recipe</strong> — the object carries the eraser's footprint and every tile bake re-subtracts it at its own fidelity. That was reversed by decision in 2026-08-05: <q>pixel level precision is fine, just start baking as soon as the eraser stroke is done.</q></p>
+    <p>The section is marked superseded in place, but the module that implemented it is still in the tree with its header intact, and the smaller claims around it — §4.2's stored per-object clip, §8.1's cut frozen at one fidelity — no longer describe anything.</p>
+    <span class="where">geometry/erase.js — dead</span>
+  </aside>
+
+  <h3>What happens when you drag the eraser</h3>
+  <ol>
+    <li><strong>It commits instantly as a white stroke.</strong> Drawing order alone makes the picture correct — it covers exactly what was below it when drawn — so the gesture costs nothing however complex the drawing is.</li>
+    <li><strong>The real cut happens in the background,</strong> one object at a time, in eight-millisecond slices, staying out of the way while the pointer or camera is busy but never for more than a second and a half in total.</li>
+    <li><strong>When every object beneath has been handled, the white stroke is silently removed.</strong></li>
+    <li><strong>One gesture is one undo,</strong> however many objects it touched and however many levels it descended.</li>
+  </ol>
+
+  <h3>Cutting below an object's home level</h3>
+
+  <figure>
+    <div class="fig-head"><span class="fig-n">Fig. 7</span><span class="fig-t">The descent: one crossing at a time, never one big jump</span></div>
+    <div class="fig-body">
+    <svg viewBox="0 0 760 240" width="760" role="img" aria-label="An erase three levels below an object cedes one tile per level down the chain; only the last step cuts.">
+      <defs><marker id="ar7" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--rule-strong)"/></marker></defs>
+      <g>
+        <rect x="14" y="40" width="164" height="86" fill="var(--surface)" stroke="var(--object)" stroke-width="1.6"/>
+        <text x="96" y="30" text-anchor="middle" class="svg-l">the object, level 0</text>
+        <rect x="120" y="82" width="44" height="34" fill="var(--object-soft)" stroke="var(--object)" stroke-dasharray="3 2"/>
+        <text x="96" y="146" text-anchor="middle" class="svg-s">a tile is cut OUT of it</text>
+        <text x="96" y="160" text-anchor="middle" class="svg-s">and given away</text>
+      </g>
+      <path d="M182,88 L212,88" stroke="var(--rule-strong)" stroke-width="1.4" marker-end="url(#ar7)"/>
+      <g>
+        <rect x="216" y="40" width="164" height="86" fill="var(--surface)" stroke="var(--object)" stroke-width="1.6"/>
+        <text x="298" y="30" text-anchor="middle" class="svg-l">level 1</text>
+        <rect x="322" y="82" width="44" height="34" fill="var(--object-soft)" stroke="var(--object)" stroke-dasharray="3 2"/>
+        <text x="298" y="146" text-anchor="middle" class="svg-s">that tile's ink, now</text>
+        <text x="298" y="160" text-anchor="middle" class="svg-s">4,096× bigger. Again.</text>
+      </g>
+      <path d="M384,88 L414,88" stroke="var(--rule-strong)" stroke-width="1.4" marker-end="url(#ar7)"/>
+      <g>
+        <rect x="418" y="40" width="164" height="86" fill="var(--surface)" stroke="var(--object)" stroke-width="1.6"/>
+        <text x="500" y="30" text-anchor="middle" class="svg-l">level 2</text>
+        <rect x="524" y="82" width="44" height="34" fill="var(--object-soft)" stroke="var(--object)" stroke-dasharray="3 2"/>
+        <text x="500" y="146" text-anchor="middle" class="svg-s">still no cutting —</text>
+        <text x="500" y="160" text-anchor="middle" class="svg-s">only handing down</text>
+      </g>
+      <path d="M586,88 L616,88" stroke="var(--rule-strong)" stroke-width="1.4" marker-end="url(#ar7)"/>
+      <g>
+        <rect x="620" y="40" width="126" height="86" fill="var(--object-soft)" stroke="var(--object)" stroke-width="2"/>
+        <text x="683" y="30" text-anchor="middle" class="svg-l">level 3</text>
+        <circle cx="683" cy="83" r="21" fill="var(--paper)" stroke="var(--object)" stroke-width="1.6"/>
+        <text x="683" y="146" text-anchor="middle" class="svg-s">THE CUT.</text>
+        <text x="683" y="160" text-anchor="middle" class="svg-s">Eraser and ink are</text>
+        <text x="683" y="174" text-anchor="middle" class="svg-s">now comparable sizes.</text>
+      </g>
+      <line x1="14" y1="200" x2="746" y2="200" stroke="var(--rule)"/>
+      <text x="14" y="220" class="svg-s">Each handed-down tile is 32 of its parent's units — one 4,096th of the parent's box — at EVERY level, forever.</text>
+      <text x="14" y="234" class="svg-s">Skip the chain and go straight from level 0 to level 5 and the tile is exactly ZERO units wide: a silent, invisible failure.</text>
+    </svg>
+    </div>
+    <figcaption>Every step gives away a whole <em>block</em> of tiles, not one — a gesture landing on a tile boundary spans two, and ceding only the first halves the mark exactly. The block also has to cover the box the next step descends into, or the chain arrives holding half a box's ink and the rest of the erase has nothing to cut.</figcaption>
+  </figure>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">differs</span></div>
+    <p>The design describes the cede as a float <strong>guillotine</strong> — subtract a rectangle from a bounding box, take the four leftover rectangles, group them into connected chunks by testing which share an edge.</p>
+    <p>None of that survives. The parent is cut by the same exact arc boolean everything else uses, and connected pieces come out of it directly. The special case existed only to dodge the integer library's grid, and with no grid anywhere there is nothing left for it to protect against.</p>
+    <p>The three subtle bugs the design spends a page on — a cell is not a chunk, a ring is not a chunk, abutting paths do not merge — are all bugs <em>of the guillotine</em> and cannot occur now.</p>
+    <span class="where">Document.cedeTileById → subtractShape</span>
+  </aside>
+
+  <p>Two properties are worth stating explicitly.</p>
+  <p><strong>The parent is cut, not annotated.</strong> The tile is physically removed from the parent's outline. It used to keep its geometry whole and merely record a rectangle it had given away, with rendering subtracting the hole per view — which meant a stale picture on the fast zoom path, 232–386 ms renders rebuilding it, and a parent still whole underneath, so deciding whether the object had come apart needed a second, worse cut.</p>
+  <p><strong>A cede is precision-safe where the erase itself is not.</strong> The objection that produced the old model was true of the <em>erase</em> — thousands of times finer than the parent's own units — and false of the <em>tile</em>, which is 32 parent units and perfectly ordinary to represent.</p>
+
+  <h3>Coming apart</h3>
+  <p>A ceded tile is the one and only place two levels of one object meet: the parent paints everything outside the rectangle, the child everything inside, and they share exactly its boundary. So "is this still one object?" is answered by walking that boundary and asking whether the parent's ink and the child's ink touch along the same stretch of it — measured in a normalised parameter running 0 to 4 around the perimeter, so the parent's units and the child's 4,096-times-larger units give the same number and no transform is ever composed across the crossing.</p>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">differs</span></div>
+    <p>Two changes to severance the design does not anticipate.</p>
+    <p><strong>It stopped being a cut.</strong> §3.2 says the parent splits into two objects; the implementation looked for an axis to clip down. Because ceding already leaves the parent in connected pieces, severance is now pure re-labelling — no geometry is touched at all. The old version also declined on any cut that was not dead straight, which is what a real scribbled erase always looks like, so it never fired in use.</p>
+    <p><strong>It asks about geometry, not ancestry.</strong> Once re-homing settles each member on its own coordinates, two members of one object can sit in the same place on different branches — and the object was reported as three objects without changing at all.</p>
+    <span class="where">KobinEngine._resplitFamily · _familyComponents</span>
+  </aside>
+
+  <p>Every native in the family is a node; those meetings are the edges; the object is severed exactly when the graph falls apart.</p>
+
+  <div class="callout">
+    <span class="lbl">A deliberate bias, stated once and applied everywhere</span>
+    <p>Every judgement about connectivity rounds towards <em>still whole</em>. Corners count on both sides; a bare touch counts as contact; a doorway the walk did not come through is treated as a bridge. The asymmetry is the reason: an object wrongly left whole renders correctly and merely drags as one lump, while an object wrongly severed comes apart under the user's hands and cannot be put back.</p>
+  </div>
+
+  <p>The scenario this is built for: erase 98% through something, zoom in, erase 98% of what remains, and keep going until it finally parts. The neck shrinks about 50× per round while the zoom grows 4,096×, so it converges fast — and since a ceded tile is always 32 of its own level's units while the neck inside it shrinks by 4,096 per crossing, once the cut fits inside one tile every ancestor above sees a doorway that spans its neck. That is why the verdict reaches the top.</p>
+
+  <h3>Erasing from further out</h3>
+  <p>An erase made <em>above</em> ceded territory walks down the chain it overlaps: anything it fully covers is deleted outright, subtree and all; anything it partly covers is recursed into. Cheap by construction, because the eraser is enormous at those depths. The point is that erasing means the same thing at every zoom.</p>
+</section>
+
+<!-- ═══════════════ 11 ═══════════════ -->
+<section id="s11">
+  <h2><span class="num">11</span> The exact cut</h2>
+  <p class="sub">Subtracting one shape from another with no polygon library anywhere</p>
+
+  <p>Every previous version of this went through an integer-based polygon library, which rounds every coordinate onto a grid whose step is set by the largest number in play. In an app that magnifies 4,096× per level that is <em>the</em> defect rather than a detail: a hole three levels below its object is finer than one grid step and rounds away entirely.</p>
+
+  <p>There is no grid here. Both shapes are chains of arcs, and:</p>
+
+  <div class="strip">
+    <div><b>straighten</b>Any arc bulging less than its own numbers can express becomes a line</div>
+    <div><b>pass through</b>Loops whose boxes miss the other shape are settled with no geometry at all</div>
+    <div><b>cut</b>Split both shapes wherever they cross, and wherever they lie on top of each other</div>
+    <div><b>classify</b>Each fragment kept or dropped by asking whether its midpoint is inside the other shape</div>
+    <div><b>stitch</b>Pair the loose ends at each junction by angle, then walk the pairs into loops</div>
+    <div><b>close</b>Drop hairlines; seal anything the walk could not finish, and count it</div>
+  </div>
+
+  <p>The pass-through step is what keeps the cost proportional to the <em>gesture</em> rather than to the drawing: an eraser touches one part of one stroke, and on a real document nearly every loop is settled without any geometry at all.</p>
+
+  <h3>The five things that were hard</h3>
+  <div class="tw">
+  <table>
+    <tr><th style="width:165px">Problem</th><th>Resolution</th></tr>
+    <tr><td class="k">Whose scale?</td><td class="d">"Are these two points the same point?" needs a radius. Taken from the bigger shape it swallows the smaller one whole — and an eraser a millionth of its target's size <em>is</em> the normal case. It is taken from the smaller shape, and from the coordinates where the two actually <em>meet</em>, not from the largest number in the room. Getting this wrong once produced an object of 871 pieces in 68 unclosed chains that painted nothing and made a whole drawing unsaveable.</td></tr>
+    <tr><td class="k">Same radius, twice</td><td class="d">The slack deciding "did this crossing land on that piece" must be the <em>same</em> radius that decides whether two points are one point. Otherwise a crossing within welding distance is dropped for both sides — one way in with no way out, so the fragments cannot pair and the walk hands back chains that never close.</td></tr>
+    <tr><td class="k">Shapes that touch along an edge</td><td class="d">Two boundaries lying exactly on top of each other have no crossing to find, but the overlap still has to start and end somewhere. Those ends are cut explicitly, and the shared stretch is decided by which way each boundary travels — the interior is always on the left, so same direction means one covers the other, opposite means they are back to back.</td></tr>
+    <tr><td class="k">Huge radius, small radius</td><td class="d">Ink carried two levels down arrives as arcs of radius 6.5 × 10<sup>10</sup> — nearly straight, so the radius is enormous — and gets cut by an eraser of radius 21. The textbook circle-circle formula squares both radii, and the noise in the big square is two thousand times larger than the whole answer being sought. Crossings vanished. The formula is rewritten so no expression ever holds the big radius squared while wanting an answer the size of the small one.</td></tr>
+    <tr><td class="k">A walk that gives up</td><td class="d">A configuration landing exactly on a discrete decision — an eraser running tangent to the edge it cuts, three arcs meeting at one point — can pair ends into a chain with no way home. The boolean retries once at a different welding radius. If it still fails, the chain is closed with a straight line and <em>counted</em>, because losing a real stretch of boundary is worse than an edge that is straight where it should curve.</td></tr>
+  </table>
+  </div>
+
+  <aside class="note warn">
+    <div class="hd"><span class="who">In the code</span><span class="st">consequence</span></div>
+    <p>Row four is where §8's missing freeze surfaces as a real defect rather than an argument.</p>
+    <p>A radius of 6.5 × 10<sup>10</sup> only reaches the boolean because the erase path carries unfrozen arcs. Had the ink been chopped and frozen the way the render chain does it, those pieces would have been straight lines, and a line-against-arc intersection has none of this problem.</p>
+    <p>The arithmetic is now correct either way, which is the right fix at that level. But it is a repair <em>underneath</em> a design violation, not instead of one.</p>
+    <span class="where">arcPerimeter.circleCircle</span>
+  </aside>
+
+  <p>Everything that leaves the boolean is closed, and simple — no loop crossing itself or another — which is also what its inputs must be. So booleans compose.</p>
+</section>
+
+<!-- ═══════════════ 12 ═══════════════ -->
+<section id="s12">
+  <h2><span class="num">12</span> Identity and selection</h2>
+  <p class="sub">What counts as one thing</p>
+
+  <p>An object's id is its creation number, which is also its place in the drawing order and never changes. On top of that sits one extra idea: a <strong>family key</strong>. Pieces of an object that live at several levels — the parent's remnant and everything it ceded — share one key, so they select, move and undo together, while a fragment the eraser cut fully loose gets no key and becomes an ordinary independent object.</p>
+
+  <p>Two rules about the key exist because both were violated and both cost real debugging:</p>
+  <ul>
+    <li>Turning a stroke into its resolved outline <strong>keeps the id</strong>. It used to mint a new one, so any reference taken beforehand silently named nothing afterwards.</li>
+    <li>A cut leaving <strong>one</strong> region keeps the key: that is the same object with less ink. Several regions is a genuine split, and the pieces are rightly strangers.</li>
+  </ul>
+
+  <h3>The two ways to select</h3>
+  <div class="tw">
+  <table>
+    <tr><th style="width:120px">Gesture</th><th>Behaviour</th></tr>
+    <tr><td class="k">click</td><td class="d">Selects the topmost thing under the cursor. This is how you reach something at depth, where a coarse object covers the whole canvas and no loop can bound anything.</td></tr>
+    <tr><td class="k">drag on paper</td><td class="d">Draws a lasso. Everything <em>fully enclosed</em> is selected, <strong>including objects far too small to see</strong> — a sub-pixel object has a position and an extent whether or not the screen can show them.</td></tr>
+    <tr><td class="k">drag on ink</td><td class="d">Moves whatever is selected. Pressing an already-selected object keeps the whole selection; pressing a different one selects it alone.</td></tr>
+    <tr><td class="k">ctrl</td><td class="d">Adds or removes. A ctrl-lasso overlapping the selection adds; one drawn purely inside it removes.</td></tr>
+  </table>
+  </div>
+
+  <p>The lasso is deliberately asymmetric, and both directions are correct. From far above, tiny things are selectable. From far below a lasso selects <em>nothing</em> — everything reachable down there is coarse ink magnified thousands of times, so no loop drawn on a screen can bound any of it. That is what clicking is for.</p>
+
+  <aside class="note">
+    <div class="hd"><span class="who">In the code</span><span class="st">differs</span></div>
+    <p>The design says a fully-enclosed <em>object</em> is selected. The code tests the object's <strong>upright bounding rectangle</strong>.</p>
+    <p>A diagonal or curved stroke lying comfortably inside the loop is skipped whenever its bounding corners poke out. Correct by the letter of the rule and a miss to the person drawing the loop — and the first thing to rule out on the open report that the lasso sometimes misses things.</p>
+    <span class="where">KobinEngine._rectInActive → rectInsidePolygon</span>
+  </aside>
+
+  <p>The search walks outward from the current box rather than down from the root, because from the root the scale factor would be 4,096<sup>depth</sup> before the first useful comparison. Every box gets one of three answers: <em>out of reach</em> (skip it and everything under it), <em>enclosed</em> (take the whole subtree with no per-object test), or <em>straddling</em> (ask its own index and recurse). What makes the pruning sound is invariant 2. Measured on a six-level tower of twelve objects, a loop round the whole canvas tests two of them and a loop in an empty corner tests none — and both give the identical answer to asking all twelve.</p>
+</section>
+
+<!-- ═══════════════ 13 ═══════════════ -->
+<section id="s13">
+  <h2><span class="num">13</span> Saving</h2>
+  <p class="sub">One JSON document, validated at the door in both directions</p>
+
+  <p>A drawing file holds four things: metadata, where the camera was, the tree of boxes, and the objects grouped by which box each is homed in.</p>
+
+  <p>An outline is written as a flat list of numbers. Consecutive pieces share an endpoint <em>exactly</em> — the invariant the whole representation rests on — so only the loop's start point and each piece's far end are stored. Writing both ends would double the file and invite a reload where the two no longer match. A resolved outline is usually <em>smaller</em> than the samples it came from: a captured 4,962-sample stroke resolves to 2,195 pieces, and a dense scribble shrinks by an order of magnitude.</p>
+
+  <p>The object's chopping offset is saved with it, because it is geometry: drop it and a reloaded drawing subdivides somewhere else, which moves every straightened chord in it.</p>
+
+  <div class="decision">
+    <span class="tag">Decision D8</span>
+    <p><strong>No migration.</strong> A file in the old format is refused with a clear error, never converted — converting means rewriting stored coordinates, the one operation this design exists to avoid.</p>
+  </div>
+
+  <p>Two further policies:</p>
+  <ul>
+    <li><strong>Damage is repaired on the way in, not refused.</strong> The format validates that every outline closes, and a build once produced ones that did not. Refusing those means refusing to open a drawing over an object that can be mended, so they are stitched and sealed at load and the drawing opens, renders and saves.</li>
+    <li><strong>Retired fields are stripped at the door</strong> rather than carried as inert state that still looks meaningful. A field recording where a hole <em>should</em> have been is worse than no field at all.</li>
+  </ul>
+
+  <aside class="note warn">
+    <div class="hd"><span class="who">In the code</span><span class="st">open defect</span></div>
+    <p>Local autosave <strong>fails silently when browser storage fills</strong>. The drawing then exists only in the open tab, with no warning that it is not being saved.</p>
+    <p>This is not a design divergence — the design does not cover it — but it is the one gap in this section that has already cost a real drawing.</p>
+    <span class="where">hooks/useKobinEngine.js</span>
+  </aside>
+
+  <p>Locally, drawings autosave into per-canvas browser storage. In the cloud they are compressed and split into 700 KiB chunks under a parent record, committed in groups — and the parent is written <strong>last</strong>, because readers key off it, so an interrupted save never looks complete. Metadata stays on the parent so listing the gallery never downloads a drawing.</p>
+</section>
+
+<!-- ═══════════════ 14 ═══════════════ -->
+<section id="s14">
+  <h2><span class="num">14</span> Scenes and the scale bar</h2>
+  <p class="sub">Two features that inherit the same constraint</p>
+
+  <h3>Scenes</h3>
+  <p>A drawing with no bottom needs a way back to the places worth returning to. Scenes are discovered automatically by clustering ink, and they obey the engine's own discipline: <strong>no global frame exists</strong>, so every calculation projects through at most two adjacent levels.</p>
+  <p>The clever part is the unit. There are no physical screens in the maths — all distances are measured relative to <em>stroke width</em>, which already encodes the zoom the ink was drawn at and is identical on every device. So the same drawing yields the same scenes on a phone and a desktop. A stroke's "screen" is a square 600 times its own width; ink joins across gaps up to 1.5 of those.</p>
+  <p>There is no minimum size and no minimum stroke count. The tiniest dot drawn three thousand times deeper than everything else is a scene — that is the entire point of the feature. Much-finer ink inside a scene becomes a nested scene, recursively, with one guard: a nested scene must be meaningfully smaller than its parent, or it is just the parent's view again.</p>
+
+  <h3>The scale bar</h3>
+  <p>The bar tells you how big what you are looking at actually is, across a range from the astronomical to below an atom. It is a rule-based engine rather than a formula: units are organised into ladders, each candidate reading is tested against the preference range in force, and the resolution is the lowest in-range number that qualifies. The user can drag to set a scale, and the reading follows that choice until the zoom leaves the band it was set in.</p>
+</section>
+
+<!-- ═══════════════ 15 ═══════════════ -->
+<section id="s15">
+  <h2><span class="num">15</span> How the engine watches itself</h2>
+  <p class="sub">Because "something was slow" invites a guess about what</p>
+
+  <p>Four instruments run at once, and they exist because a timer inside the engine reported 11 ms while the browser reported a 1.5-second frame. That gap cost four wrong diagnoses.</p>
+
+  <div class="tw">
+  <table>
+    <tr><th style="width:145px">Instrument</th><th>What it records</th></tr>
+    <tr><td class="k">operation log</td><td class="d">Every operation past an 8 ms floor, with what it was working on. High-frequency operations are aggregated rather than logged individually, or one pinch would evict everything else. A trace mode removes the floor — which is exactly what once hid a session with 62 seconds elapsed and 157 ms recorded.</td></tr>
+    <tr><td class="k">long frames</td><td class="d">Straight from the browser: how much of a slow frame was script, which functions, how much was forced layout, and what was left over for painting. That last number is the one no timer inside the engine can ever see.</td></tr>
+    <tr><td class="k">the journal</td><td class="d">What the <em>user</em> did, not just what the document ended up as. Which erase, where, at what zoom, what it cut, whether the object came apart — and, critically, <strong>why anything was refused</strong>. A refusal is otherwise invisible: the eraser is marked done, the mark is consumed, and the ink was never cut. That is exactly what "I erase and then it just disappears" looks like.</td></tr>
+    <tr><td class="k">growth log</td><td class="d">What accumulates over a session — object counts, cached tiles, empty buckets. One measured session had 4,343 empty buckets out of 4,369; dropping them took a render from 195 ms to 23.</td></tr>
+  </table>
+  </div>
+
+  <p>All of it can be posted as a single report containing the camera, the counts, the timings, the journal, and a loadable snapshot of the drawing — which is how a bug reported in a browser becomes a failing test offline.</p>
+</section>
+
+<!-- ═══════════════ 16 ═══════════════ -->
+<section id="s16">
+  <h2><span class="num">16</span> Deliberately not built</h2>
+  <p class="sub">Scoped, understood, and agreed to be left</p>
+
+  <p>These are not divergences in the sense §17 means. They are parts of the design that were examined, understood, and knowingly deferred — each with a reason that survives inspection.</p>
+
+  <div class="tw">
+  <table>
+    <tr><th style="width:200px">Item</th><th>Why it is left</th></tr>
+    <tr><td class="k">Touching curves, severed</td><td class="d">Two shapes drawn to touch, with different curvature, straighten at different levels — so their contact can open by a quarter pixel. <em>Visually this needs no fix</em>: it reads as zooming in and discovering they were very close but never touched. What remains is that a yes/no contact question must not answer differently at different levels. The agreed resolution is to descend and find out, then use that verdict everywhere.</td></tr>
+    <tr><td class="k">Seam anti-aliasing rule</td><td class="d">Whether only the line pushing <em>into</em> a shape should extend past a meeting point. A look-at-it question; nothing measured.</td></tr>
+    <tr><td class="k">Box collection</td><td class="d">Boxes left behind by a move are now findable again rather than lost, so the leak is harmless. Nothing collects them, and nothing needs to yet.</td></tr>
+    <tr><td class="k">A move finer than the object can hold</td><td class="d">The model handles it. What a drag should <em>look like</em> at a magnification where the object fills 27 billion screens is a question about the interface, not the geometry.</td></tr>
+  </table>
+  </div>
+</section>
+
+<hr class="hard">
+
+<!-- ═══════════════ 17 ═══════════════ -->
+<section id="s17">
+  <h2><span class="num">17</span> The divergence register</h2>
+  <p class="sub">Everything the code does that the design does not say — in one table</p>
+
+  <p>Twenty-one, in three kinds. The first kind needs a decision; the second is the code being right and the record being wrong; the third is the code being right and the design not having thought of it.</p>
+
+  <h3>Needs a decision <span class="pill viol">4</span></h3>
+  <div class="tw">
+  <table>
+    <tr><th style="width:44px">§</th><th style="width:210px">Divergence</th><th>What to do about it</th></tr>
+    <tr><td class="k">8</td><td class="d"><strong>The erase path skips the chop and the freeze.</strong> A cut below an object's home level is computed against arcs the render chain has already replaced with lines.</td><td class="d">The design principle and the build note contradict each other; one has to give. If the principle stands, the cede path needs the freeze wired into it — which also removes the extreme radii of §11 at source.</td></tr>
+    <tr><td class="k">7</td><td class="d"><strong>A piece still carries its centre and radius.</strong> The last locked decision outstanding.</td><td class="d">The safety argument holds today but is structural, not inherent. Building it removes a class of failure rather than avoiding it.</td></tr>
+    <tr><td class="k">9</td><td class="d"><strong>The minify path stores polygons.</strong> Safe only because such a tile is never inherited.</td><td class="d">No action needed. Worth a comment at the two call sites, so a future change cannot quietly reintroduce failure A.</td></tr>
+    <tr><td class="k">3</td><td class="d"><strong>The canvas-width limit is never checked.</strong></td><td class="d">Either enforce it or delete the constant. A number that only a test reads is a claim nobody is keeping.</td></tr>
+  </table>
+  </div>
+
+  <h3>The record is stale <span class="pill stale">9</span></h3>
+  <p>In each of these the code is right and a design document still says otherwise, in the present tense.</p>
+  <div class="tw">
+  <table>
+    <tr><th style="width:190px">The document says</th><th>The code does</th></tr>
+    <tr><td class="d">Crossing ratio 3,000; boxes of 96,000 units; a 4,800 px canvas ceiling <span class="mono">(lattice §5.2)</span></td><td class="d">4,096; 131,072; 4,096 px. Superseded by that document's own §0.</td></tr>
+    <tr><td class="d">Displacements in base 3,000, digits ±1500 <span class="mono">(lattice §6.2, §6.8)</span></td><td class="d">Base 4,096, digits −2048 to 2047.</td></tr>
+    <tr><td class="d">A box covers <code>[i·G, (i+1)·G)</code> <span class="mono">(lattice §5.1)</span></td><td class="d">Boxes are centred on their index; "which box" is a round. So are tiles.</td></tr>
+    <tr><td class="d">Position as a sparse map of per-level offsets, with residue bookkeeping <span class="mono">(erase §5.1, §5.4)</span></td><td class="d">Addresses. Never built, and the residue tracking was deleted rather than ported.</td></tr>
+    <tr><td class="d">The cut is a recipe re-subtracted at every bake <span class="mono">(erase §4.1, §4.2)</span></td><td class="d">Reversed by decision. It bakes. <code>geometry/erase.js</code> is dead.</td></tr>
+    <tr><td class="d">A tile's grid is a function of canvas size <span class="mono">(erase §5.2)</span></td><td class="d">A document constant. Device-independent by design.</td></tr>
+    <tr><td class="d">A baked cut is frozen at one level's fidelity <span class="mono">(erase §8.1)</span></td><td class="d">Cuts are arcs and re-flatten per level.</td></tr>
+    <tr><td class="d">Severance splits the parent with a second cut <span class="mono">(erase §3.2)</span></td><td class="d">Pure re-labelling; ceding already left it in pieces.</td></tr>
+    <tr><td class="d">Re-entry reuses a frame within a radius, else spawns a sibling <span class="mono">(local frames)</span></td><td class="d">Deleted. Frame ids of that shape are refused by the loader.</td></tr>
+  </table>
+  </div>
+
+  <h3>The code found something the design did not <span class="pill ok">8</span></h3>
+  <div class="tw">
+  <table>
+    <tr><th style="width:190px">Addition</th><th>Why it exists</th></tr>
+    <tr><td class="d"><strong>The uncle pickup</strong></td><td class="d">Coarser off-branch ink is on screen constantly, not rarely. Found by an erase that cut a hole and could not find the object.</td></tr>
+    <tr><td class="d"><strong>Boxes and tiles centred on their index</strong></td><td class="d">Cornering them puts the origin on a corner at every depth; a hole cut at the view centre straddled four tiles at six consecutive depths.</td></tr>
+    <tr><td class="d"><strong>The tile grid as a two-number offset</strong></td><td class="d">Survives re-homing for free, because boxes are exactly one tile apart. The design asked for a stored origin; an offset is strictly better.</td></tr>
+    <tr><td class="d"><strong>Seam-end marks on clipped pieces</strong></td><td class="d">The overhang is a duplicate cut short, not an edge. Freezing one gives a chord its neighbour disagrees with.</td></tr>
+    <tr><td class="d"><strong>The half-open tile range</strong></td><td class="d">Rounding both ends outward asks for three tiles per axis instead of one — nine times the stored area, and 49 ms to 258 ms on one render.</td></tr>
+    <tr><td class="d"><strong>The cede block covers the next box</strong></td><td class="d">Otherwise the chain arrives holding half a box's ink. At five crossings the hole came out 18 px short against an 18 px eraser, with the chain looking perfectly healthy.</td></tr>
+    <tr><td class="d"><strong>Severance asks geometry, not ancestry</strong></td><td class="d">Re-homing can settle two members of one object on different branches in the same place.</td></tr>
+    <tr><td class="d"><strong>The camera settles on load</strong></td><td class="d">A file records whatever the camera was, which need not be a legal state. Until it settled, the first interaction paid for the crossing — 200 ms once, 0.2 ms thereafter, which reads as "panning is slow".</td></tr>
+  </table>
+  </div>
+
+  <h3>Two files that should not be in the tree</h3>
+  <p><code>geometry/cede.js</code> and <code>geometry/erase.js</code> have no production importers. Both carry long, confident header comments describing how the system works, and three other source files still point readers at <code>cede.js</code> for the authoritative account of ceding a tile. Neither describes anything the code does. They are the highest-yield deletion available, because their cost is not bytes — it is that they read as current.</p>
+</section>
+
+<footer>
+  Sources: the frame lattice bible (space, addresses, chopping and freezing), the erase-by-tile-window bible (the erase model, severance, seams), the local frames bible (why a tree of boxes at all), the auto-scenes bible, and the live flag list — read against the source at f92c1d1.<br><br>
+  Divergences were confirmed against the code, not inferred from the documents: every entry in §17 was checked by tracing call sites and imports.
+</footer>
+
+</main>
+</div>
+</div>

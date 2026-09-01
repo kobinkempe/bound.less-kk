@@ -1,5 +1,9 @@
 # OPEN FLAGS — the live list
 
+**New to this codebase? Start at `docs/ai/00-START-HERE.txt`** — status, architecture,
+a code map and the rules, written for someone with no context. This file stays the
+authority on what is actually broken.
+
 **Hands-on testing lives in `docs/UAT.md`** — the run-it-yourself checklist, with the
 environment matrix for the browsers and monitors this has not been tried on.
 
@@ -51,6 +55,9 @@ still drives the old cubic schedules for that comparison.
 | [F29](#f29) | **a piece fades out of existence while zooming out** after being cut off the main piece — caught mid-fade | `Renderer._fade` / `TileStore` | **high** |
 | [F30](#f30) | **an eraser is consumed without cutting anything** — the first cede at a new level did nothing; does NOT reproduce synchronously | `KobinEngine._bakeTick` | **high** |
 | ~~F-Z~~ | ~~a thin, long stroke vanishes while zooming out~~ — **FIXED AND VERIFIED 2026-08-26.** Chrome drops a filled path whose features are too small IN THE COORDINATES HANDED OVER, whatever the transform; the fix rescales such an object by a power of two at pre-render and divides its group matrix by the same. Kobin confirmed it in a browser. [Full account](#f-z--a-thin-long-stroke-vanishes-while-zooming-out) — keep it, the canvas-rasterization trap in it is what cost three wrong diagnoses | `Renderer._applyThinScale` | closed |
+| [F35](#f35) | **a group move displaces one member** — an object placed in a corner at level 5 was not in the corner after being moved together with smaller objects. Reported 2026-08-26, no capture yet | `KobinEngine._dragSelection` | **high** |
+| [F34](#f34) | ~~an erase seals CHORDS ACROSS THE SHAPE~~ — **ROOT CAUSE FOUND AND FIXED 2026-08-26**: `circleCircle` computed `h² = r1² - a²`, which is pure noise once r1 is ~1e10 and r2 is ~21. Crossings were lost or halved, so chains could not pair. Kobin's own reproduction goes from 6 failures in 21 gestures to **0 of 21**. Needs his eyes in a browser | `geometry/arcPerimeter.js` `circleCircle` | **fixed, unverified** |
+| [F33](#f33) | **autosave dies silently when localStorage fills** — the drawing then exists only in the tab. **LOCAL AUTOSAVE IS NOW OFF** (2026-08-26) while this stands; the Save button and cloud sync still work, and a standing banner says so | `hooks/useKobinEngine.js` | **high, mitigated** |
 | F32 | **the lasso sometimes misses objects** — reported 2026-08-26, not yet reproduced; no capture, no conditions known. NOT diagnosed. Two things to rule out first, both read off the code rather than observed: (1) selection tests the object's AXIS-ALIGNED RECT (`_rectInActive` -> `rectInsidePolygon`), not its ink, so a diagonal or curved stroke lying comfortably inside the loop is skipped whenever its bbox corners poke out — correct by the stated rule, a miss to the person drawing the loop, and the cheapest to check; (2) `_rectInActive` returning null drops an object silently. After those, the frame walk itself: the `out of reach` REACH box, `queryRect`, and the ancestor pass that skips the branch already visited. **Ask for a report while it is on screen** — the lasso polygon and the missed object's id are what settle it. | `KobinEngine._lassoFind` / `geometry/lasso.js` | open |
 | ~~F31~~ | ~~`repairLoops` seals each fragment separately instead of stitching them first~~ — **FIXED 2026-08-26**: it now chains fragments on the cheapest join available, bridges each join explicitly, and seals once. Measured on the two phone strokes with the `distinctSamples` fix switched off, so the same severed bakes arrive: stroke 1 went 2 loops + a phantom hole -> 1 loop, worst fabricated edge 46.39 -> 0.75 units; stroke 3 went 3 loops + a phantom hole -> 1 loop, 82.61 -> 1.02, and its **area from 38.6% too large to 0.2% under**. Both seals are now ~6-9% of the pen's own width. `_lastBakeRepair` carries `fragments/chords/worstChord/fabricated/dropped` into a phone report, which is what made the first one take a day to place. | `geometry/arcShape.js` | closed |
 | ~~F25~~ | ~~dragging a deep family destroys its deepest pieces~~ — **CLOSED by the frame lattice** (2026-08-19): a move is an ADDRESS change, and a deep member's geometry is not touched | `KobinEngine._dragSelection` | closed |
@@ -74,20 +81,51 @@ still drives the old cubic schedules for that comparison.
 
 ---
 
-## Cleanup backlog — AFTER the refactor
+## Cleanup backlog — DONE 2026-08-31
 
-Dead or unreachable code found while tracing the live pipeline (2026-08-25). None of it
-is a defect and none of it is urgent — it is all "this stopped being called and nobody
-removed it". Batch it once the refactoring settles: the entries chain, and X3 depends on
-whether `KobinEngineV0` is still wanted as an oracle.
+Dead or unreachable code found while tracing the live pipeline (2026-08-25).
+None of it was a defect; it was all "this stopped being called and nobody removed
+it". The pass ran on 2026-08-31, after the arc pipeline and the frame lattice had
+settled. **X1 and X2–X4 did not close the way they were written**, and the
+reasons matter more than the items did.
 
-| id | what | where |
+| id | what was planned | what happened |
 |---|---|---|
-| X1 | **the old erase RECIPE module is unreachable.** `subtractCuts`, `cutRecord`, `eraserFootprint`, `narrowCut`, `cutsResolveIn`, `removedFraction` implement the superseded model — "a cut is a recipe the object carries and every bake re-runs at its own fidelity". F22 replaced it: `_bakeOne` calls `subtractShape` on two resolved arc perimeters, and `derive.js:291` records the same shift from the tile side. Verified no production importer; only `erase.contract.slow.test.js` reaches it. **Check that test for invariants not covered by the engine-level erase suites before deleting the coverage** — port them rather than dropping them. | `geometry/erase.js` |
-| X2 | `subtractPolys` and `clipPolysToRect` lose their last callers when X1 goes. `clipPolysToRect` is already test-only: `lattice.test.js` uses it as a precision probe for the `localFrame` fix, so that probe needs somewhere else to live. | `geometry/clipperOutline.js` |
-| X3 | `strokeOutline` is *already* unreachable in this engine — the `derive.js` branch is gated by `legacyOffset: cfg.fatWidthPx == null` and `fatWidthPx` defaults to 4000; `Renderer._fatPolys` is documented debug-view-only; `engine.geom.strokeOutline` has no consumers. **`KobinEngineV0` still calls it**, so decide V0's fate first. | `geometry/clipperOutline.js` |
-| X4 | if X1–X3 land, **`clipper-lib` comes out of `package.json`** — ClipperLib would have no live call site anywhere. The file is then misnamed: everything left in it (`clipRingsToRect`, `clipPolylineToRect`, `flattenCurve`, `flattenCurveNear`, `decimatePolyline`, `controlsFor`, `strokeStripNear`) is pure JS with no integer lattice. The banner at the top of this file already claims "no polygon library anywhere"; X4 is what makes that literally true rather than true of the erase path only. | `package.json` |
+| X1 | delete the old erase RECIPE module (`geometry/erase.js`) — `subtractCuts`, `cutRecord`, `eraserFootprint`, `narrowCut`, `cutsResolveIn`, `removedFraction`, the superseded "a cut is a recipe the object carries" model | **MOVED, not deleted** → `engine/__oracles__/erase.js`. `erase.contract.slow.test.js` holds 26 passing assertions against it, and X1 itself said to port them rather than drop them. Porting an oracle into the code it checks is not porting; keeping it as an oracle costs nothing, since nothing in `src/` outside the suites imports it and webpack never bundles it. |
+| X2 | delete `subtractPolys` and `clipPolysToRect` once X1 went | **KEPT.** Neither has a production caller, but `geometry/lattice.test.js` uses both as the probe that measures where Clipper's integer lattice starts to drift, and `geometry/areaErase.test.js` uses `subtractPolys` for area-erase semantics. That drift is a live constraint as long as X3 stands, so the probe is not vestigial — it is the suite that bounds the one Clipper call still on a render path. |
+| X3 | delete `strokeOutline`, which was believed unreachable | **NOT UNREACHABLE.** It has three callers: `Renderer._fatPolys` under `outlineMode`; `derive.bandRings` under `opts.legacyOffset`, gated on `cfg.fatWidthPx == null` and therefore reached by the V0 golden-compare in `geometry/derive.test.js`; and `__oracles__/KobinEngineV0.js` throughout. X3 said to decide V0's fate first — V0 is **kept**, as the oracle the arc pipeline is checked against, so X3 cannot close. |
+| X4 | drop `clipper-lib` from `package.json` | **CANNOT**, because X3 cannot. Removing it means deleting outline mode *and* the V0 golden-compare. |
 
+**What was done instead of X2–X4**, and it is most of the value they were after:
+`geometry/clipperOutline.js` was split in two, so the name stops lying.
+
+- `geometry/polyline.js` (465 lines) — `controlsFor`, `flattenCurve`,
+  `flattenCurveNear`, `clipRingsToRect`, `clipPolylineToRect`, `decimatePolyline`,
+  `strokeStripNear`, `capsulePoly`, `netRingsArea`. Pure float64, no integer
+  lattice, no coordinate ceiling. **This is the half on the hot path**, and it no
+  longer imports `clipper-lib` even transitively.
+- `geometry/clipperBoolean.js` (219 lines) — `strokeOutline`, `subtractPolys`,
+  `clipPolysToRect`, plus the `capScale`/`localFrame`/`pickScale` lattice
+  bookkeeping. Its header names every remaining caller.
+
+The dependency is one-way and stated in both files: `clipperBoolean` imports from
+`polyline`, never the reverse. `grep -l clipperBoolean src/` now names every
+place Clipper is still reached — six files, three of them tests — which is what
+X2–X4 were really trying to make visible.
+
+### The rest of the 2026-08-31 pass
+
+| what | outcome |
+|---|---|
+| the three unreferenced functions | `LevelMap._edge` and `curvePerimeter.minDist` **deleted**. `Document.canRedo` **kept and wired up**: it and `canUndo` now ride the status payload, and the toolbar greys Undo/Redo when the stack behind them is empty. It was an unfinished feature, not dead code — the buttons existed at `CanvasEditor.js:52` and were simply always enabled. |
+| `Pages/CanvasV2.js`, `BakeLab.js`, `ArcPen.js`, `ArcBake.js` | **deleted** with their routes. CanvasV2 carried its own copy of the mount/pointer/autosave/report lifecycle that `hooks/useKobinEngine.js` also has, and the same fix had had to be made twice more than once. |
+| `Components/toolButton.js`, `Images/toolbarIcons/logoSmall.js`, `Stylesheets/CanvasToolBar.css` | **deleted** — orphaned by the above, and with them the last importers of `@material-ui/core`. |
+| `KobinEngine.contract.test.js` | **rewritten.** It was enumerated from CanvasV2. It is now enumerated from the two real consumers — `hooks/useKobinEngine.js` and `Pages/CanvasEditor.js` — and pins the new `canUndo`/`canRedo` status fields. |
+| the oracles | `KobinEngineV0`, `curvePerimeter`, `strokeShape`, `bakeStrategies`, `cede`, `erase` and their suites **moved** to `src/engine/__oracles__/`, with a README saying what each one is an oracle *for* and the rule that production must never import from there. |
+| `scaleBar/testSupport.js` | **moved** to `src/engine/__testkit__/scaleBar.js`, so `src/engine/scaleBar/` holds only shipping code. |
+| the other 19 "test-only" exports | **kept where they are.** They are not test helpers; they are coherent module API whose only current caller is a suite — `arcShape.intersectShape` is the sibling of `subtractShape`, `biarc.arcToCubics` is the documented rendering conversion, `derive.projectNative`/`levelFactor` are the golden-compare targets. Moving them into test files would break the modules they belong to. The Call Graph greys them, which is the durable record; 29 scattered `// TEST-ONLY` banners would drift. |
+| `KobinEngine.js` | **split 3,506 → 855 lines**, the rest into `erasePipeline.js`, `overlays.js`, `selection.js`, `sceneOps.js`, `files.js` and `instruments.js`, mixed back onto the prototype by `engine/mixin.js`. Every method moved byte-identical; nothing was rewritten. |
+| the docs | the bibles, handoffs, option papers, test catalogs and reports moved to `docs/reference/` (still tracked). `DESIGN.md` at the repo root is the one document to read instead. |
 ---
 
 ### The ERASE debug view (dev menu -> "Erase")
@@ -368,6 +406,482 @@ on any mark consumed WITHOUT cutting, the whole done set: what the gesture
 considered and dismissed. A repeat of this bug now arrives with its own
 explanation attached.
 
+<a id="f35"></a>
+### F35 — a group move displaces one member (OPEN, not diagnosed)
+
+Kobin, 2026-08-26: *"I took an object, moved it into the corner at level 5, then
+moved the object with those little objects together. Now the object is not in the
+corner."*
+
+No capture, no reproduction. What follows is read off `_dragSelection`
+(KobinEngine.js:3028) rather than observed, and is where to look first.
+
+**A mixed-depth selection is moved by TWO DIFFERENT CODE PATHS in the same drag.**
+The branch is chosen per object, by comparing that object's depth to the camera's:
+
+* `depth <= camDepth` — plain translation, `wantX = tx * f`. No quantization
+  during the drag; re-homing waits for pen-up (`_normalizeHome`).
+* `depth > camDepth` — address arithmetic (`displaceFrame`). Whole cells become a
+  change of frame and only the sub-cell remainder reaches geometry.
+
+A big object at level 5 and the "little objects" beside it are on opposite sides
+of that test whenever the camera sits between them. The two paths agree only if
+`tx * f` and (frame change + remainder) compose to the same displacement, and a
+CORNER is exactly where that composition is marginal — a cell decision resolved
+one way for one member and the other way for another.
+
+**The cheapest thing to rule out first is not arithmetic at all — it is the three
+silent `continue`s.** Each drops ONE member of the drag while every other member
+moves on:
+
+```
+if (depth == null) continue;                          // no depth for its frame
+const f = this.lm.frameFactor(this.cam.frame, st.from);
+if (f == null) continue;                              // unreachable from the camera
+const put = this.lm.displaceFrame(st.from, camDepth, tx, ty);
+if (!put) continue;                                   // no displaced cell
+```
+
+Nothing logs any of them. A selection that moves "together" with one member
+skipped is precisely the reported symptom, and it does not require the two paths
+to disagree by so much as an ulp. Instrument these three the way `_rehomeBail`
+instruments the erase — record `{id, level, why}` against the gesture — and a
+repeat arrives with its own explanation.
+
+After those: `_normalizeHome` decides an object's cell from its **bbox centre**
+(`Math.round(cx / FRAME_W)`), so a large object positioned by one corner can
+re-home a whole cell on pen-up. That is meant to be position-preserving — the
+neighbouring origins differ by exactly `FRAME_W`, a power of two, so the
+subtraction is exact — but it is the step that MOVES an object between cells at
+the moment the drag ends, and "in the corner" is where its rounding is marginal.
+
+Also worth confirming: `_selectionMembers()` expands every selected id to its
+whole edit family, so a group move can carry members the user never selected.
+
+**CAPTURED, 2026-08-26.** Six reports across the undo/redo of the move, in
+`.kobin-reports/`: `18-44-46`, `18-46-45`, `18-49-23`, `18-49-30`, `18-50-01`,
+`18-51-20`. Kobin reports the LAST one has the small item out of the corner and
+one of the two before it has it in.
+
+**Every report is REPLAYABLE, and that was news.** A report's `snapshot` field is
+`{v:"dev-0", camera, natives, crossings}`, which `decodeDrawing` accepts through
+its legacy branch — so a report is a loadable drawing, camera included. Nothing
+needed converting; there was simply no reader. `src/engine/f35.render.test.js` is
+that reader: it loads each snapshot at Kobin's own 1504x868 and writes the SVG,
+so a reported state can be looked at instead of only described. This applies to
+EVERY report ever captured, not just these.
+
+Snapshots (~2 MB each) are in `.kobin-reports/f35/`, out of the repo tree;
+the renders and a comparison page are in `public/__f35/` (gitignored).
+
+What the numbers say so far. The three objects are 49 (extent 3.09 x 4.17 in its
+own frame, depth 4) and 47/48, which sit two levels deeper. Expressing 47's
+centre in 49's frame — the offset a group move must not change:
+
+| report | 49's centre, own frame | 47 - 49 offset |
+|---|---|---|
+| 18-46-45 | (-14097.954, 9131.045) | (-0.023, +0.565) |
+| 18-49-23 | (-9343.833, 21759.429) | **(-0.167, +0.570)** |
+| 18-49-30 | (-9343.833, 21759.429) | **(-0.167, +0.570)** |
+| 18-50-01 | (-9343.976, 21759.433) | (-0.024, +0.566) |
+| 18-51-20 | (24407.842, -60944.589) | (-0.024, +0.566) |
+
+Two things fall out of that, neither yet explained:
+
+1. **The offset changes across an undo/redo with no gesture between.** The
+   journal is saturated at 40 (`move` 32, `draw` 1, `erase` 7) and IDENTICAL in
+   all six reports — no new gesture was recorded. Yet between `18-49-30` and
+   `18-50-01` object 49 shifted **0.143 units** in its own frame while 47/48 did
+   not move at all. That is 4.6% of 49's own width, and it happened during
+   undo/redo. Whatever else is wrong, an undo round-trip is not restoring the
+   position exactly.
+2. **The frame chain is rewritten between `18-50-01` and `18-51-20`.** The 4th
+   segment goes `-107,-369` -> `-107,-370` — one cell — and the 5th changes
+   completely, `-287,-1714` -> `1364,1550`. The relative offset survives that,
+   so the re-address itself compensated correctly; but 49 lands at y = -60944
+   against a cell half-width of 65536, i.e. hard against its own cell edge,
+   where it had been mid-cell before.
+
+The relative offset does NOT distinguish `18-50-01` from `18-51-20`, so whatever
+Kobin is seeing in the last report is either a position relative to something
+other than 47/48, or the cell-edge homing in (2). **Do not guess further from the
+numbers — read it off the renders.**
+
+<a id="f34"></a>
+### F34 — an erase seals chords across the shape (OPEN, reported and captured)
+
+Kobin, 2026-08-26: *"The eraser was essentially a circle around the corner, but
+this is how it baked."* The screenshots show the object cut by enormous
+straight-edged wedges converging to needle points — nothing like a circle.
+
+Report `18-16-24`, erase gesture **e66**, 16 px eraser (`lwFrame` 26.6) at level
+2 in frame `0/-47,179/-1479,824`. The gesture worked in every other respect: it
+ceded object 27 down two links and cut objects 47 and 48 in place. What failed is
+the boolean on the LAST link of the cede — `subtractShape(local, clipLocal)` in
+`_bakeRehome`, KobinEngine.js:2600:
+
+```
+lastSeal: { id: 68, open: 353, area: 16380743543.8 }
+boolSeals: 1
+```
+
+**353 chains could not close**, carrying 1.64e10 units² between them, and each was
+sealed with a straight chord. That seal is deliberate — losing a real stretch of
+boundary is worse than drawing it straight — but it was written for the odd
+tangency, and the comment above it budgets for *two* chains on a Y-stroke cut by a
+ring. Three orders of magnitude out.
+
+Three things say this is systematic rather than a discrete-decision accident:
+
+* `shapeBoolean` re-runs the whole boolean at weld radii 0.1x, 10x and 0.01x
+  whenever the first pass loses area, and `_noteSeal` only fires once ALL of them
+  have lost. Perturbing the tolerance moved nothing.
+* The sealed regions average ~6,800 units across against an eraser 26.6 units
+  wide — 250x the eraser. These are not slivers at the cut edge.
+* The output carries it: piece `#70` came out with **173 loops** and `#71` with
+  29, against 1 loop each for the unshattered siblings `#67` and `#69`.
+
+Measured off the rescued file, and this is the clearest statement of the damage.
+A resolved perimeter is arcs end to end, so every straight edge in one is either a
+tile boundary or a seal:
+
+| object | loops | arcs | tile edges | interior lines | longest | pen |
+|---|---|---|---|---|---|---|
+| 2 (healthy) | 170 | 4,146 | 0 | 170 | **0** | 1 |
+| 7 (healthy) | 2 | 527 | 0 | 2 | **0** | 175 |
+| **70 (damaged)** | 173 | **174** | 5 | **346** | **53,573** | 141 |
+| 71 (damaged) | 29 | 403 | 0 | 112 | 344 | 141 |
+
+A healthy object's interior lines are all ZERO length — the degenerate closing
+edge on a loop that already closed. Piece 70 has **twice as many straight edges as
+arcs**, roughly one arc per loop, and a single chord **53,573 units long against a
+141-unit pen — 379x the width of the ink that drew it**, ~41% of the 131,072-unit
+tile it sits in. That chord is the white wedge in the screenshot.
+
+Two objects want explaining separately: `#73` and `#74`, the in-place cuts of
+targets 47 and 48, carry **zero arcs** — 265 and 366 straight edges and nothing
+else, at pen 35.6 and 46.9. Whether they arrived that way or were flattened by
+this gesture is not yet established; their sources are gone.
+
+**The drawing is saved** — `.kobin-reports/rescued-Testing-2026-08-26T18-24.boundless.json`,
+2.1 MB, verified through `decodeDrawing` (22 objects, 472 loops). So unlike F30
+this one has a real repro in hand: load it, replay e66, and watch the subtract.
+
+Note the scale relationship, which is what the recursive workflow always
+produces and is the first thing to suspect: object 27 is a level-0 native whose
+ink, carried two links down, arrives in the cutting frame ~90,000x its own size,
+where it meets an eraser 26.6 units across. Fine features against a huge span is
+exactly where a boolean's tolerances stop meaning anything.
+
+`lastSeal` does NOT record the weld radius or whether the retries ran. Add that —
+`_noteSeal` computes a dozen diagnostic fields and keeps three.
+
+---
+
+**REPRODUCED OFFLINE, 2026-08-26.** `src/engine/f34.repro.test.js`, against
+Kobin's own drawing pulled live from the tab after he had undone the failures
+(`.kobin-reports/f34-input-pre-erase.boundless.json`). **6 of 21** aimed circular
+gestures seal, with open-chain counts of 4, 16, 18, 61, 91 and 156. It gets worse
+with the size of the ring: at a 160 px gesture, 4 of 7 positions fail.
+
+*Where he erased was recovered, not guessed.* The gesture cut objects 47 and 48,
+so it must have covered them; their frame address maps up into the cutting frame
+at **(-58101.992, -61126.016)** — which is, to the digit, a vertex of the damaged
+piece #70's own first loop. That pins the view to 1250 x 722 at inScale 1.203,
+exactly what the report records.
+
+**TWO HYPOTHESES TESTED AND KILLED.** Both were plausible and both are wrong:
+
+* *Arc radius.* The ink arrives in the cutting frame at 430,000x the tile, with
+  arcs of radius 6.49e10 against a 1.31e5 span. `f34.scale.test.js` sweeps a slab
+  the size of one tile whose edges are arcs, radius 1e5 -> 1e12, and subtracts an
+  eraser: **exact at every radius**, removing pi*r^2 to the decimal, zero open
+  chains. Scale alone does not break it.
+* *The ring shape.* "Essentially a circle around the corner" means the swept
+  region is an annulus, and the seal code's own comment names a ring eraser as
+  its hard case. Same sweep with a real ring perimeter: **also exact at every
+  radius**. The ring alone does not break it either.
+
+**BOTH OPERANDS ARE CLEAN WHEN THEY ARRIVE.** Measured inside the failing cede:
+
+| | loops | pieces | broken joins |
+|---|---|---|---|
+| subject (`_inkShapeInRect`, both links) | 1 | 7 | **0** |
+| eraser, as drawn | 2 | 192 | **0** |
+| eraser, at every projection | 2 | 192 | **0** |
+
+7 + 192 = the 199 pieces the boolean reports. Neither the tile clip nor the
+magnify chain has damaged anything.
+
+**SO THE FAULT IS INSIDE `shapeBooleanOnce`.** Its own stats on the worst case:
+
+```
+pieces=199 kept=172 loops=156 | crossings=3 overlaps=0 coincident=0
+straightened=0 weld=2.926e-7 ambiguous=0 unbalanced=6
+sealed=156 sealedArea=1.6382e10
+```
+
+Three things to take from that:
+
+1. **`crossings=3` is impossible.** Two closed curves cross an even number of
+   times. An odd count means the intersection set is inconsistent — a crossing
+   missed, or a tangency counted once — so entries cannot be paired with exits.
+2. **156 loops out of 199 pieces is one loop per piece.** The ring is essentially
+   inside the subject, so the correct answer is THREE loops: the subject, plus
+   the ring's outer and its island, as holes. Instead every piece was left an
+   isolated fragment and sealed into its own loop.
+3. **`sealedArea` 1.6382e10 is ~95% of the tile's own area (1.718e10)** — and it
+   is the same ~1.639e10 in every one of Kobin's five reports. The seal is
+   swallowing essentially the whole subject, which is why the result is wedges
+   rather than a cut.
+
+### ROOT CAUSE — catastrophic cancellation in `circleCircle`
+
+`geometry/arcPerimeter.js`, the closed-form circle-circle intersection, used the
+textbook form:
+
+```js
+const a = (r1 * r1 - r2 * r2 + d2) / (2 * d);
+const h2 = r1 * r1 - a * a;
+```
+
+Ink carried two frame levels down arrives as arcs that are very nearly straight,
+and a nearly straight arc has an ENORMOUS radius — 6.49e10 in his drawing. The
+eraser cutting it has radius 21. So:
+
+* `r1²` = 4.2e21, and one ulp of that is **9.4e5**;
+* the `h²` being asked for is at most `r2²` = **441**.
+
+The answer is two thousand times smaller than the noise in its own operands. It
+comes back zero or negative, so the two intersection points collapse into one or
+vanish. **That is an entry without its exit**: the fragments cannot pair, the walk
+hands back chains that never close, and every piece is sealed into its own loop
+with a chord across the object.
+
+The threshold predicted by `r1²·ε > r2²` is `r1 = r2/√ε` ≈ **1.4e9**. Measured on
+a straddling sweep, holding everything constant but the radius:
+
+| r1 | crossings | loops | open chains |
+|---|---|---|---|
+| 1e5 – 1e7 | 0 | 3 | 0 |
+| 1e8 – 1e9 | 4 | 2 | 0 |
+| **1e10** | **3 — odd** | **146** | **146** |
+| **1e11 – 1e12** | **0** | **145** | **145** |
+
+It turns exactly where the arithmetic says it must. His arcs are 6.49e10, 46x
+past it, and his reports said `crossings=3`.
+
+**Why it took three wrong turns to find.** Two plausible hypotheses were tested
+and killed first, and both failed for the same reason: they put the eraser WHOLLY
+INSIDE the ink, where no intersection is ever computed — the classification is a
+winding query and the arithmetic never touches the huge arc. Only a ring that
+STRADDLES the edge forces the intersection. That fact is the real lesson here: a
+scale-sensitivity test that does not make the two shapes cross proves nothing.
+
+**The fix.** Keep every small quantity small. `u = d - r1` is O(r2) and is formed
+without squaring anything; `r1 - a` follows from it by difference of two squares,
+and `h²` factorises as `(r1-a)(r1+a)`. No expression holds `r1²` while wanting an
+answer the size of `r2²`.
+
+**Measured after the fix**, same drawing, same gestures: the aimed reproduction
+goes from **6 of 21 gestures sealing to 0 of 21**, and crossing counts are even at
+every radius. The captured operands (`.kobin-reports/f34-operands.json`, kept as
+`src/engine/f34.operands.test.js`) go from `crossings=3, open=156, sealed=156,
+loops=156` to `crossings=4, open=0, sealed=0, loops=2`.
+
+**STILL OPEN, and it is a different fault.** The synthetic straddling sweep at
+r >= 1e10 now finds all four crossings but STILL fails to assemble — 146 open
+chains, `unbalanced=7`. Kobin's real case is clean, so this is not what he hit,
+but the assembly clearly has a second failure mode at extreme radius that the
+intersection fix does not cover. Do not close F34 on the strength of the
+reproduction alone.
+
+### THE ARITHMETIC FIX IS A PATCH. THE REAL FAULT IS A DESIGN VIOLATION.
+
+Kobin, 2026-08-26, on being told the render freeze and the cut are separate on
+purpose: *"I think you're wrong... Once a curve turns to a line, that is the truth
+from that point downward. The eraser always cuts into a local shape — that's why
+the tiles are ceded... That tile would contain a true straight line, which should
+be the source of truth for the real shape."*
+
+He is right, and the bible says so in as many words. Frame-lattice bible §4.3:
+
+> **after the freeze there is no true arc.** Nothing in the system can consult it;
+> at that depth its centre is not even computable. The line is the source of truth.
+
+and §10.4, stating the invariant that makes the whole representation safe:
+
+> The sagitta is local. `(chord/2) * |tan(sweep/4)|` — the bulge form. **The centre
+> never appears**, so section 3.1a's "no precision ceiling" is preserved and **a
+> radius of 1e18 cannot spoil the test.**
+
+The design anticipated this failure and named the rule that prevents it. Two
+places break it:
+
+1. **The freeze is wired into the render chain only.** `chopFreezeLoops` is
+   reachable from `derive.js` -> `TileStore` and nowhere else. The erase path runs
+   `projectF` -> `clipShapeToRect` -> `subtractShape`, and `projectF` deliberately
+   keeps the arc ("an arc stays an arc: the endpoints move, the bulge does not
+   change at all"). So the cut consults geometry D2 says no longer exists.
+2. **`circleCircle` computes from the centre and the radius**, and squares the
+   radius. That is exactly the operation §10.4 says never happens.
+
+So the `circleCircle` rewrite is worth keeping — centre-based intersection should
+not fall over — but it treats the symptom. The design-correct repair is one of:
+
+* **Freeze on the cede path**, so the ink in a ceded tile really is the straight
+  line the design says it is, and there is no circle to intersect; or
+* **Intersect in bulge form**, never materialising the centre, as the rest of the
+  lattice already does.
+
+The first is what Kobin describes and is the better fit for the erase story — the
+tile is ceded precisely so the eraser meets a small local shape. It would also
+account for the leftover assembly failure below, because that regime (radii above
+1e10 arriving at the boolean) should not exist on this path at all.
+
+**Do not treat F34 as closed on the arithmetic fix.**
+
+**NOT VERIFIED BY KOBIN IN A BROWSER YET.**
+
+*Suite note, found while regression-testing this:* `perf.instrument.test.js` PI-6
+("off: cheap operations stay out of the log") asserts that 40 zooms each finish
+in under 8 ms, because `_perf` only logs an op at 8 ms or slower. That is a
+claim about the MACHINE, not the code, and it fails whenever the box is loaded —
+it went red running `test:quick` and `test:slow` concurrently and passes 21/21
+on its own. Latent flake; give it a trace-mode assertion instead of a wall-clock
+one.
+
+<a id="f33"></a>
+### F33 — autosave dies silently when localStorage fills (OPEN)
+
+Kobin, 2026-08-26, mid-session: *"No I can't save it."* Report `18-16-24` carries
+seven of these between 18:05 and 18:13:
+
+```
+autosave failed (storage full): Failed to execute 'setItem' on 'Storage':
+Setting the value of 'kobin.canvas.mtaelfl1d4v3' exceeded the quota.
+```
+
+The write is wrapped in `try { ... } catch (err) { /* quota */ }`
+(useKobinEngine.js:451). It swallows the failure, so the app goes on looking
+exactly as it does when saving works. **The drawing then exists only in the
+tab's memory**, and nothing on screen says so.
+
+Measured live in his browser: 4.9 MB against Chrome's ~5 MB per-origin cap.
+
+| | |
+|---|---|
+| `kobin.thumb.*` | **1.54 MB** — scene thumbnails for **14** canvases, 251 keys |
+| `kobin.canvas.*` | 1.34 MB |
+| `kobin.other` | 1.10 MB |
+| `boundlessDrawing:*` | 0.62 MB |
+
+The stored slot for the open canvas held **6,144 bytes** of lz1 — an early state —
+while the live document serialized to **2,121,240**. Every save for eleven
+minutes had failed. He was not signed in, so there was no cloud copy either. The
+work was recovered by pulling `serializeDrawing()` out of the live page.
+
+Clearing the 251 thumbnail keys freed 1.54 MB and restored headroom, but that is
+housekeeping, not a fix. Three things are wrong and only the first is urgent:
+
+1. **A failed save must be visible.** Silence is the whole defect — a warning, or
+   the existing cross-device edit banner, would have cost him nothing.
+2. **Thumbnails are unbounded.** 14 canvases' worth accumulate with no eviction,
+   and they are regenerable — they should be first to go, automatically.
+3. **A 2.1 MB drawing does not belong in a 5 MB origin budget** shared with every
+   other canvas. localStorage is the wrong home for documents this size.
+
+#### MITIGATION, 2026-08-26 — local autosave turned OFF
+
+Kobin: *"Can you turn auto save off until we fix that? It's making this hard to
+use."* `LOCAL_AUTOSAVE = false` in `hooks/useKobinEngine.js`. Flip it back to
+true to restore; nothing else has to change.
+
+**Why it was still painful after the 2026-08-25 backoff.** The backoff stops the
+hot loop, not the cost. Every attempt does the entire job — serialize, stringify,
+compress — before the write is allowed to throw, which is ~960 ms of blocked main
+thread on a 4.1 MB document. It still fired on a schedule, and `saveOnUnload`
+forces past the backoff, so every reload paid a full second for nothing.
+
+**Two things had to be fixed first, or "autosave off" would have meant "nothing
+saves at all".** Both were pre-existing and neither was caused by turning it off:
+
+* **A failed local write took the cloud down with it.** `persistCanvas` returned
+  `{local:false}` the moment `saveToLocalStorage` came back null — *before*
+  reaching `cloudSaveCanvas`. So a signed-in user with a full localStorage could
+  not save to their account by pressing Save. It now serializes independently and
+  carries on; `saveToastFor` reports the two halves separately.
+* **`cloudDirtyRef` was only ever set by a SUCCESSFUL local autosave.** With the
+  quota full it never became true, so the 30-second background push never ran
+  either. It is now set from document changes, which is the honest signal.
+
+Taken together those two mean that *before this change*, a signed-in user whose
+storage was full had **no working save path of any kind** — which is worse than
+the flag described, and is worth knowing when it comes to fixing it properly.
+
+**And the banner was never rendered.** `saveError` has been computed by the hook
+since 2026-08-25 and no component ever displayed it, so item 1 above — "a failed
+save must be visible" — was written, wired, and then invisible anyway. It is
+rendered now (`.bl-savebar` in CanvasEditor), and carries the standing
+"autosave is off" notice as well as real failures.
+
+Item 1 is therefore closed. **Items 2 and 3 are what is actually left**, and item
+2 (unbounded thumbnails, 1.54 MB across 251 keys) is the cheap one that would
+restore enough headroom to turn autosave back on.
+
+#### MEASURED, 2026-08-26 — the cost is COMPRESSION, not the quota
+
+Phone report `23-54-04` (Android, Chrome 151, level 6). The 300-entry perf log
+covers the last **48.6 s** before the report, and in it:
+
+| op | calls | total | share of blocking | worst |
+|---|---|---|---|---|
+| **autosave** | 5 | **29.6 s** | **57%** | 6,772.8 ms |
+| bake | 190 | 20.9 s | 40% | 6,900.8 ms |
+| render | 94 | 1.5 s | 3% | 120.0 ms |
+
+Every one of those five autosaves **SUCCEEDED** (`ok: 1`). This is not the quota
+path at all. The worst one breaks down as:
+
+```
+serMs   31.6      serialize the document
+jsonMs 108.1      JSON.stringify
+packMs 6568.7  <- LZString.compressToUTF16   97% of it
+putMs   64.3      the localStorage write itself
+```
+
+The document is **16.15 million characters**, packing to 3.71 MB. It grew
+14.84M -> 16.15M across the log and each save got slower with it: 5.18, 5.71,
+5.71, 6.27, 6.77 s, fired 6-13 s apart. A 5-7 second freeze roughly every ten
+seconds.
+
+**The browser attributes them independently.** Four of the six worst long frames
+are `invoker: IdleRequestCallback` on `main.chunk.js` — which is `idleSave` and
+nothing else — with style-and-layout 0 and paint under 1 ms. Pure script:
+
+```
+6277.5 ms frame -> script 6273.9  IdleRequestCallback
+5761.5 ms frame -> script 5709.0  IdleRequestCallback
+5731.3 ms frame -> script 5709.4  IdleRequestCallback
+5230.5 ms frame -> script 5181.5  IdleRequestCallback
+```
+
+**So the fix is not "get under the quota".** Compressing a 16 MB string on the
+main thread is unaffordable at any quota. Whatever replaces this has to either
+not compress on the main thread (a worker), not compress at all (IndexedDB has
+no 5 MB cap and takes structured data), or not rewrite the whole document every
+time (incremental saves). Item 2 buys headroom; it does not make this fast.
+
+**One thing in the same report is NOT autosave and wants its own look:** the
+single worst frame of the session is **7,858.9 ms** attributed to
+`dispatchDiscreteEvent` / `DIV#root.onclick` — a click handler, 7.8 s of script,
+no layout, no paint. Baking is the other 40%, concentrated in three outliers
+worth 11.2 s of its 20.9 s.
+
+(The 681,970 ms and 103,452 ms entries in `frames.worst` are almost certainly the
+phone backgrounding the tab — `hiddenSkipped: 0`, so the meter did not exclude
+hidden time. Do not read those as freezes.)
+
 <a id="f27"></a>
 ### F27 — CLOSED. "Some erasures would never bake."
 
@@ -640,6 +1154,23 @@ be even, and two unbalanced vertices. Neither the welding radius (tried at 0.1x,
 10x and 0.01x) nor the crossing-parameter slack changes it, so it is a
 classification or pairing defect, not a tolerance. The seal keeps it from
 damaging documents; it does not fix it. **This is the first thing to pick up.**
+
+**2026-08-26 — is this F34? No, and the arithmetic says why.** F34 has the
+identical signature (odd crossing count between closed shapes, weld retries at
+0.1x/10x/0.01x changing nothing) and its cause was `circleCircle` losing
+intersections to cancellation. But that only bites once `r1²`'s ulp swamps `r2²`,
+i.e. above r1 ≈ 1.4e9. This case is ORDINARY scale: a 39-unit pen on a stroke
+spanning ~1.5e3, so its arc radii reach maybe 1e6, `r1²` = 1e12, one ulp of that
+is 2e-4, and `r2²` ≈ 400. The intersection is comfortably accurate there. **Two
+different defects that present the same way** — and "odd crossing count" is
+therefore a symptom to diagnose, never an identification.
+
+A reconstruction of the case (three strokes into a junction, ring eraser over it,
+`src/engine/f23.ystroke.test.js`, 8 combinations of ring radius and pen) comes
+back clean — 0 seals, 0 dust. That is NOT evidence the defect is gone: the
+original was measured on Kobin's own geometry and this is a guess at its shape.
+It only says the reconstruction misses it. Getting the real one needs the
+document, the way F34's did.
 
 **2. "Small pixel dots."** Two eraser passes a little further apart than their own
 width leave a wafer of ink between them. His document has nine, the thinnest

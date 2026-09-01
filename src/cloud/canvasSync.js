@@ -17,7 +17,6 @@ import {
 import LZString from "lz-string";
 import { getDb } from "./firebaseApp";
 
-const LEGACY_CHUNK_CHARS = 900000; // pre-lz1 string chunks (readers only)
 const BIN_CHUNK_BYTES = 700 * 1024; // compressed binary chunk per part doc
 const PARTS_PER_COMMIT = 6; // ≤ ~4.2 MiB per commit, under the 10 MiB cap
 export const CANVAS_CODEC = "lz1";
@@ -223,5 +222,3 @@ export async function cloudDeleteCanvas(uid, id) {
     batch.delete(canvasDoc(uid, id));
     await batch.commit();
 }
-
-export { LEGACY_CHUNK_CHARS };

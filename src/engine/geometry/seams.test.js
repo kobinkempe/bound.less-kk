@@ -30,7 +30,7 @@ import LevelMap from "../LevelMap";
 import Document from "../Document";
 import TileStore from "../TileStore";
 import { seamPad, classifyUp, deriveStep } from "./derive";
-import { cedeRect } from "./cede";
+import { cedeRect } from "../__oracles__/cede";
 import { inks, inkers, samples, seamOverlapX } from "../__testkit__/ink";
 
 import { BASE, ENTER, EXIT, R } from "../frameLattice";

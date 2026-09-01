@@ -7,10 +7,12 @@
  * camera, no cache ownership (callers pass `live` to exempt the in-progress
  * stroke from the object-attached caches).
  *
- * deriveStep() is the exact port of KobinEngineV0._deriveInto (golden-compared
- * by derive.test.js): transform parent objects into the child frame, clip to a
- * tile rect, size-gate fat strokes into outline fills. It is the "edge" tier's
- * workhorse.
+ * deriveStep() began as an exact port of KobinEngineV0._deriveInto and derive.test.js
+ * still golden-compares the STROKE and FILL branches against it (through
+ * LEGACY_SEAMS). It has since grown the two things V0 never had and which now carry
+ * most real documents: a `shape` branch that keeps exact arcs across the crossing
+ * (F-A), and the object's own tile grid with the chop and the freeze on it
+ * (freeze.js, frame-lattice bible D2/D4). Do not read "exact port" as "unchanged".
  *
  * classifyUp() is the NEW symmetric size policy for magnification (the mirror
  * of the minify cull): each object is EMPTY (band can't reach the tile), SOLID
@@ -25,7 +27,8 @@
  * magnify (H < L) is only used step-by-step through tiles (coordinates grow —
  * composed long jumps cancel catastrophically, which is WHY the chain exists).
  */
-import { strokeOutline, strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear, decimatePolyline } from "./clipperOutline";
+import { strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear, decimatePolyline } from "./polyline";
+import { strokeOutline } from "./clipperBoolean";
 import { loopsBBox, clipShapeToRect, flattenShape, transformLoops, transformLoopsAbout, insideShape, pieceBBox, loopsArea } from "./arcShape";
 import { chopFreezeLoops, markSeamEnds, tileWindow, tileClipRect } from "./freeze";
 import { childTilePhase } from "../frameLattice";
@@ -288,7 +291,9 @@ export const LEGACY_SEAMS = {
 // What the parent does about it moved, 2026-08-06. It used to keep its geometry
 // whole and record a "window" rect, which rendering then subtracted wherever the
 // parent was magnified enough to resolve it. That is gone: the parent's rings
-// are now physically CUT (geometry/cede.js), so there is nothing to subtract at
+// are now physically CUT — `Document.cedeTileById`, one `subtractShape` on the
+// resolved arc perimeter. (`geometry/cede.js` was the float-guillotine version of
+// that cut and is TEST-ONLY now.) So there is nothing to subtract at
 // render time and nothing to carry between crossings. The hole survives Clipper
 // for the reason the erase itself does not — a TILE is ~12.8 parent units, one
 // three-thousandth of the parent's own frame and perfectly representable, while

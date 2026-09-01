@@ -20,7 +20,7 @@ import {
     BAR_PX_TARGET,
     BAR_PX_MIN,
     BAR_PX_MAX,
-} from "./testSupport";
+} from "../__testkit__/scaleBar";
 
 describe("scaleBar/resolveReading", () => {
     test("L3: at ft∩yd overlap, 200 yd wins over 500 ft (standard-imperial)", () => {

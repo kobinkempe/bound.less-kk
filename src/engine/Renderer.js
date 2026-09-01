@@ -23,7 +23,8 @@
  *    cull instead of popping.
  */
 import Two from "two.js";
-import { strokeOutline, strokeStripNear, flattenCurve, flattenCurveNear, decimatePolyline } from "./geometry/clipperOutline";
+import { strokeStripNear, flattenCurve, flattenCurveNear, decimatePolyline } from "./geometry/polyline";
+import { strokeOutline } from "./geometry/clipperBoolean";
 import { strokeLoops } from "./geometry/curveOutline";
 import { shapeToCubics, loopsBBox, pieceToCubics } from "./geometry/arcShape";
 
@@ -141,7 +142,12 @@ const REORIGIN_PX = 1.5e6;
 // screen-fraction gate flips representation per device (a phone would fatten
 // strokes a desktop draws normally). Skia's extreme-width mis-stroke was
 // measured from ~25k device px, so 500 px keeps a ~50× safety margin.
-// (Default; overridable as cfg.fatWidthPx.)
+//
+// THIS IS A FALLBACK ONLY. `cfg.fatWidthPx` is 4000 in the engine's DEFAULTS and
+// always wins (`_gatePx`), so the live gate keeps ~6× of margin rather than 50× —
+// the trade was made deliberately in ISSUE-22, because at 500 the default 13 px
+// pen needed an outline at its own level and the fitting cost dominated. 500 is
+// what a Renderer constructed without a cfg would use.
 const FAT_WIDTH_PX = 500;
 
 // ---- thin-object coordinate rescale (F-Z) ----------------------------------
@@ -1181,8 +1187,9 @@ export default class Renderer {
         // 877,395 px and its dashed perimeter cost 315 ms a frame. It is
         // replaced by `_renderSelOverlay` — ants on the object's own edge —
         // which is bounded by the viewport by construction and says more
-        // besides. `_selRectFn` stays wired because
-        // the engine still computes the rect for its own purposes.
+        // besides. `_selRectFn` is SET and never read: `setSelection` survives so
+        // selection.indicator.test.js can prove that handing over an 877,395 px
+        // rect draws nothing at all, which is the regression worth pinning.
     }
 
     /**
@@ -1423,15 +1430,6 @@ export default class Renderer {
             const el = pool.pop();
             if (el.parentNode) el.parentNode.removeChild(el);
         }
-    }
-
-    static _rect(w, h, fill, cls) {
-        const r = document.createElementNS(SVG_NS, "rect");
-        r.setAttribute("width", String(w));
-        r.setAttribute("height", String(h));
-        r.setAttribute("fill", fill);
-        if (cls) r.setAttribute("class", cls);
-        return r;
     }
 
     /**

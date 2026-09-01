@@ -1,0 +1,141 @@
+================================================================================
+BOUND.LESS - START HERE
+Plain text on purpose. This directory (docs/ai/) is the entry point for anyone,
+human or agent, who has not worked on this codebase before.
+Written 2026-08-28. Keep it current: see 90-MAINTENANCE.txt.
+================================================================================
+
+WHAT THIS IS
+    An infinite-zoom vector drawing canvas. You draw, you zoom in about 4,096x,
+    and you keep drawing at the new scale, for ever. A React app; the whole
+    interesting part is a hand-written engine in src/engine/ that renders through
+    Two.js into one SVG.
+
+    It is one person's project (Kobin Kempe). There is no team, no CI, no code
+    review. Correctness is established by a large Jest suite plus Kobin using the
+    app and sending back a diagnostic report. Both matter and neither is
+    sufficient - see THE RULES below.
+
+WHERE THINGS ARE
+    repository      C:\Users\Surface\Documents\bound.less-kk
+                    github.com/kobinkempe/bound.less-kk
+    working branch  arc-pipeline
+    main branch     main
+    deployed        https://bound-less-kk.web.app   (Firebase Hosting)
+                    deploy: firebase deploy --only hosting   (config firebase.json)
+    backend         Firebase project bound-less-kk. Google auth + Firestore.
+                    Rules in firestore.rules. Client config is public by design
+                    (src/cloud/firebaseApp.js).
+    reports         .kobin-reports/  - diagnostic bundles POSTed by the in-app
+                    Report button. NOT in git. 156 MB and growing; do not read
+                    one into context, script over it.
+
+RUN IT
+    npm install
+    npm start              dev server on :3000   (or the "boundless" launch config)
+    npm run report-server  report receiver on :3001, writes .kobin-reports/
+    npm run test:quick     everything except *.slow.test.js   (~70 s, 868 tests)
+    npm run test:slow      the slow suites            (~500 s, 598 tests)
+    npm run test:all       both
+    npm run build          production build to build/
+
+    Dev tools in the app: append ?dev to a canvas URL, e.g.
+    /#/canvas/new?dev  - reveals the Dev panel (level/zoom/object readouts, the
+    debug overlays, and the Report button).
+
+ROUTES
+    /#/                 HomeV2        marketing page
+    /#/canvases         CanvasesV2    the gallery, sign-in, recycle bin
+    /#/canvas/:id       CanvasEditor  THE PRODUCT. ?dev unlocks the dev panel.
+
+    That is every route. /#/v2, /#/bakelab, /#/arcpen and /#/arcbake were the
+    dev harness and the three labs; they were deleted on 2026-08-31 (2,190 lines
+    of unbundled code, and CanvasV2 carried its own copy of the mount / pointer /
+    autosave / report lifecycle that hooks/useKobinEngine.js also has, so the
+    same fix had had to be made twice more than once).
+
+PUBLISHED REFERENCE PAGES
+    The same material as this directory, generated from the source and rendered
+    for a human with a screen. Kobin has the links; they update in place.
+
+    The Code Map      https://claude.ai/code/artifact/2d3a3acd-0a89-4e2b-a161-3445bdd19756
+                      Every function in src/ - 1,087 of them across 78 files -
+                      in the file that defines it, with a line saying what it
+                      does in the design and an expandable full explanation.
+    The Call Graph    https://claude.ai/code/artifact/ee3012b4-86a3-4b0a-b232-8c73b73bd7b0
+                      The same 1,087 functions as a graph, 1,905 calls between
+                      them, each drawn inside its file's block. Click a
+                      function for its callers, what it reaches, and its
+                      explanation. 34 entry points are filled, 26 test-only
+                      functions greyed; nothing is struck through any more.
+    The Call Map      https://claude.ai/code/artifact/d6ac1f2b-d7b1-4b47-a8f4-d1ca1be5dcba
+                      The six entry points as call trees. The reading version.
+    The Logical Design
+                      https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56
+                      The design argument. Hand-written, no generator.
+
+    The generator lives in tools/docmaps/ with a README. Two checks there are
+    the ones that matter, and both must pass after any change to src/:
+        python tools/docmaps/verify_coverage.py    every function is on both pages
+        python tools/docmaps/audit_stale.py        neither page names something gone
+
+READ IN THIS ORDER
+    0. DESIGN.md at the repository root - the whole design in one document,
+       which is what the design bibles were distilled into on 2026-08-31. Read
+       it instead of them; open a bible only for the full argument behind one
+       subject.
+    1. this file
+    2. docs/ai/10-STATUS.txt          what works, what is broken, right now
+    3. docs/ai/20-ARCHITECTURE.txt    the design, in one pass
+    4. docs/ai/30-CODE-MAP.txt        every file and what is in it
+    5. docs/ai/40-CALL-FLOW.txt       what calls what, input to pixels
+    6. docs/ai/50-TODO.txt            the consolidated backlog
+    7. docs/OPEN-FLAGS.md             THE live issue list. Authoritative.
+    8. the design bibles, only when you are about to touch what they cover.
+       They moved to docs/reference/ on 2026-08-31 - still tracked, just no
+       longer in the way:
+         reference/frame-lattice-design-bible.md      frames, moves, tiles,
+                                                 freeze. READ SECTION 10 FIRST -
+                                                 it is what changed on contact
+                                                 with the code.
+         reference/erase-tile-window-design-bible.md  erasing and severance.
+                                                 §5 and §2.3 are superseded.
+         reference/auto-scenes-design-bible.md        scene discovery.
+         reference/scale-bar-ruling-design-bible.md   the real-units scale bar.
+         reference/local-frames-design-bible.md       SUPERSEDED. History only.
+         docs/issue-log.md                       HISTORY. Stops 2026-07-09.
+
+THE RULES - these are not style preferences, each one cost something
+    1.  A GREEN SUITE IS NOT EVIDENCE THAT A CHANGE IS GOOD. The 2026-07-28
+        "deep cuts" attempt passed 458 tests and Kobin judged it worse and
+        reverted it. Before claiming an improvement to erasing or drawing, get
+        his acceptance criteria.
+    2.  DO NOT DESCRIBE THE ERASER AS WORKING. Every pass so far has failed in
+        real use. State what was measured, not what was intended.
+    3.  MEASURE IN A REAL BROWSER FOR ANYTHING ABOUT PAINT. Rasterizing the SVG
+        to a canvas CANNOT see the compositing failures (F-Z: three wrong
+        diagnoses were talked out of the right answer by canvas measurements).
+        Screenshot real Chrome and magnify before calling anything blank.
+    4.  A SUITE THAT DOES NOT FINISH IS NOT A SUITE THAT PASSES. Check for the
+        summary line, not for the absence of FAIL. Jest once hung for three
+        hours on the 63rd of 63 suites with everything reporting PASS.
+    5.  AN ODD CROSSING COUNT IS A SYMPTOM, NEVER AN IDENTIFICATION. Two closed
+        curves cross an even number of times, so an odd count means something
+        is wrong - but F23 and F34 present identically and have different
+        causes at different scales.
+    6.  PREFER THE ESTIMATOR THAT DEGRADES LOCALLY. Anything that integrates
+        along a boundary trades a bounded local error for an unbounded global
+        one. This geometry cannot supply the exactness that trade needs.
+    7.  DO NOT COMMIT OR PUSH unless asked. Nothing in the current working tree
+        is committed (see 10-STATUS.txt).
+    8.  WHEN A DESIGN DOCUMENT AND THE CODE DISAGREE, find out which is wrong
+        and fix THAT, then say so in the document. Do not leave both standing.
+
+THE ONE THING TO UNDERSTAND BEFORE TOUCHING GEOMETRY
+    Every scale problem in this codebase has the same shape: two numbers that
+    differ by many orders of magnitude meet in one expression, and the small one
+    is destroyed. A tolerance taken from the largest thing in the room. A radius
+    squared when the answer is the size of the other radius. A displacement
+    multiplied by 4096^k. The fixes always look the same too: keep every small
+    quantity small, cancel before you scale, and never let a constant be derived
+    from something that varies (the canvas, the camera, the scene).

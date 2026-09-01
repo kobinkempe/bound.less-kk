@@ -12,7 +12,7 @@ import {
 import { resolveReading } from "./resolve";
 import { unitLog10Meters, unitMeters } from "./catalog";
 import { BAR_PX_TARGET, BAR_PX_MIN, BAR_PX_MAX } from "./constants";
-import { coldSession, expectBarInBounds, mppForReading } from "./testSupport";
+import { coldSession, expectBarInBounds, mppForReading } from "../__testkit__/scaleBar";
 
 describe("scaleBar/logLength (L11)", () => {
     test("targetLogLen ↔ mpp round-trip at everyday scale", () => {

@@ -37,7 +37,7 @@
  */
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
 import {
-    BASE, ENTER, R, W, G, HALF_W, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
+    R, W, TILE, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
     displacementDigits, applyDigits, tilePhase, childTilePhase,
 } from "./frameLattice";
 
@@ -53,8 +53,12 @@ import {
 // marked so the level below will not freeze on it — it cannot influence
 // geometry at all. Aligned to the lattice and a power of two, so tile corners
 // are exact.
-export const TILE_DIV = 1;
-export const TILE = W / TILE_DIV;   // 131,072 units — 3.2 screens on a 1280 px canvas
+// ONE definition, re-exported rather than re-derived. `TILE_DIV` and `TILE` used
+// to be computed here (`W / TILE_DIV`, with TILE_DIV = 1) — the same number
+// `frameLattice` already exports, under a second name free to drift from it.
+// The names stay because the tile suites read them.
+export const TILE_DIV = 1;   // D4: a cache tile IS a frame. Kept for the suites.
+export { TILE };
 
 const cellKey = (i, j) => i + "," + j;
 
@@ -128,7 +132,6 @@ export default class LevelMap {
         if (f && f.depth === depth) return f.id;
         return this.spineAt(depth);
     }
-    allFrames() { return this.frames.values(); }
 
     // ---- the lattice ----
     // Is this frame the origin cell of an origin chain? Spine frames keep the
@@ -321,23 +324,9 @@ export default class LevelMap {
         }
         return out;
     }
-    get(level) { const id = this.spineAt(level); return this._recOf(id && this.frames.get(id)); }
-    has(level) { return !!this.get(level); }
-
-    ensureUp(N, inScale, inPanX, inPanY) {
-        const parentId = this.spineAt(N - 1);
-        const child = this.ensureChild(parentId, inScale, inPanX, inPanY);
-        return this._recOf(child);
-    }
-    ensureDown(level) {
-        const childId = this.spineAt(level);
-        this.ensureParentEdge(childId);
-        return this._recOf(this.frames.get(childId));
-    }
-
     // ---- grids ----
     // Constant, lattice-aligned, canvas-independent (P6). The cache partition is
-    // the frame divided TILE_DIV ways, and — like the cells themselves — each
+    // exactly one frame (D4) and — like the cells themselves — each
     // tile is CENTRED on its index: tile i spans [i*TILE - TILE/2, i*TILE +
     // TILE/2). Cornering them on the frame origin instead is a trap, because the
     // origin is exactly where a centred zoom leaves the view: every crossing
@@ -346,13 +335,19 @@ export default class LevelMap {
     // old canvas-derived grid dodged this by construction (its `ox` centred the
     // grid on the screen), and the fix is to make that deliberate.
     makeGrid() { return { w: TILE, h: TILE, ox: -TILE / 2, oy: -TILE / 2 }; }
+    /**
+     * The cache grid. It is a CONSTANT — the argument is ignored, and that is the
+     * point (P6): the grid used to be derived from canvas size and serialized, so
+     * the same document baked a different partition on a phone than on a desktop.
+     * Read by the seam and cede suites, which assert exactly that invariance.
+     */
+    grid() { return this.makeGrid(); }
     _frameFor(key) {
         if (this.frames.has(key)) return this.frames.get(key);
         const id = this.spineAt(typeof key === "number" ? key : +key);
         return id ? this.frames.get(id) : null;
     }
     frameFor(key) { return this._frameFor(key); }
-    grid() { return this.makeGrid(); }
     tileRect(key, i, j) {
         const h = TILE / 2;
         return { left: i * TILE - h, top: j * TILE - h, right: i * TILE + h, bottom: j * TILE + h };
@@ -362,11 +357,7 @@ export default class LevelMap {
         return { i0: Math.floor((rect.left + h) / TILE), i1: Math.floor((rect.right + h) / TILE),
             j0: Math.floor((rect.top + h) / TILE), j1: Math.floor((rect.bottom + h) / TILE) };
     }
-    /** A frame's own extent — the cell, in its own coordinates. */
-    frameRect() { return { left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }; }
-
     // ---- single-edge point transforms ----
-    _edge(key) { const f = this._frameFor(key); return f ? f.edge : null; }
     _centre(key) { const f = this._frameFor(key); return f ? f.centre : null; }
     // Magnify: cancel against the cell centre FIRST, then apply a power of two.
     // For a point inside the cell both steps are exact, so a descent of any
@@ -559,23 +550,12 @@ export default class LevelMap {
             lwFrame: o.lwFrame * f, color: o.color, opacity: o.opacity, paths: [] };
     }
 
-    // ---- legacy depth-int walks (spine; scenes/persist/dev UIs) ----
-    mapPoint(p, from, to) { return this.mapPointF(p, this.spineAt(from), this.spineAt(to)); }
-    mapRect(rect, from, to) {
-        const a = this.mapPoint([rect.left, rect.top], from, to);
-        const b = this.mapPoint([rect.right, rect.bottom], from, to);
-        if (!a || !b) return null;
-        return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
-    }
     framePointToScreen(fromKey, x, y, activeKey, inScale, inPanX, inPanY) {
         const from = this._frameFor(fromKey), active = this._frameFor(activeKey);
         if (!from || !active) return null;
         const p = this.mapPointF([x, y], from.id, active.id);
         if (!p) return null;
         return [p[0] * inScale + inPanX, p[1] * inScale + inPanY];
-    }
-    levelPointToScreen(level, x, y, activeLevel, inScale, inPanX, inPanY) {
-        return this.framePointToScreen(level, x, y, activeLevel, inScale, inPanX, inPanY);
     }
     effectiveZoom(activeKey, inScale) {
         const anchor = this.spineAt(0);
@@ -654,4 +634,3 @@ export default class LevelMap {
     }
 }
 
-export { BASE, ENTER, R, W, G };

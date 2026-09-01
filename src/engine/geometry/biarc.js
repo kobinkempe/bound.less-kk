@@ -32,7 +32,7 @@
  * NOTHING HERE BAKES. This is the centerline only.
  */
 import { cubicAt, cubicTangent, splitCubic } from "./curveOutline";
-import { controlsFor } from "./clipperOutline";
+import { controlsFor } from "./polyline";
 
 const TAU = Math.PI * 2;
 
@@ -374,19 +374,6 @@ export function arcSagitta(a) {
  * zoom, this module does not.
  */
 const drawFlat = (a, flatTol) => a.line || !isFinite(a.r) || arcSagitta(a) <= flatTol;
-
-/** SVG path data. Arcs stay arcs — `A` is native, nothing is converted. */
-export function arcPath(gaps, flatTol = 0) {
-    let d = "", started = false;
-    for (const g of gaps) {
-        for (const a of g) {
-            if (!started) { d += `M ${a.A[0]} ${a.A[1]}`; started = true; }
-            d += drawFlat(a, flatTol) ? ` L ${a.B[0]} ${a.B[1]}`
-                : ` A ${a.r} ${a.r} 0 ${Math.abs(a.sweep) > Math.PI ? 1 : 0} ${a.sweep > 0 ? 1 : 0} ${a.B[0]} ${a.B[1]}`;
-        }
-    }
-    return d;
-}
 
 /** Lay the chain into a canvas path. `ctx.arc` rasterises the true arc. */
 export function tracePath(ctx, gaps, flatTol = 0) {

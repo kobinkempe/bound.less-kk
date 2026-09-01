@@ -26,7 +26,7 @@
  * flattening of an approximation of it.
  */
 import { inks, distToPolyline } from "./ink";
-import { flattenCurve } from "../geometry/clipperOutline";
+import { flattenCurve } from "../geometry/polyline";
 import { arcDist } from "../geometry/biarc";
 import { insideShape, loopsBBox } from "../geometry/arcShape";
 

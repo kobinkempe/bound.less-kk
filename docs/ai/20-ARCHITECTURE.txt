@@ -1,0 +1,413 @@
+================================================================================
+BOUND.LESS - THE ARCHITECTURE, IN ONE PASS
+Written 2026-08-28, updated 2026-08-31.
+
+DESIGN.md AT THE REPOSITORY ROOT IS THE SAME MATERIAL, AND IT IS THE ONE THAT
+IS MAINTAINED. It was distilled from this file and from the design bibles on
+2026-08-31, for a reader with a screen rather than a terminal, and it carries
+the module map as it stands after the engine split. Read it first.
+
+This file survives because docs/ai/ is meant to be readable with nothing but
+cat, and because everything in it is still true. When the two disagree, DESIGN.md
+is the one that was updated - fix this file rather than leaving both standing
+(90-MAINTENANCE, rule 8).
+
+The design bibles in docs/reference/ remain the authority on their own subjects;
+both of these are maps that tell you which one to open.
+================================================================================
+
+THE PROBLEM
+
+    Zoom in far enough and float64 gives out. A pan of D units at one depth is
+    D x 4096 one depth finer; a measured session put the view at 2.1e17 units,
+    where a double resolves 32 units and pen input visibly snapped to a grid.
+    SVG and Skia give out sooner still, and they rasterise in float32.
+
+    So NOTHING in this engine is stored in one global coordinate system. Space is
+    divided into a lattice of cells; every object is stored in the cell it was
+    drawn in, in that cell's own small coordinates; and everything shown at
+    another depth is DERIVED, never stored.
+
+THE FIVE CONSTANTS  (src/engine/frameLattice.js)
+
+    base   1/16     2^-4
+    enter  256      2^8      in-frame zoom crosses UP past this
+    exit   1/32     2^-5     ...and DOWN below this (2x hysteresis)
+    R      4096     enter/base - the crossing ratio, a power of two
+    W      131072   2^17     a frame, and a cache tile, in its own units
+    G      W/R = 32          a child cell, in PARENT units
+
+    Every one is a power of two, so scaling across a level moves only a float
+    exponent and spends no mantissa bit. The old values (3000, 38400) were not
+    commensurate - 38400/3000 = 12.8 is not representable at all, so every cell
+    origin in the pre-lattice build was already slightly wrong.
+
+THE FOUR STRUCTURES, AND WHAT EACH ONE OWNS
+
+    FRAME      a cell of the lattice. Belongs to SPACE. It is an object's
+               address and the spatial index. Frames cannot overlap, so which
+               frame you are in is a division, not a search - re-entry is a
+               lookup and returns the same frame every time. A frame NEVER cuts
+               geometry; it only decides which objects are looked at.
+               Owner: src/engine/LevelMap.js
+
+    TILE       where an object is clipped, and therefore where a curve may be
+               frozen to a line. Belongs to THE OBJECT: it is carried as a phase
+               (px, py) in [0, W), two numbers, and it survives every move for
+               free, because re-homing changes an object's local coordinates by
+               exactly one frame and W mod W is zero. Same SIZE as a frame, a
+               different GRID.
+               Owner: src/engine/frameLattice.js + src/engine/geometry/freeze.js
+
+    CACHE TILE the render cache's own frame-aligned square. It decides how much
+               work one bake covers and nothing else. It clips arcs, which is
+               exact, and marks every end it makes (seamA/seamB) so the level
+               below cannot freeze on an edge it invented.
+               Owner: src/engine/TileStore.js
+
+    OBJECT     a native, stored in one frame. Its id is its creation order and
+               its z-order. A logical object may be several natives across
+               several frames, sharing one editId - that is what an erase leaves
+               when it cedes a tile downward.
+               Owner: src/engine/Document.js
+
+THE OBJECT MODEL
+
+    A native is one of three types, and the pipeline is one-way:
+
+      stroke   only between pointer-down and the moment its perimeter resolves,
+               usually one frame. It carries `pts` (the pen samples), `lwFrame`
+               (the width in frame units) and `_pen` (the live biarc chain).
+      shape    what it becomes. `loops` - closed chains of arcs and lines - plus
+               `w`, the pen that drew it. `pts` and `lwFrame` are DELETED. The
+               shape is the single source of truth; there is no centerline left
+               to keep in agreement with it.
+      fill     polygon rings. A NATIVE fill only exists in drawings saved before
+               the arc pipeline, and only until something cuts one
+               (Document.fillToShapeById promotes it at that moment). Converting
+               at load was tried and reverted: one recorded drawing carries a
+               1.8-million-vertex fill and converting it cost more than the whole
+               rest of the load.
+
+    A piece of a loop is {line:true, A, B} or {line:false, C, r, a0, sweep, A, B}.
+    A and B are carried EXPLICITLY, so consecutive pieces share their endpoints
+    bit for bit - that is the invariant the whole representation rests on, and
+    it is why a fill never leaks at a seam.
+
+THE PEN, AND WHY ARCS
+
+    The offset of a circular arc is a concentric arc: same centre, radius plus or
+    minus the pen. Exact, closed form, no fitting. So:
+      - both edges of a stroke are exact, with no fit tolerance;
+      - consecutive offsets share an endpoint computed once per vertex, so the
+        rail is watertight by construction and there are no round joins to build;
+      - crossings are circle-circle - one square root, no Newton polish;
+      - cutting an arc at a crossing is arithmetic on an angle, so both halves
+        share the crossing POINT rather than two roundings of it.
+
+    A cubic cannot do any of that: its exact offset is not a cubic, so both edges
+    had to be FITTED, and every question downstream was then asked of an
+    approximation while burial was judged against the exact centerline. Those two
+    disagree by the fit error, amplified by 1/sin(theta) at a shallow crossing.
+    That is the family F15 and F20 belong to, and it is why the representation
+    changed rather than the tolerances.
+
+    A stroke is drawn as BIARCS: two arcs per sample gap, using the same samples
+    and the same tangents the cardinal spline has, so it passes through every
+    sample and leaves it in the same direction. On real strokes that costs about
+    2.0 arcs per gap. BiarcPen maintains the chain WHILE DRAWING at O(1) per
+    sample - a new sample only disturbs the last two gaps - and the renderer
+    paints that chain, so pen-up changes nothing you can see (measured: 233
+    pixels of 921,600, all antialiasing).
+
+THE BAKE
+
+    At pen-up the perimeter is RESOLVED: build both rails and both caps as one
+    closed chain, cut it at its own self-crossings, throw away the fragments
+    buried under the pen, restitch the survivors into closed loops.
+
+    It is a JOB WITH A CURSOR IN IT (ArcBakeJob), eight phases, every one
+    resumable, stepped in 8 ms slices off the same timer the erase bakes use. It
+    publishes nothing until it is finished, so a half-resolved perimeter can
+    never be drawn, stored or erased against. Slicing is bit-identical to running
+    it in one go.
+
+    The lesson that took four attempts: A CHUNK IS ONLY AS SMALL AS ITS SLOWEST
+    ITEM, and "item" has to mean the same thing as the work. Fixed counts, chunks
+    sized from cheap items and handed expensive ones, unchunked tails, and
+    chunking over LOOPS when a dense scribble resolves to two loops of three
+    thousand pieces - each overran.
+
+THE BOOLEAN  (src/engine/geometry/arcShape.js)
+
+    A - B and A n B on two resolved perimeters. Cut both at their crossings and
+    at their overlaps, classify each fragment by a winding query at its midpoint,
+    stitch the survivors. There is no lattice anywhere, so the result is as
+    precise as the doubles it is written in, at any depth.
+
+    Three things in it are not obvious and each was a defect first:
+      COINCIDENT BOUNDARY has no crossing to find, and "no crossings" was read as
+        "nothing to do here". A second erase down the path of the first generates
+        exactly the same arc; pieceOverlap finds those stretches and cuts at
+        their ends, and a coincident fragment is classified by ORIENTATION.
+      A NEARLY STRAIGHT ARC IS A LINE. A biarc pen emits radii like 4.99e17,
+        whose sagitta is thousands of times below one ulp of its own coordinates.
+        straighten() converts those on the boolean's working copy.
+      VERTEX IDENTITY IS SCALED OFF THE OVERLAP, not off the largest number in
+        the room. A level-0 object clipped into a tile five crossings down
+        arrives 2.4e17 times its own size; a fuzz taken from that welded a result
+        into 871 pieces in 68 open chains.
+
+    Every loop that leaves CLOSES. Where the walk cannot close one, it is sealed
+    with a chord and counted (stats.sealed / sealedArea), because losing a real
+    stretch of boundary is worse than drawing it straight - but the count is the
+    health check, and F34 is what it looks like when it goes wrong.
+
+THE ERASE
+
+    An eraser IS a stroke: background-coloured ink through the pen pipeline, so
+    the gesture costs nothing however complex the drawing. It commits instantly
+    and z-order alone makes the picture correct. Folding it into the ink beneath
+    happens later, one object per idle slice.
+
+    Two cases, decided by where the gesture was made relative to the target:
+
+      CUT IN PLACE - the target is at or below the erase level, or there is no
+        ancestor chain between them. Project the eraser into the target's frame
+        and subtract. The boolean is centred on the SUBJECT, not the eraser: an
+        eraser three crossings above its target arrives 2.7e10 times its own
+        size, and centring on that leaves the target out at 1e13 where its own
+        features are below the rounding.
+
+      CEDE A TILE - the target is homed SHALLOWER than the gesture, on an
+        ancestor chain. The hole belongs at the level it was drawn at, where it
+        is screen-sized. So descend ONE CROSSING AT A TIME, and at each step cut
+        a tile out of the parent and hand its ink to the level below. Ceding
+        straight from the target's home to the erase level looks simpler and dies
+        at five crossings: the ceded rect is 1.9e-8 units wide at three,
+        9.1e-12 at four, and EXACTLY ZERO at five.
+
+    The parent is genuinely CUT, not left whole with a rect recorded against it.
+    That removed a per-view re-derive whose cache went stale on the fast zoom
+    path, 232-386 ms renders rebuilding it, and a view-sized pad that was 2 px at
+    one zoom and 0.19 px at another.
+
+SEVERANCE - is the family still one object?
+
+    Once a ceded tile is cut out of its parent, this is a GRAPH, not a walk.
+    Every native in the family is a node. The only place two of them can meet is
+    the boundary of a ceded tile: the parent stops exactly at the rect, the child
+    fills exactly the rect, and they share its perimeter. So there is ONE
+    relation - a parent piece and a child piece are joined when their ink meets
+    on the same STRETCH of that perimeter - and the object is severed when the
+    graph is disconnected.
+
+    Contacts are compared in a NORMALIZED perimeter parameter (t in [0,4), one
+    unit per side), so the parent's measurement in its own units and the child's
+    in units 4096x finer are the same numbers, and no transform is ever composed
+    across the crossing.
+
+    A SHARED STRETCH, NOT A SHARED POINT. When an erase finally cuts through to
+    the edge of a tile, the two pieces it leaves necessarily meet that edge at
+    the same point - the one the eraser crossed. Accepting that as a join meant
+    an object never came apart however carefully it was cut (F26).
+
+    Severance asks about GEOMETRY, not ancestry. Re-homing normalizes each member
+    on its own local coordinates, so two members of one family can settle on
+    different branches while sitting in exactly the same place; requiring literal
+    parent-child made one unchanged object report as three (bible 10.7).
+
+MOVING
+
+    A displacement is expanded into lattice DIGITS, base R. Everything a whole
+    cell or larger is applied to the member's ADDRESS - it is re-homed into the
+    cell that many steps along and its geometry is NOT TOUCHED, because
+    neighbouring cells' origins differ by exactly one frame and the same local
+    coordinates therefore describe the moved object exactly. Only the sub-cell
+    remainder, smaller than one frame at any depth, reaches geometry.
+
+    Every member expands the SAME displacement, so members that share an ancestor
+    take bit-identical digits there and their relative positions cannot move.
+    Registration by construction rather than by luck.
+
+    The old build translated by displacement x R^k. At five levels of separation
+    that rewrote a member's coordinates to 7.3e18 and destroyed 82.9% of its
+    area - the object did not move wrong, it came apart (F25/F28).
+
+    The whole step is recomputed from where the drag STARTED, not from the
+    previous event, so a slow drag and a fast one apply the same arithmetic to
+    the same numbers. The residue bookkeeping that used to buy that is deleted.
+
+RENDERING
+
+    Renderer is the only class that touches Two.js. One persistent Two.Group per
+    object id, kept sorted by (z, id) = global z-order; a per-frame diff rebuilds
+    a group only when its piece SIGNATURE changes; a camera-only frame touches
+    nothing but the world transform and faded groups' opacity.
+
+    Five things in it are load-bearing and none is obvious:
+
+      PER-SCENE ORIGIN. Browsers rasterise SVG in float32, so a vertex at frame
+        coordinate c carries (c x inScale)/2^23 pixels of error. Every anchor is
+        built relative to an origin at the view centre and the origin is folded
+        back into the world transform IN FLOAT64. The cancellation between inPan
+        and inScale x origin happens in JS doubles, where it is exact. When the
+        view drifts 1.5e6 screen px from the origin the scene re-anchors.
+
+      ONE PATH PER LOGICAL OBJECT. Two opaque paths sharing an edge each cover
+        part of the boundary pixel and composite source-over, so up to a quarter
+        of the background survives - a pale hairline down every join, measured at
+        18-25% toward white. Subpaths of ONE path do not seam: the rasteriser
+        accumulates coverage across all of them before compositing anything. That
+        is what lets the cede model keep its cut EXACT instead of paying for an
+        overlap that would have to be sized against the view.
+
+      THE THIN RESCALE (F-Z). Chrome drops a filled path whose features are too
+        small IN THE COORDINATES IT IS HANDED, however much the transform then
+        enlarges them: measured, 0.0657 units renders and 0.0641 does not, and
+        the app was handing over 0.00329. Fix: multiply that object's anchors by
+        a power of two and divide its own group's transform by the same number.
+        Pixel-identical by construction, per-object, applied at the END of the
+        build. Capped at 64 because 1/64 is the last power of two exact at Two.js's
+        six-decimal serialiser.
+
+      SCENE RETENTION. Each level keeps its own SVG subtree; a crossing detaches
+        one and attaches another instead of rebuilding ~50 paths and their giant
+        `d` strings. Crossings cost 1-3 s each before this.
+
+      THE SELECTION INDICATOR IS RAW SVG, NOT TWO.JS. The animation is CSS, so
+        the dash offset crawls on the compositor without touching the main
+        thread. The bounding box it replaced was computed in the active frame's
+        coordinates and projected to 877,395 px; its dashed perimeter cost 315 ms
+        a frame while reporting 0.15 ms of JavaScript, because dashing is
+        rasteriser work that no profiler could name.
+
+TILES - how content from other levels arrives
+
+    upContent(F)   ANCESTOR frames' objects, MAGNIFIED into F, built by CHAINING
+                   one crossing at a time through the parent's tiles. Magnify
+                   must chain: a composed long jump cancels catastrophically.
+                   Classified empty / solid / edge, where SOLID replaces a
+                   tile-covering band with a 4-vertex quad so geometry can never
+                   outgrow a tile.
+    downContent(F) every NON-ANCESTOR frame at depth >= F, projected DIRECTLY
+                   (net factor <= 1, so it cannot explode). A view-independent
+                   cull drops sub-pixel content and a fade band tags size.
+    ownContent(F)  the frame's own natives, read straight out of the Document.
+                   A plain read, because a cut parent's stored rings ARE the
+                   rings to paint.
+    ringNatives    the eight cells around each step of the up-chain. A cell is
+                   about three screens across, so zooming in slightly off-centre
+                   puts on-screen ink into a SIBLING of your ancestor - coarser
+                   than you, not an ancestor, so both other paths skipped it and
+                   it vanished. Invariant 2 is what makes the ring complete.
+
+THE TWO INVARIANTS EVERYTHING RESTS ON
+
+    1. A screen is never wider than a frame. Holds unaided to 4,096 px.
+    2. AN OBJECT NEVER EXTENDS PAST ITS FRAME'S IMMEDIATE NEIGHBOURS. This is the
+       load-bearing one. It makes the lasso's tree prune sound, it makes the
+       ring pickup complete, and it bounds every neighbourhood query in the
+       engine. Two things keep it true: D9 promotion (an over-wide native is
+       promoted to its parent level at pen-up, dividing its coordinates by R,
+       which is a change of UNITS and not a loss of precision) and
+       _normalizeHome (a move that walks an object out of its cell re-homes it
+       into the one it now sits in). Break either and things start silently
+       disappearing rather than merely being slow.
+
+SELECTION
+
+    "Everything FULLY BOUNDED by the loop." Two consequences fall out and both
+    are wanted: an object far too small to see is selected as readily as a
+    visible one, and an object far LARGER than the view is never selected,
+    because a loop drawn on screen cannot contain it - which is the same set of
+    objects whose motion the engine cannot record accurately.
+
+    _lassoFind walks the frame tree OUTWARD from the active frame, one hop at a
+    time, giving every frame one of three answers: OUT OF REACH (skip it and its
+    whole subtree), ENCLOSED (take everything below, no per-object test at all),
+    STRADDLING (ask its own spatial index). Outward rather than down from the
+    root, because that is the only direction in which the scale factor stays a
+    number. Measured on a six-level tower of twelve objects: a loop round the
+    whole canvas tests 2 of them.
+
+SCENES
+
+    The coherent drawings hidden inside a canvas, found by deterministic ink
+    clustering. All distances are relative to STROKE WIDTH, which encodes the
+    zoom the ink was drawn at: a window is 600 stroke widths, and two things join
+    across a gap of 1.5 windows. Clustering runs per adjacent frame pair,
+    projecting the finer level's geometry through that one crossing; union-find
+    is keyed by global stroke id, so membership chains across levels. Much-finer
+    members inside a scene re-cluster at their own scale into nested POCKETS.
+    Re-homed patches (anything with an attachRect) are excluded - a deep erase
+    would otherwise invent a scene every time.
+
+PERSISTENCE
+
+    kobin-1, in src/engine/persist.js. A versioned envelope around exactly what
+    the collaborators serialize: Camera.state, LevelMap.serialize,
+    Document.serializeNatives. Hard-fails on anything the engine would crash or
+    corrupt on; lenient about everything else, and unknown fields are preserved
+    so an older build can open a file written by a newer one that only ADDS.
+
+    Two repairs happen at the door and both exist because a drawing that cannot
+    be opened is worse than a drawing with one mended object: an unclosed loop is
+    sealed (arcShape.repairLoops), and a tile phase of exactly W is normalised to
+    0. Pre-lattice files are REFUSED with a clear error, never converted -
+    converting would mean rewriting stored coordinates, which is the one
+    operation the design exists to avoid.
+
+    Local storage: one slot per canvas (kobin.canvas.<id>), lz-string compressed,
+    plus an index for the gallery and a 30-day recycle bin. Cloud: Firestore,
+    parent doc for metadata and thumbnails, drawing chunked into 700 KiB binary
+    parts under it, parent written LAST so a torn save never looks complete.
+
+WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
+
+    KobinEngine.js was 3,506 lines. It is 855 now, and holds construction, the
+    compat accessors, the tool and style setters, the perf log, the render
+    pipeline, pan and zoom, pointer input, and undo/redo - roughly the shape of
+    a gesture, start to finish.
+
+    Five files were moved out and are mixed back onto the same prototype by
+    engine/mixin.js. They are STILL THIS CLASS'S METHODS and still run with
+    `this` bound to the engine; only the file changed, and every method moved
+    byte-identical.
+
+      erasePipeline.js   the eraser and the resumable bake behind it
+      overlays.js        the selection indicator and the erase debug view
+      selection.js       selecting, hit-testing, dragging
+      sceneOps.js        auto-scenes
+      files.js           dev-0 and the kobin-1 save format
+      instruments.js     the four instruments below (not a mixin - four classes)
+      mixin.js           the copier. Object.assign copies NOTHING here, because
+                         class prototype methods are non-enumerable; it uses
+                         descriptors, and it THROWS if two files claim one name.
+      now.js             perfNow - one clock for every measurement
+      rectMath.js        latticeStep / rectTol / rectSpan
+
+    Two directories are NOT shipped, and webpack has never bundled either -
+    checked against the build's own source maps:
+      __oracles__/   independent implementations the shipping code is checked
+                     against, including the whole pre-arc engine. PRODUCTION
+                     MUST NEVER IMPORT FROM HERE.
+      __testkit__/   fixtures, harnesses and assertions for the suites.
+
+DIAGNOSTICS - all of it dev-only, none of it on the drawing path
+
+    perfLog        operations over 8 ms (everything, in trace mode)
+    frameMeter     the gap between animation frames - the only instrument here
+                   that sees paint. Samples only around interaction.
+    longFrames     Chrome's long-animation-frame: script vs style-and-layout vs
+                   what is left over, which is paint and compositing. The
+                   subtraction is the whole point.
+    eventLatency   input to pixels in three phases. presentMs is the only one
+                   that reaches past the main thread to the compositor.
+    growth         heap and every cache that could grow, sampled over time. A
+                   snapshot cannot show accumulation.
+    journal        the last 40 GESTURES with their pointer paths, what each erase
+                   cut, and whether the object came apart. A snapshot shows the
+                   wreck; the journal shows the gesture that made it.
+    snapshot       the whole document, and it is a LOADABLE DRAWING - every
+                   captured report can be replayed.

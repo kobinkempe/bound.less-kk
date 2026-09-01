@@ -1,0 +1,186 @@
+================================================================================
+BOUND.LESS - KEEPING THE DOCUMENTS TRUE
+Written 2026-08-28. This file is about the documents, not the code. Read it
+before you edit any of them, and again before you write a new one.
+================================================================================
+
+THE PROBLEM THIS SOLVES
+
+    There are over fifty files in docs/ and roughly 9,000 lines of them. They were written at
+    different times by someone who was, at each of those times, right. Several
+    of them are now wrong in ways that read as authoritative: a header that says
+    an object's geometry is immutable, a comment that points at a module which
+    no longer does the thing, a bible section superseded by a later bible that
+    does not link back.
+
+    A wrong document is worse than no document, because it is trusted. Every one
+    of the corrections listed in 50-TODO.txt cost someone a wrong turn first.
+
+WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
+
+    docs/OPEN-FLAGS.md
+        THE LIVE ISSUE LIST. Current state, not a log. EDIT ENTRIES IN PLACE and
+        DELETE them when they close. Every session that touches baking, erasing
+        or stroke geometry reads it first and updates it last. If you find a new
+        defect, it goes here with: what was seen, what was measured, what was
+        RULED OUT, and where the reproduction is.
+
+    docs/UAT.md
+        What has to LOOK right, on machines that are not this one. Add a case
+        when a defect turns out to be browser-, dpr- or GPU-specific. Record
+        runs with the full environment block.
+
+    docs/ai/*.txt
+        This directory. The entry point for someone with no context.
+        00-START-HERE   changes when a route, a script, a deploy target or a
+                        rule changes.
+        10-STATUS       changes every session that closes or opens a flag.
+                        It is a SNAPSHOT and says so; OPEN-FLAGS outranks it.
+        20-ARCHITECTURE changes when a design decision changes - which is rare,
+                        and when it happens the bible changes too.
+        30-CODE-MAP     changes when a file is added, deleted, or changes job.
+        40-CALL-FLOW    changes when a call path changes shape, not when a
+                        function is renamed.
+        50-TODO         the consolidated backlog. Move items to DONE with a
+                        one-line note; do not delete them silently.
+        60-RECOMMENDATIONS / 70-RELEASES  proposals, not commitments. Rewrite
+                        them freely; they carry no authority.
+        90-MAINTENANCE  this file.
+
+    tools/docmaps/  - THE PUBLISHED PAGES
+        The Code Map and the Call Graph are GENERATED, and they are generated
+        from two things: the source itself (inventory.py walks it, extract.py
+        reads the calls out of it) and one hand-authored page,
+        tools/docmaps/pages/boundless-code-map.pristine.html.
+
+        EDIT THE PRISTINE PAGE, NEVER THE BUILT ONE. The built page is
+        overwritten on every rebuild.
+
+        Two checks decide whether the pages are true, and they are the reason
+        this is worth having at all:
+            verify_coverage.py   every function in src/ is named on both pages
+            audit_stale.py       neither page names a function its own file no
+                                 longer defines
+        Run both after any change to src/. On 2026-08-28 the second one found
+        21 names that no longer existed - eight deleted that morning, thirteen
+        wrong when written, including three attributed to the wrong file.
+        A page that names a function that is not there is the same class of
+        failure as a comment asserting another module's behaviour, and it is
+        the class this whole directory exists to prevent.
+
+        Full instructions, including how to add or delete a function, are in
+        tools/docmaps/README.md.
+
+    DESIGN.md  (repository root)
+        The whole design in one document, distilled from the bibles on
+        2026-08-31. It is what a reader should be given first. It is a
+        DISTILLATION, not a new authority: where it and a bible disagree, the
+        bible is right about its own subject and DESIGN.md has drifted. Update
+        it whenever a decision it states changes.
+
+    the design bibles  (docs/reference/ since 2026-08-31 - still tracked)
+        reference/frame-lattice-design-bible.md
+        reference/erase-tile-window-design-bible.md
+        reference/auto-scenes-design-bible.md
+        reference/scale-bar-ruling-design-bible.md
+        These are the REASONING, written before the measurements, and they are
+        the authority on their own subject. They are NOT updated casually.
+        The pattern the frame-lattice bible established is the right one and
+        should be followed by all of them:
+          - sections 0-9 are the design as agreed, left as written;
+          - a final section records WHAT WAS BUILT, including every place where
+            contact with the code changed the design, and says so plainly:
+            "10.4a - an earlier build of this section anchored the chop to the
+            frame lattice and the argument for doing so rested on the other
+            omission."
+          - a CONFORMANCE table, one row per thing the owner actually said,
+            checked against the code, marked built / not built / open by
+            agreement.
+        DO NOT edit sections 0-9 to match the code. Add to the built section.
+
+    docs/issue-log.md
+        HISTORY. Frozen at 2026-07-09. Do not add to it. It carries a banner
+        saying so and two in-place corrections where it is now simply wrong.
+
+    docs/reference/HANDOFF-*.md
+        A handoff is a snapshot of one piece of work: what changed, what to
+        watch, and the measurements worth not re-deriving. They do not decay
+        the way a status document does, because they are explicitly about a
+        moment. Leave them alone.
+
+    docs/reference/
+        Decision history: options considered and rejected, test catalogs, and
+        measurements taken to settle an argument, alongside the bibles.
+        Valuable and inert. Everything moved here on 2026-08-31 and STAYED IN
+        GIT - the point was to get it out of the way of the four live documents
+        (OPEN-FLAGS, UAT, issue-log, docs/ai/), not to lose it.
+
+HOW TO RETIRE A LEGACY IDEA - the four moves, in order of preference
+
+    1. DELETE IT. If nothing calls it and no test needs it, it goes, and the
+       reasoning goes with it if the reasoning is only about the thing that
+       left. Do not keep code as documentation.
+
+    2. DELETE IT AND KEEP THE ONE PARAGRAPH THAT EXPLAINS WHY IT LOST. This is
+       the usual case for geometry. __oracles__/erase.js is the worked example:
+       265 lines of a superseded model deleted, and a header left saying what it
+       was, what replaced it, and which flag records the decision. The next
+       person who thinks "we should carry the cut as a recipe" needs that
+       paragraph and does not need the implementation.
+
+    3. MARK IT. Some code is not dead but is not product either. Use one of the
+       four banners, at the very top of the file, in this exact form so it is
+       greppable:
+           // =========================== TEST-ONLY ============================
+           // ====================== DEV LAB + ORACLE ==========================
+           // ========================= ORACLE ONLY ============================
+           // ============================ DEV ROUTE ===========================
+       and say in one sentence who the only consumer is. For a single function
+       inside a live file, a `// DEV:` or `// TEST-ONLY:` line above it.
+
+    4. SUPERSEDE IT IN PLACE. For a document that cannot be deleted because its
+       reasoning is still load-bearing, put a blockquote banner at the very top
+       that says what superseded it, WHICH SECTIONS, and what is still true.
+       See docs/reference/local-frames-design-bible.md and the erase bible.
+
+    What NOT to do, all of which is in this repository's history:
+      - leaving a superseded module in the tree with no marker, so its comments
+        read as current design;
+      - "fixing" a stale comment by adding a newer one below it and leaving both
+        (persist.js had two contradictory descriptions of a frame key);
+      - describing a deleted mechanism in the present tense because the
+        paragraph around it is still good.
+
+WRITING A COMMENT THAT WILL STILL BE TRUE
+
+    This codebase's comments are unusually good and unusually long, and that is
+    deliberate: almost every one of them records a MEASUREMENT or a wrong turn,
+    and those do not decay. "measured 232-386 ms per render" is true forever.
+    "this is fast" is false the moment something changes.
+
+    So:
+      - say what was measured, with the number and the date;
+      - say what was RULED OUT and how, because that is what stops the next
+        person repeating it;
+      - name the flag or the bible section, not the line number - line numbers
+        drift and there are already several stale ones in OPEN-FLAGS;
+      - when you name another module, name the FUNCTION, so a rename breaks the
+        reference visibly instead of quietly.
+
+    Do not write a comment that asserts the current behaviour of a different
+    file. That is the class of statement that goes stale, and every correction
+    in 50-TODO's list is one of them.
+
+BEFORE YOU FINISH A SESSION
+
+    1. npm run test:quick, and npm run test:slow if you touched geometry.
+    2. Update OPEN-FLAGS: close what closed, add what you found, and edit in
+       place rather than appending.
+    3. Update docs/ai/10-STATUS.txt if the answer to "what works right now"
+       changed.
+    4. If you added or deleted a function, rebuild the published pages
+       (tools/docmaps/README.md) and run verify_coverage.py and audit_stale.py.
+    5. If you deleted anything, add a line to 50-TODO's DONE block so it is not
+       re-investigated.
+    6. Say plainly what you did NOT verify. "The tests pass" and "Kobin has seen
+       it work" are different claims and the second one is the one that counts.

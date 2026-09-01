@@ -6,7 +6,7 @@
  * the lineTol constant turns straight-enough pieces into exact line capsules.
  */
 import { strokeOutlineCurves, flattenLoops } from "./curveOutline";
-import { controlsFor, flattenCurve } from "./clipperOutline";
+import { controlsFor, flattenCurve } from "./polyline";
 import { windingOfPoint, distToPolyline } from "./hittest";
 
 const ENTER = 300;

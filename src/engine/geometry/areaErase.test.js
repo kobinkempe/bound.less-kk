@@ -3,7 +3,8 @@
  * subtractPolys (ink minus footprint, grouped into disjoint regions), and the
  * sweep hit-tests (distSegToPolyline / capsuleTouchesRings).
  */
-import { capsulePoly, subtractPolys, netRingsArea } from "./clipperOutline";
+import { capsulePoly, netRingsArea } from "./polyline";
+import { subtractPolys } from "./clipperBoolean";
 import { distSegToPolyline, distSegToSeg, capsuleTouchesRings, windingOfPoint } from "./hittest";
 
 const square = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];

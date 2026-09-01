@@ -3,11 +3,10 @@
  * logLen = log10(worldLength_meters)
  */
 
-import { BAR_PX_TARGET, BAR_PX_MIN, BAR_PX_MAX } from "./constants";
+import { BAR_PX_TARGET } from "./constants";
 import { unitLog10Meters } from "./catalog";
 
 const LOG10_E = Math.LOG10E;
-const LN10 = Math.LN10;
 
 /** Safe log10 — never NaN/Infinity for positive finite inputs; clamps extremes. */
 export function log10(x) {
@@ -80,14 +79,3 @@ export function barPxFromLogLen(stopLogLen, mpp) {
     return safeExp10(stopLogLen - log10(mpp));
 }
 
-/** Compare logLen against bar bounds in log space. */
-export function logBarBounds(mpp) {
-    const logMpp = log10(mpp);
-    return {
-        logMin: log10(BAR_PX_MIN) + logMpp,
-        logMax: log10(BAR_PX_MAX) + logMpp,
-        logTarget: log10(BAR_PX_TARGET) + logMpp,
-    };
-}
-
-export { LN10, LOG10_E };

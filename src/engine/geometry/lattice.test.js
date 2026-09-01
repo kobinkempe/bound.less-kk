@@ -28,7 +28,7 @@
  *     somewhere different for every call, and two booleans over abutting
  *     geometry would round a shared edge two different ways — a hairline crack.
  */
-import { subtractPolys, clipPolysToRect } from "./clipperOutline";
+import { subtractPolys, clipPolysToRect } from "./clipperBoolean";
 
 // Deliberately OFF-lattice: .45678 is not a multiple of 1/scale for any scale
 // the code might pick, so every bit of rounding shows up.

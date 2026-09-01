@@ -11,7 +11,7 @@ import {
     cleanProbeSession,
     mppForReading,
     expectBarInBounds,
-} from "./testSupport";
+} from "../__testkit__/scaleBar";
 
 describe("scaleBar/rungs (popover 6a + L10)", () => {
     test("L10: related peer is auto-show on related ladder (clean probe), not nearest-by-size", () => {

@@ -114,19 +114,6 @@ function cap(pivot, r, from, to, tangent) {
 }
 
 /**
- * Both rails and both caps as one closed chain.
- *
- * Offset points are computed per VERTEX and shared, so consecutive pieces agree
- * bit for bit. That is the difference between a chain that closes because the
- * arithmetic worked out and one that closes because it was built that way.
- */
-export function boundaryChain(centre, r) {
-    const b = new ChainBuilder(centre, r);
-    while (!b.step(Infinity)) { /* run to completion */ }
-    return b.out;
-}
-
-/**
  * The same construction with a cursor in it, so a pen-up bake can put down a
  * long chain a few thousand pieces at a time instead of holding the frame. The
  * emitted ORDER is identical to the one-shot version — left rail, end cap,
@@ -272,8 +259,31 @@ function circleCircle(C1, r1, C2, r2, out) {
     if (d2 <= 0) return out;
     const d = Math.sqrt(d2);
     if (d > r1 + r2 || d < Math.abs(r1 - r2)) return out;
-    const a = (r1 * r1 - r2 * r2 + d2) / (2 * d);
-    const h2 = r1 * r1 - a * a;
+    // NOT the textbook form. `a = (r1² - r2² + d²)/2d` then `h² = r1² - a²`
+    // squares both radii, and this engine routinely intersects circles whose
+    // radii differ by ten orders of magnitude: ink carried two frame levels down
+    // arrives as arcs of radius 6.5e10 — nearly straight, so the radius is
+    // enormous — and is cut by an eraser of radius 21. Then r1² is 4.2e21, one
+    // ulp of it is 9.4e5, and the h² being asked for is at most r2² = 441: two
+    // thousand times SMALLER than the noise in its own operands. It comes back 0
+    // or negative, so the two intersection points collapse into one or vanish
+    // altogether. That is an entry without its exit — the fragments cannot pair,
+    // the walk hands back chains that never close, and every piece is sealed
+    // into its own loop with a chord across the object (F34).
+    //
+    // Measured on the straddling sweep: sound to r = 1e9, an ODD crossing count
+    // at 1e10, and by 1e11 no crossings found at all where there are plainly
+    // four. The threshold predicted by r1²·ε > r2² is r1 = r2/√ε ≈ 1.4e9, which
+    // is exactly where it turns.
+    //
+    // So keep every small quantity small. `u = d - r1` is O(r2) and is formed
+    // without squaring anything; `r1 - a` follows by difference of two squares,
+    // and h² factorises as (r1-a)(r1+a). No expression holds r1² while wanting
+    // an answer the size of r2².
+    const u = d - r1;
+    const rmA = ((r2 - u) * (r2 + u)) / (2 * d);   // r1 - a, small and accurate
+    const a = r1 - rmA;
+    const h2 = rmA * (r1 + a);
     const h = h2 > 0 ? Math.sqrt(h2) : 0;
     const mx = C1[0] + a * dx / d, my = C1[1] + a * dy / d;
     if (h === 0) { out.push([mx, my]); return out; }
@@ -1028,36 +1038,13 @@ export function bakeArcPerimeter(pts, width, opts = {}) {
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-// ---------------------------------------------------------------------------
-// orientation
-// ---------------------------------------------------------------------------
-
+// The same piece travelled the other way — the ONE canonical-handedness flip in
+// `_finishPhase`. (`arcShape` has its own copy, which also carries the freeze's
+// seam marks; a chain being resolved has none yet, so this one is deliberately
+// the plain version.)
 const reversePiece = (p) => (p.line
     ? { line: true, A: p.B, B: p.A, src: p.src, ci: p.ci }
     : { line: false, C: p.C, r: p.r, a0: p.a0 + p.sweep, sweep: -p.sweep, A: p.B, B: p.A, src: p.src, ci: p.ci });
-const reverseLoop = (loop) => {
-    const out = new Array(loop.length);
-    for (let i = 0; i < loop.length; i++) out[i] = reversePiece(loop[loop.length - 1 - i]);
-    return out;
-};
 
-// ---------------------------------------------------------------------------
-// output
-// ---------------------------------------------------------------------------
 
-/** Lay resolved loops into a canvas path. `flatTol` guards the float32 rim. */
-export function traceLoops(ctx, loops, flatTol = 0) {
-    for (const loop of loops) {
-        if (!loop.length) continue;
-        ctx.moveTo(loop[0].A[0], loop[0].A[1]);
-        for (const p of loop) {
-            const flat = p.line || !isFinite(p.r)
-                || 2 * p.r * Math.pow(Math.sin(p.sweep / 4), 2) <= flatTol;
-            if (flat) ctx.lineTo(p.B[0], p.B[1]);
-            else ctx.arc(p.C[0], p.C[1], p.r, p.a0, p.a0 + p.sweep, p.sweep < 0);
-        }
-        ctx.closePath();
-    }
-}
-
-export { Oracle, Grid };
+export { Grid };

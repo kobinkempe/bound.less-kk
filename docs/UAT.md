@@ -42,10 +42,13 @@ Iris, dpr 1.5.
 Zoom out slowly on a long, thin stroke. It should thin and fade **continuously**
 — never blink out and come back.
 
-Known to fail on Chrome 151 / dpr 1.5: solid at 0.234 px, blank at 0.165 px,
-visible again at 0.082 px. Whether the dead zone moves, widens, or vanishes on
-other browsers and other dpr is the main thing this sheet exists to find out.
-(Full measurements: F-Z in `docs/OPEN-FLAGS.md`.)
+**FIXED 2026-08-26 and confirmed by Kobin on Chrome 151 / dpr 1.5** — the
+per-object power-of-two rescale in `Renderer._applyThinScale`. What is still
+unknown is whether the dead zone it works around exists at all on other engines
+and other dpr, so this case stays: the failing readings were solid at 0.234 px,
+blank at 0.165 px, visible again at 0.082 px. (Full measurements: F-Z in
+`docs/OPEN-FLAGS.md`.) `Renderer.thinScale = false` in the console turns the fix
+off, which is how to tell whether a browser needs it.
 
 Screenshot live and magnify before calling anything blank — faint sub-pixel grey
 does not survive JPEG compression.

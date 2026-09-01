@@ -547,8 +547,8 @@ export function encodedLoopsWellFormed(enc) {
 /**
  * REPAIR a loop set that does not close.
  *
- * Nothing should ever produce one — a boolean that leaves chains open is
- * refused now (KobinEngine._boolOk) — but one build did, and a document that
+ * Nothing should ever produce one — `shapeBoolean` seals what its walk could not
+ * close, and `KobinEngine._noteSeal` counts it — but one build did, and a document that
  * carries the damage cannot be saved at all: the file format validates closure
  * and refuses the whole drawing over a single bad object. Rather than lose the
  * drawing, close the chains with straight lines and drop what is then dust.

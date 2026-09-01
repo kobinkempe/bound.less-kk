@@ -1,0 +1,235 @@
+================================================================================
+BOUND.LESS - CALL FLOW
+What calls what, from a finger on the glass to pixels. Written 2026-08-28.
+Indentation is the call chain. [HOT] marks a per-event or per-frame path.
+================================================================================
+
+MOUNT
+
+  CanvasEditor
+    useKobinEngine({ storageKey: slotKey(id), onAutosave })
+      new KobinEngine(host, { width, height, onStatus })
+        new LevelMap(cfg, w, h)            frame "0" only
+        new Document()                     one empty bucket
+        new Camera(lm, cfg, hooks)         hooks: finalizeLiveStroke, holdFrame
+        new TileStore(lm, doc, cfg)        subscribes to doc changes
+        new Renderer(container, cam, cfg)  creates the Two.js scene
+        renderer.setSelection / setSelectionAnts / setLasso
+        doc.subscribe(...)                 keeps the selection honest when the
+                                           object under it is removed or re-homed
+        _render()
+      unpackSlot(localStorage[...]) -> engine.loadDrawing(...)
+      addEventListener pointerdown/move/up, wheel, resize, keydown
+      setInterval(idleSave, 4000)          ONLY IF LOCAL_AUTOSAVE (currently off)
+
+DRAWING A STROKE   [HOT]
+
+  pointerdown
+    engine.pointerDown(x, y, ctrl)
+      _pointerDown
+        cam.screenToFrame
+        new BiarcPen({ tol })              tol = arcTolerancePx/2 / inScale
+        doc.allocId, doc.add(o, frame, {live:true})
+        renderer.addLive(o, straight)
+        renderer.setLiveArcs(pen.gaps)     a lone tap is still a dot
+  pointermove (many)
+    engine.pointerMove(x, y)
+      _pointerMove
+        pen.addSample(p)                   O(1): only the last two gaps change
+        renderer.setLiveArcs(pen.gaps)     splices off the unstable tail only
+        renderer.update()
+  pointerup
+    engine.pointerUp()
+      _pointerUp
+        _note({kind:"draw", ...})          journal it BEFORE pts is deleted
+        renderer.endLive()
+        doc.finalize(o)                    index it; announce the final bbox
+        _queueBake(o)                      new ArcBakeJob(pts, lw, {centre: pen.arcs()})
+        _scheduleBake(0)
+        doc.pushUndo({op:"add"})
+        _noteInkAdded(o)                   provisional scene assignment
+        _render()
+        _queueIdleFits()
+
+THE BAKE TIMER - one timer for both kinds of bake
+
+  _scheduleBake(delay)                     soonest request wins
+    _bakeTick
+      _bakeTickInner
+        if drawing/erasing/dragging/panning -> reschedule in 120 ms
+        if the camera moved in the last 120 ms -> reschedule, but never past
+           1.5 s of starvation
+        _ensureShapeBakes()                any stroke still raw gets a job
+        _stepShapeBakes(8 ms)
+          job.step(8)
+            _centerline  BiarcPen over the samples   (skipped if pen handed over)
+            _chain       ChainBuilder: left rail, end cap, right rail, start cap
+            _oracle      index the centerline arcs for the burial test
+            _precull     drop pieces whose whole bbox is buried
+            _cut         self-crossings, via circleCircle / circleSegment / segSeg
+            _classify    split at the cuts, drop what the pen covers
+            _stitch      walk the survivors into loops, resumable MID-LOOP
+            _finishPhase hairlines, one canonical handedness, junction balance
+          doc.bakeShapeById(id, _sealed(result), w)   stroke -> shape, in place
+          _promoteOversize(id)              invariant 2 (D9)
+        for each pending eraser stroke:
+          _nextEraseTarget(Erec)            z-below, reachable, ink nearby
+          _bakeOne(Erec, target)            see ERASING
+        when a mark has nothing left to cut: _noteSpent, doc.removeById
+
+ERASING   [HOT at gesture time, deferred for the geometry]
+
+  pointerdown with tool "erasePartial"
+    _pointerDown -> a stroke with erase:true, colour #ffffff
+                    (the gesture costs nothing; z-order makes it correct)
+  ...later, from _bakeTickInner:
+    _bakeOne(Erec, target)
+      if the target is a stroke      -> _forceBake it first
+      if the target is a legacy fill -> doc.fillToShapeById
+      if depth(target) < depth(erase) AND it is a pure descent:
+        _bakeRehome                                       CEDE
+          for each frame on the way down, one crossing at a time:
+            lm.mapRectF(eraseBox, HE, F)                  where the eraser is
+            union in the NEXT frame's cell extent         (bible 10.12)
+            objTileRange / objTileRect on the OBJECT's grid
+            _inkShapeInRect(cur, curFrame, F, R)          the tile's ink, exact
+            _cull(shapeComponents(inTile), w)             refuse a degenerate tile
+            on the last link: subtractShape(local, clipLocal)
+            doc.cedeTileById(...)                         cut the parent, mint kids
+          _resplitFamily(op, editKey)
+      else:
+        lm.projectF(E, HE, HO)                            the eraser, in the
+                                                          target's frame
+        transformLoops(...)  centre on the SUBJECT, not the eraser
+        subtractShape(subject, clip)                      the exact boolean
+        _cull(shapeComponents(res.loops), w)              drop dust
+        doc.eraseReplaceById(id, regions)
+        if it split and it was in a family -> _resplitFamily
+
+  SEVERANCE
+    _resplitFamily(op, key)
+      _familyComponents(key)
+        _familyMembers(key)                 every native sharing the editId
+        for each member with an attachRect:
+          contactArcs(_inkOutline(kid), R, tol)
+          for each member one level coarser, touching:
+            lm.mapRectF(R, kid.level, up.level)
+            arcsTouch(kidArcs, upArcs, tol)  -> Groups.union
+      re-label each component with a fresh editId; no geometry is touched
+
+SELECTING AND MOVING
+
+  pointerdown with tool "select"
+    _hitTest(x, y)                          topmost first, bbox then exact
+    on ink:
+      _flushErasesFor(hit)                  the erase barrier
+      _settleSelectionErases()              ...for EVERYTHING about to move
+      _dragSel = { start, moves, moved }
+      store.setBatch(true)                  stop patching off-screen tiles
+    on paper:
+      _lasso = { pts, ctrl }
+  pointermove
+    _dragSelection(sx, sy)                  [HOT]
+      for each member of the selection's edit families:
+        depth <= camera:  wantX = tx * frameFactor      plain translation
+        depth >  camera:  lm.displaceFrame(from, camDepth, tx, ty)
+                          -> re-home to the frame, remainder to geometry
+        doc.rehomeById / doc.setGeometryById(Document.translateGeometry(base,...))
+      _render()
+  pointerup
+    _normalizeHome(id) for each moved member
+    doc.pushUndo({op:"move"|"moveMany"})
+    store.setBatch(false)
+
+  the lasso path
+    _applyLasso -> _lassoFind(poly)
+      visit(frame, s, tx, ty)
+        out of reach  -> skip the frame AND its subtree
+        enclosed      -> takeAll(frame) with no per-object test
+        straddling    -> doc.queryRect(frame, box) then _rectInActive per object
+      then outward through each ancestor, skipping the branch already done
+
+RENDERING   [HOT]
+
+  _render()
+    _buildList()
+      store.content(frame, window)
+        for each visible cache tile, both directions:
+          _ensureUp(F,i,j)   -> _bakeUp: chain through the parent's up-tiles,
+                                plus doc.at(parent), plus _ringNatives(parent);
+                                classifyUp -> empty | solid | edge;
+                                deriveStep for the edge tier
+          _ensureDown(F,i,j) -> _bakeDown: every non-ancestor frame at depth >= F,
+                                projected directly, culled by projectedSizePx,
+                                clipped by _downPieces
+      store.ownContent(frame)               a plain read of doc.at(frame)
+      sort by (z, id)                       global z-order
+    renderer.render(list, frame)
+      _activateLevel(frame)                 swap in this level's SVG subtree
+      _maybeReorigin(scene)                 re-anchor if drifted past 1.5e6 px
+      group pieces by editId when fully present, else by id
+      for each group whose SIGNATURE changed:
+        _buildPieces                        merge every area piece into ONE path
+          pushShapeAnchors / _buildInto
+            a stroke with a live pen        -> draw the biarc chain
+            _strokeMode: raw | outline | pending
+            outline -> _buildOutlineInto -> strokeLoops (curve capsules)
+        Renderer._applyThinScale(entry)     the F-Z rescale, per object
+        _applyOpacity(entry, rep)           family groups are always full presence
+      syncWorld()
+        world.scale / translation           the origin folds in, in float64
+        _renderTileDebug / _renderEraseDebug / _renderSelection / _renderSelOverlay
+    renderer.update()                       two.update() -> the SVG
+    _emit()                                 onStatus -> React, throttled to 50 ms
+
+  PAN AND ZOOM take the fast path when they can:
+    panBy / zoomFactorAt
+      cam.panBy / cam.zoomFactorAt -> _settle (cross and/or shift)
+      if crossed OR the visible tile set changed OR needsRebake OR needsFatFlip
+         OR needsFadeFlip OR needsReorigin:   _render()
+      else: renderer.syncCameraOnly() + update() + _emit()
+             - one matrix write, no path is rebuilt
+
+SAVING
+
+  handleSave / persistCanvas(name)
+    engine.refreshScenes()                  scenes ride the save file
+    engine.saveToLocalStorage(name)
+      engine.serializeDrawing()
+        encodeDrawing({camera, crossings, natives, meta})
+          Camera.state / LevelMap.serialize / Document.serializeNatives
+      packSlot(JSON.stringify(doc))         lz-string UTF-16
+      localStorage.setItem(slot, packed)
+    upsertIndexEntry(entry)
+    ensureThumbs(doc, scenes)
+      renderThumbs -> A SECOND KobinEngine, one jumpTo + rasterize per scene
+    cloudSaveCanvas(uid, entry, json, thumbs)
+      encodeCanvasPayload -> lz1 Uint8Array -> 700 KiB chunks
+      write the parts in batches of six, THEN the parent doc
+
+LOADING
+
+  engine.loadDrawing(raw)
+    decodeDrawing(raw)                      validates before anything is touched;
+                                            refuses pre-lattice files; repairs
+                                            unclosed loops and tile phases
+    lm.load(d.crossings)
+    doc.loadNatives(d.natives)              emits reset -> the tile cache clears
+    cam.set(d.camera); cam.settle()         a file may record an illegal zoom
+    _scheduleBake()                         resume any eraser the file carried
+    renderer.clear(); _render(); _queueIdleFits()
+
+THE SCALE BAR - a pure function of zoom, computed in React
+
+  CanvasEditor render
+    computeScale(effectiveZoom, scaleDef, session)
+      mppFromDef(scaleDef, zoom)            metres per pixel, on the log spine
+      clearUserBandIfExited(session, mpp)
+      resolveReading(mpp, session)
+        ladder(id).candidatesAt(mpp)        every grammar-legal stop that fits
+        collapse to ONE representative per unit
+        rank: user range, then preference band, then LOWEST IN-RANGE NUMBER,
+              then bar-target closeness
+      withReading(session, reading)
+    a unit pick instead goes through applyUnitPick, which either switches ladder
+    or installs a user range whose edges are found by SCANNING the resolver

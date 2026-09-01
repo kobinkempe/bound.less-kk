@@ -33,7 +33,7 @@
  *   enterScale — frame→px factor at the deepest zoom; sizes cap-arc segments
  *             so kappa-arc error also stays under fitTol on screen.
  */
-import { controlsFor, decimatePolyline, strokeStripNear } from "./clipperOutline";
+import { controlsFor, decimatePolyline, strokeStripNear } from "./polyline";
 
 const MAX_FIT_DEPTH = 12;
 
@@ -366,14 +366,6 @@ export function lineLoops(rings) {
         const q = ring[(i + 1) % ring.length];
         return [[p[0], p[1]], [p[0], p[1]], [q[0], q[1]], [q[0], q[1]]];
     }));
-}
-
-// Could this stroke EVER paint wider than the fat gate anywhere in its level's
-// zoom range? Evaluated per OBJECT, not per view, so the representation never
-// switches mid-gesture. An eraser is a stroke and goes through this same gate.
-export function isFatEver(o, cfg) {
-    return o && o.type === "stroke" &&
-        o.lwFrame * cfg.enter > (cfg.fatWidthPx != null ? cfg.fatWidthPx : 500);
 }
 
 /**

@@ -9,8 +9,9 @@
  * everywhere. X-1 exists specifically to stop someone deleting the union.
  */
 import KobinEngine from "./KobinEngine";
-import { subtractPolys, strokeStripNear, strokeOutline } from "./geometry/clipperOutline";
-import { eraserFootprint, cutVisible } from "./geometry/erase";
+import { strokeStripNear } from "./geometry/polyline";
+import { subtractPolys, strokeOutline } from "./geometry/clipperBoolean";
+import { eraserFootprint, cutVisible } from "./__oracles__/erase";
 import { bandRings } from "./geometry/derive";
 import { inks } from "./__testkit__/ink";
 import { encodeLoops } from "./geometry/arcShape";

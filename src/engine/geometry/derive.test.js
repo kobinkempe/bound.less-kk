@@ -3,11 +3,11 @@
  * deriveStep/projectNative must reproduce _deriveInto/_projectNative EXACTLY),
  * plus unit tests for the NEW classify tiers (the symmetric magnify size policy).
  */
-import KobinEngineV0 from "../KobinEngineV0";
+import KobinEngineV0 from "../__oracles__/KobinEngineV0";
 import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad, LEGACY_SEAMS } from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 import { windingOfPoint } from "./hittest";
-import { cedeRect } from "./cede";
+import { cedeRect } from "../__oracles__/cede";
 
 jest.setTimeout(30000);
 

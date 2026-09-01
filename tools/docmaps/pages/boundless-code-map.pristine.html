@@ -1,0 +1,860 @@
+<title>The bound.less Code Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root{
+  --paper:#f2f4f6; --surface:#ffffff; --surface-2:#e9edf1;
+  --ink:#191d22; --muted:#616a75; --rule:#d5dae0; --rule-strong:#b3bcc6;
+  --object:#c8603f; --object-soft:#f6e2da;
+  --space:#3d6b8c; --space-soft:#dde8f0;
+  --warn:#8a6d12; --code-bg:#eef1f4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
+    --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
+    --object:#e07a56; --object-soft:#3a2620;
+    --space:#74a8cc; --space-soft:#1d2c36;
+    --warn:#cfae4e; --code-bg:#232830;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
+  --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
+  --object:#e07a56; --object-soft:#3a2620;
+  --space:#74a8cc; --space-soft:#1d2c36;
+  --warn:#cfae4e; --code-bg:#232830;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink); margin:0;
+  font-family:"Source Serif 4",Georgia,serif; font-size:16px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px 110px}
+
+.mast{border-bottom:1px solid var(--rule-strong);padding:52px 0 20px;margin-bottom:36px}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 16px}
+h1{font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:700;
+  font-size:clamp(2.4rem,5.4vw,3.7rem);line-height:1;letter-spacing:-.015em;margin:0 0 14px;text-wrap:balance}
+h1 .thin{font-weight:500;color:var(--muted)}
+.standfirst{font-size:1.1rem;max-width:64ch;margin:0 0 20px}
+.mast-meta{display:flex;flex-wrap:wrap;gap:8px 26px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;color:var(--muted)}
+.mast-meta b{color:var(--ink);font-weight:500}
+.mast-meta a{color:var(--object)}
+
+.howto{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));border:1px solid var(--rule-strong);margin:24px 0 0}
+.howto div{padding:12px 15px;border-right:1px solid var(--rule)}
+.howto div:last-child{border-right:none}
+.howto b{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;
+  letter-spacing:.13em;text-transform:uppercase;margin-bottom:5px;font-weight:500;color:var(--ink)}
+.howto p{font-size:13.5px;line-height:1.42;margin:0;color:var(--muted)}
+
+.cols{display:grid;grid-template-columns:212px minmax(0,1fr);gap:48px;align-items:start}
+nav.toc{position:sticky;top:20px;font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+  max-height:calc(100vh - 40px);overflow-y:auto}
+nav.toc h4{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);margin:16px 0 5px;padding-top:9px;border-top:1px solid var(--rule)}
+nav.toc h4:first-child{margin-top:0;padding-top:0;border-top:none}
+nav.toc a{display:block;text-decoration:none;color:var(--muted);font-size:13px;line-height:1.3;padding:2.5px 0}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--object)}
+nav.toc a .n{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9.5px;color:var(--rule-strong);margin-left:5px}
+
+main{min-width:0}
+.layer{margin:0 0 12px}
+.layer > h2{
+  font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:700;font-size:1.55rem;
+  letter-spacing:-.01em;margin:44px 0 4px;display:flex;align-items:baseline;gap:12px;text-wrap:balance;
+}
+.layer > h2 .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.68rem;font-weight:500;
+  color:var(--object);letter-spacing:.08em;flex:0 0 auto}
+.layer > .lsub{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 20px;padding-bottom:12px;border-bottom:1px solid var(--rule)}
+.layer > p{max-width:70ch;margin:0 0 16px}
+
+article.file{margin:0 0 30px;scroll-margin-top:16px}
+article.file > header{border-left:3px solid var(--rule-strong);padding:2px 0 2px 14px;margin:0 0 10px}
+article.file.sp > header{border-left-color:var(--space)}
+article.file.ob > header{border-left-color:var(--object)}
+article.file.mu > header{border-left-color:var(--rule-strong)}
+article.file h3{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:15px;font-weight:600;
+  margin:0 0 3px;display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+article.file h3 .lines{font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.06em}
+article.file .role{font-size:14.5px;color:var(--ink);margin:0;max-width:74ch;line-height:1.45;
+  font-family:"Source Serif 4",Georgia,serif}
+article.file .role em{color:var(--muted);font-style:normal}
+
+.tw{overflow-x:auto;border-top:1px solid var(--rule-strong);border-bottom:1px solid var(--rule-strong)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:6px 12px 6px 0;vertical-align:top;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:none}
+th{font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:600;font-size:10px;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--muted);padding-top:9px;padding-bottom:8px;white-space:nowrap}
+td.fn{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;color:var(--ink);
+  width:220px;min-width:180px;line-height:1.4}
+td.fn.wide{width:270px;min-width:230px}
+td.wt{font-family:"Source Serif 4",Georgia,serif;font-size:14.5px;line-height:1.44}
+td.ref{width:52px;white-space:nowrap;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  color:var(--space);padding-top:8px}
+tr.hi td{background:var(--object-soft)}
+tr.hi td.ref{color:var(--object)}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.87em;background:var(--code-bg);padding:.05em .3em;border-radius:2px}
+strong{font-weight:600}
+em{font-style:italic}
+
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase;padding:1px 5px;border:1px solid currentColor;
+  border-radius:2px;vertical-align:1.5px;white-space:nowrap}
+.pill.dead{color:var(--object)}
+.pill.div{color:var(--warn)}
+.pill.key{color:var(--space)}
+
+.callout{border-left:2px solid var(--object);background:var(--surface);padding:13px 17px;margin:0 0 20px;max-width:70ch}
+.callout.warn{border-left-color:var(--warn)}
+.callout p:last-child{margin-bottom:0}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--object);display:block;margin-bottom:5px}
+.callout.warn .lbl{color:var(--warn)}
+
+footer{border-top:1px solid var(--rule-strong);margin-top:48px;padding-top:20px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--muted);line-height:1.7;max-width:78ch}
+footer a{color:var(--object)}
+
+:focus-visible{outline:2px solid var(--object);outline-offset:2px}
+@media (max-width:900px){
+  .cols{grid-template-columns:1fr;gap:0}
+  nav.toc{position:static;max-height:none;margin-bottom:32px;border-bottom:1px solid var(--rule);padding-bottom:16px}
+  body{font-size:15px}
+  td.fn{width:auto}
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Companion to the logical design · every function, and what it is for</p>
+  <h1>The bound.less<br><span class="thin">Code Map</span></h1>
+  <p class="standfirst">Over five hundred functions — nineteen engine files, eighteen scale-bar modules and the shell — each mapped to the part of the design it carries out. Read it the way you read an index: find the thing, then go to the section that says why it exists.</p>
+  <div class="mast-meta">
+    <span>Code at <b>f92c1d1</b>, branch <b>arc-pipeline</b></span>
+    <span>Compiled <b>2026-08-26</b></span>
+    <span>Design: <a href="https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56">The bound.less Logical Design</a></span>
+  </div>
+
+  <div class="howto">
+    <div><b>The § column</b><p>Points at the section of the design document that explains what the function is for. A blank means it is plumbing with nothing to explain.</p></div>
+    <div><b>Highlighted rows</b><p>The load-bearing ones. If you are new to a file, these are what it is actually <em>for</em> — the rest supports them.</p></div>
+    <div><b>Colour on the file name</b><p><span style="color:var(--space)">Slate</span> for space — frames, cache, transforms. <span style="color:var(--object)">Terracotta</span> for the object — ink, cutting, identity. Grey for support.</p></div>
+    <div><b>Trivial accessors</b><p>Grouped into one row per file rather than listed individually, and labelled as such. Nothing is silently omitted.</p></div>
+  </div>
+</header>
+
+<div class="cols">
+
+<nav class="toc" aria-label="Files">
+  <h4>Space</h4>
+  <a href="#frameLattice">frameLattice.js<span class="n">274</span></a>
+  <a href="#Camera">Camera.js<span class="n">158</span></a>
+  <a href="#LevelMap">LevelMap.js<span class="n">657</span></a>
+  <h4>Truth</h4>
+  <a href="#Document">Document.js<span class="n">868</span></a>
+  <a href="#persist">persist.js<span class="n">327</span></a>
+  <h4>Ink</h4>
+  <a href="#biarc">biarc.js<span class="n">447</span></a>
+  <a href="#arcPerimeter">arcPerimeter.js<span class="n">1086</span></a>
+  <a href="#arcShape">arcShape.js<span class="n">1238</span></a>
+  <a href="#freeze">freeze.js<span class="n">225</span></a>
+  <h4>Views</h4>
+  <a href="#derive">derive.js<span class="n">660</span></a>
+  <a href="#TileStore">TileStore.js<span class="n">435</span></a>
+  <a href="#Renderer">Renderer.js<span class="n">1577</span></a>
+  <h4>Connectivity</h4>
+  <a href="#connect">connect.js<span class="n">206</span></a>
+  <a href="#hittest">hittest.js<span class="n">70</span></a>
+  <a href="#lasso">lasso.js<span class="n">61</span></a>
+  <h4>Pre-arc, still live</h4>
+  <a href="#clipperOutline">clipperOutline.js<span class="n">631</span></a>
+  <a href="#curveOutline">curveOutline.js<span class="n">444</span></a>
+  <h4>The facade</h4>
+  <a href="#engine-diag">KobinEngine · instruments</a>
+  <a href="#engine-life">KobinEngine · lifecycle</a>
+  <a href="#engine-input">KobinEngine · input</a>
+  <a href="#engine-erase">KobinEngine · erasing</a>
+  <a href="#engine-select">KobinEngine · selection</a>
+  <a href="#engine-files">KobinEngine · files &amp; scenes</a>
+  <h4>Features</h4>
+  <a href="#scenes">scenes.js<span class="n">620</span></a>
+  <a href="#scalebar">scaleBar/<span class="n">×18</span></a>
+  <h4>Shell</h4>
+  <a href="#shell">hooks · storage · cloud</a>
+  <h4>Not running</h4>
+  <a href="#dead">Dead &amp; oracle-only</a>
+</nav>
+
+<main>
+
+<!-- ═══════════ LAYER 1 ═══════════ -->
+<div class="layer">
+<h2><span class="num">01</span> Space</h2>
+<p class="lsub">The grid of nested boxes, and every transform between two of them</p>
+
+<article class="file sp" id="frameLattice">
+  <header>
+    <h3>frameLattice.js <span class="lines">274 lines</span></h3>
+    <p class="role">The constants and the address arithmetic. Pure — integers and powers of two, no engine state. <em>Everything the lattice promises rests on the numbers here being exact.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">BASE ENTER EXIT R W G<br>HALF_W HALF_R T_UNIT<br>TILE MAX_CANVAS_PX</td><td class="wt">The constants. Every one a power of two, so scaling across a level moves only an exponent and spends no precision.</td><td class="ref">§3</td></tr>
+    <tr><td class="fn">cellEdge(i, j)</td><td class="wt">The one conversion from a parent box into child box (i, j).</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">cellCentre(i, j)</td><td class="wt">The child box's centre in the parent's units — the exact whole number <code>i·32</code>.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn">cellOf(x, y)</td><td class="wt">Which child box a point is in. <strong>A round, not a floor</strong> — boxes are centred on their index, which is what makes the origin a fixed point of the descent.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">inDigit(i)</td><td class="wt">Is this index inside the balanced range one box can hold?</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">carryDigit(i)</td><td class="wt">Split an out-of-range index into carry and digit, exactly as long addition carries.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn">displacementDigits(d, n)</td><td class="wt"><strong>Expand a displacement into base-4096 digits plus a leftover.</strong> Every step is exact, which is why a slow drag adds up to what a fast one does.</td><td class="ref">§6</td></tr>
+    <tr><td class="fn">digitValue(at, in)</td><td class="wt">How far one digit at one level moves something measured at another.</td><td class="ref">§6</td></tr>
+    <tr class="hi"><td class="fn">applyDigits(chain, i, digits)</td><td class="wt"><strong>Add a displacement to an address, with carries.</strong> Reports what ran off the coarse end (a real move of the ancestor) and off the fine end (an ordinary sub-box translation).</td><td class="ref">§6</td></tr>
+    <tr><td class="fn">tilePhase(v)</td><td class="wt">Normalise the object's grid offset into one tile. Guards two live bugs: a remainder a hair below zero rounding to exactly one tile — which made a real drawing unloadable — and negative zero failing an equality test.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">childTilePhase(phi, c, f)</td><td class="wt">The same grid one level down. The grids nest, so the decomposition is a fixed property of the object at every level.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">objTileRect(px, py, i, j)</td><td class="wt">One tile of the object's grid.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">objTileRange(px, py, rect)</td><td class="wt">Every tile a rect reaches — <strong>half-open at the top.</strong> Rounding both ends outward turns one tile into three per axis: 49 ms to 258 ms on one render.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">objTilesRect(px, py, cells)</td><td class="wt">The rect a window of whole tiles spans. This is what geometry gets clipped to, so every cut lands on the object's own grid line.</td><td class="ref">§8</td></tr>
+  </table></div>
+</article>
+
+<article class="file sp" id="Camera">
+  <header>
+    <h3>Camera.js <span class="lines">158 lines</span></h3>
+    <p class="role">Where you are looking and how far in. Owns the active frame and the crossing state machine. <em>Touches no geometry.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">constructor(lm, cfg, hooks)</td><td class="wt">Holds the active frame, the in-frame zoom and the pan. Hooks let the engine finalise a live stroke and hold the frame under the pen.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">activeLevel <em>(get / set)</em><br>set() · state()</td><td class="wt">A depth facade over the frame id — the interface, scale bar and snapshots all speak depths, while identity is the frame.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">screenToFrame · frameWindow<br>centre()</td><td class="wt">Pixels to frame coordinates, the visible rect, and the view centre. The centre is what decides which box a crossing lands in.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">panBy(dx, dy)</td><td class="wt">Pan, then settle.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">zoomFactorAt(sx, sy, f)</td><td class="wt">Zoom about a point. Refuses a non-positive factor, which would drive the zoom below the exit threshold for ever and spin the crossing loop.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">zoomAt · pinchUpdate</td><td class="wt">Wheel and pinch, onto the same path.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn">_maybeShift()</td><td class="wt"><strong>Step sideways into the neighbouring box</strong> when the view leaves this one. Pure bookkeeping and exact. Never fires under the pen — that would rebase a live stroke's coordinates mid-gesture.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn">settle() · _settle()<br>_maybeCross()</td><td class="wt"><strong>Cross and shift until the camera is legal.</strong> Called on load, which is what stopped the first interaction after opening a file paying for a whole crossing — 200 ms once, then 0.2 ms.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">_crossUp()</td><td class="wt">Into the child box the view centre falls in.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">_crossDown()</td><td class="wt">Into the box that contains this one. Nothing to fit to the camera.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">effectiveZoom()</td><td class="wt">Absolute zoom: 4096<sup>depth</sup> × the in-frame zoom. What the scale bar reads.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">levelPointToScreen(...)</td><td class="wt">A point in any frame to pixels.</td><td class="ref">§9</td></tr>
+  </table></div>
+</article>
+
+<article class="file sp" id="LevelMap">
+  <header>
+    <h3>LevelMap.js <span class="lines">657 lines</span></h3>
+    <p class="role">The tree of boxes and every pure transform between any two of them. <em>No camera, no objects, no drawing library.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">_addFrame(id, parent, cell, depth)</td><td class="wt">Mint a box. Wires it into its parent's child map and drops the path cache.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">frame · depthOf · parentOf<br>childrenOf · spineAt · pathFrameAt</td><td class="wt">Tree reads. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn wide">_isSpine · _childId</td><td class="wt">Id minting. The origin chain keeps the depth as its id; everything else is <code>parent/i,j</code>. Ids are document keys, so they never change once minted.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn wide">cellChild(parentId, i, j)</td><td class="wt"><strong>The child box, minting on first visit.</strong> An out-of-range index carries up to the parent — which is what stopped a camera minting a box at index 2059 and making the drawing refuse to reopen.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">findCellChild(...)</td><td class="wt">The child that already exists. No side effects.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn wide">neighbour(id, di, dj)</td><td class="wt"><strong>The box di, dj along at the same depth,</strong> carrying up through parents. Panning sideways and dragging sideways are the same operation seen from two ends.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">_growRoot(f)</td><td class="wt">Give a parentless box a parent so it can have siblings. Exact, and leaves every existing id untouched.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">peekNeighbour · peekRing</td><td class="wt">The same without minting — reading tiles must not grow the tree. What the uncle pickup uses.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">ensureParent · ensureParentEdge</td><td class="wt">Crossing down needs a parent.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">_viewCell · findChild · ensureChild</td><td class="wt">Which child box a crossing lands in — a pure function of where the view centre is, with no history and no reuse test.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">_recOf · records</td><td class="wt">The legacy per-depth record view, which snapshots, scenes and the dev tools still speak. The four accessors that used to sit beside it (<code>get</code>, <code>has</code>, <code>ensureUp</code>, <code>ensureDown</code>) went in the 2026-08-28 sweep: the frame lattice made every one of them a wrapper around <code>frameFor</code>.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">makeGrid · grid · tileRect · tileRange</td><td class="wt">The <em>render cache's</em> partition — frame-aligned, constant, canvas-independent. It only decides how much work one bake covers, and cannot influence geometry.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn wide">_frameFor · frameFor</td><td class="wt">Accept a frame id or a bare depth. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr class="hi"><td class="fn wide">toChild · toParent<br>rectToParent</td><td class="wt"><strong>One-edge point transforms.</strong> Cancel against the box centre <em>first</em>, then scale by a power of two — both steps exact, so a descent of any depth is a chain of exact steps.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">_ancestors · isAncestor<br>chainFrom · frameAtChain<br>commonAncestor</td><td class="wt">Tree walks. <code>chainFrom</code> is an object's address relative to an ancestor — the digits themselves.</td><td class="ref">§6</td></tr>
+    <tr class="hi"><td class="fn wide">displaceFrame(id, atDepth, dx, dy)</td><td class="wt"><strong>The move.</strong> Expand the displacement into digits, add them to the address with carries, absorb a coarse-end carry by stepping the ancestor sideways, and hand back the leftover — the only part that ever touches geometry.</td><td class="ref">§6</td></tr>
+    <tr><td class="fn wide">framePath · _buildPath</td><td class="wt">The route between two boxes: up to the common ancestor, then down. Cached, and the cache is dropped whenever a box is minted — on a seventeen-level document this walk dominated a pan.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">frameFactor(from, to)</td><td class="wt">The scale between two boxes.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">mapPointF · mapRectF</td><td class="wt">A point or rect across boxes, one edge at a time.</td><td class="ref">§5</td></tr>
+    <tr class="hi"><td class="fn wide">projectF(o, homeId, toId)</td><td class="wt"><strong>An object across boxes.</strong> For a resolved outline the arcs survive untouched — the endpoints move, the bulge does not change at all — and the object's grid offset rides along. One edge at a time; a composed long jump upward cancels.</td><td class="ref">§7 §9</td></tr>
+    <tr><td class="fn wide">phaseThrough <em>(private)</em></td><td class="wt">Carry an object's grid offset along a frame path. A sideways hop is a whole number of boxes and leaves it alone — which is exactly why two numbers are enough.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn wide">framePointToScreen(...)</td><td class="wt">A point in one frame, in <em>screen</em> pixels: <code>mapPointF</code> into the active frame, then the in-frame zoom and pan. The depth-keyed wrappers that used to sit beside it are gone; <code>Camera.levelPointToScreen</code> is the one caller and it passes a frame id.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">effectiveZoom(key, inScale)</td><td class="wt">Absolute zoom, for the scale bar.</td><td class="ref">§14</td></tr>
+    <tr class="hi"><td class="fn wide">serialize() · load(data)</td><td class="wt">The tree is <code>(id, parent, depth, cell)</code>; the edge is derived and the grid is a constant. <strong>A pre-lattice file is refused here</strong>, never converted.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">ensureSpine · reset · resize</td><td class="wt">Grow the origin chain to a depth; wipe; note a new canvas size. A resize changes no geometry — grids are constants.</td><td class="ref">§3</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 2 ═══════════ -->
+<div class="layer">
+<h2><span class="num">02</span> Truth</h2>
+<p class="lsub">Every object, its identity, its history, and how it is written down</p>
+
+<article class="file ob" id="Document">
+  <header>
+    <h3>Document.js <span class="lines">868 lines</span></h3>
+    <p class="role">The source of truth. Objects by home box, the id counter (which is also the drawing order), undo, and a spatial index. <em>Everything shown at another level is a derived copy carrying the original's id — which is why removing one object erases it everywhere.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">LevelIndex: constructor<br>_key · _cellsOf</td><td class="wt">A uniform grid hash per level, with an overflow list for anything bigger than a cell.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">LevelIndex: add(o, level)</td><td class="wt">Index an object by its painted extent. A resolved outline needs no width margin at all: its box already <em>is</em> the ink.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">LevelIndex.query(rect, out)</td><td class="wt">Objects overlapping a rect. Falls back to a flat scan when a magnified query would cover billions of cells.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">subscribe · _emit</td><td class="wt">Every mutation notifies, so the tile cache can invalidate both directions — deeper tiles inherit it magnified, coarser ones minified.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">allocId()</td><td class="wt">Ids are handed out in creation order, which is also drawing order.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">levels · at · _idx</td><td class="wt">Storage keyed by home box. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn wide">_forgetIfEmpty(k)</td><td class="wt">Drop a box's bucket when its last object goes. A drag allocates one per pointer event; one measured session had 4,343 empty of 4,369, and dropping them took a render from 195 ms to 23.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn wide">add(o, level, {live}) · finalize(o)</td><td class="wt">A live stroke stays out of the index until it stops growing, then is re-announced against its final extent.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn wide">getById · editKey · editGroup</td><td class="wt">Identity, and the family a piece belongs to.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">removeById · insertAt</td><td class="wt">Erase everywhere; put it back at its remembered position.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">moveById(id, dx, dy)</td><td class="wt">Translate. A resolved outline is <em>replaced</em>, never shifted in place: consecutive pieces share their endpoint arrays, so mutating coordinates would move every shared point twice and tear the shape along its own seams.</td><td class="ref">§6</td></tr>
+    <tr class="hi"><td class="fn wide">setGeometryById(id, geom)</td><td class="wt"><strong>Replace geometry outright.</strong> A drag recomputes from where it started rather than chaining increments, which is what makes a slow drag and a fast one the same arithmetic on the same numbers.</td><td class="ref">§6</td></tr>
+    <tr><td class="fn wide">snapGeometry <em>(static)</em></td><td class="wt">A detached copy to translate from — <strong>including the tile offset</strong>, because that offset is geometry, and a drag that left it behind would slide the object out from under its own cutting grid.</td><td class="ref">§6 §8</td></tr>
+    <tr><td class="fn wide">scaleGeometry <em>(static)</em></td><td class="wt">Change an object's units by a power of two. What promotion to the parent level does — the mantissa is untouched and only the exponent moves.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">translateGeometry <em>(static)</em></td><td class="wt">A snapshot, moved. Never mutates the snapshot.</td><td class="ref">§6</td></tr>
+    <tr class="hi"><td class="fn wide">rehomeById(id, toLevel)</td><td class="wt"><strong>Move an object to a different box without touching a single coordinate.</strong> Neighbouring boxes' origins differ by exactly one box width, so the same local coordinates describe the moved object exactly. Tagged, so a drag does not read it as the object going away.</td><td class="ref">§6</td></tr>
+    <tr class="hi"><td class="fn wide">eraseReplaceById(id, regions)</td><td class="wt"><strong>Replace an object with what an area erase left of it.</strong> One region keeps the family key — the same object with less ink; several regions is a genuine split and the pieces are strangers.</td><td class="ref">§10 §12</td></tr>
+    <tr class="hi"><td class="fn wide">cedeTileById(...)</td><td class="wt"><strong>Cede a tile.</strong> Cuts the rectangle out of the parent with the exact boolean, drops the dust the cut leaves along an edge, and hands the ink inside to new objects one level down — which inherit the parent's cutting grid expressed in their own units.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">bakeShapeById(id, loops, w)</td><td class="wt">A drawn stroke becomes its resolved outline, <strong>keeping its id</strong> — and so its drawing order, the selection pointing at it, and every undo record naming it. No undo entry: baking is the machine's decision, not the user's.</td><td class="ref">§7 §12</td></tr>
+    <tr><td class="fn wide">fillToShapeById(id)</td><td class="wt">A pre-arc polygon fill becomes an outline — only when something is about to cut it, which is the only time the arc form buys anything.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">_bboxNow · _afterEdit</td><td class="wt">Bust the derived caches, reindex, and announce with the <em>old</em> footprint so the cache can invalidate where the object was as well as where it is.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">queryRect(level, rect)</td><td class="wt">Spatial query, plus any still-growing live stroke, which cannot be indexed.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">_undoMove · _invertMove</td><td class="wt">Undo a move: the address first, then the leftover translation — and restore the geometry the drag started from, so the round trip is exact rather than a float's width away.</td><td class="ref">§6</td></tr>
+    <tr><td class="fn wide">pushUndo · canUndo · canRedo<br>undo · redo · _invert</td><td class="wt">Op inversion. One gesture is one action, however much geometry it touched; an eraser's background work appends to the same action rather than making its own.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">clear · _replace</td><td class="wt">Wipe, carrying whatever engine state must round-trip with it.</td><td class="ref"></td></tr>
+    <tr><td class="fn wide">serializeNatives()</td><td class="wt">A whitelist per type, so runtime-only fields never reach a file. The cutting-grid offset is written because it is geometry.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">loadNatives(snap)</td><td class="wt">Strips retired fields, repairs unclosed outlines, drops empty buckets, and never reuses an id.</td><td class="ref">§13</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="persist">
+  <header>
+    <h3>persist.js <span class="lines">327 lines</span></h3>
+    <p class="role">The save format: a versioned, validated envelope around exactly what the collaborators serialize. <em>Hard-fails on anything that would crash or corrupt; lenient about everything else.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">encodeDrawing({...})</td><td class="wt">The envelope: format, version, metadata, camera, box tree, objects.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">decodeDrawing(raw)</td><td class="wt">Validated decode. Also accepts the legacy development snapshot, which is how old autosaves keep opening.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">decodeMeta · decodeScaleDef<br>validScene · cloneScene<br>cloneRect · validRect</td><td class="wt">Metadata. Scenes validate <em>leniently</em> — they are regenerable, so a malformed one is dropped rather than failing the drawing.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">isFrameKey(v)</td><td class="wt">A depth integer or a lattice path. The old free-floating sibling form is refused: a scene naming one would point at a box no document can contain.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">decodeCamera(c)</td><td class="wt">Camera state, which the engine then settles into a legal one.</td><td class="ref">§13</td></tr>
+    <tr class="hi"><td class="fn">decodeCrossings(cr)</td><td class="wt"><strong>The box tree — and where a pre-lattice file is refused</strong> with a clear error rather than converted.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">decodeNatives(n)<br>validPts · validOwnedRect<br>isFiniteNum</td><td class="wt">Per-object validation. Numbers that are not numbers mean the file is not ours; an outline that does not close is damage that gets mended.</td><td class="ref">§13</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 3 ═══════════ -->
+<div class="layer">
+<h2><span class="num">03</span> Ink</h2>
+<p class="lsub">Arcs: drawing them, resolving a stroke into one, measuring and cutting the result</p>
+
+<article class="file ob" id="biarc">
+  <header>
+    <h3>biarc.js <span class="lines">447 lines</span></h3>
+    <p class="role">The stroke centreline as circular arcs instead of curves. <em>Nothing here bakes — this is the centreline only.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">arcThrough(A, TA, B)</td><td class="wt">The unique arc leaving A in a given direction and passing through B. Tests the <em>bulge</em>, not a length ratio — the earlier test was scale-dependent and turned a nearly-straight gap into an arc of radius 8×10<sup>8</sup>, which the browser drew with a huge visible spur at each end.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">arcPoint · arcTangent · arcDist</td><td class="wt">Point, direction, and <strong>exact</strong> distance to an arc. The exact distance is what removed the last tolerance from the resolve.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">biarc(P0, T0, P1, T1)</td><td class="wt"><strong>Two arcs meeting smoothly with both end directions fixed.</strong> One arc cannot do it — it is over-determined; two have exactly the freedom needed.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">gapError · arcsForGap</td><td class="wt">Subdivide a curve segment until the arc pair is within tolerance — which happens where the pen turned hard.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">distinctSamples(pts)</td><td class="wt">Drop repeated pen samples.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">splineCubics(raw)</td><td class="wt">The app's own spline through the samples, so the chain passes through every sample in the same direction as before — the smoothness the user already sees is unchanged.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">chainFor(pts, opts)</td><td class="wt">The whole centreline as arcs, in one go.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">BiarcPen: constructor<br>addSample · _cubic · arcs</td><td class="wt"><strong>The live pen.</strong> Maintains the arc chain <em>while drawing</em>, rebuilding only the two gaps a new sample disturbs — O(1) per point, so by pen-up the most expensive phase of the resolve is already paid for.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">arcSagitta(a)</td><td class="wt">How far an arc bulges from its chord.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">tracePath(ctx, gaps, flatTol)</td><td class="wt">Draw the live chain, flattening anything below the browser's own precision so a huge radius cannot misplace an endpoint.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">arcToCubics(a)</td><td class="wt">An arc as curves, for the drawing library, which speaks nothing else.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">offsetArc(a, pen, side)</td><td class="wt"><strong>The exact offset: a concentric arc, radius ± the pen.</strong> This one closed-form fact is the entire reason the representation is arcs.</td><td class="ref">§7</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="arcPerimeter">
+  <header>
+    <h3>arcPerimeter.js <span class="lines">1,086 lines</span></h3>
+    <p class="role">Resolve a stroke into one exact outline. Build both edges and both caps as a closed chain, cut it at its own crossings, throw away what is buried under the pen, restitch the survivors. <em>Every step exact except the burial judgement, which is a measurement by nature.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">ptAt · paramOf · pieceBBox</td><td class="wt">Piece primitives: a point along it, where a point sits on it, its extent.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">subPiece(p, s0, s1, A, B)</td><td class="wt">Part of a piece, with its endpoints supplied exactly. Carries the chain position with the fragment — without it, a later adjacency test compares a number against nothing and quietly answers false.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">cap(pivot, r, from, to, t)</td><td class="wt">A half-turn end cap. Its direction comes from the travel tangent rather than the endpoints, so it can never be drawn the long way round.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">ChainBuilder(centre, r): constructor<br>_vertex · _closeSeam · step</td><td class="wt"><strong>Both edges and both caps as one closed chain.</strong> The offset point at a shared corner is computed once and given to both neighbours, so the chain is watertight because it was built that way — not because the arithmetic agreed. <code>step</code> makes it resumable.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">circleCircle(C1,r1,C2,r2,out)</td><td class="wt"><strong>Where two circles cross.</strong> Rewritten so that no expression ever holds the big radius squared while wanting an answer the size of the small one — the failure that lost crossings once a radius passed about 1.4 billion.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">circleSegment · segSeg<br>pieceIntersections</td><td class="wt">The other closed-form crossings, and the dispatch between them.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">Grid: constructor · _key<br>insert · near</td><td class="wt">A uniform hash for the broad phase, so nothing is tested against everything.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">Oracle: constructor<br>fill · buried</td><td class="wt"><strong>Is this point inside the pen?</strong> Exact point-to-arc distance with no flattening anywhere. The old version's flattening tolerance was the binding constraint on the entire bake.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">VertexSet: constructor · id</td><td class="wt">Two coordinates either side of a cell boundary are not two places. Endpoints are registered before any crossing, so a crossing landing on an endpoint adopts its identity rather than inventing one a millionth of a unit away.</td><td class="ref">§11</td></tr>
+    <tr class="hi"><td class="fn">ArcBakeJob: constructor<br>step(budgetMs) · progress</td><td class="wt"><strong>The resolve, with a cursor in it.</strong> Does at most that many milliseconds of work. Nothing is published until it finishes, so a half-resolved outline can never be drawn, stored, or cut against.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">_charge · _tune · _endPhase</td><td class="wt">Bill the time actually spent between slices, and aim the next burst at about a millisecond from what the last one cost.</td><td class="ref">§3</td></tr>
+    <tr><td class="fn">_centerline · _chain · _oracle<br>_precull · _cut · _classify<br>_stitch · _closeWalk<br>_finishPhase · _finish</td><td class="wt">The eight phases, each able to stop mid-item and resume. Deferring between whole objects was not enough: one heavy stroke was an indivisible multi-second job with no point inside it where control came back.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">bakeArcPerimeter(pts, w)</td><td class="wt">The whole resolve at once — the same job, driven with no budget.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">reversePiece(p)</td><td class="wt">One canonical handedness on the way out, so every consumer downstream can assume solid area is positive.</td><td class="ref">§7</td></tr>
+      </table></div>
+</article>
+
+<article class="file ob" id="arcShape">
+  <header>
+    <h3>arcShape.js <span class="lines">1,238 lines</span></h3>
+    <p class="role">What the rest of the app does with a resolved outline: measure, transform, flatten, encode — and the exact boolean that erasing needs. <em>No polygon library anywhere.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">pieceTangent · reversePiece<br>reverseLoop · loopBBox<br>loopsBBox</td><td class="wt">Primitives. The extent is exact, bulges included — a chord box would understate a half-turn cap by the whole pen radius.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">loopArea(loop)</td><td class="wt">Signed area, exactly: the chord polygon plus each arc's circular segment.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">loopPerimeter · loopsArea<br>meanWidth · spanOf</td><td class="wt">Measures. Mean width says how <em>thick</em> a piece is without caring how long it is.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">dropHairlines(loops, eps)</td><td class="wt">Strips so thin their two sides are the same line paint nothing at all, and would otherwise count as their own object.</td><td class="ref">§11</td></tr>
+    <tr class="hi"><td class="fn">dropDust(groups, pen)</td><td class="wt"><strong>Fragments thinner than 1% of the pen are not made into objects.</strong> These are the specks a near-tangent cut leaves — the "small pixel dots".</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">normalizeLoops(loops)</td><td class="wt">One handedness for the whole set. A global flip is the only correction that cannot disturb an outer loop's relationship to its holes.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">rayCross · flatPieces<br>windingOfFlat · windingAt<br>insideShape</td><td class="wt">Inside or outside, by ray cast. <strong>Detects its own ambiguity</strong> — a ray grazing a tangency — and retries on a fresh direction rather than guessing, so a bad case costs one fragment and not the shape.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">transformLoops · translateLoops<br>seam <em>(private)</em></td><td class="wt">Move or scale an outline; the seam-overhang marks survive the transform, which is what stops the level below freezing a piece that is not really an edge.</td><td class="ref">§8</td></tr>
+    <tr class="hi"><td class="fn">transformLoopsAbout(...)</td><td class="wt"><strong>The same similarity, written so magnification is exact:</strong> subtract the box centre before scaling, never after.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">arcSteps · flattenShape</td><td class="wt">Arcs to polygons, for the consumers that still speak polygons. Steps depend on the piece and the tolerance alone — never on the tile — so two tiles clipping the same shape cut identical vertices at their shared boundary.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">shapeFromRings(rings)</td><td class="wt">Polygons to arcs, for a drawing made before the arc pipeline.</td><td class="ref">§13</td></tr>
+    <tr class="hi"><td class="fn">encodeLoops · decodeLoops</td><td class="wt"><strong>The save format.</strong> Only the loop's start point and each piece's far end, because consecutive pieces share an endpoint exactly. Writing both would double the file and invite a reload where they no longer match.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">validEncodedLoops<br>encodedLoopsWellFormed</td><td class="wt">Kept separate because the two failures deserve different answers: numbers that are not numbers mean the file is not ours; a chain that does not close is damage that can be mended.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">repairLoops(loops, pen, stats)</td><td class="wt">Stitch the fragments onto the cheapest joins available, bridge each join, seal <em>once</em>, drop what is then dust — and report how much edge was fabricated.</td><td class="ref">§7 §13</td></tr>
+    <tr><td class="fn">rectLoop(rect)</td><td class="wt">A rectangle as an outline. What a cede subtracts.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">pieceToCubics · shapeToCubics</td><td class="wt">Arcs as curves for the drawing library, exact to about 2×10<sup>−4</sup> of the radius and view-independent, so a path is right at every zoom and never rebuilt for a camera move.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">VertexSet <em>(private)</em></td><td class="wt">Vertex identity for the boolean, with neighbouring cells searched.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">straighten(loops, tol)</td><td class="wt">An arc bulging less than its own coordinates can express <em>is</em> a line, and only one of the two can be computed with.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">onCurveOf · pieceOverlap</td><td class="wt">Where two pieces lie exactly on top of each other. The intersectors cannot see this case — and it is what finishing a cut you started earlier looks like.</td><td class="ref">§11</td></tr>
+    <tr class="hi"><td class="fn">shapeBoolean(A, B, op)</td><td class="wt"><strong>The boolean, with one retry</strong> at a different welding radius when the first attempt lost something. Perturbing the radius moves a discrete decision off its boundary; nothing normal pays for it.</td><td class="ref">§11</td></tr>
+    <tr class="hi"><td class="fn">shapeBooleanOnce(A, B, op)</td><td class="wt"><strong>The cut itself:</strong> straighten, pass untouched loops through, cut at crossings and overlaps, classify each fragment, stitch, close. Cost is proportional to the gesture, not the drawing.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">stitch(kept, vs)</td><td class="wt">Pair the loose ends at each junction by angle so the "next" relation is a bijection — its cycles are then the loops, by construction.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">subtractShape · intersectShape<br>clipShapeToRect</td><td class="wt">The three forms callers use. Both inputs must be simple, and the output is — so booleans compose.</td><td class="ref">§10 §11</td></tr>
+    <tr><td class="fn">shapeComponents(loops)</td><td class="wt">Connected components. A hole belongs to the smallest outer loop that contains it.</td><td class="ref">§10</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="freeze">
+  <header>
+    <h3>freeze.js <span class="lines">225 lines</span></h3>
+    <p class="role">The object's own cutting grid, the chop, and the freeze. <em>A frame never cuts anything; only a tile does.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr class="hi"><td class="fn">pieceSagitta(p)</td><td class="wt"><strong>How far a piece bulges from its own chord,</strong> from local values only — the centre never appears. A piece sweeping more than half a turn is reported as infinitely bulged rather than run through a tangent about to change sign.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">freezePiece(p)</td><td class="wt">The chord between the piece's <em>own</em> endpoints, carried through untouched — so a neighbour that has not frozen still meets it exactly.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">arcCuts(p, k, axis, out) <span class="pill div">divergence</span></td><td class="wt">Where an arc meets one grid line. <strong>Reads the stored centre and radius</strong> — the one place the unbuilt endpoints-and-bulge representation is load-bearing. Safe only because a line is never chopped and everything is a line by the third crossing.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">chopFreezeLoops(loops, phase, tol, cells)</td><td class="wt"><strong>The chop and the freeze.</strong> Cut every piece on the object's own grid lines, then straighten the ones that have gone straight. <em>The only call site in the codebase is the render chain</em> — which is the divergence of §8.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">markSeamEnds(loops, rect)</td><td class="wt">Mark the ends the overhang clip made, so the level below will not measure a duplicate-cut-short for straightness and freeze it to a chord its neighbour disagrees with.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">tileWindow · tileClipRect</td><td class="wt">Which of the object's tiles a cache square reaches, and the rect those whole tiles span — the boundary every cut lands on.</td><td class="ref">§8</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 4 ═══════════ -->
+<div class="layer">
+<h2><span class="num">04</span> Views</h2>
+<p class="lsub">Turning objects at other levels into something paintable, and painting it</p>
+
+<article class="file sp" id="derive">
+  <header>
+    <h3>derive.js <span class="lines">660 lines</span></h3>
+    <p class="role">Pure one-step bake maths. <em>No camera, no cache ownership — everything is a function of its inputs.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">bboxOf(o, live)</td><td class="wt">An object's extent in its own frame, cached — exact for a resolved outline, bulges included.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">shapeTol · freezeTol</td><td class="wt">The quarter pixel, in a level's own units at its deepest zoom. <strong>Deliberately the same number</strong>, so the swap of source of truth cannot be seen at the moment it happens. Depend on the config and nothing else.</td><td class="ref">§3 §8</td></tr>
+    <tr><td class="fn">tilePhaseOf(o)</td><td class="wt">An object's cutting-grid offset, or the frame-aligned default.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">shapeRingsInRect(loops, rect, tol)</td><td class="wt">One outline's contribution to one tile, <strong>as polygons.</strong> Clip first, flatten after — the reverse would tessellate the whole perimeter before throwing nearly all of it away. Two fast paths: nothing reaching the tile is settled by one inside/outside query, and a shape wholly inside has nothing to clip.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">shapeLoopsInRect(loops, rect)</td><td class="wt">The same clip <strong>handing back arcs. This is the failure-A fix.</strong> Clipping an exact arc gives an exact sub-arc, so the chain stays exact however deep it goes and nothing along it is ever frozen.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">displayChords · flatChords</td><td class="wt">Cached flattenings of a centreline at fixed, view-independent fidelities, so every tile cuts the same vertices at shared grid lines and fill seams stay exact.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">seamPadFor · seamPad · padRect<br>SEAMS · LEGACY_SEAMS</td><td class="wt">One seam policy, absolute and config-derived. The old one was a <em>fraction of the tile</em>, so the overlap depended on the canvas the grid happened to be captured at — 0.48 px on a small screen, under the one pixel it exists to cover. The legacy rule survives only so the previous engine can still be golden-compared.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">rectSubtract(rect, holes)</td><td class="wt">A rect minus axis-aligned holes, as up to four rects. Pure float, deliberately.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">bandRings(...)</td><td class="wt"><strong>The one place a stroke's painted band becomes rings</strong> — so the eraser's edge and the ink's edge are one definition, not two kept in agreement. Two regimes: an ordinary offset, and an analytic strip for a centreline magnified so far the ordinary path explodes (measured at 583 seconds on one stroke).</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">classifyUp(o, s, t, rect, cfg)</td><td class="wt">Empty, solid, or edge. Deciding "solid" is what lets a tile-flooding object be replaced by four corners.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">solidQuad(o, rect, opts)</td><td class="wt">That four-cornered stand-in, overlapped into its neighbours. <strong>This is what bounds the magnify chain</strong> — geometry can never outgrow a tile.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">deriveStep(parentObjs, s, t, rect, ...)</td><td class="wt"><strong>One step of the chain, and the only place the chop and the freeze happen.</strong> Transform about the box centre, chop on the object's grid, freeze what has gone straight, clip to the object's tiles grown by the seam pad, and size-gate wide strokes into outlines.</td><td class="ref">§8 §9</td></tr>
+    <tr><td class="fn">projectNative · levelFactor</td><td class="wt">The depth-integer facade, kept so the previous engine can still be compared byte for byte.</td><td class="ref"></td></tr>
+    <tr><td class="fn">projectedSizePx(o, f, cfg)</td><td class="wt">An object's size at a level's deepest zoom — the view-independent cull and fade measure, so the verdict does not flicker as the camera moves.</td><td class="ref">§9</td></tr>
+  </table></div>
+</article>
+
+<article class="file sp" id="TileStore">
+  <header>
+    <h3>TileStore.js <span class="lines">435 lines</span></h3>
+    <p class="role">The cache of what other levels look like, in both directions. <em>The active level's own objects are never cached — they are drawn live.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">constructor · destroy</td><td class="wt">Subscribes to the document, so every change patches the cache.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">setOpacityGroups · bumpEpoch</td><td class="wt">A policy change invalidates everything at once.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">setBatch(on)</td><td class="wt">During a drag, a tile the camera cannot see is <em>dropped</em> rather than patched — it is stale either way, and rebuilding it later only happens if the camera goes back. Worth 105 ms of each 130 ms pointer event on a nine-member family.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">_depth · _minContentDepth</td><td class="wt">Bounds, so a direction with no content costs nothing.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">content(F, windowRect)</td><td class="wt"><strong>Everything to draw at this frame:</strong> the magnified and minified tiles covering the window. Pins what is visible, then evicts.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">ownContent(F)</td><td class="wt">The active frame's own objects — a plain read, and that is the whole point of cutting a ceded tile out of the parent rather than recording a rectangle over it.</td><td class="ref">§9 §10</td></tr>
+    <tr class="hi"><td class="fn">_ensureUp · _bakeUp(F, i, j)</td><td class="wt"><strong>The magnify chain.</strong> Build this tile from the parent's tiles, plus the parent's own objects, plus the ring of neighbours. Chained one level at a time, because a composed jump upward cancels.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">_ringNatives(parentId, rect)</td><td class="wt"><strong>The uncle pickup:</strong> the eight neighbouring boxes' objects at every step. Invariant 2 is what makes it complete, and neighbouring origins differ by whole boxes so the translation is exact.</td><td class="ref">§5 §9</td></tr>
+    <tr><td class="fn">_solid(o, rec, rect)</td><td class="wt">A tile-covering quad, overlapped into its neighbours.</td><td class="ref">§8</td></tr>
+    <tr><td class="fn">_ensureDown · _bakeDown(F, i, j)</td><td class="wt"><strong>The minify path.</strong> Every non-ancestor box at or below this depth, projected in one jump — safe at any distance because coordinates only shrink. Sub-pixel content is culled and near-threshold content is size-tagged for the fade.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">_downPieces(...) <span class="pill div">divergence</span></td><td class="wt">One minified piece clipped to one tile — and <strong>flattened to polygons.</strong> Safe only because such a tile is a leaf that nothing inherits.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">_onDoc · _removeObject<br>_addObject · _appendUp<br>_appendDown · _overlaps</td><td class="wt">Incremental patching: one edit is cheaper to patch in than to re-derive, so a tile is rebuilt only when correctness needs it.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">_evict · _evictPerLevel</td><td class="wt">Least-recently-used, globally and per frame, never touching what is on screen.</td><td class="ref">§3</td></tr>
+    <tr><td class="fn">size · _tileKeys</td><td class="wt">Inspection. <em>Test-facing.</em></td><td class="ref"></td></tr>
+  </table></div>
+</article>
+
+<article class="file sp" id="Renderer">
+  <header>
+    <h3>Renderer.js <span class="lines">1,577 lines</span></h3>
+    <p class="role">The only file that touches the drawing library. One group per object kept in drawing order, and a per-frame difference. <em>Decides nothing about what is visible.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">pushCubicChain · pushGapAnchors<br>pushShapeAnchors</td><td class="wt">Arcs into the library's anchors. A curve's two handles belong to <em>different</em> anchors, which is what makes the chain streamable — the live pen extends its path in constant time instead of rebuilding it.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">mkPath(verts, ...)</td><td class="wt">Never hand the library an unbounded array: its collection constructor gives out past about 131,000 anchors, and a fat stroke reaches that <em>by being drawn</em> — surfacing as a crash with no ink rather than a slow render.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">constructor · destroy<br>setSize · update</td><td class="wt">Lifecycle. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn wide">_gatePx · _fatOnScreen<br>_fatEver · _strokeMode</td><td class="wt">The fat-stroke gate: a stroke that could ever paint wider than the limit is drawn as its outline, because browser stroking of enormous widths misbehaves.</td><td class="ref">§3 §9</td></tr>
+    <tr class="hi"><td class="fn wide">needsFatFlip · needsFadeFlip<br>hasPendingNearFat · needsRebake<br>_windowCovered · outlinePad</td><td class="wt">When a camera-only frame is <em>not</em> enough. <strong><code>needsFadeFlip</code> is the fix for the fading-piece defect:</strong> grouping is decided during a full render but fading depends on the live camera, so the camera-only path could reapply opacity without regrouping.</td><td class="ref">§9 §16</td></tr>
+    <tr class="hi"><td class="fn wide">render(list, level)</td><td class="wt"><strong>The per-frame difference.</strong> Group by object — or by family, when a family is fully present — compare signatures, rebuild only what changed, insert at the id-sorted position.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">syncCameraOnly()</td><td class="wt">A pure camera move: one transform, plus opacity for faded groups. No geometry rebuild at all.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">syncWorld()</td><td class="wt">Fold the scene's origin into the world transform <em>in full precision</em>, so the cancellation happens here and nothing large ever reaches the browser's lower-precision maths.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">_origin · _viewCenter · _driftPx<br>needsReorigin · _maybeReorigin</td><td class="wt">The per-scene local origin, re-anchored when the view drifts too far. Never mid-stroke — the live path's anchors are origin-relative and a swap under the pen would desync them.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">_activateLevel · _evictScenes</td><td class="wt">A retained subtree per level, so a crossing swaps a subtree in instead of rebuilding every path. Capped at eight.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">_insertSorted(id)</td><td class="wt">Binary search for the drawing-order position. The pen's hot path only ever appends, because a live stroke has the highest id.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">_isTemporary · _debugColor<br>_colorOf</td><td class="wt">Colour, and the debug colouring that shows which role a piece arrived by.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn wide">_opacityOf · _applyOpacity · _fade</td><td class="wt">The continuous fade across the sub-pixel cull, so content shrinks out of existence smoothly rather than popping.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">_sig(o, vw)</td><td class="wt">A piece signature — same signature, same geometry, reuse the paths. <strong>Must include coordinates, not counts:</strong> scrolling the tile set by one swaps pieces without changing any count, and a count-only signature leaves stale paths on screen.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">_buildPieces · _addFillPath<br>_addShapePath · _buildInto</td><td class="wt">Build a group's paths. A family's fill pieces go into <em>one</em> path, so coverage accumulates before anything composites and there is no seam to cover.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn wide">_applyThinScale <em>(static)</em></td><td class="wt"><strong>The thin-object rescale.</strong> Chrome drops a filled path whose features are too small <em>in the numbers handed over</em>, however much the transform then enlarges them. Multiply the object's anchors by a power of two and divide its own group transform by the same — pixel-identical by construction.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">ensureOutline · _buildOutlineInto<br>_fatPolys</td><td class="wt">Fat strokes as filled capsule outlines, fitted lazily and on approach rather than all at once.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">addLive · setLiveArcs · extendLive<br>setLiveEnd · endLive</td><td class="wt">The in-progress stroke, drawn outside the diff so it is immediate — and drawn from the pen's own arc chain, so the ink does not change shape at pen-up and again when the outline lands.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn wide">setSelection · setLasso<br>refreshSelection<br>selectionDrawable · _renderSelection</td><td class="wt">The selection box and the lasso loop. Drawn only while it could actually be seen — a box more than three viewports across is a performance trap, not a cosmetic one.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">setSelectionAnts<br>_renderSelOverlay · _buildSelOverlay<br>_dropSelOverlay · _d · _len<br>_fitDash · _poolTo<br>_ensureSelStyle · _selCss</td><td class="wt">The marching-ants indicator: a band on the object's own silhouette with tile joins dropped, plus marks and arrows at the screen edge where the object carries on past the view.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">setOpacityGroups · setOutlineMode<br>setLazyOutlines · setRetainScenes<br>setDebug · setTileDebug<br>setEraseDebug · bumpAll · clear</td><td class="wt">Settings. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn wide">_renderEraseDebug · _renderTileDebug</td><td class="wt">The debug overlays: tile rectangles, and what an erase actually touched.</td><td class="ref">§15</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 5 ═══════════ -->
+<div class="layer">
+<h2><span class="num">05</span> Connectivity and hits</h2>
+<p class="lsub">Is it still one object, and did you click on it</p>
+
+<article class="file ob" id="connect">
+  <header>
+    <h3>connect.js <span class="lines">206 lines</span></h3>
+    <p class="role">Connectivity across a ceded doorway. <em>Everything here rounds towards still-whole: an object wrongly left whole merely drags as one lump; one wrongly severed comes apart in the user's hands.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">asRect(r)</td><td class="wt">Accept either rectangle shape. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn">sidesOf(R, x, y, tol)</td><td class="wt">Which sides of the doorway a point lies on. A corner lies on <em>two</em>, which is why this is a list — a ring turning the corner has to stay on the boundary through it, or one contact reads as two.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn">tOn(R, side, x, y)</td><td class="wt"><strong>A point's place in the perimeter parameter, 0 to 4.</strong> Normalised, so the parent measuring in its units and the child measuring the same rectangle 4,096× larger give the same number — no transform is ever composed across the crossing. <em>The left side runs to 4, never round to 0</em>: wrapping it turned a short arc into one spanning almost the whole perimeter, and severance never fired at any depth.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">merge(arcs, eps)</td><td class="wt">Coalesce touching intervals, so a ring with a thousand boundary vertices costs what a simple one costs.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">contactArcs(rings, rect, tol)</td><td class="wt">Where a piece's ink meets the doorway, as intervals.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn">arcsTouch(A, B, tol)</td><td class="wt"><strong>Do two pieces meet along the same stretch of doorway?</strong> This one question is the whole severance test. Compares against ±4 shifts — that is where the circularity belongs, and nowhere else.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">tOfPoint · arcOverlaps</td><td class="wt">The rest of the perimeter arithmetic.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">Groups: add · find<br>union · classes</td><td class="wt">Union-find. The family graph's connected components — the object is severed exactly when the graph falls apart.</td><td class="ref">§10</td></tr>
+  </table></div>
+</article>
+
+<article class="file mu" id="hittest">
+  <header>
+    <h3>hittest.js <span class="lines">70 lines</span></h3>
+    <p class="role">Distances and inside-ness for clicking.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">distToPolyline · distPointToSeg<br>distSegToSeg · distSegToPolyline</td><td class="wt">How far a click is from a stroke's centreline.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn">capsuleTouchesRings(a,b,r,rings)</td><td class="wt">Does a pen-width capsule touch this ink?</td><td class="ref">§12</td></tr>
+    <tr><td class="fn">windingOfPoint(rings, p)</td><td class="wt">Inside or outside, for polygon rings.</td><td class="ref">§12</td></tr>
+  </table></div>
+</article>
+
+<article class="file mu" id="lasso">
+  <header>
+    <h3>lasso.js <span class="lines">61 lines</span></h3>
+    <p class="role">The enclosure test the selection rule rests on.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">pointInPolygon(poly, p)</td><td class="wt">Is a point inside the loop?</td><td class="ref">§12</td></tr>
+    <tr><td class="fn">segsCross(a, b, c, d)</td><td class="wt">Do two segments cross?</td><td class="ref">§12</td></tr>
+    <tr><td class="fn">rectInsidePolygon(poly, rect) <span class="pill div">divergence</span></td><td class="wt"><strong>Is a rect fully inside the loop?</strong> The selection test — and the divergence of §12, because it tests the object's upright rectangle and not its ink.</td><td class="ref">§12</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 6 ═══════════ -->
+<div class="layer">
+<h2><span class="num">06</span> Pre-arc geometry, still running</h2>
+<p class="lsub">Kept for flattening and stroking — no boolean in the live engine goes through any of it</p>
+
+<article class="file mu" id="clipperOutline">
+  <header>
+    <h3>polyline.js &middot; clipperBoolean.js <span class="lines">465 + 219 lines</span></h3>
+    <p class="role">Polyline and cubic geometry, split in two on 2026-08-31 so the names stop lying. <em><code>polyline.js</code> is plain float64 with no coordinate ceiling and is what sits on the hot path; <code>clipperBoolean.js</code> holds the only three functions still on Clipper&rsquo;s integer lattice, and its header names every caller they have left.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">controlsFor(a, b, c)</td><td class="wt">Spline control points, matching what the app draws.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">flattenCubic · flattenCurve</td><td class="wt">A curve to chords at a tolerance.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">rectDistMin · rectDistMax<br>flattenCubicNear · flattenCurveNear</td><td class="wt">Flatten <em>only</em> the ring that can shape a window's band edge. Without the prune, one magnified stroke ran to millions of nodes and crashed outright.</td><td class="ref">§9</td></tr>
+    <tr class="hi"><td class="fn">maxMagnitude · capScale<br>localFrame · pickScale</td><td class="wt"><strong>Pick the integer scale from the geometry's own extent, then snap the origin onto that same grid.</strong> Both halves matter: local, so the scale follows the shape's size rather than its position; snapped, so it is still the global grid and two booleans over abutting geometry cannot round a shared edge two ways. Before this, error tracked how far the drawing had been panned — 137 px at 2×10<sup>7</sup> from the origin.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn">strokeOutline(points, width)</td><td class="wt">A stroke to filled rings, matching what the browser actually paints.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">ringSignedArea · netRingsArea<br>capsulePoly</td><td class="wt">Measures and a capsule primitive.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">subtractPolys(...) <span class="pill dead">no live caller</span></td><td class="wt">The integer boolean. Reached only from the dead recipe module and from tests — which is what makes "no grid anywhere" true rather than aspirational.</td><td class="ref">§11 §17</td></tr>
+    <tr><td class="fn">clipPolysToRect · windingAt<br>clipRingsToRect</td><td class="wt">Float ring clipping with winding preserved, so holes stay holes. This is what the tile paths actually use.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">strokeStripNear(pts, width, rect)</td><td class="wt">The analytic band: exact inside a window, linear in the centreline, and magnification-independent — the escape from an offset that goes quadratic in self-intersections.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">decimatePolyline(pts, tol)</td><td class="wt">Drop points a known resolution cannot show. One ring per segment means the point count <em>is</em> the ring count.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">clipSeg · clipPolylineToRect</td><td class="wt">Clip a centreline to a rect.</td><td class="ref">§9</td></tr>
+  </table></div>
+</article>
+
+<article class="file mu" id="curveOutline">
+  <header>
+    <h3>curveOutline.js <span class="lines">444 lines</span></h3>
+    <p class="role">The capsule-outline path. <em>Still used for two things: displaying very wide strokes, and flattening ink for the connectivity walk.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">cubicAt · cubicTangent<br>splitCubic · lineCubic<br>chordDeviation</td><td class="wt">Curve primitives.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">arcSegments · capArcs · circleLoop</td><td class="wt">Round joins and caps as curves.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">tillerHanson · offsetError<br>fitOffset</td><td class="wt">Fit an offset curve to a tolerance — <strong>the approximation §7 exists to avoid.</strong> Kept because a display outline can afford it and an exact cut cannot.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">reverseSegs · chain · tamePiece<br>runCapsule</td><td class="wt">One capsule around a <em>run</em> of consecutive segments rather than one per pen sample: roughly 15,000 outline segments down to 1,000 on a long freehand stroke.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">strokeOutlineCurves · lineLoops</td><td class="wt">The outline as curve loops.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">strokeLoops(o, cfg, opts)</td><td class="wt">The loops the renderer paints for a wide stroke — built once, exact at every in-level zoom.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">loopsBbox · flattenLoops · flattenSeg</td><td class="wt">Measure and flatten. What the connectivity walk reads.</td><td class="ref">§10</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 7 ═══════════ -->
+<div class="layer">
+<h2><span class="num">07</span> The facade</h2>
+<p class="lsub">KobinEngine.js · 3,505 lines · routes input to the right collaborator and merges the result</p>
+<p>It holds no geometry and no ordering logic of its own. Split here into six groups by what they are for, because reading it as one list tells you nothing.</p>
+
+<article class="file ob" id="engine-diag">
+  <header>
+    <h3>KobinEngine · instruments <span class="lines">≈ 300 lines</span></h3>
+    <p class="role">Four instruments, running at once. <em>They exist because a timer inside the engine reported 11 ms while the browser reported a 1.5-second frame — a gap that cost four wrong diagnoses.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr class="hi"><td class="fn">LongFrames: start · _take<br>report · stop</td><td class="wt"><strong>The browser's own account of a slow frame:</strong> how much was script, which functions, how much was forced layout, and what is left over for painting — the one number no timer inside the engine can ever see.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn">EventLatency: start · _take<br>report · stop</td><td class="wt">Input to pixels, straight from the browser.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn">GrowthLog: maybeSample · report</td><td class="wt">What accumulates over a session — object counts, cached tiles, empty buckets.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn">FrameMeter: poke · _start<br>record · report · stop</td><td class="wt">Frame timing, always on because it costs nothing until something is slow.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn">notePerf · _perf · _noteFast<br>fastStats · _thin</td><td class="wt">The operation log. High-frequency operations are <em>aggregated</em>, or a single pinch would evict everything else; the 8 ms floor is what once hid a session with 62 seconds elapsed and 157 ms recorded.</td><td class="ref">§15</td></tr>
+    <tr class="hi"><td class="fn">_note(entry)</td><td class="wt"><strong>The journal:</strong> what the user did, not what the document became. Which erase, where, at what zoom, what it cut, whether the object came apart — <em>and why anything was refused.</em></td><td class="ref">§15</td></tr>
+    <tr><td class="fn">reportFamilies · _keepDebugMark<br>_eraseDebugOverlay</td><td class="wt">Diagnostics for multi-level families and for what a mark actually touched.</td><td class="ref">§15</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="engine-life">
+  <header>
+    <h3>KobinEngine and the files mixed onto it</h3>
+    <p class="role">Wiring, settings, the two render paths &mdash; and, since the 2026-08-31 split, the five files whose methods <code>engine/mixin.js</code> copies back onto this same prototype: <code>erasePipeline</code>, <code>overlays</code>, <code>selection</code>, <code>sceneOps</code>, <code>files</code>. They are still the engine&rsquo;s methods; they live in another file. <code>instruments</code>, <code>rectMath</code>, <code>mixin</code> and <code>now</code> are the small pieces that came out with them.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">constructor · resize · destroy</td><td class="wt">Wires the collaborators together and subscribes to the document so a vanishing object cannot leave a stale selection.</td><td class="ref">§4</td></tr>
+    <tr><td class="fn">activeLevel · inScale · inPanX<br>inPanY · nativesByLevel<br>crossings · levelObjects<br>tiles · _hasFat</td><td class="wt">The compatibility surface the interface and the tests read. <em>Pass-throughs.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn">setTool · setPenType · setColor<br>setWidth · setOpacity<br>setEraserSize · setOutlineMode<br>setOpacityGroups · setDebug<br>setPreBake · setTrace<br>setRetainScenes · setScaleDef<br>setLazyOutlines · setKDebug<br>setTileDebug · setEraseDebug</td><td class="wt">Tool and diagnostic settings. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn">_buildList()</td><td class="wt">Merge the tile pieces and the active frame's own objects <strong>in id order</strong> — so a newer object always draws over an older one regardless of which class it arrived by.</td><td class="ref">§9 §12</td></tr>
+    <tr><td class="fn">_render · _visibleChanged</td><td class="wt">Render, or decide a camera-only sync is enough.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">panBy · zoomAt · zoomFactorAt<br>pinchUpdate</td><td class="wt">Input to the camera, then settle and re-render once.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn">_maybePrebake · _queueIdleFits</td><td class="wt">Define and bake the next level's tiles <em>early</em>, near a crossing, and fit outlines while idle.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn">_emit · _effectiveZoom<br>_levelPointToScreen · _objs<br>_fatOnScreen · _outlinePad<br>_frameWindow · _debugTileRects</td><td class="wt">Status reporting and the ported display invariants.</td><td class="ref">§15</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="engine-input">
+  <header>
+    <h3>KobinEngine · pointer and pen</h3>
+    <p class="role">Drawing, and the resolve queue behind it.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">pointerDown · pointerMove<br>pointerUp</td><td class="wt">Timed at the boundary, so the cost of a gesture is measured where the user feels it.</td><td class="ref">§15</td></tr>
+    <tr class="hi"><td class="fn">_pointerDown · _pointerMove<br>_pointerUp</td><td class="wt"><strong>Everything a gesture can be:</strong> draw, erase, pan, lasso, drag. Pen-up journals the stroke, finalises it, queues the resolve, and pushes exactly one undo entry.</td><td class="ref">§7 §10 §12</td></tr>
+    <tr><td class="fn">_startPen(o, straight)</td><td class="wt">Attach the live arc chain, at a tolerance set by the zoom it is drawn at — the moment the raw stroke is swapped for its outline is the only moment the difference could be seen.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">cancelStroke()</td><td class="wt">Abandon the in-progress stroke.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">_queueBake · _ensureShapeBakes<br>_stepShapeBakes</td><td class="wt">The pen-up resolve queue, run in slices. <code>_ensureShapeBakes</code> is the guarantee that no stroke is left raw for ever — after a load, an undo, or a job dropped because its object went away.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">flushBakes · _forceBake(o)</td><td class="wt">Resolve now: for tests, and wherever an erase has reached an object that has not resolved yet.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn">_sealed(res, w)</td><td class="wt">An outline that does not close is sealed rather than refused — the stroke has to become <em>something</em> — and how much edge was fabricated is recorded, because a seal a fifth of the pen wide is invisible and one at 45% is a line drawn across the stroke.</td><td class="ref">§7</td></tr>
+    <tr class="hi"><td class="fn">_promoteOversize(id)</td><td class="wt"><strong>Invariant 2, enforced.</strong> A stroke wider than a box is promoted to the level above, dividing every coordinate by 4,096 — a change of units, not a loss of accuracy.</td><td class="ref">§5</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="engine-erase">
+  <header>
+    <h3>KobinEngine · erasing</h3>
+    <p class="role">The instant mark, the background cut, the descent, and the question of whether the object came apart.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">eraseAt · _eraseWhole(id)</td><td class="wt">The whole-object eraser.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">setEraserSize(px)<br>_zOf · _doneSet</td><td class="wt">Eraser size and bookkeeping. <em>Plumbing.</em></td><td class="ref"></td></tr>
+    <tr><td class="fn wide">_eraseStrokes()</td><td class="wt">Eraser gestures whose own outline has resolved, oldest first. One still raw is not skipped — it is simply not ready yet.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_scheduleBake(delay)</td><td class="wt">One timer, and the soonest request wins — otherwise a pending erase would delay every stroke's resolve behind it.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn wide">_camBusy · _bakeTick<br>_bakeTickInner</td><td class="wt"><strong>The background loop.</strong> Resolve outlines first (an eraser cannot be subtracted until it has one), then fold erasers into ink in slices — charging the next object at what the last one actually cost, and never starving for more than a second and a half.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_nextEraseTarget(Erec)</td><td class="wt">The first unhandled object under this eraser. <em>Reachability is the only bar</em> — the old depth guard silently did nothing past five crossings, so the gesture painted, the mark was consumed, and no ink was ever removed.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_eraseMayTouch(E, HE, o, HO)</td><td class="wt">A cheap prefilter in the target's frame, projecting the eraser's <em>box</em> and not its geometry. The old form put a whole perimeter inside a loop that runs once per object per scan: 128 ms per slice on a crowded screen.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_eraseOp(E)</td><td class="wt">Resolve the gesture's undo entry <strong>before</strong> touching the document — a cut that cannot record itself must not happen, because unrecorded cuts were how duplicated, stacked geometry formed.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn wide">_bakeOne(Erec, target)</td><td class="wt"><strong>The cut.</strong> In place when the object is at or below the erase level, otherwise cede downward. Works local to the <em>subject</em>, refuses grazing touches, culls the dust, and asks about severance only when a cut left several regions inside a family.</td><td class="ref">§10 §11</td></tr>
+    <tr><td class="fn wide">_cull(groups, w)</td><td class="wt">Drop the dust, and keep a tally — so a test can assert the cull is doing work rather than that the case never arose.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_noteSeal(res, subject)</td><td class="wt">Count the booleans that had to be sealed. A rise here is the stitch getting worse.</td><td class="ref">§11</td></tr>
+    <tr><td class="fn wide">_inkOutline(o, tol)</td><td class="wt">An object's ink as polygons — for the connectivity walk, and nothing else.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn wide">_inkShapeInRect(o, HF, F, R) <span class="pill div">divergence</span></td><td class="wt">An object's ink inside a rect, one bounded hop, computed local to the rect. <strong>This is where the erase path skips the chop and the freeze</strong> — the ink arrives as unfrozen arcs, so the cut is made against the curve the render chain has already replaced with a line.</td><td class="ref">§8</td></tr>
+    <tr class="hi"><td class="fn wide">_familyMembers · _familyComponents</td><td class="wt"><strong>The family graph.</strong> Every member is a node; two are joined when their ink meets on the same stretch of a ceded doorway. Asks a <em>geometric</em> question, not whether two boxes are formally parent and child — re-homing can settle two members on different branches in the same place.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_resplitFamily(op, key)</td><td class="wt">Severance as pure re-labelling. No geometry is touched, because ceding already left the parent in pieces. The first component keeps the original key so an existing selection stays valid.</td><td class="ref">§10</td></tr>
+    <tr class="hi"><td class="fn wide">_bakeRehome · _bakeRehomeInner</td><td class="wt"><strong>The descent, one crossing at a time.</strong> At each step cede the <em>block</em> of tiles the erase falls in — unioned with the box the next step is about to enter — hand the ink down, and cut only at the last step.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn wide">_rehomeBail · _noteSpent</td><td class="wt">Record <em>why</em> a cede refused, and what a spent mark looked at. A refusal is otherwise invisible, and invisible refusal is exactly what "I erase and it just disappears" looks like.</td><td class="ref">§15</td></tr>
+    <tr><td class="fn wide">_flushErasesFor · flushErases<br>_settleSelectionErases</td><td class="wt">The barrier: nothing is dragged out from under a mark that has not been applied yet, or the ink takes its un-erased shape with it and the mark stays behind to cut whatever arrives.</td><td class="ref">§10</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="engine-select">
+  <header>
+    <h3>KobinEngine · selection and moving</h3>
+    <p class="role">Clicking, lassoing, dragging — and the marching-ants geometry.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">_isSelected(o)<br>_selectableRects · _rectInActive</td><td class="wt">Candidates and their rectangles in the active frame.</td><td class="ref">§12</td></tr>
+    <tr class="hi"><td class="fn wide">_lassoFind(poly)</td><td class="wt"><strong>The tree query.</strong> Every box gets one of three answers — out of reach, enclosed (take the whole subtree with no per-object test), or straddling (ask its index and recurse). Walks <em>outward</em> from the current box, because from the root the scale factor would be 4,096<sup>depth</sup> before the first useful comparison.</td><td class="ref">§6 §12</td></tr>
+    <tr><td class="fn wide">_setSelection · _toggleSelected<br>_applyLasso · select · deselect</td><td class="wt">Selection state, including the ctrl rules: a loop overlapping the selection adds, one drawn purely inside removes.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">_selectionRect()</td><td class="wt">The selection box the Renderer draws, in the active frame.</td><td class="ref">§12</td></tr>
+    <tr class="hi"><td class="fn wide">_dragSelection(sx, sy)</td><td class="wt"><strong>The move.</strong> Everything a whole box or larger becomes a change of address; only the sub-box leftover reaches geometry. Every member expands the <em>same</em> displacement, so members sharing an ancestor take identical digits and cannot drift apart.</td><td class="ref">§6</td></tr>
+    <tr><td class="fn wide">_normalizeHome(id)</td><td class="wt">Put an object back inside its own box after a move, so invariant 2 holds again before anything else looks at the document.</td><td class="ref">§5</td></tr>
+    <tr><td class="fn wide">_selectionMembers · deleteSelection<br>_selectionStatus</td><td class="wt">Every object the selection covers — each id plus the rest of its family — and what happens to them.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">_shapeHit · hitTestAt · _hitTest</td><td class="wt">Clicking: the topmost thing under the cursor. This is how you reach something at depth, where no loop can bound anything.</td><td class="ref">§12</td></tr>
+    <tr><td class="fn wide">_outlineInView · _splitOnJoins<br>_familyJoinNotes · _selectionAnts<br>_selEdgeSpans · _selInkRings<br>_emitAntRing · _emitOutlineRing</td><td class="wt">The marching-ants geometry: the silhouette clipped to the view, with tile joins and family joins dropped so the indicator traces the <em>object</em> rather than how it happens to be stored.</td><td class="ref">§12</td></tr>
+  </table></div>
+</article>
+
+<article class="file ob" id="engine-files">
+  <header>
+    <h3>KobinEngine · undo, files, scenes</h3>
+    <p class="role">The boundary between the engine and everything that outlives a session.</p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">undo · redo · clear</td><td class="wt">One gesture is one action. Re-schedules background work afterwards, because an undo can leave strokes unresolved.</td><td class="ref">§10</td></tr>
+    <tr><td class="fn">snapshot · loadSnapshot</td><td class="wt">The development snapshot, kept verbatim for tests and tools — and the shape a bug report carries, which is how a browser bug becomes a failing test offline.</td><td class="ref">§15</td></tr>
+    <tr class="hi"><td class="fn">serializeDrawing · loadDrawing</td><td class="wt"><strong>The real save format.</strong> Loading settles the camera into a legal state, which is what stopped the first interaction after opening a file paying for a whole crossing.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn">_sceneKey · _sceneProj<br>refreshScenes · _noteInkAdded</td><td class="wt">Scene discovery, and the provisional assignment a new stroke gets immediately.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">jumpTo · sceneZoom<br>captureView</td><td class="wt">Go to a scene at its natural zoom; capture the current view as one by hand.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">renameScene · deleteScene<br>splitScene</td><td class="wt">The manual overrides the design leans on instead of making discovery cleverer.</td><td class="ref">§14</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 8 ═══════════ -->
+<div class="layer">
+<h2><span class="num">08</span> Features</h2>
+<p class="lsub">Two things built on the engine, obeying its constraints</p>
+
+<article class="file mu" id="scenes">
+  <header>
+    <h3>scenes.js <span class="lines">620 lines</span></h3>
+    <p class="role">Automatic scene discovery. <em>Three primitive shapes only — rectangle overlap, one-crossing projection, one weighted sort — and no physical screens anywhere in the maths.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Function</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">depthFn · normKey · childrenFn</td><td class="wt">Frame-key helpers, defaulting to depth semantics so numeric callers are unchanged.</td><td class="ref">§14</td></tr>
+    <tr class="hi"><td class="fn">joinDist · rectGapX · rectGapY<br>withinGap · widthOf</td><td class="wt"><strong>Every distance is relative to stroke width</strong>, which already encodes the zoom the ink was drawn at and is identical on every device — so the same drawing yields the same scenes on a phone and a desktop.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">chunksOf(o)</td><td class="wt">A stroke split into window-sized chunks, so a long diagonal is not one enormous box.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">outerBox · mapChunks</td><td class="wt">Geometry through a single crossing — never more, because no global frame exists.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">itemsAtLevel · itemsJoin<br>clusterItems · itemsJoinScaled</td><td class="wt">Cluster the ink at one level, and across an adjacent pair.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">median · membersHash · levelHash</td><td class="wt">A cluster's identity, so a scene survives an edit instead of being reinvented.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">frameOfItems(items)</td><td class="wt">The scene's rectangle: the 90% ink core by painted mass, padded — so one stray mark does not define the view.</td><td class="ref">§14</td></tr>
+    <tr class="hi"><td class="fn">computeSceneProposals(...)</td><td class="wt"><strong>The whole discovery pass.</strong> No minimum size and no minimum stroke count: the tiniest dot drawn thousands of times deeper is a scene, which is the entire point of the feature.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">buildScene · pocketize</td><td class="wt">A scene, and the much-finer ink inside it as nested scenes, recursively — guarded so a nested scene must be meaningfully smaller than its parent, or it is just the parent's view again.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">topoOrder(flat)</td><td class="wt">Top scenes by size, each followed by its subtree.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">rectIoU · framesIoU · matchScenes</td><td class="wt">Match fresh proposals to existing scenes, so names, pins and captures survive a redraw.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">resolveCapture · ratioOfExtents<br>centerInside</td><td class="wt">What a manual capture attaches itself to.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">splitMembers(...)</td><td class="wt">Split a scene by hand — the escape hatch, in place of a cleverer rule.</td><td class="ref">§14</td></tr>
+  </table></div>
+</article>
+
+<article class="file mu" id="scalebar">
+  <header>
+    <h3>scaleBar/ <span class="lines">18 modules · ≈1,900 lines</span></h3>
+    <p class="role">A rule-based engine, not a formula: how big is what you are looking at, from the astronomical to below an atom. <em>Listed per module — it is self-contained, and its internals answer to its own specification rather than to the engine's.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn">Module</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr><td class="fn">constants.js</td><td class="wt">Bar size targets, the hysteresis band, the thresholds at which the picker becomes a table.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">catalog.js</td><td class="wt">Every unit: its size, its name, its prefix rules.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">membership.js · ladder.js</td><td class="wt">Ladders — which units belong together, their priority, and their neighbours.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">logMath.js</td><td class="wt">Everything in log space, so a range spanning sixty orders of magnitude is linear.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">nice.js</td><td class="wt">The round numbers a bar is allowed to show, per unit.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">preference.js<br>preferenceRange.js</td><td class="wt">Which band of units is in force — the standard one, or the user's.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">logicRule.js</td><td class="wt">The named rules a candidate reading is tested against.</td><td class="ref">§14</td></tr>
+    <tr class="hi"><td class="fn">resolve.js</td><td class="wt"><strong>The resolution: the lowest in-range number that qualifies.</strong> One rule, applied everywhere, instead of per-case special handling.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">pick.js · rungs.js</td><td class="wt">The user choosing a unit, and which units appear in the popover and the set-scale table.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">session.js</td><td class="wt">A reading persists until the zoom leaves the band it was set in.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">format.js · validate.js</td><td class="wt">The label, and validating a saved scale definition.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">index.js</td><td class="wt"><code>computeScale</code> — the one entry point the rest of the app uses.</td><td class="ref">§14</td></tr>
+    <tr><td class="fn">testSupport.js</td><td class="wt"><em>Test-only.</em></td><td class="ref"></td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 9 ═══════════ -->
+<div class="layer">
+<h2><span class="num">09</span> Shell</h2>
+<p class="lsub">Everything between the engine and the person</p>
+
+<article class="file mu" id="shell">
+  <header>
+    <h3>hooks · storage · cloud · pages</h3>
+    <p class="role">The engine's lifecycle, where drawings live, and the interface. <em>None of it holds geometry.</em></p>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">File</th><th>What it does in the design</th><th class="ref">§</th></tr>
+    <tr class="hi"><td class="fn wide">hooks/useKobinEngine.js<br><span class="pill div">open defect</span></td><td class="wt">Mount, pointer wiring, tool state, autosave. <strong>This is where autosave fails silently when browser storage fills</strong> — the drawing then exists only in the open tab.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">storage/localCanvases.js<br><span class="lines">417 lines</span></td><td class="wt">The local gallery: slots, the index, the recycle bin, duplicate and rename, overwrite protection, thumbnails, and the migration off the single legacy autosave slot.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">storage/thumbnails.js</td><td class="wt">Render a canvas thumbnail for the gallery.</td><td class="ref">§13</td></tr>
+    <tr class="hi"><td class="fn wide">cloud/canvasSync.js<br><span class="lines">227 lines</span></td><td class="wt">Compress, split into 700 KiB chunks, commit in groups — and <strong>write the parent record last</strong>, because readers key off it, so an interrupted save never looks complete. Metadata stays on the parent so listing the gallery downloads no drawings.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">cloud/useUser.js<br>cloud/firebaseApp.js</td><td class="wt">Sign-in, and the connection.</td><td class="ref">§13</td></tr>
+    <tr><td class="fn wide">Pages/CanvasEditor.js<br>Pages/CanvasesV2.js<br>Pages/HomeV2.js · CanvasV2.js</td><td class="wt">The editor shell, the gallery, and the development harness.</td><td class="ref"></td></tr>
+    <tr><td class="fn wide">Components/editor/*<br>Components/ui/*</td><td class="wt">Toolbars, colour and width pickers, dialogs, the scale-bar controls, and the scientific-notation text used for very large and very small readings.</td><td class="ref">§14</td></tr>
+  </table></div>
+</article>
+</div>
+
+<!-- ═══════════ LAYER 10 ═══════════ -->
+<div class="layer">
+<h2><span class="num">10</span> Not running</h2>
+<p class="lsub">In the tree, imported by nothing that ships</p>
+
+<div class="callout warn">
+  <span class="lbl">Why this section exists</span>
+  <p>Two of these files carry long, confident header comments describing how erasing and ceding work, and three live source files still point readers at one of them for the authoritative account. Neither describes anything the code does. <strong>Their cost is not bytes — it is that they read as current.</strong></p>
+</div>
+
+<article class="file mu" id="dead">
+  <header>
+    <h3>Dead, and oracle-only</h3>
+  </header>
+  <div class="tw"><table>
+    <tr><th class="fn wide">File</th><th>Status</th><th class="ref">§</th></tr>
+    <tr><td class="fn wide">geometry/erase.js<br><span class="lines">337 lines</span></td><td class="wt"><span class="pill dead">dead</span> The "carry the cut as a recipe and re-subtract it at every bake" model. Reversed by decision in 2026-08-05; the file was left behind. <strong>Zero production importers.</strong></td><td class="ref">§17</td></tr>
+    <tr><td class="fn wide">geometry/cede.js<br><span class="lines">369 lines</span></td><td class="wt"><span class="pill dead">dead</span> The guillotine cede and its connected-chunk grouping. Replaced by the exact arc boolean in <code>Document.cedeTileById</code>. <strong>Zero production importers</strong> — but <code>TileStore.js</code>, <code>derive.js</code> and <code>clipperOutline.js</code> all still refer readers to it.</td><td class="ref">§17</td></tr>
+    <tr><td class="fn wide">geometry/curvePerimeter.js<br>geometry/strokeShape.js<br>geometry/bakeStrategies.js<br><span class="lines">2,588 lines</span></td><td class="wt"><span class="pill key">oracle</span> The pre-arc bake, kept deliberately as the independent implementation the arc tests compare against — and driven by the labs. Not dead; not shipping either.</td><td class="ref">§7</td></tr>
+    <tr><td class="fn wide">KobinEngineV0.js<br><span class="lines">1,141 lines</span></td><td class="wt"><span class="pill key">oracle</span> The previous engine, kept so <code>deriveStep</code> can still be compared against it byte for byte — the discipline of generalising and then proving the original parameters give the original answer.</td><td class="ref">§9</td></tr>
+    <tr><td class="fn wide">Pages/ArcPen.js<br>Pages/ArcBake.js<br>Pages/BakeLab.js</td><td class="wt"><span class="pill key">lab</span> The pen sandbox, the resolve sandbox, and the harness that drives the old bake schedules for comparison.</td><td class="ref">§7</td></tr>
+  </table></div>
+</article>
+</div>
+
+<footer>
+  Compiled by tracing imports and call sites at f92c1d1, not by reading the design documents — which is why the dead files and the divergence markers are here at all.<br><br>
+  Design sections referenced throughout: <a href="https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56">The bound.less Logical Design</a>.
+</footer>
+
+</main>
+</div>
+</div>

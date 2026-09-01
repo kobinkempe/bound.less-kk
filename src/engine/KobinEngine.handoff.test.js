@@ -15,7 +15,7 @@
  * The INVARIANT is what mattered, so the invariant is what is kept.
  */
 import KobinEngine from "./KobinEngine";
-import { flattenCurve } from "./geometry/clipperOutline";
+import { flattenCurve } from "./geometry/polyline";
 import { windingOfPoint, distToPolyline } from "./geometry/hittest";
 import { insideShape } from "./geometry/arcShape";
 

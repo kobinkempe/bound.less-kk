@@ -35,7 +35,7 @@
  */
 
 import { validateScaleDef } from "./scaleBar";
-import { inDigit, tilePhase, W as FRAME_W } from "./frameLattice";
+import { inDigit, tilePhase } from "./frameLattice";
 import { validEncodedLoops, encodedLoopsWellFormed, repairLoops, decodeLoops, encodeLoops } from "./geometry/arcShape";
 
 export const FORMAT = "boundless-drawing";
@@ -144,7 +144,6 @@ function validRect(r) {
     return r && isFiniteNum(r.x) && isFiniteNum(r.y)
         && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
 }
-// A frame key: an integer depth (spine) or a "<depth>~<n>" sibling frame id.
 // A frame key: a depth int (the spine, still written that way) or a lattice
 // cell path built from one, e.g. "0/12,-3/0,1". The old free-floating sibling
 // form ("2~1") cannot occur any more and is not accepted — a scene naming one
@@ -188,16 +187,6 @@ function decodeCamera(c) {
     if (!isFiniteNum(out.inScale) || out.inScale <= 0) throw new Error("bad camera: inScale must be a positive number");
     if (!isFiniteNum(out.inPanX) || !isFiniteNum(out.inPanY)) throw new Error("bad camera: pan must be finite");
     return out;
-}
-
-// A frame edge record must have finite s > 0 and t.{x,y}; grid optional but sane.
-function validEdgeRec(r, allowNullEdge) {
-    if (!r) return false;
-    if (r.grid && !(isFiniteNum(r.grid.w) && r.grid.w > 0 && isFiniteNum(r.grid.h) && r.grid.h > 0 &&
-        isFiniteNum(r.grid.ox) && isFiniteNum(r.grid.oy))) return false;
-    if (allowNullEdge && (r.edge == null)) return true; // root frame: no edge
-    const e = allowNullEdge ? r.edge : r;
-    return e && isFiniteNum(e.s) && e.s > 0 && e.t && isFiniteNum(e.t.x) && isFiniteNum(e.t.y);
 }
 
 // A frame is a LATTICE CELL now, so the whole tree is (id, parent, depth, i, j):

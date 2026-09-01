@@ -49,8 +49,10 @@ const TOOL_SECTIONS = [
     {
         id: "history",
         items: [
-            { id: "undo", icon: Undo2, label: "Undo (Ctrl+Z)", action: (e) => e.undo() },
-            { id: "redo", icon: Redo2, label: "Redo (Ctrl+Y)", action: (e) => e.redo() },
+            { id: "undo", icon: Undo2, label: "Undo (Ctrl+Z)", action: (e) => e.undo(),
+                live: (st) => st.canUndo },
+            { id: "redo", icon: Redo2, label: "Redo (Ctrl+Y)", action: (e) => e.redo(),
+                live: (st) => st.canRedo },
         ],
     },
     {
@@ -120,6 +122,16 @@ export default function CanvasEditor() {
     }, [realId]);
     const engine = useKobinEngine({ storageKey: slotKey(realId), onAutosave });
     const { user } = useUser();
+    // CLOUD-DIRTY MUST NOT DEPEND ON A SUCCESSFUL LOCAL WRITE. `onAutosave`
+    // above only fires when localStorage accepted the bytes, so with autosave
+    // off — or simply with storage full — the flag never became true and the
+    // 30 s background push never ran. The document itself is the honest signal:
+    // it changed, so the cloud copy is behind.
+    useEffect(() => {
+        const E = engine.engineRef.current;
+        if (!E) return undefined;
+        return E.doc.subscribe(() => { cloudDirtyRef.current = true; });
+    }, [engine.engineReady, engine.engineRef]);
     const editorRef = useRef(null);
     const fileRef = useRef(null);
     const colorSectionRef = useRef(null);
@@ -138,6 +150,7 @@ export default function CanvasEditor() {
     const [activeTool, setActiveTool] = useState("pen");
     const [hintDismissed, setHintDismissed] = useState(false);
     const [toast, setToast] = useState(null);
+    const [saveNoticeDismissed, setSaveNoticeDismissed] = useState(null);
     const [devOpen, setDevOpen] = useState(false);
     // DEV EXPERIMENT (2026-08-22). Every instrument says the main thread is idle
     // during the freezes — script 0 ms, render 0.3 ms, and input handlers
@@ -242,7 +255,15 @@ export default function CanvasEditor() {
         const tScenes = tSave;
         if (E) setScenes(E.refreshScenes()); // scenes ride the save file (docMeta)
         if (E) E.notePerf?.("scenes", tScenes, { where: "save" });
-        const doc = await engine.saveToLocalStorage(name);
+        // A FULL localStorage MUST NOT TAKE THE CLOUD DOWN WITH IT. This used to
+        // return here the moment the local write failed, so a signed-in user
+        // whose browser storage was full could not save to their account by any
+        // route: the Save button stopped short of `cloudSaveCanvas`, and the
+        // background sync never ran because `cloudDirtyRef` was only ever set by
+        // a SUCCESSFUL local autosave. Serialize independently and carry on.
+        const saved = await engine.saveToLocalStorage(name);
+        const local = !!saved;
+        const doc = saved || (E ? E.serializeDrawing() : null);
         if (!doc) return { local: false, cloud: false };
         // The engine's default meta name is lowercase "untitled" — never let it
         // become a visible gallery/cloud label.
@@ -268,7 +289,7 @@ export default function CanvasEditor() {
                 showToast("Saved to this browser — cloud sync failed");
             }
         }
-        return { local: true, cloud };
+        return { local, cloud };
     };
 
     // Background cloud sync: push the latest autosaved state every 30s while
@@ -557,10 +578,22 @@ export default function CanvasEditor() {
 
     const showToast = (msg) => setToast(msg);
 
+    // The save notice is dismissible, but dismissal is keyed to WHAT it says —
+    // not to the bar. Waving away "autosave is off" must not also silence a
+    // real save failure that happens afterwards, which would rebuild the exact
+    // silent-data-loss trap the bar exists to close (F33).
+    const saveNoticeKind = !engine.saveError ? null
+        : engine.saveError.off ? "off"
+        : engine.saveError.quota ? "quota" : "fail";
+    const showSaveBar = !!engine.saveError && saveNoticeDismissed !== saveNoticeKind;
+
+    // The cloud can now succeed while the local write fails, so "did it save?"
+    // is no longer answered by `local` alone.
     const saveToastFor = (r) =>
-        !r.local ? "Couldn't save — storage may be full"
+        r.cloud ? (r.local ? "Saved to your account"
+            : "Saved to your account — this browser's storage is full")
+        : !r.local ? "Couldn't save — storage may be full"
         : !user ? "Saved to browser"
-        : r.cloud ? "Saved to your account"
         : "Saved here — cloud sync failed";
 
     // Save button: an already-named canvas saves straight away; the name
@@ -925,6 +958,7 @@ export default function CanvasEditor() {
                                             type="button"
                                             title={t.label}
                                             className={`bl-tool-btn${activeTool === t.id ? " active" : ""}`}
+                                            disabled={t.live ? !t.live(engine.status) : false}
                                             onClick={() => selectTool(t)}
                                         >
                                             <t.icon size={16} />
@@ -1100,6 +1134,22 @@ export default function CanvasEditor() {
             )}
 
             {toast && <div className="bl-toast">{toast}</div>}
+
+            {/* The hook has computed `saveError` since 2026-08-25 and nothing
+                ever rendered it, so a save that never landed stayed invisible
+                outside the console — the exact failure it was added to expose.
+                It also carries the standing "autosave is off" notice. */}
+            {showSaveBar && (
+                <div className={"bl-savebar" + (engine.saveError.off ? " bl-savebar--off" : "")}
+                    role="status">
+                    <span className="bl-savebar__msg">{engine.saveError.message}</span>
+                    <button type="button" className="bl-savebar__btn" onClick={handleSave}>Save now</button>
+                    <button type="button" className="bl-savebar__x" aria-label="Dismiss"
+                        title="Dismiss" onClick={() => setSaveNoticeDismissed(saveNoticeKind)}>
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
 
             {activeTool === "eraser" && (
                 <div

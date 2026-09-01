@@ -7,7 +7,40 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
 
 export const AUTOSAVE_KEY = "kobinAutosave";
 
-const DEFAULT_STATUS = { level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0 };
+/**
+ * LOCAL AUTOSAVE — OFF DELIBERATELY (2026-08-26, Kobin's call), until F33 is fixed.
+ *
+ * WHY. When localStorage is full, every attempt does the whole job before it is
+ * allowed to fail: serialize the document, stringify it, compress it, and only
+ * then does the write throw. Measured on a 4.1 MB document that is ~960 ms of
+ * blocked main thread, for nothing. The backoff added 2026-08-25 stops the hot
+ * loop but not the cost — it still fires on a schedule, and the unload save
+ * ignores the backoff entirely, so every reload pays a full second.
+ *
+ * WHAT STILL SAVES with this off:
+ *   - the Save button (`saveToLocalStorage`), an explicit user action; and
+ *   - cloud sync while signed in — which is why `cloudDirtyRef` in CanvasEditor
+ *     is now driven off DOCUMENT CHANGES rather than off a successful local
+ *     write. It used to be set only by `onAutosave`, so turning autosave off
+ *     would have taken the cloud down with it.
+ *
+ * The standing "autosave is off" notice rides `saveError`, which CanvasEditor
+ * renders. Without that this is the same silent-data-loss trap wearing a
+ * different hat.
+ *
+ * TO RESTORE: flip this to true. Nothing else has to change.
+ */
+export const LOCAL_AUTOSAVE = false;
+
+const AUTOSAVE_OFF_NOTICE = {
+    off: true, quota: false, at: Date.now(),
+    message: "Autosave is off — use Save to keep your work.",
+};
+
+const DEFAULT_STATUS = {
+    level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0,
+    canUndo: false, canRedo: false,
+};
 
 /**
  * Shared KobinEngine lifecycle: mount, pointer input, autosave, tool sync.
@@ -53,6 +86,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     const [opGroups, setOpGroups] = useState(true);
     const [outline, setOutline] = useState(false);
     const [preBake, setPreBake] = useState(true);
+    // ---- DEV PANEL STATE (CanvasEditor renders these only behind ?dev) ----
     const [trace, setTrace] = useState(false);   // dev: log every op (see KobinEngine.setTrace)
     // "+" or "-" while ctrl is held with the select tool, or null. It says what
     // the next ctrl-click will DO, so it has to be answered by hit-testing the
@@ -60,15 +94,15 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     const [ctrlSign, setCtrlSign] = useState(null);
     const [lazyFat, setLazyFat] = useState(true);
     const [retainScenes, setRetainScenes] = useState(true);
-    const [debug, setDebug] = useState(false);
-    const [kdebug, setKdebug] = useState(false);
-    const [tiledebug, setTiledebug] = useState(false);
-    const [erasedebug, setErasedebug] = useState(false);
+    const [debug, setDebug] = useState(false);        // dev: red path outlines
+    const [kdebug, setKdebug] = useState(false);      // dev: inert, see KobinEngine.setKDebug
+    const [tiledebug, setTiledebug] = useState(false);// dev: cache-tile rectangles
+    const [erasedebug, setErasedebug] = useState(false); // dev: the erase/severance overlay
     const [status, setStatus] = useState(DEFAULT_STATUS);
     const [reportLabel, setReportLabel] = useState("Report");
     // Set when an autosave throws. The work is not being persisted, and that
     // has to be visible somewhere other than the console.
-    const [saveError, setSaveError] = useState(null);
+    const [saveError, setSaveError] = useState(LOCAL_AUTOSAVE ? null : AUTOSAVE_OFF_NOTICE);
 
     const patchDocMeta = useCallback((patch) => {
         const E = engineRef.current;
@@ -213,11 +247,14 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 50));
             idle(() => { if (dirty) save(); });
         };
-        const saveTimer = setInterval(idleSave, 4000);
+        // Both the timer and the unload save are skipped while LOCAL_AUTOSAVE is
+        // off — the unload one especially, because it forces past the backoff
+        // and would put a full serialize-and-fail on every reload.
+        const saveTimer = LOCAL_AUTOSAVE ? setInterval(idleSave, 4000) : null;
         // Last chance on the way out: ignore the backoff. It may be the only
         // attempt left, and a tab close is not a hot loop.
         const saveOnUnload = () => save(true);
-        window.addEventListener("beforeunload", saveOnUnload);
+        if (LOCAL_AUTOSAVE) window.addEventListener("beforeunload", saveOnUnload);
 
         const onErr = (e) => {
             errsRef.current.push({ t: Date.now(), msg: String((e && (e.message || e.reason)) || e) });
@@ -317,7 +354,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             clearTimeout(resizeT);
             clearTimeout(th.timer);
             unsubDirty();
-            save(true);   // last chance before this engine goes away — no backoff
+            if (LOCAL_AUTOSAVE) save(true);   // last chance before this engine goes away — no backoff
             window.removeEventListener("beforeunload", saveOnUnload);
             window.removeEventListener("error", onErr);
             window.removeEventListener("unhandledrejection", onErr);
@@ -356,6 +393,9 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
     const pickPen = (type) => { setPenType(type); setTool("pen"); };
     const E = () => engineRef.current;
 
+    // DEV: POST the whole diagnostic bundle to tools/report-server.js on :3001,
+    // which writes `.kobin-reports/`. Reachable only from the dev panel (?dev).
+    // The payload's `snapshot` is a loadable drawing — see OPEN-FLAGS F35.
     const sendReport = async () => {
         const eng = E();
         if (!eng) return;
@@ -544,7 +584,6 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         undo: () => E()?.undo(),
         redo: () => E()?.redo(),
         clear: () => E()?.clear(),
-        restyleSelection: (patch) => E()?.restyleSelection(patch),
         deleteSelection: () => E()?.deleteSelection(),
         deselect: () => E()?.deselect(),
         docMeta: () => E()?.docMeta ?? { name: null },

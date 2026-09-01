@@ -22,7 +22,7 @@ import {
     unitLog10Meters,
     targetLogLen,
     BAR_PX_TARGET,
-} from "./testSupport";
+} from "../__testkit__/scaleBar";
 
 describe("scaleBar/applyUnitPick + userBand", () => {
     test("L12: distant mi pick from 1 in installs user range; ft/yd suppressed while active", () => {

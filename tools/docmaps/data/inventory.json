@@ -1,0 +1,5559 @@
+{
+"src/App.js": [
+{
+"name": "App",
+"kind": "function",
+"class": null
+}
+],
+"src/reportWebVitals.js": [
+{
+"name": "reportWebVitals",
+"kind": "arrow",
+"class": null
+}
+],
+"src/cloud/canvasSync.js": [
+{
+"name": "canvasesCol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "canvasDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "partDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "encodeCanvasPayload",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeCanvasPayload",
+"kind": "function",
+"class": null
+},
+{
+"name": "boundedThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudSaveCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudListCanvases",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudGetCanvasMeta",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudLoadCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudTrashCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudRestoreCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudRenameCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudSetEditing",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudClearEditing",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudDeleteCanvas",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/firebaseApp.js": [
+{
+"name": "getFirebaseApp",
+"kind": "function",
+"class": null
+},
+{
+"name": "getFirebaseAuth",
+"kind": "function",
+"class": null
+},
+{
+"name": "getDb",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/useUser.js": [
+{
+"name": "useUser",
+"kind": "function",
+"class": null
+},
+{
+"name": "signInWithGoogle",
+"kind": "function",
+"class": null
+},
+{
+"name": "signOutUser",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/BrandLogo.js": [
+{
+"name": "BrandLogo",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ColorPickerPopover.js": [
+{
+"name": "ColorPickerPopover",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/FileActionsMenu.js": [
+{
+"name": "FileActionsMenu",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/SaveDrawingDialog.js": [
+{
+"name": "SaveDrawingDialog",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ScaleDragBar.js": [
+{
+"name": "ScaleDragBar",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ScaleUnitPicker.js": [
+{
+"name": "membershipTableRows",
+"kind": "function",
+"class": null
+},
+{
+"name": "ScaleUnitPicker",
+"kind": "function",
+"class": null
+},
+{
+"name": "ScaleUnitButtonGrid",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/WidthOpacityPanel.js": [
+{
+"name": "WidthOpacityPanel",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/useAnchorPopoverStyle.js": [
+{
+"name": "useAnchorPopoverStyle",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/useClickAway.js": [
+{
+"name": "useClickAway",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Button.js": [
+{
+"name": "Button",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Dialog.js": [
+{
+"name": "Dialog",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogHeader",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogTitle",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogDescription",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogFooter",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogContent",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Input.js": [
+{
+"name": "Input",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/SciText.js": [
+{
+"name": "SciText",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/Camera.js": [
+{
+"name": "Camera",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "activeLevel",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "set",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "state",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "screenToFrame",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "frameWindow",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "centre",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "panBy",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "zoomFactorAt",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "zoomAt",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "pinchUpdate",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "_maybeShift",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "settle",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "_maybeCross",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "_settle",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "_crossUp",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "_crossDown",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "effectiveZoom",
+"kind": "method",
+"class": "Camera"
+},
+{
+"name": "levelPointToScreen",
+"kind": "method",
+"class": "Camera"
+}
+],
+"src/engine/Document.js": [
+{
+"name": "LevelIndex",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "_key",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "_cellsOf",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "add",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "remove",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "query",
+"kind": "method",
+"class": "LevelIndex"
+},
+{
+"name": "Document",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "subscribe",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_emit",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "allocId",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "levels",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_forgetIfEmpty",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "at",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_idx",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "add",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "finalize",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "getById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "editKey",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "editGroup",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "removeById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "insertAt",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "moveById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "setGeometryById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "snapGeometry",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "scaleGeometry",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "translateGeometry",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "rehomeById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "eraseReplaceById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "cedeTileById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "bakeShapeById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "fillToShapeById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_bboxNow",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_afterEdit",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "queryRect",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_undoMove",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_invertMove",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "pushUndo",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "canUndo",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "canRedo",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "undo",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "redo",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_invert",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "clear",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_replace",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "serializeNatives",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "loadNatives",
+"kind": "method",
+"class": "Document"
+}
+],
+"src/engine/KobinEngine.js": [
+{
+"name": "KobinEngine",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "activeLevel",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "inScale",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "inPanX",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "inPanY",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "nativesByLevel",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "crossings",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "levelObjects",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "tiles",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_hasFat",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setTool",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setPenType",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setColor",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setWidth",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setOpacity",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setOutlineMode",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setOpacityGroups",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setDebug",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setPreBake",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setTrace",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setRetainScenes",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setScaleDef",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setLazyOutlines",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setKDebug",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setTileDebug",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "setEraseDebug",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "resize",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "destroy",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "notePerf",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_noteFast",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "fastStats",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_perf",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_note",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_thin",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "reportFamilies",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_buildList",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_render",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_visibleChanged",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "panBy",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "zoomAt",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "pinchUpdate",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "zoomFactorAt",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_maybePrebake",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_queueIdleFits",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "screenToFrame",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "pointerDown",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "pointerMove",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "pointerUp",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_pointerDown",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_pointerMove",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_startPen",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_pointerUp",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "cancelStroke",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "undo",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "redo",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "clear",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_emit",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_effectiveZoom",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_levelPointToScreen",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_objs",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_fatOnScreen",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_outlinePad",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_frameWindow",
+"kind": "method",
+"class": "KobinEngine"
+},
+{
+"name": "_debugTileRects",
+"kind": "method",
+"class": "KobinEngine"
+}
+],
+"src/engine/LevelMap.js": [
+{
+"name": "cellKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "phaseThrough",
+"kind": "function",
+"class": null
+},
+{
+"name": "LevelMap",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_addFrame",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "frame",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "depthOf",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "parentOf",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "childrenOf",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "spineAt",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "pathFrameAt",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_isSpine",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_childId",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "cellChild",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "findCellChild",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "neighbour",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_growRoot",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "peekNeighbour",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "peekRing",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "ensureParent",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_viewCell",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "findChild",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "ensureChild",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "ensureParentEdge",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_recOf",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "records",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "makeGrid",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "grid",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_frameFor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "frameFor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "tileRect",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "tileRange",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_centre",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "toChild",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "toParent",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "rectToParent",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_ancestors",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "isAncestor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "chainFrom",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "frameAtChain",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "commonAncestor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "displaceFrame",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "framePath",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "_buildPath",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "frameFactor",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "mapPointF",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "mapRectF",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "projectF",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "framePointToScreen",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "effectiveZoom",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "serialize",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "load",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "ensureSpine",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "reset",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "resize",
+"kind": "method",
+"class": "LevelMap"
+}
+],
+"src/engine/Renderer.js": [
+{
+"name": "pushCubicChain",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushGapAnchors",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushShapeAnchors",
+"kind": "function",
+"class": null
+},
+{
+"name": "perfRendererNow",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "mkPath",
+"kind": "function",
+"class": null
+},
+{
+"name": "selAntScale",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "Renderer",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "destroy",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setSize",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "update",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_gatePx",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_fatOnScreen",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_fatEver",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_strokeMode",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "needsFatFlip",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "needsFadeFlip",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "hasPendingNearFat",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "outlinePad",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_windowCovered",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "needsRebake",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "render",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "syncCameraOnly",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "syncWorld",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_origin",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_viewCenter",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_driftPx",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "needsReorigin",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_maybeReorigin",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_activateLevel",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_evictScenes",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_insertSorted",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_isTemporary",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_debugColor",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_colorOf",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_opacityOf",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_applyOpacity",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_fade",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_sig",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_buildPieces",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_applyThinScale",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_addFillPath",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_addShapePath",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_buildInto",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "ensureOutline",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_buildOutlineInto",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_fatPolys",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "addLive",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setLiveArcs",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "extendLive",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setLiveEnd",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "endLive",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setSelection",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setLasso",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "refreshSelection",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "selectionDrawable",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_renderSelection",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setSelectionAnts",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_renderSelOverlay",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_buildSelOverlay",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_dropSelOverlay",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_d",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_len",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_fitDash",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_poolTo",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_ensureSelStyle",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_selCss",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setOpacityGroups",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setOutlineMode",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setLazyOutlines",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setRetainScenes",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setDebug",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setTileDebug",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "setEraseDebug",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "bumpAll",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "clear",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_renderEraseDebug",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_renderTileDebug",
+"kind": "method",
+"class": "Renderer"
+}
+],
+"src/engine/TileStore.js": [
+{
+"name": "TileStore",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "destroy",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "setOpacityGroups",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "setBatch",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "bumpEpoch",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_depth",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_minContentDepth",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "content",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "ownContent",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ensureUp",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_bakeUp",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ringNatives",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_solid",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ensureDown",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_bakeDown",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_downPieces",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_onDoc",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_removeObject",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_addObject",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_appendUp",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_appendDown",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_overlaps",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_evict",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_evictPerLevel",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "size",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_tileKeys",
+"kind": "method",
+"class": "TileStore"
+}
+],
+"src/engine/erasePipeline.js": [
+{
+"name": "ErasePipeline",
+"kind": "class",
+"class": null
+},
+{
+"name": "eraseAt",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_eraseWhole",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "setEraserSize",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_zOf",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_eraseStrokes",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "flushBakes",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_forceBake",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_sealed",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_doneSet",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_scheduleBake",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_queueBake",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_promoteOversize",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_ensureShapeBakes",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_stepShapeBakes",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_camBusy",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_bakeTick",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_bakeTickInner",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_nextEraseTarget",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_eraseMayTouch",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_eraseOp",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_bakeOne",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_cull",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_noteSeal",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_inkOutline",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_inkShapeInRect",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_familyMembers",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_familyComponents",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_resplitFamily",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_bakeRehome",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_bakeRehomeInner",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_rehomeBail",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_noteSpent",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_flushErasesFor",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_settleSelectionErases",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "flushErases",
+"kind": "method",
+"class": "ErasePipeline"
+}
+],
+"src/engine/files.js": [
+{
+"name": "Files",
+"kind": "class",
+"class": null
+},
+{
+"name": "snapshot",
+"kind": "method",
+"class": "Files"
+},
+{
+"name": "loadSnapshot",
+"kind": "method",
+"class": "Files"
+},
+{
+"name": "serializeDrawing",
+"kind": "method",
+"class": "Files"
+},
+{
+"name": "loadDrawing",
+"kind": "method",
+"class": "Files"
+}
+],
+"src/engine/frameLattice.js": [
+{
+"name": "cellEdge",
+"kind": "function",
+"class": null
+},
+{
+"name": "cellCentre",
+"kind": "function",
+"class": null
+},
+{
+"name": "cellOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "inDigit",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "carryDigit",
+"kind": "function",
+"class": null
+},
+{
+"name": "displacementDigits",
+"kind": "function",
+"class": null
+},
+{
+"name": "digitValue",
+"kind": "function",
+"class": null
+},
+{
+"name": "applyDigits",
+"kind": "function",
+"class": null
+},
+{
+"name": "tilePhase",
+"kind": "function",
+"class": null
+},
+{
+"name": "childTilePhase",
+"kind": "function",
+"class": null
+},
+{
+"name": "objTileRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "objTileRange",
+"kind": "function",
+"class": null
+},
+{
+"name": "objTilesRect",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/instruments.js": [
+{
+"name": "LongFrames",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LongFrames"
+},
+{
+"name": "start",
+"kind": "method",
+"class": "LongFrames"
+},
+{
+"name": "_take",
+"kind": "method",
+"class": "LongFrames"
+},
+{
+"name": "report",
+"kind": "method",
+"class": "LongFrames"
+},
+{
+"name": "stop",
+"kind": "method",
+"class": "LongFrames"
+},
+{
+"name": "EventLatency",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "EventLatency"
+},
+{
+"name": "start",
+"kind": "method",
+"class": "EventLatency"
+},
+{
+"name": "_take",
+"kind": "method",
+"class": "EventLatency"
+},
+{
+"name": "report",
+"kind": "method",
+"class": "EventLatency"
+},
+{
+"name": "stop",
+"kind": "method",
+"class": "EventLatency"
+},
+{
+"name": "GrowthLog",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "GrowthLog"
+},
+{
+"name": "maybeSample",
+"kind": "method",
+"class": "GrowthLog"
+},
+{
+"name": "report",
+"kind": "method",
+"class": "GrowthLog"
+},
+{
+"name": "FrameMeter",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "FrameMeter"
+},
+{
+"name": "poke",
+"kind": "method",
+"class": "FrameMeter"
+},
+{
+"name": "_start",
+"kind": "method",
+"class": "FrameMeter"
+},
+{
+"name": "record",
+"kind": "method",
+"class": "FrameMeter"
+},
+{
+"name": "report",
+"kind": "method",
+"class": "FrameMeter"
+},
+{
+"name": "stop",
+"kind": "method",
+"class": "FrameMeter"
+}
+],
+"src/engine/mixin.js": [
+{
+"name": "mixin",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/now.js": [
+{
+"name": "perfNow",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/overlays.js": [
+{
+"name": "mergeSpans",
+"kind": "function",
+"class": null
+},
+{
+"name": "Overlays",
+"kind": "class",
+"class": null
+},
+{
+"name": "_keepDebugMark",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_eraseDebugOverlay",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_outlineInView",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_splitOnJoins",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_familyJoinNotes",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selectionAnts",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selEdgeSpans",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selInkRings",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_emitAntRing",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_emitOutlineRing",
+"kind": "method",
+"class": "Overlays"
+}
+],
+"src/engine/persist.js": [
+{
+"name": "encodeDrawing",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeDrawing",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeScaleDef",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeMeta",
+"kind": "function",
+"class": null
+},
+{
+"name": "validRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "isFrameKey",
+"kind": "function",
+"class": null
+},
+{
+"name": "validScene",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloneRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloneScene",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeCamera",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeCrossings",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeNatives",
+"kind": "function",
+"class": null
+},
+{
+"name": "validPts",
+"kind": "function",
+"class": null
+},
+{
+"name": "validOwnedRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "isFiniteNum",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/rectMath.js": [
+{
+"name": "latticeStep",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectTol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "rectSpan",
+"kind": "arrow",
+"class": null
+}
+],
+"src/engine/sceneOps.js": [
+{
+"name": "SceneOps",
+"kind": "class",
+"class": null
+},
+{
+"name": "_sceneKey",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "_sceneProj",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "jumpTo",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "refreshScenes",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "_noteInkAdded",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "renameScene",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "deleteScene",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "splitScene",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "sceneZoom",
+"kind": "method",
+"class": "SceneOps"
+},
+{
+"name": "captureView",
+"kind": "method",
+"class": "SceneOps"
+}
+],
+"src/engine/scenes.js": [
+{
+"name": "depthFn",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "normKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "childrenFn",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "joinDist",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "rectGapX",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "rectGapY",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "withinGap",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "widthOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "chunksOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "outerBox",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "mapChunks",
+"kind": "function",
+"class": null
+},
+{
+"name": "itemsAtLevel",
+"kind": "function",
+"class": null
+},
+{
+"name": "itemsJoin",
+"kind": "function",
+"class": null
+},
+{
+"name": "clusterItems",
+"kind": "function",
+"class": null
+},
+{
+"name": "itemsJoinScaled",
+"kind": "function",
+"class": null
+},
+{
+"name": "median",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "membersHash",
+"kind": "function",
+"class": null
+},
+{
+"name": "levelHash",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "frameOfItems",
+"kind": "function",
+"class": null
+},
+{
+"name": "computeSceneProposals",
+"kind": "function",
+"class": null
+},
+{
+"name": "buildScene",
+"kind": "function",
+"class": null
+},
+{
+"name": "pocketize",
+"kind": "function",
+"class": null
+},
+{
+"name": "topoOrder",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectIoU",
+"kind": "function",
+"class": null
+},
+{
+"name": "framesIoU",
+"kind": "function",
+"class": null
+},
+{
+"name": "matchScenes",
+"kind": "function",
+"class": null
+},
+{
+"name": "resolveCapture",
+"kind": "function",
+"class": null
+},
+{
+"name": "ratioOfExtents",
+"kind": "function",
+"class": null
+},
+{
+"name": "centerInside",
+"kind": "function",
+"class": null
+},
+{
+"name": "splitMembers",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/selection.js": [
+{
+"name": "Selection",
+"kind": "class",
+"class": null
+},
+{
+"name": "_isSelected",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_selectableRects",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_rectInActive",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_lassoFind",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_setSelection",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_toggleSelected",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_applyLasso",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "select",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "deselect",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_selectionRect",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_dragSelection",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_normalizeHome",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_selectionMembers",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "deleteSelection",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_selectionStatus",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_shapeHit",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "hitTestAt",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_hitTest",
+"kind": "method",
+"class": "Selection"
+}
+],
+"src/engine/geometry/arcPerimeter.js": [
+{
+"name": "norm",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "ptAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "paramOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "pieceBBox",
+"kind": "function",
+"class": null
+},
+{
+"name": "subPiece",
+"kind": "function",
+"class": null
+},
+{
+"name": "cap",
+"kind": "function",
+"class": null
+},
+{
+"name": "ChainBuilder",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "ChainBuilder"
+},
+{
+"name": "_vertex",
+"kind": "method",
+"class": "ChainBuilder"
+},
+{
+"name": "_closeSeam",
+"kind": "method",
+"class": "ChainBuilder"
+},
+{
+"name": "step",
+"kind": "method",
+"class": "ChainBuilder"
+},
+{
+"name": "circleCircle",
+"kind": "function",
+"class": null
+},
+{
+"name": "circleSegment",
+"kind": "function",
+"class": null
+},
+{
+"name": "segSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "pieceIntersections",
+"kind": "function",
+"class": null
+},
+{
+"name": "Grid",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Grid"
+},
+{
+"name": "_key",
+"kind": "method",
+"class": "Grid"
+},
+{
+"name": "insert",
+"kind": "method",
+"class": "Grid"
+},
+{
+"name": "near",
+"kind": "method",
+"class": "Grid"
+},
+{
+"name": "Oracle",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Oracle"
+},
+{
+"name": "fill",
+"kind": "method",
+"class": "Oracle"
+},
+{
+"name": "buried",
+"kind": "method",
+"class": "Oracle"
+},
+{
+"name": "VertexSet",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "id",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "ArcBakeJob",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "progress",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "step",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_charge",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_tune",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_endPhase",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_centerline",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_chain",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_oracle",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_precull",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_cut",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_classify",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_stitch",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_closeWalk",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_finishPhase",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "_finish",
+"kind": "method",
+"class": "ArcBakeJob"
+},
+{
+"name": "bakeArcPerimeter",
+"kind": "function",
+"class": null
+},
+{
+"name": "now",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "reversePiece",
+"kind": "arrow",
+"class": null
+}
+],
+"src/engine/geometry/arcShape.js": [
+{
+"name": "wrap",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "pieceTangent",
+"kind": "function",
+"class": null
+},
+{
+"name": "reversePiece",
+"kind": "function",
+"class": null
+},
+{
+"name": "reverseLoop",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopBBox",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopsBBox",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopPerimeter",
+"kind": "function",
+"class": null
+},
+{
+"name": "dropHairlines",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopsArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "meanWidth",
+"kind": "function",
+"class": null
+},
+{
+"name": "dropDust",
+"kind": "function",
+"class": null
+},
+{
+"name": "normalizeLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "rayCross",
+"kind": "function",
+"class": null
+},
+{
+"name": "flatPieces",
+"kind": "function",
+"class": null
+},
+{
+"name": "windingOfFlat",
+"kind": "function",
+"class": null
+},
+{
+"name": "windingAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "insideShape",
+"kind": "function",
+"class": null
+},
+{
+"name": "spanOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "transformLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "seam",
+"kind": "function",
+"class": null
+},
+{
+"name": "translateLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "transformLoopsAbout",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcSteps",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenShape",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeFromRings",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodeLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "validEncodedLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodedLoopsWellFormed",
+"kind": "function",
+"class": null
+},
+{
+"name": "repairLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectLoop",
+"kind": "function",
+"class": null
+},
+{
+"name": "pieceToCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeToCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "VertexSet",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "id",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "bbHit",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "magOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "straighten",
+"kind": "function",
+"class": null
+},
+{
+"name": "onCurveOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "pieceOverlap",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeBoolean",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeBooleanOnce",
+"kind": "function",
+"class": null
+},
+{
+"name": "stitch",
+"kind": "function",
+"class": null
+},
+{
+"name": "subtractShape",
+"kind": "function",
+"class": null
+},
+{
+"name": "intersectShape",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipShapeToRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeComponents",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/biarc.js": [
+{
+"name": "arcThrough",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcPoint",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcTangent",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcDist",
+"kind": "function",
+"class": null
+},
+{
+"name": "biarc",
+"kind": "function",
+"class": null
+},
+{
+"name": "gapError",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcsForGap",
+"kind": "function",
+"class": null
+},
+{
+"name": "distinctSamples",
+"kind": "function",
+"class": null
+},
+{
+"name": "splineCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "chainFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "BiarcPen",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "BiarcPen"
+},
+{
+"name": "addSample",
+"kind": "method",
+"class": "BiarcPen"
+},
+{
+"name": "_cubic",
+"kind": "method",
+"class": "BiarcPen"
+},
+{
+"name": "arcs",
+"kind": "method",
+"class": "BiarcPen"
+},
+{
+"name": "arcSagitta",
+"kind": "function",
+"class": null
+},
+{
+"name": "drawFlat",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "tracePath",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcToCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "offsetArc",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/clipperBoolean.js": [
+{
+"name": "maxMagnitude",
+"kind": "function",
+"class": null
+},
+{
+"name": "capScale",
+"kind": "function",
+"class": null
+},
+{
+"name": "localFrame",
+"kind": "function",
+"class": null
+},
+{
+"name": "pickScale",
+"kind": "function",
+"class": null
+},
+{
+"name": "strokeOutline",
+"kind": "function",
+"class": null
+},
+{
+"name": "subtractPolys",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipPolysToRect",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/connect.js": [
+{
+"name": "asRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "sidesOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "tOn",
+"kind": "function",
+"class": null
+},
+{
+"name": "merge",
+"kind": "function",
+"class": null
+},
+{
+"name": "contactArcs",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcsTouch",
+"kind": "function",
+"class": null
+},
+{
+"name": "tOfPoint",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcOverlaps",
+"kind": "function",
+"class": null
+},
+{
+"name": "Groups",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Groups"
+},
+{
+"name": "add",
+"kind": "method",
+"class": "Groups"
+},
+{
+"name": "find",
+"kind": "method",
+"class": "Groups"
+},
+{
+"name": "union",
+"kind": "method",
+"class": "Groups"
+},
+{
+"name": "classes",
+"kind": "method",
+"class": "Groups"
+}
+],
+"src/engine/geometry/curveOutline.js": [
+{
+"name": "sub",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "addv",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "mulv",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "hyp",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "perp",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "unit",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cubicAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "cubicTangent",
+"kind": "function",
+"class": null
+},
+{
+"name": "splitCubic",
+"kind": "function",
+"class": null
+},
+{
+"name": "lineCubic",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "chordDeviation",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcSegments",
+"kind": "function",
+"class": null
+},
+{
+"name": "capArcs",
+"kind": "function",
+"class": null
+},
+{
+"name": "tillerHanson",
+"kind": "function",
+"class": null
+},
+{
+"name": "offsetError",
+"kind": "function",
+"class": null
+},
+{
+"name": "fitOffset",
+"kind": "function",
+"class": null
+},
+{
+"name": "reverseSegs",
+"kind": "function",
+"class": null
+},
+{
+"name": "chain",
+"kind": "function",
+"class": null
+},
+{
+"name": "circleLoop",
+"kind": "function",
+"class": null
+},
+{
+"name": "tamePiece",
+"kind": "function",
+"class": null
+},
+{
+"name": "runCapsule",
+"kind": "function",
+"class": null
+},
+{
+"name": "strokeOutlineCurves",
+"kind": "function",
+"class": null
+},
+{
+"name": "lineLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "strokeLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopsBbox",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenSeg",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/derive.js": [
+{
+"name": "bboxOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeTol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "freezeTol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "tilePhaseOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "shapeRingsInRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeLoopsInRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "displayChords",
+"kind": "function",
+"class": null
+},
+{
+"name": "flatChords",
+"kind": "function",
+"class": null
+},
+{
+"name": "seamPadFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "seamPad",
+"kind": "function",
+"class": null
+},
+{
+"name": "padRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectSubtract",
+"kind": "function",
+"class": null
+},
+{
+"name": "bandRings",
+"kind": "function",
+"class": null
+},
+{
+"name": "classifyUp",
+"kind": "function",
+"class": null
+},
+{
+"name": "solidQuad",
+"kind": "function",
+"class": null
+},
+{
+"name": "deriveStep",
+"kind": "function",
+"class": null
+},
+{
+"name": "projectNative",
+"kind": "function",
+"class": null
+},
+{
+"name": "levelFactor",
+"kind": "function",
+"class": null
+},
+{
+"name": "projectedSizePx",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/freeze.js": [
+{
+"name": "wrap",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "pieceSagitta",
+"kind": "function",
+"class": null
+},
+{
+"name": "freezePiece",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcCuts",
+"kind": "function",
+"class": null
+},
+{
+"name": "chopFreezeLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "markSeamEnds",
+"kind": "function",
+"class": null
+},
+{
+"name": "tileWindow",
+"kind": "function",
+"class": null
+},
+{
+"name": "tileClipRect",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/hittest.js": [
+{
+"name": "distToPolyline",
+"kind": "function",
+"class": null
+},
+{
+"name": "distPointToSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "distSegToSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "distSegToPolyline",
+"kind": "function",
+"class": null
+},
+{
+"name": "capsuleTouchesRings",
+"kind": "function",
+"class": null
+},
+{
+"name": "windingOfPoint",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/lasso.js": [
+{
+"name": "pointInPolygon",
+"kind": "function",
+"class": null
+},
+{
+"name": "segsCross",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectInsidePolygon",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/polyline.js": [
+{
+"name": "controlsFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "_mid",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "flattenCubic",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenCurve",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectDistMin",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectDistMax",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenCubicNear",
+"kind": "function",
+"class": null
+},
+{
+"name": "flattenCurveNear",
+"kind": "function",
+"class": null
+},
+{
+"name": "ringSignedArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "netRingsArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "capsulePoly",
+"kind": "function",
+"class": null
+},
+{
+"name": "windingAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipRingsToRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "strokeStripNear",
+"kind": "function",
+"class": null
+},
+{
+"name": "decimatePolyline",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipPolylineToRect",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/catalog.js": [
+{
+"name": "buildRungs",
+"kind": "function",
+"class": null
+},
+{
+"name": "safeLog10Meters",
+"kind": "function",
+"class": null
+},
+{
+"name": "registerUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "repairLogFactors",
+"kind": "function",
+"class": null
+},
+{
+"name": "getUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitMeters",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitLog10Meters",
+"kind": "function",
+"class": null
+},
+{
+"name": "allCatalogUnits",
+"kind": "function",
+"class": null
+},
+{
+"name": "prefixNameForShort",
+"kind": "function",
+"class": null
+},
+{
+"name": "capitalizeWord",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitFullName",
+"kind": "function",
+"class": null
+},
+{
+"name": "allUnitsTableRows",
+"kind": "function",
+"class": null
+},
+{
+"name": "hasSiPrefix",
+"kind": "function",
+"class": null
+},
+{
+"name": "isNoSiPrefix",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/format.js": [
+{
+"name": "formatUnitSymbol",
+"kind": "function",
+"class": null
+},
+{
+"name": "formatScaleLabel",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/index.js": [
+{
+"name": "computeScale",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/ladder.js": [
+{
+"name": "Ladder",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "relatedIds",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "names",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "has",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "rankOf",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "floorUnit",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "ceilingUnit",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "neighbors",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "unitsWithinFactor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "bandFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "extraNiceFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "preferenceFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "candidatesAt",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "ladder",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/logMath.js": [
+{
+"name": "log10",
+"kind": "function",
+"class": null
+},
+{
+"name": "safeExp10",
+"kind": "function",
+"class": null
+},
+{
+"name": "targetLogLen",
+"kind": "function",
+"class": null
+},
+{
+"name": "logLenFromNice",
+"kind": "function",
+"class": null
+},
+{
+"name": "mppFromDef",
+"kind": "function",
+"class": null
+},
+{
+"name": "barPxFromLogLen",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/logicRule.js": [
+{
+"name": "autoShowUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "ladderUnitsReadingBetween",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitsBetween",
+"kind": "function",
+"class": null
+},
+{
+"name": "allLadderUnion",
+"kind": "function",
+"class": null
+},
+{
+"name": "LogicRule",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LogicRule"
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "LogicRule"
+},
+{
+"name": "RelatedLadderAutoShow",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedLadderAutoShow"
+},
+{
+"name": "CurrentLadderAuto",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderAuto"
+},
+{
+"name": "CurrentLadderWithinFactor",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderWithinFactor"
+},
+{
+"name": "AnyLadderAuto",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AnyLadderAuto"
+},
+{
+"name": "RelatedWithinFactor",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedWithinFactor"
+},
+{
+"name": "CurrentLadderReadingBand",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderReadingBand"
+},
+{
+"name": "AnyLadderReadingBand",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AnyLadderReadingBand"
+},
+{
+"name": "CurrentLadderNeighbors",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderNeighbors"
+},
+{
+"name": "RelatedLadderNeighbors",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedLadderNeighbors"
+},
+{
+"name": "AllUltraStandard",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllUltraStandard"
+},
+{
+"name": "NamedUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "NamedUnits"
+},
+{
+"name": "NoSiPrefixUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "NoSiPrefixUnits"
+},
+{
+"name": "AllUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllUnits"
+},
+{
+"name": "UltraStandardBetween",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "UltraStandardBetween"
+},
+{
+"name": "AllLaddersBetween",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllLaddersBetween"
+},
+{
+"name": "CurrentLadderNoSiPrefix",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderNoSiPrefix"
+},
+{
+"name": "CurrentLadderSiPrefixedMeters",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderSiPrefixedMeters"
+}
+],
+"src/engine/scaleBar/membership.js": [
+{
+"name": "rungsFromNames",
+"kind": "function",
+"class": null
+},
+{
+"name": "rungsFromBuilt",
+"kind": "function",
+"class": null
+},
+{
+"name": "ladderForStack",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitRank",
+"kind": "function",
+"class": null
+},
+{
+"name": "laddersOwning",
+"kind": "function",
+"class": null
+},
+{
+"name": "stackForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "highestPriorityLadder",
+"kind": "function",
+"class": null
+},
+{
+"name": "floorUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "ceilingUnit",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/nice.js": [
+{
+"name": "formatSciValue",
+"kind": "function",
+"class": null
+},
+{
+"name": "formatScaleNumber",
+"kind": "function",
+"class": null
+},
+{
+"name": "formFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "niceValuesForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "bestInBoundsNice",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/pick.js": [
+{
+"name": "autoSpanForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "applyUnitPick",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/preference.js": [
+{
+"name": "bandFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "bandLogInterval",
+"kind": "function",
+"class": null
+},
+{
+"name": "extraNiceFor",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/preferenceRange.js": [
+{
+"name": "PreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "contains",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "StandardPreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "UserPreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "shouldClear",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "toJSON",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "toUserRange",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/resolve.js": [
+{
+"name": "pastIncumbentEnterEdge",
+"kind": "function",
+"class": null
+},
+{
+"name": "candidatesOnLadder",
+"kind": "function",
+"class": null
+},
+{
+"name": "extremeCandidates",
+"kind": "function",
+"class": null
+},
+{
+"name": "readingFromStop",
+"kind": "function",
+"class": null
+},
+{
+"name": "resolveReading",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/rungs.js": [
+{
+"name": "evaluateRung",
+"kind": "function",
+"class": null
+},
+{
+"name": "sortBySize",
+"kind": "function",
+"class": null
+},
+{
+"name": "effectiveRungs",
+"kind": "function",
+"class": null
+},
+{
+"name": "popoverUnits",
+"kind": "function",
+"class": null
+},
+{
+"name": "setScaleUnits",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/session.js": [
+{
+"name": "createSession",
+"kind": "function",
+"class": null
+},
+{
+"name": "clearUserBandIfExited",
+"kind": "function",
+"class": null
+},
+{
+"name": "clearDisplayPrefs",
+"kind": "function",
+"class": null
+},
+{
+"name": "withReading",
+"kind": "function",
+"class": null
+},
+{
+"name": "shouldApplyScaleSessionWriteBack",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/validate.js": [
+{
+"name": "validateScaleDef",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/__oracles__/KobinEngineV0.js": [
+{
+"name": "KobinEngineV0",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setTool",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setPenType",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_perf",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setColor",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setWidth",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setOpacity",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setOutlineMode",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setOpacityGroups",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setDebug",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setKDebug",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "setTileDebug",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "resize",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "destroy",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "clear",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_captureState",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_applyState",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "snapshot",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "loadSnapshot",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "screenToFrame",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_objs",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_addNative",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "pointerDown",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "pointerMove",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "pointerUp",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "cancelStroke",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "eraseAt",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_hitTest",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_removeById",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_insertObject",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_refresh",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_pushUndo",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "undo",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "redo",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_invert",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "panBy",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "zoomAt",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "pinchUpdate",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "zoomFactorAt",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_maybeCross",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_crossUp",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_crossDown",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_invalidateDeeper",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_makeGrid",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_grid",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_tileRect",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_tileRange",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_visibleTiles",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_ensureTilesForRegion",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_bakeTile",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_bbox",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_displayChords",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_flatChords",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_deriveInto",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_ensureTiles",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_projectNative",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_projectedNatives",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_rebuildLevelObjects",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_clearLevel",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_frameWindow",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_tint",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_outlinePad",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_windowCovered",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_pieceGroup",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_renderActive",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_renderObject",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_fatOnScreen",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_buildPaths",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_syncWorld",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_levelPointToScreen",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_renderTileDebug",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_syncDebug",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_emit",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "_effectiveZoom",
+"kind": "method",
+"class": "KobinEngineV0"
+},
+{
+"name": "distToPolyline",
+"kind": "function",
+"class": null
+},
+{
+"name": "windingOfPoint",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/__oracles__/bakeStrategies.js": [
+{
+"name": "now",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "quantiles",
+"kind": "function",
+"class": null
+},
+{
+"name": "BaseBaker",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "addSample",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "_onSample",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "_settleCtrl",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "_cubicAt",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "_wrap",
+"kind": "method",
+"class": "BaseBaker"
+},
+{
+"name": "BatchBaker",
+"kind": "class",
+"class": null
+},
+{
+"name": "finish",
+"kind": "method",
+"class": "BatchBaker"
+},
+{
+"name": "CrumbBaker",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "CrumbBaker"
+},
+{
+"name": "_onSample",
+"kind": "method",
+"class": "CrumbBaker"
+},
+{
+"name": "_fold",
+"kind": "method",
+"class": "CrumbBaker"
+},
+{
+"name": "finish",
+"kind": "method",
+"class": "CrumbBaker"
+},
+{
+"name": "IncrementalBaker",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_bucketsFor",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_insert",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_near",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_onSample",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_extend",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_survivors",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "_allBuried",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "finish",
+"kind": "method",
+"class": "IncrementalBaker"
+},
+{
+"name": "bboxMiss",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "runBaker",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/__oracles__/cede.js": [
+{
+"name": "ringsBbox",
+"kind": "function",
+"class": null
+},
+{
+"name": "asLTRB",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "signedArea",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "pointInRing",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "interiorPoint",
+"kind": "function",
+"class": null
+},
+{
+"name": "key2",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "splitCorridors",
+"kind": "function",
+"class": null
+},
+{
+"name": "onSegment",
+"kind": "function",
+"class": null
+},
+{
+"name": "ringComponents",
+"kind": "function",
+"class": null
+},
+{
+"name": "edgeSpans",
+"kind": "function",
+"class": null
+},
+{
+"name": "spansOverlap",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cedeRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "touchesRect",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/__oracles__/curvePerimeter.js": [
+{
+"name": "centerlineCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "bboxOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "DistOracle",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "DistOracle"
+},
+{
+"name": "addCubic",
+"kind": "method",
+"class": "DistOracle"
+},
+{
+"name": "_flatten",
+"kind": "method",
+"class": "DistOracle"
+},
+{
+"name": "_index",
+"kind": "method",
+"class": "DistOracle"
+},
+{
+"name": "buried",
+"kind": "method",
+"class": "DistOracle"
+},
+{
+"name": "hullsMiss",
+"kind": "function",
+"class": null
+},
+{
+"name": "isectInto",
+"kind": "function",
+"class": null
+},
+{
+"name": "cubicDeriv",
+"kind": "function",
+"class": null
+},
+{
+"name": "polishIsect",
+"kind": "function",
+"class": null
+},
+{
+"name": "cubicIntersections",
+"kind": "function",
+"class": null
+},
+{
+"name": "VertexSet",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "at",
+"kind": "method",
+"class": "VertexSet"
+},
+{
+"name": "stitchCubics",
+"kind": "function",
+"class": null
+},
+{
+"name": "cubicLoopArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "offsetSide",
+"kind": "function",
+"class": null
+},
+{
+"name": "endCaps",
+"kind": "function",
+"class": null
+},
+{
+"name": "offsetLoop",
+"kind": "function",
+"class": null
+},
+{
+"name": "roundJoin",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcChain",
+"kind": "function",
+"class": null
+},
+{
+"name": "now",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "marginOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "oracleTolFor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "buildTolFor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "repairTolFor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "curvePerimeter",
+"kind": "function",
+"class": null
+},
+{
+"name": "dropHairlines",
+"kind": "function",
+"class": null
+},
+{
+"name": "subCubic",
+"kind": "function",
+"class": null
+},
+{
+"name": "PieceGrid",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "PieceGrid"
+},
+{
+"name": "nearInto",
+"kind": "method",
+"class": "PieceGrid"
+}
+],
+"src/engine/__oracles__/erase.js": [
+{
+"name": "cutVisible",
+"kind": "function",
+"class": null
+},
+{
+"name": "eraserFootprint",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/__oracles__/strokeShape.js": [
+{
+"name": "Crumb",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "_key",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "_cx",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "_cy",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "add",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "coveredByOther",
+"kind": "method",
+"class": "Crumb"
+},
+{
+"name": "distSqToRaw",
+"kind": "function",
+"class": null
+},
+{
+"name": "distSqToSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "segSegDistSq",
+"kind": "function",
+"class": null
+},
+{
+"name": "segmentsOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "SegGrid",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "SegGrid"
+},
+{
+"name": "nearInto",
+"kind": "method",
+"class": "SegGrid"
+},
+{
+"name": "normAngle",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "coverRuns",
+"kind": "function",
+"class": null
+},
+{
+"name": "mergeCovers",
+"kind": "function",
+"class": null
+},
+{
+"name": "_asc0",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "lineCutsInto",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcCutsInto",
+"kind": "function",
+"class": null
+},
+{
+"name": "freeRuns",
+"kind": "function",
+"class": null
+},
+{
+"name": "boundaryPieces",
+"kind": "function",
+"class": null
+},
+{
+"name": "stitch",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "snapPoints",
+"kind": "function",
+"class": null
+},
+{
+"name": "strokeShape",
+"kind": "function",
+"class": null
+}
+],
+"src/hooks/useKobinEngine.js": [
+{
+"name": "now",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "signCursor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "useKobinEngine",
+"kind": "function",
+"class": null
+},
+{
+"name": "fmtZoom",
+"kind": "function",
+"class": null
+},
+{
+"name": "zoomLabel",
+"kind": "function",
+"class": null
+}
+],
+"src/Pages/CanvasEditor.js": [
+{
+"name": "CanvasEditor",
+"kind": "function",
+"class": null
+},
+{
+"name": "ScaleValueDialog",
+"kind": "function",
+"class": null
+}
+],
+"src/Pages/CanvasesV2.js": [
+{
+"name": "CanvasesV2",
+"kind": "function",
+"class": null
+},
+{
+"name": "PopMenu",
+"kind": "function",
+"class": null
+}
+],
+"src/Pages/HomeV2.js": [
+{
+"name": "HomeV2",
+"kind": "function",
+"class": null
+},
+{
+"name": "Feature",
+"kind": "function",
+"class": null
+}
+],
+"src/Pages/NotFoundPage.js": [
+{
+"name": "NotFoundPage",
+"kind": "function",
+"class": null
+}
+],
+"src/storage/localCanvases.js": [
+{
+"name": "slotKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "packSlot",
+"kind": "function",
+"class": null
+},
+{
+"name": "unpackSlot",
+"kind": "function",
+"class": null
+},
+{
+"name": "newCanvasId",
+"kind": "function",
+"class": null
+},
+{
+"name": "getDeviceId",
+"kind": "function",
+"class": null
+},
+{
+"name": "readIndex",
+"kind": "function",
+"class": null
+},
+{
+"name": "writeIndex",
+"kind": "function",
+"class": null
+},
+{
+"name": "statsFromDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "upsertIndexEntry",
+"kind": "function",
+"class": null
+},
+{
+"name": "removeCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "trashSlotKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "writeTrash",
+"kind": "function",
+"class": null
+},
+{
+"name": "removeThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "readTrash",
+"kind": "function",
+"class": null
+},
+{
+"name": "trashCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "restoreCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "stashOverwrittenVersion",
+"kind": "function",
+"class": null
+},
+{
+"name": "purgeTrashEntry",
+"kind": "function",
+"class": null
+},
+{
+"name": "duplicateCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "renameCanvasLocal",
+"kind": "function",
+"class": null
+},
+{
+"name": "loadCanvasRaw",
+"kind": "function",
+"class": null
+},
+{
+"name": "saveCanvasRaw",
+"kind": "function",
+"class": null
+},
+{
+"name": "backupCanvasSlot",
+"kind": "function",
+"class": null
+},
+{
+"name": "migrateLegacyAutosave",
+"kind": "function",
+"class": null
+},
+{
+"name": "thumbKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "loadThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "saveThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "loadCoverThumb",
+"kind": "function",
+"class": null
+},
+{
+"name": "agoLabel",
+"kind": "function",
+"class": null
+},
+{
+"name": "editedLabel",
+"kind": "function",
+"class": null
+},
+{
+"name": "deletedLabel",
+"kind": "function",
+"class": null
+},
+{
+"name": "depthLabel",
+"kind": "function",
+"class": null
+}
+],
+"src/storage/thumbnails.js": [
+{
+"name": "aspectRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "rasterize",
+"kind": "function",
+"class": null
+},
+{
+"name": "renderThumbs",
+"kind": "function",
+"class": null
+}
+],
+"src/utils/color.js": [
+{
+"name": "toHex",
+"kind": "function",
+"class": null
+}
+]
+}

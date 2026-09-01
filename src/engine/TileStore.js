@@ -23,8 +23,13 @@
  *                    in a far sibling frame appear when viewing its neighbour.
  *
  * Coarser off-branch content (an "uncle": depth(G) < depth(F), different branch)
- * would need to MAGNIFY into F from another branch — the up-chain's lateral
- * pickup, deferred (Stage 3 remainder). It cannot arise in a spine.
+ * is NO LONGER deferred, and it stopped being exotic the moment a frame became a
+ * lattice cell: a cell is about three screens across, so zooming in slightly
+ * off-centre puts ink that is ON SCREEN into a sibling of your ancestor. The
+ * magnify chain skipped it, the down path skipped it, and it vanished.
+ * `_ringNatives` picks up the eight neighbouring cells at every step of the
+ * up-chain; invariant 2 is what makes that complete, since an object never
+ * reaches past its own frame's neighbours (frame-lattice bible 10.5).
  *
  * Own natives(F) are NOT baked into F's own tiles — they render live (curved) at
  * the active frame. There is no exception: since an erase below an object's home
@@ -33,7 +38,7 @@
  * be re-derived per view.
  */
 import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, padRect, shapeRingsInRect, shapeTol } from "./geometry/derive";
-import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/clipperOutline";
+import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
 const PER_LEVEL_CAP = 64; // cached tiles per frame
@@ -86,11 +91,6 @@ export default class TileStore {
     _minContentDepth() {
         let m = Infinity;
         for (const k of this.doc.levels()) if (this.doc.at(k).length) { const d = this._depth(k); if (d < m) m = d; }
-        return m;
-    }
-    _maxContentDepth() {
-        let m = -Infinity;
-        for (const k of this.doc.levels()) if (this.doc.at(k).length) { const d = this._depth(k); if (d > m) m = d; }
         return m;
     }
 

@@ -1,0 +1,185 @@
+================================================================================
+BOUND.LESS - CURRENT STATUS
+Written 2026-08-28, updated 2026-08-31. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
+out of date.
+================================================================================
+
+WHERE THE BUILD IS
+
+    The arc pipeline (F21/F22) and the frame lattice are both IN and are the
+    engine. A stroke is drawn as a chain of circular arcs and resolves at pen-up
+    into a perimeter of arcs, which becomes the object; the centerline is then
+    deleted. Erasing is one exact boolean on two arc perimeters, with no polygon
+    library anywhere on that path. A frame is a cell of a fixed lattice, so a
+    move is arithmetic on an address rather than a translation of geometry, and
+    the magnify chain carries exact arcs down instead of a polygon.
+
+    That closed F25, F28, F-A and F-B. It did not close the eraser.
+
+    Cloud sync is live: Google auth, Firestore, chunked lz1 payloads, thumbnails
+    on the parent doc, a soft-delete recycle bin, and a presence heartbeat that
+    warns when the same canvas is open on another device.
+
+UNCOMMITTED WORK IN THE TREE - nothing below is in git
+
+    134 paths. The 2026-08-31 DEPLOY-READINESS CLEANUP is most of it and is
+    recorded in full in docs/OPEN-FLAGS.md under "Cleanup backlog - DONE
+    2026-08-31". In outline:
+
+      deleted    Pages/CanvasV2, BakeLab, ArcPen, ArcBake and their routes;
+                 Components/toolButton, Images/toolbarIcons/logoSmall,
+                 Stylesheets/CanvasToolBar.css; @material-ui out of
+                 package.json; LevelMap._edge, curvePerimeter.minDist,
+                 arcPerimeter.traceLoops
+      moved      src/engine/__oracles__/  KobinEngineV0, curvePerimeter,
+                 strokeShape, bakeStrategies, cede, erase + their suites
+                 src/engine/__testkit__/scaleBar.js  was scaleBar/testSupport.js
+                 docs/reference/  the bibles, handoffs, options, catalogs,
+                 reports - STILL TRACKED, just out of the way
+      split      KobinEngine.js 3,506 -> 855 lines + erasePipeline, overlays,
+                 selection, sceneOps, files, instruments, mixin, now, rectMath
+                 geometry/clipperOutline.js -> polyline.js (pure float64, the
+                 hot path) + clipperBoolean.js (the three Clipper functions)
+      wired      Document.canUndo/canRedo now ride the status payload and the
+                 toolbar greys Undo/Redo when the stack behind them is empty.
+                 They were an unfinished feature, not dead code.
+      new        DESIGN.md at the repository root - the whole design in one
+                 document, distilled from the bibles
+      rewritten  KobinEngine.contract.test.js, around its real consumers
+                 (useKobinEngine + CanvasEditor) instead of the deleted CanvasV2
+
+    MEASURED, not asserted: 1,466 tests across 85 suites pass (868 quick + 598
+    slow); the production build compiles; the bundle is 55.3 KB smaller gzipped
+    (-29.5 vendor, -25.8 app, about -16%); and the build's own source maps list
+    0 modules from __oracles__, __testkit__, the labs or @material-ui.
+
+    Older uncommitted work, still in the tree:
+
+    modified   .gitignore                          ignore public/__f35
+    modified   docs/OPEN-FLAGS.md                  F33/F34/F35 entries
+    modified   src/hooks/useKobinEngine.js         LOCAL_AUTOSAVE = false (F33)
+    modified   src/Pages/CanvasEditor.js           the save bar; cloud-dirty off
+                                                   document changes; persistCanvas
+                                                   no longer early-returns on a
+                                                   failed local write
+    modified   src/Stylesheets/boundless-ui.css    .bl-savebar
+    modified   src/engine/geometry/arcPerimeter.js circleCircle rewrite (F34)
+    untracked  src/engine/f23.ystroke.test.js      F23 reconstruction
+    untracked  src/engine/f30.repro.test.js
+    untracked  src/engine/f34.operands.test.js     the captured operands
+    untracked  src/engine/f34.repro.test.js        6-of-21 -> 0-of-21
+    untracked  src/engine/f35.render.test.js       renders any report snapshot
+    untracked  src/engine/geometry/f34.scale.test.js
+    untracked  src/engine/geometry/f34.winding.test.js
+    untracked  tools/docmaps/                      the two published pages
+
+    Plus the cleanup pass of 2026-08-28 recorded in 50-TODO.txt under DONE.
+
+OPEN, IN THE ORDER THEY MATTER
+
+    F33  autosave dies silently when localStorage fills          HIGH, MITIGATED
+         LOCAL AUTOSAVE IS OFF. LOCAL_AUTOSAVE = false in hooks/useKobinEngine.js;
+         flip it to true to restore and nothing else has to change. The Save
+         button and cloud sync still work, and a standing dismissible banner says
+         autosave is off.
+         Two things were fixed on the way and are worth knowing, because they
+         mean a signed-in user with full storage previously had NO working save
+         path at all: a failed local write used to return before reaching
+         cloudSaveCanvas, and cloudDirtyRef was only ever set by a SUCCESSFUL
+         local autosave.
+         WHAT IS ACTUALLY LEFT IS NOT THE QUOTA. Measured on a phone: five
+         autosaves that all SUCCEEDED cost 29.6 s of a 48.6 s window, 97% of it
+         inside LZString.compressToUTF16 on a 16-million-character document.
+         Compressing that on the main thread is unaffordable at any quota. The
+         fix has to be a worker, or IndexedDB (no 5 MB cap, takes structured
+         data), or incremental saves. Unbounded thumbnails (1.54 MB across 251
+         keys on his machine) buy headroom but do not make it fast.
+
+    F34  an erase seals chords across the shape                  FIXED, UNVERIFIED
+         Root cause found and fixed: circleCircle computed h2 = r1^2 - a^2, which
+         is pure noise once r1 is ~1e10 and r2 is ~21, so crossings were lost or
+         halved and the fragments could not pair. Kobin's own reproduction goes
+         from 6 failures in 21 gestures to 0 of 21. HE HAS NOT SEEN IT IN A
+         BROWSER YET. Do not close it on the arithmetic fix alone. Two things
+         remain:
+           - a synthetic straddling sweep at r >= 1e10 now finds all four
+             crossings and STILL fails to assemble (146 open chains). Different
+             fault, same regime.
+           - the DESIGN-CORRECT repair, which Kobin is right about: the freeze is
+             wired into the render chain only, so the erase path consults a curve
+             the design says no longer exists. Either freeze on the cede path, or
+             intersect in bulge form and never materialise the centre.
+
+    F35  a group move displaces one member                       HIGH, CAPTURED
+         Six reports captured across an undo/redo of the move; snapshots in
+         .kobin-reports/f35/, renders in public/__f35/ (gitignored). Every report
+         is a loadable drawing - src/engine/f35.render.test.js is the reader, and
+         that applies to EVERY report ever captured, not just these.
+         Not diagnosed. The cheapest thing to rule out first is not arithmetic:
+         three silent `continue`s in _dragSelection each drop ONE member of a
+         drag while every other member moves on, and nothing logs any of them.
+         Two unexplained facts from the numbers: the relative offset between
+         members CHANGES across an undo/redo with no gesture in between, and the
+         frame chain is rewritten between two of the reports.
+
+    F29  a piece fades out of existence while zooming out        HIGH
+         Caught mid-fade, after being cut off the main piece. Not reproduced.
+         Two candidates, both cheap to check: fadeTag is projectedSizePx at the
+         SOURCE frame's deepest zoom, so a freshly ceded piece reads much smaller
+         than it looks; and a piece that is actually fading is put in its own
+         render group rather than the family's, which makes the fade visible
+         instead of masked. Harness: report 07-22-12 plus a zoom-out sweep.
+
+    F30  an eraser is consumed without cutting anything          HIGH
+         The first cede at a new level did nothing. Does NOT reproduce
+         synchronously - the replay path runs flushErases() and the app runs
+         _bakeTick in 8 ms slices. The suspect is the DONE SET: _bakeOne marks a
+         target done BEFORE it can refuse, so a refusal is permanent for that
+         gesture. Instrumented: _rehomeBail records every refusal with its
+         reason, _noteSpent records the whole done set of a mark consumed
+         without cutting. A repeat now arrives with its own explanation attached.
+
+    F32  the lasso sometimes misses objects                      OPEN
+         Reported, never reproduced, no capture. Two things to rule out first,
+         both read off the code rather than observed: selection tests an object's
+         AXIS-ALIGNED RECT, not its ink, so a diagonal or curved stroke lying
+         comfortably inside the loop is skipped whenever its bbox corners poke
+         out - correct by the stated rule, a miss to the person drawing the loop;
+         and _rectInActive returning null drops an object silently. Ask for a
+         report while it is on screen.
+
+    F5   the eraser has never passed a test by Kobin             OPEN
+         Standing. See THE RULES in 00-START-HERE.txt.
+
+    UNEXPLAINED, from the same phone report as F33: the single worst frame of
+    the session is 7,858.9 ms attributed to dispatchDiscreteEvent /
+    DIV#root.onclick - a click handler, 7.8 s of script, no layout, no paint.
+    Nothing accounts for it. Baking is the other 40% of blocking time,
+    concentrated in three outliers worth 11.2 s of its 20.9 s.
+
+    LATENT FLAKE: perf.instrument.test.js PI-6 asserts that 40 zooms each finish
+    under 8 ms. That is a claim about the MACHINE, not the code, and it goes red
+    whenever the box is loaded. Give it a trace-mode assertion instead.
+
+NOT VERIFIED ANYWHERE BUT ONE MACHINE
+    Everything has been checked on Chrome 151 / Windows 11 / Intel Iris /
+    dpr 1.5. docs/UAT.md carries the matrix that is still empty: dpr 1.0, HiDPI,
+    Firefox, Safari, software rendering, touch. The thin-stroke compositing
+    failure (F-Z) is fixed for that machine; whether the dead zone it works
+    around exists at all elsewhere is unknown.
+
+WHAT IS DELIBERATELY NOT BUILT
+    - D1 from the frame-lattice bible: a piece is still {C, r, a0, sweep, A, B}
+      rather than {A, B, bulge}. The freeze TEST never touches the centre, and a
+      line is never chopped, so an arc is only ever chopped at shallow depths -
+      but that is a structural argument standing in for a representation change.
+      It is the last decision from section 0 outstanding, and F34's root cause is
+      exactly the class of failure it would have prevented.
+    - The touching-arcs severance case (frame-lattice bible §7.4). Scoped,
+      understood, agreed not to build.
+    - The seam antialiasing rule (§7.5). A look-at-it question, nothing measured.
+    - Frame garbage collection. Abandoned cells are re-findable now, so the leak
+      is harmless, but nothing collects them.
+    - Threading. The bake is small enough that a worker buys little; the real
+      cost is asynchrony against a mutable document.

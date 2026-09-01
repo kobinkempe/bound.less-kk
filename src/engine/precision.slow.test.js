@@ -8,7 +8,7 @@
  *
  *   CAUSE 1 — the integer lattice was anchored at the FRAME ORIGIN, so booleans
  *   lost precision in proportion to how far the drawing had been panned. Fixed
- *   (geometry/clipperOutline localFrame; pinned in geometry/lattice.test.js).
+ *   (geometry/clipperBoolean localFrame; pinned in geometry/lattice.test.js).
  *   It produced both pixellation AND "the shape changed where I didn't touch
  *   it", because a boolean re-quantizes its whole subject, not just the cut.
  *

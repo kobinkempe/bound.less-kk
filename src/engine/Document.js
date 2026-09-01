@@ -4,10 +4,29 @@
  * the dev-0 snapshot (de)serialization of the natives. No Two.js, no camera,
  * no tiles.
  *
- * Objects are stored per HOME level (the level they were drawn at) and their
- * geometry is immutable once finalized — everything shown at other levels is a
- * derived copy carrying the source id, which is why removeById() is enough to
- * erase an object "everywhere".
+ * Objects are stored per HOME level (the level they were drawn at). Everything
+ * shown at another level is a DERIVED copy carrying the source id, which is why
+ * removeById() is enough to erase an object "everywhere".
+ *
+ * Geometry is immutable BETWEEN EDITS, not forever — the original wording here
+ * said "immutable once finalized" and three things break that: `moveById` /
+ * `setGeometryById` (a drag), `bakeShapeById` (a stroke becoming its resolved
+ * perimeter, in place, keeping its id) and `fillToShapeById` (a legacy polygon
+ * promoted at the moment something is about to cut it). Every one of them goes
+ * through `_afterEdit`, which is what the invariant actually is:
+ * bust the caches attached to the object (`_bbox`/`_dispFlat`/`_flat`/`_outline`),
+ * bump `_ver` so anything keyed on its state is stale, reindex, and emit a
+ * `change` carrying the OLD footprint so the TileStore can invalidate both where
+ * the object was and where it now is.
+ *
+ * WHAT IS NOT HERE, AND WHY. There is no `restyleById` and no `cutById`.
+ * Colour/width/opacity editing of a selection went when the selection style box
+ * did (Kobin, 2026-08-03, with multi-select: a lasso can hold objects drawn at
+ * wildly different levels and one width slider has no meaning across them), and
+ * `select.lasso.test.js` asserts that no path on the engine can reach a restyle.
+ * `cutById` was the pre-arc centerline cut, superseded by `eraseReplaceById` —
+ * an erase replaces a native with the REGIONS its boolean left, not with pieces
+ * of a polyline. Their undo cases went with them.
  *
  * Change events: every mutation (add/remove/insert/clear/load — including the
  * ones replayed by undo/redo) notifies subscribers with the object and its
@@ -362,43 +381,11 @@ export default class Document {
         return { obj: o, level: k };
     }
 
-    // patch ⊂ { color, opacity, lwFrame }. Returns { obj, level, before, after }
-    // (before/after hold only the touched keys — the undo op's payload).
-    restyleById(id, patch) {
-        const rec = this.getById(id);
-        if (!rec) return null;
-        const o = rec.obj;
-        const before = {}, after = {};
-        const oldLw = o.lwFrame;
-        for (const k of ["color", "opacity", "lwFrame"]) {
-            if (patch[k] === undefined || patch[k] === o[k]) continue;
-            before[k] = o[k]; after[k] = patch[k];
-            o[k] = patch[k];
-        }
-        if (Object.keys(after).length) this._afterEdit(o, rec.level, this._bboxNow(o), oldLw);
-        return { ...rec, before, after };
-    }
-    // Replace a stroke with the pieces a boolean erase left of it (true erase).
-    // The pieces are NEW natives (fresh ids) that inherit the source's z, so
-    // they keep drawing at the original's depth. Emits remove + adds — the
-    // TileStore invalidates the old footprint and each piece's new one.
-    cutById(id, runs) {
-        const rec = this.removeById(id);
-        if (!rec) return null;
-        const src = rec.obj;
-        const z = src.z != null ? src.z : src.id;
-        const pieces = runs.map((pts) => this.add({
-            type: "stroke", origin: src.origin, id: this.allocId(), z, pts,
-            lwFrame: src.lwFrame, color: src.color, opacity: src.opacity, paths: [],
-            ...(src.tile ? { tile: [src.tile[0], src.tile[1]] } : {}),
-        }, rec.level));
-        return { removed: rec, pieces };
-    }
     // Replace a native with the region(s) an AREA erase left of its ink. Each
-    // region (rings: outer + holes) becomes its own fill native with a fresh
-    // id inheriting the source's z/color/opacity — disjoint leftovers select
-    // and re-erase independently, with tight bboxes. Same event/undo shape
-    // as cutById.
+    // region (outer ring plus its holes) becomes its own native with a fresh id
+    // inheriting the source's z/colour/opacity — disjoint leftovers select and
+    // re-erase independently, with tight bboxes. This is what replaced the old
+    // centerline cut: an erase now yields REGIONS, not pieces of a polyline.
     eraseReplaceById(id, regions) {
         const rec = this.removeById(id);
         if (!rec) return null;
@@ -603,6 +590,9 @@ export default class Document {
         if (this._undo.length > 200) this._undo.shift();
         this._redo = []; // a fresh action forks history; the redo branch dies
     }
+    // Whether there is anything to undo / redo. Rides the status payload out
+    // to the toolbar, which greys its Undo and Redo buttons accordingly, so a
+    // button that would do nothing does not look like one that would.
     canUndo() { return this._undo.length > 0; }
     canRedo() { return this._redo.length > 0; }
     undo() {
@@ -651,14 +641,6 @@ export default class Document {
                 this._undoMove(op.moves);
                 return { op: "moveMany", moves: op.moves.map((m) => this._invertMove(m)) };
             }
-            case "restyle": {
-                this.restyleById(op.id, op.before);
-                return { op: "restyle", id: op.id, before: op.after, after: op.before };
-            }
-            case "restyleMany": {
-                for (const ch of op.changes) this.restyleById(ch.id, ch.before);
-                return { op: "restyleMany", changes: op.changes.map((ch) => ({ id: ch.id, before: ch.after, after: ch.before })) };
-            }
             case "eraseMany": {
                 for (let i = op.records.length - 1; i >= 0; i--) {
                     const rec = op.records[i];
@@ -669,21 +651,6 @@ export default class Document {
             case "removeMany": {
                 for (const rec of op.records) this.removeById(rec.obj.id);
                 return { op: "eraseMany", records: op.records };
-            }
-            // "cut" = the boolean erase HAS been applied (original out, pieces
-            // in). Undoing removes the pieces (reverse replay needs reverse
-            // insertion, so record them in order and re-insert reversed) and
-            // restores the original at its remembered index.
-            case "cut": {
-                const pcs = op.pieces.map(({ obj }) => this.removeById(obj.id)).filter(Boolean);
-                this.insertAt(op.removed.obj, op.removed.level, op.removed.index);
-                return { op: "uncut", removed: op.removed, pieces: pcs };
-            }
-            case "uncut": {
-                const r = this.removeById(op.removed.obj.id);
-                const pcs = [...op.pieces].reverse();
-                for (const pc of pcs) this.insertAt(pc.obj, pc.level, pc.index);
-                return { op: "cut", removed: r || op.removed, pieces: op.pieces };
             }
             // Deferred area erase. "eraseCommit" is pushed ONCE per eraser
             // gesture; background baking APPENDS to op.baked afterwards (no

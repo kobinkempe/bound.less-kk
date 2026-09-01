@@ -1,6 +1,6 @@
 import { bakeArcPerimeter, ArcBakeJob, ptAt, pieceBBox } from "./arcPerimeter";
 import { chainFor, arcPoint } from "./biarc";
-import { BAKERS } from "./bakeStrategies";
+import { BAKERS } from "../__oracles__/bakeStrategies";
 
 // Two strokes captured from Kobin's browser, now kept IN THE REPO. They used to
 // be required from a session scratchpad, so the suite quietly depended on a temp

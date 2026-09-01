@@ -1,0 +1,347 @@
+================================================================================
+BOUND.LESS - CODE MAP
+Every production file, what it owns, and the parts worth knowing about.
+Written 2026-08-28. Test files (*.test.js) are listed at the end by subject.
+
+MARKERS
+    [DEV]    reachable only from the dev panel (?dev) or a dev route
+    [TEST]   no production caller; kept because a suite needs it
+    [HOT]    on the per-frame or per-pointer-event path
+================================================================================
+
+ENTRY AND SHELL
+
+src/index.js                React root. StrictMode. Nothing else.
+src/App.js                  HashRouter. Seven routes; four of them are dev.
+                            /canvas/:canvasId is KEYED on the id so switching
+                            canvases remounts the editor and its engine.
+src/reportWebVitals.js      CRA boilerplate, never given a callback. Inert.
+src/setupTests.js           jest-dom, plus a requestAnimationFrame polyfill
+                            because jsdom has none and Two.js's ticker needs one.
+
+PAGES
+
+src/Pages/HomeV2.js         Marketing page. Links to /canvases.
+src/Pages/CanvasesV2.js     THE GALLERY. Sign-in, the local/cloud merge (freshest
+                            savedAt wins), one-way catch-up upsync of canvases
+                            the account does not know, tombstone propagation,
+                            rename / duplicate / download / delete, the recycle
+                            bin, and file import. PopMenu at the bottom is a
+                            dropdown whose click-away deliberately ignores its
+                            own anchor, or the button would feel stuck open.
+src/Pages/CanvasEditor.js   THE PRODUCT. Tool rail, scenes panel, scale HUD and
+                            set-scale flow, save/delete/leave dialogs, the
+                            save-failure bar, the cross-device "open elsewhere"
+                            banner, and the dev panel behind ?dev.
+                            Key pieces:
+                              persistCanvas     serialize -> local -> index ->
+                                                thumbnails -> cloud. Does NOT
+                                                stop at a failed local write.
+                              cloudAutosync     every 30 s and on tab-hide while
+                                                signed in and dirty.
+                              ensureThumbs      builds a WHOLE SECOND ENGINE and
+                                                rasterizes one image per scene.
+                                                By far the most expensive thing
+                                                the editor does.
+                              hudBundle         computeScale on the sticky scale
+                                                session, with a write-back guard
+                                                so a stale unbanded result cannot
+                                                wipe a fresher user pick.
+src/Pages/NotFoundPage.js   404.
+
+                            CanvasV2 (/#/v2) and the three labs (/#/bakelab,
+                            /#/arcpen, /#/arcbake) were deleted on 2026-08-31.
+                            CanvasV2 kept its OWN copy of mount, pointer input,
+                            autosave and the report payload, so the same fix had
+                            had to be made twice more than once.
+
+HOOK
+
+src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
+                            engine, wires pointer/wheel/pinch/keyboard input,
+                            owns every tool and style piece of state, throttles
+                            the status stream to 50 ms (flushing zoom changes
+                            immediately so the scale HUD cannot skip a rung),
+                            and owns the autosave loop.
+                            LOCAL_AUTOSAVE is the F33 switch and is currently
+                            FALSE. Read the comment above it before changing it.
+                            Also: the ctrl cursor (a drawn SVG badge saying what
+                            the next ctrl-click will DO, answered by hit-testing
+                            the point), save/load/export helpers, and the [DEV]
+                            report sender.
+
+COMPONENTS
+
+src/Components/BrandLogo.js             wordmark + link
+src/Components/ui/Button|Input|Dialog   plain, unstyled-by-library primitives
+src/Components/ui/SciText.js            renders Unicode superscript exponents as
+                                        real <sup>, because fonts draw the
+                                        Latin-1 digits and the U+2070 block from
+                                        different designs and an exponent like
+                                        37 comes out mismatched
+src/Components/editor/
+    ColorPickerPopover      react-colorful behind an anchored popover
+    FileActionsMenu         download / export SVG / open / duplicate / delete
+    SaveDrawingDialog       first-save naming; re-seeds from the live title
+    ScaleDragBar            the set-scale drag visualisation
+    ScaleUnitPicker         the unit popover and the set-scale grid. Chips until
+                            the rung passes a size limit, then a full-name table.
+    WidthOpacityPanel       width, and opacity when there is one
+    useAnchorPopoverStyle   fixed-position placement with viewport clamping
+    useClickAway            close-on-outside-click, capture phase
+
+STORAGE AND CLOUD
+
+src/storage/localCanvases.js   The per-browser store. One slot per canvas
+                               (kobin.canvas.<id>), lz-string compressed with an
+                               "lz1:" prefix; legacy plain-JSON slots still load.
+                               An index makes saved canvases enumerable. A 30-day
+                               recycle bin with its own slot prefix. Scene
+                               thumbnails as JPEG data URLs, keyed per canvas and
+                               scene. stashOverwrittenVersion files the losing
+                               side of a cross-device overwrite as its own
+                               restorable canvas.
+src/storage/thumbnails.js      Offscreen scene thumbnails. Builds a second
+                               KobinEngine in a hidden host, loads the drawing,
+                               jumps to each scene and rasterizes. Browser-only.
+src/cloud/firebaseApp.js       Lazy, memoized Firebase init. Importing it starts
+                               nothing.
+src/cloud/useUser.js           Live auth state; Google popup with a redirect
+                               fallback for phones that block popups.
+src/cloud/canvasSync.js        Firestore. Parent doc carries metadata and
+                               thumbnails; the drawing is lz1-compressed and
+                               chunked into 700 KiB binary parts underneath, six
+                               parts per commit. THE PARENT IS WRITTEN LAST,
+                               because readers key off parent.parts/codec, so a
+                               torn save never looks complete. Soft delete is a
+                               deletedAt on the parent; a later full save clears
+                               it, so editing anywhere resurrects a canvas.
+                               cloudSetEditing/cloudClearEditing are the presence
+                               heartbeat.
+
+THE ENGINE - src/engine/
+
+KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
+                    merges the render list. Its quasi-private surface is pinned
+                    by KobinEngine.contract.test.js.
+                    SIX FILES, ONE PROTOTYPE. It was 3,506 lines; on 2026-08-31
+                    most of it moved out, and engine/mixin.js copies each new
+                    file's prototype back onto this one. They are still this
+                    class's methods and still run with `this` bound to the
+                    engine - the split was a MOVE, every method byte-identical.
+                      erasePipeline.js  the eraser + the resumable bake  ~930
+                      overlays.js       selection indicator + erase debug ~670
+                      selection.js      select, hit-test, drag            ~390
+                      instruments.js    LongFrames, EventLatency,
+                                        GrowthLog, FrameMeter            ~295
+                      sceneOps.js       auto-scenes                      ~215
+                      files.js          dev-0 and kobin-1                 ~70
+                      mixin.js          the copier, which THROWS on a name
+                                        two files both define
+                      now.js            perfNow, one clock for everything
+                      rectMath.js       latticeStep/rectTol/rectSpan
+                    What actually lives here:
+                      input          pointerDown/Move/Up [HOT], each timed at the
+                                     boundary because that is where every scrap
+                                     of user-driven main-thread work happens
+                      drawing        _startPen attaches a BiarcPen; _pointerUp
+                                     queues the perimeter bake
+                      baking         _bakeTick, the one timer. Resolves stroke
+                                     perimeters first, then erase bakes, both in
+                                     8 ms slices, standing aside for the pointer
+                                     and for a live zoom but never for longer
+                                     than 1.5 s
+                      erasing        _bakeOne (cut in place) and _bakeRehome
+                                     (cede a tile, one crossing at a time)
+                      severance      _familyComponents / _resplitFamily
+                      selection      _hitTest, _lassoFind (the frame-tree walk),
+                                     _dragSelection (address arithmetic),
+                                     _normalizeHome, _selectionAnts
+                      scenes         refreshScenes, captureView, splitScene,
+                                     jumpTo
+                      files          serializeDrawing / loadDrawing (kobin-1)
+                      [DEV]          the four instrument classes at the top of
+                                     the file (LongFrames, EventLatency,
+                                     GrowthLog, FrameMeter), _perf, _note,
+                                     journal, reportFamilies, snapshot,
+                                     _eraseDebugOverlay, the setXDebug switches
+LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
+                    pure transforms between them. cellChild/neighbour do the
+                    carry arithmetic; displaceFrame is the whole of a deep move;
+                    framePath/frameFactor/mapRectF/projectF are the transforms,
+                    and they go ONE EDGE AT A TIME because a composed long jump
+                    cancels catastrophically. _paths caches the tree walk, which
+                    dominated a pan on a seventeen-level document.
+Camera.js           The view transform and the crossing state machine. Owns the
+                    active frame, inScale, inPan. _settle crosses until the
+                    in-frame zoom is legal AND shifts laterally when the view has
+                    walked out of its cell - but never under the pen, because a
+                    stroke's samples are appended in the frame it started in.
+Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
+                    (id = creation order = z-order), undo/redo, the per-level
+                    spatial index, and change events that carry the OLD footprint
+                    so the tile cache can invalidate both places. Every mutation
+                    goes through _afterEdit. cedeTileById is the erase's tile
+                    cede; eraseReplaceById is the in-place cut; bakeShapeById is
+                    a stroke becoming its perimeter in place, keeping its id.
+TileStore.js        The bidirectional tile cache, keyed by frame. content() is
+                    what a render reads [HOT]. Incremental: a document change
+                    patches the cached tiles rather than dropping them, except
+                    during a drag (setBatch), where an off-screen tile is dropped
+                    instead of patched. LRU-bounded globally and per frame.
+Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
+                    signature diff, per-scene origins, scene retention, the
+                    fat-stroke outline gate, the thin rescale, and the selection
+                    overlay in raw SVG with a CSS animation.
+persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
+                    Repairs unclosed loops and out-of-range tile phases at the
+                    door rather than refusing a whole drawing over one object.
+scenes.js           Auto-scene clustering. Pure: it never touches LevelMap, and
+                    takes an injected projector instead.
+frameLattice.js     The address arithmetic. Pure integers and powers of two.
+                    The constants, cellEdge/cellCentre/cellOf, carryDigit,
+                    displacementDigits/applyDigits, and the OBJECT tile grid
+                    (tilePhase, childTilePhase, objTileRect, objTileRange).
+scaleBar.js         A one-line facade re-exporting scaleBar/index.
+                    (KobinEngineV0.js moved to __oracles__/ - see below.)
+
+GEOMETRY - src/engine/geometry/
+
+biarc.js            The centerline. arcThrough / biarc / arcsForGap build two
+                    arcs per sample gap; BiarcPen is the same thing built one
+                    sample at a time [HOT], and biarc.test.js pins the two as
+                    identical. distinctSamples drops repeated coordinates, which
+                    a touch digitizer produces whenever a finger rests and which
+                    severed two of five phone strokes.
+arcPerimeter.js     The bake. ChainBuilder (both rails and both caps as ONE
+                    closed chain, offset points computed per vertex and shared),
+                    circleCircle/circleSegment/segSeg, the exact burial Oracle,
+                    and ArcBakeJob - eight resumable phases with a cursor.
+                    circleCircle's comment is the F34 root cause; read it before
+                    touching that function.
+arcShape.js         What the app does with a resolved perimeter: measure
+                    (loopArea is exact - chord shoelace plus each arc's circular
+                    segment), transform (a similarity maps an arc to an arc and
+                    leaves its ANGLES alone, which is why a perimeter crosses a
+                    level without being re-resolved), flatten, serialize, repair,
+                    and shapeBoolean - the exact difference/intersection.
+                    dropDust and dropHairlines are the two "this is not ink"
+                    filters and they measure different things.
+derive.js           One-step bake math, and the seam policy. deriveStep is the
+                    edge tier: transform parent objects into the child frame,
+                    chop them on the OBJECT's tile grid, freeze what has gone
+                    straight, clip to the object's own tile grown by the seam
+                    pad, and emit. classifyUp is the empty/solid/edge tier.
+                    shapeRingsInRect and shapeLoopsInRect are the two clips - one
+                    hands back polygons, one hands back ARCS, and the second is
+                    the F-A fix.
+freeze.js           The chop and the freeze. pieceSagitta is (chord/2)*|tan(sweep/4)|
+                    - the bulge form, so the CENTRE NEVER APPEARS and a radius of
+                    1e18 cannot spoil the test. markSeamEnds marks the ends the
+                    overhang clip made so the level below will not freeze on one.
+curveOutline.js     Curve capsules: a fat stroke's outline as closed loops of
+                    cubics, built once and exact at every in-level zoom.
+                    strokeLoops is the ONE definition of "how a stroke becomes an
+                    outline", shared by the renderer and the eraser.
+polyline.js         [HOT] Pure float64, no integer lattice, no coordinate
+                    ceiling. flattenCurve/flattenCurveNear (the exact Two.js
+                    spline), clipRingsToRect (float Sutherland-Hodgman with a
+                    winding compensation), clipPolylineToRect, decimatePolyline,
+                    strokeStripNear (the analytic band for oversized strokes),
+                    controlsFor, capsulePoly, netRingsArea.
+clipperBoolean.js   The three functions that still use clipper-lib, and the
+                    integer-lattice scaling they need: strokeOutline,
+                    subtractPolys, clipPolysToRect. Its header names every
+                    caller each one has left. The two files were one file called
+                    clipperOutline.js until 2026-08-31; the split is what makes
+                    a grep for clipperBoolean a complete answer to "where is
+                    Clipper still reached" - six files, three of them tests.
+connect.js          Contact along a shared tile edge, as intervals in a
+                    NORMALIZED perimeter parameter. contactArcs / arcsTouch /
+                    arcOverlaps / tOfPoint, plus Groups (union-find).
+                    arcsTouch requires a shared STRETCH, not a shared point.
+hittest.js          distToPolyline and windingOfPoint are what the engine picks
+                    with. distSegToSeg/distSegToPolyline/capsuleTouchesRings are
+                    [TEST]-only survivors of the old sweep eraser.
+lasso.js            rectInsidePolygon: exact, and deliberately not a corner test.
+
+NOT SHIPPED - src/engine/__oracles__/
+
+    Independent implementations the shipping code is checked against. Nothing in
+    src/ outside the test suites imports any of it, so webpack never bundles it -
+    confirmed against the build's own source maps. PRODUCTION MUST NEVER IMPORT
+    FROM HERE: an oracle the engine depends on has stopped being one. The
+    folder's README says what each one checks.
+
+    KobinEngineV0.js    the retired god-class engine, and the golden compare in
+                        geometry/derive.test.js. It is one of the three reasons
+                        clipper-lib is still in package.json.
+    curvePerimeter.js   the cubic perimeter resolve.
+    strokeShape.js      the polyline Minkowski bake.
+    bakeStrategies.js   the three cubic bake schedules, still the head-to-head.
+    cede.js             the float guillotine. Superseded by cedeTileById.
+    erase.js            what is left of the superseded recipe model.
+
+THE SCALE BAR - src/engine/scaleBar/
+
+    Layered deliberately; each layer is forbidden the one above it.
+    catalog.js          PHYSICAL TRUTH ONLY. Unit sizes, names, families,
+                        prefixes. No ladders, no bands, no rungs.
+    membership.js       the five ladder inventories, priority, related ladders
+    preference.js       the preferred display band per (ladder, unit) - DATA
+    preferenceRange.js  a band as a first-class object. Standard vs User, which
+                        differ only in priority and in what counts as a claim.
+    ladder.js           one ladder as an object; candidatesAt(mpp) generates the
+                        in-bounds stops
+    nice.js             the 1/2/5 grammar, plain vs scientific, inch fractions
+    logMath.js          the log-length spine. Nothing here throws, ever.
+    resolve.js          THE RULE: the lowest in-range number wins, where a unit's
+                        range is its preference band and the default range has
+                        lower bound 1. That one rule subsumes every handoff table
+                        the design used to need.
+    pick.js             what a user's unit pick does. If the pick is what some
+                        ladder would show anyway, switch ladder. Otherwise install
+                        a user range spanning where the unit NATURALLY flips,
+                        derived by scanning the resolver rather than tabulated.
+    session.js          the sticky per-canvas display state
+    rungs.js            the popover and set-scale rungs, as cumulative unions
+    logicRule.js        one membership rule per class; rungs.js is the plan
+    format.js           label assembly
+    validate.js         the persisted scaleDef
+    index.js            the public facade; computeScale is the entry point
+                        (its fixtures moved to __testkit__/scaleBar.js on
+                        2026-08-31, so this directory is shipping code only)
+
+TEST DIRECTORIES
+
+src/engine/__testkit__/   harness.js (engine construction, gestures, camera
+                          moves), ink.js (does this screen point have ink on it -
+                          the oracle most suites assert through), fidelity.js,
+                          legacyFixture.js (converts recorded pre-lattice
+                          snapshots so their coverage survives; TEST-ONLY, the
+                          product converts nothing), scaleBar.js (the scale-bar
+                          fixtures and assertions, was scaleBar/testSupport.js).
+                          Not collected by jest.
+
+TESTS BY SUBJECT - 61 fast suites (868 tests) and 24 slow ones (598 tests)
+
+    the lattice          frameLattice, LevelMap, digitRange, move.deep,
+                         chain.exact, objectTiles, frameLattice, frameLeak
+    the bake             arcPerimeter, biarc, bake.schedule, arcShape,
+                         curvePerimeter, bakeStrategies, strokeShape
+    erasing              erase.cede, erase.retrace, erase.composition,
+                         erase.contract, erase.deepsever, erase.fidelity,
+                         erase.fuzz, erase.layered, erase.matrix,
+                         erase.severance, erase.styles, areaErase, seams
+    selection and moves  select.lasso, select.multilevel, move.drag,
+                         selection.indicator, neighborhood
+    rendering            Renderer.reorigin, Renderer.retention,
+                         Renderer.thinscale, zorder, fade.family
+    the document         Document, TileStore, persist, roundtrip, precision
+    scenes               scenes, scenes.erase
+    the scale bar        resolve, rungs, userRange, membership, nice, logLength,
+                         reactPath, canvasEditorSticky.rtl
+    regressions          KnownBugs.fixed, reported.regress, f23/f30/f34/f35,
+                         KobinEngine.*, fidelity.compare, topology
+    performance          perf.bench, perf.instrument, perf.layered,
+                         strokeShape.perf, bakeStrategies.perf

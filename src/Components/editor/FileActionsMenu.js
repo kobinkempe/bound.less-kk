@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React from "react";
 import { FolderOpen, Download, Trash2, Copy } from "lucide-react";
 import useClickAway from "./useClickAway";
 
@@ -32,8 +32,4 @@ export default function FileActionsMenu({
             </button>
         </div>
     );
-}
-
-export function useFileInputRef() {
-    return useRef(null);
 }

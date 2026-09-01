@@ -13,7 +13,7 @@
 import { loadFixture } from "./__testkit__/legacyFixture";
 import fs from "fs";
 import path from "path";
-import KobinEngineV0 from "./KobinEngineV0";
+import KobinEngineV0 from "./__oracles__/KobinEngineV0";
 import KobinEngine from "./KobinEngine";
 
 jest.setTimeout(180000);

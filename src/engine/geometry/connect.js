@@ -156,21 +156,6 @@ export function tOfPoint(rect, x, y, tol = 0) {
 }
 
 /**
- * The inverse of `tOn`: a normalized perimeter parameter back to a point on the
- * rect.
- */
-export function pointAtT(rect, t) {
-    const R = asRect(rect);
-    if (!R) return null;
-    const w = R.x1 - R.x0, h = R.y1 - R.y0;
-    const u = ((t % 4) + 4) % 4;
-    if (u < 1) return [R.x0 + u * w, R.y0];
-    if (u < 2) return [R.x1, R.y0 + (u - 1) * h];
-    if (u < 3) return [R.x1 - (u - 2) * w, R.y1];
-    return [R.x0, R.y1 - (u - 3) * h];
-}
-
-/**
  * The stretches two contact sets actually SHARE, as intervals — the same
  * question `arcsTouch` answers yes/no, kept whole so it can be drawn.
  */

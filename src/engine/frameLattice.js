@@ -230,9 +230,6 @@ export function tilePhase(v) {
  */
 export function childTilePhase(phi, c, f) { return tilePhase((phi - c) * f); }
 
-/** The tile of the grid that holds `x`. Boundaries round up, as cells do. */
-export function tileIndexOf(phi, x) { return Math.round((x - phi) / TILE); }
-
 /** Tile (i, j) of the grid with phase (px, py). */
 export function objTileRect(px, py, i, j) {
     const h = TILE / 2;

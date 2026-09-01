@@ -22,7 +22,7 @@ import fs from "fs";
 import path from "path";
 import KobinEngine from "./KobinEngine";
 import { windingOfPoint, distToPolyline, } from "./geometry/hittest";
-import { flattenCurve } from "./geometry/clipperOutline";
+import { flattenCurve } from "./geometry/polyline";
 import { insideShape } from "./geometry/arcShape";
 
 jest.setTimeout(120000);

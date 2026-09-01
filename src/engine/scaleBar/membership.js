@@ -123,31 +123,6 @@ export function highestPriorityLadder(ladderIds) {
     return ladderIds[0] || LADDER_IDS.STANDARD_METRIC;
 }
 
-export function ladderNeighbors(unit, ladderId, up = 1, down = 1) {
-    const ladder = ladderForStack(ladderId);
-    const rank = unitRank(unit, ladder);
-    if (rank < 0) return [];
-    const out = [];
-    for (let d = 1; d <= down; d++) {
-        if (rank - d >= 0) out.push(ladder[rank - d].name);
-    }
-    for (let u = 1; u <= up; u++) {
-        if (rank + u < ladder.length) out.push(ladder[rank + u].name);
-    }
-    return out;
-}
-
-export function unitsOnLadderWithinFactor(unit, ladderId, factor) {
-    const center = getUnit(unit);
-    if (!center) return [];
-    const ladder = ladderForStack(ladderId);
-    const logLo = center.log10Meters - Math.log10(factor);
-    const logHi = center.log10Meters + Math.log10(factor);
-    return ladder
-        .filter((r) => r.log10Meters >= logLo - 1e-12 && r.log10Meters <= logHi + 1e-12)
-        .map((r) => r.name);
-}
-
 export function floorUnit(ladderId) {
     const ladder = ladderForStack(ladderId);
     return ladder[0]?.name || null;

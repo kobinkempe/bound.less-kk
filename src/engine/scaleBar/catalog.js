@@ -263,7 +263,7 @@ export function unitMeters(name) {
 
 export function unitLog10Meters(name) {
     const u = unitRegistry.get(name);
-    if (!u) return NaN; // soft-fail on hot paths (L11); tests use testSupport throws
+    if (!u) return NaN; // soft-fail on hot paths (L11); the testkit throws instead
     if (Number.isFinite(u.log10Meters)) return u.log10Meters;
     if (Number.isFinite(u.meters) && u.meters > 0) return Math.log10(u.meters);
     return NaN;
@@ -271,18 +271,6 @@ export function unitLog10Meters(name) {
 
 export function allCatalogUnits() {
     return [...unitRegistry.values()].sort((a, b) => a.log10Meters - b.log10Meters);
-}
-
-export function allRegisteredUnits() {
-    return allCatalogUnits().map((u) => ({
-        name: u.name,
-        meters: u.meters,
-        log10Meters: u.log10Meters,
-        kind: u.kind,
-        family: u.family,
-        siPrefixBase: u.siPrefixBase,
-        stacks: [], // filled by membership
-    }));
 }
 
 function prefixNameForShort(short) {

@@ -32,3 +32,4 @@ yarn-error.log*
 
 # one-off jest --json timing dumps
 /.jest-times.json
+/public/__f35

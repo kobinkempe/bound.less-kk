@@ -1,6 +1,18 @@
 # bound.less v2 — Issue Log & Backlog
 
-Status of known issues in the v2 infinite-zoom engine (branch `v2` / `new-ui`).
+> **THIS FILE IS HISTORY. Do not read it for current status.** It stops at
+> 2026-07-09 and predates the arc pipeline (F21/F22), the frame lattice, the cede
+> refactor and cloud sync. The live list is **`docs/OPEN-FLAGS.md`**; hands-on
+> acceptance is `docs/UAT.md`. Kept because the BUG-01..05 diagnoses in it are
+> the reasoning the current engine was built out of, and several of them explain
+> constants that are still in the code.
+>
+> Two things in it are now simply wrong and are corrected in place below:
+> roadmap item 8's *"Firebase is decommissioned"* (it is live — Google auth and
+> Firestore canvas sync, `src/cloud/`), and the branch names in this header.
+
+Status of known issues in the v2 infinite-zoom engine (branch was `v2` / `new-ui`;
+work is on `arc-pipeline` now).
 Last updated **2026-07-09**. Diagnoses below were reproduced on desktop by loading the
 exact phone snapshots (via the Report button → `.kobin-reports/`) unless noted.
 
@@ -436,8 +448,11 @@ the home canvas. The fixed bug invariants live in `KnownBugs.fixed.test.js` (gre
    test in KobinEngine.edit.test.js). Renderer draws the selection bbox in screen space.
    **True erase** landed with it (see C2).
 8. **Expansion.** Shapes, text (opentype.js), touch polish, minimap / "return to my
-   drawing" (the long-standing README wish), then the backend decision (Firebase is
-   decommissioned).
+   drawing" (the long-standing README wish), then the backend decision.
+   **OUTDATED (2026-08-28):** the backend decision was made and shipped —
+   Firebase is NOT decommissioned. Google auth (`src/cloud/useUser.js`) and
+   Firestore canvas sync with chunked lz1 payloads and a presence heartbeat
+   (`src/cloud/canvasSync.js`) are live at <https://bound-less-kk.web.app>.
 
 Also still open from the original user stories: **US-11 reanchor**
 (US-7 erase and US-10 edit are now done).
