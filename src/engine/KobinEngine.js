@@ -46,7 +46,7 @@ import { EventLatency, FrameMeter, GrowthLog, LongFrames } from "./instruments";
 import { mixin } from "./mixin";
 import { overlays } from "./overlays";
 import { erasePipeline } from "./erasePipeline";
-import { selection } from "./selection";
+import { selection, SELECT_DRAG_PX } from "./selection";
 import { files } from "./files";
 import { sceneOps } from "./sceneOps";
 
@@ -619,36 +619,25 @@ export default class KobinEngine {
             return;
         }
         if (this.tool === "select") {
-            // Pressing on ink starts a MOVE of whatever is selected; pressing on
-            // empty paper starts a lasso. ("Click-and-drag creates a selection
-            // lasso" — but a drag that begins on an object has to keep meaning
-            // "move it", or nothing could be moved at all.)
-            const hit = this._hitTest(sx, sy);
-            if (hit == null) {
-                this._lasso = { pts: [[sx, sy]], ctrl: !!ctrl, moved: false };
-                if (!ctrl) this.deselect();
-                this.renderer.refreshSelection();
-                return;
-            }
-            if (ctrl) { this._toggleSelected(hit); this._dragSel = null; return; }
-            // Pressing an object that is ALREADY selected keeps the whole
-            // selection and drags it; pressing a different one selects it alone.
-            if (!this._isSelected(hit)) this.select(sx, sy);
-            else this._flushErasesFor(hit);
-            // The erase barrier has to cover EVERYTHING that is about to move,
-            // not just the piece under the finger. A mark is a native sitting at
-            // fixed coordinates; ink dragged out from under one that has not
-            // been applied yet takes its un-erased shape with it, and the mark
-            // stays behind and cuts whatever has arrived there instead. With
-            // several objects selected, or one object whose family has a
-            // re-homed piece at another level, the single-object flush left
-            // exactly that. It also left the white mark itself on screen,
-            // hanging over the object being dragged.
-            this._settleSelectionErases();
-            this._dragSel = this.selection ? { start: [sx, sy], moves: new Map(), moved: false } : null;
-            // A drag rewrites the same objects on every pointer event; tiles the
-            // camera cannot see are not worth patching that often.
-            if (this._dragSel) this.store.setBatch(true);
+            // NOTHING CHANGES ON THE WAY DOWN. A press is a promise the pointer
+            // may not keep: on a phone the second finger of a pinch lands some
+            // tens of milliseconds after the first, and until 2026-09-03 the
+            // first had already selected whatever it touched — or dropped the
+            // selection, if it touched paper — before the pinch was known to
+            // be one. So the press is only RECORDED here. `_pointerMove` turns
+            // it into a lasso or a drag once it has travelled SELECT_DRAG_PX
+            // (`_beginSelectDrag`), `_pointerUp` treats a press that never
+            // moved as a tap (`_selectTap`), and a pinch in between calls
+            // `cancelSelectGesture`, which forgets it. The hit test still runs
+            // now, because the answer is about where the finger LANDED.
+            //
+            // What a drag becomes: with nothing selected it is ALWAYS a lasso,
+            // ink under the finger or not (Kobin, 2026-09-03: "if I click and
+            // drag on my phone when nothing is selected, I think it should do a
+            // lasso"); with a selection, a drag from a selected member moves
+            // the selection, from an unselected object selects and moves that
+            // one, and from paper draws a lasso. A ctrl drag always lassoes.
+            this._selPress = { sx, sy, hit: this._hitTest(sx, sy), ctrl: !!ctrl, moved: false, t: Date.now() };
             return;
         }
         const p = this.cam.screenToFrame(sx, sy);
@@ -657,6 +646,11 @@ export default class KobinEngine {
         const lw = (highlight ? this.penWidth * 2.5 : this.penWidth) / this.cam.inScale;
         const op = highlight ? Math.min(this.opacity, 0.45) : this.opacity;
         const o = { type: "stroke", origin: "native", id: this.doc.allocId(), pts: [p], lwFrame: lw, color: this.color, opacity: op, paths: [] };
+        // Remembered ON THE STROKE, not read off `penType` later: the eraser
+        // trail goes through this same move path, and reading the pen there
+        // made the eraser draw straight lines after the line tool had been
+        // used (Kobin, 2026-09-03).
+        if (straight) o._straight = true;
         this._startPen(o, straight);
         this.store.live = o; // exempt from bbox/flatten caches until it stops growing
         this.doc.add(o, this.cam.frame, { live: true });
@@ -683,13 +677,21 @@ export default class KobinEngine {
                 }
                 return;
             }
+            const P = this._selPress;
+            if (P && !P.moved) {
+                // Still a press until it has travelled far enough to mean it.
+                if (Math.hypot(sx - P.sx, sy - P.sy) < SELECT_DRAG_PX) return;
+                P.moved = true;
+                this._beginSelectDrag(P, sx, sy);
+                return;
+            }
             if (this._dragSel && this.selection) this._dragSelection(sx, sy);
             return;
         }
         if (this._drawing) {
             const p = this.cam.screenToFrame(sx, sy);
             const o = this._drawing;
-            if (this.penType === "straight" && o.pts.length >= 2) { o.pts[1] = p; this.renderer.setLiveEnd(p); }
+            if (o._straight && o.pts.length >= 2) { o.pts[1] = p; this.renderer.setLiveEnd(p); }
             else {
                 o.pts.push(p);
                 // The arc centerline is maintained WHILE DRAWING, and it is what
@@ -720,6 +722,10 @@ export default class KobinEngine {
         o._pen.addSample(o.pts[0]);
     }
     _pointerUp() {
+        if (this._selPress) {
+            const P = this._selPress; this._selPress = null;
+            if (!P.moved) { this._selectTap(P); return; }
+        }
         if (this._lasso) {
             const L = this._lasso; this._lasso = null;
             if (L.moved && L.pts.length >= 3) this._applyLasso(L);

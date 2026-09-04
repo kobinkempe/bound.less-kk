@@ -34,9 +34,8 @@ import { ladder } from "./ladder";
 import { bandLogInterval } from "./preference";
 import { toUserRange } from "./preferenceRange";
 import { bestInBoundsNice } from "./nice";
-import { log10, safeExp10, targetLogLen } from "./logMath";
+import { log10, targetLogLen } from "./logMath";
 
-const REL_EPS = 1e-9;
 const LOG_EPS = 1e-9;
 
 /**

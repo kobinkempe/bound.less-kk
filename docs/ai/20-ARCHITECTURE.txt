@@ -358,8 +358,11 @@ PERSISTENCE
     converting would mean rewriting stored coordinates, which is the one
     operation the design exists to avoid.
 
-    Local storage: one slot per canvas (kobin.canvas.<id>), lz-string compressed,
-    plus an index for the gallery and a 30-day recycle bin. Cloud: Firestore,
+    Local storage: IndexedDB (storage/db.js) - one header record per canvas and
+    one record per frame, written incrementally from the document's own change
+    events, no JSON text and no compression in between; thumbnails as JPEG bytes
+    under an LRU budget; the gallery index and the recycle-bin index are all that
+    stays in localStorage (since 2026-09-02; F33 says why). Cloud: Firestore,
     parent doc for metadata and thumbnails, drawing chunked into 700 KiB binary
     parts under it, parent written LAST so a torn save never looks complete.
 

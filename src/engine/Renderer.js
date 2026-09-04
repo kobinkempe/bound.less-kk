@@ -244,7 +244,10 @@ const selAntScale = (inkPx) => (inkPx == null || !isFinite(inkPx) ? 1
 // measuring the arm against the horizontal made it look like 157 degrees when
 // the vertex angle was 22.6.
 const SEL_ARROW_SPAN = 17, SEL_ARROW_DEPTH = 6, SEL_ARROW_GAP = 24;
-let SEL_UID = 0;
+// How many runs shorter than a dash cycle share one path (see _renderSelOverlay).
+const SEL_BATCH_RUNS = 100;
+// How long after the last camera step the crawl stays frozen.
+const SEL_CRAWL_RESUME_MS = 150;
 
 
 
@@ -261,8 +264,8 @@ export default class Renderer {
         this.eraseDebug = false;
         this.selGroup = this.two.makeGroup(); // selection highlight (screen space, above everything)
         this._selRectFn = null;               // () -> { level, rect } | null
-        this._selAntsFn = null;               // () -> { rings, fine, edges, inkPx } | null
-        this._selOv = null;                   // raw <g> overlay (mask + CSS animation)
+        this._selAntsFn = null;               // () -> { key, transform, runs, marks, edges, inkPx } | null
+        this._selOv = null;                   // the indicator's own <svg> layer
         this._selEls = null;
         this._lassoFn = null;                 // () -> [[sx,sy], ...] | null (screen space)
         this._groups = new Map();   // id -> { group, sig, z, pieces, fadeTag }
@@ -795,6 +798,7 @@ export default class Renderer {
             // the closing edge has to be counted or the area is wrong for every
             // piece that has a hole.
             let sx = 0, sy = 0, px = 0, py = 0, open = false;
+            // eslint-disable-next-line no-loop-func -- called synchronously within this iteration
             const close = () => {
                 if (!open) return;
                 cross += px * sy - sx * py;
@@ -1217,63 +1221,142 @@ export default class Renderer {
      */
     setSelectionAnts(fn) { this._selAntsFn = fn; }
 
+    /**
+     * The selection indicator: marching ants on the object's own edge, and —
+     * where it carries on past the side of the screen — ants along that side
+     * with an arrow pointing the way it goes.
+     *
+     * There is no shimmer. A breathing wash over the ink was tried against the
+     * design file's four candidates and dropped (Kobin, 2026-08-25): on a real
+     * drawing it reads as the picture flickering rather than as a selection.
+     *
+     * WHY THIS IS RAW SVG AND NOT TWO.JS. The animation is CSS: the dash offset
+     * crawls without touching the main thread's JavaScript.
+     *
+     * WHY IT IS ITS OWN <svg>, NOT A GROUP IN THE DRAWING'S. Measured in
+     * Kobin's Chrome on 2026-09-03 with 5,343 objects drawn and 13,600 px of
+     * ants: with the ants in the drawing's <svg>, every frame of the crawl was
+     * 50 ms; with the drawing hidden and the same ants crawling, 16.7 ms. The
+     * ants cost nothing measurable — what cost was that a paint invalidation
+     * in a layer re-rasterises everything in that layer's tiles, drawing
+     * included. A separate <svg> with `will-change: transform` is its own
+     * compositing layer, so the crawl re-rasterises the ants and only the ants.
+     *
+     * WHAT IT RECEIVES (see `_selectionAnts`): runs and marks as path data in
+     * a RETAINED space under one transform, changed rarely (`key`); the
+     * transform, changed every step; and the screen-edge runs, per step. The
+     * paths carry `vector-effect: non-scaling-stroke`, so the band and the
+     * dashes stay in screen pixels whatever the transform — measured on the
+     * same day: a 20 px dash period under `scale(2)` is still 20 px.
+     *
+     * WHAT IS DRAWN:
+     *   ANTS along the ink's true boundary, tile cuts skipped.
+     *   SCREEN-EDGE ANTS where the ink continues past the side of the view,
+     *     set in from the edge so the whole band shows.
+     *   AN ARROW on each of those sides, breathing faintly, pointing the way
+     *     the object carries on.
+     */
     _renderSelOverlay() {
         const svg = this.two.renderer && this.two.renderer.domElement;
         if (!svg || typeof document === "undefined") return;
         const data = this._selAntsFn && this._selAntsFn();
-        const has = data && (data.rings.length
-            || (data.fine && data.fine.length) || (data.edges && data.edges.length));
-        if (!has) { this._dropSelOverlay(); return; }
+        const runs = (data && data.runs) || [], marks = (data && data.marks) || [], edges = (data && data.edges) || [];
+        if (!data || !(runs.length || marks.length || edges.length)) { this._dropSelOverlay(); return; }
 
         Renderer._ensureSelStyle();
-        const els = this._selEls || this._buildSelOverlay();
+        const els = this._selEls || this._buildSelOverlay(svg);
+        if (els.w !== this.width || els.h !== this.height) {
+            for (const l of [els.layer, els.edgeLayer]) {
+                l.setAttribute("width", String(this.width));
+                l.setAttribute("height", String(this.height));
+            }
+            els.w = this.width; els.h = this.height;
+        }
         const W = this.width, H = this.height;
-
-        // ---- the ants ----
-        // The rings are already clipped to the view and culled to a 64 px
-        // margin, so this cannot fail — it is kept as a backstop that states the
-        // invariant in one place: nothing longer than the viewport is ever
-        // handed to the rasterizer to dash.
-        const pts = [];
-        for (const r of data.rings) for (const q of r) pts.push(q);
-        const traced = (data.rings.length && this.selectionDrawable(pts)) ? data.rings : [];
-
-        // ONE PATH PER RUN, because each run needs its own dash length.
-        //
-        // A single shared pattern leaves a RUNT DASH wherever a loop closes: the
-        // perimeter is never an exact multiple of 9 px, so the last dash before
-        // the join is whatever is left over, and you see one short ant. Fitting
-        // a whole number of cycles to each run removes it — the dashes meet
-        // themselves exactly, and every dash on that run is the same length.
         const kt = selAntScale(data.inkPx);
+        // THE STEP IS A CSS TRANSFORM ON THE LAYER, applied by the compositor
+        // with no repaint. As an SVG transform on a group inside the layer it
+        // repainted every ant on every step of a pinch — measured at 35 to 50
+        // ms a frame on top of the drawing's own 50 to 66 — because a
+        // non-scaling stroke has to be re-stroked whenever its transform
+        // changes. On the layer, a pinch costs the overlay nothing until the
+        // next decision.
+        const t = data.transform || { k: 1, tx: 0, ty: 0 };
+        els.layer.style.transform = "matrix(" + t.k + ", 0, 0, " + t.k + ", " + t.tx + ", " + t.ty + ")";
+        // THE CRAWL FREEZES WHILE THE CAMERA MOVES. This runs on every camera
+        // step; a crawl repaint landing on a pinch frame added 17 ms to it
+        // (measured: pinch with the crawl 83 ms a frame, paused 67, the
+        // drawing alone 50), for motion nobody can see under a pinch. The
+        // ants hold their phase and pick up SEL_CRAWL_RESUME_MS after the
+        // last step.
+        if (typeof setTimeout === "function") {
+            if (!els.frozen) { els.layer.classList.add("bl-sel-still"); els.edgeLayer.classList.add("bl-sel-still"); els.frozen = true; }
+            if (els.resume) clearTimeout(els.resume);
+            els.resume = setTimeout(() => {
+                els.resume = null;
+                if (this._selEls !== els) return;
+                els.layer.classList.remove("bl-sel-still"); els.edgeLayer.classList.remove("bl-sel-still");
+                els.frozen = false;
+            }, SEL_CRAWL_RESUME_MS);
+        }
 
-        // ---- the specks ----
-        const fine = data.fine || [];
-        Renderer._poolTo(els.g, els.finePool, fine.length, null, () => {
-            const q = document.createElementNS(SVG_NS, "path");
-            q.setAttribute("fill", "none");
-            q.setAttribute("stroke", SEL_INK);
-            q.setAttribute("stroke-width", String(SEL_FINE_W));
-            q.setAttribute("stroke-linecap", "butt");
-            q.setAttribute("class", "bl-sel-ants");
-            return q;
-        });
-        for (let i = 0; i < fine.length; i++) {
-            const q = els.finePool[i];
-            q.setAttribute("d", Renderer._d(fine[i], false));
-            // NOT fitted: the whole point of a speck is that its outline is
-            // shorter than a cycle, so the pattern slides across it and the mark
-            // blinks. Fitting would force a cycle onto it and stop the blink.
-            q.setAttribute("stroke-dasharray", SEL_FINE_ON + " " + SEL_FINE_OFF);
-            q.style.setProperty("--ao", (-(SEL_FINE_ON + SEL_FINE_OFF) * 2).toFixed(2) + "px");
+        // ---- the retained ants: rebuilt only when the decision changed ----
+        if (data.key !== els.key || kt !== els.kt) {
+            els.key = data.key; els.kt = kt;
+            // ONE PATH PER RUN, because each run needs its own dash length. A
+            // single shared pattern leaves a RUNT DASH wherever a loop closes:
+            // the perimeter is never an exact multiple of the cycle, so the last
+            // dash before the join is whatever is left over, and you see one
+            // short ant. Fitting a whole number of cycles to each run removes
+            // it. The runs SHORTER than a cycle are never fitted (see `_fitDash`)
+            // and all carry the same pattern, so they share one path — on a
+            // dense selection they are most of the runs.
+            const cycle = (SEL_ANT_ON + SEL_ANT_OFF) * kt;
+            const fitted = [], short = [];
+            for (const run of runs) (run.len < cycle ? short : fitted).push(run);
+            // ...in batches of at most SEL_BATCH_RUNS. Batching does not make
+            // the paint cheaper (measured: 566 short runs in one path and one
+            // path each came to the same frame), but ONE path holding every run
+            // was 183 ms a frame against 33 for the same ink in 234 paths —
+            // the dasher has a cliff somewhere above a few hundred contours,
+            // and the batch stays well under it.
+            const batches = [];
+            for (let i = 0; i < short.length; i += SEL_BATCH_RUNS) batches.push(short.slice(i, i + SEL_BATCH_RUNS));
+            Renderer._poolTo(els.world, els.antPool, fitted.length + batches.length, els.markAnchor, () => Renderer._antPath(SEL_ANT_W));
+            for (let i = 0; i < fitted.length; i++) {
+                const q = els.antPool[i];
+                q.setAttribute("d", fitted[i].d);
+                q.setAttribute("stroke-width", (SEL_ANT_W * kt).toFixed(2));
+                Renderer._fitDash(q, fitted[i].len, SEL_ANT_ON * kt, SEL_ANT_OFF * kt);
+            }
+            for (let b = 0; b < batches.length; b++) {
+                const q = els.antPool[fitted.length + b];
+                let d = "";
+                for (const run of batches[b]) d += run.d + " ";
+                q.setAttribute("d", d.trim());
+                q.setAttribute("stroke-width", (SEL_ANT_W * kt).toFixed(2));
+                Renderer._fitDash(q, 1, SEL_ANT_ON * kt, SEL_ANT_OFF * kt);   // under a cycle: the sliding pattern
+            }
+            // ---- the dots ----
+            // One path for all of them: they share every attribute and the dash
+            // pattern restarts at each subpath. NOT fitted: the whole point of a
+            // speck is that its outline is shorter than a cycle, so the pattern
+            // slides across it and the mark blinks.
+            Renderer._poolTo(els.world, els.markPool, marks.length ? 1 : 0, null, () => Renderer._antPath(SEL_FINE_W));
+            if (marks.length) {
+                const q = els.markPool[0];
+                let d = "";
+                for (const m of marks) d += m.d + " ";
+                q.setAttribute("d", d.trim());
+                q.setAttribute("stroke-dasharray", SEL_FINE_ON + " " + SEL_FINE_OFF);
+                q.style.setProperty("--ao", (-(SEL_FINE_ON + SEL_FINE_OFF) * 2).toFixed(2) + "px");
+            }
         }
 
         // ---- the frame edge, where the selection carries on past it ----
-        //
-        // The ants sit so their OUTER side touches the window edge — inset by
-        // half the band — rather than centred on it, which would hang half the
-        // band off the screen.
-        const edges = (data.edges || []);
+        // Screen space, every step. The ants sit so their OUTER side touches
+        // the window edge — inset by half the band — rather than centred on
+        // it, which would hang half the band off the screen.
         const inset = (SEL_ANT_W * kt) / 2;
         const edgeRuns = edges.map((e) => {
             if (e.side === "left") return [[inset, e.from], [inset, e.to]];
@@ -1281,25 +1364,16 @@ export default class Renderer {
             if (e.side === "top") return [[e.from, inset], [e.to, inset]];
             return [[e.from, H - inset], [e.to, H - inset]];
         });
-        const DIR = { left: 180, right: 0, top: -90, bottom: 90 };
-        const withChevron = edges.filter((e) => e.chevron);
-
-        const runs = traced.concat(edgeRuns);
-        Renderer._poolTo(els.g, els.antPool, runs.length, els.fine, () => {
-            const q = document.createElementNS(SVG_NS, "path");
-            q.setAttribute("fill", "none");
-            q.setAttribute("stroke", SEL_INK);
-            q.setAttribute("stroke-linecap", "butt");
-            q.setAttribute("class", "bl-sel-ants");
-            return q;
-        });
-        for (let i = 0; i < runs.length; i++) {
-            const run = runs[i], q = els.antPool[i];
+        Renderer._poolTo(els.screen, els.edgePool, edgeRuns.length, null, () => Renderer._antPath(SEL_ANT_W, false));
+        for (let i = 0; i < edgeRuns.length; i++) {
+            const run = edgeRuns[i], q = els.edgePool[i];
             q.setAttribute("d", Renderer._d(run, false));
             q.setAttribute("stroke-width", (SEL_ANT_W * kt).toFixed(2));
             Renderer._fitDash(q, Renderer._len(run), SEL_ANT_ON * kt, SEL_ANT_OFF * kt);
         }
-        Renderer._poolTo(els.g, els.arrowPool, withChevron.length, null, () => {
+        const DIR = { left: 180, right: 0, top: -90, bottom: 90 };
+        const withChevron = edges.filter((e) => e.chevron);
+        Renderer._poolTo(els.screen, els.arrowPool, withChevron.length, null, () => {
             const q = document.createElementNS(SVG_NS, "path");
             const half = SEL_ARROW_SPAN / 2, d = SEL_ARROW_DEPTH / 2;
             // Drawn pointing along +x and rotated into place.
@@ -1326,9 +1400,21 @@ export default class Renderer {
                 "translate(" + x.toFixed(2) + "," + y.toFixed(2) + ") rotate(" + DIR[e.side] + ")");
         }
 
-        // Last child, so it paints over the drawing. Two.js appends its own
-        // elements on update, so re-check rather than assume.
-        if (els.g.parentNode !== svg || svg.lastChild !== els.g) svg.appendChild(els.g);
+        // Last in the host, so they paint over the drawing.
+        const host = els.layer.parentNode;
+        if (host && host.lastChild !== els.edgeLayer) { host.appendChild(els.layer); host.appendChild(els.edgeLayer); }
+    }
+
+    /** One ant path: no fill, the terracotta, butt caps, and screen-pixel strokes under any transform. */
+    static _antPath(width, nonScaling = true) {
+        const q = document.createElementNS(SVG_NS, "path");
+        q.setAttribute("fill", "none");
+        q.setAttribute("stroke", SEL_INK);
+        q.setAttribute("stroke-width", String(width));
+        q.setAttribute("stroke-linecap", "butt");
+        q.setAttribute("class", "bl-sel-ants");
+        if (nonScaling) q.setAttribute("vector-effect", "non-scaling-stroke");
+        return q;
     }
 
     /**
@@ -1339,25 +1425,51 @@ export default class Renderer {
      * replaced, so rebuilding these nodes on each `syncWorld` — which runs every
      * frame of a pan or zoom — left the ants frozen for exactly as long as the
      * camera was moving.
+     *
+     * The layer is a second <svg> beside the drawing's, positioned over it and
+     * promoted to its own compositing layer (see `_renderSelOverlay` for the
+     * measurement that decided this).
      */
-    _buildSelOverlay() {
-        const g = document.createElementNS(SVG_NS, "g");
-        g.setAttribute("aria-hidden", "true");
-        g.setAttribute("pointer-events", "none");
-
-        // An anchor the ant paths are inserted before, so they always paint
-        // under the specks and the pools never fight over order.
-        const fine = document.createElementNS(SVG_NS, "g");
-        g.appendChild(fine);
-
-        this._selOv = g;
-        this._selEls = { g, fine, antPool: [], finePool: [], arrowPool: [] };
+    _buildSelOverlay(svg) {
+        const host = svg.parentNode || document.body;
+        const mk = (cls) => {
+            const l = document.createElementNS(SVG_NS, "svg");
+            l.setAttribute("class", cls);
+            l.setAttribute("aria-hidden", "true");
+            l.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible;will-change:transform;transform-origin:0 0;";
+            // Sit exactly over the drawing's own <svg>, wherever the host put it.
+            try {
+                const a = svg.getBoundingClientRect(), b = host.getBoundingClientRect();
+                if (a.left - b.left || a.top - b.top) { l.style.left = (a.left - b.left) + "px"; l.style.top = (a.top - b.top) + "px"; }
+            } catch (e) { /* no layout here */ }
+            return l;
+        };
+        // Two layers: the retained ants, moved by a CSS transform and repainted
+        // only when the decision changes or the crawl steps; and the screen-edge
+        // runs, which change every step and are a handful of paths. In one
+        // layer the edge runs would have repainted every ant on every step.
+        const layer = mk("bl-sel-layer");
+        const world = document.createElementNS(SVG_NS, "g");
+        world.setAttribute("class", "bl-sel-world");
+        // An anchor the ant paths are inserted before, so the dots always paint
+        // over the ants and the pools never fight over order.
+        const markAnchor = document.createElementNS(SVG_NS, "g");
+        world.appendChild(markAnchor);
+        layer.appendChild(world);
+        const edgeLayer = mk("bl-sel-edges");
+        const screen = document.createElementNS(SVG_NS, "g");
+        edgeLayer.appendChild(screen);
+        host.appendChild(layer);
+        host.appendChild(edgeLayer);
+        this._selOv = [layer, edgeLayer];
+        this._selEls = { layer, edgeLayer, world, markAnchor, screen, key: null, kt: null, w: 0, h: 0,
+            antPool: [], markPool: [], edgePool: [], arrowPool: [] };
         return this._selEls;
     }
 
     _dropSelOverlay() {
-        const g = this._selOv;
-        if (g && g.parentNode) g.parentNode.removeChild(g);
+        if (this._selEls && this._selEls.resume) clearTimeout(this._selEls.resume);
+        for (const g of this._selOv || []) if (g && g.parentNode) g.parentNode.removeChild(g);
         this._selOv = null;
         this._selEls = null;
     }
@@ -1371,6 +1483,13 @@ export default class Renderer {
             d += (i ? "L" : "M") + x.toFixed(2) + "," + y.toFixed(2) + " ";
         }
         return close ? d + "Z" : d.trim();
+    }
+
+    /** Several polylines in one `d`, each its own subpath. */
+    static _dAll(runs) {
+        let d = "";
+        for (const run of runs) d += Renderer._d(run, false) + " ";
+        return d.trim();
     }
 
     /** Total length of a polyline, in screen pixels. */
@@ -1470,7 +1589,21 @@ export default class Renderer {
             // Very faint, and slow: the arrow should read as live without
             // pulling attention off the ants.
             "@keyframes bl-sel-faint{0%,100%{opacity:.5}50%{opacity:.8}}",
-            ".bl-sel-ants{animation:bl-sel-ants .8s linear infinite}",
+            // THE CRAWL IS STEPPED, 20 times a second, not continuous. Every
+            // step of the offset repaints every ant on screen, and that paint
+            // is the crawl's whole cost: measured in Kobin's Chrome on
+            // 2026-09-03 with the 24,000 px budget full, a continuous crawl
+            // held every frame at 33 ms (two vsyncs), and neither one shared
+            // animation nor 799 separate paths nor one path per eight runs
+            // changed it — the raster of the dashed length is the cost. At
+            // sixteen steps a cycle the repaint lands on one frame in three and
+            // the median frame is back at 16.7 ms, with the pinch's own work
+            // fitting in the frames between. Each step moves the pattern
+            // 1.6 px, which is how marching ants have always marched. One
+            // number to put back if the stepping reads wrong: `linear`.
+            ".bl-sel-ants{animation:bl-sel-ants .8s steps(16,end) infinite}",
+            // Held while the camera moves (see _renderSelOverlay).
+            ".bl-sel-still .bl-sel-ants{animation-play-state:paused}",
             ".bl-sel-arrow{animation:bl-sel-faint 2.4s ease-in-out infinite}",
             "@media (prefers-reduced-motion:reduce){",
             ".bl-sel-ants{animation:none}",

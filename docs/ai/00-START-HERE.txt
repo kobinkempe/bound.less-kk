@@ -28,7 +28,9 @@ WHERE THINGS ARE
                     (src/cloud/firebaseApp.js).
     reports         .kobin-reports/  - diagnostic bundles POSTed by the in-app
                     Report button. NOT in git. 156 MB and growing; do not read
-                    one into context, script over it.
+                    one into context, script over it. Since 2026-09-02 it also
+                    holds recovered/, shots/ and f35/renders/ - the debug data
+                    that used to sit in public/ and ship with every build.
 
 RUN IT
     npm install
@@ -89,7 +91,11 @@ READ IN THIS ORDER
     3. docs/ai/20-ARCHITECTURE.txt    the design, in one pass
     4. docs/ai/30-CODE-MAP.txt        every file and what is in it
     5. docs/ai/40-CALL-FLOW.txt       what calls what, input to pixels
-    6. docs/ai/50-TODO.txt            the consolidated backlog
+    6. docs/ROADMAP.md                the plan and the backlog, in the order Kobin
+                                      set (fix autosave, deploy, performance and
+                                      bugs, UX), with the DONE ledger at the bottom.
+                                      It replaced 50-TODO, 60-RECOMMENDATIONS and
+                                      70-RELEASES on 2026-09-02.
     7. docs/OPEN-FLAGS.md             THE live issue list. Authoritative.
     8. the design bibles, only when you are about to touch what they cover.
        They moved to docs/reference/ on 2026-08-31 - still tracked, just no
@@ -126,8 +132,8 @@ THE RULES - these are not style preferences, each one cost something
     6.  PREFER THE ESTIMATOR THAT DEGRADES LOCALLY. Anything that integrates
         along a boundary trades a bounded local error for an unbounded global
         one. This geometry cannot supply the exactness that trade needs.
-    7.  DO NOT COMMIT OR PUSH unless asked. Nothing in the current working tree
-        is committed (see 10-STATUS.txt).
+    7.  DO NOT COMMIT OR PUSH unless asked. The quarter's work was committed on
+        2026-09-01 as f6f1062; 10-STATUS.txt lists what has changed since.
     8.  WHEN A DESIGN DOCUMENT AND THE CODE DISAGREE, find out which is wrong
         and fix THAT, then say so in the document. Do not leave both standing.
 

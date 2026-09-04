@@ -11,8 +11,9 @@ import "../Stylesheets/boundless-ui.css";
 import placeholderThumb from "../Images/ui/canvas-botanical.jpg";
 import {
     readIndex, migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel, newCanvasId,
-    loadCanvasRaw, saveCanvasRaw, loadCoverThumb, upsertIndexEntry, statsFromDoc,
+    loadCanvasDoc, saveCanvasDoc, loadCoverThumb, upsertIndexEntry, statsFromDoc,
     trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, purgeTrashEntry, duplicateCanvas,
+    migrateStorage, sweepStorage, storageUsage, requestPersistentStorage,
 } from "../storage/localCanvases";
 import { decodeDrawing } from "../engine/persist";
 import useUser, { signInWithGoogle, signOutUser } from "../cloud/useUser";
@@ -27,7 +28,9 @@ export default function CanvasesV2() {
     const { user, ready } = useUser();
     const fileRef = useRef(null);
     const [canvases, setCanvases] = useState([]);
+    const [covers, setCovers] = useState({});       // this browser's cover thumbs, by canvas id
     const [cloudCovers, setCloudCovers] = useState({});
+    const [usage, setUsage] = useState(null);       // "Using 12 MB of browser storage", or null
     const [syncNote, setSyncNote] = useState(null);
     const [menuFor, setMenuFor] = useState(null); // canvas id with its ⋮ menu open
     const [pageMenuOpen, setPageMenuOpen] = useState(false);
@@ -40,10 +43,25 @@ export default function CanvasesV2() {
     const [toast, setToast] = useState(null); // { msg, undoId }
 
     const refresh = useCallback(async () => {
-        // First visit after the multi-canvas update: adopt the old single-slot
-        // drawing into the index so nothing silently disappears.
-        migrateLegacyAutosave();
+        // In order: the one-time move of documents out of localStorage; the
+        // sweep of what used to leak there (empty and orphaned documents, old
+        // backups, thumbnails for canvases that no longer exist); and the
+        // pre-multi-canvas single-slot drawing, adopted into the index so
+        // nothing silently disappears.
+        await migrateStorage();
+        await sweepStorage();
+        await migrateLegacyAutosave();
         let local = readIndex();
+        const loadCovers = async (list) => {
+            const out = {};
+            await Promise.all(list.map(async (e) => {
+                const data = await loadCoverThumb(e.id);
+                if (data) out[e.id] = data;
+            }));
+            setCovers(out);
+        };
+        loadCovers(local);
+        storageUsage().then(setUsage);
         if (!user) { setCanvases(local); return; }
         try {
             let cloud = await cloudListCanvases(user.uid);
@@ -60,8 +78,8 @@ export default function CanvasesV2() {
             const known = new Set(cloud.map((c) => c.id));
             const missing = local.filter((e) => !known.has(e.id));
             for (const entry of missing) {
-                const raw = loadCanvasRaw(entry.id);
-                if (raw) await cloudSaveCanvas(user.uid, entry, raw);
+                const doc = await loadCanvasDoc(entry.id);
+                if (doc) await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
             }
             if (missing.length) cloud = await cloudListCanvases(user.uid);
             const active = cloud.filter((c) => !c.deletedAt);
@@ -87,6 +105,10 @@ export default function CanvasesV2() {
 
     useEffect(() => { refresh(); }, [refresh]);
 
+    // A signed-out user's drawings exist nowhere but this browser: ask it not
+    // to evict them under storage pressure. Silent where unsupported.
+    useEffect(() => { requestPersistentStorage(); }, []);
+
     // Arriving from an editor-initiated delete: show the undo toast once.
     useEffect(() => {
         const del = location.state && location.state.deleted;
@@ -106,7 +128,7 @@ export default function CanvasesV2() {
         const id = toast && toast.undoId;
         setToast(null);
         if (!id) return;
-        restoreCanvas(id);
+        await restoreCanvas(id);
         if (user) {
             try { await cloudRestoreCanvas(user.uid, id); }
             catch (err) { setSyncNote("Restored here — cloud restore didn't go through."); }
@@ -117,7 +139,8 @@ export default function CanvasesV2() {
     // ---- card actions ----
 
     const downloadCanvas = async (c) => {
-        let json = loadCanvasRaw(c.id);
+        const local = await loadCanvasDoc(c.id);
+        let json = local ? JSON.stringify(local) : null;
         if (!json && user) {
             try { json = (await cloudLoadCanvas(user.uid, c.id))?.json || null; } catch (err) { /* fall through */ }
         }
@@ -133,7 +156,7 @@ export default function CanvasesV2() {
     const commitRename = async () => {
         const name = renameDraft.trim() || "Untitled canvas";
         const at = new Date().toISOString();
-        renameCanvasLocal(renameFor.id, name, at);
+        await renameCanvasLocal(renameFor.id, name, at);
         if (user) {
             try { await cloudRenameCanvas(user.uid, renameFor.id, name, at); }
             catch (err) { setSyncNote("Renamed here — cloud rename didn't go through."); }
@@ -145,7 +168,7 @@ export default function CanvasesV2() {
     const confirmDelete = async () => {
         const c = deleteFor;
         setDeleteFor(null);
-        trashCanvas(c.id, c); // fallback entry keeps cloud-only canvases listed in the bin
+        await trashCanvas(c.id, c); // fallback entry keeps cloud-only canvases listed in the bin
         if (user) {
             try { await cloudTrashCanvas(user.uid, c.id); }
             catch (err) { setSyncNote("Deleted here — cloud delete didn't go through."); }
@@ -155,12 +178,12 @@ export default function CanvasesV2() {
     };
 
     const duplicateFromGallery = async (c) => {
-        let entry = duplicateCanvas(c.id, null, c.name);
+        let entry = await duplicateCanvas(c.id, null, c.name);
         if (!entry && user) {
-            // Cloud-only canvas (no local slot) — fetch the drawing first.
+            // Cloud-only canvas (nothing stored here) — fetch the drawing first.
             try {
                 const res = await cloudLoadCanvas(user.uid, c.id);
-                if (res && res.json) entry = duplicateCanvas(c.id, res.json, c.name);
+                if (res && res.json) entry = await duplicateCanvas(c.id, res.json, c.name);
             } catch (err) { /* fall through */ }
         }
         if (!entry) { setSyncNote("Couldn't duplicate that canvas."); return; }
@@ -171,7 +194,7 @@ export default function CanvasesV2() {
 
     const openTrash = async () => {
         setPageMenuOpen(false);
-        let items = readTrash();
+        let items = await readTrash();
         if (user) {
             try {
                 const cloud = await cloudListCanvases(user.uid);
@@ -186,7 +209,7 @@ export default function CanvasesV2() {
     };
 
     const restoreItem = async (t) => {
-        restoreCanvas(t.id);
+        await restoreCanvas(t.id);
         if (user) {
             try { await cloudRestoreCanvas(user.uid, t.id); }
             catch (err) { setSyncNote("Restored here — cloud restore didn't go through."); }
@@ -199,7 +222,7 @@ export default function CanvasesV2() {
         const items = purgeConfirm || [];
         setPurgeConfirm(null);
         for (const t of items) {
-            purgeTrashEntry(t.id);
+            await purgeTrashEntry(t.id);
             if (user) {
                 try { await cloudDeleteCanvas(user.uid, t.id); }
                 catch (err) { setSyncNote("Some account copies couldn't be deleted — they'll reappear in the bin."); }
@@ -214,7 +237,7 @@ export default function CanvasesV2() {
             const raw = JSON.parse(text);
             decodeDrawing(raw); // validates — throws a friendly message on junk
             const id = newCanvasId();
-            if (!saveCanvasRaw(id, text)) {
+            if (!(await saveCanvasDoc(id, raw))) {
                 setSyncNote("Couldn't store that file — browser storage may be full.");
                 return;
             }
@@ -299,7 +322,7 @@ export default function CanvasesV2() {
                             className={`bl-canvas-card${menuFor === c.id ? " bl-canvas-card--raised" : ""}`}>
                             <div className="bl-canvas-thumb">
                                 <img
-                                    src={loadCoverThumb(c.id) || cloudCovers[c.id] || placeholderThumb}
+                                    src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}
                                     alt={`Canvas: ${c.name}`}
                                     loading="lazy"
                                 />
@@ -356,6 +379,10 @@ export default function CanvasesV2() {
                         Nothing saved yet — draw something and hit Save.
                         {user ? " Saved canvases follow your account." : " Canvases live in this browser, or sign in to keep them."}
                     </p>
+                )}
+
+                {usage && (
+                    <p className="bl-text-sm bl-text-muted" style={{ marginTop: "2rem" }}>{usage.label}</p>
                 )}
             </main>
 

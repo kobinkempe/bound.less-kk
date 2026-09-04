@@ -56,6 +56,7 @@ export function eraseGesture(E, pts, size) {
 export function erase(E, pts, size) { eraseGesture(E, pts, size); E.flushErases(); }
 export function drag(E, from, to, steps = 6) {
     E.setTool("select");
+    E.pointerDown(from[0], from[1]); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
     E.pointerDown(from[0], from[1]);
     for (let i = 1; i <= steps; i++) {
         E.pointerMove(from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps);

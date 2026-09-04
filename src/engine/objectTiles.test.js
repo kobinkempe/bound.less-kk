@@ -457,7 +457,8 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
         expect(o.tile == null || (o.tile[0] === 0 && o.tile[1] === 0)).toBe(true);
-        E.setTool("select"); E.pointerDown(400, 300);
+        E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
+        E.pointerDown(400, 300);
         for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
         E.pointerUp();
         const rec = E.doc.getById(o.id);
@@ -499,7 +500,8 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         // is cut on something the move slid out from under.
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
-        E.setTool("select"); E.pointerDown(400, 300);
+        E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
+        E.pointerDown(400, 300);
         for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
         E.pointerUp();
         expect(E.doc.getById(o.id).obj.tile[0]).not.toBe(0);
@@ -528,7 +530,8 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
     test("a saved drawing keeps its grid", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
-        E.setTool("select"); E.pointerDown(400, 300);
+        E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
+        E.pointerDown(400, 300);
         for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
         E.pointerUp();
         const want = E.doc.getById(o.id).obj.tile.slice();

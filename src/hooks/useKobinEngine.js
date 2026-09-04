@@ -1,41 +1,45 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import KobinEngine from "../engine/KobinEngine";
 import { formatScaleNumber } from "../engine/scaleBar";
-import { packSlot, unpackSlot } from "../storage/localCanvases";
+import { loadCanvasDoc, writeCanvas, saveCanvasDoc, backupCanvasDoc, statsFromNatives } from "../storage/localCanvases";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-export const AUTOSAVE_KEY = "kobinAutosave";
-
 /**
- * LOCAL AUTOSAVE — OFF DELIBERATELY (2026-08-26, Kobin's call), until F33 is fixed.
+ * LOCAL AUTOSAVE (F33).
  *
- * WHY. When localStorage is full, every attempt does the whole job before it is
- * allowed to fail: serialize the document, stringify it, compress it, and only
- * then does the write throw. Measured on a 4.1 MB document that is ~960 ms of
- * blocked main thread, for nothing. The backoff added 2026-08-25 stops the hot
- * loop but not the cost — it still fires on a schedule, and the unload save
- * ignores the backoff entirely, so every reload pays a full second.
+ * OFF from 2026-08-26 to 2026-09-02, at Kobin's request, because every save
+ * did the whole job on the main thread — serialize, JSON.stringify, lz-string,
+ * one localStorage write — and on the phone that was 5-7 s of frozen UI every
+ * ten seconds on a 16-million-character drawing, 97% of it inside the
+ * compressor. Against a ~5 MB origin cap it also failed silently for eleven
+ * minutes once, and the drawing had to be rescued out of the live page.
  *
- * WHAT STILL SAVES with this off:
- *   - the Save button (`saveToLocalStorage`), an explicit user action; and
- *   - cloud sync while signed in — which is why `cloudDirtyRef` in CanvasEditor
- *     is now driven off DOCUMENT CHANGES rather than off a successful local
- *     write. It used to be set only by `onAutosave`, so turning autosave off
- *     would have taken the cloud down with it.
+ * ON again since 2026-09-02, rebuilt: the document lives in IndexedDB, one
+ * record per frame (`storage/db.js` says why). A save serializes only the
+ * frames that changed — every document event carries its frame id — and hands
+ * structured data to an asynchronous write. No stringify, no compression, no
+ * quota shared with thumbnails. A pan or zoom with no edit is written once it
+ * has settled, so "pick up where you left off" still means the same view.
  *
- * The standing "autosave is off" notice rides `saveError`, which CanvasEditor
- * renders. Without that this is the same silent-data-loss trap wearing a
- * different hat.
- *
- * TO RESTORE: flip this to true. Nothing else has to change.
+ * This constant is the kill switch, kept because it was needed once. With it
+ * false the Save button (`saveLocal`) and cloud sync still work, and the
+ * standing notice below rides `saveError`, which CanvasEditor renders.
  */
-export const LOCAL_AUTOSAVE = false;
+export const LOCAL_AUTOSAVE = true;
 
 const AUTOSAVE_OFF_NOTICE = {
     off: true, quota: false, at: Date.now(),
     message: "Autosave is off — use Save to keep your work.",
 };
+
+// A save waits for a short quiet spell after the last change, but never longer
+// than the ceiling from the first unsaved change — a long continuous scribble
+// must not defer its own save forever. The slow check is what retries after a
+// failure's backoff and what writes a settled camera.
+const SAVE_DEBOUNCE_MS = 1500;
+const SAVE_MAX_WAIT_MS = 8000;
+const SAVE_CHECK_MS = 5000;
 
 const DEFAULT_STATUS = {
     level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0,
@@ -44,12 +48,14 @@ const DEFAULT_STATUS = {
 
 /**
  * Shared KobinEngine lifecycle: mount, pointer input, autosave, tool sync.
- * Used by CanvasEditor (product shell); CanvasV2 (dev harness) has its own copy.
+ * CanvasEditor (the product shell) is its only consumer since CanvasV2, which
+ * carried its own copy of all of this, was deleted on 2026-08-31.
  *
- * `storageKey` picks the localStorage autosave slot — CanvasEditor passes a
- * per-canvas key; the default is the legacy single-slot key.
- * `onAutosave(doc)` fires after each successful local autosave — CanvasEditor
- * uses it to mark the canvas cloud-dirty and freshen the gallery index.
+ * `canvasId` names the stored document; without one nothing is persisted.
+ * `onAutosave({ name, stats })` fires after each successful local autosave —
+ * CanvasEditor uses it to mark the canvas cloud-dirty and freshen the gallery
+ * index. It carries stats rather than the document because an incremental
+ * save never serializes the whole drawing.
  */
 // The ctrl cursor: the normal arrow with a badge saying what the click will do.
 // Drawn rather than borrowed because no standard cursor keyword means "add to
@@ -67,15 +73,18 @@ const signCursor = (plus) => {
 };
 const SIGN_CURSOR = { "+": signCursor(true), "-": signCursor(false) };
 
-export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave } = {}) {
+export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
     const errsRef = useRef([]);
     const onAutosaveRef = useRef(null);
     onAutosaveRef.current = onAutosave;
-    // Deleting a canvas flips this off so the unmount/beforeunload autosave
-    // can't quietly recreate the slot that was just moved to the recycle bin.
+    // Deleting a canvas flips this off so the unmount autosave can't quietly
+    // recreate the document that was just moved to the recycle bin.
     const persistRef = useRef(true);
+    // The autosaver's controls, set up by the mount effect: what an explicit
+    // save, an undo, and a meta edit have to tell it.
+    const saverRef = useRef(null);
     const [engineReady, setEngineReady] = useState(false);
     const [tool, setTool] = useState("pen");
     const [penType, setPenType] = useState("freehand");
@@ -109,6 +118,8 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         if (!E) return;
         E.docMeta = { ...E.docMeta, ...patch };
         if (patch.scaleDef !== undefined) E.setScaleDef(patch.scaleDef);
+        // Meta rides the header, which every save writes.
+        saverRef.current?.markHeaderDirty();
     }, []);
 
     useEffect(() => {
@@ -135,126 +146,239 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         const engine = new KobinEngine(host, { width: w, height: h, onStatus });
         engineRef.current = engine;
         window.__kobinEngine = engine;
+        if (!canvasId) persistRef.current = false;
 
-        try {
-            const saved = unpackSlot(
-                localStorage.getItem(storageKey)
-                || (storageKey === AUTOSAVE_KEY ? localStorage.getItem("kobinSnapshot") : null),
-            );
-            if (saved) engine.loadDrawing(JSON.parse(saved));
-        } catch (err) { console.warn("kobin autosave restore failed", err); }
-
-        setEngineReady(true);
-
-        let dirty = false;
-        // A monotonic counter over document changes. `dirty` alone cannot tell
-        // "there is work to do" from "the same work that just failed".
+        // ---- LOCAL AUTOSAVE (see the note on LOCAL_AUTOSAVE) ----
+        //
+        // State the saver keeps:
+        //   dirtyFrames / fullDirty  which frames changed since the last write
+        //                            (`reset` — a load, a clear — means all);
+        //   docSeq / savedSeq        a change counter and its value at the last
+        //                            successful write, so "is there work" is a
+        //                            comparison and not a flag that a failure
+        //                            can leave stuck (the 2026-08-25 hot loop);
+        //   hasBase                  a full record exists on disk. Until it
+        //                            does every write is a full one — an
+        //                            incremental write with no base would be
+        //                            a header pointing at frames that are not
+        //                            there;
+        //   lastSavedCam             the camera as of the last write, so a
+        //                            pan-or-zoom-only session is still saved
+        //                            once it settles — but only for a canvas
+        //                            that already exists on disk. A new canvas
+        //                            nobody drew on is never written, which is
+        //                            how empty documents stopped leaking.
+        //
+        // FAILURE HANDLING. A failed write backs off exponentially (8 s ->
+        // 256 s) and is not retried for the same document state until the
+        // backoff lapses; a later change retries at once. The frames that
+        // failed go back into the dirty set, so nothing is dropped. The
+        // failure is shown (`saveError`) and reported (`errors`), because
+        // silence was the whole of the original defect.
+        let disposed = false;
+        let restored = false;
+        let hasBase = false;
+        let dirtyFrames = new Set();
+        let fullDirty = false;
         let docSeq = 0;
-        const unsubDirty = engine.doc.subscribe(() => { dirty = true; docSeq += 1; });
-
-        // AUTOSAVE FAILURE HANDLING (2026-08-25).
-        //
-        // `dirty = false` used to sit AFTER the localStorage write, so a throw
-        // left it set and the 4 s interval re-ran the identical doomed work for
-        // ever. Measured on a 4.1 MB document: ~960 ms of main-thread JS every
-        // 4 s, 249 long frames, 69 s blocked out of a 118 s session, and the
-        // heap climbing 151 -> 529 MB. It read as "zooming is laggy" because
-        // zooming keeps dirtying the document, so the interval always found
-        // work -- the interval was the only thing that was actually periodic.
-        //
-        // It was also INVISIBLE: notePerf sat after the write too, so a failing
-        // save left no entry at all, and reports showed an anonymous
-        // requestIdleCallback burning a second. Both paths are timed now.
-        let failedSeq = -1;      // docSeq at the last failure
+        let savedSeq = 0;
+        let firstDirtyAt = 0;
+        let debounceT = null;
+        let saving = false;
+        let again = false;
+        let lastSavedCam = null;
+        let lastSeenCam = null;
         let failCount = 0;
         let skipUntil = 0;
+        let failedSeq = -1;
+
+        const camKey = () => {
+            const c = engine.cam.state();
+            return `${c.frame}|${c.activeLevel}|${c.inScale}|${c.inPanX}|${c.inPanY}`;
+        };
         const isQuota = (err) => !!err && (
             err.name === "QuotaExceededError"
             || err.name === "NS_ERROR_DOM_QUOTA_REACHED"
             || err.code === 22 || err.code === 1014);
 
-        const save = (force = false) => {
-            if (!persistRef.current) return;
-            if (!force) {
-                // The document has not changed since the attempt that failed,
-                // so the same bytes would fail the same way -- and finding that
-                // out costs a second of main thread. Skip without serializing.
-                if (failedSeq === docSeq) return;
-                // Still backing off from a recent failure.
-                if (now() < skipUntil) return;
+        const schedule = () => {
+            if (!LOCAL_AUTOSAVE || disposed) return;
+            clearTimeout(debounceT);
+            const waited = firstDirtyAt ? now() - firstDirtyAt : 0;
+            const delay = Math.max(0, Math.min(SAVE_DEBOUNCE_MS, SAVE_MAX_WAIT_MS - waited));
+            debounceT = setTimeout(() => save("timer"), delay);
+        };
+        const markDirty = (level, full) => {
+            docSeq += 1;
+            if (full) fullDirty = true;
+            else if (level != null) dirtyFrames.add(String(level));
+            if (!firstDirtyAt) firstDirtyAt = now();
+            schedule();
+        };
+        const unsubDirty = engine.doc.subscribe((ev) => {
+            if (ev.kind === "reset") markDirty(null, true);
+            else markDirty(ev.level, false);
+        });
+
+        const save = (why, force = false) => {
+            if (!LOCAL_AUTOSAVE || !persistRef.current || !restored) return;
+            const dirty = docSeq !== savedSeq;
+            const cam = camKey();
+            if (!dirty) {
+                if (!hasBase || cam === lastSavedCam) return;
+                if (!force) {
+                    // A view change with no edit: written from the slow check,
+                    // and only once it has stopped moving.
+                    if (why !== "check") return;
+                    if (cam !== lastSeenCam) { lastSeenCam = cam; return; }
+                }
+            } else if (!force && failedSeq === docSeq && now() < skipUntil) {
+                return;
             }
-            let json = null, packed = null;
-            let tStr = 0, tPack = 0, tPut = 0;
-            const tSer = now();
+            if (saving) { again = true; return; }
+            const t0 = now();
+            const full = fullDirty || !hasBase;
+            const takenFull = fullDirty;
+            const takenFrames = dirtyFrames;
+            const takenSeq = docSeq;
+            const ids = full ? null : [...takenFrames];
+            fullDirty = false;
+            dirtyFrames = new Set();
+            let doc;
             try {
-                // TIMED in three parts, because "the save is slow" is not
-                // actionable and these three have wildly different costs:
-                // serializing walks every object, lz-string compression is
-                // CPU-bound (~100 ms measured on a 195 KB document), and the
-                // localStorage write is a synchronous disk hit.
-                const doc = engine.serializeDrawing();
-                tStr = now();
-                json = JSON.stringify(doc);
-                tPack = now();
-                packed = packSlot(json);
-                tPut = now();
-                localStorage.setItem(storageKey, packed);
-                const tEnd = now();
-                engine.notePerf?.("autosave", tSer, {
-                    ok: 1, chars: json.length, packed: packed.length,
-                    serMs: +(tStr - tSer).toFixed(1),
-                    jsonMs: +(tPack - tStr).toFixed(1),
-                    packMs: +(tPut - tPack).toFixed(1),
-                    putMs: +(tEnd - tPut).toFixed(1),
-                });
-                failedSeq = -1; failCount = 0; skipUntil = 0;
-                dirty = false;
-                setSaveError(null);
-                onAutosaveRef.current?.(doc);
+                doc = engine.serializeDrawing({}, { frames: ids });
             } catch (err) {
-                const quota = isQuota(err);
-                // `dirty` deliberately stays set: the work really is unsaved,
-                // and a later change (or an unload) should still try. What must
-                // not happen is retrying THIS state on the next tick.
-                failedSeq = docSeq;
-                failCount = Math.min(failCount + 1, 6);
-                skipUntil = now() + 4000 * Math.pow(2, failCount);   // 8s -> 256s
-                engine.notePerf?.("autosaveFail", tSer, {
-                    ok: 0, quota: quota ? 1 : 0,
-                    err: String((err && err.name) || err).slice(0, 60),
-                    chars: json ? json.length : 0,
-                    packed: packed ? packed.length : 0,
-                    serMs: +((tStr || now()) - tSer).toFixed(1),
-                    jsonMs: tPack ? +(tPack - tStr).toFixed(1) : 0,
-                    packMs: tPut ? +(tPut - tPack).toFixed(1) : 0,
-                    backoffS: Math.round((skipUntil - now()) / 1000),
-                });
-                // Reports carry `errors`, and a save that never lands is
-                // exactly the kind of thing a report should be showing.
-                errsRef.current.push({ t: Date.now(),
-                    msg: "autosave failed" + (quota ? " (storage full)" : "")
-                        + ": " + String((err && err.message) || err).slice(0, 120) });
-                if (errsRef.current.length > 50) errsRef.current.shift();
-                setSaveError({ quota, at: Date.now(),
-                    message: quota
-                        ? "Storage is full - changes are not being saved."
-                        : "Autosave failed - changes are not being saved." });
-                console.warn("kobin autosave failed" + (quota ? " (storage full)" : ""), err);
+                console.warn("kobin autosave: serialize failed", err);
+                fullDirty = fullDirty || takenFull;
+                for (const f of takenFrames) dirtyFrames.add(f);
+                return;
             }
+            const frameIds = Object.keys(engine.nativesByLevel);
+            const stats = statsFromNatives(engine.nativesByLevel);
+            const { natives, ...header } = doc;
+            const tSer = now();
+            const putBack = () => {
+                fullDirty = fullDirty || takenFull;
+                for (const f of takenFrames) dirtyFrames.add(f);
+            };
+            saving = true;
+            writeCanvas(canvasId, { header: { ...header, name: header.meta.name, ...stats }, frames: natives, frameIds, full })
+                .then((ok) => {
+                    if (ok === null) throw new Error("no local database");
+                    if (ok === false) {
+                        // No base record after all (the store was cleared
+                        // under us): the next write is a full one.
+                        hasBase = false; putBack(); fullDirty = true; again = true;
+                        return;
+                    }
+                    hasBase = true;
+                    savedSeq = takenSeq;
+                    lastSavedCam = cam; lastSeenCam = cam;
+                    failCount = 0; skipUntil = 0; failedSeq = -1;
+                    if (docSeq === savedSeq) firstDirtyAt = 0;
+                    engine.notePerf?.("autosave", t0, {
+                        ok: 1, why, full: full ? 1 : 0, frames: Object.keys(natives).length,
+                        serMs: +(tSer - t0).toFixed(1), putMs: +(now() - tSer).toFixed(1),
+                    });
+                    if (!disposed) {
+                        setSaveError(null);
+                        onAutosaveRef.current?.({ name: header.meta.name, stats });
+                    }
+                })
+                .catch((err) => {
+                    putBack();
+                    const quota = isQuota(err);
+                    failedSeq = takenSeq;
+                    failCount = Math.min(failCount + 1, 6);
+                    skipUntil = now() + 4000 * Math.pow(2, failCount);   // 8s -> 256s
+                    engine.notePerf?.("autosaveFail", t0, {
+                        ok: 0, why, quota: quota ? 1 : 0, full: full ? 1 : 0,
+                        err: String((err && err.name) || err).slice(0, 60),
+                        serMs: +(tSer - t0).toFixed(1),
+                        backoffS: Math.round((skipUntil - now()) / 1000),
+                    });
+                    // Reports carry `errors`, and a save that never lands is
+                    // exactly the kind of thing a report should be showing.
+                    errsRef.current.push({ t: Date.now(),
+                        msg: "autosave failed" + (quota ? " (storage full)" : "")
+                            + ": " + String((err && err.message) || err).slice(0, 120) });
+                    if (errsRef.current.length > 50) errsRef.current.shift();
+                    if (!disposed) {
+                        setSaveError({ quota, at: Date.now(),
+                            message: quota
+                                ? "Storage is full - changes are not being saved."
+                                : "Autosave failed - changes are not being saved." });
+                    }
+                    console.warn("kobin autosave failed" + (quota ? " (storage full)" : ""), err);
+                })
+                .then(() => {
+                    saving = false;
+                    if (again || docSeq !== savedSeq) {
+                        again = false;
+                        // Past unmount the timers are gone; write the tail now.
+                        // destroy() leaves the document readable, so this is safe.
+                        if (disposed) save("dispose", true); else schedule();
+                    }
+                });
         };
-        const idleSave = () => {
-            if (!dirty) return;
-            const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 50));
-            idle(() => { if (dirty) save(); });
+        const flush = () => save("flush", true);
+        const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+        const checkTimer = LOCAL_AUTOSAVE ? setInterval(() => save("check"), SAVE_CHECK_MS) : null;
+        // Phones background a tab long before anyone thinks to press Save, and
+        // `beforeunload` is the wrong hook for an asynchronous write.
+        document.addEventListener("visibilitychange", onHide);
+        window.addEventListener("pagehide", flush);
+
+        saverRef.current = {
+            markHeaderDirty: () => markDirty(null, false),
+            // Undo and redo replay through the document and announce almost
+            // every frame they touch; the one silent step (a re-key inside an
+            // erase) is not worth a new event, so they mark everything.
+            markAllDirty: () => markDirty(null, true),
+            seq: () => docSeq,
+            // An explicit full save landed: if nothing changed while it was in
+            // flight, disk and memory agree and the pending set is moot.
+            noteFullSave: (seqAtSerialize) => {
+                hasBase = true;
+                if (docSeq === seqAtSerialize) {
+                    savedSeq = docSeq; dirtyFrames = new Set(); fullDirty = false; firstDirtyAt = 0;
+                    lastSavedCam = lastSeenCam = camKey();
+                    clearTimeout(debounceT);
+                }
+            },
         };
-        // Both the timer and the unload save are skipped while LOCAL_AUTOSAVE is
-        // off — the unload one especially, because it forces past the backoff
-        // and would put a full serialize-and-fail on every reload.
-        const saveTimer = LOCAL_AUTOSAVE ? setInterval(idleSave, 4000) : null;
-        // Last chance on the way out: ignore the backoff. It may be the only
-        // attempt left, and a tab close is not a hot loop.
-        const saveOnUnload = () => save(true);
-        if (LOCAL_AUTOSAVE) window.addEventListener("beforeunload", saveOnUnload);
+
+        // RESTORE. The document comes back asynchronously; `engineReady` waits
+        // for it, so nothing in the shell (the cloud pull most of all) compares
+        // an empty engine against anything.
+        const restoreP = canvasId ? loadCanvasDoc(canvasId) : Promise.resolve(null);
+        restoreP.then((doc) => {
+            if (disposed || !doc) return false;
+            try {
+                engine.loadDrawing(doc);
+                hasBase = true;
+                return true;
+            } catch (err) {
+                // The stored copy will not decode. Keep it for a week rather
+                // than let the first autosave write an empty drawing over it.
+                console.warn("kobin autosave restore failed", err);
+                backupCanvasDoc(canvasId);
+                return false;
+            }
+        }, (err) => { console.warn("kobin autosave restore failed", err); return false; })
+        .then((loaded) => {
+            if (disposed) return;
+            restored = true;
+            if (loaded) {
+                // What is in memory is what is on disk: the reset the load
+                // emitted is not a change.
+                dirtyFrames = new Set(); fullDirty = false; savedSeq = docSeq; firstDirtyAt = 0;
+                clearTimeout(debounceT);
+            }
+            lastSavedCam = lastSeenCam = camKey();
+            if (docSeq !== savedSeq) schedule();
+            setEngineReady(true);
+        });
 
         const onErr = (e) => {
             errsRef.current.push({ t: Date.now(), msg: String((e && (e.message || e.reason)) || e) });
@@ -271,8 +395,17 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         const pointers = new Map();
         let pinch = null;
         let ignoreId = null;
+        let downT = 0;
         const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+        // A second finger within this long of the first is a pinch whose first
+        // finger simply landed early: whatever that finger began is undone. The
+        // same 400 ms the pen has always used to decide a stroke was really a
+        // pinch. Past it, a select drag that has moved things is a deliberate
+        // drag and is committed before the pinch starts; a press that has not
+        // moved is dropped whatever its age. Kobin's call, 2026-09-03: "use
+        // your judgement call and I'll tell you how it feels."
+        const PINCH_GRACE_MS = 400;
 
         const down = (e) => {
             if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -280,6 +413,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             pointers.set(e.pointerId, p);
             if (pointers.size === 1) {
                 ignoreId = null;
+                downT = Date.now();
                 // Ctrl reaches the engine, which has always implemented
                 // add/remove on it — `_pointerDown` toggles the object under
                 // the pointer, and a ctrl lasso adds (or subtracts, when drawn
@@ -287,7 +421,8 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
                 // passed, so none of that was reachable from the UI.
                 engine.pointerDown(p[0], p[1], e.ctrlKey || e.metaKey);
             } else if (pointers.size === 2) {
-                if (engine._drawing && Date.now() - engine._drawStartT < 400) engine.cancelStroke();
+                if (engine._drawing && Date.now() - engine._drawStartT < PINCH_GRACE_MS) engine.cancelStroke();
+                else if (engine.tool === "select") engine.cancelSelectGesture(Date.now() - downT > PINCH_GRACE_MS);
                 else engine.pointerUp();
                 const [a, b] = [...pointers.values()];
                 pinch = { mid: mid(a, b), dist: dist(a, b) };
@@ -329,6 +464,12 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         };
         const gesturePrevent = (e) => e.preventDefault();
         const onKey = (e) => {
+            // Typing in a field must not reach the engine. With the select
+            // tool active and an object selected, Backspace in the canvas-title
+            // or scene-name input deleted the SELECTION instead of a character,
+            // and Ctrl+Z undid a stroke instead of the edit.
+            const t = e.target;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (!(e.ctrlKey || e.metaKey)) {
                 if ((e.key === "Delete" || e.key === "Backspace") && engine.selection) {
                     e.preventDefault(); engine.deleteSelection();
@@ -336,8 +477,8 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
                 return;
             }
             const k = e.key.toLowerCase();
-            if (k === "z") { e.preventDefault(); if (e.shiftKey) engine.redo(); else engine.undo(); }
-            else if (k === "y") { e.preventDefault(); engine.redo(); }
+            if (k === "z") { e.preventDefault(); if (e.shiftKey) engine.redo(); else engine.undo(); markDirty(null, true); }
+            else if (k === "y") { e.preventDefault(); engine.redo(); markDirty(null, true); }
         };
 
         host.addEventListener("pointerdown", down);
@@ -350,12 +491,16 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         window.addEventListener("resize", onResize);
         window.addEventListener("keydown", onKey);
         return () => {
-            clearInterval(saveTimer);
+            if (checkTimer) clearInterval(checkTimer);
+            clearTimeout(debounceT);
             clearTimeout(resizeT);
             clearTimeout(th.timer);
             unsubDirty();
-            if (LOCAL_AUTOSAVE) save(true);   // last chance before this engine goes away — no backoff
-            window.removeEventListener("beforeunload", saveOnUnload);
+            document.removeEventListener("visibilitychange", onHide);
+            window.removeEventListener("pagehide", flush);
+            if (LOCAL_AUTOSAVE) flush();   // last chance before this engine goes away; the write outlives the component
+            disposed = true;
+            saverRef.current = null;
             window.removeEventListener("error", onErr);
             window.removeEventListener("unhandledrejection", onErr);
             host.removeEventListener("pointerdown", down);
@@ -371,7 +516,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
             if (window.__kobinEngine === engine) window.__kobinEngine = null;
             setEngineReady(false);
         };
-    }, []);
+    }, [canvasId]);
 
     useEffect(() => { engineRef.current && engineRef.current.setTool(tool); }, [tool]);
     useEffect(() => { engineRef.current && engineRef.current.setPenType(penType); }, [penType]);
@@ -434,7 +579,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
                 // because every step sat under the log threshold.
                 fast: eng.fastStats ? eng.fastStats() : null,
                 errors: errsRef.current,
-                // WHAT WAS DONE, not just what is left — see CanvasV2's copy.
+                // WHAT WAS DONE, not just what is left.
                 journal: eng.journal,
                 families: eng.reportFamilies(),
                 counters: {
@@ -458,13 +603,19 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         setTimeout(() => setReportLabel("Report"), 2500);
     };
 
-    const saveToLocalStorage = async (name) => {
+    // An explicit save: the whole document, written in full. Returns the
+    // serialized document (the caller lists it and pushes it to the cloud),
+    // or null when nothing could be stored.
+    const saveLocal = async (name) => {
         const eng = E();
-        if (!eng || !persistRef.current) return null;
+        if (!eng || !persistRef.current || !canvasId) return null;
         if (name) patchDocMeta({ name });
         try {
+            const seq = saverRef.current ? saverRef.current.seq() : 0;
             const doc = eng.serializeDrawing();
-            localStorage.setItem(storageKey, packSlot(JSON.stringify(doc)));
+            const ok = await saveCanvasDoc(canvasId, doc);
+            if (!ok) return null;
+            saverRef.current?.noteFullSave(seq);
             return doc;
         } catch (err) {
             return null;
@@ -488,7 +639,7 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         if (!eng || !file) return;
         const raw = JSON.parse(await file.text());
         eng.loadDrawing(raw);
-        try { localStorage.setItem(storageKey, packSlot(JSON.stringify(eng.serializeDrawing()))); } catch (err) { /* quota */ }
+        await saveLocal();
     };
 
     const exportSvg = () => {
@@ -577,12 +728,12 @@ export default function useKobinEngine({ storageKey = AUTOSAVE_KEY, onAutosave }
         cursor,
         patchDocMeta,
         disablePersist: () => { persistRef.current = false; },
-        saveToLocalStorage,
+        saveLocal,
         saveDrawing,
         loadDrawingFile,
         exportSvg,
-        undo: () => E()?.undo(),
-        redo: () => E()?.redo(),
+        undo: () => { E()?.undo(); saverRef.current?.markAllDirty(); },
+        redo: () => { E()?.redo(); saverRef.current?.markAllDirty(); },
         clear: () => E()?.clear(),
         deleteSelection: () => E()?.deleteSelection(),
         deselect: () => E()?.deselect(),

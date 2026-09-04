@@ -12,7 +12,7 @@ MARKERS
 ENTRY AND SHELL
 
 src/index.js                React root. StrictMode. Nothing else.
-src/App.js                  HashRouter. Seven routes; four of them are dev.
+src/App.js                  HashRouter. Four routes: home, gallery, editor, 404.
                             /canvas/:canvasId is KEYED on the id so switching
                             canvases remounts the editor and its engine.
 src/reportWebVitals.js      CRA boilerplate, never given a callback. Inert.
@@ -62,9 +62,13 @@ src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
                             owns every tool and style piece of state, throttles
                             the status stream to 50 ms (flushing zoom changes
                             immediately so the scale HUD cannot skip a rung),
-                            and owns the autosave loop.
-                            LOCAL_AUTOSAVE is the F33 switch and is currently
-                            FALSE. Read the comment above it before changing it.
+                            and owns the autosave loop: a dirty-frame set fed
+                            by document events, a 1.5 s debounce with an 8 s
+                            ceiling, an incremental IndexedDB write, a flush on
+                            hide/pagehide/unmount, and a header-only write for a
+                            settled camera (F33, reworked 2026-09-02).
+                            LOCAL_AUTOSAVE is the kill switch, TRUE since then.
+                            Read the comment above it before changing it.
                             Also: the ctrl cursor (a drawn SVG badge saying what
                             the next ctrl-click will DO, answered by hit-testing
                             the point), save/load/export helpers, and the [DEV]
@@ -92,15 +96,26 @@ src/Components/editor/
 
 STORAGE AND CLOUD
 
-src/storage/localCanvases.js   The per-browser store. One slot per canvas
-                               (kobin.canvas.<id>), lz-string compressed with an
-                               "lz1:" prefix; legacy plain-JSON slots still load.
-                               An index makes saved canvases enumerable. A 30-day
-                               recycle bin with its own slot prefix. Scene
-                               thumbnails as JPEG data URLs, keyed per canvas and
-                               scene. stashOverwrittenVersion files the losing
-                               side of a cross-device overwrite as its own
-                               restorable canvas.
+src/storage/db.js              IndexedDB, and why (F33, in the header comment):
+                               one header record per canvas, one record per
+                               frame, thumbnails as JPEG bytes under an LRU
+                               budget, the recycle-bin payloads and the pre-pull
+                               backups, each in its own store. putCanvas writes
+                               only the frames it is given, deletes the ones
+                               that left the set, and refuses an incremental
+                               write that has no base record. Also the one-time
+                               migration out of localStorage, which deletes the
+                               old keys as it goes.
+src/storage/localCanvases.js   The store's public face. The gallery index and
+                               the recycle-bin index stay in localStorage
+                               (synchronous, a few KB); everything that touches
+                               a document is async. sweepStorage is the list of
+                               what used to leak: orphan documents (adopted as
+                               drafts if drawn on, deleted if empty), orphan
+                               frames, backups older than a week, thumbnails for
+                               canvases that exist nowhere. stashOverwrittenVersion
+                               files the losing side of a cross-device overwrite
+                               as its own restorable canvas.
 src/storage/thumbnails.js      Offscreen scene thumbnails. Builds a second
                                KobinEngine in a hidden host, loads the drawing,
                                jumps to each scene and rasterizes. Browser-only.
@@ -108,6 +123,11 @@ src/cloud/firebaseApp.js       Lazy, memoized Firebase init. Importing it starts
                                nothing.
 src/cloud/useUser.js           Live auth state; Google popup with a redirect
                                fallback for phones that block popups.
+src/cloud/lzWorker.js          lz-string in a Web Worker (public/lz-worker.js,
+                               with lz-string 1.5.0 vendored beside it), falling
+                               back to the main thread where there is no worker.
+                               The cloud payload's compression was 97% of the
+                               F33 freeze and the 30 s sync ran it every time.
 src/cloud/canvasSync.js        Firestore. Parent doc carries metadata and
                                thumbnails; the drawing is lz1-compressed and
                                chunked into 700 KiB binary parts underneath, six
@@ -130,7 +150,7 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                     class's methods and still run with `this` bound to the
                     engine - the split was a MOVE, every method byte-identical.
                       erasePipeline.js  the eraser + the resumable bake  ~930
-                      overlays.js       selection indicator + erase debug ~670
+                      overlays.js       selection indicator + erase debug ~900
                       selection.js      select, hit-test, drag            ~390
                       instruments.js    LongFrames, EventLatency,
                                         GrowthLog, FrameMeter            ~295
@@ -235,6 +255,15 @@ derive.js           One-step bake math, and the seam policy. deriveStep is the
                     shapeRingsInRect and shapeLoopsInRect are the two clips - one
                     hands back polygons, one hands back ARCS, and the second is
                     the F-A fix.
+antRuns.js          The selection indicator's geometry on ARCS - nothing
+                    flattened. pieceLength (r·sweep), onRectEdge (a straight
+                    piece lying on the rectangle that cut it is a seam),
+                    loopRuns (a loop split into runs at its seams), runPathData
+                    (arcs as the cubics the ink uses), clipRunToRect (a boundary
+                    cut to a window piece by piece), edgeSpans (where the ink
+                    meets a side of the view: a winding scan of the boundary
+                    against the side's line, holes handled), insideLoops.
+                    Lines, arcs, and the cubic capsules of unresolved strokes.
 freeze.js           The chop and the freeze. pieceSagitta is (chord/2)*|tan(sweep/4)|
                     - the bulge form, so the CENTRE NEVER APPEARS and a radius of
                     1e18 cannot spoil the test. markSeamEnds marks the ends the

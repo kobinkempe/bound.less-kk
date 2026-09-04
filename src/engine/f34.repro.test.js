@@ -23,6 +23,9 @@ jest.setTimeout(600000);
 useEngines();
 
 const INPUT = path.join(__dirname, "..", "..", ".kobin-reports", "f34-input-pre-erase.boundless.json");
+// A gitignored recording (see .kobin-reports): a fresh clone skips this, and
+// KOBIN_REQUIRE_REPORTS=1 makes a missing fixture fail loudly instead.
+const testIf = fs.existsSync(INPUT) || process.env.KOBIN_REQUIRE_REPORTS ? test : test.skip;
 // The tile the cede cut, read off piece #70 in the 18:16 report — frame
 // `0/-47,179/-1479,824`, one frame wide (2^17) in its own units.
 const FRAME = "0/-47,179/-1479,824";
@@ -45,7 +48,7 @@ function load() {
     return E;
 }
 
-test("the input still holds the object the failing gesture cut", () => {
+testIf("the input still holds the object the failing gesture cut", () => {
     const E = load();
     const rec = E.doc.getById(27);
     expect(rec).toBeTruthy();
@@ -70,7 +73,7 @@ function aim(E, dx = 0, dy = 0) {
     return E.jumpTo(FRAME, { x: AT.x - VIEW.w / 2 + dx, y: AT.y - VIEW.h / 2 + dy, w: VIEW.w, h: VIEW.h });
 }
 
-test("a circular erase where he made it", () => {
+testIf("a circular erase where he made it", () => {
     const rows = [];
     // A ring gesture, as reported ("essentially a circle around the corner"),
     // swept across the region the address arithmetic points at.
@@ -112,7 +115,7 @@ test("a circular erase where he made it", () => {
  * straightened, the weld radius, ambiguous junctions, the unbalanced count — is
  * computed and then dropped. Captured here by intercepting the note.
  */
-test("what the failing boolean actually reports", () => {
+testIf("what the failing boolean actually reports", () => {
     for (const [dx, dy, rad] of [[-100, -100, 160], [0, -200, 160], [0, 0, 160]]) {
         const E = load();
         if (!aim(E, dx, dy)) continue;
@@ -158,7 +161,7 @@ test("what the failing boolean actually reports", () => {
  * the walk chains them by their endpoints matching BIT FOR BIT. So the question
  * is whether the in-tile clip that feeds the subtract is already open.
  */
-test("the ink handed to the subtract — is it closed?", () => {
+testIf("the ink handed to the subtract — is it closed?", () => {
     const E = load();
     expect(aim(E, -100, -100)).toBe(true);
     E._render();
@@ -202,7 +205,7 @@ test("the ink handed to the subtract — is it closed?", () => {
  * inside the subject the answer is three loops: the subject, plus the ring's
  * outer and island as holes. 156 says its pieces did not chain.
  */
-test("the eraser's perimeter, as drawn and as projected", () => {
+testIf("the eraser's perimeter, as drawn and as projected", () => {
     const E = load();
     expect(aim(E, -100, -100)).toBe(true);
     E._render();

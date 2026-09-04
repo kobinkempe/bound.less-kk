@@ -14,7 +14,8 @@ THE PROBLEM THIS SOLVES
     does not link back.
 
     A wrong document is worse than no document, because it is trusted. Every one
-    of the corrections listed in 50-TODO.txt cost someone a wrong turn first.
+    of the corrections listed in docs/ROADMAP.md's ledger cost someone a wrong
+    turn first.
 
 WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
 
@@ -24,6 +25,14 @@ WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
         or stroke geometry reads it first and updates it last. If you find a new
         defect, it goes here with: what was seen, what was measured, what was
         RULED OUT, and where the reproduction is.
+
+    docs/ROADMAP.md
+        THE PLAN AND THE BACKLOG - everything still to do that is not a bug, in
+        the order it will be done, with the DONE ledger at the bottom. Bugs stay
+        in OPEN-FLAGS and are referenced by id. Edit in place; when an item
+        finishes, move its line to the ledger with the date; never delete one
+        silently. It replaced docs/ai/50-TODO.txt, 60-RECOMMENDATIONS.txt and
+        70-RELEASES.txt on 2026-09-02, carrying their text verbatim.
 
     docs/UAT.md
         What has to LOOK right, on machines that are not this one. Add a case
@@ -41,10 +50,9 @@ WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
         30-CODE-MAP     changes when a file is added, deleted, or changes job.
         40-CALL-FLOW    changes when a call path changes shape, not when a
                         function is renamed.
-        50-TODO         the consolidated backlog. Move items to DONE with a
-                        one-line note; do not delete them silently.
-        60-RECOMMENDATIONS / 70-RELEASES  proposals, not commitments. Rewrite
-                        them freely; they carry no authority.
+        50-TODO, 60-RECOMMENDATIONS, 70-RELEASES
+                        RETIRED 2026-09-02 into docs/ROADMAP.md. Do not
+                        recreate them; add to the roadmap instead.
         90-MAINTENANCE  this file.
 
     tools/docmaps/  - THE PUBLISHED PAGES
@@ -169,7 +177,7 @@ WRITING A COMMENT THAT WILL STILL BE TRUE
 
     Do not write a comment that asserts the current behaviour of a different
     file. That is the class of statement that goes stale, and every correction
-    in 50-TODO's list is one of them.
+    in the roadmap ledger's lists is one of them.
 
 BEFORE YOU FINISH A SESSION
 
@@ -180,7 +188,7 @@ BEFORE YOU FINISH A SESSION
        changed.
     4. If you added or deleted a function, rebuild the published pages
        (tools/docmaps/README.md) and run verify_coverage.py and audit_stale.py.
-    5. If you deleted anything, add a line to 50-TODO's DONE block so it is not
-       re-investigated.
+    5. If you deleted anything, add a line to the ledger in docs/ROADMAP.md so
+       it is not re-investigated.
     6. Say plainly what you did NOT verify. "The tests pass" and "Kobin has seen
        it work" are different claims and the second one is the one that counts.

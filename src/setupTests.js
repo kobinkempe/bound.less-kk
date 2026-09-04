@@ -3,6 +3,8 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
+// jsdom has no IndexedDB; the store (src/storage/db.js) runs on this double.
+import 'fake-indexeddb/auto';
 
 // jsdom has no requestAnimationFrame; two.js's ticker needs one.
 if (typeof window !== 'undefined' && !window.requestAnimationFrame) {

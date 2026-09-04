@@ -305,6 +305,7 @@ describe("X — performance budgets", () => {
         const before = o._dispFlat;
         const x0 = bboxOf(o, null).x0;
         E.setTool("select");
+        E.pointerDown(400, 292); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(400, 292); E.pointerMove(430, 292); E.pointerUp();
         // Geometry moved, so the caches keyed on it are correctly dropped —
         // what must NOT happen is a re-flatten during the drag itself.

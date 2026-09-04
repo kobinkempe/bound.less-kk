@@ -37,7 +37,7 @@
  */
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
 import {
-    R, W, TILE, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
+    R, TILE, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
     displacementDigits, applyDigits, tilePhase, childTilePhase,
 } from "./frameLattice";
 

@@ -47,6 +47,7 @@ const descend = (E, n) => {
 // Drag the object under (sx,sy) by (dx,dy) in `steps` pointer events.
 const drag = (E, sx, sy, dx, dy, steps) => {
     E.setTool("select");
+    E.pointerDown(sx, sy); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
     E.pointerDown(sx, sy);
     for (let i = 1; i <= steps; i++) E.pointerMove(sx + (dx * i) / steps, sy + (dy * i) / steps);
     E.pointerUp();
@@ -135,6 +136,7 @@ describe("M-10/M-11 — an erase belongs to the object it cut", () => {
         // Moving the object moves all three, so the hole stays put relative to
         // the ink rather than staying put on the paper.
         E.setTool("select");
+        E.pointerDown(300, 290); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(300, 290); E.pointerMove(300, 350); E.pointerUp();
         expect(kid.attachRect).not.toEqual(beforeAttach);
         expect(geomOf(parent)).not.toBe(beforeParent);
@@ -143,6 +145,7 @@ describe("M-10/M-11 — an erase belongs to the object it cut", () => {
         // and nothing can follow it anywhere.
         expect(clean.attachRect).toBeUndefined();
         expect(E.doc.editGroup(clean.id)).toHaveLength(1);
+        E.pointerDown(300, 420); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(300, 420); E.pointerMove(300, 290); E.pointerUp();
         expect(clean.attachRect).toBeUndefined();
         expect(E.doc.editGroup(clean.id)).toHaveLength(1);

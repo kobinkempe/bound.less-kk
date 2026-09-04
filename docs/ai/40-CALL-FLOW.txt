@@ -7,7 +7,7 @@ Indentation is the call chain. [HOT] marks a per-event or per-frame path.
 MOUNT
 
   CanvasEditor
-    useKobinEngine({ storageKey: slotKey(id), onAutosave })
+    useKobinEngine({ canvasId: id, onAutosave })
       new KobinEngine(host, { width, height, onStatus })
         new LevelMap(cfg, w, h)            frame "0" only
         new Document()                     one empty bucket
@@ -18,9 +18,12 @@ MOUNT
         doc.subscribe(...)                 keeps the selection honest when the
                                            object under it is removed or re-homed
         _render()
-      unpackSlot(localStorage[...]) -> engine.loadDrawing(...)
-      addEventListener pointerdown/move/up, wheel, resize, keydown
-      setInterval(idleSave, 4000)          ONLY IF LOCAL_AUTOSAVE (currently off)
+      doc.subscribe(markDirty)             every event carries its frame id
+      loadCanvasDoc(id) -> engine.loadDrawing(...)   async; engineReady waits for it
+      addEventListener pointerdown/move/up, wheel, resize, keydown,
+                       visibilitychange, pagehide
+      setInterval(save("check"), 5000)     retries after a backoff; writes a
+                                           settled camera
 
 DRAWING A STROKE   [HOT]
 
@@ -190,22 +193,37 @@ RENDERING   [HOT]
       else: renderer.syncCameraOnly() + update() + _emit()
              - one matrix write, no path is rebuilt
 
-SAVING
+AUTOSAVE   (useKobinEngine, since 2026-09-02)
+
+  doc event -> markDirty(frame)             1.5 s quiet, 8 s ceiling
+    save("timer")
+      engine.serializeDrawing({}, { frames: [the dirty ids] })
+        encodeDrawing({camera, crossings, natives: those frames, meta})
+      writeCanvas(id, { header, frames, frameIds, full })
+        db.putCanvas                        ONE transaction: the header, the
+                                            changed frames, deletes of frames
+                                            that left; refused without a base
+      onAutosave({ name, stats })           CanvasEditor freshens the index
+  visibilitychange(hidden) / pagehide / unmount -> save("flush", force)
+  undo / redo / a meta edit -> markDirty(all) / markDirty(header)
+
+SAVING   (the Save button)
 
   handleSave / persistCanvas(name)
     engine.refreshScenes()                  scenes ride the save file
-    engine.saveToLocalStorage(name)
+    engine.saveLocal(name)
       engine.serializeDrawing()
         encodeDrawing({camera, crossings, natives, meta})
           Camera.state / LevelMap.serialize / Document.serializeNatives
-      packSlot(JSON.stringify(doc))         lz-string UTF-16
-      localStorage.setItem(slot, packed)
+      saveCanvasDoc(id, doc)                db.putCanvas, full
     upsertIndexEntry(entry)
     ensureThumbs(doc, scenes)
       renderThumbs -> A SECOND KobinEngine, one jumpTo + rasterize per scene
+      saveThumbs -> db.putThumbs, then the LRU trim
     cloudSaveCanvas(uid, entry, json, thumbs)
-      encodeCanvasPayload -> lz1 Uint8Array -> 700 KiB chunks
+      encodeCanvasPayloadAsync -> lzWorker -> lz1 Uint8Array -> 700 KiB chunks
       write the parts in batches of six, THEN the parent doc
+      -> { packMs, putMs, bytes, parts }   notePerf("cloudSave")
 
 LOADING
 

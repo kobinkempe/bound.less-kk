@@ -19,11 +19,117 @@ import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
 import { insideShape } from "./geometry/arcShape";
-import { rectInsidePolygon } from "./geometry/lasso";
+import { rectInsidePolygon, loopTester } from "./geometry/lasso";
 
 const REACH = (3 * FRAME_W) / 2;
 
+// How far a press has to travel before it is a drag rather than a tap. Screen
+// pixels; a finger wobbles a few, a mouse none.
+export const SELECT_DRAG_PX = 8;
+
+// The ink test behind the lasso is a hand-gesture question, so it is asked
+// at a hand-gesture precision: the outline flattened to LASSO_INK_TOL_PX,
+// never more than LASSO_INK_MAX_PTS points of it, against a loop decimated to
+// LASSO_LOOP_MAX_PTS. Measured on Kobin's 2026-09-03 drawing at a quarter
+// pixel and against the loop as drawn: twelve borderline shapes cost 985 ms,
+// eighty each, with the largest of them tens of thousands of points against a
+// few hundred loop edges.
+const LASSO_INK_TOL_PX = 3;
+const LASSO_INK_MAX_PTS = 3000;
+const LASSO_LOOP_MAX_PTS = 160;
+
+const everyNth = (pts, max) => {
+    if (pts.length <= max) return pts;
+    const k = Math.ceil(pts.length / max);
+    const out = [];
+    for (let i = 0; i < pts.length; i += k) out.push(pts[i]);
+    return out;
+};
+
 class Selection {
+
+    // ---- a press, resolved (KobinEngine._pointerDown records it) ----
+    // The select tool changes nothing on the way down — see the note there.
+    // These three are the outcomes: a tap, a drag, and a pinch that cancels.
+
+    /** A press that never moved: a tap. Selects, toggles, or clears. */
+    _selectTap(P) {
+        if (P.hit == null) {
+            if (!P.ctrl) this.deselect();
+            this.renderer.refreshSelection();
+            this._emit();
+            return;
+        }
+        if (P.ctrl) { this._toggleSelected(P.hit); return; }
+        // Tapping a member of the selection keeps the whole selection.
+        if (!this._isSelected(P.hit)) this.select(P.sx, P.sy);
+    }
+    /**
+     * A press that has travelled: a lasso or a move, decided here. With nothing
+     * selected a drag is always a lasso; a ctrl drag always is; otherwise a
+     * drag from ink moves — the selection if the ink is part of it, that one
+     * object if not — and a drag from paper lassoes.
+     */
+    _beginSelectDrag(P, sx, sy) {
+        const startLasso = () => {
+            this._lasso = { pts: [[P.sx, P.sy], [sx, sy]], ctrl: P.ctrl, moved: true };
+            this.renderer.refreshSelection();
+        };
+        if (P.hit == null || P.ctrl || !this.selection) { startLasso(); return; }
+        // Pressing an object that is ALREADY selected keeps the whole selection
+        // and drags it; pressing a different one selects it alone.
+        if (!this._isSelected(P.hit)) this.select(P.sx, P.sy);
+        else this._flushErasesFor(P.hit);
+        // The erase barrier has to cover EVERYTHING that is about to move, not
+        // just the piece under the finger. A mark is a native sitting at fixed
+        // coordinates; ink dragged out from under one that has not been applied
+        // yet takes its un-erased shape with it, and the mark stays behind and
+        // cuts whatever has arrived there instead. With several objects
+        // selected, or one object whose family has a re-homed piece at another
+        // level, the single-object flush left exactly that. It also left the
+        // white mark itself on screen, hanging over the object being dragged.
+        this._settleSelectionErases();
+        if (!this.selection) { startLasso(); return; }   // the flush took the object away
+        this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false };
+        // A drag rewrites the same objects on every pointer event; tiles the
+        // camera cannot see are not worth patching that often.
+        this.store.setBatch(true);
+        this._dragSelection(sx, sy);
+    }
+    /**
+     * The second finger of a pinch has landed: forget the select gesture in
+     * progress. A press that had not moved is simply dropped, so a pinch that
+     * begins over ink selects nothing and a pinch that begins over paper keeps
+     * whatever was selected (Kobin, 2026-09-03: "it should still keep the
+     * selection that was there before I zoomed"). A lasso in progress is
+     * dropped. A drag that had already moved things is put back where it
+     * started — unless `commitIfMoved`, which the shell passes once the press
+     * is old enough to have been a deliberate drag, in which case it ends as a
+     * normal pen-up would.
+     */
+    cancelSelectGesture(commitIfMoved = false) {
+        this._selPress = null;
+        if (this._lasso) {
+            this._lasso = null;
+            this.renderer.refreshSelection();
+            this._emit();
+        }
+        const d = this._dragSel;
+        if (!d) return;
+        if (d.moved && commitIfMoved) { this._pointerUp(); return; }
+        this._dragSel = null;
+        this.store.setBatch(false);
+        if (d.moved) {
+            // Back to the frame and the geometry the drag started from. `base`
+            // is a detached snapshot the drag only ever read, so it is intact.
+            for (const [id, st] of d.moves) {
+                if (!this.doc.getById(id)) continue;
+                if (st.to !== st.from) this.doc.rehomeById(id, st.from);
+                this.doc.setGeometryById(id, st.base);
+            }
+        }
+        this._render();
+    }
 
     // ---- multi-selection (bible §5.3) ----
     // `selection` keeps the single-object shape it has always had — id, editId,
@@ -103,6 +209,7 @@ class Selection {
             if (p[1] > box.bottom) box.bottom = p[1];
         }
         const found = [];
+        const ink = loopTester(everyNth(poly, LASSO_LOOP_MAX_PTS));
         const takeAll = (id) => {
             for (const o of this.doc.at(id)) if (!o.erase) found.push(o.id);
             for (const c of this.lm.childrenOf(id)) takeAll(c.id);
@@ -120,7 +227,16 @@ class Selection {
                 right: (box.right - tx) / s, bottom: (box.bottom - ty) / s })) {
                 if (o.erase) continue;
                 const r = this._rectInActive(o, id);
-                if (r && rectInsidePolygon(poly, r)) found.push(o.id);
+                if (!r) continue;
+                if (rectInsidePolygon(poly, r)) { found.push(o.id); continue; }
+                // The box failed. A box is a generous stand-in for the ink: a
+                // slanted stroke's box reaches into corners its ink never
+                // visits, and a loop passing through such a corner dropped an
+                // object whose ink was wholly inside — the crossbar of a "t"
+                // in Kobin's 2026-09-03 screenshot, F32. So where the box at
+                // least meets the loop's own box, the ink itself is asked.
+                if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
+                if (this._inkInsidePolygon(o, id, ink)) found.push(o.id);
             }
             for (const c of this.lm.childrenOf(id)) {
                 if (c.id === skip || !c.centre) continue;
@@ -138,7 +254,78 @@ class Selection {
             visit(child.parent, s, tx, ty, child.id);
             child = this.lm.frame(child.parent);
         }
-        return found;
+        // A RE-HOMED FAMILY IS ONE OBJECT, and "fully bounded by the loop" is
+        // asked of the whole of it: a loop around a ceded tile alone has not
+        // bounded the object the tile is part of, and must not take it.
+        // (Kobin, 2026-09-03: "if I lasso a child tile, it is selecting the
+        // parent now.") Every piece of the family has to be in `found`.
+        const set = new Set(found);
+        const whole = new Map();
+        const out = [];
+        for (const id of found) {
+            const rec = this.doc.getById(id);
+            if (!rec) continue;
+            const key = this.doc.editKey(rec.obj);
+            let ok = whole.get(key);
+            if (ok === undefined) {
+                ok = this.doc.editGroup(rec.obj).every((m) => m.obj.erase || set.has(m.obj.id));
+                whole.set(key, ok);
+            }
+            if (ok) out.push(id);
+        }
+        return out;
+    }
+    /**
+     * Is this object's INK wholly inside the loop? The outline is flattened at
+     * a few pixels in its own frame and mapped into the active frame hop by
+     * hop; `ink` is the loop prepared by `loopTester`. Only reached for objects
+     * whose box straddles the loop, so the cost is per object that could go
+     * either way, never per object on the page.
+     */
+    _inkInsidePolygon(o, level, ink) {
+        const f = this.lm.frameFactor(level, this.cam.frame);
+        if (f == null) return false;
+        const pxPerUnit = this.cam.inScale * f;
+        if (!(pxPerUnit > 0)) return false;
+        const F = this.cam.frame;
+        const toActive = (p) => (level === F ? p : this.lm.mapPointF(p, level, F));
+        // BEFORE FLATTENING ANYTHING: the points the object already has. A
+        // shape's arc endpoints, a fill's vertices, a stroke's samples — a
+        // few hundred of them, mapped and asked one by one. Any of them
+        // outside the loop and the answer is no, with nothing resolved. This
+        // is where the objects a loop CROSSES leave, and they are the
+        // expensive ones: a scribble of twenty thousand arcs costs 14 ms to
+        // flatten even coarsely, and Kobin's loop crossed twenty-one of them.
+        const raw = o.type === "shape" ? null : o.type === "fill" ? o.polys : [o.pts];
+        if (raw) {
+            for (const ring of raw) for (const p of everyNth(ring, 200)) {
+                const q = toActive(p);
+                if (!q || !ink.inside(q)) return false;
+            }
+        } else if (o.loops) {
+            const ends = [];
+            for (const loop of o.loops) for (const piece of loop) ends.push(piece.A);
+            for (const p of everyNth(ends, 400)) {
+                const q = toActive(p);
+                if (!q || !ink.inside(q)) return false;
+            }
+        }
+        const tol = LASSO_INK_TOL_PX / pxPerUnit;
+        let rings;
+        try { rings = this._inkOutline(o, tol); } catch (err) { return false; }
+        if (!rings || !rings.length) return false;
+        for (const ring0 of rings) {
+            if (!ring0 || ring0.length < 2) continue;
+            const ring = everyNth(ring0, LASSO_INK_MAX_PTS);
+            const mapped = [];
+            for (const p of ring) {
+                const q = toActive(p);
+                if (!q) return false;
+                mapped.push(q);
+            }
+            if (!ink.ringInside(mapped)) return false;
+        }
+        return true;
     }
     _setSelection(ids) {
         const live = ids.filter((id) => this.doc.getById(id));
@@ -262,6 +449,7 @@ class Selection {
      */
     _dragSelection(sx, sy) {
         const d = this._dragSel;
+        d.last = [sx, sy];                   // where the pointer is now; the indicator rides on it
         const tx = (sx - d.start[0]) / this.cam.inScale;
         const ty = (sy - d.start[1]) / this.cam.inScale;
         const camDepth = this.cam.activeLevel;

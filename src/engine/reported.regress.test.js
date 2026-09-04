@@ -37,6 +37,7 @@ useEngines();
 
 const DIR = path.join(process.cwd(), ".kobin-reports");
 const report = (frag) => {
+    if (!fs.existsSync(DIR)) return null;                 // fresh clone: every test below returns early
     const f = fs.readdirSync(DIR).find((x) => x.includes(frag));
     return f ? JSON.parse(fs.readFileSync(path.join(DIR, f), "utf8")) : null;
 };
@@ -269,10 +270,11 @@ describe("RR-5 — a drag does not re-derive into tiles nobody is looking at", (
         const cached = E.store.cache.size;
         expect(E.store._batch).toBe(false);
         E.setTool("select");
+        E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(400, 300);
+        for (let i = 1; i <= 10; i++) E.pointerMove(400 + i * 3, 300 + i * 2);
         // The drag turns batching on for as long as it lasts...
         expect(E.store._batch).toBe(E.selection ? true : false);
-        for (let i = 1; i <= 10; i++) E.pointerMove(400 + i * 3, 300 + i * 2);
         E.pointerUp();
         expect(E.store._batch).toBe(false);
         expect(cached).toBeGreaterThanOrEqual(0);

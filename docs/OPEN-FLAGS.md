@@ -7,6 +7,9 @@ authority on what is actually broken.
 **Hands-on testing lives in `docs/UAT.md`** — the run-it-yourself checklist, with the
 environment matrix for the browsers and monitors this has not been tried on.
 
+**Everything to do that is not a bug lives in `docs/ROADMAP.md`** — the plan, in order,
+with the backlog detail and the DONE ledger. Flags are referenced from it by id.
+
 **This is the one place open concerns live.** It is a *current state* list, not a log:
 edit entries in place, delete them when they close. `docs/issue-log.md` is the historical
 log and is a different thing.
@@ -14,13 +17,13 @@ log and is a different thing.
 Read this file at the start of any session about baking, erasing, or stroke geometry.
 When summarising status for a handoff, point at this file by path.
 
-Last updated **2026-08-26**.
+Last updated **2026-09-03**.
 
 **THE FRAME LATTICE IS IN (2026-08-19).** A frame is a cell of a fixed lattice, a move is
 arithmetic on an address rather than a translation of geometry, and the magnify chain carries
 exact arcs. That closes F25, F28, and the two failures the design was written against (F-A, the
 chain flattening curves; F-B, re-entry failing on a 1 px aim error). Read
-`docs/frame-lattice-design-bible.md` — section 10 first, which records where building it changed
+`docs/reference/frame-lattice-design-bible.md` — section 10 first, which records where building it changed
 the design — before touching frames, tiles, moving or persistence. Pre-lattice files are refused,
 not converted (D8).
 
@@ -35,8 +38,10 @@ and C, the bake schedules, `curvePerimeter`, `strokeShape` — none of that runs
 more. It is kept because the diagnoses in it are what led here, and because the
 cubic bake survives as the independent oracle the arc tests compare against.
 
-The labs are `/#/arcpen` (the pen) and `/#/arcbake` (the resolve); `/#/bakelab`
-still drives the old cubic schedules for that comparison.
+The labs — `/#/arcpen` (the pen), `/#/arcbake` (the resolve) and `/#/bakelab` (the
+old cubic schedules) — were deleted on 2026-08-31 with the rest of the dev routes;
+the measurements they produced stay in the entries below. `?dev` on a canvas URL
+is the one dev surface left.
 
 | id | what | where | sev |
 |---|---|---|---|
@@ -57,8 +62,12 @@ still drives the old cubic schedules for that comparison.
 | ~~F-Z~~ | ~~a thin, long stroke vanishes while zooming out~~ — **FIXED AND VERIFIED 2026-08-26.** Chrome drops a filled path whose features are too small IN THE COORDINATES HANDED OVER, whatever the transform; the fix rescales such an object by a power of two at pre-render and divides its group matrix by the same. Kobin confirmed it in a browser. [Full account](#f-z--a-thin-long-stroke-vanishes-while-zooming-out) — keep it, the canvas-rasterization trap in it is what cost three wrong diagnoses | `Renderer._applyThinScale` | closed |
 | [F35](#f35) | **a group move displaces one member** — an object placed in a corner at level 5 was not in the corner after being moved together with smaller objects. Reported 2026-08-26, no capture yet | `KobinEngine._dragSelection` | **high** |
 | [F34](#f34) | ~~an erase seals CHORDS ACROSS THE SHAPE~~ — **ROOT CAUSE FOUND AND FIXED 2026-08-26**: `circleCircle` computed `h² = r1² - a²`, which is pure noise once r1 is ~1e10 and r2 is ~21. Crossings were lost or halved, so chains could not pair. Kobin's own reproduction goes from 6 failures in 21 gestures to **0 of 21**. Needs his eyes in a browser | `geometry/arcPerimeter.js` `circleCircle` | **fixed, unverified** |
-| [F33](#f33) | **autosave dies silently when localStorage fills** — the drawing then exists only in the tab. **LOCAL AUTOSAVE IS NOW OFF** (2026-08-26) while this stands; the Save button and cloud sync still work, and a standing banner says so | `hooks/useKobinEngine.js` | **high, mitigated** |
-| F32 | **the lasso sometimes misses objects** — reported 2026-08-26, not yet reproduced; no capture, no conditions known. NOT diagnosed. Two things to rule out first, both read off the code rather than observed: (1) selection tests the object's AXIS-ALIGNED RECT (`_rectInActive` -> `rectInsidePolygon`), not its ink, so a diagonal or curved stroke lying comfortably inside the loop is skipped whenever its bbox corners poke out — correct by the stated rule, a miss to the person drawing the loop, and the cheapest to check; (2) `_rectInActive` returning null drops an object silently. After those, the frame walk itself: the `out of reach` REACH box, `queryRect`, and the ancestor pass that skips the branch already visited. **Ask for a report while it is on screen** — the lasso polygon and the missed object's id are what settle it. | `KobinEngine._lassoFind` / `geometry/lasso.js` | open |
+| [F33](#f33) | **autosave dies silently when localStorage fills** — the drawing then exists only in the tab. **REWORKED 2026-09-02**: the document moved to IndexedDB, one record per frame, written incrementally off the document's own events; local autosave is back ON. Measured so far only on a two-stroke drawing in the in-app browser (1.7–1.9 ms a write); the phone run on the 16M-character drawing is Kobin's to take | `storage/db.js` / `hooks/useKobinEngine.js` | **reworked, unverified** |
+| F32 | ~~the lasso sometimes misses objects~~ — **DIAGNOSED AND FIXED 2026-09-03**, from Kobin's phone screenshot: the containment test was on the object's BOX, so a slanted stroke whose box corners poked out of the loop was dropped while its ink lay wholly inside (the crossbar of a "t"). Where the box straddles the loop the INK itself is now asked (`_inkInsidePolygon` -> `polylineInsidePolygon`). The other thing a loop "misses" is whatever the closing chord cuts — the straight line from where the finger lifts back to where it started, which is drawn, and in that screenshot ran through "Hello" and "there". The fully-bounded rule stands | `engine/selection.js` `_lassoFind` / `geometry/lasso.js` | **fixed, unverified** |
+| [F36](#f36) | **three things are called a tile and they are three APIs** — the frame cell, the object's tile grid and the render-cache square are all W across and differ only in phase convention, and they have been confused once already: a chop clipped to the cache square froze one arc to two different chords. Kobin, 2026-09-02: *a real bug, just unlikely to be caught*. Fix is roadmap S1, one `TileGrid` type | `frameLattice.js` / `LevelMap.js` / `geometry/freeze.js` | **latent** |
+| [F39](#f39) | ~~a dense selection zoomed slowly and showed solid outlines instead of ants~~ — **FIXED 2026-09-03**, third design of the day: the ants come from the render list's pieces, on arcs, nothing flattened, tile cuts skipped by the rectangle that made them; decided once per render and moved between steps by a CSS transform on a layer of their own. Overlay JavaScript per zoom step 17 → 0.8 ms; a frame with the crawl running 50 → 16.7 ms under the old budget. The budget is then removed at Kobin's instruction and the crawl's repaint becomes the cost: 50 ms a frame at the report camera, 200 at 4× in — the phone's to feel, levers in the roadmap. Same day: the lasso asks "fully bounded" of a whole family, the ants ride with a drag, and a frame is one dot only under 2 px | `engine/overlays.js` `_selectionAnts` / `_selDecide`, `geometry/antRuns.js`, `Renderer._renderSelOverlay` | closed |
+| [F38](#f38) | ~~some selected objects had no ants, or partial ones, after zooming in~~ — **FIXED 2026-09-03**: the 24,000 px ant budget was a hard stop, so with many objects on screen the members after it got no indicator and the one it ran out on got part of one. Past the budget a boundary is now drawn as a plain thin outline. With it, the overlay's per-member floor on a dense sub-pixel selection went from 30 ms a render to 3.5, by deciding per FRAME: a frame under a pixel on screen is one speck, its members never visited | `engine/overlays.js` `_selectionAnts` / `Renderer._renderSelOverlay` | closed |
+| [F37](#f37) | ~~a ceded tile wore ants on all four sides~~ — **FIXED 2026-09-03**: the join between a piece and the piece it was cut from was only looked for in the parent CELL. A tile ceded into the neighbouring cell (an object reaches one cell over, invariant 2) found no source, recorded no join, and its whole tile edge counted as free ink edge — "what must be the tile is showing as selected". Every member one level up is a candidate now and the arc overlap decides | `engine/overlays.js` `_familyJoinNotes` | closed |
 | ~~F31~~ | ~~`repairLoops` seals each fragment separately instead of stitching them first~~ — **FIXED 2026-08-26**: it now chains fragments on the cheapest join available, bridges each join explicitly, and seals once. Measured on the two phone strokes with the `distinctSamples` fix switched off, so the same severed bakes arrive: stroke 1 went 2 loops + a phantom hole -> 1 loop, worst fabricated edge 46.39 -> 0.75 units; stroke 3 went 3 loops + a phantom hole -> 1 loop, 82.61 -> 1.02, and its **area from 38.6% too large to 0.2% under**. Both seals are now ~6-9% of the pen's own width. `_lastBakeRepair` carries `fragments/chords/worstChord/fabricated/dropped` into a phone report, which is what made the first one take a day to place. | `geometry/arcShape.js` | closed |
 | ~~F25~~ | ~~dragging a deep family destroys its deepest pieces~~ — **CLOSED by the frame lattice** (2026-08-19): a move is an ADDRESS change, and a deep member's geometry is not touched | `KobinEngine._dragSelection` | closed |
 | ~~F-A~~ | ~~the magnify chain flattened arcs, and every level inherited the polygon~~ — **CLOSED** (2026-08-19): tiles carry exact arcs; rendered edge error 0 px at every depth an oracle can check | `geometry/derive.js` | closed |
@@ -225,7 +234,7 @@ That is the missing step, and it is the whole job.
 four levels of separation, **82.9% at five**, coordinates reaching 7.3e18. The object did not
 move wrong. It came apart.
 
-**What fixed it.** `docs/frame-lattice-design-bible.md`, built 2026-08-19. A frame is a lattice
+**What fixed it.** `docs/reference/frame-lattice-design-bible.md`, built 2026-08-19. A frame is a lattice
 cell, so a displacement decomposes into base-4096 DIGITS and everything a whole cell or larger
 is applied to the member's ADDRESS: it is re-homed into the cell that many steps along and its
 geometry is not touched, because neighbouring cells' origins differ by exactly one frame and the
@@ -332,6 +341,269 @@ every one of those flattens a shape whose coordinates have lost all meaning.
 If the drag never writes a large number, there is nothing here to be slow about.
 Reproduction is in hand: load `07-15-48`, select either family, drag.
 
+<a id="f36"></a>
+### F36 — three things are called a tile, and they are three APIs (LATENT, by design review)
+
+Kobin, 2026-09-02, on the roadmap's `TileGrid` item: *"this is actually a real bug, just
+unlikely to be caught."* Recorded here so it is tracked as one rather than as tidying.
+
+Three partitions share one size, W = 131,072 units, and three near-identical APIs:
+
+* the FRAME lattice cell — `LevelMap`, `frameLattice.cellOf` / `cellEdge`. Belongs to space.
+* the OBJECT's tile grid — `frameLattice.objTileRect` / `objTileRange` / `objTilesRect` and
+  `geometry/freeze.js`, phased per object. Belongs to the object; this is where a curve may
+  be frozen to a line.
+* the render CACHE square — `LevelMap.tileRect` / `tileRange` / `makeGrid`. Only a work unit.
+
+The first two are load-bearing and genuinely different; the design is explicit that they
+cannot be merged. But nothing in the code says which grid a rect is on except which module
+the function came out of, and the phase conventions differ. It has already cost once: the
+first version of the chop clipped to the cache square, which is not a tile boundary, so two
+neighbouring squares froze one arc to two different chords. A repeat would not show in the
+suite — it shows as a seam or a mis-frozen arc at one depth, in a browser.
+
+**The fix** is the roadmap's S1: one `TileGrid { phase, rect(i,j), range(rect), span(cells) }`
+value object, built as `TileGrid.forObject(o)` or `TileGrid.cache()`, so "which grid is
+this rect on" is answered by the value, and the half-open range convention — whose absence
+once took a level-1 render from 49 ms to 258 ms — lives in one place. `docs/ROADMAP.md`.
+
+<a id="f32"></a>
+### F32 — the lasso sometimes misses objects (FIXED 2026-09-03, unverified by Kobin)
+
+Kobin, 2026-09-03, on the phone: *"the lasso is missing objects (see my
+screenshot - the t is missing)."* The letters around it turned red; the
+crossbar of the "t" stayed tan.
+
+**What the walk does was checked first, and it was not the problem.** Report
+`14-21-20` loaded into the in-app browser at its own camera (level 3): a
+rectangle and a 64-point ellipse drawn around all 61 objects at that frame
+returned all 61, before and after the change. The frame-tree prune, the
+`ENCLOSED` shortcut and the per-object query are sound.
+
+**The containment test was on the box.** `_lassoFind` asked `rectInsidePolygon`
+about each object's axis-aligned rect. A slanted stroke's rect reaches into
+corners its ink never visits — the crossbar is 37 units wide, 13 tall and
+slanted — so a loop passing through such a corner dropped an object whose ink
+was wholly inside. Now, where the rect fails but at least meets the loop's own
+box, `_inkInsidePolygon` flattens the object's outline in its own frame at about
+a pixel, maps it hop by hop into the active frame, and asks
+`polylineInsidePolygon`: every vertex inside and no loop edge crossing any ink
+segment. Only objects that could go either way pay for it.
+`select.lasso.test.js` pins it with a diagonal stroke inside a diagonal band.
+
+**The other thing a loop "misses".** The loop is closed by a straight chord from
+where the finger lifts back to where it started, and it is drawn (Two.js closes
+the dashed path) — in the screenshot the loop's right-hand side appears to be
+that chord, running through "Hello" and "there", and everything it cut was
+excluded by the rule. That is the rule working; it is worth knowing when a loop
+seems to miss.
+
+Kobin's loop could not be replayed exactly — the screenshot's camera is not the
+report's — so this stays unverified until he draws the same loop again.
+Everything else read off the code on 2026-08-26 (the two silent nulls in
+`_rectInActive`, the reach box) was looked at and was not involved. Kobin
+added later that the crossbar was a larger shape than he had thought, so the
+screenshot may not have been a clean example of the miss he has seen before;
+whether that miss is still there is his to say.
+
+#### THE FIRST CUT WAS TOO SLOW, the same day. Kobin: *"The lassos got too slow, even after the selection was completed weirdly."*
+
+Report `15-03-53`: five `ptrUp` entries with the select tool at 0.9–1.7 s, and
+66 zooms at up to 549 ms while the selection was up. Reproduced in the in-app
+browser at the report's camera with a loop round the speck that holds the
+drawing's 5,390 deep objects (they are four levels down and take 5,429 objects
+in one loop — by the rule, an object too small to see is bounded as readily
+as a visible one):
+
+| | before | after |
+|---|---|---|
+| `_lassoFind` | 985 ms | 7.7 ms |
+| of which the ink test | 984 ms, 12 objects | 0.6 ms, 21 objects |
+| `_setSelection` (renders the overlay) | 613 ms | 172 ms |
+| `_selectionAnts` | 603 ms | 116 ms |
+| `_selectionMembers` | 674 ms | 12 ms |
+| pointer-up through the select tool | ~1,500 ms | 74 ms |
+| one zoom step with the selection up | 548 ms | 49 ms |
+
+Two causes. **The ink test flattened at a quarter pixel and asked every loop
+edge about every ring segment**: 80 ms an object on the big scribbles the loop
+crossed, thousands of segments against hundreds of edges. Now the outline is
+flattened at 3 px and capped at 3,000 points, the loop is decimated to 160,
+the edges are bucketed into a 32x32 grid over the loop's box, and — before any
+flattening — the object's own points (arc endpoints, fill vertices, stroke
+samples) are asked one by one, so an object the loop crosses leaves without
+being resolved. **`getById` and `editGroup` were scans of the whole document**,
+and the overlay called them once per selected object: 5,429 x 5,526. The
+document keeps an id map now and a family map rebuilt lazily after any change
+(every change goes through `_emit`; a severance re-key, which does not, calls
+`keysChanged`).
+
+What is left in the 74 ms is the overlay itself for 5,429 members, most of them
+specks. It is per render while the selection is up; the 49 ms zoom step is that.
+
+<a id="f39"></a>
+### F39 — CLOSED. A dense selection zoomed slowly and showed solid outlines instead of ants.
+
+Kobin, 2026-09-03, report `16-33-20`: *"lots of solid outlines instead of
+ants, which tbh does not look like it's selected. And very slow on zooming. How
+do we make these ants cheaper, especially when there are so many small
+objects?"* The report's zoom steps ran 150–280 ms with 5,343 objects rendered
+and the whole drawing selected. This flag went through three designs in one
+day; the third is what ships, and the first two are recorded because each was
+measured and each taught something.
+
+**What was wrong.** The indicator was built from the DOCUMENT: every selected
+object flattened, clipped to the window, clipped again for the edge spans,
+split on joins and mapped to screen, on every zoom step — 187 ms to compute and
+200 ms to hand to the DOM at the report's camera — and most of it then fell
+past the 24,000 px ant budget into F38's solid fallback.
+
+**First cut, withdrawn the same afternoon.** Objects under 8 px on screen were
+stamped into a screen grid whose outline was traced once, and the budget was
+spent largest-first with the rest joining the grid. Fast (a zoom step went
+from 237 to 25 ms), but Kobin's three screenshots showed why it was the wrong
+shape: pieces inside a grouped chunk were still outlined on their own, a tile
+piece past the budget became a box around its tile, and the per-ring polygon
+clip that replaced the arc clipper read a hole inside out and ran border ants
+the full height of the left edge. *"I'm not convinced the chunking is even
+required at that level."*
+
+**What ships.** Four things, each answering a question Kobin asked.
+
+1. *"A core design principle is we never reference the original object."*
+   The ants come from the RENDER LIST — the tile pieces already on screen —
+   never from the document. Every piece now carries the rectangle that cut it
+   (`piece.clip`), so a straight piece lying on it is a seam and gets no ants;
+   the attach windows of a re-homed family are the same test, which is F37's
+   join rule without the join notes.
+2. *"I don't think we need to flatten anything."* Nothing in the overlay
+   flattens. Arcs go to the browser as the cubics the ink goes as, lengths are
+   analytic, the runs are cut to the retained window piece by piece (a cut of
+   the boundary, no boolean), and where the ink meets the side of the screen
+   is a winding scan of the boundary against that side's line
+   (`geometry/antRuns.js`). The old edge-span defect cannot recur: holes are
+   winding, not polygons.
+3. *"How often are decisions made during zooming?"* Once per render list,
+   selection, document revision, frame, origin, quarter-octave of zoom, or
+   pan past the retained window. Between decisions a step is three numbers of
+   a CSS transform on the layer, applied by the compositor. A step's
+   JavaScript is under a millisecond.
+4. *"Sub-pixel objects should be cheap: just trace the frame."* A frame whose
+   selected content spans less than 2 px on screen is one dot at that content,
+   and none of its members is visited — the selection table carries each
+   frame's box, computed once per selection. The first version drew a ring
+   around anything under 24 px, which boxed a lone 15 px stroke and a tile
+   piece on its own; Kobin: *"change the frame-mark rule to only be objects
+   <5px"*, and after trying 5 on the phone, *"I didn't like 5. Can we do
+   2 px"*. A piece of a re-homed family never counts toward its frame's mark.
+
+And two things measurement forced. The ants live in their own `<svg>` with
+`will-change: transform`: in the drawing's `<svg>`, every frame of the crawl
+re-rasterised the 5,343 objects under them (50 ms a frame; 16.7 with the layer
+split, the ants themselves not measurable). And the crawl is STEPPED, sixteen
+steps a cycle: the repaint of a full budget of dashed ants costs about a frame
+here whatever the batching — 566 short runs in one path, one path each, or
+eight per path came to the same 33 ms — so it lands on one frame in three
+instead of every frame. Marching ants have always marched.
+
+**The budget is gone.** With it, 24,000 px of ants covered about 700 of the
+3,726 selected pieces on screen and the rest had none — Kobin, on seeing it:
+*"it looks like a lot of the items are not properly selected"*, then *"take
+off the budget"*. Every selected piece on screen now gets its ants, and what
+that costs is the repaint of their length: 0.8 µs a pixel on this desktop,
+measured on a canvas and again on the layer. The table below has the
+consequence at two cameras; it is the phone's to feel, and the levers that
+remain — a slower march on a big selection, static dashes past a size, a
+WebGL layer — are in the roadmap. Two more things from the same message:
+the lasso now asks "fully bounded" of a whole re-homed family (a loop around
+a ceded tile alone selects nothing; it used to take the parent with it), and
+the ants ride along with a drag — the decision made on the drag's first event
+is translated by the pointer's travel, and the loops are cached against the
+geometry they came from rather than on the piece, which for a native is the
+document's own object and is rewritten in place by a move.
+
+Measured in Kobin's Chrome (1504×812, dpr 1.5), report 16-33-20 at its camera,
+all 5,526 objects selected, 5,343 rendered:
+
+| | this morning | now |
+|---|---|---|
+| frame while the ants crawl, camera still, with the old 24,000 px budget | 50 ms | 16.7 ms median (the stepped repaint lands one frame in three) |
+| the same with the budget off: 4,756 runs, 72,554 px at the report camera | — | 50 ms median, 100 p90 |
+| the same at 4× in on the scribble: 5,029 runs, 275,820 px | — | 200 ms median |
+| a decision with the budget off | — | 109 ms (117 at 4× in), plus 19 ms of DOM for 1,966 paths |
+| overlay JavaScript per zoom step | 17 ms | 0.8 ms |
+| a decision (once per render, quarter octave, or half-screen pan) | — | 26–47 ms |
+| a pinch, zoom steps issued every frame, frames per step | not measured | 50 ms with the selection up, 50 ms without: the drawing's own repaint, the overlay adds nothing measurable (the crawl freezes while the camera moves) |
+| a pan the same way | — | 33 ms with the selection, 33 without |
+| ants on screen at the report camera | 105 paths, 13,600 px | every selected piece: 4,756 runs, 72,554 px |
+
+The phone is Kobin's to feel. What is left in a zoom step is the drawing's
+own repaint, which the overlay no longer adds to.
+
+<a id="f38"></a>
+### F38 — CLOSED. Some selected objects had no ants, or partial ones, after zooming in.
+
+Kobin, 2026-09-03: *"I selected a whole bunch of objects then zoomed in. Some
+of the objects weren't showing their ants, or they weren't showing correctly.
+It was fairly reproducible, but it didn't happen every single time."* Report
+`16-04-54`; and, from the same message, *"zooming when small, dense scenes are
+selected still seems to be the issue, performance wise ... if a sub-pixel frame
+is in the lasso, that's just one dot, no matter what its children are."*
+
+**The ants had a hard budget.** `SEL_ANT_BUDGET_PX` caps the total dashed
+length at 24,000 px so the 2026-08-22 stall (350,958 dashes on one rectangle)
+cannot come back. It was a stop: members after it got nothing, and the one it
+ran out on got part of a ring. In the in-app browser at the report's camera,
+the selection Kobin made puts sixteen objects on screen and their outlines
+total exactly the budget, so whoever came last had no indicator — and which
+one that was depended on the zoom, hence "not every time". Past the budget the
+boundary was emitted into `plain` and the renderer stroked it solid, thin,
+unanimated, so that every selected object on screen kept an outline.
+**Withdrawn the same day by F39:** on a dense selection that fallback was most
+of what was on screen, and a solid outline "does not look like it's selected".
+The answer to the budget is now grouping, not a second stroke style.
+
+**The overlay visited every member.** 5,466 selected, most of them specks four
+levels down: 30 ms a render to find that none was on screen, on every zoom
+step. Kobin's rule is now the code's: a frame whose whole reach (3W) is under a
+pixel on screen is one speck at its origin, decided per frame before the members
+are gathered, so its members cost one map lookup each and no tag, family or join.
+
+Measured in the in-app browser, the 16-04-54 drawing, 5,466 selected:
+
+| | before | after |
+|---|---|---|
+| overlay at the report camera (16 objects on screen) | 109 ms, 38 ant runs, 24,001 px, then nothing | 82 ms, 38 ant runs + 17 plain runs (4,816 px) |
+| overlay with none of them on screen | 33 ms | 3.5 ms |
+| one zoom step, none on screen | 33 ms | 6 ms |
+| the 5,429-object speck centred, one zoom step | — | 14 ms, 3 dots |
+
+What was left was the tracing of the objects actually on screen — 82 ms for
+sixteen big shapes, clipped to the view on every render — and the plain
+fallback itself, which the next report showed to be the wrong answer for a
+dense selection. Both are F39.
+
+<a id="f37"></a>
+### F37 — CLOSED. A ceded tile wore ants on all four sides.
+
+Kobin, 2026-09-03: *"I sent a report where what must be the tile is showing as
+selected, even though it should only select the parent object."* Report
+`14-14-25`, family 213: piece 227 under `0/-81,-156/...`, cut from piece 225 in
+`0/-82,-156` — the cell next door.
+
+`_familyJoinNotes` looked for the piece a kid was cut from in the kid's PARENT
+FRAME only. An object reaches into the neighbouring cell (invariant 2), a tile
+ceded out there is addressed under the cell it sits in, and so its source lives
+in a sibling of that cell's parent. No source found, no join recorded, and the
+whole tile edge counted as free ink edge for the ants. Now every member one
+level up is a candidate; the attach rect is mapped into that member's own frame
+and the arc overlap decides, so a wrong candidate simply records nothing.
+
+Measured in the in-app browser with the family selected at the report's camera:
+before, two five-point rings — a 214 px square, one level-2 cell at that zoom;
+after, no rings and a join recorded for every pair (225-223, 227-225, 228-227).
+The erase-debug overlay shares the function, so its green joins are right too.
+
 <a id="f29"></a>
 ### F29 — a piece fades out of existence while zooming out (OPEN)
 
@@ -414,7 +686,8 @@ moved the object with those little objects together. Now the object is not in th
 corner."*
 
 No capture, no reproduction. What follows is read off `_dragSelection`
-(KobinEngine.js:3028) rather than observed, and is where to look first.
+(`engine/selection.js` since the 2026-08-31 split) rather than observed, and is
+where to look first.
 
 **A mixed-depth selection is moved by TWO DIFFERENT CODE PATHS in the same drag.**
 The branch is chosen per object, by comparing that object's depth to the camera's:
@@ -472,7 +745,9 @@ so a reported state can be looked at instead of only described. This applies to
 EVERY report ever captured, not just these.
 
 Snapshots (~2 MB each) are in `.kobin-reports/f35/`, out of the repo tree;
-the renders and a comparison page are in `public/__f35/` (gitignored).
+the renders and a comparison page are beside them in `.kobin-reports/f35/renders/`
+(they sat in `public/__f35/` until 2026-09-02, where every build was copying them
+into `build/`; `f35.render.test.js` writes there now).
 
 What the numbers say so far. The three objects are 49 (extent 3.09 x 4.17 in its
 own frame, depth 4) and 47/48, which sit two levels deeper. Expressing 47's
@@ -495,6 +770,12 @@ Two things fall out of that, neither yet explained:
    not move at all. That is 4.6% of 49's own width, and it happened during
    undo/redo. Whatever else is wrong, an undo round-trip is not restoring the
    position exactly.
+
+   **Kobin, 2026-09-02: the defect is in the MOVE path; undo/redo is only how it
+   was observed here.** An undo replays the move's own inverse
+   (`Document._undoMove` restores the geometry the drag started from), so a
+   move that is not exact shows up exactly like this. Read the drift as the
+   move's. There is no separate undo flag.
 2. **The frame chain is rewritten between `18-50-01` and `18-51-20`.** The 4th
    segment goes `-107,-369` -> `-107,-370` — one cell — and the 5th changes
    completely, `-287,-1714` -> `1364,1550`. The relative offset survives that,
@@ -518,7 +799,7 @@ Report `18-16-24`, erase gesture **e66**, 16 px eraser (`lwFrame` 26.6) at level
 2 in frame `0/-47,179/-1479,824`. The gesture worked in every other respect: it
 ceded object 27 down two links and cut objects 47 and 48 in place. What failed is
 the boolean on the LAST link of the cede — `subtractShape(local, clipLocal)` in
-`_bakeRehome`, KobinEngine.js:2600:
+`_bakeRehome` (`engine/erasePipeline.js` since the 2026-08-31 split):
 
 ```
 lastSeal: { id: 68, open: 353, area: 16380743543.8 }
@@ -881,6 +1162,62 @@ worth 11.2 s of its 20.9 s.
 (The 681,970 ms and 103,452 ms entries in `frames.worst` are almost certainly the
 phone backgrounding the tab — `hiddenSkipped: 0`, so the meter did not exclude
 hidden time. Do not read those as freezes.)
+
+#### REWORKED, 2026-09-02 — IndexedDB, per frame, incremental. AWAITING KOBIN'S TEST
+
+Kobin: *"go ahead and do your autosave recommendations. Also make any changes if
+needed to make sure data isn't being leaked for users."*
+
+**What changed.** The document lives in IndexedDB (`storage/db.js`): one header
+record per canvas (meta, camera, the frame lattice, the list of frame ids) and
+one record per frame holding that frame's natives, as structured data. Nothing is
+stringified and nothing is compressed on the way in. A save serializes only the
+frames the document's own events named — every `Document` event carries its
+frame — and writes them with the header in one transaction, so a torn write
+cannot leave a header pointing at frames that are not there. An incremental
+write with no base record is refused and retried as a full one. The saver waits
+1.5 s behind the last change, never longer than 8 s from the first unsaved one,
+and flushes on tab hide, pagehide and unmount. A pan or zoom with no edit is
+written once it has stopped moving, for canvases that already exist on disk. A
+new canvas nobody drew on is never written. Undo and redo mark everything dirty
+(one silent re-key step inside an erase was not worth a new event). A failed
+write backs off 8 s -> 256 s, keeps its frames in the dirty set, and shows the
+bar. `LOCAL_AUTOSAVE = true`; the standing notice is gone, the failure notice
+stays.
+
+**The cloud path** keeps its format, chunking and parent-last order. The
+compression now runs in a Web Worker (`cloud/lzWorker.js`, `public/lz-worker.js`)
+with a main-thread fallback, and both the Save button's push and the 30 s sync
+are in the perf log as `cloudSave` with `jsonMs / packMs / putMs`. They were not
+timed before; on a big drawing they cost the same as the local save did.
+
+**Leaks closed.** Forced saves on unload wrote an empty document for every new
+canvas visited and left; nothing wrote them now. The gallery runs a sweep on
+load: unindexed documents with ink are adopted as drafts, empty ones deleted;
+frame records without a header go; backups older than a week go; thumbnails for
+canvases that exist nowhere go, and the rest sit under a 12 MB LRU budget as
+JPEG bytes (the old data URLs in UTF-16 were 2.7x the image); trash payloads
+whose index row is gone go. The one-time migration moves every `kobin.canvas.*`,
+`kobin.trash.*` and `kobin.thumb.*` key into the database and deletes it, along
+with the `.bak` copies, `boundlessDrawing:*` (the deleted CanvasV2 page's) and
+`kobinSnapshot`. `kobinAutosave` is left alone. The gallery shows "Using N MB of
+browser storage" from `navigator.storage.estimate()` and asks once for
+persistent storage.
+
+**Measured, 2026-09-02, in the in-app browser (Chromium, an 800x450 pane).**
+The migration moved two documents and two thumbnails and left localStorage with
+the index, two flags and the legacy key. A new canvas left idle 6.5 s wrote
+nothing. Two strokes: one full write, `serMs 0.7, putMs 1.0`, 1.7 ms. A third
+stroke: an incremental write of one frame, 1.9 ms. Ctrl+Z: a full write, 1.9 ms.
+A wheel zoom with no edit: a header-only write ten seconds later, 1.9 ms. Reload:
+both strokes and the zoom came back, and the reload itself wrote nothing. Leaving
+by Home offered the draft dialog as before.
+
+**NOT measured**, and the reason this stays open: the 16-million-character
+drawing on the phone. The done-when is unchanged — no `autosave` entry over 50 ms
+there. Also unexercised outside the unit tests: the quota-failure path, and a
+browser without IndexedDB (the saver then shows the failure bar on every attempt,
+which is the honest outcome).
 
 <a id="f27"></a>
 ### F27 — CLOSED. "Some erasures would never bake."
@@ -2292,7 +2629,9 @@ downward bias of up to 1e-6. Neither matters at current magnitudes — F-Z's
 
 ### Harnesses
 
-`public/hairline/` — `index.html` (stroke vs filled sliver vs filled cubic loop,
+`tools/harnesses/hairline/` (was `public/hairline/` until 2026-09-02, when
+everything that was not the app left `public/`) — `index.html` (stroke vs filled
+sliver vs filled cubic loop,
 canvas-measured; useful only as the negative control that shows canvas cannot see
 the bug) and `chrome.html` / `chrome2.html` / `chrome3.html` (live-DOM grids for
 screenshotting in real Chrome).

@@ -129,11 +129,27 @@ export default class Document {
         this._subs = new Set();
         this._index = {};                // level -> LevelIndex
         this._pending = new Set();       // live strokes: in natives, not yet indexed
+        // id -> object, kept in step by add / insertAt / removeById / _replace.
+        // `getById` was a scan of every frame's array, and `editGroup` a scan
+        // of every object: on Kobin's 2026-09-03 drawing (5,526 natives, a
+        // loop that took 5,429 of them at once) the selection overlay called
+        // them once per selected object and cost 600 ms per render — every
+        // zoom with the selection up paid it.
+        this._byId = new Map();
+        // editKey -> [{obj, level}], rebuilt lazily after any change (every
+        // change goes through _emit) and after a re-key, which does not.
+        this._groups = null;
+        // Bumped on every change, so anything derived from the document can
+        // tell whether it is still current without subscribing. The selection
+        // indicator keys its member table on it.
+        this.rev = 0;
     }
 
     // ---- events ----
     subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); }
-    _emit(ev) { for (const fn of this._subs) fn(ev); }
+    _emit(ev) { this._groups = null; this.rev++; for (const fn of this._subs) fn(ev); }
+    /** An editId changed on an object already in the document. */
+    keysChanged() { this._groups = null; this.rev++; }
 
     // ---- ids ----
     allocId() { return this._nextId++; }
@@ -174,6 +190,7 @@ export default class Document {
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
         o._home = k;
+        this._byId.set(o.id, o);
         if (live) this._pending.add(o);
         else this._idx(k).add(o);
         this._emit({ kind: "add", id: o.id, level: k, obj: o, live });
@@ -187,15 +204,12 @@ export default class Document {
         this._emit({ kind: "finalize", id: o.id, level: o._home, obj: o });
     }
 
-    // Find a native by id (same scan removeById does, without the splice).
-    // `level` in the returned record is the FRAME id (string) the object homes in.
+    // Find a native by id. `level` in the returned record is the FRAME id
+    // (string) the object homes in — `_home`, which every path that places an
+    // object sets.
     getById(id) {
-        for (const Ls of Object.keys(this.nativesByLevel)) {
-            const arr = this.nativesByLevel[Ls];
-            const o = arr && arr.find((x) => x.id === id);
-            if (o) return { obj: o, level: Ls };
-        }
-        return null;
+        const o = this._byId.get(id);
+        return o ? { obj: o, level: o._home } : null;
     }
 
     // Re-homed boundary patches share one logical editing identity even though
@@ -206,30 +220,38 @@ export default class Document {
         const rec = typeof idOrObj === "object" ? { obj: idOrObj } : this.getById(idOrObj);
         const key = rec ? this.editKey(rec.obj) : idOrObj;
         if (key == null) return [];
-        const out = [];
-        for (const level of Object.keys(this.nativesByLevel)) {
-            for (const obj of this.nativesByLevel[level] || []) {
-                if (this.editKey(obj) === key) out.push({ obj, level });
+        if (!this._groups) {
+            const g = new Map();
+            for (const level of Object.keys(this.nativesByLevel)) {
+                for (const obj of this.nativesByLevel[level] || []) {
+                    const k = this.editKey(obj);
+                    let a = g.get(k);
+                    if (!a) { a = []; g.set(k, a); }
+                    a.push({ obj, level });
+                }
             }
+            this._groups = g;
         }
-        return out;
+        const a = this._groups.get(key);
+        return a ? a.slice() : [];
     }
 
     // Remove a native by id from whichever frame holds it (derived copies carry
     // the source id, so this is "erase everywhere").
     removeById(id) {
-        for (const Ls of Object.keys(this.nativesByLevel)) {
-            const arr = this.nativesByLevel[Ls];
-            const i = arr ? arr.findIndex((o) => o.id === id) : -1;
-            if (i < 0) continue;
-            const [obj] = arr.splice(i, 1);
-            this._pending.delete(obj);
-            this._idx(Ls).remove(obj);
-            this._forgetIfEmpty(Ls);
-            this._emit({ kind: "remove", id, level: Ls, obj });
-            return { obj, level: Ls, index: i };
-        }
-        return null;
+        const obj = this._byId.get(id);
+        if (!obj) return null;
+        const Ls = obj._home;
+        const arr = this.nativesByLevel[Ls];
+        const i = arr ? arr.indexOf(obj) : -1;
+        if (i < 0) return null;
+        arr.splice(i, 1);
+        this._byId.delete(id);
+        this._pending.delete(obj);
+        this._idx(Ls).remove(obj);
+        this._forgetIfEmpty(Ls);
+        this._emit({ kind: "remove", id, level: Ls, obj });
+        return { obj, level: Ls, index: i };
     }
     // Re-insert at a remembered position (undo of an erase). Position only
     // affects the array; z-order is by id, which the object kept.
@@ -239,6 +261,7 @@ export default class Document {
         const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
         obj._home = k;
+        this._byId.set(obj.id, obj);
         this._idx(k).add(obj);
         this._emit({ kind: "add", id: obj.id, level: k, obj });
     }
@@ -674,6 +697,7 @@ export default class Document {
                             const o = this.getById(r.id);
                             if (o) Object.assign(o.obj, r.before);
                         }
+                        this.keysChanged();
                         continue;
                     }
                     let took = st.pieces.length === 0; // whole-removal bake: nothing to take out
@@ -700,6 +724,7 @@ export default class Document {
                             const o = this.getById(r.id);
                             if (o) Object.assign(o.obj, r.after);
                         }
+                        this.keysChanged();
                         continue;
                     }
                     const r = this.removeById(st.removed.obj.id);
@@ -733,8 +758,9 @@ export default class Document {
         this.nativesByLevel = natives;
         this._index = {};
         this._pending = new Set();
+        this._byId = new Map();
         for (const Ls of Object.keys(natives)) {
-            for (const o of natives[Ls] || []) { o._home = Ls; this._idx(Ls).add(o); }
+            for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._idx(Ls).add(o); }
         }
         this._emit({ kind: "reset" });
     }
@@ -744,9 +770,17 @@ export default class Document {
     // never leak into a file. `z` is written only when it differs from the id
     // (cut pieces inheriting their source's depth) — dev-0 snapshots round-trip
     // byte-identical.
-    serializeNatives() {
+    //
+    // `only`: a list of frame ids to serialize, or null for every frame. The
+    // autosave writes one record per frame and knows which frames changed
+    // (every event this class emits carries its frame), so it asks for those
+    // alone rather than walking a drawing that is mostly untouched.
+    serializeNatives(only = null) {
         const natives = {};
-        for (const l of Object.keys(this.nativesByLevel)) {
+        const keys = only == null
+            ? Object.keys(this.nativesByLevel)
+            : only.map(String).filter((l) => this.nativesByLevel[l]);
+        for (const l of keys) {
             natives[l] = (this.nativesByLevel[l] || []).map((o) => {
                 let rec;
                 if (o.type === "shape") {

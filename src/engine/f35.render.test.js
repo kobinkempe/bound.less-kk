@@ -20,10 +20,17 @@ useEngines();
 // Snapshots live outside the repo tree — they are ~2 MB each. The rendered
 // SVGs are small enough to keep beside the page that compares them.
 const DIR = path.join(__dirname, "..", "..", ".kobin-reports", "f35");
-const OUT = process.env.F35_OUT || path.join(__dirname, "..", "..", "public", "__f35");
+// Beside the snapshots, NOT under public/: CRA copies public/ into build/
+// verbatim and a deploy publishes build/, so the renders were shipping.
+const OUT = process.env.F35_OUT || path.join(DIR, "renders");
 const SHOTS = ["18-46-45-626", "18-49-23-450", "18-49-30-072", "18-50-01-308", "18-51-20-099"];
+// Gitignored recordings: a fresh clone skips this, and KOBIN_REQUIRE_REPORTS=1
+// makes a missing snapshot fail loudly instead.
+const have = SHOTS.every((n) => fs.existsSync(path.join(DIR, n + ".json")));
+const testIf = have || process.env.KOBIN_REQUIRE_REPORTS ? test : test.skip;
 
-test("every captured report renders", () => {
+testIf("every captured report renders", () => {
+    fs.mkdirSync(OUT, { recursive: true });
     const summary = [];
     for (const name of SHOTS) {
         const snap = JSON.parse(fs.readFileSync(path.join(DIR, name + ".json"), "utf8"));

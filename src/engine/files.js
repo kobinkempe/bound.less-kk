@@ -46,10 +46,16 @@ class Files {
     // kobin-1 file OR a legacy dev-0 snapshot and THROWS a readable Error on
     // anything malformed (callers surface it; nothing is half-loaded because
     // decode fully validates before any state is touched).
-    serializeDrawing(meta = {}) {
+    //
+    // `frames`: null for the whole drawing (a file, the cloud, an explicit
+    // Save); a list of frame ids for the autosave's incremental write, which
+    // stores the envelope and only the frames that changed; [] for the
+    // envelope alone. The document is the same shape in every case, so
+    // nothing downstream has to know which it got.
+    serializeDrawing(meta = {}, { frames = null } = {}) {
         const doc = encodeDrawing({
             camera: this.cam.state(), crossings: this.lm.serialize(),
-            natives: this.doc.serializeNatives(),
+            natives: this.doc.serializeNatives(frames),
             meta: { ...this.docMeta, ...meta },
         });
         this.docMeta = {

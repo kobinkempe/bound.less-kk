@@ -21,7 +21,7 @@ you have read anything.
 - Live issue list: `docs/OPEN-FLAGS.md` — authoritative, edited in place.
 - Status snapshot: `docs/ai/10-STATUS.txt`
 - Architecture / code map / call flow: `docs/ai/20-`, `30-`, `40-`
-- Backlog and proposals: `docs/ai/50-`, `60-`, `70-`
+- The plan and the backlog, everything still to do that is not a bug: `docs/ROADMAP.md`
 - How to keep the docs true: `docs/ai/90-MAINTENANCE.txt`
 - Design bibles and decision history: `docs/reference/`. Read the frame-lattice
   bible's **section 10 first** — it records where building it changed the

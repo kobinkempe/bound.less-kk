@@ -38,6 +38,11 @@ const zoo = () => [
     mkStroke(7, [[9e9, 9e9], [9e9 + 1, 9e9]], 1),                            // far off-tile
 ];
 
+// Production pieces carry the rectangle that cut them (`clip`, read by the
+// selection indicator's seam test, F39). The oracle's do not, and the golden
+// compare is about the geometry, so the field is dropped before comparing.
+const stripClip = (list) => list.map((piece) => { const { clip, ...rest } = piece; return rest; });
+
 describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
     // Run both sides on independently CLONED inputs (the object-attached caches
     // must not leak between sides) across the branch-relevant levels.
@@ -53,7 +58,7 @@ describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
             childCurved: level < E.cfg.lineModeLevel,
             seams: LEGACY_SEAMS, // replay V0's seam rule; production's is corrected (see seams.test.js)
         }, []);
-        expect(newOut).toEqual(oldOut);
+        expect(stripClip(newOut)).toEqual(oldOut);
         expect(newOut.length).toBeGreaterThan(0); // the zoo must actually exercise the bake
     });
 
@@ -68,7 +73,7 @@ describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
             cfg: E.cfg, width: E.width, opacityGroups: false, live: null,
             parentCurved: true, childCurved: true, seams: LEGACY_SEAMS,
         }, []);
-        expect(newOut).toEqual(oldOut);
+        expect(stripClip(newOut)).toEqual(oldOut);
     });
 });
 

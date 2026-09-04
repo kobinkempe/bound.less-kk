@@ -30,6 +30,85 @@ function segsCross(a, b, c, d) {
 }
 
 /**
+ * The loop, prepared to answer "is this ring wholly inside?" many times.
+ *
+ * A closed ring lies wholly on one side of the loop unless some loop edge
+ * crosses some ring segment, so one vertex inside plus no crossing is the
+ * whole test — the same argument `rectInsidePolygon` makes for a box. The
+ * crossing test is the cost: a hand-drawn loop is a few hundred edges and a
+ * flattened scribble a few thousand segments, and asking every pair was
+ * 30 ms an object on Kobin's 2026-09-03 drawing. So the edges are bucketed
+ * once into a grid over the loop's box, and each ring segment (short, by
+ * construction of the flatten) asks only the cells it touches.
+ */
+export function loopTester(poly) {
+    const n = poly ? poly.length : 0;
+    if (n < 3) return { inside: () => false, ringInside: () => false };
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const p of poly) {
+        if (p[0] < l) l = p[0];
+        if (p[0] > r) r = p[0];
+        if (p[1] < t) t = p[1];
+        if (p[1] > b) b = p[1];
+    }
+    const G = 32;
+    const w = Math.max(r - l, 1e-9), h = Math.max(b - t, 1e-9);
+    const cx = (x) => Math.min(G - 1, Math.max(0, Math.floor(((x - l) / w) * G)));
+    const cy = (y) => Math.min(G - 1, Math.max(0, Math.floor(((y - t) / h) * G)));
+    const cells = new Array(G * G);
+    for (let i = 0; i < n; i++) {
+        const a = poly[i], c = poly[(i + 1) % n];
+        const x0 = cx(Math.min(a[0], c[0])), x1 = cx(Math.max(a[0], c[0]));
+        const y0 = cy(Math.min(a[1], c[1])), y1 = cy(Math.max(a[1], c[1]));
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            const k = y * G + x;
+            (cells[k] || (cells[k] = [])).push(i);
+        }
+    }
+    const stamp = new Int32Array(n);
+    let tick = 0;
+    const segmentCrosses = (p, q) => {
+        // Outside the loop's box entirely: no edge can be there.
+        if (Math.max(p[0], q[0]) < l || Math.min(p[0], q[0]) > r ||
+            Math.max(p[1], q[1]) < t || Math.min(p[1], q[1]) > b) return false;
+        tick++;
+        const x0 = cx(Math.min(p[0], q[0])), x1 = cx(Math.max(p[0], q[0]));
+        const y0 = cy(Math.min(p[1], q[1])), y1 = cy(Math.max(p[1], q[1]));
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            const list = cells[y * G + x];
+            if (!list) continue;
+            for (const i of list) {
+                if (stamp[i] === tick) continue;
+                stamp[i] = tick;
+                if (segsCross(poly[i], poly[(i + 1) % n], p, q)) return true;
+            }
+        }
+        return false;
+    };
+    return {
+        inside: (p) => pointInPolygon(poly, p),
+        ringInside: (ring) => {
+            const m = ring ? ring.length : 0;
+            if (m < 1) return false;
+            if (!pointInPolygon(poly, ring[0])) return false;
+            for (let k = 0; k < m; k++) {
+                if (segmentCrosses(ring[k], ring[(k + 1) % m])) return false;
+            }
+            return true;
+        },
+    };
+}
+
+/**
+ * Is the polyline (an ink outline ring) entirely inside the closed polygon?
+ * `loopTester(poly).ringInside(ring)`, for one ring; build the tester once when
+ * asking about many.
+ */
+export function polylineInsidePolygon(poly, ring) {
+    return loopTester(poly).ringInside(ring);
+}
+
+/**
  * Is the axis-aligned rect entirely inside the closed polygon?
  *
  * Exact, and deliberately not just a corner test: for a concave loop all four

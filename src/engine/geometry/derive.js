@@ -552,12 +552,15 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             const objRect = padRect(tileClipRect(phase, cells), pad);
             const chopped = chopFreezeLoops(moved, phase, ftol, cells);
             const { loops: kept, rings, covered } = shapeLoopsInRect(chopped, objRect);
+            // `clip` is the rectangle the piece was cut on. The selection
+            // indicator reads it to tell a cut from an edge (F39): a straight
+            // piece lying along it is a seam, and the ants skip it.
             if (kept.length) {
                 tag({ type: "shape", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, loops: kept, paths: [], tile: phase });
+                    opacity: o.opacity, loops: kept, paths: [], tile: phase, clip: objRect });
             } else if (rings.length) {
                 const piece = { type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, polys: rings, paths: [] };
+                    opacity: o.opacity, polys: rings, paths: [], clip: objRect };
                 if (covered) piece.covers = true;
                 tag(piece);
             }
@@ -567,7 +570,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // giant/deep geometry by whole frame-units.
             const tp = clipRingsToRect(
                 o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base])), crect);
-            if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [] });
+            if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [], clip: crect });
         } else {
             const lw = o.lwFrame * (s / base);
             const tpts = o.pts.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base]);
@@ -607,7 +610,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                     legacyOffset: cfg.fatWidthPx == null,
                     decimate: opts.decimate,
                 });
-                if (polys.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys, paths: [] });
+                if (polys.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys, paths: [], clip: crect });
             } else {
                 // Small stroke: stays a stroke. If the child renders straight but the
                 // parent displayed a spline, hand the child the flattened spline.

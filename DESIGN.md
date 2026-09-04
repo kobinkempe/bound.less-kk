@@ -280,12 +280,17 @@ Five things in it are load-bearing and none is obvious:
 - **Scene retention.** Each level keeps its own SVG subtree; a crossing detaches
   one and attaches another instead of rebuilding ~50 paths and their giant `d`
   strings. Crossings cost 1–3 s each before this.
-- **The selection indicator is raw SVG, not Two.js.** The animation is CSS, so
-  the dash offset crawls on the compositor without touching the main thread. The
-  bounding box it replaced was computed in the active frame's coordinates and
-  projected to 877,395 px; its dashed perimeter cost 315 ms a frame while
-  reporting 0.15 ms of JavaScript, because dashing is rasteriser work no profiler
-  could name.
+- **The selection indicator is raw SVG in layers of its own, not Two.js.** It
+  is built from the pieces the renderer is drawing — never from the document —
+  on arcs, nothing flattened, with the tile cuts skipped by the rectangle that
+  made them; decided once per render and moved between camera steps by a CSS
+  transform the compositor applies. It has its own `<svg>` because in the
+  drawing's, every frame of the crawl re-rasterised the drawing (measured
+  2026-09-03: 50 ms a frame, 16.7 once split). The crawl is stepped, because the
+  repaint of a screenful of dashed ants costs about a frame whatever the
+  batching, and dashing is rasteriser work no profiler could name — the
+  bounding box this all replaced projected to 877,395 px and cost 315 ms a frame
+  behind 0.15 ms of JavaScript. `engine/overlays.js` carries the argument.
 
 ### How content from other levels arrives
 
@@ -313,6 +318,14 @@ whole subtree), *enclosed* (take everything below, no per-object test at all), o
 because that is the only direction in which the scale factor stays a number.
 Measured on a six-level tower of twelve objects: a loop round the whole canvas
 tests **2** of them.
+
+**The indicator shows what is drawn.** Ants run along the render list's pieces,
+so a magnified shape that the browser could not hold as arcs is shown from the
+tile pieces that hold it, and a frame whose selected content is under 2 px on
+screen is one dot with none of its members visited — the frame's box bounds
+them all, by invariant 2. There is no budget: every selected piece on screen is
+outlined, and what a full selection costs is the repaint of its length, which
+the roadmap holds.
 
 ---
 
@@ -361,8 +374,14 @@ exists to avoid.
 engine state including the crossing records, carried by the diagnostic report so
 a bug can be replayed exactly as it was seen. Not the save format.
 
-**Local storage**: one slot per canvas (`kobin.canvas.<id>`), lz-string
-compressed, plus an index for the gallery and a 30-day recycle bin.
+**Local storage**: IndexedDB (`src/storage/db.js`), one header record per canvas
+and one record per frame, written incrementally from the document's own change
+events — every event carries its frame id — with no JSON text and no compression
+in between; thumbnails as JPEG bytes under an LRU budget; the recycle-bin
+payloads and the pre-pull backups in their own stores. Only the gallery index
+and the recycle-bin index remain in localStorage. Autosave waits 1.5 s behind
+the last change and flushes on tab hide. (Until 2026-09-02 it was one lz-string
+slot per canvas in localStorage, and that is what F33 is about.)
 **Cloud**: Firestore — a parent doc for metadata and thumbnails, the drawing
 chunked into 700 KiB binary parts beneath it, and the parent written **last**, so
 a torn save never looks complete.

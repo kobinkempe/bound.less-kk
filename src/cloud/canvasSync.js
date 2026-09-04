@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import LZString from "lz-string";
 import { getDb } from "./firebaseApp";
+import { compressToUint8Array, decompressFromUint8Array } from "./lzWorker";
 
 const BIN_CHUNK_BYTES = 700 * 1024; // compressed binary chunk per part doc
 const PARTS_PER_COMMIT = 6; // ≤ ~4.2 MiB per commit, under the 10 MiB cap
@@ -27,9 +28,7 @@ const partDoc = (uid, id, i) => doc(getDb(), "users", uid, "canvases", id, "part
 
 // ---- pure payload codec (unit-tested without Firestore) ----
 
-/** kobin-1 JSON string → { codec, chunks: Uint8Array[] } (≥ 1 chunk). */
-export function encodeCanvasPayload(json) {
-    const u8 = LZString.compressToUint8Array(json || "");
+function chunk(u8) {
     const chunks = [];
     for (let i = 0; i < u8.length; i += BIN_CHUNK_BYTES) {
         chunks.push(u8.subarray(i, i + BIN_CHUNK_BYTES));
@@ -38,20 +37,42 @@ export function encodeCanvasPayload(json) {
     return { codec: CANVAS_CODEC, chunks };
 }
 
+/** kobin-1 JSON string → { codec, chunks: Uint8Array[] } (≥ 1 chunk). Synchronous; the tests' form. */
+export function encodeCanvasPayload(json) {
+    return chunk(LZString.compressToUint8Array(json || ""));
+}
+
+/**
+ * The same, with the compression in a worker where there is one. The save
+ * path uses this: on the phone the compressor was 97% of a multi-second
+ * freeze (F33), and the 30 s background sync ran it on the main thread.
+ */
+export async function encodeCanvasPayloadAsync(json) {
+    return chunk(await compressToUint8Array(json || ""));
+}
+
 /**
  * Stored parts (Uint8Array for lz1, strings for legacy) → kobin-1 JSON string.
  * `codec` comes from the parent doc; absent/unknown means legacy plain strings.
  */
 export function decodeCanvasPayload(parts, codec) {
-    if (codec === CANVAS_CODEC) {
-        let total = 0;
-        for (const p of parts) total += p.length;
-        const u8 = new Uint8Array(total);
-        let off = 0;
-        for (const p of parts) { u8.set(p, off); off += p.length; }
-        return LZString.decompressFromUint8Array(u8) ?? "";
-    }
+    if (codec === CANVAS_CODEC) return LZString.decompressFromUint8Array(joinParts(parts)) ?? "";
     return parts.map((p) => (typeof p === "string" ? p : "")).join("");
+}
+
+/** The same, decompressing in the worker. Opening a big drawing paid the freeze too. */
+export async function decodeCanvasPayloadAsync(parts, codec) {
+    if (codec === CANVAS_CODEC) return decompressFromUint8Array(joinParts(parts));
+    return parts.map((p) => (typeof p === "string" ? p : "")).join("");
+}
+
+function joinParts(parts) {
+    let total = 0;
+    for (const p of parts) total += p.length;
+    const u8 = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) { u8.set(p, off); off += p.length; }
+    return u8;
 }
 
 // The parent doc caps at 1 MiB; thumbnails share it with the metadata, so cap
@@ -73,12 +94,19 @@ function boundedThumbs(thumbs) {
     return out;
 }
 
+const perfNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
 /**
  * entry: { id, name, savedAt, levels, strokes }; json: kobin-1 JSON string;
  * thumbs (optional): { sceneId: { hash, data } } — merged over the stored set.
+ * Resolves with timings for the perf log: { packMs, putMs, bytes, parts }.
  */
 export async function cloudSaveCanvas(uid, entry, json, thumbs = null) {
-    const { codec, chunks } = encodeCanvasPayload(json);
+    const t0 = perfNow();
+    const { codec, chunks } = await encodeCanvasPayloadAsync(json);
+    const tPack = perfNow();
+    let bytes = 0;
+    for (const c of chunks) bytes += c.length;
 
     const prev = await getDoc(canvasDoc(uid, entry.id));
     const prevParts = prev.exists() ? prev.data().parts || 0 : 0;
@@ -115,6 +143,7 @@ export async function cloudSaveCanvas(uid, entry, json, thumbs = null) {
     });
     for (let i = chunks.length; i < prevParts; i++) finalBatch.delete(partDoc(uid, entry.id, i));
     await finalBatch.commit();
+    return { packMs: +(tPack - t0).toFixed(1), putMs: +(perfNow() - tPack).toFixed(1), bytes, parts: chunks.length };
 }
 
 /**
@@ -155,7 +184,7 @@ export async function cloudLoadCanvas(uid, id) {
         return d && typeof d.toUint8Array === "function" ? d.toUint8Array() : d;
     });
     return {
-        json: decodeCanvasPayload(parts, meta.codec),
+        json: await decodeCanvasPayloadAsync(parts, meta.codec),
         thumbs: meta.thumbs || null,
         meta: { id, ...meta },
     };

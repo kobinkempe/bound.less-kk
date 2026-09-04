@@ -1,46 +1,41 @@
 /**
- * Local, per-browser canvas store.
+ * Local, per-browser canvas store — the public face of `db.js`.
  *
- * Each canvas gets its own autosave slot (`kobin.canvas.<id>`, kobin-1 JSON);
- * an index (`kobin.canvases`) makes explicitly saved canvases enumerable for
- * the gallery. Unsaved canvases still autosave to their slot (so reload never
- * loses work) but only indexed canvases are listed.
+ * Documents, thumbnails, recycle-bin payloads and pre-pull backups live in
+ * IndexedDB (see db.js for why, and for the per-frame shape). Three small
+ * things stay in localStorage because the shell reads them synchronously:
+ * the gallery index (`kobin.canvases`), the trash index (`kobin.trash`) and
+ * the device id. Everything that touches a document is async.
+ *
+ * An unsaved canvas still autosaves (so reload never loses work) but only
+ * INDEXED canvases are listed in the gallery; leaving the editor files a
+ * drawn-on scratch canvas as a draft, and `sweepStorage` adopts any the shell
+ * missed (a crash, a killed tab) rather than deleting them.
  *
  * The pre-multi-canvas app kept one drawing in `kobinAutosave`; on first
- * gallery visit that drawing is migrated into a slot + index entry. The legacy
- * key is left in place both as a safety net and because the /v2 dev harness
- * still reads it.
+ * gallery visit that drawing is migrated into a canvas + index entry. That
+ * legacy key is left in place as a safety net.
  */
 
-import LZString from "lz-string";
+import {
+    putCanvas, getCanvas, getCanvasHeader, listCanvasHeaders, patchCanvasHeader, deleteCanvas,
+    deleteOrphanFrames, putTrashDoc, getTrashDoc, deleteTrashDoc, listTrashIds,
+    putBackup, sweepBackups, putThumbs, getThumbs, deleteThumbs, sweepThumbs,
+    migrateLocalStorage, storageEstimate, requestPersistentStorage as requestPersist,
+    packSlot, unpackSlot,
+} from "./db";
+
+export { packSlot, unpackSlot };
 
 export const INDEX_KEY = "kobin.canvases";
-export const SLOT_PREFIX = "kobin.canvas.";
 export const LEGACY_AUTOSAVE_KEY = "kobinAutosave";
 const MIGRATED_FLAG = "kobin.canvases.migrated";
 
+// The old localStorage key shapes. Still exported for the one-time migration
+// and its tests; nothing writes them any more.
+export const SLOT_PREFIX = "kobin.canvas.";
 export const slotKey = (id) => SLOT_PREFIX + id;
-
-// ---- slot compression (lz-string UTF-16 — the dense form for localStorage) ----
-// Compressed slots stretch the ~5 MB localStorage quota several-fold, so big
-// drawings stop silently failing the 4s autosave. Legacy plain-JSON slots
-// (first char "{") keep loading forever.
-
-const SLOT_LZ_PREFIX = "lz1:";
-
-/** kobin-1 JSON string → stored slot value (compressed). */
-export function packSlot(json) {
-    return SLOT_LZ_PREFIX + LZString.compressToUTF16(json);
-}
-
-/** Stored slot value (compressed or legacy plain JSON) → JSON string. */
-export function unpackSlot(raw) {
-    if (raw == null) return null;
-    if (raw.startsWith(SLOT_LZ_PREFIX)) {
-        return LZString.decompressFromUTF16(raw.slice(SLOT_LZ_PREFIX.length));
-    }
-    return raw;
-}
+export const thumbKey = (canvasId, sceneId) => `kobin.thumb.${canvasId}.${sceneId}`;
 
 export function newCanvasId() {
     return (
@@ -63,6 +58,8 @@ export function getDeviceId() {
     }
 }
 
+// ---- the gallery index (localStorage, synchronous) ----
+
 export function readIndex() {
     try {
         const raw = localStorage.getItem(INDEX_KEY);
@@ -82,13 +79,12 @@ function writeIndex(list) {
     }
 }
 
-/** Stroke/level stats for gallery badges, from a kobin-1 (or dev-0) document. */
-export function statsFromDoc(doc) {
-    const natives = (doc && doc.natives) || {};
+/** Stroke/level stats for gallery badges, from a natives map (frame id -> objects). */
+export function statsFromNatives(natives) {
     let strokes = 0;
     let minLevel = Infinity;
     let maxLevel = -Infinity;
-    for (const [lvl, arr] of Object.entries(natives)) {
+    for (const [lvl, arr] of Object.entries(natives || {})) {
         if (!Array.isArray(arr) || arr.length === 0) continue;
         strokes += arr.length;
         const n = Number(lvl);
@@ -101,6 +97,11 @@ export function statsFromDoc(doc) {
     return { strokes, levels };
 }
 
+/** Same, from a kobin-1 (or dev-0) document. */
+export function statsFromDoc(doc) {
+    return statsFromNatives(doc && doc.natives);
+}
+
 export function upsertIndexEntry(entry) {
     const list = readIndex().filter((e) => e.id !== entry.id);
     list.unshift({ savedAt: new Date().toISOString(), ...entry });
@@ -108,41 +109,104 @@ export function upsertIndexEntry(entry) {
     return writeIndex(list);
 }
 
-export function removeCanvas(id) {
+// ---- documents ----
+
+const docName = (doc, fallback = "Untitled canvas") => {
+    const nm = doc && doc.meta && doc.meta.name;
+    return nm && nm !== "untitled" ? nm : fallback;
+};
+
+/**
+ * A kobin-1 document -> the { header, frames, frameIds } shape the store writes.
+ * `savedAt` comes from the document's own `meta.modifiedAt` when it has one,
+ * so a drawing moved in by the migration, or adopted by the sweep, keeps its
+ * real edit date instead of reading "Edited just now" (seen in Kobin's own
+ * gallery on 2026-09-03: two adopted drafts stamped with the migration time).
+ */
+export function docToRecord(doc) {
+    const { natives, ...header } = doc;
+    const frames = natives || {};
+    const modified = header.meta && header.meta.modifiedAt;
+    const savedAt = typeof modified === "string" && Number.isFinite(Date.parse(modified)) ? modified : undefined;
+    return {
+        header: { ...header, name: docName(doc), ...statsFromNatives(frames), ...(savedAt ? { savedAt } : {}) },
+        frames,
+        frameIds: Object.keys(frames),
+    };
+}
+
+/**
+ * Write a whole document. Returns true when stored, false when the store is
+ * missing or the write failed (quota, a closed database).
+ */
+export async function saveCanvasDoc(id, doc) {
+    try {
+        const ok = await putCanvas(id, { ...docToRecord(doc), full: true });
+        return ok === true;
+    } catch (err) {
+        return false;
+    }
+}
+
+/**
+ * The incremental write the editor's autosave uses. `header` is the envelope
+ * without natives, `frames` only the frames that changed, `frameIds` the full
+ * current set. Rejects on failure so the caller can tell quota from anything
+ * else; resolves false when there is no base record and `full` was not set.
+ */
+export function writeCanvas(id, { header, frames, frameIds, full }) {
+    return putCanvas(id, { header, frames, frameIds, full });
+}
+
+/** The stored kobin-1 document, or null. */
+export async function loadCanvasDoc(id) {
+    try { return await getCanvas(id); } catch (err) { return null; }
+}
+
+export async function hasCanvasDoc(id) {
+    try { return !!(await getCanvasHeader(id)); } catch (err) { return false; }
+}
+
+export async function removeCanvas(id) {
     writeIndex(readIndex().filter((e) => e.id !== id));
-    try { localStorage.removeItem(slotKey(id)); } catch (err) { /* ignore */ }
+    try { await deleteCanvas(id); } catch (err) { /* ignore */ }
+}
+
+/**
+ * Rename without opening the editor: freshens the index entry and the stored
+ * meta.name so the next cloud pull/save carries the new name.
+ */
+export async function renameCanvasLocal(id, name, savedAt = new Date().toISOString()) {
+    const entry = readIndex().find((e) => e.id === id);
+    if (entry) upsertIndexEntry({ ...entry, name, savedAt });
+    try {
+        await patchCanvasHeader(id, (h) => ({ ...h, name, meta: { ...(h.meta || {}), name } }));
+    } catch (err) { /* leave the stored copy untouched */ }
+}
+
+/**
+ * Keep a copy of the current document before a cloud pull overwrites it —
+ * belt-and-braces recovery for a bad merge decision. Backups expire after a
+ * week (`sweepStorage`); one per canvas, the newest wins.
+ */
+export async function backupCanvasDoc(id) {
+    try {
+        const doc = await getCanvas(id);
+        if (doc) await putBackup(id, doc);
+    } catch (err) { /* best-effort */ }
 }
 
 // ---- recycle bin ----
-// Deleting moves the index entry (+ slot, verbatim) into a trash index so it
-// can be restored; entries expire after 30 days. Scene thumbs stay under their
-// normal keys while trashed (restore gets covers back for free) and are only
-// removed when the trash entry expires.
+// Deleting moves the index entry into a trash index (localStorage) and the
+// document into the trash store, so it can be restored; entries expire after
+// 30 days. Scene thumbs stay under their normal keys while trashed (restore
+// gets covers back for free) and are only removed when the trash entry
+// expires or is purged.
 
 export const TRASH_INDEX_KEY = "kobin.trash";
-export const TRASH_SLOT_PREFIX = "kobin.trash.";
-const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-export const trashSlotKey = (id) => TRASH_SLOT_PREFIX + id;
-
-function writeTrash(list) {
-    try { localStorage.setItem(TRASH_INDEX_KEY, JSON.stringify(list)); } catch (err) { /* quota */ }
-}
-
-function removeThumbs(canvasId) {
-    const prefix = `kobin.thumb.${canvasId}.`;
-    try {
-        const doomed = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k.startsWith(prefix)) doomed.push(k);
-        }
-        doomed.forEach((k) => localStorage.removeItem(k));
-    } catch (err) { /* ignore */ }
-}
-
-/** Trash entries newest-deletion-first; expired ones are purged on read. */
-export function readTrash() {
+function readTrashIndex() {
     let list;
     try {
         const raw = localStorage.getItem(TRASH_INDEX_KEY);
@@ -151,37 +215,43 @@ export function readTrash() {
     } catch (err) {
         list = [];
     }
-    list = list.filter((e) => e && typeof e.id === "string");
+    return list.filter((e) => e && typeof e.id === "string");
+}
+
+function writeTrash(list) {
+    try { localStorage.setItem(TRASH_INDEX_KEY, JSON.stringify(list)); } catch (err) { /* quota */ }
+}
+
+/** Trash entries newest-deletion-first; expired ones are purged on read, payloads included. */
+export async function readTrash() {
+    const list = readTrashIndex();
     const now = Date.now();
-    const live = list.filter((e) => {
+    const live = [];
+    for (const e of list) {
         const t = Date.parse(e.deletedAt);
-        if (Number.isFinite(t) && now - t <= TRASH_TTL_MS) return true;
-        try { localStorage.removeItem(trashSlotKey(e.id)); } catch (err) { /* ignore */ }
-        removeThumbs(e.id);
-        return false;
-    });
+        if (Number.isFinite(t) && now - t <= TRASH_TTL_MS) { live.push(e); continue; }
+        try { await deleteTrashDoc(e.id); } catch (err) { /* ignore */ }
+        try { await deleteThumbs(e.id); } catch (err) { /* ignore */ }
+    }
     if (live.length !== list.length) writeTrash(live);
     live.sort((a, b) => String(b.deletedAt || "").localeCompare(String(a.deletedAt || "")));
     return live;
 }
 
 /**
- * Move a canvas (index entry + slot) to the trash. `fallbackEntry` covers
+ * Move a canvas (index entry + document) to the trash. `fallbackEntry` covers
  * canvases with no index entry (never-saved scratch, or cloud-only listings)
  * so the recycle bin still shows a row for them. Returns the trash entry.
  */
-export function trashCanvas(id, fallbackEntry = null) {
+export async function trashCanvas(id, fallbackEntry = null) {
     const entry = readIndex().find((e) => e.id === id) || fallbackEntry;
-    let raw = null;
-    try { raw = localStorage.getItem(slotKey(id)); } catch (err) { /* ignore */ }
+    let doc = null;
+    try { doc = await getCanvas(id); } catch (err) { /* ignore */ }
     writeIndex(readIndex().filter((e) => e.id !== id));
-    try {
-        localStorage.removeItem(slotKey(id));
-        localStorage.removeItem(slotKey(id) + ".bak");
-    } catch (err) { /* ignore */ }
-    if (!entry && !raw) return null;
-    if (raw) {
-        try { localStorage.setItem(trashSlotKey(id), raw); } catch (err) { raw = null; /* quota — entry still listed; cloud may hold the data */ }
+    if (!entry && !doc) return null;
+    if (doc) {
+        try { await putTrashDoc(id, doc); } catch (err) { doc = null; /* quota — entry still listed; cloud may hold the data */ }
+        try { await deleteCanvas(id); } catch (err) { /* ignore */ }
     }
     const t = {
         id,
@@ -192,23 +262,23 @@ export function trashCanvas(id, fallbackEntry = null) {
         ...(entry || {}),
         deletedAt: new Date().toISOString(),
     };
-    writeTrash([t, ...readTrash().filter((e) => e.id !== id)]);
+    writeTrash([t, ...(await readTrash()).filter((e) => e.id !== id)]);
     return t;
 }
 
 /**
- * Bring a trashed canvas back: slot returns verbatim and the index entry is
- * re-created (only when a local slot existed — cloud-only rows come back via
- * the cloud listing instead). Returns the trash entry, or null if unknown.
+ * Bring a trashed canvas back: the document returns and the index entry is
+ * re-created (only when a stored document existed — cloud-only rows come back
+ * via the cloud listing instead). Returns the trash entry, or null if unknown.
  */
-export function restoreCanvas(id) {
-    const list = readTrash();
+export async function restoreCanvas(id) {
+    const list = await readTrash();
     const t = list.find((e) => e.id === id);
     if (!t) return null;
-    let raw = null;
-    try { raw = localStorage.getItem(trashSlotKey(id)); } catch (err) { /* ignore */ }
-    if (raw) {
-        try { localStorage.setItem(slotKey(id), raw); } catch (err) { return null; /* quota — keep it in the bin */ }
+    let doc = null;
+    try { doc = await getTrashDoc(id); } catch (err) { /* ignore */ }
+    if (doc) {
+        if (!(await saveCanvasDoc(id, doc))) return null; // quota — keep it in the bin
         upsertIndexEntry({
             id,
             name: t.name || "Untitled canvas",
@@ -217,7 +287,7 @@ export function restoreCanvas(id) {
             savedAt: t.savedAt || new Date().toISOString(),
         });
     }
-    try { localStorage.removeItem(trashSlotKey(id)); } catch (err) { /* ignore */ }
+    try { await deleteTrashDoc(id); } catch (err) { /* ignore */ }
     writeTrash(list.filter((e) => e.id !== id));
     return t;
 }
@@ -228,116 +298,69 @@ export function restoreCanvas(id) {
  * becomes its own canvas instead of fighting the live one for the same slot.
  * Returns the trash entry, or null if the snapshot couldn't be stored.
  */
-export function stashOverwrittenVersion(json, name) {
-    let doc;
-    try { doc = JSON.parse(json); } catch (err) { return null; }
+export async function stashOverwrittenVersion(doc, name) {
+    if (typeof doc === "string") { try { doc = JSON.parse(doc); } catch (err) { return null; } }
+    if (!doc || typeof doc !== "object") return null;
     const label = (name || "Untitled canvas") + " (overwritten)";
-    doc.meta = { ...(doc.meta || {}), name: label };
+    const copy = { ...doc, meta: { ...(doc.meta || {}), name: label } };
     const id = newCanvasId();
     try {
-        localStorage.setItem(trashSlotKey(id), packSlot(JSON.stringify(doc)));
+        await putTrashDoc(id, copy);
     } catch (err) {
-        return null; // quota — the .bak fallback still exists
+        return null; // quota — the backup copy still exists
     }
     const t = {
         id,
         name: label,
         savedAt: new Date().toISOString(),
-        ...statsFromDoc(doc),
+        ...statsFromDoc(copy),
         deletedAt: new Date().toISOString(),
     };
-    writeTrash([t, ...readTrash().filter((e) => e.id !== id)]);
+    writeTrash([t, ...(await readTrash()).filter((e) => e.id !== id)]);
     return t;
 }
 
-/** Permanently remove a trash entry: index row, stored slot, thumbnails. */
-export function purgeTrashEntry(id) {
-    const list = readTrash();
-    try { localStorage.removeItem(trashSlotKey(id)); } catch (err) { /* ignore */ }
-    removeThumbs(id);
+/** Permanently remove a trash entry: index row, stored document, thumbnails. */
+export async function purgeTrashEntry(id) {
+    const list = await readTrash();
+    try { await deleteTrashDoc(id); } catch (err) { /* ignore */ }
+    try { await deleteThumbs(id); } catch (err) { /* ignore */ }
     writeTrash(list.filter((e) => e.id !== id));
 }
 
 /**
- * Copy a canvas into a fresh slot + index entry named "<name> copy", cover
- * thumb included. `fallbackJson`/`fallbackName` cover cloud-only canvases
- * whose drawing was fetched separately. Returns the new entry, or null.
+ * Copy a canvas into a fresh document + index entry named "<name> copy", cover
+ * thumb included. `fallbackDoc`/`fallbackName` cover cloud-only canvases whose
+ * drawing was fetched separately (a document or its JSON). Returns the new
+ * entry, or null.
  */
-export function duplicateCanvas(id, fallbackJson = null, fallbackName = null) {
-    const json = loadCanvasRaw(id) || fallbackJson;
-    if (!json) return null;
-    let doc;
-    try { doc = JSON.parse(json); } catch (err) { return null; }
+export async function duplicateCanvas(id, fallbackDoc = null, fallbackName = null) {
+    let doc = await loadCanvasDoc(id);
+    if (!doc && fallbackDoc) {
+        if (typeof fallbackDoc === "string") { try { doc = JSON.parse(fallbackDoc); } catch (err) { return null; } }
+        else doc = fallbackDoc;
+    }
+    if (!doc) return null;
     const entry = readIndex().find((e) => e.id === id);
-    const metaName = doc.meta && doc.meta.name;
-    const base = (entry && entry.name)
-        || fallbackName
-        || (metaName && metaName !== "untitled" ? metaName : null)
-        || "Untitled canvas";
+    const base = (entry && entry.name) || fallbackName || docName(doc, null) || "Untitled canvas";
     const name = base + " copy";
-    doc.meta = { ...(doc.meta || {}), name };
+    const copy = { ...doc, meta: { ...(doc.meta || {}), name } };
     const newId = newCanvasId();
-    if (!saveCanvasRaw(newId, JSON.stringify(doc))) return null;
+    if (!(await saveCanvasDoc(newId, copy))) return null;
     try {
-        const cover = localStorage.getItem(thumbKey(id, "cover"));
-        if (cover) localStorage.setItem(thumbKey(newId, "cover"), cover);
+        const cover = await getThumbs(id, ["cover"]);
+        if (cover.cover) await putThumbs(newId, { cover: cover.cover });
     } catch (err) { /* thumb is a nicety */ }
-    const newEntry = { id: newId, name, savedAt: new Date().toISOString(), ...statsFromDoc(doc) };
+    const newEntry = { id: newId, name, savedAt: new Date().toISOString(), ...statsFromDoc(copy) };
     upsertIndexEntry(newEntry);
     return newEntry;
-}
-
-/**
- * Rename without opening the editor: freshens the index entry and the slot's
- * embedded meta.name so the next cloud pull/save carries the new name.
- */
-export function renameCanvasLocal(id, name, savedAt = new Date().toISOString()) {
-    const entry = readIndex().find((e) => e.id === id);
-    if (entry) upsertIndexEntry({ ...entry, name, savedAt });
-    const json = loadCanvasRaw(id);
-    if (!json) return;
-    try {
-        const doc = JSON.parse(json);
-        doc.meta = { ...(doc.meta || {}), name };
-        saveCanvasRaw(id, JSON.stringify(doc));
-    } catch (err) { /* leave the slot untouched */ }
-}
-
-/** The slot's kobin-1 JSON string (transparently decompressed), or null. */
-export function loadCanvasRaw(id) {
-    try {
-        return unpackSlot(localStorage.getItem(slotKey(id)));
-    } catch (err) {
-        return null;
-    }
-}
-
-/** Write a slot (compressed). Returns false on quota failure. */
-export function saveCanvasRaw(id, json) {
-    try {
-        localStorage.setItem(slotKey(id), packSlot(json));
-        return true;
-    } catch (err) {
-        return false;
-    }
-}
-
-/**
- * Stash the current slot value under `<slot>.bak` before a cloud pull
- * overwrites it — belt-and-braces recovery for a bad merge decision.
- */
-export function backupCanvasSlot(id) {
-    try {
-        const raw = localStorage.getItem(slotKey(id));
-        if (raw) localStorage.setItem(slotKey(id) + ".bak", raw);
-    } catch (err) { /* quota — best-effort */ }
 }
 
 /**
  * One-time move of the legacy single-slot drawing into the multi-canvas world.
  * Keeps the legacy key untouched. Returns the migrated entry (or null).
  */
-export function migrateLegacyAutosave() {
+export async function migrateLegacyAutosave() {
     try {
         if (localStorage.getItem(MIGRATED_FLAG)) return null;
         const raw = localStorage.getItem(LEGACY_AUTOSAVE_KEY);
@@ -346,8 +369,8 @@ export function migrateLegacyAutosave() {
         const { strokes, levels } = statsFromDoc(doc);
         if (strokes === 0) { localStorage.setItem(MIGRATED_FLAG, "1"); return null; }
         const id = newCanvasId();
-        localStorage.setItem(slotKey(id), packSlot(raw));
-        const name = (doc.meta && doc.meta.name) || "My drawing";
+        if (!(await saveCanvasDoc(id, doc))) return null;
+        const name = docName(doc, "My drawing");
         const entry = { id, name, strokes, levels, savedAt: new Date().toISOString() };
         upsertIndexEntry(entry);
         localStorage.setItem(MIGRATED_FLAG, "1");
@@ -357,34 +380,98 @@ export function migrateLegacyAutosave() {
     }
 }
 
-// ---- scene thumbnails (JPEG data URLs, keyed per canvas + scene) ----
-
-export const thumbKey = (canvasId, sceneId) => `kobin.thumb.${canvasId}.${sceneId}`;
+// ---- scene thumbnails (JPEG, keyed per canvas + scene, LRU under a budget) ----
 
 /** { sceneId: { hash, data } } for the requested scenes (missing ones absent). */
-export function loadThumbs(canvasId, sceneIds) {
-    const out = {};
-    for (const sid of sceneIds) {
-        try {
-            const raw = localStorage.getItem(thumbKey(canvasId, sid));
-            if (raw) out[sid] = JSON.parse(raw);
-        } catch (err) { /* ignore */ }
+export async function loadThumbs(canvasId, sceneIds) {
+    try { return await getThumbs(canvasId, sceneIds); } catch (err) { return {}; }
+}
+
+export async function saveThumbs(canvasId, map) {
+    try { await putThumbs(canvasId, map); } catch (err) { /* derived data — regenerated next time */ }
+}
+
+export async function loadCoverThumb(canvasId) {
+    try {
+        const t = await getThumbs(canvasId, ["cover"]);
+        return t.cover ? t.cover.data || null : null;
+    } catch (err) { return null; }
+}
+
+// ---- housekeeping ----
+
+/** One-time move of everything document-sized out of localStorage. Safe to call every load. */
+export function migrateStorage() {
+    return migrateLocalStorage(docToRecord);
+}
+
+export const BACKUP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * What used to leak. Run from the gallery, after migration:
+ *   - documents the gallery does not list and the bin does not hold: an empty
+ *     one goes; a drawn-on one is ADOPTED as a draft, because it is somebody's
+ *     work that a crash or a killed tab kept from being filed;
+ *   - frame records whose header is gone;
+ *   - backups older than a week;
+ *   - thumbnails for canvases that exist nowhere, then the LRU budget;
+ *   - expired trash entries (readTrash does that on the way past).
+ * Returns counts, for the console and the tests.
+ */
+export async function sweepStorage() {
+    const out = { adopted: 0, deleted: 0, orphanFrames: 0, backups: 0, thumbs: 0 };
+    let headers = [];
+    try { headers = await listCanvasHeaders(); } catch (err) { return out; }
+    const trash = await readTrash();
+    const trashIds = new Set(trash.map((e) => e.id));
+    const indexed = new Set(readIndex().map((e) => e.id));
+    for (const h of headers) {
+        if (indexed.has(h.id) || trashIds.has(h.id)) continue;
+        const strokes = h.strokes || 0;
+        if (strokes > 0) {
+            // The engine's default meta name is lowercase "untitled" — never
+            // let it become a visible gallery label.
+            upsertIndexEntry({
+                id: h.id,
+                name: (h.name && h.name !== "untitled" ? h.name : null) || docName({ meta: h.meta }),
+                savedAt: h.savedAt || new Date().toISOString(),
+                strokes,
+                levels: h.levels || 0,
+            });
+            indexed.add(h.id);
+            out.adopted++;
+        } else {
+            try { await deleteCanvas(h.id); out.deleted++; } catch (err) { /* ignore */ }
+        }
     }
+    try { out.orphanFrames = await deleteOrphanFrames(); } catch (err) { /* ignore */ }
+    try { out.backups = await sweepBackups(BACKUP_TTL_MS); } catch (err) { /* ignore */ }
+    try {
+        // A trash payload whose index row is gone is unreachable: drop it too.
+        for (const id of await listTrashIds()) if (!trashIds.has(id)) await deleteTrashDoc(id);
+    } catch (err) { /* ignore */ }
+    try { out.thumbs = await sweepThumbs([...indexed, ...trashIds]); } catch (err) { /* ignore */ }
     return out;
 }
 
-export function saveThumbs(canvasId, map) {
-    for (const [sid, t] of Object.entries(map)) {
-        try { localStorage.setItem(thumbKey(canvasId, sid), JSON.stringify(t)); } catch (err) { /* quota */ }
-    }
+/** "Using 12 MB of browser storage" — or null where the browser will not say. */
+export async function storageUsage() {
+    const e = await storageEstimate();
+    if (!e) return null;
+    return { ...e, label: `Using ${formatMB(e.usage)} of browser storage` };
 }
 
-export function loadCoverThumb(canvasId) {
-    try {
-        const raw = localStorage.getItem(thumbKey(canvasId, "cover"));
-        return raw ? JSON.parse(raw).data || null : null;
-    } catch (err) { return null; }
+function formatMB(bytes) {
+    const mb = bytes / (1024 * 1024);
+    if (mb < 0.1) return "under 0.1 MB";
+    if (mb < 10) return mb.toFixed(1) + " MB";
+    if (mb < 1024) return Math.round(mb) + " MB";
+    return (mb / 1024).toFixed(1) + " GB";
 }
+
+export const requestPersistentStorage = requestPersist;
+
+// ---- labels ----
 
 function agoLabel(verb, iso, fallback) {
     const t = Date.parse(iso);
@@ -410,7 +497,7 @@ export function deletedLabel(deletedAt) {
     return agoLabel("Deleted", deletedAt, "Deleted");
 }
 
-/** Badge copy: how deep the drawing goes, in engine levels (×3,000 each). */
+/** Badge copy: how deep the drawing goes, in engine levels (×4,096 each). */
 export function depthLabel(levels) {
     if (!levels || levels <= 1) return "Surface level";
     return `${levels} levels deep`;

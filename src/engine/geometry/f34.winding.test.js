@@ -18,8 +18,11 @@ import path from "path";
 import { flatPieces, windingOfFlat, insideShape, loopsBBox, ptAt } from "./arcShape";
 
 const OPS = path.join(__dirname, "..", "..", "..", ".kobin-reports", "f34-operands.json");
+// A gitignored recording (see .kobin-reports): a fresh clone skips this, and
+// KOBIN_REQUIRE_REPORTS=1 makes a missing fixture fail loudly instead.
+const testIf = fs.existsSync(OPS) || process.env.KOBIN_REQUIRE_REPORTS ? test : test.skip;
 
-test("every piece of the ring is inside the subject — is it classified that way?", () => {
+testIf("every piece of the ring is inside the subject — is it classified that way?", () => {
     const cap = JSON.parse(fs.readFileSync(OPS, "utf8"));
     const A = cap.local, B = cap.clip;
     const flatA = flatPieces(A);

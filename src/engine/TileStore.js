@@ -8,7 +8,7 @@
  * Two content classes per tile, kept strictly separate (the XOR invariant):
  *
  *   upContent(F)   — ANCESTOR frames' objects, MAGNIFIED into F. Built by
- *                    CHAINING one ×(s/base)≈3000 edge at a time through the
+ *                    CHAINING one ×R (4096) edge at a time through the
  *                    parent's tiles (magnify must chain: a composed long jump
  *                    cancels catastrophically). empty/solid/edge classification;
  *                    SOLID replaces a tile-covering band with a 4-vertex quad so
@@ -294,10 +294,13 @@ export default class TileStore {
             // A resolved perimeter minifies exactly (arcs are closed under a
             // similarity), so all that happens here is a clip to the padded tile
             // and a flatten at the level's own display fidelity.
-            const { rings, covered } = shapeRingsInRect(d.loops, padRect(rect, pad), shapeTol(this.cfg));
+            const crect = padRect(rect, pad);
+            const { rings, covered } = shapeRingsInRect(d.loops, crect, shapeTol(this.cfg));
             if (rings.length) {
+                // `clip`: the rectangle this piece was cut on, for the selection
+                // indicator's seam test (F39).
                 const piece = { type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, polys: rings, fadeTag: tag, paths: [] };
+                    opacity: o.opacity, polys: rings, fadeTag: tag, paths: [], clip: crect };
                 if (covered) piece.covers = true;
                 out.push(piece);
             }
@@ -307,9 +310,10 @@ export default class TileStore {
             // Area-erase bakes travel as fills — clip their rings like
             // deriveStep does (winding preserved, holes stay holes), with
             // the same seam overlap so tile edges leave no AA hairline.
-            const tp = clipRingsToRect(d.polys, padRect(rect, pad));
+            const crect = padRect(rect, pad);
+            const tp = clipRingsToRect(d.polys, crect);
             if (tp.length) out.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [] });
+                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [], clip: crect });
             return out;
         }
         const pts = (o.origin === "native" && d.pts.length > 2)

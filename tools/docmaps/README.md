@@ -24,6 +24,17 @@ failure in either is a page telling a reader something false.
 As of 2026-08-31: **1,087 functions across 78 files, 1,905 calls, 0 missing,
 0 stale.**
 
+**As of 2026-09-03 the pages are one build behind.** The autosave rewrite
+(F33) added 56 functions in four files — `storage/db.js`, `storage/localCanvases.js`,
+`cloud/lzWorker.js`, `cloud/canvasSync.js` — and the select-tool and
+selection-indicator work of 2026-09-03 (F32, F37, F38, F39) added more in
+`engine/selection.js`, `engine/overlays.js`, `geometry/lasso.js` and the new
+`geometry/antRuns.js` (`geometry/cluster.js` lived for an afternoon and is
+gone). `data/inventory.json` has been regenerated to name them
+all, so `verify_coverage.py` lists them as gaps until their descriptions are
+written into `newdesc_shell.py` and the pages are rebuilt and republished. That
+rebuild is on the roadmap's housekeeping list.
+
 ## Two traps in the graph page, both measured in Chrome
 
 **Do not put `will-change: transform` on the SVG.** It promotes the whole

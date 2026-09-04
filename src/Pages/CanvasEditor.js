@@ -11,8 +11,8 @@ import Input from "../Components/ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
 import {
-    newCanvasId, slotKey, upsertIndexEntry, statsFromDoc, loadCanvasRaw,
-    loadThumbs, saveThumbs, readIndex, backupCanvasSlot, trashCanvas, removeCanvas,
+    newCanvasId, upsertIndexEntry, statsFromDoc, loadCanvasDoc,
+    loadThumbs, saveThumbs, readIndex, backupCanvasDoc, trashCanvas, removeCanvas,
     duplicateCanvas, stashOverwrittenVersion, getDeviceId,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
@@ -36,6 +36,8 @@ import "../Stylesheets/boundless-ui.css";
 import { renderThumbs } from "../storage/thumbnails";
 
 const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
+
+const perfNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /** Pen width presets — highlighter renders at width × 2.5 in the engine. */
 const PEN_WIDTH = 12;
@@ -108,19 +110,18 @@ export default function CanvasEditor() {
     // pulls can compare local vs cloud honestly. Unsaved scratch canvases
     // (no index entry yet) stay local-only until first explicitly saved.
     const cloudDirtyRef = useRef(false);
-    const onAutosave = useCallback((doc) => {
+    const onAutosave = useCallback(({ name, stats }) => {
         const entry = readIndex().find((e) => e.id === realId);
         if (!entry) return;
-        const nm = doc.meta && doc.meta.name;
         upsertIndexEntry({
             ...entry,
-            name: (nm && nm !== "untitled" ? nm : null) || entry.name,
+            name: (name && name !== "untitled" ? name : null) || entry.name,
             savedAt: new Date().toISOString(),
-            ...statsFromDoc(doc),
+            ...stats,
         });
         cloudDirtyRef.current = true;
     }, [realId]);
-    const engine = useKobinEngine({ storageKey: slotKey(realId), onAutosave });
+    const engine = useKobinEngine({ canvasId: realId, onAutosave });
     const { user } = useUser();
     // CLOUD-DIRTY MUST NOT DEPEND ON A SUCCESSFUL LOCAL WRITE. `onAutosave`
     // above only fires when localStorage accepted the bytes, so with autosave
@@ -227,7 +228,7 @@ export default function CanvasEditor() {
             catch (err) { /* diagnostics must never break a save */ }
         };
         try {
-            const existing = loadThumbs(realId, list.map((s) => s.id));
+            const existing = await loadThumbs(realId, list.map((s) => s.id));
             const fresh = await renderThumbs(doc, list, existing);
             noteThumbs(Object.keys(fresh).length);
             // The primary scene (first in the list) doubles as the gallery
@@ -239,7 +240,7 @@ export default function CanvasEditor() {
                 fresh.cover = primaryThumb;
             }
             if (Object.keys(fresh).length) {
-                saveThumbs(realId, fresh);
+                await saveThumbs(realId, fresh);
                 setSceneThumbs((t) => ({ ...t, ...fresh }));
             }
             return fresh;
@@ -261,7 +262,7 @@ export default function CanvasEditor() {
         // route: the Save button stopped short of `cloudSaveCanvas`, and the
         // background sync never ran because `cloudDirtyRef` was only ever set by
         // a SUCCESSFUL local autosave. Serialize independently and carry on.
-        const saved = await engine.saveToLocalStorage(name);
+        const saved = await engine.saveLocal(name);
         const local = !!saved;
         const doc = saved || (E ? E.serializeDrawing() : null);
         if (!doc) return { local: false, cloud: false };
@@ -279,8 +280,15 @@ export default function CanvasEditor() {
         if (E) E.notePerf?.("saveTotal", tSave, { scenes: (doc.meta.scenes || []).length });
         let cloud = false;
         if (user) {
+            // Timed like the local save is: the cloud payload is stringified
+            // here and compressed in a worker, and both halves belong in a
+            // report (they were invisible until 2026-09-02).
+            const tCloud = perfNow();
             try {
-                await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc), Object.keys(fresh).length ? fresh : null);
+                const json = JSON.stringify(doc);
+                const tJson = perfNow();
+                const r = await cloudSaveCanvas(user.uid, entry, json, Object.keys(fresh).length ? fresh : null);
+                if (E) E.notePerf?.("cloudSave", tCloud, { where: "save", chars: json.length, jsonMs: +(tJson - tCloud).toFixed(1), ...(r || {}) });
                 cloud = true;
                 cloudDirtyRef.current = false;
             } catch (err) {
@@ -303,13 +311,17 @@ export default function CanvasEditor() {
         const entry = readIndex().find((e) => e.id === realId);
         if (!entry) return; // never explicitly saved — stays local-only
         cloudDirtyRef.current = false; // claim; re-set on failure
+        const t0 = perfNow();
         try {
             const doc = E.serializeDrawing();
-            await cloudSaveCanvas(user.uid, {
+            const json = JSON.stringify(doc);
+            const tJson = perfNow();
+            const r = await cloudSaveCanvas(user.uid, {
                 ...entry,
                 savedAt: new Date().toISOString(),
                 ...statsFromDoc(doc),
-            }, JSON.stringify(doc), null);
+            }, json, null);
+            E.notePerf?.("cloudSave", t0, { where: "sync", chars: json.length, jsonMs: +(tJson - t0).toFixed(1), ...(r || {}) });
         } catch (err) {
             cloudDirtyRef.current = true;
             console.warn("cloud autosync failed", err);
@@ -337,7 +349,7 @@ export default function CanvasEditor() {
                 if (E) {
                     const list = E.refreshScenes();
                     setScenes(list);
-                    setSceneThumbs(loadThumbs(realId, list.map((s) => s.id)));
+                    loadThumbs(realId, list.map((s) => s.id)).then(setSceneThumbs);
                     ensureThumbs(E.serializeDrawing(), list);
                 }
             }
@@ -445,8 +457,8 @@ export default function CanvasEditor() {
         let stale = false;
         (async () => {
             try {
-                const localRaw = loadCanvasRaw(realId);
-                if (localRaw) {
+                const localDoc = await loadCanvasDoc(realId);
+                if (localDoc) {
                     const meta = await cloudGetCanvasMeta(user.uid, realId);
                     const localAt = readIndex().find((e) => e.id === realId)?.savedAt || "";
                     if (!meta || String(meta.savedAt || "") <= String(localAt)) return;
@@ -456,31 +468,31 @@ export default function CanvasEditor() {
                 const parsed = JSON.parse(res.json);
                 // Never replace a local drawing with an empty cloud copy (the
                 // stale-cloud shape of the bug this pull is here to fix).
-                if (localRaw && statsFromDoc(parsed).strokes === 0) return;
+                if (localDoc && statsFromDoc(parsed).strokes === 0) return;
                 // A competing save is about to overwrite real local work —
                 // file this device's version in the recycle bin (restorable
                 // via "Restore deleted canvases"). Metadata-only refreshes
                 // (e.g. a rename elsewhere) don't clutter the bin.
-                if (localRaw) {
+                if (localDoc) {
                     try {
-                        const localParsed = JSON.parse(localRaw);
-                        if (statsFromDoc(localParsed).strokes > 0
-                            && JSON.stringify(localParsed.natives) !== JSON.stringify(parsed.natives)) {
+                        if (statsFromDoc(localDoc).strokes > 0
+                            && JSON.stringify(localDoc.natives) !== JSON.stringify(parsed.natives)) {
                             const entry = readIndex().find((e) => e.id === realId);
-                            stashOverwrittenVersion(localRaw,
+                            await stashOverwrittenVersion(localDoc,
                                 (entry && entry.name)
-                                || (localParsed.meta && localParsed.meta.name !== "untitled" && localParsed.meta.name)
+                                || (localDoc.meta && localDoc.meta.name !== "untitled" && localDoc.meta.name)
                                 || "Untitled canvas");
                         }
-                    } catch (err) { /* unparseable local — the .bak below still covers it */ }
+                    } catch (err) { /* the backup below still covers it */ }
                 }
-                backupCanvasSlot(realId); // recoverable if this merge was wrong
+                await backupCanvasDoc(realId); // recoverable if this merge was wrong
+                if (stale) return;
                 engine.engineRef.current.loadDrawing(parsed);
                 // Gallery renames only touch the cloud parent doc — its name
                 // outranks whatever is embedded in the drawing JSON.
                 const cloudName = res.meta && res.meta.name;
                 if (cloudName && cloudName !== "untitled") engine.patchDocMeta({ name: cloudName });
-                const doc = await engine.saveToLocalStorage();
+                const doc = await engine.saveLocal();
                 if (doc) {
                     const nm2 = doc.meta && doc.meta.name;
                     upsertIndexEntry({
@@ -490,7 +502,7 @@ export default function CanvasEditor() {
                         ...statsFromDoc(doc),
                     });
                 }
-                if (res.thumbs) saveThumbs(realId, res.thumbs);
+                if (res.thumbs) await saveThumbs(realId, res.thumbs);
                 const nm = engine.docMeta()?.name;
                 if (nm && nm !== "untitled") setCanvasTitle(nm);
             } catch (err) { /* offline or not ours — stay blank */ }
@@ -612,16 +624,16 @@ export default function CanvasEditor() {
     // unmount autosave can't recreate the slot, and the dirty flag cleared so
     // the unmount autosync can't re-push the cloud copy.
     const deleteCanvas = async () => {
-        const doc = await engine.saveToLocalStorage(); // freshest strokes ride into the bin
+        const doc = await engine.saveLocal(); // freshest strokes ride into the bin
         engine.disablePersist();
         cloudDirtyRef.current = false;
         const stats = doc ? statsFromDoc(doc) : { strokes: 0, levels: 0 };
         const indexed = readIndex().some((e) => e.id === realId);
         if (!indexed && stats.strokes === 0) {
             // Never-saved empty scratch — nothing worth a recycle-bin row.
-            removeCanvas(realId);
+            await removeCanvas(realId);
         } else {
-            trashCanvas(realId, {
+            await trashCanvas(realId, {
                 id: realId,
                 name: canvasTitle,
                 savedAt: new Date().toISOString(),
@@ -654,7 +666,7 @@ export default function CanvasEditor() {
         setLeaveOpen(true);
     };
     const keepDraft = async () => {
-        const doc = await engine.saveToLocalStorage();
+        const doc = await engine.saveLocal();
         upsertIndexEntry({
             id: realId,
             name: canvasTitle || "Untitled canvas",
@@ -664,16 +676,16 @@ export default function CanvasEditor() {
         setLeaveOpen(false);
         history.push("/canvases");
     };
-    const discardDraft = () => {
+    const discardDraft = async () => {
         engine.disablePersist();
-        removeCanvas(realId);
+        await removeCanvas(realId);
         setLeaveOpen(false);
         history.push("/canvases");
     };
 
     const duplicateCurrent = async () => {
-        await engine.saveToLocalStorage(); // freshest strokes ride into the copy
-        const entry = duplicateCanvas(realId, null, canvasTitle);
+        await engine.saveLocal(); // freshest strokes ride into the copy
+        const entry = await duplicateCanvas(realId, null, canvasTitle);
         if (!entry) { showToast("Couldn't duplicate — storage may be full"); return; }
         history.push(`/canvas/${entry.id}`); // editor remounts on the copy
     };

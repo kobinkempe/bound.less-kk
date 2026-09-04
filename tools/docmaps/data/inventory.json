@@ -30,7 +30,17 @@
 "class": null
 },
 {
+"name": "chunk",
+"kind": "function",
+"class": null
+},
+{
 "name": "encodeCanvasPayload",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodeCanvasPayloadAsync",
 "kind": "function",
 "class": null
 },
@@ -40,8 +50,23 @@
 "class": null
 },
 {
+"name": "decodeCanvasPayloadAsync",
+"kind": "function",
+"class": null
+},
+{
+"name": "joinParts",
+"kind": "function",
+"class": null
+},
+{
 "name": "boundedThumbs",
 "kind": "function",
+"class": null
+},
+{
+"name": "perfNow",
+"kind": "arrow",
 "class": null
 },
 {
@@ -108,6 +133,38 @@
 },
 {
 "name": "getDb",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/lzWorker.js": [
+{
+"name": "workerUrl",
+"kind": "function",
+"class": null
+},
+{
+"name": "getWorker",
+"kind": "function",
+"class": null
+},
+{
+"name": "run",
+"kind": "function",
+"class": null
+},
+{
+"name": "compressToUint8Array",
+"kind": "function",
+"class": null
+},
+{
+"name": "decompressFromUint8Array",
+"kind": "function",
+"class": null
+},
+{
+"name": "_resetLzWorkerForTests",
 "kind": "function",
 "class": null
 }
@@ -410,6 +467,11 @@
 },
 {
 "name": "_emit",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "keysChanged",
 "kind": "method",
 "class": "Document"
 },
@@ -1500,6 +1562,11 @@
 "class": "Renderer"
 },
 {
+"name": "_antPath",
+"kind": "method",
+"class": "Renderer"
+},
+{
 "name": "_buildSelOverlay",
 "kind": "method",
 "class": "Renderer"
@@ -1511,6 +1578,11 @@
 },
 {
 "name": "_d",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_dAll",
 "kind": "method",
 "class": "Renderer"
 },
@@ -2141,6 +2213,11 @@
 ],
 "src/engine/overlays.js": [
 {
+"name": "clipRect",
+"kind": "function",
+"class": null
+},
+{
 "name": "mergeSpans",
 "kind": "function",
 "class": null
@@ -2181,17 +2258,27 @@
 "class": "Overlays"
 },
 {
-"name": "_selEdgeSpans",
+"name": "_selTable",
 "kind": "method",
 "class": "Overlays"
 },
 {
-"name": "_selInkRings",
+"name": "_selDecide",
 "kind": "method",
 "class": "Overlays"
 },
 {
-"name": "_emitAntRing",
+"name": "_selPieceLoops",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selSeamRects",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selEdges",
 "kind": "method",
 "class": "Overlays"
 },
@@ -2506,9 +2593,29 @@
 ],
 "src/engine/selection.js": [
 {
+"name": "everyNth",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "Selection",
 "kind": "class",
 "class": null
+},
+{
+"name": "_selectTap",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_beginSelectDrag",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "cancelSelectGesture",
+"kind": "method",
+"class": "Selection"
 },
 {
 "name": "_isSelected",
@@ -2527,6 +2634,11 @@
 },
 {
 "name": "_lassoFind",
+"kind": "method",
+"class": "Selection"
+},
+{
+"name": "_inkInsidePolygon",
 "kind": "method",
 "class": "Selection"
 },
@@ -2599,6 +2711,148 @@
 "name": "_hitTest",
 "kind": "method",
 "class": "Selection"
+}
+],
+"src/engine/geometry/antRuns.js": [
+{
+"name": "isCubic",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "isLine",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "startOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "pieceLength",
+"kind": "function",
+"class": null
+},
+{
+"name": "runLength",
+"kind": "function",
+"class": null
+},
+{
+"name": "onRectEdge",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopRuns",
+"kind": "function",
+"class": null
+},
+{
+"name": "runPathData",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopsBounds",
+"kind": "function",
+"class": null
+},
+{
+"name": "norm",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "arcOffset",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcHasAngle",
+"kind": "function",
+"class": null
+},
+{
+"name": "edgeSpans",
+"kind": "function",
+"class": null
+},
+{
+"name": "spansOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "above",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "crossVertical",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcCrossCounts",
+"kind": "function",
+"class": null
+},
+{
+"name": "crossCubic",
+"kind": "function",
+"class": null
+},
+{
+"name": "crossHorizontal",
+"kind": "function",
+"class": null
+},
+{
+"name": "insideLoops",
+"kind": "function",
+"class": null
+},
+{
+"name": "samePt",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "endOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "inRect",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "arcSideOffsets",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipPiece",
+"kind": "function",
+"class": null
+},
+{
+"name": "clipRunToRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "circleLoop",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectLoopOf",
+"kind": "function",
+"class": null
 }
 ],
 "src/engine/geometry/arcPerimeter.js": [
@@ -3612,6 +3866,16 @@
 },
 {
 "name": "segsCross",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopTester",
+"kind": "function",
+"class": null
+},
+{
+"name": "polylineInsidePolygon",
 "kind": "function",
 "class": null
 },
@@ -5329,6 +5593,11 @@
 ],
 "src/Pages/CanvasEditor.js": [
 {
+"name": "perfNow",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "CanvasEditor",
 "kind": "function",
 "class": null
@@ -5370,10 +5639,155 @@
 "class": null
 }
 ],
-"src/storage/localCanvases.js": [
+"src/storage/db.js": [
 {
-"name": "slotKey",
+"name": "idbAvailable",
+"kind": "function",
+"class": null
+},
+{
+"name": "openDb",
+"kind": "function",
+"class": null
+},
+{
+"name": "_resetDbForTests",
+"kind": "function",
+"class": null
+},
+{
+"name": "reqp",
 "kind": "arrow",
+"class": null
+},
+{
+"name": "tx",
+"kind": "function",
+"class": null
+},
+{
+"name": "only",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "putCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "getCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "headerToDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "getCanvasHeader",
+"kind": "function",
+"class": null
+},
+{
+"name": "listCanvasHeaders",
+"kind": "function",
+"class": null
+},
+{
+"name": "patchCanvasHeader",
+"kind": "function",
+"class": null
+},
+{
+"name": "deleteCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "deleteOrphanFrames",
+"kind": "function",
+"class": null
+},
+{
+"name": "putTrashDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "getTrashDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "deleteTrashDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "listTrashIds",
+"kind": "function",
+"class": null
+},
+{
+"name": "putBackup",
+"kind": "function",
+"class": null
+},
+{
+"name": "getBackup",
+"kind": "function",
+"class": null
+},
+{
+"name": "deleteBackup",
+"kind": "function",
+"class": null
+},
+{
+"name": "sweepBackups",
+"kind": "function",
+"class": null
+},
+{
+"name": "dataUrlToBytes",
+"kind": "function",
+"class": null
+},
+{
+"name": "bytesToDataUrl",
+"kind": "function",
+"class": null
+},
+{
+"name": "putThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "trimThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "getThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "deleteThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "sweepThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "thumbBytesTotal",
+"kind": "function",
 "class": null
 },
 {
@@ -5384,6 +5798,33 @@
 {
 "name": "unpackSlot",
 "kind": "function",
+"class": null
+},
+{
+"name": "migrateLocalStorage",
+"kind": "function",
+"class": null
+},
+{
+"name": "storageEstimate",
+"kind": "function",
+"class": null
+},
+{
+"name": "requestPersistentStorage",
+"kind": "function",
+"class": null
+}
+],
+"src/storage/localCanvases.js": [
+{
+"name": "slotKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "thumbKey",
+"kind": "arrow",
 "class": null
 },
 {
@@ -5407,6 +5848,11 @@
 "class": null
 },
 {
+"name": "statsFromNatives",
+"kind": "function",
+"class": null
+},
+{
 "name": "statsFromDoc",
 "kind": "function",
 "class": null
@@ -5417,22 +5863,57 @@
 "class": null
 },
 {
+"name": "docName",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "docToRecord",
+"kind": "function",
+"class": null
+},
+{
+"name": "saveCanvasDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "writeCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "loadCanvasDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "hasCanvasDoc",
+"kind": "function",
+"class": null
+},
+{
 "name": "removeCanvas",
 "kind": "function",
 "class": null
 },
 {
-"name": "trashSlotKey",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "writeTrash",
+"name": "renameCanvasLocal",
 "kind": "function",
 "class": null
 },
 {
-"name": "removeThumbs",
+"name": "backupCanvasDoc",
+"kind": "function",
+"class": null
+},
+{
+"name": "readTrashIndex",
+"kind": "function",
+"class": null
+},
+{
+"name": "writeTrash",
 "kind": "function",
 "class": null
 },
@@ -5467,33 +5948,8 @@
 "class": null
 },
 {
-"name": "renameCanvasLocal",
-"kind": "function",
-"class": null
-},
-{
-"name": "loadCanvasRaw",
-"kind": "function",
-"class": null
-},
-{
-"name": "saveCanvasRaw",
-"kind": "function",
-"class": null
-},
-{
-"name": "backupCanvasSlot",
-"kind": "function",
-"class": null
-},
-{
 "name": "migrateLegacyAutosave",
 "kind": "function",
-"class": null
-},
-{
-"name": "thumbKey",
-"kind": "arrow",
 "class": null
 },
 {
@@ -5508,6 +5964,26 @@
 },
 {
 "name": "loadCoverThumb",
+"kind": "function",
+"class": null
+},
+{
+"name": "migrateStorage",
+"kind": "function",
+"class": null
+},
+{
+"name": "sweepStorage",
+"kind": "function",
+"class": null
+},
+{
+"name": "storageUsage",
+"kind": "function",
+"class": null
+},
+{
+"name": "formatMB",
 "kind": "function",
 "class": null
 },

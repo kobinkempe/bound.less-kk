@@ -71,6 +71,7 @@ describe("selection", () => {
         const E = mkEngine();
         drawStroke(E, [[100, 100], [150, 150]]);
         E.setTool("select");
+        E.pointerDown(120, 120); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(120, 120);
         E.pointerMove(160, 140);
         E.pointerMove(180, 160);
@@ -113,9 +114,10 @@ describe("selection", () => {
         const before = boxOf(E.nativesByLevel[0][0]);
         zoomToLevel1(E);
         E.setTool("select");
-        E.pointerDown(400, 300);
+        E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         expect(E.selection).not.toBeNull();
         expect(E.selection.level).toBe("0"); // the native's home FRAME id, not the active level
+        E.pointerDown(400, 300);
         E.pointerMove(430, 300);
         E.pointerUp();
         const after = boxOf(E.nativesByLevel[0][0]);
@@ -148,14 +150,30 @@ describe("selection", () => {
         let g = 0; // settle in-level near the original framing (no crossing below 0)
         while (E.inScale > 1.2 && g++ < 20) E.zoomAt(400, 300, 1000);
         E.setTool("select");
-        E.pointerDown(400, 300);
+        E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         expect(E.selection && E.selection.id).toBe(id);
+        E.pointerDown(400, 300);
         E.pointerMove(700, 300); // drag far right, out of the old neighbourhood
         E.pointerUp();
         zoomToLevel1(E); // same spot as before
         expect(E._objs().some((o) => o.id === id)).toBe(false); // no stale ink
     });
 
+});
+
+describe("the eraser after the line tool (2026-09-03)", () => {
+    test("the eraser trail stays freehand: every sample is kept", () => {
+        const E = mkEngine();
+        drawStroke(E, [[100, 300], [700, 300]]);
+        E.setPenType("straight");
+        E.setTool("erasePartial");
+        E.pointerDown(200, 250);
+        for (const p of [[300, 350], [400, 250], [500, 350]]) E.pointerMove(p[0], p[1]);
+        // The line tool replaces its second point on every move; the eraser
+        // must not, or it erases along a straight line however the finger went.
+        expect(E._drawing.pts.length).toBe(4);
+        E.pointerUp();
+    });
 });
 
 describe("deferred area erase", () => {
@@ -525,8 +543,9 @@ describe("deferred area erase", () => {
         const beforeAttach = { ...kids[0].attachRect };
 
         E.setTool("select");
-        E.pointerDown(400, 330);
+        E.pointerDown(400, 330); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         expect(E.selection && E.selection.editId).toBe(key);
+        E.pointerDown(400, 330);
         E.pointerMove(430, 330); E.pointerUp();
         // Parent, child and the doorway between them all move together — the
         // attachRect is where the two meet, so a move that left it behind would
@@ -570,8 +589,9 @@ describe("deferred area erase", () => {
         const sigBefore = E.renderer._groups.get(src.id).sig;
 
         E.setTool("select");
-        E.pointerDown(330, 380);
+        E.pointerDown(330, 380); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         expect(E.selection && E.selection.editId).toBe(src.id);
+        E.pointerDown(330, 380);
         E.pointerMove(360, 420); E.pointerUp();
         E._render();
         expect(E.renderer._groups.get(src.id).sig).not.toBe(sigBefore);
@@ -613,6 +633,7 @@ describe("deferred area erase", () => {
         expect(E._hitTest(270, 390)).toBeNull();
 
         E.setTool("select");
+        E.pointerDown(330, 380); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(330, 380); E.pointerMove(360, 420); E.pointerUp();
         expect(E._hitTest(300, 430)).toBeNull();
         const fineState = JSON.parse(JSON.stringify(E.doc.serializeNatives()));

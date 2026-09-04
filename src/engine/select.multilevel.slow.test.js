@@ -296,14 +296,19 @@ describe("SM-4 — the lasso, across levels", () => {
         const a1 = worldAnchorAt(E, E.doc.getById(fine.id));
         expect(a1[0] - a0[0]).toBeCloseTo(100 / E.cam.inScale, 6);
     });
-    test("a loop from far BELOW selects nothing, and that is correct", () => {
+    test("a loop from far BELOW bounds nothing coarse — only what was drawn down here", () => {
         // CONFIRMED DESIGN (Kobin, 2026-08-05). The rule is "everything fully
-        // bounded by the loop", and from down here nothing is: every object
-        // reachable is coarse ink magnified thousands of times, so no loop drawn
-        // on a 600 px canvas can bound any of it. To select at depth you CLICK
-        // the item you want. (It is also why there is no blank paper to start a
-        // loop on — one crossing down, a coarse object covers the whole canvas,
-        // so pressing anywhere presses on it and drags instead.)
+        // bounded by the loop", and from down here no COARSE object is: every
+        // one reachable is ink magnified thousands of times, so no loop drawn
+        // on a 600 px canvas can bound it. To select a coarse object at depth
+        // you CLICK it.
+        //
+        // Until 2026-09-03 there was no blank paper to start a loop on — one
+        // crossing down a coarse object covers the whole canvas, so pressing
+        // anywhere pressed on it and dragged instead, and this test recorded
+        // that. A drag with nothing selected is a lasso now wherever it starts,
+        // so the loop is drawn, bounds the fine object made at this depth, and
+        // cannot bound the coarse one it was drawn on.
         //
         // The exact mirror of the case above, where a loop from far ABOVE must
         // catch a sub-pixel object. One rule, two depths, opposite answers.
@@ -314,7 +319,7 @@ describe("SM-4 — the lasso, across levels", () => {
         E.deselect();
         lasso(E, boxLoop(300, 220, 500, 380));
         expect(E.selection).toBeTruthy();
-        expect(E.selection.ids).not.toContain(fine.id);   // it dragged the coarse one
+        expect(E.selection.ids).toEqual([fine.id]);       // the fine one, never the coarse one
         // ctrl-click still composes a selection down here.
         E.deselect();
         click(E, 400, 300);

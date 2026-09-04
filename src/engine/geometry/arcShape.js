@@ -956,6 +956,7 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     let nX = 0, nOv = 0, nCo = 0;
     for (let i = 0; i < N; i++) {
         if (items[i].set !== 0) continue;                 // A against B only
+        // eslint-disable-next-line no-loop-func -- the callback runs synchronously inside this iteration
         grid.near(bbs[i], (j) => {
             if (items[j].set !== 1) return;
             const bj = bbs[j], bi = bbs[i];

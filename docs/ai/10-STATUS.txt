@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-08-31. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-09-03. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -21,11 +21,20 @@ WHERE THE BUILD IS
     on the parent doc, a soft-delete recycle bin, and a presence heartbeat that
     warns when the same canvas is open on another device.
 
-UNCOMMITTED WORK IN THE TREE - nothing below is in git
+DEPLOYED 2026-09-03 - the working tree, at Kobin's word
 
-    134 paths. The 2026-08-31 DEPLOY-READINESS CLEANUP is most of it and is
-    recorded in full in docs/OPEN-FLAGS.md under "Cleanup backlog - DONE
-    2026-08-31". In outline:
+    `npm run build` + `firebase deploy --only hosting` of the tree as it stood
+    that evening: the autosave rewrite (F33), the select-tool fixes, and the
+    third design of the selection indicator (F39: ants from the render list,
+    no flattening, own layers, no budget, 2 px frame dots). Later that
+    evening `main` was fast-forwarded to arc-pipeline's f6f1062, became the
+    working branch, and the 88 paths were committed on it and pushed.
+
+COMMITTED 2026-09-01 AS f6f1062 - the quarter's work, in one commit
+
+    134 paths, uncommitted until then. The 2026-08-31 DEPLOY-READINESS CLEANUP
+    is most of it and is recorded in full in docs/OPEN-FLAGS.md under "Cleanup
+    backlog - DONE 2026-08-31". In outline:
 
       deleted    Pages/CanvasV2, BakeLab, ArcPen, ArcBake and their routes;
                  Components/toolButton, Images/toolbarIcons/logoSmall,
@@ -54,9 +63,10 @@ UNCOMMITTED WORK IN THE TREE - nothing below is in git
     (-29.5 vendor, -25.8 app, about -16%); and the build's own source maps list
     0 modules from __oracles__, __testkit__, the labs or @material-ui.
 
-    Older uncommitted work, still in the tree:
+    Also in that commit, from the days before the cleanup:
 
-    modified   .gitignore                          ignore public/__f35
+    modified   .gitignore                          ignore public/__f35 (moved out
+                                                   of public/ again on 2026-09-02)
     modified   docs/OPEN-FLAGS.md                  F33/F34/F35 entries
     modified   src/hooks/useKobinEngine.js         LOCAL_AUTOSAVE = false (F33)
     modified   src/Pages/CanvasEditor.js           the save bar; cloud-dirty off
@@ -74,93 +84,79 @@ UNCOMMITTED WORK IN THE TREE - nothing below is in git
     untracked  src/engine/geometry/f34.winding.test.js
     untracked  tools/docmaps/                      the two published pages
 
-    Plus the cleanup pass of 2026-08-28 recorded in 50-TODO.txt under DONE.
+    Plus the cleanup pass of 2026-08-28 recorded in docs/ROADMAP.md's ledger.
+
+UNCOMMITTED SINCE THEN - the 2026-09-02 pass, recorded in docs/ROADMAP.md's ledger
+
+    Nothing in the engine changed. public/ was emptied of everything that was
+    not the app shell (8.9 MB of debug data was shipping with every build);
+    five suites that read gitignored recordings now skip on a fresh clone
+    instead of throwing; a keyboard handler that let Backspace in the title
+    field delete the SELECTION was fixed; the product source lints clean; and
+    the documents that still described the tree as uncommitted, or the labs as
+    live, were corrected.
+
+    Then, the same day, the AUTOSAVE REWORK (F33): storage/db.js is new
+    (IndexedDB, a header record per canvas and a record per frame, thumbnails
+    under an LRU budget, the migration out of localStorage), localCanvases.js is
+    its async face, the hook's saver writes only the frames the document's
+    events named 1.5 s after the last change, the cloud payload compresses in a
+    worker, the gallery sweeps what used to leak and shows storage usage, and
+    LOCAL_AUTOSAVE is true again. 874 quick tests pass (six new). Kobin's
+    browser test is still to come; the ledger in docs/ROADMAP.md has the list.
 
 OPEN, IN THE ORDER THEY MATTER
 
-    F33  autosave dies silently when localStorage fills          HIGH, MITIGATED
-         LOCAL AUTOSAVE IS OFF. LOCAL_AUTOSAVE = false in hooks/useKobinEngine.js;
-         flip it to true to restore and nothing else has to change. The Save
-         button and cloud sync still work, and a standing dismissible banner says
-         autosave is off.
-         Two things were fixed on the way and are worth knowing, because they
-         mean a signed-in user with full storage previously had NO working save
-         path at all: a failed local write used to return before reaching
-         cloudSaveCanvas, and cloudDirtyRef was only ever set by a SUCCESSFUL
-         local autosave.
-         WHAT IS ACTUALLY LEFT IS NOT THE QUOTA. Measured on a phone: five
-         autosaves that all SUCCEEDED cost 29.6 s of a 48.6 s window, 97% of it
-         inside LZString.compressToUTF16 on a 16-million-character document.
-         Compressing that on the main thread is unaffordable at any quota. The
-         fix has to be a worker, or IndexedDB (no 5 MB cap, takes structured
-         data), or incremental saves. Unbounded thumbnails (1.54 MB across 251
-         keys on his machine) buy headroom but do not make it fast.
+    The live list is docs/OPEN-FLAGS.md and the plan is docs/ROADMAP.md. This
+    is the one-line version, so a reader with only this file knows the shape.
+    (Until 2026-09-02 each entry was restated here in full; that text is in
+    OPEN-FLAGS, unchanged.)
 
-    F34  an erase seals chords across the shape                  FIXED, UNVERIFIED
-         Root cause found and fixed: circleCircle computed h2 = r1^2 - a^2, which
-         is pure noise once r1 is ~1e10 and r2 is ~21, so crossings were lost or
-         halved and the fragments could not pair. Kobin's own reproduction goes
-         from 6 failures in 21 gestures to 0 of 21. HE HAS NOT SEEN IT IN A
-         BROWSER YET. Do not close it on the arithmetic fix alone. Two things
-         remain:
-           - a synthetic straddling sweep at r >= 1e10 now finds all four
-             crossings and STILL fails to assemble (146 open chains). Different
-             fault, same regime.
-           - the DESIGN-CORRECT repair, which Kobin is right about: the freeze is
-             wired into the render chain only, so the erase path consults a curve
-             the design says no longer exists. Either freeze on the cede path, or
-             intersect in bulge form and never materialise the centre.
+    F33  autosave dies silently when localStorage fills    REWORKED, UNVERIFIED
+         Local autosave is back ON (2026-09-02) over IndexedDB: a record per
+         frame, saved incrementally off the document's own events, no text
+         and no compression in between. Measured only on a two-stroke drawing
+         (1.7-1.9 ms a write); the phone run on the big drawing is the gate.
+    F34  an erase seals chords across the shape            FIXED, UNVERIFIED
+         circleCircle rewritten; Kobin has not seen it in a browser. Do not
+         close on the arithmetic fix alone.
+    F35  a group move displaces one member                 HIGH, CAPTURED
+         Six reports, renders in .kobin-reports/f35/renders/. Undiagnosed.
+         The 0.143-unit drift between two reports is the MOVE's (Kobin,
+         2026-09-02); the undo/redo between them was only how it was seen.
+    F29  a piece fades out of existence while zooming out  HIGH
+         Not reproduced. Harness: report 07-22-12 plus a zoom-out sweep.
+    F30  an eraser is consumed without cutting anything    HIGH
+         Not reproduced synchronously; instrumented so the next report
+         explains itself.
+    F32  the lasso sometimes misses objects                FIXED, UNVERIFIED
+         2026-09-03: the box test dropped a slanted stroke whose ink was
+         inside; the ink is asked now. The first cut of that cost 1.5 s a
+         loop on the phone; fixed the same day (985 -> 8 ms). Kobin doubts
+         his screenshot was a clean example of the miss; he will say.
+    F37  a ceded tile wore ants on all four sides          CLOSED 2026-09-03
+         The join was only looked for in the parent cell; a tile ceded into
+         the neighbouring cell had none. Every member one level up is tried.
+    F38  ants missing or partial after zooming in          CLOSED 2026-09-03
+         The 24,000 px ant budget was a hard stop. A sub-pixel frame is one
+         speck, per frame. (Its plain solid fallback lasted hours: see F39.)
+    F39  dense selection: solid outlines, slow zoom         CLOSED 2026-09-03
+         Third design of the day ships: ants from the render list's pieces,
+         on arcs, nothing flattened, decided once per render and moved by a
+         CSS transform on their own layer; a frame under 2 px is one dot.
+         Overlay JS per zoom step 17 -> 0.8 ms; a frame with the crawl running
+         50 -> 16.7 ms under the old budget. The budget is gone at Kobin's
+         word; the crawl's repaint is the cost (50-200 ms a frame here with
+         the whole drawing selected; ROADMAP, Performance). The lasso asks
+         "fully bounded" of a whole family; the ants ride with a drag.
+    F36  three tile grids, three APIs                      LATENT
+         Kobin, 2026-09-02: a real bug, just unlikely to be caught. Fix is
+         roadmap S1, one TileGrid type.
+    F5   the eraser has never passed a test by Kobin       standing
 
-    F35  a group move displaces one member                       HIGH, CAPTURED
-         Six reports captured across an undo/redo of the move; snapshots in
-         .kobin-reports/f35/, renders in public/__f35/ (gitignored). Every report
-         is a loadable drawing - src/engine/f35.render.test.js is the reader, and
-         that applies to EVERY report ever captured, not just these.
-         Not diagnosed. The cheapest thing to rule out first is not arithmetic:
-         three silent `continue`s in _dragSelection each drop ONE member of a
-         drag while every other member moves on, and nothing logs any of them.
-         Two unexplained facts from the numbers: the relative offset between
-         members CHANGES across an undo/redo with no gesture in between, and the
-         frame chain is rewritten between two of the reports.
-
-    F29  a piece fades out of existence while zooming out        HIGH
-         Caught mid-fade, after being cut off the main piece. Not reproduced.
-         Two candidates, both cheap to check: fadeTag is projectedSizePx at the
-         SOURCE frame's deepest zoom, so a freshly ceded piece reads much smaller
-         than it looks; and a piece that is actually fading is put in its own
-         render group rather than the family's, which makes the fade visible
-         instead of masked. Harness: report 07-22-12 plus a zoom-out sweep.
-
-    F30  an eraser is consumed without cutting anything          HIGH
-         The first cede at a new level did nothing. Does NOT reproduce
-         synchronously - the replay path runs flushErases() and the app runs
-         _bakeTick in 8 ms slices. The suspect is the DONE SET: _bakeOne marks a
-         target done BEFORE it can refuse, so a refusal is permanent for that
-         gesture. Instrumented: _rehomeBail records every refusal with its
-         reason, _noteSpent records the whole done set of a mark consumed
-         without cutting. A repeat now arrives with its own explanation attached.
-
-    F32  the lasso sometimes misses objects                      OPEN
-         Reported, never reproduced, no capture. Two things to rule out first,
-         both read off the code rather than observed: selection tests an object's
-         AXIS-ALIGNED RECT, not its ink, so a diagonal or curved stroke lying
-         comfortably inside the loop is skipped whenever its bbox corners poke
-         out - correct by the stated rule, a miss to the person drawing the loop;
-         and _rectInActive returning null drops an object silently. Ask for a
-         report while it is on screen.
-
-    F5   the eraser has never passed a test by Kobin             OPEN
-         Standing. See THE RULES in 00-START-HERE.txt.
-
-    UNEXPLAINED, from the same phone report as F33: the single worst frame of
-    the session is 7,858.9 ms attributed to dispatchDiscreteEvent /
-    DIV#root.onclick - a click handler, 7.8 s of script, no layout, no paint.
-    Nothing accounts for it. Baking is the other 40% of blocking time,
-    concentrated in three outliers worth 11.2 s of its 20.9 s.
-
-    LATENT FLAKE: perf.instrument.test.js PI-6 asserts that 40 zooms each finish
-    under 8 ms. That is a claim about the MACHINE, not the code, and it goes red
-    whenever the box is loaded. Give it a trace-mode assertion instead.
+    UNEXPLAINED, from phone report 23-54-04: a 7,858.9 ms click handler, pure
+    script, and three bake outliers worth 11.2 s of 20.9 s. LATENT FLAKE:
+    perf.instrument PI-6 asserts wall-clock time (roadmap E1).
 
 NOT VERIFIED ANYWHERE BUT ONE MACHINE
     Everything has been checked on Chrome 151 / Windows 11 / Intel Iris /
@@ -170,16 +166,4 @@ NOT VERIFIED ANYWHERE BUT ONE MACHINE
     around exists at all elsewhere is unknown.
 
 WHAT IS DELIBERATELY NOT BUILT
-    - D1 from the frame-lattice bible: a piece is still {C, r, a0, sweep, A, B}
-      rather than {A, B, bulge}. The freeze TEST never touches the centre, and a
-      line is never chopped, so an arc is only ever chopped at shallow depths -
-      but that is a structural argument standing in for a representation change.
-      It is the last decision from section 0 outstanding, and F34's root cause is
-      exactly the class of failure it would have prevented.
-    - The touching-arcs severance case (frame-lattice bible §7.4). Scoped,
-      understood, agreed not to build.
-    - The seam antialiasing rule (§7.5). A look-at-it question, nothing measured.
-    - Frame garbage collection. Abandoned cells are re-findable now, so the leak
-      is harmless, but nothing collects them.
-    - Threading. The bake is small enough that a worker buys little; the real
-      cost is asynchrony against a mutable document.
+    Moved to docs/ROADMAP.md, under the structural lane, on 2026-09-02.

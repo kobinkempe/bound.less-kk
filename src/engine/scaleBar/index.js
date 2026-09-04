@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Public facade for the ruling scale-bar engine (implementation doc B.2).
  */
 
