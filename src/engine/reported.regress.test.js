@@ -305,6 +305,7 @@ describe("RR-7 — a cut that reaches a tile edge parts the object (2026-08-15 p
     // turns on: the two sides of a completed cut meet the tile edge at the SAME
     // POINT, so a point contact means severed, not joined.
     const load = (frag) => {
+        if (!fs.existsSync(DIR)) return null;
         const f = fs.readdirSync(DIR).find((x) => x.includes(frag));
         if (!f) return null;
         const r = JSON.parse(fs.readFileSync(path.join(DIR, f), "utf8"));

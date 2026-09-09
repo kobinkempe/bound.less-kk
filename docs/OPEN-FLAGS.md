@@ -17,7 +17,7 @@ log and is a different thing.
 Read this file at the start of any session about baking, erasing, or stroke geometry.
 When summarising status for a handoff, point at this file by path.
 
-Last updated **2026-09-07**.
+Last updated **2026-09-08**.
 
 **THE FRAME LATTICE IS IN (2026-08-19).** A frame is a cell of a fixed lattice, a move is
 arithmetic on an address rather than a translation of geometry, and the magnify chain carries
@@ -1381,6 +1381,14 @@ consumed with the refusals on its journal note. Built with the erase worker (DES
 mark still bakes") is covered by design: a product inherits its parent's z and the mark
 has already stepped below the parent. Not yet reproduced on his canvas; keep open until
 he has tried it.
+
+Kobin, 2026-09-08, late, after the F67–F74 deploy: "I'm still dragging already baked
+objects under eraser bakes, which shouldn't be possible if the eraser goes down in
+Z-order as it bakes." Seen on the big canvas (mtqha19c7qjn), whose z values were
+rewritten by another session (F63) and whose cloud copy is still the stale one (F64),
+so it may not happen in a regular file. TO CONFIRM, not to work on yet: reproduce on a
+fresh canvas; if it does not reproduce there, check what `_zOf` sees for the mark and
+the dragged object on his canvas.
 
 Kobin, 2026-09-08: "selection isn't gated by eraser bakes being completed,
 which is wrong - the eraser never baked into an item, but I can still move
@@ -4187,6 +4195,17 @@ SEL_OBJECT_DOT_PX on screen is a dot where its picture is, dots on one pixel mer
 one (`mergeClose`). In the replay the sliver gets its dot at the report's camera; a few
 untraceable specks inside the traced bundle get dots among the ants. `selection.indicator.test.js`:
 a speck beside a large selected stroke keeps a dot once its ring is under a half pixel.
+
+### F74 — FIXED 2026-09-08. The set-scale dialog's Length input was drawn as a dark bar at the bottom of the screen.
+
+Kobin's screenshot: the "This length equals..." dialog open, and the number he typed
+sitting in a full-width dark strip near the bottom edge, outside the dialog. The
+2026-09-01 cleanup removed the `.bl-scale-field .bl-select` rule when the unit dropdown
+became a button grid, and left the selector before it dangling on its comma, so
+`.bl-scale-field .bl-input` fell through to the next rule: `.bl-toast` — fixed, bottom
+5rem, centred, ink background. In production since that deploy. Fixed: the rule closed
+(`box-sizing: border-box; width: 100%`). Measured in his Chrome: the input is static and
+inside the dialog rect.
 
 ## F-Z — a thin, long stroke vanishes while zooming out
 

@@ -432,7 +432,7 @@
 }
 .bl-scale-field { flex: 1 1 0; min-width: 0; }
 .bl-scale-field--unit { flex: 0 0 7rem; width: 7rem; }
-.bl-scale-field .bl-input,
+.bl-scale-field .bl-input { box-sizing: border-box; width: 100%; }
 
 /* Toast */
 .bl-toast {

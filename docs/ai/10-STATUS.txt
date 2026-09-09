@@ -40,7 +40,11 @@ Design options are in ROADMAP "Saving and memory at scale"; nothing built.
 2026-09-08: F65 (medium, Kobin) - an object can be dragged out from under an
 eraser mark that never baked into it. The selection barrier exists and gates
 by result (a refused, grazing, out-of-box or lower-z mark counts as not
-touching); which case he hit needs a report.
+touching); which case he hit needs a report. Later that night, after the
+F67-F74 deploy: still dragging baked objects under eraser bakes on the big
+canvas (z rewritten, F63) - to confirm on a fresh canvas first, not to work
+on yet. F74 the same night: the set-scale dialog's Length input drew as the
+toast (a selector left dangling on its comma since 2026-09-01); fixed.
 2026-09-08: MEMORY MEASURED (memory.census.probe.js on the exported canvas,
 forced GC): 721 MB live for 12,844 shapes and 832k pieces; an arc piece is
 344 B for 56 B of numbers, a line piece 192 B, an anchor 488 B; geometry 259
