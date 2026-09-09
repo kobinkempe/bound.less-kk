@@ -77,13 +77,22 @@ describe("selection", () => {
         E.pointerMove(180, 160);
         E.pointerUp();
         // The stroke is 13 wide, so its shape reaches 6.5 past each end.
-        const moved = { x0: 153.5, y0: 133.5, x1: 216.5, y1: 196.5 };
         const home = { x0: 93.5, y0: 93.5, x1: 156.5, y1: 156.5 };
-        nearBox(E.nativesByLevel[0][0], moved, 4);
+        const moved = { left: 153.5, top: 133.5, right: 216.5, bottom: 196.5 };
+        // Since F55 (2026-09-05) a move never touches a stored coordinate: the
+        // bits stay at home and the picture is drawn 60 by 40 further on, from
+        // the table at the home level.
+        const o = E.nativesByLevel[0][0];
+        nearBox(o, home, 4);
+        expect(o.below[0]).toEqual([60, 40]);
+        const shown = () => E._rectInActive(o, "0");
+        for (const k of ["left", "top", "right", "bottom"]) expect(shown()[k]).toBeCloseTo(moved[k], 4);
         E.undo(); // the whole drag is ONE op
-        nearBox(E.nativesByLevel[0][0], home, 4);
+        nearBox(o, home, 4);
+        expect(o.below).toBeUndefined();
         E.redo();
-        nearBox(E.nativesByLevel[0][0], moved, 4);
+        expect(o.below[0]).toEqual([60, 40]);
+        for (const k of ["left", "top", "right", "bottom"]) expect(shown()[k]).toBeCloseTo(moved[k], 4);
     });
 
     test("move keeps the spatial index in sync", () => {
@@ -117,15 +126,34 @@ describe("selection", () => {
         E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         expect(E.selection).not.toBeNull();
         expect(E.selection.level).toBe("0"); // the native's home FRAME id, not the active level
+        const id = E.nativesByLevel[0][0].id;
+        // The piece's bits never move (F55); it is DRAWN translated by `res`.
+        const pieceBox = () => {
+            E._render();
+            const p = E._objs().find((o) => o.id === id);
+            const b = boxOf(p), r = p.res || [0, 0];
+            return { x0: b.x0 + r[0], y0: b.y0 + r[1], x1: b.x1 + r[0], y1: b.y1 + r[1] };
+        };
+        const shown = pieceBox();
         E.pointerDown(400, 300);
         E.pointerMove(430, 300);
         E.pointerUp();
-        const after = boxOf(E.nativesByLevel[0][0]);
-        expect(after.x0).not.toBe(before.x0);                // it moved...
-        expect(Math.abs(after.x0 - before.x0)).toBeLessThan(1); // ...by a sub-frame-unit amount (30px / ~3000)
-        expect(after.y0).toBeCloseTo(before.y0, 6);          // x-only drag
+        const native = E.nativesByLevel[0][0];
+        // Since F41 (2026-09-04) a drag from BELOW the home does not touch
+        // the home coordinates: the displacement lives in the native's offset
+        // at this depth below its home, in this frame's units, and the picture
+        // here moves by exactly the pointer's travel. (Before, the coordinates
+        // were translated by 30 px / 4096 — below a float64 step three
+        // crossings down, which is what moved objects in jumps.)
+        expect(boxOf(native)).toEqual(before);
+        expect(native.below[1]).toEqual([30 / E.cam.inScale, 0]);
+        const moved = pieceBox();
+        expect(moved.x0 - shown.x0).toBeCloseTo(30 / E.cam.inScale, 6);
+        expect(moved.y0).toBeCloseTo(shown.y0, 6);              // x-only drag
         E.undo();
-        expect(boxOf(E.nativesByLevel[0][0]).x0).toBeCloseTo(before.x0, 9);
+        expect(E.nativesByLevel[0][0].below).toBeUndefined();
+        expect(boxOf(E.nativesByLevel[0][0])).toEqual(before);
+        expect(pieceBox().x0).toBeCloseTo(shown.x0, 9);
     });
 
     test("selection drops automatically when the object is erased out from under it", () => {
@@ -418,7 +446,10 @@ describe("deferred area erase", () => {
         while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
         expect(E.activeLevel).toBe(0);
         E._render();
-        expect(E._hitTest(400, 300)).toBeNull();
+        // Slack-free: the hole is 4 px in radius on screen here, inside the
+        // 6 px pick ring a fill piece gets like every other representation
+        // since F52, and the question is whether the hole EXISTS.
+        expect(E._hitTest(400, 300, 0)).toBeNull();
         // At its OWN frame the parent renders as itself — the identical object,
         // not a per-view re-derivation of it. That is what makes the picture
         // impossible to get stale: there is no second copy to fall behind.
@@ -455,7 +486,7 @@ describe("deferred area erase", () => {
         while (E.activeLevel > 0 && guard++ < 40) E.zoomAt(400, 300, 1000);
         expect(E.activeLevel).toBe(0);
         E._render();
-        expect(E._hitTest(400, 300)).toBeNull();
+        expect(E._hitTest(400, 300, 0)).toBeNull();   // slack-free, as above (F52)
         // The cut parent and its minified child are both on screen and both
         // carry the family key, so Renderer groups them together.
         expect(E._objs().some((o) => E.doc.editKey(o) === src.id && o.attachRect == null)).toBe(true);
@@ -549,11 +580,21 @@ describe("deferred area erase", () => {
         E.pointerMove(430, 330); E.pointerUp();
         // Parent, child and the doorway between them all move together — the
         // attachRect is where the two meet, so a move that left it behind would
-        // sever the object the next time anything asked.
-        expect(boxOf(parent)).not.toEqual(beforeParent);
-        expect(boxOf(kids[0])).not.toEqual(beforeKid);
-        expect(kids[0].attachRect).not.toEqual(beforeAttach);
+        // sever the object the next time anything asked. The parent is homed a
+        // level above the camera, so since F41 (2026-09-04) its coordinates
+        // stay exactly as they were and its move lives in its offset one level
+        // below the home — the same displacement the kid took in its own
+        // coordinates, which is what keeps the two registered.
+        expect(boxOf(parent)).toEqual(beforeParent);
+        expect(parent.below[1]).toEqual([30 / E.cam.inScale, 0]);
+        // ...and since F55 the kid's bits and window do not move either: its
+        // table at ITS home level carries the same displacement.
+        expect(boxOf(kids[0])).toEqual(beforeKid);
+        expect(kids[0].attachRect).toEqual(beforeAttach);
+        expect(kids[0].below[0]).toEqual([30 / E.cam.inScale, 0]);
         E.undo();
+        expect(parent.below).toBeUndefined();
+        expect(kids[0].below).toBeUndefined();
         nearBox(parent, beforeParent, 9);
         nearBox(kids[0], beforeKid, 6);
         expect(kids[0].attachRect).toEqual(beforeAttach);

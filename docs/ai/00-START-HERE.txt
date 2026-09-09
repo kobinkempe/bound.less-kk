@@ -36,10 +36,24 @@ RUN IT
     npm install
     npm start              dev server on :3000   (or the "boundless" launch config)
     npm run report-server  report receiver on :3001, writes .kobin-reports/
-    npm run test:quick     everything except *.slow.test.js   (~70 s, 868 tests)
-    npm run test:slow      the slow suites            (~500 s, 598 tests)
+    npm run test:quick     everything except *.slow.test.js   (~150 s, 1011 tests)
+                           *.probe.js files are measurement harnesses the suite
+                           skips; tools/harnesses/README.md says how to run one
+    npm run test:slow      the slow suites            (~500 s, 612 tests)
+    npm run test:erase     the nine erase.*.slow suites + fidelity.compare.slow
     npm run test:all       both
+    npm run typecheck      tsc with checkJs over src/engine/geometry + frameLattice
+                           (tsconfig.geometry.json; the typedefs are geometry/types.js).
+                           0 errors is the bar; CI runs it.
+    npm run lint           eslint over src/, with the layering rule
+                           (import/no-restricted-paths in package.json): engine/*
+                           never imports Pages/, hooks/, cloud/, storage/ or the
+                           oracles; geometry/* only geometry/* and frameLattice.
     npm run build          production build to build/
+
+    CI: .github/workflows/ci.yml runs typecheck + test:quick on every push and
+    pull request and test:all nightly, on Node 14 (the CRA 4 toolchain). It
+    exists in the tree since 2026-09-07 and runs once the tree is pushed.
 
     Dev tools in the app: append ?dev to a canvas URL, e.g.
     /#/canvas/new?dev  - reveals the Dev panel (level/zoom/object readouts, the
@@ -93,7 +107,8 @@ READ IN THIS ORDER
     5. docs/ai/40-CALL-FLOW.txt       what calls what, input to pixels
     6. docs/ROADMAP.md                the plan and the backlog, in the order Kobin
                                       set (fix autosave, deploy, performance and
-                                      bugs, UX), with the DONE ledger at the bottom.
+                                      bugs, UX), the REGISTER of every deferred
+                                      design change, and the DONE ledger.
                                       It replaced 50-TODO, 60-RECOMMENDATIONS and
                                       70-RELEASES on 2026-09-02.
     7. docs/OPEN-FLAGS.md             THE live issue list. Authoritative.

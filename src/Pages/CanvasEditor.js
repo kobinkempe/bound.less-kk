@@ -17,7 +17,7 @@ import {
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
 import {
-    cloudSaveCanvas, cloudLoadCanvas, cloudGetCanvasMeta, cloudTrashCanvas,
+    cloudLoadCanvas, cloudGetCanvasMeta, cloudTrashCanvas, cloudPushCanvas2, cloudLoadCanvas2,
     cloudSetEditing, cloudClearEditing,
 } from "../cloud/canvasSync";
 import {
@@ -131,8 +131,34 @@ export default function CanvasEditor() {
     useEffect(() => {
         const E = engine.engineRef.current;
         if (!E) return undefined;
-        return E.doc.subscribe(() => { cloudDirtyRef.current = true; });
+        // A load's reset is not an edit: what was just pulled or restored is
+        // not new work for the cloud.
+        return E.doc.subscribe((ev) => { if (!(ev.kind === "reset" && ev.load)) cloudDirtyRef.current = true; });
     }, [engine.engineReady, engine.engineRef]);
+    // A failed sync is SHOWN (the bar below the toolbar, with the size that
+    // failed) and retried with an exponential backoff, 1 min to 30 min, not
+    // every 30 s: on a 100 MB drawing each try stringified the whole document
+    // on the main thread and failed in the compressor (F64).
+    const [cloudError, setCloudError] = useState(null);
+    const cloudFailRef = useRef({ count: 0, until: 0 });
+    // ONE PUSH AT A TIME. A push of a large canvas takes minutes (the frames read back,
+    // gzipped and committed 6 parts a batch); the 30 s tick used to start another beside
+    // it whenever the bake had dirtied the document again, and Firestore's write stream
+    // answered "exhausted maximum allowed queued writes" every minute while the tab
+    // churned gigabytes (seen 2026-09-08 on the 12,849-object canvas). Busy holds until
+    // the SDK settles the push, deadline or not, so a timed-out push cannot be doubled.
+    const cloudBusyRef = useRef(false);
+    const PUSH_DEADLINE_MS = 5 * 60000;
+    const withDeadline = (p, ms, why) => new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error(why)), ms);
+        p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+    });
+    // Dev console handle for the cloud manifest, behind the same ?dev as the panel.
+    useEffect(() => {
+        if (!devUnlocked || !user) return undefined;
+        window.__cloudMeta = () => cloudGetCanvasMeta(user.uid, realId);
+        return () => { delete window.__cloudMeta; };
+    }, [devUnlocked, user, realId]);
     const editorRef = useRef(null);
     const fileRef = useRef(null);
     const colorSectionRef = useRef(null);
@@ -280,21 +306,28 @@ export default function CanvasEditor() {
         if (E) E.notePerf?.("saveTotal", tSave, { scenes: (doc.meta.scenes || []).length });
         let cloud = false;
         if (user) {
-            // Timed like the local save is: the cloud payload is stringified
-            // here and compressed in a worker, and both halves belong in a
-            // report (they were invisible until 2026-09-02).
+            // The cloud copy mirrors the local store (frames newer than the
+            // cloud's and the log past its seq), so nothing is stringified;
+            // timed for the report like the local save is.
             const tCloud = perfNow();
             try {
-                const json = JSON.stringify(doc);
-                const tJson = perfNow();
-                const r = await cloudSaveCanvas(user.uid, entry, json, Object.keys(fresh).length ? fresh : null);
-                if (E) E.notePerf?.("cloudSave", tCloud, { where: "save", chars: json.length, jsonMs: +(tJson - tCloud).toFixed(1), ...(r || {}) });
+                if (cloudBusyRef.current) throw new Error("a cloud push is still running");
+                const source = await engine.cloudPushSource();
+                if (!source) throw new Error("nothing in the local store to push yet");
+                cloudBusyRef.current = true;
+                const push = cloudPushCanvas2(user.uid, entry, source, { deviceId: getDeviceId(), thumbs: Object.keys(fresh).length ? fresh : null, dropBelow: source.dropBelow });
+                const release = () => { cloudBusyRef.current = false; };
+                push.then(release, release);
+                const r = await withDeadline(push, PUSH_DEADLINE_MS, "the push did not finish in 5 min");
+                if (E) E.notePerf?.("cloudSave", tCloud, { where: "save", ...(r || {}) });
                 cloud = true;
                 cloudDirtyRef.current = false;
             } catch (err) {
                 console.warn("cloud save failed", err);
                 cloudDirtyRef.current = true; // autosync retries
-                showToast("Saved to this browser — cloud sync failed");
+                showToast(/still running/.test(String(err && err.message))
+                    ? "Saved to this browser — the cloud sync is still running"
+                    : "Saved to this browser — cloud sync failed");
             }
         }
         return { local, cloud };
@@ -306,24 +339,42 @@ export default function CanvasEditor() {
     // the server merge keeps the previously stored set.
     const cloudAutosync = useCallback(async () => {
         if (!user || !cloudDirtyRef.current) return;
+        if (Date.now() < cloudFailRef.current.until) return;
+        if (cloudBusyRef.current) return;   // the tick after the running push lands retries
         const E = engine.engineRef.current;
         if (!E) return;
         const entry = readIndex().find((e) => e.id === realId);
         if (!entry) return; // never explicitly saved — stays local-only
         cloudDirtyRef.current = false; // claim; re-set on failure
         const t0 = perfNow();
+        let bytes = 0;
         try {
-            const doc = E.serializeDrawing();
-            const json = JSON.stringify(doc);
-            const tJson = perfNow();
-            const r = await cloudSaveCanvas(user.uid, {
+            const source = await engine.cloudPushSource();
+            if (!source) { cloudDirtyRef.current = true; return; }   // nothing on disk yet; the local save comes first
+            cloudBusyRef.current = true;
+            const push = cloudPushCanvas2(user.uid, {
                 ...entry,
                 savedAt: new Date().toISOString(),
-                ...statsFromDoc(doc),
-            }, json, null);
-            E.notePerf?.("cloudSave", t0, { where: "sync", chars: json.length, jsonMs: +(tJson - t0).toFixed(1), ...(r || {}) });
+                ...engine.stats(),
+            }, source, { deviceId: getDeviceId(), dropBelow: source.dropBelow });
+            const release = () => { cloudBusyRef.current = false; };
+            push.then(release, release);
+            const r = await withDeadline(push, PUSH_DEADLINE_MS, "the push did not finish in 5 min");
+            bytes = (r && r.bytes) || 0;
+            E.notePerf?.("cloudSave", t0, { where: "sync", ...(r || {}) });
+            cloudFailRef.current = { count: 0, until: 0 };
+            setCloudError(null);
         } catch (err) {
             cloudDirtyRef.current = true;
+            const f = cloudFailRef.current;
+            f.count += 1;
+            const waitMs = Math.min(30 * 60000, 60000 * Math.pow(2, f.count - 1));
+            f.until = Date.now() + waitMs;
+            const mb = bytes ? Math.round(bytes / 1048576) : null;
+            const why = String((err && err.message) || err).slice(0, 80);
+            const wait = waitMs >= 60000 ? `${Math.round(waitMs / 60000)} min` : `${Math.round(waitMs / 1000)} s`;
+            setCloudError({ at: Date.now(), message: `Cloud sync failed${mb != null ? ` (${mb} MB)` : ""}: ${why}. Saved in this browser only; next try in ${wait}.` });
+            E.notePerf?.("cloudSaveFail", t0, { where: "sync", bytes, tries: f.count, waitMs });
             console.warn("cloud autosync failed", err);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -463,6 +514,35 @@ export default function CanvasEditor() {
                     const localAt = readIndex().find((e) => e.id === realId)?.savedAt || "";
                     if (!meta || String(meta.savedAt || "") <= String(localAt)) return;
                 }
+                const meta2 = await cloudGetCanvasMeta(user.uid, realId);
+                if (meta2 && meta2.format === "kobin-2") {
+                    const pulled = await cloudLoadCanvas2(user.uid, realId);
+                    if (stale || !pulled) return;
+                    // Never replace a local drawing with an empty cloud copy.
+                    if (localDoc && !(pulled.meta.strokes > 0)) return;
+                    if (localDoc && statsFromDoc(localDoc).strokes > 0) {
+                        try {
+                            const entry = readIndex().find((e) => e.id === realId);
+                            await stashOverwrittenVersion(localDoc,
+                                (entry && entry.name) || (localDoc.meta && localDoc.meta.name !== "untitled" && localDoc.meta.name) || "Untitled canvas");
+                        } catch (err) { /* the backup below still covers it */ }
+                    }
+                    await backupCanvasDoc(realId);
+                    if (stale) return;
+                    const ok = await engine.replaceStore(pulled);
+                    if (!ok) return;
+                    const cloudName = pulled.meta && pulled.meta.name;
+                    if (cloudName && cloudName !== "untitled") engine.patchDocMeta({ name: cloudName });
+                    upsertIndexEntry({
+                        id: realId,
+                        name: (cloudName && cloudName !== "untitled" ? cloudName : null) || "Untitled canvas",
+                        savedAt: new Date().toISOString(),
+                        ...engine.stats(),
+                    });
+                    if (pulled.thumbs) await saveThumbs(realId, pulled.thumbs);
+                    if (cloudName && cloudName !== "untitled") setCanvasTitle(cloudName);
+                    return;
+                }
                 const res = await cloudLoadCanvas(user.uid, realId);
                 if (stale || !res || !res.json) return;
                 const parsed = JSON.parse(res.json);
@@ -594,10 +674,14 @@ export default function CanvasEditor() {
     // not to the bar. Waving away "autosave is off" must not also silence a
     // real save failure that happens afterwards, which would rebuild the exact
     // silent-data-loss trap the bar exists to close (F33).
-    const saveNoticeKind = !engine.saveError ? null
-        : engine.saveError.off ? "off"
-        : engine.saveError.quota ? "quota" : "fail";
-    const showSaveBar = !!engine.saveError && saveNoticeDismissed !== saveNoticeKind;
+    // The cloud's failure rides the same bar when the local store is fine; a
+    // local failure outranks it (nothing is saved anywhere then).
+    const saveNotice = engine.saveError || cloudError;
+    const saveNoticeKind = !saveNotice ? null
+        : saveNotice.off ? "off"
+        : saveNotice.quota ? "quota"
+        : saveNotice === cloudError ? "cloud:" + cloudError.at : "fail";
+    const showSaveBar = !!saveNotice && saveNoticeDismissed !== saveNoticeKind;
 
     // The cloud can now succeed while the local write fails, so "did it save?"
     // is no longer answered by `local` alone.
@@ -1152,9 +1236,9 @@ export default function CanvasEditor() {
                 outside the console — the exact failure it was added to expose.
                 It also carries the standing "autosave is off" notice. */}
             {showSaveBar && (
-                <div className={"bl-savebar" + (engine.saveError.off ? " bl-savebar--off" : "")}
+                <div className={"bl-savebar" + (saveNotice.off ? " bl-savebar--off" : "")}
                     role="status">
-                    <span className="bl-savebar__msg">{engine.saveError.message}</span>
+                    <span className="bl-savebar__msg">{saveNotice.message}</span>
                     <button type="button" className="bl-savebar__btn" onClick={handleSave}>Save now</button>
                     <button type="button" className="bl-savebar__x" aria-label="Dismiss"
                         title="Dismiss" onClick={() => setSaveNoticeDismissed(saveNoticeKind)}>

@@ -30,8 +30,7 @@
 import LevelMap from "../LevelMap";
 import { BASE, ENTER, EXIT, R as R_NEW, G, W as FRAME_W, cellOf, carryDigit } from "../frameLattice";
 
-const LEGACY_ENTER = 300, LEGACY_BASE = 0.1;
-const R_OLD = LEGACY_ENTER / LEGACY_BASE;   // 3000
+const LEGACY_BASE = 0.1;   // the pre-lattice base; its enter was 300, so its crossing ratio was 3000
 
 /** Is this a snapshot from before the lattice? Both old shapes count. */
 export function isLegacySnapshot(snap) {
@@ -62,7 +61,6 @@ function legacyTree(cr) {
 }
 
 // The legacy record for depth d maps depth d-1 -> depth d.
-const upLegacy = (p, rec) => [(p[0] * rec.s + rec.t.x) / LEGACY_BASE, (p[1] * rec.s + rec.t.y) / LEGACY_BASE];
 const downLegacy = (p, rec) => [(p[0] * LEGACY_BASE - rec.t.x) / rec.s, (p[1] * LEGACY_BASE - rec.t.y) / rec.s];
 
 // A serialized shape carries its perimeter ENCODED — `loops` is an array of

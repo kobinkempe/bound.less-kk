@@ -12,17 +12,14 @@
  * features and therefore to neither.
  */
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
-    descend, ascend, camShot, camRestore, topView, painted, paintedAll,
-    inkAt, colorAt, topAt, raster, rasterVisible, rasterDiff, inkRunsX, families,
-    natives, picture, vertexCount, tileSeam, centerOn,
+    useEngines, mkEngine, drawStroke, eraseGesture, erase, descend, camShot, camRestore, topView,
+    inkAt, colorAt, raster, rasterDiff, inkRunsX, families, natives, picture,
 } from "./__testkit__/harness";
-import KobinEngine from "./KobinEngine";
 
 jest.setTimeout(300000);
 useEngines();
 
-const BLUE = "#1133cc", RED = "#cc3311", GREEN = "#118844";
+const BLUE = "#1133cc", RED = "#cc3311";
 const DEPTHS = [[0], [1], [2], [3]];
 const band = (E, w = 90, y = 300, c = BLUE) => drawStroke(E, [[-200, y], [1000, y]], w, c);
 
@@ -349,7 +346,6 @@ describe("CP-10 — clear, and undoing it", () => {
     test("clear removes an erased family whole, and undo restores it whole", () => {
         const E = mkEngine();
         band(E, 90);
-        const home = camShot(E);
         descend(E, 3, 400, 300);
         erase(E, [[400, 250], [400, 350]], 18);
         const deep = camShot(E);

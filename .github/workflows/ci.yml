@@ -1,0 +1,50 @@
+# CI (2026-09-07, roadmap "Coverage and CI"): the quick suite on every push and
+# pull request, the whole suite nightly. Not for the process — for the fact
+# that a local run gets interrupted and a remote one does not ("62 of 63
+# suites passed and the 63rd hung for three hours" has happened here).
+#
+# The suites that read `.kobin-reports/` (gitignored recordings of Kobin's
+# sessions) skip themselves when the folder is absent, so a clean checkout is
+# a valid run. Node 14 because the toolchain is CRA 4 (S6 on the roadmap is
+# the move off it); `CI=true` makes react-scripts run once and exit.
+name: tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"   # nightly, 03:17 UTC
+  workflow_dispatch:
+
+jobs:
+  quick:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:quick
+        env:
+          CI: "true"
+
+  nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:all
+        env:
+          CI: "true"

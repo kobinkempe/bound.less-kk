@@ -27,14 +27,28 @@
  * magnify (H < L) is only used step-by-step through tiles (coordinates grow —
  * composed long jumps cancel catastrophically, which is WHY the chain exists).
  */
-import { strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear, decimatePolyline } from "./polyline";
+import {
+    strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear,
+    decimatePolyline,
+} from "./polyline";
 import { strokeOutline } from "./clipperBoolean";
-import { loopsBBox, clipShapeToRect, flattenShape, transformLoops, transformLoopsAbout, insideShape, pieceBBox, loopsArea } from "./arcShape";
-import { chopFreezeLoops, markSeamEnds, tileWindow, tileClipRect } from "./freeze";
-import { childTilePhase } from "../frameLattice";
+import {
+    loopsBBox, clipShapeToRect, flattenShape, transformLoops, transformLoopsAbout, insideShape,
+    pieceBBox, loopsArea,
+} from "./arcShape";
+import { chopFreezeLoops, freezeRadius } from "./freeze";
+import { childTilePhase, tilePhase, TileGrid } from "../frameLattice";
 
 // Object bbox in its own frame. Cached on the object: geometry is immutable once
 // the stroke is finished (only the live in-progress stroke still grows).
+//
+// Three bbox paths answer three questions, and this is the CACHED one — read
+// it for anything that runs per render or per gesture. `arcShape.loopsBBox`
+// is the exact bbox of arc loops, bulges included, and is what this one
+// calls for a shape; `Document._bboxNow` is the same arithmetic UNCACHED, for
+// the edit path that needs the box the object had before the edit invalidated
+// this cache. None of them is wrong; only this one may be stale on the live
+// stroke, which is why `live` is excluded from the cache.
 export function bboxOf(o, live) {
     if (o._bbox) return o._bbox;
     let b;
@@ -80,6 +94,8 @@ export const shapeTol = (cfg) => (cfg.arcTolerancePx * 0.5) / cfg.enter;
  * is that it happens at the same time every time you bake it."
  */
 export const freezeTol = (cfg) => (cfg.arcTolerancePx * 0.5) / cfg.enter;
+/** The freeze radius at the engine's tolerance (freeze.js rule 2) — the one gate the chop, the clip and every boolean use. */
+export const freezeR = (cfg) => freezeRadius(freezeTol(cfg));
 
 /** An object's tile-grid phase, or the frame-aligned default (bible 6.6). */
 export const ZERO_PHASE = [0, 0];
@@ -101,7 +117,7 @@ export const tilePhaseOf = (o) => (o && o.tile ? o.tile : ZERO_PHASE);
  * frame origin, which at depth is the difference between a sharp edge and a
  * quantized one.
  */
-export function shapeRingsInRect(loops, rect, tol) {
+export function shapeRingsInRect(loops, rect, tol, opts) {
     const cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
     const local = transformLoops(loops, 1, -cx, -cy);
     const lrect = { left: rect.left - cx, top: rect.top - cy, right: rect.right - cx, bottom: rect.bottom - cy };
@@ -137,7 +153,7 @@ export function shapeRingsInRect(loops, rect, tol) {
         const whole = flattenShape(local, tol).map((ring) => ring.map(([x, y]) => [x + cx, y + cy]));
         return { rings: whole, covered: false };
     }
-    const clipped = clipShapeToRect(local, lrect).loops;
+    const clipped = clipShapeToRect(local, lrect, opts).loops;
     if (!clipped.length) return { rings: [], covered: false };
     // The clip came back as the tile itself: the ink covers this tile and only
     // grazes its edge. Still a covering quad, and saying so keeps the magnify
@@ -169,7 +185,7 @@ export function shapeRingsInRect(loops, rect, tol) {
  * anywhere along it; that happens once, at paint, against nothing that is
  * stored, so it can never be inherited.
  */
-export function shapeLoopsInRect(loops, rect) {
+export function shapeLoopsInRect(loops, rect, opts) {
     const cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
     const local = transformLoops(loops, 1, -cx, -cy);
     const lrect = { left: rect.left - cx, top: rect.top - cy, right: rect.right - cx, bottom: rect.bottom - cy };
@@ -193,17 +209,19 @@ export function shapeLoopsInRect(loops, rect) {
     if (sb && sb.x0 >= lrect.left && sb.x1 <= lrect.right && sb.y0 >= lrect.top && sb.y1 <= lrect.bottom) {
         return { loops: back(local), rings: [], covered: false };
     }
-    const clipped = clipShapeToRect(local, lrect).loops;
+    const clipped = clipShapeToRect(local, lrect, opts).loops;
     if (!clipped.length) return { loops: [], rings: [], covered: false };
     const area = (lrect.right - lrect.left) * (lrect.bottom - lrect.top);
     if (clipped.length === 1 && Math.abs(loopsArea(clipped) - area) <= 1e-9 * area) {
         return { loops: [], rings: quad(), covered: true };
     }
     // The overhang's own ends are not the object's — they are a duplicate of
-    // what the neighbouring tile holds properly, cut short. Say so, or the level
-    // below will measure one for straightness and freeze it to a chord the
-    // neighbour disagrees with (freeze.js).
-    return { loops: back(markSeamEnds(clipped, lrect)), rings: [], covered: false };
+    // what the neighbouring tile holds properly, cut short. Until 2026-09-07
+    // they were marked here (`markSeamEnds`) so the level below would not
+    // measure one for straightness; the radius gate's endpoint guard refuses
+    // such a stub on its own (freeze.js, the note at the top), so nothing is
+    // marked any more.
+    return { loops: back(clipped), rings: [], covered: false };
 }
 
 // Chords of an object's displayed spline at in-level display fidelity
@@ -428,15 +446,17 @@ export function bandRings(tpts, lw, rect, clipRect, cfg, opts = {}) {
 // classifier. Padding is used at its maximum (ignoring opacity) — classifying
 // something as "edge" that could have been "solid" only costs a little work,
 // while the reverse paints over detail, so the conservative direction is safe.
-export function classifyUp(o, s, t, rect, cfg, live) {
+export function classifyUp(o, s, t, rect, cfg, live, off) {
     const base = cfg.base;
     const f = s / base;
     const b = bboxOf(o, live);
     const half = o.type === "fill" ? 0 : (o.lwFrame * f) / 2;
     const pad = seamPadFor(cfg);
     const prect = padRect(rect, pad);
-    const bx0 = (b.x0 * s + t.x) / base, bx1 = (b.x1 * s + t.x) / base;
-    const by0 = (b.y0 * s + t.y) / base, by1 = (b.y1 * s + t.y) / base;
+    // `off`: the object's offset at this hop (F41), in the child's units.
+    const ox = off ? off[0] : 0, oy = off ? off[1] : 0;
+    const bx0 = (b.x0 * s + t.x) / base + ox, bx1 = (b.x1 * s + t.x) / base + ox;
+    const by0 = (b.y0 * s + t.y) / base + oy, by1 = (b.y1 * s + t.y) / base + oy;
     // EMPTY: the band cannot reach the tile — nor its overlap into the neighbour.
     if (bx1 + half < prect.left || bx0 - half > prect.right || by1 + half < prect.top || by0 - half > prect.bottom) return "empty";
     // A resolved shape is always EDGE: `shapeRingsInRect` decides covered vs cut
@@ -455,7 +475,7 @@ export function classifyUp(o, s, t, rect, cfg, live) {
     const cx = (prect.left + prect.right) / 2, cy = (prect.top + prect.bottom) / 2;
     const hw = (prect.right - prect.left) / 2, hh = (prect.bottom - prect.top) / 2;
     for (const p of o.pts) {
-        const px = (p[0] * s + t.x) / base, py = (p[1] * s + t.y) / base;
+        const px = (p[0] * s + t.x) / base + ox, py = (p[1] * s + t.y) / base + oy;
         if (Math.hypot(Math.abs(px - cx) + hw, Math.abs(py - cy) + hh) < half) return "solid";
     }
     return "edge";
@@ -466,9 +486,12 @@ export function classifyUp(o, s, t, rect, cfg, live) {
 // neighbours (seam hairline).
 export function solidQuad(o, rect, opts = {}) {
     const r = padRect(rect, opts.pad || 0);
+    // `clip`: the rectangle this piece stands for, like every other piece. The
+    // erase's descent reads it as the window a tile cedes (F42), and the
+    // selection indicator as the cut every side of the quad is.
     const q = { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
         opacity: o.opacity, polys: [[[r.left, r.top], [r.right, r.top],
-            [r.right, r.bottom], [r.left, r.bottom]]], paths: [] };
+            [r.right, r.bottom], [r.left, r.bottom]]], paths: [], clip: r };
     if (o.editId != null) q.editId = o.editId;
     return q;
 }
@@ -476,8 +499,45 @@ export function solidQuad(o, rect, opts = {}) {
 // ---- exact port of KobinEngineV0._deriveInto (the "edge" tier) ----
 // Transform parent objects into this level's frame ((p*s+t)/base) and clip to `rect`,
 // applying the size gate (large strokes -> filled outline, small -> clipped stroke).
-// opts: { cfg, width, opacityGroups, live, parentCurved, childCurved } — the curved
-// flags accept a boolean or a per-object predicate (new engine: per-origin).
+// opts: { cfg, width, opacityGroups, live, parentCurved, childCurved } — the
+// curved flags accept a boolean or a per-object predicate (new engine:
+// per-origin). Until F55 (2026-09-05) an `offsetOf(o)` here added a moved
+// object's offset in the hop, once, at the child's precision; that one
+// rounding was magnified 4096x per level below the move, so a move's
+// displacement no longer enters the chain at all — the tiles are unmoved
+// space, and where a moved object's picture is read from is decided at render
+// time from its table (TileStore._reroute, LevelMap.objShift).
+//
+// BACKWARDS COMPATIBILITY, and the decision that has to be made before the
+// true 1.0 (Kobin, 2026-09-05). Every deep picture in every saved drawing is
+// DERIVED, by this function and the ones it calls (`chopFreezeLoops`, the
+// clip in `clipShapeToRect`, the arc cut points in `arcPerimeter`), from the
+// stored home geometry — nothing below an object's home level is stored unless
+// an erase ceded it. So the last bit of arithmetic here IS the picture eight
+// levels down: change the freeze test, the chop, a cut formula or the order
+// of one addition, and every existing drawing's detail drawn against a
+// coarse object moves by that change times 4096 per level (F43 measured a
+// last-bit change as a screen at level 7 and an empty tile at 8). Two ways
+// out, not yet chosen: (a) store what has been looked at — cede a coarse
+// object's chain down to any tile that holds references, the way an erase
+// does (F42), so those bits are no longer derived and this function can
+// change freely; the cost is natives per level per reference site, and a
+// cost analysis is owed before deciding; (b) keep pictures derived and
+// version the derivation — a saved drawing records which arithmetic it was
+// drawn under, and old files keep running the old one. Until one is chosen,
+// ANY CHANGE TO THIS PATH (F44's three layers most of all) is a compatibility
+// event for shipped drawings, and shipping it needs Kobin's explicit call.
+// Three such changes are already in the working tree and not deployed: F55
+// (no move offset enters this hop any more) and F43 (a cut line's or arc's
+// deep cuts come from its canonical line or arc — `mapLine`,
+// `reanchorCutLines`, `reanchorCutArcs` in arcShape.js, `settleCut` in
+// freeze.js), both 2026-09-05 and neither changing the bits of an unmoved,
+// uncut piece; and F44's one-radius freeze (2026-09-06, freeze.js rule 2),
+// which changes WHICH pieces freeze — every arc over ~8.8e12 units now
+// freezes where the old test refused it — and so shifts the deep picture of
+// every existing drawing with a curved stroke zoomed past its third
+// crossing, by up to the tolerance times 4096 per level. Kobin asked for the
+// gate knowing that; the next deploy is the compatibility event.
 export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
     const { cfg, width: W, opacityGroups, live } = opts;
     const base = cfg.base;
@@ -485,6 +545,9 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
     const curvedP = typeof opts.parentCurved === "function" ? opts.parentCurved : () => opts.parentCurved;
     const curvedC = typeof opts.childCurved === "function" ? opts.childCurved : () => opts.childCurved;
     const seams = opts.seams || SEAMS;
+    // No offset enters the hop (F55): a move never touches what a tile is made
+    // of. `ox`/`oy` stay as names so the arithmetic below reads as it did.
+    const ox = 0, oy = 0;
     for (const o of parentObjs) {
         // Seam pad (see seamPad): per-object, because whether overlap is safe
         // depends on the object's own opacity.
@@ -499,8 +562,8 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
         // on raw points, so the point bbox plus the stroke-width margin is safe).
         const b = bboxOf(o, live);
         const m = o.type === "fill" ? pad : o.lwFrame * (s / base) + (seams.centerlines ? pad : 0);
-        if ((b.x1 * s + t.x) / base < rect.left - m || (b.x0 * s + t.x) / base > rect.right + m ||
-            (b.y1 * s + t.y) / base < rect.top - m || (b.y0 * s + t.y) / base > rect.bottom + m) continue;
+        if ((b.x1 * s + t.x) / base + ox < rect.left - m || (b.x0 * s + t.x) / base + ox > rect.right + m ||
+            (b.y1 * s + t.y) / base + oy < rect.top - m || (b.y0 * s + t.y) / base + oy > rect.bottom + m) continue;
         const tag = (piece) => {
             if (o.editId != null) piece.editId = o.editId;
             out.push(piece);
@@ -518,16 +581,18 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // opposite sign, losing the low bits before the addition can
             // recover them. c = -t/s is an exact integer here.
             const cx = -t.x / s, cy = -t.y / s, f = s / base;
-            const moved = transformLoopsAbout(o.loops, cx, cy, f);
+            const moved = transformLoopsAbout(o.loops, cx, cy, f, ox, oy);
             // THE CHOP, AND THE FREEZE — on the OBJECT's tile grid, before the
             // cache clip, because a tile is where an arc is cut and a cut is
             // where a curve may become a line (D2/D4). The grid rides with the
             // object, so the cuts land in the same place on it however far it
             // has been moved; anchor them to the frame instead and a move
             // slides every one of them, which moves a frozen crossing a quarter
-            // pixel here and 4096 times that one level down (bible 6.6).
+            // pixel here and 4096 times that one level down (bible 6.6). An
+            // offset at this hop moves the grid by exactly what it moves the
+            // ink (F41) — with none, `tilePhase(v + 0)` is `v`.
             const ph = tilePhaseOf(o);
-            const phase = [childTilePhase(ph[0], cx, f), childTilePhase(ph[1], cy, f)];
+            const phase = [tilePhase(childTilePhase(ph[0], cx, f) + ox), tilePhase(childTilePhase(ph[1], cy, f) + oy)];
             // AND THE CLIP IS ON THAT GRID TOO — the object's own tiles, never
             // the cache square. A frame decides which objects are looked at; it
             // does not cut one. Two cache squares that both hold a stretch of
@@ -542,16 +607,17 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // outward instead asks for three per axis, which is nine times the
             // area stored per square. Measured: 49 ms to 258 ms on a level-1
             // render.
-            const cells = tileWindow(phase, rect);
+            const grid = TileGrid.at(phase);   // the OBJECT's grid, phase and all (S1)
+            const cells = grid.range(rect);
             // The seam overhang. Pieces still have to reach past their tile by
             // the seam pad or a hairline shows down every boundary (S-1: every
             // other kind of piece overlaps by 2*pad, and a shape clipped to the
             // bare tile overlapped by 0). It is added to the OBJECT's rect, so
             // it is the same overhang in every square that holds this tile —
             // still nothing the frame decided.
-            const objRect = padRect(tileClipRect(phase, cells), pad);
+            const objRect = padRect(grid.span(cells), pad);
             const chopped = chopFreezeLoops(moved, phase, ftol, cells);
-            const { loops: kept, rings, covered } = shapeLoopsInRect(chopped, objRect);
+            const { loops: kept, rings, covered } = shapeLoopsInRect(chopped, objRect, { freezeR: freezeRadius(ftol) });
             // `clip` is the rectangle the piece was cut on. The selection
             // indicator reads it to tell a cut from an edge (F39): a straight
             // piece lying along it is a seam, and the ants skip it.
@@ -569,11 +635,11 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // forever, and Clipper's magnitude-capped integer scale quantized
             // giant/deep geometry by whole frame-units.
             const tp = clipRingsToRect(
-                o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base])), crect);
+                o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base + ox, (y * s + t.y) / base + oy])), crect);
             if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [], clip: crect });
         } else {
             const lw = o.lwFrame * (s / base);
-            const tpts = o.pts.map(([x, y]) => [(x * s + t.x) / base, (y * s + t.y) / base]);
+            const tpts = o.pts.map(([x, y]) => [(x * s + t.x) / base + ox, (y * s + t.y) / base + oy]);
             // Fill gate: only genuinely gate-wide strokes polygonize at the bake.
             // (A short-lived 2026-07-07 variant also filled anything that could
             // EVER exceed fatWidthPx in the child level — that routed nearly

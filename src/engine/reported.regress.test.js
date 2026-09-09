@@ -29,8 +29,9 @@ import path from "path";
 import {
     useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, descend, paintedAll,
 } from "./__testkit__/harness";
-import { loopArea, loopsBBox, meanWidth, decodeLoops, encodeLoops } from "./geometry/arcShape";
-import { loadFixture, convertLegacySnapshot, isLegacySnapshot } from "./__testkit__/legacyFixture";
+import { loopArea, meanWidth, decodeLoops, encodeLoops } from "./geometry/arcShape";
+import { pieceInks } from "./__testkit__/ink";
+import { loadFixture } from "./__testkit__/legacyFixture";
 
 jest.setTimeout(600000);
 useEngines();
@@ -125,10 +126,11 @@ describe("RR-3/4 — a move settles every pending mark first", () => {
         // The barrier cut the bar first, so what moves is the piece under the
         // finger and only that — the same rule SM-5 pins for a click. The half
         // the user never touched stays where it is.
-        const parts = ink(E).map((r) => loopsBBox(r.o.loops)).sort((a, b) => a.x0 - b.x0);
+        // Where each piece is DRAWN (a move never touches the bits since F55).
+        const parts = ink(E).map((r) => E._rectInActive(r.o, "0")).sort((a, b) => a.left - b.left);
         expect(parts.length).toBe(2);
-        expect(parts[0].y0).toBeCloseTo(430, 3);      // pressed at x=200: moved
-        expect(parts[1].y0).toBeCloseTo(280, 3);      // the far half: did not
+        expect(parts[0].top).toBeCloseTo(430, 3);      // pressed at x=200: moved
+        expect(parts[1].top).toBeCloseTo(280, 3);      // the far half: did not
     });
     test("several objects selected, the mark is over the one NOT pressed", () => {
         const E = mkEngine(800, 600);
@@ -155,8 +157,8 @@ describe("RR-3/4 — a move settles every pending mark first", () => {
         // Everything moved by the same -80, including the pieces the barrier
         // made out of the second bar.
         for (const r of ink(E)) {
-            const b = loopsBBox(r.o.loops);
-            const y = (b.y0 + b.y1) / 2;
+            const b = E._rectInActive(r.o, "0");          // where it is drawn (F55)
+            const y = (b.top + b.bottom) / 2;
             expect(Math.abs(y - 120) < 1 || Math.abs(y - 320) < 1).toBe(true);
         }
         expect(ink(E).length).toBe(3);
@@ -183,8 +185,8 @@ describe("RR-6 — erasing from a ZOOMED-OUT view onto ink that lives deeper", (
         for (const r of ink(E)) {
             if (!r.o.loops) continue;
             for (const loop of r.o.loops) {
-                const last = loop[loop.length - 1];
-                if (last.B[0] !== loop[0].A[0] || last.B[1] !== loop[0].A[1]) return false;
+                const last = loop.at(-1), first = loop.at(0);
+                if (last.B[0] !== first.A[0] || last.B[1] !== first.A[1]) return false;
             }
         }
         return true;
@@ -380,5 +382,101 @@ describe("RR-8 — an erase in a sibling BRANCH still cuts ink homed elsewhere",
             }
         }
         expect(branchPairs).toBeGreaterThan(0);            // the case really is in his file
+    });
+});
+
+describe("RR-9 — an erase nine crossings below two MOVED objects (2026-09-06, F56)", () => {
+    // Kobin's reports 06-16-21 (after an undo: the objects whole) and 06-16-24
+    // (after the redo: the erase applied). Two objects homed at level 1, both
+    // dragged at level 10 so their tables carry whole-frame digits at every
+    // level, then a 4-px eraser scribble at level 10 on the tan one (309),
+    // 300 px from the dark one's edge (310). What he saw: 310's colour flooded
+    // the whole tile. The descent had ceded 310 nine levels down and its
+    // level-10 kid was a solid square minus the notch where the render's piece
+    // for that square is a wedge.
+    //
+    // THE MECHANISM. Since F55 the square a link reads is the erase less the
+    // remainder, and a remainder up to half a frame puts it in the NEIGHBOUR of
+    // the unmoved frame as often as not. The kid was homed in the camera-path
+    // frame with its ink in cell (i, j) of it; its child tiles were then
+    // derived through the store's ring projection — an up-then-down hop that
+    // loses the low bits of x/R against the cell centre — while the chain had
+    // derived the same ink by the exact direct hop. Measured on the report: a
+    // kid in cell (0, 1) at level 7 had its edge line 2.5 units from the
+    // chain's, the level-8 kid held 2% more ink, the level-10 kid was solid.
+    // The kid is now homed in the frame that owns its square, holding that
+    // frame's own piece for its own cell, so the chain below it IS the chain.
+    test("the object the eraser never reached is untouched; every kid of the other is the chain's piece", () => {
+        const before = report("06-16-21"), after = report("06-16-24");
+        if (!before || !after) return;
+        const E = mkEngine(before.screen.w, before.screen.h);
+        loadFixture(E, before.snapshot);
+        const F10 = E.cam.frame;
+        const parts = F10.split("/");
+        const frames = []; for (let d = 1; d < parts.length; d++) frames.push(parts.slice(0, d + 1).join("/"));
+        const e = after.journal[after.journal.length - 1];
+        expect(e.kind).toBe("erase");
+        let cx = 0, cy = 0; for (const [x, y] of e.pts) { cx += x; cy += y; } cx /= e.pts.length; cy /= e.pts.length;
+        const cellOf = (x, y) => [Math.round(x / 131072), Math.round(y / 131072)];
+        // The render chain's piece for each object in the unmoved square under
+        // the eraser, at every level: what every kid has to be.
+        const chain = { 309: {}, 310: {} };
+        for (const id of [309, 310]) {
+            const rec = E.doc.getById(id);
+            for (const F of frames) {
+                const d = F.split("/").length - 1;
+                const up = E.lm.mapPointF([cx, cy], F10, F);
+                const sh = E.lm.objShift(rec.obj.below, rec.level, F);
+                const cell = cellOf(up[0] - sh.rem[0], up[1] - sh.rem[1]);
+                const objs = E.store._ensureUp(sh.F0, cell[0], cell[1]).objs.filter((o) => o.id === id);
+                chain[id][d] = objs.length === 1 && objs[0].type === "fill" && objs[0].covers ? "covers" : objs.map((o) => area(o)).reduce((a, b) => a + b, 0);
+            }
+        }
+        expect(chain[309][10]).toBe("covers");                              // the eraser is on solid ink of 309
+        expect(chain[310][10]).toBeGreaterThan(1.4e10);                     // ...and 310's piece there is a wedge
+        expect(chain[310][10]).toBeLessThan(1.5e10);
+        const listBefore = paintedAll(E);
+        const wedgeBefore = listBefore.find((o) => o.id === 310);
+        expect(wedgeBefore && area(wedgeBefore)).toBeCloseTo(chain[310][10], -5);
+        // Which objects have ink under the eraser's path, by the picture: those
+        // and only those may be cut. (The level-0 stroke, id 30, was refused in
+        // Kobin's own run and is cut since the one-radius freeze of 2026-09-06
+        // moved its deep picture — the shift the F44 design warned of — so the
+        // list is read off the picture rather than pinned.)
+        const inkedBy = (id) => e.pts.some((p) => listBefore.some((o) => o.id === id && !o.erase && pieceInks(o, p)));
+        expect(inkedBy(309)).toBe(true);
+        expect(inkedBy(310)).toBe(false);
+        const { inScale, inPanX, inPanY } = E.cam;
+        E.setEraserSize(e.px);
+        eraseGesture(E, e.pts.map(([x, y]) => [x * inScale + inPanX, y * inScale + inPanY]));
+        if (typeof E.flushBakes === "function") E.flushBakes();
+        E.flushErases();
+        const note = E.journal.filter((j) => j.kind === "erase").slice(-1)[0];
+        // 310: the descent reaches level 10, finds no ink of it under the
+        // eraser, refuses, and unwinds (F47). One native, no kids, the wedge
+        // painted exactly as before.
+        const targets = note.cuts.map((c) => c.target);
+        expect(targets).toContain(309);
+        expect(targets).not.toContain(310);
+        for (const t of targets) expect([t, inkedBy(t)]).toEqual([t, true]);
+        expect(note.refused.some((r) => r.target === 310 && /grazing/.test(r.why))).toBe(true);
+        expect(all(E).filter((r) => r.o.editId === 310 || r.o.id === 310)).toHaveLength(1);
+        const wedgeAfter = paintedAll(E).find((o) => o.id === 310);
+        expect(wedgeAfter && area(wedgeAfter)).toBe(area(wedgeBefore));
+        // 309: nine links, every intermediate kid the chain's covering square
+        // (less the doorway to the next level), the last one the square less
+        // the notch; and every kid homed in the frame whose cell it fills.
+        const kids = all(E).filter((r) => r.o.editId === 309 && r.o.attachRect);
+        expect(kids.map((r) => r.lvl.split("/").length - 1).sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        const full = 131168 * 131168;
+        for (const r of kids) {
+            const d = r.lvl.split("/").length - 1;
+            const R = r.o.attachRect;
+            expect(cellOf((R.x0 + R.x1) / 2, (R.y0 + R.y1) / 2)).toEqual([0, 0]);
+            expect(chain[309][d]).toBe("covers");
+            const a = area(r.o);
+            if (d < 10) expect(a).toBeGreaterThan(full * (1 - 1e-6));       // the doorway is a millionth of the square
+            else { expect(a).toBeGreaterThan(full * 0.999); expect(a).toBeLessThan(full); }   // the notch
+        }
     });
 });

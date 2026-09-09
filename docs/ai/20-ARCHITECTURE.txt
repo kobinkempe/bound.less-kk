@@ -61,9 +61,21 @@ THE FOUR STRUCTURES, AND WHAT EACH ONE OWNS
 
     CACHE TILE the render cache's own frame-aligned square. It decides how much
                work one bake covers and nothing else. It clips arcs, which is
-               exact, and marks every end it makes (seamA/seamB) so the level
-               below cannot freeze on an edge it invented.
+               exact. (Until 2026-09-07 it also marked every end it made,
+               seamA/seamB, so the level below could not freeze on an edge it
+               invented; the one-radius freeze's endpoint guard refuses such
+               an edge on its own, and the marks are gone.)
                Owner: src/engine/TileStore.js
+
+    ONE TYPE   All three are W across and were three near-identical APIs with
+               two phase conventions. Since 2026-09-07 they are one value type,
+               TileGrid (frameLattice.js): the object's grid is
+               TileGrid.at(o.tile), the cache's is TileGrid.CACHE, a frame's
+               own square is that grid's (0, 0). `range` is the half-open rule
+               (what the chop and the cede cut on), `touching` the closed one
+               the cache reads by; each keeps its callers' arithmetic to the
+               bit, because both are things a saved drawing's deep picture
+               depends on. That was S1 in the roadmap and F36 in the flags.
 
     OBJECT     a native, stored in one frame. Its id is its creation order and
                its z-order. A logical object may be several natives across
@@ -358,13 +370,23 @@ PERSISTENCE
     converting would mean rewriting stored coordinates, which is the one
     operation the design exists to avoid.
 
-    Local storage: IndexedDB (storage/db.js) - one header record per canvas and
-    one record per frame, written incrementally from the document's own change
-    events, no JSON text and no compression in between; thumbnails as JPEG bytes
-    under an LRU budget; the gallery index and the recycle-bin index are all that
-    stays in localStorage (since 2026-09-02; F33 says why). Cloud: Firestore,
-    parent doc for metadata and thumbnails, drawing chunked into 700 KiB binary
-    parts under it, parent written LAST so a torn save never looks complete.
+    kobin-2 (2026-09-08), in src/engine/format2.js and src/engine/oplog.js: the
+    STORE, as opposed to the file. A frame's natives are JSON headers plus one
+    Float64Array of geometry (the encodeLoopInto grammar, the same numbers kobin-1
+    writes as text), and an append-only op log records what the document did as
+    entries carrying results - the objects removed and made, never a gesture to
+    recompute. A tick appends entries and rewrites a frame's snapshot only when
+    its entries have outgrown it or an undo/redo/move touched it; a load replays
+    the entries after each frame's seq and rebuilds the undo/redo stacks and a
+    pending eraser's done set from them (an interrupted erase resumes).
+
+    Local storage: IndexedDB (storage/db.js, version 2) - a header record per
+    canvas, a frames2 record per frame (headers + the raw buffer), a log record
+    per entry; no JSON text, no compression; a v1 canvas opens the old way and
+    its first save moves it. Cloud: Firestore, a mirror of the local store -
+    frame and log chunks (cloud/store2.js) gzipped by CompressionStream
+    (cloud/gzip.js, never lz-string: F64) in 700 KiB parts, the manifest (parent
+    doc) written LAST, replaced parts deleted after; lz1 copies still pull.
 
 WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
 

@@ -36,8 +36,9 @@
  * stored coordinate inside [-W/2, W/2) BY CONSTRUCTION.
  */
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
+import { hasOffsets, shiftAt, hasDigits } from "./geometry/offsets";
 import {
-    R, TILE, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
+    R, TILE, TileGrid, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
     displacementDigits, applyDigits, tilePhase, childTilePhase,
 } from "./frameLattice";
 
@@ -231,14 +232,57 @@ export default class LevelMap {
         const depth = f.depth - 1;
         const id = String(depth);
         const p = this.frames.get(id) || this._addFrame(id, null, { i: 0, j: 0 }, depth);
-        f.parent = p.id;
-        f.cell = { i: 0, j: 0 };
-        f.edge = cellEdge(0, 0);
-        f.centre = cellCentre(0, 0);
-        this._paths.clear();   // an existing frame just gained a parent
-        if (!p._kids) p._kids = new Map();
-        p._kids.set(cellKey(0, 0), f.id);
+        this._adopt(f, p, { i: 0, j: 0 });
         return p.id;
+    }
+    // An existing parentless frame becomes cell `cell` of `p`.
+    _adopt(f, p, cell) {
+        f.parent = p.id;
+        f.cell = { i: cell.i, j: cell.j };
+        f.edge = cellEdge(cell.i, cell.j);
+        f.centre = cellCentre(cell.i, cell.j);
+        this._paths.clear();
+        if (!p._kids) p._kids = new Map();
+        p._kids.set(cellKey(cell.i, cell.j), f.id);
+    }
+    /**
+     * Frames another lattice minted, added here (F67): a worker's descent runs on a
+     * copy, and a kid it homes a cell over from the camera's frame names a frame this
+     * lattice never saw. `data` is `serialize()`'s shape; parents come first; a frame
+     * already here is left alone unless it was a root that gained a parent.
+     */
+    merge(data) {
+        const list = ((data && data.frames) || []).slice().sort((a, b) => (a.depth - b.depth) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        let added = 0;
+        for (const f of list) {
+            const cur = this.frames.get(f.id);
+            const p = f.parent != null ? this.frames.get(f.parent) : null;
+            if (cur) { if (cur.parent == null && p) this._adopt(cur, p, { i: f.i, j: f.j }); continue; }
+            if (f.parent != null && !p) continue;
+            this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            added++;
+        }
+        return added;
+    }
+    /**
+     * The frame an id names, minted along its chain when it is missing (F67: a file
+     * whose natives sit under a frame the lattice lacks). Null for an id no frame can
+     * have. Ids are "<spine depth>/i,j/i,j…".
+     */
+    ensureId(id) {
+        const hit = this.frames.get(id);
+        if (hit) return hit;
+        const segs = String(id).split("/");
+        const depth = Number(segs[0]);
+        if (!Number.isInteger(depth) || segs[0] !== String(depth)) return null;
+        if (!this.frames.has(segs[0])) this.ensureSpine(depth);
+        let cur = this.frames.get(segs[0]);
+        for (let n = 1; n < segs.length && cur; n++) {
+            const m = /^(-?\d+),(-?\d+)$/.exec(segs[n]);
+            if (!m) return null;
+            cur = this.cellChild(cur.id, +m[1], +m[2]);
+        }
+        return cur && cur.id === id ? cur : null;
     }
     /**
      * `neighbour`, but it never mints. Returns null when that cell has never
@@ -348,15 +392,12 @@ export default class LevelMap {
         return id ? this.frames.get(id) : null;
     }
     frameFor(key) { return this._frameFor(key); }
-    tileRect(key, i, j) {
-        const h = TILE / 2;
-        return { left: i * TILE - h, top: j * TILE - h, right: i * TILE + h, bottom: j * TILE + h };
-    }
-    tileRange(key, rect) {
-        const h = TILE / 2;
-        return { i0: Math.floor((rect.left + h) / TILE), i1: Math.floor((rect.right + h) / TILE),
-            j0: Math.floor((rect.top + h) / TILE), j1: Math.floor((rect.bottom + h) / TILE) };
-    }
+    // The cache square is `TileGrid.CACHE` (frameLattice.js) — the phase-0
+    // grid; `key` is accepted and ignored because the grid is a constant (P6).
+    // The cache READS by `touching`: a window ending on a boundary reads the
+    // square above it too, which is the convention every caller here had.
+    tileRect(key, i, j) { return TileGrid.CACHE.rect(i, j); }
+    tileRange(key, rect) { return TileGrid.CACHE.touching(rect); }
     // ---- single-edge point transforms ----
     _centre(key) { const f = this._frameFor(key); return f ? f.centre : null; }
     // Magnify: cancel against the cell centre FIRST, then apply a power of two.
@@ -506,6 +547,130 @@ export default class LevelMap {
         if (!a || !b) return null;
         return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
     }
+    /**
+     * WHERE AN OBJECT'S PICTURE IS at frame `F` (F55, geometry/offsets.js).
+     *
+     * The object's stored geometry never moves; its displacement table says
+     * where the picture is. At depth k0 below the home the translation is
+     * whole frames of every level between plus a sub-frame remainder, and this
+     * turns that into the two things a reader of frame F needs:
+     *
+     *   F0    the frame whose UNMOVED tiles hold the pieces that are drawn in
+     *         F — F walked back by the table's cell digits, level by level,
+     *         exact integers with borrows; minted if it was never visited;
+     *   rem   the remainder at F's depth, in F's units, which the pieces are
+     *         drawn translated by (`piece.res`) and inputs are translated back
+     *         by before they reach the geometry.
+     *
+     * Neighbouring frames' coordinates differ by whole frames, so a piece of
+     * F0's tile is a piece of F's picture with the same numbers. Above the home
+     * (k0 < 0) everything is sub-cell: F0 is F and only `rem` applies, which is
+     * the residual F41 always drew there. `sh` is the raw decomposition.
+     */
+    objShift(below, homeId, F) {
+        const hd = this.depthOf(homeId), D = this.depthOf(F);
+        if (hd == null || D == null) return null;
+        const k0 = D - hd;
+        const sh = shiftAt(below, k0);
+        if (k0 <= 0 || !hasDigits(sh)) return { F0: F, rem: sh.rem, sh };
+        const A = this.pathFrameAt(F, hd);
+        const chain = A != null ? this.chainFrom(A, F) : null;
+        if (!chain || chain.length !== k0) return null;
+        const negX = [], negY = [];
+        for (let m = 1; m <= k0; m++) { const d = sh.digits[m] || [0, 0]; negX.push(-d[0]); negY.push(-d[1]); }
+        const ax = applyDigits(chain.map((c) => c.i), 0, negX);
+        const ay = applyDigits(chain.map((c) => c.j), 0, negY);
+        const A0 = this.neighbour(A, ax.carry - sh.carry[0], ay.carry - sh.carry[1]);
+        if (!A0) return null;
+        const F0 = this.frameAtChain(A0.id, ax.chain.map((i, n) => ({ i, j: ay.chain[n] })));
+        return F0 ? { F0: F0.id, rem: sh.rem, sh } : null;
+    }
+    /**
+     * The other way: the frame at F0's depth that the object's picture occupies,
+     * given `sh` = `shiftAt(below, depth(F0) - hd)`. Where a ceded kid is homed:
+     * it holds the unmoved square's bits and lives where the picture is.
+     */
+    frameShifted(F0, hd, sh) {
+        const D = this.depthOf(F0);
+        if (D == null) return null;
+        const k0 = D - hd;
+        if (k0 <= 0 || !hasDigits(sh)) return F0;
+        const A0 = this.pathFrameAt(F0, hd);
+        const chain = A0 != null ? this.chainFrom(A0, F0) : null;
+        if (!chain || chain.length !== k0) return null;
+        const dX = [], dY = [];
+        for (let m = 1; m <= k0; m++) { const d = sh.digits[m] || [0, 0]; dX.push(d[0]); dY.push(d[1]); }
+        const ax = applyDigits(chain.map((c) => c.i), 0, dX);
+        const ay = applyDigits(chain.map((c) => c.j), 0, dY);
+        const A = this.neighbour(A0, ax.carry + sh.carry[0], ay.carry + sh.carry[1]);
+        if (!A) return null;
+        const F = this.frameAtChain(A.id, ax.chain.map((i, n) => ({ i, j: ay.chain[n] })));
+        return F ? F.id : null;
+    }
+    /**
+     * `mapPointF` between an object's HOME and a frame where its picture is
+     * seen (F55). The home is the end `homeId` names. Home to X: the exact
+     * chain to X's unmoved frame, then the remainder — the point of the
+     * picture as drawn in X. X to home: the remainder off first, then the
+     * exact chain back from the unmoved frame — what an input made in X means
+     * in the coordinates the object is stored in. When both ends are the home
+     * (an input made in the object's own frame) the caller says which way,
+     * `toHome` (F72). With no table this is `mapPointF`, bit for bit.
+     */
+    _homeToX(fromId, toId, homeId, toHome) {
+        const f = String(fromId) === String(homeId), t = String(toId) === String(homeId);
+        return f && !(t && toHome);
+    }
+    mapPointObj(p, fromId, toId, below, homeId, toHome) {
+        if (!hasOffsets(below)) return this.mapPointF(p, fromId, toId);
+        if (this._homeToX(fromId, toId, homeId, toHome)) {
+            const s = this.objShift(below, fromId, toId);
+            if (!s) return null;
+            const q = this.mapPointF(p, fromId, s.F0);
+            return q ? [q[0] + s.rem[0], q[1] + s.rem[1]] : null;
+        }
+        const s = this.objShift(below, toId, fromId);
+        if (!s) return null;
+        return this.mapPointF([p[0] - s.rem[0], p[1] - s.rem[1]], s.F0, toId);
+    }
+    mapRectObj(rect, fromId, toId, below, homeId, toHome) {
+        const a = this.mapPointObj([rect.left, rect.top], fromId, toId, below, homeId, toHome);
+        const b = this.mapPointObj([rect.right, rect.bottom], fromId, toId, below, homeId, toHome);
+        if (!a || !b) return null;
+        return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
+    }
+    /** Loops through the exact chain from one frame to another — what `projectF` does to a shape's loops. */
+    projectLoops(loops, fromId, toId) {
+        const path = this.framePath(fromId, toId);
+        if (!path) return null;
+        for (const id of path.up) {
+            const c = this.frames.get(id).centre;
+            loops = transformLoops(loops, 1 / R, c.x, c.y);
+        }
+        for (const id of path.down) {
+            const c = this.frames.get(id).centre;
+            loops = transformLoopsAbout(loops, c.x, c.y, R);
+        }
+        return loops;
+    }
+    /**
+     * Loops between an object's home and a frame where its picture is seen
+     * (F55) — `mapPointObj` for whole loops. Used to bring an ERASER made in
+     * the active frame into the coordinates an object is stored in, and back.
+     */
+    projectLoopsObj(loops, fromId, toId, below, homeId, toHome) {
+        if (!hasOffsets(below)) return this.projectLoops(loops, fromId, toId);
+        if (this._homeToX(fromId, toId, homeId, toHome)) {
+            const s = this.objShift(below, fromId, toId);
+            if (!s) return null;
+            const out = this.projectLoops(loops, fromId, s.F0);
+            return out && (s.rem[0] || s.rem[1]) ? transformLoops(out, 1, s.rem[0], s.rem[1]) : out;
+        }
+        const s = this.objShift(below, toId, fromId);
+        if (!s) return null;
+        const moved = (s.rem[0] || s.rem[1]) ? transformLoops(loops, 1, -s.rem[0], -s.rem[1]) : loops;
+        return this.projectLoops(moved, s.F0, toId);
+    }
     projectF(o, homeId, toId) {
         const f = this.frameFactor(homeId, toId);
         if (f == null) return null;
@@ -610,13 +775,7 @@ export default class LevelMap {
             lo--;
             const f = this._addFrame(String(lo), null, { i: 0, j: 0 }, lo);
             const child = this.frames.get(String(lo + 1));
-            if (child && child.parent == null) {
-                child.parent = f.id; child.cell = { i: 0, j: 0 }; child.edge = cellEdge(0, 0);
-                child.centre = cellCentre(0, 0);
-                this._paths.clear();
-                if (!f._kids) f._kids = new Map();
-                f._kids.set(cellKey(0, 0), child.id);
-            }
+            if (child && child.parent == null) this._adopt(child, f, { i: 0, j: 0 });
         }
         while (depth > hi) { hi++; this.cellChild(String(hi - 1), 0, 0); }
         return this.spineAt(depth);

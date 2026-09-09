@@ -10,8 +10,8 @@ import {
     loopArea, loopsArea, normalizeLoops, insideShape, windingAt,
     shapeFromRings, flattenShape, transformLoops, translateLoops,
     subtractShape, intersectShape, clipShapeToRect, shapeComponents,
-    shapeToCubics, reverseLoop, spanOf, rectLoop,
-    repairLoops, loopPerimeter,
+    shapeToCubics, reverseLoop, spanOf, rectLoop, chordCubic, chordArcMid, pieceToCubics, arcCommandFits, arcCubicCount, arcSplit, planArc,
+    repairLoops, loopPerimeter, encodeLoops, decodeLoops, encodedLoopsNeedV2,
 } from "./arcShape";
 import { bakeArcPerimeter } from "./arcPerimeter";
 
@@ -261,6 +261,71 @@ describe("AS-7 — precision at depth", () => {
     });
 });
 
+describe("AS-9 — a cut arc remembers its arc (F43)", () => {
+    // A notch knocked out of the top of a circle. The upper half-turn is cut
+    // into two fragments; the lower half-turn is never touched.
+    const notched = () => subtractShape(circle(0, 0, 100), box(-5, 90, 5, 110)).loops;
+    const cutArcs = (loops) => loops.flat().filter((p) => !p.line && p.K);
+    test("the fragments carry the uncut arc and their positions on it; the untouched arc carries nothing", () => {
+        const loops = notched();
+        expect(closed(loops)).toBe(true);
+        const cut = cutArcs(loops);
+        expect(cut).toHaveLength(2);
+        for (const p of cut) {
+            expect(p.K).toEqual({ a0: 0, sweep: PI, A: [100, 0], B: [-100, 0] });
+            expect(p.ua).toBeLessThan(p.ub);
+            // The piece's own arc is the stretch [ua, ub] of K, in K's direction.
+            expect(p.a0).toBeCloseTo(p.K.a0 + p.K.sweep * p.ua, 12);
+            expect(p.sweep).toBeCloseTo(p.K.sweep * (p.ub - p.ua), 12);
+        }
+        const [first, second] = cut.sort((a, b) => a.ua - b.ua);
+        expect(first.ua).toBe(0);                       // starts where K starts...
+        expect(first.ub).toBeCloseTo(Math.atan2(Math.sqrt(100 * 100 - 25), 5) / PI, 6);   // ...and stops at the notch's edge, x = +5
+        expect(second.ua).toBeCloseTo(Math.atan2(Math.sqrt(100 * 100 - 25), -5) / PI, 6);
+        expect(second.ub).toBe(1);
+        expect(loops.flat().filter((p) => !p.line && !p.K)).toHaveLength(1);   // the lower half, untouched, same piece
+    });
+    test("cut again, the fragment keeps the SAME arc and only its positions move", () => {
+        const loops = subtractShape(notched(), box(60, 60, 90, 90)).loops;    // a second notch on the first fragment
+        expect(closed(loops)).toBe(true);
+        for (const p of cutArcs(loops)) expect(p.K).toEqual({ a0: 0, sweep: PI, A: [100, 0], B: [-100, 0] });
+        expect(cutArcs(loops).length).toBeGreaterThanOrEqual(3);
+    });
+    test("a transform carries K's ends as points and leaves its angles and the positions alone", () => {
+        const [p] = cutArcs(translateLoops(notched(), 5, 7));
+        expect(p.K.A).toEqual([105, 7]);
+        expect(p.K.B).toEqual([-95, 7]);
+        expect(p.K.a0).toBe(0);
+        expect(p.K.sweep).toBe(PI);
+        const [q] = cutArcs(transformLoops(notched(), 4, 0, 0));
+        expect(q.K.A).toEqual([400, 0]);
+        expect(q.r).toBe(400);
+    });
+    test("reversing a loop keeps K unreversed and the positions in K's direction", () => {
+        const fwd = cutArcs(notched()).sort((a, b) => a.ua - b.ua);
+        const rev = cutArcs([reverseLoop(notched()[0])]).sort((a, b) => a.ua - b.ua);
+        expect(rev).toHaveLength(fwd.length);
+        for (let i = 0; i < fwd.length; i++) {
+            expect(rev[i].K).toEqual(fwd[i].K);
+            expect([rev[i].ua, rev[i].ub]).toEqual([fwd[i].ua, fwd[i].ub]);
+            expect(Math.sign(rev[i].sweep)).toBe(-Math.sign(fwd[i].sweep));
+            expect(rev[i].A).toEqual(fwd[i].B);
+        }
+    });
+    test("the file keeps it (code 3, format version 2) and gives it back bit for bit", () => {
+        const loops = notched();
+        const enc = encodeLoops(loops);
+        expect(encodedLoopsNeedV2(enc)).toBe(true);
+        expect(enc.some((a) => a.includes(3))).toBe(true);
+        const back = decodeLoops(enc);
+        const strip = (ls) => ls.map((l) => l.map((p) => (p.line
+            ? { line: true, A: p.A, B: p.B, ...(p.P ? { P: p.P, Q: p.Q, sa: p.sa, sb: p.sb } : {}) }
+            : { line: false, C: p.C, r: p.r, a0: p.a0, sweep: p.sweep, A: p.A, B: p.B, ...(p.K ? { K: { a0: p.K.a0, sweep: p.K.sweep, A: p.K.A, B: p.K.B }, ua: p.ua, ub: p.ub } : {}) })));
+        expect(strip(back)).toEqual(strip(loops));
+        expect(encodedLoopsNeedV2(encodeLoops(circle(0, 0, 10)))).toBe(false);
+    });
+});
+
 describe("AS-8 — the rect loop", () => {
     test("winds positive and has the right area", () => {
         const L = rectLoop({ left: 2, top: 3, right: 12, bottom: 9 });
@@ -402,5 +467,104 @@ describe("repairLoops", () => {
         const kept = fixed.find((l) => l.length === hole.length);
         expect(kept).toBeTruthy();
         expect(chords(fixed).length).toBe(1);
+    });
+});
+
+describe("chordCubic — one cubic from endpoints and sweep, no centre (F40)", () => {
+    const arcAt = (cx, cy, r, a0, sweep) => ({
+        line: false, C: [cx, cy], r, a0, sweep,
+        A: [cx + r * Math.cos(a0), cy + r * Math.sin(a0)],
+        B: [cx + r * Math.cos(a0 + sweep), cy + r * Math.sin(a0 + sweep)],
+    });
+    const at = (c, t) => { const u = 1 - t; return [0, 1].map((i) => u * u * u * c[0][i] + 3 * u * u * t * c[1][i] + 3 * u * t * t * c[2][i] + t * t * t * c[3][i]); };
+
+    test("is the same kappa cubic pieceToCubics makes, for sweeps under a quarter turn either way round", () => {
+        for (const sweep of [0.05, 0.384, Math.PI / 4, Math.PI / 2, -0.3, -Math.PI / 2]) {
+            for (const a0 of [0, 1.1, -2.5]) {
+                const p = arcAt(12, -7, 30, a0, sweep);
+                const want = pieceToCubics(p)[0], got = chordCubic(p);
+                for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) expect(got[i][j]).toBeCloseTo(want[i][j], 9);
+            }
+        }
+    });
+
+    test("the arc command fits a quarter pixel up to a screen radius of 4.2 million px", () => {
+        expect(arcCommandFits(4.19e6, 0.25)).toBe(true);
+        expect(arcCommandFits(4.2e6, 0.25)).toBe(false);
+        // Kobin's circle one frame up, at the frame's deepest zoom: 22,746 units × 256.
+        expect(arcCommandFits(22746 * 256, 0.25)).toBe(false);
+    });
+
+    test("the cubic count follows the sixth root: 5 per quarter turn at 5.1e6 px, 9 per half turn for Kobin's circle, 1 for a chopped sliver", () => {
+        expect(arcCubicCount(Math.PI / 2, 20000 * 256, 0.25)).toBe(5);
+        expect(arcCubicCount(Math.PI, 22746 * 256, 0.25)).toBe(9);
+        expect(arcCubicCount(0.00118, 93169771 * 256, 0.25)).toBe(1);
+        // The 22° piece at 2.6e8 px that a fixed rule left 15 px off: two cubics.
+        expect(arcCubicCount(22 * Math.PI / 180, 2.6e8, 0.25)).toBe(2);
+        // and n cubics divide the error by n⁶: check the law at the count's edge
+        const n = arcCubicCount(Math.PI / 2, 1e7, 0.25);
+        expect(1.8e-5 * 1e7 * Math.pow((Math.PI / 2) / n, 6)).toBeLessThanOrEqual(0.25);
+        expect(1.8e-5 * 1e7 * Math.pow((Math.PI / 2) / (n - 1), 6)).toBeGreaterThan(0.25);
+    });
+
+    test("arcSplit chains exactly and stays on the circle", () => {
+        const p = arcAt(3, -4, 10, 0.2, Math.PI / 2);
+        const parts = arcSplit(p, 3);
+        expect(parts.length).toBe(3);
+        expect(parts[0].A).toBe(p.A);
+        expect(parts[2].B).toBe(p.B);
+        let sum = 0;
+        for (let i = 0; i < 3; i++) {
+            sum += parts[i].sweep;
+            if (i) expect(parts[i].A).toBe(parts[i - 1].B);
+            expect(Math.hypot(parts[i].B[0] - 3, parts[i].B[1] + 4)).toBeCloseTo(10, 9);
+            expect(parts[i].a0).toBeCloseTo(0.2 + (Math.PI / 6) * i, 12);
+        }
+        expect(sum).toBeCloseTo(Math.PI / 2, 12);
+        expect(arcSplit(p, 1)).toEqual([p]);
+    });
+
+    test("planArc: the arc command for what fits, cubics above, the length split whichever asks for more", () => {
+        const opts = { enter: 256, tol: 0.25, segMax: 8192 };
+        const small = planArc(arcAt(0, 0, 10, 0, Math.PI / 2), opts);
+        expect(small.command).toBe("A");
+        expect(small.parts.length).toBe(1);
+        const full = planArc(arcAt(0, 0, 10, 0, 2 * Math.PI), opts);
+        expect(full.command).toBe("A");
+        expect(full.parts.length).toBe(2);   // never more than a half turn per arc command
+        const big = planArc(arcAt(0, 0, 20000, 0, Math.PI / 2), opts);
+        expect(big.command).toBe("C");
+        expect(big.parts.length).toBe(5);
+        const long = planArc(arcAt(0, 0, 1e5, 0, Math.PI), opts);
+        expect(long.command).toBe("C");
+        expect(long.parts.length).toBe(Math.ceil((1e5 * Math.PI) / 8192));   // 39 by length, 12 by the law
+        const longA = planArc(arcAt(0, 0, 10000, 0, Math.PI), opts);   // fits the arc command, but 31,416 units long
+        expect(longA.command).toBe("A");
+        expect(longA.parts.length).toBe(4);
+        expect(planArc(arcAt(0, 0, 1e5, 0, Math.PI), { enter: 256, tol: 0.25 }).parts.length).toBe(12);   // no length limit: pi x 3.5015 = 11.0004, rounded up
+    });
+
+    test("its midpoint lies on the circle for a huge, nearly straight arc", () => {
+        // A radius of 1e13 units, a chord of 4e5 (two tile reaches): the
+        // sagitta is 2e-3 units, which is one float64 ulp of the centre's
+        // coordinate. From the endpoints and sweep the cubic's midpoint sits
+        // on the true circle to 1e-9 with no large number anywhere. (The
+        // centre form has exactly one ulp to carry that sagitta and happened
+        // to keep it here, to 1e-12 — the browser's float32 has 2^-24 of the
+        // radius, 6e5 units, and that is what the rule is for.)
+        const r = 1e13, half = 2e5, sweep = 2 * Math.asin(half / r);
+        const sag = half * Math.tan(sweep / 4);
+        expect(sag).toBeCloseTo(2e-3, 6);
+        const p = { line: false, C: [0, r], r, a0: -Math.PI / 2 - sweep / 2, sweep, A: [-half, sag], B: [half, sag] };
+        const c = chordCubic(p);
+        const m = at(c, 0.5);
+        expect(m[0]).toBeCloseTo(0, 9);
+        expect(m[1]).toBeCloseTo(0, 9);      // the top of the circle is the origin
+        expect(chordArcMid(p)[1]).toBeCloseTo(0, 9);
+    });
+
+    test("degenerate pieces are chords", () => {
+        expect(chordCubic({ line: true, A: [0, 0], B: [3, 0] })).toEqual([[0, 0], [0, 0], [3, 0], [3, 0]]);
+        expect(chordCubic({ line: false, A: [1, 1], B: [1, 1], C: [0, 0], r: Math.SQRT2, a0: 0, sweep: 0.1 })).toEqual([[1, 1], [1, 1], [1, 1], [1, 1]]);
     });
 });

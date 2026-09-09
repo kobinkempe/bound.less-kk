@@ -272,6 +272,18 @@ export function picture(E) {
 // ---- tiles ----
 export const frameToScreen = (E, x, y) => [x * E.cam.inScale + E.cam.inPanX, y * E.cam.inScale + E.cam.inPanY];
 /**
+ * WHERE A NATIVE'S POINT IS DRAWN, in frame `ref`'s units — through the
+ * object's offsets below its home and the residual at `ref` (F41). A member
+ * dragged from below its home keeps its stored coordinates and moves its
+ * picture, so "did it move" has to be asked of the picture; with no offsets
+ * this is `mapPointF`.
+ */
+export function objPointIn(E, rec, p, ref) {
+    const below = rec.obj.below;
+    // `mapPointObj` answers where the picture is drawn, remainder included (F55).
+    return below ? E.lm.mapPointObj(p, rec.level, ref, below, rec.level) : E.lm.mapPointF(p, rec.level, ref);
+}
+/**
  * Screen x of a vertical tile boundary of the ACTIVE frame's grid, and screen y
  * of a horizontal one — as close to (sx, sy) as the lattice allows. Tests that
  * want to erase ACROSS a seam need the seam's real position, not a guess: the

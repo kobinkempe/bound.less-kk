@@ -36,10 +36,20 @@
 
 import { validateScaleDef } from "./scaleBar";
 import { inDigit, tilePhase } from "./frameLattice";
-import { validEncodedLoops, encodedLoopsWellFormed, repairLoops, decodeLoops, encodeLoops } from "./geometry/arcShape";
+import {
+    validEncodedLoops, encodedLoopsWellFormed, encodedLoopsNeedV2, repairLoops, decodeLoops,
+    encodeLoops,
+} from "./geometry/arcShape";
 
 export const FORMAT = "boundless-drawing";
-export const VERSION = 1;
+// Version 2 (2026-09-05, F43): a shape's loops may carry a CUT LINE record
+// (code 2 in `arcShape.encodeLoops` — the line a piece was cut from and the
+// positions of its ends on it) or a CUT ARC record (code 3 — the piece's own
+// arc, the arc it was cut from and its positions on it). A version-1 reader
+// would read either as an arc, so a file that holds one is written as
+// version 2 and a version-1 build refuses it with a clear message; a drawing
+// with no cut piece in it is still written as version 1 and opens anywhere.
+export const VERSION = 2;
 
 // ---- encode ----
 // `meta.modifiedAt` is always stamped at encode time; name/createdAt persist.
@@ -56,9 +66,18 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
     if (decoded.scenes) outMeta.scenes = decoded.scenes;
     if (decoded.hiddenScenes) outMeta.hiddenScenes = decoded.hiddenScenes;
     if (decoded.sceneSeq) outMeta.sceneSeq = decoded.sceneSeq;
+    // Version 1 unless something in the drawing needs version 2 (a cut line,
+    // F43), so an unaffected drawing still opens in any build.
+    let version = 1;
+    for (const l of Object.keys(natives || {})) {
+        for (const o of natives[l] || []) {
+            if (o && o.type === "shape" && encodedLoopsNeedV2(o.loops)) { version = VERSION; break; }
+        }
+        if (version === VERSION) break;
+    }
     return {
         format: FORMAT,
-        version: VERSION,
+        version,
         meta: outMeta,
         camera: {
             activeLevel: camera.activeLevel, inScale: camera.inScale,
@@ -251,6 +270,17 @@ function decodeNatives(n) {
             if (o.z != null && !isFiniteNum(o.z)) throw new Error(`bad object ${o.id}: z must be a number`);
             if (o.editId != null && (!Number.isInteger(o.editId) || o.editId < 1)) throw new Error(`bad object ${o.id}: editId must be a positive integer`);
             if (o.attachRect != null && !validOwnedRect(o.attachRect)) throw new Error(`bad object ${o.id}: attachRect is malformed`);
+            // The displacement table (F41/F55, geometry/offsets.js): `[[k, ox,
+            // oy], ...]`, k an integer depth below the home — 0 is the home
+            // level itself since F55 — the offset two finite numbers.
+            // Geometry, like the tile phase: garbage here would silently move
+            // the object's picture at every level.
+            if (o.below != null) {
+                if (!Array.isArray(o.below) || !o.below.every((t) => Array.isArray(t) && t.length === 3
+                    && Number.isInteger(t[0]) && t[0] >= 0 && isFiniteNum(t[1]) && isFiniteNum(t[2]))) {
+                    throw new Error(`bad object ${o.id}: below (offsets under the home) is malformed`);
+                }
+            }
             // The object's tile-grid phase (bible D4/6.6) — two numbers inside
             // one frame, which is where a chop and therefore a freeze happens.
             // Garbage is still refused: a phase that is not two finite numbers

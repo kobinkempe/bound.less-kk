@@ -14,7 +14,9 @@
  *     precisely the defect (docs/OPEN-FLAGS.md F1) this file exists to avoid.
  *     CP-2 is the regression pin for Kobin's "no creases" rule.
  */
-import { curvePerimeter, centerlineCubics, cubicIntersections, subCubic, cubicLoopArea } from "./curvePerimeter";
+import {
+    curvePerimeter, centerlineCubics, cubicIntersections, subCubic, cubicLoopArea,
+} from "./curvePerimeter";
 import { cubicAt, cubicTangent } from "../geometry/curveOutline";
 import { strokeShape } from "./strokeShape";
 import { flattenCurve } from "../geometry/polyline";

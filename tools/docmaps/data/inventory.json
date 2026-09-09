@@ -461,6 +461,21 @@
 "class": "Document"
 },
 {
+"name": "_noteBelow",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "hasOffsets",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "offsetIds",
+"kind": "method",
+"class": "Document"
+},
+{
 "name": "subscribe",
 "kind": "method",
 "class": "Document"
@@ -542,6 +557,11 @@
 },
 {
 "name": "setGeometryById",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "setOffsetsById",
 "kind": "method",
 "class": "Document"
 },
@@ -1225,6 +1245,36 @@
 "class": "LevelMap"
 },
 {
+"name": "objShift",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "frameShifted",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "mapPointObj",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "mapRectObj",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "projectLoops",
+"kind": "method",
+"class": "LevelMap"
+},
+{
+"name": "projectLoopsObj",
+"kind": "method",
+"class": "LevelMap"
+},
+{
 "name": "projectF",
 "kind": "method",
 "class": "LevelMap"
@@ -1267,7 +1317,17 @@
 ],
 "src/engine/Renderer.js": [
 {
-"name": "pushCubicChain",
+"name": "pushMove",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushLine",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushArcPiece",
 "kind": "function",
 "class": null
 },
@@ -1278,6 +1338,21 @@
 },
 {
 "name": "pushShapeAnchors",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushRingAnchors",
+"kind": "function",
+"class": null
+},
+{
+"name": "areaBounds",
+"kind": "function",
+"class": null
+},
+{
+"name": "asClip",
 "kind": "function",
 "class": null
 },
@@ -1412,6 +1487,31 @@
 "class": "Renderer"
 },
 {
+"name": "_chopHolds",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "needsWindowChop",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_maybeRechop",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_chopFor",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_pushArea",
+"kind": "method",
+"class": "Renderer"
+},
+{
 "name": "_activateLevel",
 "kind": "method",
 "class": "Renderer"
@@ -1458,6 +1558,11 @@
 },
 {
 "name": "_sig",
+"kind": "method",
+"class": "Renderer"
+},
+{
+"name": "_planFor",
 "kind": "method",
 "class": "Renderer"
 },
@@ -1714,6 +1819,11 @@
 "class": "TileStore"
 },
 {
+"name": "_reroute",
+"kind": "method",
+"class": "TileStore"
+},
+{
 "name": "ownContent",
 "kind": "method",
 "class": "TileStore"
@@ -1725,6 +1835,11 @@
 },
 {
 "name": "_bakeUp",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_upPiecesOver",
 "kind": "method",
 "class": "TileStore"
 },
@@ -1804,7 +1919,39 @@
 "class": "TileStore"
 }
 ],
+"src/engine/depth.corner.probe.js": [
+{
+"name": "loopStrs",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "edgeAtY",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "scanEdge",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "descendOnEdge",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "ascendTo",
+"kind": "arrow",
+"class": null
+}
+],
 "src/engine/erasePipeline.js": [
+{
+"name": "asLTRB",
+"kind": "arrow",
+"class": null
+},
 {
 "name": "ErasePipeline",
 "kind": "class",
@@ -1906,6 +2053,16 @@
 "class": "ErasePipeline"
 },
 {
+"name": "_eraserRectInto",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_eraserLoopsInto",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
 "name": "_eraseOp",
 "kind": "method",
 "class": "ErasePipeline"
@@ -1931,7 +2088,7 @@
 "class": "ErasePipeline"
 },
 {
-"name": "_inkShapeInRect",
+"name": "_squareInk",
 "kind": "method",
 "class": "ErasePipeline"
 },
@@ -1957,6 +2114,21 @@
 },
 {
 "name": "_bakeRehomeInner",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_unwindSteps",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_removedArea",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_boolOpts",
 "kind": "method",
 "class": "ErasePipeline"
 },
@@ -2063,6 +2235,46 @@
 "name": "childTilePhase",
 "kind": "function",
 "class": null
+},
+{
+"name": "TileGrid",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "at",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "rect",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "range",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "touching",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "span",
+"kind": "method",
+"class": "TileGrid"
+},
+{
+"name": "child",
+"kind": "method",
+"class": "TileGrid"
 },
 {
 "name": "objTileRect",
@@ -2218,6 +2430,11 @@
 "class": null
 },
 {
+"name": "asLTRB",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "mergeSpans",
 "kind": "function",
 "class": null
@@ -2286,6 +2503,28 @@
 "name": "_emitOutlineRing",
 "kind": "method",
 "class": "Overlays"
+}
+],
+"src/engine/perf.scale.probe.js": [
+{
+"name": "natives",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "mulberry",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "scribble",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "ms",
+"kind": "arrow",
+"class": null
 }
 ],
 "src/engine/persist.js": [
@@ -2633,6 +2872,11 @@
 "class": "Selection"
 },
 {
+"name": "_objPointInActive",
+"kind": "method",
+"class": "Selection"
+},
+{
 "name": "_lassoFind",
 "kind": "method",
 "class": "Selection"
@@ -2882,6 +3126,56 @@
 "class": null
 },
 {
+"name": "canonOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "canonAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "canonPos",
+"kind": "function",
+"class": null
+},
+{
+"name": "cutLine",
+"kind": "function",
+"class": null
+},
+{
+"name": "canonArc",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcDir",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcSpan",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcPos",
+"kind": "function",
+"class": null
+},
+{
+"name": "arcPieceOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "cutArc",
+"kind": "function",
+"class": null
+},
+{
 "name": "cap",
 "kind": "function",
 "class": null
@@ -2923,6 +3217,16 @@
 },
 {
 "name": "segSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "lineCrossSeg",
+"kind": "function",
+"class": null
+},
+{
+"name": "circleCrossSeg",
 "kind": "function",
 "class": null
 },
@@ -3088,7 +3392,7 @@
 },
 {
 "name": "reversePiece",
-"kind": "arrow",
+"kind": "function",
 "class": null
 }
 ],
@@ -3100,11 +3404,6 @@
 },
 {
 "name": "pieceTangent",
-"kind": "function",
-"class": null
-},
-{
-"name": "reversePiece",
 "kind": "function",
 "class": null
 },
@@ -3125,6 +3424,11 @@
 },
 {
 "name": "loopArea",
+"kind": "function",
+"class": null
+},
+{
+"name": "segmentTerm",
 "kind": "function",
 "class": null
 },
@@ -3194,7 +3498,17 @@
 "class": null
 },
 {
-"name": "seam",
+"name": "mapArc",
+"kind": "function",
+"class": null
+},
+{
+"name": "mapLine",
+"kind": "function",
+"class": null
+},
+{
+"name": "shareCutEnds",
 "kind": "function",
 "class": null
 },
@@ -3229,6 +3543,11 @@
 "class": null
 },
 {
+"name": "encodedLoopsNeedV2",
+"kind": "function",
+"class": null
+},
+{
 "name": "decodeLoops",
 "kind": "function",
 "class": null
@@ -3259,24 +3578,39 @@
 "class": null
 },
 {
-"name": "shapeToCubics",
+"name": "arcCommandFits",
 "kind": "function",
 "class": null
 },
 {
-"name": "VertexSet",
-"kind": "class",
+"name": "arcCubicCount",
+"kind": "function",
 "class": null
 },
 {
-"name": "constructor",
-"kind": "method",
-"class": "VertexSet"
+"name": "arcSplit",
+"kind": "function",
+"class": null
 },
 {
-"name": "id",
-"kind": "method",
-"class": "VertexSet"
+"name": "planArc",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordCubic",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordArcMid",
+"kind": "function",
+"class": null
+},
+{
+"name": "shapeToCubics",
+"kind": "function",
+"class": null
 },
 {
 "name": "bbHit",
@@ -3330,6 +3664,16 @@
 },
 {
 "name": "clipShapeToRect",
+"kind": "function",
+"class": null
+},
+{
+"name": "reanchorCutLines",
+"kind": "function",
+"class": null
+},
+{
+"name": "reanchorCutArcs",
 "kind": "function",
 "class": null
 },
@@ -3672,7 +4016,7 @@
 "class": null
 },
 {
-"name": "loopsBbox",
+"name": "cubicLoopsBBox",
 "kind": "function",
 "class": null
 },
@@ -3700,6 +4044,11 @@
 },
 {
 "name": "freezeTol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "freezeR",
 "kind": "arrow",
 "class": null
 },
@@ -3786,6 +4135,11 @@
 ],
 "src/engine/geometry/freeze.js": [
 {
+"name": "freezeRadius",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "wrap",
 "kind": "arrow",
 "class": null
@@ -3806,12 +4160,32 @@
 "class": null
 },
 {
-"name": "chopFreezeLoops",
+"name": "chordFrame",
 "kind": "function",
 "class": null
 },
 {
-"name": "markSeamEnds",
+"name": "chordPt",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordLineRoots",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordHit",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordCuts",
+"kind": "function",
+"class": null
+},
+{
+"name": "chopFreezeLoops",
 "kind": "function",
 "class": null
 },
@@ -3851,11 +4225,6 @@
 "name": "capsuleTouchesRings",
 "kind": "function",
 "class": null
-},
-{
-"name": "windingOfPoint",
-"kind": "function",
-"class": null
 }
 ],
 "src/engine/geometry/lasso.js": [
@@ -3881,6 +4250,83 @@
 },
 {
 "name": "rectInsidePolygon",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/geometry/offsets.js": [
+{
+"name": "snapDisplacement",
+"kind": "function",
+"class": null
+},
+{
+"name": "offsetAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "hasOffsets",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloneBelow",
+"kind": "function",
+"class": null
+},
+{
+"name": "tidy",
+"kind": "function",
+"class": null
+},
+{
+"name": "carryOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "addOffset",
+"kind": "function",
+"class": null
+},
+{
+"name": "shiftAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "hasDigits",
+"kind": "function",
+"class": null
+},
+{
+"name": "residual",
+"kind": "function",
+"class": null
+},
+{
+"name": "shiftDown",
+"kind": "function",
+"class": null
+},
+{
+"name": "shiftUp",
+"kind": "function",
+"class": null
+},
+{
+"name": "sameBelow",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodeBelow",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeBelow",
 "kind": "function",
 "class": null
 }

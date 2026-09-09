@@ -313,7 +313,7 @@ export function clipRingsToRect(polys, rect) {
  * @param {number} width                 stroke width
  * @param {{left,top,right,bottom}} rect the window the output must be exact in
  * @param {{startCap?:boolean, endCap?:boolean}} [opts] true-stroke-end flags
- * @returns {Array<Array<[number,number]>>}
+ * @returns {number[][][]} rings, each a list of [x, y]
  */
 export function strokeStripNear(pts, width, rect, opts = {}) {
     const half = width / 2;

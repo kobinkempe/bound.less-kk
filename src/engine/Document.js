@@ -42,9 +42,22 @@
  */
 import {
     loopsBBox, translateLoops, transformLoopsAbout, encodeLoops, decodeLoops, shapeFromRings, normalizeLoops,
-    subtractShape, rectLoop, shapeComponents, dropDust, repairLoops,
+    subtractShape, rectLoop, shapeComponents, dropDust, repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow } from "./geometry/offsets";
+import { objectHeader, extraFields } from "./format2";
+import { Loop } from "./geometry/loop";
+
+// Stored loops are Loops (geometry/loop.js): a piece read is a transient view, a piece
+// kept is eight doubles. Every way a shape enters the document or changes goes through
+// here; builders hand over plain piece arrays and never see them again.
+function flattenLoops(o) {
+    if (o && o.type === "shape" && o.loops) {
+        for (let i = 0; i < o.loops.length; i++) if (!(o.loops[i] instanceof Loop)) o.loops[i] = Loop.from(o.loops[i]);
+    }
+    return o;
+}
 
 const CELL = 2048;          // frame units; typical strokes span 10-1000
 const BIG = CELL * 4;       // larger than this goes to the per-level overflow list
@@ -121,12 +134,47 @@ class LevelIndex {
     }
 }
 
+/**
+ * A stored record (kobin-1 JSON or a kobin-2 span) as a live native. Also the
+ * log replay's way in (format2.decodeEntry hands back records).
+ *
+ * RETIRED FIELDS: drawings saved before 2026-08-06 recorded a deep erase as a
+ * `windows` rect and a `srcId` back-pointer; both are stripped at the door (no
+ * migration owed, Kobin). The offsets table arrives in its file form (F41); a
+ * malformed one is dropped, not refused: persist validates a real file first,
+ * and a dev snapshot is worth more opened than exact. A shape's loops are
+ * repaired on the way in so a drawing damaged by an older build opens and saves.
+ * A `fill` stays a fill: converting one to arcs is the one expensive thing a load
+ * could do (a recorded 1.8-million-vertex fill), and `fillToShapeById` converts
+ * it when something needs to cut it. Header fields this build does not know are
+ * kept and written back (`_extra`).
+ */
+export function nativeFromRecord(o) {
+    const { windows, srcId, ...keep } = o;
+    if (keep.below != null) {
+        try { keep.below = decodeBelow(keep.below); } catch (err) { delete keep.below; }
+        if (!keep.below) delete keep.below;
+    }
+    const extra = extraFields(o);
+    let out;
+    if (keep.type === "shape" && keep.loops) {
+        // A closed, well-formed encoding is wrapped as it is — a snapshot's span with
+        // no copy; only damage takes the decode-repair-encode road.
+        out = { ...keep, paths: [] };
+        out.loops = validEncodedLoops(keep.loops)
+            ? keep.loops.map((l) => (l instanceof Loop ? l : Loop.wrap(l)))
+            : repairLoops(decodeLoops(keep.loops), keep.w).map(Loop.from);
+    } else out = { ...keep, paths: [] };
+    if (extra) out._extra = extra;
+    return out;
+}
+
 export default class Document {
     constructor() {
         this.nativesByLevel = { 0: [] }; // level -> [objects] (numeric keys as strings, like dev-0)
         this._nextId = 1;
         this._undo = []; this._redo = [];
-        this._subs = new Set();
+        this._subs = new Set(); this._opSubs = new Set(); this._inUndo = false;
         this._index = {};                // level -> LevelIndex
         this._pending = new Set();       // live strokes: in natives, not yet indexed
         // id -> object, kept in step by add / insertAt / removeById / _replace.
@@ -143,11 +191,34 @@ export default class Document {
         // tell whether it is still current without subscribing. The selection
         // indicator keys its member table on it.
         this.rev = 0;
+        // The ids of every native carrying OFFSETS BELOW ITS HOME (F41,
+        // geometry/offsets.js). Kept as a set so the tile store can ask "does
+        // anything in this drawing have one?" in O(1) on every bake, and walk
+        // only those few objects when it does.
+        this._offsetIds = new Set();
     }
+    /** Keep `_offsetIds` in step with one object's `below`. */
+    _noteBelow(o) {
+        if (hasOffsets(o.below)) this._offsetIds.add(o.id);
+        else { if (o.below !== undefined) delete o.below; this._offsetIds.delete(o.id); }
+    }
+    /** Does any native carry an offset below its home? */
+    hasOffsets() { return this._offsetIds.size > 0; }
+    /** The ids that do. */
+    offsetIds() { return this._offsetIds; }
 
     // ---- events ----
     subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); }
     _emit(ev) { this._groups = null; this.rev++; for (const fn of this._subs) fn(ev); }
+    // The OP channel (engine/oplog.js): every fresh undo op, every bake step
+    // appended to one, and every undo/redo, in order. Separate from the change
+    // events above, which say what moved on screen, not what the user did.
+    subscribeOps(fn) { this._opSubs.add(fn); return () => this._opSubs.delete(fn); }
+    _notifyOps(ev) { for (const fn of this._opSubs) fn(ev); }
+    /** A bake step onto its gesture's eraseCommit op; the one way steps are appended. */
+    recordBake(op, step) { op.baked.push(step); this._notifyOps({ kind: "bake", op, step }); }
+    /** Ids a replayed entry brought in: the counter must stay above them. */
+    noteId(id) { if (Number.isInteger(id) && id >= this._nextId) this._nextId = id + 1; }
     /** An editId changed on an object already in the document. */
     keysChanged() { this._groups = null; this.rev++; }
 
@@ -187,10 +258,12 @@ export default class Document {
     // index until finalize().
     add(o, level, { live = false } = {}) {
         const k = String(level);
+        flattenLoops(o);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
         o._home = k;
         this._byId.set(o.id, o);
+        this._noteBelow(o);
         if (live) this._pending.add(o);
         else this._idx(k).add(o);
         this._emit({ kind: "add", id: o.id, level: k, obj: o, live });
@@ -247,6 +320,7 @@ export default class Document {
         if (i < 0) return null;
         arr.splice(i, 1);
         this._byId.delete(id);
+        this._offsetIds.delete(id);
         this._pending.delete(obj);
         this._idx(Ls).remove(obj);
         this._forgetIfEmpty(Ls);
@@ -257,11 +331,13 @@ export default class Document {
     // affects the array; z-order is by id, which the object kept.
     insertAt(obj, level, index) {
         const k = String(level);
+        flattenLoops(obj);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
         obj._home = k;
         this._byId.set(obj.id, obj);
+        this._noteBelow(obj);
         this._idx(k).add(obj);
         this._emit({ kind: "add", id: obj.id, level: k, obj });
     }
@@ -285,7 +361,7 @@ export default class Document {
             // share their endpoint ARRAY — that is what makes the perimeter
             // watertight — so mutating coordinates would move every shared point
             // twice and tear the shape apart along its own seams.
-            o.loops = translateLoops(o.loops, dx, dy);
+            o.loops = translateLoops(o.loops, dx, dy); flattenLoops(o);
         } else if (o.type === "fill") { for (const poly of o.polys) shift(poly); } else shift(o.pts);
         const shiftRect = (r) => { r.x0 += dx; r.x1 += dx; r.y0 += dy; r.y1 += dy; };
         if (o.attachRect) shiftRect(o.attachRect);
@@ -309,12 +385,58 @@ export default class Document {
         if (!rec) return null;
         const o = rec.obj;
         const oldBbox = this._bboxNow(o);
-        if (o.type === "shape") o.loops = geom.loops;
+        if (o.type === "shape") { o.loops = geom.loops.slice(); flattenLoops(o); }
         else if (o.type === "fill") o.polys = geom.polys;
         else o.pts = geom.pts;
+        // A snapshot that HAS the key with nothing in it means "no rect, no
+        // phase" — and that has to be written back too. Until 2026-09-05 a
+        // null phase was skipped: `translateGeometry` mints `tile` for a drag,
+        // undo restored the snapshot's coordinates but left the DRAG's phase
+        // on the object, and the chop grid no longer rode with the ink — after
+        // drag + undo the only serialized field that differed was `tile`, and
+        // the deep picture was not the one from before the drag. The pinch
+        // cancel (`cancelSelectGesture`) took the same path.
         if (geom.attachRect) o.attachRect = { ...geom.attachRect };
+        else if ("attachRect" in geom) delete o.attachRect;
         if (geom.tile) o.tile = [geom.tile[0], geom.tile[1]];
+        else if ("tile" in geom) delete o.tile;
+        // The offsets below the home are geometry too (F41): a snapshot carries
+        // them, a drag writes them, undo restores them. Only a snapshot that
+        // KNOWS about them (has the key) may change them.
+        if ("below" in geom) { o.below = cloneBelow(geom.below); this._noteBelow(o); }
         this._afterEdit(o, rec.level, oldBbox, o.lwFrame);
+        return rec;
+    }
+    /**
+     * A z change alone: the eraser mark's z steps down as its bake proceeds
+     * (DESIGN.md §7). Nothing geometric moves — the tile store ignores the event
+     * (`attrOnly`), the log takes a `put` of the object, the next render re-sorts.
+     * Returns the previous z.
+     */
+    setZById(id, z) {
+        const rec = this.getById(id);
+        if (!rec) return null;
+        const o = rec.obj, before = o.z;
+        o.z = z;
+        this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, attrOnly: true });
+        return before;
+    }
+    /**
+     * A move (F55). The object's coordinates are left exactly as they are;
+     * only its displacement table changes. No cache is stale — the bbox, the
+     * flattenings and the tiles all describe stored bits a move never touches
+     * — so nothing is busted or re-indexed, and the change event says
+     * `offsetsOnly` so the tile store does not patch anything: the picture is
+     * re-read from the unmoved tiles at its new address on the next render.
+     */
+    setOffsetsById(id, below) {
+        const rec = this.getById(id);
+        if (!rec) return null;
+        const o = rec.obj;
+        o.below = cloneBelow(below);
+        this._noteBelow(o);
+        o._ver = (o._ver || 0) + 1;
+        this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true });
         return rec;
     }
     /** A detached copy of a native's geometry, safe to translate from later. */
@@ -325,9 +447,12 @@ export default class Document {
         // drag would slide the object out from under its own grid — which is
         // the very failure the object-anchored grid exists to prevent.
         const tile = o.tile ? [o.tile[0], o.tile[1]] : null;
-        if (o.type === "shape") return { loops: o.loops, tile, attachRect: o.attachRect ? { ...o.attachRect } : null };
-        if (o.type === "fill") return { polys: o.polys.map((p) => p.map((q) => [q[0], q[1]])), tile, attachRect: o.attachRect ? { ...o.attachRect } : null };
-        return { pts: o.pts.map((q) => [q[0], q[1]]), tile, attachRect: o.attachRect ? { ...o.attachRect } : null };
+        // ...and so are the offsets below the home (F41): where the object's
+        // picture sits at every level below its own is part of where it is.
+        const below = cloneBelow(o.below);
+        if (o.type === "shape") return { loops: o.loops, tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
+        if (o.type === "fill") return { polys: o.polys.map((p) => p.map((q) => [q[0], q[1]])), tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
+        return { pts: o.pts.map((q) => [q[0], q[1]]), tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
     }
     /**
      * `snapGeometry` under a similarity: `(p - c) * f`. Used to change an
@@ -349,6 +474,10 @@ export default class Document {
             const a = pt([g.attachRect.x0, g.attachRect.y0]), b = pt([g.attachRect.x1, g.attachRect.y1]);
             out.attachRect = { x0: a[0], y0: a[1], x1: b[0], y1: b[1] };
         }
+        // A change of units is a change of HOME LEVEL, and the offsets below
+        // the home are keyed by depth below it: promoted one level up (f < 1)
+        // they all sit one level deeper than they did.
+        out.below = f < 1 ? shiftUp(g.below) : f > 1 ? shiftDown(g.below, 1) : cloneBelow(g.below);
         return out;
     }
     /** `snapGeometry`, translated. Never mutates the snapshot. */
@@ -359,6 +488,7 @@ export default class Document {
         if (g.polys) out.polys = g.polys.map((p) => p.map((q) => [q[0] + dx, q[1] + dy]));
         if (g.pts) out.pts = g.pts.map((q) => [q[0] + dx, q[1] + dy]);
         if (g.attachRect) out.attachRect = { x0: g.attachRect.x0 + dx, x1: g.attachRect.x1 + dx, y0: g.attachRect.y0 + dy, y1: g.attachRect.y1 + dy };
+        out.below = cloneBelow(g.below);   // a move at the home leaves the levels below it alone
         return out;
     }
 
@@ -429,6 +559,10 @@ export default class Document {
             // two still clusters as the stroke it was rather than as two blobs
             // the size of their own bounding boxes.
             if (src.w > 0) obj.w = src.w;
+            // Cutting an object up does not move its picture at any level
+            // either: every piece keeps the offsets below the home (F41).
+            const below = cloneBelow(src.below);
+            if (below) obj.below = below;
             // Pieces of something that was already part of a multi-level object
             // stay in its family; whether the family is still ONE object is a
             // question about the whole family, answered separately.
@@ -472,7 +606,7 @@ export default class Document {
      * edit family, and so do the children. Whether that family is still one
      * OBJECT is a separate question, answered over the whole family at once.
      */
-    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile) {
+    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts) {
         const rec = this.getById(id);
         if (!rec) return null;
         const src = rec.obj;
@@ -485,27 +619,40 @@ export default class Document {
         // nothing left for a special case to protect against, and the surviving
         // edge IS the rect's coordinates either way.
         const R = { left: holeInParent.x0, top: holeInParent.y0, right: holeInParent.x1, bottom: holeInParent.y1 };
-        // Local to the rect: at depth the parent's coordinates run to 1e13 while
-        // the ceded tile is a few units across.
-        const cx = (R.left + R.right) / 2, cy = (R.top + R.bottom) / 2;
-        const local = translateLoops(src.loops, -cx, -cy);
-        const lrect = { left: R.left - cx, top: R.top - cy, right: R.right - cx, bottom: R.bottom - cy };
-        const cut = subtractShape(local, rectLoop(lrect)).loops;
+        // IN THE PARENT'S OWN COORDINATES, not local to the rect. This used to
+        // translate the parent onto the rect's centre, cut, and translate back,
+        // from the days when a parent's coordinates could run to 1e13. Under
+        // the lattice a native sits within a frame or two of its origin
+        // (invariant 2), so the magnitudes need no help — and the round trip
+        // was not free: `(v - c) + c` is not `v`, so every vertex of the
+        // parent, including the ones a thousand tiles from the hole, came back
+        // a rounding step from where it was. Invisible here; four crossings
+        // down, where the render chain has magnified that step 2.8e14 times,
+        // the whole picture of the remnant had moved (F42). The boolean keeps
+        // every piece it does not cut by reference, so cutting in place leaves
+        // the rest of the parent bit for bit as it was.
+        const cut = subtractShape(src.loops, rectLoop(R), boolOpts).loops;
         // Cutting a rect out can leave a sliver along one of its edges, where
         // the parent's boundary all but grazed it. That sliver is dust, and a
         // dust native is a speck the user later finds and cannot get rid of.
-        const groups = dropDust(shapeComponents(cut), src.w).map((g) => translateLoops(g, cx, cy));
+        const groups = dropDust(shapeComponents(cut), src.w);
         const removed = this.removeById(id);
         if (!removed) return null;
         const z = src.z != null ? src.z : src.id;
         const editKey = this.editKey(src);
-        const mk = (loops, lvl, attach, tile) => {
+        const mk = (loops, lvl, attach, tile, below) => {
             const obj = {
                 type: "shape", origin: src.origin, id: this.allocId(), z, loops,
                 color: src.color, opacity: src.opacity, paths: [], editId: editKey,
             };
             if (src.w > 0) obj.w = src.w;
             if (attach) obj.attachRect = { ...attach };
+            // The offsets below the home ride along (F41): what is left of the
+            // parent keeps the parent's table; the kid, one level down and with
+            // the first level's offset already in its coordinates, gets the
+            // same table shifted up one — its below[m] is the parent's
+            // below[m + 1] — so parent and kid go on agreeing at every depth.
+            if (below) obj.below = below;
             // D4: "The object is a logical object - if it's been erased and
             // that created child-ceded zones, the child objects go with it and
             // have the same tile/clip-boundary structure." What is left of the
@@ -517,9 +664,13 @@ export default class Document {
             return { obj: this.add(obj, lvl), level: String(lvl) };
         };
         // What is left of the parent, one native per connected piece...
-        const parents = groups.map((loops) => mk(loops, removed.level, src.attachRect, src.tile));
-        // ...and what now lives in the tile.
-        const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile));
+        const parents = groups.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, cloneBelow(src.below)));
+        // ...and what now lives in the tile. `level` is the frame the parent's
+        // PICTURE occupies there (F55) and the kid's table is the parent's from
+        // that level down — the caller has both from `LevelMap.objShift`; the
+        // default is right for a parent that has never been moved.
+        const below1 = kidBelow !== undefined ? cloneBelow(kidBelow) : shiftDown(src.below, 1);
+        const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(below1)));
         return { removed, parents, kids, pieces: parents.concat(kids) };
     }
     /**
@@ -543,7 +694,7 @@ export default class Document {
         const oldBbox = this._bboxNow(o);
         const oldLw = o.lwFrame;
         o.type = "shape";
-        o.loops = loops;
+        o.loops = loops; flattenLoops(o);
         if (w > 0) o.w = w;
         delete o.pts; delete o.lwFrame; delete o._pen; delete o._tol;
         this._afterEdit(o, rec.level, oldBbox, oldLw);
@@ -565,7 +716,7 @@ export default class Document {
         if (!loops.length) return null;
         const oldBbox = this._bboxNow(o);
         o.type = "shape";
-        o.loops = loops;
+        o.loops = loops; flattenLoops(o);
         delete o.polys; delete o.covers;
         this._afterEdit(o, rec.level, oldBbox, 0);
         return rec;
@@ -612,6 +763,7 @@ export default class Document {
         this._undo.push(op);
         if (this._undo.length > 200) this._undo.shift();
         this._redo = []; // a fresh action forks history; the redo branch dies
+        this._notifyOps({ kind: "op", op });
     }
     // Whether there is anything to undo / redo. Rides the status payload out
     // to the toolbar, which greys its Undo and Redo buttons accordingly, so a
@@ -621,15 +773,22 @@ export default class Document {
     undo() {
         const op = this._undo.pop();
         if (!op) return false;
-        this._redo.push(this._invert(op));
+        this._inUndo = true;
+        try { this._redo.push(this._carrySeq(op, this._invert(op))); } finally { this._inUndo = false; }
+        this._notifyOps({ kind: "undo", op });
         return true;
     }
     redo() {
         const op = this._redo.pop();
         if (!op) return false;
-        this._undo.push(this._invert(op));
+        this._inUndo = true;
+        try { this._undo.push(this._carrySeq(op, this._invert(op))); } finally { this._inUndo = false; }
+        this._notifyOps({ kind: "redo", op });
         return true;
     }
+    // The log's seq rides an op's inverse (F71): a redo of an inverse without it read as
+    // an op from before the log, and the saver reset the whole log for it.
+    _carrySeq(op, inv) { if (inv !== op && op._seq != null && inv._seq == null) inv._seq = op._seq; return inv; }
     // Apply the inverse of `op` and return the op that re-applies it. The
     // "clear" op carries opaque `external` state (camera + crossings) that the
     // engine restores via the restoreExternal callback.
@@ -729,6 +888,7 @@ export default class Document {
                     }
                     const r = this.removeById(st.removed.obj.id);
                     if (!r && st.pieces.length) continue;
+                    if (r) st.removed = r;   // what this redo took out is what its undo puts back (F70)
                     for (const pc of st.pieces) {
                         if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
                     }
@@ -754,15 +914,18 @@ export default class Document {
         this.pushUndo({ op: "clear", natives: this.nativesByLevel, external, onExternal, restoreExternal });
         this._replace({ 0: [] });
     }
-    _replace(natives) {
+    // `load`: the reset comes from a file (loadNatives), not from an edit — the
+    // cloud sync must not treat what it just pulled as new work.
+    _replace(natives, load = false) {
         this.nativesByLevel = natives;
         this._index = {};
         this._pending = new Set();
         this._byId = new Map();
+        this._offsetIds = new Set();
         for (const Ls of Object.keys(natives)) {
-            for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._idx(Ls).add(o); }
+            for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._noteBelow(o); this._idx(Ls).add(o); }
         }
-        this._emit({ kind: "reset" });
+        this._emit(load ? { kind: "reset", load: true } : { kind: "reset" });
     }
 
     // ---- natives (de)serialization (dev-0 payload shape, reused by kobin-1) ----
@@ -781,37 +944,15 @@ export default class Document {
             ? Object.keys(this.nativesByLevel)
             : only.map(String).filter((l) => this.nativesByLevel[l]);
         for (const l of keys) {
-            natives[l] = (this.nativesByLevel[l] || []).map((o) => {
-                let rec;
-                if (o.type === "shape") {
-                    // The resolved perimeter IS the object, so it is what gets
-                    // written. It is also SMALLER than the samples it came from
-                    // on anything dense — burial culling throws most of the
-                    // chain away — so this costs nothing on the files that would
-                    // have hurt.
-                    rec = { type: "shape", origin: o.origin, id: o.id, loops: encodeLoops(o.loops), color: o.color, opacity: o.opacity };
-                } else if (o.type === "fill") {
-                    rec = { type: o.type, origin: o.origin, id: o.id, polys: o.polys, color: o.color, opacity: o.opacity };
-                } else {
-                    rec = { type: o.type, origin: o.origin, id: o.id, pts: o.pts, lwFrame: o.lwFrame, color: o.color, opacity: o.opacity };
-                }
-                if (o.type === "fill" && o.covers) rec.covers = true;
-                if (o.type === "shape" && o.w > 0) rec.w = o.w;
-                if (o.z != null && o.z !== o.id) rec.z = o.z;
-                // A re-homed piece records the tile it fills, in its OWN frame.
-                // That rect is where it meets the rest of its object, and is all
-                // the connectivity check needs.
-                if (o.editId != null) rec.editId = o.editId;
-                if (o.attachRect) rec.attachRect = { ...o.attachRect };
-                // Where the object gets CHOPPED (bible D4/6.6). Two numbers, and
-                // they are geometry: drop them and a reloaded drawing subdivides
-                // somewhere else, which moves every frozen chord in it.
-                if (o.tile && (o.tile[0] || o.tile[1])) rec.tile = [o.tile[0], o.tile[1]];
-                // Pending eraser strokes (deferred area erase) must survive a
-                // save so baking can resume after a reload.
-                if (o.erase) { rec.erase = true; if (o.bakePx != null) rec.bakePx = o.bakePx; }
-                return rec;
-            });
+            // The header fields are format2.objectHeader, shared with the kobin-2
+            // store so the two forms agree field for field. The resolved perimeter
+            // IS the object, so it is what gets written; tile, below and attachRect
+            // are geometry (drop them and a reloaded drawing chops or sits somewhere
+            // else); a pending eraser stroke rides erase so baking resumes after a
+            // reload.
+            natives[l] = (this.nativesByLevel[l] || []).map((o) => objectHeader(o,
+                o.type === "shape" ? { loops: encodeLoops(o.loops) }
+                    : o.type === "fill" ? { polys: o.polys } : { pts: o.pts }));
         }
         return natives;
     }
@@ -820,33 +961,7 @@ export default class Document {
         const natives = {};
         let maxId = 0;
         for (const l of Object.keys(snapNatives)) {
-            natives[l] = snapNatives[l].map((o) => {
-                // RETIRED FIELDS. Drawings saved before 2026-08-06 recorded a
-                // deep erase as a `windows` rect on a parent that kept its whole
-                // geometry, plus a `srcId` back-pointer on each re-homed child.
-                // Both are gone — the parent's rings are cut now — and nothing
-                // reads them. Strip them at the door rather than carry inert
-                // state that still looks meaningful: such a file renders as
-                // though nothing had ever been erased, and a field recording
-                // where the hole SHOULD have been is worse than no field at all.
-                // Kobin's call was that no migration is owed; the affected
-                // drawings were throwaway.
-                const { windows, srcId, ...keep } = o;
-                if (keep.type === "shape" && Array.isArray(keep.loops)) {
-                    // Repair on the way IN, so a drawing damaged by an older
-                    // build opens, renders and — the part that matters — saves.
-                    return { ...keep, loops: repairLoops(decodeLoops(keep.loops), keep.w), paths: [] };
-                }
-                // A `fill` native is a drawing from before the arc pipeline. It
-                // stays a fill: rendering and tiles already speak polygons, and
-                // converting at the door would be the one expensive thing a load
-                // does — one recorded drawing carries a 1.8-million-vertex fill,
-                // and turning that into arc pieces costs more than everything
-                // else on the way in put together. `fillToShapeById` converts one
-                // when something actually needs to cut it, which is the only time
-                // the arc form buys anything.
-                return { ...keep, paths: [] };
-            });
+            natives[l] = snapNatives[l].map(nativeFromRecord);
             // editId is drawn from the SAME counter as ids (a severance mints a
             // fresh family key), and a key belonging to no object still must
             // never be handed out as an id later — an object whose id happened to
@@ -863,7 +978,7 @@ export default class Document {
         // that already carry thousands.
         for (const l of Object.keys(natives)) if (!natives[l].length) delete natives[l];
         this._undo = []; this._redo = [];
-        this._replace(natives);
+        this._replace(natives, true);
         return true;
     }
 }

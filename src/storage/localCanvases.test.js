@@ -3,7 +3,7 @@ import {
     INDEX_KEY, LEGACY_AUTOSAVE_KEY, slotKey, thumbKey, newCanvasId,
     readIndex, upsertIndexEntry, removeCanvas, statsFromDoc, statsFromNatives,
     migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel,
-    packSlot, unpackSlot, loadCanvasDoc, saveCanvasDoc, writeCanvas, hasCanvasDoc, backupCanvasDoc,
+    packSlot, unpackSlot, loadCanvasDoc, saveCanvasDoc, writeCanvas, writeCanvas2, loadCanvasStore, hasCanvasDoc, backupCanvasDoc,
     trashCanvas, readTrash, restoreCanvas, renameCanvasLocal,
     purgeTrashEntry, duplicateCanvas, stashOverwrittenVersion, getDeviceId,
     loadThumbs, saveThumbs, loadCoverThumb, migrateStorage, sweepStorage, BACKUP_TTL_MS,
@@ -12,6 +12,7 @@ import {
     _resetDbForTests, getBackup, putBackup, getTrashDoc, listCanvasHeaders,
     tx, sweepThumbs, thumbBytesTotal, MIGRATED_FLAG, dataUrlToBytes, bytesToDataUrl,
 } from "./db";
+import { encodeRecords } from "../engine/format2";
 
 const sampleDoc = (name = "Sample") => ({
     format: "boundless-drawing",
@@ -140,17 +141,19 @@ describe("localCanvases", () => {
         expect(back).not.toBe(doc);
     });
 
-    test("writeCanvas: an incremental write touches only the frames it names and drops the ones that left", async () => {
+    test("writeCanvas2: an incremental write snapshots the frames it names, appends the log, drops the frames that left", async () => {
         const doc = sampleDoc("Inc");
         await saveCanvasDoc("inc", doc);
         // Frame 0 edited, frame 2 gone, frame 7 new; -1 and 5 untouched.
         const edited = [{ type: "stroke", id: 2, pts: [[9, 9]], lwFrame: 1 }];
         const fresh = [{ type: "stroke", id: 9, pts: [[7, 7]], lwFrame: 1 }];
         const { natives, ...header } = doc;
-        const ok = await writeCanvas("inc", {
-            header: { ...header, name: "Inc" },
-            frames: { 0: edited, 7: fresh },
+        const entry = { seq: 3, t: 1, op: { k: "attr", id: 2, set: { z: 5 } }, geo: new Float64Array([1.5, -2]), touches: ["0"] };
+        const ok = await writeCanvas2("inc", {
+            header: { ...header, name: "Inc", seq: 3 },
+            snapshots: { 0: { ...encodeRecords(edited), seq: 3 }, 7: { ...encodeRecords(fresh), seq: 3 } },
             frameIds: ["-1", "0", "5", "7"],
+            entries: [entry],
             full: false,
         });
         expect(ok).toBe(true);
@@ -160,6 +163,39 @@ describe("localCanvases", () => {
         expect(back.natives[7]).toEqual(fresh);
         expect(back.natives["-1"]).toEqual(doc.natives["-1"]);
         expect(back.natives[2]).toBeUndefined();
+        // what the editor restores from: buffers as they were, the log in order
+        const st = await loadCanvasStore("inc");
+        expect(st.header.store).toBe("kobin-2");
+        expect(st.header.seq).toBe(3);
+        expect(st.header.frameSeq).toEqual({ "-1": 0, 0: 3, 5: 0, 7: 3 });
+        expect(st.frames[0].geo).toBeInstanceOf(Float64Array);
+        expect(st.entries).toHaveLength(1);
+        expect(st.entries[0]).toMatchObject({ seq: 3, op: { k: "attr", id: 2 }, touches: ["0"] });
+        expect(Array.from(st.entries[0].geo)).toEqual([1.5, -2]);
+        // compaction drops what is below the floor; a reset empties the log
+        const ids = ["-1", "0", "5", "7"];
+        await writeCanvas2("inc", { header: { ...header, name: "Inc", seq: 4 }, frameIds: ids, entries: [{ seq: 4, t: 2, op: { k: "undo", of: 3 }, geo: null, touches: [] }], dropBelow: 4 });
+        expect((await loadCanvasStore("inc")).entries.map((e) => e.seq)).toEqual([4]);
+        await writeCanvas2("inc", { header: { ...header, name: "Inc", seq: 4 }, frameIds: ids, resetLog: true });
+        expect((await loadCanvasStore("inc")).entries).toEqual([]);
+        expect((await loadCanvasStore("inc")).header.frameSeq).toEqual({ "-1": 0, 0: 3, 5: 0, 7: 3 });
+    });
+
+    test("a canvas in the v1 store opens as legacy, and its next full save moves it to the kobin-2 store", async () => {
+        const doc = sampleDoc("Old");
+        const { natives, ...header } = doc;
+        expect(await writeCanvas("old", { header, frames: natives, frameIds: Object.keys(natives), full: true })).toBe(true);
+        const st = await loadCanvasStore("old");
+        expect(st.legacy).toEqual(doc);
+        expect(await loadCanvasDoc("old")).toEqual(doc);
+        expect(await saveCanvasDoc("old", doc)).toBe(true);
+        const st2 = await loadCanvasStore("old");
+        expect(st2.legacy).toBeUndefined();
+        expect(st2.header.store).toBe("kobin-2");
+        expect(Object.keys(st2.frames).sort()).toEqual(["-1", "0", "2", "5"]);
+        expect(await loadCanvasDoc("old")).toEqual(doc);
+        const v1 = await tx(["frames"], "readonly", (f) => new Promise((res) => { const r = f.index("byCanvas").getAll("old"); r.onsuccess = () => res(r.result); }));
+        expect(v1).toEqual([]);
     });
 
     test("writeCanvas refuses an incremental write with no base record", async () => {

@@ -10,7 +10,6 @@
  * These pin the three things that make it safe: the result is pixel-identical,
  * S never exceeds what Two.js can serialise, and ordinary objects are untouched.
  */
-import Two from "two.js";
 import Renderer from "./Renderer";
 
 const CFG = { enter: 300, base: 0.1, exit: 0.05, bufferScreens: 1, scale: 1000,

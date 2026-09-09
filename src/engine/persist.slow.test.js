@@ -67,7 +67,10 @@ describe("format encode/decode", () => {
         const parts = sampleParts();
         const doc = encodeDrawing({ ...parts, meta: { name: "boat scene", createdAt: "2026-01-01T00:00:00.000Z" } });
         expect(doc.format).toBe(FORMAT);
-        expect(doc.version).toBe(VERSION);
+        // A drawing with nothing in it that the version-1 format cannot hold
+        // is written as version 1 whatever VERSION is, so it opens in any
+        // build (the next test is the drawing that cannot be).
+        expect(doc.version).toBe(1);
         expect(doc.meta.name).toBe("boat scene");
         expect(doc.meta.createdAt).toBe("2026-01-01T00:00:00.000Z");
         expect(typeof doc.meta.modifiedAt).toBe("string");
@@ -76,6 +79,35 @@ describe("format encode/decode", () => {
         expect(d.crossings).toEqual(parts.crossings);
         expect(d.natives).toEqual(parts.natives);
         expect(d.meta.name).toBe("boat scene");
+    });
+    test("a drawing holding a CUT line is written as version 2 and round-trips the line's canonical points", () => {
+        // F43 (2026-09-05): a line piece that has been cut carries the line it
+        // was cut from (`P`, `Q`) and where its ends sit on it (`sa`, `sb`),
+        // encoded as code 2. A version-1 reader would take that record for an
+        // arc, so the file says version 2 — and only then.
+        const parts = sampleParts();
+        parts.natives[0].push({
+            type: "shape", origin: "native", id: 5, color: "#000000", opacity: 1,
+            loops: [[0, 0, 2, 0, 0, 10, 0, 0.2, 0.8, 8, 0, 0, 8, 5, 0, 0, 0]],
+        });
+        const doc = encodeDrawing({ ...parts, meta: { name: "cut" } });
+        expect(doc.version).toBe(VERSION);
+        expect(VERSION).toBe(2);
+        const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
+        expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
+    });
+    test("...and so is one holding a CUT arc (code 3)", () => {
+        // A quarter-turn cut from a half-turn: the piece's own arc, the arc it
+        // was cut from, its positions on it, then its end; a line closes the loop.
+        const parts = sampleParts();
+        parts.natives[0].push({
+            type: "shape", origin: "native", id: 6, color: "#000000", opacity: 1,
+            loops: [[100, 0, 3, 0, 0, 100, 0, Math.PI / 2, 0, Math.PI, 100, 0, -100, 0, 0, 0.5, 0, 100, 0, 100, 0]],
+        });
+        const doc = encodeDrawing({ ...parts, meta: { name: "cut arc" } });
+        expect(doc.version).toBe(2);
+        const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
+        expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
     });
     test("legacy dev-0 snapshots migrate", () => {
         const parts = sampleParts();

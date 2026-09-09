@@ -16,9 +16,8 @@
  * rather than leaving it to be inferred.
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, drag, click,
-    descend, camShot, camRestore, inkAt, raster, rasterDiff, inkRunsX,
-    families, natives, painted,
+    useEngines, mkEngine, drawStroke, erase, drag, click, descend, camShot, camRestore, inkAt,
+    raster, rasterDiff, families, painted,
 } from "./__testkit__/harness";
 import { pieceInks } from "./__testkit__/ink";
 
@@ -34,21 +33,6 @@ const ringPts = (cx, cy, r, n = 48) => {
     }
     return pts;
 };
-// The family every piece of ink at a screen point belongs to.
-const famAt = (E, sx, sy) => {
-    const p = E.cam.screenToFrame(sx, sy);
-    const list = painted(E);
-    for (let i = list.length - 1; i >= 0; i--) {
-        const o = list[i];
-        // The ink oracle, not a local copy of one: a resolved shape answers
-        // "is this point painted" exactly, and a hand-rolled ring walk here
-        // would only ever see the polygon half of the picture.
-        const hit = pieceInks(o, p);
-        if (hit) return E.doc.editKey(E.doc.getById(o.id) ? o : o);
-    }
-    return null;
-};
-
 describe("TP-1 — a ring is connected the long way round", () => {
     // Layers: complex topology (14) + multi-layer erase (3) + tile boundary (7).
     //

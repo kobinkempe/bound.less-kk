@@ -9,7 +9,7 @@ import LevelMap from "./LevelMap";
 import Document from "./Document";
 import TileStore from "./TileStore";
 
-import { BASE, ENTER, EXIT, R, HALF_W } from "./frameLattice";
+import { BASE, ENTER, EXIT, HALF_W } from "./frameLattice";
 
 const CFG = { enter: ENTER, base: BASE, exit: EXIT, bufferScreens: 1, scale: 1000,
     arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, lineModeLevel: 2 };
@@ -147,7 +147,6 @@ describe("bake-order determinism", () => {
         };
         const a = mkStore(M, d); const A = norm(a);
         // fresh store, warm a finer tile FIRST (different order), then read
-        const b = mkStore(M, new Document());
         // rebuild identical doc for b
         const d2 = new Document();
         for (let l = -3; l <= -1; l++) mkStroke(d2, l, [[0, 0], [8, 3], [16, -4]], 3);

@@ -575,7 +575,9 @@ asserts the two endpoints are bit-equal in screen coordinates. **[open — cheap
    dragging a level-2 object 100 px asks for a displacement 3.7e-16 of the object's own size —
    below any representation. Correct to refuse, since at that magnification the object fills
    2.7e10 screens and is not visible *as* an object. But the UI should not show a drag doing
-   something the model will discard. **[open — UI, not geometry]**
+   something the model will discard. **[open — UI, not geometry]** *Closed by F41/F55 as built
+   (2026-09-05): a drag at any depth is stored in the object's offsets table at the camera's
+   depth, so nothing is discarded and the question has no subject.*
 7. **Migration.** Existing drawings carry free-floating frames with arbitrary edges. Converting
    them to lattice cells means rewriting stored coordinates — the operation this design exists
    to avoid. Loading old frames as legacy free-floating nodes alongside lattice nodes means two
@@ -692,7 +694,7 @@ with room to spare. Its address gains a rung; nothing else changes.
 
 ## 10. WHAT WAS BUILT (2026-08-19)
 
-**Every decision in section 0 is in the code**, D1 excepted (10.4c). Section 10 records the
+**Every decision in section 0 is in the code**, D1 excepted (10.4c; dropped 2026-09-08). Section 10 records the
 places where building it changed the design, and the ones where an earlier build of this section
 got the design wrong and had to come back to it — 10.3 and 10.4a in particular, where the tile
 grid was anchored to the frame lattice and the freeze was left out, and the argument for doing so
@@ -860,6 +862,9 @@ decision. But finding where an arc crosses a grid line does read `C` and `r`:
 chopped (it needs no cut to stay a line), and by the third crossing the freeze has turned
 everything into lines, so an arc is only ever chopped at shallow depths where its centre is an
 ordinary number. Build D1 and this stops depending on that argument.
+*Dropped 2026-09-08 by Kobin, recorded in the roadmap's register: the browser is the only
+limit left, the raster renderer builds around it, and an arc is meant to end as a line
+anyway, so D1 would be an intermediate step.*
 
 **A CEDE stores exact arcs, not the frozen picture.** `_bakeRehome` goes through `projectF` and
 `clipShapeToRect` rather than through `deriveStep`, so nothing a cede writes has ever been
@@ -969,14 +974,14 @@ taken over. The block is then where the erase is AND where the chain is going.
 
 ### 10.9 Still open
 
-* **D1 is not built** (10.4c). A piece is still `{C, r, a0, sweep, A, B}`. The freeze TEST never
+* **D1 is not built, and was dropped 2026-09-08** (10.4c; the roadmap's register has Kobin's reasons). A piece is still `{C, r, a0, sweep, A, B}`. The freeze TEST never
   touches the centre, and a line is never chopped, so an arc only meets a grid line at shallow
   depths where its centre is an ordinary number — but that is a structural argument standing in
   for a representation change, and it is the last thing in section 0 still outstanding.
 * **Section 7.4, the touching-arcs severance case.** Deliberately not built, exactly as scoped.
 * **Section 7.5, the seam antialiasing rule.** A look-at-it question; nothing measured.
-* **Section 7.6b, a move finer than the object can hold.** The model handles it (section 6.8);
-  the UI question of what a drag should LOOK like at that magnification is untouched.
+* **Section 7.6b, a move finer than the object can hold.** Closed by F41/F55 as built
+  (2026-09-05): the offsets table stores every drag at the camera's depth, nothing is discarded.
 * **Frame garbage collection (section 7.8).** Abandoned cells are now re-findable rather than
   lost, so the leak is harmless, but nothing collects them.
 * **Legacy files.** Refused, per D8. The recorded `.kobin-reports` fixtures are re-expressed by
@@ -1026,7 +1031,7 @@ something Kobin actually said, not a paraphrase of the bible.
 | 17 | *"maybe split to 1500 either way"* (balanced digits) | `carryDigit`, `HALF_R` | **built** |
 | 18 | *"Just throw an error message... this is a legacy file"* | `persist.decodeCrossings` | **built** |
 | 19 | *"Right now, tiles are calculated once when you pass 300x zoom at that level. I guess that wouldn't change"* | unchanged | **built** |
-| 20 | *"can you represent an arc perfectly with a cubic bezier?"* → D1, a piece is `{A, B, bulge}` | — | **NOT BUILT** (10.4c) — the only one left |
+| 20 | *"can you represent an arc perfectly with a cubic bezier?"* → D1, a piece is `{A, B, bulge}` | — | **DROPPED 2026-09-08** (10.4c) — the only one not built |
 | 21 | *"the frame tree should tell you which objects you need to look at when selecting and zooming"* (§6.4) | `KobinEngine._lassoFind` | **built** — L-T |
 | 24 | *"I can see two kinds of trimming"* — the tile cuts geometry, the frame only culls | `deriveStep` clips on `tileClipRect` + the seam pad | **built** — OT-3, S-1 |
 | 22 | *"It might change how we have to do anti-aliasing... We'll have to test to see how it looks"* (§7.5) | — | **open, by agreement** |
@@ -1038,7 +1043,7 @@ Two of these are worth saying plainly rather than leaving in a table.
 guarantee holds where it matters. But finding where an arc crosses a tile boundary does read the
 stored `C` and `r`. What keeps that safe is structural — a line is never chopped, and by the third
 crossing everything is a line — rather than a property of the representation. It is the last
-decision from section 0 outstanding.
+decision from section 0 outstanding, and it was dropped on 2026-09-08 (10.4c).
 
 **Row 21, section 6.4.** `_lassoFind` walks the tree from the active frame outward, one hop at a
 time, and gives every frame one of three answers: OUT OF REACH (skip it and its subtree), ENCLOSED

@@ -25,7 +25,9 @@
  * line anywhere along it; that happens once, at paint, against nothing that is
  * stored, so it can never be inherited by anything.
  */
-import { useEngines, mkEngine, drawStroke, descend, ascend, camShot, camRestore } from "./__testkit__/harness";
+import {
+    useEngines, mkEngine, drawStroke, descend, ascend, camShot, camRestore,
+} from "./__testkit__/harness";
 import { pieceInks } from "./__testkit__/ink";
 import { insideShape, loopsBBox } from "./geometry/arcShape";
 
@@ -196,7 +198,16 @@ describe("CX-3 — the rendered edge, in pixels", () => {
             // then off screen was an approximation being inherited and magnified
             // 4096 times a level. A quarter pixel at every depth is the claim.
             expect([d, worstPx <= E.cfg.arcTolerancePx]).toEqual([d, true]);
-            if (d === 1) expect([d, worstPx]).toEqual([d, 0]);
+            // "On the nose" was EXACTLY zero until 2026-09-07, because the
+            // painted piece and the oracle's piece are sub-arcs of one circle
+            // and the winding query asked both through the same centre — the
+            // same arithmetic on the same numbers. The query now asks an arc
+            // in its own CHORD frame (`arcShape.rayCross`, roadmap item 5),
+            // and a tile's fragment and the whole arc have different chords,
+            // so the two answers round differently: measured 9.8e-11 px here,
+            // 4e-7 at depth 2. That is rounding, not an inherited chord — the
+            // thing this line exists to catch is 0.855 px.
+            if (d === 1) expect([d, worstPx < 1e-6]).toEqual([d, true]);
         }
         // eslint-disable-next-line no-console
         console.log("CX-3 rendered edge error [depth, rays, px]:", JSON.stringify(worst));

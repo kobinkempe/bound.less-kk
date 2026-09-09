@@ -1,4 +1,11 @@
 /**
+ * THESE NUMBERS MEASURE THIS BOX (roadmap E3, 2026-09-07). Every timing here
+ * is wall-clock time on the machine running the suite: it moves with the CPU,
+ * with what else is running, and with jsdom's own speed. The gates below are
+ * RATIOS between the two engines on the same box for that reason, and even a
+ * ratio drifts when the box is loaded unevenly during the run. A red run on a
+ * loaded machine that is green alone is the machine, not a regression.
+ *
  * Performance benchmark — OLD engine vs NEW engine on the real snapshots and on
  * the BUG-05 pen-jank scene. Not a strict pass/fail on absolute timings (CI
  * machines vary), but it asserts the two acceptance gates from the plan:

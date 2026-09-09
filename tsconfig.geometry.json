@@ -1,0 +1,22 @@
+{
+  "//": "S3 (2026-09-07): `npm run typecheck` — JSDoc-checked JavaScript over the geometry layer only. Not a TypeScript migration; CRA never reads this file (it reads tsconfig.json, which stays as it was). The typedefs are src/engine/geometry/types.js. Strictness is off so that untyped code is not an error; what is checked is that a function annotated with a type is called with that type.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "checkJs": true,
+    "target": "es2019",
+    "downlevelIteration": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/engine/geometry/*.js",
+    "src/engine/geometry/*.d.ts",
+    "src/engine/frameLattice.js"
+  ],
+  "exclude": [
+    "src/engine/geometry/*.test.js"
+  ]
+}

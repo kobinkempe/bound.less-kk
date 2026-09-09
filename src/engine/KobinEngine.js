@@ -40,6 +40,7 @@ import Renderer from "./Renderer";
 import TileStore from "./TileStore";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
+import { residual, encodeBelow } from "./geometry/offsets";
 import { strokeOutline } from "./geometry/clipperBoolean";
 import { validateScaleDef } from "./scaleBar";
 import { EventLatency, FrameMeter, GrowthLog, LongFrames } from "./instruments";
@@ -426,15 +427,34 @@ export default class KobinEngine {
     _buildList() {
         const win = this.cam.frameWindow(0);
         const F = this.cam.frame;
+        // A change of frame: the tiles of frames the camera has left go (memory step 3a).
+        if (F !== this._tileFrame) { this.store.framesLeft(F); this._tileFrame = F; }
         const derived = this.store.content(F, win);
         const own = this.store.ownContent(F);
         const list = derived.concat(own);
         // Renderer grouping follows logical edit ownership for re-homed
         // boundary patches. That lets parent/patch overlap close AA seams while
         // applying transparent opacity only once to the family.
+        //
+        // THE RESIDUAL (F41, geometry/offsets.js). A piece of an object that
+        // carries offsets at levels DEEPER than this one is drawn translated by
+        // their sum, scaled up to here — a translation this level's own
+        // coordinates cannot hold, applied at paint and never stored, so
+        // nothing deeper derives from it. Stamped on the piece as `res` so
+        // every reader of the render list — the renderer, the hit test, the
+        // selection indicator, the test oracles — sees the same picture.
+        const hasOff = this.doc.hasOffsets();
+        const D = this.cam.activeLevel;
+        const resById = hasOff ? new Map() : null;
         for (const o of list) {
             const rec = this.doc.getById(o.id);
             if (rec && rec.obj.editId != null) o.editId = rec.obj.editId;
+            let res = null;
+            if (hasOff && rec && rec.obj.below) {
+                res = resById.get(o.id);
+                if (res === undefined) { res = residual(rec.obj.below, D - this.lm.depthOf(rec.level)); resById.set(o.id, res); }
+            }
+            if (res) o.res = res; else if (o.res) delete o.res;
         }
         // z defaults to id (creation order); cut pieces carry their source's z
         // so a stroke stays at its depth after a boolean erase splits it.
@@ -444,6 +464,7 @@ export default class KobinEngine {
     }
     _render() {
         const t0 = perfNow();
+        this._renderPending = false;   // a deferred bake render is satisfied by any render (`_stepShapeBakes`)
         this._lastList = this._buildList();
         this.renderer.render(this._lastList, this.cam.frame);
         this.renderer.update();
@@ -468,7 +489,11 @@ export default class KobinEngine {
         this._lastCamMove = t0;
         this.frameMeter.poke();
         this.cam.panBy(dx, dy);
-        if (this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsReorigin()) this._render();
+        // needsWindowChop: the view has left the inner half of the scene's
+        // window, so the pieces chopped to it must be rebuilt on a fresh one
+        // before its edge could come on screen (F40).
+        if (this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsReorigin()
+            || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf("pan", t0);
         this._noteFast("panStep", perfNow() - t0);
@@ -484,8 +509,10 @@ export default class KobinEngine {
         // to their outline representation BEFORE raw stroking becomes unsafe.
         // needsFadeFlip: a zoom can move a piece across the fully-present line,
         // which changes which GROUP it belongs in. Only a full render regroups.
+        // needsWindowChop: a zoom in past the window's budget, or a zoom out
+        // that has outgrown its inner half (F40).
         if (crossed || this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsFatFlip()
-            || this.renderer.needsFadeFlip() || this.renderer.needsReorigin()) this._render();
+            || this.renderer.needsFadeFlip() || this.renderer.needsReorigin() || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
         this._noteFast(crossed ? "crossStep" : "zoomStep", perfNow() - t0);
@@ -595,6 +622,23 @@ export default class KobinEngine {
         finally { const ms = perfNow() - t0; this._perf("ptrUp", t0, false, { tool: this.tool }); this._noteFast("ptrUp", ms); }
     }
     _pointerDown(sx, sy, ctrl = false) {
+        // A PRESS WHILE A STROKE IS STILL OPEN means the last pointerup never
+        // arrived — the button was released over another window after an
+        // alt-tab, the OS swallowed the end of a touch. Until 2026-09-05 the
+        // new stroke simply took over `_drawing` and the old one was
+        // abandoned mid-air: still in the document, never finalized (pending
+        // and unindexed for ever), and with NO undo op, because the op is
+        // pushed at pen-up — so Ctrl+Z removed the NEW stroke and the orphan
+        // stayed. Measured in Chrome by dispatching two pointerdowns. Finish
+        // it the way a pen-up would, then start the new one.
+        if (this._drawing) this._pointerUp();
+        // The same for a select gesture left behind by a tool change mid-press
+        // (a second finger tapping the toolbar): a stale press would turn the
+        // next pen-up into a tap-select, and a stale lasso would swallow it.
+        if (this.tool !== "select") {
+            this._selPress = null;
+            if (this._lasso) { this._lasso = null; this.renderer.refreshSelection(); }
+        }
         if (this.tool === "pan") { this._panLast = [sx, sy]; return; }
         if (this.tool === "erase") { this._erasing = true; this.eraseAt(sx, sy); return; }
         if (this.tool === "erasePartial") {
@@ -746,9 +790,11 @@ export default class KobinEngine {
                 // A move that walked an object out of its own cell is finished
                 // by re-homing it into the cell it now sits in, so invariant 2
                 // holds again before anything else looks at the document.
+                let rehomed = false;
                 for (const [id] of d.moves) {
                     const n = this._normalizeHome(id);
                     if (!n) continue;
+                    rehomed = true;
                     const st = d.moves.get(id);
                     st.to = n.level; st.dx += n.dx; st.dy += n.dy;
                 }
@@ -768,10 +814,26 @@ export default class KobinEngine {
                             // How far from its frame's origin the piece now sits.
                             // Under the lattice this is bounded by construction —
                             // it is the number F25 watched climb to 7.3e18.
-                            reach: b ? +Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1)).toPrecision(6) : null };
+                            reach: b ? +Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1)).toPrecision(6) : null,
+                            // The offsets below its home after the drag (F41).
+                            below: rec ? encodeBelow(rec.obj.below) : undefined };
                     }),
+                    // Members the drag could not move, and why (F35).
+                    skipped: d.skipped && d.skipped.length ? d.skipped.slice(0, 12) : undefined,
                 });
                 this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
+                // THE RE-HOME HAPPENED AFTER THE LAST RENDER. `_dragSelection`
+                // rendered on every pointer event, and then `_normalizeHome`
+                // moved the member to the next cell and its coordinates by a
+                // whole frame — so `_lastList` still held it as a native of the
+                // old frame, with loops now a frame away from where the list
+                // said. The picture on screen was right (a re-home is a pure
+                // change of address), but everything that reads the list was
+                // not: the hit test missed the object where it visibly sat, so
+                // the next tap on it DESELECTED, and the ants vanished until
+                // the next pan or zoom. Measured 2026-09-05 with a stroke a
+                // thousand units from the cell edge dragged 1,920 units.
+                if (rehomed) this._render();
             }
         }
         if (this._drawing) {
@@ -800,6 +862,11 @@ export default class KobinEngine {
                 this.doc.pushUndo({ op: "add", id: o.id });
                 this._noteInkAdded(o);            // provisional scene assignment
             }
+            // THIS IS THE ONE RENDER A PEN-UP MAKES (2026-09-07). The bake's
+            // render, a few milliseconds later, used to be the second, and
+            // each walked every group on screen; the resolved perimeter paints
+            // the same picture as the raw stroke by design, so that one now
+            // waits for whatever renders next (`_stepShapeBakes`).
             this._render();
             this._queueIdleFits();                // prefit the outline off the pen-up frame
         }

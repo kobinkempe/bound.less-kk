@@ -75,6 +75,11 @@ THE BAKE TIMER - one timer for both kinds of bake
             _finishPhase hairlines, one canonical handedness, junction balance
           doc.bakeShapeById(id, _sealed(result), w)   stroke -> shape, in place
           _promoteOversize(id)              invariant 2 (D9)
+          NO RENDER (2026-09-07): the perimeter paints as the raw stroke did,
+            so `_renderPending` is set and whatever renders next paints it
+            (the next pen-up, a crossing, an undo, an erase bake); a
+            promotion renders at once; flushBakes renders if pending. This
+            halves the renders per pen-up - each walked every group.
         for each pending eraser stroke:
           _nextEraseTarget(Erec)            z-below, reachable, ink nearby
           _bakeOne(Erec, target)            see ERASING

@@ -105,6 +105,7 @@ function pickScale(center, width, optScale, displayScale) {
  *   @param {boolean} [opts.curved]        offset the Two.js spline (true) or raw chords (false)
  *   @param {number}  [opts.displayScale]  frame units -> on-screen px (so tolerances are in real px)
  *   @param {number}  [opts.arcTolerancePx] max chord error in on-screen px (default 0.25)
+ *   @param {number}  [opts.scale]         Clipper's integer multiplier, when the caller fixes it (`pickScale` otherwise)
  * @returns {Array<Array<[number,number]>>} outline polygons (each a point ring)
  */
 export function strokeOutline(points, width, opts = {}) {

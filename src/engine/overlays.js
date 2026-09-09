@@ -23,8 +23,12 @@ import { bboxOf, shapeRingsInRect } from "./geometry/derive";
 import { clipRingsToRect } from "./geometry/polyline";
 import { meanWidth, shapeFromRings } from "./geometry/arcShape";
 import { strokeLoops } from "./geometry/curveOutline";
-import { runLength, loopRuns, runPathData, loopsBounds, edgeSpans, circleLoop, insideLoops, clipRunToRect } from "./geometry/antRuns";
+import {
+    runLength, loopRuns, runPathData, loopsBounds, edgeSpans, circleLoop, insideLoops,
+    clipRunToRect,
+} from "./geometry/antRuns";
 import { rectSpan, rectTol } from "./rectMath";
+import { translateLoops } from "./geometry/arcShape";
 
 
 // ---- selection indicator ----------------------------------------------------
@@ -59,6 +63,20 @@ const SEL_MIN_TRACE_PX = 0.5;
 // on every frame of the crawl; a quarter screen is the same order as the
 // tile changes that re-render the drawing anyway.
 const SEL_KEEP_FRACTION = 0.5;
+// Rects within `gap` of each other, unioned: what several specks on one pixel become.
+function mergeClose(rects, gap) {
+    const out = [];
+    for (const r of rects) {
+        let hit = null;
+        for (const c of out) {
+            if (r.left - gap <= c.right && r.right + gap >= c.left && r.top - gap <= c.bottom && r.bottom + gap >= c.top) { hit = c; break; }
+        }
+        if (!hit) { out.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }); continue; }
+        hit.left = Math.min(hit.left, r.left); hit.top = Math.min(hit.top, r.top);
+        hit.right = Math.max(hit.right, r.right); hit.bottom = Math.max(hit.bottom, r.bottom);
+    }
+    return out;
+}
 // How far the zoom may drift from the scale the ants were decided at before
 // they are decided again. Between decisions the layer is scaled by the
 // compositor, so the band and the dashes drift with it: at 1.25 a 2.5 px band
@@ -68,6 +86,10 @@ const SEL_REDECIDE_DRIFT = 1.25;
 // A run shorter than this — two pieces a hundredth of a pixel apart — draws as
 // a stray dot and is dropped.
 const SEL_MIN_RUN_PX = 0.5;
+// A selected object too small to trace — every run under SEL_MIN_RUN_PX — in a frame
+// that is not itself a dot, is a dot of its own (F73); above this span it is large
+// enough that something else is wrong, and no dot is drawn for it.
+const SEL_OBJECT_DOT_PX = 8;
 // The edge scan runs this far INSIDE each side of the view (see
 // `edgeSpans`): on the side itself a boundary lying along it is degenerate.
 const SEL_EDGE_INSET_PX = 0.05;
@@ -86,6 +108,8 @@ const SEL_EDGE_INSET_PX = 0.05;
 const SEL_CHEVRON_FRACTION = 1 / 5;
 /** A clip or attach rectangle as `{ rect, eps }` for the seam test. */
 function clipRect(r) { return { rect: asRect(r), eps: rectTol(r) }; }
+// A rect in either spelling, as {left,top,right,bottom}.
+const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
 /** Merge overlapping or nearly touching [a,b] spans into the fewest runs. */
 function mergeSpans(list, gap) {
     if (!list.length) return [];
@@ -230,10 +254,15 @@ class Overlays {
                 const rk = whole ? o.id + "|" + (o._ver || 0) + "|" + tol : null;
                 let rings = rk ? C.rings.get(rk) : null;
                 if (!rings) {
-                    rings = this._outlineInView(o, vr, tol);
+                    // An object with offsets below its home (F41) is drawn
+                    // where its picture is; the view, in its units, is the
+                    // view brought back through those offsets.
+                    let vrO = vr;
+                    if (o.below) vrO = this.lm.mapRectObj(win, F, L, o.below, L, true) || vr;
+                    rings = this._outlineInView(o, vrO, tol);
                     if (rk) C.rings.set(rk, rings);
                 }
-                for (const ring of rings) this._emitOutlineRing(out, o.id, L, ring, entries, onScreen);
+                for (const ring of rings) this._emitOutlineRing(out, o, L, ring, entries, onScreen);
             }
         }
         // Marks: still pending, plus the ones already consumed.
@@ -417,7 +446,13 @@ class Overlays {
                 for (const up of members) {
                     if (up === kid || this.lm.depthOf(up.level) !== kidDepth - 1) continue;
                     if (up.obj.type !== "shape" && up.obj.type !== "fill") continue;
-                    const Rp = this.lm.mapRectF({ left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 }, kid.level, up.level);
+                    const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
+                    // The kid's window is unmoved numbers; it reaches the
+                    // parent's stored coordinates through the parent's unmoved
+                    // frame at the kid's level (F55), the same way the family
+                    // check in `_familyComponents` does.
+                    const upF0 = up.obj.below ? this.lm.objShift(up.obj.below, up.level, kid.level) : null;
+                    const Rp = upF0 ? this.lm.mapRectF(Rk, upF0.F0, up.level) : this.lm.mapRectF(Rk, kid.level, up.level);
                     if (!Rp) continue;
                     const at = Math.max(rectTol(R) / rectSpan(R), rectTol(Rp) / rectSpan(Rp));
                     const upArcs = contactArcs(ink(up.obj, rectTol(Rp)), Rp, rectTol(Rp));
@@ -523,9 +558,10 @@ class Overlays {
 
     /**
      * The selection's members grouped by frame, each object once, erased marks
-     * dropped, with each frame's union box of its selected members (in that
-     * frame's units) and the set of every member id. Cached against the
-     * selection object and the document's revision.
+     * dropped, with each frame's union boxes of its selected members (in that
+     * frame's units, one box per displacement table — F68: a translation keeps a
+     * box a box, so `_selFrameRect` maps each once) and the set of every member
+     * id. Cached against the selection object and the document's revision.
      */
     _selTable(s) {
         const c = this._selTableCache;
@@ -548,23 +584,38 @@ class Overlays {
                 ids.add(m.obj.id);
                 levelOf.set(m.obj.id, m.level);
                 let e = byLevel.get(m.level);
-                if (!e) { e = { objs: [], box: null }; byLevel.set(m.level, e); }
+                if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(m.level, e); }
                 e.objs.push(m.obj);
                 if (spans) { cross.add(m.obj.id); continue; }
                 const b = bboxOf(m.obj, this.store.live);
                 if (!b) continue;
-                if (!e.box) e.box = { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 };
-                else {
-                    if (b.x0 < e.box.x0) e.box.x0 = b.x0;
-                    if (b.y0 < e.box.y0) e.box.y0 = b.y0;
-                    if (b.x1 > e.box.x1) e.box.x1 = b.x1;
-                    if (b.y1 > e.box.y1) e.box.y1 = b.y1;
-                }
+                const key = m.obj.below ? JSON.stringify(m.obj.below) : "";
+                const bx = e.boxes.get(key);
+                if (!bx) { e.boxes.set(key, { below: m.obj.below, box: { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } }); continue; }
+                if (b.x0 < bx.box.x0) bx.box.x0 = b.x0;
+                if (b.y0 < bx.box.y0) bx.box.y0 = b.y0;
+                if (b.x1 > bx.box.x1) bx.box.x1 = b.x1;
+                if (b.y1 > bx.box.y1) bx.box.y1 = b.y1;
             }
         }
         const table = { byLevel, ids, levelOf, cross, count: seen.size };
         this._selTableCache = { sel: s, rev: this.doc.rev, table };
         return table;
+    }
+    /**
+     * Where a frame's selected members are DRAWN, in F's units: each box through its
+     * members' displacement table (F68 — the frame's mark sat on the stored bits, a
+     * cell away from moved ink, and jumped there once the ink was too small for ants).
+     */
+    _selFrameRect(info, L, F) {
+        let out = null;
+        for (const { below, box } of info.boxes.values()) {
+            const R = { left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 };
+            const r = below ? this.lm.mapRectObj(R, L, F, below, L) : this.lm.mapRectF(R, L, F);
+            if (!r) continue;
+            out = out ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) } : r;
+        }
+        return out;
     }
 
     /**
@@ -600,9 +651,8 @@ class Overlays {
         // ---- frames that are one mark -------------------------------------------
         const marked = new Set();
         for (const [L, info] of table.byLevel) {
-            const b = info.box;
-            if (!b) continue;
-            const r = this.lm.mapRectF({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }, L, F);
+            if (!info.boxes.size) continue;
+            const r = this._selFrameRect(info, L, F);
             if (!r) { marked.add(L); continue; }         // unreachable from here: nothing to show
             const span = Math.max(r.right - r.left, r.bottom - r.top) * sc;
             if (span >= SEL_FRAME_MARK_PX) continue;
@@ -618,11 +668,15 @@ class Overlays {
 
         // ---- the pieces on screen that belong to the selection -------------------
         const seamCache = new Map();
+        const traced = new Set();
         for (const piece of list) {
             if (!table.ids.has(piece.id)) continue;
             if (marked.has(table.levelOf.get(piece.id)) && !table.cross.has(piece.id)) continue;
-            const loops = this._selPieceLoops(piece);
+            let loops = this._selPieceLoops(piece);
             if (!loops || !loops.length) continue;
+            // The ants show what is DRAWN, and a piece with a residual (F41) is
+            // drawn shifted by it.
+            if (piece.res) loops = translateLoops(loops, piece.res[0], piece.res[1]);
             const bounds = loopsBounds(loops);
             // Every selected piece takes part in the edge scan: where the ink
             // leaves the screen is a fact about the ink.
@@ -647,9 +701,32 @@ class Overlays {
                         const len = runLength(run.pieces) * sc;
                         if (len < SEL_MIN_RUN_PX) continue;
                         runs.push({ d: retained(run.pieces, run.closed), len });
+                        traced.add(piece.id);
                     }
                 }
             }
+        }
+
+        // ---- selected objects too small to trace: a dot each (F73) ----------------
+        // A frame whose content spans the screen can hold a member a fraction of a
+        // pixel across (Kobin's report 22-43-41: one moved sliver beside 352 others):
+        // its runs fall under SEL_MIN_RUN_PX and it drew nothing. Every member without
+        // a run — culled from the list, or traced to nothing — that is under
+        // SEL_OBJECT_DOT_PX is a dot where its picture is; dots on one pixel are one.
+        const small = [];
+        for (const id of table.ids) {
+            if (traced.has(id) || table.cross.has(id) || marked.has(table.levelOf.get(id))) continue;   // a family's kid shows through its family
+            const rec = this.doc.getById(id);
+            if (!rec) continue;
+            const r = this._rectInActive(rec.obj, rec.level);
+            if (!r || r.right < win.left || r.left > win.right || r.bottom < win.top || r.top > win.bottom) continue;
+            if (Math.max(r.right - r.left, r.bottom - r.top) * sc >= SEL_OBJECT_DOT_PX) continue;
+            small.push(r);
+        }
+        for (const r of mergeClose(small, SEL_FRAME_MARK_PX / sc)) {
+            const span = Math.max(r.right - r.left, r.bottom - r.top) * sc;
+            const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+            marks.push({ d: retained(circleLoop(cx, cy, Math.max(SEL_MIN_TRACE_PX, span) / 2 / sc), true) });
         }
 
         this._selDecSeq = (this._selDecSeq || 0) + 1;
@@ -691,10 +768,14 @@ class Overlays {
      */
     _selSeamRects(piece, table, F, cache) {
         const key = piece.id;
+        // Everything here is where the ink is DRAWN: a piece with a residual
+        // (F41) has its clip and its family's windows shifted by it too.
+        const shift = (r) => (piece.res ? { left: r.left + piece.res[0], right: r.right + piece.res[0], top: r.top + piece.res[1], bottom: r.bottom + piece.res[1] } : r);
+        const own = () => clipRect(shift(asLTRB(piece.clip)));
         let rects = cache.get(key);
         if (rects) {
             if (!piece.clip) return rects;
-            return rects.concat([clipRect(piece.clip)]);
+            return rects.concat([own()]);
         }
         rects = [];
         const rec = this.doc.getById(piece.id);
@@ -702,13 +783,17 @@ class Overlays {
             for (const m of this.doc.editGroup(rec.obj)) {
                 const R = m.obj.attachRect;
                 if (!R) continue;
-                const mapped = m.level === F ? { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 }
-                    : this.lm.mapRectF({ left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 }, m.level, F);
+                const Rl = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
+                // `mapRectObj` answers where the picture IS (remainder
+                // included, F55), so it is not shifted again; a window in the
+                // member's own frame, and one reached exactly, still are.
+                const mapped = m.level === F ? shift(Rl)
+                    : (m.obj.below ? this.lm.mapRectObj(Rl, m.level, F, m.obj.below, m.level) : shift(this.lm.mapRectF(Rl, m.level, F)));
                 if (mapped) rects.push(clipRect(mapped));
             }
         }
         cache.set(key, rects);
-        return piece.clip ? rects.concat([clipRect(piece.clip)]) : rects;
+        return piece.clip ? rects.concat([own()]) : rects;
     }
 
     /**
@@ -755,9 +840,16 @@ class Overlays {
         return { list, covered };
     }
 
-    _emitOutlineRing(out, id, L, ring, entries, onScreen) {
+    _emitOutlineRing(out, obj, L, ring, entries, onScreen) {
+        const id = obj.id;
         const n = ring.length;
         if (n < 2 || n > 200000) return;
+        // Through the object's own picture (F41): with no offsets this is the
+        // camera's `levelPointToScreen`.
+        const toScreen = (p) => {
+            const q = this._objPointInActive(obj, L, p);
+            return q ? [q[0] * this.cam.inScale + this.cam.inPanX, q[1] * this.cam.inScale + this.cam.inPanY] : null;
+        };
         let run = null, kind = false;
         const flush = () => {
             // A run has to cover some ground: decimation can leave two points a
@@ -771,8 +863,8 @@ class Overlays {
             run = null;
         };
         const add = (p0, p1, k, last) => {
-            const s0 = this.cam.levelPointToScreen(L, p0[0], p0[1]);
-            const s1 = this.cam.levelPointToScreen(L, p1[0], p1[1]);
+            const s0 = toScreen(p0);
+            const s1 = toScreen(p1);
             if (!s0 || !s1 || (!onScreen(s0) && !onScreen(s1))) { flush(); return; }
             if (run && k !== kind) flush();
             if (!run) { run = [s0]; kind = k; }

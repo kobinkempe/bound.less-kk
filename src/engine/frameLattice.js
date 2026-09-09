@@ -230,42 +230,98 @@ export function tilePhase(v) {
  */
 export function childTilePhase(phi, c, f) { return tilePhase((phi - c) * f); }
 
+/**
+ * ONE TYPE FOR THE THREE THINGS CALLED A TILE (S1, 2026-09-07).
+ *
+ * Three partitions of a frame share one size, W, and used to have three
+ * near-identical APIs with two phase conventions, in three modules:
+ *
+ *   - the FRAME CELL: a frame is [-W/2, W/2) in its own units, and its
+ *     children are the cells of `cellOf` / `cellEdge` above — G units apart
+ *     in the parent. Belongs to space.
+ *   - the OBJECT's TILE GRID: the same squares, shifted by the object's phase
+ *     `o.tile` (a point of [0, W)^2), so that the grid rides with the object
+ *     and nests level to level (`childTilePhase`). Belongs to the object; the
+ *     freeze happens on its lines, and every cut in the engine lands on one.
+ *   - the render CACHE SQUARE: the phase-0 grid, `TileGrid.CACHE`. Only a
+ *     unit of work, and it decides nothing about geometry.
+ *
+ * They cannot be merged — the design is explicit about why — but "which grid
+ * is this rect on" is now answered by the VALUE, not by which module the
+ * function came out of. The two range conventions are both here, named:
+ * `range` is HALF-OPEN (a rect ending exactly on a boundary belongs below —
+ * the object grid's rule, and the one the chop and the cede cut on) and
+ * `touching` is closed (boundaries included — the cache's read rule, so a
+ * window on a boundary reads both squares). Each keeps the arithmetic its
+ * callers always had, to the bit: which squares a cache reads and where an
+ * object's tiles fall are both things a saved drawing's deep picture depends
+ * on. The first version of the chop clipped to the cache square, which is not
+ * a tile boundary, so two neighbouring squares froze one arc to two different
+ * chords (OPEN-FLAGS F36); a rect that carries no grid is how that happens.
+ */
+export class TileGrid {
+    constructor(px, py) { this.px = px; this.py = py; }
+    /** The grid with phase `[px, py]` — an object's own (`o.tile`); no phase, or [0, 0], is the cache's. */
+    static at(phase) { return phase && (phase[0] || phase[1]) ? new TileGrid(phase[0], phase[1]) : TileGrid.CACHE; }
+    /** Square (i, j): [p + iW − W/2, p + iW + W/2) on each axis, centred on its index. */
+    rect(i, j) {
+        const h = TILE / 2, px = this.px, py = this.py;
+        return { left: px + i * TILE - h, top: py + j * TILE - h,
+            right: px + i * TILE + h, bottom: py + j * TILE + h };
+    }
+    /**
+     * Every square `rect` reaches, as a HALF-OPEN range.
+     *
+     * The upper end matters more than it looks. A tile is [p + iW - W/2, p + iW +
+     * W/2), so a rect that ENDS exactly on a boundary — which is what a cache square
+     * does whenever the object has not been moved — belongs to the tile below, not
+     * the one above. Rounding both ends the same way turns "this square is exactly
+     * one tile" into three of them, and since geometry is clipped to whatever this
+     * returns, that is nine times the area stored per square. Measured: it took a
+     * level-1 render from 49 ms to 258 ms.
+     */
+    range(rect) {
+        const px = this.px, py = this.py;
+        const lo = (v, p) => Math.floor((v - p) / TILE + 0.5);
+        const hi = (v, p, l) => Math.max(l, Math.ceil((v - p) / TILE + 0.5) - 1);
+        const i0 = lo(rect.left, px), j0 = lo(rect.top, py);
+        return { i0, i1: hi(rect.right, px, i0), j0, j1: hi(rect.bottom, py, j0) };
+    }
+    /**
+     * Every square `rect` TOUCHES, boundaries included: a rect ending exactly
+     * on a boundary reaches the square above it too. The cache reads with
+     * this (`TileStore.content`, the pre-image of a child square, the erase's
+     * choice of squares to cede), and a point query agrees with `range` on
+     * which square a point is in, boundaries included.
+     */
+    touching(rect) {
+        const h = TILE / 2, px = this.px, py = this.py;
+        return { i0: Math.floor((rect.left - px + h) / TILE), i1: Math.floor((rect.right - px + h) / TILE),
+            j0: Math.floor((rect.top - py + h) / TILE), j1: Math.floor((rect.bottom - py + h) / TILE) };
+    }
+    /**
+     * The rect a window of squares spans — WHOLE squares, so its boundary is
+     * made of grid lines and nothing else.
+     *
+     * This is what geometry gets clipped to. A frame decides which objects are
+     * looked at and never cuts one; every cut in the engine lands on a line of the
+     * object's own grid, which is what makes two tiles that hold the same stretch of
+     * curve hold bit-identical pieces of it.
+     */
+    span(cells) {
+        const h = TILE / 2, px = this.px, py = this.py;
+        return { left: px + cells.i0 * TILE - h, top: py + cells.j0 * TILE - h,
+            right: px + cells.i1 * TILE + h, bottom: py + cells.j1 * TILE + h };
+    }
+    /** The same grid one level down, through the edge with centre `c` and factor `f` (`childTilePhase`). */
+    child(c, f) { return TileGrid.at([childTilePhase(this.px, c.x, f), childTilePhase(this.py, c.y, f)]); }
+}
+/** The render cache's grid — and a frame's own square is its (0, 0). Phase 0, shared. */
+TileGrid.CACHE = new TileGrid(0, 0);
+
 /** Tile (i, j) of the grid with phase (px, py). */
-export function objTileRect(px, py, i, j) {
-    const h = TILE / 2;
-    return { left: px + i * TILE - h, top: py + j * TILE - h,
-        right: px + i * TILE + h, bottom: py + j * TILE + h };
-}
-
-/**
- * Every tile of the grid that `rect` reaches, as a HALF-OPEN range.
- *
- * The upper end matters more than it looks. A tile is [p + iW - W/2, p + iW +
- * W/2), so a rect that ENDS exactly on a boundary — which is what a cache square
- * does whenever the object has not been moved — belongs to the tile below, not
- * the one above. Rounding both ends the same way turns "this square is exactly
- * one tile" into three of them, and since geometry is clipped to whatever this
- * returns, that is nine times the area stored per square. Measured: it took a
- * level-1 render from 49 ms to 258 ms.
- */
-export function objTileRange(px, py, rect) {
-    const lo = (v, p) => Math.floor((v - p) / TILE + 0.5);
-    const hi = (v, p, l) => Math.max(l, Math.ceil((v - p) / TILE + 0.5) - 1);
-    const i0 = lo(rect.left, px), j0 = lo(rect.top, py);
-    return { i0, i1: hi(rect.right, px, i0), j0, j1: hi(rect.bottom, py, j0) };
-}
-
-/**
- * The rect a window of tiles spans — WHOLE tiles, so its boundary is made of
- * grid lines and nothing else.
- *
- * This is what geometry gets clipped to. A frame decides which objects are
- * looked at and never cuts one; every cut in the engine lands on a line of the
- * object's own grid, which is what makes two tiles that hold the same stretch of
- * curve hold bit-identical pieces of it.
- */
-export function objTilesRect(px, py, cells) {
-    const h = TILE / 2;
-    return { left: px + cells.i0 * TILE - h, top: py + cells.j0 * TILE - h,
-        right: px + cells.i1 * TILE + h, bottom: py + cells.j1 * TILE + h };
-}
+export function objTileRect(px, py, i, j) { return new TileGrid(px, py).rect(i, j); }
+/** Every tile of the grid that `rect` reaches, HALF-OPEN — `TileGrid.range`. */
+export function objTileRange(px, py, rect) { return new TileGrid(px, py).range(rect); }
+/** The rect a window of tiles spans — `TileGrid.span`. */
+export function objTilesRect(px, py, cells) { return new TileGrid(px, py).span(cells); }

@@ -14,7 +14,7 @@ import { loopsBBox } from "./geometry/arcShape";
 // A stroke RESOLVES into its perimeter shortly after pen-up, and selecting one
 // settles it first, so anything a drag test looks at is a shape by the time it
 // looks. Read the geometry through one accessor rather than reaching for `pts`.
-const anchorOf = (o) => (o.type === "shape" ? o.loops[0][0].A : o.pts[0]);
+const anchorOf = (o) => (o.type === "shape" ? o.loops[0].at(0).A : o.pts[0]);
 const geomOf = (o) => (o.type === "shape"
     ? JSON.stringify(loopsBBox(o.loops))
     : JSON.stringify(o.pts));
@@ -101,12 +101,16 @@ describe("M-6 — move by +delta then -delta returns", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[350, 280], [450, 320]], 20);
         E.flushBakes();
-        const before = JSON.parse(geomOf(o));
+        const before = geomOf(o);
         drag(E, 400, 300, 120, 80, 40);
-        expect(geomOf(o)).not.toBe(JSON.stringify(before));
+        // Since F55 the geometry is never touched by a move at all: the
+        // displacement is in the table, and there-and-back is bit-exact
+        // because the table simply empties.
+        expect(geomOf(o)).toBe(before);
+        expect(o.below[0]).toEqual([120, 80]);
         drag(E, 520, 380, -120, -80, 40);
-        const after = JSON.parse(geomOf(o));
-        for (const k of ["x0", "y0", "x1", "y1"]) expect(after[k]).toBeCloseTo(before[k], 6);
+        expect(geomOf(o)).toBe(before);
+        expect(o.below).toBeUndefined();
     });
 });
 
@@ -125,7 +129,13 @@ describe("M-10/M-11 — an erase belongs to the object it cut", () => {
         // The hole is not a rect stored beside the object any more, so what has
         // to travel with a move is the geometry on both sides of it AND the
         // doorway between them.
-        const kid = (E.doc.at(E.cam.frame) || []).find((o) => !o.erase && E.doc.editKey(o) === erasedKey);
+        // The kid lives at the erase's DEPTH, in the frame whose own cell holds
+        // the ceded square (F56, 2026-09-06) — here that is the camera frame's
+        // neighbour, because a descent aimed at (400, 300) lands on a cell edge
+        // at level 1 and (350, 290) is fifty pixels the other side of it.
+        const depthOf = (k) => k.split("/").length - 1;
+        const atDepth = [...E.doc.levels()].filter((k) => depthOf(k) === depthOf(E.cam.frame)).flatMap((k) => E.doc.at(k));
+        const kid = atDepth.find((o) => !o.erase && E.doc.editKey(o) === erasedKey);
         expect(kid).toBeTruthy();
         expect(kid.attachRect).toBeTruthy();
         const parent = (E.doc.at("0") || []).find((o) => E.doc.editKey(o) === erasedKey);
@@ -138,8 +148,23 @@ describe("M-10/M-11 — an erase belongs to the object it cut", () => {
         E.setTool("select");
         E.pointerDown(300, 290); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(300, 290); E.pointerMove(300, 350); E.pointerUp();
-        expect(kid.attachRect).not.toEqual(beforeAttach);
-        expect(geomOf(parent)).not.toBe(beforeParent);
+        // The doorway travels the way everything travels since F55: the kid's
+        // coordinates, its window included, are untouched, and its table at
+        // depth 0 holds the displacement, the same numbers as the parent's
+        // entry one level below its home. (Until F56 this asserted that the
+        // window's numbers CHANGED, which they did only because the kid had
+        // been homed in the wrong frame and the pen-up re-home moved it a
+        // whole cell.)
+        expect(kid.attachRect).toEqual(beforeAttach);
+        expect(kid.below[0]).toEqual([0, 60 / E.cam.inScale]);
+        // The parent is homed a level ABOVE the camera, so since F41
+        // (2026-09-04) the drag does not touch its coordinates at all: the
+        // move lives in its offset one level below the home, exactly as the
+        // pointer moved in this frame's units. (Before F41 it was translated
+        // by the displacement over R, which three crossings down is below a
+        // float64 step and moved the object in jumps.)
+        expect(geomOf(parent)).toBe(beforeParent);
+        expect(parent.below[1]).toEqual([0, 60 / E.cam.inScale]);
 
         // The clean object ceded nothing, so it has no family and no doorway,
         // and nothing can follow it anywhere.

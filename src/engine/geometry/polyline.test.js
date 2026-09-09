@@ -7,7 +7,10 @@
  * Was `clipperOutline.test.js`; the `strokeOutline` block went to
  * `clipperBoolean.test.js` when the file split on 2026-08-31.
  */
-import { strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear, decimatePolyline } from "./polyline";
+import {
+    strokeStripNear, clipRingsToRect, clipPolylineToRect, flattenCurve, flattenCurveNear,
+    decimatePolyline,
+} from "./polyline";
 
 // point -> polyline distance (min over segments)
 function distToPolyline(pts, p) {
@@ -36,15 +39,6 @@ function winding(rings, p) {
     }
     return w;
 }
-function ringArea(r) {
-    let a = 0;
-    for (let i = 0, n = r.length; i < n; i++) {
-        const p = r[i], q = r[(i + 1) % n];
-        a += p[0] * q[1] - q[0] * p[1];
-    }
-    return a / 2;
-}
-
 describe("flattenCurve", () => {
     const anchors = [[0, 0], [40, 30], [80, -10], [120, 25], [160, 0], [200, 40]];
 

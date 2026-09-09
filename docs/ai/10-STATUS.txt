@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-09-03. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-09-08. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -20,6 +20,305 @@ WHERE THE BUILD IS
     Cloud sync is live: Google auth, Firestore, chunked lz1 payloads, thumbnails
     on the parent doc, a soft-delete recycle bin, and a presence heartbeat that
     warns when the same canvas is open on another device.
+
+2026-09-07, later - SCALE. Kobin's 11,497-object canvas (drawn by another Claude
+session) measured in his Chrome: storage is fine (88 MB of 10.8 GB in IndexedDB),
+the heap is 587-869 MB, a report is a 92 MB JSON the server refuses (F58), the
+load render is 8 s (F59), twelve eraser marks never bake and the tab locks in
+0.7-2.5 s steps while they try (F57, high), and the thumbnail path loads a
+second copy of the drawing. Plus F60-F62 from the other session, confirmed.
+Evening: F63 - that session also rewrote every object's z on the canvas to
+depth x 1e7 + id, so anything drawn since painted under everything and an
+eraser reached level-0 objects only; Kobin's own stroke and eraser "failed"
+this way (measured in his Chrome), and the tab died Out of Memory at about
+2 GB of heap. FIXED IN THE DOCUMENT 2026-09-08 with tools/zorder-compact.js
+(z = paint-order rank, ids untouched, old z backed up; a real pen stroke
+verified on top after reload) - in the local copy only, because F64 (high,
+new): the cloud sync of that 90 MB canvas fails inside lz-string every 30 s
+and only the console says so. F30, F34, F29 and F23 closed by his decision.
+Design options are in ROADMAP "Saving and memory at scale"; nothing built.
+2026-09-08: F65 (medium, Kobin) - an object can be dragged out from under an
+eraser mark that never baked into it. The selection barrier exists and gates
+by result (a refused, grazing, out-of-box or lower-z mark counts as not
+touching); which case he hit needs a report.
+2026-09-08: MEMORY MEASURED (memory.census.probe.js on the exported canvas,
+forced GC): 721 MB live for 12,844 shapes and 832k pieces; an arc piece is
+344 B for 56 B of numbers, a line piece 192 B, an anchor 488 B; geometry 259
+MB, the view's 13 tiles 373k derived pieces, one scene 75 MB of anchors; a
+cloud attempt allocates 266 MB before compressing. Chrome reads 1.7-2.5 GB
+because the sync loop's garbage never settles. Design in ROADMAP "Saving and
+memory at scale" and .claude/WORKLIST.md (Kobin's order from 2026-09-08).
+2026-09-08, later - THE SAVE FORMAT (kobin-2, DESIGN.md section 13; the build in
+.claude/SAVE-FORMAT-PLAN.md), at Kobin's word. A frame is headers plus one
+Float64Array (format2.js, bit-exact with kobin-1); an op log records results
+(oplog.js) so a save is an append, the undo/redo history survives a reload and
+an interrupted erase resumes from its bake entries; IndexedDB v2 holds it raw;
+the cloud mirrors it in gzipped chunks (store2.js, gzip.js, canvasSync.js) -
+F64 FIXED, the sync no longer stringifies anything and a failure is shown with
+a backoff. TileStore.framesLeft drops the tiles of frames the camera has left
+(memory step 3a). jsdom green (quick suite); seen in Chrome on small canvases.
+The 90 MB canvas opened on the new store the same day (260 MB at load after the
+flat loops below; a full cloud push 27 MB in 120 s).
+2026-09-08, later - FLAT LOOPS (memory step 2, at Kobin's word): a stored loop
+is one Float64Array in the snapshot grammar plus a record index
+(geometry/loop.js); piece reads are transient views, builders unchanged, the
+storage boundaries flatten, a kobin-2 frame wraps without a copy. Measured:
+jsdom 721 -> 453 MB live (geometry 51 MB counted, the view's tiles 14 MB);
+Chrome 660 -> 260 MB at load on the 12,849-object canvas. Quick 77/1034 and
+slow 24/613 green. Also measured there: the cloud push needed one push at a
+time and one part a commit (six a commit plus an overlapping tick had
+Firestore refusing every batch for ten minutes, 2-3 GB of churn); built.
+2026-09-08, evening - THE ERASER (Kobin: threading first, then the gate, then
+the cost). His four pending marks were STARVED, not stuck: the target scan
+walked every object per mark at 0.6 ms each, and the boolean's classifier was
+quadratic (2.6 s a cut against a 1,205-piece eraser perimeter). Built:
+candidates from the spatial index top-down by z; the mark's z steps below what
+it has handled (his design: the picture and the move gate agree); refused marks
+consumed; one cut as a job in a worker (public/erase-worker.js, esbuild),
+applied on the main thread, the barrier synchronous ("can't even select it
+until it is baked"); RayIndex in the boolean (2,630 -> 175 ms a cut). Quick and
+slow suites green; seen in Chrome on a scratch engine. Still on the main
+thread: the rehome descent's cedes. Memory the same evening: retained scenes
+bounded by anchors, the thumbnail engine released, one push at a time.
+Later: F66 from three of his reports - an eraser over a MOVED object, made in
+the neighbouring frame at the object's own depth, cut nothing (the moved-object
+mapping picked its direction by depth; the home is named by id now), and a
+hairline eraser's slivers were culled as dust against the pen (dust is now
+what was narrower than a quarter pixel at the zoom the mark was drawn at -
+Kobin's rule, after a first fix still lost ink for him). Both replayed in jsdom before and after
+(erase.report.probe.js). Kobin's two decisions the same evening: the rehome
+descent goes to the worker as one job per family - BUILT that night
+(eraseDescent.js: a virtual document, the square ink derived in the job as the
+store derives it, the family swapped in when the steps land); the "flooding
+coarse object by one cede" idea is dropped. An hour later F67 from his next
+report: the worker's descent homed the kids in a frame only its own lattice
+copy had minted, so the engine could not resolve their level and the object
+"vanished". The job returns the frames it minted and the apply merges them;
+a load mints any frame its natives name (his saved document reloads whole).
+Then F68: with a moved object selected, zooming out past the ants made the
+indicator jump - the frame's dot was placed from the stored bits, the offset
+table ignored; it goes through the table now. His "smaller eraser-cut objects
+disappeared" from the same report did not reproduce in the replay (the level-2
+specks are under the level-1 cull; the render count matches to the object).
+Then, in his tab, four more: F69 the lasso never looked where a table draws an
+object (0 of 352 kids found - why he thought them gone); F70 the op log's
+replay gave one id two objects, so after a reload a redo brought a piece back
+with a later table; F71 a redo of a move wiped the store's log; F72 an eraser
+made in an object's own frame over its moved picture cut nothing. All fixed
+the same night, jsdom tests each; his tab still to confirm. F73 from his next
+report: a selected sliver beside a wide selected bundle in one frame drew
+nothing zoomed out (under the half-pixel run minimum, and the frame not a
+dot) - a member without a run is a dot of its own now.
+2026-09-07 - THE SMALL STUFF, at Kobin's word ("all the small stuff, including
+the API tidy-up"). Uncommitted, jsdom only; nothing here changes a stored bit.
+
+    Engine: the winding query asks an arc whose radius is at least its chord
+    in its CHORD FRAME (arcShape.rayCross via freeze.chordLineRoots - the
+    chop's own solver with the ray's normal in place of an axis), which is
+    what made the jsdom instrument 0.9 px wrong on a 5e12 arc; a ray that
+    misses the arc is refused by the line equation's residual, and the bar
+    sits a few thousand ulps above rounding - at a fraction of the chord it
+    counted two fictional crossings and CX-4 lost a tile (recorded in
+    winding.chord.test.js WC-4). The seam marks are gone. One TileGrid type
+    for the three things called a tile (S1; F36 closed). The renderer
+    memoises the measured part of a shape's signature per piece, and a
+    pen-up renders ONCE: the shape bake no longer renders on its own - the
+    perimeter paints as the raw stroke did, so its picture waits for the
+    next render (_stepShapeBakes sets _renderPending; flushBakes honours
+    it). A first attempt held the live path instead and broke the contract
+    'after pointerUp the stroke is a rendered group' that the hit test, the
+    report payload and 19 tests read - reverted. _noteSeal keeps the weld
+    radius and the retry.
+    Measured in jsdom (perf.scale.probe): draw cost per stroke 95 -> 62 ms
+    at 250 strokes and 334 -> 203 at 1,000 from the memo alone; a warm
+    render 16 -> 9.8 and 63 -> 36 ms; human-paced, with the bake tick
+    between strokes, one render a stroke and 120 -> 62 ms a stroke at 250,
+    468 -> 204 at 1,000; the rest is Two.js's own update, the list build
+    (both O(N) by construction) and the group builds themselves.
+    Tidy: one VertexSet, one reversePiece, one polygon winding, the cubic
+    bbox renamed, the bbox paths explained (S5). Tooling: the layering lint
+    rule (S2, seventeen zones, proved to fire); JSDoc typedefs and `npm run
+    typecheck` over the geometry (S3, 0 errors, two real annotation bugs
+    found); `.github/workflows/ci.yml` (quick on push, all nightly - runs
+    once pushed); `test:erase`, `lint`; 70 unused-variable warnings removed;
+    the benches say they measure this box; App.slow measured at 26 s (it
+    was 195); jsdom's canvas stubbed so two.js stops logging into every
+    suite; the timing dump moved to tools/.cache; the manifest's colours
+    are the paper; window.__kobinEngine only in dev or behind ?dev.
+    Decisions from Kobin the same day: F54 is by design (closed; drawing
+    through a zoom is a future feature); the ants' budget is a long-term
+    item, not this phase's; .kobin-reports stays where it is (D2 dropped).
+    Not done: .gitattributes (needs its own renormalise commit); the docmaps
+    rebuild (descriptions owed); S4 and S6; and every 2026-09-04..07 change
+    is still unverified in a browser (UAT cases 9-12).
+
+2026-09-06 - F44 FIXED by Kobin's one-radius freeze; F56 found in his reports
+and FIXED (uncommitted, undeployed, jsdom only, unverified by Kobin)
+
+    The freeze is one number now: an arc at or above the radius whose bow
+    over a tile's diagonal is a quarter pixel (~8.8e12 units, the same at
+    every level) freezes wherever it is, one below stays an arc, and the
+    only guard is that both ends lie between the chop's lines. It replaces
+    the per-piece sagitta test and the bow-grown-box guard that refused
+    every piece cut on a tile line - which is why deep arcs survived to
+    where their centres are 1e16 away and jumped a screen at the fifth
+    crossing (F44). The arcs about to freeze are cut in their own chord
+    frame (the centre's float64 step had become thirty units through an
+    arcsine), and the boolean stands in for an arc by the same gate and no
+    other test - which also closes the one arc case F43 had left open.
+    Measured: three curved strokes hold their edge to 1/20 px through eight
+    crossings; the frozen line one level down sits on the circle through the
+    arc's ends to 0.000 px; no arc survives past level 3.
+    F56, from Kobin's two reports at 00:16: an erase nine crossings below
+    two objects he had dragged at level 10 flooded the one the eraser never
+    touched. Since F55 the cede's unmoved square lands in the neighbour
+    frame as often as not, and a kid homed in the camera frame with its ink
+    next door derived its child tiles through the store's ring projection,
+    which is not the chain's exact hop (2.5 units off at level 7, a solid
+    square at 10). The kid is now homed in the square's owner frame,
+    holding the owner's own piece. Replayed bit for bit from the reports
+    (reported.regress RR-9): the untouched object is refused and unwound,
+    the other's kids are the chain's pieces at every level.
+    Both change the derivation: F44's gate changes which pieces freeze in
+    every existing drawing (the shift the design warned of; Kobin asked for
+    the gate). The next deploy is the compatibility event (ROADMAP section 2).
+
+2026-09-05, evening - F55 and F43 BUILT together (uncommitted, undeployed,
+jsdom only, unverified by Kobin)
+
+    Kobin's star in a corner: an object and the small stroke drawn against
+    its edge four crossings down, moved together from above, parted - the
+    one rounded addition at the move level was magnified 4096x per level
+    below (F55; F35's mechanism). A move is now address arithmetic and
+    nothing else: no stored coordinate changes at any level; the
+    displacement, snapped to 2^-10 units at the move level, lives in the
+    object's table (geometry/offsets.js, below[k] for k >= 0); the tiles are
+    unmoved space (nothing about a move enters deriveStep); LevelMap.objShift
+    says which frame a moved object's pieces are read from and what
+    remainder paint applies (piece.res) and inputs subtract. And F43, built
+    with it at his word: a line piece remembers the line it was cut from
+    (P/Q canonical, sa/sb the surviving stretch) and every deep cut is
+    computed from that, so a nick moves nothing but the nick; a cut line is
+    file version 2, written only when one exists.
+    Measured in jsdom: move.registration.test.js - the coarse object's deep
+    pieces are the same bits in the new frame and its gap to the star is
+    unchanged to 1e-9; depth.corner.probe.js - after a level-3 nick the
+    level 5-8 pieces are bit-identical and the level-8 edge is unmoved to
+    the last digit (it emptied the tile before); erase.depth.test.js - the
+    level-2 nick that moved level 6 by 136 units leaves it bit-identical.
+    Arcs too, later the same evening at Kobin's word ("fix arcs, too"): a
+    cut arc keeps the arc the chain would have had (K) and its stretch as
+    positions; the chop, the freeze and the window clip run on K. The
+    slanted arm (an arc of r = 2.6e16 at level 4) is bit-identical at 4 and
+    5 now. One arc case stays with F44: the boolean's flatness test reads 0
+    for any sweep under 1e-8 and chords such arcs, so a nick on the join arc
+    at level 3 moves its level-4 picture by the arc's bulge (0.86 units);
+    measuring the bulge correctly was tried and is worse (the arc then has
+    to be cut through a centre 1e16 away, and level-4 nicks stopped taking
+    ink), so the chord stands until F44's freeze chords the same arcs.
+    Quick suite 70 suites / 998 tests; slow suite 24 suites / 610 tests. A
+    dozen suites re-pinned from "the coordinates
+    moved by d" to "the picture moved by d" (harness objPointIn). This
+    changes the tile chain's derivation: the next deploy is the first
+    compatibility event (ROADMAP section 2, the 1.0 decision).
+
+2026-09-05, later - the browser hunt: F48-F53 found and FIXED, F54 open
+(uncommitted, undeployed; measured in Chrome before and after)
+
+    Kobin asked for the bugs the suites cannot see, so the in-app Chrome tab
+    was driven through the REAL pointer path (synthetic PointerEvents on the
+    host, through hooks/useKobinEngine.js) on a 37-stroke drawing: erase,
+    undo/redo, select, drag, pinch, pan, zoom, scenes, autosave + reload.
+    Seven defects, none geometric: a lost pointerup orphaned the stroke with
+    no undo op and locked touch in pinch mode (F48); Delete on a lasso needed
+    one Ctrl+Z per object (F49); a drag that re-homed the object left the hit
+    test and the ants reading a stale render list (F50); undo of a move kept
+    the drag's tile phase - the chop grid no longer rode with the ink (F51);
+    tile pieces picked with no slack (F52); a render mid-stroke painted the
+    live stroke twice, visible on a highlighter (F53); a wheel tick mid-stroke
+    ends the stroke - left as a judgement call (F54). All six fixed, each
+    re-measured in Chrome on the rebuilt bundle; gesture.robustness.test.js
+    (8 tests). Verified exact in the same session: erase at level 2 with undo
+    bit-exact, an F41 move at level 1 moving the paint by exactly (60,30) px,
+    pinch-cancel bit-exact, pan shift across a cell with 0 px drift, scene
+    capture + jump with 0 px drift, autosave + reload byte-identical (natives,
+    frame tree with a grown root, camera, meta). Quick suite green (69 suites,
+    989 tests), slow suite green. Notes in .claude/BUGSWEEP-PLAN.md.
+
+2026-09-05 - the bug sweep: F44 found (open), F45/F46/F47 found and FIXED
+(uncommitted, undeployed, jsdom only)
+
+    Kobin's "the mark jumps at a crossing" is F44: an unfrozen arc of radius
+    3e15 at level 4 (its endpoint on the tile line, so the freeze refused it)
+    re-cut at level 5 through a centre at 1.2e19 - 520 px in his Chrome. Any
+    curved stroke does it at its fifth crossing. Designed in three layers
+    (chord-box freeze test, window-independent chop ring, centre-free chord
+    arithmetic), not built; layers 1-2 change old drawings' deep pictures and
+    need Kobin's call. His corner-invalidation scenario measured: NOT
+    bit-identical - a level-3 nick empties the level-8 tile (F43, x4096 per
+    level). Fixed on the way: F45 (a crossing about a cell boundary jumped the
+    picture a whole cell; Camera._crossUp), F46 (an erase on a curve at level
+    2-3 zoomed in was refused as grazing at random - the area comparison, not
+    the boolean; measured locally now, loopArea's segment term is a series),
+    F47 (a partial cede reported success; unwound now). Quick suite green
+    (68 suites, 981 tests). Performance measured in jsdom and in his Chrome:
+    a pen-up costs ~15 ms + 0.25 ms per existing stroke because every render
+    re-signatures every object and every pen-up renders twice; a session is
+    quadratic. OPEN-FLAGS F43-F47, ROADMAP performance, the two probes
+    (depth.corner, perf.scale) in src/engine, run with --testMatch.
+
+2026-09-04, later - two floors at depth, FIXED (F41, F42; uncommitted,
+undeployed, not yet on the phone)
+
+    From Kobin's phone reports, replayed in jsdom. F41: a drag from three or
+    more crossings below an object's home moved it in float64-step jumps
+    (127 px at 254x), because that branch of the drag added the displacement
+    straight into the home coordinates. F42: an erase nine crossings down cut
+    the black under the view and not the red on it - the cede descent and the
+    render chain were the same math in two functions, and their last-bit
+    differences grew 4096x per crossing (1,788 units at level 6, a whole tile
+    at 7); straight lines only, no freeze.
+    F42: the erase now READS THE TILE STORE - the cede's unit is the piece
+    the renderer draws in one cache square, the kid is that piece bit for
+    bit, the parent is cut in its own coordinates, and the boolean passes
+    what it does not cut through by reference. Measured: holes land on a
+    slanted edge at 5-9 crossings, every intermediate kid is the store's
+    loops (erase.depth.test.js).
+    F41: geometry/offsets.js - per-object offsets below the home, keyed by
+    depth, added once inside the hop (deriveStep), carried up as integers,
+    drawn at coarser levels as a residual translation (piece.res). Measured:
+    pointer to ink 1e-6 px from 1-8 crossings, home coordinates bit-identical,
+    slow = fast, undo exact (move.below.test.js, 17 cases).
+    Found on the way, open: F43 - a cut on a long straight piece moves its
+    picture at depth (136 units at level 6 for a nick at level 2), because a
+    line defined by its endpoints is redefined everywhere when cut anywhere.
+    F35 got its instrumentation (the drag journals `skipped` members); its
+    snapshots have no journal, so it waits for a report. OPEN-FLAGS
+    F41/F42/F43; ROADMAP ledger 2026-09-04.
+
+2026-09-04 - F40: how an arc reaches the browser (uncommitted, undeployed)
+
+    Kobin's "blue shape disappears just past the level jump" was the renderer's
+    quarter-turn cubic for a 2.9 million px radius arc, 463 px off; the jump
+    re-chopped it into exact pieces. An arc now goes to the browser by
+    arcShape.planArc at the engine's quarter-pixel tolerance and the frame's
+    deepest zoom: the SVG `A` while the browser's float32 centre is within
+    tolerance (a screen radius to 4.2 million px), else as many cubics from
+    endpoints and sweep as the sixth-root law demands (no centre anywhere).
+    A fixed 22-degree rule was tried in between and measured at 15 px at its
+    worst; Kobin: "15 px is too much". Paint-verified in his Chrome: the edge
+    on the truth at the child frame's deepest zoom, no jump at the crossing.
+    A length split of long pieces for the float32 coordinate floor is built
+    and tested but OFF (Renderer.lengthChop): Chrome's rasteriser drops any
+    path whose curves run past ~1e7 device px, split or not (his red piece,
+    three cubics, painted at 64x and gone at 78.8x). The window chop closes
+    both, the same evening: each scene keeps a window of +-2^18 device px
+    around the view, area pieces reaching past it are clipped to it with the
+    tile machinery's exact boolean, and the window is re-chosen (rebuilding
+    only the straddling groups) when the view leaves its inner half or the
+    zoom grows 4x. Render-only. Measured in his Chrome: the red piece paints
+    at 78.8x and 97x on the float64 truth, and stays on it across a re-chop.
+    Not chopped: fat curve-capsule outlines. OPEN-FLAGS F40 has the argument.
 
 DEPLOYED 2026-09-03 - the working tree, at Kobin's word
 
@@ -117,18 +416,21 @@ OPEN, IN THE ORDER THEY MATTER
          frame, saved incrementally off the document's own events, no text
          and no compression in between. Measured only on a two-stroke drawing
          (1.7-1.9 ms a write); the phone run on the big drawing is the gate.
-    F34  an erase seals chords across the shape            FIXED, UNVERIFIED
-         circleCircle rewritten; Kobin has not seen it in a browser. Do not
-         close on the arithmetic fix alone.
+    F34  an erase seals chords across the shape            CLOSED 2026-09-07
+         By Kobin's decision: circleCircle rewritten, 0 of 21 aimed rings seal
+         in jsdom and in his Chrome. D1, the representation change behind
+         it, was dropped from the roadmap's register on 2026-09-08.
     F35  a group move displaces one member                 HIGH, CAPTURED
          Six reports, renders in .kobin-reports/f35/renders/. Undiagnosed.
          The 0.143-unit drift between two reports is the MOVE's (Kobin,
          2026-09-02); the undo/redo between them was only how it was seen.
-    F29  a piece fades out of existence while zooming out  HIGH
-         Not reproduced. Harness: report 07-22-12 plus a zoom-out sweep.
-    F30  an eraser is consumed without cutting anything    HIGH
-         Not reproduced synchronously; instrumented so the next report
-         explains itself.
+    F29  a piece fades out of existence while zooming out  CLOSED 2026-09-07
+         By decision: the harness (07-22-12 plus a zoom-out sweep) ran in
+         Chrome and every fading piece was under 0.3 px. Reopen on a report.
+    F30  an eraser is consumed without cutting anything    CLOSED 2026-09-07
+         By decision: not reproduced synchronously nor on the timer path in
+         Chrome (his twelve gestures replayed); F46/F47 fixed the mechanisms
+         that fit it. Still instrumented, so a repeat explains itself.
     F32  the lasso sometimes misses objects                FIXED, UNVERIFIED
          2026-09-03: the box test dropped a slanted stroke whose ink was
          inside; the ink is asked now. The first cut of that cost 1.5 s a
@@ -154,9 +456,12 @@ OPEN, IN THE ORDER THEY MATTER
          roadmap S1, one TileGrid type.
     F5   the eraser has never passed a test by Kobin       standing
 
-    UNEXPLAINED, from phone report 23-54-04: a 7,858.9 ms click handler, pure
-    script, and three bake outliers worth 11.2 s of 20.9 s. LATENT FLAKE:
-    perf.instrument PI-6 asserts wall-clock time (roadmap E1).
+    EXPLAINED 2026-09-07: the three bake outliers in phone report 23-54-04
+    (11.2 s of 20.9 s) are F57 - its five unbaked marks replayed on the
+    desktop took 247 s in 1,447 ticks, one tick 109 s, half of each cut in
+    _removedArea. STILL UNEXPLAINED from that report: a 7,858.9 ms click
+    handler, pure script. LATENT FLAKE: perf.instrument PI-6 asserts
+    wall-clock time (roadmap E1).
 
 NOT VERIFIED ANYWHERE BUT ONE MACHINE
     Everything has been checked on Chrome 151 / Windows 11 / Intel Iris /

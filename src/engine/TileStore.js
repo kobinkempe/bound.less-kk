@@ -37,10 +37,21 @@
  * every native's stored rings are already the rings to paint, and nothing has to
  * be re-derived per view.
  */
-import { deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, padRect, shapeRingsInRect, shapeTol } from "./geometry/derive";
+import { Loop } from "./geometry/loop";
+import {
+    deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, padRect, shapeRingsInRect,
+    shapeTol, freezeR,
+} from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
+// A tile's derived objects keep their loops as Loops (geometry/loop.js), like the
+// document's natives: the freeze and the chop hand over piece arrays, which are
+// transient; what the cache holds is eight doubles a piece.
+function flattenAll(objs) {
+    for (const o of objs) if (o && o.loops) for (let i = 0; i < o.loops.length; i++) if (!(o.loops[i] instanceof Loop)) o.loops[i] = Loop.from(o.loops[i]);
+    return objs;
+}
 const PER_LEVEL_CAP = 64; // cached tiles per frame
 const DOWN_MAX_SIZE = 5e5; // generous upper bound on a native's frame extent (px);
                            // used only to skip a frame whose content is guaranteed
@@ -101,7 +112,7 @@ export default class TileStore {
         const cf = this.lm.frameFor(F);
         if (!cf) return [];
         F = cf.id;
-        const out = [];
+        let out = [];
         const range = this.lm.tileRange(F, windowRect);
         const nowVisible = new Set();
         for (let i = range.i0; i <= range.i1; i++) {
@@ -115,9 +126,53 @@ export default class TileStore {
                 }
             }
         }
+        if (this.doc.hasOffsets()) out = this._reroute(F, windowRect, out, nowVisible);
         this._pins = nowVisible; // only currently-visible tiles are pinned
         this._evict();
         return out;
+    }
+    /**
+     * THE TILES ARE IN UNMOVED SPACE; A MOVED OBJECT IS READ FROM WHERE ITS
+     * PICTURE IS (F55, geometry/offsets.js). Every tile in this cache is a pure
+     * function of stored bits and the object's own grid, and a move touches
+     * neither — so a drag invalidates nothing here at all. What a move changes
+     * is WHICH tiles hold the pieces drawn in frame F: for an object with a
+     * displacement table, F's own tiles hold its unmoved picture, which is not
+     * what is drawn, and the pieces that are drawn sit in the tiles of the
+     * frame its cell digits point back to (`LevelMap.objShift`), over the
+     * window shifted back by the remainder, and are painted translated by that
+     * remainder (`piece.res`, stamped in `KobinEngine._buildList`). Above the
+     * object's home the shift is sub-cell and F's own down pieces are right as
+     * they are, drawn by the residual, as F41 always did.
+     */
+    _reroute(F, win, out, pins) {
+        const D = this._depth(F);
+        const moved = new Map();
+        for (const id of this.doc.offsetIds()) {
+            const rec = this.doc.getById(id);
+            if (!rec || rec.level === F) continue;          // its own frame: a native, rendered live
+            if (D < this._depth(rec.level)) continue;       // above the home: the residual draws it
+            const s = this.lm.objShift(rec.obj.below, rec.level, F);
+            if (s) moved.set(id, s);
+        }
+        if (!moved.size) return out;
+        const kept = out.filter((p) => !moved.has(p.id));
+        for (const [id, s] of moved) {
+            const w = { left: win.left - s.rem[0], right: win.right - s.rem[0], top: win.top - s.rem[1], bottom: win.bottom - s.rem[1] };
+            const range = this.lm.tileRange(s.F0, w);
+            for (let i = range.i0; i <= range.i1; i++) {
+                for (let j = range.j0; j <= range.j1; j++) {
+                    for (const dir of ["up", "down"]) {
+                        const key = s.F0 + "|" + dir + "|" + i + "," + j;
+                        pins.add(key);
+                        this._pins.add(key);
+                        const tile = dir === "up" ? this._ensureUp(s.F0, i, j) : this._ensureDown(s.F0, i, j);
+                        for (const p of tile.objs) if (p.id === id) kept.push(p);
+                    }
+                }
+            }
+        }
+        return kept;
     }
 
     // The active frame's own natives, which render live (curved) outside the tile
@@ -162,21 +217,17 @@ export default class TileStore {
         // Nothing coarser-or-equal to the parent has content -> up is empty.
         if (this._depth(parentId) < this._minContentDepth()) return [];
         // Parent objects = upContent(parent) over this tile's pre-image + natives(parent).
-        const parentObjs = [];
         const pr = this.lm.rectToParent(rect, F);
-        const prange = this.lm.tileRange(parentId, pr);
-        for (let pi = prange.i0; pi <= prange.i1; pi++) {
-            for (let pj = prange.j0; pj <= prange.j1; pj++) {
-                const pt = this._ensureUp(parentId, pi, pj);
-                for (const o of pt.objs) parentObjs.push(o);
-            }
-        }
+        const parentObjs = this._upPiecesOver(parentId, pr, null);
+        // No offsets enter here (F55). A tile is a pure function of stored bits
+        // and the object's own grid; where a moved object's picture is read
+        // from is decided in `_reroute`, at render time, from its table.
         for (const o of this.doc.at(parentId)) parentObjs.push(o);
         for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
         const edges = [];
         for (const o of parentObjs) {
-            const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live);
+            const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live, null);
             if (tier === "empty") continue;
             if (tier === "solid") objs.push(this._solid(o, rec, rect));
             else edges.push(o);
@@ -186,7 +237,54 @@ export default class TileStore {
             parentCurved: (o) => o.origin === "native",
             childCurved: () => false,
         }, objs);
-        return objs;
+        return flattenAll(objs);
+    }
+    /**
+     * The parent's up-pieces over rect `pr` (parent units) — every object's, or
+     * one object's when `only` is an id.
+     */
+    _upPiecesOver(parentId, pr, only) {
+        const parentObjs = [];
+        const take = (o) => { if (only == null || o.id === only) parentObjs.push(o); };
+        const prange = this.lm.tileRange(parentId, pr);
+        if (prange.i0 === prange.i1 && prange.j0 === prange.j1) {
+            for (const o of this._ensureUp(parentId, prange.i0, prange.j0).objs) take(o);
+        } else {
+            // THE PRE-IMAGE STRADDLES TWO PARENT SQUARES — a child cell at the
+            // extreme digit is centred on its parent's edge, which is exactly
+            // where a square boundary falls. Each square holds its own piece of
+            // an object, clipped to its own padded window, and the two windows
+            // overlap by the pad on either side of the boundary; the pad (48
+            // units) is wider than half a cell (16), so the square that holds
+            // the pre-image's CENTRE holds the whole pre-image on its own.
+            // Until 2026-09-04 both squares' pieces went in, and the child
+            // derived two copies of the same ink. Same ink, not the same bits:
+            // each copy's clip vertices were rounded on a different rectangle,
+            // and 4,096x per crossing later the two copies were thousands of
+            // units apart — a doubled, diverging edge, and no single answer to
+            // "where is the ink" for the erase to agree with (F42). So one
+            // square per object: the centre square's piece whenever its window
+            // covers the pre-image, the others' only when it does not (a bare
+            // window, whose pieces abut instead of overlapping). The erase's
+            // descent cedes the same square by the same rule, so the kid it
+            // mints is the piece this derivation was already reading.
+            const cx = (pr.left + pr.right) / 2, cy = (pr.top + pr.bottom) / 2;
+            const pc = this.lm.tileRange(parentId, { left: cx, right: cx, top: cy, bottom: cy });
+            const covered = new Set();
+            for (const o of this._ensureUp(parentId, pc.i0, pc.j0).objs) {
+                if (only != null && o.id !== only) continue;
+                parentObjs.push(o);
+                const c = o.clip;
+                if (c && c.left <= pr.left && c.right >= pr.right && c.top <= pr.top && c.bottom >= pr.bottom) covered.add(o.id);
+            }
+            for (let pi = prange.i0; pi <= prange.i1; pi++) {
+                for (let pj = prange.j0; pj <= prange.j1; pj++) {
+                    if (pi === pc.i0 && pj === pc.j0) continue;
+                    for (const o of this._ensureUp(parentId, pi, pj).objs) if (!covered.has(o.id)) take(o);
+                }
+            }
+        }
+        return parentObjs;
     }
 
     /**
@@ -279,7 +377,7 @@ export default class TileStore {
                 this._downPieces(o, d, rect, tag, objs);
             }
         }
-        return objs;
+        return flattenAll(objs);
     }
 
     // One minified piece of `o` (already projected into F as `d`) clipped to one
@@ -295,7 +393,7 @@ export default class TileStore {
             // similarity), so all that happens here is a clip to the padded tile
             // and a flatten at the level's own display fidelity.
             const crect = padRect(rect, pad);
-            const { rings, covered } = shapeRingsInRect(d.loops, crect, shapeTol(this.cfg));
+            const { rings, covered } = shapeRingsInRect(d.loops, crect, shapeTol(this.cfg), { freezeR: freezeR(this.cfg) });
             if (rings.length) {
                 // `clip`: the rectangle this piece was cut on, for the selection
                 // indicator's seam test (F39).
@@ -334,6 +432,10 @@ export default class TileStore {
         if (ev.kind === "remove") { this._removeObject(ev.id); return; }
         if (ev.kind === "add" && ev.live) return; // still growing; finalize announces
         if (ev.kind === "add" || ev.kind === "finalize") { this._addObject(ev.obj, ev.level); return; }
+        // A move changes the displacement table and nothing a tile is made of
+        // (F55): every tile stays exactly right, and the next render reads the
+        // picture from its new address.
+        if (ev.kind === "change" && (ev.offsetsOnly || ev.attrOnly)) return;
         if (ev.kind === "change") { this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
     }
     _removeObject(id) {
@@ -378,7 +480,7 @@ export default class TileStore {
         const rec = frame && frame.edge;
         if (!rec) return;
         const rect = this.lm.tileRect(F, tile.i, tile.j);
-        const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live);
+        const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live, null);
         if (tier === "empty") return;
         if (tier === "solid") { tile.objs.push(this._solid(o, rec, rect)); return; }
         deriveStep([o], rec.s, rec.t, rect, F, {
@@ -386,6 +488,7 @@ export default class TileStore {
             parentCurved: (p) => p.origin === "native",
             childCurved: () => false,
         }, tile.objs);
+        flattenAll(tile.objs);
     }
     _appendDown(tile, o, H) {
         const F = tile.level;
@@ -402,11 +505,34 @@ export default class TileStore {
         const d = this.lm.projectF(o, H, F);
         if (!d) return;
         this._downPieces(o, d, rect, tag, tile.objs);
+        flattenAll(tile.objs);
     }
     // rect is {left,top,right,bottom}; b is a bbox {x0,y0,x1,y1}.
     _overlaps(rect, b, margin) {
         return b.x1 + margin >= rect.left && b.x0 - margin <= rect.right &&
                b.y1 + margin >= rect.top && b.y0 - margin <= rect.bottom;
+    }
+
+    /**
+     * The camera has moved to frame F: every cached tile of a frame that is neither
+     * F nor one of its ancestors goes (WORKLIST memory step 3a, 2026-09-08). An
+     * ancestor's tiles are what a descent builds F's from; anything else is
+     * derivable again, bit for bit, when the camera returns. Measured before this
+     * on the 12,844-object canvas: the tiles of one view held 373k derived pieces,
+     * about 130 MB, and frames left behind kept theirs. Called by the engine on a
+     * change of camera frame, not per render, so a prebaked child survives until
+     * the camera goes somewhere its tiles cannot serve.
+     */
+    framesLeft(F) {
+        const keep = new Set();
+        for (let id = F; id != null; id = this.lm.parentOf(id)) keep.add(String(id));
+        this._pins = new Set();   // the old frame's pins; `content` re-pins what the new view holds
+        let n = 0;
+        for (const [key, tile] of this.cache) {
+            if (keep.has(String(tile.level))) continue;
+            this.cache.delete(key); n++;
+        }
+        return n;
     }
 
     // ---- LRU ----

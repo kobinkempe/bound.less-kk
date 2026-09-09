@@ -20,6 +20,7 @@
  * with the layer split.
  */
 import Renderer from "./Renderer";
+import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawStroke, drag, descend, ascend, erase } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 import { loopRuns, runLength, circleLoop } from "./geometry/antRuns";
 
@@ -352,8 +353,9 @@ describe("selection indicator (engine)", () => {
         expect(got).not.toBeNull();
         expect(got.runs.length).toBeGreaterThan(0);
         expect(got.plain).toBeUndefined();
-        // Arcs go as cubics, never as chords: the path data has curves in it.
-        expect(got.runs.some((r) => r.d.includes("C"))).toBe(true);
+        // Curves go as curves, never as chords: an arc is an SVG `A`, and a
+        // stroke that has not resolved yet is traced on its capsule's cubics.
+        expect(got.runs.some((r) => /[AC]/.test(r.d))).toBe(true);
     });
 
     test("a RESOLVED stroke still reports its ink weight", () => {
@@ -475,8 +477,8 @@ describe("selection indicator (engine)", () => {
             E.zoomAt(400, 300, 120);
             const got = E._selectionAnts();
             if (!got) continue;
-            const b = E._selTable(E.selection).byLevel.get(E.cam.frame).box;
-            const span = Math.max(b.x1 - b.x0, b.y1 - b.y0) * E.cam.inScale;
+            const b = E._selFrameRect(E._selTable(E.selection).byLevel.get(E.cam.frame), E.cam.frame, E.cam.frame);
+            const span = Math.max(b.right - b.left, b.bottom - b.top) * E.cam.inScale;
             if (span < 2) {
                 // All eight sit on the same pixel or two; one trace each would
                 // be eight stacked outlines saying one thing. Their frame's
@@ -513,14 +515,18 @@ describe("selection indicator (engine)", () => {
     test("a frame's content under 2 px is one dot, its members unvisited; above it every piece is traced", () => {
         const E = mkEngine();
         const ids = [];
-        // Forty marks in a 60 px square. Zoomed out twenty steps the square is
-        // about 11 px: over the mark size, so each mark is traced on its own
+        // Forty marks in a 30 px square. Zoomed out twenty steps the square is
+        // about 6 px: over the mark size, so each mark is traced on its own
         // (Kobin, 2026-09-03: first "only objects <5px", then, from the
         // phone, 2 px). Zoomed out until it is under 2 px: one dot, and no
-        // piece looked at.
+        // piece looked at. The square is 30 px and not 60 so that it gets
+        // under 2 px at inScale 0.067, an octave clear of the frame's exit at
+        // 0.03125 — at 60 px it got there at 0.033, and the dot and the
+        // crossing raced: the test passed inside the suite and failed run on
+        // its own (2026-09-04, twice), the camera having crossed first.
         for (let i = 0; i < 40; i++) {
-            const x = 380 + (i % 8) * 8, y = 280 + Math.floor(i / 8) * 12;
-            ids.push(drawStroke(E, [[x, y], [x + 6, y + 4]]).id);
+            const x = 380 + (i % 8) * 4, y = 280 + Math.floor(i / 8) * 6;
+            ids.push(drawStroke(E, [[x, y], [x + 3, y + 2]]).id);
         }
         E.setTool("select");
         E._setSelection(ids);
@@ -529,11 +535,11 @@ describe("selection indicator (engine)", () => {
         expect(traced).not.toBeNull();
         expect(traced.marks.length).toBe(0);
         expect(traced.runs.length).toBeGreaterThanOrEqual(20);
-        expect(traced.runs.some((r) => r.d.endsWith("Z") && (r.d.match(/L/g) || []).length === 3 && !r.d.includes("C"))).toBe(false);   // no box
+        expect(traced.runs.some((r) => r.d.endsWith("Z") && (r.d.match(/L/g) || []).length === 3 && !r.d.includes("A") && !r.d.includes("C"))).toBe(false);   // no box
         for (let i = 0; i < 100; i++) {
             E.zoomAt(400, 300, 120);
-            const b = E._selTable(E.selection).byLevel.get(E.cam.frame).box;
-            if (Math.max(b.x1 - b.x0, b.y1 - b.y0) * E.cam.inScale >= 2) continue;
+            const b = E._selFrameRect(E._selTable(E.selection).byLevel.get(E.cam.frame), E.cam.frame, E.cam.frame);
+            if (Math.max(b.right - b.left, b.bottom - b.top) * E.cam.inScale >= 2) continue;
             // A decision holds for a quarter octave of zoom, so the switch to
             // a dot can lag the threshold by a step or two; a render decides.
             E._render();
@@ -561,7 +567,7 @@ describe("selection indicator (engine)", () => {
                 const got = E._selectionAnts();
                 expect(got.marks.length).toBe(0);
                 expect(got.runs.length).toBeGreaterThan(0);
-                expect(got.runs.every((r) => r.d.includes("C"))).toBe(true);   // the piece's own arcs
+                expect(got.runs.every((r) => /[AC]/.test(r.d))).toBe(true);   // the piece's own curves
                 return;
             }
         }
@@ -582,7 +588,7 @@ describe("selection indicator (engine)", () => {
         expect(table.ids.has(777777)).toBe(true);
         expect(table.cross.has(777777)).toBe(true);
         expect(table.cross.has(parent.id)).toBe(true);
-        expect(table.byLevel.get(kid.id).box).toBeNull();
+        expect(table.byLevel.get(kid.id).boxes.size).toBe(0);
         const got = E._selectionAnts();
         expect(got.marks.length).toBe(0);
         expect(got.runs.length).toBeGreaterThan(0);
@@ -671,5 +677,111 @@ describe("selection indicator (engine)", () => {
         expect(left[0].from).toBeGreaterThan(280);
         expect(left[0].to).toBeLessThan(320);
         expect(got.edges.some((e) => e.side !== "left")).toBe(false);
+    });
+});
+
+// F68 (Kobin, 2026-09-08): with an object selected, zooming out until it was too small
+// to see made the indicator jump — the frame's mark was placed from the stored bits,
+// and a moved object's picture is elsewhere. The mark's centre is read back from its
+// path: the circle's arc endpoints average to its centre.
+const markCentrePx = (ants, mark) => {
+    const pts = [];
+    for (const tok of mark.d.split(/(?=[MLCA])/)) {
+        const nums = tok.slice(1).match(/-?\d+(?:\.\d+)?/g);
+        if (nums && nums.length >= 2) pts.push([+nums[nums.length - 2], +nums[nums.length - 1]]);
+    }
+    const cx = pts.reduce((n, p) => n + p[0], 0) / pts.length, cy = pts.reduce((n, p) => n + p[1], 0) / pts.length;
+    return [ants.transform.k * cx + ants.transform.tx, ants.transform.k * cy + ants.transform.ty];
+};
+const pictureCentrePx = (E, o, level) => {
+    const r = E._rectInActive(o, level);
+    return [((r.left + r.right) / 2) * E.cam.inScale + E.cam.inPanX, ((r.top + r.bottom) / 2) * E.cam.inScale + E.cam.inPanY];
+};
+const bitsCentrePx = (E, o, level) => {
+    const b = o._bbox || { x0: 0, y0: 0, x1: 0, y1: 0 };
+    const r = E.lm.mapRectF({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }, level, E.cam.frame);
+    return [((r.left + r.right) / 2) * E.cam.inScale + E.cam.inPanX, ((r.top + r.bottom) / 2) * E.cam.inScale + E.cam.inPanY];
+};
+
+describe("the frame's mark follows the picture (F68)", () => {
+    hUseEngines();
+    test("a moved object's mark sits on the ink, not on its stored bits", () => {
+        const E = hMkEngine(800, 600);
+        const o = hDrawStroke(E, [[100, 300], [104, 303]]);
+        drag(E, [102, 301], [702, 301]);            // 600 units at the home: below[0]
+        expect(o.below).toBeTruthy();
+        E.setTool("select");
+        E._setSelection([o.id]);
+        for (let i = 0; i < 400; i++) {
+            E.zoomAt(702, 301, 120);
+            const got = E._selectionAnts();
+            if (!got || !got.marks.length) continue;
+            const pic = pictureCentrePx(E, o, "0"), bits = bitsCentrePx(E, o, "0");
+            expect(Math.hypot(pic[0] - bits[0], pic[1] - bits[1])).toBeGreaterThan(20);   // the two answers differ here
+            const m = markCentrePx(got, got.marks[0]);
+            expect(Math.hypot(m[0] - pic[0], m[1] - pic[1])).toBeLessThan(1.5);
+            return;
+        }
+        throw new Error("never reached a frame mark");
+    });
+
+    test("kids of a moved object, seen from the level above: the mark is on them, and the rect fallback too", () => {
+        const E = hMkEngine(800, 600);
+        const a = hDrawStroke(E, [[402, 288], [408, 288]], 3);
+        drag(E, [405, 288], [426, 288]);            // two thirds of a cell at the home
+        descend(E, 1, 426, 288);
+        erase(E, [[400, 200], [400, 400]], 30);     // ceded: kids one cell over, offsets carried
+        const kids = [];
+        for (const L of E.doc.levels()) if (L !== "0") for (const q of E.doc.at(L)) if (!q.erase && q.editId === a.id) kids.push({ obj: q, level: L });
+        expect(kids.length).toBeGreaterThan(0);
+        const k = kids[0];
+        expect(k.obj.below).toBeTruthy();
+        E.setTool("select");
+        E._setSelection([k.obj.id]);
+        ascend(E, 0, 426, 288);
+        for (let i = 0; i < 400; i++) {
+            E.zoomAt(426, 288, 120);
+            if (E._lastList.some((p) => p.id === k.obj.id)) continue;     // still drawn: ants, not a mark
+            const got = E._selectionAnts();
+            if (!got || !got.marks.length) continue;
+            const pic = pictureCentrePx(E, k.obj, k.level);
+            const m = markCentrePx(got, got.marks[0]);
+            expect(Math.hypot(m[0] - pic[0], m[1] - pic[1])).toBeLessThan(1.5);
+            const sr = E._selectionRect();
+            expect(sr.level).toBe(E.cam.frame);
+            const r = E._rectInActive(k.obj, k.level);
+            expect(Math.abs(sr.rect.left - r.left) + Math.abs(sr.rect.top - r.top)).toBeLessThan(1e-9);
+            return;
+        }
+        throw new Error("never reached a frame mark with the kid culled");
+    });
+});
+
+// F73 (Kobin, 2026-09-08, report 22-43-41): one moved sliver selected beside 352 others in
+// the same frame — zoomed out, the frame spans 77 px so it is not a dot, and the sliver's
+// own runs are under the half-pixel minimum: it drew nothing.
+describe("a selected object too small to trace is a dot (F73)", () => {
+    hUseEngines();
+    test("a speck beside a large selected stroke in the same frame keeps a dot when its ring is under a half pixel", () => {
+        const E = hMkEngine(800, 600);
+        const big = hDrawStroke(E, [[100, 300], [400, 300]], 20);
+        const tiny = hDrawStroke(E, [[600, 300], [602, 300]], 2);
+        E.setTool("select");
+        E._setSelection([big.id, tiny.id]);
+        let got = null;
+        for (let i = 0; i < 400; i++) {
+            E.zoomAt(400, 300, 120);
+            E._render();
+            got = E._selectionAnts();
+            const r = E._rectInActive(tiny, "0");
+            const ringPx = 2 * ((r.right - r.left) + (r.bottom - r.top)) * E.cam.inScale;
+            if (ringPx < 0.4) break;
+        }
+        expect(got).toBeTruthy();
+        expect(got.runs.length).toBeGreaterThan(0);            // the stroke is still traced
+        expect(got.marks.length).toBe(1);                      // and the speck is a dot
+        const m = markCentrePx(got, got.marks[0]);
+        const pic = pictureCentrePx(E, tiny, "0");
+        expect(Math.hypot(m[0] - pic[0], m[1] - pic[1])).toBeLessThan(1.5);
     });
 });

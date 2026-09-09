@@ -1,4 +1,5 @@
 // Plain hit-test geometry (no Two.js). Shared by the engine's eraser.
+import { windingAt as windingOfPoint } from "./polyline";
 
 // Shortest distance from point p to a polyline.
 export function distToPolyline(pts, p) {
@@ -56,15 +57,7 @@ export function capsuleTouchesRings(a, b, r, rings) {
     return false;
 }
 
-// Nonzero winding of p across rings (a compound fill's holes cancel out).
-export function windingOfPoint(rings, p) {
-    let w = 0;
-    for (const r of rings) {
-        for (let i = 0, n = r.length; i < n; i++) {
-            const a = r[i], b = r[(i + 1) % n];
-            if (a[1] <= p[1]) { if (b[1] > p[1] && (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) > 0) w++; }
-            else if (b[1] <= p[1] && (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < 0) w--;
-        }
-    }
-    return w;
-}
+// Nonzero winding of p across rings (a compound fill's holes cancel out). The
+// one polygon winding is polyline's (2026-09-07: this file carried an identical
+// copy); the arc-piece winding is a different function, `arcShape.windingAt`.
+export { windingOfPoint };

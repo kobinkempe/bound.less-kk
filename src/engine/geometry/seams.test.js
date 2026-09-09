@@ -29,7 +29,7 @@
 import LevelMap from "../LevelMap";
 import Document from "../Document";
 import TileStore from "../TileStore";
-import { seamPad, classifyUp, deriveStep } from "./derive";
+import { seamPad, deriveStep } from "./derive";
 import { cedeRect } from "../__oracles__/cede";
 import { inks, inkers, samples, seamOverlapX } from "../__testkit__/ink";
 
@@ -234,7 +234,6 @@ describe("S-4 — the pad does not depend on the tile's width", () => {
     test("the pad is at least one device pixel at the SHALLOWEST in-level zoom", () => {
         // Below cfg.exit the camera crosses down, so exit is where a tile is
         // smallest on screen and the pad has to earn its keep.
-        const M = mkMap(-1, 0);
         const pad = seamPad({ opacity: 1 }, CFG, true);
         expect(pad * CFG.exit).toBeGreaterThanOrEqual(1);
     });
@@ -259,8 +258,6 @@ describe("S-5 — translucent ink across a seam does not double-darken", () => {
     });
 
     test("translucent ink still overlaps when opacity groups are on", () => {
-        const M = mkMap(-1, 0);
-        const rect = M.tileRect("0", 0, 0);
         expect(seamPad({ opacity: 0.4 }, CFG, true)).toBeGreaterThan(0);
         // With grouping OFF, overlap would double-darken, so it is deliberately
         // surrendered — the hairline is the lesser evil. Pin that trade-off.
@@ -287,7 +284,6 @@ describe("S-6 — a stroke piece and a fill piece of one object use the same ext
 
         const d2 = new Document();
         const o2 = stroke(d2, -1, [[X - 5, 0], [X + 5, 0]], 0.02);
-        const ts2 = mkStore(M, d2);
         const objs = [];
         for (const i of [0, 1]) {
             // eslint-disable-next-line no-underscore-dangle

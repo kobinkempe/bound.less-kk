@@ -241,7 +241,7 @@ describe("V-6 — un-baked territory counts as connected", () => {
 describe("V-8/V-9/V-10 — identity after severance", () => {
     test("while unsevered, clicking anywhere in the family selects the ONE object", () => {
         const E = mkEngine();
-        const src = drawStroke(E, [[150, 300], [650, 300]], 60);
+        drawStroke(E, [[150, 300], [650, 300]], 60);
         descend(E, 1);
         E.setEraserSize(20);
         eraseGesture(E, [[400, 275]]);

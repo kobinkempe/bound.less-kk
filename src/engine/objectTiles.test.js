@@ -33,12 +33,16 @@
  * at a point cross somewhere else, and a mark drawn at their intersection is no
  * longer at it. That is the failure this file exists to keep out.
  */
-import { useEngines, mkEngine, drawStroke, descend, erase, inkAt, camShot as camShotOf, camRestore as camRestoreOf } from "./__testkit__/harness";
+import {
+    useEngines, mkEngine, drawStroke, descend, erase, inkAt, camShot as camShotOf,
+    camRestore as camRestoreOf,
+} from "./__testkit__/harness";
 import { translateLoops, loopsBBox } from "./geometry/arcShape";
 import { pieceBBox } from "./geometry/arcPerimeter";
-import { chopFreezeLoops, pieceSagitta, tileWindow, tileClipRect } from "./geometry/freeze";
+import { chopFreezeLoops, pieceSagitta, tileWindow, tileClipRect, freezeRadius } from "./geometry/freeze";
 import { TILE, W, R, G, tilePhase, childTilePhase, objTileRange, objTileRect } from "./frameLattice";
-import { shapeTol } from "./geometry/derive";
+import { shapeTol, seamPad } from "./geometry/derive";
+import Document from "./Document";
 
 jest.setTimeout(300000);
 useEngines();
@@ -86,16 +90,20 @@ const windowOver = (phase, loops) => {
 const TOL = shapeTol({ arcTolerancePx: 0.25, enter: 256 });
 
 /**
- * Drag one object by a sub-cell amount, so its grid and the frame's diverge.
- * The press has to land ON the ink — pressing empty paper starts a lasso, and
- * the object then never moves, which makes every assertion below vacuous.
+ * Give one object a grid phase that differs from the frame's by a sub-cell
+ * amount. This used to be a DRAG: a move translated the coordinates and the
+ * phase with them. Since F55 (2026-09-05) a move touches neither — the picture
+ * is translated at paint from the object's table and the chop runs on the
+ * untouched bits — so the state these tests want (an object whose own grid
+ * does not line up with the cache squares) is set the way a loaded drawing or
+ * a promoted object arrives with it: written on the object.
  */
 const nudge = (E, id, sx, sy, dx, dy) => {
-    E._setSelection([id]);
-    E.setTool("select");
-    E.pointerDown(sx, sy);
-    for (let i = 1; i <= 6; i++) E.pointerMove(sx + (dx * i) / 6, sy + (dy * i) / 6);
-    E.pointerUp();
+    const rec = E.doc.getById(id);
+    const g = Document.snapGeometry(rec.obj);
+    g.tile = [tilePhase(dx), tilePhase(dy)];
+    E.doc.setGeometryById(id, g);
+    E._render();
     const t = E.doc.getById(id).obj.tile;
     expect(t && (t[0] !== 0 || t[1] !== 0)).toBe(true);
     return t;
@@ -271,23 +279,38 @@ describe("OT-2 — the object subdivides on the same tiles, even if it is moved"
 
 // ===========================================================================
 describe("OT-3 — the freeze (D2), and the endpoint invariant (6.9)", () => {
-    test("a curve becomes a line exactly when its CHOPPED piece is within the budget", () => {
+    // The lines a chop applies for a window, as the chop computes them.
+    const linesOf = (ph, win) => {
+        const h = TILE / 2;
+        return { xlo: ph[0] + win.i0 * TILE - h, xhi: ph[0] + (win.i1 + 1) * TILE - h, ylo: ph[1] + win.j0 * TILE - h, yhi: ph[1] + (win.j1 + 1) * TILE - h };
+    };
+    // A bulge (tan of a quarter sweep) that puts an arc of this chord at `f`
+    // times the freeze radius: r ≈ chord / (4·bulge) for a flat arc.
+    const bulgeFor = (chord, f) => chord / (4 * f * freezeRadius(TOL));
+
+    test("a curve becomes a line exactly when its radius is at the freeze radius or over, and its ends lie between the chop's lines", () => {
         // Stated as the rule itself rather than as a number, because the rule is
-        // what has to hold: the decision is taken on the piece the tile grid
-        // left, not on the arc it was cut from. A long gentle arc chopped in two
-        // can freeze one half and not the other, and that is correct — the half
-        // is straighter than the whole.
+        // what has to hold (freeze.js rule 2, Kobin's 2026-09-06 gate). Until
+        // then the decision was the CHOPPED piece's own sagitta, so a gentle
+        // arc chopped in two could freeze one half and not the other; now the
+        // radius decides, the same for every fragment of one arc, and the only
+        // guard is that a fragment reaching past the outermost line is not
+        // measured at all.
         const ph = [0, 0];
         let froze = 0, stayed = 0;
-        for (const bulge of [1e-9, 4.88e-9, 2e-8, 1e-7, 1e-4, 0.3, 0.9]) {
-            const loops = mixedLoop(100000, bulge, 0.9);
+        const R = freezeRadius(TOL);
+        for (const f of [4, 1.5, 1.001, 0.999, 0.5, 0.01, 1e-6]) {
+            const loops = mixedLoop(100000, bulgeFor(100000, f), 0.9);
             const win = windowOver(ph, loops);
-            const raw = chopFreezeLoops(loops, ph, 0, win).flat();       // chop only
+            const L = linesOf(ph, win);
+            const raw = chopFreezeLoops(loops, ph, 0, win).flat();       // chop only: freezeRadius(0) is Infinity
             const out = chopFreezeLoops(loops, ph, TOL, win).flat();
             expect(out.length).toBe(raw.length);
             for (let k = 0; k < out.length; k++) {
-                const should = pieceSagitta(raw[k]) <= TOL;
-                expect([bulge, k, !!out[k].line]).toEqual([bulge, k, should]);
+                const r = Math.abs(raw[k].r), e = Math.max(TOL, r * Number.EPSILON * 8);
+                const inside = (p) => p[0] >= L.xlo - e && p[0] <= L.xhi + e && p[1] >= L.ylo - e && p[1] <= L.yhi + e;
+                const should = r >= R && inside(raw[k].A) && inside(raw[k].B);
+                expect([f, k, !!out[k].line]).toEqual([f, k, should]);
                 if (should) froze++; else stayed++;
             }
         }
@@ -299,18 +322,40 @@ describe("OT-3 — the freeze (D2), and the endpoint invariant (6.9)", () => {
         // Section 6.9 rule 1, and it is what makes rule 2 possible. The
         // endpoints have to come out bit-identical or a neighbour that has not
         // frozen no longer meets them.
+        // (Since the chord-frame cuts of 2026-09-06 a "chop only" run is not
+        // the same chop: an arc over the freeze radius is cut in its chord
+        // frame, one under it through its centre, and for this arc the two
+        // differ by the centre's whole float64 step — the chord-frame point is
+        // on the grid line to the last digit, the other a thousandth off. So
+        // the rule is pinned directly: every frozen line's ends are grid-line
+        // cuts or the loop's own vertices, never anything fitted.)
         const chord = 100000;
-        const loops = mixedLoop(chord, (2 * TOL) / chord * 0.5, 0.9);
+        const loops = mixedLoop(chord, bulgeFor(chord, 1.1), 0.9);
         const ph = [0, 0];
-        const before = vertsOf(chopFreezeLoops(loops, ph, Infinity, windowOver(ph, loops)));
-        const after = vertsOf(chopFreezeLoops(loops, ph, TOL, windowOver(ph, loops)));
-        expect(after).toEqual(before);
+        const win = windowOver(ph, loops);
+        const L = linesOf(ph, win);
+        const out = chopFreezeLoops(loops, ph, TOL, win);
+        expect(vertsOf(chopFreezeLoops(loops, ph, TOL, win))).toEqual(vertsOf(out));   // deterministic
+        const originals = loops.flat().flatMap((p) => [p.A, p.B]);
+        // On one of the chop's lines: a whole number of tiles from the first
+        // line on that axis (a division by a power of two is exact).
+        const onLine = (q) => Number.isInteger((q[0] - L.xlo) / TILE) || Number.isInteger((q[1] - L.ylo) / TILE);
+        const isOriginal = (q) => originals.some((o) => o[0] === q[0] && o[1] === q[1]);
+        let frozen = 0;
+        for (const p of out.flat()) {
+            if (!p.line) continue;
+            frozen++;
+            for (const q of [p.A, p.B]) expect([q, onLine(q) || isOriginal(q)]).toEqual([q, true]);
+        }
+        expect(frozen).toBeGreaterThan(0);
     });
 
     test("a frozen piece and a live arc meet at ONE point, bit for bit", () => {
-        // Kobin's tile-seam worry, pinned rather than argued.
+        // Kobin's tile-seam worry, pinned rather than argued: the gentle arc is
+        // over the freeze radius and freezes, the tight one back is far under
+        // it and stays, and the two meet at the loop's two vertices.
         const chord = 100000;
-        const loops = mixedLoop(chord, (2 * TOL) / chord * 0.5, 0.9);
+        const loops = mixedLoop(chord, bulgeFor(chord, 1.1), 0.9);
         const ph = [0, 0];
         const out = chopFreezeLoops(loops, ph, TOL, windowOver(ph, loops));
         for (const loop of out) {
@@ -453,21 +498,28 @@ describe("OT-3 — the freeze (D2), and the endpoint invariant (6.9)", () => {
 
 // ===========================================================================
 describe("OT-4 — a drawn object carries its grid through the engine", () => {
-    test("a sub-cell drag moves the grid with the ink", () => {
+    test("a sub-cell drag leaves the grid AND the ink's bits alone; the picture moves by the table (F55)", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
         expect(o.tile == null || (o.tile[0] === 0 && o.tile[1] === 0)).toBe(true);
+        const bitsBefore = JSON.stringify(E.doc.serializeNatives(["0"])["0"][0].loops);
+        const shownBefore = E._rectInActive(o, "0");
         E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(400, 300);
         for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
         E.pointerUp();
         const rec = E.doc.getById(o.id);
         expect(rec).toBeTruthy();
-        // Nine units across, none of them a whole cell: the grid has to have
-        // moved with it, or the object has slid out from under its own cuts.
-        expect(rec.obj.tile).toBeTruthy();
-        expect(tilePhase(rec.obj.tile[0])).toBeCloseTo(tilePhase(9), 9);
-        expect(rec.obj.tile[1]).toBe(0);
+        // Nine units across, none of them a whole cell. The grid did NOT move
+        // and neither did a single stored bit: the chop keeps landing on the
+        // same cuts of the same bits, which is the whole point. The picture
+        // moved by nine units, and that lives in the table at the home level.
+        expect(rec.obj.tile == null || (rec.obj.tile[0] === 0 && rec.obj.tile[1] === 0)).toBe(true);
+        expect(JSON.stringify(E.doc.serializeNatives(["0"])["0"][0].loops)).toBe(bitsBefore);
+        expect(rec.obj.below[0]).toEqual([9, 0]);
+        const shown = E._rectInActive(rec.obj, "0");
+        expect(shown.left - shownBefore.left).toBe(9);
+        expect(shown.top - shownBefore.top).toBe(0);
     });
 
     test("a ceded family shares ONE grid, at every level (D4)", () => {
@@ -493,17 +545,27 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         }
     });
 
-    test("a ceded rect is minted on the OBJECT's grid, not the frame's", () => {
+    test("a ceded piece is CHOPPED on the OBJECT's grid, and attached on the render's window", () => {
         // Draft 2's open question 6, which section 6.6 claims to close: "two
         // cedes made either side of a move land on the same grid and cannot
         // partially overlap." They can only fail to overlap cleanly if the rect
         // is cut on something the move slid out from under.
+        //
+        // WHAT THIS PINNED UNTIL 2026-09-04, AND WHAT IT PINS NOW. The attach
+        // rect used to be a block of the object's own tiles, and this asserted
+        // it sat a whole number of tiles from the object's phase. Since F42 a
+        // cede hands over the piece the tile store holds for one cache square
+        // — that piece is what the deeper levels derive from, and the kid has
+        // to be it bit for bit — so the attach rect is that piece's window: a
+        // FRAME square grown by the seam pad. What still rides with the object
+        // is the grid the piece was chopped on (`tile`), which is where a
+        // curve becomes a line, and that is the part a move must not slide.
+        // The "cannot partially overlap" worry is answered differently now:
+        // the parent is CUT at the window, so a second cede can only ever hand
+        // over what is left.
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
-        E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
-        E.pointerDown(400, 300);
-        for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
-        E.pointerUp();
+        nudge(E, o.id, 400, 300, 9, 0);          // a grid that does not line up with the squares
         expect(E.doc.getById(o.id).obj.tile[0]).not.toBe(0);
 
         descend(E, 2, 409, 300);
@@ -511,17 +573,25 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         const kids = [];
         for (const L of E.doc.levels()) for (const q of E.doc.at(L)) if (!q.erase && q.attachRect) kids.push({ obj: q, level: L });
         expect(kids.length).toBeGreaterThan(0);
+        const pad = seamPad(o, E.cfg, true);
         let offFrameGrid = 0;
         for (const k of kids) {
             const ph = k.obj.tile || [0, 0];
-            // On the object's grid: a whole number of tiles from its phase.
-            const ix = (k.obj.attachRect.x0 - ph[0] + TILE / 2) / TILE;
-            const iy = (k.obj.attachRect.y0 - ph[1] + TILE / 2) / TILE;
+            // The attach rect is the render piece's window: the object's own
+            // tiles that the cache square reaches, grown by the seam pad. So
+            // it sits a whole number of tiles from the object's phase, less
+            // the pad — and spans one tile per axis for an unmoved object, two
+            // for a moved one whose grid straddles the square.
+            const ix = (k.obj.attachRect.x0 + pad - ph[0] + TILE / 2) / TILE;
+            const iy = (k.obj.attachRect.y0 + pad - ph[1] + TILE / 2) / TILE;
             expect(Math.abs(ix - Math.round(ix))).toBeLessThan(1e-6);
             expect(Math.abs(iy - Math.round(iy))).toBeLessThan(1e-6);
+            const nx = (k.obj.attachRect.x1 - k.obj.attachRect.x0 - 2 * pad) / TILE;
+            expect(Math.abs(nx - Math.round(nx))).toBeLessThan(1e-6);
             // ...and, for at least one of them, NOT on the frame's grid — which
-            // is the whole difference the move makes.
-            const fx = (k.obj.attachRect.x0 + TILE / 2) / TILE;
+            // is the whole difference the move makes, and what keeps a chop
+            // where it was.
+            const fx = (k.obj.attachRect.x0 + pad + TILE / 2) / TILE;
             if (Math.abs(fx - Math.round(fx)) > 1e-6) offFrameGrid++;
         }
         expect(offFrameGrid).toBeGreaterThan(0);
@@ -530,10 +600,7 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
     test("a saved drawing keeps its grid", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
-        E.setTool("select"); E.pointerDown(400, 300); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
-        E.pointerDown(400, 300);
-        for (let i = 1; i <= 6; i++) E.pointerMove(400 + (9 * i) / 6, 300);
-        E.pointerUp();
+        nudge(E, o.id, 400, 300, 9, 0);
         const want = E.doc.getById(o.id).obj.tile.slice();
         const snap = E.snapshot();
         const F = mkEngine();
@@ -644,7 +711,7 @@ describe("OT-6 — cedes made either side of a move land on the same grid", () =
 
     test("erase, move, erase again — and the two rects are whole tiles apart", () => {
         const E = mkEngine();
-        const o = drawStroke(E, [[150, 300], [650, 300]], 40);
+        drawStroke(E, [[150, 300], [650, 300]], 40);
         const top = camShotOf(E);
 
         descend(E, 2, 380, 300);

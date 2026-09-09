@@ -4,9 +4,9 @@
  * The worker script is `public/lz-worker.js` (a plain file, not bundled — CRA 4
  * has no worker syntax webpack 4 accepts without a loader, and the eslint
  * preset refuses loader syntax). Where there is no Worker, or the script fails
- * to load, or a job errors, the work runs synchronously on the main thread
- * instead, which is what the app did before. So the fallback is never worse
- * than the old behaviour; the worker is only ever better.
+ * to load, the work runs synchronously on the main thread instead, which is
+ * what the app did before. A job the worker ran and FAILED is not retried on
+ * the main thread (F64: it fails the same way, after the same freeze).
  */
 import LZString from "lz-string";
 
@@ -62,11 +62,17 @@ function run(op, data, transfer) {
     });
 }
 
+// The main thread is a fallback for a MISSING worker only. A job the worker
+// ran and failed (lz-string's dictionary outgrowing a JS object on a 100 MB
+// drawing, OPEN-FLAGS F64) is not run again here: it would fail the same way
+// after freezing the tab for as long as the worker took.
+const unavailable = (err) => /lz worker unavailable/.test(String((err && err.message) || err));
+
 /** kobin-1 JSON string -> compressed bytes, off the main thread when possible. */
 export async function compressToUint8Array(json) {
     const job = run("compress", json);
     if (job) {
-        try { return await job; } catch (err) { /* fall through */ }
+        try { return await job; } catch (err) { if (!unavailable(err)) throw err; }
     }
     return LZString.compressToUint8Array(json);
 }
@@ -78,7 +84,7 @@ export async function decompressFromUint8Array(u8) {
         try {
             const out = await job;
             return out == null ? "" : out;
-        } catch (err) { /* fall through */ }
+        } catch (err) { if (!unavailable(err)) throw err; }
     }
     return LZString.decompressFromUint8Array(u8) ?? "";
 }

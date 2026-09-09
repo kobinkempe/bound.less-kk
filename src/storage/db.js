@@ -27,7 +27,11 @@
 import LZString from "lz-string";
 
 export const DB_NAME = "boundless";
-export const DB_VERSION = 1;
+// Version 2 (2026-09-08, the kobin-2 store — DESIGN.md §13): a frame's natives as
+// JSON headers plus one Float64Array of geometry (`frames2`), and an append-only
+// op log (`log`); the v1 `frames` store stays so an old canvas opens, and its
+// records go on the first full v2 write of that canvas.
+export const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -56,6 +60,14 @@ export function openDb() {
             }
             if (!db.objectStoreNames.contains("trash")) db.createObjectStore("trash", { keyPath: "id" });
             if (!db.objectStoreNames.contains("backups")) db.createObjectStore("backups", { keyPath: "id" });
+            if (!db.objectStoreNames.contains("frames2")) {
+                const s = db.createObjectStore("frames2", { keyPath: ["canvasId", "frameId"] });
+                s.createIndex("byCanvas", "canvasId");
+            }
+            if (!db.objectStoreNames.contains("log")) {
+                const s = db.createObjectStore("log", { keyPath: ["canvasId", "seq"] });
+                s.createIndex("byCanvas", "canvasId");
+            }
         };
         req.onsuccess = () => {
             const db = req.result;
@@ -188,23 +200,107 @@ export function patchCanvasHeader(id, fn) {
 }
 
 export function deleteCanvas(id) {
-    return tx(["canvases", "frames"], "readwrite", async (canvases, store) => {
+    return tx(["canvases", "frames", "frames2", "log"], "readwrite", async (canvases, store, frames2, log) => {
         canvases.delete(id);
-        const keys = await reqp(store.index("byCanvas").getAllKeys(only(id)));
-        for (const k of keys) store.delete(k);
+        for (const s of [store, frames2, log]) {
+            const keys = await reqp(s.index("byCanvas").getAllKeys(only(id)));
+            for (const k of keys) s.delete(k);
+        }
         return true;
     });
 }
-
-/** Frame records whose canvas header is gone (a torn delete). Returns how many went. */
+/** Frame and log records whose canvas header is gone (a torn delete). Returns how many went. */
 export function deleteOrphanFrames() {
-    return tx(["canvases", "frames"], "readwrite", async (canvases, store) => {
+    return tx(["canvases", "frames", "frames2", "log"], "readwrite", async (canvases, store, frames2, log) => {
         const ids = new Set(await reqp(canvases.getAllKeys()));
-        const keys = await reqp(store.getAllKeys());
         let n = 0;
-        for (const k of keys) if (!ids.has(k[0])) { store.delete(k); n++; }
+        for (const s of [store, frames2, log]) {
+            const keys = await reqp(s.getAllKeys());
+            for (const k of keys) if (!ids.has(k[0])) { s.delete(k); n++; }
+        }
         return n;
     }).then((n) => n || 0);
+}
+
+// ---- the kobin-2 store: snapshots per frame plus the op log ----
+// A frame record: { canvasId, frameId, seq, objects, geo: ArrayBuffer }; a log record:
+// { canvasId, seq, t, op, geo: ArrayBuffer | null, touches }. The header carries
+// `store: "kobin-2"`, `frameSeq` (frame id -> seq of its snapshot) and `seq` (the last
+// entry). Buffers are stored as they are: a structured clone of one is a copy of bytes.
+const bufferOf = (geo) => (geo.byteOffset === 0 && geo.byteLength === geo.buffer.byteLength
+    ? geo.buffer : geo.buffer.slice(geo.byteOffset, geo.byteOffset + geo.byteLength));
+export const STORE_V2 = "kobin-2";
+
+/**
+ * Write a canvas in the kobin-2 store, in one transaction: the header, the frames in
+ * `snapshots` ({ frameId: { objects, geo, seq } }), the new log `entries` (ascending
+ * seq), and — with `dropBelow` — the entries older than it, gone. `frameIds` is the full
+ * current set. `full` makes the stored frame set match exactly and deletes the canvas's
+ * v1 frame records (the first v2 write of a migrated canvas); `resetLog` empties the log
+ * first (a document that started over). Returns false, writing nothing, for an
+ * incremental write of a canvas with no header on disk.
+ */
+export function putCanvas2(id, { header, snapshots = {}, frameIds, entries = [], full = false, resetLog = false, dropBelow = 0 }) {
+    return tx(["canvases", "frames", "frames2", "log"], "readwrite", async (canvases, v1, frames2, log) => {
+        const prev = await reqp(canvases.get(id));
+        if (!prev && !full) return false;
+        const now = new Set(frameIds);
+        const frameSeq = { ...((prev && prev.store === STORE_V2 && prev.frameSeq) || {}) };
+        if (full) {
+            for (const k of await reqp(frames2.index("byCanvas").getAllKeys(only(id)))) if (!now.has(k[1])) frames2.delete(k);
+            for (const k of await reqp(v1.index("byCanvas").getAllKeys(only(id)))) v1.delete(k);
+        } else if (prev.frameIds) {
+            for (const fid of prev.frameIds) if (!now.has(fid)) frames2.delete([id, fid]);
+        }
+        for (const fid of Object.keys(frameSeq)) if (!now.has(fid)) delete frameSeq[fid];
+        if (resetLog) {
+            for (const k of await reqp(log.index("byCanvas").getAllKeys(only(id)))) log.delete(k);
+        } else if (dropBelow > 0) {
+            log.delete(IDBKeyRange.bound([id, 0], [id, dropBelow], false, true));
+        }
+        for (const fid of Object.keys(snapshots)) {
+            const s = snapshots[fid];
+            frames2.put({ canvasId: id, frameId: fid, seq: s.seq || 0, objects: s.objects, geo: bufferOf(s.geo) });
+            frameSeq[fid] = s.seq || 0;
+        }
+        for (const e of entries) {
+            log.put({ canvasId: id, seq: e.seq, t: e.t, op: e.op, geo: e.geo && e.geo.length ? bufferOf(e.geo) : null, touches: e.touches || [] });
+        }
+        canvases.put({
+            ...header,
+            id,
+            store: STORE_V2,
+            frameIds: [...frameIds],
+            frameSeq,
+            seq: header.seq || 0,
+            savedAt: header.savedAt || new Date().toISOString(),
+        });
+        return true;
+    });
+}
+/**
+ * The stored canvas: `{ header, frames: [{ frameId, seq, objects, geo: Float64Array }],
+ * entries: [{ seq, t, op, geo: Float64Array | null, touches }] }` for a kobin-2 canvas,
+ * `{ legacy: kobin1Doc }` for one the v1 store holds, or null.
+ */
+export function getCanvas2(id) {
+    return tx(["canvases", "frames", "frames2", "log"], "readonly", async (canvases, v1, frames2, log) => {
+        const h = await reqp(canvases.get(id));
+        if (!h) return null;
+        if (h.store !== STORE_V2) {
+            const recs = await reqp(v1.index("byCanvas").getAll(only(id)));
+            const natives = {};
+            for (const r of recs) natives[r.frameId] = r.objects;
+            return { legacy: headerToDoc(h, natives) };
+        }
+        const frames = (await reqp(frames2.index("byCanvas").getAll(only(id)))).map((r) => ({
+            frameId: r.frameId, seq: r.seq || 0, objects: r.objects, geo: new Float64Array(r.geo),
+        }));
+        const entries = (await reqp(log.index("byCanvas").getAll(only(id))))
+            .map((r) => ({ seq: r.seq, t: r.t, op: r.op, geo: r.geo ? new Float64Array(r.geo) : new Float64Array(0), touches: r.touches || [] }))
+            .sort((a, b) => a.seq - b.seq);
+        return { header: h, frames, entries };
+    });
 }
 
 // ---- trash + backups: whole documents ----
@@ -452,4 +548,22 @@ export async function requestPersistentStorage() {
         if (navigator.storage.persisted && await navigator.storage.persisted()) return true;
         return await navigator.storage.persist();
     } catch (err) { return false; }
+}
+
+/** Some frames' snapshots (all when `frameIds` is null), for the cloud push. */
+export function getFrames2(id, frameIds = null) {
+    return tx(["frames2"], "readonly", async (frames2) => {
+        const recs = frameIds
+            ? (await Promise.all(frameIds.map((fid) => reqp(frames2.get([id, fid]))))).filter(Boolean)
+            : await reqp(frames2.index("byCanvas").getAll(only(id)));
+        return recs.map((r) => ({ frameId: r.frameId, seq: r.seq || 0, objects: r.objects, geo: new Float64Array(r.geo) }));
+    }).then((l) => l || []);
+}
+/** The log entries with seq above `fromSeq`, ascending. */
+export function getLogFrom(id, fromSeq = 0) {
+    return tx(["log"], "readonly", async (log) => {
+        const recs = await reqp(log.getAll(IDBKeyRange.bound([id, fromSeq], [id, Number.MAX_SAFE_INTEGER], true, false)));
+        return recs.map((r) => ({ seq: r.seq, t: r.t, op: r.op, geo: r.geo ? new Float64Array(r.geo) : new Float64Array(0), touches: r.touches || [] }))
+            .sort((a, b) => a.seq - b.seq);
+    }).then((l) => l || []);
 }

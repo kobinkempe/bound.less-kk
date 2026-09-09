@@ -20,7 +20,7 @@ import {
     useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
     descend, ascend, roundTrip, camShot, camRestore, topView, painted, inkAt, topAt,
     raster, rasterZ, rasterDiff, inkRunsX, families, natives, vertexCount,
-    picture, tileSeam, centerOn, timeIt,
+    picture, tileSeam, centerOn, timeIt, objPointIn,
 } from "./__testkit__/harness";
 
 jest.setTimeout(300000);
@@ -184,7 +184,18 @@ describe("LX-4 — a big stroke with many vertices, erased at depth", () => {
         expect(vBefore).toBeGreaterThan(300);          // the probe drew a real stroke
         // A cut adds an outline where a stroke used to be a centerline, so some
         // growth is expected. An order of magnitude is not.
-        expect(after).toBeLessThan(Math.max(4000, before * 12));
+        //
+        // The bound was max(4000, before × 12) until the freeze became one
+        // radius (2026-09-06, freeze.js rule 2). The chop cuts arcs at every
+        // grid line and never cuts lines, and the old per-piece test froze a
+        // stroke's flat fragments into lines at the first crossing while the
+        // radius rule keeps them arcs until their radius reaches ~8.8e12, a
+        // level or two later — so a big stroke cut one crossing down paints
+        // 6,687 pieces here where it painted under 4,000. That is the cost of
+        // the rule Kobin asked for, recorded in OPEN-FLAGS F44; the runaway
+        // this test exists to catch is the 340,129-vertex piece above, and
+        // the cap below still stands at a fifth of it.
+        expect(after).toBeLessThan(Math.max(9000, before * 30));
         expect(after).toBeLessThan(60000);
     });
     test("and rendering it stays interactive", () => {
@@ -402,7 +413,6 @@ describe("LX-10 — erasing an object away completely, after it has ceded ground
     test("its re-homed children go with it — no orphans left three levels down", () => {
         const E = mkEngine();
         drawStroke(E, [[340, 300], [460, 300]], 30);
-        const clean = raster(E, 48);
         const home = camShot(E);
         descend(E, 3);
         erase(E, [[400, 240], [400, 360]], 16);     // makes an L1/L2/L3 chain
@@ -529,11 +539,15 @@ describe("LX-13 — erase, move, erase again somewhere new", () => {
         click(E, 500, 200);
         // The doorway is a rect in the CHILD's own frame, so "did it come along"
         // has to be asked in the world: a deep move is mostly a change of
-        // address, and the child's own coordinates barely move even though the
-        // object travels 230 px.
+        // address, and the child's own coordinates do not move at all (F55) —
+        // the displacement is in the table, and the part of it that is too
+        // small for a cell hop lives in the table's home entry, so the world
+        // position has to be asked of the PICTURE (`objPointIn`), not of the
+        // coordinates through the frame alone. Asking the frame alone reads
+        // 224 px for a 230 px drag: the remaining 6 units are in the table.
         const doorAt = () => {
             const r = E.doc.getById(kid.obj.id);
-            return E.lm.mapPointF([r.obj.attachRect.x0, r.obj.attachRect.y0], r.level, "0");
+            return objPointIn(E, r, [r.obj.attachRect.x0, r.obj.attachRect.y0], "0");
         };
         const wBefore = doorAt();
         drag(E, [500, 200], [500, 430]);

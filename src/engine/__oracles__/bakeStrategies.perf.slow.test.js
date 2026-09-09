@@ -11,7 +11,7 @@
  * 1,853,649 vertices, and took 4,469 ms just to flatten before the boolean.
  */
 import { runBaker } from "./bakeStrategies";
-import { curvePerimeter, centerlineCubics } from "./curvePerimeter";
+import { curvePerimeter } from "./curvePerimeter";
 import { cubicTangent } from "../geometry/curveOutline";
 
 jest.setTimeout(900000);

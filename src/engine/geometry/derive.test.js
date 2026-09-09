@@ -4,7 +4,10 @@
  * plus unit tests for the NEW classify tiers (the symmetric magnify size policy).
  */
 import KobinEngineV0 from "../__oracles__/KobinEngineV0";
-import { deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad, LEGACY_SEAMS } from "./derive";
+import {
+    deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad,
+    LEGACY_SEAMS,
+} from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 import { windingOfPoint } from "./hittest";
 import { cedeRect } from "../__oracles__/cede";
@@ -237,7 +240,6 @@ describe("classifyUp — the symmetric magnify size policy (new)", () => {
 
 describe("projectedSizePx / bboxOf", () => {
     test("size measure matches the engine's down-cull expression", () => {
-        const E = mkEngine();
         const o = mkStroke(1, [[0, 0], [3, 4]], 2); // diag 5 + lw 2 = 7
         const f = 1 / 3000;
         expect(projectedSizePx(o, f, { enter: 300 }, null)).toBeCloseTo(7 * f * 300, 12);

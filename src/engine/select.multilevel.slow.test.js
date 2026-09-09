@@ -14,9 +14,8 @@
  * the space it left must not be draggable.
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click, pan,
-    descend, ascend, camShot, camRestore, topView, inkAt, colorAt, raster,
-    rasterDiff, families, natives, painted,
+    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click, pan, descend, camShot,
+    camRestore, topView, inkAt, colorAt, raster, rasterDiff, families, natives, objPointIn,
 } from "./__testkit__/harness";
 
 jest.setTimeout(300000);
@@ -39,12 +38,15 @@ const boxLoop = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0
 // and destroying the object (F-C / F25). A deep member now RE-HOMES — its
 // address changes and its coordinates do not — so the question "did it move" has
 // to be asked about where it is in the world, which is what this measures.
+// Where the anchor is DRAWN in the active frame: through the member's offsets
+// below its home (F41) — a member coarser than the camera moves its picture,
+// not its coordinates.
 const worldAnchorAt = (E, rec) => {
-    const a = rec.obj.type === "shape" ? rec.obj.loops[0][0].A
+    const a = rec.obj.type === "shape" ? rec.obj.loops[0].at(0).A
         : rec.obj.type === "fill" ? rec.obj.polys[0][0] : rec.obj.pts[0];
-    return E.lm.mapPointF([a[0], a[1]], rec.level, E.cam.frame);
+    return objPointIn(E, rec, [a[0], a[1]], E.cam.frame);
 };
-const anchorOf = (o) => (o.type === "shape" ? o.loops[0][0].A
+const anchorOf = (o) => (o.type === "shape" ? o.loops[0].at(0).A
     : o.type === "fill" ? o.polys[0][0] : o.pts[0]);
 
 describe("SM-1 — a level-1 object and a level-4 object, selected together", () => {
@@ -71,11 +73,14 @@ describe("SM-1 — a level-1 object and a level-4 object, selected together", ()
         click(E, 400, 380);
         ctrlClick(E, 400, 300);                       // ...and so is the coarse one, magnified
         expect(E.selection.ids.length).toBeGreaterThanOrEqual(1);
-        const a0 = [...anchorOf(coarse)], b0 = [...anchorOf(fine)];
+        // Where the anchor is DRAWN, in the object's own frame: since F55 a
+        // move never touches a coordinate, the displacement is in the table.
+        const shown = (o) => { const r = E.doc.getById(o.id); return objPointIn(E, r, anchorOf(o), r.level); };
+        const a0 = [...shown(coarse)], b0 = [...shown(fine)];
         const sel = E.selection.ids.slice();
         drag(E, [400, 380], [400, 500]);
-        const dyCoarse = anchorOf(coarse)[1] - a0[1];
-        const dyFine = anchorOf(fine)[1] - b0[1];
+        const dyCoarse = shown(coarse)[1] - a0[1];
+        const dyFine = shown(fine)[1] - b0[1];
         // 120 screen px, expressed in each object's own units.
         const f = E.cam.inScale;
         if (sel.includes(fine.id)) expect(dyFine).toBeCloseTo(120 / f, 3);
@@ -273,7 +278,7 @@ describe("SM-4 — the lasso, across levels", () => {
         // The complement — otherwise the above passes on "select everything".
         const E = mkEngine();
         descend(E, 3, 400, 300);
-        const fine = drawStroke(E, [[360, 280], [440, 320]], 12, RED);
+        drawStroke(E, [[360, 280], [440, 320]], 12, RED);
         topView(E);
         lasso(E, boxLoop(60, 60, 200, 200));
         expect(E.selection).toBeNull();
@@ -282,7 +287,6 @@ describe("SM-4 — the lasso, across levels", () => {
         const E = mkEngine();
         descend(E, 4, 400, 300);
         const fine = drawStroke(E, [[360, 280], [440, 320]], 12, RED);
-        const deep = camShot(E);
         topView(E);
         lasso(E, boxLoop(120, 120, 680, 480));
         expect(E.selection.ids).toContain(fine.id);

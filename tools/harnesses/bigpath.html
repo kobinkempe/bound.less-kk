@@ -1,0 +1,203 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bigpath — arcs at huge radius, in the browser</title>
+<!--
+  Measures what the browser makes of ONE arc whose radius on screen is enormous,
+  the way the renderer hands it over: origin-relative local coordinates under a
+  world transform `matrix(k 0 0 k tx ty)`, k the in-frame zoom (256 is the
+  deepest a frame ever shows), the arc's chord at most the tile reach.
+
+  Three representations, chosen per run:
+    plan   — what the renderer does (2026-09-04, arcShape.planArc): the arc
+             command while its float32 centre is within a quarter pixel, else
+             the cubics the sixth-root law demands;
+    auto   — the fixed 22° rule tried first: one cubic under 22°, the arc
+             command over it (15 px at its worst — why `plan` replaced it);
+    arc    — one SVG `A` for everything, the first fix of the day;
+    arc2   — the same arc as two `A`s meeting at its midpoint (the renderer's
+             half-turn split, and a junction to look at);
+    cubic  — one cubic per quarter turn, the standard 4/3·tan(θ/4) handles,
+             which is what it emitted before (and where F40 came from).
+
+  The shape is the region BELOW the arc, so the arc is the fill's top edge, and
+  the edge is found by bisecting `document.elementFromPoint` down a column —
+  Blink hit-tests the same path it paints, float32 conversion included — and
+  compared with the float64 truth of the circle. Open it, then in the console:
+      __run({ Rpx: 1e9, k: 256, sweepDeg: 10, rep: "arc" })    (or chord: units)
+      __matrix()                                                the whole grid
+  Everything is in the returned objects; the bar shows the last run.
+-->
+<style>
+  body { margin: 0; background: #fff; font: 12px monospace; overflow: hidden; }
+  #bar { position: fixed; left: 8px; top: 8px; z-index: 9; background: rgba(255,255,255,.92); padding: 6px; max-width: 95vw; white-space: pre; }
+  svg { display: block; }
+</style></head>
+<body>
+<div id="bar">bigpath: __run({Rpx, k, sweepDeg | chord, rep}) / __matrix()</div>
+<svg id="s" xmlns="http://www.w3.org/2000/svg" style="overflow:hidden">
+  <g id="world"><path id="p" fill="#44a0cd"/></g>
+  <rect x="0" y="0" width="12" height="12" fill="#f00"/>
+</svg>
+<script>
+  const svg = document.getElementById('s'), world = document.getElementById('world'), path = document.getElementById('p');
+  const bar = document.getElementById('bar');
+  let W = innerWidth, H = innerHeight;
+  const fit = () => { W = innerWidth; H = innerHeight; svg.setAttribute('width', W); svg.setAttribute('height', H); };
+  fit(); addEventListener('resize', fit);
+
+  // The arc: midpoint at the local origin, centre straight below it at (0, r),
+  // endpoints (±h, s) with s the sagitta. The world puts the origin at the
+  // screen centre, so the edge runs across the middle of the screen. `probeT`
+  // (0..1 along the arc) puts THAT point of the arc at the screen centre
+  // instead, for looking at a cubic where its error peaks.
+  let cur = null;
+  function build({ Rpx, k, chord, sweepDeg, rep, probeT = 0.5 }) {
+    fit();   // the pane may have had no layout when the page loaded
+    if (!(W > 0 && H > 0)) throw new Error('no layout: the pane is hidden');
+    const r = Rpx / k;
+    if (sweepDeg != null) chord = 2 * r * Math.sin((sweepDeg * Math.PI / 180) / 2);
+    const h = chord / 2;
+    if (!(h < r)) throw new Error('chord longer than the diameter');
+    const s = r - Math.sqrt(r * r - h * h);
+    const a0 = Math.atan2(s - r, -h), a1 = Math.atan2(s - r, h);   // about the centre (0, r)
+    const sweep = a1 - a0;
+    // the point of the arc that sits at the screen centre
+    const tp = a0 + sweep * probeT;
+    const px = r * Math.cos(tp), py = r + r * Math.sin(tp);
+    const tx = W / 2 - k * px, ty = H / 2 - k * py;
+    const big = s + 4 * H / k + Math.abs(py);
+    const f = (v) => v.toFixed(6);
+    let d = `M ${f(-h)} ${f(s)} `;
+    if (rep === 'arc') {
+      d += `A ${f(r)} ${f(r)} 0 0 1 ${f(h)} ${f(s)} `;
+    } else if (rep === 'arc2') {
+      d += `A ${f(r)} ${f(r)} 0 0 1 0 0 A ${f(r)} ${f(r)} 0 0 1 ${f(h)} ${f(s)} `;
+    } else if (rep === 'cubic' || rep === 'auto' || rep === 'plan') {
+      // 'cubic': the renderer's old conversion, quarter-turn pieces with kappa
+      // handles. 'auto': the fixed 22° rule that was tried first — ONE cubic
+      // under 22° of sweep, the arc command over it. 'plan': what the renderer
+      // does now (arcShape.planArc) — the arc command while 2^-24·Rpx is under
+      // a quarter pixel, else ⌈sweep·(1.8e-5·Rpx/0.25)^(1/6)⌉ cubics.
+      const TOL = 0.25;
+      const n = rep === 'cubic' ? Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 2)))
+        : rep === 'plan' ? Math.max(1, Math.ceil(Math.abs(sweep) * Math.pow(1.8e-5 * Rpx / TOL, 1 / 6) - 1e-9)) : 1;
+      if ((rep === 'auto' && Math.abs(sweep) > 22 * Math.PI / 180) || (rep === 'plan' && Math.pow(2, -24) * Rpx <= TOL)) {
+        d += `A ${f(r)} ${f(r)} 0 0 1 ${f(h)} ${f(s)} `;
+      } else {
+        const step = sweep / n, kap = (4 / 3) * Math.tan(step / 4);
+        for (let i = 0; i < n; i++) {
+          const t0 = a0 + step * i, t1 = t0 + step;
+          const q0 = [r * Math.cos(t0), r + r * Math.sin(t0)], q1 = [r * Math.cos(t1), r + r * Math.sin(t1)];
+          const c1 = [q0[0] - kap * r * Math.sin(t0), q0[1] + kap * r * Math.cos(t0)];
+          const c2 = [q1[0] + kap * r * Math.sin(t1), q1[1] - kap * r * Math.cos(t1)];
+          d += `C ${f(c1[0])} ${f(c1[1])} ${f(c2[0])} ${f(c2[1])} ${f(q1[0])} ${f(q1[1])} `;
+        }
+      }
+    } else throw new Error('rep?');
+    d += `L ${f(h)} ${f(big)} L ${f(-h)} ${f(big)} Z`;
+    path.setAttribute('d', d);
+    world.setAttribute('transform', `matrix(${k} 0 0 ${k} ${tx} ${ty})`);
+    cur = { Rpx, k, chord, rep, probeT, r, h, s, tx, ty, sweep, sweepDeg: sweep * 180 / Math.PI, sagittaPx: s * k, dlen: d.length };
+    return cur;
+  }
+  // Float64 truth: the top of the circle at screen column sx, in screen px.
+  function truthY(sx) {
+    const x = (sx - cur.tx) / cur.k;
+    if (Math.abs(x) >= cur.r) return NaN;
+    return cur.ty + cur.k * (cur.r - Math.sqrt(cur.r * cur.r - x * x));
+  }
+  // Where the browser puts the edge: bisect elementFromPoint down the column.
+  function measuredY(sx) {
+    const hit = (y) => document.elementFromPoint(sx, y) === path;
+    let lo = 0, hi = H - 1;
+    if (hit(lo)) return -Infinity;      // filled to the top: edge above the screen
+    if (!hit(hi)) return Infinity;      // empty to the bottom: edge below it
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (hit(mid)) hi = mid; else lo = mid; }
+    return (lo + hi) / 2;
+  }
+  function measure(cols) {
+    const xs = cols || [1, Math.round(W / 4), Math.round(W / 2), Math.round(3 * W / 4), W - 2];
+    const rows = xs.map((sx) => { const t = truthY(sx), m = measuredY(sx); return { sx, truth: +t.toFixed(3), measured: +m.toFixed(3), err: +(m - t).toFixed(3) }; });
+    const finite = rows.filter((q) => isFinite(q.err));
+    const worst = finite.length ? finite.reduce((a, b) => (Math.abs(b.err) > Math.abs(a.err) ? b : a)) : null;
+    return { ...cur, rows, worstErrPx: worst ? worst.err : null, painted: rows.some((q) => isFinite(q.measured)) };
+  }
+  window.__run = (opts) => { build(opts); const out = measure(); bar.textContent = JSON.stringify({ Rpx: out.Rpx, k: out.k, rep: out.rep, sweepDeg: +out.sweepDeg.toFixed(3), sagittaPx: +out.sagittaPx.toFixed(2), worstErrPx: out.worstErrPx }); return out; };
+
+  // PAINT, not hit-testing. `elementFromPoint` asks Blink's analytic winding
+  // test, which for a nearly horizontal cubic solves for the parameter at a
+  // given y in float32 — ill-conditioned, and it reported 17–42 px where the
+  // raster is nowhere near that. So: the true edge is drawn a second time, in
+  // SCREEN space (float64 truth, no transform, nothing large), as the region
+  // below it in the same blue with `mix-blend-mode: difference`. Where the two
+  // fills agree the screen is black; a BLUE sliver is where only the test
+  // shape covers (its edge sits above the truth), an ORANGE sliver where only
+  // the reference does (its edge sits below). The sliver's height IS the
+  // error in px; bars of 1, 2, 4, 8, 16 px at the top-left are the ruler.
+  window.__paintCheck = (opts) => {
+    build(opts);
+    let ref = document.getElementById('ref');
+    if (!ref) { ref = document.createElementNS('http://www.w3.org/2000/svg', 'path'); ref.id = 'ref'; ref.setAttribute('fill', '#44a0cd'); ref.style.mixBlendMode = 'difference'; svg.appendChild(ref); }
+    let d = '';
+    for (let x = 0; x <= W; x += 2) { const y = truthY(x); if (!isFinite(y)) continue; d += (d ? ' L ' : 'M ') + x + ' ' + y.toFixed(3); }
+    d += ` L ${W} ${H} L 0 ${H} Z`;
+    ref.setAttribute('d', d);
+    let ruler = document.getElementById('ruler');
+    if (!ruler) { ruler = document.createElementNS('http://www.w3.org/2000/svg', 'g'); ruler.id = 'ruler'; svg.appendChild(ruler); ruler.innerHTML = [1, 2, 4, 8, 16].map((hh, i) => `<rect x="${20 + i * 40}" y="${40}" width="30" height="${hh}" fill="#000"/><rect x="${20 + i * 40}" y="${40 + hh + 6}" width="30" height="${hh}" fill="#44a0cd"/>`).join(''); }
+    bar.textContent = 'paint check ' + JSON.stringify({ Rpx: cur.Rpx, k: cur.k, rep: cur.rep, sweepDeg: +cur.sweepDeg.toFixed(3), hitTestWorstErrPx: measure().worstErrPx });
+    return cur;
+  };
+  window.__paintClear = () => { const r = document.getElementById('ref'); if (r) r.remove(); const g = document.getElementById('ruler'); if (g) g.remove(); };
+
+  // THE COORDINATE FLOOR, on a straight line. A 45° line from (-half, -half)
+  // to (half, half) local units under matrix(k …), viewed at its middle: its
+  // ends are half·k px away, and float32 there is what the on-screen stretch
+  // inherits (4 px of spacing at 5e7 px). `seg` > 0 splits it into parts no
+  // longer than `seg` units — the renderer's length chop (8192 for the
+  // default config). Paint-checked like the arcs: black is agreement.
+  window.__lineCheck = ({ half = 2e5, k = 256, seg = 0 }) => {
+    fit();
+    if (!(W > 0 && H > 0)) throw new Error('no layout: the pane is hidden');
+    const tx = W / 2, ty = H / 2;
+    const f = (v) => v.toFixed(6);
+    const n = seg > 0 ? Math.ceil(2 * half * Math.SQRT2 / seg) : 1;
+    let d = `M ${f(-half)} ${f(-half)} `;
+    for (let i = 1; i <= n; i++) { const t = i / n; d += `L ${f(-half + 2 * half * t)} ${f(-half + 2 * half * t)} `; }
+    const big = half + 4 * H / k;
+    d += `L ${f(half)} ${f(big)} L ${f(-half)} ${f(big)} Z`;
+    path.setAttribute('d', d);
+    world.setAttribute('transform', `matrix(${k} 0 0 ${k} ${tx} ${ty})`);
+    cur = { Rpx: Infinity, k, rep: 'line', r: Infinity, tx, ty, sweep: 0, sweepDeg: 0, sagittaPx: 0, chord: 2 * half * Math.SQRT2, dlen: d.length, half, seg, parts: n };
+    // truth: y = x through the origin
+    const truth = (sx) => ty + (sx - tx);
+    let ref = document.getElementById('ref');
+    if (!ref) { ref = document.createElementNS('http://www.w3.org/2000/svg', 'path'); ref.id = 'ref'; ref.setAttribute('fill', '#44a0cd'); ref.style.mixBlendMode = 'difference'; svg.appendChild(ref); }
+    let rd = '';
+    for (let x = 0; x <= W; x += 2) rd += (rd ? ' L ' : 'M ') + x + ' ' + truth(x).toFixed(3);
+    rd += ` L ${W} ${H} L 0 ${H} Z`;
+    ref.setAttribute('d', rd);
+    let ruler = document.getElementById('ruler');
+    if (!ruler) { ruler = document.createElementNS('http://www.w3.org/2000/svg', 'g'); ruler.id = 'ruler'; svg.appendChild(ruler); ruler.innerHTML = [1, 2, 4, 8, 16].map((hh, i) => `<rect x="${20 + i * 40}" y="${40}" width="30" height="${hh}" fill="#000"/><rect x="${20 + i * 40}" y="${40 + hh + 6}" width="30" height="${hh}" fill="#44a0cd"/>`).join(''); }
+    bar.textContent = 'line check ' + JSON.stringify({ half, k, endsPx: half * k, seg, parts: n });
+    return cur;
+  };
+  window.__measure = measure;
+  // The grid: on-screen radius × sweep × representation, at the deepest
+  // in-frame zoom. A kappa cubic is exact at its ends and its middle and
+  // worst a quarter of the way along, so the cubic runs are probed there
+  // (a quarter of the FIRST quarter-turn piece when there are several); the
+  // arc runs at the arc's middle, farthest from both pinned endpoints.
+  window.__matrix = (reps = ['auto', 'arc', 'cubic'], Rs = [1e4, 1e5, 1e6, 2887325, 1e7, 1e8, 1e9, 1e10, 1e11], sweeps = [170, 90, 45, 22, 10, 1, 0.1, 0.01], k = 256) => {
+    const out = [];
+    for (const rep of reps) for (const Rpx of Rs) for (const sweepDeg of sweeps) {
+      try {
+        const n = Math.max(1, Math.ceil(sweepDeg / 90));
+        const probeT = rep === 'cubic' ? 0.25 / n : (rep === 'auto' && sweepDeg <= 22) ? 0.25 : 0.5;
+        const m = window.__run({ Rpx, k, sweepDeg, rep, probeT });
+        out.push({ rep, Rpx, sweepDeg, chordPx: +(m.chord * k).toPrecision(3), sagittaPx: +m.sagittaPx.toPrecision(3), worstErrPx: m.worstErrPx, painted: m.painted });
+      } catch (e) { out.push({ rep, Rpx, sweepDeg, error: String(e) }); }
+    }
+    return out;
+  };
+  try { window.__run({ Rpx: 2887325, k: 126.934669, sweepDeg: 173.5, rep: 'arc', probeT: 0.125 }); } catch (e) { bar.textContent = String(e); }
+</script>
+</body></html>

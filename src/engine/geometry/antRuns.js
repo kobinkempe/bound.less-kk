@@ -5,8 +5,8 @@
  * drawing — arcs and lines, clipped to their tiles by the exact arc boolean —
  * and everything the indicator needs from them is analytic: a piece's length
  * is r·|sweep| or a hypot, a seam is a straight piece lying on the rectangle
- * that cut it, an arc goes to the browser as cubics exactly as the ink does,
- * and where the ink meets the side of the screen is found by crossing the
+ * that cut it, an arc goes to the browser as an SVG arc exactly as the ink
+ * does, and where the ink meets the side of the screen is found by crossing the
  * boundary with that side's line and counting winding. Kobin, 2026-09-03:
  * "I don't think we need to flatten anything ... we're just passing the objects
  * that we already have saved to the renderer."
@@ -21,7 +21,7 @@
  * screen. A cubic's length is estimated, its crossings with a line are found
  * by sampling and bisection, and it never lies along a cut.
  */
-import { pieceToCubics } from "./arcShape";
+import { chordCubic, planArc } from "./arcShape";
 
 const isCubic = (p) => Array.isArray(p);
 const isLine = (p) => !!p.line || !isFinite(p.r) || !(p.r > 0);
@@ -76,7 +76,7 @@ export function loopRuns(loop, rects) {
     const seam = new Array(n);
     for (let i = 0; i < n; i++) {
         let s = false;
-        for (const r of rects) if (onRectEdge(loop[i], r.rect, r.eps)) { s = true; break; }
+        for (const r of rects) if (onRectEdge(loop.at(i), r.rect, r.eps)) { s = true; break; }
         seam[i] = s;
         if (s) any = true;
     }
@@ -92,7 +92,7 @@ export function loopRuns(loop, rects) {
             cur = null;
         } else {
             if (!cur) cur = [];
-            cur.push(loop[i]);
+            cur.push(loop.at(i));
         }
     }
     if (cur) runs.push({ pieces: cur, closed: false });
@@ -103,10 +103,19 @@ export function loopRuns(loop, rects) {
  * SVG path data for a run, with every coordinate taken relative to `(ox, oy)`
  * and scaled by `k` — the same fold the renderer applies to the ink, so the
  * numbers that reach the browser are screen-sized however deep the frame.
- * Arcs go as the cubics `pieceToCubics` gives the ink; lines as lines.
+ * Arcs go exactly as the ink does (Renderer `pushArcPiece`, arcShape
+ * `planArc`): the arc command while its float32 centre is within a quarter
+ * pixel at this scale, else the cubics the sixth-root law demands, from the
+ * endpoints and sweep alone. The scale handed to the plan is `k` times the
+ * quarter-octave a decision is allowed to drift before it is remade, so the
+ * plan holds for the life of the decision. Lines as lines; a capsule's cubics
+ * as cubics.
  */
-export function runPathData(run, ox, oy, k) {
-    const X = (p) => ((p[0] - ox) * k).toFixed(2), Y = (p) => ((p[1] - oy) * k).toFixed(2);
+export function runPathData(run, ox, oy, k, plan = { enter: k * 1.25, tol: 0.25 }) {
+    // toFixed keeps the sign of a negative zero ("-0.00"); the browser does not
+    // care, a byte-compare of path data does.
+    const fx = (v) => { const s = v.toFixed(2); return s === "-0.00" ? "0.00" : s; };
+    const X = (p) => fx((p[0] - ox) * k), Y = (p) => fx((p[1] - oy) * k);
     const pieces = run.pieces;
     if (!pieces.length) return "";
     const s0 = startOf(pieces[0]);
@@ -114,9 +123,16 @@ export function runPathData(run, ox, oy, k) {
     for (const p of pieces) {
         if (isCubic(p)) { d += "C" + X(p[1]) + "," + Y(p[1]) + " " + X(p[2]) + "," + Y(p[2]) + " " + X(p[3]) + "," + Y(p[3]); continue; }
         if (isLine(p)) { d += "L" + X(p.B) + "," + Y(p.B); continue; }
-        for (const c of pieceToCubics(p)) {
-            d += "C" + X(c[1]) + "," + Y(c[1]) + " " + X(c[2]) + "," + Y(c[2]) + " " + X(c[3]) + "," + Y(c[3]);
+        const pl = planArc(p, plan);
+        if (pl.command === "C") {
+            for (const q of pl.parts) {
+                const c = chordCubic(q);
+                d += "C" + X(c[1]) + "," + Y(c[1]) + " " + X(c[2]) + "," + Y(c[2]) + " " + X(c[3]) + "," + Y(c[3]);
+            }
+            continue;
         }
+        const r = fx(Math.abs(p.r) * k), sf = p.sweep > 0 ? 1 : 0;
+        for (const q of pl.parts) d += "A" + r + "," + r + " 0 0," + sf + " " + X(q.B) + "," + Y(q.B);
     }
     return run.closed ? d + "Z" : d;
 }

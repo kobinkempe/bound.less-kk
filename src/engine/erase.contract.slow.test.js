@@ -307,10 +307,12 @@ describe("X — performance budgets", () => {
         E.setTool("select");
         E.pointerDown(400, 292); E.pointerUp();   // tap-select first: since 2026-09-03 a drag with nothing selected is a lasso
         E.pointerDown(400, 292); E.pointerMove(430, 292); E.pointerUp();
-        // Geometry moved, so the caches keyed on it are correctly dropped —
-        // what must NOT happen is a re-flatten during the drag itself.
-        expect(bboxOf(o, null).x0).not.toBe(x0);
-        expect(before === undefined || o._dispFlat === undefined || o._dispFlat !== before).toBe(true);
+        // Since F55 a move touches no geometry at all — the displacement is in
+        // the table — so the caches keyed on the geometry are not even
+        // dropped, let alone rebuilt: the flatten survives the drag untouched.
+        expect(bboxOf(o, null).x0).toBe(x0);
+        expect(o.below[0]).toEqual([30 / E.cam.inScale, 0]);
+        expect(before === undefined || o._dispFlat === before).toBe(true);
     });
 
     test("X-3: a crossing with erases present stays well inside a frame budget", () => {

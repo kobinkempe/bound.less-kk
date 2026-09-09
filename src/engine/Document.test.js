@@ -136,6 +136,7 @@ describe("dev-0 natives byte-compat over real reports", () => {
         }
         return out;
     };
+    // eslint-disable-next-line jest/valid-title -- the title IS a string; the rule cannot see through the conditional table
     (files.length ? test.each(files) : test.skip.each(["(no reports)"]))("%s natives survive loadNatives -> serializeNatives unchanged", (file) => {
         const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
         const snapNatives = report.snapshot && report.snapshot.natives;

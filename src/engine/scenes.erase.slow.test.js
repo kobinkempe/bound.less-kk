@@ -14,9 +14,8 @@
  * afterwards.
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, drag, click, pan,
-    descend, camShot, camRestore, topView, inkAt, raster, rasterDiff,
-    families, natives, painted,
+    useEngines, mkEngine, drawStroke, erase, click, pan, descend, camShot, camRestore, topView,
+    inkAt, raster, rasterDiff, families, natives,
 } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 

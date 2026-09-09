@@ -2,7 +2,11 @@
  * The selection indicator's geometry on arcs: nothing flattened, and the
  * answers checked against what the shapes plainly are.
  */
-import { pieceLength, runLength, onRectEdge, loopRuns, runPathData, loopsBounds, edgeSpans, circleLoop, rectLoopOf, insideLoops, clipRunToRect } from "./antRuns";
+import {
+    pieceLength, runLength, onRectEdge, loopRuns, runPathData, loopsBounds, edgeSpans, circleLoop,
+    rectLoopOf, insideLoops, clipRunToRect,
+} from "./antRuns";
+import { chordCubic } from "./arcShape";
 import { insideShape } from "./arcShape";
 
 const line = (A, B) => ({ line: true, A, B });
@@ -59,15 +63,39 @@ describe("seams", () => {
 });
 
 describe("path data", () => {
-    test("lines are lines, arcs are cubics, relative to the origin and scaled", () => {
+    test("lines are lines, arcs are SVG arcs, relative to the origin and scaled", () => {
         const d = runPathData({ pieces: [line([100, 100], [110, 100])], closed: true }, 100, 100, 2);
         expect(d).toBe("M0.00,0.00L20.00,0.00Z");
         const q = runPathData({ pieces: [arc([0, 0], 10, 0, Math.PI / 2)], closed: false }, 0, 0, 1);
-        expect(q.startsWith("M10.00,0.00C")).toBe(true);
-        expect(q.endsWith("Z")).toBe(false);
-        // One quarter turn is one cubic.
-        expect((q.match(/C/g) || []).length).toBe(1);
-        expect((runPathData({ pieces: circleLoop(0, 0, 10), closed: true }, 0, 0, 1).match(/C/g) || []).length).toBe(4);
+        // An ordinary radius fits the arc command: one arc, radius as given,
+        // small-arc, positive sweep, to its end — whatever the sweep.
+        expect(q).toBe("M10.00,0.00A10.00,10.00 0 0,1 0.00,10.00");
+        const ten = arc([0, 0], 10, 0, Math.PI / 18);
+        expect(runPathData({ pieces: [ten], closed: false }, 0, 0, 1)).toBe("M10.00,0.00A10.00,10.00 0 0,1 9.85,1.74");
+        // A radius the browser's float32 centre could not place within a
+        // quarter pixel at this scale goes as cubics from the endpoints and
+        // sweep: 1e8 px, 10° — one cubic, chordCubic's, byte for byte.
+        const huge = arc([0, 0], 1e8, 0, Math.PI / 18);
+        const c = runPathData({ pieces: [huge], closed: false }, 0, 0, 1);
+        const cc = chordCubic(huge);
+        const f = (v) => v.toFixed(2);
+        expect(c).toBe("M" + f(huge.A[0]) + "," + f(huge.A[1]) + "C" + f(cc[1][0]) + "," + f(cc[1][1]) + " " + f(cc[2][0]) + "," + f(cc[2][1]) + " " + f(cc[3][0]) + "," + f(cc[3][1]));
+        expect(c.includes("A")).toBe(false);
+        // The radius is a length: it scales with k like the coordinates.
+        expect(runPathData({ pieces: [arc([0, 0], 10, 0, Math.PI / 2)], closed: false }, 0, 0, 3)).toBe("M30.00,0.00A30.00,30.00 0 0,1 0.00,30.00");
+        // A negative sweep is the other flag.
+        expect(runPathData({ pieces: [arc([0, 0], 10, Math.PI / 2, -Math.PI / 2)], closed: false }, 0, 0, 1)).toBe("M0.00,10.00A10.00,10.00 0 0,0 10.00,0.00");
+        // Two half turns stay two arcs; never a cubic.
+        const circle = runPathData({ pieces: circleLoop(0, 0, 10), closed: true }, 0, 0, 1);
+        expect((circle.match(/A/g) || []).length).toBe(2);
+        expect(circle.includes("C")).toBe(false);
+        // A single piece past a half turn is split at its midpoint: an SVG arc
+        // is named by its endpoints, and a full circle would draw nothing.
+        const full = runPathData({ pieces: [arc([0, 0], 10, 0, 2 * Math.PI)], closed: true }, 0, 0, 1);
+        expect(full).toBe("M10.00,0.00A10.00,10.00 0 0,1 -10.00,0.00A10.00,10.00 0 0,1 10.00,0.00Z");
+        const most = runPathData({ pieces: [arc([0, 0], 10, 0, 1.5 * Math.PI)], closed: false }, 0, 0, 1);
+        expect((most.match(/A/g) || []).length).toBe(2);
+        expect(most.endsWith(" 0.00,-10.00")).toBe(true);
     });
 });
 

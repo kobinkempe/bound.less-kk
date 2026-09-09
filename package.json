@@ -21,12 +21,18 @@
     "web-vitals": "^1.0.1"
   },
   "scripts": {
+    "build:worker": "esbuild src/engine/worker/eraseWorker.js --bundle --format=iife --target=es2019 --outfile=public/erase-worker.js",
+    "prestart": "npm run build:worker",
+    "prebuild": "npm run build:worker",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "test:quick": "react-scripts test --watchAll=false --testPathIgnorePatterns=slow.test.js",
     "test:slow": "react-scripts test --watchAll=false --testPathPattern=slow.test.js",
     "test:all": "react-scripts test --watchAll=false",
+    "test:erase": "react-scripts test --watchAll=false --testPathPattern=\"(erase\\..*\\.slow|fidelity\\.compare\\.slow)\\.test\\.js\"",
+    "typecheck": "tsc -p tsconfig.geometry.json",
+    "lint": "eslint \"src/**/*.js\"",
     "eject": "react-scripts eject",
     "report-server": "node tools/report-server.js"
   },
@@ -35,15 +41,99 @@
       "react-app",
       "react-app/jest"
     ],
+    "rules": {
+      "import/no-restricted-paths": [
+        "error",
+        {
+          "zones": [
+            {
+              "target": "./src/engine",
+              "from": "./src/Pages"
+            },
+            {
+              "target": "./src/engine",
+              "from": "./src/hooks"
+            },
+            {
+              "target": "./src/engine",
+              "from": "./src/cloud"
+            },
+            {
+              "target": "./src/engine",
+              "from": "./src/storage"
+            },
+            {
+              "target": "./src/engine",
+              "from": "./src/Components"
+            },
+            {
+              "target": "./src/engine",
+              "from": "./src/engine/__oracles__"
+            },
+            {
+              "target": "./src/engine/geometry",
+              "from": "./src/engine",
+              "except": [
+                "./geometry",
+                "./frameLattice.js"
+              ]
+            },
+            {
+              "target": "./src/engine/frameLattice.js",
+              "from": "./src"
+            },
+            {
+              "target": "./src/engine/LevelMap.js",
+              "from": "./src/engine/Renderer.js"
+            },
+            {
+              "target": "./src/engine/LevelMap.js",
+              "from": "./src/engine/TileStore.js"
+            },
+            {
+              "target": "./src/engine/Document.js",
+              "from": "./src/engine/Renderer.js"
+            },
+            {
+              "target": "./src/engine/Document.js",
+              "from": "./src/engine/TileStore.js"
+            },
+            {
+              "target": "./src/engine/Camera.js",
+              "from": "./src/engine/Renderer.js"
+            },
+            {
+              "target": "./src/engine/Camera.js",
+              "from": "./src/engine/TileStore.js"
+            },
+            {
+              "target": "./src/Pages",
+              "from": "./src/engine/geometry"
+            },
+            {
+              "target": "./src/hooks",
+              "from": "./src/engine/geometry"
+            },
+            {
+              "target": "./src/Components",
+              "from": "./src/engine/geometry"
+            }
+          ]
+        }
+      ]
+    },
     "overrides": [
       {
         "files": [
           "**/*.test.js",
-          "src/engine/__testkit__/**"
+          "**/*.probe.js",
+          "src/engine/__testkit__/**",
+          "src/engine/__oracles__/**"
         ],
         "rules": {
           "react-hooks/rules-of-hooks": "off",
-          "jest/no-conditional-expect": "off"
+          "jest/no-conditional-expect": "off",
+          "import/no-restricted-paths": "off"
         }
       }
     ]
@@ -61,6 +151,7 @@
     ]
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "fake-indexeddb": "^4.0.2"
   }
 }

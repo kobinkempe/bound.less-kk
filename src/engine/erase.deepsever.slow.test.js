@@ -36,9 +36,8 @@
  * is three thousand times the screen" means.
  */
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
-    descend, camShot, camRestore, inkAt, inkRunY, raster, rasterDiff,
-    families, natives, picture,
+    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan, descend, camShot,
+    camRestore, inkAt, inkRunY, families, natives, picture,
 } from "./__testkit__/harness";
 
 jest.setTimeout(600000);

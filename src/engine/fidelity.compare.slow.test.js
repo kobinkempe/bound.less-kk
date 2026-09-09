@@ -1,4 +1,11 @@
 /**
+ * THESE NUMBERS MEASURE THIS BOX (roadmap E3, 2026-09-07). Any timing printed
+ * or asserted here is wall-clock time on the machine running the suite: it
+ * moves with the CPU, with what else is running, and with jsdom's own speed.
+ * A red run on a loaded machine that is green alone is the machine, not a
+ * regression — check the geometry assertions first, and treat a timing as a
+ * regression only when it reproduces on a quiet box.
+ *
  * Fidelity — the NEW engine vs GROUND TRUTH on the real phone snapshots.
  *
  * Ground truth is computed directly from the document: for a sample point, is it
@@ -93,11 +100,11 @@ describe("fidelity: the new engine reproduces the drawing's true ink (per real s
         const gt = groundTruth(E, E.cam.frame);
 
         const N = 24, M = 16;
-        let truthInk = 0, matched = 0, extra = 0;
+        let truthInk = 0, matched = 0;
         for (let a = 0; a < N; a++) for (let b = 0; b < M; b++) {
             const p = [win.left + (a + 0.5) / N * (win.right - win.left), win.top + (b + 0.5) / M * (win.bottom - win.top)];
             const t = inked(gt, p), r = inked(rendered, p);
-            if (t) { truthInk++; if (r) matched++; } else if (r) extra++;
+            if (t) { truthInk++; if (r) matched++; }
         }
         // No BUG-05 explosion: the old engine's up-projection produced strokes
         // 8.3e7 px wide (which then rendered blank); here coarse content arrives as

@@ -17,9 +17,15 @@ import {
 import LZString from "lz-string";
 import { getDb } from "./firebaseApp";
 import { compressToUint8Array, decompressFromUint8Array } from "./lzWorker";
+import { compression, gunzipAs } from "./gzip";
+import { packFrameChunk, unpackFrameChunk, packLogChunk, unpackLogChunk, splitParts } from "./store2";
 
 const BIN_CHUNK_BYTES = 700 * 1024; // compressed binary chunk per part doc
-const PARTS_PER_COMMIT = 6; // ≤ ~4.2 MiB per commit, under the 10 MiB cap
+// One part a commit. Six (4.2 MiB a batch, under the 10 MiB request cap) made Firestore's
+// write stream answer "resource-exhausted: Write stream exhausted maximum allowed queued
+// writes" on every batch of the 12,849-object canvas, serialised pushes included; the SDK
+// then retried each batch a minute or two apart (2026-09-08, Kobin's Chrome).
+const PARTS_PER_COMMIT = 1;
 export const CANVAS_CODEC = "lz1";
 
 const canvasesCol = (uid) => collection(getDb(), "users", uid, "canvases");
@@ -250,4 +256,147 @@ export async function cloudDeleteCanvas(uid, id) {
     for (let i = 0; i < n; i++) batch.delete(partDoc(uid, id, i));
     batch.delete(canvasDoc(uid, id));
     await batch.commit();
+}
+
+// ---- the kobin-2 cloud copy (DESIGN.md §13; .claude/SAVE-FORMAT-PLAN.md) ----
+//
+//   users/{uid}/canvases/{id}                — the MANIFEST: format "kobin-2", codec,
+//                                              meta/camera/crossings, frames {fid: {chunk,
+//                                              parts, seq, bytes}}, log [{chunk, parts,
+//                                              seqFrom, seqTo, bytes}], seq, device, and
+//                                              the listing fields the gallery reads
+//   users/{uid}/canvases/{id}/parts/{chunk~i} — one part of a gzipped chunk
+//
+// A push mirrors the local store: the frames whose stored snapshot is newer than the
+// cloud's, the log entries past the cloud's seq, then the manifest, written LAST so a
+// torn push never looks complete; parts a manifest no longer names are deleted after.
+// A copy pushed by another device, or an old lz1 copy, is replaced whole.
+export const FORMAT2_CLOUD = "kobin-2";
+const DELETES_PER_COMMIT = 400;
+const partDoc2 = (uid, id, chunkId, i) => doc(getDb(), "users", uid, "canvases", id, "parts", `${chunkId}~${i}`);
+const chunkKey = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, (c) => c === "/" ? "." : c === "," ? "_" : "-");
+
+async function commitAll(items, per, fn) {
+    for (let i = 0; i < items.length; i += per) {
+        const batch = writeBatch(getDb());
+        for (const it of items.slice(i, i + per)) fn(batch, it);
+        await batch.commit();
+    }
+}
+/**
+ * Push the local store's state. `source` = `{ header, readFrames(ids), readLog(fromSeq) }`
+ * (storage/localCanvases.cloudPushSource); `entry` the listing fields; `deviceId` ours;
+ * `dropBelow` the local compaction floor (log chunks wholly under it go). Resolves with
+ * timings and counts for the perf log.
+ */
+export async function cloudPushCanvas2(uid, entry, source, { deviceId = "", thumbs = null, dropBelow = 0 } = {}) {
+    const t0 = perfNow();
+    const { header, readFrames, readLog } = source;
+    const codec = compression();
+    const prev = await getDoc(canvasDoc(uid, entry.id));
+    const pm = prev.exists() ? prev.data() : null;
+    const mirror = pm && pm.format === FORMAT2_CLOUD && pm.device === deviceId ? pm : null;
+    const cloudFrames = mirror ? { ...(mirror.frames || {}) } : {};
+    const cloudLog = mirror ? [...(mirror.log || [])] : [];
+    const cloudSeq = mirror ? mirror.seq || 0 : 0;
+    const localSeq = header.frameSeq || {};
+    const frameIds = header.frameIds || [];
+    const need = frameIds.filter((fid) => !cloudFrames[fid] || (cloudFrames[fid].seq || 0) < (localSeq[fid] || 0));
+    const frames = need.length ? await readFrames(need) : [];
+    const entries = await readLog(cloudSeq);
+    const writes = [], deletes = [];
+    const nextFrames = {};
+    let bytes = 0;
+    for (const fid of frameIds) if (cloudFrames[fid] && !need.includes(fid)) nextFrames[fid] = cloudFrames[fid];
+    for (const f of frames) {
+        const zipped = await codec.gzip(packFrameChunk(f));
+        const parts = splitParts(zipped);
+        const chunkId = `f_${chunkKey(f.frameId)}_${f.seq}`;
+        parts.forEach((p, i) => writes.push({ ref: partDoc2(uid, entry.id, chunkId, i), data: { data: Bytes.fromUint8Array(p) } }));
+        const old = cloudFrames[f.frameId];
+        if (old && old.chunk !== chunkId) for (let i = 0; i < old.parts; i++) deletes.push(partDoc2(uid, entry.id, old.chunk, i));
+        nextFrames[f.frameId] = { chunk: chunkId, parts: parts.length, seq: f.seq, bytes: zipped.length };
+        bytes += zipped.length;
+    }
+    for (const fid of Object.keys(cloudFrames)) {
+        if (frameIds.includes(fid)) continue;
+        const old = cloudFrames[fid];
+        for (let i = 0; i < old.parts; i++) deletes.push(partDoc2(uid, entry.id, old.chunk, i));
+    }
+    let nextLog = cloudLog;
+    if (entries.length) {
+        const zipped = await codec.gzip(packLogChunk(entries));
+        const parts = splitParts(zipped);
+        const chunkId = `l_${entries[0].seq}_${entries[entries.length - 1].seq}`;
+        parts.forEach((p, i) => writes.push({ ref: partDoc2(uid, entry.id, chunkId, i), data: { data: Bytes.fromUint8Array(p) } }));
+        nextLog = [...cloudLog, { chunk: chunkId, parts: parts.length, seqFrom: entries[0].seq, seqTo: entries[entries.length - 1].seq, bytes: zipped.length }];
+        bytes += zipped.length;
+    }
+    if (dropBelow > 0) {
+        nextLog = nextLog.filter((c) => {
+            if (c.seqTo >= dropBelow) return true;
+            for (let i = 0; i < c.parts; i++) deletes.push(partDoc2(uid, entry.id, c.chunk, i));
+            return false;
+        });
+    }
+    // A copy that is not our mirror is replaced whole: its parts go once the manifest is ours.
+    if (pm && !mirror) {
+        if (pm.format === FORMAT2_CLOUD) {
+            for (const f of Object.values(pm.frames || {})) for (let i = 0; i < f.parts; i++) deletes.push(partDoc2(uid, entry.id, f.chunk, i));
+            for (const c of pm.log || []) for (let i = 0; i < c.parts; i++) deletes.push(partDoc2(uid, entry.id, c.chunk, i));
+        } else {
+            for (let i = 0; i < (pm.parts || 0); i++) deletes.push(partDoc(uid, entry.id, i));
+        }
+    }
+    const tPack = perfNow();
+    await commitAll(writes, PARTS_PER_COMMIT, (b, w) => b.set(w.ref, w.data));
+    const prevThumbs = pm ? pm.thumbs || null : null;
+    const mergedThumbs = thumbs || prevThumbs ? boundedThumbs({ ...(prevThumbs || {}), ...(thumbs || {}) }) : null;
+    let total = 0;
+    for (const f of Object.values(nextFrames)) total += f.bytes || 0;
+    for (const c of nextLog) total += c.bytes || 0;
+    await setDoc(canvasDoc(uid, entry.id), {
+        format: FORMAT2_CLOUD, codec: codec.name, device: deviceId,
+        version: header.version || 1, meta: header.meta || {}, camera: header.camera || null, crossings: header.crossings || {},
+        frameIds, frames: nextFrames, log: nextLog, seq: header.seq || 0,
+        name: entry.name || "Untitled canvas",
+        savedAt: entry.savedAt || new Date().toISOString(),
+        levels: entry.levels || 0, strokes: entry.strokes || 0, size: total,
+        ...(mergedThumbs ? { thumbs: mergedThumbs } : {}),
+        ...(pm && pm.editing ? { editing: pm.editing } : {}),
+    });
+    await commitAll(deletes, DELETES_PER_COMMIT, (b, ref) => b.delete(ref));
+    return { packMs: +(tPack - t0).toFixed(1), putMs: +(perfNow() - tPack).toFixed(1), bytes, frames: frames.length, entries: entries.length, parts: writes.length, deleted: deletes.length };
+}
+/**
+ * The kobin-2 cloud copy as the local store's shape — `{ header, frames: { fid: {
+ * objects, geo, seq } }, entries, thumbs, meta }` — or null when there is none or it
+ * is not kobin-2 (`cloudLoadCanvas` reads those).
+ */
+export async function cloudLoadCanvas2(uid, id) {
+    const parent = await getDoc(canvasDoc(uid, id));
+    if (!parent.exists()) return null;
+    const m = parent.data();
+    if (m.format !== FORMAT2_CLOUD) return null;
+    const readChunk = async (c) => {
+        const reads = [];
+        for (let i = 0; i < c.parts; i++) reads.push(getDoc(partDoc2(uid, id, c.chunk, i)));
+        const snaps = await Promise.all(reads);
+        const parts = snaps.map((p) => { if (!p.exists()) throw new Error(`cloud copy is missing part ${c.chunk}~${snaps.indexOf(p)}`); return p.data().data.toUint8Array(); });
+        return gunzipAs(m.codec, joinParts(parts));
+    };
+    const frames = {};
+    for (const [fid, c] of Object.entries(m.frames || {})) {
+        const f = unpackFrameChunk(await readChunk(c));
+        frames[fid] = { objects: f.objects, geo: f.geo, seq: f.seq };
+    }
+    let entries = [];
+    for (const c of (m.log || []).slice().sort((a, b) => a.seqFrom - b.seqFrom)) entries = entries.concat(unpackLogChunk(await readChunk(c)));
+    const frameSeq = {};
+    for (const [fid, c] of Object.entries(m.frames || {})) frameSeq[fid] = c.seq || 0;
+    const header = {
+        format: "boundless-drawing", version: m.version || 1, meta: m.meta || {}, camera: m.camera || null, crossings: m.crossings || {},
+        name: m.name, seq: m.seq || 0, frameSeq, frameIds: Object.keys(frames), savedAt: m.savedAt,
+    };
+    return { header, frames, entries, thumbs: m.thumbs || null, meta: { id, ...m } };
 }

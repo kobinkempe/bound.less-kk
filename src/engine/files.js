@@ -26,9 +26,13 @@ class Files {
     snapshot() {
         return { v: "dev-0", camera: this.cam.state(), natives: this.doc.serializeNatives(), crossings: this.lm.serialize() };
     }
+    // Every frame the natives name exists (F67): the autosave of 2026-09-08 wrote kids
+    // under a frame only the worker's lattice copy had minted.
+    _mintNamedFrames(natives) { for (const k of Object.keys(natives || {})) this.lm.ensureId(k); }
     loadSnapshot(snap) {
         if (!snap || !snap.natives) return false;
         this.lm.load(snap.crossings || {});
+        this._mintNamedFrames(snap.natives);
         this._bakeJobs = []; this._bakeQueued.clear();
         this.doc.loadNatives(snap.natives); // reset event clears the tile cache
         this.cam.set(snap.camera || { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
@@ -71,12 +75,14 @@ class Files {
     loadDrawing(raw) {
         const d = decodeDrawing(raw); // throws before any engine state changes
         this.lm.load(d.crossings);
+        this._mintNamedFrames(d.natives);
         this._bakeJobs = []; this._bakeQueued.clear();
         this.doc.loadNatives(d.natives); // reset event clears tiles + selection
         this.cam.set(d.camera);
         this.cam.settle();                  // a file may record an illegal zoom
         this._eraseCommits.clear();
         this._bakeDone.clear();
+        this._cutInflight = null;   // a worker result for the old document is dropped on arrival
         this._scheduleBake(); // resume baking any eraser strokes the file carried
         this.docMeta = {
             name: d.meta.name,

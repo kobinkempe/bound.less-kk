@@ -19,16 +19,15 @@
  */
 import { markOf, compareMark } from "./__testkit__/fidelity";
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
-    descend, camShot, camRestore, inkAt, colorAt, raster, rasterZ, rasterDiff,
-    families, natives, picture, tileSeam, centerOn,
+    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan, descend, camShot,
+    camRestore, colorAt, raster, rasterZ, rasterDiff, families, natives, picture, tileSeam,
+    centerOn, objPointIn,
 } from "./__testkit__/harness";
 
 jest.setTimeout(600000);
 useEngines();
 
 const BLUE = "#1133cc", RED = "#cc3311";
-const DEPTHS = [[0], [1], [2], [3], [4], [5]];
 
 // Put the canvas centre on a chosen part of the active frame's tile lattice.
 const PLACE = {
@@ -193,7 +192,7 @@ describe("MX-5 — an erased family moves as one, from wherever you grab it", ()
     // The first point of the object's stored geometry, whatever form it takes.
     // Any fixed point of it does — the claim is that every native moved by the
     // same amount, not where any particular one of them ended up.
-    const anchorOf = (o) => (o.type === "shape" ? o.loops[0][0].A
+    const anchorOf = (o) => (o.type === "shape" ? o.loops[0].at(0).A
         : o.type === "fill" ? o.polys[0][0] : o.pts[0]);
     const FROM = { "its own level": 0, "the level of the erase": null, "one below the erase": 1 };
     const CASES = [];
@@ -210,7 +209,10 @@ describe("MX-5 — an erased family moves as one, from wherever you grab it", ()
         // `displacement x frameFactor` — the very thing that destroyed the deep
         // pieces (F-C / F25). A member re-homes now: its address changes and its
         // coordinates mostly do not, so the move has to be measured in the world.
-        const worldOf = (r) => E.lm.mapPointF([...anchorOf(r.obj)], r.level, "0");
+        // And since F41 (2026-09-04) a member COARSER than the camera keeps its
+        // coordinates too and moves its picture through an offset below its
+        // home — so the world position is the picture's, through the offsets.
+        const worldOf = (r) => objPointIn(E, r, [...anchorOf(r.obj)], "0");
         const snap = () => new Map(natives(E).map((r) => [r.obj.id, worldOf(r)]));
         if (from === "its own level") camRestore(E, top);
         // Descend about ink, not about the hole: magnifying the hole 3000x makes

@@ -87,6 +87,12 @@ export function pieceBBox(p) {
 }
 
 /** The part of `p` between s0 and s1, with its endpoints supplied exactly. */
+// COMPATIBILITY: a sub-piece's endpoints are what the level below interpolates
+// its own cuts from, and nothing below the home is stored. Changing how an
+// endpoint is placed here (F44 layer 3's chord form) moves every saved
+// drawing's deep pictures — see the note on `deriveStep` (geometry/derive.js)
+// before changing it in a shipped build. F43's canonical lines (`cutLine`)
+// changed it on 2026-09-05 for lines cut by the boolean.
 export function subPiece(p, s0, s1, A, B) {
     // `ci` travels with the fragment. Without it an uncut piece keeps its chain
     // position and a cut one silently loses it, so any later adjacency test
@@ -94,6 +100,157 @@ export function subPiece(p, s0, s1, A, B) {
     if (p.line) return { line: true, A, B, src: p.src, ci: p.ci, rl: p.rl };
     return { line: false, C: p.C, r: p.r, a0: p.a0 + p.sweep * s0,
         sweep: p.sweep * (s1 - s0), A, B, src: p.src, ci: p.ci, rl: p.rl };
+}
+
+// ---------------------------------------------------------------------------
+// THE CANONICAL LINE (F43, 2026-09-05)
+// ---------------------------------------------------------------------------
+/**
+ * A line piece that an erase or a cede has CUT keeps the two points that
+ * defined its line before the cut — `P` and `Q`, in the direction the piece
+ * then travelled — and where its ends now sit on that line as positions
+ * `sa`, `sb` (A = P + sa·(Q − P), B = P + sb·(Q − P)). Every cut a deeper level
+ * makes on the piece — the window clip, the next erase — is computed from P
+ * and Q, never from A and B, and after every transform the ends are recomputed
+ * from their positions on the transformed P and Q. A piece that has never been
+ * cut carries none of this: its own ends are the line.
+ *
+ * WHY. A line defined by its two endpoints cannot be cut anywhere without being
+ * redefined everywhere: the new endpoint carries a rounding, the level below
+ * interpolates its own cuts from that endpoint, and the chain magnifies the
+ * rounding by 4096 per level. Measured on Kobin's corner scenario: a 12-px
+ * nick at level 3, three hundred pixels from a corner, changed the level-5
+ * picture of that corner by 3.7e-5 units, the level-7 picture by a screen and
+ * left the level-8 tile empty (OPEN-FLAGS F43). With the line remembered, the
+ * cuts below are the same numbers they were before the nick — the corner
+ * probe measures them bit-identical to level 8 — and the shortening is local.
+ *
+ * ORIENTATION. P and Q are never swapped: reversing a piece swaps `sa` and
+ * `sb` only, so the arithmetic `P + t·(Q − P)` rounds identically whichever way
+ * the loop is travelled. Consecutive pieces of a loop share their endpoint
+ * ARRAY, and a cut line's recomputed end is written into its neighbour, so a
+ * loop stays watertight at every level (`arcShape.transformLoops`).
+ */
+export function canonOf(p) { return p.P ? [p.P, p.Q] : p.K ? [p.K.A, p.K.B] : [p.A, p.B]; }
+/** The point at position `t` on the line P→Q — the very expression the intersectors use. */
+export function canonAt(P, Q, t) {
+    if (t === 0) return [P[0], P[1]];
+    if (t === 1) return [Q[0], Q[1]];
+    return [P[0] + t * (Q[0] - P[0]), P[1] + t * (Q[1] - P[1])];
+}
+/** Where a point lies on the line P→Q, as a position. */
+export function canonPos(P, Q, pt) {
+    const dx = Q[0] - P[0], dy = Q[1] - P[1], L2 = dx * dx + dy * dy;
+    if (!(L2 > 0)) return 0;
+    return ((pt[0] - P[0]) * dx + (pt[1] - P[1]) * dy) / L2;
+}
+/**
+ * `subPiece` for a LINE the boolean has cut: the fragment remembers the line
+ * (F43). `ta`/`tb` are the canonical positions of the cut ends when the
+ * intersector supplied them (it does for a crossing — `segSeg`/`circleSegment`
+ * carry the parameter as the point's third element); otherwise they are
+ * interpolated from the fragment's share of its parent's positions.
+ */
+export function cutLine(p, s0, s1, A, B, ta, tb) {
+    const q = { line: true, A, B, src: p.src, ci: p.ci, rl: p.rl };
+    const [P, Q] = canonOf(p);
+    // A cut ARC the boolean straightened (its canonical arc is sub-ulp flat)
+    // is cut as a line along its canonical CHORD, and its ends' positions are
+    // where they project on that chord.
+    const pa = p.P ? p.sa : p.K ? canonPos(P, Q, p.A) : 0;
+    const pb = p.P ? p.sb : p.K ? canonPos(P, Q, p.B) : 1;
+    q.P = P; q.Q = Q;
+    q.sa = s0 <= 0 ? pa : (ta != null ? ta : pa + (pb - pa) * s0);
+    q.sb = s1 >= 1 ? pb : (tb != null ? tb : pa + (pb - pa) * s1);
+    return q;
+}
+
+// ---------------------------------------------------------------------------
+// THE CANONICAL ARC (F43 for arcs, 2026-09-05 — Kobin: "fix arcs, too")
+// ---------------------------------------------------------------------------
+/**
+ * An arc piece that an erase or a clip has CUT keeps the arc it was cut from,
+ * `K`: the angles `a0`/`sweep` and the end points `A`/`B` the piece would have
+ * at this level had nothing ever cut it — exactly the piece the tile chain
+ * would have made — and its own extent as positions `ua` < `ub` along K's
+ * sweep. Centre and radius are the piece's own; no cut changes them. Every cut
+ * a deeper level makes on the piece — the chop on the tile grid, the freeze,
+ * the window clip, the next erase — is computed on K, so the numbers that
+ * reach the levels below are the numbers an uncut arc would have sent, and a
+ * nick moves nothing but the nick. An arc that has never been cut carries no
+ * K: it is its own canonical arc and its derivation is untouched by any of
+ * this.
+ *
+ * WHY THE CHAIN'S OWN NUMBERS, AND NOT THE HOME ARC. The chain re-anchors at
+ * every level: the level-m piece is the level-(m−1) piece chopped on the tile
+ * grid (`subPiece`, which re-parametrises the angle) and re-cut on the padded
+ * window. "The same bits as the uncut arc" therefore means carrying, at every
+ * level, the very fragment the chain would have carried — re-parametrised the
+ * same way, ending at the same crossings — and expressing the surviving
+ * stretch as positions on it. `chopFreezeLoops` (freeze.js) does that at the
+ * chop and `reanchorCutArcs` (arcShape.js) after the window clip, mirroring
+ * `reanchorCutLines`. Measured before this: a 12-px nick at level 3 on an arc
+ * of radius 2.6e16 (at level 4) moved the level-4 picture 0.0946 units and the
+ * level-5 one by 4096 times that (OPEN-FLAGS F43).
+ *
+ * ORIENTATION. K is never reversed: a piece travelling K the other way says
+ * so with the sign of its own sweep (`arcDir`), and its positions stay in K's
+ * direction, so the arithmetic on K rounds identically whichever way the loop
+ * runs. Unlike a cut line, a cut arc's own ends are carried as POINTS and not
+ * recomputed from their positions: a point on a circle of radius 1e16
+ * computed through the centre is quantised by units (F44), while the erase
+ * that made the end put it on the arc to that level's precision already, and
+ * mapping a point down a level is exact.
+ */
+export function canonArc(p) {
+    if (!p.K) return p;
+    return { line: false, C: p.C, r: p.r, a0: p.K.a0, sweep: p.K.sweep, A: p.K.A, B: p.K.B, src: p.src, ci: p.ci, rl: p.rl };
+}
+/** +1 when the piece travels its canonical arc the way K does, −1 the other way. */
+export function arcDir(p) { return !p.K || (p.sweep > 0) === (p.K.sweep > 0) ? 1 : -1; }
+/** The piece's extent as positions on its canonical arc, low then high. */
+export function arcSpan(p) { return p.K ? [p.ua, p.ub] : [0, 1]; }
+/**
+ * Where a point of the circle sits along the arc `k`, as a position in [0, 1]:
+ * `paramOf`'s arithmetic to the bit, clamped, never null — the boolean's own
+ * answer for a crossing it accepted.
+ */
+export function arcPos(k, pt) {
+    const th = Math.atan2(pt[1] - k.C[1], pt[0] - k.C[0]);
+    const d = norm(th - k.a0);
+    const along = k.sweep > 0 ? d : d - TAU;
+    return Math.min(1, Math.max(0, along / k.sweep));
+}
+/**
+ * The piece covering positions [lo, hi] of the arc `k`, travelling in
+ * direction `dir`, with its own end points supplied (`Plo` at lo, `Phi` at
+ * hi). When it is the whole of `k` in `k`'s own direction it IS the chain's
+ * piece — no K — with the very fields `subPiece(k, 0, 1)` gives, so an arc
+ * cut back to the chain's piece is indistinguishable from one never cut.
+ */
+export function arcPieceOf(k, lo, hi, Plo, Phi, dir) {
+    const sweep = k.sweep * (hi - lo);
+    const q = dir > 0
+        ? { line: false, C: k.C, r: k.r, a0: k.a0 + k.sweep * lo, sweep, A: Plo, B: Phi, src: k.src, ci: k.ci, rl: k.rl }
+        : { line: false, C: k.C, r: k.r, a0: k.a0 + k.sweep * hi, sweep: -sweep, A: Phi, B: Plo, src: k.src, ci: k.ci, rl: k.rl };
+    if (lo === 0 && hi === 1 && dir > 0) return q;
+    q.K = { a0: k.a0, sweep: k.sweep, A: k.A, B: k.B };
+    q.ua = lo; q.ub = hi;
+    return q;
+}
+/**
+ * `subPiece` for an ARC the boolean has cut: the fragment remembers the arc.
+ * `u0`/`u1` are the cut ends' positions on the canonical arc when the caller
+ * computed them from the raw crossing (it does, `arcPos` on the crossing
+ * before welding); a fragment end that is the piece's own end keeps that end's
+ * position.
+ */
+export function cutArc(p, s0, s1, A, B, u0, u1) {
+    const k = canonArc(p), dir = arcDir(p), [ua, ub] = arcSpan(p);
+    const at0 = s0 <= 0 ? (dir > 0 ? ua : ub) : (u0 != null ? u0 : arcPos(k, A));
+    const at1 = s1 >= 1 ? (dir > 0 ? ub : ua) : (u1 != null ? u1 : arcPos(k, B));
+    const lo = Math.min(at0, at1), hi = Math.max(at0, at1);
+    return arcPieceOf(k, lo, hi, dir > 0 ? A : B, dir > 0 ? B : A, dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +449,10 @@ function circleCircle(C1, r1, C2, r2, out) {
     return out;
 }
 
+// A crossing on a segment A→B comes back as [x, y, t]: the point, computed as
+// `A + t·(B − A)`, and the parameter it was computed at. A cut line keeps `t`
+// as the position of its new end on its canonical line (F43), so recomputing
+// the end from that position gives back the very same bits.
 function circleSegment(C, r, A, B, out) {
     const dx = B[0] - A[0], dy = B[1] - A[1];
     const fx = A[0] - C[0], fy = A[1] - C[1];
@@ -303,7 +464,7 @@ function circleSegment(C, r, A, B, out) {
     if (disc < 0) return out;
     const sq = Math.sqrt(disc);
     for (const t of [(-b - sq) / (2 * a), (-b + sq) / (2 * a)]) {
-        if (t >= -1e-9 && t <= 1 + 1e-9) out.push([A[0] + t * dx, A[1] + t * dy]);
+        if (t >= -1e-9 && t <= 1 + 1e-9) out.push([A[0] + t * dx, A[1] + t * dy, t]);
     }
     return out;
 }
@@ -316,17 +477,29 @@ function segSeg(A, B, C, D, out) {
     const t = ((C[0] - A[0]) * r2y - (C[1] - A[1]) * r2x) / den;
     const u = ((C[0] - A[0]) * r1y - (C[1] - A[1]) * r1x) / den;
     if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) {
-        out.push([A[0] + t * r1x, A[1] + t * r1y]);
+        out.push([A[0] + t * r1x, A[1] + t * r1y, t]);
     }
     return out;
 }
+/** Where the line P→Q meets the segment C→D, as [x, y, t] on P→Q — the boolean's own arithmetic, exported for the clip's re-anchoring (F43). */
+export function lineCrossSeg(P, Q, C, D) { return segSeg(P, Q, C, D, []); }
+/** Where the circle (C, r) meets the segment A→B, as [x, y, t] on A→B — the boolean's own arithmetic, exported for the clip's re-anchoring of cut arcs (F43). */
+export function circleCrossSeg(C, r, A, B) { return circleSegment(C, r, A, B, []); }
 
-/** Candidate crossing POINTS of two pieces, before range filtering. */
+/**
+ * Candidate crossing POINTS of two pieces, before range filtering. A cut LINE
+ * is intersected along its CANONICAL line (F43): the crossings of the line it
+ * was cut from, in the numbers that line has, so a piece shortened by an
+ * erase is still cut where the whole line would have been. The point on a
+ * segment carries its parameter on that segment as a third element.
+ */
 export function pieceIntersections(p, q) {
     const out = [];
-    if (p.line && q.line) return segSeg(p.A, p.B, q.A, q.B, out);
-    if (p.line) return circleSegment(q.C, q.r, p.A, p.B, out);
-    if (q.line) return circleSegment(p.C, p.r, q.A, q.B, out);
+    const [pA, pB] = p.line ? canonOf(p) : [null, null];
+    const [qA, qB] = q.line ? canonOf(q) : [null, null];
+    if (p.line && q.line) return segSeg(pA, pB, qA, qB, out);
+    if (p.line) return circleSegment(q.C, q.r, pA, pB, out);
+    if (q.line) return circleSegment(p.C, p.r, qA, qB, out);
     return circleCircle(p.C, p.r, q.C, q.r, out);
 }
 
@@ -442,9 +615,14 @@ class Oracle {
  * endpoint adopts that endpoint's identity rather than inventing a vertex a
  * millionth of a unit away from it — which is how a junction ends up with one
  * more way in than out.
+ *
+ * The one implementation, shared with the boolean (arcShape) since 2026-09-07;
+ * the two copies differed only in the floor on the quantum, which the boolean
+ * needs (its weld is derived from the operands' span and can reach zero on a
+ * degenerate pair) and the stitch never hits (its quantum is a positive weld).
  */
-class VertexSet {
-    constructor(q) { this.q = q; this.map = new Map(); this.pts = []; }
+export class VertexSet {
+    constructor(q) { this.q = Math.max(q, 1e-300); this.map = new Map(); this.pts = []; }
     id(p) {
         const cx = Math.round(p[0] / this.q), cy = Math.round(p[1] / this.q);
         for (let dx = -1; dx <= 1; dx++) {
@@ -520,6 +698,7 @@ export class ArcBakeJob {
         this.ms = {};
         this.busyMs = 0;
         this._phaseBusy = 0;
+        /** @type {{ loops: import("./types").Loop[], stats: any } | null} */
         this.result = null;
         this.centre = opts.centre || null;
         this.phase = this.centre ? PH.CHAIN : PH.CENTERLINE;
@@ -909,10 +1088,11 @@ export class ArcBakeJob {
     /** Close off the loop being walked, carrying its measurements with it. */
     _closeWalk(closed) {
         const w = this.walk;
-        w.loop.closed = closed;
-        w.loop.area = w.area / 2;
-        w.loop.per = w.per;
-        this.loops.push(w.loop);
+        const loop = /** @type {import("./types").Chain} */ (w.loop);
+        loop.closed = closed;
+        loop.area = w.area / 2;
+        loop.per = w.per;
+        this.loops.push(loop);
         this.walk = null;
     }
 
@@ -954,6 +1134,7 @@ export class ArcBakeJob {
                 while (n < this.chunk && this.i < this.loops.length) {
                     const src = this.loops[this.i];
                     if (this.k === 0) {
+                        /** @type {import("./types").Chain} */
                         const dst = [];
                         dst.closed = src.closed;
                         this.oriented.push(dst);
@@ -1038,13 +1219,32 @@ export function bakeArcPerimeter(pts, width, opts = {}) {
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-// The same piece travelled the other way — the ONE canonical-handedness flip in
-// `_finishPhase`. (`arcShape` has its own copy, which also carries the freeze's
-// seam marks; a chain being resolved has none yet, so this one is deliberately
-// the plain version.)
-const reversePiece = (p) => (p.line
-    ? { line: true, A: p.B, B: p.A, src: p.src, ci: p.ci }
-    : { line: false, C: p.C, r: p.r, a0: p.a0 + p.sweep, sweep: -p.sweep, A: p.B, B: p.A, src: p.src, ci: p.ci });
+/**
+ * The same piece travelled the other way. Never mutates the original.
+ *
+ * The one implementation (2026-09-07; there were two — the stitch's, which
+ * carried the chain index `ci`, and the boolean's, which carried the cut
+ * fields and the freeze's seam marks). Everything a piece can carry travels:
+ * `ci` when the piece has one; a cut line's canonical line is never reordered
+ * (F43) — only the positions swap, so the cut arithmetic rounds identically
+ * whichever way the loop runs; a cut arc's canonical arc is never reversed
+ * either — the sign of the piece's own sweep says which way it travels K, and
+ * its positions stay in K's direction.
+ */
+export function reversePiece(p) {
+    if (p.line) {
+        /** @type {import("./types").LinePiece} */
+        const q = { line: true, A: p.B, B: p.A, src: p.src };
+        if (p.P) { q.P = p.P; q.Q = p.Q; q.sa = p.sb; q.sb = p.sa; }
+        if (p.ci !== undefined) q.ci = p.ci;
+        return q;
+    }
+    /** @type {import("./types").ArcPiece} */
+    const q = { line: false, C: p.C, r: p.r, a0: p.a0 + p.sweep, sweep: -p.sweep, A: p.B, B: p.A, src: p.src };
+    if (p.K) { q.K = p.K; q.ua = p.ua; q.ub = p.ub; }
+    if (p.ci !== undefined) q.ci = p.ci;
+    return q;
+}
 
 
 export { Grid };

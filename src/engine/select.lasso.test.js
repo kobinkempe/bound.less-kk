@@ -18,6 +18,7 @@
 import KobinEngine from "./KobinEngine";
 import { rectInsidePolygon, pointInPolygon } from "./geometry/lasso";
 import { bboxOf } from "./geometry/derive";
+import { objPointIn } from "./__testkit__/harness";
 
 jest.setTimeout(120000);
 
@@ -107,15 +108,22 @@ describe("a press decides on the way up (2026-09-03)", () => {
         E.pointerDown(425, 425); E.cancelSelectGesture(false);
         expect(E.selection.ids).toEqual([a.id]);
         // A drag that had moved, cancelled inside the grace: put back exactly.
+        // Since F55 a move never touches the bits — the PICTURE moves, from
+        // the table — so "moved" and "put back" are asked of where it is drawn.
         const before = { ...bboxOf(a, E.store.live) };
+        const shownX = () => E._rectInActive(a, "0").left;
+        const x0 = shownX();
         E.pointerDown(125, 125); E.pointerMove(165, 125); E.pointerMove(205, 125);
+        expect(shownX()).toBeGreaterThan(x0 + 70);
         E.cancelSelectGesture(false);
         expect({ ...bboxOf(a, E.store.live) }).toEqual(before);
+        expect(a.below).toBeUndefined();
+        expect(shownX()).toBe(x0);
         expect(E.selection.ids).toEqual([a.id]);
         // ...and past the grace it is committed as a normal pen-up would.
         E.pointerDown(125, 125); E.pointerMove(165, 125); E.pointerMove(205, 125);
         E.cancelSelectGesture(true);
-        expect(bboxOf(a, E.store.live).x0).toBeGreaterThan(before.x0 + 70);
+        expect(shownX()).toBeGreaterThan(x0 + 70);
     });
 });
 
@@ -258,22 +266,24 @@ describe("L-9 — dragging a mixed-level selection moves every member", () => {
         expect(got.length).toBeGreaterThanOrEqual(2);
         // Both strokes have RESOLVED into perimeters by now (a lasso settles
         // them), so measure the object by its bounding box rather than by a
-        // centerline it no longer has.
+        // centerline it no longer has. WHERE THE PICTURE IS, not where the
+        // bits are: since F55 a move never touches a coordinate, so the
+        // question is asked of the drawn position, in level-0 units.
         E.flushBakes();
         const boxOf = (o) => bboxOf(o, null);
-        const s0 = boxOf(shallow).x0, d0 = boxOf(deep).x0;
+        const shownX = (o) => objPointIn(E, E.doc.getById(o.id), [boxOf(o).x0, boxOf(o).y0], "0")[0];
+        const s0 = shownX(shallow), d0 = shownX(deep);
         const sb = boxOf(shallow);
         // Grab one member and drag: the whole selection travels.
         const grab = E.cam.levelPointToScreen("0", (sb.x0 + sb.x1) / 2, (sb.y0 + sb.y1) / 2);
         E.setTool("select");
         E.pointerDown(grab[0], grab[1]); E.pointerMove(grab[0] + 40, grab[1]); E.pointerUp();
-        const ds = boxOf(shallow).x0 - s0;
-        const dd = boxOf(deep).x0 - d0;
+        const ds = shownX(shallow) - s0;
+        const dd = shownX(deep) - d0;
         expect(Math.abs(ds)).toBeGreaterThan(0);
         expect(Math.abs(dd)).toBeGreaterThan(0);
-        // Same physical distance: the deep one's own units are 3000× finer.
-        const f = E.lm.frameFactor("0", deep._home);
-        expect(dd / f).toBeCloseTo(ds, 6);
+        // Same physical distance, both measured in level-0 units.
+        expect(dd).toBeCloseTo(ds, 6);
     });
 });
 
@@ -410,5 +420,45 @@ describe("a re-homed family is one object (Kobin, 2026-09-03)", () => {
         E.setTool("select");
         lasso(E, 60, 260, 260, 340);
         expect(E.selection).toBeNull();
+    });
+});
+
+// F69 (Kobin, 2026-09-08): a lasso around moved objects and ceded kids selected nothing.
+// A frame's spatial index holds an object at its STORED bits; its displacement table
+// draws it elsewhere, and the lasso never looked there.
+const dragObj = (E, from, to, steps = 6) => {
+    E.setTool("select");
+    E.pointerDown(from[0], from[1]); E.pointerUp();          // tap-select first: a drag with nothing selected is a lasso
+    E.pointerDown(from[0], from[1]);
+    for (let i = 1; i <= steps; i++) E.pointerMove(from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps);
+    E.pointerUp();
+};
+describe("F69 — the lasso finds a moved object where its picture is", () => {
+    test("a stroke dragged across the screen is found at its new place and not at its old one", () => {
+        const E = mkEngine();
+        const a = drawStroke(E, [[100, 100], [160, 140]]);
+        E.flushBakes();
+        dragObj(E, [130, 120], [530, 120]);
+        expect(a.below).toBeTruthy();                          // moved by its table, bits untouched
+        expect(lasso(E, 460, 60, 620, 200)).toEqual([a.id]);
+        expect(lasso(E, 60, 60, 220, 200)).toEqual([]);
+    });
+    test("kids ceded from a moved object, far too small to see, are found by a loop around them", () => {
+        const E = mkEngine();
+        const a = drawStroke(E, [[402, 288], [408, 288]], 3);
+        E.flushBakes();
+        dragObj(E, [405, 288], [426, 288]);                    // two thirds of a cell at the home
+        let guard = 0;
+        while (E.activeLevel < 1 && guard++ < 400) E.zoomAt(426, 288, -1000);
+        E.setTool("erasePartial"); E.setEraserSize(30);
+        E.pointerDown(400, 200); E.pointerMove(400, 300); E.pointerMove(400, 400); E.pointerUp();
+        E.flushBakes(); E.flushErases();
+        const kids = [];
+        for (const L of E.doc.levels()) if (L !== "0") for (const o of E.doc.at(L)) if (!o.erase && o.editId === a.id) kids.push(o.id);
+        expect(kids.length).toBeGreaterThan(0);
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 0, inPanY: 0 });
+        E._render();
+        const got = lasso(E, 380, 240, 480, 340);
+        for (const id of kids) expect(got).toContain(id);
     });
 });

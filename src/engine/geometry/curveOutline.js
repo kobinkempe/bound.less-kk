@@ -312,7 +312,7 @@ function runCapsule(cubics, r, opts) {
  * @param {Array<[number,number]>} pts centerline points (frame units)
  * @param {number} width stroke width (frame units)
  * @param {object} opts { curved, fitTol, lineTol, enterScale }
- * @returns {Array<Array<[p0,c1,c2,p1]>>} closed loops of absolute cubics
+ * @returns {number[][][][]} closed loops of absolute cubics, each cubic [p0, c1, c2, p1]
  */
 export function strokeOutlineCurves(pts, width, opts = {}) {
     const r = width / 2;
@@ -407,7 +407,11 @@ export function strokeLoops(o, cfg, opts = {}) {
     return loops;
 }
 
-export function loopsBbox(loops) {
+// The bbox of CUBIC loops (a loop here is a list of cubic segments, each a list
+// of points), by their control points. Not `arcShape.loopsBBox`, which takes
+// arc loops and is exact about their bulges — the two were one letter apart
+// until 2026-09-07. Only the erase oracle still reads this one.
+export function cubicLoopsBBox(loops) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const loop of loops) for (const seg of loop) for (const p of seg) {
         if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];

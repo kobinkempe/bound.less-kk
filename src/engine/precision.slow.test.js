@@ -24,7 +24,7 @@ import {
     useEngines, mkEngine, drawStroke, erase, drag, click, pan,
     descend, camShot, camRestore, painted, natives, families,
 } from "./__testkit__/harness";
-import { pieceInks } from "./__testkit__/ink";
+import { pieceInks, inks } from "./__testkit__/ink";
 import { transformLoops, clipShapeToRect, arcSteps, ptAt } from "./geometry/arcShape";
 import { shapeTol } from "./geometry/derive";
 
@@ -86,8 +86,15 @@ const shift = (a, b) => {
 function widestGap(E, sy, x0 = 0, x1 = 800, step = 0.25) {
     const list = painted(E);
     let worst = 0, start = null, sawInk = false;
+    // `inks`, not `pieceInks`: where two natives of one family ABUT EXACTLY —
+    // two kids ceded from neighbouring cache squares (F42), meeting on the
+    // square's edge to the bit — a probe standing on that line is strictly
+    // inside neither, while the renderer draws the family as one path and
+    // paints the line. That rule lives in the oracle (ink.js) for exactly this
+    // reason; measured here 2026-09-04 as a 0.25 px "crack" at a seam the
+    // browser does not have.
     for (let sx = x0; sx <= x1; sx += step) {
-        const inked = list.some((o) => pieceInks(o, E.cam.screenToFrame(sx, sy)));
+        const inked = inks(list, E.cam.screenToFrame(sx, sy));
         if (inked) { sawInk = true; if (start != null) { worst = Math.max(worst, sx - start); start = null; } }
         else if (sawInk && start == null) start = sx;
     }
@@ -265,7 +272,7 @@ describe("PR-4 — a cut edge is CURVES, and is re-flattened at every level", ()
         const tol = shapeTol(E.cfg);
         const budget = E.cfg.arcTolerancePx * 0.5;    // device px at the level's deepest zoom
         // A point ON the boundary, so the window below always straddles an edge.
-        const seed = ptAt(o.loops[0][0], 0.5);
+        const seed = ptAt(o.loops[0].at(0), 0.5);
         // The counterfactual, measured once: a cut STORED as a polygon keeps the
         // chords it was frozen with, and its worst error is this — in world
         // units, at the level it was cut. Magnifying by f does not re-flatten

@@ -23,76 +23,221 @@
  *    cull instead of popping.
  */
 import Two from "two.js";
-import { strokeStripNear, flattenCurve, flattenCurveNear, decimatePolyline } from "./geometry/polyline";
+import {
+    strokeStripNear, flattenCurve, flattenCurveNear, decimatePolyline, clipRingsToRect,
+} from "./geometry/polyline";
+import { shapeLoopsInRect } from "./geometry/derive";
 import { strokeOutline } from "./geometry/clipperBoolean";
 import { strokeLoops } from "./geometry/curveOutline";
-import { shapeToCubics, loopsBBox, pieceToCubics } from "./geometry/arcShape";
+import { loopsBBox, chordCubic, chordArcMid, planArc } from "./geometry/arcShape";
+import { onRectEdge } from "./geometry/antRuns";
+import { rectTol } from "./rectMath";
 
 /**
- * Append a chain of cubics to `verts` as Two.js anchors, continuing whatever is
- * already there.
+ * HOW A PIECE REACHES THE BROWSER (F40, 2026-09-04). Two things decide what is
+ * written into the path for an arc, and one more for anything long.
  *
- * A cubic's two handles belong to DIFFERENT anchors — the first to the anchor it
- * leaves, the second to the anchor it arrives at — so appending has to reach
- * back and set the previous anchor's outgoing handle. That is what makes the
- * chain streamable: each new piece touches exactly one existing anchor, so the
- * live pen can extend its path in O(1) instead of rebuilding it.
+ * WHICH CURVE. Two.js's `Commands.arc` is SVG's `A`, serialised from
+ * `rx`/`ry`/`xAxisRotation`/`largeArcFlag`/`sweepFlag` set on the anchor (its
+ * own source calls the fields a hack, in 0.7.1 and in 0.8.24 alike, but the
+ * SVG renderer has written them out since 0.7). Until 2026-09-04 every arc
+ * went out as cubics — one per quarter turn — on the belief that Two.js
+ * "speaks nothing else" and that the cubic's 2.7e-4·r error was "orders under
+ * display tolerance". Measured on Kobin's drawing: a re-homed circle one frame
+ * up, radius 22,746 units, drawn at inScale 127 has a radius of 2.9 million
+ * px, and its single cubic ran 463 px OUTSIDE the true circle across the whole
+ * screen — a blue band that "disappeared" at the level jump, because the
+ * child frame's chop cut the arc into thousandth-radian pieces whose cubics
+ * are exact. The arc command is exact in form but the browser rebuilds its
+ * centre in float32 (2^-24 of the radius on screen: 159 px at the child
+ * frame's deepest zoom, snapping back at the next crossing). So
+ * `arcShape.planArc` chooses, at the engine's quarter-pixel tolerance and the
+ * frame's deepest zoom: the arc command while it is within tolerance, else as
+ * many kappa cubics as the sixth-root law demands. One plan per piece, never
+ * redone while zooming; each part is one instruction.
+ *
+ * HOW LONG. Every coordinate reaches the browser in float32, relative to the
+ * scene origin at the view centre. On-screen vertices are within the
+ * re-origin budget (REORIGIN_PX) of the origin and fine; but a piece whose
+ * ENDS are far away carries their rounding onto its on-screen stretch — a
+ * line from one side of a tile to the other, at the deepest zoom, has ends
+ * 5e7 px out, where float32 resolves to 4 px, and the whole line sits up to
+ * 2 px off. Arcs and lines alike. So any non-seam piece longer than `segMax`
+ * units is split into equal parts of at most that length: the part on screen
+ * then has its ends within `segMax` of the screen, and the error is
+ * (REORIGIN_PX + segMax·enter)·2^-24 px — a quarter pixel with
+ * segMax = 2^⌊log₂((tol·2^24 − REORIGIN_PX)/enter)⌋ = 8192 units for the
+ * default config. Only two kinds of piece are ever that long — an ancestor's
+ * ink magnified into this frame, and long straight lines — so it costs a
+ * handful of anchors per drawing; a SEAM (a straight piece lying on the
+ * rectangle that cut it) is never split, its neighbour overlaps it by the
+ * seam pad, which at depth is thousands of px. Kobin, 2026-09-04: "Can we
+ * cheaply do a render-only tile chop for that until we do the GPU fix, with
+ * as minimal instructions/chops as needed to cheaply get to the quarter pixel
+ * accuracy?" — this is that.
+ *
+ * THE SPLIT IS OFF (`Renderer.lengthChop`), measured the same night: with it
+ * on, Kobin's blue piece at the child frame's deepest zoom — 32 cubics whose
+ * ends sit 1.4e7 device px out — was DROPPED by Chrome's rasteriser,
+ * intermittently in the app and reproducibly in the bare harness at full
+ * raster scale (it painted at half scale, at 2.5× smaller coordinates, and
+ * when the same 32 points were written as LINES; the unsplit three-cubic
+ * version painted every time). And a piece that was never split drops too:
+ * his red piece, one arc of radius 2.3e8 units clipped to its tile, three
+ * cubics, painted at inScale 64 (8.4e6 px across) and vanished at 78.8
+ * (1.03e7 px) with its `d` unchanged. So a path whose cubics run beyond
+ * roughly 1e7 device px is a thing Chrome's GPU raster gives up on, whatever
+ * the curve is cut into, and splitting only makes more of them. The split
+ * stays as a dev toggle the tests exercise; what ships is the WINDOW CHOP.
+ *
+ * HOW FAR (the window chop, F40's last piece). Each scene keeps a WINDOW
+ * around the view: a square of ±`_chopPx` device px at the zoom it was
+ * chosen at (2^18 = 262,144 px, ±174 screens, for the default config). Any
+ * area piece that reaches past the window is clipped to it — the exact arc
+ * boolean the tile machinery uses (`shapeLoopsInRect`, Sutherland–Hodgman for
+ * polygon pieces) — before it becomes anchors, so no number handed to the
+ * browser is ever far from the view. A piece inside the window goes whole; a
+ * piece wholly outside it is hundreds of screens off screen and goes whole
+ * too, since what the browser makes of it cannot show. The window is chosen
+ * again (`_maybeRechop`) when the view leaves its INNER HALF or the zoom
+ * grows CHOP_ZOOM times, and `needsWindowChop` promotes the camera-only frame
+ * that did it to a full render, so the chopped groups are rebuilt on the new
+ * window before its edge could reach the screen — pan toward the edge of a
+ * chopped piece and the next stretch of it is already there. Only the groups
+ * whose pieces straddle the window carry its key in their signature, so a
+ * re-chop rebuilds those and nothing else; everything within 87 screens of
+ * the view at the zoom of the last chop never rebuilds at all. The bound: the
+ * view is within half the window of the window's centre and within
+ * REORIGIN_PX of the origin, and the zoom has grown at most CHOP_ZOOM×, so no
+ * anchor is farther from the origin than REORIGIN_PX + 1.5·CHOP_ZOOM·_chopPx
+ * = 3.07e6 px — 0.18 px of float32 rounding, under the quarter pixel, and a
+ * third of where the raster gives up. Kobin, 2026-09-04, on the split's
+ * failure: "you are suggesting just chopping instead of segmenting? If so go
+ * ahead and implement that stopgap; just ensure that if you pan towards the
+ * end of the segment, the next segment is loaded." Not chopped: raw strokes
+ * (short segments between samples, and lines survive the raster) and fat
+ * curve-capsule outlines (cubics, no exact rect clip for them yet); a
+ * resolved stroke is a shape and is chopped like any other.
+ *
+ * `_mid` is the part's midpoint, origin-relative, for the thin rescale's
+ * thickness estimate: it walks anchors as a polygon, and a circle's two
+ * half-arc anchors alone would enclose no area at all.
  */
-function pushCubicChain(verts, cubics, og) {
-    for (const c of cubics) {
-        if (!verts.length) {
-            verts.push(new Two.Anchor(c[0][0] - og.x, c[0][1] - og.y,
-                0, 0, c[1][0] - c[0][0], c[1][1] - c[0][1], Two.Commands.move));
+function pushMove(verts, pt, og) {
+    verts.push(new Two.Anchor(pt[0] - og.x, pt[1] - og.y, undefined, undefined, undefined, undefined, Two.Commands.move));
+}
+function pushLine(verts, A, B, og, ctx) {
+    const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    let n = 1;
+    if (ctx && ctx.segMax > 0 && len > ctx.segMax && !(ctx.clip && onRectEdge({ line: true, A, B }, ctx.clip.rect, ctx.clip.eps))) {
+        n = Math.ceil(len / ctx.segMax - 1e-9);
+    }
+    for (let i = 1; i <= n; i++) {
+        const t = i / n;
+        const x = i === n ? B[0] : A[0] + (B[0] - A[0]) * t, y = i === n ? B[1] : A[1] + (B[1] - A[1]) * t;
+        verts.push(new Two.Anchor(x - og.x, y - og.y, undefined, undefined, undefined, undefined, Two.Commands.line));
+    }
+}
+function pushArcPiece(verts, p, og, ctx) {
+    const r = Math.abs(p.r);
+    if (p.line || !isFinite(r) || !(r > 0)) { pushLine(verts, p.A, p.B, og, ctx); return; }
+    const plan = planArc(p, ctx);
+    const sweepFlag = p.sweep > 0 ? 1 : 0;
+    // The SVG sweep flag is the direction of increasing angle in the page's
+    // y-down frame — exactly the sign of `sweep` in the engine's own
+    // parametrisation P(θ) = C + r·(cos θ, sin θ), whichever side of C the
+    // radius was written from.
+    for (const q of plan.parts) {
+        const m = chordArcMid(q);
+        let a;
+        if (plan.command === "A") {
+            a = new Two.Anchor(q.B[0] - og.x, q.B[1] - og.y, undefined, undefined, undefined, undefined, Two.Commands.arc);
+            a.rx = r; a.ry = r; a.xAxisRotation = 0; a.largeArcFlag = 0; a.sweepFlag = sweepFlag;
         } else {
+            // One cubic. Its first handle belongs to the anchor it leaves — the
+            // previous anchor, whatever command that one carries — so reach
+            // back and set it there (relative, Two's own convention).
+            const c = chordCubic(q);
             const prev = verts[verts.length - 1];
-            prev.controls.right.x = c[1][0] - (prev.x + og.x);
-            prev.controls.right.y = c[1][1] - (prev.y + og.y);
+            if (prev) {
+                if (!prev.controls) Two.Anchor.AppendCurveProperties(prev);
+                prev.controls.right.x = c[1][0] - (prev.x + og.x);
+                prev.controls.right.y = c[1][1] - (prev.y + og.y);
+            }
+            a = new Two.Anchor(c[3][0] - og.x, c[3][1] - og.y, c[2][0] - c[3][0], c[2][1] - c[3][1], 0, 0, Two.Commands.curve);
         }
-        verts.push(new Two.Anchor(c[3][0] - og.x, c[3][1] - og.y,
-            c[2][0] - c[3][0], c[2][1] - c[3][1], 0, 0, Two.Commands.curve));
+        a._mid = [m[0] - og.x, m[1] - og.y];
+        verts.push(a);
     }
 }
 
-/** One biarc gap's arcs, as anchors. */
-function pushGapAnchors(verts, gap, og) {
-    for (const a of gap) pushCubicChain(verts, pieceToCubics(a), og);
+/**
+ * One biarc gap's arcs, as anchors, continuing whatever is already there. Each
+ * new arc touches nothing behind it (a cubic reaches back only for its first
+ * handle), which is what lets the live pen extend its path in O(1) instead of
+ * rebuilding it.
+ */
+function pushGapAnchors(verts, gap, og, ctx) {
+    for (const a of gap) {
+        if (!verts.length) pushMove(verts, a.A, og);
+        pushArcPiece(verts, a, og, ctx);
+    }
 }
 
 /**
  * A resolved arc perimeter as Two.js anchors, appended to `verts`.
  *
- * Arcs go out as cubics because Two.js speaks nothing else, and the conversion
- * is exact to 2e-4 of the radius on quarter-circle pieces — orders under
- * display tolerance, and view-INDEPENDENT, so the path is right at every
- * in-level zoom and never has to be rebuilt for a camera move.
- *
  * Each loop ends exactly where it began and the path stays OPEN: a fill
  * auto-closes its subpaths, while Two's `closed` flag would rule a stray
  * segment from the end of one loop back to the start of the whole path.
- * Controls are stored relative, which is Two's own convention, so only the
- * anchor positions take the scene origin.
  */
-function pushShapeAnchors(verts, loops, og) {
-    for (const loop of shapeToCubics(loops)) {
-        const n = loop.length;
-        if (!n) continue;
-        for (let k = 0; k <= n; k++) {
-            let x, y, lx = 0, ly = 0, rx = 0, ry = 0, cmd;
-            if (k === 0) {
-                const s = loop[0];
-                x = s[0][0]; y = s[0][1];
-                rx = s[1][0] - x; ry = s[1][1] - y;
-                cmd = Two.Commands.move;
-            } else {
-                const s = loop[k - 1];
-                x = s[3][0]; y = s[3][1];
-                lx = s[2][0] - x; ly = s[2][1] - y;
-                if (k < n) { const t = loop[k]; rx = t[1][0] - x; ry = t[1][1] - y; }
-                cmd = Two.Commands.curve;
-            }
-            verts.push(new Two.Anchor(x - og.x, y - og.y, lx, ly, rx, ry, cmd));
+function pushShapeAnchors(verts, loops, og, ctx) {
+    for (const loop of loops) {
+        if (!loop.length) continue;
+        pushMove(verts, loop.at(0).A, og);
+        for (const p of loop) pushArcPiece(verts, p, og, ctx);
+    }
+}
+
+/**
+ * A polygon ring as anchors: a move and lines, the closing edge written out
+ * (and chopped like any other) when it is long, because the fill's implicit
+ * close would carry its far endpoints' rounding just the same.
+ */
+function pushRingAnchors(verts, poly, og, ctx) {
+    if (poly.length < 2) return;
+    pushMove(verts, poly[0], og);
+    for (let i = 1; i < poly.length; i++) pushLine(verts, poly[i - 1], poly[i], og, ctx);
+    const last = poly[poly.length - 1], first = poly[0];
+    if ((last[0] !== first[0] || last[1] !== first[1]) && ctx && ctx.segMax > 0 && Math.hypot(first[0] - last[0], first[1] - last[1]) > ctx.segMax) {
+        pushLine(verts, last, first, og, ctx);
+    }
+}
+
+/**
+ * The bounds of an area piece, for the window chop's verdict. Arc pieces by
+ * their true extremes (`loopsBBox`); a polygon piece by its points, which is
+ * the one pass over a fill's geometry the verdict costs.
+ */
+function areaBounds(o) {
+    if (o.type === "shape") {
+        const b = loopsBBox(o.loops);
+        return b ? [b.x0, b.y0, b.x1, b.y1] : null;
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const poly of o.polys) {
+        for (const p of poly) {
+            if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+            if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
         }
     }
+    return x0 === Infinity ? null : [x0, y0, x1, y1];
+}
+
+/** The clip rectangle a tile piece carries, as the seam test wants it. */
+function asClip(clip) {
+    const rect = "x0" in clip ? clip : { x0: clip.left, y0: clip.top, x1: clip.right, y1: clip.bottom };
+    return { rect, eps: rectTol(rect) };
 }
 
 const perfRendererNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -137,6 +282,12 @@ function mkPath(verts, closed, curved, manual) {
 // re-anchors: rebuild paths against a fresh origin. That's a ~1.9e6-screen-px
 // drift — a rare, full-rebuild-priced event, like a level flip.
 const REORIGIN_PX = 1.5e6;
+
+// The window chop's zoom budget: how many times the in-frame zoom may grow
+// before the scene's window is chosen again (see the header, HOW FAR). Four
+// is two octaves — a whole frame's range of 8,192× is six re-chops, each one
+// rebuilding only the groups that straddle the window.
+const CHOP_ZOOM = 4;
 
 // Absolute device-px fat gate (replaces polygonizeWidthFrac = 1/3 screen): a
 // screen-fraction gate flips representation per device (a phone would fatten
@@ -255,6 +406,16 @@ export default class Renderer {
     constructor(container, camera, cfg, opts = {}) {
         this.cam = camera; this.cfg = cfg;
         this.width = opts.width; this.height = opts.height;
+        // What a piece becomes in the SVG (see pushArcPiece): the frame's
+        // deepest zoom, the tolerance, and the longest non-seam part allowed —
+        // the largest power of two under (tol·2^24 − REORIGIN_PX)/enter, 8192
+        // units for the default config (enter 256, tol 0.25 px).
+        const tol = cfg && cfg.arcTolerancePx > 0 ? cfg.arcTolerancePx : 0.25;
+        const enter = cfg && cfg.enter > 0 ? cfg.enter : 256;
+        const room = (tol * Math.pow(2, 24) - REORIGIN_PX) / enter;
+        const segMax = Renderer.lengthChop === true ? (room > 1024 ? Math.pow(2, Math.floor(Math.log2(room))) : 1024) : 0;
+        this._arcPlan = { enter, tol, segMax };
+        this._arcPlanNoChop = { ...this._arcPlan, segMax: 0 };
         this.opacityGroups = true; this.outlineMode = false; this.debug = false;
         this.two = new Two({ width: this.width, height: this.height, autostart: true });
         this.two.appendTo(container);
@@ -286,7 +447,22 @@ export default class Renderer {
         // genuinely changed object rebuilds); the cache is a pure DOM reuse.
         // Off => one shared scene => the original rebuild-on-crossing behavior.
         this.retainScenes = true;   // dev-toggleable (setRetainScenes)
+        this.sceneAnchorBudget = 250000;   // inactive retained scenes, by Two.js anchors (see _evictScenes)
         Renderer.thinScale = Renderer.thinScale !== false;  // dev-toggleable (F-Z rescale)
+        Renderer.lengthChop = Renderer.lengthChop === true;  // dev-toggleable (F40 length split; see pushArcPiece)
+        Renderer.windowChop = Renderer.windowChop !== false;  // dev-toggleable (F40 window chop; see the header)
+        // The window's half-extent in device px at the zoom it is chosen at:
+        // the largest power of two that keeps REORIGIN_PX + 1.5·CHOP_ZOOM·chopPx
+        // under tol·2^24, the coordinate at which float32 has spent the
+        // tolerance — 2^18 for the default config. Floored at 2^16 so a view
+        // is always far smaller than the window's inner half (the re-chop
+        // test would otherwise fire every frame). Live kill-switch:
+        // `renderer._chopPx = 0`, then pan far enough to force a full render.
+        const chopRoom = (tol * Math.pow(2, 24) - REORIGIN_PX) / (1.5 * CHOP_ZOOM);
+        this._chopPx = Renderer.windowChop ? Math.max(65536, Math.pow(2, Math.floor(Math.log2(Math.max(chopRoom, 1))))) : 0;
+        this._chopSeq = 0;          // window keys, unique per renderer
+        this._chopMemo = null;      // per-render memo of _chopFor's verdicts
+        this._sigMemo = new WeakMap(); // piece -> its measured signature part, keyed by _ver (see _sig)
         this._scenes = new Map();   // levelKey -> { root, groups, order, seq }
         this._level = null;         // active scene key
         this._activeRoot = null;    // active scene's Two.Group (child of world)
@@ -308,6 +484,13 @@ export default class Renderer {
         this._dropSelOverlay();
         const el = this.two.renderer && this.two.renderer.domElement;
         if (el && el.parentNode) el.parentNode.removeChild(el);
+        // Two.js keeps every instance on Two.Instances for its ticker; a paused one
+        // still pins its scene. Measured 2026-09-08: each thumbnail engine's scene
+        // (2,103 paths, 108,868 anchors) stayed reachable for the life of the tab.
+        try { this.two.clear(); } catch (e) { /* ignore */ }
+        const i = Two.Instances.indexOf(this.two);
+        if (i >= 0) Two.Instances.splice(i, 1);
+        this._scenes.clear(); this._groups.clear();
     }
     setSize(w, h) { this.width = w; this.height = h; this.two.renderer.setSize(w, h); }
     update() { this.two.update(); }
@@ -399,12 +582,23 @@ export default class Renderer {
     render(list, level) {
         const sc = this._activateLevel(level); // swaps to this level's retained subtree (or the shared one)
         this._maybeReorigin(sc);
+        this._maybeRechop(sc);
+        this._chopMemo = new Map();  // one verdict per piece: the sig asks, then the build
         const pad = this.outlinePad(list);
         const vw = this.cam.frameWindow(pad);
         this._pendingFatLw = 0; // recounted below
         this._fitSpentMs = 0;   // per-render outline-fitting budget
         const byId = new Map();
         for (const o of list) {
+            // THE STROKE UNDER THE PEN IS ALREADY ON SCREEN as `_live`, and it
+            // is in the list too (it is a native of the frame). Building a
+            // group for it as well painted it twice whenever a render landed
+            // mid-stroke — Ctrl+Z, an idle outline fit queued by the previous
+            // pen-up, a resize — and for a highlighter that showed: the part
+            // drawn so far at 0.70 instead of 0.45 until pen-up (measured
+            // 2026-09-05, two paths for one stroke). The live path is the
+            // stroke's only picture until `endLive`.
+            if (o === this._liveModel) continue;
             // A sub-pixel down-piece that is ACTUALLY faded goes in its own
             // group: applying its fade to the shared family group would fade the
             // coarse parent with it. Once fully present it rejoins the family,
@@ -459,6 +653,7 @@ export default class Renderer {
             const k = this._order.indexOf(id);
             if (k >= 0) this._order.splice(k, 1);
         }
+        this._chopMemo = null;
         this.syncWorld();
         this._lastBakeScale = this.cam.inScale;
         this._lastRebuilds = rebuilt;
@@ -529,6 +724,101 @@ export default class Renderer {
         sc.order.length = 0;
     }
 
+    // ---- the window chop (F40; see the header, HOW FAR) ----
+    // Does the scene's window still hold for this view: the view inside the
+    // window's inner half, the zoom under CHOP_ZOOM times the zoom it was
+    // chosen at. Both halves of the budget in the header depend on this.
+    _chopHolds(chop) {
+        if (this.cam.inScale > chop.inScale * CHOP_ZOOM) return false;
+        const w = this.cam.frameWindow(0), h = chop.half / 2;
+        return w.left >= chop.cx - h && w.right <= chop.cx + h && w.top >= chop.cy - h && w.bottom <= chop.cy + h;
+    }
+    // True when a camera-only move has left the window's inner half or zoomed
+    // past its budget: the engine must promote it to a full render so the
+    // chopped groups are rebuilt on a fresh window before its edge can reach
+    // the screen. Never mid-stroke, for the same reason as needsReorigin.
+    needsWindowChop() {
+        if (this._live || !(this._chopPx > 0)) return false;
+        const sc = this._scenes.get(this._level);
+        return !!(sc && sc.chop && !this._chopHolds(sc.chop));
+    }
+    // Choose the scene's window afresh, centred on the view, when there is
+    // none or the last no longer holds. Nothing is rebuilt here: the window's
+    // key enters the signature of every piece that straddles it, and the diff
+    // in render() rebuilds exactly those.
+    _maybeRechop(sc) {
+        if (!sc || !(this._chopPx > 0)) return;
+        if (sc.chop && this._chopHolds(sc.chop)) return;
+        const c = this._viewCenter();
+        const half = this._chopPx / this.cam.inScale;
+        sc.chop = { cx: c.x, cy: c.y, half, inScale: this.cam.inScale, key: ++this._chopSeq,
+            rect: { left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half } };
+    }
+    /**
+     * The window a piece has to be clipped to, or null when it can go to the
+     * browser whole: it lies inside the window (every piece smaller than 175
+     * screens at the zoom the window was chosen at — nearly everything), or
+     * wholly outside it (hundreds of screens off screen, so what the browser
+     * makes of its far coordinates cannot show). A tile piece is settled by
+     * the rectangle it was cut on first, without touching its geometry; a
+     * fill's bounds cost a pass over its points, which is why the verdict is
+     * memoised for the render (the signature asks, then the build).
+     */
+    _chopFor(o) {
+        if (!(this._chopPx > 0)) return null;
+        const sc = this._scenes.get(this._level);
+        const chop = sc && sc.chop;
+        if (!chop) return null;
+        if (!((o.type === "shape" && o.loops) || (o.type === "fill" && o.polys))) return null;
+        const memo = this._chopMemo;
+        if (memo && memo.has(o)) return memo.get(o);
+        // A piece drawn shifted by its residual (F41) is judged against the
+        // window shifted the other way.
+        const r = o.res ? { left: chop.rect.left - o.res[0], right: chop.rect.right - o.res[0],
+            top: chop.rect.top - o.res[1], bottom: chop.rect.bottom - o.res[1] } : chop.rect;
+        const within = (l, t, rt, b) => l >= r.left && rt <= r.right && t >= r.top && b <= r.bottom;
+        let verdict = null;
+        const c = o.clip;
+        if (c && ("x0" in c ? within(c.x0, c.y0, c.x1, c.y1) : within(c.left, c.top, c.right, c.bottom))) verdict = null;
+        else {
+            const bb = areaBounds(o);
+            if (!bb || within(bb[0], bb[1], bb[2], bb[3])) verdict = null;
+            else if (bb[2] < r.left || bb[0] > r.right || bb[3] < r.top || bb[1] > r.bottom) verdict = null;
+            else verdict = chop;
+        }
+        if (memo) memo.set(o, verdict);
+        return verdict;
+    }
+    /**
+     * One area piece as anchors, through the window chop when it reaches past
+     * the scene's window. The clip is the tile machinery's own
+     * (`shapeLoopsInRect`: exact on arcs, and it answers "the window is wholly
+     * inside the ink" with the window quad), so a chopped piece is the same
+     * kind of thing as a tile piece, cut on a different rectangle. The
+     * chopped geometry is local to this build; the piece itself is never
+     * touched, and the selection indicator and the erase overlay still read
+     * the whole object.
+     */
+    _pushArea(verts, o, og) {
+        const ctx = this._planFor(o);
+        const ch = this._chopFor(o);
+        // THE RESIDUAL (F41): a piece whose object has offsets deeper than this
+        // level is drawn translated by `o.res`. Folded into the origin the
+        // anchors are taken relative to, so the geometry itself is never
+        // touched; the chop window moves the other way to match.
+        const ogp = o.res ? { x: og.x - o.res[0], y: og.y - o.res[1] } : og;
+        const rect = ch && o.res ? { left: ch.rect.left - o.res[0], right: ch.rect.right - o.res[0],
+            top: ch.rect.top - o.res[1], bottom: ch.rect.bottom - o.res[1] } : (ch ? ch.rect : null);
+        if (o.type === "shape") {
+            if (!ch) { pushShapeAnchors(verts, o.loops, ogp, ctx); return; }
+            const cut = shapeLoopsInRect(o.loops, rect);
+            if (cut.loops.length) pushShapeAnchors(verts, cut.loops, ogp, ctx);
+            else for (const ring of cut.rings) pushRingAnchors(verts, ring, ogp, ctx);
+            return;
+        }
+        for (const poly of (ch ? clipRingsToRect(o.polys, rect) : o.polys)) pushRingAnchors(verts, poly, ogp, ctx);
+    }
+
     // Make `level` the active scene: point `_groups`/`_order`/`_activeRoot` at
     // its retained subtree, swapping the attached root under `world` (the whole
     // point — one detach + one attach instead of rebuilding paths). With
@@ -552,16 +842,24 @@ export default class Renderer {
     // is never evicted. Evicted roots are detached already (only the active root
     // is attached), so dropping the reference frees the orphaned <g>.
     _evictScenes() {
-        const CAP = 8;
-        if (this._scenes.size <= CAP) return;
+        // By count AND by anchors: measured 2026-09-08 on the 12,849-object canvas, a
+        // scene is ~200k anchors (~100 MB with its paths and SVG), and five retained
+        // ones held 625k anchors while the tab sat at 1.7-2.5 GB. The active scene is
+        // never evicted; the oldest inactive ones go until the rest fit the budget.
+        const CAP = 8, ANCHOR_BUDGET = this.sceneAnchorBudget;
+        const anchorsOf = (t) => { let n = 0; const walk = (x) => { if (!x) return; if (x.vertices) n += x.vertices.length; if (x.children) for (const c of x.children) walk(c); }; walk(t); return n; };
+        let inactive = 0;
+        for (const [k, sc] of this._scenes) if (k !== this._level) inactive += (sc.anchors = anchorsOf(sc.root));
+        if (this._scenes.size <= CAP && inactive <= ANCHOR_BUDGET) return;
         const victims = [...this._scenes.entries()]
             .filter(([k]) => k !== this._level)
             .sort((a, b) => a[1].seq - b[1].seq);
-        while (this._scenes.size > CAP && victims.length) {
+        while ((this._scenes.size > CAP || inactive > ANCHOR_BUDGET) && victims.length) {
             const [k, sc] = victims.shift();
             for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
             if (sc.root.parent) sc.root.parent.remove(sc.root);
             this._scenes.delete(k);
+            inactive -= sc.anchors || 0;
         }
     }
 
@@ -670,9 +968,26 @@ export default class Renderer {
             // bbox anchors it cheaply — two shapes with the same loop and piece
             // counts but different geometry cannot share a bounding box to two
             // decimals as well.
-            const b = loopsBBox(o.loops) || { x0: 0, y0: 0, x1: 0, y1: 0 };
-            let n = 0;
-            for (const l of o.loops) n += l.length;
+            // THE MEASURED PART IS MEMOISED PER PIECE (2026-09-07). `loopsBBox`
+            // walks every arc of every piece on screen, and it ran for every
+            // group on every render — so a render with nothing changed cost
+            // O(N) in the drawing's size, and a pen-up, which renders twice,
+            // cost 0.25 ms per stroke already on screen (95 ms a stroke at
+            // 250 strokes in jsdom, 334 at 1,000; 0.5 s at 2,000 in Chrome).
+            // A piece's loops never change under it: a tile piece is rebuilt
+            // as a new object, and a native's edits bump `_ver` (Document
+            // `_afterEdit`), which is what the memo is keyed by. The rest of
+            // the signature stays live — colour, opacity, the window key and
+            // the residual can change without the geometry moving.
+            let m = this._sigMemo.get(o);
+            if (!m || m.ver !== (o._ver || 0)) {
+                const b = loopsBBox(o.loops) || { x0: 0, y0: 0, x1: 0, y1: 0 };
+                let n = 0;
+                for (const l of o.loops) n += l.length;
+                m = { ver: o._ver || 0, s: o.loops.length + ":" + n + ":"
+                    + b.x0.toFixed(2) + "," + b.y0.toFixed(2) + ":" + b.x1.toFixed(2) + "," + b.y1.toFixed(2) };
+                this._sigMemo.set(o, m);
+            }
             // `_ver` is in the signature, and it has to be. Coordinates are
             // rounded here, and at the deepest in-level zoom a whole pixel of
             // drag is 1/300 of a frame unit — under the rounding. Without an
@@ -680,14 +995,20 @@ export default class Renderer {
             // sit still while the pointer moved. Document bumps `_ver` on every
             // geometry edit, so this is exact rather than a finer rounding that
             // merely moves the threshold.
-            return "S" + o.id + ":" + (o._ver || 0) + ":" + o.loops.length + ":" + n + ":"
-                + b.x0.toFixed(2) + "," + b.y0.toFixed(2) + ":" + b.x1.toFixed(2) + "," + b.y1.toFixed(2)
-                + ":" + this._colorOf(o) + ":" + this._opacityOf(o);
+            // A piece that straddles the scene's window is built through the
+            // chop, and the window's key here is what rebuilds it — and only
+            // it — when the window is chosen again (F40).
+            const ch = this._chopFor(o);
+            // `res`, exactly: a drag from below moves it every event (F41).
+            return "S" + o.id + ":" + m.ver + ":" + m.s
+                + ":" + this._colorOf(o) + ":" + this._opacityOf(o) + (ch ? ":w" + ch.key : "") + (o.res ? ":r" + o.res[0] + "," + o.res[1] : "");
         }
         if (o.type === "fill") {
             const f0 = o.polys[0][0], ln = o.polys[o.polys.length - 1], l0 = ln[ln.length - 1];
+            const ch = this._chopFor(o);
             return "f" + o.id + ":" + o.polys.length + ":" + o.polys.reduce((s, p) => s + p.length, 0)
-                + ":" + f0[0].toFixed(2) + "," + f0[1].toFixed(2) + ":" + l0[0].toFixed(2) + "," + l0[1].toFixed(2) + ":" + o.color + ":" + o.opacity;
+                + ":" + f0[0].toFixed(2) + "," + f0[1].toFixed(2) + ":" + l0[0].toFixed(2) + "," + l0[1].toFixed(2) + ":" + o.color + ":" + o.opacity
+                + (ch ? ":w" + ch.key : "") + (o.res ? ":r" + o.res[0] + "," + o.res[1] : "");
         }
         const a = o.pts[0], z = o.pts[o.pts.length - 1];
         const ends = a[0].toFixed(2) + "," + a[1].toFixed(2) + ":" + z[0].toFixed(2) + "," + z[1].toFixed(2);
@@ -734,6 +1055,18 @@ export default class Renderer {
      * practice one bucket) and preserves order: anything that is not a plain
      * fill flushes the bucket and goes through _buildInto as before.
      */
+    /**
+     * The arc plan for one piece: the frame's constants plus the piece's own
+     * clip, so its seams are known. A COVERING quad (a band that swallowed its
+     * whole tile, classifyUp's "solid" tier) is never split: its four edges
+     * are the tile's own boundary, overlapped by its neighbours like any seam,
+     * and the black quad under Kobin's drawing had grown 68 anchors for
+     * nothing before this exception.
+     */
+    _planFor(o) {
+        if (o && o.covers) return this._arcPlanNoChop;
+        return o && o.clip ? { ...this._arcPlan, clip: asClip(o.clip) } : this._arcPlan;
+    }
     _buildPieces(group, pieces, vw) {
         let bucket = null, key = null;
         const flush = () => {
@@ -756,17 +1089,7 @@ export default class Renderer {
             const col = this._colorOf(o), op = this._opacityOf(o);
             const k = col + "|" + (op == null ? 1 : op);
             if (k !== key) { flush(); key = k; bucket = { color: col, opacity: op, verts: [] }; }
-            if (o.type === "shape") pushShapeAnchors(bucket.verts, o.loops, og);
-            else {
-                for (const poly of o.polys) {
-                    if (poly.length < 2) continue;
-                    for (let i = 0; i < poly.length; i++) {
-                        const a = new Two.Anchor(poly[i][0] - og.x, poly[i][1] - og.y);
-                        a.command = i === 0 ? Two.Commands.move : Two.Commands.line;
-                        bucket.verts.push(a);
-                    }
-                }
-            }
+            this._pushArea(bucket.verts, o, og);
         }
         flush();
     }
@@ -815,6 +1138,14 @@ export default class Renderer {
                     sx = x; sy = y; px = x; py = y; open = true;
                     continue;
                 }
+                // An arc anchor stands for a curve: count its midpoint as a
+                // vertex, or a circle of two half-arcs has no area here.
+                if (a._mid) {
+                    const mx = a._mid[0], my = a._mid[1];
+                    cross += px * my - mx * py;
+                    perim += Math.hypot(mx - px, my - py);
+                    px = mx; py = my;
+                }
                 cross += px * y - x * py;
                 perim += Math.hypot(x - px, y - py);
                 px = x; py = y;
@@ -835,6 +1166,9 @@ export default class Renderer {
         for (const path of g.children) {
             for (const a of path.vertices) {
                 a.x *= S; a.y *= S;
+                // An arc's radius is a length in the same units as its anchor.
+                if (a.command === Two.Commands.arc) { a.rx *= S; a.ry *= S; }
+                if (a._mid) { a._mid[0] *= S; a._mid[1] *= S; }
                 // Controls are stored RELATIVE (Two.js default), so they scale
                 // with the anchor rather than about the origin.
                 if (a.controls) {
@@ -849,10 +1183,11 @@ export default class Renderer {
 
     _addFillPath(group, verts, color, opacity) {
         const pOp = (this.opacityGroups && !this.eraseDebug) ? 1 : (opacity == null ? 1 : opacity);
-        // `closed` is false whenever a curve anchor can be present: a fill
-        // auto-closes each subpath, while Two's closed flag would rule one extra
-        // segment from the last point back to the first across the whole path.
-        const path = mkPath(verts, !verts.some((a) => a.command === Two.Commands.curve), false, true);
+        // `closed` is false whenever a curve or arc anchor can be present: a
+        // fill auto-closes each subpath, while Two's closed flag would rule one
+        // extra segment from the last point back to the first across the whole
+        // path.
+        const path = mkPath(verts, !verts.some((a) => a.command === Two.Commands.curve || a.command === Two.Commands.arc), false, true);
         path.fill = color; path.noStroke(); path.opacity = pOp;
         if (this.debug) { path.stroke = "red"; path.linewidth = 1 / this.cam.inScale; }
         group.add(path);
@@ -868,7 +1203,7 @@ export default class Renderer {
     _buildInto(group, o, vw) {
         if (o.type === "shape") {
             const verts = [];
-            pushShapeAnchors(verts, o.loops, this._origin());
+            this._pushArea(verts, o, this._origin());
             if (verts.length) this._addShapePath(group, verts, this._colorOf(o), this._opacityOf(o));
             return;
         }
@@ -881,7 +1216,7 @@ export default class Renderer {
         if (o.type === "stroke" && o._pen && o._pen.gaps && o._pen.gaps.length && o !== this._liveModel) {
             const og = this._origin();
             const verts = [];
-            for (const gap of o._pen.gaps) pushGapAnchors(verts, gap, og);
+            for (const gap of o._pen.gaps) pushGapAnchors(verts, gap, og, this._arcPlan);
             if (verts.length) {
                 const pOp = (this.opacityGroups && !this.eraseDebug) ? 1 : (this._opacityOf(o) == null ? 1 : this._opacityOf(o));
                 const path = mkPath(verts, false, false, true);
@@ -915,7 +1250,8 @@ export default class Renderer {
         if (o.type === "fill") polys = o.polys;
         else if (this.outlineMode) polys = this._fatPolys(o, vw, curved);
         if (polys) {
-            const og = this._origin();
+            const og0 = this._origin();
+            const og = o.res ? { x: og0.x - o.res[0], y: og0.y - o.res[1] } : og0;   // drawn shifted by its residual (F41)
             const verts = [];
             for (const poly of polys) {
                 if (poly.length < 2) continue;
@@ -927,7 +1263,8 @@ export default class Renderer {
             }
             if (verts.length) this._addFillPath(group, verts, this._colorOf(o), this._opacityOf(o));
         } else if (o.type !== "fill") {
-            const og = this._origin();
+            const og0 = this._origin();
+            const og = o.res ? { x: og0.x - o.res[0], y: og0.y - o.res[1] } : og0;
             const pOp = (this.opacityGroups && !this.eraseDebug) ? 1 : (this._opacityOf(o) == null ? 1 : this._opacityOf(o));
             const path = mkPath(o.pts.map(([x, y]) => new Two.Anchor(x - og.x, y - og.y)), false, curved);
             path.noFill(); path.stroke = this._colorOf(o); path.linewidth = o.lwFrame; path.cap = "round"; path.join = "round"; path.opacity = pOp;
@@ -1056,13 +1393,14 @@ export default class Renderer {
     // in float64, so live ink lands pixel-identical to its finalized rendering.
     // _maybeReorigin/needsReorigin never fire while _live exists, so the origin
     // is stable for the whole gesture.
-    // `arcs` true => the ink under the pen IS the biarc chain, drawn as cubics.
+    // `arcs` true => the ink under the pen IS the biarc chain, drawn as arcs.
     // This is the whole point of the representation: what you watch appear is
     // the curve that gets resolved, so pen-up changes nothing you can see. The
     // straight-line tool keeps a plain two-anchor path — it REPLACES its second
     // point on every move, which an incremental chain cannot express, and a
     // biarc through two points is that straight line anyway.
     addLive(o, straight) {
+        if (this._live) this.endLive();   // a stale path would be orphaned in the scene otherwise
         const og = this._origin();
         const arcs = !straight;
         const live = arcs
@@ -1106,7 +1444,7 @@ export default class Renderer {
         const finalTo = Math.max(0, n - 2);   // gaps below this can never change again
         let stable = this._liveStable;
         for (let g = this._liveGap; g < n; g++) {
-            pushGapAnchors(v, gaps[g], og);
+            pushGapAnchors(v, gaps[g], og, this._arcPlan);
             if (g + 1 <= finalTo) stable = v.length;
         }
         this._liveStable = stable;

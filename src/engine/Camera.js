@@ -133,6 +133,29 @@ export default class Camera {
     _crossUp() {
         const base = this.cfg.base;
         const child = this.lm.ensureChild(this.frame, this.inScale, this.inPanX, this.inPanY);
+        // THE CHILD MAY BELONG TO THE NEIGHBOUR (F45, 2026-09-05). The strip
+        // [W/2 - G/2, W/2) of this frame is the neighbour's extreme cell — cells
+        // are centred on their index (bible 10.2) — and `_maybeShift` above uses
+        // the half-open [-W/2, W/2) while `_viewCell` rounds. A view centre that
+        // sits on a cell boundary to within float noise (the default view of a
+        // 1504-wide window is 23.5 cells; a test's 800-wide one is 12.5) lands
+        // in that strip half the time, `cellChild` carries the digit into the
+        // neighbour parent and mints the child THERE, and `child.edge` is then
+        // relative to a frame this camera is not in: the pan came out one whole
+        // level-1 frame off, the next `_maybeShift` "corrected" it by 4,096
+        // cells, and the picture jumped one level-0 cell sideways — 8,192 px at
+        // the crossing zoom, the ink gone off screen. Measured in jsdom on a
+        // synthetic stroke zoomed about x = 400: the render list was empty after
+        // the 1 -> 2 crossing. So: step into the child's own parent first. Its
+        // origin in this frame's units is a whole number of frames, exact.
+        if (child.parent != null && child.parent !== this.frame) {
+            const o = this.lm.mapPointF([0, 0], child.parent, this.frame);
+            if (o) {
+                this.inPanX += o[0] * this.inScale;
+                this.inPanY += o[1] * this.inScale;
+                this.frame = child.parent;
+            }
+        }
         const { s, t } = child.edge;
         const nis = this.inScale * base / s;            // -> ~base
         this.inPanX = this.inPanX - t.x * nis / base;   // place the current view in the fixed lattice

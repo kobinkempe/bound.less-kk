@@ -12,7 +12,6 @@
  * engine wires the active level through and the toggle collapses to the old
  * rebuild-on-crossing behavior.
  */
-import Two from "two.js";
 import Renderer from "./Renderer";
 import KobinEngine from "./KobinEngine";
 
@@ -93,6 +92,18 @@ describe("Renderer scene retention (mechanism)", () => {
         for (let lvl = 0; lvl < 14; lvl++) r.render(listOf([lvl * 10 + 1], lvl * 100), lvl);
         expect(r._scenes.size).toBeLessThanOrEqual(8);
         expect(r._scenes.has(13)).toBe(true); // the active (most recent) level survives
+    });
+
+    test("retained scenes are bounded by anchors too, oldest first, active kept", () => {
+        const r = mkRenderer();
+        r.sceneAnchorBudget = 0;   // any inactive anchor is over budget
+        r.render(listOf([1, 2, 3], 0), 0);
+        r.render(listOf([11], 1000), 1);
+        expect(r._scenes.has(0)).toBe(false);  // level 0 held anchors and was inactive
+        expect(r._scenes.has(1)).toBe(true);   // the active scene is never evicted
+        r.sceneAnchorBudget = 250000;
+        r.render(listOf([21], 2000), 2);
+        expect(r._scenes.has(1)).toBe(true);   // under budget again: retained
     });
 
     test("toggling retention off collapses to one shared scene (old behavior)", () => {

@@ -14,9 +14,8 @@
  * pieces, and no visible doubling either.
  */
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
-    descend, camShot, camRestore, painted, inkAt, colorAt, topAt, raster,
-    rasterZ, rasterDiff, families, natives, picture,
+    useEngines, mkEngine, eraseGesture, erase, descend, camShot, camRestore, painted, inkAt,
+    colorAt, raster, rasterDiff, families, natives,
 } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 

@@ -30,8 +30,8 @@ const openLoops = (E) => {
     for (const r of all(E)) {
         if (!r.o.loops) continue;
         for (const loop of r.o.loops) {
-            const last = loop[loop.length - 1];
-            if (last.B[0] !== loop[0].A[0] || last.B[1] !== loop[0].A[1]) n++;
+            const last = loop.at(-1), first = loop.at(0);
+            if (last.B[0] !== first.A[0] || last.B[1] !== first.A[1]) n++;
         }
     }
     return n;

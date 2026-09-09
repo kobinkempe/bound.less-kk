@@ -17,8 +17,9 @@
  * legacy key is left in place as a safety net.
  */
 
+import { encodeRecords, decodeObjects } from "../engine/format2";
 import {
-    putCanvas, getCanvas, getCanvasHeader, listCanvasHeaders, patchCanvasHeader, deleteCanvas,
+    putCanvas, putCanvas2, getCanvas2, getFrames2, getLogFrom, getCanvasHeader, listCanvasHeaders, patchCanvasHeader, deleteCanvas,
     deleteOrphanFrames, putTrashDoc, getTrashDoc, deleteTrashDoc, listTrashIds,
     putBackup, sweepBackups, putThumbs, getThumbs, deleteThumbs, sweepThumbs,
     migrateLocalStorage, storageEstimate, requestPersistentStorage as requestPersist,
@@ -38,9 +39,12 @@ export const slotKey = (id) => SLOT_PREFIX + id;
 export const thumbKey = (canvasId, sceneId) => `kobin.thumb.${canvasId}.${sceneId}`;
 
 export function newCanvasId() {
+    // Eight random base-36 characters, not four: four is 1.7 million values,
+    // and two ids minted in the same millisecond collided one run in eighty
+    // (`ids are unique enough` drew 199 distinct ids from 200 on 2026-09-06).
     return (
         Date.now().toString(36) +
-        Math.random().toString(36).slice(2, 6)
+        Math.random().toString(36).slice(2, 10)
     );
 }
 
@@ -141,11 +145,42 @@ export function docToRecord(doc) {
  */
 export async function saveCanvasDoc(id, doc) {
     try {
-        const ok = await putCanvas(id, { ...docToRecord(doc), full: true });
+        const { header, frames, frameIds } = docToRecord(doc);
+        const snapshots = {};
+        for (const fid of frameIds) snapshots[fid] = { ...encodeRecords(frames[fid] || []), seq: 0 };
+        const ok = await putCanvas2(id, { header: { ...header, seq: 0 }, snapshots, frameIds, full: true, resetLog: true });
         return ok === true;
     } catch (err) {
         return false;
     }
+}
+/**
+ * The saver's write: this tick's log `entries`, the frames whose `snapshots` it took,
+ * the full frame set, and the compaction floor. Rejects on failure; false when there is
+ * no base record and `full` was not set.
+ */
+export function writeCanvas2(id, args) {
+    return putCanvas2(id, args);
+}
+/**
+ * What the editor restores from: `{ header, frames: { frameId: { objects, geo, seq } },
+ * entries }` for a kobin-2 canvas, `{ legacy: kobin1Doc }` for one still in the v1
+ * store (its first save writes it anew), or null.
+ */
+export async function loadCanvasStore(id) {
+    try {
+        const r = await getCanvas2(id);
+        if (!r) return null;
+        if (r.legacy) return r;
+        const frames = {};
+        for (const f of r.frames) frames[f.frameId] = { objects: f.objects, geo: f.geo, seq: f.seq };
+        return { header: r.header, frames, entries: r.entries };
+    } catch (err) { return null; }
+}
+// A kobin-2 frame as kobin-1 records with PLAIN arrays (a stored loop is a view of the
+// frame's geometry; a document handed to JSON, the trash or a backup must not carry one).
+function plainRecords(objects, geo) {
+    return decodeObjects(objects, geo).map((r) => (r.loops ? { ...r, loops: r.loops.map((l) => Array.from(l)) } : r));
 }
 
 /**
@@ -158,9 +193,17 @@ export function writeCanvas(id, { header, frames, frameIds, full }) {
     return putCanvas(id, { header, frames, frameIds, full });
 }
 
-/** The stored kobin-1 document, or null. */
+/** The stored document as kobin-1 (plain arrays), from either store, or null. */
 export async function loadCanvasDoc(id) {
-    try { return await getCanvas(id); } catch (err) { return null; }
+    try {
+        const r = await getCanvas2(id);
+        if (!r) return null;
+        if (r.legacy) return r.legacy;
+        const natives = {};
+        for (const f of r.frames) natives[f.frameId] = plainRecords(f.objects, f.geo);
+        const { store, frameIds, frameSeq, seq, ...h } = r.header;
+        return { format: h.format, version: h.version, meta: h.meta, camera: h.camera, crossings: h.crossings, natives };
+    } catch (err) { return null; }
 }
 
 export async function hasCanvasDoc(id) {
@@ -191,7 +234,7 @@ export async function renameCanvasLocal(id, name, savedAt = new Date().toISOStri
  */
 export async function backupCanvasDoc(id) {
     try {
-        const doc = await getCanvas(id);
+        const doc = await loadCanvasDoc(id);
         if (doc) await putBackup(id, doc);
     } catch (err) { /* best-effort */ }
 }
@@ -246,7 +289,7 @@ export async function readTrash() {
 export async function trashCanvas(id, fallbackEntry = null) {
     const entry = readIndex().find((e) => e.id === id) || fallbackEntry;
     let doc = null;
-    try { doc = await getCanvas(id); } catch (err) { /* ignore */ }
+    try { doc = await loadCanvasDoc(id); } catch (err) { /* ignore */ }
     writeIndex(readIndex().filter((e) => e.id !== id));
     if (!entry && !doc) return null;
     if (doc) {
@@ -501,4 +544,25 @@ export function deletedLabel(deletedAt) {
 export function depthLabel(levels) {
     if (!levels || levels <= 1) return "Surface level";
     return `${levels} levels deep`;
+}
+
+/**
+ * What the cloud push reads: the stored header (frame seqs and the last entry seq)
+ * and two readers the push calls for only what the cloud is missing. Null for a
+ * canvas not yet in the kobin-2 store.
+ */
+export async function cloudPushSource(id) {
+    const header = await getCanvasHeader(id);
+    if (!header || header.store !== "kobin-2") return null;
+    return {
+        header,
+        readFrames: (frameIds) => getFrames2(id, frameIds),
+        readLog: (fromSeq) => getLogFrom(id, fromSeq),
+    };
+}
+/** A pulled kobin-2 store written whole, its log replacing the local one. */
+export async function replaceCanvasStore(id, { header, frames, entries }) {
+    const snapshots = {};
+    for (const fid of Object.keys(frames)) snapshots[fid] = frames[fid];
+    return putCanvas2(id, { header, snapshots, frameIds: Object.keys(frames), entries, full: true, resetLog: true });
 }

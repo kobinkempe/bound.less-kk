@@ -61,7 +61,9 @@ silently disappearing rather than merely being slow.
 |---|---|---|
 | **Frame** | a cell of the lattice. Belongs to **space**. An object's address and the spatial index. Frames cannot overlap, so "which frame am I in" is a division, not a search. A frame **never cuts geometry**; it only decides which objects are looked at. | `LevelMap.js` |
 | **Tile** | where an object is clipped, and therefore where a curve may be frozen to a line. Belongs to **the object**: carried as a phase `(px, py)` in `[0, W)`, two numbers, surviving every move for free, because re-homing changes local coordinates by exactly one frame and `W mod W` is zero. Same *size* as a frame, a different *grid*. | `frameLattice.js`, `geometry/freeze.js` |
-| **Cache tile** | the render cache's own frame-aligned square. Decides how much work one bake covers, and nothing else. Clips arcs, which is exact, and marks every end it makes (`seamA`/`seamB`) so the level below cannot freeze on an edge it invented. | `TileStore.js` |
+| **Cache tile** | the render cache's own frame-aligned square. Decides how much work one bake covers, and nothing else. Clips arcs, which is exact. (Until 2026-09-07 it also marked every end it made, `seamA`/`seamB`, so the level below could not freeze on an edge it invented; the one-radius freeze's endpoint guard refuses such an edge on its own, and the marks are gone.) | `TileStore.js` |
+
+All three are `W` across and were three near-identical APIs with two phase conventions. Since 2026-09-07 they are one value type, `TileGrid` (`frameLattice.js`): the object's grid is `TileGrid.at(o.tile)`, the cache's is `TileGrid.CACHE`, and a frame's own square is that grid's `(0, 0)`. `range` is the half-open rule (a rect ending on a boundary belongs below — what the chop and the cede cut on), `touching` the closed one the cache reads by; each keeps its callers' arithmetic to the bit, because which squares a cache reads and where an object's tiles fall are both things a saved drawing's deep picture depends on.
 | **Object** | a native, stored in one frame. Its id is its creation order *and* its z-order. A logical object may be several natives across several frames sharing one `editId` — which is what an erase leaves when it cedes a tile downward. | `Document.js` |
 
 ---
@@ -83,10 +85,23 @@ Three types, and the pipeline is one-way:
   tried and reverted: one recorded drawing carries a 1.8-million-vertex fill, and
   converting it cost more than the rest of the load put together.
 
-A piece of a loop is `{line: true, A, B}` or
+A piece of a loop reads as `{line: true, A, B}` or
 `{line: false, C, r, a0, sweep, A, B}`. **`A` and `B` are carried explicitly**,
 so consecutive pieces share their endpoints bit for bit. That is the invariant
 the whole representation rests on, and it is why a fill never leaks at a seam.
+
+What a stored loop **is**, since 2026-09-08, is one `Float64Array` — the same
+numbers the file holds (§13's grammar: `ax, ay`, then a record per piece) with a
+`Uint32Array` of record offsets — wrapped as a `Loop` (`geometry/loop.js`). A
+piece read (`at(i)`, iteration, `map`) is a transient view shaped as above;
+nothing retains a view and nothing writes through one — a move is `translate`,
+a new Loop. Builders (the boolean, the freeze, the pen, the transforms) still
+produce plain piece arrays, and the storage boundaries (`Document`, `TileStore`)
+flatten them with `Loop.from`; readers changed only where they indexed
+(`loop.at(i)`, polyfilled for Node 14 in `src/polyfills.js`). Measured on the
+12,844-object canvas: an arc piece as an object was 344 B for 56 B of numbers;
+the live heap after load went from 721 MB to 453 MB in jsdom (geometry 51 MB,
+the view's tiles 14 MB), and in Chrome from 660 MB to 260 MB at load.
 
 ---
 
@@ -137,6 +152,43 @@ go.
 > over *loops* when a dense scribble resolves to two loops of three thousand
 > pieces — each one overran.
 
+### The freeze — one radius
+
+Every level's tiles are chopped from the level above on the object's own
+grid, and a chopped arc that has gone straight becomes a line, for cheapness
+and because "the arc will get comically straight anyways". **The test is one
+number** (Kobin, 2026-09-06): an arc's bow over a chord c is c²/(8r) and no
+chord inside a tile is longer than the tile's diagonal, so an arc whose
+radius is at or above `freezeRadius(tol)` — the radius whose bow over the
+diagonal is exactly the quarter-pixel tolerance, about 8.8e12 units — is
+within the tolerance everywhere in a tile and freezes wherever it is; one
+below it stays an arc. A tile is the same size at every level in its own
+units and the radius maps down exactly, so it is the same number at every
+level, in every cache square, for every fragment of an arc: a nick cannot
+change the decision and neighbouring squares cannot disagree. The one guard
+is that both ends lie between the lines the chop applied, since a stub beyond
+the outermost line was not cut at every line that crosses it. The frozen line
+is the chord between the piece's own ends, never a fit, so a neighbour that
+has not frozen still meets it exactly.
+
+Until then the test was the chopped piece's own sagitta behind a guard that
+grew its box by its bow and required it inside the applied lines — which
+every piece cut *on* one of those lines failed by its own bow. Deep arcs were
+never frozen, survived to where their centres are 1e16 units away, and were
+cut and positioned through those centres: a curved stroke's edge moved a
+screen at its fifth crossing (F44).
+
+Two things follow. An arc the gate is about to freeze has its grid cuts found
+**in its own chord frame** — the circle written from its chord and its bulge,
+h(a) = ((L/2)² − a²)/(d + √(r² − a²)), nothing through the centre — because
+those cuts are the ends of its frozen chords and the level below inherits
+them; an arc under the gate is cut through its centre, which is at most 8.8e12
+away, a thousandth of a unit. And the boolean (section 6) stands in for an
+arc by its chord by the **same gate and no other test**: "erasers shouldn't
+need to re-calculate a freeze — if it's frozen it's frozen." The only arcs
+over the gate that reach it unfrozen are an object's home-level pen arcs,
+which no chop has seen.
+
 ---
 
 ## 6. The boolean (`geometry/arcShape.js`)
@@ -159,6 +211,13 @@ Three things in it are not obvious, and each was a defect first:
   the room. A level-0 object clipped into a tile five crossings down arrives
   2.4e17 times its own size; a fuzz taken from that welded a result into 871
   pieces in 68 open chains.
+- **A cut piece keeps what it was cut from.** The crossings on a line that
+  already carries canonical points are found on *that* line (`cutLine`), and
+  the fragment inherits `P`–`Q` with new `sa`–`sb`; a cut arc's fragments
+  inherit its canonical arc `K` with new positions `ua`–`ub` (`cutArc`), and
+  an arc is stood in for by K's chord exactly when K's radius is at or over
+  the freeze radius — the chain's own rule (section 5), and no other test. A
+  piece without canonical data is its own. Section 7 has why (F43).
 
 Every loop that leaves **closes**. Where the walk cannot close one it is sealed
 with a chord and counted (`stats.sealed` / `sealedArea`), because losing a real
@@ -191,12 +250,119 @@ Two cases, decided by where the gesture was made relative to the target:
   tile out of the parent and hand its ink to the level below. Ceding straight
   from the target's home to the erase level looks simpler and dies at five
   crossings: the ceded rect is 1.9e-8 units wide at three, 9.1e-12 at four, and
-  **exactly zero** at five.
+  **exactly zero** at five. And the descent takes each level's ink from the
+  render chain's own derived pieces — the tile store's piece for the cache
+  square, which becomes the kid bit for bit, its padded window the rect ceded
+  — never recomputing it (F42, measured and fixed 2026-09-04): the descent and
+  the magnify chain were the same math in two functions, their results
+  differed in the last bits at level 2, and every crossing multiplied that by
+  4,096 — 1,788 units at level 6, a whole tile at 7, with nothing but straight
+  lines involved. At depth the only "same" is the same bits. The same rule
+  cuts the parent in its own coordinates and makes the boolean pass what it
+  does not cut through by reference: a rounding step anywhere in a parent is
+  its whole picture moved four crossings down.
 
 The parent is genuinely **cut**, not left whole with a rect recorded against it.
 That removed a per-view re-derive whose cache went stale on the fast zoom path,
 232–386 ms renders rebuilding it, and a view-sized pad that was 2 px at one zoom
 and 0.19 px at another.
+
+**A cut line remembers the line it was cut from** (F43, built 2026-09-05). A
+line piece defined by its two endpoints cannot be cut anywhere without being
+redefined everywhere: the new endpoint is a rounded crossing, and every level
+below interpolates its own clip vertices from that endpoint, 4,096× per
+crossing — a 12-px nick at level 3, 300 px along an edge, emptied the level-8
+tile the edge's corner had been zoomed to. So a line piece carries its
+**canonical** line, `P`–`Q`, the endpoints it had when it was chopped from its
+parent before any erase, beside the stretch of it that survives, `sa`–`sb`.
+An erase or a window clip moves `sa`/`sb`; every cut the chain makes below is
+computed from `P`/`Q`, and the severed stretch only decides which cuts fall
+inside. The canonical line maps down a level exactly as the piece does, and
+the same numbers reach every level whether the line was nicked or not.
+Measured: the level-8 picture bit-identical after that nick, the edge in the
+same place to the last digit (`depth.corner.probe.js`, `erase.depth.test.js`).
+**A cut arc remembers the arc it was cut from**, the same way: `K`, the angles
+and end points the piece would have at this level had nothing cut it — which
+is exactly the piece the chain would have made, re-parametrised at each chop
+and re-cut on each window as the chain does — with the surviving stretch as
+positions `ua`–`ub` on it. The chop runs on K and trims the chain's fragments
+to the piece's stretch; the freeze is the chain's decision on the canonical
+fragment, and where it freezes the piece becomes a cut line on that chord;
+after every window clip the canonical arc is re-anchored to the fragment the
+chain would have clipped. K is never reversed, and a cut arc's own ends stay
+the points the erase made: recomputing a point on a circle of radius 1e16
+through its centre quantises it by units (F44), while mapping a point down a
+level is exact. Measured: all three of Kobin's corner cases bit-identical at
+level 8 after a level-3 nick, the edge unmoved to the last digit. The join-arc
+case needed one more thing: the boolean used to decide "this arc is flat" by
+its own formula, which read 0 for any sweep under ~1e-8, and so chorded an arc
+the chain kept, moving the picture one level down by the arc's bulge. Since
+the freeze became one radius (section 5) the boolean uses that gate and no
+other test, so the two agree everywhere.
+
+### Order, gate and the worker (2026-09-08)
+
+**Top-down by z, from the index.** The objects under a mark come from the spatial
+index of every reachable level (plus every moved object, whose stored bits sit
+elsewhere than its picture), sorted by z, highest first, cached on the mark until the
+document changes (`_candidatesUnder`). Before this the bake walked every object of
+every level per mark at ~0.6 ms each: on the 12,849-object canvas five minutes a mark
+before the next mark got a turn, and a second per pointer-up, because the selection
+barrier asked the same question (erase.stuck.probe.js).
+
+**The mark's z follows the bake down** (Kobin's design). After each object the mark
+has handled — cut, grazed, refused or not touching — its z steps to just below that
+object's z, once no unhandled object shares the z. Pieces a cut mints inherit their
+parent's z and so land above the mark. The mark is white ink on a white ground, so at
+every moment the picture is right: objects above it show their holes, objects below
+it are hidden by it — and the move gate is the z order: `_flushErasesFor` skips what
+sits above the mark. The barrier never lowers the mark (it bakes out of order); the z
+rides the log as a `put` of the mark and a reload resumes above it.
+
+**A target the bake cannot take is done**, with the refusal on the gesture's journal
+note; a mark with nothing left under it is consumed. Nothing retries.
+
+**One cut is a job** (`eraseJob.js`): the boolean, the removal measured locally, the
+graze rule (in place, or the cede's), the components and the dust cull, on loops in
+and Loops out — the same function on the main thread and in the erase worker
+(`public/erase-worker.js`, esbuild's bundle of the geometry layer; `npm run
+build:worker`, run before start and build). The pipeline dispatches one cut at a
+time and applies the result on the main thread (`_applyCut`); a result whose target
+is gone or changed (`_ver`) is dropped and the target baked again; a worker failure
+runs the job inline; where there is no worker (jsdom, an old browser) the job runs
+inline, so every erase suite checks the same geometry. The barrier stays synchronous:
+"if an object is baking, you can't even select it until it is baked", and a cut in
+flight for that object is baked on the spot, its late result dropped.
+
+**The descent is one job per family** (`eraseDescent.js`, Kobin's design: "invalidate
+the whole object, wait till the worker sends the new object shapes back, then swap the
+one object/family out for the new generated family"). The target is the only real
+object the job reads; every cede is virtual, each level's square ink derived in the
+job exactly as the tile store derives it for that one object (`classifyUp`,
+`solidQuad`, `deriveStep` on the same numbers), so the kid a cede mints is the store's
+piece bit for bit; nothing touches the document until the whole descent has succeeded,
+so a refused last link needs no unwinding. The worker gets the target, the eraser and
+the lattice (`LevelMap.serialize`) and returns the steps; `_applyDescent` mints the
+family with real ids in the order `cedeTileById` gave them and records the steps on the
+gesture's op. Inline where there is no worker, and for the barrier. The frames the job
+mints on its lattice copy (a kid is homed by the carry, often a cell over from any frame
+the engine has visited) come back with the steps and are merged into the engine's lattice
+before a kid is added; a load mints any frame its natives name (F67).
+
+**Dust is what could not be seen** (Kobin, 2026-09-08). A fragment a cut leaves is
+dust when it is narrower than a quarter of a pixel at the zoom the mark was drawn at
+(`bakePx`, the mark's pixels per unit, through the frame factor into the subject's
+units; `eraseJob.dustBarFor`). Not the pen's hundredth, which culled the slivers a
+4 px eraser carves at 561,917× into a stroke drawn at 1× — ink the user shaped. A
+rect cut with no mark behind it keeps the pen rule.
+
+**The boolean's classifier** was the cost, not the cuts: every fragment of A was
+ray-tested against every piece of B and back, so a 641-piece object under an eraser
+whose perimeter has 1,205 pieces cost 2.6 s with seven crossings and 2.8 s with none,
+twice (the removal measure). `RayIndex` buckets each shape's pieces, per ray
+direction, by the extent of their box along the ray's normal; a query visits the
+bucket the ray's line falls in and its neighbours, and the answer is `rayCross`'s
+own. Measured on the same cuts: 2,630 → 175 ms and 2,377 → 143 ms, results identical.
 
 ### Severance — is the family still one object?
 
@@ -237,6 +403,45 @@ remainder, smaller than one frame at any depth, reaches geometry.
 Every member expands the **same** displacement, so members that share an ancestor
 take bit-identical digits there and their relative positions cannot move.
 Registration by construction rather than by luck.
+
+That is the whole of a move for a native drawn at the move level or below it.
+For an object homed **above** the move — the coarse object whose corner the
+detail was drawn against — the sub-cell part of the displacement has nowhere to
+go: its coordinates cannot hold a level-5 quarter-pixel, and adding it to them
+anyway rounds once at the move level, and the tile chain magnifies that one
+rounding by 4,096 per level below while the detail moves by exact digits
+(F55, measured 2026-09-05: 3.25 units four levels below a home-level move,
+1,229 four levels below a level-1 move; Kobin's "star in a corner", and F35's
+mechanism). So **a move never touches a stored coordinate, at any level**
+(`geometry/offsets.js`, F41 then F55). The object carries a **displacement
+table**, `below[k]` for every depth k at or below its home, in that level's
+units, each entry bounded by half a frame and carrying upward in whole frames —
+integers; a carry out of the home level is a change of address, the native
+re-homed to the neighbour cell with its coordinates untouched. The tiles are
+**unmoved space**: nothing about a move enters a bake, and the tile chain runs
+on the same bits before and after. Where a moved object's picture is *read
+from* is decided at render time: the table's whole-frame digits name the frame
+to fetch the pieces from, and its sub-frame remainder is applied at **paint** as
+a translation of the derived picture (`piece.res`) and **inverted on every
+input** that reaches the object's geometry — an eraser projected into it, a hit
+test, a lasso; an input made in the object's own frame names the direction itself,
+since both ends are the home (F72). A displacement is **snapped to 2^-10 units at the move level**
+before it enters the table — a quarter of a pixel at that level's deepest zoom,
+finer at any shallower one; "a user cannot feel this level of detail" — so it is
+whole cells from three levels below the move and the paint-time remainder lives
+on two levels only. Result, measured (`move.registration.test.js`): the coarse
+object's pieces four levels below a move are the same bits in the new frame,
+and its gap to the detail drawn there is unchanged to 1e-9.
+
+Kobin's words for it: "the move is only handled locally" — moving a level-6
+object at level 8 "would affect level 7 but shouldn't make a change to the way
+the tile is calculated for level 8. And it would not affect level 6 at all";
+"each move should just move grandchild/descendant tiles to a new frame,
+arithmetically." Before F41 the drag added the displacement straight into the
+home coordinates, and three crossings down a screen pixel is a hundredth of a
+float64 step of a coordinate 60,000 units from its origin: the object moved in
+127 px jumps at 254×. F41 (2026-09-04) put the table in and applied it once
+inside the hop; F55 (2026-09-05) took it out of the hop.
 
 The old build translated by `displacement × R^k`. At five levels of separation
 that rewrote a member's coordinates to 7.3e18 and destroyed 82.9% of its area —
@@ -280,6 +485,33 @@ Five things in it are load-bearing and none is obvious:
 - **Scene retention.** Each level keeps its own SVG subtree; a crossing detaches
   one and attaches another instead of rebuilding ~50 paths and their giant `d`
   strings. Crossings cost 1–3 s each before this.
+- **An arc reaches the browser by a plan made once per piece.** A browser
+  draws lines, polynomial Béziers and the SVG arc command, and no circle is
+  exactly a Bézier, so each arc is one of two things, chosen at the engine's
+  quarter-pixel tolerance and the frame's *deepest* zoom so the choice never
+  changes while zooming: the arc command (Two.js's `Commands.arc`, split only
+  at a half turn because the command is named by its endpoints) while the
+  browser's float32 centre is within tolerance — a screen radius up to 4.2
+  million px, one instruction, exact — and beyond that as many kappa cubics,
+  built from endpoints and sweep with no centre anywhere, as the sixth-root
+  law demands: n = ⌈sweep·(1.8e-5·R_px/tol)^(1/6)⌉, at most a dozen or so for
+  any piece the tile chop allows. Until 2026-09-04 every arc went out as
+  quarter-turn cubics, whose error is 2.7e-4 of the radius — a re-homed circle
+  one frame up, 2.9 million px of radius on screen, drew its edge 463 px from
+  where it is (F40) — and the arc command alone was 159 px off at the child
+  frame's deepest zoom. **And nothing far from the view is handed to the
+  browser:** every coordinate reaches it in float32 relative to the scene
+  origin, and Chrome's GPU raster drops a path whose curves run beyond
+  roughly 1e7 device px — a piece spanning a tile at a frame's deepest zoom
+  is thousands of screens wide however little of it is in view. So each scene
+  keeps a window of ±2^18 device px around the view, any area piece that
+  reaches past it is clipped to it with the tile chop's own exact boolean
+  before it becomes anchors, and the window is chosen again — rebuilding only
+  the groups that straddle it — when the view leaves its inner half or the
+  zoom grows fourfold. No anchor is then ever farther from the origin than
+  3.07e6 px, 0.18 px of float32. Render-only; the objects and tiles are
+  untouched. Measured in paint, not by hit-testing, which lies about flat
+  cubics (F40).
 - **The selection indicator is raw SVG in layers of its own, not Two.js.** It
   is built from the pieces the renderer is drawing — never from the document —
   on arcs, nothing flattened, with the tile cuts skipped by the rectangle that
@@ -317,13 +549,19 @@ whole subtree), *enclosed* (take everything below, no per-object test at all), o
 *straddling* (ask its own spatial index). Outward rather than down from the root,
 because that is the only direction in which the scale factor stays a number.
 Measured on a six-level tower of twelve objects: a loop round the whole canvas
-tests **2** of them.
+tests **2** of them. An object with a displacement table is indexed at its stored
+bits and drawn elsewhere, so after the walk every one the active frame can reach is
+judged where its picture is (F69).
 
 **The indicator shows what is drawn.** Ants run along the render list's pieces,
 so a magnified shape that the browser could not hold as arcs is shown from the
 tile pieces that hold it, and a frame whose selected content is under 2 px on
 screen is one dot with none of its members visited — the frame's box bounds
-them all, by invariant 2. There is no budget: every selected piece on screen is
+them all, by invariant 2, and the box is taken where the ink is drawn, through
+each member's displacement table (F68). A selected member that traces to nothing —
+its runs under the half-pixel minimum, or culled from the list — is a dot of its own
+where its picture is, unless it is a re-homed family's kid, which shows through its
+family (F73). There is no budget: every selected piece on screen is
 outlined, and what a full selection costs is the repaint of its length, which
 the roadmap holds.
 
@@ -370,21 +608,60 @@ Pre-lattice files are **refused** with a clear error, never converted — conver
 would mean rewriting stored coordinates, which is the one operation this design
 exists to avoid.
 
+Version 2 (2026-09-05) adds one record: a cut line's canonical points (F43,
+code 2 in `encodeLoops`), which a version-1 reader would take for an arc. A
+drawing is written as version 2 only when it holds one; everything else is
+still version 1 and opens in any build. An object's displacement table
+(`below`, section 8) rides the native record in both versions.
+
 **dev-0** (`snapshot`/`loadSnapshot`) is a second, separate format: the whole
 engine state including the crossing records, carried by the diagnostic report so
 a bug can be replayed exactly as it was seen. Not the save format.
 
-**Local storage**: IndexedDB (`src/storage/db.js`), one header record per canvas
-and one record per frame, written incrementally from the document's own change
-events — every event carries its frame id — with no JSON text and no compression
-in between; thumbnails as JPEG bytes under an LRU budget; the recycle-bin
-payloads and the pre-pull backups in their own stores. Only the gallery index
-and the recycle-bin index remain in localStorage. Autosave waits 1.5 s behind
-the last change and flushes on tab hide. (Until 2026-09-02 it was one lz-string
-slot per canvas in localStorage, and that is what F33 is about.)
-**Cloud**: Firestore — a parent doc for metadata and thumbnails, the drawing
-chunked into 700 KiB binary parts beneath it, and the parent written **last**, so
-a torn save never looks complete.
+**kobin-2** (2026-09-08; `src/engine/format2.js`, `src/engine/oplog.js`) — the
+store, as opposed to the file. A frame's natives are small JSON headers plus ONE
+Float64Array of geometry (each header carries its span; the grammar inside a span
+is `encodeLoopInto`'s, the same numbers kobin-1 writes as text, so the two decode
+to identical objects), and an append-only op log records what the document did as
+entries carrying RESULTS — the objects an edit removed and made, never a gesture
+to recompute, because a replayed bake would differ across code versions. A tick
+appends the entries and rewrites a frame's snapshot only when its entries have
+outgrown it (64 KiB or a quarter of the snapshot) or an undo, redo or move touched
+it; a load is the snapshots plus the entries after each frame's seq, replayed
+idempotently, and the undo/redo stacks come back from the same entries — every
+record of an id decoding to one object, the later record's state winning, so the
+stacks share identity with the document as they do in a live session (F70), and an
+op's inverse keeping its seq so a redo is an entry rather than a reset (F71). A pending
+eraser's done set is the ids its bake entries name, so an erase interrupted by a
+tab close resumes where it left off; with no entries it restarts from the stroke.
+Compaction never drops an entry younger than the undo window or belonging to a
+pending mark. Header fields a build does not know ride through (`_extra`), and
+an `attr` entry is reserved for per-object changes such as z-order.
+
+**Local storage**: IndexedDB (`src/storage/db.js`, version 2) — one header record
+per canvas, one `frames2` record per frame holding the headers and the raw
+Float64Array buffer, and the `log` store, one record per entry; no JSON text and
+no compression. A canvas still in the v1 `frames` store opens the old way and its
+first save moves it. Thumbnails, the recycle-bin payloads and the pre-pull backups
+keep their own stores; only the gallery index and the recycle-bin index remain in
+localStorage. Autosave waits 1.5 s behind the last change and flushes on tab hide.
+(Until 2026-09-02 it was one lz-string slot per canvas in localStorage, F33.)
+**Cloud**: Firestore, a MIRROR of the local store — a frame snapshot or a run of
+log entries is one chunk (`src/cloud/store2.js`), gzipped by the browser's own
+`CompressionStream` (`src/cloud/gzip.js`; raw where it is missing, never
+lz-string, whose JS-object dictionary fails on a 100 MB drawing, F64) and split
+into 700 KiB parts; a push sends the frames whose stored snapshot is newer than
+the cloud's and the entries past the cloud's seq, then the manifest (the parent
+doc) **last**, and deletes the parts it replaced after. A copy pushed by another
+device or an old lz1 copy is replaced whole; lz1 copies still pull the old way. A
+failed sync is shown in the save bar with its size and retried with a backoff,
+1 min to 30 min. One push at a time (a 5 min deadline; busy holds until the SDK
+settles) and one part a commit: measured 2026-09-08 on the 12,849-object canvas,
+six parts a batch with the 30 s tick starting a second push beside the first had
+Firestore's write stream answering `resource-exhausted` every minute for ten
+minutes while the tab churned 2–3 GB; with the guard and one part a commit the
+full push (27 MB gzipped, 50 parts) took 120 s, the SDK still logging that error
+between batches and retrying through it.
 
 ---
 
@@ -415,6 +692,7 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 |---|---|
 | `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline, pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
+| `eraseJob.js`, `eraseWorkerClient.js`, `worker/eraseWorker.js` | one cut as a pure job; the worker client (inline where there is none); the worker's entry, bundled to `public/erase-worker.js` |
 | `overlays.js` | the selection indicator and the erase debug view |
 | `selection.js` | selecting, hit-testing, dragging |
 | `sceneOps.js` | auto-scenes |
@@ -433,9 +711,9 @@ way, and throws if two files claim the same name.
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache |
 | `Renderer.js` | the only class that touches Two.js |
-| `persist.js`, `scenes.js`, `frameLattice.js` | save format, scene clustering, the lattice constants |
+| `persist.js`, `format2.js`, `oplog.js`, `scenes.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, scene clustering, the lattice constants |
 
-`geometry/` is pure functions and no state: `arcShape` (the boolean),
+`geometry/` is pure functions and no state: `loop` (the stored form), `arcShape` (the boolean),
 `arcPerimeter` (the resumable bake), `biarc` (the pen), `derive`, `connect`,
 `freeze`, `hittest`, `lasso`, `curveOutline`, `polyline`, `clipperBoolean`.
 

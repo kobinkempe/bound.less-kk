@@ -121,6 +121,91 @@ the camera moves. Drag a selection: the ants move with it. Lasso one piece of
 a re-homed object (a ceded tile, or the parent without its tile): nothing is
 selected; lasso all of it and it is.
 
+**A circle's edge stays put across a level jump (F40).** Draw a circle, zoom
+in on its edge a thousandfold and more, through a level jump and on to the
+next: the edge is a nearly straight line that does not move at the jump and
+nothing appears or disappears beside it. Before 2026-09-04 a circle one level
+up drew a band hundreds of pixels wide that vanished at the jump; the band was
+the cubic's error, not the circle; and until the same evening a piece that
+spanned a whole tile vanished outright past a certain zoom, because the
+browser gives up on a path that large. The renderer now plans each arc once
+at the frame's deepest zoom to a quarter pixel and clips anything reaching
+far past the view to a window around it, re-cut as you pan or zoom. If an
+edge sits visibly off, a shape vanishes at some zoom while its neighbours
+stay, or a straight cut edge appears on a shape as you pan, note the zoom
+(the scale bar) and whether it happened at a level jump.
+
+### 9. Moving from below, and erasing at depth (F41, F42)
+
+Added 2026-09-04 after Kobin's phone reports; both fixes are in jsdom only
+until this is run. Draw a stroke at the top level. Zoom in on its edge through
+three, four, five level jumps (the scale bar says which). Select it and drag:
+the edge must follow the finger continuously — no sitting still and then
+jumping (before the fix it jumped 127 px at 254× three jumps down, and did not
+move at all deeper). Let go, zoom out one jump: the edge is where the drag put
+it, shifted the same amount on screen. Zoom out to the top: nothing has
+visibly moved. Now zoom back in five or more jumps onto the edge of a stroke
+and erase across it: a hole appears exactly under the eraser and the ink
+beside it stays (before the fix nothing happened past six jumps, or ink far
+from the eraser vanished). Then, on the same edge, zoom out two jumps and
+erase across it there: the hole appears under the eraser at that level too.
+If a drag is jumpy or an erase does nothing, send a report from that view: the
+move note now carries every member the drag could not move and why.
+
+### 10. The star in the corner, and the nick far along the edge (F55, F43)
+
+Added 2026-09-05 after Kobin's two scenarios; both fixes are in jsdom only
+until this is run. **The star.** Draw a large stroke at the top level. Zoom in
+on one of its corners through four or five level jumps and draw a small mark
+touching the corner (the star). Zoom out to the top, or to one jump down,
+select both, and drag them together a little way — an odd distance, not a
+whole number of anything. Zoom back in to the corner: the star must still
+touch it exactly as it did (before the fix the two parted by a few units of
+that level after a top-level move and by thousands after a move made one jump
+down, which is a screen or more at that zoom; F35 was this). Undo the move and
+zoom in again: the same. **The nick.** Draw a long stroke at the top level and
+zoom in on one point of its edge through five or six jumps; note exactly where
+the edge crosses the view. Zoom out to two or three jumps down, move along the
+edge a few hundred pixels, and erase a small nick across it. Zoom back in to
+the same point on the edge: it must be exactly where it was (before the fix a
+nick made three jumps down moved the edge by a screen at seven jumps and out of
+the view entirely at eight). Curved edges are covered too, since 2026-09-06
+(the freeze became one radius, F44): a nick on a curve at any level must move
+nothing but the nick. A drawing saved after a nick is written as file version
+2 and will not open in the build that is deployed today; say so if it matters.
+
+### 11. The crossing jump (F44), and an erase below moved objects (F56)
+
+Added 2026-09-06, both in jsdom only until this is run. **The crossing
+jump.** Draw a curved stroke at the top level and zoom in on its edge one
+level jump at a time, five, six, seven, eight jumps: at every jump the edge
+must stay put on screen, to a fraction of a pixel (before the fix it moved
+about a thousand pixels at the fifth jump — your green stroke at 4 → 5 in the
+report of 2026-09-05 04:47). Then pan along the edge at the deepest level:
+it must be one continuous line with no steps at tile boundaries. **The erase
+below moved objects** (your reports of 2026-09-06 00:16): draw two large
+overlapping strokes of different colours, zoom in ten jumps on a region where
+only one of them is painted, drag both a few times at that depth, then erase a
+small scribble on the one that is painted there. Only that one may change,
+and only by the scribble; the other must keep its colour and its edge exactly
+where they were (before the fix its colour flooded the whole tile). Undo and
+redo must give the same picture.
+
+### 12. A pen-up paints once (2026-09-07)
+
+Added 2026-09-07, jsdom and a DOM check in the in-app browser only — the pane
+would not paint while the window was behind another, so the picture itself
+is yours. A stroke used to render twice: at pen-up as the raw stroke, and
+again a few milliseconds later when its perimeter resolved; the second render
+now waits for whatever renders next (the next pen-up, a zoom across a level,
+an undo, an erase). Draw a stroke and let go: it must stay exactly as it was
+under the pen — no flicker, no change of shape or weight, no delay — and then
+draw another: the first must not change at that moment either. Draw one
+stroke, wait, and zoom in within the level: it must scale like any other ink.
+Draw a stroke and undo it at once: it must go. With the pen at its widest and
+a long scribble (a bake of a second or more), do the same. On the phone, draw
+a stroke and immediately tap it with the select tool: it must select.
+
 ---
 
 ## UX redesign

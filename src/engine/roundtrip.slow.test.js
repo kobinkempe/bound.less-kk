@@ -13,9 +13,8 @@
  * dozen natives. Ctrl+Z has to unwind all of it and nothing else.
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click,
-    descend, camShot, camRestore, topView, inkAt, raster, rasterDiff,
-    families, natives, painted, picture,
+    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click, descend, camShot,
+    camRestore, inkAt, raster, rasterDiff, families, natives, picture,
 } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 

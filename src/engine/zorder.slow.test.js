@@ -14,9 +14,8 @@
  * after a tile eviction, and after a drag.
  */
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan,
-    descend, camShot, camRestore, painted, colorAt, topAt, topAtAll, inkAt,
-    rasterZ, raster, rasterVisible, rasterDiff, families, natives,
+    useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, pan, descend, camShot,
+    camRestore, colorAt, topAtAll, rasterZ, rasterVisible, rasterDiff, natives,
 } from "./__testkit__/harness";
 
 jest.setTimeout(300000);

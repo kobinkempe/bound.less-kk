@@ -19,7 +19,7 @@
  * the tile out of the parent exactly and hands its ink to the level below, one
  * crossing at a time (`KobinEngine._bakeRehome`). See OPEN-FLAGS X1.
  */
-import { strokeLoops, loopsBbox } from "../geometry/curveOutline";
+import { strokeLoops, cubicLoopsBBox } from "../geometry/curveOutline";
 
 // A cut is only worth applying where it can be SEEN. Same gate the window
 // machinery uses: resolvable means it would paint at least fadeLoPx across at
@@ -62,7 +62,7 @@ export function eraserFootprint(E, cfg) {
     };
     const loops = strokeLoops(local, cfg, { curved: E.origin === "native" });
     if (!loops.length) return null;
-    const b = loopsBbox(loops);
+    const b = cubicLoopsBBox(loops);
     E._clip = {
         origin: [cx, cy], loops,
         // Extent of the footprint itself — what decides whether a level can

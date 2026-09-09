@@ -96,6 +96,10 @@ export function onRingEdge(rings, p) {
 }
 
 export function pieceInks(o, p) {
+    // A piece carrying a RESIDUAL (F41: the translation the renderer applies
+    // for offsets deeper than this level) is painted shifted by it; ask its
+    // geometry about the un-shifted point.
+    if (o.res) p = [p[0] - o.res[0], p[1] - o.res[1]];
     // A resolved perimeter answers this EXACTLY — no flattening, no slop — which
     // is what makes it a better oracle than the polygon rings it replaced. It
     // also walks every piece to do it, and the precision suite asks the question
@@ -116,6 +120,7 @@ export function pieceInks(o, p) {
 }
 /** Is `p` on this piece's boundary, whatever kind of piece it is? */
 export function onEdgeOf(o, p) {
+    if (o.res) p = [p[0] - o.res[0], p[1] - o.res[1]];
     if (o.type === "shape") return onShapeEdge(o.loops, p);
     if (o.type === "fill") return onRingEdge(o.polys, p);
     return false;

@@ -16,18 +16,16 @@
  * fell under one ulp and was discarded).
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, drag, click, pan,
-    descend, camShot, camRestore, topView, inkAt, colorAt, raster, rasterDiff,
-    families, natives, painted, picture, vertexCount, timeIt,
+    useEngines, mkEngine, drawStroke, erase, drag, click, pan, descend, camShot, camRestore, inkAt,
+    colorAt, raster, rasterDiff, families, natives, picture, vertexCount, timeIt, objPointIn,
 } from "./__testkit__/harness";
 
 jest.setTimeout(300000);
 useEngines();
 
 const BLUE = "#1133cc", RED = "#cc3311";
-const anchorOf = (o) => (o.type === "shape" ? o.loops[0][0].A
+const anchorOf = (o) => (o.type === "shape" ? o.loops[0].at(0).A
     : o.type === "fill" ? o.polys[0][0] : o.pts[0]);
-const anchors = (E) => natives(E).map((r) => ({ id: r.obj.id, level: r.level, a: [...anchorOf(r.obj)] }));
 
 // WHERE A NATIVE IS, expressed in one fixed frame's units.
 //
@@ -37,7 +35,13 @@ const anchors = (E) => natives(E).map((r) => ({ id: r.obj.id, level: r.level, a:
 // pieces (F-C / F25). A member RE-HOMES now — its address changes and its
 // coordinates do not — so "did it move, and by how much" is a question about the
 // world, and has to be measured there.
-const worldOf = (E, rec, ref = "0") => E.lm.mapPointF([...anchorOf(rec.obj)], rec.level, ref);
+//
+// Since F55 (2026-09-05) a member does not even re-home on a drag: its
+// coordinates and its address both stay, and the displacement is a table of
+// per-level offsets applied at paint. So the world position is a property of
+// the PICTURE, and `objPointIn` reads it through the table; `mapPointF` on the
+// bare coordinates would report the object exactly where it was drawn.
+const worldOf = (E, rec, ref = "0") => objPointIn(E, rec, [...anchorOf(rec.obj)], ref);
 const worldById = (E, ref = "0") => new Map(natives(E).map((r) => [r.obj.id, worldOf(E, r, ref)]));
 const worldOfId = (E, id, ref = "0") => { const r = E.doc.getById(id); return r ? worldOf(E, r, ref) : null; };
 
@@ -53,7 +57,6 @@ describe("NB-1 — moving a level-0 object while standing at level 4", () => {
     test("every level of the family moves by the same screen distance", () => {
         const E = mkEngine();
         drawStroke(E, [[100, 300], [700, 300]], 70, BLUE);
-        const home = camShot(E);
         descend(E, 4, 400, 300);
         erase(E, [[400, 250], [400, 350]], 14);
         expect(natives(E).length).toBeGreaterThanOrEqual(5);

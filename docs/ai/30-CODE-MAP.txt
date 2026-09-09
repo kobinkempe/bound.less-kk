@@ -16,6 +16,9 @@ src/App.js                  HashRouter. Four routes: home, gallery, editor, 404.
                             /canvas/:canvasId is KEYED on the id so switching
                             canvases remounts the editor and its engine.
 src/reportWebVitals.js      CRA boilerplate, never given a callback. Inert.
+src/polyfills.js            Array.prototype.at for Node 14 and old browsers
+                            (a Loop and a piece array are read alike with it);
+                            imported first by index.js and setupTests.js.
 src/setupTests.js           jest-dom, plus a requestAnimationFrame polyfill
                             because jsdom has none and Two.js's ticker needs one.
 
@@ -96,16 +99,17 @@ src/Components/editor/
 
 STORAGE AND CLOUD
 
-src/storage/db.js              IndexedDB, and why (F33, in the header comment):
-                               one header record per canvas, one record per
-                               frame, thumbnails as JPEG bytes under an LRU
-                               budget, the recycle-bin payloads and the pre-pull
-                               backups, each in its own store. putCanvas writes
-                               only the frames it is given, deletes the ones
-                               that left the set, and refuses an incremental
-                               write that has no base record. Also the one-time
-                               migration out of localStorage, which deletes the
-                               old keys as it goes.
+src/storage/db.js              IndexedDB, and why (F33, in the header comment).
+                               Version 2 (2026-09-08, the kobin-2 store): a
+                               header record per canvas, a frames2 record per
+                               frame (object headers + the raw Float64Array
+                               buffer), a log record per op-log entry; putCanvas2
+                               writes the snapshots it is given, appends entries,
+                               drops entries under the compaction floor, and on a
+                               full write deletes the canvas's v1 frames; getCanvas2
+                               returns the store or `{legacy}` for a v1 canvas.
+                               Thumbnails (JPEG bytes, LRU budget), the recycle-bin
+                               payloads and the pre-pull backups keep their stores.
 src/storage/localCanvases.js   The store's public face. The gallery index and
                                the recycle-bin index stay in localStorage
                                (synchronous, a few KB); everything that touches
@@ -128,7 +132,20 @@ src/cloud/lzWorker.js          lz-string in a Web Worker (public/lz-worker.js,
                                back to the main thread where there is no worker.
                                The cloud payload's compression was 97% of the
                                F33 freeze and the 30 s sync ran it every time.
-src/cloud/canvasSync.js        Firestore. Parent doc carries metadata and
+src/cloud/gzip.js              CompressionStream("gzip") for the cloud chunks,
+                               raw where it is missing, injectable for tests
+                               (Node's zlib). Never lz-string (F64).
+src/cloud/store2.js            The kobin-2 store as chunks: a frame snapshot or a
+                               run of log entries is one format2 chunk, split into
+                               700 KiB parts. Pure; store2.test.js.
+src/cloud/canvasSync.js        Firestore. kobin-2 (2026-09-08): the parent doc is
+                               the MANIFEST (frames {fid: chunk, seq}, log chunks,
+                               seq, device, listing fields) and parts/{chunk~i}
+                               hold the gzipped chunks; cloudPushCanvas2 mirrors
+                               the local store (frames newer than the cloud's,
+                               entries past its seq, manifest last, replaced parts
+                               deleted after) and cloudLoadCanvas2 rebuilds it.
+                               Legacy lz1: parent doc carries metadata and
                                thumbnails; the drawing is lz1-compressed and
                                chunked into 700 KiB binary parts underneath, six
                                parts per commit. THE PARENT IS WRITTEN LAST,
@@ -141,6 +158,32 @@ src/cloud/canvasSync.js        Firestore. Parent doc carries metadata and
 
 THE ENGINE - src/engine/
 
+eraseJob.js         ONE CUT AS A JOB (2026-09-08): cutJob({subject, clip, w,
+                    freezeR, graze}) — the boolean, the removal measured locally
+                    (F46), the graze rule ("cut" in place / "cede" the rehome's),
+                    shapeComponents and dropDust; result {kind: grazed|removed|
+                    cut, regions as Loops, stats, dust}. wireJob/unwireJob and
+                    wireResult/unwireResult carry it between threads as
+                    transferable buffers, bit for bit. Geometry imports only.
+eraseWorkerClient.js runCutAsync(job): a promise from public/erase-worker.js, or
+                    null where there is no Worker (jsdom; then the pipeline runs
+                    cutJob inline). setEraseTransport stands in a transport for
+                    tests. Modelled on cloud/lzWorker.js.
+eraseDescent.js     THE DESCENT AS ONE JOB (2026-09-08, Kobin's design):
+                    descentJob(world, input) runs the rehome descent on a
+                    VirtualDoc (the target read, every cede virtual, negative
+                    ids), squareInkOf deriving each level's square ink as
+                    TileStore._bakeUp does for that one object, cedeVirtual
+                    the parent cut; returns steps (plus `minted`, the frames
+                    the job's lattice copy gained, F67) or a refusal. wireDescent /
+                    unwireDescent carry the target, the eraser and the lattice
+                    (LevelMap.serialize) to the worker; _applyDescent in
+                    erasePipeline swaps the family in with real ids. A test
+                    puts `squareInk` on the world to watch or fault it.
+worker/eraseWorker.js  the worker's entry: unwire, the job by kind (cut or
+                    descent), wire back. Bundled
+                    by `npm run build:worker` (esbuild, iife, es2019) into
+                    public/erase-worker.js, run before start and build.
 KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                     merges the render list. Its quasi-private surface is pinned
                     by KobinEngine.contract.test.js.
@@ -149,9 +192,12 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                     file's prototype back onto this one. They are still this
                     class's methods and still run with `this` bound to the
                     engine - the split was a MOVE, every method byte-identical.
-                      erasePipeline.js  the eraser + the resumable bake  ~930
-                      overlays.js       selection indicator + erase debug ~900
-                      selection.js      select, hit-test, drag            ~390
+                      erasePipeline.js  the eraser + the resumable bake  ~1050
+                                        (2026-09-08: _candidatesUnder from the
+                                        spatial index top-down by z, _lowerMark,
+                                        _applyCut, _onCutResult; DESIGN.md §7)
+                      overlays.js       selection indicator + erase debug ~920
+                      selection.js      select, hit-test, drag            ~420
                       instruments.js    LongFrames, EventLatency,
                                         GrowthLog, FrameMeter            ~295
                       sceneOps.js       auto-scenes                      ~215
@@ -171,11 +217,18 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                                      8 ms slices, standing aside for the pointer
                                      and for a live zoom but never for longer
                                      than 1.5 s
-                      erasing        _bakeOne (cut in place) and _bakeRehome
-                                     (cede a tile, one crossing at a time)
+                      erasing        _bakeOne (cut in place, in the subject's
+                                     own coordinates) and _bakeRehome (cede
+                                     one cache square at a time, one crossing
+                                     at a time, each kid being the tile
+                                     store's own piece - _squareInk, F42)
                       severance      _familyComponents / _resplitFamily
                       selection      _hitTest, _lassoFind (the frame-tree walk),
-                                     _dragSelection (address arithmetic),
+                                     _dragSelection (a move is address
+                                     arithmetic: the displacement, snapped to
+                                     2^-10 units at the move level, goes into
+                                     the object's displacement TABLE and never
+                                     into a coordinate - F41, then F55),
                                      _normalizeHome, _selectionAnts
                       scenes         refreshScenes, captureView, splitScene,
                                      jumpTo
@@ -186,12 +239,28 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                                      journal, reportFamilies, snapshot,
                                      _eraseDebugOverlay, the setXDebug switches
 LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
-                    pure transforms between them. cellChild/neighbour do the
-                    carry arithmetic; displaceFrame is the whole of a deep move;
+                    pure transforms between them. tileRect/tileRange are the
+                    cache square, TileGrid.CACHE's rect and `touching` (the
+                    closed read, frameLattice.js) since 2026-09-07.
+                    cellChild/neighbour do the
+                    carry arithmetic; merge adopts frames another copy minted
+                    and ensureId mints the frame an id names (F67, 2026-09-08);
+                    displaceFrame is the whole of a deep move;
                     framePath/frameFactor/mapRectF/projectF are the transforms,
                     and they go ONE EDGE AT A TIME because a composed long jump
                     cancels catastrophically. _paths caches the tree walk, which
-                    dominated a pan on a seventeen-level document.
+                    dominated a pan on a seventeen-level document. projectF is
+                    a second copy of the object-to-level projection (derive.js
+                    deriveStep is the one the screen shows) and past five
+                    crossings their last bits part by 4096x per crossing; since
+                    F42 the erase no longer uses it for the target's ink (it
+                    reads the tile store), and it serves the down path, the
+                    ring natives and the eraser. objShift (the displacement
+                    table read at a frame: the frame the picture is fetched
+                    from plus the sub-frame remainder paint applies) and
+                    mapPointObj / mapRectObj / projectLoopsObj, the transforms
+                    that add that remainder on the way out of an object's
+                    frame and subtract it on the way in (F41, F55).
 Camera.js           The view transform and the crossing state machine. Owns the
                     active frame, inScale, inPan. _settle crosses until the
                     in-frame zoom is legal AND shifts laterally when the view has
@@ -202,26 +271,75 @@ Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     spatial index, and change events that carry the OLD footprint
                     so the tile cache can invalidate both places. Every mutation
                     goes through _afterEdit. cedeTileById is the erase's tile
-                    cede; eraseReplaceById is the in-place cut; bakeShapeById is
-                    a stroke becoming its perimeter in place, keeping its id.
+                    cede (the parent cut in its own coordinates, F42);
+                    eraseReplaceById is the in-place cut; bakeShapeById is a
+                    stroke becoming its perimeter in place, keeping its id. An
+                    object's `below` - its displacement table, depth 0 = the
+                    home level (F41, F55) - rides the geometry snapshot
+                    (snapGeometry / translateGeometry / scaleGeometry /
+                    setGeometryById) and the file; setOffsetsById is the
+                    drag's own edit (an `offsetsOnly` change event, no
+                    geometry touched); cedeTileById hands a kid the table
+                    shifted to its depth; _offsetIds answers hasOffsets() in
+                    O(1).
 TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     what a render reads [HOT]. Incremental: a document change
                     patches the cached tiles rather than dropping them, except
                     during a drag (setBatch), where an off-screen tile is dropped
                     instead of patched. LRU-bounded globally and per frame.
+                    _upPiecesOver: a child tile whose pre-image straddles two
+                    parent squares takes each object from ONE of them (F42).
+                    The tiles are UNMOVED SPACE (F55): no offset enters a bake;
+                    content() sends a moved object's read through _reroute,
+                    which fetches its pieces from the frame the table names
+                    (LevelMap.objShift) over the window less the remainder.
 Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
                     signature diff, per-scene origins, scene retention, the
-                    fat-stroke outline gate, the thin rescale, and the selection
-                    overlay in raw SVG with a CSS animation.
+                    fat-stroke outline gate, the thin rescale, the arc plan
+                    (pushArcPiece: SVG arc or cubics, F40), the window chop
+                    (_pushArea/_chopFor/_maybeRechop: area pieces clipped to a
+                    +-2^18 px window around the view, F40), the sub-frame
+                    remainder of a moved object's displacement table folded
+                    into the piece's origin (`piece.res`, F41/F55 - the ONLY
+                    place a move reaches the picture), and the selection
+                    overlay in raw SVG with a CSS animation. Since 2026-09-07
+                    `_sig` memoises a shape's measured part (bbox, piece count)
+                    per piece keyed by `_ver`, so a render with nothing changed
+                    no longer walks every arc on screen; and a resolved
+                    perimeter is NOT rendered by the bake (erasePipeline
+                    `_stepShapeBakes` sets `_renderPending`; the next render
+                    paints it) - one render per pen-up, not two.
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
                     Repairs unclosed loops and out-of-range tile phases at the
                     door rather than refusing a whole drawing over one object.
+format2.js          kobin-2 (2026-09-08): objectHeader (the one whitelist, shared
+                    with serializeNatives), a frame as headers + one Float64Array
+                    (encodeObjects/decodeObjects, encodeRecords from kobin-1
+                    records), log entries (encodeEntry/decodeEntry), chunk
+                    pack/unpack. Pure. format2.test.js holds it to kobin-1 bit
+                    for bit.
+oplog.js            The op log: records fresh ops, bake steps, undo/redo and
+                    silent geometry changes as entries with results; drain() for
+                    the saver; replay() onto a loaded document (idempotent,
+                    seq-gated per frame) rebuilding the undo/redo stacks and a
+                    pending eraser's done set; one object per id across the
+                    records, the later state winning (F70). oplog.test.js.
+                    Validates an object's `below` (F41, F55: depth 0 allowed).
+                    Version 2 (F43) only when a shape holds a cut line (code 2
+                    in encodeLoops); everything else is still written as
+                    version 1 and opens in any build.
 scenes.js           Auto-scene clustering. Pure: it never touches LevelMap, and
                     takes an injected projector instead.
 frameLattice.js     The address arithmetic. Pure integers and powers of two.
                     The constants, cellEdge/cellCentre/cellOf, carryDigit,
-                    displacementDigits/applyDigits, and the OBJECT tile grid
-                    (tilePhase, childTilePhase, objTileRect, objTileRange).
+                    displacementDigits/applyDigits, the tile phase (tilePhase,
+                    childTilePhase) and TileGrid (2026-09-07, S1/F36): the one
+                    value type for the three things called a tile. at(phase)
+                    is the object's grid, CACHE the render cache's, and a
+                    frame's own square is CACHE.rect(0, 0); rect/range/span
+                    are the object-grid arithmetic (range HALF-OPEN), touching
+                    the cache's closed read. objTileRect/objTileRange/
+                    objTilesRect remain as wrappers over it.
 scaleBar.js         A one-line facade re-exporting scaleBar/index.
                     (KobinEngineV0.js moved to __oracles__/ - see below.)
 
@@ -238,40 +356,121 @@ arcPerimeter.js     The bake. ChainBuilder (both rails and both caps as ONE
                     circleCircle/circleSegment/segSeg, the exact burial Oracle,
                     and ArcBakeJob - eight resumable phases with a cursor.
                     circleCircle's comment is the F34 root cause; read it before
-                    touching that function.
+                    touching that function. Also the piece primitives the whole
+                    geometry layer shares: since 2026-09-07 the ONE VertexSet
+                    (vertex identity by position) and the ONE reversePiece
+                    (carrying ci, a cut line's P/Q, a cut arc's K) live here;
+                    arcShape imports both.
+types.js            The geometry vocabulary as JSDoc typedefs (S3, 2026-09-07):
+                    Piece (LinePiece | ArcPiece, with the F43 cut fields),
+                    Loop, Shape, Chain, Ring, Rect, BBox, Cells, Phase,
+                    FrameId. Empty at runtime. `npm run typecheck` runs tsc
+                    with checkJs over this directory and frameLattice.js
+                    (tsconfig.geometry.json) - 0 errors is the bar.
+loop.js             A STORED LOOP (2026-09-08, WORKLIST memory step 2): one
+                    Float64Array in the snapshot grammar (ax, ay, then a record
+                    a piece: code 0 line, 1 arc, 2 cut line, 3 cut arc; widths
+                    3/8/9/16) plus a Uint32Array of record offsets. at(i),
+                    iteration and map hand back TRANSIENT piece views shaped
+                    like the piece objects the geometry has always read;
+                    nothing retains or writes through one. Loop.from(pieces)
+                    at the storage boundaries (Document.flattenLoops,
+                    TileStore.flattenAll); Loop.wrap(span) zero-copy over a
+                    kobin-2 frame; translate is a new Loop. encodeLoopInto /
+                    decodePiece are the one grammar (arcShape's encodeLoops
+                    and decodeLoops delegate; format2 copies a Loop's numbers
+                    straight). Imports nothing. Measured: the 12,844-object
+                    canvas's geometry 51 MB counted where piece objects cost
+                    259 MB; Chrome 660 -> 260 MB at load.
 arcShape.js         What the app does with a resolved perimeter: measure
                     (loopArea is exact - chord shoelace plus each arc's circular
                     segment), transform (a similarity maps an arc to an arc and
                     leaves its ANGLES alone, which is why a perimeter crosses a
                     level without being re-resolved), flatten, serialize, repair,
-                    and shapeBoolean - the exact difference/intersection.
+                    and shapeBoolean - the exact difference/intersection. A cut
+                    piece keeps what it was cut from (F43): a LINE its line
+                    (`P`/`Q` canonical, `sa`/`sb` the stretch that survives;
+                    cutLine, reanchorCutLines, encodeLoops code 2), an ARC the
+                    arc the chain would have had (`K`: angles and end points,
+                    `ua`/`ub` the stretch; cutArc, reanchorCutArcs, code 3).
+                    straighten stands in for an arc by its canonical chord
+                    exactly when its radius is at or over the freeze radius
+                    (opts.freezeR, the chain's own gate; freeze.js) and by no
+                    other test - "if it's frozen it's frozen". rayCross, the
+                    winding query behind insideShape/windingAt and the
+                    boolean's own classifier, asks an arc whose radius is at
+                    least its chord in its CHORD FRAME (2026-09-07, roadmap
+                    item 5): through the centre a crossing with a circle of
+                    radius 5e12 was wrong by the centre's float64 step (0.9 px
+                    at the deepest zoom); the chord form is exact, and a ray
+                    that misses the arc is refused by the residual of the
+                    line equation (winding.chord.test.js WC-4 is the case
+                    that got that wrong first).
                     dropDust and dropHairlines are the two "this is not ink"
-                    filters and they measure different things.
+                    filters and they measure different things. Also what an
+                    arc becomes in the SVG (F40): planArc chooses the arc
+                    command while its float32 centre fits the tolerance at
+                    the frame's deepest zoom, else arcCubicCount cubics
+                    (arcSplit into parts, chordCubic from endpoints and sweep
+                    with no centre); pieceToCubics is the quarter-turn
+                    conversion kept for anything that must speak cubics.
 derive.js           One-step bake math, and the seam policy. deriveStep is the
                     edge tier: transform parent objects into the child frame,
                     chop them on the OBJECT's tile grid, freeze what has gone
                     straight, clip to the object's own tile grown by the seam
-                    pad, and emit. classifyUp is the empty/solid/edge tier.
-                    shapeRingsInRect and shapeLoopsInRect are the two clips - one
-                    hands back polygons, one hands back ARCS, and the second is
-                    the F-A fix.
+                    pad, and emit. Nothing about a move enters it (F55; until
+                    2026-09-05 opts.offsetOf added the F41 offset here once,
+                    and that one rounding was 4096x per level below). Its
+                    header carries the 1.0 compatibility note: these bits ARE
+                    every saved drawing's deep picture.
+                    classifyUp is the empty/solid/edge tier. shapeRingsInRect
+                    and shapeLoopsInRect are the two clips - one hands back
+                    polygons, one hands back ARCS, and the second is the F-A
+                    fix. THE HOP IS THE ONE PLACE every level's picture comes
+                    from; the erase reads its results rather than repeating
+                    them (F42).
+offsets.js          An object's DISPLACEMENT TABLE (F41, rebuilt for F55):
+                    `below[k]` in the units of the level k below the home,
+                    k >= 0 (depth 0 is the home level), bounded by half a
+                    frame, carried up as integers; a carry out of depth 0 is a
+                    change of address. snapDisplacement (2^-10 units at the
+                    move level: whole cells from three levels down), addOffset
+                    (the drag), shiftAt (the table read at a depth: whole-frame
+                    digits plus the remainder paint applies), shiftDown /
+                    shiftUp (a ceded kid, a promotion), encode / decode (the
+                    file). The header is the design in full, with Kobin's
+                    words for it.
 antRuns.js          The selection indicator's geometry on ARCS - nothing
                     flattened. pieceLength (r·sweep), onRectEdge (a straight
                     piece lying on the rectangle that cut it is a seam),
                     loopRuns (a loop split into runs at its seams), runPathData
-                    (arcs as the cubics the ink uses), clipRunToRect (a boundary
+                    (arcs as the SVG arcs the ink uses), clipRunToRect (a boundary
                     cut to a window piece by piece), edgeSpans (where the ink
                     meets a side of the view: a winding scan of the boundary
                     against the side's line, holes handled), insideLoops.
                     Lines, arcs, and the cubic capsules of unresolved strokes.
-freeze.js           The chop and the freeze. pieceSagitta is (chord/2)*|tan(sweep/4)|
-                    - the bulge form, so the CENTRE NEVER APPEARS and a radius of
-                    1e18 cannot spoil the test. markSeamEnds marks the ends the
-                    overhang clip made so the level below will not freeze on one.
+freeze.js           The chop and the freeze. THE FREEZE IS ONE RADIUS (Kobin,
+                    2026-09-06): freezeRadius(tol) is the radius whose bow
+                    over a tile diagonal is the tolerance (~8.8e12, the same
+                    at every level); an arc at or over it freezes wherever it
+                    is, one under it stays; the one guard is both ends between
+                    the chop's lines. chordFrame / chordLineRoots / chordCuts /
+                    chordPt / chordHit find where a line meets an arc about to
+                    freeze from its chord and bulge, never its centre (F44
+                    layer 3, the part the gate needs); chordLineRoots takes any
+                    unit normal, so arcShape's winding query asks it with the
+                    ray's (2026-09-07) and the chop with an axis, bit for bit
+                    as before. pieceSagitta (the bulge form) is now only the
+                    chop's bounding box. The seam marks (markSeamEnds) went on
+                    2026-09-07: the endpoint guard is the whole rule.
+                    tileWindow/tileClipRect delegate to TileGrid.
 curveOutline.js     Curve capsules: a fat stroke's outline as closed loops of
                     cubics, built once and exact at every in-level zoom.
                     strokeLoops is the ONE definition of "how a stroke becomes an
                     outline", shared by the renderer and the eraser.
+                    cubicLoopsBBox (was loopsBbox, one letter from arcShape's
+                    loopsBBox until 2026-09-07) is the cubic loops' box; only
+                    the erase oracle reads it.
 polyline.js         [HOT] Pure float64, no integer lattice, no coordinate
                     ceiling. flattenCurve/flattenCurveNear (the exact Two.js
                     spline), clipRingsToRect (float Sutherland-Hodgman with a
@@ -290,7 +489,9 @@ connect.js          Contact along a shared tile edge, as intervals in a
                     arcOverlaps / tOfPoint, plus Groups (union-find).
                     arcsTouch requires a shared STRETCH, not a shared point.
 hittest.js          distToPolyline and windingOfPoint are what the engine picks
-                    with. distSegToSeg/distSegToPolyline/capsuleTouchesRings are
+                    with; windingOfPoint is polyline's windingAt re-exported
+                    (2026-09-07 - the two were identical copies).
+                    distSegToSeg/distSegToPolyline/capsuleTouchesRings are
                     [TEST]-only survivors of the old sweep eraser.
 lasso.js            rectInsidePolygon: exact, and deliberately not a corner test.
 

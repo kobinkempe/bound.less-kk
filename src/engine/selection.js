@@ -20,6 +20,7 @@ import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
 import { insideShape } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
+import { addOffset, sameBelow, snapDisplacement, hasOffsets } from "./geometry/offsets";
 
 const REACH = (3 * FRAME_W) / 2;
 
@@ -166,8 +167,17 @@ class Selection {
     _rectInActive(o, level) {
         const b = bboxOf(o, this.store.live);
         const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
-        return this.lm.mapRectF(
-            { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m }, level, this.cam.frame);
+        const rect = { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m };
+        if (!o.below) return this.lm.mapRectF(rect, level, this.cam.frame);
+        // An object with a displacement table (F41/F55) is drawn where its
+        // picture is; `mapRectObj` answers exactly that.
+        return this.lm.mapRectObj(rect, level, this.cam.frame, o.below, level);
+    }
+    /** A point of native `o` (homed at `level`), in the active frame's units, where its picture is. */
+    _objPointInActive(o, level, p) {
+        const F = this.cam.frame;
+        if (!o.below) return level === F ? p : this.lm.mapPointF(p, level, F);
+        return this.lm.mapPointObj(p, level, F, o.below, level);
     }
 
     /**
@@ -210,8 +220,9 @@ class Selection {
         }
         const found = [];
         const ink = loopTester(everyNth(poly, LASSO_LOOP_MAX_PTS));
+        // An object with a displacement table is judged where its picture is, below (F69).
         const takeAll = (id) => {
-            for (const o of this.doc.at(id)) if (!o.erase) found.push(o.id);
+            for (const o of this.doc.at(id)) if (!o.erase && !hasOffsets(o.below)) found.push(o.id);
             for (const c of this.lm.childrenOf(id)) takeAll(c.id);
         };
         // `s`/`tx`/`ty` carry the frame's coordinates into the active frame's.
@@ -254,6 +265,24 @@ class Selection {
             visit(child.parent, s, tx, ty, child.id);
             child = this.lm.frame(child.parent);
         }
+        // A MOVED OBJECT OR A CEDED KID IS INDEXED AT ITS STORED BITS and drawn elsewhere
+        // (F41/F55), so the frames' indexes above never see its picture — a loop around
+        // moved ink selected nothing (F69, Kobin's report 21-23-56). Every object with a
+        // table, judged where it is drawn.
+        if (this.doc.hasOffsets()) {
+            const have = new Set(found);
+            const F = this.cam.frame;
+            for (const id of this.doc.offsetIds()) {
+                if (have.has(id)) continue;
+                const rec = this.doc.getById(id);
+                if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
+                const r = this._rectInActive(rec.obj, rec.level);
+                if (!r) continue;
+                if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
+                if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
+                if (this._inkInsidePolygon(rec.obj, rec.level, ink)) found.push(id);
+            }
+        }
         // A RE-HOMED FAMILY IS ONE OBJECT, and "fully bounded by the loop" is
         // asked of the whole of it: a loop around a ceded tile alone has not
         // bounded the object the tile is part of, and must not take it.
@@ -262,7 +291,7 @@ class Selection {
         const set = new Set(found);
         const whole = new Map();
         const out = [];
-        for (const id of found) {
+        for (const id of set) {
             const rec = this.doc.getById(id);
             if (!rec) continue;
             const key = this.doc.editKey(rec.obj);
@@ -287,8 +316,7 @@ class Selection {
         if (f == null) return false;
         const pxPerUnit = this.cam.inScale * f;
         if (!(pxPerUnit > 0)) return false;
-        const F = this.cam.frame;
-        const toActive = (p) => (level === F ? p : this.lm.mapPointF(p, level, F));
+        const toActive = (p) => this._objPointInActive(o, level, p);
         // BEFORE FLATTENING ANYTHING: the points the object already has. A
         // shape's arc endpoints, a fill's vertices, a stroke's samples — a
         // few hundred of them, mapped and asked one by one. Any of them
@@ -409,10 +437,14 @@ class Selection {
             if (!rec || !keys.has(this.doc.editKey(rec.obj))) continue;
             const b = bboxOf(o, this.store.live);
             const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
-            left = Math.min(left, b.x0 - m); top = Math.min(top, b.y0 - m);
-            right = Math.max(right, b.x1 + m); bottom = Math.max(bottom, b.y1 + m);
+            const rx = o.res ? o.res[0] : 0, ry = o.res ? o.res[1] : 0;   // drawn shifted by its residual (F41)
+            left = Math.min(left, b.x0 - m + rx); top = Math.min(top, b.y0 - m + ry);
+            right = Math.max(right, b.x1 + m + rx); bottom = Math.max(bottom, b.y1 + m + ry);
         }
         if (left !== Infinity) return { level: this.cam.frame, rect: { left, top, right, bottom } };
+        // Not drawn (culled from the list): where its picture is, through its table (F68).
+        const r = this._rectInActive(s.obj, s.level);
+        if (r) return { level: this.cam.frame, rect: r };
         const b = bboxOf(s.obj, this.store.live);
         const m = s.obj.type === "fill" ? 0 : (s.obj.lwFrame || 0) / 2;
         return { level: s.level, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
@@ -450,47 +482,73 @@ class Selection {
     _dragSelection(sx, sy) {
         const d = this._dragSel;
         d.last = [sx, sy];                   // where the pointer is now; the indicator rides on it
-        const tx = (sx - d.start[0]) / this.cam.inScale;
-        const ty = (sy - d.start[1]) / this.cam.inScale;
+        // THE DISPLACEMENT, ON THE LEVEL'S GRID (F55). Snapped to 2^-10 of the
+        // camera level's unit — a quarter pixel at that level's deepest zoom,
+        // far finer at any shallower one (Kobin: "if it's precise to the
+        // quarter pixel, that's good enough, and cheapens addressing"). A
+        // snapped displacement is whole cells from three levels below the
+        // move; a raw float takes five. Fixed per level, not per zoom, so the
+        // same move gives the same digits every time.
+        const tx = snapDisplacement((sx - d.start[0]) / this.cam.inScale);
+        const ty = snapDisplacement((sy - d.start[1]) / this.cam.inScale);
         const camDepth = this.cam.activeLevel;
         let moved = false;
+        // A member the drag could not move, and why. Nothing used to record
+        // these (F35): a selection that moves "together" with one member left
+        // behind is precisely the reported symptom, and the report carried no
+        // trace of the decision. Journaled with the move at pen-up.
+        const skip = (id, level, why) => { (d.skipped || (d.skipped = [])).push({ id, level, why }); };
         for (const rec of this._selectionMembers()) {
             const id = rec.obj.id;
             let st = d.moves.get(id);
             if (!st) {
                 st = { from: rec.level, to: rec.level, dx: 0, dy: 0, base: Document.snapGeometry(rec.obj) };
+                st.below = st.base.below;
                 d.moves.set(id, st);
             }
             const depth = this.lm.depthOf(st.from);
-            if (depth == null) continue;
+            if (depth == null) { skip(id, st.from, "home frame has no depth"); continue; }
 
-            let frame = st.from, wantX, wantY;
+            // NOTHING A MOVE DOES REACHES A STORED COORDINATE (F55). Every
+            // member takes the same displacement into its own table, at the
+            // camera's depth below its home: whole frames carry upward as
+            // integers, a carry out of the home level is a change of ADDRESS
+            // (the member re-homed to the neighbour cell, coordinates
+            // untouched), and the sub-frame remainders are applied at paint.
+            // Before this, the displacement was added into the coordinates at
+            // the home level, or into the hop at the move level (F41), and that
+            // one rounding — half an ulp, invisible there — was magnified 4096x
+            // per level below, parting a coarse object from detail drawn three
+            // or more levels down (Kobin's star in the corner; F35). A member
+            // DEEPER than the camera is re-addressed by the displacement's cell
+            // digits and takes the rest, under one frame, into its own table at
+            // its home level — zero when it is three or more levels down, since
+            // the snap leaves nothing for the digits not to express.
+            let frame = st.from, table, cellX, cellY;
             if (depth <= camDepth) {
-                // Coarser than (or level with) the camera: the displacement in
-                // this object's units is bounded by the drag itself — it shrinks
-                // by R per level of separation — so plain translation is exact
-                // and re-homing waits for pen-up (_normalizeHome).
-                const f = this.lm.frameFactor(this.cam.frame, st.from);
-                if (f == null) continue;
-                wantX = tx * f; wantY = ty * f;
+                const r = addOffset(st.base.below, camDepth - depth, tx, ty);
+                table = r.below; cellX = r.cellX; cellY = r.cellY;
             } else {
-                // Deeper than the camera: address arithmetic. Everything a whole
-                // cell or more becomes a change of frame; only the remainder,
-                // which is under one frame at any depth, reaches geometry.
                 const put = this.lm.displaceFrame(st.from, camDepth, tx, ty);
-                if (!put) continue;
+                if (!put) { skip(id, st.from, "displaceFrame refused: no frame at the camera's depth on this member's ancestry"); continue; }
                 frame = put.frame.id;
-                wantX = put.rest[0]; wantY = put.rest[1];
+                const r = addOffset(st.base.below, 0, put.rest[0], put.rest[1]);
+                table = r.below; cellX = r.cellX; cellY = r.cellY;
             }
-
+            if (cellX || cellY) {
+                const n = this.lm.neighbour(frame, cellX, cellY);
+                if (!n) { skip(id, st.from, "no neighbour cell for the carry"); continue; }
+                frame = n.id;
+            }
+            // From the drag's START, never from the last event: that is what
+            // makes a slow drag land exactly where a fast one does.
             if (frame !== st.to) { this.doc.rehomeById(id, frame); st.to = frame; moved = true; }
-            if (wantX !== st.dx || wantY !== st.dy) {
-                // From the drag's START, never from the last event: that is what
-                // makes a slow drag land exactly where a fast one does.
-                this.doc.setGeometryById(id, Document.translateGeometry(st.base, wantX, wantY));
-                st.dx = wantX; st.dy = wantY;
+            if (!sameBelow(table, st.below)) {
+                this.doc.setOffsetsById(id, table);
+                st.below = table;
                 moved = true;
             }
+            st.dx = tx; st.dy = ty;              // for the journal: the snapped displacement, camera units
         }
         d.moved = d.moved || moved;
         this._render();
@@ -534,12 +592,28 @@ class Selection {
         }
         return out;
     }
+    /**
+     * Delete everything selected, families included, as ONE undoable action.
+     *
+     * This used to call `_eraseWhole` once per selected id, and each call
+     * pushed its own undo op — so a lasso of three strokes and Delete needed
+     * three Ctrl+Z to come back, one object at a time (measured 2026-09-05).
+     * The user did one thing; the history records one thing.
+     */
     deleteSelection() {
         const s = this.selection; if (!s) return false;
-        const ids = [...s.ids];
-        let any = false;
-        for (const id of ids) { if (this.doc.getById(id) && this._eraseWhole(id)) any = true; }
-        if (!any) return false;
+        const records = [];
+        const seen = new Set();
+        for (const id of [...s.ids]) {
+            for (const m of this.doc.editGroup(id)) {
+                if (seen.has(m.obj.id)) continue;
+                seen.add(m.obj.id);
+                const rec = this.doc.removeById(m.obj.id);
+                if (rec) records.push(rec);
+            }
+        }
+        if (!records.length) return false;
+        this.doc.pushUndo({ op: "eraseMany", records });
         this.deselect();
         this._render();
         return true;
@@ -570,12 +644,17 @@ class Selection {
      * REMOVES it, ctrl anywhere else ADDS, and the sign shown has to match.
      */
     hitTestAt(sx, sy) { return this._hitTest(sx, sy); }
-    _hitTest(sx, sy) {
-        const p = this.cam.screenToFrame(sx, sy);
+    // `slackPx`: how far past the ink a pick still counts, in screen pixels.
+    // Six for every real pick; tests that ask "is this point INSIDE the ink"
+    // (a hole a few pixels wide, seen from far above) pass 0.
+    _hitTest(sx, sy, slackPx = 6) {
+        const p0 = this.cam.screenToFrame(sx, sy);
         const list = this._lastList;
-        const slack = 6 / this.cam.inScale;
+        const slack = slackPx / this.cam.inScale;
         for (let i = list.length - 1; i >= 0; i--) { // topmost first
             const o = list[i];
+            // A piece drawn shifted by its residual (F41) is hit where it is drawn.
+            const p = o.res ? [p0[0] - o.res[0], p0[1] - o.res[1]] : p0;
             let hit = false;
             if (o.type === "shape") {
                 // Bounding box first. A resolved perimeter answers "inside"
@@ -588,7 +667,22 @@ class Selection {
                     || p[1] < b.y0 - slack || p[1] > b.y1 + slack) continue;
                 hit = this._shapeHit(o.loops, p, slack);
             }
-            else if (o.type === "fill") hit = windingOfPoint(o.polys, p) !== 0;
+            else if (o.type === "fill") {
+                // The same reach as a shape gets. A fill here is almost always
+                // a TILE PIECE — ink seen from a level other than its home —
+                // and until 2026-09-05 it was tested bare, so the same stroke
+                // that picked at 13 px off-centre at home missed at 9 px when
+                // shown as a down piece. Bounding box first, for the reason
+                // given above: a piece can carry thousands of vertices.
+                const b = bboxOf(o, this.store.live);
+                if (p[0] < b.x0 - slack || p[0] > b.x1 + slack
+                    || p[1] < b.y0 - slack || p[1] > b.y1 + slack) continue;
+                hit = windingOfPoint(o.polys, p) !== 0;
+                for (let k = 0; k < 8 && !hit && slack > 0; k++) {
+                    const a = (k * Math.PI) / 4;
+                    hit = windingOfPoint(o.polys, [p[0] + slack * Math.cos(a), p[1] + slack * Math.sin(a)]) !== 0;
+                }
+            }
             else {
                 const pts = (o.origin === "native" && o.pts.length > 2) ? flattenCurve(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter) : o.pts;
                 hit = distToPolyline(pts, p) <= o.lwFrame / 2 + slack;

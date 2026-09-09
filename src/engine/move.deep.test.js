@@ -21,9 +21,9 @@
  * exact rather than approximate on purpose: "within a percent" is what the old
  * build passed for four levels before falling off a cliff at five.
  */
-import { useEngines, mkEngine, drawStroke, descend, erase } from "./__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, descend, erase, objPointIn } from "./__testkit__/harness";
 import { loopsBBox, loopsArea } from "./geometry/arcShape";
-import { HALF_W, W, R } from "./frameLattice";
+import { HALF_W, W } from "./frameLattice";
 
 jest.setTimeout(300000);
 useEngines();
@@ -39,12 +39,13 @@ const bboxOf = (o) => loopsBBox(o.loops);
 const geomOf = (o) => JSON.stringify((o.loops || []).map((loop) => loop.map((p) => (p.line
     ? [0, p.A[0], p.A[1], p.B[0], p.B[1]]
     : [1, p.A[0], p.A[1], p.B[0], p.B[1], p.C[0], p.C[1], p.r, p.a0, p.sweep]))));
-// Where an object sits, in ONE reference frame's units, so two objects at
-// different depths can be compared at all.
+// Where an object's PICTURE sits, in ONE reference frame's units, so two
+// objects at different depths can be compared at all. Through the object's
+// displacement table (F55): a move never touches a coordinate, so where the
+// bits are is not where the ink is.
 const worldAt = (E, rec, ref = "0") => {
     const b = bboxOf(rec.obj);
-    const p = E.lm.mapPointF([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2], rec.level, ref);
-    return p;
+    return objPointIn(E, rec, [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2], ref);
 };
 const recOf = (E, id) => E.doc.getById(id);
 

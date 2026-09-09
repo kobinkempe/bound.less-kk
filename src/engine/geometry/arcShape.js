@@ -35,7 +35,14 @@
  * Relative orientation between an outer loop and its holes is preserved, which
  * is what a global flip cannot disturb.
  */
-import { ptAt, paramOf, pieceBBox, subPiece, pieceIntersections, Grid } from "./arcPerimeter";
+import { ptAt, paramOf, pieceBBox, subPiece, pieceIntersections, Grid, canonAt, canonPos, cutLine, lineCrossSeg,
+    canonArc, arcDir, arcPos, arcPieceOf, cutArc, circleCrossSeg, reversePiece, VertexSet } from "./arcPerimeter";
+import { DEFAULT_FREEZE_R, chordFrame, chordLineRoots, chordHit } from "./freeze";
+import { Loop, encodeLoopInto, decodePiece } from "./loop";
+
+// The one `reversePiece` lives with the stitch (arcPerimeter); the boolean's
+// consumers have always imported it from here.
+export { reversePiece };
 
 const TAU = Math.PI * 2;
 const wrap = (d) => d - TAU * Math.floor(d / TAU);
@@ -56,19 +63,9 @@ export function pieceTangent(p, s) {
     return [-Math.sin(th) * g, Math.cos(th) * g];
 }
 
-/** The same piece travelled the other way. Never mutates the original. */
-export function reversePiece(p) {
-    if (p.line) return { line: true, A: p.B, B: p.A, src: p.src };
-    const q = { line: false, C: p.C, r: p.r, a0: p.a0 + p.sweep, sweep: -p.sweep, A: p.B, B: p.A, src: p.src };
-    // The marks name ENDS, so they travel with the ends they name.
-    if (p.seamB) q.seamA = true;
-    if (p.seamA) q.seamB = true;
-    return q;
-}
-
 export function reverseLoop(loop) {
     const out = new Array(loop.length);
-    for (let i = 0; i < loop.length; i++) out[i] = reversePiece(loop[loop.length - 1 - i]);
+    for (let i = 0; i < loop.length; i++) out[i] = reversePiece(loop.at(loop.length - 1 - i));
     return out;
 }
 
@@ -107,7 +104,7 @@ export function loopArea(loop) {
     // the whole answer for anything small. It also makes the number meaningful
     // for a chain that did not close — the shoelace closes it with a chord,
     // which is exactly what a hairline test wants to measure.
-    const ox = loop[0].A[0], oy = loop[0].A[1];
+    const ox = loop.at(0).A[0], oy = loop.at(0).A[1];
     let a = 0;
     for (const p of loop) {
         a += (p.A[0] - ox) * (p.B[1] - oy) - (p.B[0] - ox) * (p.A[1] - oy);
@@ -115,9 +112,28 @@ export function loopArea(loop) {
     a /= 2;
     for (const p of loop) {
         if (p.line || !isFinite(p.r)) continue;
-        a += (p.r * p.r * (p.sweep - Math.sin(p.sweep))) / 2;
+        a += (p.r * p.r * segmentTerm(p.sweep)) / 2;
     }
     return a;
+}
+/**
+ * `theta - sin(theta)`, the circular-segment factor, WITHOUT the cancellation.
+ *
+ * Written literally it is the difference of two numbers that agree to
+ * theta^3/6, and for the pieces this app actually holds at depth that is
+ * nothing at all: a level-3 picture of an ordinary curve is an arc of radius
+ * ~6e12 sweeping ~2e-8 radians, whose cubic term (1.5e-24) is below one ulp of
+ * the sweep itself (3.3e-24), so `sweep - Math.sin(sweep)` is rounding noise
+ * of either sign, and times r^2/2 that noise is +-60 units^2 (F46, 2026-09-05:
+ * the erase's grazing test read a 12-px nick at level 3 as having ADDED 24
+ * units^2 of ink and refused it). The series has no subtraction in it. Three
+ * terms are exact to double precision below 1e-2 rad (the next term is 1.6e-17
+ * of the first there).
+ */
+export function segmentTerm(theta) {
+    if (Math.abs(theta) > 1e-2) return theta - Math.sin(theta);
+    const t3 = theta * theta * theta;
+    return t3 / 6 - (t3 * theta * theta) / 120 + (t3 * t3 * theta) / 5040;
 }
 
 /** Length of a loop's boundary, arcs measured along the arc. */
@@ -193,9 +209,15 @@ export function meanWidth(loops) {
  * has ceased to exist belongs to the caller, not to a filter.
  */
 export const DUST_FRACTION = 0.01;
-export function dropDust(groups, pen) {
-    if (!(pen > 0) || !groups.length) return groups;
-    const keep = groups.filter((g) => meanWidth(g) >= pen * DUST_FRACTION);
+export function dropDust(groups, pen, bar) {
+    if (!groups.length) return groups;
+    // An erase judges dust by the VIEW the mark was made in (Kobin, 2026-09-08, F66):
+    // `bar` is the width that is basically invisible at that zoom, in the subject's
+    // units (eraseJob.DUST_PX), and it replaces the pen rule. Without a view (a rect
+    // cut, a legacy mark with no recorded zoom) the pen rule stands.
+    const t = bar > 0 ? bar : pen > 0 ? pen * DUST_FRACTION : 0;
+    if (!(t > 0)) return groups;
+    const keep = groups.filter((g) => meanWidth(g) >= t);
     return keep.length ? keep : groups;
 }
 
@@ -265,12 +287,60 @@ function rayCross(flat, p, dx, dy) {
             if (u * elen <= eps || (1 - u) * elen <= eps) return null;  // through a vertex
             w += den > 0 ? 1 : -1;
         } else {
+            // AN ARC OVER ITS CHORD'S LENGTH IS ASKED IN ITS CHORD FRAME
+            // (2026-09-07). Through the centre, the ray's crossing with a
+            // circle of radius 5e12 comes from cancelling |p − C|² against
+            // r², and the answer is wrong by the centre's own float64 step:
+            // measured as 0.9 px at the deepest zoom on the jsdom instrument
+            // (the F44 depth tests read the edge off the pieces to get round
+            // it), and this is also the boolean's own classifier next to the
+            // freeze gate. The chord frame (freeze.js `chordFrame`) never
+            // touches the centre: the point is the chord's midpoint plus a
+            // height that is a ratio of moderate numbers, and the cut is the
+            // same equation the chop solves for a grid line, with the ray's
+            // normal in place of the axis. Minor arcs only — the height form
+            // describes the arc on the bulge side of its chord — and only
+            // where the radius is at least the chord, which is where the
+            // centre form starts to lose to it.
+            const arcLen = Math.abs(q.r * q.sweep);
+            const cf = Math.abs(q.sweep) < Math.PI ? chordFrame(q) : null;
+            if (cf && cf.r >= cf.L) {
+                const eps = (pm + Math.abs(q.A[0]) + Math.abs(q.A[1]) + cf.L) * GRAZE;
+                // A root that does not satisfy the line is not a crossing: a
+                // ray that misses the arc still gets roots from the first-order
+                // quadratic (see `chordLineRoots`), and one that misses it by
+                // δ near a tangency gets two, each with a residual of about δ.
+                // A converged root's residual is rounding noise in the terms
+                // of the line equation — a few ulps of the point, the chord's
+                // midpoint and the chord — so the bar sits a few thousand ulps
+                // above that and no lower: at 1e-7 of the chord, a horizontal
+                // ray 2e-7 above the top of a 175-unit circle counted its two
+                // fictional roots as two crossings (measured 2026-09-07, the
+                // CX-4 edge).
+                const resTol = 1e-12 * (pm + Math.abs(cf.Mx) + Math.abs(cf.My) + cf.L);
+                for (const { a, res } of chordLineRoots(cf, -dy, dx, -dy * p[0] + dx * p[1], 200)) {
+                    if (!(res <= resTol)) continue;
+                    const h = chordHit(cf, a);
+                    const t = (h.x - p[0]) * dx + (h.y - p[1]) * dy;
+                    if (t < -eps) continue;
+                    if (h.s < 0 || h.s > 1) {
+                        if ((h.s < 0 ? -h.s : h.s - 1) * arcLen <= eps) return null;
+                        continue;
+                    }
+                    if (Math.abs(t) <= eps) return null;                        // standing on the arc
+                    if (h.s * arcLen <= eps || (1 - h.s) * arcLen <= eps) return null;  // through an end
+                    const tl = Math.hypot(h.tx, h.ty);
+                    const cross = (-h.tx * dy + h.ty * dx) / tl;                 // T · perp(d)
+                    if (Math.abs(cross) <= 1e-12) return null;                   // ray tangent to it
+                    w += cross > 0 ? 1 : -1;
+                }
+                continue;
+            }
             const fx = p[0] - q.C[0], fy = p[1] - q.C[1];
             const fd = fx * dx + fy * dy;
             const disc = fd * fd - (fx * fx + fy * fy - q.r * q.r);
             if (disc < 0) continue;
             const sq = Math.sqrt(disc);
-            const arcLen = Math.abs(q.r * q.sweep);
             const eps = (pm + Math.abs(q.C[0]) + Math.abs(q.C[1]) + q.r) * GRAZE;
             for (const t of [-fd - sq, -fd + sq]) {
                 if (t < -eps) continue;
@@ -305,6 +375,84 @@ const DIRS = [];
 for (let i = 0; i < 8; i++) {
     const a = i * 2.39996322972865332;      // golden angle
     DIRS.push([Math.cos(a), Math.sin(a)]);
+}
+
+/**
+ * The winding query over one shape, asked many times: the boolean classifies every
+ * fragment of A against B and of B against A, and a scan of the other shape per
+ * fragment made a cut of a 641-piece object by a 1,205-piece eraser cost 2.6 s with
+ * seven crossings (measured 2026-09-08, erase.stuck.probe). Per ray direction the
+ * pieces are bucketed by the extent of their box along the ray's NORMAL, so a query
+ * visits only pieces whose box straddles the ray's line — the rest cannot cross it and
+ * `rayCross` would have added nothing for them. Built lazily per direction (the first
+ * answers nearly every query); the answer is `rayCross`'s own, piece for piece.
+ */
+// Dev/probe switch: `_setRayIndex(false)` makes every winding query the flat scan again.
+let RAY_INDEX = true;
+export function _setRayIndex(on) { RAY_INDEX = !!on; }
+class RayIndex {
+    constructor(flat) {
+        this.flat = flat;
+        this.byDir = new Array(DIRS.length);
+        // A small shape is scanned as it was: below ~32 pieces the buckets cost more
+        // than they save (the fuzz suite's cuts, 20-80 pieces a side, ran 9 ms with them).
+        this.stamp = RAY_INDEX && flat.length >= 32 ? new Uint32Array(flat.length) : null;
+        this.q = 0;
+    }
+    _index(k) {
+        let ix = this.byDir[k];
+        if (ix) return ix;
+        const [dx, dy] = DIRS[k], nx = -dy, ny = dx;
+        const n = this.flat.length;
+        const lo = new Float64Array(n), hi = new Float64Array(n);
+        let min = Infinity, max = -Infinity;
+        for (let i = 0; i < n; i++) {
+            const q = this.flat[i], [bx0, by0, bx1, by1] = pieceBBox(q);
+            const c0 = bx0 * nx + by0 * ny, c1 = bx1 * nx + by0 * ny, c2 = bx0 * nx + by1 * ny, c3 = bx1 * nx + by1 * ny;
+            // An arc's box comes through its centre, which at a radius of 1e13 is a
+            // few thousandths off (F44); pad by the magnitudes so no piece that could
+            // cross a ray is left out of the buckets it belongs in.
+            const pad = 1e-12 * (Math.max(Math.abs(bx0), Math.abs(bx1), Math.abs(by0), Math.abs(by1)) + (q.line ? 0 : Math.abs(q.r)));
+            lo[i] = Math.min(c0, c1, c2, c3) - pad; hi[i] = Math.max(c0, c1, c2, c3) + pad;
+            if (lo[i] < min) min = lo[i]; if (hi[i] > max) max = hi[i];
+        }
+        const count = Math.max(1, Math.min(512, Math.ceil(n / 4)));
+        const span = max - min;
+        const step = span > 0 ? span / count : 1;
+        const buckets = new Array(count);
+        for (let i = 0; i < count; i++) buckets[i] = [];
+        for (let i = 0; i < n; i++) {
+            const b0 = Math.max(0, Math.min(count - 1, Math.floor((lo[i] - min) / step)));
+            const b1 = Math.max(0, Math.min(count - 1, Math.floor((hi[i] - min) / step)));
+            for (let b = b0; b <= b1; b++) buckets[b].push(i);
+        }
+        ix = { nx, ny, min, step, count, buckets };
+        this.byDir[k] = ix;
+        return ix;
+    }
+    _candidates(k, p) {
+        const ix = this._index(k);
+        const c = p[0] * ix.nx + p[1] * ix.ny;
+        const b = Math.floor((c - ix.min) / ix.step);
+        if (b < -1 || b > ix.count) return [];
+        // The bucket the line falls in and its two neighbours: a piece is registered in
+        // every bucket its extent spans, so this covers the line plus a margin far wider
+        // than rayCross's own grazing tolerance.
+        const out = [], stamp = this.stamp, q = ++this.q, flat = this.flat;
+        for (let j = Math.max(0, b - 1); j <= Math.min(ix.count - 1, b + 1); j++) {
+            for (const i of ix.buckets[j]) if (stamp[i] !== q) { stamp[i] = q; out.push(flat[i]); }
+        }
+        return out;
+    }
+    winding(p) {
+        if (!this.stamp) return windingOfFlat(this.flat, p);
+        for (let k = 0; k < DIRS.length; k++) {
+            const [dx, dy] = DIRS[k];
+            const w = rayCross(this._candidates(k, p), p, dx, dy);
+            if (w !== null) return w;
+        }
+        return null;
+    }
 }
 
 export function flatPieces(loops) {
@@ -350,24 +498,61 @@ export function spanOf(loops) {
  */
 export function transformLoops(loops, f, tx, ty) {
     const pt = (q) => [q[0] * f + tx, q[1] * f + ty];
-    return loops.map((loop) => loop.map((p) => (p.line
-        ? { line: true, A: pt(p.A), B: pt(p.B), src: p.src }
-        : seam(p, { line: false, C: pt(p.C), r: p.r * f, a0: p.a0, sweep: p.sweep, A: pt(p.A), B: pt(p.B), src: p.src }))));
+    return loops.map((loop) => shareCutEnds(loop.map((p) => (p.line ? mapLine(p, pt) : mapArc(p, pt, f)))));
+}
+/**
+ * An arc piece through a transform: the centre and the ends as points, the
+ * radius scaled, the angles untouched. A CUT arc (F43) carries its canonical
+ * arc through the same way — its end points mapped, its angles and the
+ * piece's positions on it untouched.
+ */
+function mapArc(p, pt, f) {
+    const q = { line: false, C: pt(p.C), r: p.r * f, a0: p.a0, sweep: p.sweep, A: pt(p.A), B: pt(p.B), src: p.src };
+    if (p.K) {
+        q.K = { a0: p.K.a0, sweep: p.K.sweep, A: pt(p.K.A), B: pt(p.K.B) };
+        q.ua = p.ua; q.ub = p.ub;
+    }
+    return q;
 }
 
 /**
- * Carry the SEAM-OVERHANG marks (freeze.js) across a transform. They say "this
- * end is where the overlap band was cut, not where the object ends", which is a
- * fact about the piece and not about which frame it is being read in — so it has
- * to survive every hop, or the level below will freeze a chord the neighbouring
- * tile does not agree with.
+ * A line piece through a transform. A CUT line (F43) transforms its canonical
+ * points and RECOMPUTES its ends from their positions on the transformed line,
+ * rather than transforming the ends: the end an erase made carries the
+ * rounding of that erase, and carried as a point that rounding would be
+ * magnified 4096x per level below; recomputed, the end is on the line to this
+ * level's own precision at every level, and nothing accumulates.
  */
-function seam(p, q) {
-    if (p.seamA) q.seamA = true;
-    if (p.seamB) q.seamB = true;
+function mapLine(p, pt) {
+    const q = { line: true, A: pt(p.A), B: pt(p.B), src: p.src };
+    if (p.P) {
+        q.P = pt(p.P); q.Q = pt(p.Q); q.sa = p.sa; q.sb = p.sb;
+        q.A = canonAt(q.P, q.Q, q.sa);
+        q.B = canonAt(q.P, q.Q, q.sb);
+    }
     return q;
 }
-export function translateLoops(loops, dx, dy) { return transformLoops(loops, 1, dx, dy); }
+/**
+ * A recomputed end is written into the neighbour that shares the vertex, so
+ * the loop stays closed bit for bit — consecutive pieces share their endpoint
+ * ARRAY, and that is what the file format and the stitch rely on. Where two
+ * cut lines meet, the later one's start wins; deterministic, and an ulp.
+ */
+function shareCutEnds(loop) {
+    const n = loop.length;
+    if (n < 2) return loop;
+    for (let i = 0; i < n; i++) {
+        const p = loop[i];
+        if (!p.P) continue;
+        loop[(i + n - 1) % n].B = p.A;
+        loop[(i + 1) % n].A = p.B;
+    }
+    return loop;
+}
+
+export function translateLoops(loops, dx, dy) {
+    return loops.map((l) => (l instanceof Loop ? l.translate(dx, dy) : transformLoops([l], 1, dx, dy)[0]));
+}
 
 /**
  * The same similarity, written so MAGNIFICATION IS EXACT: subtract the cell
@@ -385,11 +570,13 @@ export function translateLoops(loops, dx, dy) { return transformLoops(loops, 1, 
  * larger operand's ulp and needs far fewer than 53 bits — so the whole step is
  * exact, and a descent of any depth is a chain of exact steps.
  */
-export function transformLoopsAbout(loops, cx, cy, f) {
-    const pt = (q) => [(q[0] - cx) * f, (q[1] - cy) * f];
-    return loops.map((loop) => loop.map((p) => (p.line
-        ? { line: true, A: pt(p.A), B: pt(p.B), src: p.src }
-        : seam(p, { line: false, C: pt(p.C), r: p.r * f, a0: p.a0, sweep: p.sweep, A: pt(p.A), B: pt(p.B), src: p.src }))));
+export function transformLoopsAbout(loops, cx, cy, f, ox = 0, oy = 0) {
+    // `(p - c) * f + o`: the object's offset at the level being entered (F41,
+    // geometry/offsets.js) is added AFTER the exact part, so it rounds once, at
+    // the child's own precision. With no offset the addition of 0 leaves every
+    // bit as it was.
+    const pt = (q) => [(q[0] - cx) * f + ox, (q[1] - cy) * f + oy];
+    return loops.map((loop) => shareCutEnds(loop.map((p) => (p.line ? mapLine(p, pt) : mapArc(p, pt, f)))));
 }
 
 // ---------------------------------------------------------------------------
@@ -424,7 +611,7 @@ export function flattenShape(loops, tol) {
     const out = [];
     for (const loop of loops) {
         if (!loop.length) continue;
-        const ring = [[loop[0].A[0], loop[0].A[1]]];
+        const ring = [[loop.at(0).A[0], loop.at(0).A[1]]];
         for (const p of loop) {
             const n = arcSteps(p, tol);
             for (let i = 1; i < n; i++) {
@@ -482,33 +669,38 @@ export function shapeFromRings(rings) {
  * scribbles it is much less.
  */
 export function encodeLoops(loops) {
-    return (loops || []).map((loop) => {
-        const a = [loop[0].A[0], loop[0].A[1]];
-        for (const p of loop) {
-            if (p.line || !isFinite(p.r)) a.push(0, p.B[0], p.B[1]);
-            else a.push(1, p.C[0], p.C[1], p.r, p.a0, p.sweep, p.B[0], p.B[1]);
+    return (loops || []).map((loop) => encodeLoopInto(loop, []));
+}
+export { encodeLoopInto, Loop } from "./loop";
+// An encoded loop is a plain array in a kobin-1 file and a Float64Array view of
+// the frame's geometry in a kobin-2 one (format2.js); both read the same.
+const arrayLike = (a) => a != null && typeof a !== "string" && typeof a.length === "number";
+
+/** Does this encoding hold a code the version-1 format did not have? */
+export function encodedLoopsNeedV2(enc) {
+    for (const a of enc || []) {
+        let i = 2;
+        while (i < a.length) {
+            if (a[i] === 2 || a[i] === 3) return true;
+            i += a[i] === 0 ? 3 : 8;
         }
-        return a;
-    });
+    }
+    return false;
 }
 
+/** Encoded loops as piece objects; a Loop passes through as its pieces. */
 export function decodeLoops(enc) {
     const out = [];
     for (const a of enc || []) {
-        if (!Array.isArray(a) || a.length < 5) continue;
+        if (a instanceof Loop) { out.push(a.toPieces()); continue; }
+        if (!arrayLike(a) || a.length < 5) continue;
         const loop = [];
         let A = [a[0], a[1]];
-        let i = 2;
-        while (i < a.length) {
-            if (a[i] === 0) {
-                const B = [a[i + 1], a[i + 2]];
-                loop.push({ line: true, A, B });
-                A = B; i += 3;
-            } else {
-                const B = [a[i + 6], a[i + 7]];
-                loop.push({ line: false, C: [a[i + 1], a[i + 2]], r: a[i + 3], a0: a[i + 4], sweep: a[i + 5], A, B });
-                A = B; i += 8;
-            }
+        for (let i = 2; i < a.length;) {
+            const p = decodePiece(a, i, A);
+            loop.push(p);
+            A = p.B;
+            i += a[i] === 0 ? 3 : a[i] === 2 ? 9 : a[i] === 3 ? 16 : 8;
         }
         if (loop.length) out.push(loop);
     }
@@ -516,13 +708,14 @@ export function decodeLoops(enc) {
 }
 
 /** Every number in an encoded loop set is finite and the shape is closed. */
+// (validEncodedLoops decodes, so a code-2 record is checked for closure like any other.)
 export function validEncodedLoops(enc) {
     if (!encodedLoopsWellFormed(enc)) return false;
     const loops = decodeLoops(enc);
     if (!loops.length) return false;
     for (const loop of loops) {
-        const last = loop[loop.length - 1];
-        if (last.B[0] !== loop[0].A[0] || last.B[1] !== loop[0].A[1]) return false;
+        const last = loop.at(-1), first = loop.at(0);
+        if (last.B[0] !== first.A[0] || last.B[1] !== first.A[1]) return false;
     }
     return true;
 }
@@ -538,7 +731,7 @@ export function validEncodedLoops(enc) {
 export function encodedLoopsWellFormed(enc) {
     if (!Array.isArray(enc) || !enc.length) return false;
     for (const a of enc) {
-        if (!Array.isArray(a) || a.length < 5) return false;
+        if (!arrayLike(a) || a.length < 5) return false;
         for (const v of a) if (typeof v !== "number" || !Number.isFinite(v)) return false;
     }
     return true;
@@ -577,17 +770,17 @@ export function repairLoops(loops, pen, stats) {
     let broken = false;
     for (const l of loops) {
         if (!l.length) { broken = true; break; }
-        const last = l[l.length - 1];
-        if (last.B[0] !== l[0].A[0] || last.B[1] !== l[0].A[1]) { broken = true; break; }
+        const last = l.at(-1), first = l.at(0);
+        if (last.B[0] !== first.A[0] || last.B[1] !== first.A[1]) { broken = true; break; }
     }
     if (!broken) return loops;
     const out = [], open = [];
     for (const l of loops) {
         if (!l.length) continue;
-        const last = l[l.length - 1];
+        const last = l.at(-1), first = l.at(0);
         // A loop that closes is a finished boundary — an outer or a hole — and
         // has no business being stitched to anything.
-        if (last.B[0] === l[0].A[0] && last.B[1] === l[0].A[1]) out.push(l);
+        if (last.B[0] === first.A[0] && last.B[1] === first.A[1]) out.push(l);
         else open.push(l);
     }
     const used = new Array(open.length).fill(false);
@@ -671,6 +864,119 @@ export function pieceToCubics(p) {
     }
     return out;
 }
+/**
+ * WHAT AN ARC BECOMES IN THE SVG (F40, 2026-09-04). A browser draws lines,
+ * polynomial Béziers and the SVG arc command, and no circle is exactly a
+ * Bézier, so an arc is one of two things, each with its own error law:
+ *
+ *   the arc command  — exact in form, but the browser rebuilds the centre from
+ *                      the endpoints and the radius in float32, so the drawn
+ *                      edge is off by up to 2^-24 of the radius ON SCREEN
+ *                      (measured in paint: ~1 px at a 1e8 px radius, ~40 px at
+ *                      1e9, and 159 px on Kobin's drawing at the child frame's
+ *                      deepest zoom, snapping back at the next crossing);
+ *   kappa cubics     — approximate in form, off by 1.8e-5 · R · (sweep/n)⁶ for
+ *                      n cubics over a sweep (checked numerically to 1%), so a
+ *                      single quarter turn of a 2.9-million-px circle drew
+ *                      463 px from where it is (the blue band Kobin saw), while
+ *                      n cubics divide that by n⁶.
+ *
+ * The rule, at the engine's own tolerance (cfg.arcTolerancePx, a quarter
+ * pixel) and the frame's DEEPEST zoom (cfg.enter, so the plan is made once per
+ * piece and never redone while zooming): the arc command while 2^-24·R_px is
+ * within tolerance — up to a screen radius of 4.2 million px, one instruction,
+ * exact — and above that as many cubics as the sixth root demands:
+ * n = ⌈sweep · (1.8e-5·R_px/tol)^(1/6)⌉, which is 1 for a chopped sliver, 9 per
+ * half turn for Kobin's circle one frame up, and at most a dozen or so for any
+ * piece the tile chop allows. Kobin, 2026-09-04: first "I don't like
+ * subdividing due to the performance issues we've seen" (the per-zoom
+ * flattening this is not), then, shown 15 px at the worst of a fixed 22° rule,
+ * "15 px is too much" — this is the count that keeps every piece under the
+ * quarter pixel. The Renderer adds a second split, by LENGTH, for the float32
+ * floor of far coordinates (see `pushArcPiece`). Measured in
+ * tools/harnesses/bigpath.html; the whole argument is docs/OPEN-FLAGS.md F40.
+ */
+export const ARC_COMMAND_ERR = Math.pow(2, -24);   // of the radius on screen
+export const KAPPA_ERR = 1.8e-5;                    // · R · sweep⁶, one cubic
+
+/** Is the arc command within `tol` px for a circle `Rpx` px in radius on screen? */
+export function arcCommandFits(Rpx, tol) { return ARC_COMMAND_ERR * Rpx <= tol; }
+
+/** How many kappa cubics keep an arc of `sweep` radians at `Rpx` px of radius within `tol` px. */
+export function arcCubicCount(sweep, Rpx, tol) {
+    const n = Math.abs(sweep) * Math.pow((KAPPA_ERR * Rpx) / tol, 1 / 6);
+    return Math.max(1, Math.ceil(n - 1e-9));
+}
+
+/**
+ * An arc as `n` equal sub-arcs of the same circle: the first starts at A, the
+ * last ends at B, the joins are C + r·(cos, sin) at the split angles. n = 1
+ * hands back the piece itself.
+ */
+export function arcSplit(p, n) {
+    if (!(n > 1)) return [p];
+    const step = p.sweep / n, out = [];
+    let a = p.A;
+    for (let i = 0; i < n; i++) {
+        const a0 = p.a0 + step * i, a1 = a0 + step;
+        const b = i === n - 1 ? p.B : [p.C[0] + p.r * Math.cos(a1), p.C[1] + p.r * Math.sin(a1)];
+        out.push({ line: false, C: p.C, r: p.r, a0, sweep: step, A: a, B: b });
+        a = b;
+    }
+    return out;
+}
+
+/**
+ * The plan for one arc piece: `{ command: "A" | "C", parts }`, `parts` the
+ * sub-arcs to emit, each one instruction. `enter` is the frame's deepest zoom
+ * (px per unit), `tol` the tolerance in px, `segMax` the longest sub-arc
+ * allowed in units (0 for no limit) — the Renderer's length chop for the
+ * float32 floor, applied here so an arc-command piece is split by angle too.
+ * An arc-command part never exceeds a half turn (the command is named by its
+ * endpoints; a full circle would draw nothing).
+ */
+export function planArc(p, { enter, tol, segMax = 0 }) {
+    const r = Math.abs(p.r), sweep = Math.abs(p.sweep);
+    const Rpx = r * enter;
+    const nLen = segMax > 0 ? Math.max(1, Math.ceil((r * sweep) / segMax - 1e-9)) : 1;
+    if (arcCommandFits(Rpx, tol)) {
+        return { command: "A", parts: arcSplit(p, Math.max(nLen, sweep > Math.PI ? 2 : 1)) };
+    }
+    return { command: "C", parts: arcSplit(p, Math.max(nLen, arcCubicCount(sweep, Rpx, tol))) };
+}
+
+/**
+ * One arc as ONE cubic, from its endpoints and sweep alone — no centre, no
+ * radius. The tangents leave the chord at ±sweep/2 (the tangent–chord angle
+ * is half the central angle) and the handle is (chord/3)·(1 + tan²(sweep/4)),
+ * which the frame-lattice bible (§3.1) lists as the cancellation-free form of
+ * the standard 4/3·tan(θ/4)·r. It is the same cubic `pieceToCubics` makes for
+ * a piece under a quarter turn, without the subtraction of two huge numbers
+ * that a nearly straight arc's centre is: for a radius of 1e13 units and a
+ * 4e5 chord the sagitta is 2e-3 units, one float64 ulp of the centre — the
+ * centre form has a single ulp to carry it (and did, in the test), this form
+ * never asks. Sized by `arcCubicCount`, it is within tolerance.
+ */
+export function chordCubic(p) {
+    const A = p.A, B = p.B;
+    const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy);
+    if (p.line || !isFinite(p.r) || !(L > 0) || !(Math.abs(p.sweep) > 0)) return [A, A, B, B];
+    const half = p.sweep / 2, t = Math.tan(p.sweep / 4);
+    const h = (1 + t * t) / 3;                       // handle as a fraction of the chord
+    const c = Math.cos(half), s = Math.sin(half);
+    // the chord direction turned by -half is A's tangent, by +half is B's
+    const tAx = (dx * c + dy * s) * h, tAy = (-dx * s + dy * c) * h;
+    const tBx = (dx * c - dy * s) * h, tBy = (dx * s + dy * c) * h;
+    return [A, [A[0] + tAx, A[1] + tAy], [B[0] - tBx, B[1] - tBy], B];
+}
+
+/** The arc's midpoint from its endpoints and sweep: chord midpoint plus the sagitta along the chord's normal, on the bulge side. */
+export function chordArcMid(p) {
+    const A = p.A, B = p.B;
+    const k = Math.tan(p.sweep / 4) / 2;
+    return [(A[0] + B[0]) / 2 + (B[1] - A[1]) * k, (A[1] + B[1]) / 2 - (B[0] - A[0]) * k];
+}
+
 /** Loops as closed chains of cubics — the shape `curveOutline` also speaks. */
 export function shapeToCubics(loops) {
     return loops.map((loop) => {
@@ -684,29 +990,8 @@ export function shapeToCubics(loops) {
 // the boolean
 // ---------------------------------------------------------------------------
 
-/**
- * Shared vertex identity by position, with the neighbouring cells searched as
- * well as the point's own — a pair of coordinates either side of a cell
- * boundary is not a pair of different places. Endpoints are registered BEFORE
- * any crossing so a crossing landing on one adopts its identity instead of
- * inventing a vertex a millionth of a unit away from it.
- */
-class VertexSet {
-    constructor(q) { this.q = Math.max(q, 1e-300); this.map = new Map(); this.pts = []; }
-    id(p) {
-        const cx = Math.round(p[0] / this.q), cy = Math.round(p[1] / this.q);
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                const v = this.map.get((cx + dx) + "," + (cy + dy));
-                if (v !== undefined) return v;
-            }
-        }
-        const v = this.pts.length;
-        this.map.set(cx + "," + cy, v);
-        this.pts.push([p[0], p[1]]);
-        return v;
-    }
-}
+// Vertex identity by position is `VertexSet`, shared with the stitch
+// (arcPerimeter) — endpoints first, then crossings, neighbouring cells searched.
 
 const bbHit = (a, b) => !!a && !!b && a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
 const magOf = (b) => Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1));
@@ -731,14 +1016,34 @@ const magOf = (b) => Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Ma
  * three exact. Done on the boolean's own working copy, at the scale of the
  * coordinates actually in play.
  */
-function straighten(loops, tol) {
+function straighten(loops, R) {
     let hit = 0;
     const out = loops.map((loop) => loop.map((p) => {
         if (p.line) return p;
-        const sag = Math.abs(p.r) * (1 - Math.cos(Math.abs(p.sweep) / 2));
-        if (!(sag <= tol)) return p;
+        // A CUT arc is judged, and stood in for, by its canonical arc (F43):
+        // the chain straightens the uncut piece by ITS bulge, and cuts it along
+        // ITS chord, so the fragment a nicked arc yields here has to be a cut
+        // line on that same chord — `cutLine` reads the chord off the arc.
+        const k = canonArc(p);
+        // ONE RULE, THE FREEZE'S (2026-09-06, Kobin: "erasers shouldn't need
+        // to re-calculate a freeze — if it's frozen it's frozen. Every arc over
+        // that radius in a tile should be frozen"). The tile chain freezes
+        // every arc whose radius is at or above the freeze radius (freeze.js
+        // rule 2), so by the time a piece reaches this boolean the only arcs
+        // above the gate are ones the chain has not chopped yet — an object's
+        // own home-level geometry, where a biarc pen writes radii like 5e17
+        // for its straight stretches. Those are stood in for by their chord
+        // here by the same gate, and nothing else is: an arc under the gate is
+        // an arc and is cut as one. Until 2026-09-06 this was its own test,
+        // r·(1 − cos(sweep/2)) against a few ulps, which is exactly 0 for any
+        // sweep under ~1e-8 and so chorded every deep arc an erase touched
+        // while the chain kept the arc — the join-arc case of
+        // depth.corner.probe.js, 0.86 units one level below the nick.
+        if (!(Math.abs(k.r) >= R)) return p;
         hit++;
-        return { line: true, A: p.A, B: p.B, src: p.src, ci: p.ci, rl: p.rl };
+        const q = { line: true, A: p.A, B: p.B, src: p.src, ci: p.ci, rl: p.rl };
+        if (p.K) { q.P = k.A; q.Q = k.B; q.sa = canonPos(k.A, k.B, p.A); q.sb = canonPos(k.A, k.B, p.B); }
+        return q;
     }));
     return { loops: out, straightened: hit };
 }
@@ -827,8 +1132,8 @@ export function pieceOverlap(p, q, tol) {
  * same shape. A resolved perimeter is, and so is this function's own output, so
  * booleans compose.
  *
- * @param {piece[][]} A
- * @param {piece[][]} B
+ * @param {import("./types").Piece[][]} A
+ * @param {import("./types").Piece[][]} B
  * @param {"difference"|"intersection"} op
  * @param {object} opts  { weld } vertex identity radius (default span·1e-8)
  */
@@ -870,9 +1175,23 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     const bbA = loopsBBox(A), bbB = loopsBBox(B);
     if (!bbA || !bbB) return { loops: wantIn ? [] : A, stats: { trivial: "no extent" } };
     const span = Math.max(bbA.x1 - bbA.x0, bbA.y1 - bbA.y0, bbB.x1 - bbB.x0, bbB.y1 - bbB.y0, 1e-12);
-    // A few ulps of the coordinates in play: below this an arc and its chord are
-    // the same curve, and only one of the two can be computed with.
-    const flat = Math.max(magOf(bbA), magOf(bbB), 1) * Number.EPSILON * 8;
+    // The freeze radius (freeze.js rule 2): the engine passes its own in
+    // `opts.freezeR`; a caller with no engine gets the default tolerance's.
+    const flat = opts.freezeR > 0 ? opts.freezeR : DEFAULT_FREEZE_R;
+    // WHAT THE CUT DOES NOT TOUCH, IT DOES NOT TOUCH. `straighten` makes a
+    // working copy in which a sub-ulp arc is a line, and until 2026-09-04 that
+    // copy was what came back out for every loop the cut never reached and
+    // every piece it left whole. Harmless at the level of the cut — the arc and
+    // its chord are the same curve to eight ulps — and not harmless four
+    // crossings down, where the render chain has magnified those ulps into
+    // whole units and a chord's clip vertices land somewhere else than the
+    // arc's. So the ORIGINALS are kept beside the working copy and it is the
+    // originals that pass through: a loop the cut did not reach comes out the
+    // very same object it went in as, and so does a piece that was classified
+    // but not split. Only what was actually cut is new. (F42: a deep erase must
+    // leave every bit of the object it did not cut exactly where it was, or the
+    // tiles derived from it move.)
+    const A1 = A, B1 = B;
     const sA = straighten(A, flat), sB = straighten(B, flat);
     A = sA.loops; B = sB.loops;
 
@@ -883,19 +1202,26 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     // stroke, and this is what keeps the cost proportional to the GESTURE rather
     // than to the drawing.
     const out = [];
-    const hotA = [], hotB = [];
-    for (const loop of A) {
-        if (bbHit(loopBBox(loop), bbB)) hotA.push(loop);
-        else if (!wantIn) out.push(loop);
+    const hotA = [], hotB = [], hotA1 = [], hotB1 = [];
+    for (let i = 0; i < A.length; i++) {
+        const loop = A[i];
+        if (bbHit(loopBBox(loop), bbB)) { hotA.push(loop); hotA1.push(A1[i]); }
+        else if (!wantIn) out.push(A1[i]);
     }
-    for (const loop of B) if (bbHit(loopBBox(loop), bbA)) hotB.push(loop);
+    for (let i = 0; i < B.length; i++) {
+        if (bbHit(loopBBox(B[i]), bbA)) { hotB.push(B[i]); hotB1.push(B1[i]); }
+    }
     if (!hotA.length) return { loops: out, stats: { untouched: A.length } };
-    if (!hotB.length) return { loops: wantIn ? out : out.concat(hotA), stats: { untouched: A.length } };
+    if (!hotB.length) return { loops: wantIn ? out : out.concat(hotA1), stats: { untouched: A.length } };
 
     // ---- cut ---------------------------------------------------------------
     const items = [];
-    for (const loop of hotA) for (const p of loop) items.push({ p, set: 0 });
-    for (const loop of hotB) for (const p of loop) items.push({ p, set: 1 });
+    for (let li = 0; li < hotA.length; li++) {
+        for (let pi = 0; pi < hotA[li].length; pi++) items.push({ p: hotA[li][pi], orig: hotA1[li].at(pi), set: 0 });
+    }
+    for (let li = 0; li < hotB.length; li++) {
+        for (let pi = 0; pi < hotB[li].length; pi++) items.push({ p: hotB[li][pi], orig: hotB1[li].at(pi), set: 1 });
+    }
     const N = items.length;
     const bbs = new Array(N);
     let cell = 0;
@@ -967,9 +1293,14 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
                 const sj = paramOf(items[j].p, q, eps);
                 if (sj == null) continue;
                 // ONE vertex id for the crossing, so both pieces are cut at the
-                // very same point rather than at two roundings of it.
+                // very same point rather than at two roundings of it. A line's
+                // crossing also carries its position on the line (F43), which
+                // the fragment keeps as the position of its new end.
                 const v = vs.id(q);
-                cuts[i].push([si, v]);
+                // ...and an arc's crossing carries its position on the arc's
+                // CANONICAL arc, computed from the raw crossing before welding
+                // (the chain's own `paramOf` on the uncut piece, to the bit).
+                cuts[i].push([si, v, items[i].p.line ? q[2] : arcPos(canonArc(items[i].orig), q)]);
                 cuts[j].push([sj, v]);
                 nX++;
             }
@@ -1015,6 +1346,7 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
 
     // ---- split + classify --------------------------------------------------
     const flatA = flatPieces(A), flatB = flatPieces(B);
+    const rayA = new RayIndex(flatA), rayB = new RayIndex(flatB);
     const kept = [];
     let ambiguous = 0;
     for (let i = 0; i < N; i++) {
@@ -1030,19 +1362,29 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
             cl.push(c);
         }
         let segs;
-        if (!cl.length) segs = [p];
+        // A piece the cut left whole goes on as the piece it was — the
+        // original, not the straightened stand-in (see the note at the top).
+        if (!cl.length) segs = [items[i].orig];
         else {
             cl.sort((a, b) => a[0] - b[0]);
             segs = [];
-            let s0 = 0, S = p.A;
-            for (const [s, v] of cl) {
+            // A SUBJECT line that is cut remembers its line (F43, `cutLine`);
+            // the clip's own lines do not — a window's edges and an eraser's
+            // pieces are not ink whose deep picture anyone draws against.
+            const cut = set === 0 && p.line
+                ? (s0, s1, A, B, ta, tb) => cutLine(items[i].orig, s0, s1, A, B, ta, tb)
+                : set === 0
+                    ? (s0, s1, A, B, ua, ub) => cutArc(items[i].orig, s0, s1, A, B, ua, ub)
+                    : (s0, s1, A, B) => subPiece(p, s0, s1, A, B);
+            let s0 = 0, S = p.A, t0;
+            for (const [s, v, t] of cl) {
                 const P = vs.pts[v];
-                segs.push(subPiece(p, s0, s, S, P));
-                s0 = s; S = P;
+                segs.push(cut(s0, s, S, P, t0, t));
+                s0 = s; S = P; t0 = t;
             }
-            segs.push(subPiece(p, s0, 1, S, p.B));
+            segs.push(cut(s0, 1, S, p.B, t0, undefined));
         }
-        const other = set === 0 ? flatB : flatA;
+        const other = set === 0 ? rayB : rayA;
         for (const s of segs) {
             // SHARED BOUNDARY, decided by orientation. Interiors lie to the
             // left of travel (normalizeLoops guarantees it), so two coincident
@@ -1066,7 +1408,7 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
                 continue;
             }
             const m = ptAt(s, 0.5);
-            const w = windingOfFlat(other, m);
+            const w = other.winding(m);
             if (w == null) ambiguous++;
             const inside = w != null && w !== 0;
             if (set === 0) {
@@ -1185,6 +1527,7 @@ function stitch(kept, vs) {
     let open = 0;
     for (let i = 0; i < n; i++) {
         if (used[i]) continue;
+        /** @type {import("./types").Chain} */
         const loop = [];
         let cur = i;
         for (;;) {
@@ -1205,9 +1548,139 @@ function stitch(kept, vs) {
 export function subtractShape(A, B, opts) { return shapeBoolean(A, B, "difference", opts); }
 /** A ∩ B. */
 export function intersectShape(A, B, opts) { return shapeBoolean(A, B, "intersection", opts); }
-/** The part of a shape inside an axis-aligned rect. */
+/**
+ * The part of a shape inside an axis-aligned rect.
+ *
+ * COMPATIBILITY: the tile chain clips with this at every level, so the cut
+ * points it computes are inherited by every level below and are never stored.
+ * A change to how a crossing is found or rounded moves the deep picture of
+ * every saved drawing (F43: ×4096 per level). See the note on `deriveStep`
+ * (geometry/derive.js) before changing it in a shipped build.
+ */
 export function clipShapeToRect(loops, rect, opts) {
-    return shapeBoolean(loops, rectLoop(rect), "intersection", opts);
+    const R = rectLoop(rect);
+    const res = shapeBoolean(loops, R, "intersection", opts);
+    res.loops = reanchorCutLines(res.loops, R[0]);
+    res.loops = reanchorCutArcs(res.loops, R[0], res.stats && res.stats.weld);
+    return res;
+}
+/**
+ * AFTER A WINDOW CLIP, A CUT LINE'S CANONICAL SEGMENT IS CLIPPED TOO (F43).
+ *
+ * The chain re-anchors at every level: the next level cuts each piece from
+ * the ends this level's clip gave it. So a piece that was never cut has, at
+ * level m, the clip vertices of level m−1 as its ends, and that is what its
+ * level-m cuts are computed from. A cut line has to present the same numbers
+ * to the level below as the whole line would have, which means its canonical
+ * segment must become the whole line's clip: the crossings of P→Q with the
+ * window, computed by the very arithmetic the boolean used for the crossings
+ * it did find (`lineCrossSeg` on the same edge pieces, in the same order),
+ * including the crossing on the far side of the cut end that the piece itself
+ * never reached. The ends keep their positions, re-expressed on the clipped
+ * segment; an end that IS a clip vertex is the segment's end and needs no
+ * position, and a piece whose two ends are both clip vertices is no longer a
+ * cut line at all — it is exactly the piece the chain would have made.
+ */
+function reanchorCutLines(loops, edges) {
+    // The rect from its own edges, inclusive.
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const e of edges) for (const q of [e.A, e.B]) {
+        if (q[0] < left) left = q[0]; if (q[0] > right) right = q[0];
+        if (q[1] < top) top = q[1]; if (q[1] > bottom) bottom = q[1];
+    }
+    const within = (q) => q[0] >= left && q[0] <= right && q[1] >= top && q[1] <= bottom;
+    const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+    return loops.map((loop) => {
+        let changed = false;
+        const out = loop.map((p) => {
+            if (!p.line || !p.P) return p;
+            const { P, Q } = p;
+            const pIn = within(P), qIn = within(Q);
+            if (pIn && qIn) return p;                        // the whole line is in the window
+            let lo = null, hi = null;
+            for (const e of edges) {
+                for (const x of lineCrossSeg(P, Q, e.A, e.B)) {
+                    if (!lo || x[2] < lo[2]) lo = x;
+                    if (!hi || x[2] > hi[2]) hi = x;
+                }
+            }
+            if (!lo) return p;                               // no crossing found: leave it be
+            const tl = pIn ? 0 : lo[2], th = qIn ? 1 : hi[2];
+            const span = th - tl;
+            if (!(span > 0)) return p;
+            const P2 = pIn ? P : [lo[0], lo[1]], Q2 = qIn ? Q : [hi[0], hi[1]];
+            const pos = (s, end) => {
+                if (!pIn && same(end, lo)) return 0;
+                if (!qIn && same(end, hi)) return 1;
+                return (s - tl) / span;
+            };
+            const sa = pos(p.sa, p.A), sb = pos(p.sb, p.B);
+            changed = true;
+            if ((sa === 0 && sb === 1) || (sa === 1 && sb === 0)) {
+                // Both ends are the clip's: the piece the chain would have made.
+                const q = { line: true, A: p.A, B: p.B, src: p.src };
+                if (p.ci != null) q.ci = p.ci;
+                if (p.rl != null) q.rl = p.rl;
+                return q;
+            }
+            return { ...p, P: P2, Q: Q2, sa, sb };
+        });
+        return changed ? out : loop;
+    });
+}
+/**
+ * AFTER A WINDOW CLIP, A CUT ARC'S CANONICAL ARC IS CLIPPED TOO (F43 — the
+ * arc half, mirroring `reanchorCutLines`).
+ *
+ * The chain would have cut the uncut arc K on this window: found K's crossings
+ * with the four edges (`circleSegment` on each edge, in this order, the same
+ * arithmetic), dropped any that welded onto K's own ends or onto each other,
+ * accepted the rest by `paramOf` with the boolean's own slack, and made one
+ * fragment per stretch between consecutive crossings, re-parametrised with
+ * `subPiece`. The cut arc has to present the level below with the fragment of
+ * that set which holds its own stretch — ends at those crossings, or at K's
+ * own end where that end is inside — and its own positions re-expressed on
+ * it. A piece whose two ends are both the fragment's ends, travelling K's
+ * way, is no longer a cut arc at all: it is the chain's piece.
+ *
+ * `weld` is the radius the boolean actually used (a retry may have changed
+ * it), so the crossings accepted here are the crossings it accepted.
+ */
+function reanchorCutArcs(loops, edges, weld) {
+    if (!(weld > 0)) return loops;
+    const near = (a, b) => Math.abs(a[0] - b[0]) <= weld && Math.abs(a[1] - b[1]) <= weld;
+    return loops.map((loop) => {
+        let changed = false;
+        const out = loop.map((p) => {
+            if (p.line || !p.K) return p;
+            const k = canonArc(p), dir = arcDir(p);
+            const xs = [];
+            for (const e of edges) {
+                for (const x of circleCrossSeg(k.C, k.r, e.A, e.B)) {
+                    if (paramOf(e, x, weld) == null) continue;
+                    const s = paramOf(k, x, weld);
+                    if (s == null) continue;
+                    if (near(x, k.A) || near(x, k.B)) continue;
+                    if (xs.some((y) => near(y.pt, x))) continue;
+                    xs.push({ s, pt: [x[0], x[1]] });
+                }
+            }
+            if (!xs.length) return p;
+            xs.sort((a, b) => a.s - b.s);
+            const mid = (p.ua + p.ub) / 2;
+            let lo = 0, hi = 1, Plo = k.A, Phi = k.B;
+            for (const x of xs) {
+                if (x.s <= mid) { lo = x.s; Plo = x.pt; } else { hi = x.s; Phi = x.pt; break; }
+            }
+            const span = hi - lo;
+            if (!(span > 0)) return p;
+            const k2 = subPiece(k, lo, hi, Plo, Phi);
+            const ua = (p.ua - lo) / span, ub = (p.ub - lo) / span;
+            changed = true;
+            return arcPieceOf(k2, ua, ub, dir > 0 ? p.A : p.B, dir > 0 ? p.B : p.A, dir);
+        });
+        return changed ? out : loop;
+    });
 }
 
 /**
@@ -1225,7 +1698,7 @@ export function shapeComponents(loops) {
     for (const l of set) (loopArea(l) >= 0 ? outers : holes).push(l);
     const groups = outers.map((l) => [l]);
     for (const h of holes) {
-        const p = ptAt(h[0], 0.5);
+        const p = ptAt(h.at(0), 0.5);
         let best = -1, bestArea = Infinity;
         for (let i = 0; i < outers.length; i++) {
             if (!insideShape([outers[i]], p)) continue;

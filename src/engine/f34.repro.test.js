@@ -15,6 +15,7 @@
  * The oracle is `_boolFailures` / `_lastBoolFailure`, which count only seals that
  * survived `shapeBoolean`'s whole weld-retry ladder.
  */
+import { squareInkOf } from "./eraseDescent";
 import fs from "fs";
 import path from "path";
 import { useEngines, mkEngine } from "./__testkit__/harness";
@@ -29,7 +30,6 @@ const testIf = fs.existsSync(INPUT) || process.env.KOBIN_REQUIRE_REPORTS ? test 
 // The tile the cede cut, read off piece #70 in the 18:16 report — frame
 // `0/-47,179/-1479,824`, one frame wide (2^17) in its own units.
 const FRAME = "0/-47,179/-1479,824";
-const TILE = { x: -120211.74976348877, y: -114840.62666320801, w: 131072, h: 131072 };
 
 /** A small circle of pointer samples, in screen coordinates. */
 function circle(cx, cy, r, n = 48) {
@@ -167,12 +167,19 @@ testIf("the ink handed to the subtract — is it closed?", () => {
     E._render();
     E.setEraserSize(16);
     const seen = [];
-    const orig = E._inkShapeInRect.bind(E);
-    E._inkShapeInRect = (o, HF, F, R) => {
-        const out = orig(o, HF, F, R);
+    // Since 2026-09-04 (F42) the descent takes each level's ink from the tile
+    // store's pieces (`_squareInk`) rather than clipping a projection itself;
+    // the question here — is the ink handed to the subtract closed? — is the
+    // same, asked of the new seam.
+    const realWorld = E._descentWorld.bind(E);
+    E._descentWorld = () => ({ ...realWorld(), squareInk: (world, vdoc, id, F, i, j) => {
+        const ink = squareInkOf(world, vdoc, id, F, i, j);
+        const out = ink ? ink.loops : null;
+        const o = vdoc.getById(id) ? vdoc.getById(id).obj : { id };
         if (out && out.length) {
             let open = 0, pieces = 0;
-            for (const loop of out) {
+            for (const L of out) {
+                const loop = [...L];
                 pieces += loop.length;
                 const last = loop[loop.length - 1];
                 if (last.B[0] !== loop[0].A[0] || last.B[1] !== loop[0].A[1]) open++;
@@ -183,8 +190,8 @@ testIf("the ink handed to the subtract — is it closed?", () => {
             }
             seen.push({ id: o.id, frame: F, loops: out.length, pieces, brokenJoins: open });
         }
-        return out;
-    };
+        return ink;
+    } });
     const pts = circle(752, 434, 160);
     E.setTool("erasePartial");
     E.pointerDown(pts[0][0], pts[0][1]);
@@ -212,7 +219,8 @@ testIf("the eraser's perimeter, as drawn and as projected", () => {
     E.setEraserSize(16);
     const closure = (loops) => {
         let broken = 0, pieces = 0;
-        for (const loop of loops) {
+        for (const L of loops) {
+            const loop = [...L];
             pieces += loop.length;
             for (let i = 0; i < loop.length; i++) {
                 const a = loop[i], b = loop[(i + 1) % loop.length];

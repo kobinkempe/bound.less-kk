@@ -18,9 +18,8 @@
  *  - PL-2. Level crossings, which is where every cache is cold at once.
  */
 import {
-    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click, pan,
-    descend, ascend, camShot, camRestore, raster, families, natives,
-    vertexCount, timeIt, painted,
+    useEngines, mkEngine, drawStroke, erase, eraseGesture, drag, click, pan, descend, ascend,
+    camShot, camRestore, families, natives, vertexCount, timeIt,
 } from "./__testkit__/harness";
 
 jest.setTimeout(300000);
