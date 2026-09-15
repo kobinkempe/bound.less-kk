@@ -2,7 +2,7 @@
  * Renderer — the ONLY class that touches Two.js. Owns the SVG scene, one
  * persistent Two.Group per object id (kept sorted by id = global z-order), the
  * per-frame diff (camera-only frames sync transforms + fade opacity without
- * rebuilding any path), and the fat-stroke display bake.
+ * rebuilding any path).
  *
  * Fixes vs the old engine:
  *  - Global z-order (BUG-03): groups live in a flat array sorted by id and are
@@ -14,20 +14,19 @@
  *  - Incremental render (ISSUE-11 / BUG-01): a group is rebuilt only when its
  *    piece signature changes; a pure camera move touches nothing but the world
  *    transform and faded groups' opacity.
- *  - Fat display (BUG-02): the bake window pad is max(half screen, 1.2 × widest
- *    visible fat half-width), so the window can never be outrun by a stroke —
- *    and projection giants no longer arrive as strokes (they're tile fills), so
- *    the only fat cases are the active level's own bounded natives.
+ *  - Fat display (BUG-02): a fat stroke is a curve-capsule outline built once in
+ *    frame coordinates (_buildOutlineInto), so no camera window enters its
+ *    geometry and none can be outrun. The windowed display bake it replaced was
+ *    deleted on 2026-09-14 (ROADMAP S7); projection giants no longer arrive as
+ *    strokes (they're tile fills) either, so the only fat cases are the active
+ *    level's own bounded natives.
  *  - Continuous fade (BUG-04): a down-piece carries fadeTag (its size at the
  *    level's deepest zoom); its group opacity ramps to 0 across the sub-pixel
  *    cull instead of popping.
  */
 import Two from "two.js";
-import {
-    strokeStripNear, flattenCurve, flattenCurveNear, decimatePolyline, clipRingsToRect,
-} from "./geometry/polyline";
+import { clipRingsToRect } from "./geometry/polyline";
 import { shapeLoopsInRect } from "./geometry/derive";
-import { strokeOutline } from "./geometry/clipperBoolean";
 import { strokeLoops } from "./geometry/curveOutline";
 import { loopsBBox, chordCubic, chordArcMid, planArc } from "./geometry/arcShape";
 import { onRectEdge } from "./geometry/antRuns";
@@ -338,12 +337,6 @@ const THIN_TARGET_UNITS = 0.25;
 const THIN_COORD_MAX = 4194304;
 
 
-// A selection outline is drawn only while it could actually be SEEN: the box
-// has to overlap the viewport, and be no more than this many viewports across.
-// That second clause is a PERFORMANCE INVARIANT, not a cosmetic one — see
-// `_renderSelection`.
-const SEL_MAX_VIEWPORTS = 3;
-
 // ---- the selection indicator's look, from the Claude Design spec ------------
 // Ants: a band centred ON the silhouette ("Ants sit: on the edge"), in the
 // product's own terracotta.
@@ -416,7 +409,7 @@ export default class Renderer {
         const segMax = Renderer.lengthChop === true ? (room > 1024 ? Math.pow(2, Math.floor(Math.log2(room))) : 1024) : 0;
         this._arcPlan = { enter, tol, segMax };
         this._arcPlanNoChop = { ...this._arcPlan, segMax: 0 };
-        this.opacityGroups = true; this.outlineMode = false; this.debug = false;
+        this.opacityGroups = true; this.debug = false;
         this.two = new Two({ width: this.width, height: this.height, autostart: true });
         this.two.appendTo(container);
         this.world = this.two.makeGroup();
@@ -424,7 +417,6 @@ export default class Renderer {
         this.eraseDebugGroup = this.two.makeGroup();
         this.eraseDebug = false;
         this.selGroup = this.two.makeGroup(); // selection highlight (screen space, above everything)
-        this._selRectFn = null;               // () -> { level, rect } | null
         this._selAntsFn = null;               // () -> { key, transform, runs, marks, edges, inkPx } | null
         this._selOv = null;                   // the indicator's own <svg> layer
         this._selEls = null;
@@ -469,8 +461,6 @@ export default class Renderer {
         this._activateSeq = 0;      // recency counter for the scene LRU
         this._lastRebuilds = 0;     // groups (re)built in the last render()
         this._hasFat = false;
-        this._bakedWindow = null;
-        this._lastBakeScale = 0;
         this._liveModel = null;     // the growing stroke: never outline-cached
         this.lazyOutlines = true;   // fat strokes render RAW until they approach the
                                     // gate on screen (fit cost moves off pen-up and
@@ -515,14 +505,14 @@ export default class Renderer {
     //             dozens of fat strokes must not stall for minutes.
     // The mode is part of the group signature, so a flip rebuilds the group.
     _strokeMode(o) {
-        if (o.type !== "stroke" || this.outlineMode || o === this._liveModel || !this._fatEver(o)) return "raw";
+        if (o.type !== "stroke" || o === this._liveModel || !this._fatEver(o)) return "raw";
         if (!this.lazyOutlines || o._outline) return "outline";
         return "pending";
     }
     // Force a flip render once a pending stroke's RAW width actually crosses
     // the gate (the render then fits it within the budget — Skia safety).
     needsFatFlip() {
-        return !this.outlineMode && this.lazyOutlines && this._pendingFatLw > 0 &&
+        return this.lazyOutlines && this._pendingFatLw > 0 &&
             this._pendingFatLw * this.cam.inScale > this._gatePx();
     }
     // Has any piece crossed the fully-present line since its group was built?
@@ -548,29 +538,6 @@ export default class Renderer {
         return this.lazyOutlines && this._pendingFatLw > 0 &&
             this._pendingFatLw * this.cam.inScale > this._gatePx() * 0.5;
     }
-    // Pad the bake window by half a screen OR 1.2× the widest visible fat stroke's
-    // half-width, whichever is larger — so the window can never be outrun.
-    // (outlineMode debug only — normal rendering no longer bakes to a window.)
-    outlinePad(list) {
-        let pad = (0.5 * this.width) / this.cam.inScale;
-        if (list) for (const o of list) if (this._fatOnScreen(o)) pad = Math.max(pad, 1.2 * o.lwFrame / 2);
-        return pad;
-    }
-    _windowCovered() {
-        const b = this._bakedWindow; if (!b) return false;
-        const w = this.cam.frameWindow(0);
-        return w.left >= b.left && w.right <= b.right && w.top >= b.top && w.bottom <= b.bottom;
-    }
-    // Does a zoom/pan need a re-bake? Only the outlineMode DEBUG view is baked
-    // per-window/scale now — fat strokes render as curve-capsule outlines that
-    // are exact at every in-level zoom (see geometry/curveOutline.js), so
-    // ordinary zooming never re-tessellates anything (the old 25%-band fat
-    // re-bake — ISSUE-12's display half — is gone).
-    needsRebake() {
-        if (!this.outlineMode) return false;
-        const last = this._lastBakeScale || 0;
-        return this.cam.inScale > last * 1.25 || this.cam.inScale < last * 0.8 || !this._windowCovered();
-    }
 
     // ---- full render of an object-piece list ----
     // The list may hold SEVERAL pieces with the same id (tile fragments of one
@@ -584,8 +551,6 @@ export default class Renderer {
         this._maybeReorigin(sc);
         this._maybeRechop(sc);
         this._chopMemo = new Map();  // one verdict per piece: the sig asks, then the build
-        const pad = this.outlinePad(list);
-        const vw = this.cam.frameWindow(pad);
         this._pendingFatLw = 0; // recounted below
         this._fitSpentMs = 0;   // per-render outline-fitting budget
         const byId = new Map();
@@ -626,7 +591,7 @@ export default class Renderer {
             // count lazy-pending fat strokes across the WHOLE list (also the
             // unchanged groups below), so needsFatFlip() sees them
             for (const o of pieces) if (this._strokeMode(o) === "pending") this._pendingFatLw = Math.max(this._pendingFatLw, o.lwFrame);
-            const sig = pieces.map((o) => this._sig(o, vw)).join("|");
+            const sig = pieces.map((o) => this._sig(o)).join("|");
             const rep = pieces[0];
             const family = rep.editId != null && id === rep.editId;
             const existing = this._groups.get(id);
@@ -642,7 +607,7 @@ export default class Renderer {
                 entry.group.remove(entry.group.children);
             }
             entry.pieces = pieces; entry.sig = sig; entry.fadeTag = rep.fadeTag; entry.family = family;
-            this._buildPieces(entry.group, pieces, vw);
+            this._buildPieces(entry.group, pieces);
             Renderer._applyThinScale(entry);
             this._applyOpacity(entry, rep);
         }
@@ -655,10 +620,8 @@ export default class Renderer {
         }
         this._chopMemo = null;
         this.syncWorld();
-        this._lastBakeScale = this.cam.inScale;
         this._lastRebuilds = rebuilt;
         this._hasFat = list.some((o) => o.type === "stroke" && o.lwFrame * this.cam.inScale > this._gatePx() * 0.5);
-        this._bakedWindow = this.outlineMode ? this.cam.frameWindow(pad) : null;
         return reorder;
     }
 
@@ -959,7 +922,7 @@ export default class Renderer {
     // yields a 4-vertex quad per tile — scrolling the tile set by one swaps
     // pieces without changing any count, and a count-only signature would leave
     // stale paths on screen. First+last vertex anchor the signature cheaply.
-    _sig(o, vw) {
+    _sig(o) {
         // opacity is in the signature because in non-group mode it's painted on
         // the PATH — a restyle would otherwise leave stale paths behind.
         if (o.type === "shape") {
@@ -1014,21 +977,14 @@ export default class Renderer {
         const ends = a[0].toFixed(2) + "," + a[1].toFixed(2) + ":" + z[0].toFixed(2) + "," + z[1].toFixed(2);
         // Outline-represented (fat) strokes are geometry-only like thin ones:
         // the curve-capsule outline is view-independent, so their groups survive
-        // every camera move. The mode marker makes a lazy raw→outline flip
-        // rebuild the group. Only the outlineMode DEBUG bake is window-keyed.
-        const fat = this.outlineMode;
-        if (!fat) {
-            // "O" outline · "F" pending past the gate (forces a rebuild so the
-            // budgeted fit in _buildInto actually runs — a sig match would skip
-            // it) · "s" plain raw
-            const sm = this._strokeMode(o);
-            const m = sm === "outline" ? "O"
-                : (sm === "pending" && o.lwFrame * this.cam.inScale > this._gatePx() ? "F" : "s");
-            return m + o.id + ":" + (o._ver || 0) + ":" + o.pts.length + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + this._colorOf(o) + ":" + this._opacityOf(o);
-        }
-        // window-dependent bake: quantize the window so small pans inside the pad reuse
-        const q = (v) => Math.round(v / (Math.max(1, (vw.right - vw.left)) * 0.1));
-        return "F" + o.id + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + q(vw.left) + "," + q(vw.top) + "," + q(vw.right) + "," + q(vw.bottom) + ":" + this._colorOf(o) + ":" + this._opacityOf(o);
+        // every camera move — no stroke signature carries a window.
+        // "O" outline · "F" pending past the gate (forces a rebuild so the
+        // budgeted fit in _buildInto actually runs — a sig match would skip it)
+        // · "s" plain raw
+        const sm = this._strokeMode(o);
+        const m = sm === "outline" ? "O"
+            : (sm === "pending" && o.lwFrame * this.cam.inScale > this._gatePx() ? "F" : "s");
+        return m + o.id + ":" + (o._ver || 0) + ":" + o.pts.length + ":" + o.lwFrame.toFixed(3) + ":" + ends + ":" + this._colorOf(o) + ":" + this._opacityOf(o);
     }
 
     /**
@@ -1067,7 +1023,7 @@ export default class Renderer {
         if (o && o.covers) return this._arcPlanNoChop;
         return o && o.clip ? { ...this._arcPlan, clip: asClip(o.clip) } : this._arcPlan;
     }
-    _buildPieces(group, pieces, vw) {
+    _buildPieces(group, pieces) {
         let bucket = null, key = null;
         const flush = () => {
             if (bucket && bucket.verts.length) this._addFillPath(group, bucket.verts, bucket.color, bucket.opacity);
@@ -1081,7 +1037,7 @@ export default class Renderer {
             // Two.js is happy to mix line and curve commands in one path, so the
             // merge does not force either side to give up its shape.
             const area = (o.type === "fill" && o.polys) || (o.type === "shape" && o.loops);
-            if (!area) { flush(); this._buildInto(group, o, vw); continue; }
+            if (!area) { flush(); this._buildInto(group, o); continue; }
             // Bucketed by the EFFECTIVE colour, so in erase-debug each real
             // shape lands in its own path and keeps its own opacity — which is
             // what makes an overlap between two of them visible as a darker
@@ -1200,7 +1156,7 @@ export default class Renderer {
         group.add(path);
     }
 
-    _buildInto(group, o, vw) {
+    _buildInto(group, o) {
         if (o.type === "shape") {
             const verts = [];
             this._pushArea(verts, o, this._origin());
@@ -1230,9 +1186,8 @@ export default class Renderer {
         // Fat strokes (could ever exceed the gate in this level) render as
         // filled curve-capsule outlines — built once, exact at every zoom. In
         // lazy mode they stay RAW until they approach the gate on screen
-        // ("pending"); the LIVE stroke always stays raw. outlineMode keeps the
-        // legacy windowed polygon bake as a DEBUG view.
-        if (o.type === "stroke" && !this.outlineMode) {
+        // ("pending"); the LIVE stroke always stays raw.
+        if (o.type === "stroke") {
             const mode = this._strokeMode(o);
             if (mode === "outline") { this._buildOutlineInto(group, o, curved); return; }
             if (mode === "pending" && o.lwFrame * this.cam.inScale > this._gatePx() && this._fitSpentMs < 12) {
@@ -1246,9 +1201,7 @@ export default class Renderer {
                 return;
             }
         }
-        let polys = null;
-        if (o.type === "fill") polys = o.polys;
-        else if (this.outlineMode) polys = this._fatPolys(o, vw, curved);
+        const polys = o.type === "fill" ? o.polys : null;
         if (polys) {
             const og0 = this._origin();
             const og = o.res ? { x: og0.x - o.res[0], y: og0.y - o.res[1] } : og0;   // drawn shifted by its residual (F41)
@@ -1325,90 +1278,22 @@ export default class Renderer {
         group.add(path);
     }
 
-    // The fat display bake — a verbatim port of KobinEngineV0._buildPaths' fat
-    // branch (window-clipped outline fill with the covered/mega short-circuits),
-    // reading pad from outlinePad() so BUG-02 cannot recur.
-    // KEPT ONLY for the outlineMode DEBUG view (normal rendering uses
-    // _buildOutlineInto's zoom-invariant curve capsules).
-    _fatPolys(o, vw, curved) {
-        const cx = (vw.left + vw.right) / 2, cy = (vw.top + vw.bottom) / 2;
-        const hw = (vw.right - vw.left) / 2, hh = (vw.bottom - vw.top) / 2;
-        const half = o.lwFrame / 2;
-        const polys = [];
-        // bbox
-        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-        for (const p of o.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
-        if (x1 + half < vw.left || x0 - half > vw.right || y1 + half < vw.top || y0 - half > vw.bottom) return polys;
-        let covered = false;
-        for (const p of o.pts) if (Math.hypot(Math.abs(p[0] - cx) + hw, Math.abs(p[1] - cy) + hh) < half) { covered = true; break; }
-        const diagW = Math.hypot(vw.right - vw.left, vw.bottom - vw.top);
-        // span OR radius keyed (ISSUE-14): a wide-but-short giant must also take
-        // the analytic strip, not Clipper's offset at astronomic radius.
-        const mega = Math.hypot(x1 - x0, y1 - y0) > 20 * diagW || half > 4 * diagW;
-        let cpts = [];
-        if (!covered) {
-            if (curved && o.pts.length > 2 && mega) {
-                cpts = flattenCurveNear(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter, vw, Math.max(0, half - diagW), half + diagW);
-            } else {
-                cpts = (curved && o.pts.length > 2) ? flattenCurve(o.pts, (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter) : o.pts;
-            }
-        }
-        const pieces = []; let cur = null;
-        for (let i = 0; i < cpts.length; i++) {
-            const px = Math.abs(cpts[i][0] - cx), py = Math.abs(cpts[i][1] - cy);
-            if (Math.hypot(px + hw, py + hh) < half) { covered = true; break; }
-            const near = Math.hypot(Math.max(px - hw, 0), Math.max(py - hh, 0));
-            const gap = i + 1 < cpts.length ? Math.hypot(cpts[i + 1][0] - cpts[i][0], cpts[i + 1][1] - cpts[i][1]) : 0;
-            const prevGap = i > 0 ? Math.hypot(cpts[i][0] - cpts[i - 1][0], cpts[i][1] - cpts[i - 1][1]) : 0;
-            if (near <= half + Math.max(gap, prevGap)) {
-                if (!cur) { cur = []; pieces.push(cur); if (i > 0) cur.push(cpts[i - 1]); }
-                cur.push(cpts[i]);
-            } else { if (cur) cur.push(cpts[i]); cur = null; }
-        }
-        if (covered) {
-            const m = 2 / this.cam.inScale;
-            polys.push([[vw.left - m, vw.top - m], [vw.right + m, vw.top - m], [vw.right + m, vw.bottom + m], [vw.left - m, vw.bottom + m]]);
-            return polys;
-        }
-        const eq = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
-        const lvw = { left: vw.left - cx, top: vw.top - cy, right: vw.right - cx, bottom: vw.bottom - cy };
-        for (const run of pieces) {
-            if (!run.length) continue;
-            const drun = decimatePolyline(run, (this.cfg.arcTolerancePx * 0.5) / this.cam.inScale);
-            let op;
-            if (mega) {
-                op = strokeStripNear(drun.map(([x, y]) => [x - cx, y - cy]), o.lwFrame, lvw,
-                    { startCap: eq(drun[0], cpts[0]), endCap: eq(drun[drun.length - 1], cpts[cpts.length - 1]) });
-            } else {
-                op = strokeOutline(drun.map(([x, y]) => [x - cx, y - cy]), o.lwFrame, { arcTolerancePx: this.cfg.arcTolerancePx, curved: false, displayScale: this.cam.inScale });
-            }
-            for (const p of op) polys.push(p.map(([x, y]) => [x + cx, y + cy]));
-        }
-        return polys;
-    }
-
     // ---- live in-progress stroke (immediate feedback, outside the diff) ----
     // Origin-relative like every other path, and parented under the ACTIVE
     // SCENE ROOT (not `world`): the scene origin folds into the world transform
     // in float64, so live ink lands pixel-identical to its finalized rendering.
     // _maybeReorigin/needsReorigin never fire while _live exists, so the origin
     // is stable for the whole gesture.
-    // `arcs` true => the ink under the pen IS the biarc chain, drawn as arcs.
+    // The ink under the pen IS the biarc chain, drawn as arcs — every tool's,
+    // the line tool's included (it re-seeds its two-sample pen on each move).
     // This is the whole point of the representation: what you watch appear is
-    // the curve that gets resolved, so pen-up changes nothing you can see. The
-    // straight-line tool keeps a plain two-anchor path — it REPLACES its second
-    // point on every move, which an incremental chain cannot express, and a
-    // biarc through two points is that straight line anyway.
-    addLive(o, straight) {
+    // the curve that gets resolved, so pen-up changes nothing you can see.
+    addLive(o) {
         if (this._live) this.endLive();   // a stale path would be orphaned in the scene otherwise
-        const og = this._origin();
-        const arcs = !straight;
-        const live = arcs
-            ? new Two.Path([], false, false, true)
-            : new Two.Path([new Two.Anchor(o.pts[0][0] - og.x, o.pts[0][1] - og.y)], false, false);
+        const live = new Two.Path([], false, false, true);
         live.noFill(); live.stroke = o.color; live.linewidth = o.lwFrame; live.cap = "round"; live.join = "round"; live.opacity = o.opacity == null ? 1 : o.opacity;
         (this._activeRoot || this.world).add(live);
-        this._live = live; this._liveModel = o; this._liveArcs = arcs;
+        this._live = live; this._liveModel = o;
         this._liveStable = 0; this._liveGap = 0;
         return live;
     }
@@ -1424,7 +1309,7 @@ export default class Renderer {
      */
     setLiveArcs(gaps) {
         const path = this._live;
-        if (!path || !this._liveArcs) return;
+        if (!path) return;
         const og = this._origin();
         const v = path.vertices;
         if (v.length > this._liveStable) v.splice(this._liveStable, v.length - this._liveStable);
@@ -1450,15 +1335,8 @@ export default class Renderer {
         this._liveStable = stable;
         this._liveGap = finalTo;
     }
-    extendLive(p) { if (this._live && !this._liveArcs) { const og = this._origin(); this._live.vertices.push(new Two.Anchor(p[0] - og.x, p[1] - og.y)); } }
-    setLiveEnd(p) { if (this._live) { const v = this._live.vertices[1]; if (v) { const og = this._origin(); v.x = p[0] - og.x; v.y = p[1] - og.y; } } }
-    endLive() { if (this._live && this._live.parent) this._live.parent.remove(this._live); this._live = null; this._liveModel = null; this._liveArcs = false; }
+    endLive() { if (this._live && this._live.parent) this._live.parent.remove(this._live); this._live = null; this._liveModel = null; }
 
-    // Selection highlight: fn returns { level, rect } (the selected object's
-    // lw-padded bbox in ITS OWN level's frame) or null. Drawn in screen space —
-    // corners walk the record chain like the tile-debug overlay — and refreshed
-    // on every world sync, so it tracks pans/zooms and drag-moves for free.
-    setSelection(fn) { this._selRectFn = fn; this._renderSelection(); }
     // The in-progress selection lasso, in SCREEN coordinates (it is a gesture,
     // not geometry — it never becomes part of the drawing).
     setLasso(fn) { this._lassoFn = fn; }
@@ -1471,47 +1349,6 @@ export default class Renderer {
      * invisible from the first version of this code.
      */
     refreshSelection() { this._renderSelection(); this.update(); }
-    /**
-     * Is this projected selection box worth drawing?
-     *
-     * WHY THIS EXISTS. The selection rectangle is the object's bbox in the
-     * ACTIVE FRAME's coordinates, so a coarse object seen from a deep frame
-     * projects to something astronomical. Measured live 2026-08-22: 877,395 x
-     * 877,395 px, a 3.5 M px perimeter, which at `dashes = [6, 4]` is 350,958
-     * dashes for the rasterizer to place EVERY FRAME — every one of them off
-     * screen. That was the whole "random 300-1000 ms stalls after erase, move,
-     * then zoom" investigation. It hid for so long because dashing is raster
-     * work: the function itself costs 0.15 ms of JavaScript, so no timer in
-     * this engine, no long-animation-frame attribution and no trace could ever
-     * name it. Isolated A/B, same frame: huge + dashed 315.3 ms, huge without
-     * dashes 17.0 ms, clamped + dashed 16.6 ms.
-     *
-     * THE RULE (placeholder, Kobin 2026-08-22). Two clauses, each of which
-     * means "there is nothing to look at":
-     *   - the box must overlap the viewport (otherwise it is simply elsewhere);
-     *   - it must be at most SEL_MAX_VIEWPORTS across (otherwise it engulfs the
-     *     view and all four of its edges are outside it).
-     * Together they bound the drawn perimeter at 6*(w+h) — about 1.4 k dashes
-     * on a 1504x812 view, against the 351 k that stalled the page.
-     *
-     * This is deliberately a placeholder: an off-screen selection just has no
-     * outline, and nothing tries to pop one back in. The intended replacement
-     * makes the OBJECT itself indicate selection, which does not depend on the
-     * bbox being on screen at all.
-     */
-    selectionDrawable(c) {
-        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-        for (const p of c) {
-            if (p[0] < l) l = p[0];
-            if (p[0] > r) r = p[0];
-            if (p[1] < t) t = p[1];
-            if (p[1] > b) b = p[1];
-        }
-        const onScreen = r >= 0 && b >= 0 && l <= this.width && t <= this.height;
-        const bounded = (r - l) <= SEL_MAX_VIEWPORTS * this.width
-            && (b - t) <= SEL_MAX_VIEWPORTS * this.height;
-        return onScreen && bounded;
-    }
     _renderSelection() {
         this.selGroup.remove(this.selGroup.children);
         const loop = this._lassoFn && this._lassoFn();
@@ -1523,15 +1360,12 @@ export default class Renderer {
             if (lp.dashes) { lp.dashes.length = 0; lp.dashes.push(4, 4); }
             this.selGroup.add(lp);
         }
-        // THE BOUNDING BOX IS GONE. It was the selection indicator until
-        // 2026-08-22, when it turned out to be the cause of the deep-zoom
-        // stalls: computed in the active frame's coordinates, it projected to
-        // 877,395 px and its dashed perimeter cost 315 ms a frame. It is
-        // replaced by `_renderSelOverlay` — ants on the object's own edge —
-        // which is bounded by the viewport by construction and says more
-        // besides. `_selRectFn` is SET and never read: `setSelection` survives so
-        // selection.indicator.test.js can prove that handing over an 877,395 px
-        // rect draws nothing at all, which is the regression worth pinning.
+        // The lasso is all this layer draws. The dashed bounding box that was
+        // the selection indicator until 2026-08-22 is gone, and its viewport
+        // test (`selectionDrawable`, `setSelection`) with it on 2026-09-14; the
+        // indicator is `_renderSelOverlay`, ants on the object's own edge, cut
+        // to the retained window so no projection can grow the drawn perimeter
+        // (OPEN-FLAGS F39).
     }
 
     /**
@@ -1950,7 +1784,6 @@ export default class Renderer {
     }
 
     setOpacityGroups(v) { this.opacityGroups = v; }
-    setOutlineMode(v) { this.outlineMode = v; }
     setLazyOutlines(v) { this.lazyOutlines = !!v; }
     // Toggle per-level scene retention. Switching modes changes what a scene key
     // means, so wipe the cache and let the next render rebuild once.

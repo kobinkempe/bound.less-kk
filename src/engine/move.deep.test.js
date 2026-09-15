@@ -22,7 +22,8 @@
  * build passed for four levels before falling off a cliff at five.
  */
 import { useEngines, mkEngine, drawStroke, descend, erase, objPointIn } from "./__testkit__/harness";
-import { loopsBBox, loopsArea } from "./geometry/arcShape";
+import { loopsBBox, loopsArea, rectLoop } from "./geometry/arcShape";
+import { encodeBelow, addOffset } from "./geometry/offsets";
 import { HALF_W, W } from "./frameLattice";
 
 jest.setTimeout(300000);
@@ -400,5 +401,50 @@ describe("MD-9 — a deep drag is cheap", () => {
         // The old drag rewrote a deep member's whole perimeter at R^k every
         // pointer event; this is what that would show up as.
         expect(deep).toBeLessThan(Math.max(4 * wide, 25));
+    });
+});
+
+describe("MD-10 — one lookup per frame (row 11, 2026-09-14)", () => {
+    const rects = (E, frame, n, seed) => {
+        const ids = [];
+        for (let i = 0; i < n; i++) {
+            const x = ((i * 7919 + seed) % 40000) - 20000, y = ((i * 104729 + seed) % 40000) - 20000;
+            const o = { type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: x, top: y, right: x + 50 + (i % 900), bottom: y + 40 }), color: "#123", opacity: 1, w: 8 };
+            E.doc.add(o, frame); ids.push(o.id);
+        }
+        return ids;
+    };
+    test("every member of a frame lands in the frame's one answer, and undo is bytes-exact", () => {
+        const E = mkEngine();
+        E.lm.ensureSpine(3); E.lm.cellChild("1", 1, 0); E.lm.cellChild("2", 1, 0);
+        const byFrame = { "2": rects(E, "2", 150, 1), "3": rects(E, "3", 150, 2), "1/1,0": rects(E, "1/1,0", 150, 3), "2/1,0": rects(E, "2/1,0", 150, 4) };
+        const anchor = { type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: 0, top: 0, right: 40, bottom: 40 }), color: "#123", opacity: 1, w: 8 };
+        E.doc.add(anchor, "1");
+        E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 }); E._render();
+        const all = [anchor.id, ...Object.values(byFrame).flat()];
+        E._setSelection(all);
+        const before = JSON.stringify(E.doc.serializeNatives());
+        E.setTool("select"); E.pointerDown(410, 310);
+        const t0 = Date.now();
+        for (const [dx, dy] of [[3, 1], [6, 2], [20, 5], [23, 6]]) E.pointerMove(410 + dx, 310 + dy);
+        const perEvent = (Date.now() - t0) / 4;
+        E.pointerUp();
+        const op = E.doc._undo[E.doc._undo.length - 1];
+        expect(op.op).toBe("moveMany"); expect(op.moves).toHaveLength(all.length);
+        const tx = op.moves[0].dx, ty = op.moves[0].dy;
+        for (const [from, ids] of Object.entries(byFrame)) {
+            // The frame the lattice itself gives for this home: the displaced frame, then the
+            // carry the leftover under one frame makes out of the home level.
+            const put = E.lm.displaceFrame(from, 1, tx, ty);
+            const rest = addOffset(undefined, 0, put.rest[0], put.rest[1]);
+            const want = (rest.cellX || rest.cellY) ? E.lm.neighbour(put.frame.id, rest.cellX, rest.cellY).id : put.frame.id;
+            const frames = new Set(), tables = new Set();
+            for (const id of ids) { const r = E.doc.getById(id); frames.add(r.level); tables.add(JSON.stringify(encodeBelow(r.obj.below) || null)); }
+            expect([from, [...frames]]).toEqual([from, [want]]);
+            expect([from, tables.size]).toEqual([from, 1]);
+        }
+        // eslint-disable-next-line no-console
+        console.log(`MD-10 drag: ${all.length} members, ${perEvent.toFixed(1)} ms an event`);
+        E.undo(); expect(JSON.stringify(E.doc.serializeNatives())).toBe(before);
     });
 });

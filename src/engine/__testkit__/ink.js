@@ -180,9 +180,12 @@ export function samples(from, to, n) {
     return out;
 }
 
-// The x-extent a given id's pieces reach, split by which side of `xSplit` each
-// piece's own centre sits on. Returns { aHi, bLo, overlap } where overlap > 0
-// means the two sides genuinely overlap rather than abut.
+// The x-extent a given id's pieces reach on each side of `xSplit`. A piece is
+// assigned to the tile that CUT it — the centre of its `clip` rect — and only a
+// piece carrying no clip falls back to the centre of its own extent; two tiles
+// that both carry a narrow object whole hand back identical geometry, so the
+// geometry cannot say which tile a piece came from. Returns { aHi, bLo, overlap }
+// where overlap > 0 means the two sides genuinely overlap rather than abut.
 export function seamOverlapX(list, id, xSplit) {
     let aHi = -Infinity, bLo = Infinity;
     for (const o of list) {
@@ -200,7 +203,9 @@ export function seamOverlapX(list, id, xSplit) {
         // A stroke paints half a linewidth past its centerline in every direction.
         const m = (o.type === "fill" || o.type === "shape") ? 0 : (o.lwFrame || 0) / 2;
         lo -= m; hi += m;
-        if ((lo + hi) / 2 < xSplit) aHi = Math.max(aHi, hi);
+        const c = o.clip;
+        const side = c ? (c.left + c.right) / 2 : (lo + hi) / 2;
+        if (side < xSplit) aHi = Math.max(aHi, hi);
         else bLo = Math.min(bLo, lo);
     }
     return { aHi, bLo, overlap: aHi - bLo };

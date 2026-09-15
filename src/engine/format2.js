@@ -51,7 +51,7 @@ export class F64Builder {
 // field. `geo` (kobin-1) puts the geometry right after `id`, where the JSON has it.
 const KNOWN = new Set(["type", "origin", "id", "loops", "polys", "pts", "lwFrame", "color", "opacity",
     "covers", "w", "z", "editId", "attachRect", "tile", "below", "erase", "bakePx", "g",
-    "windows", "srcId"]);   // the last two retired 2026-08-06, stripped on load
+    "windows", "srcId", "paths"]);   // retired: the first two 2026-08-06, `paths` 2026-09-14; stripped on load
 export function objectHeader(o, geo = null) {
     const h = { type: o.type, origin: o.origin, id: o.id };
     if (geo) Object.assign(h, geo);
@@ -172,8 +172,12 @@ export function decodeObjects(objects, geo) {
 // ---- log entries ----
 // An entry is an op with its RESULTS: the objects it removed and made, so replay never
 // recomputes anything. Kinds: add/put/remove/mark carry `obj`; bake carries
-// `removed.obj` and `pieces[].obj`; removeMany carries `records[].obj`; move carries
-// each move's `base`/`after` geometry; undo/redo/rekey/attr/meta carry no geometry.
+// `removed.obj` and `pieces[].obj`; removeMany carries `records[].obj`; move carries each
+// member's tables in file form, plus `base`/`after` geometry for a member the pen-up walked
+// back into its cell; moveFrames carries its frame entries as plain JSON and its members as
+// a move does; removeFrames, deleteMany and bakeFrames (an erase taking a frame whole)
+// carry each deleted frame's natives (`frames[].objects`, the rows go with the next save);
+// undo/redo/rekey/attr/meta/settle/mergeFrame carry no geometry.
 const geomSlot = (b, geom) => {
     if (!geom) return geom === undefined ? undefined : null;
     const type = geom.loops ? "shape" : geom.polys ? "fill" : "stroke";
@@ -205,10 +209,27 @@ export function encodeEntry(op) {
         case "removeMany":
             out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: slot(r.obj) }));
             break;
-        case "move":
+        case "move": case "moveFrames":
             // `obj` is the moved object as it now is, so a frame whose snapshot never
             // held it can still be given it on replay.
-            out.moves = op.moves.map((m) => ({ ...m, obj: m.obj ? slot(m.obj) : null, base: geomSlot(b, m.base), after: geomSlot(b, m.after) }));
+            // The geometry slots only when the entry has them: an absent `base` stays absent,
+            // so a table-only move reads back with no geometry keys at all.
+            out.moves = (op.moves || []).map((m) => {
+                const h = { ...m, obj: m.obj ? slot(m.obj) : null };
+                if ("base" in m) h.base = geomSlot(b, m.base);
+                if ("after" in m) h.after = geomSlot(b, m.after);
+                return h;
+            });
+            break;
+        case "removeFrames":
+            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
+            break;
+        case "bakeFrames":
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
+            break;
+        case "deleteMany":
+            out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: slot(r.obj) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
             break;
         default: break;
     }
@@ -229,8 +250,23 @@ export function decodeEntry(entry) {
         case "removeMany":
             out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: recordOf(r.obj, geo) }));
             break;
-        case "move":
-            out.moves = op.moves.map((m) => ({ ...m, obj: m.obj ? recordOf(m.obj, geo) : null, base: readGeomSlot(m.base, geo), after: readGeomSlot(m.after, geo) }));
+        case "move": case "moveFrames":
+            out.moves = (op.moves || []).map((m) => {
+                const r = { ...m, obj: m.obj ? recordOf(m.obj, geo) : null };
+                if ("base" in m) r.base = readGeomSlot(m.base, geo);
+                if ("after" in m) r.after = readGeomSlot(m.after, geo);
+                return r;
+            });
+            break;
+        case "removeFrames":
+            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
+            break;
+        case "bakeFrames":
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
+            break;
+        case "deleteMany":
+            out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: recordOf(r.obj, geo) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
             break;
         default: break;
     }

@@ -17,7 +17,9 @@
  *   downContent(F) — every NON-ANCESTOR frame G with depth(G) ≥ depth(F),
  *                    projected DIRECTLY into F (net factor ≤ ~1: descendants
  *                    minify; same/deeper siblings go up-to-common-ancestor then
- *                    down, still bounded). Read from the Document's natives; a
+ *                    down, still bounded). Found by walking the frame tree from
+ *                    F, a subtree pruned whole when its cell grown by one misses
+ *                    the tile (invariant 2), and read from the Document's natives; a
  *                    view-independent cull drops sub-pixel content and a fade
  *                    band tags size (BUG-04). This is what makes a stroke drawn
  *                    in a far sibling frame appear when viewing its neighbour.
@@ -39,10 +41,11 @@
  */
 import { Loop } from "./geometry/loop";
 import {
-    deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, padRect, shapeRingsInRect,
+    deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, seamPadFor, padRect, shapeRingsInRect,
     shapeTol, freezeR,
 } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
+import { R, G, REACH } from "./frameLattice";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
 // A tile's derived objects keep their loops as Loops (geometry/loop.js), like the
@@ -70,6 +73,8 @@ export default class TileStore {
         this._clock = 0;
         this._epoch = 0;
         this._pins = new Set(); // keys protected from eviction during a bake/render
+        this._chainSeq = new Map();       // frame -> chainSeq(frame), valid for one lattice addrEpoch
+        this._chainSeqEpoch = -1;
         this._batch = false;    // a drag: many changes to the same objects, per frame
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
@@ -101,7 +106,7 @@ export default class TileStore {
     // ---- document content bounds (by depth) ----
     _minContentDepth() {
         let m = Infinity;
-        for (const k of this.doc.levels()) if (this.doc.at(k).length) { const d = this._depth(k); if (d < m) m = d; }
+        for (const k of this.doc.levels()) if (this.doc.count(k)) { const d = this._depth(k); if (d < m) m = d; }
         return m;
     }
 
@@ -201,10 +206,11 @@ export default class TileStore {
         F = cf.id;
         const key = F + "|up|" + i + "," + j;
         const hit = this.cache.get(key);
-        if (hit && hit.epoch === this._epoch) { hit.lru = ++this._clock; return hit; }
+        const seq = this.chainSeq(F);
+        if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         this._pins.add(key); // protect this tile (and its parents) during recursion
         const objs = this._bakeUp(F, i, j);
-        const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, lru: ++this._clock };
+        const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq, lru: ++this._clock };
         this.cache.set(key, tile);
         return tile;
     }
@@ -234,6 +240,7 @@ export default class TileStore {
         }
         deriveStep(edges, rec.s, rec.t, rect, F, {
             cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
+            addrSeq: frame.addrSeq || 0,
             parentCurved: (o) => o.origin === "native",
             childCurved: () => false,
         }, objs);
@@ -338,9 +345,10 @@ export default class TileStore {
         F = cf.id;
         const key = F + "|down|" + i + "," + j;
         const hit = this.cache.get(key);
-        if (hit && hit.epoch === this._epoch) { hit.lru = ++this._clock; return hit; }
+        const seq = this.chainSeq(F);
+        if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         const objs = this._bakeDown(F, i, j);
-        const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, lru: ++this._clock };
+        const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq, lru: ++this._clock };
         this.cache.set(key, tile);
         return tile;
     }
@@ -348,22 +356,22 @@ export default class TileStore {
         const rect = this.lm.tileRect(F, i, j);
         const objs = [];
         const enter = this.cfg.enter;
-        const Fdepth = this._depth(F);
-        // Candidate source frames: content-bearing, non-ancestor, depth ≥ F,
-        // sorted by depth so the "whole frame is sub-cull" break is monotone.
-        const cands = [];
-        for (const k of this.doc.levels()) {
-            if (!this.doc.at(k).length) continue;
-            if (k === F) continue;
-            if (this.lm.isAncestor(k, F)) continue; // ancestors ride up, not down
-            if (this._depth(k) < Fdepth) continue;  // uncle (Stage 3) — not via down
-            cands.push(k);
-        }
-        cands.sort((a, b) => this._depth(a) - this._depth(b));
+        const cands = this._downSources(F, rect);
         for (const G of cands) {
             const f = this.lm.frameFactor(G, F); // ≤ ~1 (minify or bounded sibling hop)
             if (f == null) continue;
             if (DOWN_MAX_SIZE * f * enter < this.fadeLoPx) continue; // this frame is sub-cull
+            // The frame's own bound, from its index: every object under the cull, or every box off the
+            // tile, and the object loop is skipped whole. Each test is the per-object one below on a box
+            // that contains every object's, so nothing the loop would keep is lost (row 11).
+            const ext = this.doc.frameExtent(G);
+            if (!ext || ext.maxSize * f * enter < this.fadeLoPx) continue;
+            const eAtF = this.lm.mapRectF({ left: ext.box.x0, top: ext.box.y0, right: ext.box.x1, bottom: ext.box.y1 }, G, F);
+            if (eAtF) {
+                const tol = 1e-9 * (rect.right - rect.left);   // the hop-by-hop rounding, dwarfed
+                if (eAtF.right + tol < rect.left || eAtF.left - tol > rect.right ||
+                    eAtF.bottom + tol < rect.top || eAtF.top - tol > rect.bottom) continue;
+            }
             for (const o of this.doc.at(G)) {
                 const tag = projectedSizePx(o, f, this.cfg, this.live); // size at F's deepest zoom
                 if (tag < this.fadeLoPx) continue;                     // cull (invisible by construction)
@@ -378,6 +386,35 @@ export default class TileStore {
             }
         }
         return flattenAll(objs);
+    }
+
+    /**
+     * The frames a down tile of F can read: every non-ancestor at depth >= F whose cell, grown by
+     * one (invariant 2 bounds a whole subtree to that, as `_ringNatives` and the lasso rely on),
+     * meets `rect` in F's units — F's subtree, then outward through each ancestor the other
+     * children's subtrees, a subtree whose cell misses the tile skipped whole. Ascending depth.
+     */
+    _downSources(F, rect) {
+        const Fd = this._depth(F);
+        const out = [];
+        const visit = (id, s, tx, ty) => {
+            const reach = REACH * s * (1 + 1e-9);
+            if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
+            const f = this.lm.frame(id);
+            if (id !== F && f.depth >= Fd && this.doc.count(id)) out.push(id);   // a count must not settle a frame the extent test then skips
+            for (const c of this.lm.childrenOf(id)) if (c.centre) visit(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
+        };
+        visit(F, 1, 0, 0);
+        let child = this.lm.frame(F), s = 1, tx = 0, ty = 0;
+        while (child && child.parent != null) {
+            const c = child.centre;
+            if (!c) break;
+            s *= R; tx -= c.x * s; ty -= c.y * s;
+            for (const sib of this.lm.childrenOf(child.parent)) if (sib.id !== child.id && sib.centre) visit(sib.id, s / R, sib.centre.x * s + tx, sib.centre.y * s + ty);
+            child = this.lm.frame(child.parent);
+        }
+        out.sort((a, b) => this._depth(a) - this._depth(b));
+        return out;
     }
 
     // One minified piece of `o` (already projected into F as `d`) clipped to one
@@ -398,7 +435,7 @@ export default class TileStore {
                 // `clip`: the rectangle this piece was cut on, for the selection
                 // indicator's seam test (F39).
                 const piece = { type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, polys: rings, fadeTag: tag, paths: [], clip: crect };
+                    opacity: o.opacity, polys: rings, fadeTag: tag, clip: crect };
                 if (covered) piece.covers = true;
                 out.push(piece);
             }
@@ -411,7 +448,7 @@ export default class TileStore {
             const crect = padRect(rect, pad);
             const tp = clipRingsToRect(d.polys, crect);
             if (tp.length) out.push({ type: "fill", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, polys: tp, fadeTag: tag, paths: [], clip: crect });
+                opacity: o.opacity, polys: tp, fadeTag: tag, clip: crect });
             return out;
         }
         const pts = (o.origin === "native" && d.pts.length > 2)
@@ -420,14 +457,61 @@ export default class TileStore {
         const ew = padRect(rect, pad + lw);
         for (const run of clipPolylineToRect(pts, ew)) {
             if (run.length) out.push({ type: "stroke", origin: "derived", id: o.id, z: o.z, color: o.color,
-                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag, paths: [] });
+                opacity: o.opacity, pts: run, lwFrame: lw, fadeTag: tag });
         }
         return out;
     }
 
     // ---- document changes: INCREMENTAL tile updates ----
+    // The address sequence of F and its ancestors, summed. A tile built under an older sum
+    // read its content through an address that has since changed (a subtree move) and is
+    // rebuilt on its next lookup; no walk over the moved subtree is ever needed.
+    chainSeq(F) {
+        if (this._chainSeqEpoch !== this.lm.addrEpoch) { this._chainSeq.clear(); this._chainSeqEpoch = this.lm.addrEpoch; }
+        const hit = this._chainSeq.get(F);
+        if (hit !== undefined) return hit;
+        let n = 0;
+        for (let id = F; id != null; id = this.lm.parentOf(id)) { const f = this.lm.frame(id); if (f && f.addrSeq) n += f.addrSeq; }
+        this._chainSeq.set(F, n);
+        return n;
+    }
+    // A frame moved, was set aside or came back (a subtree move or delete): every cached tile
+    // whose rect meets the frame's footprint - its cell grown by the reach a subtree may have
+    // (invariant 2), at the old address and the new - is dropped. Tiles OF the moved subtree
+    // go stale through `chainSeq`. F55 stands: a table change drops nothing.
+    _onFrameEvent(ev) {
+        const foot = [];
+        const cur = this.lm.frame(ev.frame);
+        if (cur && cur.parent != null) foot.push([cur.parent, cur.cell.i, cur.cell.j]);
+        else if (ev.at && ev.at.parent != null) foot.push([ev.at.parent, ev.at.i, ev.at.j]);   // a merged frame is gone from the lattice
+        if (ev.kind === "refile" && ev.from && ev.from.parent != null) foot.push([ev.from.parent, ev.from.i, ev.from.j]);
+        if (ev.kind === "mergeFrame") for (const [key, tile] of this.cache) if (tile.level === ev.frame) this.cache.delete(key);
+        if (!foot.length) return;
+        const reach = REACH / R;    // in the parent's units
+        const pad = seamPadFor(this.cfg);
+        const memo = new Map();     // tile frame -> the footprints mapped into it
+        for (const [key, tile] of this.cache) {
+            let rects = memo.get(tile.level);
+            if (rects === undefined) {
+                rects = [];
+                for (const [parent, i, j] of foot) {
+                    const r = this.lm.mapRectF({ left: i * G - reach, top: j * G - reach, right: i * G + reach, bottom: j * G + reach }, parent, tile.level);
+                    if (r) rects.push(r);
+                }
+                memo.set(tile.level, rects);
+            }
+            if (!rects.length) continue;
+            const t = padRect(this.lm.tileRect(tile.level, tile.i, tile.j), pad);
+            for (const r of rects) {
+                if (r.right < t.left || r.left > t.right || r.bottom < t.top || r.top > t.bottom) continue;
+                this.cache.delete(key);
+                break;
+            }
+        }
+    }
     _onDoc(ev) {
         if (ev.kind === "reset") { this.cache.clear(); return; }
+        if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame" || ev.kind === "mergeFrame" || ev.kind === "splitFrame") { this._onFrameEvent(ev); return; }
         if (!ev.obj) return;
         if (ev.kind === "remove") { this._removeObject(ev.id); return; }
         if (ev.kind === "add" && ev.live) return; // still growing; finalize announces
@@ -485,6 +569,7 @@ export default class TileStore {
         if (tier === "solid") { tile.objs.push(this._solid(o, rec, rect)); return; }
         deriveStep([o], rec.s, rec.t, rect, F, {
             cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
+            addrSeq: frame.addrSeq || 0,
             parentCurved: (p) => p.origin === "native",
             childCurved: () => false,
         }, tile.objs);

@@ -198,7 +198,7 @@ export class GrowthLog {
             svgNodes,
             frames: E.lm && E.lm.frames ? E.lm.frames.size : null,
             buckets: E.doc ? E.doc.levels().length : null,
-            objects: E.doc ? E.doc.levels().reduce((n, k) => n + E.doc.at(k).length, 0) : null,
+            objects: E.doc ? E.doc.levels().reduce((n, k) => n + E.doc.count(k), 0) : null,
             undo: E.doc && E.doc._undo ? E.doc._undo.length : null,
             redo: E.doc && E.doc._redo ? E.doc._redo.length : null,
             tiles: E.store && E.store.cache && E.store.cache.size != null ? E.store.cache.size : null,

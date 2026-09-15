@@ -124,9 +124,9 @@ reasons matter more than the items did.
 | id | what was planned | what happened |
 |---|---|---|
 | X1 | delete the old erase RECIPE module (`geometry/erase.js`) — `subtractCuts`, `cutRecord`, `eraserFootprint`, `narrowCut`, `cutsResolveIn`, `removedFraction`, the superseded "a cut is a recipe the object carries" model | **MOVED, not deleted** → `engine/__oracles__/erase.js`. `erase.contract.slow.test.js` holds 26 passing assertions against it, and X1 itself said to port them rather than drop them. Porting an oracle into the code it checks is not porting; keeping it as an oracle costs nothing, since nothing in `src/` outside the suites imports it and webpack never bundles it. |
-| X2 | delete `subtractPolys` and `clipPolysToRect` once X1 went | **KEPT.** Neither has a production caller, but `geometry/lattice.test.js` uses both as the probe that measures where Clipper's integer lattice starts to drift, and `geometry/areaErase.test.js` uses `subtractPolys` for area-erase semantics. That drift is a live constraint as long as X3 stands, so the probe is not vestigial — it is the suite that bounds the one Clipper call still on a render path. |
-| X3 | delete `strokeOutline`, which was believed unreachable | **NOT UNREACHABLE.** It has three callers: `Renderer._fatPolys` under `outlineMode`; `derive.bandRings` under `opts.legacyOffset`, gated on `cfg.fatWidthPx == null` and therefore reached by the V0 golden-compare in `geometry/derive.test.js`; and `__oracles__/KobinEngineV0.js` throughout. X3 said to decide V0's fate first — V0 is **kept**, as the oracle the arc pipeline is checked against, so X3 cannot close. |
-| X4 | drop `clipper-lib` from `package.json` | **CANNOT**, because X3 cannot. Removing it means deleting outline mode *and* the V0 golden-compare. |
+| X2 | delete `subtractPolys` and `clipPolysToRect` once X1 went | **KEPT.** Neither has a production caller, but `geometry/lattice.test.js` uses both as the probe that measures where Clipper's integer lattice starts to drift, and `geometry/areaErase.test.js` uses `subtractPolys` for area-erase semantics. That drift is a live constraint as long as X3 stands, so the probe is not vestigial — it is the suite that bounds what Clipper is still trusted for. (Until S7, 2026-09-14, that was a call on a render path; now it is the V0 golden-compare alone.) |
+| X3 | delete `strokeOutline`, which was believed unreachable | **OFF EVERY RENDER PATH since 2026-09-14 (S7), still not deletable.** It had three callers. `Renderer._fatPolys`, under `outlineMode`, was the one that made it a display dependency: both are deleted, so nothing Clipper computes reaches the screen. What is left is `derive.bandRings` under `opts.legacyOffset`, gated on `cfg.fatWidthPx == null` and therefore reached only by the V0 golden-compare in `geometry/derive.test.js`, and `__oracles__/KobinEngineV0.js` throughout. X3 said to decide V0's fate first — V0 is **kept**, as the oracle the arc pipeline is checked against, so X3 still cannot close. (`KobinEngine.geom` also still names `strokeOutline` as a console handle; nothing in the repo reads it.) |
+| X4 | drop `clipper-lib` from `package.json` | **CANNOT**, because X3 cannot — but the reason is now only the V0 golden-compare. Outline mode, the other half of the 2026-08-31 answer, is gone (S7). |
 
 **What was done instead of X2–X4**, and it is most of the value they were after:
 `geometry/clipperOutline.js` was split in two, so the name stops lying.
@@ -1247,13 +1247,16 @@ of 2026-09-07 do not touch this. It is the case for a renderer that does not bui
 DOM path per piece — the roadmap's "big fixes" note.
 
 <a id="f60"></a>
-### F60 — OPEN, low. The scale-bar dialog's Length field is a full-width bar at the bottom of the window.
+### F60 — FIXED 2026-09-08. The scale-bar dialog's Length field was a full-width bar at the bottom of the window.
 
-`src/Stylesheets/boundless-ui.css` line 435 reads `.bl-scale-field .bl-input,` and
-nothing follows it but a comment, so the selector joins the `.bl-toast` rule below and
-the field inherits `position:fixed; bottom:5rem; left:50%; transform:translateX(-50%)`.
-The other session measured the input at y=696, width 1504 while its dialog sat at
-y 55–343. One line: finish the rule or delete the selector.
+Filed 2026-09-07 from the other session's DOM reading: `.bl-scale-field .bl-input,` at
+`boundless-ui.css` 435 with nothing after it but a comment, so the selector joined the
+`.bl-toast` rule below (fixed, bottom 5rem, centred, ink background). The 2026-09-01
+cleanup had dropped the `.bl-select` rule beside it when the unit dropdown became a
+button grid, and it went out in every deploy from then on. Kobin met it in the dialog on
+2026-09-08 ("what happened to the scalebar UI?"). Fixed in 0732252 — filed there as F74
+by mistake, a duplicate of this entry: the rule closed with `box-sizing: border-box;
+width: 100%`. Measured in his Chrome: the input static and inside the dialog rect.
 
 <a id="f61"></a>
 ### F61 — OPEN, low. A non-finite zoom anchor recurses until the stack overflows.
@@ -1382,7 +1385,7 @@ mark still bakes") is covered by design: a product inherits its parent's z and t
 has already stepped below the parent. Not yet reproduced on his canvas; keep open until
 he has tried it.
 
-Kobin, 2026-09-08, late, after the F67–F74 deploy: "I'm still dragging already baked
+Kobin, 2026-09-08, late, after the F67–F73 deploy: "I'm still dragging already baked
 objects under eraser bakes, which shouldn't be possible if the eraser goes down in
 Z-order as it bakes." Seen on the big canvas (mtqha19c7qjn), whose z values were
 rewritten by another session (F63) and whose cloud copy is still the stale one (F64),
@@ -2064,6 +2067,31 @@ all 5,526 objects selected, 5,343 rendered:
 
 The phone is Kobin's to feel. What is left in a zoom step is the drawing's
 own repaint, which the overlay no longer adds to.
+
+**2026-09-14, the last of the bounding box.** `Renderer.selectionDrawable` and the
+`setSelection` / `_selRectFn` plumbing were deleted (ROADMAP S8): no caller since this
+flag replaced the box, and the rect was handed over on every selection and never read.
+Their comment held the best account of the August stall, and it is this. The box was the
+object's bbox in the ACTIVE frame, so a coarse object seen from a deep frame projected to
+something astronomical — measured live 2026-08-22 at 877,395 × 877,395 px, a 3.5 M px
+perimeter, which at `dashes = [6, 4]` is **350,958 dashes for the rasterizer to place
+every frame**, every one of them off screen. That was the whole "random 300–1000 ms stalls
+after erase, move, then zoom" investigation, and it hid for five rounds of profiling
+because dashing is raster work: the function itself cost 0.15 ms of JavaScript, so no
+timer in this engine, no long-animation-frame attribution and no trace could name it.
+Isolated A/B, same frame: **huge + dashed 315.3 ms, huge without dashes 17.0 ms, clamped +
+dashed 16.6 ms.** `selectionDrawable` was the clamp — the box had to overlap the viewport
+and be at most three viewports across, which bounded the drawn perimeter at 6·(w+h),
+about 1.4 k dashes on a 1504×812 view against the 351 k that stalled the page. It was
+always a placeholder for exactly what shipped above: the ants are cut to the retained
+window piece by piece, so no projection can grow what is drawn, and nothing has to decide
+whether a box is worth drawing. `selection.indicator.test.js` pins that where it is now
+decided — two crossings down, anchored on the top edge of the ink so that edge is on
+screen, the selection's picture 111 M px across, the selection layer empty, and the ants
+one run of 1,600 px: the retained window's worth of that edge, not the picture's. Anchor
+the descent on the middle of the stroke instead and every edge is tens of millions of px
+away, the ants have nothing to cut, and the bound holds at zero — the first form of this
+test did that (measured 2026-09-14, 0 runs) and was replaced.
 
 <a id="f38"></a>
 ### F38 — CLOSED. Some selected objects had no ants, or partial ones, after zooming in.
@@ -4195,17 +4223,6 @@ SEL_OBJECT_DOT_PX on screen is a dot where its picture is, dots on one pixel mer
 one (`mergeClose`). In the replay the sliver gets its dot at the report's camera; a few
 untraceable specks inside the traced bundle get dots among the ants. `selection.indicator.test.js`:
 a speck beside a large selected stroke keeps a dot once its ring is under a half pixel.
-
-### F74 — FIXED 2026-09-08. The set-scale dialog's Length input was drawn as a dark bar at the bottom of the screen.
-
-Kobin's screenshot: the "This length equals..." dialog open, and the number he typed
-sitting in a full-width dark strip near the bottom edge, outside the dialog. The
-2026-09-01 cleanup removed the `.bl-scale-field .bl-select` rule when the unit dropdown
-became a button grid, and left the selector before it dangling on its comma, so
-`.bl-scale-field .bl-input` fell through to the next rule: `.bl-toast` — fixed, bottom
-5rem, centred, ink background. In production since that deploy. Fixed: the rule closed
-(`box-sizing: border-box; width: 100%`). Measured in his Chrome: the input is static and
-inside the dialog rect.
 
 ## F-Z — a thin, long stroke vanishes while zooming out
 

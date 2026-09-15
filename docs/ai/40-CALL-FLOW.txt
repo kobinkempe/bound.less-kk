@@ -14,7 +14,7 @@ MOUNT
         new Camera(lm, cfg, hooks)         hooks: finalizeLiveStroke, holdFrame
         new TileStore(lm, doc, cfg)        subscribes to doc changes
         new Renderer(container, cam, cfg)  creates the Two.js scene
-        renderer.setSelection / setSelectionAnts / setLasso
+        renderer.setSelectionAnts / setLasso
         doc.subscribe(...)                 keeps the selection honest when the
                                            object under it is removed or re-homed
         _render()
@@ -33,12 +33,14 @@ DRAWING A STROKE   [HOT]
         cam.screenToFrame
         new BiarcPen({ tol })              tol = arcTolerancePx/2 / inScale
         doc.allocId, doc.add(o, frame, {live:true})
-        renderer.addLive(o, straight)
+        renderer.addLive(o)
         renderer.setLiveArcs(pen.gaps)     a lone tap is still a dot
   pointermove (many)
     engine.pointerMove(x, y)
       _pointerMove
         pen.addSample(p)                   O(1): only the last two gaps change
+                                           the line tool re-seeds a fresh
+                                           two-sample pen instead (S7)
         renderer.setLiveArcs(pen.gaps)     splices off the unstable tail only
         renderer.update()
   pointerup
@@ -138,16 +140,29 @@ SELECTING AND MOVING
       _lasso = { pts, ctrl }
   pointermove
     _dragSelection(sx, sy)                  [HOT]
+      tx, ty = snapDisplacement((pointer - start) / cam.inScale)   camera units (F55)
       for each member of the selection's edit families:
-        depth <= camera:  wantX = tx * frameFactor      plain translation
-        depth >  camera:  lm.displaceFrame(from, camDepth, tx, ty)
-                          -> re-home to the frame, remainder to geometry
-        doc.rehomeById / doc.setGeometryById(Document.translateGeometry(base,...))
-      _render()
+        _displaceMember(from, baseBelow, camDepth, tx, ty)   once per (frame, table), memoised
+          depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
+          depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
+      doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per changed table
+      the selected FRAMES (2026-09-15), never per object:
+        _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
+        _dragFrames: lm.moveSubtreeTargets from the start record -> lm.readdressMany (two-phase; a held
+          cell makes a shadow) -> doc.noteRefile per address change, doc.setFrameShift (the rest, D+1/D+2),
+          doc.noteFrameOwner; a frame a render settled since is doc.unsettle'd first
+      _render()                             reading a moved frame's list settles its shift (doc.at)
   pointerup
-    _normalizeHome(id) for each moved member
-    doc.pushUndo({op:"move"|"moveMany"})
+    _homeShift / _normalizeHome for a member outside its cell (geometry snapshots kept for it)
+    doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
+      or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, settled, merged}
+    doc.holdMerges = false                  a shadow merges at its resident's first read from here on
     store.setBatch(false)
+
+  undo of a moveFrames (Document._invert)
+    per frame entry: unmerge each merged record (lm.unadoptShadow), unsettle from the settle record
+    lm.readdressMany back to the start addresses; setFrameShift(shiftBefore); the inverse's entries own the frames
+    _undoMove(moves)                        the per-object members as a move's
 
   the lasso path
     _applyLasso -> _lassoFind(poly)
@@ -167,9 +182,11 @@ RENDERING   [HOT]
                                 plus doc.at(parent), plus _ringNatives(parent);
                                 classifyUp -> empty | solid | edge;
                                 deriveStep for the edge tier
-          _ensureDown(F,i,j) -> _bakeDown: every non-ancestor frame at depth >= F,
-                                projected directly, culled by projectedSizePx,
-                                clipped by _downPieces
+          _ensureDown(F,i,j) -> _bakeDown: candidates from _downSources (the
+                                tree, subtrees pruned by cell + REACH), a frame
+                                skipped whole by doc.frameExtent, else per
+                                object: culled by projectedSizePx, projected
+                                directly, clipped by _downPieces
       store.ownContent(frame)               a plain read of doc.at(frame)
       sort by (z, id)                       global z-order
     renderer.render(list, frame)
@@ -193,8 +210,9 @@ RENDERING   [HOT]
   PAN AND ZOOM take the fast path when they can:
     panBy / zoomFactorAt
       cam.panBy / cam.zoomFactorAt -> _settle (cross and/or shift)
-      if crossed OR the visible tile set changed OR needsRebake OR needsFatFlip
-         OR needsFadeFlip OR needsReorigin:   _render()
+      if crossed OR the visible tile set changed OR needsFatFlip
+         OR needsFadeFlip OR needsReorigin OR needsWindowChop:   _render()
+         (pan tests only the visible set, needsReorigin and needsWindowChop)
       else: renderer.syncCameraOnly() + update() + _emit()
              - one matrix write, no path is rebuilt
 
@@ -202,12 +220,17 @@ AUTOSAVE   (useKobinEngine, since 2026-09-02)
 
   doc event -> markDirty(frame)             1.5 s quiet, 8 s ceiling
     save("timer")
-      engine.serializeDrawing({}, { frames: [the dirty ids] })
-        encodeDrawing({camera, crossings, natives: those frames, meta})
-      writeCanvas(id, { header, frames, frameIds, full })
-        db.putCanvas                        ONE transaction: the header, the
-                                            changed frames, deletes of frames
-                                            that left; refused without a base
+      log.drain()                           the tick's entries, and the frames forced to snapshot
+      encodeObjects(doc.at(L))              per forced or outgrown frame; then log.drain() again for
+                                            the settles those reads made (their rows already hold them)
+      engine.serializeDrawing({}, { frames: [] })
+                                            the header, with lm.serialize(): the lattice every write
+                                            carries (addresses, shifts, shadows) - the authority on replay
+      writeCanvas2(id, { header, snapshots, frameIds, entries, full, resetLog, dropBelow })
+        db.putCanvas2                       ONE transaction: the header, the
+                                            snapshots, the entries, deletes of
+                                            frames that left; refused without a base
+      a failed write keeps its entries AND its forced frames for the next tick
       onAutosave({ name, stats })           CanvasEditor freshens the index
   visibilitychange(hidden) / pagehide / unmount -> save("flush", force)
   undo / redo / a meta edit -> markDirty(all) / markDirty(header)

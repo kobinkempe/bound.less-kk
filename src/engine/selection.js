@@ -13,16 +13,16 @@
  * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
  * `KobinEngine.js` on 2026-08-31.
  */
-import { R as CROSS_RATIO, W as FRAME_W } from "./frameLattice";
-import Document from "./Document";
+import { R as CROSS_RATIO, W as FRAME_W, REACH } from "./frameLattice";
 import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
 import { insideShape } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
-import { addOffset, sameBelow, snapDisplacement, hasOffsets } from "./geometry/offsets";
+import { addOffset, sameBelow, snapDisplacement, cloneBelow, sameShift } from "./geometry/offsets";
 
-const REACH = (3 * FRAME_W) / 2;
+// How close to a selected frame's mark a press counts as pressing the frame.
+const SEL_FRAME_HIT_PX = 8;
 
 // How far a press has to travel before it is a drag rather than a tap. Screen
 // pixels; a finger wobbles a few, a mouse none.
@@ -76,10 +76,13 @@ class Selection {
             this._lasso = { pts: [[P.sx, P.sy], [sx, sy]], ctrl: P.ctrl, moved: true };
             this.renderer.refreshSelection();
         };
-        if (P.hit == null || P.ctrl || !this.selection) { startLasso(); return; }
+        // A press on a selected frame's mark drags the selection as a press on selected ink does.
+        const frameHit = P.hit == null && this.selection && this.selection.frames.length ? this._frameUnderPoint(P.sx, P.sy) : null;
+        if ((P.hit == null && !frameHit) || P.ctrl || !this.selection) { startLasso(); return; }
         // Pressing an object that is ALREADY selected keeps the whole selection
         // and drags it; pressing a different one selects it alone.
-        if (!this._isSelected(P.hit)) this.select(P.sx, P.sy);
+        if (frameHit) { /* the frame's mark: the selection stands */ }
+        else if (!this._isSelected(P.hit)) this.select(P.sx, P.sy);
         else this._flushErasesFor(P.hit);
         // The erase barrier has to cover EVERYTHING that is about to move, not
         // just the piece under the finger. A mark is a native sitting at fixed
@@ -91,7 +94,7 @@ class Selection {
         // white mark itself on screen, hanging over the object being dragged.
         this._settleSelectionErases();
         if (!this.selection) { startLasso(); return; }   // the flush took the object away
-        this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false };
+        this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
         // A drag rewrites the same objects on every pointer event; tiles the
         // camera cannot see are not worth patching that often.
         this.store.setBatch(true);
@@ -121,13 +124,13 @@ class Selection {
         this._dragSel = null;
         this.store.setBatch(false);
         if (d.moved) {
-            // Back to the frame and the geometry the drag started from. `base`
-            // is a detached snapshot the drag only ever read, so it is intact.
+            // Back to the frame and the table the drag started from; a move touches nothing else (F55).
             for (const [id, st] of d.moves) {
                 if (!this.doc.getById(id)) continue;
                 if (st.to !== st.from) this.doc.rehomeById(id, st.from);
-                this.doc.setGeometryById(id, st.base);
+                this.doc.setOffsetsById(id, st.baseBelow);
             }
+            if (d.frames && d.frames.size) this._restoreFrames(d);
         }
         this._render();
     }
@@ -139,11 +142,18 @@ class Selection {
     // overlay) walks `ids`; everything that reads one object keeps working.
     _isSelected(id) {
         if (!this.selection) return false;
-        const key = this.doc.editKey(this.doc.getById(id) ? this.doc.getById(id).obj : null);
+        const rec = this.doc.getById(id);
+        if (rec && this.selection.frames.length && this._underFrames(rec.level, this.selection.frames)) return true;
+        const key = this.doc.editKey(rec ? rec.obj : null);
         return this.selection.ids.includes(id) || (key != null && this.selection.ids.some((x) => {
             const r = this.doc.getById(x);
             return r && this.doc.editKey(r.obj) === key;
         }));
+    }
+    // Is the frame `level` one of `frames`, or under one?
+    _underFrames(level, frames) {
+        for (const f of frames) if (this.lm.isUnder(f, level)) return true;
+        return false;
     }
     // Every native, with its bbox in the ACTIVE frame's units. Nothing in the
     // engine uses this any more — `_lassoFind` walks the frame tree instead —
@@ -209,6 +219,9 @@ class Selection {
      * The walk goes OUTWARD from the active frame, one hop at a time, because
      * that is the only direction in which the scale factor stays a number: from
      * the root it would be R^depth before the first useful comparison.
+     *
+     * Returns `{ ids, frames }`: the object ids found one by one, and the ids of
+     * the ENCLOSED frames, each standing for its whole subtree.
      */
     _lassoFind(poly) {
         const box = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
@@ -219,12 +232,12 @@ class Selection {
             if (p[1] > box.bottom) box.bottom = p[1];
         }
         const found = [];
+        const frames = [];
         const ink = loopTester(everyNth(poly, LASSO_LOOP_MAX_PTS));
-        // An object with a displacement table is judged where its picture is, below (F69).
-        const takeAll = (id) => {
-            for (const o of this.doc.at(id)) if (!o.erase && !hasOffsets(o.below)) found.push(o.id);
-            for (const c of this.lm.childrenOf(id)) takeAll(c.id);
-        };
+        // An enclosed frame is ONE entry of the selection. Its natives and its whole
+        // subtree are inside the loop by invariant 2, tables included, so nothing under
+        // it is read: O(1) per enclosed frame.
+        const takeAll = (id) => { frames.push(id); };
         // `s`/`tx`/`ty` carry the frame's coordinates into the active frame's.
         // Used only for the two FRAME-level decisions, which are coarse; every
         // per-object rect still goes through `mapRectF` hop by hop.
@@ -276,6 +289,7 @@ class Selection {
                 if (have.has(id)) continue;
                 const rec = this.doc.getById(id);
                 if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
+                if (frames.length && this._underFrames(rec.level, frames)) continue;   // its frame is already one entry
                 const r = this._rectInActive(rec.obj, rec.level);
                 if (!r) continue;
                 if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
@@ -294,6 +308,9 @@ class Selection {
         for (const id of set) {
             const rec = this.doc.getById(id);
             if (!rec) continue;
+            // A keyless native is a family of one: a family key is the id of an object its pieces
+            // replaced, never of one still in the document, so nothing else can share it.
+            if (rec.obj.editId == null) { out.push(id); continue; }
             const key = this.doc.editKey(rec.obj);
             let ok = whole.get(key);
             if (ok === undefined) {
@@ -302,7 +319,7 @@ class Selection {
             }
             if (ok) out.push(id);
         }
-        return out;
+        return { ids: out, frames };
     }
     /**
      * Is this object's INK wholly inside the loop? The outline is flattened at
@@ -355,13 +372,17 @@ class Selection {
         }
         return true;
     }
-    _setSelection(ids) {
+    // A selection is ids PLUS frames: a frame entry means that frame and its whole
+    // subtree (§2.7). The primary member is the first live id, or the first frame
+    // when the selection is frames only.
+    _setSelection(ids, frames = []) {
         const live = ids.filter((id) => this.doc.getById(id));
-        if (!live.length) { this.deselect(); return null; }
-        const rec = this.doc.getById(live[0]);
+        const fr = [...new Set(frames)].filter((f) => this.lm.frame(f));
+        if (!live.length && !fr.length) { this.deselect(); return null; }
+        const rec = live.length ? this.doc.getById(live[0]) : null;
         this.selection = {
-            ids: live, id: rec.obj.id, editId: this.doc.editKey(rec.obj),
-            level: rec.level, obj: rec.obj,
+            ids: live, frames: fr, id: rec ? rec.obj.id : null, editId: rec ? this.doc.editKey(rec.obj) : null,
+            level: rec ? rec.level : fr[0], obj: rec ? rec.obj : null,
         };
         this.renderer.syncCameraOnly(); this.renderer.update();
         this._emit();
@@ -379,20 +400,25 @@ class Selection {
     //             inside the current selection, which REMOVES instead
     _applyLasso(L) {
         const poly = L.pts.map(([x, y]) => this.cam.screenToFrame(x, y));
-        const found = this._lassoFind(poly);
-        if (!L.ctrl) { if (found.length) this._setSelection(found); else this.deselect(); return; }
+        const { ids: found, frames } = this._lassoFind(poly);
+        if (!L.ctrl) {
+            if (found.length || frames.length) this._setSelection(found, frames); else this.deselect();
+            return;
+        }
         const cur = this.selection ? [...this.selection.ids] : [];
-        if (!found.length) return;
+        const curFr = this.selection ? [...(this.selection.frames || [])] : [];
+        if (!found.length && !frames.length) return;
         // A ctrl loop that catches nothing new is a loop drawn PURELY INSIDE the
         // current selection, and that gesture subtracts. Catch anything new and
         // it is an overlapping loop, which adds. One rule, and it reads the same
         // way round as a group-level toggle.
-        if (found.every((id) => cur.includes(id))) {
-            this._setSelection(cur.filter((id) => !found.includes(id)));
+        if (found.every((id) => cur.includes(id)) && frames.every((f) => curFr.includes(f))) {
+            this._setSelection(cur.filter((id) => !found.includes(id)), curFr.filter((f) => !frames.includes(f)));
             return;
         }
         for (const id of found) if (!cur.includes(id)) cur.push(id);
-        this._setSelection(cur);
+        for (const f of frames) if (!curFr.includes(f)) curFr.push(f);
+        this._setSelection(cur, curFr);
     }
 
     // ---- selection / edit (US-10) ----
@@ -420,10 +446,11 @@ class Selection {
         this.renderer.syncCameraOnly(); this.renderer.update();
         this._emit();
     }
-    // The overlay is the VISIBLE union of a logical edit family in the active
-    // frame. This stays tight around a re-homed patch instead of exposing the
-    // astronomical bbox of its coarse source, while a drag still moves every
-    // boundary-attached member as one object.
+    // The VISIBLE union of a logical edit family in the active frame — tight
+    // around a re-homed patch instead of the astronomical bbox of its coarse
+    // source. No production caller since the bounding-box indicator's last
+    // plumbing went (S8, 2026-09-14); the suites read it to assert what a
+    // selection projects to.
     _selectionRect() {
         const s = this.selection; if (!s) return null;
         const keys = new Set();
@@ -450,34 +477,12 @@ class Selection {
         return { level: s.level, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
     }
     /**
-     * One drag step — and the reason a drag at depth is now safe.
-     *
-     * WHAT IT USED TO DO. Translate every member's geometry by
-     * `displacement x frameFactor`, which for a member k levels below the camera
-     * is `displacement x R^k`. At k = 5 a 30 px drag rewrote that member's
-     * coordinates to 7.3e18 and destroyed 82.9% of its area, while the pieces
-     * stayed perfectly registered with each other — so the object did not move
-     * wrong, it came apart (F-C, and F25/F28 in OPEN-FLAGS).
-     *
-     * WHAT IT DOES NOW. The displacement is expanded into lattice DIGITS, and
-     * everything a whole cell or larger is applied to the member's ADDRESS: it
-     * is re-homed into the cell that many steps along, its geometry untouched,
-     * because neighbouring cells' origins differ by exactly one frame and the
-     * same local coordinates therefore describe the moved object exactly. Only
-     * the sub-cell remainder — smaller than one frame, whatever the depth —
-     * reaches geometry. A member COARSER than the camera still translates
-     * directly, which is safe in the other direction: the displacement in its
-     * units is `displacement / R^k`, and shrinking cannot explode.
-     *
-     * Every member expands the SAME displacement, so members that share an
-     * ancestor take bit-identical digits there and their relative positions
-     * cannot move. That is registration by construction rather than by luck.
-     *
-     * The whole step is also recomputed from where the drag STARTED, not from
-     * the previous event, so a slow drag and a fast one apply the same
-     * arithmetic to the same numbers and land in the same place (M-4). The old
-     * residue bookkeeping that bought this — `erase-tile-window-design-bible.md`
-     * section 5.4 — is deleted; exactness makes it unnecessary.
+     * One drag step. The displacement, snapped to the camera level's grid (F55), is expanded per
+     * member into whole frames (a change of address) and a table entry at the camera's depth below
+     * the member's home; no stored coordinate is touched (DESIGN.md §8). Two facts: the arithmetic
+     * runs ONCE per (home frame, starting table) and every member of that frame takes the same
+     * answer, which is what registration rests on; and the step is recomputed from where the drag
+     * STARTED, so a slow drag and a fast one apply the same arithmetic to the same numbers (M-4).
      */
     _dragSelection(sx, sy) {
         const d = this._dragSel;
@@ -498,60 +503,161 @@ class Selection {
         // behind is precisely the reported symptom, and the report carried no
         // trace of the decision. Journaled with the move at pen-up.
         const skip = (id, level, why) => { (d.skipped || (d.skipped = [])).push({ id, level, why }); };
+        const seen = new Map();                          // (frame, table) -> the answer
+        const rehomes = new Map();                       // target frame -> ids, in member order
+        const offsets = [];                              // [id, table] whose table changed
         for (const rec of this._selectionMembers()) {
             const id = rec.obj.id;
             let st = d.moves.get(id);
             if (!st) {
-                st = { from: rec.level, to: rec.level, dx: 0, dy: 0, base: Document.snapGeometry(rec.obj) };
-                st.below = st.base.below;
+                st = { from: rec.level, to: rec.level, dx: 0, dy: 0, baseBelow: cloneBelow(rec.obj.below) };
+                st.below = st.baseBelow;
                 d.moves.set(id, st);
             }
-            const depth = this.lm.depthOf(st.from);
-            if (depth == null) { skip(id, st.from, "home frame has no depth"); continue; }
-
-            // NOTHING A MOVE DOES REACHES A STORED COORDINATE (F55). Every
-            // member takes the same displacement into its own table, at the
-            // camera's depth below its home: whole frames carry upward as
-            // integers, a carry out of the home level is a change of ADDRESS
-            // (the member re-homed to the neighbour cell, coordinates
-            // untouched), and the sub-frame remainders are applied at paint.
-            // Before this, the displacement was added into the coordinates at
-            // the home level, or into the hop at the move level (F41), and that
-            // one rounding — half an ulp, invisible there — was magnified 4096x
-            // per level below, parting a coarse object from detail drawn three
-            // or more levels down (Kobin's star in the corner; F35). A member
-            // DEEPER than the camera is re-addressed by the displacement's cell
-            // digits and takes the rest, under one frame, into its own table at
-            // its home level — zero when it is three or more levels down, since
-            // the snap leaves nothing for the digits not to express.
-            let frame = st.from, table, cellX, cellY;
-            if (depth <= camDepth) {
-                const r = addOffset(st.base.below, camDepth - depth, tx, ty);
-                table = r.below; cellX = r.cellX; cellY = r.cellY;
-            } else {
-                const put = this.lm.displaceFrame(st.from, camDepth, tx, ty);
-                if (!put) { skip(id, st.from, "displaceFrame refused: no frame at the camera's depth on this member's ancestry"); continue; }
-                frame = put.frame.id;
-                const r = addOffset(st.base.below, 0, put.rest[0], put.rest[1]);
-                table = r.below; cellX = r.cellX; cellY = r.cellY;
+            const key = st.from + "|" + JSON.stringify(st.baseBelow || null);
+            let put = seen.get(key);
+            if (!put) { put = this._displaceMember(st.from, st.baseBelow, camDepth, tx, ty); seen.set(key, put); }
+            if (put.why) { skip(id, st.from, put.why); continue; }
+            if (put.frame !== st.to) {
+                let ids = rehomes.get(put.frame);
+                if (!ids) rehomes.set(put.frame, ids = []);
+                ids.push(id); st.to = put.frame; moved = true;
             }
-            if (cellX || cellY) {
-                const n = this.lm.neighbour(frame, cellX, cellY);
-                if (!n) { skip(id, st.from, "no neighbour cell for the carry"); continue; }
-                frame = n.id;
-            }
-            // From the drag's START, never from the last event: that is what
-            // makes a slow drag land exactly where a fast one does.
-            if (frame !== st.to) { this.doc.rehomeById(id, frame); st.to = frame; moved = true; }
-            if (!sameBelow(table, st.below)) {
-                this.doc.setOffsetsById(id, table);
-                st.below = table;
-                moved = true;
-            }
+            if (!sameBelow(put.table, st.below)) { offsets.push([id, put.table]); st.below = put.table; moved = true; }
             st.dx = tx; st.dy = ty;              // for the journal: the snapped displacement, camera units
+        }
+        for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
+        for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
+        if (this.selection.frames.length) {
+            if (!d.frameStart) this._dragFramesStart(d, camDepth);
+            if (d.frameStart.size && this._dragFrames(d, camDepth, tx, ty)) moved = true;
         }
         d.moved = d.moved || moved;
         this._render();
+    }
+    /**
+     * The frames a drag moves AS FRAMES: each selected root's subtree within three levels of
+     * the camera (deeper frames follow their parent pointer), recorded once at its start
+     * address so every event computes the whole step from the start (DESIGN.md §8). An empty
+     * leaf container is left out: it has nothing to move and would only accrete.
+     */
+    _dragFramesStart(d, camDepth) {
+        d.frameStart = new Map();
+        this.doc.holdMerges = true;          // a shadow the drag makes is merged only once the op is pushed
+        const all = this.selection.frames;
+        for (const f of all) {
+            if (this._underFrames(f, all.filter((x) => x !== f))) continue;
+            for (const [id, e] of this.lm.subtreeStart(f, camDepth)) {
+                if (id !== f && !this.lm.childrenOf(id).length && this.doc.count(id) === 0) continue;
+                d.frameStart.set(id, e);
+                const fr = this.lm.frame(id);
+                d.frames.set(id, { id, depth: e.depth, from: { parent: e.parent, i: e.i, j: e.j }, to: null,
+                    shiftBefore: fr && fr.shift ? [fr.shift[0], fr.shift[1]] : null, shiftAfter: null, settled: null, merged: null });
+            }
+        }
+    }
+    /**
+     * One drag step for the frames: targets from the start state (the same arithmetic the
+     * per-object path uses, frame for frame), applied in one pass; a frame's shift is what
+     * it carried plus this step's rest, settled into its natives' tables at their next read
+     * (a carry re-homes them then, exactly as the per-object path does). A frame a render
+     * settled mid-drag is unsettled before it takes the new shift, so the tables never hold
+     * two steps at once (O(its natives): the cost of drawing it). Never per object otherwise.
+     */
+    _dragFrames(d, camDepth, tx, ty) {
+        const targets = this.lm.moveSubtreeTargets(null, camDepth, tx, ty, d.frameStart);
+        const apply = [];
+        for (const t of targets) {
+            const e = d.frames.get(t.id);
+            if (t.why) { (d.skipped || (d.skipped = [])).push({ id: t.id, level: t.id, why: t.why }); continue; }
+            const sx = (e.shiftBefore ? e.shiftBefore[0] : 0) + t.rest[0];
+            const sy = (e.shiftBefore ? e.shiftBefore[1] : 0) + t.rest[1];
+            e.shiftAfter = (sx || sy) ? [sx, sy] : null;
+            if (e.settled && !sameShift(e.shiftAfter, [e.settled.dx, e.settled.dy])) { this.doc.unsettle(e.id, e.settled); e.settled = null; }
+            apply.push(t);
+        }
+        const was = new Map(apply.map((t) => { const f = this.lm.frame(t.id); return [t.id, { parent: f.parent, i: f.cell.i, j: f.cell.j }]; }));
+        const r = this.lm.readdressMany(apply, { empty: (id) => this.doc.count(id) === 0 });
+        let moved = false;
+        for (const t of apply) {
+            const e = d.frames.get(t.id);
+            const f = this.lm.frame(t.id);
+            const to = { parent: f.parent, i: f.cell.i, j: f.cell.j };
+            const w = was.get(t.id);
+            const addrChanged = to.parent !== w.parent || to.i !== w.i || to.j !== w.j;
+            const shiftChanged = !e.settled && !sameShift(f.shift, e.shiftAfter);
+            if (addrChanged) this.doc.noteRefile(t.id, w, to);
+            if (shiftChanged) this.doc.setFrameShift(t.id, e.shiftAfter);
+            this.doc.noteFrameOwner(t.id, e);
+            e.to = to;
+            if (addrChanged || shiftChanged) moved = true;
+        }
+        for (const c of r.shadowed) (d.frameShadowed || (d.frameShadowed = [])).push(c);
+        return moved;
+    }
+    /** A cancelled drag: the frames back to their start addresses and shifts, any settle undone. */
+    _restoreFrames(d) {
+        for (const e of d.frames.values()) if (e.settled) { this.doc.unsettle(e.id, e.settled); e.settled = null; }
+        const back = [], was = new Map();
+        for (const e of d.frames.values()) {
+            const f = this.lm.frame(e.id);
+            if (!f) continue;
+            if (f.parent === e.from.parent && f.cell.i === e.from.i && f.cell.j === e.from.j) continue;
+            was.set(e.id, { parent: f.parent, i: f.cell.i, j: f.cell.j });
+            back.push({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j });
+        }
+        this.lm.readdressMany(back, { empty: (id) => this.doc.count(id) === 0 });
+        for (const t of back) { const f = this.lm.frame(t.id); this.doc.noteRefile(t.id, was.get(t.id), { parent: f.parent, i: f.cell.i, j: f.cell.j }); }
+        for (const e of d.frames.values()) { this.doc.setFrameShift(e.id, e.shiftBefore); this.doc.noteFrameOwner(e.id, null); }
+        this.doc.holdMerges = false;
+    }
+    /** The selected frame whose mark is under the screen point, or null. */
+    _frameUnderPoint(sx, sy) {
+        const s = this.selection; if (!s || !s.frames.length) return null;
+        for (const f of s.frames) {
+            const p = this.cam.levelPointToScreen(f, 0, 0);
+            if (p && Math.hypot(p[0] - sx, p[1] - sy) <= SEL_FRAME_HIT_PX) return f;
+        }
+        return null;
+    }
+    /**
+     * Where a member homed in `from` with starting table `below` goes for the displacement (tx, ty)
+     * made at `camDepth`: its frame and its table, or `why` it cannot move (F35, journaled at pen-up).
+     * At or below the camera the displacement enters the table at the camera's depth and carries
+     * out of the home level as a change of address; deeper, the cell digits re-address the member
+     * and the rest enters its home-level entry. Pure in the lattice's state, so every member with
+     * the same inputs shares one answer.
+     */
+    _displaceMember(from, below, camDepth, tx, ty) {
+        const depth = this.lm.depthOf(from);
+        if (depth == null) return { why: "home frame has no depth" };
+        let frame = from, r;
+        if (depth <= camDepth) r = addOffset(below, camDepth - depth, tx, ty);
+        else {
+            const put = this.lm.displaceFrame(from, camDepth, tx, ty);
+            if (!put) return { why: "displaceFrame refused: no frame at the camera's depth on this member's ancestry" };
+            frame = put.frame.id;
+            r = addOffset(below, 0, put.rest[0], put.rest[1]);
+        }
+        if (r.cellX || r.cellY) {
+            const n = this.lm.neighbour(frame, r.cellX, r.cellY);
+            if (!n) return { why: "no neighbour cell for the carry" };
+            frame = n.id;
+        }
+        return { frame, table: r.below };
+    }
+    /** The cell an object's bbox centre sits in, as the re-home that would put it there, or null when it is in its own cell. */
+    _homeShift(id) {
+        const rec = this.doc.getById(id);
+        if (!rec) return null;
+        const b = bboxOf(rec.obj, this.store.live);
+        if (!b) return null;
+        const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+        const di = Math.round(cx / FRAME_W), dj = Math.round(cy / FRAME_W);
+        if (!di && !dj) return null;
+        const to = this.lm.neighbour(rec.level, di, dj);
+        if (!to || to.id === rec.level) return null;
+        return { level: to.id, dx: -di * FRAME_W, dy: -dj * FRAME_W };
     }
     /**
      * Put an object back inside its own cell, if a move pushed it out.
@@ -564,18 +670,11 @@ class Selection {
      * two, so subtracting whole frames is exact.
      */
     _normalizeHome(id) {
-        const rec = this.doc.getById(id);
-        if (!rec) return null;
-        const b = bboxOf(rec.obj, this.store.live);
-        if (!b) return null;
-        const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-        const di = Math.round(cx / FRAME_W), dj = Math.round(cy / FRAME_W);
-        if (!di && !dj) return null;
-        const to = this.lm.neighbour(rec.level, di, dj);
-        if (!to || to.id === rec.level) return null;
-        this.doc.rehomeById(id, to.id);
-        this.doc.moveById(id, -di * FRAME_W, -dj * FRAME_W);
-        return { level: to.id, dx: -di * FRAME_W, dy: -dj * FRAME_W };
+        const n = this._homeShift(id);
+        if (!n) return null;
+        this.doc.rehomeById(id, n.level);
+        this.doc.moveById(id, n.dx, n.dy);
+        return n;
     }
     // Every native the selection covers: each selected id, plus the rest of its
     // logical edit family (a re-homed patch still moves with its source).
@@ -590,6 +689,8 @@ class Selection {
                 seen.add(m.obj.id); out.push(m);
             }
         }
+        // Selected frames are not expanded: the drag moves them as frames (`_dragFrames`) and
+        // the delete sets them aside as containers; nothing reads their natives here.
         return out;
     }
     /**
@@ -604,16 +705,32 @@ class Selection {
         const s = this.selection; if (!s) return false;
         const records = [];
         const seen = new Set();
-        for (const id of [...s.ids]) {
-            for (const m of this.doc.editGroup(id)) {
+        // The individually selected ids and their families, object by object — NOT through
+        // `_selectionMembers`, whose bridge would expand a selected frame to its natives.
+        for (const id of s.ids) {
+            const hit = this.doc.getById(id);
+            if (!hit) continue;
+            for (const m of this.doc.editGroup(this.doc.editKey(hit.obj))) {
                 if (seen.has(m.obj.id)) continue;
                 seen.add(m.obj.id);
                 const rec = this.doc.removeById(m.obj.id);
                 if (rec) records.push(rec);
             }
         }
-        if (!records.length) return false;
-        this.doc.pushUndo({ op: "eraseMany", records });
+        // A selected frame goes as CONTAINERS: each frame's list detached by reference,
+        // O(frames) and no per-object work (SUBTREE-O1-PLAN §2.3).
+        const frames = s.frames || [];
+        const frameRecords = [];
+        for (const f of frames) {
+            if (this._underFrames(f, frames.filter((x) => x !== f))) continue;   // an ancestor of it is going anyway
+            const recs = this.doc.removeFrameSubtree(f);
+            if (recs) frameRecords.push(...recs);
+        }
+        if (!records.length && !frameRecords.length) return false;
+        // One gesture, one op: objects only, frames only, or both as one `deleteMany`.
+        if (!frameRecords.length) this.doc.pushUndo({ op: "eraseMany", records });
+        else if (!records.length) this.doc.pushUndo({ op: "removeFrames", records: frameRecords });
+        else this.doc.pushUndo({ op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frameRecords }] });
         this.deselect();
         this._render();
         return true;
@@ -623,7 +740,17 @@ class Selection {
     // downstream should be able to reach for them.
     _selectionStatus() {
         const s = this.selection; if (!s) return null;
-        return { id: s.id, ids: [...s.ids], count: s.ids.length, type: s.obj.type, level: s.level };
+        return {
+            id: s.id, ids: [...s.ids], frames: [...s.frames],
+            count: s.ids.length + s.frames.reduce((n, f) => n + this._subtreeCount(f), 0),
+            type: s.obj ? s.obj.type : "frame", level: s.level,
+        };
+    }
+    // How many natives a frame stands for: its own list plus its subtree's and its shadows' (O(frames)).
+    _subtreeCount(f) {
+        let n = 0;
+        this.lm.walk(f, (fr) => { n += this.doc.count(fr.id); });
+        return n;
     }
     // Is the point in the shape, or within `slack` of it? A resolved perimeter
     // answers "inside" exactly, but picking wants a little reach, so a miss is

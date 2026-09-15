@@ -120,6 +120,10 @@ export function rectInsidePolygon(poly, rect) {
     if (!poly || poly.length < 3) return false;
     if (!(rect.right >= rect.left && rect.bottom >= rect.top)) return false;
     if (!pointInPolygon(poly, [rect.left, rect.top])) return false;
+    return polygonMissesRect(poly, rect);
+}
+/** Does the closed polygon's boundary stay out of the rect: no edge crosses a side or lies inside? */
+export function polygonMissesRect(poly, rect) {
     const corners = [
         [rect.left, rect.top], [rect.right, rect.top],
         [rect.right, rect.bottom], [rect.left, rect.bottom],

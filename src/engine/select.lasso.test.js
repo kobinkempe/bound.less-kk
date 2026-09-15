@@ -18,7 +18,7 @@
 import KobinEngine from "./KobinEngine";
 import { rectInsidePolygon, pointInPolygon } from "./geometry/lasso";
 import { bboxOf } from "./geometry/derive";
-import { objPointIn } from "./__testkit__/harness";
+import { objPointIn, eraseGesture } from "./__testkit__/harness";
 
 jest.setTimeout(120000);
 
@@ -52,6 +52,8 @@ const lasso = (E, ax, ay, bx, by, ctrl = false) => {
     E.pointerUp();
     return E.selection ? [...E.selection.ids] : [];
 };
+const polyOf = (E, ax, ay, bx, by) => [[ax, ay], [bx, ay], [bx, by], [ax, by]]
+    .map(([x, y]) => E.cam.screenToFrame(x, y));
 const click = (E, sx, sy, ctrl = false) => {
     E.setTool("select");
     E.pointerDown(sx, sy, ctrl);
@@ -176,8 +178,9 @@ describe("L-3/L-4 — size does not decide membership; boundedness does", () => 
         while (E.activeLevel > 0 && guard++ < 400) E.zoomAt(400, 300, 1000);
         E._render();
         expect(E._objs().some((o) => o.id === tiny.id)).toBe(false);
-        // ...and the lasso finds it anyway.
-        expect(lasso(E, 200, 150, 600, 450)).toContain(tiny.id);
+        // ...and the lasso finds it anyway — inside an enclosed frame, so ask membership.
+        lasso(E, 200, 150, 600, 450);
+        expect(E._isSelected(tiny.id)).toBe(true);
     });
 
     test("an object larger than the lasso is NOT selected", () => {
@@ -296,7 +299,7 @@ describe("L-10 — the colour/size/opacity box is gone", () => {
         // The status carries identity and count, and no style at all — nothing
         // downstream can render a swatch or a slider from it.
         expect(E._selectionStatus()).toEqual({
-            id: expect.any(Number), ids: expect.any(Array), count: 1, type: "shape", level: "0",
+            id: expect.any(Number), ids: expect.any(Array), frames: [], count: 1, type: "shape", level: "0",
         });
     });
 });
@@ -333,8 +336,15 @@ describe("L-T — selection is a tree query, and it is the same answer", () => {
     // What asking every object in the document would say.
     const bruteForce = (E, poly) => E._selectableRects()
         .filter((x) => rectInsidePolygon(poly, x.rect)).map((x) => x.o.id).sort((a, b) => a - b);
-    const polyOf = (E, ax, ay, bx, by) => [[ax, ay], [bx, ay], [bx, by], [ax, by]]
-        .map(([x, y]) => E.cam.screenToFrame(x, y));
+    // The lasso's answer as MEMBERSHIP: an enclosed frame is one entry standing for
+    // its subtree, so the ids alone are no longer the answer.
+    const members = (E, poly) => {
+        const { ids, frames } = E._lassoFind(poly);
+        E._setSelection(ids, frames);
+        const out = [];
+        for (const L of E.doc.levels()) for (const o of E.doc.at(L)) if (!o.erase && E._isSelected(o.id)) out.push(o.id);
+        return out.sort((a, b) => a - b);
+    };
 
     test("the same answer as asking every object, for every loop", () => {
         const E = mkEngine();
@@ -342,8 +352,7 @@ describe("L-T — selection is a tree query, and it is the same answer", () => {
         for (const box of [[120, 120, 680, 480], [300, 240, 500, 360], [60, 60, 200, 200],
             [390, 290, 410, 310], [0, 0, 800, 600], [700, 500, 780, 580]]) {
             const poly = polyOf(E, ...box);
-            expect([box, E._lassoFind(poly).sort((a, b) => a - b)])
-                .toEqual([box, bruteForce(E, poly)]);
+            expect([box, members(E, poly)]).toEqual([box, bruteForce(E, poly)]);
         }
     });
 
@@ -380,18 +389,46 @@ describe("L-T — selection is a tree query, and it is the same answer", () => {
         const fine = drawStroke(E, [[360, 280], [440, 320]], 12);
         E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 0, inPanY: 0 });
         E._render();
-        expect(E._lassoFind(polyOf(E, 120, 120, 680, 480))).toContain(fine.id);
-        expect(E._lassoFind(polyOf(E, 60, 60, 200, 200))).not.toContain(fine.id);
+        expect(members(E, polyOf(E, 120, 120, 680, 480))).toContain(fine.id);
+        expect(members(E, polyOf(E, 60, 60, 200, 200))).not.toContain(fine.id);
+    });
+
+    test("a keyless native is always a family of one, so its verdict is its own (row 11)", () => {
+        const E = mkEngine();
+        tower(E, 3);
+        // make families: a cut that severs (keyless pieces), then a nibble at a tip
+        // (one region left, so the piece keeps its family key)
+        E.setEraserSize(12); eraseGesture(E, [[400, 240], [400, 360]]); E.flushErases();
+        eraseGesture(E, [[440, 320], [470, 335]]); E.flushErases();
+        let keyless = 0, keyed = 0;
+        for (const L of E.doc.levels()) for (const o of E.doc.at(L)) {
+            if (o.erase) continue;
+            if (o.editId == null) { keyless++; expect(E.doc.editGroup(o).map((m) => m.obj.id)).toEqual([o.id]); }
+            else keyed++;
+        }
+        expect(keyless).toBeGreaterThan(0); expect(keyed).toBeGreaterThan(0);
+        const poly = polyOf(E, 0, 0, 800, 600);
+        const found = E._lassoFind(poly).ids;   // the family rule is the per-object pass's
+        // the verdict computed the long way, for every found id
+        const set = new Set(found);
+        const long = [];
+        for (const L of E.doc.levels()) for (const o of E.doc.at(L)) {
+            if (o.erase || !set.has(o.id)) continue;
+            if (E.doc.editGroup(o).every((m) => m.obj.erase || set.has(m.obj.id))) long.push(o.id);
+        }
+        expect(found.slice().sort((a, b) => a - b)).toEqual(long.sort((a, b) => a - b));
     });
 });
 
 describe("a re-homed family is one object (Kobin, 2026-09-03)", () => {
-    // Two pieces sharing an editId stand in for a parent and the tile ceded
-    // out of it: the object is the pair, and "fully bounded by the loop" is
-    // asked of the pair.
+    // Two pieces sharing an editId stand in for a parent and the tile ceded out of it: the
+    // object is the pair, and "fully bounded by the loop" is asked of the pair. Both pieces
+    // carry the key, as a cede leaves them — a live object is never keyless while another
+    // object names its id.
     const family = (E) => {
         const parent = drawStroke(E, [[100, 300], [220, 300]]);
         const tile = drawStroke(E, [[400, 300], [430, 300]]);
+        parent.editId = parent.id;
         tile.editId = parent.id;
         E.doc.keysChanged();
         return { parent, tile };
@@ -403,7 +440,7 @@ describe("a re-homed family is one object (Kobin, 2026-09-03)", () => {
         lasso(E, 360, 260, 470, 340);
         expect(E.selection).toBeNull();
         // ...and the tile on its own is not selectable apart from its object.
-        expect(E._lassoFind([[360, 260], [470, 260], [470, 340], [360, 340]])).toEqual([]);
+        expect(E._lassoFind([[360, 260], [470, 260], [470, 340], [360, 340]]).ids).toEqual([]);
         expect(tile.editId).toBeDefined();
     });
     test("a loop around the whole family selects it, both pieces", () => {
@@ -458,7 +495,138 @@ describe("F69 — the lasso finds a moved object where its picture is", () => {
         expect(kids.length).toBeGreaterThan(0);
         E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 0, inPanY: 0 });
         E._render();
-        const got = lasso(E, 380, 240, 480, 340);
-        for (const id of kids) expect(got).toContain(id);
+        lasso(E, 380, 240, 480, 340);
+        // Their frame comes in as one entry, so membership is the question, not the id list.
+        for (const id of kids) expect(E._isSelected(id)).toBe(true);
+    });
+});
+
+/**
+ * Row 11 §2.7: a loop that encloses a frame takes THE FRAME. One entry stands for
+ * the whole subtree — every native of it is inside the loop by invariant 2 — so
+ * nothing under it is read, at fifty objects or at two thousand.
+ */
+describe("an enclosed frame is one selection entry (subtree O(1), 2026-09-14)", () => {
+    // A frame two levels below the camera holding exactly `n` natives. One pen
+    // stroke mints the frame; the rest go in through the document, because two
+    // thousand pen gestures in jsdom is minutes.
+    const deepFrame = (E, n, sx = 400, sy = 300) => {
+        let g = 0;
+        while (E.activeLevel < 2 && g++ < 600) E.zoomAt(sx, sy, -1000);
+        const seed = drawStroke(E, [[sx - 4, sy - 4], [sx + 4, sy + 4]], 4);
+        const f = E.doc.getById(seed.id).level;
+        E.flushBakes();
+        for (const L of E.doc.levels()) {
+            if (L !== f && !E.lm.isAncestor(f, L)) continue;
+            for (const o of [...E.doc.at(L)]) E.doc.removeById(o.id);
+        }
+        const ids = [];
+        for (let i = 0; i < n; i++) {
+            const x = (i % 50) * 3, y = Math.floor(i / 50) * 3;
+            const o = { type: "fill", id: E.doc.allocId(), origin: "native", color: "#000000", opacity: 1,
+                polys: [[[x, y], [x + 2, y], [x + 2, y + 2], [x, y + 2]]] };
+            E.doc.add(o, f); ids.push(o.id);
+        }
+        g = 0;
+        while (E.activeLevel > 0 && g++ < 600) E.zoomAt(sx, sy, 1000);
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 0, inPanY: 0 });
+        E._render();
+        return { f, ids, at: E.cam.levelPointToScreen(f, 0, 0) };
+    };
+    // The entry may be the frame or the ancestor that enclosed it; either way the
+    // frame is in the selection as a subtree, not as objects.
+    const covers = (E, f) => E.selection.frames.includes(f) || E.selection.frames.some((x) => E.lm.isAncestor(x, f));
+    const around = (p, r) => [p[0] - r, p[1] - r, p[0] + r, p[1] + r];
+
+    test("the frame is the entry, its natives are not, and nothing under it is read", () => {
+        for (const N of [50, 2000]) {
+            const E = mkEngine();
+            const { f, ids, at } = deepFrame(E, N);
+            // Count the reads of the enclosed frame's list during the find: zero is the O(1) claim.
+            const realAt = E.doc.at.bind(E.doc);
+            let reads = 0;
+            E.doc.at = (lv) => { if (lv === f) reads++; return realAt(lv); };
+            const res = E._lassoFind(polyOf(E, ...around(at, 100)));
+            E.doc.at = realAt;
+            expect([N, reads]).toEqual([N, 0]);
+            expect(res.frames.length).toBeGreaterThan(0);
+            expect(res.ids).toEqual([]);
+
+            lasso(E, ...around(at, 100));
+            expect(E.selection).not.toBeNull();
+            expect(covers(E, f)).toBe(true);
+            expect(E.selection.ids).toEqual([]);
+            expect(E._isSelected(ids[0])).toBe(true);
+            expect(E._isSelected(ids[N - 1])).toBe(true);
+            expect(E._selectionStatus().count).toBe(N);
+        }
+    });
+
+    test("ctrl adds a second enclosed frame; the first loop again removes the first", () => {
+        const E = mkEngine();
+        const A = deepFrame(E, 8, 200, 300);
+        const B = deepFrame(E, 8, 600, 300);
+        lasso(E, ...around(A.at, 60));
+        const first = [...E.selection.frames];
+        expect(first.length).toBeGreaterThan(0);
+        lasso(E, ...around(B.at, 60), true);
+        const both = [...E.selection.frames];
+        for (const f of first) expect(both).toContain(f);
+        expect(both.length).toBeGreaterThan(first.length);
+        expect(covers(E, B.f)).toBe(true);
+        expect(E.selection.ids).toEqual([]);
+        lasso(E, ...around(A.at, 60), true);
+        expect([...E.selection.frames].sort()).toEqual(both.filter((f) => !first.includes(f)).sort());
+        expect(covers(E, B.f)).toBe(true);
+        expect(E.selection.ids).toEqual([]);
+    });
+
+    test("a frames-only selection survives removals, and an emptied frame stays selected", () => {
+        const E = mkEngine();
+        const { f, ids, at } = deepFrame(E, 6);
+        const far = drawStroke(E, [[60, 500], [110, 550]]);
+        lasso(E, ...around(at, 100));
+        expect(E.selection.ids).toEqual([]);
+        const frames = [...E.selection.frames];
+        E.doc.removeById(far.id);
+        expect(E.selection.frames).toEqual(frames);
+        for (const id of ids) E.doc.removeById(id);
+        expect(E.selection).not.toBeNull();
+        expect(E.selection.frames).toEqual(frames);
+        expect(E._selectionStatus().count).toBe(0);
+        expect(covers(E, f)).toBe(true);
+    });
+
+    test("delete takes the subtree as containers: no removeById, one op, undo and redo", () => {
+        const N = 2000;
+        const E = mkEngine();
+        const { f, ids, at } = deepFrame(E, N);
+        // Level order and list order both move when a frame's list is re-attached; the bytes
+        // of the natives are what must not.
+        const bytes = () => JSON.stringify(Object.entries(E.doc.serializeNatives())
+            .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+            .map(([lv, arr]) => [lv, [...arr].sort((x, y) => x.id - y.id)]));
+        lasso(E, ...around(at, 100));
+        expect(E.selection.ids).toEqual([]);
+        const before = bytes();
+        const realRemove = E.doc.removeById.bind(E.doc);
+        let removes = 0;
+        E.doc.removeById = (id) => { removes++; return realRemove(id); };
+        expect(E.deleteSelection()).toBe(true);
+        E.doc.removeById = realRemove;
+        expect([N, removes]).toEqual([N, 0]);              // O(frames): no object was touched
+        expect(E.doc._undo[E.doc._undo.length - 1].op).toBe("removeFrames");
+        expect(E.doc.count(f)).toBe(0);
+        expect(E.doc.getById(ids[0])).toBeNull();
+        expect(E.doc.getById(ids[N - 1])).toBeNull();
+        expect(E.undo()).toBe(true);
+        expect(E.doc.count(f)).toBe(N);
+        expect(E.doc.getById(ids[0])).toBeTruthy();
+        expect(bytes()).toBe(before);
+        expect(E.redo()).toBe(true);
+        expect(E.doc.count(f)).toBe(0);
+        expect(E.doc.getById(ids[N - 1])).toBeNull();
+        expect(E.undo()).toBe(true);
+        expect(bytes()).toBe(before);
     });
 });

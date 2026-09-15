@@ -33,7 +33,7 @@ import { seamPad, deriveStep } from "./derive";
 import { cedeRect } from "../__oracles__/cede";
 import { inks, inkers, samples, seamOverlapX } from "../__testkit__/ink";
 
-import { BASE, ENTER, EXIT, R } from "../frameLattice";
+import { BASE, ENTER, EXIT, G, R, REACH, W } from "../frameLattice";
 
 const CFG = { enter: ENTER, base: BASE, exit: EXIT, bufferScreens: 1, scale: 1000,
     arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, cullPx: 0.3, fadeLoPx: 0.15,
@@ -53,7 +53,7 @@ afterEach(() => { while (stores.length) stores.pop().destroy(); });
 
 const stroke = (d, level, pts, lw, extra = {}) => {
     const o = { type: "stroke", origin: "native", id: d.allocId(), pts, lwFrame: lw,
-        color: "#123456", opacity: 1, paths: [], ...extra };
+        color: "#123456", opacity: 1, ...extra };
     d.add(o, level); return o;
 };
 // A resolved perimeter — an axis-aligned box as four line pieces. This is what
@@ -63,12 +63,12 @@ const shape = (d, level, x0, y0, x1, y1, extra = {}) => {
     const c = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
     const loop = c.map((A, i) => ({ line: true, A, B: c[(i + 1) % 4] }));
     const o = { type: "shape", origin: "native", id: d.allocId(), loops: [loop],
-        color: "#123456", opacity: 1, paths: [], ...extra };
+        color: "#123456", opacity: 1, ...extra };
     d.add(o, level); return o;
 };
 const fill = (d, level, polys, extra = {}) => {
     const o = { type: "fill", origin: "native", id: d.allocId(), polys,
-        color: "#123456", opacity: 1, paths: [], ...extra };
+        color: "#123456", opacity: 1, ...extra };
     d.add(o, level); return o;
 };
 
@@ -111,28 +111,93 @@ describe("S-1 — every tile-piece path overlaps its neighbour by at least the s
         expect(overlap).toBeGreaterThanOrEqual(2 * pad);
     });
 
+    // The native sits in the last child cell BEFORE the frame-0 tile seam. Its
+    // subtree may reach REACH past that cell's centre (invariant 2), so the
+    // minified piece straddles the seam legally. The earlier fixture put the
+    // native 2,048 cells outside its home frame; the tree walk of the downward
+    // scan (row 11 D2, 2026-09-14) prunes that, as the lasso already did.
     test("down-projected fill", () => {
         const M = mkMap(0, 1);
-        const X = seamX(M, "0") * R; // the level-0 seam, in child coords
+        const sx = seamX(M, "0");             // the frame-0 tile seam
+        const i = Math.floor(sx / G) - 1;     // the last cell before it
+        const F = M.cellChild("0", i, 0).id;
+        const cx = (sx - i * G) * R;          // that seam, in the child's units
+        expect(cx + 6e4).toBeLessThanOrEqual(REACH);
         const d = new Document();
-        const o = fill(d, 1, [[[X - 3e5, -3e5], [X + 3e5, -3e5], [X + 3e5, 3e5], [X - 3e5, 3e5]]]);
+        const o = fill(d, F, [[[cx - 6e4, -3e4], [cx + 6e4, -3e4], [cx + 6e4, 3e4], [cx - 6e4, 3e4]]]);
         const ts = mkStore(M, d);
         const list = ts._ensureDown("0", 0, 0).objs.concat(ts._ensureDown("0", 1, 0).objs);
         const pad = seamPad(o, CFG, true);
-        expect(seamOverlapX(list, o.id, seamX(M, "0")).overlap).toBeGreaterThanOrEqual(2 * pad);
+        // An object narrower than the padded overlap is carried whole by both
+        // tiles, so the overlap is its width — a legal down-projected native
+        // reaches at most REACH / R past its cell centre, 16 units past a seam here.
+        const width = (2 * 6e4) / R;
+        expect(seamOverlapX(list, o.id, seamX(M, "0")).overlap)
+            .toBeGreaterThanOrEqual(Math.min(2 * pad, width) - 1e-6);
     });
 
+    // Same legal placement as the fill above: the last child cell before the
+    // seam, reaching less than REACH past its centre (invariant 2).
     test("down-projected stroke", () => {
         const M = mkMap(0, 1);
-        const X = seamX(M, "0") * R;
+        const sx = seamX(M, "0");
+        const i = Math.floor(sx / G) - 1;
+        const F = M.cellChild("0", i, 0).id;
+        const cx = (sx - i * G) * R;
+        expect(cx + 6e4).toBeLessThanOrEqual(REACH);
         const d = new Document();
         // 6e3 child units minifies to lw = 2 at level 0 — again narrower than
         // the pad, so this fails on the old `ew = rect ± lw` rule.
-        const o = stroke(d, 1, [[X - 3e5, 0], [X + 3e5, 0]], 6e3);
+        const o = stroke(d, F, [[cx - 6e4, 0], [cx + 6e4, 0]], 6e3);
+        const ts = mkStore(M, d);
+        const list = ts._ensureDown("0", 0, 0).objs.concat(ts._ensureDown("0", 1, 0).objs);
+        // A stroke narrower than the padded overlap is carried whole by both
+        // tiles as identical pieces, which is the seam property itself — two
+        // tiles painting the same ink cannot leave a hairline. seamOverlapX
+        // cannot split identical pieces (a stroke piece carries no clip to
+        // split them by), so assert the carried-whole property directly.
+        const mine = list.filter((p) => p.id === o.id);
+        expect(mine.length).toBe(2);
+        for (const p of mine) {
+            const xs = p.pts.map((q) => q[0]);
+            expect(Math.abs(Math.min(...xs) - (i * G + (cx - 6e4) / R))).toBeLessThanOrEqual(1e-6);
+            expect(Math.abs(Math.max(...xs) - (i * G + (cx + 6e4) / R))).toBeLessThanOrEqual(1e-6);
+        }
+    });
+
+    // A same-depth SIBLING's content may straddle the seam by far more than the
+    // pad, so this is the down path's case for the full 2 * pad property.
+    test("down-projected sibling fill", () => {
+        const M = mkMap(0, 1);
+        const sib = M.neighbour("0", 1, 0);   // grows a root '-1' and mints '0's sibling
+        expect(M.depthOf(sib.id)).toBe(0);
+        const sx = seamX(M, "0");             // the sibling's LEFT edge, in frame-0 units
+        const x0 = sx - W;                    // the same point, in the sibling's own units
+        expect(Math.abs(x0 - 4e4)).toBeLessThanOrEqual(REACH);
+        const d = new Document();
+        const o = fill(d, sib.id, [[[x0 - 4e4, -3e4], [x0 + 4e4, -3e4], [x0 + 4e4, 3e4], [x0 - 4e4, 3e4]]]);
         const ts = mkStore(M, d);
         const list = ts._ensureDown("0", 0, 0).objs.concat(ts._ensureDown("0", 1, 0).objs);
         const pad = seamPad(o, CFG, true);
-        expect(seamOverlapX(list, o.id, seamX(M, "0")).overlap).toBeGreaterThanOrEqual(2 * pad);
+        expect(seamOverlapX(list, o.id, sx).overlap).toBeGreaterThanOrEqual(2 * pad);
+    });
+
+    // The sibling fill's placement, for a stroke: the content straddles the seam
+    // by far more than the pad, so the two tiles' pieces genuinely differ and
+    // the full 2 * pad property applies to a stroke on the down path too.
+    test("down-projected sibling stroke", () => {
+        const M = mkMap(0, 1);
+        const sib = M.neighbour("0", 1, 0);
+        expect(M.depthOf(sib.id)).toBe(0);
+        const sx = seamX(M, "0");
+        const x0 = sx - W;
+        expect(Math.abs(x0 - 4e4)).toBeLessThanOrEqual(REACH);
+        const d = new Document();
+        const o = stroke(d, sib.id, [[x0 - 4e4, 0], [x0 + 4e4, 0]], 6e3);
+        const ts = mkStore(M, d);
+        const list = ts._ensureDown("0", 0, 0).objs.concat(ts._ensureDown("0", 1, 0).objs);
+        const pad = seamPad(o, CFG, true);
+        expect(seamOverlapX(list, o.id, sx).overlap).toBeGreaterThanOrEqual(2 * pad);
     });
 
     // The forceOutline path. Any window or cut a tile can resolve forces the

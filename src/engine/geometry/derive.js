@@ -235,13 +235,15 @@ export function displayChords(o, cfg, live) {
 }
 
 // Flattened chords of a curved stroke, in the CHILD level's frame, cached per child
-// level. The tolerance is view-independent (entry fidelity: arcTolerancePx on screen
-// at inScale = base), so every tile of that level — whenever it happens to bake —
-// cuts the SAME chord vertices at the shared grid lines and fill seams stay exact.
-export function flatChords(o, level, tpts, cfg, live) {
-    if (o._flat && o._flat.level === level) return o._flat.pts;
+// level AND per that frame's address sequence (`seq`) — the chords are in the child's
+// coordinates, so a re-addressed frame's cached ones are stale. The tolerance is
+// view-independent (entry fidelity: arcTolerancePx on screen at inScale = base), so every
+// tile of that level — whenever it happens to bake — cuts the SAME chord vertices at the
+// shared grid lines and fill seams stay exact.
+export function flatChords(o, level, tpts, cfg, live, seq = 0) {
+    if (o._flat && o._flat.level === level && o._flat.seq === seq) return o._flat.pts;
     const pts = flattenCurve(tpts, (cfg.arcTolerancePx * 0.5) / cfg.base);
-    if (o !== live) o._flat = { level, pts };
+    if (o !== live) o._flat = { level, seq, pts };
     return pts;
 }
 
@@ -491,7 +493,7 @@ export function solidQuad(o, rect, opts = {}) {
     // selection indicator as the cut every side of the quad is.
     const q = { type: "fill", origin: "inherited", covers: true, id: o.id, z: o.z, color: o.color,
         opacity: o.opacity, polys: [[[r.left, r.top], [r.right, r.top],
-            [r.right, r.bottom], [r.left, r.bottom]]], paths: [], clip: r };
+            [r.right, r.bottom], [r.left, r.bottom]]], clip: r };
     if (o.editId != null) q.editId = o.editId;
     return q;
 }
@@ -540,6 +542,8 @@ export function solidQuad(o, rect, opts = {}) {
 // gate knowing that; the next deploy is the compatibility event.
 export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
     const { cfg, width: W, opacityGroups, live } = opts;
+    // The child frame's address sequence, for the chord cache (see flatChords).
+    const addrSeq = opts.addrSeq || 0;
     const base = cfg.base;
     const ftol = freezeTol(cfg);
     const curvedP = typeof opts.parentCurved === "function" ? opts.parentCurved : () => opts.parentCurved;
@@ -623,10 +627,10 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // piece lying along it is a seam, and the ants skip it.
             if (kept.length) {
                 tag({ type: "shape", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, loops: kept, paths: [], tile: phase, clip: objRect });
+                    opacity: o.opacity, loops: kept, tile: phase, clip: objRect });
             } else if (rings.length) {
                 const piece = { type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, polys: rings, paths: [], clip: objRect };
+                    opacity: o.opacity, polys: rings, clip: objRect };
                 if (covered) piece.covers = true;
                 tag(piece);
             }
@@ -636,7 +640,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // giant/deep geometry by whole frame-units.
             const tp = clipRingsToRect(
                 o.polys.map((poly) => poly.map(([x, y]) => [(x * s + t.x) / base + ox, (y * s + t.y) / base + oy])), crect);
-            if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, paths: [], clip: crect });
+            if (tp.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys: tp, clip: crect });
         } else {
             const lw = o.lwFrame * (s / base);
             const tpts = o.pts.map(([x, y]) => [(x * s + t.x) / base + ox, (y * s + t.y) / base + oy]);
@@ -670,17 +674,17 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 // offset survives only for the V0 golden comparisons.
                 const polys = bandRings(tpts, lw, rect, crect, cfg, {
                     curved: curvedP(o),
-                    chords: () => flatChords(o, level, tpts, cfg, live),
+                    chords: () => flatChords(o, level, tpts, cfg, live, addrSeq),
                     span: Math.hypot(b.x1 - b.x0, b.y1 - b.y0) * (s / base),
                     window: ew,
                     legacyOffset: cfg.fatWidthPx == null,
                     decimate: opts.decimate,
                 });
-                if (polys.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys, paths: [], clip: crect });
+                if (polys.length) tag({ type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, polys, clip: crect });
             } else {
                 // Small stroke: stays a stroke. If the child renders straight but the
                 // parent displayed a spline, hand the child the flattened spline.
-                const spts = (curvedP(o) && !curvedC(o) && o.pts.length > 2) ? flatChords(o, level, tpts, cfg, live) : tpts;
+                const spts = (curvedP(o) && !curvedC(o) && o.pts.length > 2) ? flatChords(o, level, tpts, cfg, live, addrSeq) : tpts;
                 // Extend the centerline clip by lw so clip-end caps fall beyond
                 // the PADDED tile — a stroke piece has to overlap its neighbour
                 // by the same pad a fill piece does, or the two representations
@@ -688,7 +692,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 // gets refilled by the other's overhang).
                 const ew = padRect(srect, lw);
                 for (const run of clipPolylineToRect(spts, ew)) {
-                    if (run.length) tag({ type: "stroke", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, pts: run, lwFrame: lw, paths: [] });
+                    if (run.length) tag({ type: "stroke", origin: "inherited", id: o.id, z: o.z, color: o.color, opacity: o.opacity, pts: run, lwFrame: lw });
                 }
             }
         }
@@ -714,7 +718,7 @@ export function projectNative(o, H, L, records, base) {
             lw = lw * (r.s / base);
         }
     }
-    return { type: "stroke", origin: "derived", id: o.id, z: o.z, pts, lwFrame: lw, color: o.color, opacity: o.opacity, paths: [] };
+    return { type: "stroke", origin: "derived", id: o.id, z: o.z, pts, lwFrame: lw, color: o.color, opacity: o.opacity };
 }
 
 // Cumulative scale factor from level H to level L through `records` (null if a

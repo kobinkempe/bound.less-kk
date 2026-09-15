@@ -10,6 +10,8 @@ import { HALF_W } from "./frameLattice";
 import KobinEngine from "./KobinEngine";
 import Document from "./Document";
 import { contactArcs } from "./geometry/connect";
+import { bakeArcPerimeter } from "./geometry/arcPerimeter";
+import { Loop } from "./geometry/loop";
 import { loopsBBox, insideShape, shapeFromRings, normalizeLoops } from "./geometry/arcShape";
 
 jest.setTimeout(30000);
@@ -97,7 +99,7 @@ describe("selection", () => {
 
     test("move keeps the spatial index in sync", () => {
         const d = new Document();
-        const o = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0], [10, 10]], lwFrame: 2, color: "#000", opacity: 1, paths: [] };
+        const o = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0], [10, 10]], lwFrame: 2, color: "#000", opacity: 1 };
         d.add(o, 0);
         d.moveById(o.id, 1000, 0);
         expect(d.queryRect(0, { left: -20, top: -20, right: 30, bottom: 30 })).toHaveLength(0);
@@ -187,6 +189,41 @@ describe("selection", () => {
         expect(E._objs().some((o) => o.id === id)).toBe(false); // no stale ink
     });
 
+});
+
+describe("the line tool's live pen (S7, 2026-09-14)", () => {
+    // The line tool used to draw without a live pen, because it REPLACES its
+    // second point on every move and an incremental chain cannot take a sample
+    // back. It re-seeds a two-sample pen instead, and the pen's chain is what
+    // the bake resolves. The thing that must not have moved is the ink: the
+    // resolved perimeter has to be the one the pts-only bake produced before,
+    // to the last bit, including the degenerate cases (a tap is a dot, a
+    // one-pixel drag is still a capsule).
+    const cases = [
+        [[200, 200], [600, 400]],
+        [[100, 300], [700, 300]],
+        [[400, 300], [400, 301]],
+        [[400, 300], [400, 300]],
+        [[120, 120], [130, 640], [655, 210], [300, 500]],  // many moves; only the last survives
+    ];
+    test("resolves bit-identically to the bake from its two points alone", () => {
+        for (const pts of cases) {
+            const E = mkEngine();
+            E.setPenType("straight");
+            E.pointerDown(pts[0][0], pts[0][1]);
+            for (let i = 1; i < pts.length; i++) E.pointerMove(pts[i][0], pts[i][1]);
+            const o = E._drawing;
+            const raw = o.pts.map((p) => [p[0], p[1]]);
+            const lw = o.lwFrame, tol = o._tol;
+            expect(o._pen.gaps.length).toBeLessThanOrEqual(1); // two samples, so one gap at most
+            E.pointerUp();
+            E.flushBakes();
+            const got = E.doc.getById(o.id).obj.loops;
+            const want = bakeArcPerimeter(raw, lw, { tol }).loops;
+            const nums = (ls) => ls.map((l) => Array.from(Loop.from(l).buf));
+            expect(nums(got)).toEqual(nums(want));
+        }
+    });
 });
 
 describe("the eraser after the line tool (2026-09-03)", () => {
@@ -401,7 +438,7 @@ describe("deferred area erase", () => {
         const src = {
             type: "stroke", origin: "native", id: E.doc.allocId(), z: 1,
             pts: [[-100, 0], [100, 0]], lwFrame: 1000,
-            color: "#000", opacity: 1, paths: [],
+            color: "#000", opacity: 1,
         };
         E.doc.add(src, "0");
         // Put the eraser as far from the child frame's origin as the lattice
@@ -418,7 +455,7 @@ describe("deferred area erase", () => {
         const eraser = {
             type: "stroke", origin: "native", id: E.doc.allocId(), z: 2,
             pts: [[far - 100, 0], [far + 100, 0]], lwFrame: 16,
-            color: "#fff", opacity: 1, paths: [], erase: true, bakePx: 1,
+            color: "#fff", opacity: 1, erase: true, bakePx: 1,
         };
         E.doc.add(eraser, child.id);
 
@@ -467,7 +504,7 @@ describe("deferred area erase", () => {
         const src = {
             type: "fill", origin: "native", id: E.doc.allocId(), z: 1,
             polys: [[[360, 260], [440, 260], [440, 340], [360, 340]]],
-            color: "#000", opacity: 0.45, paths: [],
+            color: "#000", opacity: 0.45,
         };
         E.doc.add(src, "0");
         E._render();
@@ -501,7 +538,7 @@ describe("deferred area erase", () => {
         // patch the erase enclosed entirely does not, and is a new object.
         const d = new Document();
         const src = { type: "fill", origin: "native", id: d.allocId(),
-            polys: [[[0, 0], [100, 0], [100, 100], [0, 100]]], color: "#000", opacity: 1, paths: [] };
+            polys: [[[0, 0], [100, 0], [100, 100], [0, 100]]], color: "#000", opacity: 1 };
         d.add(src, "0");
         const key = src.id;
         const attached = [[[10, 20], [40, 20], [40, 80], [10, 80]]];   // reaches the hole's left edge
@@ -769,7 +806,7 @@ describe("deferred area erase", () => {
         // LATER erase while the op sits mid-stack. Replaying it blindly used
         // to resurrect stale copies on top of the newer bake's pieces.
         const d = new Document();
-        const src = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0], [100, 0]], lwFrame: 10, color: "#000", opacity: 1, paths: [] };
+        const src = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0], [100, 0]], lwFrame: 10, color: "#000", opacity: 1 };
         d.add(src, 0);
         // Regions handed to eraseReplaceById are LOOPS now, one group per piece.
         const region = (x1) => normalizeLoops(shapeFromRings([[[0, -5], [x1, -5], [x1, 5], [0, 5]]]));

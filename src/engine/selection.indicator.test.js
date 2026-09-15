@@ -23,6 +23,7 @@ import Renderer from "./Renderer";
 import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawStroke, drag, descend, ascend, erase } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 import { loopRuns, runLength, circleLoop } from "./geometry/antRuns";
+import { rectLoop } from "./geometry/arcShape";
 
 jest.setTimeout(60000);
 
@@ -319,12 +320,6 @@ describe("selection overlay (renderer)", () => {
         expect(document.querySelector(".bl-sel-layer")).toBeNull();
     });
 
-    test("the bounding box is gone: a huge selection rect draws nothing", () => {
-        const r = mkRenderer();
-        r.setSelection(() => ({ level: "0", rect: { left: 0, top: 0, right: 877395, bottom: 877395 } }));
-        expect(r.selGroup.children.length).toBe(0);
-    });
-
     test("the lasso is still drawn, dashed, while it is being made", () => {
         const r = mkRenderer();
         r.setLasso(() => [[10, 10], [200, 40], [180, 300], [20, 260]]);
@@ -489,6 +484,42 @@ describe("selection indicator (engine)", () => {
             }
         }
         throw new Error("never collapsed onto a pixel");
+    });
+
+    // The 2026-08-22 stall was a selection whose bbox in the ACTIVE frame
+    // projected to 877,395 px and was dashed as a bounding box: 350,958 dashes
+    // a frame. Both halves of that are gone — the box itself, and, on
+    // 2026-09-14, the viewport test that used to clamp it (`selectionDrawable`,
+    // `Renderer.setSelection`). What replaced them is the ants being cut to the
+    // retained window, so this asserts the bound where it is now decided.
+    test("no projection can grow the indicator: a selection astronomically large is still cut to the view", () => {
+        const E = mkEngine();
+        // Horizontal, so the top of the ink is a straight edge at the top of
+        // its bbox, and descend about THAT point: `descend` keeps only the
+        // frame point under (sx, sy) on screen, so anchoring on the middle of
+        // the stroke would put every edge tens of millions of px away and
+        // leave the ants with nothing on screen to cut (measured 2026-09-14:
+        // 0 runs, a bound that holds at zero and says nothing).
+        const o = drawStroke(E, [[380, 300], [420, 300]]);
+        E.setTool("select");
+        E._setSelection([o.id]);
+        const [ax, ay] = E._levelPointToScreen(E.cam.frame,
+            (o._bbox.x0 + o._bbox.x1) / 2, o._bbox.y0 - (o.lwFrame || 0) / 2);
+        descend(E, 2, ax, ay);
+        E._render();
+        // The object's own picture, in the active frame: the projection that
+        // used to be dashed as a box. 111 M px across here.
+        const pic = E._rectInActive(E.selection.obj, E.selection.level);
+        expect((pic.right - pic.left) * E.cam.inScale).toBeGreaterThan(877395);
+        expect(E.renderer.selGroup.children.length).toBe(0);   // no bounding box, at any size
+        const got = E._selectionAnts();
+        expect(got).not.toBeNull();
+        // The edge really is on screen and traced — and what is traced is the
+        // window's worth of it, not the picture's: one run of 1,600 px, the
+        // retained window being the view plus a screen either side.
+        expect(got.runs.length).toBeGreaterThan(0);
+        expect(totalLen(got)).toBeGreaterThan(W);
+        expect(totalLen(got)).toBeLessThan(10 * (W + H));
     });
 
     test("the ants outlive the ink: zoomed past the cull, the frame's mark stays", () => {
@@ -783,5 +814,71 @@ describe("a selected object too small to trace is a dot (F73)", () => {
         const m = markCentrePx(got, got.marks[0]);
         const pic = pictureCentrePx(E, tiny, "0");
         expect(Math.hypot(m[0] - pic[0], m[1] - pic[1])).toBeLessThan(1.5);
+    });
+});
+
+// A selected FRAME (the subtree move): one dot at its cell when it is under 2 px, its members'
+// pieces traced when it is larger; nothing here reads the frame's natives.
+describe("a selected frame in the indicator (subtree O(1), 2026-09-15)", () => {
+    hUseEngines();
+    const rect = (E, frame, x, y, w, h) => {
+        const o = { type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: x, top: y, right: x + w, bottom: y + h }), color: "#123", opacity: 1, w: 8 };
+        E.doc.add(o, frame);
+        return o;
+    };
+    const markAt = (E) => { E._render(); const got = E._selectionAnts(); return { got, c: got && got.marks.length ? markCentrePx(got, got.marks[0]) : null }; };
+    test("t1 a sub-pixel selected frame is one dot at its cell, and t2 the dot moves with a drag", () => {
+        const E = hMkEngine(800, 600);
+        const P = E.lm.cellChild("0", 4, 4), F = E.lm.cellChild(P.id, 0, 0);   // two levels down: 0.008 px across
+        rect(E, F.id, -100, -100, 200, 200);
+        E.setTool("select");
+        E._setSelection([], [F.id]);
+        const { got, c } = markAt(E);
+        expect(got.marks.length).toBe(1);
+        expect(got.runs.length).toBe(0);
+        const want = E.cam.levelPointToScreen(F.id, 0, 0);
+        expect(Math.hypot(c[0] - want[0], c[1] - want[1])).toBeLessThan(1.5);
+        // t2: a press on the mark drags the frame; the dot rides the pointer, and re-decides at the new cell.
+        E.pointerDown(want[0], want[1]); E.pointerMove(want[0] + 40, want[1]);
+        expect(E._dragSel).toBeTruthy();
+        const mid = E._selectionAnts();
+        const cm = markCentrePx(mid, mid.marks[0]);
+        expect(Math.abs(cm[0] - (c[0] + 40))).toBeLessThan(1.5);
+        E.pointerUp();
+        expect(E.lm.frame(F.id).parent).not.toBe(P.id);                     // one cell of "0" over, 8 units into the next
+        const after = markAt(E);
+        expect(after.got.marks.length).toBe(1);
+        const now = E.cam.levelPointToScreen(F.id, 0, 0);
+        expect(Math.abs(now[0] - (want[0] + 40))).toBeLessThan(1e-6);
+        expect(Math.hypot(after.c[0] - now[0], after.c[1] - now[1])).toBeLessThan(1.5);
+    });
+    test("t3 a large selected frame traces its members' pieces and has no mark; a speck member is a dot", () => {
+        const E = hMkEngine(800, 600);
+        const F = E.lm.cellChild("0", 0, 1);                                 // 32 units of "0": 320 px at inScale 10
+        const big = rect(E, F.id, -40000, -4000, 80000, 8000);              // 195 x 20 px on screen
+        const speck = rect(E, F.id, 30000, 30000, 30, 30);                  // 0.07 px: drawn (1.9 px at the frame's deepest zoom), its ring under the run minimum
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: 400, inPanY: -20 });
+        E.setTool("select");
+        E._setSelection([], [F.id]);
+        E._render();
+        expect(E._lastList.some((p) => p.id === big.id)).toBe(true);
+        const got = E._selectionAnts();
+        expect(got.runs.length).toBeGreaterThan(0);
+        expect(E._selDec.pieces.length).toBeGreaterThan(0);
+        // The big member is traced (a run along its edge); the speck, drawn but too small for a run, is a dot.
+        const drawn = E._lastList.some((p) => p.id === speck.id);
+        expect(got.marks.length).toBe(drawn ? 1 : 0);
+        if (drawn) {
+            const m = markCentrePx(got, got.marks[0]);
+            const pic = pictureCentrePx(E, speck, F.id);
+            expect(Math.hypot(m[0] - pic[0], m[1] - pic[1])).toBeLessThan(1.5);
+        }
+        // Nothing read the frame's list to decide.
+        const at = E.doc.at.bind(E.doc);
+        let reads = 0;
+        E.doc.at = (L) => { if (String(L) === F.id) reads++; return at(L); };
+        E._selDec = null;
+        E._selectionAnts();
+        expect(reads).toBe(0);
     });
 });

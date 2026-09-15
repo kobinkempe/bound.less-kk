@@ -364,6 +364,19 @@ direction, by the extent of their box along the ray's normal; a query visits the
 bucket the ray's line falls in and its neighbours, and the answer is `rayCross`'s
 own. Measured on the same cuts: 2,630 → 175 ms and 2,377 → 143 ms, results identical.
 
+**An erase covering a frame takes it whole** (2026-09-15; Kobin's rule, the subtree
+move's counterpart in §8). Before a mark's first per-object target, the frames under
+the mark's own are walked as the lasso walks them (out from the mark's frame, one hop
+at a time, a subtree skipped when its box misses the mark): a frame whose cell plus the
+reach its content may have (invariant 2), grown by the flatten's tolerance, lies inside
+the mark's ink, and under which nothing is drawn above the mark (`Document.maxZUnder`,
+an upper bound kept per frame index: a native drawn since the mark, or a piece a cut
+minted, keeps the frame on the per-object path and its kids are judged on their own),
+goes as containers — its lists set aside by reference, one bake step in the gesture's
+op, no cut, O(frames). Undo re-attaches them with the rest of the gesture; the op log
+carries the natives' geometry (`bakeFrames`) because their rows go with the write. An
+empty container is not a step. `move.subtree.test.js` t11–t13, `oplog.test.js`.
+
 ### Severance — is the family still one object?
 
 Once a ceded tile is cut out of its parent this is a **graph**, not a walk. Every
@@ -433,6 +446,16 @@ on two levels only. Result, measured (`move.registration.test.js`): the coarse
 object's pieces four levels below a move are the same bits in the new frame,
 and its gap to the detail drawn there is unchanged to 1e-9.
 
+A drag runs that arithmetic **once per home frame** — members that share a
+frame and a starting table take one answer (`_displaceMember`), and their
+re-homes are one compaction of the frame's list (`Document.rehomeManyById`),
+which removed the quadratic a whole-frame move had through the list's splice
+(56 us a re-home at 2,000 objects, 189 at 8,000; 2026-09-14). The undo entry of
+a move is the address and the table either side, `{id, dx, dy, from, to,
+belowBefore, belowAfter}`; only a member the pen-up walks back into its cell
+(whole frames into its coordinates) keeps geometry snapshots. Undo is
+byte-exact on the stored natives (`move.below.test.js` MB-5).
+
 Kobin's words for it: "the move is only handled locally" — moving a level-6
 object at level 8 "would affect level 7 but shouldn't make a change to the way
 the tile is calculated for level 8. And it would not affect level 6 at all";
@@ -450,6 +473,66 @@ the object did not move wrong, **it came apart** (F25/F28).
 The whole step is recomputed from where the drag *started*, not from the previous
 event, so a slow drag and a fast one apply the same arithmetic to the same
 numbers.
+
+**A subtree moves as frames** (2026-09-15; the design and its build record in
+`.claude/SUBTREE-O1-PLAN.md`). A selected frame is one entry of the selection, and
+its drag touches no object. A frame's id is its birth chain and never changes, but
+its address — parent, cell, edge, centre — is mutable (`LevelMap.readdress`,
+`readdressMany`), so re-addressing the root and its descendants within three levels
+of the camera moves every native under them through the parent pointer. The targets
+come from the addresses recorded at the drag's start (`subtreeStart`,
+`moveSubtreeTargets`) by `displaceFrame`'s arithmetic, frame for frame, so a native
+lands exactly where the per-object path would put it — registration by
+construction, proved native for native (`move.subtree.test.js`); a step of a target
+chain that a moving frame is headed for resolves to that frame, and the apply is
+two-phase so movers never collide with each other. Frames at the camera's depth + 1
+and + 2 also owe their natives the sub-cell rest: it stays on the frame as a
+**shift**, the k = 0 table entry every native of the frame owes, and is settled into
+their tables at the first read of the frame's list (`Document.at`), exactly as the
+per-object path applies a rest, a carry re-homing to the neighbour. A frame nobody
+zooms into is never settled; a frame a render settles mid-drag is unsettled from its
+record before it takes the next step's shift — O(its natives), the cost of drawing
+it. Scans that need identity only (a mark, a family key, a type, a count) read the
+list as stored (`Document.list`, `count`) and settle nothing: eight such walks used
+`at` and settled the whole document on every up-tile bake until 2026-09-15.
+
+A target cell another frame holds makes a **shadow** (`LevelMap._take`): the mover
+shadows the resident, or an empty, childless resident — a visited cell, the common
+case — yields the cell and shadows the mover. A shadow shares the cell, is listed
+among the parent's children (`childrenOf`, `walk`) and under its resident for the
+selection (`isUnder`), and is invisible to address lookups until the resident's
+list is first read, when `Document._mergeShadows` settles both, appends the
+shadow's natives to the resident's list, re-parents its kids (`adoptShadow`: a
+free cell taken, an occupied one shadowed in turn) and deletes it — O(the shadow's
+natives), the cost of reading them; the selection follows, the merged natives as
+ids and the kids as frames. A drag holds merges until its op is on the stack.
+
+One op per gesture, `{ op: "moveFrames", frames: [{ id, from, to, shiftBefore,
+shiftAfter, settled, merged }], moves }`, the frame entries beside the per-object
+members. A settle records the result table of every native it touched and the homes
+of the carried ones on the entry that placed the frame (`Document.noteFrameOwner`);
+a merge records the natives, kids and address of the frame that went. Undo splits
+the merges back (`unmerge`, `unadoptShadow`), subtracts the settles from their
+records (idempotent; a carried native comes home by id), re-addresses to the start
+and restores the shift; redo is the inverse's inverse. Byte-exact on the stored
+natives and the lattice, reload included (`move.subtree.test.js`, `oplog.test.js`).
+
+Measured 2026-09-15 (jsdom, the median of three runs; 2,000 natives over a root one
+level under the camera with kids two and three levels under; the render aside): the
+lasso enclosing the root 0.09 ms, one frame and no ids; one drag event 0.36 ms,
+three targets, no re-home and no table set; the op two frame entries; undo of the
+move 2.0 ms (700 tables unsettled) and redo 0.1 ms; delete of the subtree 0.9 ms
+with no `removeById`, its undo 0.04 ms. The render after the drag is 77–113 ms: the
+root's 700 natives are above the cull, settled and redrawn, which is drawing them.
+The per-object path, measured the day before: lasso 0.75 ms, a drag event 31.6 ms,
+an undo entry of 146,529 bytes.
+
+Why this was more than the lattice made it look. The structure was ready — a tree of
+cells, natives homed by frame id, tables keyed by depth — and the move itself is the
+pointer change (`readdress`). The work was in what had grown up assuming an id was
+its address (tile stamps, the `#n` id a vacated cell mints, replay) and that one
+frame holds a cell (the shadows), and in the settle deferred to a read, which has to
+be undone and logged exactly where the per-object path wrote every table at once.
 
 ---
 
@@ -529,7 +612,7 @@ Five things in it are load-bearing and none is obvious:
 | | |
 |---|---|
 | `upContent(F)` | **ancestor** frames' objects, magnified into F, built by **chaining** one crossing at a time through the parent's tiles. Magnify must chain: a composed long jump cancels catastrophically. Classified empty / solid / edge, where **solid** replaces a tile-covering band with a 4-vertex quad so geometry can never outgrow a tile. |
-| `downContent(F)` | every **non-ancestor** frame at depth ≥ F, projected directly (net factor ≤ 1, so it cannot explode). A view-independent cull drops sub-pixel content; a fade band tags size. |
+| `downContent(F)` | every **non-ancestor** frame at depth ≥ F, projected directly (net factor ≤ 1, so it cannot explode). A view-independent cull drops sub-pixel content; a fade band tags size. Candidates come from the frame tree (`_downSources`): F's subtree and, outward, each ancestor's other subtrees, a subtree skipped whole when its cell grown by one misses the tile (invariant 2), and a frame skipped whole when its index's extent misses the tile or its largest object is under the cull (`Document.frameExtent`). The scan rests on invariant 2 as the ring does: a native overhanging its frame's neighbourhood is not found by a down tile. |
 | `ownContent(F)` | the frame's own natives, read straight out of the Document. A plain read, because a cut parent's stored rings **are** the rings to paint. |
 | `ringNatives` | the eight cells around each step of the up-chain. A cell is about three screens across, so zooming in slightly off-centre puts on-screen ink into a **sibling** of your ancestor — coarser than you, not an ancestor, so both other paths skipped it and it vanished. Invariant 2 is what makes the ring complete. |
 
@@ -551,7 +634,13 @@ because that is the only direction in which the scale factor stays a number.
 Measured on a six-level tower of twelve objects: a loop round the whole canvas
 tests **2** of them. An object with a displacement table is indexed at its stored
 bits and drawn elsewhere, so after the walk every one the active frame can reach is
-judged where its picture is (F69).
+judged where its picture is (F69). An **enclosed frame is one entry** of the
+selection (`selection.frames`, 2026-09-15): nothing under it is read; a native is
+selected when its home is the frame, under it, or a shadow of either
+(`_isSelected`, `LevelMap.isUnder`); the status count sums the subtree's list
+lengths (`walk`); a drag moves it as a frame (§8) and delete sets its lists aside as
+containers (`Document.removeFrameSubtree`, one `removeFrames` op, O(frames)). A
+keyless native is a family of one and skips the family re-check (2026-09-14).
 
 **The indicator shows what is drawn.** Ants run along the render list's pieces,
 so a magnified shape that the browser could not hold as arcs is shown from the
@@ -561,7 +650,10 @@ them all, by invariant 2, and the box is taken where the ink is drawn, through
 each member's displacement table (F68). A selected member that traces to nothing —
 its runs under the half-pixel minimum, or culled from the list — is a dot of its own
 where its picture is, unless it is a re-homed family's kid, which shows through its
-family (F73). There is no budget: every selected piece on screen is
+family (F73). A selected frame is one box, its own cell (`_selTable`): a dot under
+2 px, and above it the pieces on screen homed under it are traced from the render
+list, a member drawn but too small for a run a dot from its piece; the frame's
+natives are never read. There is no budget: every selected piece on screen is
 outlined, and what a full selection costs is the repaint of its length, which
 the roadmap holds.
 
@@ -637,6 +729,23 @@ tab close resumes where it left off; with no entries it restarts from the stroke
 Compaction never drops an entry younger than the undo window or belonging to a
 pending mark. Header fields a build does not know ride through (`_extra`), and
 an `attr` entry is reserved for per-object changes such as z-order.
+
+**The lattice is the header's** (2026-09-15, the subtree move of §8). Every write
+carries `LevelMap.serialize` — addresses, shifts, shadows — beside its entries, so
+the stored lattice is never older than any stored entry, and a replayed
+`moveFrames`, `mergeFrame` or their undo re-addresses nothing: it rebuilds the op.
+The natives' tables are entries, every apply by RESULT so it replays the same
+whatever else the tick held: a `settle` carries the table every native took and the
+homes of the carried ones (a carry forces both frames' snapshots; nothing else about
+a frame moved as a frame is re-snapshotted), a `mergeFrame` names the op it belongs
+to and forces the resident's snapshot (the shadow's row goes with the write), a
+`moveFrames` carries its frame entries and its per-object members and none of the
+frames' natives (Kobin's decision: the snapshots hold them), and a `removeFrames`
+or `deleteMany` carries every deleted native's geometry, because its row goes with
+the write. A settle after a drain is its own entry, coalesced with one just before it
+for the same frame (a drag settles and unsettles a visible frame every event); the
+saver drains once more after its snapshots, because reading a frame for its row
+settles it; a failed write keeps its forced frames as well as its entries.
 
 **Local storage**: IndexedDB (`src/storage/db.js`, version 2) — one header record
 per canvas, one `frames2` record per frame holding the headers and the raw
@@ -735,14 +844,21 @@ that still use `clipper-lib` — `strokeOutline`, `subtractPolys`,
 `clipPolysToRect` — which work on a 64-bit integer lattice and therefore *have* a
 ceiling.
 
-The 2026-08-31 cleanup set out to remove the dependency and **could not**.
-`strokeOutline` has live callers: `Renderer._fatPolys` under `outlineMode`, and
-`derive.bandRings` under `legacyOffset`, which is the branch
-`geometry/derive.test.js` walks to golden-compare against the V0 oracle. Removing
-it means deleting outline mode *and* that golden-compare — that is, the oracle
-the arc pipeline is checked against. The file split is what makes the situation
-legible: `grep -l clipperBoolean src/` now names every place Clipper is still
-reached, and it is six files, three of them tests. See OPEN-FLAGS X2–X4.
+The 2026-08-31 cleanup set out to remove the dependency and could not, because
+`Renderer._fatPolys` — the windowed fat-stroke display bake — called
+`strokeOutline` on a render path. **That bake was deleted on 2026-09-14
+(ROADMAP S7)**, and with it `outlineMode`, the debug view that was the only way
+to reach it. Nothing Clipper does now reaches the screen.
+
+What still holds the dependency is a test: `derive.bandRings` under
+`legacyOffset`, gated on `cfg.fatWidthPx == null`, which is the branch
+`geometry/derive.test.js` walks to golden-compare against the V0 oracle — and
+the oracle itself, which uses `strokeOutline` throughout. Dropping `clipper-lib`
+means giving up the golden-compare the arc pipeline is checked against; that is
+the whole of the remaining argument. (`KobinEngine.geom` also still holds a
+reference to `strokeOutline` as a console handle, and nothing reads it.) The
+file split is what makes the situation legible: `grep -l clipperBoolean src/`
+names every place Clipper is still reached. See OPEN-FLAGS X2–X4.
 
 ---
 

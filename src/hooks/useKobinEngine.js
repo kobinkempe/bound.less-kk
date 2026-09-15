@@ -101,7 +101,6 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     const [opacity, setOpacity] = useState(1);
     const [eraserSize, setEraserSize] = useState(16);
     const [opGroups, setOpGroups] = useState(true);
-    const [outline, setOutline] = useState(false);
     const [preBake, setPreBake] = useState(true);
     // ---- DEV PANEL STATE (CanvasEditor renders these only behind ?dev) ----
     const [trace, setTrace] = useState(false);   // dev: log every op (see KobinEngine.setTrace)
@@ -112,7 +111,6 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     const [lazyFat, setLazyFat] = useState(true);
     const [retainScenes, setRetainScenes] = useState(true);
     const [debug, setDebug] = useState(false);        // dev: red path outlines
-    const [kdebug, setKdebug] = useState(false);      // dev: inert, see KobinEngine.setKDebug
     const [tiledebug, setTiledebug] = useState(false);// dev: cache-tile rectangles
     const [erasedebug, setErasedebug] = useState(false); // dev: the erase/severance overlay
     const [status, setStatus] = useState(DEFAULT_STATUS);
@@ -269,9 +267,10 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             const entries = d.full ? [] : carried.concat(d.entries);
             carried = [];
             const takenFull = fullDirty;
-            const takenSeq = docSeq;
+            let takenSeq = docSeq;
             fullDirty = false;
             noteEntries(entries, frameSeq);
+            const forced = new Set(d.forced);
             const frameIds = Object.keys(engine.nativesByLevel);
             const want = new Set(full ? frameIds : d.forced.filter((L) => engine.nativesByLevel[L]));
             for (const L of frameIds) if (!want.has(L) && outgrown(L)) want.add(L);
@@ -279,10 +278,23 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             let env;
             try {
                 for (const L of want) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
+                // Reading a frame for its snapshot settles a pending shift (DESIGN.md §8): the
+                // settle's entry belongs to this write, beside the snapshot that already holds it.
+                for (let guard = 0; log.queue.length && guard < 4; guard++) {
+                    const d2 = log.drain();
+                    noteEntries(d2.entries, frameSeq);
+                    entries.push(...d2.entries);
+                    for (const L of d2.forced) {
+                        forced.add(L);
+                        if (!(L in snapshots) && engine.nativesByLevel[L]) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
+                    }
+                }
+                takenSeq = docSeq;
                 env = engine.serializeDrawing({}, { frames: [] });
             } catch (err) {
                 console.warn("kobin autosave: serialize failed", err);
                 carried = entries; fullDirty = fullDirty || takenFull;
+                for (const L of forced) log.forced.add(L);
                 return Promise.resolve(false);
             }
             const { natives: none, ...header } = env;
@@ -297,7 +309,8 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             for (const op of engine.doc._redo) if (op._seq != null) floor = Math.min(floor, op._seq);
             for (const sq of markSeq.values()) floor = Math.min(floor, sq);
             const tSer = now();
-            const putBack = () => { carried = entries.concat(carried); fullDirty = fullDirty || takenFull; };
+            // A failed write keeps its entries AND the frames it had to snapshot (a later tick must snapshot them too).
+            const putBack = () => { carried = entries.concat(carried); fullDirty = fullDirty || takenFull; for (const L of forced) log.forced.add(L); };
             saving = true;
             inflight = writeCanvas2(canvasId, {
                 header: { ...header, name: header.meta.name, ...stats, seq: log.seq },
@@ -632,13 +645,11 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     useEffect(() => { engineRef.current && engineRef.current.setOpacity(opacity); }, [opacity]);
     useEffect(() => { engineRef.current && engineRef.current.setEraserSize(eraserSize); }, [eraserSize]);
     useEffect(() => { engineRef.current && engineRef.current.setOpacityGroups(opGroups); }, [opGroups]);
-    useEffect(() => { engineRef.current && engineRef.current.setOutlineMode(outline); }, [outline]);
     useEffect(() => { engineRef.current && engineRef.current.setPreBake(preBake); }, [preBake]);
     useEffect(() => { engineRef.current && engineRef.current.setTrace(trace); }, [trace]);
     useEffect(() => { engineRef.current && engineRef.current.setLazyOutlines(lazyFat); }, [lazyFat]);
     useEffect(() => { engineRef.current && engineRef.current.setRetainScenes(retainScenes); }, [retainScenes]);
     useEffect(() => { engineRef.current && engineRef.current.setDebug(debug); }, [debug]);
-    useEffect(() => { engineRef.current && engineRef.current.setKDebug(kdebug); }, [kdebug]);
     useEffect(() => { engineRef.current && engineRef.current.setTileDebug(tiledebug); }, [tiledebug]);
     useEffect(() => { engineRef.current && engineRef.current.setEraseDebug(erasedebug); }, [erasedebug]);
 
@@ -664,7 +675,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
                     tiles: Object.fromEntries(Object.entries(eng.tiles).map(([l, m]) => [l, m.size])),
                     rendered: (eng.levelObjects[eng.activeLevel] || []).length,
                 },
-                flags: { opacityGroups: eng.opacityGroups, outlineMode: eng.outlineMode, hasFat: eng._hasFat, retainScenes: !!eng.retainScenes, preBake: !!eng.preBake, trace: !!eng.trace },
+                flags: { opacityGroups: eng.opacityGroups, hasFat: eng._hasFat, retainScenes: !!eng.retainScenes, preBake: !!eng.preBake, trace: !!eng.trace },
                 perf: eng.perfLog,
                 // What no JS timer can see: the gap between animation frames, which is
                 // the number the user actually feels. Buckets plus the worst few frames,
@@ -815,13 +826,11 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         opacity, setOpacity,
         eraserSize, setEraserSize,
         opGroups, setOpGroups,
-        outline, setOutline,
         preBake, setPreBake,
         trace, setTrace,
         lazyFat, setLazyFat,
         retainScenes, setRetainScenes,
         debug, setDebug,
-        kdebug, setKdebug,
         tiledebug, setTiledebug,
         erasedebug, setErasedebug,
         status,

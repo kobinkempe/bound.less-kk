@@ -81,6 +81,7 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
     else {
         deriveStep([o], rec.s, rec.t, rect, F, {
             cfg, width: world.width, opacityGroups, live: null,
+            addrSeq: frame.addrSeq || 0,
             parentCurved: (p) => p.origin === "native",
             childCurved: () => false,
         }, objs);
@@ -121,7 +122,7 @@ function cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile
     const mk = (loops, lvl, attach, tile, below) => {
         const obj = {
             type: "shape", origin: src.origin, id: vdoc.allocId(), z, loops,
-            color: src.color, opacity: src.opacity, paths: [], editId: editKey,
+            color: src.color, opacity: src.opacity, editId: editKey,
         };
         if (src.w > 0) obj.w = src.w;
         if (attach) obj.attachRect = { ...attach };
@@ -273,7 +274,7 @@ export function descentJob(world, input) {
 const own = (l) => { const x = Loop.from(l); return { buf: x.buf.slice(), idx: x.idx.slice() }; };
 const wrap = (x) => new Loop(x.buf, x.idx);
 const objOut = (o, transfer) => {
-    const out = { ...o, paths: [] };
+    const out = { ...o };
     delete out._bbox; delete out._home; delete out._ver; delete out._zScan;
     if (o.loops) { out.loops = o.loops.map(own); for (const x of out.loops) transfer.push(x.buf.buffer, x.idx.buffer); }
     return out;

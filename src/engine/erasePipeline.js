@@ -25,6 +25,7 @@ import { ArcBakeJob, bakeArcPerimeter } from "./geometry/arcPerimeter";
 import {
     R as CROSS_RATIO,
     W as FRAME_W,
+    REACH,
 } from "./frameLattice";
 import Document from "./Document";
 import { Groups, arcsTouch, contactArcs } from "./geometry/connect";
@@ -32,16 +33,23 @@ import { bboxOf, freezeR } from "./geometry/derive";
 import {
     dropDust,
     flattenShape,
+    insideShape,
     intersectShape,
     loopsArea,
     loopsBBox,
     repairLoops,
 } from "./geometry/arcShape";
+import { polygonMissesRect } from "./geometry/lasso";
 import { flattenLoops, strokeLoops } from "./geometry/curveOutline";
 import { cutJob, dustBarFor } from "./eraseJob";
 import { runCutAsync, runDescentAsync } from "./eraseWorkerClient";
 import { descentJob } from "./eraseDescent";
 import { rectSpan, rectTol } from "./rectMath";
+
+// The flatten tolerance of a mark judging whether it covers a frame whole, in the mark's frame's
+// units: a chord sits within it of its arc, so a frame box grown by it that misses every chord
+// misses every arc.
+const ERASE_FRAME_TOL = 1;
 
 const ERASE_SLICE_MS = 8;
 
@@ -102,7 +110,7 @@ class ErasePipeline {
     _eraseStrokes() {
         const out = [];
         for (const k of this.doc.levels()) {
-            for (const o of this.doc.at(k)) if (o.erase && o.type === "shape") out.push({ obj: o, level: k });
+            for (const o of this.doc.list(k)) if (o.erase && o.type === "shape") out.push({ obj: o, level: k });
         }
         out.sort((a, b) => this._zOf(a.obj) - this._zOf(b.obj)); // oldest first
         return out;
@@ -255,7 +263,7 @@ class ErasePipeline {
     // guaranteeing no stroke is left unresolved forever.
     _ensureShapeBakes() {
         for (const k of this.doc.levels()) {
-            for (const o of this.doc.at(k)) {
+            for (const o of this.doc.list(k)) {
                 if (o.type !== "stroke" || o === this._drawing) continue;
                 this._queueBake(o);
             }
@@ -417,9 +425,67 @@ class ErasePipeline {
         E._zScan = scan;
         return scan;
     }
+    /**
+     * A frame the mark covers WHOLE goes as containers (SUBTREE-O1-PLAN §5; Kobin: an erase
+     * completely covering a frame removes everything under it as one entry). Whole means the
+     * frame's cell plus the reach its content may have (invariant 2), grown by the flatten's
+     * tolerance, inside the mark's ink; and nothing under it drawn above the mark
+     * (`Document.maxZUnder`: a native drawn since, or a piece a cut minted, keeps the frame on
+     * the per-object path). One bake step holds the subtree's lists by reference, O(frames),
+     * no cut, one undo with the gesture. Runs once per mark before its first target; after a
+     * reload it runs again and finds the frames already gone. Returns how many went.
+     */
+    _eraseFramesPass(Erec) {
+        const E = Erec.obj, HE = Erec.level;
+        if (E._framesPassed || E.type !== "shape" || !E.loops) return 0;
+        E._framesPassed = true;
+        const zE = this._zOf(E);
+        const box = loopsBBox(E.loops);
+        if (!box) return 0;
+        const tol = ERASE_FRAME_TOL;
+        const polys = flattenShape(E.loops, tol);
+        if (!polys.length) return 0;
+        const inside = (rect) => insideShape(E.loops, [rect.left, rect.top]) && polys.every((p) => polygonMissesRect(p, rect));
+        const covered = [];
+        // The lasso's walk (`_lassoFind`): out from the mark's frame, one hop at a time, a
+        // frame's box +-REACH in its units brought into HE's; a covered frame is taken and
+        // not descended into, one blocked by z is, its kids judged on their own.
+        const visit = (id, s, tx, ty, skip) => {
+            const own = { left: -REACH * s + tx - tol, top: -REACH * s + ty - tol, right: REACH * s + tx + tol, bottom: REACH * s + ty + tol };
+            if (own.right < box.x0 || own.left > box.x1 || own.bottom < box.y0 || own.top > box.y1) return;
+            if (id !== HE && inside(own) && this.doc.maxZUnder(id) < zE) { covered.push(id); return; }
+            for (const c of this.lm.childrenOf(id)) {
+                if (!c || c.id === skip || !c.centre) continue;
+                visit(c.id, s / CROSS_RATIO, c.centre.x * s + tx, c.centre.y * s + ty, null);
+            }
+        };
+        visit(HE, 1, 0, 0, null);
+        let child = this.lm.frame(HE), s = 1, tx = 0, ty = 0;
+        while (child && child.parent != null) {
+            const c = child.centre;
+            if (!c) break;
+            s *= CROSS_RATIO; tx -= c.x * s; ty -= c.y * s;
+            visit(child.parent, s, tx, ty, child.id);
+            child = this.lm.frame(child.parent);
+        }
+        let n = 0;
+        if (!covered.length) return 0;
+        const op = this._eraseOp(E);
+        const note = this.journal.find((j) => j.kind === "erase" && j.id === E.id);
+        for (const F of covered) {
+            const recs = this.doc.removeFrameSubtree(F);
+            if (!recs) continue;                         // empty containers: nothing to take
+            this.doc.recordBake(op, { frames: recs });
+            if (note) note.cuts.push({ frame: F, mode: "frame", natives: recs.reduce((a, r) => a + r.natives.length, 0) });
+            n++;
+        }
+        return n;
+    }
     // The next object to bake under mark E: the highest still under it that the
-    // eraser's box reaches (`_eraseMayTouch`); the ones it misses are done.
+    // eraser's box reaches (`_eraseMayTouch`); the ones it misses are done. The frames
+    // the mark covers whole go first, as containers.
     _nextEraseTarget(Erec) {
+        this._eraseFramesPass(Erec);
         const E = Erec.obj, HE = Erec.level;
         const done = this._doneSet(E.id);
         const scan = this._candidatesUnder(Erec);
@@ -764,7 +830,7 @@ class ErasePipeline {
     _familyMembers(key) {
         const out = [];
         for (const L of this.doc.levels()) {
-            for (const o of this.doc.at(L)) {
+            for (const o of this.doc.list(L)) {
                 if (!o.erase && this.doc.editKey(o) === key) out.push({ obj: o, level: L });
             }
         }
@@ -936,7 +1002,7 @@ class ErasePipeline {
         for (const st of r.steps) {
             const removed = this.doc.removeById(real(st.removedId));
             if (!removed) return false;   // cannot happen: ours, or the target checked above
-            const mint = (sp) => { const obj = { ...sp.obj, id: this.doc.allocId(), paths: [] }; this.doc.add(obj, sp.level); idMap.set(sp.vid, obj.id); return { obj, level: String(sp.level) }; };
+            const mint = (sp) => { const obj = { ...sp.obj, id: this.doc.allocId() }; this.doc.add(obj, sp.level); idMap.set(sp.vid, obj.id); return { obj, level: String(sp.level) }; };
             const pieces = st.parents.map(mint).concat(st.kids.map(mint));
             for (const pc of pieces) done.add(pc.obj.id);
             steps.push({ removed, pieces });
@@ -1045,9 +1111,13 @@ class ErasePipeline {
     _settleSelectionErases() {
         const idsNow = () => {
             const set = new Set();
-            for (const L of this.doc.levels()) for (const o of this.doc.at(L)) if (!o.erase) set.add(o.id);
+            for (const L of this.doc.levels()) for (const o of this.doc.list(L)) if (!o.erase) set.add(o.id);
             return set;
         };
+        // A selected frame is not expanded (its natives are not read): with any mark pending,
+        // every mark is baked out synchronously instead, which is rare and bounded by the marks.
+        const frames = this.selection ? this.selection.frames || [] : [];
+        if (frames.length && this._eraseStrokes().length) this.flushErases();
         const live = new Set(this._selectionMembers().map((m) => m.obj.id));
         let replaced = false, changed = false;
         for (let guard = 0; guard < 200; guard++) {
@@ -1076,7 +1146,7 @@ class ErasePipeline {
         }
         if (replaced) {
             const ids = [...live].filter((id) => this.doc.getById(id));
-            if (ids.length) this._setSelection(ids); else this.deselect();
+            if (ids.length || frames.length) this._setSelection(ids, frames); else this.deselect();
         }
         if (changed) this._render();
         return changed;

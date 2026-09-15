@@ -53,7 +53,7 @@ describe("erasing a moved object from a sibling frame (F66)", () => {
         const pic = E.lm.mapRectObj({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }, home, nb.id, E.doc.getById(A.id).obj.below, home);
         expect(pic).toBeTruthy();
         const cx = (pic.left + pic.right) / 2, h = pic.bottom - pic.top;
-        E.doc.add({ type: "stroke", origin: "native", erase: true, bakePx: 1, id: E.doc.allocId(), pts: [[cx, pic.top - h], [cx, pic.bottom + h]], lwFrame: (b.y1 - b.y0), color: "#ffffff", opacity: 1, paths: [] }, nb.id);
+        E.doc.add({ type: "stroke", origin: "native", erase: true, bakePx: 1, id: E.doc.allocId(), pts: [[cx, pic.top - h], [cx, pic.bottom + h]], lwFrame: (b.y1 - b.y0), color: "#ffffff", opacity: 1 }, nb.id);
         E.flushBakes();
         const mark = E._eraseStrokes()[0];
         expect(mark).toBeTruthy();

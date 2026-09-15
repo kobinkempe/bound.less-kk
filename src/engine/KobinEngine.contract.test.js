@@ -39,7 +39,7 @@ const METHODS = [
     "pointerDown", "pointerMove", "pointerUp", "cancelStroke", "zoomAt", "pinchUpdate", "resize",
     // tools
     "setTool", "setPenType", "setColor", "setWidth", "setOpacity", "setOpacityGroups",
-    "setEraserSize", "setOutlineMode", "setLazyOutlines", "setPreBake", "setRetainScenes",
+    "setEraserSize", "setLazyOutlines", "setPreBake", "setRetainScenes",
     // history + selection
     "undo", "redo", "clear", "deleteSelection", "deselect",
     // files
@@ -47,7 +47,7 @@ const METHODS = [
     // navigation (CanvasEditor, via engineRef.current)
     "jumpTo", "sceneZoom",
     // dev switches and instrumentation
-    "setDebug", "setKDebug", "setTileDebug", "setEraseDebug", "setTrace",
+    "setDebug", "setTileDebug", "setEraseDebug", "setTrace",
     "notePerf", "fastStats", "reportFamilies", "_effectiveZoom",
     // lifecycle
     "destroy",
@@ -71,7 +71,6 @@ test("the fields the pinch handler and the report payload read all exist", () =>
     expect(E.doc).toBeDefined();
     expect(Array.isArray(E.journal)).toBe(true);
     expect(typeof E.opacityGroups).toBe("boolean");
-    expect(typeof E.outlineMode).toBe("boolean");
     expect(typeof E._hasFat).toBe("boolean");
     expect(typeof E._effectiveZoom()).toBe("number");
     expect(Array.isArray(E.perfLog)).toBe(true);
@@ -96,7 +95,7 @@ test("onStatus fires with the fields the UI renders", () => {
     E.zoomAt(400, 300, -50);
     expect(status).toBeTruthy();
     for (const k of ["level", "inScale", "effectiveZoom", "nearCross", "objects",
-        "outline", "lines", "selection", "canUndo", "canRedo"]) {
+        "lines", "selection", "canUndo", "canRedo"]) {
         expect(k in status).toBe(true);
     }
 });
@@ -132,7 +131,7 @@ test("report payload can be built without throwing", () => {
             tiles: Object.fromEntries(Object.entries(E.tiles).map(([k, v]) => [k, v.size])),
             rendered: (E.levelObjects[E.activeLevel] || []).length,
         },
-        flags: { opacityGroups: E.opacityGroups, outlineMode: E.outlineMode, hasFat: E._hasFat },
+        flags: { opacityGroups: E.opacityGroups, hasFat: E._hasFat },
         perf: E.perfLog,
         families: E.reportFamilies(),
         fast: E.fastStats(),

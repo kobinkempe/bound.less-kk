@@ -249,7 +249,7 @@ describe("X — performance budgets", () => {
         const E = mkEngine();
         const eraser = {
             type: "stroke", origin: "native", id: 1, pts: gesture, lwFrame: 26,
-            color: "#fff", opacity: 1, paths: [], erase: true, bakePx: 1,
+            color: "#fff", opacity: 1, erase: true, bakePx: 1,
         };
         const a = eraserFootprint(eraser, E.cfg);
         const b = eraserFootprint(eraser, E.cfg);

@@ -168,7 +168,7 @@ function validRect(r) {
 // form ("2~1") cannot occur any more and is not accepted — a scene naming one
 // would point at a frame that no document can contain.
 function isFrameKey(v) {
-    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(\/-?\d+,-?\d+)*$/.test(v));
+    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(\/-?\d+,-?\d+)*(#\d+)?$/.test(v));
 }
 function validScene(s) {
     return s && typeof s.id === "string" && s.id
@@ -256,8 +256,9 @@ function decodeNatives(n) {
     const seen = new Set();
     for (const l of Object.keys(n)) {
         // keys are frame ids: an integer depth (the spine) or a cell path built
-        // from one, e.g. "0/12,-3/0,1".
-        if (!/^-?\d+(\/-?\d+,-?\d+)*$/.test(l)) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
+        // from one, e.g. "0/12,-3/0,1". A "#n" suffix marks a frame minted in a
+        // cell its birth chain no longer names (a subtree move, 2026-09-14).
+        if (!/^-?\d+(\/-?\d+,-?\d+)*(#\d+)?$/.test(l)) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
         if (!Array.isArray(n[l])) throw new Error(`bad natives: frame ${l} is not an array`);
         // Objects that turn out to be nothing at all are DROPPED here rather
         // than refused — see the shape branch below.

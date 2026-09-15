@@ -23,8 +23,9 @@
  * bit-identical; undo restores everything; a carry is an integer.
  */
 import {
-    useEngines, mkEngine, drawStroke, eraseGesture, painted, camShot, camRestore,
+    useEngines, mkEngine, drawStroke, eraseGesture, painted, picture, camShot, camRestore,
 } from "./__testkit__/harness";
+import Document from "./Document";
 import { inks } from "./__testkit__/ink";
 import { W, G } from "./frameLattice";
 import { SNAP, snapDisplacement } from "./geometry/offsets";
@@ -321,5 +322,56 @@ describe("MB-4 — the rest of the engine sees the moved picture", () => {
         expect(F.loadDrawing(file)).toBeTruthy();
         expect(belowOf(F.doc.at("0")[0])).toBe(before);
         expect(Math.abs(edgeAt(F, 411, y + 30, y + 90) - (y + 60))).toBeLessThan(tolPx(F));
+    });
+});
+
+describe("MB-5 — the undo entry is the frame and the table (row 11, 2026-09-14)", () => {
+    const bytes = (E) => JSON.stringify(E.doc.serializeNatives());
+    const shown = (E) => picture(E) + JSON.stringify(painted(E).map((o) => [o.id, o.res || null]));
+    test("drag, undo, redo: bytes and picture are exactly the before and the after", () => {
+        const E = mkEngine();
+        const a = drawStroke(E, [[250, 280], [550, 320]], 24), b = drawStroke(E, [[200, 420], [500, 470]], 16);
+        const y = descendOnEdge(E, 3);
+        E._setSelection([a.id, b.id]);
+        const before = bytes(E), pic0 = shown(E);
+        E.setTool("select"); E.pointerDown(400, y + 12);
+        for (const [x, yy] of [[410, y + 20], [425, y + 30], [437, y + 35]]) E.pointerMove(x, yy);
+        E.pointerUp();
+        const after = bytes(E), pic1 = shown(E);
+        expect(after).not.toBe(before);
+        const op = E.doc._undo[E.doc._undo.length - 1];
+        expect(op.op).toBe("moveMany");
+        for (const m of op.moves) { expect(m).not.toHaveProperty("base"); expect(m).toHaveProperty("belowBefore"); expect(m).toHaveProperty("belowAfter"); }
+        expect(E.undo()).toBe(true); expect(bytes(E)).toBe(before); expect(shown(E)).toBe(pic0);
+        expect(E.redo()).toBe(true); expect(bytes(E)).toBe(after); expect(shown(E)).toBe(pic1);
+        expect(E.undo()).toBe(true); expect(bytes(E)).toBe(before);
+    });
+    test("a cancelled drag puts frame and table back the same way", () => {
+        const E = mkEngine();
+        const a = drawStroke(E, [[250, 280], [550, 320]], 24);
+        const y = descendOnEdge(E, 3);
+        E._setSelection([a.id]);
+        const before = bytes(E), pic0 = shown(E);
+        E.setTool("select"); E.pointerDown(400, y + 12); E.pointerMove(440, y + 42); E.pointerMove(470, y - 10);
+        expect(bytes(E)).not.toBe(before);
+        E.cancelSelectGesture(false);
+        expect(bytes(E)).toBe(before); expect(shown(E)).toBe(pic0);
+    });
+    test("a member the pen-up walks back into its cell keeps geometry snapshots and still round-trips", () => {
+        const E = mkEngine();
+        const o = drawStroke(E, [[300, 300], [500, 300]], 20);
+        // centre it 0.6 frames from its origin: outside its own cell, inside the neighbour's
+        E.doc.setGeometryById(o.id, Document.translateGeometry(Document.snapGeometry(o), 0.6 * W, 0));
+        E.panBy(-0.6 * W, 0); E._render();
+        const p = E.lm.framePointToScreen("0", 400 + 0.6 * W, 300, E.cam.frame, E.cam.inScale, E.cam.inPanX, E.cam.inPanY);
+        expect(E.hitTestAt(p[0], p[1])).toBe(o.id);
+        E._setSelection([o.id]);
+        const before = bytes(E);
+        E.setTool("select"); E.pointerDown(p[0], p[1]); E.pointerMove(p[0] + 10, p[1]); E.pointerMove(p[0] + 20, p[1]); E.pointerUp();
+        const op = E.doc._undo[E.doc._undo.length - 1];
+        expect(op.op).toBe("move"); expect(op.base).toBeTruthy(); expect(op.after).toBeTruthy(); expect(op.to).not.toBe(op.from);
+        const after = bytes(E);
+        E.undo(); expect(bytes(E)).toBe(before);
+        E.redo(); expect(bytes(E)).toBe(after);
     });
 });

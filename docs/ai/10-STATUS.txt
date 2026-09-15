@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-09-08. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-09-15. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -26,7 +26,7 @@ session) measured in his Chrome: storage is fine (88 MB of 10.8 GB in IndexedDB)
 the heap is 587-869 MB, a report is a 92 MB JSON the server refuses (F58), the
 load render is 8 s (F59), twelve eraser marks never bake and the tab locks in
 0.7-2.5 s steps while they try (F57, high), and the thumbnail path loads a
-second copy of the drawing. Plus F60-F62 from the other session, confirmed.
+second copy of the drawing. Plus F60-F62 from the other session, confirmed (F60 fixed 2026-09-08).
 Evening: F63 - that session also rewrote every object's z on the canvas to
 depth x 1e7 + id, so anything drawn since painted under everything and an
 eraser reached level-0 objects only; Kobin's own stroke and eraser "failed"
@@ -41,10 +41,11 @@ Design options are in ROADMAP "Saving and memory at scale"; nothing built.
 eraser mark that never baked into it. The selection barrier exists and gates
 by result (a refused, grazing, out-of-box or lower-z mark counts as not
 touching); which case he hit needs a report. Later that night, after the
-F67-F74 deploy: still dragging baked objects under eraser bakes on the big
+F67-F73 deploy: still dragging baked objects under eraser bakes on the big
 canvas (z rewritten, F63) - to confirm on a fresh canvas first, not to work
-on yet. F74 the same night: the set-scale dialog's Length input drew as the
-toast (a selector left dangling on its comma since 2026-09-01); fixed.
+on yet. F60 fixed the same night, after Kobin met it in the dialog: the
+Length input drew as the toast (the dangling selector the other session had
+filed on 2026-09-07); committed as "F74" by mistake, F60 is the entry.
 2026-09-08: MEMORY MEASURED (memory.census.probe.js on the exported canvas,
 forced GC): 721 MB live for 12,844 shapes and 832k pieces; an arc piece is
 344 B for 56 B of numbers, a line piece 192 B, an anchor 488 B; geometry 259
@@ -113,6 +114,72 @@ the same night, jsdom tests each; his tab still to confirm. F73 from his next
 report: a selected sliver beside a wide selected bundle in one frame drew
 nothing zoomed out (under the half-pixel run minimum, and the frame not a
 dot) - a member without a run is a dot of its own now.
+2026-09-15 - THE O(1) SUBTREE MOVE (ROADMAP row 11's second half; DESIGN.md
+§8, §10, §13; .claude/SUBTREE-O1-PLAN.md). jsdom only, not seen by Kobin. A
+selected frame is one entry; its drag re-addresses the frames within three
+levels of the camera (a frame's id fixed, its address mutable) and leaves a
+shift its natives take at the first read of the list; a cell another frame
+holds makes a shadow, merged at the resident's first read and split back on
+undo; one moveFrames op per gesture with the settles and merges on its entries;
+the op log carries frame entries, settles as result tables, merges, and a
+deleted subtree's natives, with the header's lattice the authority on
+addresses; the indicator draws a selected frame as a dot under 2 px and traces
+its pieces above it. Probe, 2,000 natives, medians of three: lasso 0.09 ms, a
+drag event 0.36 ms with no per-object call, undo 2.0 ms, delete 0.9 ms. Found
+on the way: eight identity-only walks read every frame through doc.at and
+settled the whole document per up-tile bake; they read the list as stored now
+(Document.list). The same evening, the erase covering a frame: a frame whose
+cell plus reach lies inside the mark, with nothing under it above the mark,
+goes as containers in one bake step, logged with its natives (bakeFrames).
+Nothing of row 11 is left. Quick suite 1130.
+2026-09-14 - S8, THE REST OF THE VESTIGE AUDIT (ROADMAP's structural lane).
+Four things with no place in the design deleted, jsdom only, no stored bit
+changed: o.paths, written by every creation site since the pre-Two.js renderer
+and read by nothing (an old file's copy is stripped at the door beside
+windows/srcId, and format2's KNOWN keeps it from returning as an _extra);
+Renderer.selectionDrawable with SEL_MAX_VIEWPORTS, the viewport clamp F39
+replaced - its account of the 315 ms dashed-perimeter stall moved into the F39
+entry first; Renderer._selRectFn / setSelection, handed a rect on every
+selection and never read, and the engine's wiring to it; KobinEngine.kdebug /
+setKDebug and the hook's kdebug state, inert. selection.indicator.test.js's
+huge-rect test was rewritten onto what decides now (the ants cut to the
+retained window) rather than dropped, so the quick suite's count is unchanged.
+selection._selectionRect stays: no production caller, two suites read it.
+2026-09-14 - ROW 11, THE SAFE PART (the frame tree for selecting, moving and
+the downward scan): the lasso takes an enclosed frame's list whole; a drag
+re-homes a frame's members in one pass and looks up each frame's displacement
+once; the move's undo entry is the address and the table either side,
+byte-exact; _bakeDown enumerates from the tree and skips whole frames by their
+index's extent. The downward scan now shares invariant 2 with the lasso and
+the ring, so the two S-1 down-projected seam fixtures that had placed a native
+2,048 cells outside its home were rebuilt legally (a narrow object is carried
+whole by both tiles, so the overlap is its width; two same-depth sibling cases
+added where the full 2*pad bar holds), and __testkit__/ink.js's seamOverlapX
+assigns a piece to the tile that cut it. Measured in jsdom only, medians of
+three probe runs (ROADMAP row 11 has the numbers); NOT seen by Kobin. The O(1)
+subtree move is designed, not built: .claude/SUBTREE-O1-PLAN.md and the
+ROADMAP register carry Kobin's decisions of the same day.
+2026-09-14 - S7, ONE STROKE PATH AND THE FAT DISPLAY BAKE DELETED (Kobin,
+2026-09-11: "remove the fatstrokes function. It doesn't have a place in the
+design"). jsdom only, nothing stored changes. Every tool now draws through a
+BiarcPen: the line tool re-seeds a fresh two-sample pen on each move (O(1), and
+a biarc through two points is that line), so Renderer.setLiveEnd, extendLive,
+_liveArcs and addLive's second argument are gone. The resolved ink did not
+move - five line-tool strokes baked through the engine (slant, horizontal,
+one-pixel drag, tap, four-move drag) match the pre-S7 pts-only bake bit for
+bit, pinned in KobinEngine.edit.test.js. Then the display bake: _fatPolys,
+outlineMode and setOutlineMode on both classes, the hook's setOutline chain
+(nothing could ever turn it on), outlinePad/_outlinePad, needsRebake,
+_windowCovered, _bakedWindow, _lastBakeScale, the outline flag in the status
+and report payloads, and the camera window threaded through _sig/_buildPieces/
+_buildInto - so no stroke signature and no stroke geometry carries a window
+now. _buildOutlineInto/ensureOutline/curveOutline.strokeLoops stay; the eraser
+shares that definition. BUG-02 was rewritten onto what actually prevents it
+(the curve capsule's signature unchanged by a half-screen pan) rather than
+dropped. The lazy-outline gate family did NOT become unreachable - it governs
+the capsule representation, not the bake. Knock-on: Clipper is off every render
+path, so what holds clipper-lib is the V0 golden-compare alone (X3/X4 rewritten
+to say so, with DESIGN.md section 15).
 2026-09-07 - THE SMALL STUFF, at Kobin's word ("all the small stuff, including
 the API tidy-up"). Uncommitted, jsdom only; nothing here changes a stored bit.
 

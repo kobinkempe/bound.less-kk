@@ -22,21 +22,32 @@ afterEach(() => { while (engines.length) engines.pop().destroy(); });
 const drawStroke = (E, pts) => { E.pointerDown(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) E.pointerMove(pts[i][0], pts[i][1]); E.pointerUp(); };
 
 describe("KNOWN BUGS — fixed (green on the new engine)", () => {
-    // BUG-02 — a fat stroke's fill lost coverage at high zoom because the bake
-    // window (half a screen) became narrower than the stroke's half-width. FIX:
-    // the pad is now max(half screen, 1.2 × the widest visible fat half-width),
-    // so the window can never be outrun. (Same fixture stroke as the old red test.)
-    test("BUG-02: the fat bake window always contains the stroke's half-width", () => {
+    // BUG-02 — a fat stroke's fill lost coverage at high zoom because the display
+    // bake clipped it to a window (half a screen) narrower than the stroke's
+    // half-width. The pad that answered it, and the bake itself, were deleted on
+    // 2026-09-14 (ROADMAP S7): a fat stroke is now a curve-capsule outline built
+    // once in frame coordinates, so no camera window enters its geometry and
+    // there is nothing left to outrun. What is asserted is exactly that — the
+    // group's signature, which is what decides whether a path is rebuilt, does
+    // not move when the camera does. (Same fixture stroke as the old red test.)
+    test("BUG-02: a fat stroke's geometry does not depend on the camera window", () => {
         const E = mkEngine(800, 600);
         const o = { type: "stroke", origin: "native", id: E.doc.allocId(), pts: purpleFixture.pts,
-            lwFrame: purpleFixture.lwFrame, color: purpleFixture.color, opacity: 1, paths: [] };
+            lwFrame: purpleFixture.lwFrame, color: purpleFixture.color, opacity: 1 };
         E.doc.add(o, 0);
         const xs = o.pts.map((p) => p[0]), ys = o.pts.map((p) => p[1]);
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
         E.inScale = 120; E.inPanX = E.width / 2 - cx * E.inScale; E.inPanY = E.height / 2 - cy * E.inScale;
         E._render();
-        expect(E._fatOnScreen(o)).toBe(true);                       // on the fat path
-        expect(E._outlinePad()).toBeGreaterThanOrEqual(o.lwFrame / 2); // window holds the whole band
+        E._render();                               // the first render fits the outline; settle on it
+        expect(E._fatOnScreen(o)).toBe(true);      // on the fat path
+        const entry = E.renderer._groups.get(o.id);
+        expect(entry).toBeTruthy();
+        expect(entry.sig[0]).toBe("O");            // the curve-capsule representation
+        const sig = entry.sig;
+        E.inPanX -= E.width / 2; E.inPanY -= E.height / 2;   // half a screen away
+        E._render();
+        expect(E.renderer._groups.get(o.id).sig).toBe(sig);
     });
 
     // BUG-05 — zooming IN, coarse strokes used to explode: up-projection had no

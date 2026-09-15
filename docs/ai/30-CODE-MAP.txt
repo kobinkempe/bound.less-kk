@@ -192,12 +192,14 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                     file's prototype back onto this one. They are still this
                     class's methods and still run with `this` bound to the
                     engine - the split was a MOVE, every method byte-identical.
-                      erasePipeline.js  the eraser + the resumable bake  ~1050
+                      erasePipeline.js  the eraser + the resumable bake  ~1110
                                         (2026-09-08: _candidatesUnder from the
                                         spatial index top-down by z, _lowerMark,
-                                        _applyCut, _onCutResult; DESIGN.md §7)
-                      overlays.js       selection indicator + erase debug ~920
-                      selection.js      select, hit-test, drag            ~420
+                                        _applyCut, _onCutResult; DESIGN.md §7;
+                                        2026-09-15: _eraseFramesPass takes a
+                                        frame the mark covers whole as containers)
+                      overlays.js       selection indicator + erase debug ~930
+                      selection.js      select, hit-test, drag            ~830
                       instruments.js    LongFrames, EventLatency,
                                         GrowthLog, FrameMeter            ~295
                       sceneOps.js       auto-scenes                      ~215
@@ -229,6 +231,9 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                                      2^-10 units at the move level, goes into
                                      the object's displacement TABLE and never
                                      into a coordinate - F41, then F55),
+                                     _displaceMember (the frame and the table
+                                     for a displacement, one lookup per
+                                     (frame, table), memoised), _homeShift,
                                      _normalizeHome, _selectionAnts
                       scenes         refreshScenes, captureView, splitScene,
                                      jumpTo
@@ -260,7 +265,16 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     from plus the sub-frame remainder paint applies) and
                     mapPointObj / mapRectObj / projectLoopsObj, the transforms
                     that add that remainder on the way out of an object's
-                    frame and subtract it on the way in (F41, F55).
+                    frame and subtract it on the way in (F41, F55). Since
+                    2026-09-15 a frame's id is fixed and its address mutable
+                    (readdress; readdressMany two-phase from moveSubtreeTargets
+                    over a subtreeStart record; the shift and addrSeq fields;
+                    _childId's #n suffix for a vacated cell; _rebuildSpine);
+                    a cell another frame holds makes a shadow (_take: the
+                    empty resident yields, else the mover shadows it), listed
+                    by childrenOf/walk and under its resident for isUnder,
+                    merged structurally by adoptShadow and reversed by
+                    unadoptShadow; serialize carries shift and shadowOf.
 Camera.js           The view transform and the crossing state machine. Owns the
                     active frame, inScale, inPan. _settle crosses until the
                     in-frame zoom is legal AND shifts laterally when the view has
@@ -281,7 +295,22 @@ Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     drag's own edit (an `offsetsOnly` change event, no
                     geometry touched); cedeTileById hands a kid the table
                     shifted to its depth; _offsetIds answers hasOffsets() in
-                    O(1).
+                    O(1). rehomeManyById re-homes many in one pass per source
+                    frame (the drag's path); frameExtent is the index's union
+                    box and largest object, a bake's whole-frame skip. Since
+                    2026-09-15 at() merges a resident's shadows and settles a
+                    frame's pending shift into its natives' tables first
+                    (_mergeShadows, _settleIfPending), recording each on the
+                    move-op entry that placed the frame (noteFrameOwner) and
+                    notifying the op log; count() and list() read as stored
+                    for identity-only scans; setFrameShift, unsettle and
+                    applySettle (by result table, idempotent), unmerge;
+                    removeFrameSubtree / insertFrameSubtree / detachFrame set
+                    a subtree's lists aside by reference; _invert handles
+                    moveFrames, removeFrames, eraseFrames and deleteMany, and
+                    a bake step of `frames` inside eraseCommit; maxZUnder is
+                    the erase's bound for taking a frame whole (LevelIndex
+                    keeps maxZ, only growing).
 TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     what a render reads [HOT]. Incremental: a document change
                     patches the cached tiles rather than dropping them, except
@@ -293,6 +322,14 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     content() sends a moved object's read through _reroute,
                     which fetches its pieces from the frame the table names
                     (LevelMap.objShift) over the window less the remainder.
+                    _downSources enumerates a down tile's candidate frames
+                    from the tree, subtrees pruned by cell + REACH;
+                    _bakeDown skips a frame whole by frameExtent. A tile is
+                    stamped with chainSeq (the addrSeq sum up its frame's
+                    ancestry), so a re-address rebuilds it on lookup; the
+                    frame events refile / removeFrame / addFrame / mergeFrame
+                    / splitFrame drop every tile meeting the frame's footprint
+                    (_onFrameEvent). F55 stands: a table change drops nothing.
 Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
                     signature diff, per-scene origins, scene retention, the
                     fat-stroke outline gate, the thin rescale, the arc plan
@@ -308,7 +345,14 @@ Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
                     no longer walks every arc on screen; and a resolved
                     perimeter is NOT rendered by the bake (erasePipeline
                     `_stepShapeBakes` sets `_renderPending`; the next render
-                    paints it) - one render per pen-up, not two.
+                    paints it) - one render per pen-up, not two. Since
+                    2026-09-14 (S7) there is ONE live path (addLive/setLiveArcs
+                    draw every tool's biarc chain; setLiveEnd and extendLive are
+                    gone) and ONE fat representation: the windowed display bake
+                    (_fatPolys, outlineMode, outlinePad, needsRebake) was
+                    deleted, so no signature and no geometry carries a camera
+                    window. _buildOutlineInto/ensureOutline stay - the eraser
+                    shares that definition (curveOutline.strokeLoops).
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
                     Repairs unclosed loops and out-of-range tile phases at the
                     door rather than refusing a whole drawing over one object.
@@ -317,7 +361,10 @@ format2.js          kobin-2 (2026-09-08): objectHeader (the one whitelist, share
                     (encodeObjects/decodeObjects, encodeRecords from kobin-1
                     records), log entries (encodeEntry/decodeEntry), chunk
                     pack/unpack. Pure. format2.test.js holds it to kobin-1 bit
-                    for bit.
+                    for bit. Entry kinds since 2026-09-15: moveFrames (frame
+                    entries as JSON, members as a move's), removeFrames,
+                    deleteMany and bakeFrames (each deleted frame's natives
+                    with geometry), settle and mergeFrame (no geometry).
 oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     silent geometry changes as entries with results; drain() for
                     the saver; replay() onto a loaded document (idempotent,
@@ -327,7 +374,14 @@ oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     Validates an object's `below` (F41, F55: depth 0 allowed).
                     Version 2 (F43) only when a shape holds a cut line (code 2
                     in encodeLoops); everything else is still written as
-                    version 1 and opens in any build.
+                    version 1 and opens in any build. The subtree move
+                    (2026-09-15): the lattice is the header's, so a replayed
+                    moveFrames / mergeFrame / undo re-addresses nothing and
+                    rebuilds the op; a settle is an entry of result tables
+                    (_onSettle, coalesced per frame within a tick), a merge
+                    forces the resident's snapshot (_onMerge); _forcedFor
+                    snapshots only what changed frames; undoFrames applies the
+                    per-frame table work where the snapshot predates it.
 scenes.js           Auto-scene clustering. Pure: it never touches LevelMap, and
                     takes an injected projector instead.
 frameLattice.js     The address arithmetic. Pure integers and powers of two.
@@ -480,10 +534,15 @@ polyline.js         [HOT] Pure float64, no integer lattice, no coordinate
 clipperBoolean.js   The three functions that still use clipper-lib, and the
                     integer-lattice scaling they need: strokeOutline,
                     subtractPolys, clipPolysToRect. Its header names every
-                    caller each one has left. The two files were one file called
+                    caller each one has left. Since S7 (2026-09-14) none of them
+                    is on a render path: what holds clipper-lib in package.json
+                    is derive.bandRings under legacyOffset, i.e. the V0
+                    golden-compare. The two files were one file called
                     clipperOutline.js until 2026-08-31; the split is what makes
                     a grep for clipperBoolean a complete answer to "where is
-                    Clipper still reached" - six files, three of them tests.
+                    Clipper still reached" - since S7 that is derive.js, the V0
+                    oracle, KobinEngine.geom (a handle nothing reads) and four
+                    test suites.
 connect.js          Contact along a shared tile edge, as intervals in a
                     NORMALIZED perimeter parameter. contactArcs / arcsTouch /
                     arcOverlaps / tOfPoint, plus Groups (union-find).

@@ -45,7 +45,7 @@ import {
     subtractShape, rectLoop, shapeComponents, dropDust, repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset } from "./geometry/offsets";
 import { objectHeader, extraFields } from "./format2";
 import { Loop } from "./geometry/loop";
 
@@ -63,7 +63,11 @@ const CELL = 2048;          // frame units; typical strokes span 10-1000
 const BIG = CELL * 4;       // larger than this goes to the per-level overflow list
 
 class LevelIndex {
-    constructor() { this.cells = new Map(); this.big = new Set(); this.boxes = new Map(); this.objs = new Map(); }
+    // ext: the union of every added box grown by its full linewidth; maxSize: the largest hypot(w,h)+lw.
+    // Both only grow (a removal leaves them wide), so they bound what the frame holds for a bake's
+    // whole-frame skip.
+    // maxZ: the highest z ever added (a removal leaves it), so a subtree's bound is a walk of its frames.
+    constructor() { this.cells = new Map(); this.big = new Set(); this.boxes = new Map(); this.objs = new Map(); this.ext = null; this.maxSize = 0; this.maxZ = -Infinity; }
     _key(cx, cy) { return cx + "," + cy; }
     _cellsOf(b, fn) {
         const x0 = Math.floor(b.x0 / CELL), x1 = Math.floor(b.x1 / CELL);
@@ -82,6 +86,13 @@ class LevelIndex {
             if (bb) { x0 = bb.x0; y0 = bb.y0; x1 = bb.x1; y1 = bb.y1; }
         } else if (o.type === "fill") { for (const poly of o.polys) scan(poly); } else scan(o.pts);
         const b = { x0: x0 - m, y0: y0 - m, x1: x1 + m, y1: y1 + m };
+        const lw = o.lwFrame || 0;
+        if (!this.ext) this.ext = { x0: x0 - lw, y0: y0 - lw, x1: x1 + lw, y1: y1 + lw };
+        else { const e = this.ext; if (x0 - lw < e.x0) e.x0 = x0 - lw; if (y0 - lw < e.y0) e.y0 = y0 - lw; if (x1 + lw > e.x1) e.x1 = x1 + lw; if (y1 + lw > e.y1) e.y1 = y1 + lw; }
+        const size = Math.hypot(x1 - x0, y1 - y0) + lw;
+        if (size > this.maxSize) this.maxSize = size;
+        const z = o.z != null ? o.z : o.id;
+        if (z > this.maxZ) this.maxZ = z;
         this.boxes.set(o.id, b);
         this.objs.set(o.id, o);
         if (b.x1 - b.x0 > BIG || b.y1 - b.y0 > BIG) { this.big.add(o); return; }
@@ -139,8 +150,9 @@ class LevelIndex {
  * log replay's way in (format2.decodeEntry hands back records).
  *
  * RETIRED FIELDS: drawings saved before 2026-08-06 recorded a deep erase as a
- * `windows` rect and a `srcId` back-pointer; both are stripped at the door (no
- * migration owed, Kobin). The offsets table arrives in its file form (F41); a
+ * `windows` rect and a `srcId` back-pointer, and every object carried the
+ * pre-Two.js renderer's `paths` (retired 2026-09-14); all three are stripped at
+ * the door (no migration owed, Kobin). The offsets table arrives in its file form (F41); a
  * malformed one is dropped, not refused: persist validates a real file first,
  * and a dev snapshot is worth more opened than exact. A shape's loops are
  * repaired on the way in so a drawing damaged by an older build opens and saves.
@@ -150,7 +162,7 @@ class LevelIndex {
  * kept and written back (`_extra`).
  */
 export function nativeFromRecord(o) {
-    const { windows, srcId, ...keep } = o;
+    const { windows, srcId, paths, ...keep } = o;
     if (keep.below != null) {
         try { keep.below = decodeBelow(keep.below); } catch (err) { delete keep.below; }
         if (!keep.below) delete keep.below;
@@ -160,11 +172,11 @@ export function nativeFromRecord(o) {
     if (keep.type === "shape" && keep.loops) {
         // A closed, well-formed encoding is wrapped as it is — a snapshot's span with
         // no copy; only damage takes the decode-repair-encode road.
-        out = { ...keep, paths: [] };
+        out = { ...keep };
         out.loops = validEncodedLoops(keep.loops)
             ? keep.loops.map((l) => (l instanceof Loop ? l : Loop.wrap(l)))
             : repairLoops(decodeLoops(keep.loops), keep.w).map(Loop.from);
-    } else out = { ...keep, paths: [] };
+    } else out = { ...keep };
     if (extra) out._extra = extra;
     return out;
 }
@@ -196,6 +208,15 @@ export default class Document {
         // anything in this drawing have one?" in O(1) on every bake, and walk
         // only those few objects when it does.
         this._offsetIds = new Set();
+        // The lattice, attached by the engine; a frame's pending shift is read from it.
+        this.lm = null;
+        // frame id -> the move-op entry that last placed the frame; a settle or a merge of
+        // that frame is recorded on it for undo (DESIGN.md §8).
+        this._frameOwner = new Map();
+        this.holdMerges = false;           // a drag in progress: shadows are not merged under it
+        // Frames whose list and index a subtree removal has set aside. Their natives stay
+        // in `_byId` by reference, and `getById` answers null while the frame is here.
+        this._detached = new Set();
     }
     /** Keep `_offsetIds` in step with one object's `below`. */
     _noteBelow(o) {
@@ -219,6 +240,8 @@ export default class Document {
     recordBake(op, step) { op.baked.push(step); this._notifyOps({ kind: "bake", op, step }); }
     /** Ids a replayed entry brought in: the counter must stay above them. */
     noteId(id) { if (Number.isInteger(id) && id >= this._nextId) this._nextId = id + 1; }
+    /** A frame was re-addressed (a subtree move): `from`/`to` are { parent, i, j }. The tile cache listens. */
+    noteRefile(frameId, from, to) { this._emit({ kind: "refile", frame: String(frameId), from, to }); }
     /** An editId changed on an object already in the document. */
     keysChanged() { this._groups = null; this.rev++; }
 
@@ -250,7 +273,161 @@ export default class Document {
         delete this._index[k];
         return true;
     }
-    at(level) { return this.nativesByLevel[level] || []; }
+    /** A frame's natives. Shadows are merged in and a pending shift (a subtree move) settled first. */
+    at(level) {
+        const k = String(level);
+        const f = this.lm ? this.lm.frame(k) : null;
+        if (f && f._shadows && f._shadows.size && !this.holdMerges) this._mergeShadows(f);
+        const arr = this.nativesByLevel[k];
+        if (!arr) return [];
+        if (f && f.shift) this._settleIfPending(k, arr);
+        return arr;
+    }
+    /** The frame's native count, without settling — for scans that only need a count. */
+    count(level) { const arr = this.nativesByLevel[level]; return arr ? arr.length : 0; }
+    /**
+     * A frame's list as stored, for scans that need identity or flags only (a mark, a family
+     * key, a type): no shadow merged, no shift settled, so a walk over every frame does no
+     * per-native work on frames nobody has looked at (DESIGN.md §8). Never for positions.
+     */
+    list(level) { return this.nativesByLevel[level] || []; }
+    // The frame's shift is the k=0 table entry every native of the frame owes (DESIGN.md §8,
+    // the subtree move). Applied once, exactly as `_displaceMember` applies a rest — a carry
+    // re-homes the native to the neighbour cell. The record `{ dx, dy, tables: [[id, table
+    // after]], carries: [[id, frame]] }` goes on the owning move entry for undo and to the op
+    // log; its result tables make a replay idempotent.
+    _settleIfPending(level, arr) {
+        if (!this.lm) return;
+        const k = String(level);
+        const f = this.lm.frame(k);
+        if (!f || !f.shift) return;
+        const [dx, dy] = f.shift;
+        f.shift = null;                          // cleared first: a re-home below re-enters here
+        const list = arr || this.nativesByLevel[k] || [];
+        if (!list.length) return;
+        const tables = [], carried = [];
+        for (const o of list) {
+            const r = addOffset(o.below, 0, dx, dy);
+            o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
+            tables.push([o.id, r.below || null]);
+            if (r.cellX || r.cellY) carried.push([o, r.cellX, r.cellY]);
+            this._emit({ kind: "change", id: o.id, level: k, obj: o, offsetsOnly: true });
+        }
+        const carries = [];
+        for (const [o, cx, cy] of carried) {
+            const n = this.lm.neighbour(k, cx, cy);
+            if (n) { this.rehomeById(o.id, n.id); carries.push([o.id, n.id]); }
+        }
+        const rec = { dx, dy, tables, carries };
+        const owner = this._frameOwner.get(k) || null;
+        if (owner) owner.settled = rec;
+        this._notifyOps({ kind: "settle", frame: k, rec, owner });
+    }
+    /** Set a frame's pending shift (the k=0 entry its natives owe, DESIGN.md §8); a zero shift clears. */
+    setFrameShift(frameId, shift) {
+        const f = this.lm && this.lm.frame(String(frameId));
+        if (!f) return false;
+        f.shift = shift && (shift[0] || shift[1]) ? [shift[0], shift[1]] : null;
+        return true;
+    }
+    /** The move-op entry that last placed `frameId` (null to forget): a settle or merge of the frame is recorded on it. */
+    noteFrameOwner(frameId, entry) {
+        const k = String(frameId);
+        if (entry) this._frameOwner.set(k, entry); else this._frameOwner.delete(k);
+    }
+    /**
+     * The inverse of a recorded settle, from its result tables (so it is idempotent); a native
+     * the settle carried to a neighbour comes home by id. Outside an undo (a cancelled drag) the
+     * restored tables go to the op log as a settle of their own.
+     */
+    unsettle(frameId, settled) {
+        const k = String(frameId);
+        const tables = [], back = [];
+        for (const [id, after] of settled.tables) {
+            const o = this._byId.get(id);
+            if (!o) continue;
+            const r = addOffset(after, 0, -settled.dx, -settled.dy);
+            o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
+            tables.push([id, r.below || null]);
+            this._emit({ kind: "change", id, level: o._home, obj: o, offsetsOnly: true });
+            if (o._home !== k) back.push(id);
+        }
+        for (const id of back) this.rehomeById(id, k);
+        if (!this._inUndo && tables.length) {
+            this._notifyOps({ kind: "settle", frame: k, rec: { dx: -settled.dx, dy: -settled.dy, tables, carries: back.map((id) => [id, k]) }, owner: null });
+        }
+    }
+    /** A replayed settle: the result tables and homes it recorded, set as they are (idempotent). */
+    applySettle(frameId, rec) {
+        const homes = new Map(rec.carries || []);
+        for (const [id, after] of rec.tables) {
+            const o = this._byId.get(id);
+            if (!o) continue;
+            const to = homes.get(id);
+            if (to != null && o._home !== String(to)) this.rehomeById(id, to);
+            this.setOffsetsById(id, after || undefined);
+        }
+    }
+    /**
+     * Merge the shadows of resident `E` into it (SUBTREE-O1-PLAN §2.5): each shadow's pending
+     * shift settled, its natives appended to E's list (home E, indexed), its kids re-parented by
+     * `LevelMap.adoptShadow`, the shadow gone. O(the shadow's natives), paid at the first read of
+     * E. The record goes on the entry that moved the shadow, for `unmerge`, and to the op log.
+     */
+    _mergeShadows(E) {
+        for (const mid of [...E._shadows]) {
+            const M = this.lm.frame(mid);
+            if (!M || this._detached.has(mid)) continue;   // set aside by a delete: it waits
+            this._settleIfPending(mid);
+            this._settleIfPending(E.id);
+            const src = this.nativesByLevel[mid] || [];
+            const ids = src.map((o) => o.id);
+            if (src.length) {
+                const dst = this.nativesByLevel[E.id] || (this.nativesByLevel[E.id] = []);
+                for (const o of src) { dst.push(o); o._home = E.id; if (!this._pending.has(o)) this._idx(E.id).add(o); o._ver = (o._ver || 0) + 1; }
+            }
+            delete this.nativesByLevel[mid]; delete this._index[mid];
+            const rec = this.lm.adoptShadow(M, E);
+            rec.ids = ids;
+            // The move that made the pair: the shadow's, or the resident's when an empty cell yielded to it.
+            const owner = this._frameOwner.get(mid) || this._frameOwner.get(E.id) || null;
+            this._frameOwner.delete(mid);
+            if (owner) (owner.merged || (owner.merged = [])).push(rec);
+            this._emit({ kind: "mergeFrame", frame: mid, into: E.id, at: { parent: E.parent, i: E.cell.i, j: E.cell.j }, ids, kids: rec.kids.map((kd) => kd.id) });
+            this._notifyOps({ kind: "mergeFrame", rec, owner });
+        }
+    }
+    /** A frame's list set aside (the redo of a subtree delete, and replay): its natives stay in `_byId`, unreadable. */
+    detachFrame(frame) {
+        const k = String(frame);
+        const arr = this.nativesByLevel[k];
+        delete this.nativesByLevel[k]; delete this._index[k];
+        this._detached.add(k);
+        this._emit({ kind: "removeFrame", frame: k, count: arr ? arr.length : 0 });
+    }
+    /** A replayed merge or split: the record's natives into the list they belong in, from wherever a snapshot left them (idempotent). */
+    mergeReplay(rec) { this.rehomeManyById(rec.ids, rec.into); this._forgetIfEmpty(rec.id); }
+    unmergeReplay(rec) { this.rehomeManyById(rec.ids, rec.id); this._forgetIfEmpty(rec.into); }
+    /** The inverse of one `_mergeShadows` record: the frame back as a shadow, its natives back in its own list. */
+    unmerge(rec) {
+        const M = this.lm.unadoptShadow(rec);
+        const set = new Set(rec.ids);
+        const src = this.nativesByLevel[rec.into] || [];
+        const mine = [];
+        let w = 0;
+        for (let r = 0; r < src.length; r++) { const o = src[r]; if (set.has(o.id)) mine.push(o); else src[w++] = o; }
+        src.length = w;
+        if (mine.length) {
+            this.nativesByLevel[M.id] = mine;
+            for (const o of mine) {
+                if (!this._pending.has(o)) { this._idx(rec.into).remove(o); this._idx(M.id).add(o); }
+                o._home = M.id; o._ver = (o._ver || 0) + 1;
+            }
+        }
+        this._forgetIfEmpty(rec.into);
+        this._emit({ kind: "splitFrame", frame: M.id, from: rec.into, at: { parent: M.parent, i: M.cell.i, j: M.cell.j }, ids: rec.ids, kids: rec.kids.map((kd) => kd.id) });
+        return M;
+    }
     _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
 
     // Add a newly drawn object as a native of `level`. `live` = still growing
@@ -258,6 +435,7 @@ export default class Document {
     // index until finalize().
     add(o, level, { live = false } = {}) {
         const k = String(level);
+        this._settleIfPending(k);   // the newcomer does not owe the frame's shift
         flattenLoops(o);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
@@ -282,6 +460,7 @@ export default class Document {
     // object sets.
     getById(id) {
         const o = this._byId.get(id);
+        if (o && this._detached.has(o._home)) return null;   // its frame is set aside by a subtree removal
         return o ? { obj: o, level: o._home } : null;
     }
 
@@ -314,6 +493,7 @@ export default class Document {
     removeById(id) {
         const obj = this._byId.get(id);
         if (!obj) return null;
+        this._settleIfPending(obj._home);   // a carry can re-home it, so read the home after
         const Ls = obj._home;
         const arr = this.nativesByLevel[Ls];
         const i = arr ? arr.indexOf(obj) : -1;
@@ -331,6 +511,7 @@ export default class Document {
     // affects the array; z-order is by id, which the object kept.
     insertAt(obj, level, index) {
         const k = String(level);
+        this._settleIfPending(k);
         flattenLoops(obj);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         const arr = this.nativesByLevel[k];
@@ -413,11 +594,25 @@ export default class Document {
      * (`attrOnly`), the log takes a `put` of the object, the next render re-sorts.
      * Returns the previous z.
      */
+    /**
+     * An upper bound on the z of everything under a frame subtree: the indexes' bounds (they
+     * only grow) and the pending strokes. `maxZUnder(F) < z` means nothing under F is drawn
+     * above z — the erase's test for taking a frame whole (DESIGN.md §7).
+     */
+    maxZUnder(rootId) {
+        let m = -Infinity;
+        const frames = new Set();
+        this.lm.walk(rootId, (f) => { frames.add(f.id); const ix = this._index[f.id]; if (ix && ix.maxZ > m) m = ix.maxZ; });
+        for (const o of this._pending) if (frames.has(o._home)) { const z = o.z != null ? o.z : o.id; if (z > m) m = z; }
+        return m;
+    }
     setZById(id, z) {
         const rec = this.getById(id);
         if (!rec) return null;
         const o = rec.obj, before = o.z;
         o.z = z;
+        const ix = this._index[rec.level];
+        if (ix && z > ix.maxZ) ix.maxZ = z;
         this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, attrOnly: true });
         return before;
     }
@@ -510,6 +705,9 @@ export default class Document {
      */
     rehomeById(id, toLevel) {
         const k = String(toLevel);
+        const o0 = this._byId.get(id);
+        if (o0) this._settleIfPending(o0._home);   // a carry can re-home it, so take the record after
+        this._settleIfPending(k);
         const rec = this.getById(id);
         if (!rec || rec.level === k) return rec;
         const o = rec.obj;
@@ -534,6 +732,88 @@ export default class Document {
         return { obj: o, level: k };
     }
 
+    /**
+     * `rehomeById` for many natives at once: each source frame's list is compacted in one pass
+     * instead of spliced per object, which is what made a drag of a whole frame quadratic in its
+     * length (row 11: 52 us a re-home at 2,000 objects, 184 at 8,000). Ends in the same lists,
+     * indexes and events as one `rehomeById` per id in this order; only the events' interleaving
+     * differs. Returns how many moved.
+     */
+    rehomeManyById(ids, toLevel) {
+        const k = String(toLevel);
+        // Every frame this touches settles BEFORE the groups are formed: a settle's carry
+        // re-homes natives, and a group holding an object its frame no longer lists would
+        // compact the wrong array.
+        this._settleIfPending(k);
+        for (const id of ids) { const o = this._byId.get(id); if (o) this._settleIfPending(o._home); }
+        const groups = new Map();                       // source frame -> [obj], in `ids` order
+        for (const id of ids) {
+            const rec = this.getById(id);
+            if (!rec || rec.level === k) continue;
+            let g = groups.get(rec.level);
+            if (!g) { g = []; groups.set(rec.level, g); }
+            g.push(rec.obj);
+        }
+        let n = 0;
+        for (const [from, objs] of groups) {
+            const set = new Set(objs);
+            const arr = this.nativesByLevel[from];
+            let w = 0;
+            for (let r = 0; r < arr.length; r++) if (!set.has(arr[r])) arr[w++] = arr[r];
+            arr.length = w;
+            for (const o of objs) if (!this._pending.has(o)) this._idx(from).remove(o);
+            this._forgetIfEmpty(from);
+            for (const o of objs) this._emit({ kind: "remove", id: o.id, level: from, obj: o, rehome: k });
+            if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
+            for (const o of objs) {
+                const wasPending = this._pending.has(o);
+                this.nativesByLevel[k].push(o);
+                o._home = k;
+                if (!wasPending) this._idx(k).add(o);
+                o._ver = (o._ver || 0) + 1;
+                this._emit({ kind: "add", id: o.id, level: k, obj: o, live: wasPending, rehome: from });
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * Set a frame subtree aside (the delete of a selected frame): each frame's list and index
+     * detached by reference, no per-object work. Returns the records the op holds; null when the
+     * root has no list and no descendants with one.
+     */
+    removeFrameSubtree(rootId) {
+        const frames = [];
+        this.lm.walk(rootId, (f) => frames.push(f.id));
+        const records = [];
+        for (const k of frames) {
+            const arr = this.nativesByLevel[k];
+            if (!arr) continue;
+            records.push({ frame: k, natives: arr, index: this._index[k] || null });
+            delete this.nativesByLevel[k]; delete this._index[k];
+            this._detached.add(k);
+            this._emit({ kind: "removeFrame", frame: k, count: arr.length });
+        }
+        return records.length ? records : null;
+    }
+    /**
+     * The inverse of removeFrameSubtree: the same lists and indexes back, by reference. A record
+     * without an index (rebuilt from the op log) has its natives registered here.
+     */
+    insertFrameSubtree(records) {
+        for (const r of records) {
+            this.nativesByLevel[r.frame] = r.natives;
+            if (r.index) this._index[r.frame] = r.index;
+            else {
+                delete this._index[r.frame];
+                for (const o of r.natives) { flattenLoops(o); o._home = r.frame; this._byId.set(o.id, o); this._noteBelow(o); this._idx(r.frame).add(o); }
+            }
+            this._detached.delete(r.frame);
+            this._emit({ kind: "addFrame", frame: r.frame, count: r.natives.length });
+        }
+    }
+
     // Replace a native with the region(s) an AREA erase left of its ink. Each
     // region (outer ring plus its holes) becomes its own native with a fresh id
     // inheriting the source's z/colour/opacity — disjoint leftovers select and
@@ -548,7 +828,7 @@ export default class Document {
         const pieces = regions.map((loops) => {
             const obj = {
                 type: "shape", origin: src.origin, id: this.allocId(), z, loops,
-                color: src.color, opacity: src.opacity, paths: [],
+                color: src.color, opacity: src.opacity,
             };
             // Cutting an object up does not move it, so every piece keeps the
             // grid the whole was chopped on. That is D4's "a logical object and
@@ -643,7 +923,7 @@ export default class Document {
         const mk = (loops, lvl, attach, tile, below) => {
             const obj = {
                 type: "shape", origin: src.origin, id: this.allocId(), z, loops,
-                color: src.color, opacity: src.opacity, paths: [], editId: editKey,
+                color: src.color, opacity: src.opacity, editId: editKey,
             };
             if (src.w > 0) obj.w = src.w;
             if (attach) obj.attachRect = { ...attach };
@@ -746,16 +1026,42 @@ export default class Document {
         return out;
     }
 
+    /**
+     * What a frame holds, for a bake's whole-frame skip: the union box (linewidth included) and the
+     * largest hypot(w,h)+lw, the pending strokes folded in. Null when the frame is empty.
+     */
+    frameExtent(level) {
+        const k = String(level);
+        const ix = this._index[k];
+        let e = ix && ix.ext ? { ...ix.ext } : null, size = ix ? ix.maxSize : 0;
+        for (const o of this._pending) {
+            if (o._home !== k) continue;
+            const b = this._bboxNow(o), lw = o.lwFrame || 0;
+            if (!e) e = { x0: b.x0 - lw, y0: b.y0 - lw, x1: b.x1 + lw, y1: b.y1 + lw };
+            else { e.x0 = Math.min(e.x0, b.x0 - lw); e.y0 = Math.min(e.y0, b.y0 - lw); e.x1 = Math.max(e.x1, b.x1 + lw); e.y1 = Math.max(e.y1, b.y1 + lw); }
+            size = Math.max(size, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) + lw);
+        }
+        return e ? { box: e, maxSize: size } : null;
+    }
+
+    // A move is a change of address plus a change of table (F55): undo puts the frame back, then the
+    // geometry if the pen-up walked the member into its cell by whole frames (`base`), then the table.
+    // Each step is independent — a normalised member carries both pairs. `dx`/`dy` alone is a pre-F41
+    // entry, restored by an inverse translation.
     _undoMove(moves) {
         for (const m of moves) {
             if (m.from != null) this.rehomeById(m.id, m.from);
             if (m.base) this.setGeometryById(m.id, m.base);
-            else this.moveById(m.id, -m.dx, -m.dy);
+            if ("belowBefore" in m) this.setOffsetsById(m.id, m.belowBefore);
+            else if (!m.base) this.moveById(m.id, -m.dx, -m.dy);
         }
         return true;
     }
     _invertMove(m) {
-        return { id: m.id, dx: -m.dx, dy: -m.dy, from: m.to, to: m.from, base: m.after || null, after: m.base || null };
+        const inv = { id: m.id, dx: -m.dx, dy: -m.dy, from: m.to, to: m.from };
+        if ("belowBefore" in m) { inv.belowBefore = m.belowAfter; inv.belowAfter = m.belowBefore; }
+        if (m.base || m.after) { inv.base = m.after || null; inv.after = m.base || null; }
+        return inv;
     }
 
     // ---- undo / redo (exact port of the old op-inversion semantics) ----
@@ -810,14 +1116,8 @@ export default class Document {
                 const rec = this.removeById(op.id);
                 return rec ? { op: "erase", obj: rec.obj, level: rec.level, index: rec.index } : op;
             }
-            // A move is an ADDRESS change plus a sub-cell translation, so undo is
-            // both, in that order — the frame first, because the translation is
-            // expressed in the frame it belongs to and the two frames' units are
-            // the same only because they are at the same depth.
-            // A move is an ADDRESS change plus a sub-cell translation. Undo puts
-            // both back — and it restores the geometry the drag started from
-            // rather than translating by the negative, so the round trip is
-            // bit-exact instead of a float's width away.
+            // A move is a change of address plus a change of table; undo puts the frame back first,
+            // then the table (or the geometry snapshot of a member the pen-up normalised). See _undoMove.
             case "move": return this._undoMove([op]) && { op: "move", ...this._invertMove(op) };
             case "moveMany": {
                 this._undoMove(op.moves);
@@ -834,6 +1134,48 @@ export default class Document {
                 for (const rec of op.records) this.removeById(rec.obj.id);
                 return { op: "eraseMany", records: op.records };
             }
+            // A deleted frame subtree, held as whole lists (SUBTREE-O1-PLAN §2.3): undo and redo
+            // are the same records re-attached and re-detached by reference, O(frames).
+            case "moveFrames": {
+                // Frames first: a merge since the move is split back, a settle since subtracted by its
+                // record, then the start address and shift come back; the per-object moves follow
+                // (DESIGN.md §8). The inverse's entries own a later settle or merge.
+                for (const e of op.frames) {
+                    if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) this.unmerge(e.merged[i]); e.merged = null; }
+                    if (e.settled) { this.unsettle(e.id, e.settled); e.settled = null; }
+                }
+                const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j } : null]; }));
+                this.lm.readdressMany(op.frames.map((e) => ({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j })),
+                    { empty: (id) => this.count(id) === 0 });
+                const inv = {
+                    op: "moveFrames",
+                    frames: op.frames.map((e) => ({ ...e, from: e.to, to: e.from, shiftBefore: e.shiftAfter, shiftAfter: e.shiftBefore, settled: null, merged: null })),
+                    moves: (op.moves || []).map((m) => this._invertMove(m)),
+                };
+                for (const e of inv.frames) {
+                    this.setFrameShift(e.id, e.shiftAfter);
+                    this.noteFrameOwner(e.id, e);
+                    const w = was.get(e.id), f = this.lm.frame(e.id);
+                    if (w && f) this._emit({ kind: "refile", frame: e.id, from: w, to: { parent: f.parent, i: f.cell.i, j: f.cell.j } });
+                }
+                if (op.moves && op.moves.length) this._undoMove(op.moves);
+                return inv;
+            }
+            case "removeFrames": {
+                this.insertFrameSubtree(op.records);
+                return { op: "eraseFrames", records: op.records };
+            }
+            case "eraseFrames": {
+                for (const r of op.records) this.detachFrame(r.frame);
+                return { op: "removeFrames", records: op.records };
+            }
+            // One gesture that deleted ids AND frames: the parts invert in reverse order, and the
+            // op returned re-applies them in the original one.
+            case "deleteMany": {
+                const inverted = [];
+                for (let i = op.parts.length - 1; i >= 0; i--) inverted.push(this._invert(op.parts[i]));
+                return { op: "deleteMany", parts: inverted.reverse() };
+            }
             // Deferred area erase. "eraseCommit" is pushed ONCE per eraser
             // gesture; background baking APPENDS to op.baked afterwards (no
             // ops of its own — Ctrl+Z must never undo a system-initiated
@@ -848,6 +1190,8 @@ export default class Document {
                 // stale replays were how duplicated, stacked geometry formed.
                 for (let i = op.baked.length - 1; i >= 0; i--) {
                     const st = op.baked[i];
+                    // A frame the mark covered whole went as containers: its lists come back by reference.
+                    if (st.frames) { this.insertFrameSubtree(st.frames); continue; }
                     // Identity-only step: a severance re-pointed part of the
                     // family at a new parent and gave it a new edit key. Nothing
                     // geometric moved, so this just runs backwards.
@@ -878,6 +1222,7 @@ export default class Document {
                     this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
                 }
                 for (const st of op.baked) {
+                    if (st.frames) { for (const r of st.frames) this.detachFrame(r.frame); continue; }
                     if (st.rekey) {
                         for (const r of st.rekey) {
                             const o = this.getById(r.id);
@@ -922,6 +1267,9 @@ export default class Document {
         this._pending = new Set();
         this._byId = new Map();
         this._offsetIds = new Set();
+        this._frameOwner = new Map();
+        this.holdMerges = false;
+        this._detached = new Set();
         for (const Ls of Object.keys(natives)) {
             for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._noteBelow(o); this._idx(Ls).add(o); }
         }
@@ -929,7 +1277,7 @@ export default class Document {
     }
 
     // ---- natives (de)serialization (dev-0 payload shape, reused by kobin-1) ----
-    // Whitelist per type so runtime-only fields (_home, _bbox, paths, caches)
+    // Whitelist per type so runtime-only fields (_home, _bbox, caches)
     // never leak into a file. `z` is written only when it differs from the id
     // (cut pieces inheriting their source's depth) — dev-0 snapshots round-trip
     // byte-identical.

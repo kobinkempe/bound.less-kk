@@ -117,6 +117,13 @@ describe("format2", () => {
         expect(d4.moves[0]).toMatchObject({ id: objs[0].id, dx: 1, dy: 2, after: null });
         expect(plain(d4.moves[0].base.loops)).toEqual(plain(encodeObjects([objs[0]]).objects.length ? decodeObjects(encodeObjects([objs[0]]).objects, encodeObjects([objs[0]]).geo)[0].loops : []));
         expect(d4.moves[0].base.attachRect).toBeNull(); expect(d4.moves[0].base.tile).toEqual([1, 2]);
+        // a table move: no geometry slots at all, and the file form survives the chunk
+        const mv2 = { k: "move", many: true, moves: [{ id: 7, from: "1", to: "1/1,0", dx: 1, dy: 0, belowBefore: null, belowAfter: [[0, 12288, 4096]], obj: null, level: "1/1,0", index: 0 }] };
+        const e5 = encodeEntry(mv2);
+        const back = unpackChunk(packChunk(CHUNK_LOG, e5.op, e5.geo));
+        const d5 = decodeEntry({ op: back.header, geo: back.geo });
+        expect(d5.moves[0]).toEqual(mv2.moves[0]);
+        expect(d5.moves[0]).not.toHaveProperty("base"); expect(d5.moves[0]).not.toHaveProperty("after");
         // no-geometry kinds pass through untouched
         expect(decodeEntry(encodeEntry({ k: "undo", of: 12 }))).toEqual({ k: "undo", of: 12 });
         expect(decodeEntry(encodeEntry({ k: "attr", id: 3, set: { z: 9 } }))).toEqual({ k: "attr", id: 3, set: { z: 9 } });
@@ -155,5 +162,44 @@ describe("format2", () => {
             expect(utf8Decode(utf8Encode(str))).toBe(str);
             expect(Array.from(utf8Encode(str))).toEqual(Array.from(Buffer.from(str, "utf8")));
         }
+    });
+});
+
+// The entries of the subtree move (SUBTREE-O1-PLAN §2.8) through a chunk and back.
+describe("format2 — frame entries", () => {
+    const viaChunk = (entry) => {
+        const enc = encodeEntry(entry);
+        const u = unpackChunk(packChunk(CHUNK_LOG, enc.op, enc.geo));
+        return decodeEntry({ op: u.header, geo: u.geo });
+    };
+    test("removeFrames and deleteMany carry every native with its geometry; moveFrames its members'", () => {
+        const E = build();
+        const k1 = E.doc.serializeNatives();
+        const L0 = E.doc.at("0"), deep = Object.keys(k1).find((l) => l !== "0");
+        const objs = E.doc.at(deep);
+        const rf = viaChunk({ k: "removeFrames", records: [{ frame: "0", objects: L0 }, { frame: deep, objects: objs }] });
+        expect(rf.records.map((r) => r.frame)).toEqual(["0", deep]);
+        rf.records[0].objects.forEach((r, i) => sameRecord(r, k1["0"][i]));
+        rf.records[1].objects.forEach((r, i) => sameRecord(r, k1[deep][i]));
+        const dm = viaChunk({ k: "deleteMany", records: [{ level: "0", index: 2, obj: L0[2] }], frames: [{ frame: deep, objects: objs }] });
+        expect(dm.records[0]).toMatchObject({ level: "0", index: 2 });
+        sameRecord(dm.records[0].obj, k1["0"][2]);
+        dm.frames[0].objects.forEach((r, i) => sameRecord(r, k1[deep][i]));
+        const frames = [{ id: deep, depth: 2, from: { parent: "1", i: 0, j: 0 }, to: { parent: "1", i: 1, j: 0 }, shiftBefore: null, shiftAfter: [32768, 0],
+            settled: { dx: 32768, dy: 0, tables: [[objs[0].id, [[0, 32768, 0]]], [objs[1].id, null]], carries: [[objs[1].id, "1/1,0"]] },
+            merged: [{ id: deep, into: "1/1,0", parent: "1", i: 1, j: 0, depth: 2, addrSeq: 3, shift: null, shadows: [], kids: [{ id: "x", shadowOf: null, shadows: [] }], ids: [objs[0].id] }] }];
+        const mf = viaChunk({ k: "moveFrames", frames, moves: [{ id: L0[1].id, from: "0", to: "0", dx: 1, dy: 0, obj: L0[1], level: "0", index: 1, belowBefore: null, belowAfter: [[0, 1, 0]] }] });
+        expect(mf.frames).toEqual(frames);
+        expect(mf.moves[0]).toMatchObject({ id: L0[1].id, belowAfter: [[0, 1, 0]] });
+        sameRecord(mf.moves[0].obj, k1["0"][1]);
+        expect(mf.moves[0]).not.toHaveProperty("base");
+    });
+    test("settle and mergeFrame carry no geometry and read back as written", () => {
+        const settle = { k: "settle", frame: "1/5,5", of: 7, dx: 32768, dy: -4096, tables: [[3, [[0, 32768, -4096]]], [4, null]], carries: [] };
+        const s = viaChunk(settle);
+        expect(s).toEqual(settle);
+        const merge = { k: "mergeFrame", of: 7, rec: { id: "1/6,4", into: "1/4,4", parent: "1", i: 4, j: 4, depth: 2, addrSeq: 2, shift: null, shadows: [], kids: [], ids: [1, 2] } };
+        expect(viaChunk(merge)).toEqual(merge);
+        expect(encodeEntry(settle).geo.length).toBe(0);
     });
 });

@@ -27,8 +27,8 @@
  * serializeDrawing/loadDrawing, resize, destroy, onStatus, perfLog - plus the
  * quasi-privates the hook and the report payload read: nativesByLevel,
  * crossings, levelObjects, tiles, _drawing, _drawStartT, cancelStroke, _hasFat,
- * _effectiveZoom, opacityGroups, outlineMode, the camera fields, and
- * _fatOnScreen/_outlinePad (the ported BUG-02/05 invariants).
+ * _effectiveZoom, opacityGroups, the camera fields, and _fatOnScreen (the
+ * ported BUG-02/05 invariants).
  */
 import { perfNow } from "./now";
 import { BASE, ENTER, EXIT } from "./frameLattice";
@@ -40,7 +40,7 @@ import Renderer from "./Renderer";
 import TileStore from "./TileStore";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
-import { residual, encodeBelow } from "./geometry/offsets";
+import { residual, encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
 import { strokeOutline } from "./geometry/clipperBoolean";
 import { validateScaleDef } from "./scaleBar";
 import { EventLatency, FrameMeter, GrowthLog, LongFrames } from "./instruments";
@@ -95,6 +95,7 @@ export default class KobinEngine {
 
         this.lm = new LevelMap(this.cfg, this.width, this.height);
         this.doc = new Document();
+        this.doc.lm = this.lm;   // a frame's pending shift is settled into its natives on first read
         // A cut is anchored to the frame the gesture was made in, so moving the
         // object it belongs to has to carry the cut's origin into that frame.
         // One injected pure function is all the Document needs — it still owns
@@ -113,7 +114,7 @@ export default class KobinEngine {
         this.renderer.setTileDebug(false, () => this._debugTileRects());
 
         this.tool = "pen"; this.penType = "freehand"; this.color = "rgb(0,0,0)"; this.penWidth = 13; this.opacity = 1;
-        this.opacityGroups = true; this.outlineMode = false; this.debug = false; this.kdebug = false; this.tileDebug = false;
+        this.opacityGroups = true; this.debug = false; this.tileDebug = false;
         // TRACE MODE (dev panel, default OFF). Heavy diagnostics that are not
         // worth their cost in ordinary use: every operation logged rather than
         // only those past the 8 ms floor, and a much deeper log. The floor is
@@ -164,25 +165,35 @@ export default class KobinEngine {
         this.selection = null;        // { id, level, obj } — obj is the LIVE native
         this._dragSel = null;         // { start:[sx,sy], moves:Map, moved } during a select-drag
         this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], hiddenScenes: [], sceneSeq: 1 };
-        this.renderer.setSelection(() => this._selectionRect());
         this.renderer.setSelectionAnts(() => this._selectionAnts());
         this.renderer.setLasso(() => (this._lasso ? this._lasso.pts : null));
         // The selected object can vanish under us (eraser, cut, undo, wipe, load).
         this.doc.subscribe((ev) => {
             if (!this.selection) return;
             if (ev.kind === "reset") { this.selection = null; this._dragSel = null; return; }
+            // A selected frame merged into the resident of its cell: its natives stay selected as
+            // ids, its kids as frames (SUBTREE-O1-PLAN §2.5).
+            if (ev.kind === "mergeFrame") {
+                const s = this.selection;
+                if (!s.frames.includes(ev.frame)) return;
+                const frames = s.frames.filter((f) => f !== ev.frame).concat(ev.kids.filter((k) => !s.frames.includes(k)));
+                this._setSelection(s.ids.concat(ev.ids), frames);
+                return;
+            }
             if (ev.kind !== "remove") return;
             if (ev.rehome) return;   // it changed frames, it did not go away
             // Drop the member that went, and repair the primary if it was the
             // one removed. A member whose logical family still has geometry
             // (a re-homed patch) hands over to its sibling instead of vanishing.
             const ids = this.selection.ids.filter((id) => this.doc.getById(id));
+            const frames = this.selection.frames || [];
             if (ev.id === this.selection.id && !ids.length) {
                 const family = this.doc.editGroup(this.selection.editId);
-                if (family.length) { this._setSelection([family[0].obj.id]); return; }
+                if (family.length) { this._setSelection([family[0].obj.id], frames); return; }
+                if (frames.length) { this._setSelection([], frames); return; }
             }
-            if (!ids.length) { this.selection = null; this._dragSel = null; return; }
-            if (ids.length !== this.selection.ids.length || ev.id === this.selection.id) this._setSelection(ids);
+            if (!ids.length && !frames.length) { this.selection = null; this._dragSel = null; return; }
+            if (ids.length !== this.selection.ids.length || ev.id === this.selection.id) this._setSelection(ids, frames);
         });
 
         this._render();
@@ -216,7 +227,6 @@ export default class KobinEngine {
     setColor(c) { this.color = c; }
     setWidth(w) { this.penWidth = w; }
     setOpacity(o) { this.opacity = o; }
-    setOutlineMode(b) { this.outlineMode = !!b; this.renderer.setOutlineMode(this.outlineMode); this._render(); }
     setOpacityGroups(b) {
         this.opacityGroups = !!b;
         this.renderer.setOpacityGroups(this.opacityGroups);
@@ -243,9 +253,6 @@ export default class KobinEngine {
         this._render(); // representation choice may change for pending strokes
         if (this.lazyOutlines) this._queueIdleFits();
     }
-    // DEV: retained for the dev panel's K-debug switch. Nothing reads `kdebug`
-    // any more — the overlay it drove was replaced by the tile and erase views.
-    setKDebug(b) { this.kdebug = !!b; }
     // DEV: draw the cache-tile rectangles. Dev panel only.
     setTileDebug(b) { this.tileDebug = !!b; this.renderer.setTileDebug(this.tileDebug, () => this._debugTileRects()); this.renderer.update(); }
     /**
@@ -391,7 +398,7 @@ export default class KobinEngine {
     reportFamilies(limit = 12) {
         const seen = new Map();
         for (const L of this.doc.levels()) {
-            for (const o of this.doc.at(L)) {
+            for (const o of this.doc.list(L)) {
                 if (o.erase) continue;
                 const k = this.doc.editKey(o);
                 seen.set(k, (seen.get(k) || 0) + 1);
@@ -492,7 +499,7 @@ export default class KobinEngine {
         // needsWindowChop: the view has left the inner half of the scene's
         // window, so the pieces chopped to it must be rebuilt on a fresh one
         // before its edge could come on screen (F40).
-        if (this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsReorigin()
+        if (this._visibleChanged() || this.renderer.needsReorigin()
             || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf("pan", t0);
@@ -511,7 +518,7 @@ export default class KobinEngine {
         // which changes which GROUP it belongs in. Only a full render regroups.
         // needsWindowChop: a zoom in past the window's budget, or a zoom out
         // that has outgrown its inner half (F40).
-        if (crossed || this._visibleChanged() || this.renderer.needsRebake() || this.renderer.needsFatFlip()
+        if (crossed || this._visibleChanged() || this.renderer.needsFatFlip()
             || this.renderer.needsFadeFlip() || this.renderer.needsReorigin() || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
@@ -651,13 +658,13 @@ export default class KobinEngine {
                 type: "stroke", origin: "native", erase: true, bakePx: this.cam.inScale,
                 id: this.doc.allocId(), pts: [p],
                 lwFrame: (2 * this._eraserPx) / this.cam.inScale,
-                color: ERASE_COLOR, opacity: 1, paths: [],
+                color: ERASE_COLOR, opacity: 1,
             };
-            this._startPen(o, false);
+            this._startPen(o);
             this.store.live = o;
             this.doc.add(o, this.cam.frame, { live: true });
-            this.renderer.addLive(o, false);
-            if (o._pen) this.renderer.setLiveArcs(o._pen.gaps);
+            this.renderer.addLive(o);
+            this.renderer.setLiveArcs(o._pen.gaps);
             this.renderer.update();
             this._drawing = o; this._drawStartT = Date.now();
             return;
@@ -689,17 +696,17 @@ export default class KobinEngine {
         const straight = this.penType === "straight";
         const lw = (highlight ? this.penWidth * 2.5 : this.penWidth) / this.cam.inScale;
         const op = highlight ? Math.min(this.opacity, 0.45) : this.opacity;
-        const o = { type: "stroke", origin: "native", id: this.doc.allocId(), pts: [p], lwFrame: lw, color: this.color, opacity: op, paths: [] };
+        const o = { type: "stroke", origin: "native", id: this.doc.allocId(), pts: [p], lwFrame: lw, color: this.color, opacity: op };
         // Remembered ON THE STROKE, not read off `penType` later: the eraser
         // trail goes through this same move path, and reading the pen there
         // made the eraser draw straight lines after the line tool had been
         // used (Kobin, 2026-09-03).
         if (straight) o._straight = true;
-        this._startPen(o, straight);
+        this._startPen(o);
         this.store.live = o; // exempt from bbox/flatten caches until it stops growing
         this.doc.add(o, this.cam.frame, { live: true });
-        this.renderer.addLive(o, straight);
-        if (o._pen) this.renderer.setLiveArcs(o._pen.gaps);   // a lone tap is still a dot
+        this.renderer.addLive(o);
+        this.renderer.setLiveArcs(o._pen.gaps);   // a lone tap is still a dot
         this.renderer.update();
         this._drawing = o; this._drawStartT = Date.now();
         this._emit();
@@ -735,33 +742,35 @@ export default class KobinEngine {
         if (this._drawing) {
             const p = this.cam.screenToFrame(sx, sy);
             const o = this._drawing;
-            if (o._straight && o.pts.length >= 2) { o.pts[1] = p; this.renderer.setLiveEnd(p); }
-            else {
+            // The arc centerline is maintained WHILE DRAWING, and it is what
+            // gets painted. A freehand sample only disturbs the spline's handles
+            // at its two nearest neighbours, so exactly the last two gaps are
+            // rebuilt: O(1) a point, microseconds, and by pen-up the most
+            // expensive phase of the bake is already paid for. The line tool
+            // REPLACES its second point, which an incremental chain cannot take
+            // back, so its pen is re-seeded from both samples — two samples, so
+            // also O(1), and a biarc through two points is that straight line.
+            if (o._straight && o.pts.length >= 2) {
+                o.pts[1] = p;
+                o._pen = new BiarcPen({ tol: o._tol });
+                o._pen.addSample(o.pts[0]);
+                o._pen.addSample(p);
+            } else {
                 o.pts.push(p);
-                // The arc centerline is maintained WHILE DRAWING, and it is what
-                // gets painted. A new sample only disturbs the spline's handles
-                // at its two nearest neighbours, so exactly the last two gaps are
-                // rebuilt: O(1) a point, microseconds, and by pen-up the most
-                // expensive phase of the bake is already paid for.
-                if (o._pen) { o._pen.addSample(p); this.renderer.setLiveArcs(o._pen.gaps); }
-                else this.renderer.extendLive(p);
+                o._pen.addSample(p);
             }
+            this.renderer.setLiveArcs(o._pen.gaps);
             this.renderer.update();
         }
     }
-    // Attach a live arc chain to a stroke about to be drawn. The tolerance is
-    // half an arc-tolerance pixel AT THE ZOOM IT IS DRAWN — the moment the raw
-    // stroke is swapped for its resolved shape is the only moment the difference
-    // between the two could ever be seen, and it is sub-pixel there by
-    // construction. (Kobin signed off on 0.25 units in the pen sandbox; this is
-    // tighter, and measured at 2.18 arcs per gap against 2.09, so it is free.)
-    //
-    // The straight-line tool gets no live pen: it REPLACES its second point on
-    // every move, and an incremental chain cannot take back a sample. Two points
-    // cost nothing to chain at pen-up.
-    _startPen(o, straight) {
+    // Attach a live arc chain to a stroke about to be drawn. EVERY stroke gets
+    // one, the straight-line tool included — it re-seeds a two-sample pen on
+    // each move (`_pointerMove`), so there is a single live path. The tolerance
+    // is half an arc-tolerance pixel AT THE ZOOM IT IS DRAWN: the swap from raw
+    // ink to the resolved shape is the only moment the difference between the
+    // two could be seen, and it is sub-pixel there by construction.
+    _startPen(o) {
         o._tol = (this.cfg.arcTolerancePx * 0.5) / this.cam.inScale;
-        if (straight) { o._pen = null; return; }
         o._pen = new BiarcPen({ tol: o._tol });
         o._pen.addSample(o.pts[0]);
     }
@@ -791,18 +800,28 @@ export default class KobinEngine {
                 // by re-homing it into the cell it now sits in, so invariant 2
                 // holds again before anything else looks at the document.
                 let rehomed = false;
-                for (const [id] of d.moves) {
+                for (const [id, st] of d.moves) {
+                    if (!this._homeShift(id)) continue;
+                    // The one case a move touches coordinates: the member is walked back into its cell
+                    // by whole frames, so its entry keeps geometry snapshots either side.
+                    const rec = this.doc.getById(id);
+                    st.base = Document.snapGeometry(rec.obj);
                     const n = this._normalizeHome(id);
-                    if (!n) continue;
+                    st.after = Document.snapGeometry(rec.obj);
                     rehomed = true;
-                    const st = d.moves.get(id);
                     st.to = n.level; st.dx += n.dx; st.dy += n.dy;
                 }
+                // One entry per member: the frames and the tables either side (DESIGN.md §8).
                 const moves = [...d.moves].map(([id, v]) => {
-                    const rec = this.doc.getById(id);
-                    return { id, dx: v.dx, dy: v.dy, from: v.from, to: v.to,
-                        base: v.base, after: rec ? Document.snapGeometry(rec.obj) : null };
+                    const m = { id, dx: v.dx, dy: v.dy, from: v.from, to: v.to };
+                    if (v.base) { m.base = v.base; m.after = v.after; }
+                    m.belowBefore = v.baseBelow; m.belowAfter = cloneBelow(v.below);
+                    return m;
                 });
+                // The frames the drag moved as frames: the same entry objects the drag settled into
+                // (a settle since is already recorded on them), one op with the per-object moves.
+                const frames = d.frames ? [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
+                    || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter))) : [];
                 this._note({
                     kind: "move",
                     moves: moves.map((m) => {
@@ -820,8 +839,12 @@ export default class KobinEngine {
                     }),
                     // Members the drag could not move, and why (F35).
                     skipped: d.skipped && d.skipped.length ? d.skipped.slice(0, 12) : undefined,
+                    frames: frames.length || undefined,
+                    frameShadowed: d.frameShadowed && d.frameShadowed.length ? d.frameShadowed.slice(0, 12) : undefined,
                 });
-                this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
+                if (frames.length) this.doc.pushUndo({ op: "moveFrames", frames, moves });
+                else this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
+                this.doc.holdMerges = false;   // the op is on the stack: a merge now is recorded on it
                 // THE RE-HOME HAPPENED AFTER THE LAST RENDER. `_dragSelection`
                 // rendered on every pointer event, and then `_normalizeHome`
                 // moved the member to the next cell and its coordinates by a
@@ -898,7 +921,6 @@ export default class KobinEngine {
         this.onStatus({
             level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: this.cam.effectiveZoom(),
             nearCross: this.cam.inScale > this.cfg.enter * 0.8, objects: this._lastList.length,
-            outline: this.outlineMode,
             lines: false, // per-origin curvature now; no global "line mode" level
             selection: this._selectionStatus(),
             canUndo: this.doc.canUndo(), canRedo: this.doc.canRedo(),
@@ -907,9 +929,8 @@ export default class KobinEngine {
     _effectiveZoom() { return this.cam.effectiveZoom(); }
     _levelPointToScreen(level, x, y) { return this.cam.levelPointToScreen(level, x, y); }
     _objs() { return this._lastList; }
-    // The fat-display invariants the ported BUG-02/05 tests assert.
+    // The fat-display invariant the ported BUG-02/05 tests assert.
     _fatOnScreen(o) { return this.renderer._fatOnScreen(o); }
-    _outlinePad() { return this.renderer.outlinePad(this._lastList); }
     _frameWindow(margin) { return this.cam.frameWindow(margin); }
 
     _debugTileRects() {

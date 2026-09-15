@@ -242,7 +242,7 @@ describe("W-6/W-10 — the solid tier must not paint a hole shut", () => {
 
     test("without a cut, a tile-covering band IS the solid tier (the branch is real)", () => {
         const o = { type: "stroke", origin: "native", id: 1, pts: [[4, 3], [5, 3]],
-            lwFrame: 25, color: "#000", opacity: 1, paths: [] };
+            lwFrame: 25, color: "#000", opacity: 1 };
         expect(classifyUp(o, s, t, rect, CFG, null)).toBe("solid");
         expect(solidQuad(o, rect).covers).toBe(true);
     });

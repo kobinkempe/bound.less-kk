@@ -29,6 +29,7 @@ import {
 } from "./geometry/antRuns";
 import { rectSpan, rectTol } from "./rectMath";
 import { translateLoops } from "./geometry/arcShape";
+import { HALF_W } from "./frameLattice";
 
 
 // ---- selection indicator ----------------------------------------------------
@@ -203,7 +204,7 @@ class Overlays {
         // a drawing with 254 families was walked 254 times, per render.
         const byKey = new Map();
         for (const L of this.doc.levels()) {
-            for (const o of this.doc.at(L)) {
+            for (const o of this.doc.list(L)) {
                 if (o.erase || o.editId == null) continue;
                 const k = this.doc.editKey(o);
                 if (!keys.has(k)) continue;
@@ -267,7 +268,7 @@ class Overlays {
         }
         // Marks: still pending, plus the ones already consumed.
         const pending = [];
-        for (const L of this.doc.levels()) for (const o of this.doc.at(L)) if (o.erase && o.type === "shape") pending.push({ level: L, loops: o.loops, id: o.id });
+        for (const L of this.doc.levels()) for (const o of this.doc.list(L)) if (o.erase && o.type === "shape") pending.push({ level: L, loops: o.loops, id: o.id });
         for (const m of pending.concat(this._debugMarks || [])) {
             const f = this.lm.frameFactor(m.level, F);
             if (f == null) continue;
@@ -519,6 +520,11 @@ class Overlays {
      * ants are the family's edge, drawn from the pieces, and a frame holding
      * nothing else is not marked at all.
      *
+     * A SELECTED FRAME (the subtree move, DESIGN.md §10) is one entry whose
+     * box is its own cell: a dot under SEL_FRAME_MARK_PX, and above it the
+     * pieces on screen homed under it are traced, a piece too small for a run
+     * a dot; its natives are never read.
+     *
      * THERE IS NO BUDGET. Every selected piece on screen gets its ants; see
      * the note at SEL_KEEP_FRACTION for what bounds the work instead.
      *
@@ -598,7 +604,17 @@ class Overlays {
                 if (b.y1 > bx.box.y1) bx.box.y1 = b.y1;
             }
         }
-        const table = { byLevel, ids, levelOf, cross, count: seen.size };
+        // A selected frame: one box, its own cell in its own units; its natives are never read.
+        const frames = new Set();
+        for (const f of s.frames || []) {
+            if (!this.lm.frame(f)) continue;
+            frames.add(f);
+            let e = byLevel.get(f);
+            if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(f, e); }
+            e.frame = true;
+            e.boxes.set("frame:" + f, { below: null, box: { x0: -HALF_W, y0: -HALF_W, x1: HALF_W, y1: HALF_W } });
+        }
+        const table = { byLevel, ids, levelOf, cross, frames, count: seen.size + frames.size };
         this._selTableCache = { sel: s, rev: this.doc.rev, table };
         return table;
     }
@@ -667,11 +683,28 @@ class Overlays {
         }
 
         // ---- the pieces on screen that belong to the selection -------------------
+        // A piece homed under a selected frame belongs through the frame (one document
+        // lookup per piece id, memoised for this decision).
+        const underFrame = new Map();
+        const frameOf = (id) => {
+            if (!table.frames.size) return null;
+            let f = underFrame.get(id);
+            if (f !== undefined) return f;
+            const rec = this.doc.getById(id);
+            f = null;
+            if (rec) for (const fr of table.frames) if (this.lm.isUnder(fr, rec.level)) { f = fr; break; }
+            underFrame.set(id, f);
+            return f;
+        };
         const seamCache = new Map();
         const traced = new Set();
+        const small = [];
         for (const piece of list) {
-            if (!table.ids.has(piece.id)) continue;
-            if (marked.has(table.levelOf.get(piece.id)) && !table.cross.has(piece.id)) continue;
+            const own = table.ids.has(piece.id);
+            const fr = own ? null : frameOf(piece.id);
+            if (!own && !fr) continue;
+            if (own && marked.has(table.levelOf.get(piece.id)) && !table.cross.has(piece.id)) continue;
+            if (fr && marked.has(fr)) continue;
             let loops = this._selPieceLoops(piece);
             if (!loops || !loops.length) continue;
             // The ants show what is DRAWN, and a piece with a residual (F41) is
@@ -705,6 +738,9 @@ class Overlays {
                     }
                 }
             }
+            // A frame member drawn but too small for a run is a dot where it is drawn (F73's
+            // rule, from the piece: the frame's natives are not read).
+            if (fr && !traced.has(piece.id) && bounds && sizePx < SEL_OBJECT_DOT_PX) small.push({ left: bounds.x0, top: bounds.y0, right: bounds.x1, bottom: bounds.y1 });
         }
 
         // ---- selected objects too small to trace: a dot each (F73) ----------------
@@ -713,7 +749,6 @@ class Overlays {
         // its runs fall under SEL_MIN_RUN_PX and it drew nothing. Every member without
         // a run — culled from the list, or traced to nothing — that is under
         // SEL_OBJECT_DOT_PX is a dot where its picture is; dots on one pixel are one.
-        const small = [];
         for (const id of table.ids) {
             if (traced.has(id) || table.cross.has(id) || marked.has(table.levelOf.get(id))) continue;   // a family's kid shows through its family
             const rec = this.doc.getById(id);

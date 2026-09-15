@@ -46,6 +46,7 @@ export const R = ENTER / BASE;     // 4096 = 2^12 — the crossing ratio
 export const W = 131072;           // 2^17 — a frame, and a tile, in its own units
 export const G = W / R;            // 32 = 2^5 — a child cell, in PARENT units
 export const HALF_W = W / 2;       // 65536
+export const REACH = W + HALF_W;   // invariant 2: an object never reaches past its frame's immediate neighbours
 export const HALF_R = R / 2;       // 2048 — digits run [-HALF_R, HALF_R)
 export const T_UNIT = G * ENTER;   // 8192 = 2^13 — one digit's worth of edge `t`
 

@@ -10,22 +10,21 @@
  *
  * WHO STILL CALLS THIS, and why it cannot simply be deleted (2026-08-31):
  *
- *   strokeOutline    - `Renderer._fatPolys`, under `outlineMode`. That is the
- *                      debug fill view; normal rendering has used zoom-invariant
- *                      curve capsules since F22.
- *                    - `derive.bandRings` under `opts.legacyOffset`, which is
+ *   strokeOutline    - `derive.bandRings` under `opts.legacyOffset`, which is
  *                      gated on `cfg.fatWidthPx == null` and so fires only for
  *                      the V0 oracle. `geometry/derive.test.js` is the
  *                      golden-compare that walks that branch.
  *                    - `__oracles__/KobinEngineV0.js`, throughout.
+ *                    - `KobinEngine.geom`, a console handle nothing reads.
+ *                      `Renderer._fatPolys`, the render path that made this a
+ *                      display dependency, was deleted on 2026-09-14 (S7).
  *   subtractPolys    - `geometry/areaErase.test.js` (area-erase semantics) and
  *                      `geometry/lattice.test.js` (the drift probe).
  *   clipPolysToRect  - `geometry/lattice.test.js` only.
  *
- * So `clipper-lib` STAYS in package.json. The cleanup pass that split this file
- * set out to remove it and could not: doing so means deleting outline mode, the
- * legacyOffset branch, and with it the V0 golden-compare - which is the oracle
- * the arc pipeline is checked against. See OPEN-FLAGS X2-X4.
+ * So `clipper-lib` STAYS in package.json, but no longer for a rendering reason:
+ * what holds it is the V0 golden-compare - the oracle the arc pipeline is
+ * checked against. See OPEN-FLAGS X2-X4.
  *
  * THE DIRECTION OF THE DEPENDENCY IS ONE-WAY. This file imports from
  * `polyline.js`; `polyline.js` must never import from here, or the pure half

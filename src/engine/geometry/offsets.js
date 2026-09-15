@@ -242,6 +242,12 @@ export function shiftUp(below) {
 }
 
 /** Are two tables the same offsets? */
+/** Two frame shifts (or nulls) equal. */
+export function sameShift(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a[0] === b[0] && a[1] === b[1];
+}
 export function sameBelow(a, b) {
     const n = Math.max(a ? a.length : 0, b ? b.length : 0);
     for (let k = 0; k < n; k++) {

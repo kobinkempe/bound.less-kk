@@ -6,7 +6,7 @@
 import KobinEngineV0 from "../__oracles__/KobinEngineV0";
 import {
     deriveStep, projectNative, classifyUp, solidQuad, bboxOf, levelFactor, projectedSizePx, seamPad,
-    LEGACY_SEAMS,
+    flatChords, LEGACY_SEAMS,
 } from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 import { windingOfPoint } from "./hittest";
@@ -25,7 +25,7 @@ const mkEngine = (w = 800, h = 600) => {
 afterEach(() => { while (engines.length) engines.pop().destroy(); });
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const mkStroke = (id, pts, lw, extra = {}) => ({ type: "stroke", origin: "native", id, pts, lwFrame: lw, color: "#123456", opacity: 1, paths: [], ...extra });
+const mkStroke = (id, pts, lw, extra = {}) => ({ type: "stroke", origin: "native", id, pts, lwFrame: lw, color: "#123456", opacity: 1, ...extra });
 
 // A parent-object zoo covering every _deriveInto branch: small (stays stroke),
 // gate-wide (Clipper outline), mega (analytic strip), curved multi-point
@@ -36,15 +36,18 @@ const zoo = () => [
     mkStroke(3, purple.pts, purple.lwFrame, { color: purple.color }),        // real fat stroke
     mkStroke(4, [[-5e4, 0], [5e4, 1e3], [9e4, -2e3]], 700, { opacity: 0.45 }), // mega span
     mkStroke(5, [[10, 10]], 2),                                              // dot
-    { type: "fill", origin: "inherited", id: 6, color: "#0a0a0a", opacity: 0.8, paths: [],
+    { type: "fill", origin: "inherited", id: 6, color: "#0a0a0a", opacity: 0.8,
         polys: [[[0, 0], [50, 0], [50, 40], [0, 40]], [[10, 10], [10, 30], [30, 30], [30, 10]]] },
     mkStroke(7, [[9e9, 9e9], [9e9 + 1, 9e9]], 1),                            // far off-tile
 ];
 
-// Production pieces carry the rectangle that cut them (`clip`, read by the
-// selection indicator's seam test, F39). The oracle's do not, and the golden
-// compare is about the geometry, so the field is dropped before comparing.
-const stripClip = (list) => list.map((piece) => { const { clip, ...rest } = piece; return rest; });
+// Two fields one side carries and the other does not, dropped from both because
+// the golden compare is about the geometry: `clip`, the rectangle that cut a
+// production piece (the selection indicator's seam test, F39), and `paths`, the
+// pre-Two.js renderer's field the oracle still writes and production stopped
+// writing on 2026-09-14 (ROADMAP S8).
+const bare = (piece) => { const { clip, paths, ...rest } = piece; return rest; };
+const bareAll = (list) => list.map(bare);
 
 describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
     // Run both sides on independently CLONED inputs (the object-attached caches
@@ -61,7 +64,7 @@ describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
             childCurved: level < E.cfg.lineModeLevel,
             seams: LEGACY_SEAMS, // replay V0's seam rule; production's is corrected (see seams.test.js)
         }, []);
-        expect(stripClip(newOut)).toEqual(oldOut);
+        expect(bareAll(newOut)).toEqual(bareAll(oldOut));
         expect(newOut.length).toBeGreaterThan(0); // the zoo must actually exercise the bake
     });
 
@@ -76,7 +79,7 @@ describe("deriveStep — golden vs KobinEngineV0._deriveInto", () => {
             cfg: E.cfg, width: E.width, opacityGroups: false, live: null,
             parentCurved: true, childCurved: true, seams: LEGACY_SEAMS,
         }, []);
-        expect(stripClip(newOut)).toEqual(oldOut);
+        expect(bareAll(newOut)).toEqual(bareAll(oldOut));
     });
 });
 
@@ -105,7 +108,7 @@ describe("tile seam overlap", () => {
         const groups = cedeRect([[[-10, -10], [10, -10], [10, 10], [-10, 10]]], hole);
         expect(groups).toHaveLength(1);   // a ring of ink, still one piece
         return { type: "fill", origin: "native", id, z: id, color: "#000",
-            opacity: 1, paths: [], polys: groups[0] };
+            opacity: 1, polys: groups[0] };
     };
 
     test("the seam pad overlaps the tile line without refilling a hole cut in the ink", () => {
@@ -147,7 +150,7 @@ describe("tile seam overlap", () => {
         const s = CUT_CFG.enter, t = { x: 0, y: 0 };
         // Same object, uncut: wide enough that the fast path does fire.
         const whole = { type: "stroke", origin: "native", id: 91, pts: [[0, 0], [3, 0]],
-            lwFrame: 40, color: "#000", opacity: 1, paths: [] };
+            lwFrame: 40, color: "#000", opacity: 1 };
         expect(classifyUp(whole, s, t, rect, CUT_CFG, null)).toBe("solid");
         // Cut — an erase outlines a stroke to a fill before it cedes anything —
         // and the same geometry over the same tile is now the edge tier.
@@ -175,7 +178,7 @@ describe("projectNative / levelFactor — golden vs engine", () => {
             E._projCache.clear();
             const oldD = E._projectNative(clone(o), H, L);
             const newD = projectNative(clone(o), H, L, E.crossings, E.cfg.base);
-            expect(newD).toEqual(oldD);
+            expect(bare(newD)).toEqual(bare(oldD));
         }
         // missing record -> null on both sides
         E._projCache.clear();
@@ -249,5 +252,18 @@ describe("projectedSizePx / bboxOf", () => {
         const live = mkStroke(2, [[0, 0], [1, 1]], 1);
         bboxOf(live, live);
         expect(live._bbox).toBeUndefined(); // live stroke never caches
+    });
+});
+
+describe("flatChords caches per child frame AND its address sequence", () => {
+    test("the same seq reuses the array, a new seq recomputes the same points", () => {
+        const o = mkStroke(1, [[0, 0], [30, 10], [60, 5]], 0.4);
+        const cfg = { base: 0.1, arcTolerancePx: 0.25 };
+        const a = flatChords(o, "1", o.pts, cfg, null, 0);
+        expect(flatChords(o, "1", o.pts, cfg, null, 0)).toBe(a);
+        const b = flatChords(o, "1", o.pts, cfg, null, 1);
+        expect(b).not.toBe(a);
+        expect(b).toEqual(a);
+        expect(o._flat.seq).toBe(1);
     });
 });

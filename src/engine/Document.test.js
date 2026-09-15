@@ -6,9 +6,12 @@
 import fs from "fs";
 import path from "path";
 import Document from "./Document";
+import LevelMap from "./LevelMap";
+import { addOffset, encodeBelow, decodeBelow } from "./geometry/offsets";
+import { BASE, ENTER, EXIT, W, HALF_W } from "./frameLattice";
 
 const mkStroke = (doc, level, pts, lw = 2, extra = {}) => {
-    const o = { type: "stroke", origin: "native", id: doc.allocId(), pts, lwFrame: lw, color: "#123456", opacity: 1, paths: [], ...extra };
+    const o = { type: "stroke", origin: "native", id: doc.allocId(), pts, lwFrame: lw, color: "#123456", opacity: 1, ...extra };
     doc.add(o, level);
     return o;
 };
@@ -76,7 +79,7 @@ describe("change events (TileStore invalidation input)", () => {
         const d = new Document();
         const events = [];
         d.subscribe((e) => events.push(e.kind));
-        const o = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0]], lwFrame: 2, color: "#000", opacity: 1, paths: [] };
+        const o = { type: "stroke", origin: "native", id: d.allocId(), pts: [[0, 0]], lwFrame: 2, color: "#000", opacity: 1 };
         d.add(o, 0, { live: true });
         o.pts.push([500, 500]); // grew while live
         d.finalize(o);
@@ -171,5 +174,213 @@ describe("dev-0 natives byte-compat over real reports", () => {
         // maxId bump: a fresh id must exceed every loaded id
         const maxId = Math.max(0, ...Object.values(snapNatives).flat().map((o) => o.id));
         expect(d.allocId()).toBeGreaterThan(maxId);
+    });
+});
+
+describe("a move's undo entry is the frame and the table (row 11, 2026-09-14)", () => {
+    // Keyed by id, not array position: `rehomeById` re-appends, so an object that leaves a level
+    // and comes back is last in it. What a move must not touch is the stored coordinates.
+    const bytes = (d) => JSON.stringify(Object.fromEntries(Object.entries(d.serializeNatives())
+        .map(([lvl, arr]) => [lvl, [...arr].sort((x, y) => x.id - y.id)])));
+    test("undo and redo round-trip the stored bytes from the tables alone", () => {
+        const d = new Document();
+        const a = mkStroke(d, "1", [[0, 0], [10, 5]], 2), b = mkStroke(d, "1", [[3, 3], [8, 9]], 2);
+        const before = bytes(d);
+        const tb = []; tb[1] = [5, 6];
+        d.rehomeById(a.id, "1/1,0"); d.setOffsetsById(a.id, [[3, 4]]); d.setOffsetsById(b.id, tb);
+        const after = bytes(d);
+        d.pushUndo({ op: "moveMany", moves: [
+            { id: a.id, dx: 1, dy: 1, from: "1", to: "1/1,0", belowBefore: undefined, belowAfter: [[3, 4]] },
+            { id: b.id, dx: 1, dy: 1, from: "1", to: "1", belowBefore: undefined, belowAfter: tb }] });
+        expect(d.undo()).toBe(true);
+        expect(bytes(d)).toBe(before); expect(a.below).toBeUndefined(); expect(d.getById(a.id).level).toBe("1");
+        expect(d._redo[0].moves[0]).not.toHaveProperty("base");
+        expect(d.redo()).toBe(true);
+        expect(bytes(d)).toBe(after); expect(d.getById(a.id).level).toBe("1/1,0");
+        expect(d.undo()).toBe(true); expect(bytes(d)).toBe(before);
+    });
+    test("a member with geometry snapshots (the pen-up normalisation) is restored from them", () => {
+        const d = new Document();
+        const a = mkStroke(d, "1", [[0, 0], [10, 5]], 2);
+        const base = Document.snapGeometry(a);
+        const before = bytes(d);
+        d.rehomeById(a.id, "1/1,0"); d.moveById(a.id, -131072, 0);
+        const after = bytes(d);
+        d.pushUndo({ op: "move", id: a.id, dx: -131072, dy: 0, from: "1", to: "1/1,0", base, after: Document.snapGeometry(a) });
+        d.undo(); expect(bytes(d)).toBe(before);
+        d.redo(); expect(bytes(d)).toBe(after);
+    });
+});
+
+describe("rehomeManyById ends where one rehomeById per id ends (row 11)", () => {
+    const fill = (d) => {
+        const objs = [];
+        for (const L of ["1", "1/1,0", "2"]) for (let i = 0; i < 40; i++) objs.push(mkStroke(d, L, [[i * 7, i * 3], [i * 7 + 20, i * 3 + 9]], 1 + (i % 5)));
+        const live = { type: "stroke", origin: "native", id: d.allocId(), pts: [[1, 1], [2, 2]], lwFrame: 3, color: "#000", opacity: 1 };
+        d.add(live, "2", { live: true }); objs.push(live);
+        return objs;
+    };
+    const evKey = (e) => e.kind + ":" + e.id + "@" + e.level + ">" + (e.rehome || "");
+    test("lists, order, indexes, versions and the multiset of events agree", () => {
+        const A = new Document(), B = new Document();
+        const oa = fill(A), ob = fill(B);
+        const ea = [], eb = [];
+        A.subscribe((e) => ea.push(evKey(e))); B.subscribe((e) => eb.push(evKey(e)));
+        const pick = oa.map((o, i) => i).filter((i) => i % 3 === 1 || i === oa.length - 1).reverse();
+        for (const i of pick) A.rehomeById(oa[i].id, "1/0,1");
+        const n = B.rehomeManyById(pick.map((i) => ob[i].id), "1/0,1");
+        expect(n).toBe(pick.length);
+        expect(JSON.stringify(B.serializeNatives())).toBe(JSON.stringify(A.serializeNatives()));
+        expect(B.levels().sort()).toEqual(A.levels().sort());
+        for (let i = 0; i < oa.length; i++) { expect(ob[i]._home).toBe(oa[i]._home); expect(ob[i]._ver).toBe(oa[i]._ver); }
+        const big = { left: -1e6, top: -1e6, right: 1e6, bottom: 1e6 };
+        for (const L of A.levels()) expect(B.queryRect(L, big).map((o) => o.id).sort()).toEqual(A.queryRect(L, big).map((o) => o.id).sort());
+        expect(eb.slice().sort()).toEqual(ea.slice().sort());
+        expect(B._pending.has(ob[ob.length - 1])).toBe(true);
+    });
+});
+
+describe("a frame's shift settles into its natives at the first read (subtree O(1), 2026-09-14)", () => {
+    const mkMap = () => {
+        const M = new LevelMap({ base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 }, 800, 600);
+        M.ensureSpine(2);
+        return M;
+    };
+    const mkDoc = () => { const d = new Document(); d.lm = mkMap(); return d; };
+    const table = (o) => encodeBelow(o.below) || null;
+    // The expectation, computed from a recorded table: exactly one addOffset at k=0.
+    const shifted = (enc, dx, dy) => encodeBelow(addOffset(decodeBelow(enc), 0, dx, dy).below) || null;
+
+    test("settles once; every table takes exactly the shift, and count() does not settle", () => {
+        const d = mkDoc();
+        const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
+        const b = mkStroke(d, "1", [[20, 0], [30, 5]]);
+        const c = mkStroke(d, "1", [[40, 0], [50, 5]]);
+        d.setOffsetsById(b.id, [[100, 200]]);
+        const before = [a, b, c].map(table);
+        d.lm.frame("1").shift = [12288, -4096];
+        const owner = {};
+        d.noteFrameOwner("1", owner);
+        expect(d.count("1")).toBe(3);
+        expect(d.lm.frame("1").shift).toEqual([12288, -4096]);
+        const arr = d.at("1");
+        expect(d.lm.frame("1").shift).toBe(null);
+        expect(arr.map(table)).toEqual(before.map((e) => shifted(e, 12288, -4096)));
+        // The record on the owning entry: the shift, every native's result table, no carries.
+        expect([owner.settled.dx, owner.settled.dy]).toEqual([12288, -4096]);
+        expect(owner.settled.tables.map((t) => t[0])).toEqual([a.id, b.id, c.id]);
+        expect(owner.settled.tables.map((t) => encodeBelow(t[1]) || null)).toEqual(arr.map(table));
+        expect(owner.settled.carries).toEqual([]);
+        const vers = arr.map((o) => o._ver), tables = arr.map(table);
+        d.at("1");
+        expect(arr.map((o) => o._ver)).toEqual(vers);
+        expect(arr.map(table)).toEqual(tables);
+    });
+
+    test("a carry re-homes the native to the neighbour cell", () => {
+        const d = mkDoc();
+        const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
+        d.setOffsetsById(a.id, [[HALF_W - 100, 0]]);
+        d.lm.frame("1").shift = [200, 0];
+        const owner = {};
+        d.noteFrameOwner("1", owner);
+        d.at("1");
+        expect(a._home).toBe(d.lm.neighbour("1", 1, 0).id);
+        expect(table(a)).toEqual([[0, HALF_W - 100 + 200 - W, 0]]);
+        expect(owner.settled.carries).toEqual([[a.id, a._home]]);
+        // unsettle is the exact inverse, and brings the carried native home by id
+        d.unsettle("1", owner.settled);
+        expect(a._home).toBe("1");
+        expect(table(a)).toEqual([[0, HALF_W - 100, 0]]);
+        d.unsettle("1", owner.settled);                        // idempotent: from the record, not the current table
+        expect(a._home).toBe("1");
+        expect(table(a)).toEqual([[0, HALF_W - 100, 0]]);
+    });
+
+    test("a write settles the frame first, and the newcomer owes nothing", () => {
+        const d = mkDoc();
+        const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
+        const b = mkStroke(d, "1", [[20, 0], [30, 5]]);
+        d.lm.frame("1").shift = [512, 0];
+        const n = mkStroke(d, "1", [[60, 0], [70, 5]]);      // a plain add settles before it lands
+        expect(d.lm.frame("1").shift).toBe(null);
+        expect([a, b, n].map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]], null]);
+        const vers = [a, b].map((o) => o._ver);
+        d.rehomeById(n.id, "2"); d.rehomeById(n.id, "1");
+        expect([a, b].map((o) => o._ver)).toEqual(vers);
+        expect([a, b, n].map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]], null]);
+    });
+
+    test("a Document with no lattice behaves exactly as before", () => {
+        const d2 = new Document();
+        const a = mkStroke(d2, "1", [[0, 0], [10, 5]]);
+        d2.setOffsetsById(a.id, [[100, 200]]);
+        expect(d2.at("1")).toBe(d2.nativesByLevel["1"]);
+        expect(table(a)).toEqual([[0, 100, 200]]);
+        expect(d2._frameOwner.size).toBe(0);
+    });
+});
+
+describe("a frame subtree is removed and restored as containers (subtree O(1), 2026-09-14)", () => {
+    const mkDoc = () => {
+        const M = new LevelMap({ base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 }, 800, 600);
+        M.ensureSpine(2);
+        M.cellChild("1", 5, 5); M.cellChild("1/5,5", 3, 3);
+        const d = new Document(); d.lm = M;
+        return d;
+    };
+    const table = (o) => encodeBelow(o.below) || null;
+
+    test("the lists go by reference, the natives read as gone, and insert puts them back", () => {
+        const d = mkDoc();
+        const top = mkStroke(d, "1", [[0, 0], [10, 5]]);
+        const kid = mkStroke(d, "1/5,5", [[1, 1], [4, 4]]);
+        const deep = mkStroke(d, "1/5,5/3,3", [[2, 2], [6, 6]]);
+        const other = mkStroke(d, "2", [[7, 7], [9, 9]]);
+        const kidList = d.nativesByLevel["1/5,5"], deepList = d.nativesByLevel["1/5,5/3,3"];
+        // No read of any frame's natives: the removal is frames, not objects.
+        const realAt = d.at.bind(d);
+        let reads = 0;
+        d.at = (lv) => { reads++; return realAt(lv); };
+        const recs = d.removeFrameSubtree("1/5,5");
+        d.at = realAt;
+        expect(reads).toBe(0);
+        expect(recs.map((r) => r.frame)).toEqual(["1/5,5", "1/5,5/3,3"]);
+        expect(recs[0].natives).toBe(kidList);              // the list itself, not a copy
+        expect(recs[1].natives).toBe(deepList);
+        expect(d.levels()).not.toContain("1/5,5");
+        expect(d.levels()).not.toContain("1/5,5/3,3");
+        expect(d.getById(kid.id)).toBeNull();
+        expect(d.getById(deep.id)).toBeNull();
+        expect(d.count("1/5,5")).toBe(0);
+        expect(d.count("1/5,5/3,3")).toBe(0);
+        expect(d.getById(top.id).level).toBe("1");
+        expect(d.getById(other.id).level).toBe("2");
+        expect(d.at("1")).toEqual([top]);
+        expect(d.at("2")).toEqual([other]);
+
+        d.insertFrameSubtree(recs);
+        expect(d.levels()).toContain("1/5,5");
+        expect(d.levels()).toContain("1/5,5/3,3");
+        expect(d.getById(kid.id).level).toBe("1/5,5");
+        expect(d.getById(deep.id).level).toBe("1/5,5/3,3");
+        expect(d.at("1/5,5")).toBe(kidList);
+        expect(d.count("1/5,5")).toBe(1);
+        expect(d.queryRect("1/5,5", { left: -100, top: -100, right: 100, bottom: 100 })).toEqual([kid]);
+    });
+
+    test("a pending shift waits out the removal and settles at the first read after it", () => {
+        const d = mkDoc();
+        const a = mkStroke(d, "1/5,5", [[0, 0], [10, 5]]);
+        const b = mkStroke(d, "1/5,5", [[20, 0], [30, 5]]);
+        d.lm.frame("1/5,5").shift = [512, 0];
+        const recs = d.removeFrameSubtree("1/5,5");
+        expect(d.at("1/5,5")).toEqual([]);                  // detached: nothing to settle
+        expect(d.lm.frame("1/5,5").shift).toEqual([512, 0]);
+        expect([a, b].map(table)).toEqual([null, null]);
+        d.insertFrameSubtree(recs);
+        const arr = d.at("1/5,5");
+        expect(d.lm.frame("1/5,5").shift).toBe(null);
+        expect(arr.map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]]]);
     });
 });

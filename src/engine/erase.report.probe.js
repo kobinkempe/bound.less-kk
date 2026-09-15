@@ -57,7 +57,7 @@ describe("report replay", () => {
         for (const note of notes) {
             const frame = note.frame;
             const o = { type: "stroke", origin: "native", erase: true, bakePx: note.inScale, id: E.doc.allocId(), pts: note.pts.map((p) => [p[0], p[1]]),
-                lwFrame: note.lwFrame, color: "#ffffff", opacity: 1, paths: [] };
+                lwFrame: note.lwFrame, color: "#ffffff", opacity: 1 };
             o._tol = (E.cfg.arcTolerancePx * 0.5) / note.inScale;
             E.doc.add(o, frame);
             E._note({ kind: "erase", id: o.id, frame, px: note.px, lwFrame: note.lwFrame, pts: o.pts.slice(0, 4), cuts: [] });
