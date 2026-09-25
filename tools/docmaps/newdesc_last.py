@@ -21,7 +21,7 @@ add("ovl.Overlays", "Overlays", "The selection indicator and the erase debug vie
 add("sel.Selection", "Selection", "Selecting, hit-testing and dragging, as a mixin.",
     ["Same mixin arrangement as ErasePipeline."], "§7")
 add("sco.SceneOps", "SceneOps", "Auto-scenes, as a mixin.",
-    ["Same mixin arrangement as ErasePipeline."], "§10")
+    ["Same mixin arrangement as ErasePipeline."], "§14")
 add("fil.Files", "Files", "The two save formats, as a mixin.",
     ["kobin-1, which is what the app writes, and dev-0, which is what the diagnostic report carries. Same mixin arrangement as ErasePipeline."], "§11")
 add("mix.mixin", "mixin(target, ...protos)",

@@ -23,6 +23,15 @@ useEngines();
 
 const BLUE = "#1133cc", RED = "#cc3311";
 const ctrlClick = (E, sx, sy) => { E.setTool("select"); E.pointerDown(sx, sy, true); E.pointerUp(); };
+// SUBTREE-O1 (2026-09-15): a loop that encloses a sub-pixel object's whole frame takes the FRAME
+// (`selection.frames`), never its natives; caught means either form.
+const expectCaught = (E, o) => {
+    const s = E.selection;
+    expect(s).toBeTruthy();
+    const level = E.doc.getById(o.id).level;
+    const byFrame = (s.frames || []).some((f) => f === level || E.lm.isUnder(f, level));
+    expect(s.ids.includes(o.id) || byFrame).toBe(true);
+};
 const lasso = (E, pts) => {
     E.setTool("select");
     E.pointerDown(pts[0][0], pts[0][1]);
@@ -271,8 +280,7 @@ describe("SM-4 — the lasso, across levels", () => {
         const r = E._selectableRects().find((x) => x.o.id === fine.id).rect;
         expect(Math.max(r.right - r.left, r.bottom - r.top) * E.cam.inScale).toBeLessThan(1);
         lasso(E, boxLoop(120, 120, 680, 480));
-        expect(E.selection).toBeTruthy();
-        expect(E.selection.ids).toContain(fine.id);
+        expectCaught(E, fine);
     });
     test("a loop at the top that misses it does NOT catch it", () => {
         // The complement — otherwise the above passes on "select everything".
@@ -289,11 +297,11 @@ describe("SM-4 — the lasso, across levels", () => {
         const fine = drawStroke(E, [[360, 280], [440, 320]], 12, RED);
         topView(E);
         lasso(E, boxLoop(120, 120, 680, 480));
-        expect(E.selection.ids).toContain(fine.id);
+        expectCaught(E, fine);
         const a0 = worldAnchorAt(E, E.doc.getById(fine.id));
-        E._dragSel = { start: [400, 300], moves: new Map(), moved: false };
+        E._dragSel = { start: [400, 300], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
         E._dragSelection(500, 300);
-        E._dragSel = null;
+        E._endMove("drop");                       // the one exit (PAPER-PLAN R3)
         // Four crossings below the view, so the old build multiplied this 100 px
         // by 4096^4 and wrote 2.8e16 into the object's own coordinates. It moves
         // by changing address now, and 100 px is still 100 px.

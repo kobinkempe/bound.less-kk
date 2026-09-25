@@ -37,8 +37,8 @@ sys.path.insert(0, HERE)
 import graph
 
 # The files that hold the outside edge of the app. Geometry is never an entry.
-SHELL = ["hok", "edt", "gal", "app", "hom", "nfd",
-         "cpp", "fam", "sdd", "sdb", "sup", "wop", "aps", "cka", "cmp", "btn",
+SHELL = ["hok", "rps", "css", "edt", "gal", "app", "hom", "nfd",
+         "cpp", "fam", "sdd", "sdb", "sup", "syc", "wop", "aps", "cka", "cmp", "btn",
          "inp", "sci", "brd"]
 
 POINTER = ("pointerdown", "pointermove", "pointerup", "pointercancel",
@@ -57,6 +57,10 @@ NOT_A_COMPONENT = {"Router", "Route", "Switch", "Redirect", "Routes", "Link",
 # `engineRef.current.setTool(...)` is how the hook reaches the engine, so the
 # receiver token is `current`.
 ENGINE_RECEIVERS = {"engine", "eng", "E", "current"}
+# `x.current.m()` is a call into whatever the ref holds, so the REF is the
+# receiver: `errsRef.current.push()` is an array, not `format2.push`. A ref
+# that holds the sync session reaches `canvasSession.js`.
+REF_MODS = {"engineRef": None, "sessionRef": "css", "sessRef": "css"}
 DEBUG = bool(os.environ.get("DOCMAP_DEBUG"))
 RANK = {"pointer": 5, "keyboard": 4, "ui": 3, "route": 2, "lifecycle": 1}
 
@@ -145,10 +149,20 @@ def main():
         def calls_in(span, kind):
             if not span:
                 return
-            for c in call_re.finditer(msk[span[0]:span[1]]):
+            text = msk[span[0]:span[1]]
+            for c in call_re.finditer(text):
                 recv, meth = c.group(1), c.group(2)
                 if recv not in ENGINE_RECEIVERS:
                     continue
+                if recv == "current":
+                    ref = re.search(r'([A-Za-z_$][\w$]*)\s*\.\s*$', text[:c.start()])
+                    ref = ref.group(1) if ref else None
+                    if ref not in REF_MODS:
+                        continue
+                    if REF_MODS[ref]:
+                        node = REF_MODS[ref] + "." + meth
+                        mark(node if node in graph.NODES else None, kind)
+                        continue
                 mark(resolve(meth), kind)
 
         # ---- 1. addEventListener("evt", handler) -------------------------
@@ -187,9 +201,13 @@ def main():
         # ---- 2b. a method handed to a child as a callback prop -----------
         # `onWidthChange={engine.setEraserSize}` is a button press waiting to
         # happen; there is no call syntax, so the call scanner cannot see it.
+        # Only a method OF THE ENGINE: `width={engine.width}` reads a property,
+        # and a unique leaf elsewhere (antPaint's `width` getter) is not it.
         for m in re.finditer(
                 r'\b[a-zA-Z]\w*\s*=\s*\{\s*(?:engine|eng|E)\.([A-Za-z_$][\w$]*)\s*\}', msk):
-            mark(resolve(m.group(1)), "ui")
+            hit = resolve(m.group(1))
+            if hit and hit.split(".", 1)[0] in ENGINE_MODS:
+                mark(hit, "ui")
 
         # ---- 2c. an effect the interface drives --------------------------
         # `useEffect(() => { engineRef.current.setTool(tool); }, [tool])` is

@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-09-15. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-09-23. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -17,9 +17,111 @@ WHERE THE BUILD IS
 
     That closed F25, F28, F-A and F-B. It did not close the eraser.
 
-    Cloud sync is live: Google auth, Firestore, chunked lz1 payloads, thumbnails
-    on the parent doc, a soft-delete recycle bin, and a presence heartbeat that
-    warns when the same canvas is open on another device.
+    Cloud sync is live: Google auth, Firestore, the kobin-2 mirror since
+    2026-09-08 (gzipped frame and log chunks, the manifest written last; lz1
+    copies still load), thumbnails on the parent doc, a soft-delete recycle
+    bin, and (2026-09-22, .claude/SYNC-PLAN.md) one editor at a time: a second
+    tab or device opens read-only and follows, "Edit here" takes the pen, a
+    conflict keeps both copies, and a dev build writes its own collection
+    (dev-canvases), never the deployed app's.
+
+    Where the tree is: main is 4c99a8a (2026-09-15, not pushed; origin/main is
+    0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
+    rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
+
+2026-09-23 - ZOOM-OUT, F90 AND THE DRAG PLANE (PAPER-PLAN §10.14). In
+    Kobin's tab: a 90-tick fast zoom-out took 42.6-46.2 s because every compose
+    drew 34-48 stand-ins and Chrome's canvas pays ~100 ms a frame past 33
+    distinct images with any scaled; the compose now draws at most 30 (stand-ins
+    under the view's own plates dropped, a greedy cover first): 25.0 s, composes
+    34.3 s -> 0.62 s. What is left is the main thread's pack and the ladder's
+    idle list builds (up to 483 ms). F90 fixed: a bake step under its mark no
+    longer stales plates (ring cells fresh from 5.0 s, 72 % of the bake; were
+    never). The drag plane refuses nothing: runs merged past 5 layers, coarser
+    past the plate cap, a quick level, the selection's layers alone, and a
+    stopgap rastered on the main thread - a tapped cut-out now moves from the
+    second drag step (was 40 of 40 steps still). Unverified by Kobin.
+
+2026-09-23 - KOBIN'S THREE PHONE REPORTS (08-11 .. 08-16). Replayed in jsdom
+    and in a phone-shaped second engine in his Chrome. F91: an object under
+    another dragged jumpy - its drag plane needed 16 plates, the phone's cap
+    was 12 (now 24). F92: a finished line chunky until a pan - a raw stroke was
+    banded through its samples, and its resolve re-rastered nothing (now the
+    curve, and a camera step). F93: a zoomed-out lasso took 50 empty frames,
+    and a drag left the lassoed ink unselected (now inkless frames are skipped
+    and the selection follows ink a drag moves out of its frames). Open: F94
+    (a subtree drag mints empty frames every pointer event).
+
+2026-09-23 - ERASING A STACK, AND TRANSLUCENT MOVES (Kobin's test asks).
+    A ring through 100, 300 and 1,000 strokes in his Chrome (a scratch engine):
+    every object ended in exactly two pieces through click-drags, a lasso and
+    an undo/redo mid-bake. Fixed: a lasso had no erase barrier (it now bakes
+    the marks it meets first: 1,000 strokes with 400 left, a 4.0 s freeze and
+    then all 1,000 cut-outs); the select barrier left the mark above the
+    cut-out of the object the baker was on; three ways to lose a cut in the
+    worker (F88). Open: F89 (a ring that overshoots its start is sealed and
+    leaves a wedge), F90 (on 1,000 strokes the ring's cells keep the pre-erase
+    plates for the whole bake). Translucent moves on the drag plane: 0 wrong
+    pixels at every step, landing and after, raster and ?svg alike.
+
+2026-09-23 - THE 7 s IndexedDB TASK (F87). The task Chrome named
+    IDBTransaction.oncomplete in Kobin's tab is the store-to-engine restore
+    (useKobinEngine restoreFrom), one task on every mount of the editor - and
+    on the dev server every hot reload from another agent's edit remounts it.
+    A same-device read-only tab ran it for every save of the holder's, a
+    camera-only one included: now a write that moved no data is followed by
+    the header alone, a follow asked for mid-follow waits the gap, the restore
+    renders once in a task of its own after the replay, and the fold renders
+    nothing. The load (2-4 s) and the cold first render (F59) are still one
+    task each. Measured in hidden tabs of his Chrome on a :3007 copy.
+
+2026-09-22 - THE RASTER RENDERER IS THE APP'S DEFAULT, and the work on top of it.
+    The renderer - our own float64 coverage rasteriser in Web Workers writing
+    512-px plates (src/engine/raster/, .claude/RASTERISER-PLAN.md) - became
+    the default at Kobin's word; ?svg is the gate to the SVG renderer and the
+    SVG export renders once through a one-off SVG engine. Measured in his
+    Chrome: the Magnum Opus (42,857 natives, 64 MB) loads in 1.4 s against
+    the SVG renderer's 6.2 s; the two agree on 20 views to 0.001-0.98 % of
+    pixels; an Opus testing round's two defects fixed (the live stroke
+    invisible on a loaded drawing; 130-187 ms sync frames).
+    Paper (.claude/PAPER-PLAN.md): stale plates before paper, stand-ins from
+    other quanta and other frames, a preview eight quanta down, a ladder of
+    coarse plates rastered while the camera is still, a floor on the hold.
+    Kobin's fast zoom-out in his tab went from whole-screen paper for 1-3.5 s
+    to 532 ms of screen-weighted paper. Then the PAPER agent's section 10: the
+    drag plane precomputed at select, the pen-up handoff, F83's crossing fix,
+    the reroute memo, the pack pre-pass - jsdom only (his tab was hidden all
+    session), the Chrome run owed.
+    Scenes (.claude/SCENES-PLAN.md): thumbnails from the live raster engine
+    (snapshotView); the panel opens on the stored scenes in 7-14 ms instead
+    of after a 129.6 s re-cluster; the panel is simple at his word (picture,
+    name, zoom, one rename button); an interim cap (cfg.scenesResolveMax,
+    10,000 natives) kept a big drawing's stored scenes until the v3 scene
+    index - saved in the file, updated at idle in a worker - replaced
+    scenes.js the same night (SCENES-PLAN §7; jsdom-tested against a
+    brute-force oracle; numbers on the Magnum Opus in SCENES-PLAN §7.8).
+    Its review the same evening: 5 majors, 6 minors and the nits fixed,
+    each with a failing-first test and a break-check (SCENES-PLAN §7.7
+    'Review'); memory measured: index 36.7 MB + mirror 17.1 MB on the
+    Magnum Opus; a drawing of ceded patches alone now has a scene.
+    From his Magnum Opus: F78 (the Earth's houses vanished after a lasso
+    move - a tile baked across a settle carry; TileStore._bakeSettled), F80
+    (the save format refused a twin's children's frame ids), F82 (a ctrl-tap
+    dropped the selected frames), F81 (his tab ran out of memory; the
+    second-engine thumbnail path gated off under raster; closed by his
+    decision). F77 fixed in passing; F79 and F83 filed.
+    Kobin's rulings the same day (.claude/WORKLIST.md): memory is done as far
+    as needed (no per-level tile cap, no byte-bounded undo, no per-drawing
+    budget, no F81 timeline); saving at scale is next (multi-device sync, a
+    design first); F57 waits for the PAPER agent; stage 7, his look at the
+    raster renderer, when he has time. Quick suite 107 suites / 1,649 tests
+    green run alone (the PAPER agent's last run).
+
+2026-09-15 to 2026-09-21 - THE RASTERISER, stages 0-6 (core, arcs, packing,
+    the worker pool, the plate cache, the picture layer, the renderer
+    subclass, the ants, the perf ring), each reviewed and accepted; F75 found
+    and fixed in stage 0. Nothing drew a drawing until 2026-09-22. The branch
+    starts at 4c99a8a, the subtree move below, committed 2026-09-15.
 
 2026-09-07, later - SCALE. Kobin's 11,497-object canvas (drawn by another Claude
 session) measured in his Chrome: storage is fine (88 MB of 10.8 GB in IndexedDB),
@@ -475,12 +577,35 @@ UNCOMMITTED SINCE THEN - the 2026-09-02 pass, recorded in docs/ROADMAP.md's ledg
     LOCAL_AUTOSAVE is true again. 874 quick tests pass (six new). Kobin's
     browser test is still to come; the ledger in docs/ROADMAP.md has the list.
 
-OPEN, IN THE ORDER THEY MATTER
+OPEN, IN THE ORDER THEY MATTER (2026-09-22)
 
     The live list is docs/OPEN-FLAGS.md and the plan is docs/ROADMAP.md. This
     is the one-line version, so a reader with only this file knows the shape.
-    (Until 2026-09-02 each entry was restated here in full; that text is in
-    OPEN-FLAGS, unchanged.)
+
+    F57  an eraser at depth on a big drawing never finishes    HIGH, OPEN
+         The scan, the classifier, the cut and the descent built out on
+         2026-09-08 (the last two in a worker); not re-measured on that
+         canvas. Kobin, 2026-09-22: still an issue; after the PAPER agent.
+    F83  a zoom-out crossing freezes ~800 ms (Magnum Opus)     FIX BUILT
+         jsdom 440 -> 57-63 ms for the first list; Chrome owed.
+    F79  the smoothed layer blit between quanta, ~30 ms       MEDIUM, OPEN
+    F59  a cold render of a busy view takes seconds            MEDIUM, OPEN
+    F58  a report of a big drawing cannot be sent              FIX BUILT
+         2026-09-22: a 4 MB local extract, gzip parts; Magnum Opus in a
+         second engine 3.99 -> 1.08 MB, longest task 60.5 ms. His press owed.
+    F65  a drag out from under an unbaked eraser mark          MEDIUM, OPEN
+         2026-09-23: not reproduced on fresh canvases; the lasso's barrier
+         and the mark's step at the barrier added; F88 fixed.
+    F89  a ring eraser that overshoots its start is sealed     MEDIUM, OPEN
+    F94  a subtree drag mints empty frames each pointer event  LOW, OPEN
+    F76  a fat pending stroke loses a strip one crossing in    LOW, OPEN
+    F61, F62  a NaN zoom anchor; stroke="undefined" (?svg)     LOW, OPEN
+    Fixed and not yet seen by Kobin in a browser: F32, F35 (with F55), F41,
+    F42, F43, F44, F55, F56, F90, F91, F92, F93, and the PAPER work after R5. Closed by his
+    decision: F23, F29, F30, F34, F54 (2026-09-07), F81 (2026-09-22).
+
+    The entries below are the 2026-09-02..07 state, kept as they were written;
+    OPEN-FLAGS has what became of each.
 
     F33  autosave dies silently when localStorage fills    REWORKED, UNVERIFIED
          Local autosave is back ON (2026-09-02) over IndexedDB: a record per
@@ -536,7 +661,9 @@ OPEN, IN THE ORDER THEY MATTER
 
 NOT VERIFIED ANYWHERE BUT ONE MACHINE
     Everything has been checked on Chrome 151 / Windows 11 / Intel Iris /
-    dpr 1.5. docs/UAT.md carries the matrix that is still empty: dpr 1.0, HiDPI,
+    dpr 1.5. The raster renderer has been seen in that Chrome only, on the
+    desktop: nothing of it is measured on the phone (its 56 MiB plate cap and
+    its worker count included). docs/UAT.md carries the matrix that is still empty: dpr 1.0, HiDPI,
     Firefox, Safari, software rendering, touch. The thin-stroke compositing
     failure (F-Z) is fixed for that machine; whether the dead zone it works
     around exists at all elsewhere is unknown.

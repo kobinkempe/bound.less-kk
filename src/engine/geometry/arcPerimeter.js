@@ -50,6 +50,17 @@ export function ptAt(p, s) {
     return [p.C[0] + p.r * Math.cos(th), p.C[1] + p.r * Math.sin(th)];
 }
 
+/** Two arcs on one circle, to `tol` in centre and radius. Lines are never "the same circle". */
+function sameCircle(p, q, tol) {
+    return !p.line && !q.line && Math.abs(p.r - q.r) <= tol
+        && Math.abs(p.C[0] - q.C[0]) <= tol && Math.abs(p.C[1] - q.C[1]) <= tol;
+}
+/** Two fragments between the same two vertices that are the same curve, travelled the same way. */
+function samePiece(p, q, tol) {
+    if (p.line || q.line) return p.line && q.line;
+    return sameCircle(p, q, tol) && Math.abs(p.sweep - q.sweep) <= 1e-6 * Math.max(1, Math.abs(p.sweep));
+}
+
 /** Where on the piece does this point sit? Returns s, or null if off the ends. */
 export function paramOf(p, q, eps) {
     if (p.line) {
@@ -600,6 +611,32 @@ class Oracle {
         });
         return hit;
     }
+    /**
+     * 2 when the point is inside the pen by more than `margin` (buried, as `buried`); 1 when it
+     * sits within `margin` of r from a stretch of the centreline other than its own arc `src` and
+     * that arc's neighbours (a tie: an exact retrace, or a copy peeling off tangentially); else 0.
+     */
+    verdict(x, y, r, margin, src) {
+        const eff = r - margin, reach = r + margin;
+        if (eff <= 0) return 0;
+        let out = 0;
+        const p = [x, y];
+        const e2 = eff * eff, t2 = reach * reach;
+        this.grid.near([x - reach, y - reach, x + reach, y + reach], (i) => {
+            if (out === 2) return;
+            const b = this.bbs[i];
+            const dx = x < b[0] ? b[0] - x : (x > b[2] ? x - b[2] : 0);
+            const dy = y < b[1] ? b[1] - y : (y > b[3] ? y - b[3] : 0);
+            const q = dx * dx + dy * dy;
+            if (q >= t2) return;
+            const tieable = src >= 0 && (i < src - 1 || i > src + 1);
+            if (q >= e2 && !tieable) return;
+            const d = arcDist(this.arcs[i], p);
+            if (d < eff) out = 2;
+            else if (tieable && d <= reach) out = 1;
+        });
+        return out;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -790,6 +827,7 @@ export class ArcBakeJob {
             this._tune(now() - t, this.i - from);
             if (this.i < pts.length && now() >= deadline) return;
         }
+        this.pen.closeLoop();                   // a stroke closing on itself: one tangent at its seam
         this.centre = this.pen.arcs();
         this.pen = null;
         this._endPhase(PH.CHAIN);
@@ -920,6 +958,7 @@ export class ArcBakeJob {
     _cut(deadline) {
         const { live, bbs, grid, cuts, vs, M, N, r } = this;
         const eps = r * 1e-7;
+        const tolC = r * 1e-9, tolT = r * 1e-5;
         while (this.i < N) {
             const t = now(), from = this.i;
             const stop = Math.min(N, this.i + this.chunk);
@@ -947,7 +986,14 @@ export class ArcBakeJob {
                     }
                     const bj = bbs[j];
                     if (bj[0] > bbs[i][2] || bj[2] < bbs[i][0] || bj[1] > bbs[i][3] || bj[3] < bbs[i][1]) return;
-                    for (const q of pieceIntersections(live[i], live[j])) {
+                    if (sameCircle(live[i], live[j], tolC)) { this._overlapCuts(i, j, eps); return; }
+                    let xs = pieceIntersections(live[i], live[j]);
+                    // Two circles all but tangent meet at two points a rounding apart, placed by a
+                    // square root of noise: one point, where they touch (OPEN-FLAGS F89).
+                    if (xs.length === 2 && Math.hypot(xs[0][0] - xs[1][0], xs[0][1] - xs[1][1]) < tolT) {
+                        xs = [[(xs[0][0] + xs[1][0]) / 2, (xs[0][1] + xs[1][1]) / 2]];
+                    }
+                    for (const q of xs) {
                         const si = paramOf(live[i], q, eps);
                         if (si == null) continue;
                         const sj = paramOf(live[j], q, eps);
@@ -968,9 +1014,30 @@ export class ArcBakeJob {
         this._endPhase(PH.CLASSIFY);
     }
 
+    /**
+     * Arcs `i` and `j` lie on one circle (a stroke retracing itself exactly, OPEN-FLAGS F89):
+     * each is cut at the other's ends that fall inside it, at those ends' own vertices, so the
+     * overlap splits into identical fragments that `_classify` keeps once.
+     */
+    _overlapCuts(i, j, eps) {
+        const { live, cuts, endV } = this;
+        for (const [a, b] of [[i, j], [j, i]]) {
+            for (const e of [0, 1]) {
+                const v = endV[b * 2 + e];
+                if (v === endV[a * 2] || v === endV[a * 2 + 1]) continue;
+                const s = paramOf(live[a], e ? live[b].B : live[b].A, eps);
+                if (s == null || s <= 0 || s >= 1) continue;
+                (cuts[a] || (cuts[a] = [])).push([s, v]);
+                this.nX++;
+            }
+        }
+    }
+
     // ---- 6. split, and throw away what the pen covers -----------------------
     _classify(deadline) {
         const { live, cuts, endV, vs, oracle, r, margin, kept, N } = this;
+        const byEnds = this.byEnds || (this.byEnds = new Map());
+        const tolC = r * 1e-9;
         while (this.i < N) {
             const t = now(), from = this.i;
             const stop = Math.min(N, this.i + this.chunk);
@@ -989,22 +1056,34 @@ export class ArcBakeJob {
                     seen.add(c[1]);
                     cl.push(c);
                 }
-                let segs;
-                if (!cl.length) segs = [p];
+                let segs, ends;
+                if (!cl.length) { segs = [p]; ends = [va, vb]; }
                 else {
                     cl.sort((a, b) => a[0] - b[0]);
-                    segs = [];
+                    segs = []; ends = [va];
                     let s0 = 0, A = p.A;
                     for (const [s, v] of cl) {
                         const P = vs.pts[v];
                         segs.push(subPiece(p, s0, s, A, P));
+                        ends.push(v);
                         s0 = s; A = P;
                     }
                     segs.push(subPiece(p, s0, 1, A, p.B));
+                    ends.push(vb);
                 }
-                for (const s of segs) {
+                for (let k = 0; k < segs.length; k++) {
+                    const s = segs[k];
                     const m = ptAt(s, 0.5);
-                    if (!oracle.buried(m[0], m[1], r, margin)) kept.push(s);
+                    const verdict = oracle.verdict(m[0], m[1], r, margin, s.src);
+                    if (verdict === 2) continue;
+                    // An exact retrace keeps both copies of its overlap (each sits exactly r from the
+                    // other lap's centreline, not buried); the union wants one (OPEN-FLAGS F89).
+                    const key = ends[k] + "," + ends[k + 1];
+                    const twins = byEnds.get(key);
+                    if (twins && twins.some((t) => samePiece(t, s, tolC))) continue;
+                    if (twins) twins.push(s); else byEnds.set(key, [s]);
+                    if (verdict === 1) (this.ties || (this.ties = [])).push(kept.length);
+                    kept.push(s);
                 }
             }
             this._tune(now() - t, this.i - from);
@@ -1012,10 +1091,42 @@ export class ArcBakeJob {
         }
         this.outAt = new Map();
         this.used = new Uint8Array(kept.length);
+        if (this.ties) this._pruneTies();
         this.loops = [];
         this.walk = null;
         this.sub = 0;
         this._endPhase(PH.STITCH);
+    }
+
+    /**
+     * A kept tie that dead-ends at both of its vertices — more ways out than in where it starts,
+     * more in than out where it ends — is the far side of a copy that peels off tangentially: it
+     * sits inside the other lap by less than the margin, and keeping it leaves two open chains
+     * (OPEN-FLAGS F89). Marked used, so the walk never takes it. O(kept), and only when a tie
+     * was kept at all.
+     */
+    _pruneTies() {
+        const { kept, vs, used, ties } = this;
+        const bal = new Map();   // vertex -> outs minus ins
+        const ends = (k) => [vs.id(kept[k].A), vs.id(kept[k].B)];
+        for (let k = 0; k < kept.length; k++) {
+            const [a, b] = ends(k);
+            bal.set(a, (bal.get(a) || 0) + 1);
+            bal.set(b, (bal.get(b) || 0) - 1);
+        }
+        for (let changed = true; changed;) {
+            changed = false;
+            for (const k of ties) {
+                if (used[k]) continue;
+                const [a, b] = ends(k);
+                if (!(bal.get(a) > 0 && bal.get(b) < 0)) continue;
+                used[k] = 1;
+                bal.set(a, bal.get(a) - 1);
+                bal.set(b, bal.get(b) + 1);
+                this.pruned = (this.pruned || 0) + 1;
+                changed = true;
+            }
+        }
     }
 
     // ---- 7. restitch the survivors into closed loops ------------------------

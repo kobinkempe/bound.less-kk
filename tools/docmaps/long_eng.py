@@ -132,11 +132,6 @@ L = {
  "**Refuses grazing touches.** If almost no ink was removed, nothing is changed, so a tangent brush past a stroke does not churn it. The threshold is measured against the subject as well as the eraser, because 'a negligible fraction of the eraser' is nonsense once the eraser is magnified.",
  "**Culls dust**, replaces the object with the surviving regions, and — if a cut inside a multi-level family left several pieces — asks whether the object came apart.",
 ],
-"erp._cull": [
- "Drops cut fragments thinner than one percent of the pen that drew them, and counts how many it dropped.",
- "These are the specks a cut leaves where it runs nearly tangent to an edge. Culled here rather than inside the boolean: the arithmetic is right, it is the decision to store the result as ink that is wrong.",
- "The tally exists so a test can assert the cull is doing work rather than that the case never arose.",
-],
 "erp._noteSeal": [
  "Counts the booleans that had to be closed with a fabricated chord.",
  "The boolean guarantees closed loops by sealing a chain the walk could not finish. That is a real if small geometric compromise, so it is counted rather than hidden — a rise here is the stitch getting worse.",

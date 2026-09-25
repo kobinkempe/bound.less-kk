@@ -410,7 +410,9 @@ export function strokeLoops(o, cfg, opts = {}) {
 // The bbox of CUBIC loops (a loop here is a list of cubic segments, each a list
 // of points), by their control points. Not `arcShape.loopsBBox`, which takes
 // arc loops and is exact about their bulges — the two were one letter apart
-// until 2026-09-07. Only the erase oracle still reads this one.
+// until 2026-09-07. Two callers: the erase oracle, and the raster packer's
+// stroke cull box, which needs a box that CONTAINS a fitted band (a cubic lies
+// inside its control points — RASTERISER-PLAN §5.2, D100).
 export function cubicLoopsBBox(loops) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const loop of loops) for (const seg of loop) for (const p of seg) {
@@ -420,7 +422,11 @@ export function cubicLoopsBBox(loops) {
     return { x0, y0, x1, y1 };
 }
 
-// ---- flatten (tests + hit helpers; NOT used in the render hot path) ----
+// ---- flatten (tests, hit helpers, and the raster packer) ----
+// `tol` is in the loops' own units and bounds the chord's deviation from the cubic. The raster
+// path calls this on a fitted stroke's `_outline` at `tol = (1/16 device px) / Zq`, once per
+// item per zoom quantum, so a plate never flattens one (RASTERISER-PLAN §4.8). The SVG render
+// path still does not call it.
 export function flattenLoops(loops, tol) {
     const polys = [];
     for (const loop of loops) {

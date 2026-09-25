@@ -63,6 +63,18 @@ describe("PI-1 — a zoom that never trips the log floor is still counted", () =
     });
 });
 
+describe("PI-7 — a long operation stays in the report after the log has rolled over", () => {
+    test("everything over 200 ms is kept in perfLong, past the perf log's 300 entries", () => {
+        const E = mkEngine();
+        const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+        E._perf("ladderPost", now() - 900, false, { k: 3 });
+        for (let i = 0; i < 400; i++) E._perf("render", now() - 20, false);
+        expect(E.perfLog.some((e) => e.op === "ladderPost")).toBe(false);   // rolled out of the 300
+        expect(E.perfLong.map((e) => e.op)).toEqual(["ladderPost"]);
+        expect(E.perfLong[0].k).toBe(3);
+    });
+});
+
 describe("PI-2 — the erase bake is timed", () => {
     test("a bake tick that does real work lands in the perf log", () => {
         const E = mkEngine();

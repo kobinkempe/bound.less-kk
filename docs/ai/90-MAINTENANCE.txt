@@ -89,7 +89,7 @@ WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
     the design bibles  (docs/reference/ since 2026-08-31 - still tracked)
         reference/frame-lattice-design-bible.md
         reference/erase-tile-window-design-bible.md
-        reference/auto-scenes-design-bible.md
+        reference/scenes-v3-design-bible.md
         reference/scale-bar-ruling-design-bible.md
         These are the REASONING, written before the measurements, and they are
         the authority on their own subject. They are NOT updated casually.
@@ -105,6 +105,12 @@ WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
             checked against the code, marked built / not built / open by
             agreement.
         DO NOT edit sections 0-9 to match the code. Add to the built section.
+
+    .claude/*-PLAN.md, .claude/WORKLIST.md, .claude/rasteriser/STATUS-LOG.md
+        The working plans, gitignored (on Kobin's machine only). Each plan
+        keeps a STATUS block at its top that is kept true like any document
+        here; the STATUS-LOG is append-only, one entry per agent step.
+        WORKLIST.md is Kobin's order and rulings; the orchestrator edits it.
 
     docs/issue-log.md
         HISTORY. Frozen at 2026-07-09. Do not add to it. It carries a banner

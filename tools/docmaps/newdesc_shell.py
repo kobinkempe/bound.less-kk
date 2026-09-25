@@ -77,13 +77,13 @@ add("loc.trashCanvas", "trashCanvas(id, fallbackEntry)",
 add("loc.restoreCanvas", "restoreCanvas(id)", "Brings a binned canvas back.",
     ["The index row is rebuilt only when a local slot existed; a cloud-only row comes back through the cloud listing instead, which is the one path that has the data.",
      "If the restore write fails on quota the entry stays in the bin rather than being lost between the two."])
-add("loc.stashOverwrittenVersion", "stashOverwrittenVersion(json, name)",
+add("loc.stashOverwrittenVersion", "stashOverwrittenVersion(doc, name)",
     "Files the losing side of a cross-device overwrite in the bin.",
     ["Given a FRESH id and a '(overwritten)' name, so restoring it becomes its own canvas rather than fighting the live one for the same slot.",
      "This is the safety net behind the cross-device banner: if two devices edit the same canvas, the version that lost is recoverable rather than gone."])
 add("loc.purgeTrashEntry", "purgeTrashEntry(id)", "Deletes a binned canvas for good.",
     ["Row, slot and thumbnails. The only irreversible operation in the module."])
-add("loc.duplicateCanvas", "duplicateCanvas(id, fallbackJson, fallbackName)",
+add("loc.duplicateCanvas", "duplicateCanvas(id, fallbackDoc, fallbackName)",
     "Copies a canvas into a fresh slot.",
     ["Names it '<name> copy' and carries the cover thumbnail across, so the copy is recognisable in the gallery immediately rather than after the next save.",
      "Takes a fallback document for a cloud-only canvas whose data was fetched separately."])

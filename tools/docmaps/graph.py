@@ -44,35 +44,41 @@ _DATA = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # Modules. MOD is the colour group; MODNAME is what the panel calls it.
 # --------------------------------------------------------------------------
 MOD = {
-    # the facade, and the files mixed onto its prototype
+    # the facade, the files mixed onto its prototype, and the erase jobs
     "eng": "fac", "erp": "fac", "ovl": "fac", "sel": "fac", "sco": "fac",
     "fil": "fac", "ins": "fac", "rmt": "fac", "mix": "fac", "now": "fac",
-    # space, view, and what is drawn where
+    "ejb": "fac", "eds": "fac", "ewc": "fac", "rep": "fac",
+    # space, the store, the saved form, and the scene index
     "cam": "spc", "lm": "spc", "ts": "spc", "rnd": "spc", "fl": "spc",
-    "per": "spc", "scn": "spc",
+    "per": "spc", "f2": "spc", "opl": "spc",
+    "six": "spc", "scc": "spc", "swc": "spc",
+    # the raster renderer: the paper
+    "rr": "ras", "pic": "ras", "pls": "ras", "ovy": "ras", "mvp": "ras",
+    "anp": "ras", "plt": "ras", "rco": "ras", "rjb": "ras", "rpk": "ras",
+    "rpf": "ras", "rwc": "ras", "rwk": "ras",
     # the objects themselves, and the ink pipeline
     "doc": "obj", "shp": "obj", "arc": "obj", "bia": "obj", "frz": "obj",
+    "lop": "obj", "off": "obj",
     # geometry helpers
     "der": "hlp", "con": "hlp", "las": "hlp", "hit": "hlp", "ply": "hlp",
-    "clb": "hlp",
-    "cvo": "hlp",
+    "clb": "hlp", "cvo": "hlp", "chm": "hlp", "ant": "hlp",
     # the scale bar
     "sbi": "sca", "cat": "sca", "mem": "sca", "pref": "sca", "prng": "sca",
     "lad": "sca", "nic": "sca", "lmt": "sca", "rsv": "sca", "pck": "sca",
     "ses": "sca", "rng": "sca", "lrl": "sca", "fmt": "sca", "val": "sca",
     # the shell: lifecycle, storage, cloud
-    "hok": "shl", "loc": "shl", "thm": "shl", "cld": "shl", "fba": "shl",
-    "usr": "shl",
+    "hok": "shl", "rps": "shl", "db": "shl", "loc": "shl", "thm": "shl", "fld": "shl",
+    "cld": "shl", "css": "shl", "syn": "shl", "slk": "shl", "st2": "shl", "gz": "shl",
+    "lzw": "shl", "fba": "shl", "usr": "shl",
     # pages and interface
     "app": "ui", "edt": "ui", "gal": "ui", "hom": "ui", "nfd": "ui",
     "col": "ui", "cmp": "ui", "sci": "ui", "btn": "ui", "inp": "ui",
     "brd": "ui", "cpp": "ui", "fam": "ui", "sdd": "ui", "sdb": "ui",
-    "sup": "ui", "wop": "ui", "aps": "ui", "cka": "ui",
+    "sup": "ui", "syc": "ui", "wop": "ui", "aps": "ui", "cka": "ui",
     "reportWebVitals": "ui",
-    # NOT RUNNING: the oracles the tests compare against, the developer labs,
-    # and code kept only because a suite still builds fixtures with it.
+    # NOT RUNNING: the oracles the tests compare against.
     "v0": "ded", "cvp": "ded", "sks": "ded", "bks": "ded", "ced": "ded",
-    "ers": "ded", "tsp": "ded",
+    "ers": "ded", "cov": "ded", "sor": "ded",
 }
 MODNAME = {
     "eng": "KobinEngine", "cam": "Camera", "lm": "LevelMap", "ts": "TileStore",
@@ -83,8 +89,17 @@ MODNAME = {
     "erp": "erasePipeline", "ovl": "overlays", "sel": "selection",
     "sco": "sceneOps", "fil": "files", "ins": "instruments",
     "rmt": "rectMath", "mix": "mixin", "now": "now",
-    "cvo": "curveOutline", "per": "persist",
-    "scn": "scenes",
+    "ejb": "eraseJob", "eds": "eraseDescent", "ewc": "eraseWorkerClient",
+    "rep": "report",
+    "cvo": "curveOutline", "per": "persist", "f2": "format2", "opl": "oplog",
+    "six": "sceneIndex", "scc": "sceneClient", "swc": "sceneWorkerClient",
+    "rr": "raster/RasterRenderer", "pic": "raster/PictureLayer",
+    "pls": "raster/PlateStore", "ovy": "raster/OverlayLayer",
+    "mvp": "raster/MovePlane", "anp": "raster/antPaint", "plt": "raster/plate",
+    "rco": "raster/rasterCore", "rjb": "raster/rasterJob",
+    "rpk": "raster/rasterPack", "rpf": "raster/rasterPerf",
+    "rwc": "raster/rasterWorkerClient", "rwk": "worker/rasterWorker",
+    "lop": "loop", "off": "offsets", "chm": "chordMath", "ant": "antRuns",
     "sbi": "scaleBar/index", "cat": "scaleBar/catalog",
     "mem": "scaleBar/membership", "pref": "scaleBar/preference",
     "prng": "scaleBar/preferenceRange", "lad": "scaleBar/ladder",
@@ -93,30 +108,31 @@ MODNAME = {
     "ses": "scaleBar/session", "rng": "scaleBar/rungs",
     "lrl": "scaleBar/logicRule", "fmt": "scaleBar/format",
     "val": "scaleBar/validate",
-    "hok": "useKobinEngine", "loc": "localCanvases", "thm": "thumbnails",
-    "cld": "canvasSync", "fba": "firebaseApp", "usr": "useUser",
+    "hok": "useKobinEngine", "rps": "reportSend", "db": "storage/db",
+    "loc": "localCanvases", "thm": "thumbnails", "fld": "foldStore",
+    "cld": "canvasSync", "css": "canvasSession", "syn": "syncCore", "slk": "storageLocks",
+    "st2": "store2", "gz": "gzip", "lzw": "lzWorker",
+    "fba": "firebaseApp", "usr": "useUser",
     "app": "App", "edt": "CanvasEditor", "gal": "CanvasesV2", "hom": "HomeV2",
     "nfd": "NotFoundPage", "col": "utils/color",
     "cmp": "ui/Dialog", "sci": "ui/SciText", "btn": "ui/Button",
     "inp": "ui/Input", "brd": "BrandLogo", "cpp": "ColorPickerPopover",
     "fam": "FileActionsMenu", "sdd": "SaveDrawingDialog",
-    "sdb": "ScaleDragBar", "sup": "ScaleUnitPicker",
+    "sdb": "ScaleDragBar", "sup": "ScaleUnitPicker", "syc": "SyncChip",
     "wop": "WidthOpacityPanel", "aps": "useAnchorPopoverStyle",
-    "cka": "useClickAway", "tbn": "toolButton",
-    "logoSmall": "logoSmallIcon", "reportWebVitals": "reportWebVitals",
+    "cka": "useClickAway", "reportWebVitals": "reportWebVitals",
     "v0": "KobinEngineV0", "cvp": "curvePerimeter", "sks": "strokeShape",
     "bks": "bakeStrategies", "ced": "cede", "ers": "erase",
-    "lab": "BakeLab", "apn": "ArcPen", "abk": "ArcBake", "cv2": "CanvasV2",
-    "tsp": "__testkit__/scaleBar",
+    "cov": "coverageOracle", "sor": "sceneOracle",
 }
 GROUPNAME = {
-    "fac": "facade", "spc": "space & view", "obj": "objects & ink",
-    "hlp": "geometry helpers", "sca": "scale bar", "shl": "shell & storage",
-    "ui": "pages & interface", "ded": "not running",
+    "fac": "facade", "spc": "space & view", "ras": "paper (raster)",
+    "obj": "objects & ink", "hlp": "geometry helpers", "sca": "scale bar",
+    "shl": "shell & storage", "ui": "pages & interface", "ded": "not running",
 }
 
 ENTRIES = ["eng.pointerDown", "eng.pointerMove", "eng.pointerUp",
-           "eng.zoomFactorAt", "eng.panBy", "eng._bakeTick"]
+           "eng.zoomFactorAt", "eng.panBy", "erp._bakeTick"]
 
 # --------------------------------------------------------------------------
 # The hand-read spine. Written before the extractor existed, and kept because
@@ -140,14 +156,14 @@ E_HAND = [
     ("eng._pointerDown", "rnd.setLiveArcs"),
     ("eng._pointerDown", "rnd.update"),
     ("eng._startPen", "bia.BiarcPen.addSample"),
-    ("bia.BiarcPen.addSample", "bia.splineCubics"),
+    ("bia.BiarcPen.addSample", "bia.arcsForGap"),
     ("bia.BiarcPen.addSample", "bia.arcsForGap"),
     ("bia.arcsForGap", "bia.biarc"),
     ("bia.arcsForGap", "bia.gapError"),
     ("bia.biarc", "bia.arcThrough"),
-    ("bia.gapError", "bia.arcPoint"),
+    ("bia.gapError", "bia.arcDist"),
     ("rnd.setLiveArcs", "rnd.pushGapAnchors"),
-    ("rnd.pushGapAnchors", "shp.pieceToCubics"),
+    ("rnd.pushGapAnchors", "rnd.pushArcPiece"),
     ("eng._pointerMove", "cam.screenToFrame"),
     ("eng._pointerMove", "bia.BiarcPen.addSample"),
     ("eng._pointerMove", "rnd.setLiveArcs"),
@@ -161,7 +177,6 @@ E_HAND = [
     ("eng._pointerUp", "eng._queueBake"),
     ("eng._pointerUp", "eng._scheduleBake"),
     ("eng._pointerUp", "doc.pushUndo"),
-    ("eng._pointerUp", "eng._noteInkAdded"),
     ("eng._pointerUp", "eng._render"),
     ("eng._pointerUp", "eng._queueIdleFits"),
     ("eng._pointerUp", "eng._normalizeHome"),
@@ -204,10 +219,12 @@ E_HAND = [
     ("eng._promoteOversize", "doc.rehomeById"),
     ("eng._promoteOversize", "doc.setGeometryById"),
     ("eng._nextEraseTarget", "eng._eraseMayTouch"),
-    ("eng._eraseMayTouch", "lm.mapRectF"),
+    ("eng._eraseMayTouch", "erp._eraserRectInto"),
+    ("erp._eraserRectInto", "lm.mapRectF"),
 
     # ---- the resolve ----
-    ("arc.ArcBakeJob", "arc.ArcBakeJob.step"),
+    ("erp._stepShapeBakes", "arc.ArcBakeJob.step"),
+    ("arc.bakeArcPerimeter", "arc.ArcBakeJob.step"),
     ("arc.ArcBakeJob.step", "arc._centerline"),
     ("arc.ArcBakeJob.step", "arc._chain"),
     ("arc.ArcBakeJob.step", "arc._oracle"),
@@ -238,29 +255,30 @@ E_HAND = [
     ("arc._classify", "arc.ptAt"),
     ("arc._stitch", "arc.VertexSet.id"),
     ("arc._finishPhase", "arc.reversePiece"),
-    ("shp.repairLoops", "shp.loopArea"),
-    ("shp.repairLoops", "shp.dropDust"),
+    ("shp.repairLoops", "shp.meanWidth"),
 
     # ---- erasing: the cut ----
     ("eng._bakeOne", "eng._forceBake"),
     ("eng._bakeOne", "doc.fillToShapeById"),
     ("eng._bakeOne", "lm.framePath"),
     ("eng._bakeOne", "eng._bakeRehome"),
-    ("eng._bakeOne", "lm.projectF"),
-    ("eng._bakeOne", "shp.transformLoops"),
-    ("eng._bakeOne", "shp.loopsBBox"),
+    ("eng._bakeOne", "erp._eraserLoopsInto"),
+    ("eng._bakeOne", "ewc.runCutAsync"),
+    ("eng._bakeOne", "ejb.cutJob"),
     ("eng._bakeOne", "shp.loopsArea"),
-    ("eng._bakeOne", "shp.subtractShape"),
-    ("eng._bakeOne", "eng._noteSeal"),
-    ("eng._bakeOne", "eng._cull"),
-    ("eng._bakeOne", "shp.shapeComponents"),
-    ("eng._bakeOne", "doc.eraseReplaceById"),
-    ("eng._bakeOne", "eng._resplitFamily"),
+    ("ejb.cutJob", "shp.subtractShape"),
+    ("ejb.cutJob", "shp.intersectShape"),
+    ("ejb.cutJob", "shp.shapeComponents"),
+    ("ejb.cutJob", "shp.dropDust"),
+    ("eng._bakeOne", "erp._applyCut"),
+    ("erp._onCutResult", "erp._applyCut"),
+    ("erp._applyCut", "erp._noteSeal"),
+    ("erp._applyCut", "doc.eraseReplaceById"),
+    ("erp._applyCut", "erp._resplitFamily"),
     ("eng._forceBake", "arc.bakeArcPerimeter"),
     ("arc.bakeArcPerimeter", "arc.ArcBakeJob.step"),
     ("doc.fillToShapeById", "shp.shapeFromRings"),
     ("doc.fillToShapeById", "shp.normalizeLoops"),
-    ("eng._cull", "shp.dropDust"),
     ("doc.eraseReplaceById", "doc.removeById"),
     ("doc.eraseReplaceById", "doc.add"),
 
@@ -275,12 +293,13 @@ E_HAND = [
     ("shp.shapeBooleanOnce", "arc.Grid.near"),
     ("shp.shapeBooleanOnce", "arc.pieceIntersections"),
     ("shp.shapeBooleanOnce", "shp.pieceOverlap"),
-    ("shp.shapeBooleanOnce", "shp.windingOfFlat"),
+    ("shp.shapeBooleanOnce", "shp.winding"),       # other.winding(m): a RayIndex
+    ("shp.winding", "shp.windingOfFlat"),
     ("shp.shapeBooleanOnce", "shp.stitch"),
     ("shp.shapeBooleanOnce", "shp.dropHairlines"),
     ("shp.shapeBooleanOnce", "shp.flatPieces"),
     ("shp.shapeBooleanOnce", "arc.subPiece"),
-    ("shp.pieceOverlap", "shp.onCurveOf"),
+    ("shp.shapeBooleanOnce", "shp.onCurveOf"),
     ("shp.windingOfFlat", "shp.rayCross"),
     ("shp.normalizeLoops", "shp.loopsArea"),
     ("shp.loopsArea", "shp.loopArea"),
@@ -288,23 +307,20 @@ E_HAND = [
     # ---- the descent ----
     ("eng._bakeRehome", "eng._bakeRehomeInner"),
     ("eng._bakeRehome", "eng._perf"),
-    ("eng._bakeRehomeInner", "lm.framePath"),
-    ("eng._bakeRehomeInner", "shp.loopsBBox"),
-    ("eng._bakeRehomeInner", "lm.mapRectF"),
-    ("eng._bakeRehomeInner", "fl.childTilePhase"),
-    ("eng._bakeRehomeInner", "fl.objTileRange"),
-    ("eng._bakeRehomeInner", "fl.objTileRect"),
-    ("eng._bakeRehomeInner", "eng._inkShapeInRect"),
-    ("eng._bakeRehomeInner", "eng._cull"),
-    ("eng._bakeRehomeInner", "shp.subtractShape"),
-    ("eng._bakeRehomeInner", "eng._noteSeal"),
-    ("eng._bakeRehomeInner", "doc.cedeTileById"),
-    ("eng._bakeRehomeInner", "eng._resplitFamily"),
+    ("eng._bakeRehomeInner", "erp._descentWorld"),
+    ("eng._bakeRehomeInner", "ewc.runDescentAsync"),
+    ("eng._bakeRehomeInner", "eds.descentJob"),
+    ("eng._bakeRehomeInner", "erp._applyDescent"),
+    ("eds.descentJob", "eds.cedeVirtual"),
+    ("eds.descentJob", "eds.squareInkOf"),          # world.squareInk || squareInkOf
+    ("eds.squareInkOf", "lm.projectF"),
+    ("eds.squareInkOf", "der.classifyUp"),
+    ("eds.cedeVirtual", "shp.subtractShape"),
+    ("erp._applyDescent", "doc.removeById"),
+    ("erp._applyDescent", "doc.recordBake"),
+    ("erp._applyDescent", "erp._resplitFamily"),
     ("eng._bakeRehomeInner", "eng._rehomeBail"),
-    ("eng._inkShapeInRect", "lm.projectF"),
-    ("eng._inkShapeInRect", "shp.transformLoops"),
-    ("eng._inkShapeInRect", "shp.clipShapeToRect"),
-    ("doc.cedeTileById", "shp.translateLoops"),
+    ("doc.cedeTileById", "off.shiftDown"),
     ("doc.cedeTileById", "shp.rectLoop"),
     ("doc.cedeTileById", "shp.subtractShape"),
     ("doc.cedeTileById", "shp.dropDust"),
@@ -334,17 +350,18 @@ E_HAND = [
     ("eng._render", "eng._emit"),
     ("eng._render", "eng._perf"),
     ("eng._buildList", "cam.frameWindow"),
-    ("eng._buildList", "ts.content"),
-    ("eng._buildList", "ts.ownContent"),
-    ("eng._buildList", "doc.getById"),
+    ("eng._buildList", "eng.listFor"),
+    ("eng.listFor", "ts.content"),
+    ("eng.listFor", "ts.ownContent"),
     ("eng._buildList", "lm.tileRange"),
     ("ts.content", "ts._ensureUp"),
     ("ts.content", "ts._ensureDown"),
     ("ts.content", "ts._evict"),
     ("ts._ensureUp", "ts._bakeUp"),
-    ("ts._bakeUp", "ts._ensureUp"),              # the chain: recursive
+    ("ts._bakeUp", "ts._upPiecesOver"),
+    ("ts._upPiecesOver", "ts._ensureUp"),        # the chain: recursive
     ("ts._bakeUp", "lm.rectToParent"),
-    ("ts._bakeUp", "lm.tileRange"),
+    ("ts._bakeUp", "lm.tileRect"),
     ("ts._bakeUp", "doc.at"),
     ("ts._bakeUp", "ts._ringNatives"),
     ("ts._bakeUp", "der.classifyUp"),
@@ -373,24 +390,21 @@ E_HAND = [
     # ---- one step of the chain ----
     ("der.deriveStep", "shp.transformLoopsAbout"),
     ("der.deriveStep", "fl.childTilePhase"),
-    ("der.deriveStep", "frz.tileWindow"),
-    ("der.deriveStep", "frz.tileClipRect"),
+    ("der.deriveStep", "der.tilePhaseOf"),
+    ("der.deriveStep", "der.padRect"),
     ("der.deriveStep", "frz.chopFreezeLoops"),
     ("der.deriveStep", "der.shapeLoopsInRect"),
     ("der.deriveStep", "der.bandRings"),
     ("der.deriveStep", "der.bboxOf"),
-    ("der.deriveStep", "der.seamPad"),
+    ("ts._solid", "der.seamPad"),
     ("der.deriveStep", "clp.clipRingsToRect"),
     ("der.deriveStep", "clp.clipPolylineToRect"),
-    ("frz.tileWindow", "fl.objTileRange"),
-    ("frz.tileClipRect", "fl.objTilesRect"),
     ("frz.chopFreezeLoops", "frz.pieceSagitta"),
     ("frz.chopFreezeLoops", "frz.arcCuts"),
     ("frz.chopFreezeLoops", "frz.freezePiece"),
     ("frz.chopFreezeLoops", "arc.subPiece"),
     ("frz.chopFreezeLoops", "arc.ptAt"),
     ("der.shapeLoopsInRect", "shp.clipShapeToRect"),
-    ("der.shapeLoopsInRect", "frz.markSeamEnds"),
     ("der.shapeLoopsInRect", "shp.transformLoops"),
     ("der.bandRings", "clp.strokeStripNear"),
     ("der.bandRings", "clp.strokeOutline"),
@@ -409,22 +423,24 @@ E_HAND = [
     ("rnd.render", "rnd._insertSorted"),
     ("rnd._buildPieces", "rnd._buildInto"),
     ("rnd._buildPieces", "rnd._addFillPath"),
-    ("rnd._buildInto", "rnd.pushShapeAnchors"),
+    ("rnd._buildInto", "rnd._pushArea"),
+    ("rnd._pushArea", "rnd.pushShapeAnchors"),
     ("rnd._buildInto", "rnd.pushGapAnchors"),
-    ("rnd._buildInto", "rnd._fatPolys"),
+    ("rnd._buildInto", "rnd._buildOutlineInto"),
+    ("rnd._buildOutlineInto", "rnd.ensureOutline"),
     ("rnd._buildInto", "rnd._addShapePath"),
-    ("rnd.pushShapeAnchors", "shp.shapeToCubics"),
+    ("rnd.pushShapeAnchors", "rnd.pushArcPiece"),
     ("shp.shapeToCubics", "shp.pieceToCubics"),
-    ("rnd._fatPolys", "cvo.strokeLoops"),
+    ("rnd.ensureOutline", "cvo.strokeLoops"),
     ("rnd._addFillPath", "rnd.mkPath"),
     ("rnd._addShapePath", "rnd.mkPath"),
     ("rnd._applyOpacity", "rnd._fade"),
-    ("rnd.syncWorld", "rnd._renderSelection"),
+    ("rnd.syncWorld", "rnd._renderOverlays"),
+    ("rnd._renderOverlays", "rnd._renderSelection"),
 
     # ---- camera ----
     ("eng.zoomFactorAt", "cam.zoomFactorAt"),
     ("eng.zoomFactorAt", "eng._visibleChanged"),
-    ("eng.zoomFactorAt", "rnd.needsRebake"),
     ("eng.zoomFactorAt", "rnd.needsFatFlip"),
     ("eng.zoomFactorAt", "rnd.needsFadeFlip"),
     ("eng.zoomFactorAt", "rnd.needsReorigin"),
@@ -440,7 +456,8 @@ E_HAND = [
     ("eng.panBy", "eng._perf"),
     ("cam.panBy", "cam._settle"),
     ("cam.zoomFactorAt", "eng.pointerUp"),        # finalizeLiveStroke hook
-    ("cam.zoomFactorAt", "cam._settle"),
+    ("cam.zoomFactorAt", "cam._maybeCross"),
+    ("cam._maybeCross", "cam._settle"),
     ("cam._settle", "cam._maybeShift"),
     ("cam._settle", "cam._crossUp"),
     ("cam._settle", "cam._crossDown"),
@@ -451,8 +468,9 @@ E_HAND = [
     ("lm.ensureChild", "lm._viewCell"),
     ("lm.ensureChild", "lm.cellChild"),
     ("lm._viewCell", "fl.cellOf"),
-    ("lm.cellChild", "fl.cellEdge"),
-    ("lm.cellChild", "fl.cellCentre"),
+    ("lm.cellChild", "lm._addFrame"),
+    ("lm._addFrame", "fl.cellEdge"),
+    ("lm._addFrame", "fl.cellCentre"),
     ("lm.cellChild", "fl.carryDigit"),
     ("lm.cellChild", "lm.neighbour"),
     ("lm.neighbour", "fl.carryDigit"),
@@ -484,26 +502,32 @@ E_HAND = [
 
     # ---- selection and moving ----
     ("eng._pointerDown", "eng._hitTest"),
-    ("eng._pointerDown", "eng.select"),
-    ("eng._pointerDown", "eng._settleSelectionErases"),
-    ("eng._pointerDown", "ts.setBatch"),
+    ("eng._pointerUp", "sel._selectTap"),
+    ("sel._selectTap", "sel.select"),
+    ("eng._pointerMove", "sel._beginSelectDrag"),
+    ("sel._beginSelectDrag", "sel.select"),
+    ("sel._beginSelectDrag", "erp._settleSelectionErases"),
+    ("sel._beginSelectDrag", "ts.setBatch"),
+    ("sel._beginSelectDrag", "sel._dragSelection"),
     ("eng._hitTest", "eng._shapeHit"),
     ("eng._hitTest", "hit.distToPolyline"),
     ("eng._shapeHit", "shp.insideShape"),
     ("shp.insideShape", "shp.windingAt"),
     ("shp.windingAt", "shp.windingOfFlat"),
     ("eng.select", "eng._setSelection"),
-    ("eng._setSelection", "doc.editGroup"),
+    ("eng._setSelection", "doc.editKey"),
     ("eng._settleSelectionErases", "eng._flushErasesFor"),
     ("eng._flushErasesFor", "eng._bakeOne"),
     ("eng._dragSelection", "eng._selectionMembers"),
-    ("eng._dragSelection", "lm.frameFactor"),
-    ("eng._dragSelection", "lm.displaceFrame"),
-    ("eng._dragSelection", "doc.rehomeById"),
-    ("eng._dragSelection", "doc.setGeometryById"),
+    ("eng._dragSelection", "sel._dragFramesStart"),
+    ("eng._dragSelection", "sel._dragFrames"),
+    ("eng._dragSelection", "sel._displaceMember"),
+    ("sel._displaceMember", "lm.displaceFrame"),
+    ("eng._dragSelection", "doc.rehomeManyById"),
+    ("eng._dragSelection", "doc.setOffsetsById"),
     ("eng._dragSelection", "eng._render"),
     ("eng._selectionMembers", "doc.editGroup"),
-    ("doc.setGeometryById", "doc.translateGeometry"),
+    ("erp._promoteOversize", "doc.translateGeometry"),
     ("doc.setGeometryById", "doc._afterEdit"),
     ("doc.translateGeometry", "shp.translateLoops"),
     ("doc.scaleGeometry", "shp.transformLoopsAbout"),
@@ -512,11 +536,12 @@ E_HAND = [
     ("doc._afterEdit", "doc._emit"),
     ("doc.rehomeById", "doc._emit"),
     ("doc.removeById", "doc._emit"),
-    ("doc.add", "doc._forgetIfEmpty"),
-    ("eng._normalizeHome", "lm.neighbour"),
+    ("doc.removeById", "doc._forgetIfEmpty"),
+    ("eng._normalizeHome", "sel._homeShift"),
+    ("sel._homeShift", "lm.neighbour"),
     ("eng._normalizeHome", "doc.rehomeById"),
     ("eng._normalizeHome", "doc.moveById"),
-    ("eng._normalizeHome", "der.bboxOf"),
+    ("sel._homeShift", "der.bboxOf"),
     ("eng._applyLasso", "eng._lassoFind"),
     ("eng._applyLasso", "eng._setSelection"),
     ("eng._lassoFind", "doc.queryRect"),
@@ -524,7 +549,8 @@ E_HAND = [
     ("eng._lassoFind", "las.rectInsidePolygon"),
     ("eng._rectInActive", "lm.mapRectF"),
     ("las.rectInsidePolygon", "las.pointInPolygon"),
-    ("las.rectInsidePolygon", "las.segsCross"),
+    ("las.rectInsidePolygon", "las.polygonMissesRect"),
+    ("las.polygonMissesRect", "las.segsCross"),
 ]
 
 # Eight hand-read ids predate the "qualify only when ambiguous" rule and name a
@@ -576,7 +602,13 @@ for _a, _b in E_HAND:
     if (_a, _b) not in _seen:
         _seen.add((_a, _b))
         E.append((_a, _b))
-assert not _dropped, "hand edge names no node: %r" % (_dropped[:5],)
+if _dropped:
+    raise AssertionError(
+        "%d hand edge(s) in graph.E_HAND name no node - fix each to where the "
+        "code now is, or delete it:\n%s" % (len(_dropped), "\n".join(
+            "  (%r, %r)%s%s" % (a, b, "" if a in _KNOWN else "   <- %s is not a node" % a,
+                                "" if b in _KNOWN else "   <- %s is not a node" % b)
+            for a, b in _dropped)))
 
 # `file:line` for every extracted edge, so a claim the graph makes can be
 # checked against the source without reading the whole file.
@@ -586,6 +618,56 @@ for _a, _b, _sites in _DATA["edges"]:
     if (_a, _b) not in _seen:
         _seen.add((_a, _b))
         E.append((_a, _b))
+
+# A hand edge whose two ends are still nodes is not proof the call still
+# exists: on 2026-09-22, 61 of 373 had stopped being calls (the cut moved into
+# eraseJob, the descent into eraseDescent, the select tool out of
+# `_pointerDown`) while both names lived on. So every hand edge must be found
+# by the extractor, or name its callee inside the caller's body, or be listed
+# here with how the call is made.
+INDIRECT = {
+    ("doc._emit", "ts._onDoc"): "a listener the TileStore constructor registers",
+    ("cam.zoomFactorAt", "eng.pointerUp"): "the camera's finalizeLiveStroke hook, set by the engine",
+}
+
+
+_TEXTS = {}
+
+
+def is_call(a, b):
+    """Is a -> b a call the source still makes? Found by the extractor, listed
+    in INDIRECT, or the callee's name appears in the caller's (masked) body.
+    The Call Map's trees are checked with this too (check.py)."""
+    import re
+    from _mask import mask
+    if (a, b) in SITES or (a, b) in INDIRECT:
+        return True
+    U, MF = _DATA["universe"], _DATA["modfile"]
+    mod, rest = a.split(".", 1)
+    d = U.get(mod, {}).get(rest)
+    if not d:
+        return False
+    if mod not in _TEXTS:
+        _TEXTS[mod] = mask(open(os.path.join(HERE, "..", "..", MF[mod]),
+                                encoding="utf-8", errors="replace").read()).split("\n")
+    body = "\n".join(_TEXTS[mod][d["lo"] - 1:d["hi"]])
+    leaf = b.split(".")[-1]
+    if leaf == "constructor":
+        leaf = b.split(".")[-2]
+    return bool(re.search(r"\b" + re.escape(leaf) + r"\b", body))
+
+
+def _unproven():
+    return [(a0, b0) for a0, b0 in E_HAND if not is_call(_fix(a0), _fix(b0))]
+
+
+_stale = _unproven()
+if _stale:
+    raise AssertionError(
+        "%d hand edge(s) in graph.E_HAND are no longer calls - the caller's body "
+        "does not name the callee and the extractor does not find it. Fix each to "
+        "where the call now is, delete it, or list it in INDIRECT with how it is "
+        "made:\n%s" % (len(_stale), "\n".join("  (%r, %r)" % e for e in _stale)))
 
 # How much of the hand list the extractor reproduces on its own. A fall here
 # means the extractor has regressed; `python graph.py` prints it.

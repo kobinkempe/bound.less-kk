@@ -54,7 +54,9 @@ unknown is whether the dead zone it works around exists at all on other engines
 and other dpr, so this case stays: the failing readings were solid at 0.234 px,
 blank at 0.165 px, visible again at 0.082 px. (Full measurements: F-Z in
 `docs/OPEN-FLAGS.md`.) `Renderer.thinScale = false` in the console turns the fix
-off, which is how to tell whether a browser needs it.
+off, which is how to tell whether a browser needs it. The rescale is the SVG
+renderer's (`?svg`); the raster renderer, the default since 2026-09-22, fills
+the ink itself and needs no such fix — run this case on both.
 
 Screenshot live and magnify before calling anything blank — faint sub-pixel grey
 does not survive JPEG compression.
@@ -74,7 +76,10 @@ curves, no pixellated strokes.
 
 Marching ants animate at a sensible speed and direction; dashes meet up around a
 loop; specks blink; screen-edge chevrons appear where an object runs off-view.
-The animation is CSS-driven, so timing and smoothness are browser-specific.
+Under `?svg` the animation is CSS-driven, so timing and smoothness are
+browser-specific; on the raster renderer (the default) the ants are painted on
+an overlay canvas stepped by a clock, hold still while the camera moves, and
+stop under the OS's reduced-motion setting.
 
 ### 5. Colours match
 
@@ -172,7 +177,7 @@ nick made three jumps down moved the edge by a screen at seven jumps and out of
 the view entirely at eight). Curved edges are covered too, since 2026-09-06
 (the freeze became one radius, F44): a nick on a curve at any level must move
 nothing but the nick. A drawing saved after a nick is written as file version
-2 and will not open in the build that is deployed today; say so if it matters.
+2, which the build deployed on 2026-09-08 reads (the 2026-09-03 build did not).
 
 ### 11. The crossing jump (F44), and an erase below moved objects (F56)
 
@@ -205,6 +210,23 @@ stroke, wait, and zoom in within the level: it must scale like any other ink.
 Draw a stroke and undo it at once: it must go. With the pen at its widest and
 a long scribble (a bake of a second or more), do the same. On the phone, draw
 a stroke and immediately tap it with the select tool: it must select.
+
+### 13. The raster renderer (the default since 2026-09-22)
+
+Added 2026-09-22; this is RASTERISER-PLAN's stage 7, Kobin's look. The ink is
+drawn by the app's own rasteriser into 512-px plates on a canvas; `?svg` on the
+URL is the old renderer, for comparison. Seen so far in Kobin's Chrome on the
+desktop only: the Magnum Opus loads in 1.4 s against 6.2 s, and twenty views
+agree with the SVG renderer to under 1 % of pixels (a sub-quarter-pixel vertical
+offset, the pan snap). On each environment: open one canvas with and without
+`?svg` at the same view — colour, order and edges must match, at 1× and zoomed
+in. Zoom out fast across two level jumps: paper may show at the edges for a
+moment, the picture must never go blank. Draw a stroke and let go: it must not
+vanish for even a frame. Select a large group and drag it: the selection follows
+the finger and nothing under it goes blank. Check paint with a screenshot,
+magnified. Nothing of this is measured on a phone (its plate cache is 56 MiB and
+it runs up to four workers); with `?dev`, `__kobinEngine.renderer.perf.report()`
+in the console is the run's numbers.
 
 ---
 

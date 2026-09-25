@@ -64,8 +64,7 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
     };
     if (decoded.scaleDef) outMeta.scaleDef = decoded.scaleDef;
     if (decoded.scenes) outMeta.scenes = decoded.scenes;
-    if (decoded.hiddenScenes) outMeta.hiddenScenes = decoded.hiddenScenes;
-    if (decoded.sceneSeq) outMeta.sceneSeq = decoded.sceneSeq;
+    if (decoded.sceneIndex) outMeta.sceneIndex = decoded.sceneIndex;
     // Version 1 unless something in the drawing needs version 2 (a cut line,
     // F43), so an unaffected drawing still opens in any build.
     let version = 1;
@@ -150,12 +149,51 @@ function decodeMeta(m, { lenient = false } = {}) {
         const scenes = m.scenes.filter(validScene).map(cloneScene);
         if (scenes.length) out.scenes = scenes;
     }
-    if (m && Array.isArray(m.hiddenScenes)) {
-        const hidden = m.hiddenScenes.filter((h) => h && isFrameKey(h.level) && validRect(h.rect))
-            .map((h) => ({ level: h.level, rect: cloneRect(h.rect) }));
-        if (hidden.length) out.hiddenScenes = hidden;
-    }
+    // An old file's scene counter, read (never written) so a first index build numbers past it.
     if (m && Number.isInteger(m.sceneSeq) && m.sceneSeq > 0) out.sceneSeq = m.sceneSeq;
+    const si = decodeSceneIndex(m && m.sceneIndex);
+    if (si) out.sceneIndex = si;
+    return out;
+}
+
+// The scene index's saved state (sceneIndex.exportState, SCENES-PLAN §7.3). Regenerable, so
+// lenient like the scene list: a malformed entry is dropped; a malformed whole is no index at all
+// (the load builds one).
+const MEMBERS = /^[0-9a-z.,]*$/;
+const finite = (v) => typeof v === "number" && Number.isFinite(v);
+function decodeSceneIndex(si) {
+    if (!si || typeof si !== "object" || si.v !== 3 || !Array.isArray(si.scenes)) return null;
+    const idn = (s) => typeof s.id === "string" && s.id && s.id.length <= 40 && typeof s.name === "string" && isFrameKey(s.anchor);
+    const named = (p) => p && typeof p.id === "string" && p.id && p.id.length <= 40 && (p.name == null || typeof p.name === "string");
+    const nameOf = (p) => (typeof p.name === "string" ? p.name.slice(0, 120) : null);
+    const scenes = si.scenes.filter((s) => s && idn(s) && typeof s.m === "string" && MEMBERS.test(s.m)).map((s) => ({
+        id: s.id, seq: Number.isInteger(s.seq) ? s.seq : 0, name: s.name.slice(0, 120), named: !!s.named, anchor: s.anchor,
+        ox: finite(s.ox) ? s.ox : 0, oy: finite(s.oy) ? s.oy : 0, version: Number.isInteger(s.version) ? s.version : 0,
+        ...(typeof s.vtag === "string" && /^[0-9a-z]{1,12}$/.test(s.vtag) ? { vtag: s.vtag } : {}),
+        Lmin: finite(s.Lmin) ? s.Lmin : 0, Lmax: finite(s.Lmax) ? s.Lmax : 0,
+        ...(validRect(s.rect) ? { rect: cloneRect(s.rect) } : {}), m: s.m,
+        ...(typeof s.e === "string" && s.e && MEMBERS.test(s.e) ? { e: s.e } : {}),
+        // parts (their rects in the scene's own coordinates, so a free rect is not checked as a frame rect)
+        ...(Array.isArray(s.parts) ? { parts: s.parts.filter((p) => named(p) && p.rect && finite(p.rect.x) && finite(p.rect.y) && finite(p.rect.w) && finite(p.rect.h))
+            .slice(0, 256).map((p) => ({ id: p.id, seq: Number.isInteger(p.seq) ? p.seq : 0, name: nameOf(p), named: !!p.named, rect: { x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h } })) } : {}),
+    }));
+    const tomb = (Array.isArray(si.tomb) ? si.tomb : []).filter((t) => t && idn(t) && validRect(t.rect)).slice(-256).map((t) => ({
+        id: t.id, seq: Number.isInteger(t.seq) ? t.seq : 0, name: t.name.slice(0, 120), named: !!t.named, anchor: t.anchor,
+        rect: cloneRect(t.rect), Lmin: finite(t.Lmin) ? t.Lmin : 0, Lmax: finite(t.Lmax) ? t.Lmax : 0, t: finite(t.t) ? t.t : 0,
+    }));
+    const dirty = (Array.isArray(si.dirty) ? si.dirty : []).filter((id) => Number.isInteger(id));
+    const pos = (v) => (Number.isInteger(v) && v > 0 ? v : 1);
+    const out = { v: 3, seq: pos(si.seq), ver: pos(si.ver), pseq: pos(si.pseq), rseq: pos(si.rseq), scenes, tomb, dirty };
+    if (Array.isArray(si.regions)) {
+        out.regions = si.regions.filter((r) => named(r) && typeof r.parent === "string" && Array.isArray(r.kids) && r.kids.every((k) => typeof k === "string"))
+            .slice(0, 4096).map((r) => ({ id: r.id, seq: Number.isInteger(r.seq) ? r.seq : 0, name: nameOf(r), named: !!r.named, parent: r.parent, kids: r.kids.slice(0, 4096) }));
+    }
+    // erase footprints (SCENES-PLAN §6 row 14b): chunk records in their host's stored coordinates
+    if (Array.isArray(si.erase)) {
+        out.erase = si.erase.filter((e) => e && Number.isInteger(e.id) && Number.isInteger(e.e) && Number.isInteger(e.host) && isFrameKey(e.home)
+            && finite(e.w) && e.w > 0 && Array.isArray(e.raw) && e.raw.length && e.raw.length % 5 === 0 && e.raw.every(finite))
+            .map((e) => ({ id: e.id, e: e.e, host: e.host, key: Number.isInteger(e.key) ? e.key : e.host, home: e.home, w: e.w, raw: e.raw.slice(), ...(e.off ? { off: true } : {}) }));
+    }
     return out;
 }
 
@@ -163,12 +201,15 @@ function validRect(r) {
     return r && isFiniteNum(r.x) && isFiniteNum(r.y)
         && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
 }
-// A frame key: a depth int (the spine, still written that way) or a lattice
-// cell path built from one, e.g. "0/12,-3/0,1". The old free-floating sibling
-// form ("2~1") cannot occur any more and is not accepted — a scene naming one
-// would point at a frame that no document can contain.
+// A frame id as `LevelMap._childId` mints it: a depth int (the spine, still written that
+// way) or a cell path built from one, "0/12,-3/0,1", where ANY segment may carry a `#n`
+// because its cell was already taken — the child of "0/1,2#2" is "0/1,2#2/3,4". F80: the
+// suffix was accepted on the last segment only, so a drawing with a frame under a twin
+// could not be opened and a scene there was dropped on save. The old free-floating sibling
+// form ("2~1") is not accepted.
+const FRAME_ID = /^-?\d+(#\d+)?(\/-?\d+,-?\d+(#\d+)?)*$/;
 function isFrameKey(v) {
-    return Number.isInteger(v) || (typeof v === "string" && /^-?\d+(\/-?\d+,-?\d+)*(#\d+)?$/.test(v));
+    return Number.isInteger(v) || (typeof v === "string" && FRAME_ID.test(v));
 }
 function validScene(s) {
     return s && typeof s.id === "string" && s.id
@@ -181,10 +222,12 @@ function cloneScene(s) {
         id: s.id.slice(0, 40), name: s.name.slice(0, 120),
         level: s.level, rect: cloneRect(s.rect),
         pinned: !!s.pinned, auto: !!s.auto,
-        ...(typeof s.hash === "string" ? { hash: s.hash.slice(0, 20) } : {}),
+        ...(typeof s.hash === "string" ? { hash: s.hash.slice(0, 64) } : {}),
         ...(Number.isInteger(s.depth) && s.depth >= 0 ? { depth: s.depth } : {}),
         ...(typeof s.parent === "string" && s.parent ? { parent: s.parent.slice(0, 40) } : {}),
-        ...(s.captured ? { captured: true } : {}),
+        ...(Number.isInteger(s.count) && s.count >= 0 ? { count: s.count } : {}),
+        ...(s.kind === "part" || s.kind === "region" ? { kind: s.kind } : {}),
+        ...(typeof s.region === "string" && s.region ? { region: s.region.slice(0, 40) } : {}),
     };
 }
 
@@ -255,10 +298,8 @@ function decodeNatives(n) {
     if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of frames");
     const seen = new Set();
     for (const l of Object.keys(n)) {
-        // keys are frame ids: an integer depth (the spine) or a cell path built
-        // from one, e.g. "0/12,-3/0,1". A "#n" suffix marks a frame minted in a
-        // cell its birth chain no longer names (a subtree move, 2026-09-14).
-        if (!/^-?\d+(\/-?\d+,-?\d+)*(#\d+)?$/.test(l)) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
+        // keys are frame ids (`FRAME_ID`: a `#n` may sit on any segment, F80).
+        if (!FRAME_ID.test(l)) throw new Error(`bad natives: frame "${l}" is not a valid frame id`);
         if (!Array.isArray(n[l])) throw new Error(`bad natives: frame ${l} is not an array`);
         // Objects that turn out to be nothing at all are DROPPED here rather
         // than refused — see the shape branch below.

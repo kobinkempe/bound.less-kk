@@ -88,9 +88,3 @@ export async function decompressFromUint8Array(u8) {
     }
     return LZString.decompressFromUint8Array(u8) ?? "";
 }
-
-/** Tests only. */
-export function _resetLzWorkerForTests() {
-    if (worker) { try { worker.terminate(); } catch (err) { /* ignore */ } }
-    worker = null; broken = false; pending.clear();
-}

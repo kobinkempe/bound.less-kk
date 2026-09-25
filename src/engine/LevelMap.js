@@ -36,7 +36,7 @@
  * stored coordinate inside [-W/2, W/2) BY CONSTRUCTION.
  */
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
-import { hasOffsets, shiftAt, hasDigits } from "./geometry/offsets";
+import { hasOffsets, shiftAt, hasDigits, addOffset } from "./geometry/offsets";
 import {
     R, TILE, TileGrid, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
     displacementDigits, applyDigits, tilePhase, childTilePhase,
@@ -96,12 +96,15 @@ export default class LevelMap {
         this._paths = new Map();
         this._rootId = null;
         this.addrEpoch = 0;        // bumped by every re-address; the tile cache keys its stamps on it
+        this.minted = null;        // a Set every frame added joins, when the engine collects frames (F94)
+        this._retired = null;      // ids of forgotten MOVED frames: never minted again this session
         this._addFrame("0", null, { i: 0, j: 0 }, 0);
     }
 
     // ---- frame primitives ----
     _addFrame(id, parent, cell, depth) {
         this._paths.clear();
+        if (this.minted) this.minted.add(id);
         const f = {
             id, parent, depth, cell, _kids: null,
             shift: null, addrSeq: 0,
@@ -134,13 +137,6 @@ export default class LevelMap {
             out.push(c);
             if (c && c._shadows) for (const sid of c._shadows) out.push(this.frames.get(sid));
         }
-        return out;
-    }
-    /** The frames shadowing `id`: at its cell, invisible to address lookups until merged. */
-    shadowsOf(id) {
-        const f = this.frames.get(id);
-        const out = [];
-        if (f && f._shadows) for (const sid of f._shadows) { const s = this.frames.get(sid); if (s) out.push(s); }
         return out;
     }
     /** `fn(frame)` over the subtree `rootId` stands for: the root, its shadows, its kids and theirs. */
@@ -179,12 +175,35 @@ export default class LevelMap {
         const p = this.frames.get(parentId);
         const depth = p.depth + 1;
         let id = this._isSpine(parentId, i, j) ? String(depth) : parentId + "/" + i + "," + j;
-        if (this.frames.has(id)) {
+        const taken = (x) => this.frames.has(x) || (this._retired != null && this._retired.has(x));
+        if (taken(id)) {
             let n = 2;
-            while (this.frames.has(id + "#" + n)) n++;
+            while (taken(id + "#" + n)) n++;
             id = id + "#" + n;
         }
         return id;
+    }
+    /**
+     * Remove a frame that holds nothing lattice-side — no kids, no shadows; the caller checks its
+     * natives and its keepers (frame GC, OPEN-FLAGS F94). A shadow leaves its resident's set, a
+     * resident its parent's cell. A MOVED frame's id is retired for the session: caches keyed by it
+     * picture its last address, which a new mint at its birth cell would not be. False if refused.
+     */
+    forget(id) {
+        const f = this.frames.get(id);
+        if (!f || f.parent == null || (f._kids && f._kids.size) || (f._shadows && f._shadows.size)) return false;
+        if (f.shadowOf != null) {
+            const r = this.frames.get(f.shadowOf);
+            if (r && r._shadows) { r._shadows.delete(id); if (!r._shadows.size) r._shadows = null; }
+        } else {
+            const p = this.frames.get(f.parent), key = cellKey(f.cell.i, f.cell.j);
+            if (p && p._kids && p._kids.get(key) === id) p._kids.delete(key);
+        }
+        if (f.addrSeq) (this._retired || (this._retired = new Set())).add(id);
+        this.frames.delete(id);
+        this._paths.clear();
+        if (this._spine.get(f.depth) === id) this._rebuildSpine();
+        return true;
     }
     /** The child cell (i, j) of `parentId`, minting it if this is its first visit. */
     cellChild(parentId, i, j) {
@@ -456,26 +475,23 @@ export default class LevelMap {
         return out;
     }
     /**
-     * Where every frame of a subtree ENDS UP when its contents are displaced by (dx, dy)
-     * in the units of a frame at `atDepth`, read off the START addresses in `start`
-     * (`subtreeStart`) and never the current ones.
+     * Where every frame of a subtree ends up when its contents are displaced by (dx, dy) in
+     * the units of a frame at `atDepth`, read off the START addresses in `start`
+     * (`subtreeStart`) — `displaceFrame`'s arithmetic frame for frame, which is what makes a
+     * native land where the per-object path puts it. Chains resolve from the anchor down in
+     * ascending depth; `at` holds the cells the movers are headed for, so a kid follows a
+     * moving parent, and a step no mover claims is the live lattice's (minted if new).
      *
-     * The arithmetic is `displaceFrame`'s, frame for frame and input for input, so a
-     * native of any of these frames lands exactly where the per-object path would put it
-     * — that is the registration the whole O(1) move rests on.
+     * With `shiftOf(id)` (the frame's shift at the start, or null) the frame's shift — that
+     * plus the rest — is kept within ±W/2: its whole cells join the frame's own digit before
+     * the chain resolves (SUBTREE-O1-PLAN §2.2, `addOffset`'s carry), so a kid's chain meets
+     * the frame where it is and a settle carries only what a native's own table adds.
      *
-     * The chain is then resolved from the anchor down, and a moving frame wins: `at`
-     * holds the cells the movers are headed for, so a frame whose parent moves with it
-     * follows that parent rather than the container the parent is vacating. A step no
-     * mover claims comes from the live lattice and is minted if it has never been
-     * visited; a minted container that ends up empty is a harmless addressable cell.
-     *
-     * One entry per frame in `start`, `{ id, depth, parent, i, j, rest }` or
-     * `{ id, why }`, in DESCENDING depth order. `rest` is `displaceFrame`'s: what the
-     * digits could not express, in the frame's own units, non-zero only at `atDepth` + 1
-     * and + 2.
+     * One entry per frame, `{ id, depth, parent, i, j, rest, shift }` or `{ id, why }`, in
+     * DESCENDING depth order: `rest` is `displaceFrame`'s (non-zero at `atDepth` + 1 and + 2),
+     * `shift` the frame's shift after the move (with `shiftOf`; null when zero).
      */
-    moveSubtreeTargets(rootId, atDepth, dx, dy, start) {
+    moveSubtreeTargets(rootId, atDepth, dx, dy, start, shiftOf = null) {
         const ids = [...start.keys()].sort((a, b) => start.get(a).depth - start.get(b).depth);
         const at = new Map();
         const out = [];
@@ -500,6 +516,13 @@ export default class LevelMap {
             chain.reverse();
             const k = chain.length;
             const X = displacementDigits(dx, k), Y = displacementDigits(dy, k);
+            let shift = null;
+            if (shiftOf) {
+                const had = shiftOf(id);
+                const s = addOffset(had ? [[had[0], had[1]]] : null, 0, X.rest, Y.rest);
+                X.digits[k - 1] += s.cellX; Y.digits[k - 1] += s.cellY;
+                shift = s.below && s.below[0] ? [s.below[0][0], s.below[0][1]] : null;
+            }
             const ax = applyDigits(chain.map((c) => c.i), 0, X.digits);
             const ay = applyDigits(chain.map((c) => c.j), 0, Y.digits);
             let from = a.id;
@@ -521,7 +544,7 @@ export default class LevelMap {
             if (!ok) { out.push({ id, why: "the target chain cannot be reached" }); continue; }
             const cell = cells[cells.length - 1];
             at.set(parent + "|" + cell.i + "," + cell.j, id);
-            out.push({ id, depth: e.depth, parent, i: cell.i, j: cell.j, rest: [X.rest, Y.rest] });
+            out.push({ id, depth: e.depth, parent, i: cell.i, j: cell.j, rest: [X.rest, Y.rest], shift });
         }
         out.sort((p, q) => start.get(q.id).depth - start.get(p.id).depth);
         return out;
@@ -562,8 +585,9 @@ export default class LevelMap {
         let added = 0;
         for (const f of list) {
             const cur = this.frames.get(f.id);
-            const p = f.parent != null ? this.frames.get(f.parent) : null;
+            let p = f.parent != null ? this.frames.get(f.parent) : null;
             if (cur) { if (cur.parent == null && p) this._adopt(cur, p, { i: f.i, j: f.j }); continue; }
+            if (f.parent != null && !p) p = this.ensureId(f.parent);   // a parent main lost since: re-minted, not skipped (F99)
             if (f.parent != null && !p) continue;
             this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
             added++;
@@ -571,9 +595,11 @@ export default class LevelMap {
         return added;
     }
     /**
-     * The frame an id names, minted along its chain when it is missing (F67: a file
-     * whose natives sit under a frame the lattice lacks). Null for an id no frame can
-     * have. Ids are "<spine depth>/i,j/i,j…".
+     * The frame an id names, re-minted when the lattice lacks it (F67; F99: natives under a `#2`
+     * twin's child were never drawn). Ids are "<spine depth>/i,j[#n]/…": below the deepest prefix
+     * that exists, each missing frame is added with its EXACT id in its birth cell, or as a shadow
+     * of the cell's resident (merged at the next read). Null, with nothing minted, for an id no
+     * frame can have.
      */
     ensureId(id) {
         const hit = this.frames.get(id);
@@ -581,12 +607,26 @@ export default class LevelMap {
         const segs = String(id).split("/");
         const depth = Number(segs[0]);
         if (!Number.isInteger(depth) || segs[0] !== String(depth)) return null;
-        if (!this.frames.has(segs[0])) this.ensureSpine(depth);
-        let cur = this.frames.get(segs[0]);
-        for (let n = 1; n < segs.length && cur; n++) {
-            const m = /^(-?\d+),(-?\d+)$/.exec(segs[n]);
-            if (!m) return null;
-            cur = this.cellChild(cur.id, +m[1], +m[2]);
+        const cells = [];
+        for (let n = 1; n < segs.length; n++) {
+            const m = /^(-?\d+),(-?\d+)(#\d+)?$/.exec(segs[n]);
+            if (!m || !inDigit(+m[1]) || !inDigit(+m[2])) return null;
+            cells.push({ i: +m[1], j: +m[2] });
+        }
+        let k = segs.length - 1;
+        while (k > 1 && !this.frames.has(segs.slice(0, k).join("/"))) k--;
+        if (k === 1 && !this.frames.has(segs[0])) this.ensureSpine(depth);
+        let cur = this.frames.get(segs.slice(0, k).join("/"));
+        for (let n = k; n < segs.length && cur; n++) {
+            const exact = segs.slice(0, n + 1).join("/"), { i, j } = cells[n - 1];
+            const resident = this.findCellChild(cur.id, i, j);
+            const f = this._addFrame(exact, cur.id, { i, j }, cur.depth + 1);
+            if (resident) {
+                cur._kids.set(cellKey(i, j), resident.id);
+                f.shadowOf = resident.id;
+                (resident._shadows || (resident._shadows = new Set())).add(f.id);
+            }
+            cur = f;
         }
         return cur && cur.id === id ? cur : null;
     }
@@ -1069,6 +1109,7 @@ export default class LevelMap {
     }
     load(data) {
         this._paths.clear();
+        this._retired = null;
         if (data && !data.__lattice && Object.keys(data).length) {
             const e = new Error("This drawing was saved in the pre-lattice format and cannot be opened.");
             e.code = "LEGACY_FORMAT";
@@ -1077,6 +1118,12 @@ export default class LevelMap {
         this.frames = new Map();
         this._spine = new Map();
         this._rootId = null;
+        // A load's frames are not frame-GC candidates: the host sweeps once the store's state is in (F94).
+        const minted = this.minted;
+        this.minted = null;
+        try { this._loadFrames(data); } finally { this.minted = minted; }
+    }
+    _loadFrames(data) {
         const list = (data && data.frames) || [];
         // Parents before children, so _kids is wired as we go.
         const byId = new Map(list.map((f) => [f.id, f]));
@@ -1085,6 +1132,7 @@ export default class LevelMap {
             if (!f || done.has(f.id)) return;
             done.add(f.id);
             if (f.parent != null && byId.has(f.parent)) put(byId.get(f.parent));
+            else if (f.parent != null && !this.frames.has(f.parent)) this.ensureId(f.parent);   // not an unreachable orphan (F99)
             this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
             if (f.shift) this.frames.get(f.id).shift = [f.shift[0], f.shift[1]];
         };
@@ -1118,6 +1166,7 @@ export default class LevelMap {
     }
     reset() {
         this._paths.clear();
+        this._retired = null;
         this.frames = new Map();
         this._spine = new Map();
         this._rootId = null;

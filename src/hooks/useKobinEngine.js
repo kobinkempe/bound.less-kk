@@ -2,9 +2,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import KobinEngine from "../engine/KobinEngine";
 import { formatScaleNumber } from "../engine/scaleBar";
 import { OpLog } from "../engine/oplog";
+import * as rasterPerf from "../engine/raster/rasterPerf";
+import { withSvgEngine } from "../storage/thumbnails";
 import { encodeObjects, decodeObjects } from "../engine/format2";
+import * as reportApi from "../engine/report";
+import { macroYield } from "../engine/report";
+import { sendDevReport, installConsoleTap, replayReport, scrubIdentity } from "./reportSend";
 import {
-    loadCanvasStore, writeCanvas2, backupCanvasDoc, statsFromNatives, cloudPushSource, replaceCanvasStore,
+    loadCanvasStore, writeCanvas2, backupCanvasDoc, statsFromNatives, cloudPushSource,
+    newCanvasId, saveCanvasDoc, upsertIndexEntry, statsFromDoc, getStoreHeader,
 } from "../storage/localCanvases";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -31,6 +37,36 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
  * standing notice below rides `saveError`, which CanvasEditor renders.
  */
 export const LOCAL_AUTOSAVE = true;
+
+/**
+ * THE RENDERER FLAG (RASTERISER-PLAN §5.1, §5.7). The raster renderer — ink in 512 px plates on
+ * a canvas — is the DEFAULT (Kobin, 2026-09-22); `?svg`, in the hash where the router keeps the
+ * query or in the search, is the URL gate to the SVG renderer, one keystroke away. `?raster=0`
+ * (`false`, `off`) is read the same way, so an old dev URL still works; a bare `?raster` is a
+ * no-op. CONSTRUCTION-time: the renderer owns a canvas, a plate cache and a worker pool, so the
+ * dev toggle rewrites the parameter and reloads rather than swapping renderers in a live tab.
+ */
+export function rasterFromUrl(href) {
+    const s = String(href || "");
+    // Both names are delimited at BOTH ends — `(?=[&#]|$)` — or a longer parameter would read
+    // as one of them: `?svgExport=1` or `?rasterWorkers=4` (§6.6, shipped) must decide nothing.
+    const svg = /[?&]svg(?:=([^&#]*))?(?=[&#]|$)/.exec(s);
+    if (svg && !(svg[1] === "0" || svg[1] === "false" || svg[1] === "off")) return false;
+    const r = /[?&]raster(?:=([^&#]*))?(?=[&#]|$)/.exec(s);
+    if (r && (r[1] === "0" || r[1] === "false" || r[1] === "off")) return false;
+    return true;
+}
+/** The same URL with the SVG gate set (`on` false) or cleared (`on` true), where the query already lives. */
+export function hrefWithRaster(href, on) {
+    const s = String(href || "");
+    const cut = s.replace(/([?&])(svg|raster)(=[^&#]*)?(&|(?=#)|$)/g, "$1").replace(/([?&])(?=#|$)/g, "");
+    if (on) return cut;
+    // The hash owns the query when there is a hash route, and it is the tail of the string, so
+    // appending at the end lands inside it; with no hash it lands in the search.
+    const h = cut.indexOf("#");
+    const tail = h >= 0 ? cut.slice(h) : cut;
+    return cut + (tail.indexOf("?") >= 0 ? "&" : "?") + "svg";
+}
 
 const AUTOSAVE_OFF_NOTICE = {
     off: true, quota: false, at: Date.now(),
@@ -80,19 +116,27 @@ const signCursor = (plus) => {
 };
 const SIGN_CURSOR = { "+": signCursor(true), "-": signCursor(false) };
 
-export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
+export default function useKobinEngine({ canvasId = null, onAutosave, gated = false, onRefused = null } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
     const errsRef = useRef([]);
     const onAutosaveRef = useRef(null);
     onAutosaveRef.current = onAutosave;
+    const onRefusedRef = useRef(null);
+    onRefusedRef.current = onRefused;
     // Deleting a canvas flips this off so the unmount autosave can't quietly
     // recreate the document that was just moved to the recycle bin.
     const persistRef = useRef(true);
     // The autosaver's controls, set up by the mount effect: what an explicit
     // save, an undo, and a meta edit have to tell it.
     const saverRef = useRef(null);
-    const replaceStoreRef = useRef(null);
+    // SYNC-PLAN R2: false while another tab or device has the pen; the saver writes nothing then.
+    // `gated` (the editor) starts closed: the session opens it once it holds the pen.
+    const writableRef = useRef(!gated);
+    const writerRef = useRef(null);      // the tab's token on every store write (the fence)
+    const refusedRef = useRef(false);    // a write was refused: the work is in memory only
+    const endGestureRef = useRef(null);
+    const lastWriteRef = useRef(null);   // the write in flight, which outlives an unmount
     const [engineReady, setEngineReady] = useState(false);
     const [tool, setTool] = useState("pen");
     const [penType, setPenType] = useState("freehand");
@@ -149,8 +193,15 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             if (due <= 0) { th.last = now; setStatus(th.latest); }
             else if (!th.timer) th.timer = setTimeout(() => { th.timer = null; th.last = performance.now(); setStatus(th.latest); }, due);
         };
-        const engine = new KobinEngine(host, { width: w, height: h, onStatus });
+        const engine = new KobinEngine(host, { width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href) });
         engineRef.current = engine;
+        if (gated) engine.readOnly = true;
+        // The raster report's BROWSER bucket is `rafDelta − mainMs` and it has no other producer:
+        // the frame meter's own rAF loop is the one this rides, because a second loop would keep
+        // a phone's display pipeline awake (RASTERISER-PLAN §8.1, D28, D214). Assigned whatever
+        // the renderer is — `onFrame` returns immediately until the ring is allocated, so an
+        // SVG-only session pays one property read a frame.
+        if (engine.frameMeter) engine.frameMeter.onFrame = rasterPerf.onFrame;
         // The console handle — `window.__kobinEngine.renderer.thinScale = false`
         // and the like — is a dev tool, and until 2026-09-07 every production
         // visitor had it. It is there in a dev build, and in production only
@@ -158,6 +209,9 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         // the query in the hash: /#/canvas/:id?dev).
         if (process.env.NODE_ENV !== "production" || /[?&]dev(?:[=&]|$)/.test(window.location.hash + window.location.search)) {
             window.__kobinEngine = engine;
+            // The dev report's API, for the console and the second-engine harness (OPEN-FLAGS F58).
+            window.__kobinReport = { ...reportApi, send: sendDevReport, replayReport, scrubIdentity };
+            installConsoleTap();
         }
         if (!canvasId) persistRef.current = false;
 
@@ -203,9 +257,11 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         let failCount = 0;
         let skipUntil = 0;
         let failedSeq = -1;
+        let lastOkAt = 0, lastFail = null;   // the report's save section
         let frameSeq = {};
         const logBytes = new Map(), snapBytes = new Map(), markSeq = new Map();
         let carried = [];
+        let resetPending = false;
         let lastFloor = 0;
         const log = new OpLog(engine);
         const camKey = () => {
@@ -245,7 +301,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             }
         };
         const save = (why, force = false, opts = {}) => {
-            if (!LOCAL_AUTOSAVE || !persistRef.current || !restored) return Promise.resolve(false);
+            if (!LOCAL_AUTOSAVE || !persistRef.current || !restored || !writableRef.current) return Promise.resolve(false);
             const dirty = docSeq !== savedSeq || log.queue.length > 0 || carried.length > 0;
             const cam = camKey();
             if (!dirty && !opts.full) {
@@ -262,33 +318,43 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             if (saving) { again = true; return Promise.resolve(false); }
             const t0 = now();
             const d = log.drain();
-            const full = fullDirty || !hasBase || d.full || !!opts.full;
-            const resetLog = d.full || !hasBase;
-            const entries = d.full ? [] : carried.concat(d.entries);
+            // A document replaced whole (a clear, a file load) is a new history: it takes a seq of its
+            // own, so every frame is written anew and the cloud sees the head move (SYNC-PLAN).
+            const reset = d.full || resetPending;
+            resetPending = false;
+            if (reset && hasBase) log.seq += 1;
+            const full = fullDirty || !hasBase || reset || !!opts.full;
+            const resetLog = reset || !hasBase;
+            const entries = reset ? [] : carried.concat(d.entries);
             carried = [];
             const takenFull = fullDirty;
             let takenSeq = docSeq;
             fullDirty = false;
             noteEntries(entries, frameSeq);
             const forced = new Set(d.forced);
-            const frameIds = Object.keys(engine.nativesByLevel);
-            const want = new Set(full ? frameIds : d.forced.filter((L) => engine.nativesByLevel[L]));
-            for (const L of frameIds) if (!want.has(L) && outgrown(L)) want.add(L);
+            // Listed: the frames with a list. An unlisted one is empty as of this write, and replay
+            // counts it as holding every entry (F98).
+            const holding = () => Object.keys(engine.nativesByLevel);
+            const want = new Set(full ? holding() : d.forced);
+            for (const L of holding()) if (outgrown(L)) want.add(L);
             const snapshots = {};
-            let env;
+            let env, frameIds;
             try {
-                for (const L of want) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
-                // Reading a frame for its snapshot settles a pending shift (DESIGN.md §8): the
-                // settle's entry belongs to this write, beside the snapshot that already holds it.
-                for (let guard = 0; log.queue.length && guard < 4; guard++) {
+                // Reading a frame for its snapshot settles a pending shift (DESIGN.md §8): the settle's entry
+                // belongs to this write, beside the snapshot that already holds it. A frame listed without a
+                // stored snapshot is snapshotted too, so no listed frame's seq predates its content (F98).
+                for (let guard = 0; guard < 5; guard++) {
+                    for (const L of holding()) if (!(L in frameSeq)) want.add(L);
+                    for (const L of want) if (!(L in snapshots) && engine.nativesByLevel[L]) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
+                    if (!log.queue.length) break;
                     const d2 = log.drain();
                     noteEntries(d2.entries, frameSeq);
                     entries.push(...d2.entries);
-                    for (const L of d2.forced) {
-                        forced.add(L);
-                        if (!(L in snapshots) && engine.nativesByLevel[L]) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
-                    }
+                    for (const L of d2.forced) { forced.add(L); want.add(L); }
                 }
+                frameIds = holding();
+                const listed = new Set(frameIds);
+                for (const L of Object.keys(snapshots)) if (!listed.has(L)) delete snapshots[L];
                 takenSeq = docSeq;
                 env = engine.serializeDrawing({}, { frames: [] });
             } catch (err) {
@@ -309,15 +375,25 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             for (const op of engine.doc._redo) if (op._seq != null) floor = Math.min(floor, op._seq);
             for (const sq of markSeq.values()) floor = Math.min(floor, sq);
             const tSer = now();
+            // False for a write of the header alone (a camera, a name): a follower need not reload for it.
+            const data = full || resetLog || entries.length > 0 || Object.keys(snapshots).length > 0;
             // A failed write keeps its entries AND the frames it had to snapshot (a later tick must snapshot them too).
-            const putBack = () => { carried = entries.concat(carried); fullDirty = fullDirty || takenFull; for (const L of forced) log.forced.add(L); };
+            const putBack = () => { carried = entries.concat(carried); fullDirty = fullDirty || takenFull; resetPending = resetPending || reset; for (const L of forced) log.forced.add(L); };
             saving = true;
             inflight = writeCanvas2(canvasId, {
                 header: { ...header, name: header.meta.name, ...stats, seq: log.seq },
-                snapshots, frameIds, entries, full, resetLog, dropBelow: Math.max(0, floor),
+                snapshots, frameIds, entries, full, resetLog, dropBelow: Math.max(0, floor), writer: writerRef.current,
             })
                 .then((ok) => {
                     if (ok === null) throw new Error("no local database");
+                    if (ok === "fenced" || ok === "stale") {
+                        // Another tab holds the store, or it is ahead of this document: nothing more is
+                        // written; the work stays in memory for the session to keep (SYNC-PLAN R2).
+                        putBack(); writableRef.current = false; refusedRef.current = true;
+                        engine.notePerf?.("autosaveRefused", t0, { why, refused: ok });
+                        if (!disposed && onRefusedRef.current) onRefusedRef.current(ok);
+                        return false;
+                    }
                     if (ok === false) {
                         // No base record after all (the store was cleared
                         // under us): the next write is a full one.
@@ -331,7 +407,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
                     for (const L of Object.keys(snapshots)) { snapBytes.set(L, snapshots[L].geo.byteLength); logBytes.delete(L); }
                     for (const L of [...logBytes.keys()]) if (!engine.nativesByLevel[L]) logBytes.delete(L);
                     lastSavedCam = cam; lastSeenCam = cam;
-                    failCount = 0; skipUntil = 0; failedSeq = -1;
+                    failCount = 0; skipUntil = 0; failedSeq = -1; lastOkAt = Date.now();
                     if (docSeq === savedSeq && !log.queue.length) firstDirtyAt = 0;
                     engine.notePerf?.("autosave", t0, {
                         ok: 1, why, full: full ? 1 : 0, frames: Object.keys(snapshots).length, entries: entries.length,
@@ -339,7 +415,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
                     });
                     if (!disposed) {
                         setSaveError(null);
-                        onAutosaveRef.current?.({ name: header.meta.name, stats });
+                        onAutosaveRef.current?.({ name: header.meta.name, stats, seq: header.seq, data });
                     }
                     return true;
                 })
@@ -349,6 +425,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
                     failedSeq = takenSeq;
                     failCount = Math.min(failCount + 1, 6);
                     skipUntil = now() + 4000 * Math.pow(2, failCount);   // 8s -> 256s
+                    lastFail = { at: Date.now(), quota, err: String((err && (err.message || err.name)) || err).slice(0, 120) };
                     engine.notePerf?.("autosaveFail", t0, {
                         ok: 0, why, quota: quota ? 1 : 0, full: full ? 1 : 0,
                         err: String((err && err.name) || err).slice(0, 60),
@@ -380,6 +457,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
                     }
                     return r;
                 });
+            lastWriteRef.current = inflight;
             return inflight;
         };
         const flush = () => save("flush", true);
@@ -398,12 +476,36 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             // Dev: the saver's view, for the console (`__kobinSaver.debug()`).
             debug: () => ({ lastFloor, frameSeq: { ...frameSeq }, logSeq: log.seq, queued: log.queue.length, carried: carried.length,
                 undoSeqs: engine.doc._undo.map((o) => o._seq), redoSeqs: engine.doc._redo.map((o) => o._seq), marks: [...markSeq.entries()], hasBase, docSeq, savedSeq }),
+            // The dev report's save section: the state above in scalars, and when it last wrote and failed.
+            report: () => ({ autosave: LOCAL_AUTOSAVE, persist: persistRef.current, restored, hasBase, saving, dirty: docSeq !== savedSeq,
+                docSeq, savedSeq, logSeq: log.seq, queued: log.queue.length, carried: carried.length, lastFloor,
+                frames: Object.keys(frameSeq).length, marks: markSeq.size, failCount, backoffMs: Math.max(0, Math.round(skipUntil - now())),
+                lastOkAt, lastFail, undoSeqs: engine.doc._undo.slice(-10).map((o) => o._seq) }),
             // An explicit Save: every frame snapshotted, the log kept (it is the
             // undo history). Waits for a write in flight first.
             saveNow: async () => {
                 if (inflight) await inflight.catch(() => false);
                 return save("explicit", true, { full: true });
             },
+            // Everything drawn so far on disk before the pen is handed over (SYNC-PLAN R2): true when clean.
+            // With the saver off nothing is owed (a read-only tab's pending bakes are recomputed from the
+            // store), unless a write was refused: then the work is in memory only.
+            flush: async () => {
+                if (!writableRef.current) return !refusedRef.current;
+                for (let i = 0; i < 4; i++) {
+                    if (inflight) await inflight.catch(() => false);
+                    if (docSeq === savedSeq && !log.queue.length && !carried.length && !fullDirty) return true;
+                    await save("handover", true);
+                }
+                return docSeq === savedSeq && !log.queue.length && !carried.length;
+            },
+            hasUnsaved: () => refusedRef.current || docSeq !== savedSeq || log.queue.length > 0 || carried.length > 0 || fullDirty || resetPending,
+            // A file load: a new history, written whole with a seq of its own.
+            markReset: () => { resetPending = true; markDirty(true); },
+            // The work in memory was kept elsewhere (keepUnsaved): nothing is owed to this store now.
+            markKept: () => { log.drain(); carried = []; savedSeq = docSeq; fullDirty = false; resetPending = false; refusedRef.current = false; },
+            // The seq of the last entry this document holds, to compare with the store's.
+            knownSeq: () => log.seq,
         };
 
         if (window.__kobinEngine === engine) window.__kobinSaver = saverRef.current;
@@ -414,28 +516,34 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         // The store into the engine: snapshots through `loadDrawing`, then the log
         // replayed onto them (undo stacks and pending erasers included). Used at
         // mount and after a cloud pull has replaced the store.
-        const restoreFrom = (res) => {
+        // `camera`: the viewer's own, kept across a reload that follows another tab or device.
+        // No render here: the caller renders once, after the replay, a task later (`renderLoaded`;
+        // on the Magnum Opus the load and a cold render were one 5-7 s task, STALL 2026-09-23).
+        const restoreFrom = (res, camera = null) => {
             if (res.legacy) {
-                engine.loadDrawing(res.legacy);
+                engine.loadDrawing(camera ? { ...res.legacy, camera } : res.legacy, { render: false });
                 hasBase = false; fullDirty = true;
                 return true;
             }
             const natives = {};
             for (const [fid, f] of Object.entries(res.frames)) natives[fid] = decodeObjects(f.objects, f.geo);
-            const { store, frameIds, frameSeq: storedSeq, seq, id, name, savedAt, ...envelope } = res.header;
-            engine.loadDrawing({ ...envelope, natives });
+            const { store, frameIds, frameSeq: storedSeq, seq, id, name, savedAt, base, intent, pending, writer, ...envelope } = res.header;
+            engine.loadDrawing({ ...envelope, ...(camera ? { camera } : {}), natives }, { render: false });
             frameSeq = { ...(storedSeq || {}) };
             log.seq = seq || 0;
             logBytes.clear(); snapBytes.clear(); markSeq.clear(); carried = [];
             for (const [fid, f] of Object.entries(res.frames)) snapBytes.set(fid, f.geo.byteLength);
             log.replaying = true;
-            try { log.replay(res.entries, frameSeq); } finally { log.replaying = false; }
+            try { log.replay(res.entries, frameSeq, frameIds); } finally { log.replaying = false; }
             noteEntries(res.entries, frameSeq);
             for (const mid of [...markSeq.keys()]) if (!engine.doc.getById(mid)) markSeq.delete(mid);
-            engine._render();
             engine._scheduleBake();   // a pending eraser resumes where its log left it
             hasBase = true;
             return true;
+        };
+        const renderLoaded = async () => {
+            await macroYield();
+            if (!disposed) engine._render();
         };
         const settleAfterLoad = (loaded) => {
             if (loaded && hasBase) {
@@ -448,32 +556,54 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             if (docSeq !== savedSeq || fullDirty) schedule();
         };
         const restoreP = canvasId ? loadCanvasStore(canvasId) : Promise.resolve(null);
-        restoreP.then((res) => {
+        restoreP.then(async (res) => {
             if (disposed || !res) return false;
             try { return restoreFrom(res); } catch (err) {
-                // The stored copy will not decode. Keep it for a week rather
-                // than let the first autosave write an empty drawing over it.
+                // The stored copy will not decode. It is copied into the bin before `restored` lets the
+                // first autosave write over it (awaited: the copy must not read the overwritten store).
                 console.warn("kobin autosave restore failed", err);
-                backupCanvasDoc(canvasId);
+                await backupCanvasDoc(canvasId);
                 return false;
             }
         }, (err) => { console.warn("kobin autosave restore failed", err); return false; })
-        .then((loaded) => {
+        .then(async (loaded) => {
+            if (disposed) return;
+            await renderLoaded();   // loaded or not: what did load shows, and an empty canvas is cheap
             if (disposed) return;
             restored = true;
             settleAfterLoad(loaded);
+            if (loaded) engine.sweepFrames();   // the empty frames the store held: gone with the next write (F94)
             setEngineReady(true);
         });
-        // A cloud pull: the pulled store written whole over the local one (the
-        // caller has backed the local one up), then restored like a fresh open.
-        replaceStoreRef.current = async (pulled) => {
+        // The store, which another tab or a pull wrote, into this engine (SYNC-PLAN R2, R4, R6):
+        // this tick's unsaved log is dropped, since what is on disk is the truth. Returns the ms it took.
+        saverRef.current.reload = async ({ keepCamera = false } = {}) => {
             if (inflight) await inflight.catch(() => false);
-            const ok = await replaceCanvasStore(canvasId, pulled);
-            if (!ok) return false;
+            const t0 = now();
             const res = await loadCanvasStore(canvasId);
-            if (!res || disposed) return false;
-            restoreFrom(res);
-            settleAfterLoad(true);
+            if (!res || disposed) return null;
+            const cam = keepCamera ? engine.cam.state() : null;
+            log.drain();
+            try {
+                restoreFrom(res, cam);
+                settleAfterLoad(true);
+                engine.sweepFrames();
+                refusedRef.current = false; resetPending = false;
+            } finally { await renderLoaded(); }   // a store that will not replay still shows what loaded
+            return now() - t0;
+        };
+        // A follow for a write that moved no data: the stored name, scale and scene names, without a
+        // reload. A scene name goes through renameScene, so this tab's own next save keeps it too.
+        saverRef.current.refreshMeta = async () => {
+            const h = await getStoreHeader(canvasId);
+            if (!h || !h.meta || disposed) return false;
+            if (typeof h.meta.name === "string") engine.docMeta = { ...engine.docMeta, name: h.meta.name };
+            engine.setScaleDef(h.meta.scaleDef || null);
+            const mine = new Map((engine.docMeta.scenes || []).map((s) => [s.id, s]));
+            for (const s of Array.isArray(h.meta.scenes) ? h.meta.scenes : []) {
+                const m = s && mine.get(s.id);
+                if (m && typeof s.name === "string" && s.name && s.name !== m.name) engine.renameScene(s.id, s.name);
+            }
             return true;
         };
 
@@ -571,6 +701,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             else engine.pointerUp();
         };
         const onBlur = () => resetGesture();
+        endGestureRef.current = resetGesture;
         const onVisReset = () => { if (document.visibilityState === "hidden") resetGesture(); };
         const wheel = (e) => { e.preventDefault(); const [x, y] = rel(e); engine.zoomAt(x, y, e.deltaY); };
         let resizeT = null;
@@ -587,7 +718,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             const t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (!(e.ctrlKey || e.metaKey)) {
-                if ((e.key === "Delete" || e.key === "Backspace") && engine.selection) {
+                if ((e.key === "Delete" || e.key === "Backspace") && engine.selection && !engine.readOnly) {
                     e.preventDefault(); engine.deleteSelection();
                 }
                 return;
@@ -636,6 +767,8 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
             if (window.__kobinEngine === engine) window.__kobinEngine = null;
             setEngineReady(false);
         };
+    // `gated` is read once, when the engine is built.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canvasId]);
 
     useEffect(() => { engineRef.current && engineRef.current.setTool(tool); }, [tool]);
@@ -656,69 +789,29 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     const pickPen = (type) => { setPenType(type); setTool("pen"); };
     const E = () => engineRef.current;
 
-    // DEV: POST the whole diagnostic bundle to tools/report-server.js on :3001,
-    // which writes `.kobin-reports/`. Reachable only from the dev panel (?dev).
-    // The payload's `snapshot` is a loadable drawing — see OPEN-FLAGS F35.
-    const sendReport = async () => {
+    // DEV: the Report button (?dev panel). `hooks/reportSend.js` builds it from
+    // `engine/report.js` (instruments, history, the drawing on and around the
+    // screen), gzips it and POSTs it in parts to tools/report-server.js on :3001;
+    // `drawing: true` sends the whole drawing after it. OPEN-FLAGS F58.
+    const sendReport = async (opts) => {
         const eng = E();
-        if (!eng) return;
+        if (!eng) return null;
+        const o = opts && typeof opts === "object" && !opts.nativeEvent ? opts : {};
         setReportLabel("…");
-        try {
-            const payload = {
-                v: 1,
-                when: new Date().toISOString(),
-                ua: navigator.userAgent,
-                screen: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
-                camera: { level: eng.activeLevel, inScale: eng.inScale, effectiveZoom: eng._effectiveZoom() },
-                counts: {
-                    natives: Object.fromEntries(Object.entries(eng.nativesByLevel).map(([l, a]) => [l, a.length])),
-                    tiles: Object.fromEntries(Object.entries(eng.tiles).map(([l, m]) => [l, m.size])),
-                    rendered: (eng.levelObjects[eng.activeLevel] || []).length,
-                },
-                flags: { opacityGroups: eng.opacityGroups, hasFat: eng._hasFat, retainScenes: !!eng.retainScenes, preBake: !!eng.preBake, trace: !!eng.trace },
-                perf: eng.perfLog,
-                // What no JS timer can see: the gap between animation frames, which is
-                // the number the user actually feels. Buckets plus the worst few frames,
-                // wall-clock stamped so a bad frame lines up against `perf` and `journal`.
-                frames: eng.frameMeter ? eng.frameMeter.report() : null,
-                // Chrome's own account of every slow frame: script vs style-and-layout
-                // vs everything left over (paint/raster/composite), with the slowest
-                // scripts named. This is what the frame meter could never tell us.
-                longFrames: eng.longFrames ? eng.longFrames.report() : null,
-                // Does the SESSION accumulate? A refresh cures the slowness, so the
-                // suspect is heap/cache growth rather than the drawing or the machine.
-                growth: eng.growth ? eng.growth.report() : null,
-                // input -> pixels, in three phases. The third (presentMs) is the only
-                // measure that reaches past the main thread to the compositor.
-                eventLatency: eng.eventLatency ? eng.eventLatency.report() : null,
-                // Zoom and pan steps are far too frequent to log one by one (300-entry
-                // cap); this is their distribution instead, including how many crossed
-                // 8, 16 and 50 ms. Two reports came back with no zoom entries at all
-                // because every step sat under the log threshold.
-                fast: eng.fastStats ? eng.fastStats() : null,
-                errors: errsRef.current,
-                // WHAT WAS DONE, not just what is left.
-                journal: eng.journal,
-                families: eng.reportFamilies(),
-                counters: {
-                    dustCulled: eng._dustCulled || 0,
-                    boolSeals: eng._boolFailures || 0,
-                    bakeRepairs: eng._bakeRepairs || 0,
-                    lastSeal: eng._lastBoolFailure || null,
-                    lastBakeRepair: eng._lastBakeRepair || null,
-                },
-                snapshot: eng.snapshot(),
-            };
-            const r = await fetch(`http://${window.location.hostname}:3001/report`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            setReportLabel(r.ok ? "Sent ✓" : "Failed");
-        } catch (err) {
-            setReportLabel("Failed");
-        }
-        setTimeout(() => setReportLabel("Report"), 2500);
+        const r = await sendDevReport(eng, {
+            why: o.drawing ? "button+drawing" : "button",
+            ...o,
+            errors: errsRef.current.slice(),
+            save: saverRef.current && saverRef.current.report ? saverRef.current.report() : null,
+            onStage: setReportLabel,
+        });
+        if (window.__kobinEngine === eng) window.__kobinLastReport = r;
+        const mb = (b) => (b / 1048576).toFixed(1) + " MB";
+        const drawn = r.drawing ? (r.drawing.ok ? ` + ${r.drawing.parts} parts` : " (drawing failed)") : "";
+        setReportLabel(r.ok ? `Sent ✓ ${mb(r.gzBytes)}${drawn}` : `Failed${r.saved ? " — saved as a file" : ""}`);
+        if (!r.ok || (r.drawing && !r.drawing.ok)) console.warn("kobin report:", r.why || (r.drawing && r.drawing.why), r);
+        setTimeout(() => setReportLabel("Report"), r.ok ? 4000 : 10000);
+        return r;
     };
 
     // An explicit save: the whole document, written in full. Returns the
@@ -752,13 +845,23 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
     const loadDrawingFile = async (file) => {
         const eng = E();
         if (!eng || !file) return;
+        if (eng.readOnly) throw new Error("another tab or device has the pen");
         const raw = JSON.parse(await file.text());
         eng.loadDrawing(raw);
+        if (saverRef.current && saverRef.current.markReset) saverRef.current.markReset();
         await saveLocal();
     };
 
-    const exportSvg = () => {
-        const svg = hostRef.current?.querySelector("svg");
+    const exportSvg = async () => {
+        const eng = E();
+        if (!eng) return;
+        // §5.7: in raster mode the ink is on the canvas and this host's `<svg>` holds only the
+        // live stroke and the selection, so it is serialised from a ONE-OFF SVG engine at the
+        // same document and camera (`withSvgEngine`, the thumbnails' own helper) — seconds on a
+        // big drawing, once, on a click. Fork 4's export from the render list replaces this.
+        const svg = eng.raster
+            ? await withSvgEngine(eng.serializeDrawing(), eng.width, eng.height, (svgEngine, host) => host.querySelector("svg"))
+            : hostRef.current?.querySelector("svg");
         if (!svg) return;
         const clone = svg.cloneNode(true);
         clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -845,10 +948,18 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         saveDrawing,
         loadDrawingFile,
         exportSvg,
+        // The dev panel's renderer control: the flag is construction-time, so flipping it rewrites
+        // the `?svg` gate and reloads.
+        raster: rasterFromUrl(typeof window !== "undefined" ? window.location.href : ""),
+        setRaster: (on) => {
+            if (typeof window === "undefined") return;
+            window.location.href = hrefWithRaster(window.location.href, !!on);
+            window.location.reload();
+        },
         undo: () => { E()?.undo(); saverRef.current?.markAllDirty(); },
         redo: () => { E()?.redo(); saverRef.current?.markAllDirty(); },
         clear: () => E()?.clear(),
-        deleteSelection: () => E()?.deleteSelection(),
+        deleteSelection: () => { const e = E(); if (e && !e.readOnly) e.deleteSelection(); },
         deselect: () => E()?.deselect(),
         docMeta: () => E()?.docMeta ?? { name: null },
         stats: () => (E() ? statsFromNatives(E().nativesByLevel) : { strokes: 0, levels: 0 }),
@@ -856,10 +967,50 @@ export default function useKobinEngine({ canvasId = null, onAutosave } = {}) {
         // mirrors is what is on disk. Null until the first local write.
         cloudPushSource: async () => {
             if (!canvasId) return null;
-            const src = await cloudPushSource(canvasId);
+            const src = await cloudPushSource(canvasId, writerRef.current);
             return src ? { ...src, dropBelow: saverRef.current ? saverRef.current.lastFloor() : 0 } : null;
         },
-        replaceStore: (pulled) => (replaceStoreRef.current ? replaceStoreRef.current(pulled) : Promise.resolve(false)),
+        // SYNC-PLAN R2: `setReadOnly` stops edits (a gesture in progress ends as a pen-up would),
+        // `setSaving` gates the saver; `flush` writes what is pending; `reload` reads the store back.
+        setReadOnly: (on) => {
+            const eng = E();
+            if (!eng) return;
+            if (on && !eng.readOnly) { if (endGestureRef.current) endGestureRef.current(); if (eng.deselect) eng.deselect(); }
+            eng.readOnly = !!on;
+        },
+        setSaving: (on) => { writableRef.current = !!on; },
+        setWriter: (token) => { writerRef.current = token || null; },
+        hasUnsaved: () => !!(saverRef.current && saverRef.current.hasUnsaved()),
+        // The document in memory kept as a new canvas `name` (a refused or failed write, a lost pen):
+        // nothing drawn is discarded. Resolves the new index entry, or null.
+        keepUnsaved: async (name) => {
+            const eng = E();
+            if (!eng || !canvasId) return null;
+            let doc;
+            const meta = eng.docMeta;
+            try { doc = eng.serializeDrawing({ name }); } catch (err) { return null; } finally { eng.docMeta = meta; }
+            const id = newCanvasId();
+            if (!(await saveCanvasDoc(id, doc))) return null;
+            const entry = { id, name, savedAt: new Date().toISOString(), ...statsFromDoc(doc) };
+            upsertIndexEntry(entry);
+            if (saverRef.current && saverRef.current.markKept) saverRef.current.markKept();
+            return entry;
+        },
+        knownSeq: () => (saverRef.current && saverRef.current.knownSeq ? saverRef.current.knownSeq() : null),
+        // Every write this hook started, the tail included, on disk: before the lock goes to another tab.
+        idle: async () => {
+            if (saverRef.current && saverRef.current.flush) return saverRef.current.flush();
+            const t0 = Date.now();
+            for (let p = lastWriteRef.current; p && Date.now() - t0 < 10000; p = lastWriteRef.current) {
+                await Promise.resolve(p).catch(() => null);
+                if (lastWriteRef.current === p) break;
+            }
+            return true;
+        },
+        flushSave: () => (saverRef.current && saverRef.current.flush ? saverRef.current.flush() : Promise.resolve(true)),
+        reloadFromStore: (opts) => (saverRef.current && saverRef.current.reload ? saverRef.current.reload(opts) : Promise.resolve(null)),
+        refreshMetaFromStore: () => (saverRef.current && saverRef.current.refreshMeta ? saverRef.current.refreshMeta() : Promise.resolve(false)),
+        lastWrite: () => lastWriteRef.current,
     };
 }
 

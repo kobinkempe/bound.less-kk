@@ -281,23 +281,21 @@ describe("RT-5 — saving in the middle of a bake", () => {
 describe("RT-6 — scenes over an erased and severed drawing", () => {
     // Layers: scenes (19) + multi-layer erase (3) + topology (14) + save (18).
     //
-    // Scenes cluster ink across frames. A deep erase moves ink INTO new frames,
-    // which is exactly the input scene clustering is most sensitive to: the
-    // re-homed children are new natives at levels that previously held nothing.
-    // Erasing part of a drawing must not invent scenes, and severing must not
-    // scatter one scene into several.
-    test("erasing does not multiply the scenes", () => {
+    // A deep erase moves ink INTO new frames: the re-homed children are new natives at levels
+    // that previously held nothing. That is storage and makes no scene; what the fine eraser
+    // carved is one child scene (SCENES-PLAN §6 row 14b). Severing must not scatter a scene.
+    test("a deep erase adds its carving as one child scene and nothing else", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 280], [500, 280]], 30, BLUE);
         drawStroke(E, [[300, 320], [500, 320]], 30, BLUE);
-        E.refreshScenes();
-        const before = E.docMeta.scenes.length;
+        const before = E.refreshScenes();
         const home = camShot(E);
-        descend(E, 2, 400, 300);
+        descend(E, 2, 400, 280);
         erase(E, [[400, 240], [400, 360]], 18);
         camRestore(E, home);
-        E.refreshScenes();
-        expect(E.docMeta.scenes.length).toBe(before);
+        const after = E.refreshScenes();
+        expect(after.length).toBe(before.length + 1);
+        expect(after.filter((s) => s.parent === before[0].id).length).toBe(1);
     });
     test("severing does not scatter one scene into several", () => {
         const E = mkEngine();

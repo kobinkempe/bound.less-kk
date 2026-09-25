@@ -45,7 +45,7 @@ import {
     subtractShape, rectLoop, shapeComponents, dropDust, repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset, sameShift } from "./geometry/offsets";
 import { objectHeader, extraFields } from "./format2";
 import { Loop } from "./geometry/loop";
 
@@ -61,6 +61,8 @@ function flattenLoops(o) {
 
 const CELL = 2048;          // frame units; typical strokes span 10-1000
 const BIG = CELL * 4;       // larger than this goes to the per-level overflow list
+const WALK_MAX = 2 ** 40;   // |coordinate| past which a query scans flat: a cell walk there could step by nothing
+const OFF_LOG_MAX = 100000;   // `_offLog` entries kept (a drag of 17k objects is 17k)
 
 class LevelIndex {
     // ext: the union of every added box grown by its full linewidth; maxSize: the largest hypot(w,h)+lw.
@@ -116,12 +118,18 @@ class LevelIndex {
     query(rect, out) {
         const seen = new Set();
         const q = { x0: rect.left, y0: rect.top, x1: rect.right, y1: rect.bottom };
+        // Nothing here can meet a rect off the union box. A mark's box mapped six levels up and
+        // across came in at x = 1.15e21, where the cell walk's `cx++` is a no-op: the tab froze
+        // (REVIEWER-3 ERASE-3, F127).
+        const e = this.ext;
+        if (!e || !(q.x1 >= e.x0 && q.x0 <= e.x1 && q.y1 >= e.y0 && q.y0 <= e.y1)) return out;
         // A query rect spanning more cells than we have objects (or absurdly many)
         // makes the cell walk pathological — a magnified region can cover billions
         // of cells. Fall back to a flat scan, which is bounded by the object count.
         const nx = Math.floor(q.x1 / CELL) - Math.floor(q.x0 / CELL) + 1;
         const ny = Math.floor(q.y1 / CELL) - Math.floor(q.y0 / CELL) + 1;
-        if (nx * ny > 4096 || nx * ny > this.objs.size) {
+        const far = !(Math.abs(q.x0) < WALK_MAX && Math.abs(q.x1) < WALK_MAX && Math.abs(q.y0) < WALK_MAX && Math.abs(q.y1) < WALK_MAX);
+        if (far || nx * ny > 4096 || nx * ny > this.objs.size) {
             for (const [, o] of this.objs) {
                 const b = this.boxes.get(o.id);
                 if (b.x1 >= q.x0 && b.x0 <= q.x1 && b.y1 >= q.y0 && b.y0 <= q.y1) out.push(o);
@@ -181,10 +189,50 @@ export function nativeFromRecord(o) {
     return out;
 }
 
+/** How many ops history keeps; replay caps the rebuilt stack the same way (oplog `fresh`). */
+export const UNDO_CAP = 200;
+
+/**
+ * The frames `op` names — where its undo or redo puts something back by frame id: homes, sources
+ * and targets, a moved frame and its parents, a merge's cell, a settle's carries — into `out`.
+ * `add` and `present` name a live native, whose home holds it. Frame GC keeps these (F94).
+ */
+export function opFrames(op, out = new Set()) {
+    const add = (k) => { if (k != null) out.add(String(k)); };
+    if (!op) return out;
+    switch (op.op) {
+        case "absent": case "erase": add(op.level); break;
+        case "move": add(op.from); add(op.to); break;
+        case "moveMany": for (const m of op.moves) { add(m.from); add(m.to); } break;
+        case "eraseMany": case "removeMany": for (const r of op.records) add(r.level); break;
+        case "removeFrames": case "eraseFrames": for (const r of op.records) add(r.frame); break;
+        case "deleteMany": for (const p of op.parts) opFrames(p, out); break;
+        case "moveFrames":
+            for (const e of op.frames) {
+                add(e.id); if (e.from) add(e.from.parent); if (e.to) add(e.to.parent);
+                for (const m of e.merged || []) { add(m.id); add(m.into); add(m.parent); for (const kd of m.kids || []) add(kd.shadowOf); }
+                if (e.settled) for (const c of e.settled.carries || []) add(c[1]);
+            }
+            for (const m of op.moves || []) { add(m.from); add(m.to); }
+            break;
+        case "eraseCommit": case "eraseRevert":
+            if (op.strokeRec) add(op.strokeRec.level);
+            for (const st of op.baked || []) {
+                if (st.removed) add(st.removed.level);
+                for (const p of st.pieces || []) add(p.level);
+                for (const r of st.frames || []) add(r.frame);
+            }
+            break;
+        default: break;
+    }
+    return out;
+}
+
 export default class Document {
     constructor() {
         this.nativesByLevel = { 0: [] }; // level -> [objects] (numeric keys as strings, like dev-0)
         this._nextId = 1;
+        this._stepSeq = 0;               // bake steps in the order they landed (`recordBake`, replay)
         this._undo = []; this._redo = [];
         this._subs = new Set(); this._opSubs = new Set(); this._inUndo = false;
         this._index = {};                // level -> LevelIndex
@@ -203,6 +251,9 @@ export default class Document {
         // tell whether it is still current without subscribing. The selection
         // indicator keys its member table on it.
         this.rev = 0;
+        this.offRev = 0;                   // moves on any event that can change an offset object's table or home (E-3)
+        this._offLog = [];                 // [offRev, id] per bump about one object, in order (`offTouchedSince`)
+        this._offWide = 0;                 // the last offRev an event not about one object moved
         // The ids of every native carrying OFFSETS BELOW ITS HOME (F41,
         // geometry/offsets.js). Kept as a set so the tile store can ask "does
         // anything in this drawing have one?" in O(1) on every bake, and walk
@@ -217,6 +268,10 @@ export default class Document {
         // Frames whose list and index a subtree removal has set aside. Their natives stay
         // in `_byId` by reference, and `getById` answers null while the frame is here.
         this._detached = new Set();
+        this._detachedLists = new Map();   // frame -> its set-aside list: `forgetFrame` drops them from `_byId`
+        this._reused = new Set();          // set-aside frames written again: their old natives are `_gone` (DOC-1)
+        this._keyedIn = new Map();         // frame -> Set of its natives with a family key: the lasso's family test under an enclosed frame (LASSO-1)
+        this._detachedKeyed = new Map();   // frame -> that Set while its list is set aside
     }
     /** Keep `_offsetIds` in step with one object's `below`. */
     _noteBelow(o) {
@@ -230,14 +285,43 @@ export default class Document {
 
     // ---- events ----
     subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); }
-    _emit(ev) { this._groups = null; this.rev++; for (const fn of this._subs) fn(ev); }
+    // A table change keeps every object in its family and its frame, so the family index stands:
+    // rebuilding it over every native on each drag step was 20–90 ms a step on the Magnum Opus.
+    _emit(ev) {
+        if (!(ev && ev.offsetsOnly)) this._groups = null;
+        this.rev++;
+        // An event about an object with no table (added, edited, re-homed, its z) leaves every
+        // table and every offset object's home as it was; anything else may not.
+        if (!(ev && ev.obj && !ev.offsetsOnly && ev.obj.below === undefined && !this._offsetIds.has(ev.id))) {
+            this.offRev++;
+            if (ev && ev.obj && ev.id != null) {
+                this._offLog.push(this.offRev, ev.id);
+                if (this._offLog.length > OFF_LOG_MAX * 2) { this._offLog.splice(0, OFF_LOG_MAX); }
+            } else this._offWide = this.offRev;
+        }
+        for (const fn of this._subs) fn(ev);
+    }
+    /**
+     * The ids whose table or home may have changed since `offRev` was `rev`, or null when that cannot be
+     * told (an event about no one object since, or the log no longer reaches back): a reader memoised
+     * at `rev` re-reads only these (TileStore `_rerouteGroups`: re-walking 19.7k moved natives was 166 ms
+     * of a drop on the Magnum Opus, TESTER-3).
+     */
+    offTouchedSince(rev) {
+        if (this._offWide > rev) return null;
+        const L = this._offLog;
+        if (L.length && L[0] > rev + 1) return null;
+        const out = new Set();
+        for (let i = L.length - 2; i >= 0 && L[i] > rev; i -= 2) out.add(L[i + 1]);
+        return out;
+    }
     // The OP channel (engine/oplog.js): every fresh undo op, every bake step
     // appended to one, and every undo/redo, in order. Separate from the change
     // events above, which say what moved on screen, not what the user did.
     subscribeOps(fn) { this._opSubs.add(fn); return () => this._opSubs.delete(fn); }
     _notifyOps(ev) { for (const fn of this._opSubs) fn(ev); }
     /** A bake step onto its gesture's eraseCommit op; the one way steps are appended. */
-    recordBake(op, step) { op.baked.push(step); this._notifyOps({ kind: "bake", op, step }); }
+    recordBake(op, step) { step._seq = ++this._stepSeq; op.baked.push(step); this._notifyOps({ kind: "bake", op, step }); }
     /** Ids a replayed entry brought in: the counter must stay above them. */
     noteId(id) { if (Number.isInteger(id) && id >= this._nextId) this._nextId = id + 1; }
     /** A frame was re-addressed (a subtree move): `from`/`to` are { parent, i, j }. The tile cache listens. */
@@ -383,8 +467,9 @@ export default class Document {
             const src = this.nativesByLevel[mid] || [];
             const ids = src.map((o) => o.id);
             if (src.length) {
+                this._reuseDetached(E.id);
                 const dst = this.nativesByLevel[E.id] || (this.nativesByLevel[E.id] = []);
-                for (const o of src) { dst.push(o); o._home = E.id; if (!this._pending.has(o)) this._idx(E.id).add(o); o._ver = (o._ver || 0) + 1; }
+                for (const o of src) { dst.push(o); this._keyOut(mid, o); this._keyIn(E.id, o); o._home = E.id; if (!this._pending.has(o)) this._idx(E.id).add(o); o._ver = (o._ver || 0) + 1; }
             }
             delete this.nativesByLevel[mid]; delete this._index[mid];
             const rec = this.lm.adoptShadow(M, E);
@@ -397,13 +482,59 @@ export default class Document {
             this._notifyOps({ kind: "mergeFrame", rec, owner });
         }
     }
-    /** A frame's list set aside (the redo of a subtree delete, and replay): its natives stay in `_byId`, unreadable. */
-    detachFrame(frame) {
+    _setKeyedAside(k) {
+        const set = this._keyedIn.get(k);
+        this._keyedIn.delete(k);
+        if (set) this._detachedKeyed.set(k, set); else this._detachedKeyed.delete(k);
+    }
+    /**
+     * A frame's list set aside (the redo of a subtree delete, and replay): its natives stay in `_byId`,
+     * unreadable. The record, when given, is refreshed to what was set aside: an undo put its list
+     * back by reference and later ops changed or replaced it (REVIEWER-3 DOC-2). Ink the record
+     * `kept` — placed while the frame was set aside, merged back by the undo — stays listed (DOC-1).
+     */
+    detachFrame(frame, rec = null) {
         const k = String(frame);
         const arr = this.nativesByLevel[k];
+        if (arr && rec && rec.kept && arr.some((o) => rec.kept.has(o))) {
+            const aside = [];
+            let w = 0;
+            for (let r = 0; r < arr.length; r++) {
+                const o = arr[r];
+                if (rec.kept.has(o)) { arr[w++] = o; continue; }
+                aside.push(o);
+                o._gone = true;
+                if (!this._pending.has(o)) this._idx(k).remove(o);
+                this._keyOut(k, o);
+            }
+            arr.length = w;
+            this._reused.add(k);
+            this._detachedLists.set(k, aside);
+            this._detachedKeyed.delete(k);                   // a restore keys them one by one
+            rec.natives = aside; rec.index = null;
+            this._emit({ kind: "removeFrame", frame: k, count: aside.length, partial: true });
+            return;
+        }
+        const index = this._index[k] || null;
         delete this.nativesByLevel[k]; delete this._index[k];
+        this._setKeyedAside(k);
         this._detached.add(k);
+        if (arr) {
+            this._detachedLists.set(k, arr);
+            if (rec) { rec.natives = arr; rec.index = index; }
+        }
         this._emit({ kind: "removeFrame", frame: k, count: arr ? arr.length : 0 });
+    }
+    /**
+     * Ink is placed in a frame whose list a delete set aside (drawn where the frame was, re-homed or
+     * ceded there): the set-aside natives become unreadable one by one (`_gone`, O(that list), only
+     * here) and the frame is live again, so the new ink reads (REVIEWER-3 DOC-1).
+     */
+    _reuseDetached(k) {
+        if (!this._detached.has(k)) return;
+        for (const o of this._detachedLists.get(k) || []) if (o._home === k) o._gone = true;
+        this._detached.delete(k);
+        this._reused.add(k);
     }
     /** A replayed merge or split: the record's natives into the list they belong in, from wherever a snapshot left them (idempotent). */
     mergeReplay(rec) { this.rehomeManyById(rec.ids, rec.into); this._forgetIfEmpty(rec.id); }
@@ -421,6 +552,7 @@ export default class Document {
             this.nativesByLevel[M.id] = mine;
             for (const o of mine) {
                 if (!this._pending.has(o)) { this._idx(rec.into).remove(o); this._idx(M.id).add(o); }
+                this._keyOut(rec.into, o); this._keyIn(M.id, o);
                 o._home = M.id; o._ver = (o._ver || 0) + 1;
             }
         }
@@ -429,6 +561,17 @@ export default class Document {
         return M;
     }
     _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
+    _keyIn(k, o) {
+        if (o.editId == null) return;
+        let set = this._keyedIn.get(k);
+        if (!set) this._keyedIn.set(k, (set = new Set()));
+        set.add(o);
+    }
+    _keyOut(k, o) { const set = this._keyedIn.get(k); if (set && set.delete(o) && !set.size) this._keyedIn.delete(k); }
+    /** The natives of `frame` with a family key (ceded kids, erase pieces), or null. */
+    keyedIn(frame) { return this._keyedIn.get(String(frame)) || null; }
+    /** Every frame holding a native with a family key. */
+    keyedFrames() { return this._keyedIn.keys(); }
 
     // Add a newly drawn object as a native of `level`. `live` = still growing
     // (a stroke between pointerDown and pointerUp): kept out of the spatial
@@ -436,10 +579,12 @@ export default class Document {
     add(o, level, { live = false } = {}) {
         const k = String(level);
         this._settleIfPending(k);   // the newcomer does not owe the frame's shift
+        this._reuseDetached(k);
         flattenLoops(o);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
-        o._home = k;
+        o._home = k; delete o._gone;
+        this._keyIn(k, o);
         this._byId.set(o.id, o);
         this._noteBelow(o);
         if (live) this._pending.add(o);
@@ -460,7 +605,7 @@ export default class Document {
     // object sets.
     getById(id) {
         const o = this._byId.get(id);
-        if (o && this._detached.has(o._home)) return null;   // its frame is set aside by a subtree removal
+        if (o && (o._gone || this._detached.has(o._home))) return null;   // set aside by a subtree removal
         return o ? { obj: o, level: o._home } : null;
     }
 
@@ -499,6 +644,7 @@ export default class Document {
         const i = arr ? arr.indexOf(obj) : -1;
         if (i < 0) return null;
         arr.splice(i, 1);
+        this._keyOut(Ls, obj);
         this._byId.delete(id);
         this._offsetIds.delete(id);
         this._pending.delete(obj);
@@ -512,11 +658,13 @@ export default class Document {
     insertAt(obj, level, index) {
         const k = String(level);
         this._settleIfPending(k);
+        this._reuseDetached(k);
         flattenLoops(obj);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
-        obj._home = k;
+        obj._home = k; delete obj._gone;
+        this._keyIn(k, obj);
         this._byId.set(obj.id, obj);
         this._noteBelow(obj);
         this._idx(k).add(obj);
@@ -715,6 +863,7 @@ export default class Document {
         const arr = this.nativesByLevel[rec.level];
         arr.splice(arr.indexOf(o), 1);
         this._idx(rec.level).remove(o);
+        this._keyOut(rec.level, o);
         this._forgetIfEmpty(rec.level);
         // Tagged `rehome` because it is NOT a deletion followed by a creation.
         // Caches want the remove/add pair (the object's footprint really did
@@ -723,9 +872,11 @@ export default class Document {
         // a drag drops every member the moment it re-homes and the rest of the
         // gesture moves only what happened to stay put.
         this._emit({ kind: "remove", id, level: rec.level, obj: o, rehome: k });
+        this._reuseDetached(k);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
         o._home = k;
+        this._keyIn(k, o);
         if (!wasPending) this._idx(k).add(o);
         o._ver = (o._ver || 0) + 1;
         this._emit({ kind: "add", id, level: k, obj: o, live: wasPending, rehome: rec.level });
@@ -761,14 +912,16 @@ export default class Document {
             let w = 0;
             for (let r = 0; r < arr.length; r++) if (!set.has(arr[r])) arr[w++] = arr[r];
             arr.length = w;
-            for (const o of objs) if (!this._pending.has(o)) this._idx(from).remove(o);
+            for (const o of objs) { if (!this._pending.has(o)) this._idx(from).remove(o); this._keyOut(from, o); }
             this._forgetIfEmpty(from);
             for (const o of objs) this._emit({ kind: "remove", id: o.id, level: from, obj: o, rehome: k });
+            this._reuseDetached(k);
             if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
             for (const o of objs) {
                 const wasPending = this._pending.has(o);
                 this.nativesByLevel[k].push(o);
                 o._home = k;
+                this._keyIn(k, o);
                 if (!wasPending) this._idx(k).add(o);
                 o._ver = (o._ver || 0) + 1;
                 this._emit({ kind: "add", id: o.id, level: k, obj: o, live: wasPending, rehome: from });
@@ -792,25 +945,47 @@ export default class Document {
             if (!arr) continue;
             records.push({ frame: k, natives: arr, index: this._index[k] || null });
             delete this.nativesByLevel[k]; delete this._index[k];
+            this._setKeyedAside(k);
             this._detached.add(k);
+            this._detachedLists.set(k, arr);
             this._emit({ kind: "removeFrame", frame: k, count: arr.length });
         }
         return records.length ? records : null;
     }
     /**
      * The inverse of removeFrameSubtree: the same lists and indexes back, by reference. A record
-     * without an index (rebuilt from the op log) has its natives registered here.
+     * without an index (rebuilt from the op log) has its natives registered here. A frame holding
+     * ink placed there since the delete keeps it, the record's natives listed first (DOC-1).
      */
     insertFrameSubtree(records) {
         for (const r of records) {
-            this.nativesByLevel[r.frame] = r.natives;
-            if (r.index) this._index[r.frame] = r.index;
-            else {
-                delete this._index[r.frame];
-                for (const o of r.natives) { flattenLoops(o); o._home = r.frame; this._byId.set(o.id, o); this._noteBelow(o); this._idx(r.frame).add(o); }
+            const k = r.frame, cur = this.nativesByLevel[k];
+            if (this._reused.delete(k)) for (const o of r.natives) delete o._gone;
+            if (cur && cur !== r.natives && cur.length) {
+                r.kept = new Set(cur);                        // placed while it was set aside: a redo leaves them
+                const all = r.natives.slice();
+                for (const o of r.natives) {
+                    flattenLoops(o); o._home = k; this._byId.set(o.id, o); this._noteBelow(o); this._keyIn(k, o);
+                    if (!this._pending.has(o)) this._idx(k).add(o);
+                }
+                for (const o of cur) all.push(o);
+                this.nativesByLevel[k] = all;
+            } else {
+                r.kept = null;
+                this.nativesByLevel[k] = r.natives;
+                const aside = this._detachedKeyed.get(k);
+                if (r.index) {
+                    this._index[k] = r.index;
+                    for (const o of aside || r.natives) this._keyIn(k, o);
+                } else {
+                    delete this._index[k];
+                    for (const o of r.natives) { flattenLoops(o); o._home = k; this._byId.set(o.id, o); this._noteBelow(o); this._idx(k).add(o); this._keyIn(k, o); }
+                }
             }
-            this._detached.delete(r.frame);
-            this._emit({ kind: "addFrame", frame: r.frame, count: r.natives.length });
+            this._detachedKeyed.delete(k);
+            this._detached.delete(k);
+            this._detachedLists.delete(k);
+            this._emit({ kind: "addFrame", frame: k, count: r.natives.length });
         }
     }
 
@@ -886,7 +1061,7 @@ export default class Document {
      * edit family, and so do the children. Whether that family is still one
      * OBJECT is a separate question, answered over the whole family at once.
      */
-    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts) {
+    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar) {
         const rec = this.getById(id);
         if (!rec) return null;
         const src = rec.obj;
@@ -912,10 +1087,9 @@ export default class Document {
         // every piece it does not cut by reference, so cutting in place leaves
         // the rest of the parent bit for bit as it was.
         const cut = subtractShape(src.loops, rectLoop(R), boolOpts).loops;
-        // Cutting a rect out can leave a sliver along one of its edges, where
-        // the parent's boundary all but grazed it. That sliver is dust, and a
-        // dust native is a speck the user later finds and cannot get rid of.
-        const groups = dropDust(shapeComponents(cut), src.w);
+        // A sliver the rect leaves along an edge is dust if invisible at the mark's zoom (`dustBar`,
+        // F66); by the pen a cap 0.3 units past the cell was 1,229 px lost at depth (ERASE-1).
+        const groups = dropDust(shapeComponents(cut), src.w, dustBar);
         const removed = this.removeById(id);
         if (!removed) return null;
         const z = src.z != null ? src.z : src.id;
@@ -1067,10 +1241,39 @@ export default class Document {
     // ---- undo / redo (exact port of the old op-inversion semantics) ----
     pushUndo(op) {
         this._undo.push(op);
-        if (this._undo.length > 200) this._undo.shift();
+        const gone = this._undo.length > UNDO_CAP ? [this._undo.shift()] : [];
+        for (const r of this._redo) gone.push(r);
         this._redo = []; // a fresh action forks history; the redo branch dies
+        if (gone.length && this.onOpsDropped) this.onOpsDropped(gone);   // what they named may be collected (F94)
         this._notifyOps({ kind: "op", op });
     }
+    /** Every frame an op in the undo or redo history names (`opFrames`): frame GC keeps them (F94). */
+    namedFrames() {
+        const out = new Set();
+        for (const op of this._undo) opFrames(op, out);
+        for (const op of this._redo) opFrames(op, out);
+        return out;
+    }
+    /**
+     * A frame the lattice forgot (frame GC, F94): its empty list, index and marks go. A set-aside
+     * list goes with it: no op can bring it back, and its natives would read again as ghosts.
+     */
+    forgetFrame(frame) {
+        const k = String(frame);
+        const arr = this.nativesByLevel[k];
+        if (arr && arr.length) return false;
+        delete this.nativesByLevel[k]; delete this._index[k];
+        for (const o of this._detachedLists.get(k) || []) {
+            if (o._home !== k || this._byId.get(o.id) !== o) continue;
+            this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o);
+        }
+        this._detachedLists.delete(k);
+        this._detached.delete(k); this._reused.delete(k); this._frameOwner.delete(k);
+        this._keyedIn.delete(k); this._detachedKeyed.delete(k);
+        return true;
+    }
+    /** One collection's forgotten frames, for the op log's record (F94). */
+    noteForgotten(frames) { if (frames.length) this._notifyOps({ kind: "forget", frames }); }
     // Whether there is anything to undo / redo. Rides the status payload out
     // to the toolbar, which greys its Undo and Redo buttons accordingly, so a
     // button that would do nothing does not look like one that would.
@@ -1141,6 +1344,10 @@ export default class Document {
                 // record, then the start address and shift come back; the per-object moves follow
                 // (DESIGN.md §8). The inverse's entries own a later settle or merge.
                 for (const e of op.frames) {
+                    // A shift pending that is not this op's (an earlier move redone, its frame unread since)
+                    // settles first, on its own op's entry; overwritten, it was lost (REVIEWER-3 MOVE-1).
+                    const pf = this.lm.frame(e.id);
+                    if (pf && pf.shift && !sameShift(pf.shift, e.shiftAfter)) this._settleIfPending(e.id);
                     if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) this.unmerge(e.merged[i]); e.merged = null; }
                     if (e.settled) { this.unsettle(e.id, e.settled); e.settled = null; }
                 }
@@ -1166,7 +1373,7 @@ export default class Document {
                 return { op: "eraseFrames", records: op.records };
             }
             case "eraseFrames": {
-                for (const r of op.records) this.detachFrame(r.frame);
+                for (const r of op.records) this.detachFrame(r.frame, r);
                 return { op: "removeFrames", records: op.records };
             }
             // One gesture that deleted ids AND frames: the parts invert in reverse order, and the
@@ -1182,62 +1389,20 @@ export default class Document {
             // bake). The op object is MUTATED and reused across undo/redo so
             // the engine's append target stays valid.
             case "eraseCommit": {
-                // Undo the whole gesture: reverse its bakes newest-first,
-                // then take the white eraser stroke itself out of the doc.
-                // Replay is RESILIENT: deferred baking means a step's objects
-                // can have been consumed by a LATER erase in the meantime, so
-                // never insert an object whose ink is already represented —
-                // stale replays were how duplicated, stacked geometry formed.
-                for (let i = op.baked.length - 1; i >= 0; i--) {
-                    const st = op.baked[i];
-                    // A frame the mark covered whole went as containers: its lists come back by reference.
-                    if (st.frames) { this.insertFrameSubtree(st.frames); continue; }
-                    // Identity-only step: a severance re-pointed part of the
-                    // family at a new parent and gave it a new edit key. Nothing
-                    // geometric moved, so this just runs backwards.
-                    if (st.rekey) {
-                        for (const r of st.rekey) {
-                            const o = this.getById(r.id);
-                            if (o) Object.assign(o.obj, r.before);
-                        }
-                        this.keysChanged();
-                        continue;
-                    }
-                    let took = st.pieces.length === 0; // whole-removal bake: nothing to take out
-                    for (const pc of st.pieces) if (this.removeById(pc.obj.id)) took = true;
-                    if (took && !this.getById(st.removed.obj.id)) {
-                        this.insertAt(st.removed.obj, st.removed.level, st.removed.index);
-                    }
-                }
+                // Undo the whole gesture: its bake steps, and every step of any gesture that cut
+                // what they made, newest first; then the eraser stroke itself (`_stepsUndo`).
+                this._stepsUndo(op);
                 op.strokeRec = this.removeById(op.strokeId); // null if baking consumed it
                 op.op = "eraseRevert";
                 return op;
             }
             case "eraseRevert": {
-                // Redo: restore the eraser stroke (unless it had been fully
-                // consumed) and re-apply every bake in order — skipping any
-                // step whose source has since been consumed elsewhere (its
-                // ink lives in that later bake's pieces now).
+                // Redo: the eraser stroke (unless baking had consumed it), its steps in order, then
+                // the suspended steps of applied gestures whose sources are back (`_stepsRedo`).
                 if (op.strokeRec && !this.getById(op.strokeRec.obj.id)) {
                     this.insertAt(op.strokeRec.obj, op.strokeRec.level, op.strokeRec.index);
                 }
-                for (const st of op.baked) {
-                    if (st.frames) { for (const r of st.frames) this.detachFrame(r.frame); continue; }
-                    if (st.rekey) {
-                        for (const r of st.rekey) {
-                            const o = this.getById(r.id);
-                            if (o) Object.assign(o.obj, r.after);
-                        }
-                        this.keysChanged();
-                        continue;
-                    }
-                    const r = this.removeById(st.removed.obj.id);
-                    if (!r && st.pieces.length) continue;
-                    if (r) st.removed = r;   // what this redo took out is what its undo puts back (F70)
-                    for (const pc of st.pieces) {
-                        if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
-                    }
-                }
+                this._stepsRedo(op);
                 op.op = "eraseCommit";
                 return op;
             }
@@ -1249,6 +1414,85 @@ export default class Document {
                 return { ...op, natives: curNatives, external: curExternal };
             }
             default: return op;
+        }
+    }
+    /**
+     * The bake steps of every erase gesture in history, in the order they landed (`_seq`), with the
+     * step that consumed each object and each step's gesture. Two marks pending at once bake out of
+     * stack order: one's step can cut the other's piece, and then cut it again (REVIEWER-3 ERASE-2,
+     * F118), so undo and redo follow what each step consumed, not the stack. A step carries `_on`
+     * (applied); one rebuilt by a reload has none and is applied when its gesture is, its source is
+     * gone, and the step that minted its source is applied.
+     */
+    _stepIndex(extra) {
+        const consumed = new Map(), minted = new Map(), opOf = new Map(), steps = [], applied = new Set();
+        const add = (op, on) => {
+            if (op.op !== "eraseCommit" && op.op !== "eraseRevert") return;
+            if (on) applied.add(op);
+            for (const st of op.baked || []) {
+                if (st._seq == null) st._seq = ++this._stepSeq;
+                opOf.set(st, op); steps.push(st);
+                if (!st.removed || !st.pieces) continue;
+                consumed.set(st.removed.obj.id, st);
+                for (const pc of st.pieces) minted.set(pc.obj.id, st);
+            }
+        };
+        for (const op of this._undo) add(op, true);
+        for (const op of this._redo) add(op, false);
+        if (extra && !opOf.has((extra.baked || [])[0])) add(extra, extra.op === "eraseCommit");
+        for (const st of steps.filter((x) => x._on === undefined).sort((x, y) => x._seq - y._seq)) {
+            if (!applied.has(opOf.get(st))) { st._on = false; continue; }
+            if (!st.removed || !st.pieces) { st._on = true; continue; }
+            const m = minted.get(st.removed.obj.id);
+            st._on = !this.getById(st.removed.obj.id) && (!m || m._on !== false);
+        }
+        return { consumed, opOf, steps, applied };
+    }
+    _revertStep(st) {
+        st._on = false;
+        // A frame the mark covered whole went as containers: its lists come back by reference.
+        if (st.frames) { this.insertFrameSubtree(st.frames); return; }
+        // A severance's re-key: nothing geometric moved, so it just runs backwards.
+        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.before); } this.keysChanged(); return; }
+        // The source comes back only for pieces this step still owns: ones something unrecorded took (a
+        // stale replay) are that thing's ink now, and the source over them stacked ink twice.
+        let took = st.pieces.length === 0;
+        for (const pc of st.pieces) if (this.removeById(pc.obj.id)) took = true;
+        if (took && !this.getById(st.removed.obj.id)) this.insertAt(st.removed.obj, st.removed.level, st.removed.index);
+    }
+    /** Re-applies a step whose source is in the document; false (still suspended) when it is not. */
+    _applyStep(st) {
+        if (st.frames) { for (const r of st.frames) this.detachFrame(r.frame, r); st._on = true; return true; }
+        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.after); } this.keysChanged(); st._on = true; return true; }
+        const r = this.removeById(st.removed.obj.id);
+        if (!r) return false;
+        st.removed = r;   // what this redo took out is what its undo puts back (F70)
+        for (const pc of st.pieces) if (!this.getById(pc.obj.id)) this.insertAt(pc.obj, pc.level, 1e9);
+        st._on = true;
+        return true;
+    }
+    /** Undo of an erase gesture: its applied steps and every applied step that consumed what they made, newest first. */
+    _stepsUndo(op) {
+        const ix = this._stepIndex(op);
+        const S = new Set(op.baked.filter((st) => st._on !== false));
+        const stack = [...S];
+        while (stack.length) {
+            const t = stack.pop();
+            for (const pc of t.pieces || []) {
+                const c = ix.consumed.get(pc.obj.id);
+                if (c && c._on !== false && !S.has(c)) { S.add(c); stack.push(c); }
+            }
+        }
+        for (const st of [...S].sort((a, b) => b._seq - a._seq)) this._revertStep(st);
+    }
+    /** Redo: its steps in order where their sources are back, then any suspended step of an applied gesture whose source is. */
+    _stepsRedo(op) {
+        const ix = this._stepIndex(op);
+        for (const st of [...op.baked].sort((a, b) => a._seq - b._seq)) this._applyStep(st);
+        const waiting = ix.steps.filter((st) => st._on === false && ix.opOf.get(st) !== op && ix.applied.has(ix.opOf.get(st))).sort((x, y) => x._seq - y._seq);
+        for (let changed = true; changed;) {
+            changed = false;
+            for (const st of waiting) if (st._on === false && this._applyStep(st)) changed = true;
         }
     }
     // Wipe the document. `external` is whatever engine state must round-trip
@@ -1270,8 +1514,12 @@ export default class Document {
         this._frameOwner = new Map();
         this.holdMerges = false;
         this._detached = new Set();
+        this._detachedLists = new Map();
+        this._reused = new Set();
+        this._keyedIn = new Map();
+        this._detachedKeyed = new Map();
         for (const Ls of Object.keys(natives)) {
-            for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._noteBelow(o); this._idx(Ls).add(o); }
+            for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._noteBelow(o); this._idx(Ls).add(o); this._keyIn(Ls, o); }
         }
         this._emit(load ? { kind: "reset", load: true } : { kind: "reset" });
     }

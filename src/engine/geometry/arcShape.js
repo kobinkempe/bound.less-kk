@@ -38,6 +38,7 @@
 import { ptAt, paramOf, pieceBBox, subPiece, pieceIntersections, Grid, canonAt, canonPos, cutLine, lineCrossSeg,
     canonArc, arcDir, arcPos, arcPieceOf, cutArc, circleCrossSeg, reversePiece, VertexSet } from "./arcPerimeter";
 import { DEFAULT_FREEZE_R, chordFrame, chordLineRoots, chordHit } from "./freeze";
+import { chordMidXY } from "./chordMath";
 import { Loop, encodeLoopInto, decodePiece } from "./loop";
 
 // The one `reversePiece` lives with the stitch (arcPerimeter); the boolean's
@@ -304,7 +305,7 @@ function rayCross(flat, p, dx, dy) {
             // centre form starts to lose to it.
             const arcLen = Math.abs(q.r * q.sweep);
             const cf = Math.abs(q.sweep) < Math.PI ? chordFrame(q) : null;
-            if (cf && cf.r >= cf.L) {
+            if (cf && cf.r >= cf.L && Math.pow(cf.L, 4) / (64 * Math.pow(cf.r, 3)) <= 1e-15 * (pm + Math.abs(cf.Mx) + Math.abs(cf.My) + cf.L)) {
                 const eps = (pm + Math.abs(q.A[0]) + Math.abs(q.A[1]) + cf.L) * GRAZE;
                 // A root that does not satisfy the line is not a crossing: a
                 // ray that misses the arc still gets roots from the first-order
@@ -336,19 +337,34 @@ function rayCross(flat, p, dx, dy) {
                 }
                 continue;
             }
-            const fx = p[0] - q.C[0], fy = p[1] - q.C[1];
+            // A minor arc is asked about the circle through its OWN ends (its chord frame's centre): a bake can
+            // leave a stored centre whose circle misses an end by more than the graze band (the ring seam, F89).
+            const Cx = cf ? cf.Mx - cf.d * cf.nx : q.C[0], Cy = cf ? cf.My - cf.d * cf.ny : q.C[1];
+            const qa0 = cf ? Math.atan2(q.A[1] - Cy, q.A[0] - Cx) : q.a0;
+            const qsw = cf ? (q.sweep > 0 ? 2 : -2) * Math.asin(Math.min(1, cf.half / cf.r)) : q.sweep;
+            // A ray through either end is a graze, decided on the stored ends themselves: near tangency the
+            // circle's crossing is ill-conditioned (~sqrt(ulp)·r) and can miss the end by far more than eps.
+            {
+                const ve = (pm + Math.abs(q.A[0]) + Math.abs(q.A[1]) + Math.abs(q.B[0]) + Math.abs(q.B[1])) * GRAZE;
+                for (const V of [q.A, q.B]) {
+                    const vx = V[0] - p[0], vy = V[1] - p[1];
+                    if (Math.abs(vx * dy - vy * dx) <= ve && vx * dx + vy * dy >= -ve) return null;
+                }
+            }
+            const fx = p[0] - Cx, fy = p[1] - Cy;
             const fd = fx * dx + fy * dy;
             const disc = fd * fd - (fx * fx + fy * fy - q.r * q.r);
             if (disc < 0) continue;
             const sq = Math.sqrt(disc);
-            const eps = (pm + Math.abs(q.C[0]) + Math.abs(q.C[1]) + q.r) * GRAZE;
+            const eps = (pm + Math.abs(Cx) + Math.abs(Cy) + q.r) * GRAZE;
             for (const t of [-fd - sq, -fd + sq]) {
                 if (t < -eps) continue;
                 const qx = p[0] + t * dx, qy = p[1] + t * dy;
-                const th = Math.atan2(qy - q.C[1], qx - q.C[0]);
-                const d = wrap(th - q.a0);
-                const along = q.sweep > 0 ? d : d - TAU;
-                const s = q.sweep === 0 ? 0 : along / q.sweep;
+                const th = Math.atan2(qy - Cy, qx - Cx);
+                // Measured from the arc's middle, so a point just before its start or just past its end reads
+                // as a small overshoot either way (from the start, a wrap read it a whole turn away).
+                const off = wrap(th - (qa0 + qsw / 2) + Math.PI) - Math.PI;
+                const s = qsw === 0 ? 0 : 0.5 + off / qsw;
                 if (s < 0 || s > 1) {
                     // Off the end — but only decisively so if it is off by more
                     // than the graze band measured along the arc.
@@ -480,6 +496,11 @@ export function windingAt(loops, p) {
 export function insideShape(loops, p) {
     const w = windingAt(loops, p);
     return w != null && w !== 0;
+}
+/** `insideShape` for many points of one shape: its pieces indexed once, each point one bucket scan (EFF-2). */
+export function insideTester(loops) {
+    const ix = new RayIndex(flatPieces(loops));
+    return (p) => { const w = ix.winding(p); return w != null && w !== 0; };
 }
 export function spanOf(loops) {
     const b = loopsBBox(loops);
@@ -970,11 +991,15 @@ export function chordCubic(p) {
     return [A, [A[0] + tAx, A[1] + tAy], [B[0] - tBx, B[1] - tBy], B];
 }
 
-/** The arc's midpoint from its endpoints and sweep: chord midpoint plus the sagitta along the chord's normal, on the bulge side. */
+/**
+ * The arc's midpoint from its endpoints and sweep: chord midpoint plus the sagitta
+ * along the chord's normal, on the bulge side. The expression is `chordMath.chordMidXY`,
+ * which the rasteriser's flattener also calls (chordMath.test.js M1 asserts the two are
+ * bit-identical); this is the piece-object calling convention.
+ */
 export function chordArcMid(p) {
     const A = p.A, B = p.B;
-    const k = Math.tan(p.sweep / 4) / 2;
-    return [(A[0] + B[0]) / 2 + (B[1] - A[1]) * k, (A[1] + B[1]) / 2 - (B[0] - A[0]) * k];
+    return chordMidXY(A[0], A[1], B[0], B[1], p.sweep, [0, 0]);
 }
 
 /** Loops as closed chains of cubics — the shape `curveOutline` also speaks. */
@@ -1154,6 +1179,23 @@ export function pieceOverlap(p, q, tol) {
  * runs when the first attempt LOST something, so nothing normal pays for it.
  */
 export function shapeBoolean(A, B, op, opts = {}) {
+    if (op === "both") {
+        // One cut-and-classify pass for A − B and A ∩ B; each result retries exactly as its own call would.
+        const first = shapeBooleanOnce(A, B, "both", opts);
+        const runs = new Map();
+        const pick = (key) => {
+            const r0 = first[key];
+            if (!r0.stats || !r0.stats.openChains || opts.weld > 0) return r0;
+            for (const k of [0.1, 10, 0.01]) {
+                let run = runs.get(k);
+                if (!run) { run = shapeBooleanOnce(A, B, "both", { ...opts, weld: r0.stats.weld * k }); runs.set(k, run); }
+                const r = run[key];
+                if (r.stats && !r.stats.openChains) { r.stats.retriedAt = k; return r; }
+            }
+            return r0;
+        };
+        return { difference: pick("difference"), intersection: pick("intersection") };
+    }
     const first = shapeBooleanOnce(A, B, op, opts);
     if (!first.stats || !first.stats.openChains || opts.weld > 0) return first;
     for (const k of [0.1, 10, 0.01]) {
@@ -1166,14 +1208,17 @@ export function shapeBoolean(A, B, op, opts = {}) {
     return first;
 }
 export function shapeBooleanOnce(A, B, op, opts = {}) {
+    const both = op === "both";
     const wantIn = op === "intersection";
+    const ret = (dLoops, iLoops, stats) => (both ? { difference: { loops: dLoops, stats: { ...stats } }, intersection: { loops: iLoops, stats: { ...stats } } }
+        : { loops: wantIn ? iLoops : dLoops, stats });
     A = normalizeLoops(A || []);
     B = normalizeLoops(B || []);
-    if (!A.length) return { loops: [], stats: { trivial: "empty subject" } };
-    if (!B.length) return { loops: wantIn ? [] : A, stats: { trivial: "empty clip" } };
+    if (!A.length) return ret([], [], { trivial: "empty subject" });
+    if (!B.length) return ret(A, [], { trivial: "empty clip" });
 
     const bbA = loopsBBox(A), bbB = loopsBBox(B);
-    if (!bbA || !bbB) return { loops: wantIn ? [] : A, stats: { trivial: "no extent" } };
+    if (!bbA || !bbB) return ret(A, [], { trivial: "no extent" });
     const span = Math.max(bbA.x1 - bbA.x0, bbA.y1 - bbA.y0, bbB.x1 - bbB.x0, bbB.y1 - bbB.y0, 1e-12);
     // The freeze radius (freeze.js rule 2): the engine passes its own in
     // `opts.freezeR`; a caller with no engine gets the default tolerance's.
@@ -1201,18 +1246,18 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     // real drawing that is nearly every loop: an eraser touches one part of one
     // stroke, and this is what keeps the cost proportional to the GESTURE rather
     // than to the drawing.
-    const out = [];
+    const out = [];         // untouched loops: the difference's (an intersection keeps none)
     const hotA = [], hotB = [], hotA1 = [], hotB1 = [];
     for (let i = 0; i < A.length; i++) {
         const loop = A[i];
         if (bbHit(loopBBox(loop), bbB)) { hotA.push(loop); hotA1.push(A1[i]); }
-        else if (!wantIn) out.push(A1[i]);
+        else if (!wantIn || both) out.push(A1[i]);
     }
     for (let i = 0; i < B.length; i++) {
         if (bbHit(loopBBox(B[i]), bbA)) { hotB.push(B[i]); hotB1.push(B1[i]); }
     }
-    if (!hotA.length) return { loops: out, stats: { untouched: A.length } };
-    if (!hotB.length) return { loops: wantIn ? out : out.concat(hotA1), stats: { untouched: A.length } };
+    if (!hotA.length) return ret(out, [], { untouched: A.length });
+    if (!hotB.length) return ret(out.concat(hotA1), [], { untouched: A.length });
 
     // ---- cut ---------------------------------------------------------------
     const items = [];
@@ -1280,10 +1325,14 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     // shape's 5,521 units of area — simply lost.
     const eps = weld;
     let nX = 0, nOv = 0, nCo = 0;
+    // A pair sharing several grid cells is met once a cell: 55 % of one case's crossing work (EFF-3).
+    const metBy = new Int32Array(N).fill(-1);
     for (let i = 0; i < N; i++) {
         if (items[i].set !== 0) continue;                 // A against B only
         // eslint-disable-next-line no-loop-func -- the callback runs synchronously inside this iteration
         grid.near(bbs[i], (j) => {
+            if (metBy[j] === i) return;
+            metBy[j] = i;
             if (items[j].set !== 1) return;
             const bj = bbs[j], bi = bbs[i];
             if (bj[0] > bi[2] || bj[2] < bi[0] || bj[1] > bi[3] || bj[3] < bi[1]) return;
@@ -1347,7 +1396,7 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
     // ---- split + classify --------------------------------------------------
     const flatA = flatPieces(A), flatB = flatPieces(B);
     const rayA = new RayIndex(flatA), rayB = new RayIndex(flatB);
-    const kept = [];
+    const kept = [], keptI = [];   // `kept` is the op's (the difference's when both); keptI the intersection's under "both"
     let ambiguous = 0;
     for (let i = 0; i < N; i++) {
         const p = items[i].p, set = items[i].set;
@@ -1404,14 +1453,18 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
             const co = coincidence(s, set);
             if (co) {
                 nCo++;
-                if (set === 0 && (wantIn ? co > 0 : co < 0)) kept.push(s);
+                if (both) { if (set === 0 && co < 0) kept.push(s); else if (set === 0 && co > 0) keptI.push(s); }
+                else if (set === 0 && (wantIn ? co > 0 : co < 0)) kept.push(s);
                 continue;
             }
             const m = ptAt(s, 0.5);
             const w = other.winding(m);
             if (w == null) ambiguous++;
             const inside = w != null && w !== 0;
-            if (set === 0) {
+            if (both) {
+                if (set === 0) { if (inside) keptI.push(s); else kept.push(s); }
+                else if (inside) { keptI.push(s); kept.push(reversePiece(s)); }
+            } else if (set === 0) {
                 if (inside === wantIn) kept.push(s);
             } else if (inside) {
                 // B's boundary becomes part of the answer where it runs through
@@ -1422,7 +1475,7 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
         }
     }
 
-    // ---- stitch ------------------------------------------------------------
+    const finish = (kept, out) => {
     const st = stitch(kept, vs);
     // Same filter the bake applies, for the same reason: a boolean whose clip
     // runs along an existing edge can leave a strip with no width, which paints
@@ -1472,6 +1525,10 @@ export function shapeBooleanOnce(A, B, op, opts = {}) {
         loops: out.length, sealed, sealedArea, openChains: lost ? sealed : 0,
         weld, unbalanced: st.unbalanced, ambiguous,
     } };
+    };
+    // ---- stitch ------------------------------------------------------------
+    if (both) return { difference: finish(kept, out), intersection: finish(keptI, []) };
+    return finish(kept, out);
 }
 
 /**

@@ -170,10 +170,6 @@ L = {
 "fl.objTileRect": [
  "One tile of an object's own grid, centred on its index.",
 ],
-"fl.objTilesRect": [
- "The rectangle a window of whole tiles spans.",
- "This is what geometry gets clipped to, so every cut in the engine lands on a line of the object's own grid — which is what makes two cache squares holding the same stretch of curve hold bit-identical pieces of it.",
-],
 
 # ---- Document -------------------------------------------------------------
 "doc.allocId": [

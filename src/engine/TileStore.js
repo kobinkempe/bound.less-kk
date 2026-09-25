@@ -46,6 +46,7 @@ import {
 } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
 import { R, G, REACH } from "./frameLattice";
+import { perfNow } from "./now";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
 // A tile's derived objects keep their loops as Loops (geometry/loop.js), like the
@@ -56,6 +57,7 @@ function flattenAll(objs) {
     return objs;
 }
 const PER_LEVEL_CAP = 64; // cached tiles per frame
+const OVER_BUDGET = { overBudget: true };   // thrown by a tile miss past `_deadline`
 const DOWN_MAX_SIZE = 5e5; // generous upper bound on a native's frame extent (px);
                            // used only to skip a frame whose content is guaranteed
                            // sub-cull at F.
@@ -65,6 +67,9 @@ export default class TileStore {
         this.lm = levelMap;
         this.doc = doc;
         this.cfg = cfg;
+        this._deadline = null;   // `contentOffCamera`'s budget (ms clock), the tiles its read has baked, the bake depth
+        this._readBakes = 0;
+        this._nest = 0;
         this.cullPx = cfg.cullPx != null ? cfg.cullPx : 0.3;       // below this at the frame's deepest zoom -> not baked plain
         this.fadeLoPx = cfg.fadeLoPx != null ? cfg.fadeLoPx : 0.15; // below this -> culled entirely; [fadeLo, cull) -> fade band
         this.opacityGroups = true;
@@ -72,7 +77,13 @@ export default class TileStore {
         this.cache = new Map(); // "F|dir|i,j" -> { level, dir, i, j, objs, epoch, lru }
         this._clock = 0;
         this._epoch = 0;
+        this._rebakes = 0;      // bakes run again because the document moved under them (F78)
         this._pins = new Set(); // keys protected from eviction during a bake/render
+        this._holdEvict = false; // `contentOffCamera` runs the eviction itself, once
+        // Tiles the zoom-out ladder and the crossing prebake read ahead (`warmReads` on): `framesLeft`
+        // keeps them, so the zoom they were read for finds them warm (F83). Cleared per ladder.
+        this._warm = new Set();
+        this.warmReads = false;
         this._chainSeq = new Map();       // frame -> chainSeq(frame), valid for one lattice addrEpoch
         this._chainSeqEpoch = -1;
         this._batch = false;    // a drag: many changes to the same objects, per frame
@@ -137,6 +148,41 @@ export default class TileStore {
         return out;
     }
     /**
+     * `content(F, rect)` for a frame the camera is NOT at — the crossing prebake (PAPER-PLAN R4)
+     * and `snapshotView` (SCENES-PLAN S1). The visible pin set is saved BY VALUE and restored,
+     * so neither the read nor the bake it forces can unpin or evict the camera's own tiles.
+     *
+     * By value, because `content` mutates `_pins` IN PLACE (`:128`, `_reroute`, `_ensureUp`)
+     * before replacing the field: saving the reference, which `KobinEngine._maybePrebake` did,
+     * puts back a set that now holds the read frame's keys and pins them until the next
+     * `content` call. The tiles this bakes stay cached and stay evictable, which is what makes
+     * a prebake free to throw away.
+     *
+     * The pins are not enough on their own: `content` evicts at its end, with only its own
+     * range pinned, and PER_LEVEL_CAP is 64 tiles within ONE frame — so a run of thumbnail
+     * reads at the frame the camera is at took the visible tiles (S9). The eviction is held for
+     * the read and run once here, with the camera's pins back.
+     */
+    contentOffCamera(F, rect, budgetMs = 0) {
+        const pins = new Set(this._pins);
+        this._holdEvict = true;
+        // With a budget, the first tile missed past it ends the read with null (one tile, with its parent
+        // chain, at least); the tiles baked so far stay cached, so a later read goes further. A ladder rung
+        // was one 3.6 s task on the Magnum Opus; a chain is still 0.3–0.8 s a level there (REVIEWER-4).
+        this._deadline = budgetMs > 0 ? perfNow() + budgetMs : null;
+        this._readBakes = 0;
+        try {
+            const out = this.content(F, rect);
+            if (this.warmReads) for (const k of this._pins) this._warm.add(k);   // the read's own keys, reroute's included
+            return out;
+        } catch (e) {
+            if (e === OVER_BUDGET) { this.overBudget = (this.overBudget || 0) + 1; return null; }
+            throw e;
+        } finally { this._deadline = null; this._pins = pins; this._holdEvict = false; this._evict(); }
+    }
+    /** A new ladder is being read: the last one's warm tiles go back to the ordinary rules. */
+    clearWarm() { this._warm.clear(); }
+    /**
      * THE TILES ARE IN UNMOVED SPACE; A MOVED OBJECT IS READ FROM WHERE ITS
      * PICTURE IS (F55, geometry/offsets.js). Every tile in this cache is a pure
      * function of stored bits and the object's own grid, and a move touches
@@ -151,33 +197,82 @@ export default class TileStore {
      * they are, drawn by the residual, as F41 always did.
      */
     _reroute(F, win, out, pins) {
-        const D = this._depth(F);
-        const moved = new Map();
-        for (const id of this.doc.offsetIds()) {
-            const rec = this.doc.getById(id);
-            if (!rec || rec.level === F) continue;          // its own frame: a native, rendered live
-            if (D < this._depth(rec.level)) continue;       // above the home: the residual draws it
-            const s = this.lm.objShift(rec.obj.below, rec.level, F);
-            if (s) moved.set(id, s);
-        }
+        const { moved, groups } = this._rerouteGroups(F);
         if (!moved.size) return out;
         const kept = out.filter((p) => !moved.has(p.id));
-        for (const [id, s] of moved) {
-            const w = { left: win.left - s.rem[0], right: win.right - s.rem[0], top: win.top - s.rem[1], bottom: win.bottom - s.rem[1] };
-            const range = this.lm.tileRange(s.F0, w);
+        for (const g of groups.values()) {
+            const w = { left: win.left - g.rem[0], right: win.right - g.rem[0], top: win.top - g.rem[1], bottom: win.bottom - g.rem[1] };
+            const range = this.lm.tileRange(g.F0, w);
             for (let i = range.i0; i <= range.i1; i++) {
                 for (let j = range.j0; j <= range.j1; j++) {
                     for (const dir of ["up", "down"]) {
-                        const key = s.F0 + "|" + dir + "|" + i + "," + j;
+                        const key = g.F0 + "|" + dir + "|" + i + "," + j;
                         pins.add(key);
                         this._pins.add(key);
-                        const tile = dir === "up" ? this._ensureUp(s.F0, i, j) : this._ensureDown(s.F0, i, j);
-                        for (const p of tile.objs) if (p.id === id) kept.push(p);
+                        const tile = dir === "up" ? this._ensureUp(g.F0, i, j) : this._ensureDown(g.F0, i, j);
+                        for (const p of tile.objs) if (g.ids.has(p.id)) kept.push(p);
                     }
                 }
             }
         }
         return kept;
+    }
+
+    /**
+     * The moved objects GROUPED by the frame and remainder their pieces are read from at F, so
+     * each tile is scanned once a group and not once an object. Memoised on F, the document's
+     * `offRev` (its tables and their homes; `rev` re-walked 19.7k tables every render, E-3), the
+     * lattice's `addrEpoch` and its frame count — everything `objShift` reads: the
+     * walk over every object with a table was 70 of a 113–140 ms list build on the Magnum Opus
+     * (16,889 tables, jsdom, PAPER-PLAN §10). A key that moved during the walk is not kept. One
+     * entry a frame, the last four: the ladder and the crossing prebake read other frames between
+     * two camera renders, and one entry made the camera pay the whole scan again (review minor 7).
+     */
+    _rerouteGroups(F) {
+        const memo = this._rrMemo || (this._rrMemo = new Map());
+        const m = memo.get(F);
+        const lat = () => this.lm.addrEpoch + "|" + this.lm.frames.size;
+        const key = () => F + "|" + this.doc.offRev + "|" + lat();
+        const k0 = key();
+        if (m && m.key === k0) { this._rrHits = (this._rrHits || 0) + 1; return m; }
+        const D = this._depth(F);
+        const place = (out, id) => {
+            const rec = this.doc.getById(id);
+            if (!rec || rec.level === F) return;            // its own frame: a native, rendered live
+            if (D < this._depth(rec.level)) return;         // above the home: the residual draws it
+            const s = this.lm.objShift(rec.obj.below, rec.level, F);
+            if (!s) return;
+            out.moved.add(id);
+            const k = s.F0 + "|" + s.rem[0] + "|" + s.rem[1];
+            let g = out.groups.get(k);
+            if (!g) out.groups.set(k, (g = { F0: s.F0, rem: s.rem, ids: new Set() }));
+            g.ids.add(id);
+            out.gk.set(id, k);
+        };
+        // The lattice as it was: only the objects whose tables or homes moved since are placed again.
+        const since = m && m.lat === lat() ? this.doc.offTouchedSince(m.rev) : null;
+        let out;
+        if (since && since.size < this.doc.offsetIds().size / 2) {
+            out = m;
+            for (const id of since) {
+                const k = out.gk.get(id);
+                if (k !== undefined) {
+                    const g = out.groups.get(k);
+                    g.ids.delete(id);
+                    if (!g.ids.size) out.groups.delete(k);
+                    out.moved.delete(id); out.gk.delete(id);
+                }
+                if (this.doc.offsetIds().has(id)) place(out, id);
+            }
+            this._rrPatches = (this._rrPatches || 0) + 1;
+        } else {
+            out = { moved: new Set(), groups: new Map(), gk: new Map() };
+            for (const id of this.doc.offsetIds()) place(out, id);
+        }
+        out.key = k0; out.rev = this.doc.offRev; out.lat = lat();
+        memo.delete(F);
+        if (key() === k0) { memo.set(F, out); if (memo.size > 4) memo.delete(memo.keys().next().value); }
+        return out;
     }
 
     // The active frame's own natives, which render live (curved) outside the tile
@@ -208,11 +303,32 @@ export default class TileStore {
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
+        if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
         this._pins.add(key); // protect this tile (and its parents) during recursion
-        const objs = this._bakeUp(F, i, j);
-        const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq, lru: ++this._clock };
+        let objs;
+        this._nest++;   // a tile's parents are baked with it: a read stops between tiles, never inside a chain
+        try { objs = this._bakeSettled(() => this._bakeUp(F, i, j)); } finally { this._nest--; }
+        const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this.cache.set(key, tile);
+        this._readBakes++;
         return tile;
+    }
+    /**
+     * A bake that read the document while a lazy settle re-homed natives out of it (OPEN-FLAGS
+     * F78): `Document.at` settles a frame's pending shift and can carry its natives to the
+     * neighbour cell mid-bake, and the tile is not in the cache yet for the `add` events to
+     * patch, so an empty tile would be cached for the session. `rev` bumps on every emit; a
+     * bake the document moved under runs again, at most three times.
+     */
+    _bakeSettled(bake) {
+        let objs;
+        for (let n = 0; n < 3; n++) {
+            const rev = this.doc.rev;
+            objs = bake();
+            if (this.doc.rev === rev) return objs;
+            this._rebakes++;
+        }
+        return objs;
     }
     _bakeUp(F, i, j) {
         const frame = this.lm.frame(F);
@@ -347,9 +463,11 @@ export default class TileStore {
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
-        const objs = this._bakeDown(F, i, j);
-        const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq, lru: ++this._clock };
+        if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
+        const objs = this._bakeSettled(() => this._bakeDown(F, i, j));
+        const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this.cache.set(key, tile);
+        this._readBakes++;
         return tile;
     }
     _bakeDown(F, i, j) {
@@ -522,52 +640,128 @@ export default class TileStore {
         if (ev.kind === "change" && (ev.offsetsOnly || ev.attrOnly)) return;
         if (ev.kind === "change") { this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
     }
+    /**
+     * A frame the lattice forgot (frame GC): its tiles, reroute memo and chain sum go. A later read
+     * can mint the same id again, and its old tiles would be served without what changed since
+     * (REVIEWER-3 RENDER-1: a moved object's ink vanished after an undo at depth).
+     */
+    forgetFrame(frame) {
+        const F = String(frame);
+        for (const [key, tile] of this.cache) {
+            if (String(tile.level) !== F) continue;
+            this.cache.delete(key); this._pins.delete(key); this._warm.delete(key);
+        }
+        if (this._rrMemo) this._rrMemo.delete(F);
+        this._chainSeq.delete(F);
+    }
+    /** Whether a tile still stands: dropped in a drag's batch mode unless on screen, or when its frame is gone (RENDER-1). */
+    _tileLive(key, tile) {
+        if (this._batch && !this._pins.has(key)) { this.cache.delete(key); return false; }
+        if (!this.lm.frame(tile.level)) { this.cache.delete(key); return false; }
+        return true;
+    }
     _removeObject(id) {
         for (const [key, tile] of this.cache) {
-            if (this._batch && !this._pins.has(key)) { this.cache.delete(key); continue; }
-            if (!tile.objs.length) continue;
+            if (!this._tileLive(key, tile) || !tile.objs.length) continue;
             let has = false;
             for (const p of tile.objs) if (p.id === id) { has = true; break; }
             if (has) tile.objs = tile.objs.filter((p) => p.id !== id);
         }
     }
+    /**
+     * A native `o` added at `H`, patched into every cached tile that `_bakeUp`/`_bakeDown` would put it
+     * in. A chained up tile takes it from its parent squares' pieces, coarsest first so each parent
+     * has it already; one whose parents are not all cached goes, and is rebuilt when read. Dropping
+     * every chained tile instead rebuilt the whole view cold after a cut through a backdrop: 1.9 s
+     * at depth 9 on the Magnum Opus (TB-1).
+     */
     _addObject(o, H) {
+        H = String(H);
+        const chained = [];
+        const via = new Map();
         for (const [key, tile] of this.cache) {
-            if (this._batch && !this._pins.has(key)) { this.cache.delete(key); continue; }
+            if (!this._tileLive(key, tile)) continue;
             const F = tile.level;
             if (F === H) continue;
-            if (tile.dir === "up") {
-                // F inherits H magnified if H is a coarser ancestor — or a cell
-                // beside one, which `_ringNatives` pulls in. The ring case is
-                // rarer and harder to patch precisely, so it invalidates.
-                if (!this.lm.isAncestor(H, F)) {
-                    if (this._depth(H) < this._depth(F)) this.cache.delete(key);
-                    continue;
-                }
-                if (this.lm.parentOf(F) === H) { this._appendUp(tile, o); continue; }
-                // chained content: correctness needs the intermediate tiles'
-                // pieces — invalidate (footprint test at H is exact and cheap)
-                const rectAtH = this.lm.mapRectF(this.lm.tileRect(F, tile.i, tile.j), F, H);
-                const half = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
-                if (rectAtH && this._overlaps(rectAtH, bboxOf(o, this.live), half)) this.cache.delete(key);
-            } else {
+            if (tile.dir === "down") {
                 // H is a down source for F iff non-ancestor and depth(H) ≥ depth(F).
-                if (this.lm.isAncestor(H, F)) continue;
-                if (this._depth(H) < this._depth(F)) continue;
-                this._appendDown(tile, o, H);
+                if (!this.lm.isAncestor(H, F) && this._depth(H) >= this._depth(F)) this._appendDown(tile, o, H);
+                continue;
+            }
+            let A = via.get(F);
+            if (A === undefined) { A = this._upVia(H, F); via.set(F, A); }
+            if (A == null) continue;
+            if (this.lm.parentOf(F) === A) {
+                const d = A === H ? o : this._ringCopy(o, H, A, this.lm.rectToParent(this.lm.tileRect(F, tile.i, tile.j), F));
+                if (d) this._appendUp(tile, [d]);
+            } else if (this._reaches(o, H, tile)) chained.push([key, tile]);
+        }
+        chained.sort((a, b) => this._depth(a[1].level) - this._depth(b[1].level));
+        for (const [key, tile] of chained) if (this.cache.get(key) === tile) this._appendChained(key, tile, o);
+    }
+    /**
+     * The frame whose child chain carries `H`'s natives up into `F`: F's ancestor at H's depth when that
+     * is H, or when H is in its ring (`_ringNatives`); null when H's natives never reach F's up tiles.
+     */
+    _upVia(H, F) {
+        const dH = this._depth(H);
+        if (dH >= this._depth(F)) return null;
+        let A = F;
+        while (A != null && this._depth(A) > dH) A = this.lm.parentOf(A);
+        if (A == null) return null;
+        A = String(A);
+        if (A === H) return H;
+        for (const G of this.lm.peekRing(A)) if (String(G.id) === H) return A;
+        return null;
+    }
+    /** `o` (a native of `H`, in `A`'s ring) as `_ringNatives(A, pr)` hands it over, or null when it does not. */
+    _ringCopy(o, H, A, pr) {
+        const inH = this.lm.mapRectF(pr, A, H);
+        if (!inH || !this.doc.queryRect(H, inH).includes(o)) return null;
+        const d = this.lm.projectF(o, H, A);
+        if (!d) return null;
+        d.origin = o.origin;
+        return d;
+    }
+    /** Whether `o`'s box, at `H`, meets the up tile's rect grown by the seam pad (classifyUp's cull). */
+    _reaches(o, H, tile) {
+        const r = this.lm.mapRectF(padRect(this.lm.tileRect(tile.level, tile.i, tile.j), seamPadFor(this.cfg)), tile.level, H);
+        const half = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
+        return !r || this._overlaps(r, bboxOf(o, this.live), half);
+    }
+    _appendChained(key, tile, o) {
+        const F = tile.level;
+        const frame = this.lm.frame(F);
+        const P = frame && frame.parent != null ? this.lm.frameFor(frame.parent) : null;
+        if (!P || !frame.edge) return;
+        const pr = this.lm.rectToParent(this.lm.tileRect(F, tile.i, tile.j), F);
+        const r = this.lm.tileRange(P.id, pr);
+        const seq = this.chainSeq(P.id);
+        for (let i = r.i0; i <= r.i1; i++) {
+            for (let j = r.j0; j <= r.j1; j++) {
+                const p = this.cache.get(P.id + "|up|" + i + "," + j);
+                if (!p || p.epoch !== this._epoch || p.seq !== seq) { this.cache.delete(key); return; }
             }
         }
+        const from = this._upPiecesOver(P.id, pr, o.id);
+        if (from.length) this._appendUp(tile, from);
     }
-    _appendUp(tile, o) {
+    /** `_bakeUp`'s derivation of `objs` (the parent's pieces or natives) into `tile`, appended. */
+    _appendUp(tile, objs) {
         const F = tile.level;
         const frame = this.lm.frame(F);
         const rec = frame && frame.edge;
         if (!rec) return;
         const rect = this.lm.tileRect(F, tile.i, tile.j);
-        const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live, null);
-        if (tier === "empty") return;
-        if (tier === "solid") { tile.objs.push(this._solid(o, rec, rect)); return; }
-        deriveStep([o], rec.s, rec.t, rect, F, {
+        const edges = [];
+        for (const o of objs) {
+            const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live, null);
+            if (tier === "empty") continue;
+            if (tier === "solid") tile.objs.push(this._solid(o, rec, rect));
+            else edges.push(o);
+        }
+        if (!edges.length) return;
+        deriveStep(edges, rec.s, rec.t, rect, F, {
             cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
             addrSeq: frame.addrSeq || 0,
             parentCurved: (p) => p.origin === "native",
@@ -599,22 +793,19 @@ export default class TileStore {
     }
 
     /**
-     * The camera has moved to frame F: every cached tile of a frame that is neither
-     * F nor one of its ancestors goes (WORKLIST memory step 3a, 2026-09-08). An
-     * ancestor's tiles are what a descent builds F's from; anything else is
-     * derivable again, bit for bit, when the camera returns. Measured before this
-     * on the 12,844-object canvas: the tiles of one view held 373k derived pieces,
-     * about 130 MB, and frames left behind kept theirs. Called by the engine on a
-     * change of camera frame, not per render, so a prebaked child survives until
-     * the camera goes somewhere its tiles cannot serve.
+     * The camera has moved to frame F: every cached tile goes except F's ancestors', the tiles the
+     * camera's own read of F has just pinned, and the tiles the ladder read ahead (`_warm`)
+     * (WORKLIST memory step 3a). Called by the engine AFTER that read, so a moved object's tiles
+     * `_reroute` reads from another frame survive: deleting them re-baked them cold on the zoom
+     * that followed — 440 → 64 ms for the first list in jsdom, and a 929 ms reroute two ticks
+     * before a crossing in Kobin's Chrome with the ladder's tiles not kept (OPEN-FLAGS F83).
      */
     framesLeft(F) {
         const keep = new Set();
         for (let id = F; id != null; id = this.lm.parentOf(id)) keep.add(String(id));
-        this._pins = new Set();   // the old frame's pins; `content` re-pins what the new view holds
         let n = 0;
         for (const [key, tile] of this.cache) {
-            if (keep.has(String(tile.level))) continue;
+            if (keep.has(String(tile.level)) || this._pins.has(key) || this._warm.has(key)) continue;
             this.cache.delete(key); n++;
         }
         return n;
@@ -622,6 +813,8 @@ export default class TileStore {
 
     // ---- LRU ----
     _evict() {
+        // Held across an off-camera read, which runs it itself once the camera's pins are back.
+        if (this._holdEvict) return;
         if (this.cache.size <= GLOBAL_CAP) { this._evictPerLevel(); return; }
         const evictable = [];
         for (const [key, tile] of this.cache) if (!this._pins.has(key)) evictable.push([key, tile.lru]);

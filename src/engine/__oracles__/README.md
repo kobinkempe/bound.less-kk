@@ -17,6 +17,7 @@ would not remove a bug; it would remove the ability to notice one.
 | `bakeStrategies.js` | the three competing bakers (A/B/C), still the head-to-head bench | `bakeStrategies.test.js`, `geometry/arcPerimeter.test.js` |
 | `cede.js` | rectangle ceding, against which the tile-window cut is checked | `geometry/derive.test.js`, `geometry/seams.test.js` |
 | `erase.js` | the pre-bake eraser footprint | `erase.contract.slow.test.js` |
+| `coverageOracle.js` | the rasteriser's coverage: exact-winding by 16 sub-scanlines a pixel row, plus the shoelace area. It is exact for any winding and any overlap, which signed-area accumulation is not, so it is what says whether `raster/rasterCore.js` painted the right fraction of each pixel | `raster/raster.oracle.test.js` |
 
 ## The rule
 

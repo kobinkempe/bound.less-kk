@@ -46,10 +46,6 @@ def build():
                 break
         return cur
 
-    byleaf = {}
-    for k in LONG:
-        byleaf.setdefault(k.split(".", 1)[1], k)
-
     used = [0, 0]
     def repl(m):
         whole, fn_cell = m.group("body"), m.group("fn")
@@ -57,13 +53,9 @@ def build():
         sect = section_at(m.start())
         keys = []
         for nm in names_of(fn_cell):
-            for cand in (nm, nm.split(".")[-1]):
-                scoped = "@" + sect + "." + cand
-                hit = scoped if scoped in LONG else byleaf.get(cand)
-                if hit:
-                    if hit not in keys:
-                        keys.append(hit)
-                    break
+            hit = descriptions.long_key(sect, nm)
+            if hit and hit not in keys:
+                keys.append(hit)
         used[1] += 1
         if not keys:
             return "<tr" + attrs + ">" + whole + "</tr>"

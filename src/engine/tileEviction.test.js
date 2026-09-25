@@ -3,7 +3,7 @@
  * change of frame, ancestors' kept, and what a return rebuilds is bit for bit what
  * was dropped (WORKLIST memory step 3a, 2026-09-08).
  */
-import { mkEngine, useEngines, drawStroke, descend, topView, camShot, camRestore } from "./__testkit__/harness";
+import { mkEngine, useEngines, drawStroke, descend, topView, camShot, camRestore, drag } from "./__testkit__/harness";
 import { encodeLoops } from "./geometry/arcShape";
 
 useEngines();
@@ -52,5 +52,24 @@ describe("tiles of frames the camera has left", () => {
         expect(cached).toContain(String(mid));
         expect(cached).toContain(String(E.lm.parentOf(mid)));
         expect(E.store.framesLeft(E.cam.frame)).toBe(0);   // nothing off the path to drop
+    });
+
+    test("a moved object's tiles read from another frame survive the change of frame (F83)", () => {
+        const E = mkEngine(800, 600);
+        for (let i = 0; i < 3; i++) drawStroke(E, [[150 + i * 180, 150], [220 + i * 180, 350], [160 + i * 180, 520]], 10);
+        drag(E, [220, 350], [470, 330]);           // a table: its pieces are read from a sibling frame below
+        E.setTool("pen");
+        descend(E, 2, 470, 330);
+        E._render();
+        const anc = new Set();
+        for (let id = E.cam.frame; id != null; id = E.lm.parentOf(id)) anc.add(String(id));
+        const off = [...E.store._pins].filter((k) => !anc.has(k.split("|")[0]));
+        expect(off.length).toBeGreaterThan(0);     // the precondition: `_reroute` read off the path
+        const tiles = off.map((k) => E.store.cache.get(k));
+        E._tileFrame = null;                       // the next render is a change of frame
+        E._render();
+        // Kept, not re-baked: deleting before the read cost 106 cold tiles a crossing on the Magnum Opus.
+        expect(off.map((k) => E.store.cache.get(k))).toEqual(tiles);
+        for (let k = 0; k < off.length; k++) expect(E.store.cache.get(off[k])).toBe(tiles[k]);
     });
 });

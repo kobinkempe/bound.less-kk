@@ -1,0 +1,15 @@
+{
+  "what": "Kobin's second Earth-move recreation, 2026-09-22 ~18:30Z, in his Local Magnum Opus (mu34hlxc1t16986e). Replayed on 'Claude projects/Magnum Opus.boundless.json' (Sep 15), whose natives are identical to his canvas's (verified per native 2026-09-22) except id 8584, which he erased. Frame ids are in the FILE's naming: his canvas has '/-149,-746#2/' where the file has '/-149,-746/' (F80).",
+  "camera": { "frame": "0/30,17/-880,-46/-149,-746/-1809,550", "activeLevel": 4, "inScale": 0.06775041656247943, "inPanX": 3200.9485731022746, "inPanY": 3170.166760395997 },
+  "displacement": [-11634.298828125, -607.09375],
+  "op": "moveMany: 1,884 natives of the region frame 0/30,17/-880,-46/-149,-746/-1809,550/-650,-1325 to /-1014,-1344 (tables [[-49152,-49152]] -> [[6968,-45440]]), plus 43730 (a native of the camera frame) and 29643 (a native of depth 3) moved within their own frames",
+  "regionFrame": "0/30,17/-880,-46/-149,-746/-1809,550/-650,-1325",
+  "cityFrame": "0/30,17/-880,-46/-149,-746/-1809,550/-650,-1325/-1398,-79",
+  "housesFrame": "0/30,17/-880,-46/-149,-746/-1809,550/-650,-1325/-1398,-79/-497,470",
+  "selection": {
+    "n": 1886,
+    "frames": [],
+    "runs": [[8923,9092],[9098,9262],[13921,13999],[17771,18201],[18203,18971],29643,[36601,36604],[36613,36615],[41074,41125],[41202,41242],[41248,41278],[41280,41367],[41369,41372],[41959,41960],42712,[42740,42772],43730,46369,[47008,47017]]
+  },
+  "measured": "The city's drawn box lies inside the moved region's drawn box and inside three of the moved shapes (8926 #20427a, 9216 #9ab264, 8973 #73904c). A lasso around the city takes the city frame whole at depth 4 (inScale 150) and at depth 5 (inScale 0.8). The selection held no frame, so the drag moved the region and left the city, the houses and everything deeper at their address."
+}

@@ -72,6 +72,12 @@ describe("localCanvases", () => {
         expect(readIndex()).toEqual([]);
     });
 
+    test("statsFromNatives reads a lattice frame id's depth from its segments (REVIEWER-2 ST-1: the Magnum Opus read \"Surface level\")", () => {
+        const one = [{ id: 1 }];
+        expect(statsFromNatives({ "0": one, "0/1,2": one, "0/1,2/3,4#2": one })).toEqual({ strokes: 3, levels: 3 });
+        expect(statsFromNatives({ "0/30,17/-880,-46": one })).toEqual({ strokes: 1, levels: 1 });
+        expect(statsFromNatives({ "3#2": one, "3#2/0,1": one })).toEqual({ strokes: 2, levels: 2 });
+    });
     test("statsFromDoc counts strokes and spans levels (incl. negatives, skipping empties)", () => {
         expect(statsFromDoc(sampleDoc())).toEqual({ strokes: 4, levels: 4 }); // -1..2
         expect(statsFromDoc({ natives: {} })).toEqual({ strokes: 0, levels: 0 });
@@ -216,11 +222,24 @@ describe("localCanvases", () => {
         expect(Object.keys((await loadCanvasDoc("f")).natives)).toEqual(["0"]);
     });
 
-    test("backupCanvasDoc keeps a copy; sweepStorage drops it after a week", async () => {
-        await saveCanvasDoc("b", sampleDoc("Backed"));
-        upsertIndexEntry({ id: "b", name: "Backed" });
+    test("backupCanvasDoc: a kobin-2 store copied whole into the bin (F86), a v1 document to the backups", async () => {
+        await saveCanvasDoc("k2", sampleDoc("Whole"));
+        upsertIndexEntry({ id: "k2", name: "Whole" });
+        await backupCanvasDoc("k2");
+        const kept = (await readTrash()).find((t) => t.backupOf === "k2");
+        expect(kept).toMatchObject({ store: true, name: "Whole (could not be opened)" });
+        expect((await loadCanvasDoc(kept.id)).natives).toEqual(sampleDoc("Whole").natives);
+        expect(await getBackup("k2")).toBeNull();
+        const { natives, ...header } = sampleDoc("Backed");
+        await writeCanvas("b", { header, frames: natives, frameIds: Object.keys(natives), full: true });
         await backupCanvasDoc("b");
         expect(await getBackup("b")).toEqual(sampleDoc("Backed"));
+    });
+
+    test("sweepStorage drops a backup after a week", async () => {
+        await saveCanvasDoc("b", sampleDoc("Backed"));
+        upsertIndexEntry({ id: "b", name: "Backed" });
+        await putBackup("b", sampleDoc("Backed"));
         await sweepStorage();
         expect(await getBackup("b")).not.toBeNull(); // fresh: kept
         await putBackup("b", sampleDoc("Backed"), new Date(Date.now() - BACKUP_TTL_MS - 1000).toISOString());
@@ -231,8 +250,28 @@ describe("localCanvases", () => {
 
     // ---- recycle bin ----
 
-    test("trashCanvas moves entry + document to the bin; restoreCanvas brings both back", async () => {
+    test("trashCanvas lists a kobin-2 canvas in the bin and leaves its store in place (F86); restoreCanvas lists it again", async () => {
         await saveCanvasDoc("d1", sampleDoc("Doomed"));
+        upsertIndexEntry({ id: "d1", name: "Doomed", strokes: 4, levels: 4, savedAt: "2026-07-01T00:00:00Z" });
+
+        const t = await trashCanvas("d1");
+        expect(t).toMatchObject({ name: "Doomed", store: true });
+        expect(t.deletedAt).toBeTruthy();
+        expect(readIndex()).toEqual([]);
+        expect(await getTrashDoc("d1")).toBeNull();
+        expect((await readTrash()).map((e) => e.id)).toEqual(["d1"]);
+
+        await restoreCanvas("d1");
+        expect(await readTrash()).toEqual([]);
+        expect(await loadCanvasDoc("d1")).toEqual(sampleDoc("Doomed"));
+        const entry = readIndex().find((e) => e.id === "d1");
+        expect(entry.name).toBe("Doomed");
+        expect(entry.savedAt).toBe("2026-07-01T00:00:00Z"); // original edit time survives
+    });
+
+    test("trashCanvas moves a v1 canvas's entry + document to the bin; restoreCanvas brings both back", async () => {
+        const { natives, ...header } = sampleDoc("Doomed");
+        await writeCanvas("d1", { header, frames: natives, frameIds: Object.keys(natives), full: true });
         upsertIndexEntry({ id: "d1", name: "Doomed", strokes: 4, levels: 4, savedAt: "2026-07-01T00:00:00Z" });
 
         const t = await trashCanvas("d1");
@@ -283,6 +322,7 @@ describe("localCanvases", () => {
 
         expect(await readTrash()).toEqual([]);
         expect(await getTrashDoc("old")).toBeNull();
+        expect(await loadCanvasDoc("old")).toBeNull();
         expect(await loadCoverThumb("old")).toBeNull();
         expect(await restoreCanvas("old")).toBeNull();
     });
@@ -453,8 +493,8 @@ describe("localCanvases", () => {
         expect(readIndex().find((e) => e.id === "orphan").name).toBe("Somebody's work");
         expect(await loadCanvasDoc("empty")).toBeNull();
         expect(await loadCanvasDoc("orphan")).toEqual(sampleDoc("Somebody's work"));
-        expect((await listCanvasHeaders()).map((h) => h.id).sort()).toEqual(["listed", "orphan"]);
-        expect(await getTrashDoc("binned")).toEqual(sampleDoc("Binned")); // the bin is not the sweep's business
+        expect((await listCanvasHeaders()).map((h) => h.id).sort()).toEqual(["binned", "listed", "orphan"]);
+        expect(await loadCanvasDoc("binned")).toEqual(sampleDoc("Binned")); // the bin is not the sweep's business (F86: in place)
         expect(await loadCoverThumb("listed")).not.toBeNull();
         expect(await loadCoverThumb("nobody")).toBeNull();
         // Idempotent.

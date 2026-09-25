@@ -1,7 +1,9 @@
 ================================================================================
 BOUND.LESS - CODE MAP
 Every production file, what it owns, and the parts worth knowing about.
-Written 2026-08-28. Test files (*.test.js) are listed at the end by subject.
+Written 2026-08-28; files added through 2026-09-22 (the raster renderer, the
+scenes work, the erase jobs). Test files (*.test.js) are listed at the end by
+subject.
 
 MARKERS
     [DEV]    reachable only from the dev panel (?dev) or a dev route
@@ -27,25 +29,38 @@ PAGES
 src/Pages/HomeV2.js         Marketing page. Links to /canvases.
 src/Pages/CanvasesV2.js     THE GALLERY. Sign-in, the local/cloud merge (freshest
                             savedAt wins), one-way catch-up upsync of canvases
-                            the account does not know, tombstone propagation,
+                            the account does not know (a kobin-2 store as its
+                            chunks, one at a time; none in a dev build), tombstone propagation,
                             rename / duplicate / download / delete, the recycle
                             bin, and file import. PopMenu at the bottom is a
                             dropdown whose click-away deliberately ignores its
                             own anchor, or the button would feel stuck open.
 src/Pages/CanvasEditor.js   THE PRODUCT. Tool rail, scenes panel, scale HUD and
                             set-scale flow, save/delete/leave dialogs, the
-                            save-failure bar, the cross-device "open elsewhere"
-                            banner, and the dev panel behind ?dev.
+                            save-failure bar, the sync chip and notices
+                            (SYNC-PLAN), and the dev panel behind ?dev.
                             Key pieces:
                               persistCanvas     serialize -> local -> index ->
                                                 thumbnails -> cloud. Does NOT
                                                 stop at a failed local write.
-                              cloudAutosync     every 30 s and on tab-hide while
-                                                signed in and dirty.
-                              ensureThumbs      builds a WHOLE SECOND ENGINE and
-                                                rasterizes one image per scene.
-                                                By far the most expensive thing
-                                                the editor does.
+                              the session       a CanvasSession once the engine is
+                                                restored and sign-in has resolved:
+                                                the pen, the open decision, the
+                                                pushes (every 30 s while dirty, on
+                                                hide, on Save), the follow, Edit here.
+                              ensureThumbs      under raster (the default):
+                                                renderThumbsLive, one snapshotView
+                                                plate per scene in the live
+                                                engine's workers, landing one by
+                                                one; a miss keeps the last
+                                                picture. The second-engine path
+                                                (renderThumbs) runs only under
+                                                ?svg (F81, 2026-09-22).
+                              the Scenes panel  rows of picture, name and zoom with
+                                                one rename button (Kobin,
+                                                2026-09-22); opens on the stored
+                                                scenes and cached pictures, then
+                                                refreshes after it has painted.
                               hudBundle         computeScale on the sticky scale
                                                 session, with a write-back guard
                                                 so a stale unbanded result cannot
@@ -75,7 +90,13 @@ src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
                             Also: the ctrl cursor (a drawn SVG badge saying what
                             the next ctrl-click will DO, answered by hit-testing
                             the point), save/load/export helpers, and the [DEV]
-                            report sender.
+                            Report button (sendReport -> src/hooks/reportSend.js:
+                            build with engine/report.js, scrub the identity,
+                            gzip, POST in parts to tools/report-server.js;
+                            window.__kobinReport behind ?dev). rasterFromUrl picks the renderer at
+                            construction: raster unless ?svg (or ?raster=0) is in
+                            the URL (2026-09-22); exportSvg in raster mode renders
+                            once through thumbnails.withSvgEngine.
 
 COMPONENTS
 
@@ -89,6 +110,18 @@ src/Components/ui/SciText.js            renders Unicode superscript exponents as
 src/Components/editor/
     ColorPickerPopover      react-colorful behind an anchored popover
     FileActionsMenu         download / export SVG / open / duplicate / delete
+                            (open and delete hidden while read-only)
+    SyncChip                SyncStatus: the save state as a button inside the
+                            title chip (icon only at ≤ 480 px, icon + short
+                            label wider; syncLabel is its accessible name),
+                            opening the details card (this device's name).
+                            useBannerClearance measures the top bar, the
+                            banner stack and the rail: stack under the bar,
+                            rail under the stack when they share columns.
+                            SyncBanner: under the top bar, Viewing only + Edit
+                            here, Taking/Handing over…, You have the pen
+                            (4 s). showsNotice keeps the pen's moves out of the
+                            notice banner (SYNC-PLAN R9, 2026-09-23 design)
     SaveDrawingDialog       first-save naming; re-seeds from the live title
     ScaleDragBar            the set-scale drag visualisation
     ScaleUnitPicker         the unit popover and the set-scale grid. Chips until
@@ -119,10 +152,23 @@ src/storage/localCanvases.js   The store's public face. The gallery index and
                                frames, backups older than a week, thumbnails for
                                canvases that exist nowhere. stashOverwrittenVersion
                                files the losing side of a cross-device overwrite
-                               as its own restorable canvas.
-src/storage/thumbnails.js      Offscreen scene thumbnails. Builds a second
-                               KobinEngine in a hidden host, loads the drawing,
-                               jumps to each scene and rasterizes. Browser-only.
+                               as its own restorable canvas. A kobin-2 canvas
+                               goes to the bin in place (`store: true`), and is
+                               duplicated and backed up as a whole-store copy
+                               (F86); loadCanvasDoc is the whole drawing.
+src/storage/foldStore.js       A stored kobin-2 canvas as ONE kobin-1 document
+                               (F86): the frame snapshots, plus the log tail
+                               replayed through a detached engine as the editor
+                               loads it; no engine when there is no tail, the
+                               snapshots alone when the log will not replay. Used
+                               by loadCanvasDoc and cloudLoadCanvas.
+src/storage/thumbnails.js      Scene thumbnails. renderThumbsLive (the raster
+                               path, 2026-09-22/23): sceneOps.snapshotView per
+                               scene, at most four in flight, idle-spaced, each
+                               landing through onThumb. withSvgEngine: a one-off
+                               SVG KobinEngine in a hidden host over a serialised
+                               copy - what renderThumbs (?svg only) and the SVG
+                               export use. Browser-only.
 src/cloud/firebaseApp.js       Lazy, memoized Firebase init. Importing it starts
                                nothing.
 src/cloud/useUser.js           Live auth state; Google popup with a redirect
@@ -138,13 +184,29 @@ src/cloud/gzip.js              CompressionStream("gzip") for the cloud chunks,
 src/cloud/store2.js            The kobin-2 store as chunks: a frame snapshot or a
                                run of log entries is one format2 chunk, split into
                                700 KiB parts. Pure; store2.test.js.
-src/cloud/canvasSync.js        Firestore. kobin-2 (2026-09-08): the parent doc is
-                               the MANIFEST (frames {fid: chunk, seq}, log chunks,
-                               seq, device, listing fields) and parts/{chunk~i}
-                               hold the gzipped chunks; cloudPushCanvas2 mirrors
-                               the local store (frames newer than the cloud's,
-                               entries past its seq, manifest last, replaced parts
-                               deleted after) and cloudLoadCanvas2 rebuilds it.
+src/cloud/canvasSync.js        Firestore, under users/{uid}/<col>: `canvases` only
+                               in a production build on the deployed app's hosts
+                               (REAL_HOSTS), `dev-canvases` everywhere else
+                               (isDevBuild; SYNC-PLAN R7).
+                               kobin-2 (2026-09-08): the parent doc is the
+                               MANIFEST (frames {fid: chunk, seq}, log chunks,
+                               head {epoch, seq}, lease, listing fields) and
+                               parts/{chunk~i} hold the gzipped chunks.
+                               cloudPushCanvas2 (2026-09-22) sends what the store's
+                               one-transaction read (readPushState) says the cloud
+                               lacks, one part a commit, in the page's one push
+                               lane (inLane, with cloudSaveCanvas: the write
+                               stream refuses overlapping uploads; a push with
+                               no progress for its deadline lets the lane go and
+                               is marked dead), stopping at the next part once
+                               another tab claims the store,
+                               parts named by epoch and a per-push nonce,
+                               the manifest in a transaction that refuses unless
+                               the head is the local base and the lease is ours
+                               (SyncConflict / LeaseLost); cloudPullCanvas2 pulls
+                               whole or fast-forward. Lease: cloudTakeLease,
+                               cloudRenewLease, cloudReleaseLease (`to` the asker),
+                               cloudAskLease; cloudWatchManifest (onSnapshot).
                                Legacy lz1: parent doc carries metadata and
                                thumbnails; the drawing is lz1-compressed and
                                chunked into 700 KiB binary parts underneath, six
@@ -153,8 +215,24 @@ src/cloud/canvasSync.js        Firestore. kobin-2 (2026-09-08): the parent doc i
                                torn save never looks complete. Soft delete is a
                                deletedAt on the parent; a later full save clears
                                it, so editing anywhere resurrects a canvas.
-                               cloudSetEditing/cloudClearEditing are the presence
-                               heartbeat.
+                               (The presence heartbeat went 2026-09-22.)
+src/cloud/syncCore.js          Pure rules of SYNC-PLAN: headOf, sameHead,
+                               leaseState, decideOpen (sync / push / pull /
+                               conflict / stash / legacy), conflictName,
+                               defaultDeviceName. syncCore.test.js.
+src/cloud/canvasSession.js     One open editor's part in one-editor-at-a-time:
+                               the Web Lock and BroadcastChannel, the fence (a
+                               generation per grant, claimStore, every flow
+                               re-checked after each await, a lost lock handled at
+                               once), the lease loop, the open decision, one push
+                               at a time with the backoff, the follow (while
+                               visible), Edit here, the conflict copy, work that
+                               could not be written kept as a new canvas.
+                               editorFromHook adapts the hook. sync.tabs /
+                               sync.devices / sync.review tests (real engines).
+src/cloud/storageLocks.js      navigator.locks over localStorage, where there are
+                               no Web Locks (http on a LAN IP, old Safari); a
+                               page going away frees its keys (F97).
 
 THE ENGINE - src/engine/
 
@@ -184,7 +262,50 @@ worker/eraseWorker.js  the worker's entry: unwire, the job by kind (cut or
                     descent), wire back. Bundled
                     by `npm run build:worker` (esbuild, iife, es2019) into
                     public/erase-worker.js, run before start and build.
-KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
+worker/rasterWorker.js  the raster worker's entry, bundled the same way into
+                    public/raster-worker.js: one strip of plates a message;
+                    rasterCore.renderPlate per plate, and each plate's pixels
+                    (a bitmap or a pixel block), timings, counts and the job's
+                    guard words go back. Knows no document, camera or canvas.
+
+THE RASTER RENDERER - src/engine/raster/  (2026-09-15..22; the app's default
+since 2026-09-22; .claude/RASTERISER-PLAN.md and PAPER-PLAN.md are the design)
+
+RasterRenderer.js   The Renderer subclass that draws the ink into plates, and the
+                    only poster of raster jobs: the render path (_post, the
+                    epochs at the pack, one compose per arriving job), the sync
+                    path for a light view, the crossing prebake and the ladder's
+                    posts, snapshotJob (one plate of any rect, for the scenes),
+                    the drag plane (_aimPlane/_planeStep/_endPlane, endMove) and
+                    endLive's hold until the plates under a stroke are fresh.
+PictureLayer.js     The mapping from the camera to plates and the compose onto
+                    one canvas: the zoom quantum and its hold (S_MIN_HOLD), the
+                    stale-before-paper compose with fallbacks from other quanta
+                    and frames, the preview, the plane's under and moved plates,
+                    the sync path's limit (SYNC_MAX_MS 8).
+PlateStore.js       The plate cache: keys frame|q|i,j, byte-capped (96 MiB
+                    desktop, 56 MiB phone), stale derived from the epochs,
+                    want (hits and misses), fallbackCover, the ladder's plates
+                    evicted last, the plane's pins, the document-event drops.
+rasterPack.js       The render list into a job: bands for fat strokes (memo keyed
+                    on the zoom, F77), the per-list pre-pass, only/omit for the
+                    drag, the pack-time offset snapshotView uses.
+rasterCore.js       The rasteriser: float64 edges, centre-free arc flattening to
+                    1/16 device px, one nonzero union per family, transparent
+                    plates for the drag. Imports chordMath and nothing else.
+rasterJob.js        The job and result wire formats.
+rasterWorkerClient.js  The worker pool (min(4, cores-1), ?rasterWorkers=N), the
+                    priority queue and the strips.
+MovePlane.js        The drag plane's state (not a canvas): its z layers at its own
+                    level and a quick one, the caps (40 plates, 24 on a phone:
+                    past them coarser; 5 layers: past them runs merged), pick()
+                    (what a drag step draws), MOVE_HOLD_MS.
+OverlayLayer.js     The selection ants on a screen-space canvas plane, moved by
+antPaint.js         a delta transform; antPaint paints the dashes on arcs.
+rasterPerf.js       The ring: five buckets per frame and a verdict (DESIGN.md §14).
+plate.js            PLATE_PX (512), plateKey, plateRange, quantumFor, zqOf,
+                    PREVIEW_QUANTA.
+KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a collaborator and
                     merges the render list. Its quasi-private surface is pinned
                     by KobinEngine.contract.test.js.
                     SIX FILES, ONE PROTOTYPE. It was 3,506 lines; on 2026-08-31
@@ -197,12 +318,17 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                                         spatial index top-down by z, _lowerMark,
                                         _applyCut, _onCutResult; DESIGN.md §7;
                                         2026-09-15: _eraseFramesPass takes a
-                                        frame the mark covers whole as containers)
+                                        frame the mark covers whole as containers;
+                                        2026-09-23: _settleLassoErases, the
+                                        lasso's barrier; _settleInflight, OPEN-FLAGS F88)
                       overlays.js       selection indicator + erase debug ~930
                       selection.js      select, hit-test, drag            ~830
                       instruments.js    LongFrames, EventLatency,
                                         GrowthLog, FrameMeter            ~295
-                      sceneOps.js       auto-scenes                      ~215
+                      report.js         the dev report: sections, the
+                                        local extract, the drawing in
+                                        parts, loadReport (F58)          ~700
+                      sceneOps.js       scenes: the index client, jumps  ~140
                       files.js          dev-0 and kobin-1                 ~70
                       mixin.js          the copier, which THROWS on a name
                                         two files both define
@@ -235,8 +361,19 @@ KobinEngine.js      THE FACADE, 855 lines. Routes input to a collaborator and
                                      for a displacement, one lookup per
                                      (frame, table), memoised), _homeShift,
                                      _normalizeHome, _selectionAnts
-                      scenes         refreshScenes, captureView, splitScene,
-                                     jumpTo
+                      scenes         (sceneOps) refreshScenes and renameScene
+                                     through the scene client (_initScenes),
+                                     sceneReport, sceneZoom, jumpTo / fitView,
+                                     snapshotView. The interim cap
+                                     cfg.scenesResolveMax, captureView, splitScene
+                                     and deleteScene went with scenes.js
+                      the raster path _drainPlates (document events to the
+                                     plate store), _beginHold / _endMove /
+                                     _releaseMove (the drag's hold and its one
+                                     exit), _planeState, listFor (a render list
+                                     for any frame and rect, off camera too),
+                                     _crossTarget / _maybePrebake (the crossing
+                                     prebake), _maybeLadder (the zoom-out ladder)
                       files          serializeDrawing / loadDrawing (kobin-1)
                       [DEV]          the four instrument classes at the top of
                                      the file (LongFrames, EventLatency,
@@ -330,7 +467,16 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     frame events refile / removeFrame / addFrame / mergeFrame
                     / splitFrame drop every tile meeting the frame's footprint
                     (_onFrameEvent). F55 stands: a table change drops nothing.
-Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
+                    2026-09-22: _bakeSettled re-runs a bake whose Document.rev
+                    moved under it, at most three times (F78: a settle carry
+                    inside a bake had cached an empty tile); contentOffCamera
+                    reads a frame the camera is not at, with the camera's pins
+                    saved by value and eviction held until it ends;
+                    _rerouteGroups memoises the reroute's grouping per frame
+                    and revision; framesLeft runs after the camera's read and
+                    keeps what it pinned (F83).
+Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 - and
+                    the base class of raster/RasterRenderer.js. Per-id groups, the
                     signature diff, per-scene origins, scene retention, the
                     fat-stroke outline gate, the thin rescale, the arc plan
                     (pushArcPiece: SVG arc or cubics, F40), the window chop
@@ -354,6 +500,8 @@ Renderer.js         THE ONLY CLASS THAT TOUCHES TWO.JS [HOT]. Per-id groups, the
                     window. _buildOutlineInto/ensureOutline stay - the eraser
                     shares that definition (curveOutline.strokeLoops).
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
+                    FRAME_ID is the one frame-id grammar: a #n on any segment,
+                    as a twin's children carry it (F80, 2026-09-22).
                     Repairs unclosed loops and out-of-range tile phases at the
                     door rather than refusing a whole drawing over one object.
 format2.js          kobin-2 (2026-09-08): objectHeader (the one whitelist, shared
@@ -382,8 +530,40 @@ oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     forces the resident's snapshot (_onMerge); _forcedFor
                     snapshots only what changed frames; undoFrames applies the
                     per-frame table work where the snapshot predates it.
-scenes.js           Auto-scene clustering. Pure: it never touches LevelMap, and
-                    takes an injected projector instead.
+                    snapshotRule (F98, 2026-09-23): what the snapshots hold — a
+                    frame the header does not list holds every entry; replay
+                    and foldStore.logTail share it; a bake step applies per
+                    frame; the rebuilt undo stack is capped op by op. A
+                    `forget` entry records frame GC (replay skips it).
+frameGc.js          FRAME GC (F94, 2026-09-23): a frame holds something. Forgets
+                    a frame with no natives, kids or shadows at a gesture's end
+                    or a camera-frame change, unless the camera's chain, its
+                    last CAM_TRAIL frames or history (opFrames) names it;
+                    sweepFrames once a restored store is in (useKobinEngine).
+                    LevelMap.forget, Document.forgetFrame / noteForgotten.
+                    frame.gc.test.js; hooks/store.subtree.test.js.
+sceneIndex.js       THE SCENE INDEX (SCENES-PLAN §6-§7, v3; docs/reference/
+sceneClient.js      scenes-v3-design-bible.md). sceneIndex is the pure core:
+sceneWorkerClient.js  FrameTable (the similarity between any two frames), items
+worker/sceneWorker.js as chunk records, per-scene band grids (all/own), insert with
+                    stray groups and greedy merges, seeded or full split checks,
+                    rigid moves by origin, re-joins through the moved ink,
+                    kept-aside names and heirs, frames that go re-anchored up the
+                    old tree (_framesGone, _staticRef), parents, parts, regions,
+                    exportState/restore; its oracle is
+                    __oracles__/sceneOracle.js. sceneClient keeps a dirty set from
+                    the Document's events (erase pieces hinted to their source's
+                    scene; fine-eraser footprints from the op channel's bake
+                    steps), preps item records at idle (sceneGeom: chunks, the
+                    width the ink counts with), sends one batch at a time to the
+                    scene worker (sceneWorkerClient, public/scene-worker.js) or
+                    inline, and restores from meta.sceneIndex or builds an old
+                    file once; a generation per restore drops a result from the
+                    document before, a failed worker is rebuilt inline, a prep
+                    spanning a settle is folded (_sendPrepared, _fold), ceded
+                    patches count only when their family has nothing else.
+                    It replaced scenes.js, the all-pairs clustering that
+                    took 129.6 s on the Magnum Opus.
 frameLattice.js     The address arithmetic. Pure integers and powers of two.
                     The constants, cellEdge/cellCentre/cellOf, carryDigit,
                     displacementDigits/applyDigits, the tile phase (tilePhase,
@@ -392,8 +572,8 @@ frameLattice.js     The address arithmetic. Pure integers and powers of two.
                     is the object's grid, CACHE the render cache's, and a
                     frame's own square is CACHE.rect(0, 0); rect/range/span
                     are the object-grid arithmetic (range HALF-OPEN), touching
-                    the cache's closed read. objTileRect/objTileRange/
-                    objTilesRect remain as wrappers over it.
+                    the cache's closed read. objTileRect/objTileRange remain
+                    as wrappers over it (objTilesRect deleted 2026-09-23, unused).
 scaleBar.js         A one-line facade re-exporting scaleBar/index.
                     (KobinEngineV0.js moved to __oracles__/ - see below.)
 
@@ -553,6 +733,11 @@ hittest.js          distToPolyline and windingOfPoint are what the engine picks
                     distSegToSeg/distSegToPolyline/capsuleTouchesRings are
                     [TEST]-only survivors of the old sweep eraser.
 lasso.js            rectInsidePolygon: exact, and deliberately not a corner test.
+chordMath.js        An arc as its two ends and a signed sweep, never a centre
+                    (2026-09-15): bulgeK, sagittaOf, the chord midpoint. The
+                    rasteriser's flattener and freeze.pieceSagitta share it;
+                    chordMath.test.js M1/M2 hold the two forms bit-identical.
+                    Imports nothing.
 
 NOT SHIPPED - src/engine/__oracles__/
 
@@ -570,6 +755,10 @@ NOT SHIPPED - src/engine/__oracles__/
     bakeStrategies.js   the three cubic bake schedules, still the head-to-head.
     cede.js             the float guillotine. Superseded by cedeTileById.
     erase.js            what is left of the superseded recipe model.
+    coverageOracle.js   the raster core's coverage, by exact winding over 16
+                        sub-scanlines a pixel row (raster/raster.oracle.test.js).
+    sceneOracle.js      the scene index's rules by brute force (being built
+                        with sceneIndex.js).
 
 THE SCALE BAR - src/engine/scaleBar/
 
@@ -612,7 +801,13 @@ src/engine/__testkit__/   harness.js (engine construction, gestures, camera
                           fixtures and assertions, was scaleBar/testSupport.js).
                           Not collected by jest.
 
-TESTS BY SUBJECT - 61 fast suites (868 tests) and 24 slow ones (598 tests)
+TESTS BY SUBJECT - 107 fast suites (1,649 tests, 2026-09-22) and the slow ones
+(616 tests at the last count). Added since the list below was written: the
+raster renderer (raster/raster.*.test.js, rasterCore, chordMath,
+useKobinEngine.raster), moves (move.subtree, move.settle, move.twin,
+move.hold, move.below, move.registration, reroute.memo, tileEviction), scenes
+(scenes.cap, storage/thumbnails.live), the store (format2, oplog,
+persist.ids), the eraser (eraseJob, erase.worker, erase.zorder, erase.moved).
 
     the lattice          frameLattice, LevelMap, digitRange, move.deep,
                          chain.exact, objectTiles, frameLattice, frameLeak

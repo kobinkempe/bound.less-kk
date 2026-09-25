@@ -14,39 +14,17 @@ A hit here is the worst kind of documentation bug: the page sends a reader to
 look at something that is not there.
 """
 import io, os, re, json, sys
-import descriptions, graph
+import descriptions
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CMAP = os.path.join(HERE, "pages", "boundless-code-map.html")
 REPO = os.path.dirname(os.path.dirname(HERE))
 
-# Article id -> the module keys it documents.
-#
-# The Code Map's six engine articles are organised BY SUBJECT, and since the
-# 2026-08-31 split the subjects are files: `engine-erase` is `erasePipeline.js`,
-# `engine-select` is `selection.js` plus the overlay geometry, `engine-files` is
-# `files.js` plus `sceneOps.js`. They used to all resolve to `eng` because there
-# was only one file. An article may name several modules; a row is stale only
-# when NONE of them defines it.
-ARTMOD = {
-    "frameLattice": ["fl"], "Camera": ["cam"], "LevelMap": ["lm"],
-    "Document": ["doc"], "persist": ["per"], "biarc": ["bia"],
-    "arcPerimeter": ["arc"], "arcShape": ["shp"], "freeze": ["frz"],
-    "derive": ["der"], "TileStore": ["ts"], "Renderer": ["rnd"],
-    "connect": ["con"], "hittest": ["hit"], "lasso": ["las"],
-    "clipperOutline": ["ply", "clb"], "curveOutline": ["cvo"], "scenes": ["scn"],
-    "engine-diag": ["eng", "ins", "ovl"],
-    # engine-life is where `newdesc.APPEND_TO` puts every engine module's extra
-    # rows, so it has to accept all of them - keep these two lists in step.
-    "engine-life": ["eng", "erp", "ovl", "sel", "sco", "fil",
-                    "ins", "rmt", "mix", "now"],
-    "engine-input": ["eng", "erp"],
-    "engine-erase": ["eng", "erp"],
-    "engine-select": ["eng", "sel", "ovl", "rmt"],
-    "engine-files": ["eng", "fil", "sco"],
-}
-for _a, _t, _r, _c, _m in __import__("newdesc").ARTICLES:
-    ARTMOD[_a] = _m
+# Article id -> the module keys it documents: `newdesc.ARTMOD`, the one map
+# (the pristine articles, the generated ones, and what APPEND_TO adds to each).
+# An article may name several modules; a row is stale only when NONE of them
+# defines it.
+ARTMOD = __import__("newdesc").ARTMOD
 
 
 def outside_parens(text):
@@ -82,7 +60,7 @@ def exported_constants(mods, modfile):
 
 
 def main():
-    data = json.load(open(os.path.join(HERE, "data", os.path.join(HERE, "data", "graphdata.json"))))
+    data = json.load(open(os.path.join(HERE, "data", "graphdata.json")))
     U = data["universe"]
     MODFILE = {k: os.path.join(REPO, v) for k, v in data["modfile"].items()}
 

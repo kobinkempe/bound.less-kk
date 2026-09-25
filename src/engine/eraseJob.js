@@ -7,7 +7,7 @@
  * `wireJob`/`unwireJob` and `wireResult`/`unwireResult` move a job and its result
  * between threads as transferable buffers, bit for bit.
  */
-import { subtractShape, intersectShape, shapeComponents, dropDust, loopsArea, loopsBBox } from "./geometry/arcShape";
+import { shapeBoolean, shapeComponents, dropDust, loopsArea, loopsBBox } from "./geometry/arcShape";
 import { Loop } from "./geometry/loop";
 
 /**
@@ -34,9 +34,11 @@ export function cutJob(j) {
     const opts = { freezeR: j.freezeR };
     const eb = loopsBBox(j.clip);
     const rE = eb ? Math.max(eb.x1 - eb.x0, eb.y1 - eb.y0) / 2 : 0;
-    const res = subtractShape(j.subject, j.clip, opts);
+    // A − B and A ∩ B from one cut-and-classify pass, each as its own call returns it (EFF-1: −44 %).
+    const both = shapeBoolean(j.subject, j.clip, "both", opts);
+    const res = both.difference;
     const stats = res.stats || null;
-    const removed = Math.abs(loopsArea(intersectShape(j.subject, j.clip, opts).loops));
+    const removed = Math.abs(loopsArea(both.intersection.loops));
     let graze = 1e-4 * rE * rE, grazed;
     if (j.graze === "cede") grazed = removed < graze;
     else { graze = Math.min(graze, 1e-6 * Math.max(loopsArea(j.subject), 0)); grazed = removed <= graze; }

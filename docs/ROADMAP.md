@@ -6,7 +6,9 @@ and are referenced here by id, never restated. The hands-on browser checklist is
 will be done. Edit in place; when an item finishes, move its line to the **Ledger** at the
 bottom with the date.
 
-Order set by Kobin on 2026-09-02. Last updated **2026-09-02**.
+Order set by Kobin on 2026-09-02; the working order since 2026-09-08 is `.claude/WORKLIST.md`
+(gitignored), with his rulings of 2026-09-22 at its top. Last updated **2026-09-22** (the docs
+pass: every row checked against the code and OPEN-FLAGS).
 
 > This page replaced `docs/ai/50-TODO.txt`, `60-RECOMMENDATIONS.txt` and `70-RELEASES.txt`
 > on 2026-09-02, because the todos had spread across three files plus the README and the
@@ -55,6 +57,9 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       pages go with the one-time migration. The gallery shows storage usage and asks once
       for persistent storage.
 - [ ] One honest save-state indicator instead of three toasts.
+- [x] 2026-09-08: the store became kobin-2 (DESIGN.md §13, `.claude/SAVE-FORMAT-PLAN.md`) —
+      frame snapshots as one Float64Array, an op log, IndexedDB v2; a v1 canvas moves on its
+      first save. The done-when below applies to it unchanged.
 - [ ] **Done when** the 16-million-character drawing autosaves on the phone without a frame
       over 50 ms, read off `notePerf("autosave")` in a report. Measured so far only on a
       two-stroke drawing in the in-app browser: 1.7–1.9 ms a write, full and incremental
@@ -63,14 +68,48 @@ compression on the main thread, not the quota: five successful autosaves cost 29
 
 ## 2. Deploy
 
+- [x] **The scene resolve** (reopened 2026-09-22 night, **CLOSED the same night**): the first
+      `refreshScenes` after a load re-clustered the whole drawing — **129.6 s** on the Magnum Opus,
+      on the main thread, and Save and rename both called it. **Replaced by the scene index**
+      (`.claude/SCENES-PLAN.md` §6–§7, DESIGN.md §11, `docs/reference/scenes-v3-design-bible.md`):
+      saved in the file, updated per batch at idle in its own worker, never re-clustered; the panel
+      reads the saved list and `refreshScenes` only starts a batch. **Measured in Chrome on the
+      Magnum Opus** (a hidden tab of the second-engine harness, CPU times; SCENES-PLAN §7.8): the
+      one-off build of the old file 1.25 s of main-thread prep in idle slices + 1.19 s in the
+      worker (51 scenes, Kobin's six pinned names kept); a pen-up 0–1.2 ms on the main thread and a
+      median ~8 ms in the worker; moving 2,000 objects 9 ms + 104 ms, 20,000 objects 99 ms + 544 ms;
+      a moved frame one record and 117 ms; a reload from the saved index files everything straight
+      in (the same list; 695 ms in the worker). The interim cap `cfg.scenesResolveMax` is gone.
+      Reviewed the same evening: 5 majors, 6 minors and the nits fixed with failing-first tests and
+      break-checks (SCENES-PLAN §7.7 "Review"); memory on the Magnum Opus: index 36.7 MB, main-thread
+      mirror 17.1 MB (jsdom). Not yet seen by Kobin.
+- [x] **The Scenes button** (§3 row 2c): the panel's thumbnails rebuilt a second engine per
+      change and took seconds on a big drawing; Kobin, 2026-09-22: fixed before any deploy.
+      **Built 2026-09-22/23** (`.claude/SCENES-PLAN.md`: `snapshotView` on the live raster
+      engine, `renderThumbsLive`, the camera-ordered panel) and **measured in Kobin's Chrome on
+      his Local Magnum Opus (28 scenes, fronted tab, the app's own engine)**: click to painted
+      panel **121–126 ms** with the cached pictures; a warm refresh pass 4–90 ms; every
+      picture invalidated → 28 fresh thumbnails in **33.4 s of background work** (the
+      off-camera list builds 40–112 ms each on the main thread, 15 long frames, worst 214 ms,
+      2.8 s in total) with the panel usable throughout. The background cost is the cold tile
+      bake on the main thread (§3 F59); the click itself is done. **F81** (his tab ran out of
+      memory after that refresh and a zoom-out) is **closed by Kobin's decision, 2026-09-22**:
+      the second-engine thumbnail fallback, the probable cause, is gated off under raster, and
+      the memory timeline is not needed. The same night the panel became simple at his word:
+      picture, name, zoom and one rename button (the resolve is the row above).
 - [x] Commit the 2026-09-02 cleanup, the autosave fix and the 2026-09-03 selection work;
       push. **`main` was fast-forwarded to `arc-pipeline` (f6f1062) on 2026-09-03 and is the
       working branch from then on**; the 88 paths were committed on it and pushed the same
-      evening, at Kobin's word.
+      evening, at Kobin's word. 2026-09-08: 121fc1f and 0732252 committed and pushed.
+      2026-09-15: 4c99a8a (the subtree move, S7, S8) committed on `main`, **not pushed**.
+      Since then the work is on branch `rasteriser` (from 4c99a8a), **uncommitted**.
 - [x] `npm run build`, then `firebase deploy --only hosting`. `public/` holds only the app
       shell since 2026-09-02 and a clean build is 6.5 MB. **Deployed 2026-09-03** from the
       working tree (the F39 third design, budget off, 2 px frame dots; the commit above is
-      still pending), at Kobin's word.
+      still pending), at Kobin's word. **Deployed again 2026-09-08, ~21:54 MDT, from 0732252**:
+      `.firebase/hosting.YnVpbGQ.cache` and `build/` are dated a minute after that commit, and
+      OPEN-FLAGS F65 records Kobin's "after the F67–F73 deploy". Nothing deployed since
+      (checked 2026-09-22).
 - [x] Small things worth doing with it — **two of three done 2026-09-07**: the manifest
       `theme_color` and `background_color` are the paper (`#f7f2e9`, the sRGB fallback of
       `--paper`); `window.__kobinEngine` is set only in a dev build or behind `?dev`
@@ -95,7 +134,12 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       crossing shifts by up to the tolerance times 4096 per level. That is the shift the
       F44 design warned of, accepted by Kobin in asking for the gate; the next deploy is
       the first compatibility event of the tile chain, and no deployed build ever wrote a
-      table or a cut piece.**
+      table or a cut piece.** **Correction, 2026-09-22 (docs pass):** the 2026-09-08 deploy of
+      0732252 carried all three (they were committed in 121fc1f), so that deploy WAS the first
+      compatibility event, and drawings saved by the deployed build since can hold tables and
+      cut pieces. The decision still gates the next deploy (WORKLIST item 6); the tree now
+      adds the subtree move's op-log entries and frame addresses (4c99a8a) and the raster
+      renderer, neither of which changes the tile chain's arithmetic.
 
 ## 3. Performance and bugs
 
@@ -106,15 +150,16 @@ fixes, what the fix is). Everything above the line is jsdom-only until he has se
 |---|---|---|---|---|
 | 1 | **Verify by hand in Chrome** — UAT cases 9, 10, 11 | F41, F42, F43, F44, F55, F56 (all "fixed, unverified"), F35 | his two phone scenarios, the star in the corner, the nick far along an edge, the crossing jump, the erase below moved objects; every one built from a replay or a synthetic, none measured on paint | an hour, his |
 | 2 | **The 1.0 compatibility decision** | the deploy gate (§2) | store what has been looked at, or version the derivation per drawing; needed before any deploy now that F44's gate shifts old drawings' deep curves | a decision, then a day either way |
+| 2c | ~~**The Scenes button is very slow**~~ — **was a deploy blocker (Kobin, 2026-09-22); FIXED 2026-09-22/23, measured on his Magnum Opus: 121–126 ms to the painted panel, 28 fresh pictures in 33 s of background work (§2)** | the panel's thumbnails: `storage/thumbnails.js` `renderThumbs` builds a WHOLE SECOND `KobinEngine`, loads the drawing into it and rasterises one image per scene whose content hash changed (`CanvasEditor.js` `ensureThumbs`), "far and away the most expensive thing the editor does" — seconds on a big drawing | the thumbnails come from the live raster canvas (`canvas.toBlob` at each scene's view, no second engine): the first item of stage 8 in `.claude/RASTERISER-PLAN.md` (fork 4), on branch `rasteriser` | a day, in stage 8 |
 | 2b | ~~**The freeze rule's cost**~~ — **decided 2026-09-07: keep the one-radius rule** (Kobin). The cost stands as measured: arcs just under the radius stay curves a level or two longer and are chopped at every grid line meanwhile, so a big stroke one crossing down paints 6,687 pieces where the per-piece bow kept it under 4,000 (LX-4). Accepted because the radius rule is the one under which an erase cannot change what freezes; if that piece count ever shows in frame time on a real drawing, the answer is the rendering item, not the rule | decided |
 | 3 | ~~**Render once per pen-up, and memoise the group signature**~~ — **done 2026-09-07** | the quadratic session (per pen-up ∝ N; 0.5 s at 2,000 strokes) | the renderer memoises the measured part of a shape's signature per piece, keyed by `_ver` (`Renderer._sig`), and the shape bake no longer renders on its own — the resolved perimeter paints as the raw stroke did, so its picture waits for whatever renders next (`_stepShapeBakes` sets `_renderPending`; `flushBakes` honours it; a D9 promotion renders at once). Measured in jsdom (`perf.scale.probe.js`): per-stroke draw cost 95 → 64 ms at 250 strokes and 334 → 211 at 1,000 from the memo alone (the probe's main loop flushes bakes, which renders, so it still sees two renders a stroke); a warm render 16 → 10 and 63 → 43 ms. Human-paced (the bake tick between strokes, the probe's `paced` loop): ONE render a stroke, 120 → 62 ms a stroke at 250 and 468 → 204 at 1,000 against the same loop with two renders. What is left of a render is Two.js's own `update` walk, the list build (both O(N) by construction) and the group builds themselves | done |
 | 4 | ~~**The ants' crawl with no budget**~~ — **deferred by Kobin 2026-09-07**: *"No budget for now — this is not a high priority to me right now. Long term roadmap item."* | 50–200 ms frames with a large selection | the levers stay costed in OPEN-FLAGS F39 (a march that slows with selection length, static dashes past a length, a WebGL layer) for when it is picked up | long term |
 | 5 | ~~**The winding query in the chord frame**~~ — **done 2026-09-07** | the jsdom instrument's 0.9 px error on huge arcs; the boolean's classification near the gate | `rayCross` asks an arc whose radius is at least its chord in its chord frame (`chordLineRoots`, the chop's own solver with the ray's normal in place of an axis, and a residual check — a ray that misses the arc still gets roots); the seam marks are gone. `geometry/winding.chord.test.js` (WC-1..4) holds it against the centre form and against geometry on 70,000 seeded arcs | done |
 | 6 | ~~**F54**~~ — **closed 2026-09-07 by Kobin's decision** | a wheel tick mid-stroke ends the stroke | *"It can just end like it does today"*; drawing through a zoom, crossings included, is a future feature on the UX list | closed |
-| 7 | **F29 and F30** | a piece fading out while zooming out; an eraser consumed without cutting | both instrumented, neither reproduces; they wait for a report, which now explains itself | unknown |
+| 7 | ~~**F29 and F30**~~ — **closed 2026-09-07 by Kobin's decision** after the Chrome reproduction pass | a piece fading out while zooming out; an eraser consumed without cutting | both instrumented, neither reproduced; a report now explains itself | closed |
 | 8 | **The minify bake's flatten** and the two report outliers (a 7.9 s click, 11 s of bake) | performance items below | measure first; the outliers need their reports | medium |
 | 9 | **Coverage and CI** — **CI written 2026-09-07** (`.github/workflows/ci.yml`: `typecheck` + `test:quick` on every push and pull request, `test:all` nightly; it runs once the tree is pushed) | one UAT row filled; no CI | the matrix rows are still Kobin's to fill; E1 turned out to be done already (PI-6 is a trace-mode assertion) | the rows |
-| 10 | **The structural lane S1–S8 and the UX list** — **S1, S2, S3, S5 done 2026-09-07** (one `TileGrid` type; the layering lint rule; JSDoc typedefs with `npm run typecheck` over the geometry, 0 errors, and it found two wrong annotations on the way; the five duplications folded) | §4 | S4 (Renderer and CanvasEditor extractions, medium) and S6 (the toolchain, large) remain, and the UX list. **S7 and S8 added 2026-09-11** at Kobin's word: one stroke path and the fat-stroke bake deleted, then the rest of the vestige audit — near-term, and S7 shrinks S4's subject before S4 starts. **S8 done 2026-09-14**: `o.paths`, `Renderer.selectionDrawable` / `setSelection`, and `kdebug` deleted | S4, S6, S7 |
+| 10 | **The structural lane S1–S8 and the UX list** — **S1, S2, S3, S5 done 2026-09-07** (one `TileGrid` type; the layering lint rule; JSDoc typedefs with `npm run typecheck` over the geometry, 0 errors, and it found two wrong annotations on the way; the five duplications folded) | §4 | S4 (Renderer and CanvasEditor extractions, medium) and S6 (the toolchain, large) remain, and the UX list. **S7 and S8 added 2026-09-11** at Kobin's word: one stroke path and the fat-stroke bake deleted, then the rest of the vestige audit — near-term, and S7 shrinks S4's subject before S4 starts. **S7 and S8 done 2026-09-14** (the structural lane's rows): `o.paths`, `Renderer.selectionDrawable` / `setSelection`, and `kdebug` deleted | S4, S6 |
 | 11 | **Use the frame tree for selecting, moving, erasing and the downward render scan** — near-term, added 2026-09-11 at Kobin's word: an easy performance gain | a drag of a large selection is quadratic per pointer event; a lasso of a whole subtree is a flat id list; an erase covering a frame is one entry per object; `_bakeDown` is O(every frame × every object in it) per tile; the undo entry is a geometry snapshot per member | **The storage is already what he asked for**: frames are a tree, objects live in per-frame lists with per-frame spatial indexes. Four operations throw it away. (a) The lasso's **enclosed** verdict — the prune he designed — then recurses the subtree and pushes every object id **one at a time** (`_lassoFind`'s `takeAll`), and a second pass looks each id up again to check its family is whole. (b) A drag re-homes **every member individually on every pointer event** (`_dragSelection`); each `rehomeById` is a linear scan of its frame's list plus a spatial-index remove/add and two document events, so a large selection is quadratic per mouse move. (c) The undo entry holds a geometry snapshot per member, before and after, where a move's inverse is a displacement. (d) `TileStore._bakeDown` enumerates every content-bearing frame and every object in it per tile, culling per object by projected size behind one coarse whole-frame skip (`DOWN_MAX_SIZE`) — so zoom and pan follow the tree **upward** (`_bakeUp` chains through the parent) and **not downward**. Kobin's rule: a move of a frame's whole subtree is *one lookup, one re-address, one undo entry*, and **an erase completely covering a frame removes everything under it as one entry**. The arithmetic already agrees — a displacement is snapped to 2^-10 at the camera's level, so from three levels below the move it is **pure whole-cell arithmetic**, no geometry and no offsets table (DESIGN.md §8), which is exactly the sub-pixel case. What moves is the **containers**: per-frame lists and indexes re-filed under new frame keys, an object's own coordinates never touched — work proportional to frames, not objects. Falls out of it, his: **saving gets easier** (whole subtrees, not object lists), and **scenes need thinking about when something is drawn over a frame**. Two cares, his: the relative position of larger objects moved in the same gesture must stay consistent — every member expands the same displacement, which is what registration rests on (§8), so a subtree re-file and a per-object move must give the same digits; and "this is a tiny bit oversimplified since objects can extend to neighboring frames too — but this doesn't change the idea", which is invariant 2, bounding the reach to the immediate neighbours. **Built 2026-09-14 (jsdom only, not seen by Kobin; every number below is the median of three runs of the probe on an otherwise idle machine):** (a) the lasso takes an enclosed frame's list whole and skips the family re-check for a keyless native — 3.4 -> 0.75 ms for 1,700 ids on the 2,000-object subtree probe; (b) the quadratic was the frame list's splice per re-home (56 us a re-home at 2,000 objects in the frame, 189 at 8,000; the emits cost nothing in batch mode), so a drag re-homes a frame's members in one compaction pass (`Document.rehomeManyById`) and runs the address arithmetic once per (frame, table) (`_displaceMember`, one lookup per frame): a pointer event over 2,000 members 85.9 -> 31.6 ms outside the render at the steady-state step (800 re-homes), and 248 -> 139 ms at the first committed step, which mints frames (1,700 re-homes); per re-home 8.5 us and flat in N (8.3 at 500, 8.0 at 8,000); the render with 2,000 ants (316-501 ms in these runs) is F39's and untouched; (c) the undo entry is {id, dx, dy, from, to, belowBefore, belowAfter} — 1,539,768 -> 146,529 bytes for 2,000 members; the log entry's header bytes went 742,324 -> 489,554 and its geometry bytes 768,000 -> 256,000 (one copy of the object per member remains for replay; dropping it is part of the subtree plan under Kobin's snapshot-reliance decision); geometry snapshots survive only for a member the pen-up walks back into its cell; undo/redo proved byte-exact on serializeNatives and on the picture, the log's replay and its skipped-apply inverse alike (MB-5, oplog); (d) `_bakeDown` takes its candidates from the tree (`_downSources`, subtrees pruned by cell + REACH) and skips a frame whole by its index's extent and largest object (`Document.frameExtent`): objects projected 1,800 -> 900 (F="1") and 1,300 -> 400 (F="0"), a tile 11.5 -> 16.4 ms and 21.5 -> 8.0 ms — the counts are the result and the jsdom times are not, F="0" ranging 6.9-25.1 ms over the three runs and F="1" not coming out faster on this machine; pieces identical to the old scan by an oracle test; the downward scan now shares invariant 2 with the lasso and the ring: a native overhanging its frame's neighbourhood is not found by a down tile, as it already was not by the lasso; the two S-1 down-projected seam fixtures that placed a native 2,048 cells outside its home were rebuilt legally (a narrow object is carried whole by both tiles, so the overlap is its width; two same-depth sibling cases added where the full 2*pad bar holds) and `seamOverlapX` assigns a piece to the tile that cut it. **The O(1) subtree selection and move is built (2026-09-15, jsdom only, not seen by Kobin; `.claude/SUBTREE-O1-PLAN.md`, gitignored like the other plans):** a frame keeps its birth id and gets a mutable address, so a re-address touches no object and no stored row; a frame carries the sub-cell remainder for its own natives as a shift settled at the first read of its list, and scans that need identity only read the list as stored (`Document.list`); frames within three levels of the camera are re-addressed by the same `displaceFrame` arithmetic the per-object path uses, from the drag's start state (registration by construction, native for native); a collision shadows the moved frame — or the empty container it landed on — and merges at the resident's first read, split back on undo; one `moveFrames` op per gesture with settles and merges recorded on its entries; tiles invalidated by footprint and an address sequence; the op log carries the frame entries, a `settle` entry of result tables, a `mergeFrame` entry and a deleted subtree's natives, and the header's lattice is the authority a replay never re-addresses; the indicator draws a selected frame as one dot under 2 px and traces its pieces above it (DESIGN.md §8, §10, §13). Measured (the median of three probe runs, 2,000 natives, the render aside): lasso 0.75 -> 0.09 ms; a drag event 31.6 -> 0.36 ms with no re-home and no table set; undo 2.0 ms and redo 0.1 ms; delete 0.9 ms with no `removeById`; the op two frame entries where it was 2,000 member entries. Kobin's decisions the day before: undo per action (a moved frame goes back where it was); a selected frame is frozen for the selection's life (a pen drops the selection); an erase covering the cell plus its reach removes the subtree as one record inside the gesture's entry, undo unchanged; a saved move record may rely on the frame snapshots (`oplog.test.js` proves it); bookmarks follow a moved subtree; the index bbox shortcut is not taken. The erase covering a frame followed the same evening: a frame whose cell plus reach lies inside the mark's ink, with nothing under it drawn above the mark (`Document.maxZUnder`), goes as containers in one bake step of the gesture's op, logged with its natives' geometry (`bakeFrames`); a frame blocked by a newer native stays on the per-object path and its kids are judged alone (DESIGN.md §7; `move.subtree.test.js` t11–t13). Nothing of row 11 is left; the whole of it is jsdom only and awaits Kobin's browser. | medium; built |
 
 **Bugs**, in the order OPEN-FLAGS ranks them. Each has its own entry there; nothing is
@@ -122,14 +167,14 @@ restated here.
 
 | flag | state | first step |
 |---|---|---|
-| F57 | **open, high — 2026-09-07; three causes built out 2026-09-08** | an eraser at depth on Kobin's 11,497-object canvas never finishes: 0.64–2.5 s a bake step, every step a cede descent, twelve marks pending, the tab locked past 45 s. Reproduced on the desktop from phone report 23-54-04 on 2026-09-07: five marks, 247 s in 1,447 ticks, one tick 109 s, half of each in-place cut spent in `_removedArea`. Design options under "Saving and memory at scale" below  2026-09-08: the scan from the spatial index top-down by z, the boolean's `RayIndex` (2.6 s a cut → 175 ms), the cut in a worker; the descent in the worker too since the same night (eraseDescent.js) |
-| F58 | open, medium — 2026-09-07 | a report of that canvas is a 92 MB JSON the report server refuses (20 MB cap); the report must stop carrying the whole document |
-| F59 | open, medium — 2026-09-07 | a cold render of 882 pieces is 8 s (9 ms a group building Two.js paths); warm 87 ms. The case for a renderer without a DOM path per piece |
+| F57 | **open, high — 2026-09-07; built out 2026-09-08; Kobin 2026-09-22: still an issue** | an eraser at depth on Kobin's 11,497-object canvas never finishes: 0.64–2.5 s a bake step, every step a cede descent, twelve marks pending, the tab locked past 45 s. Reproduced on the desktop from phone report 23-54-04 on 2026-09-07: five marks, 247 s in 1,447 ticks, one tick 109 s, half of each in-place cut spent in `_removedArea`. Built 2026-09-08: the scan from the spatial index top-down by z, the boolean's `RayIndex` (2.6 s a cut → 175 ms), the cut and the whole descent as jobs in the erase worker (`eraseJob.js`, `eraseDescent.js`); still on the main thread: the shape bake, the apply, `_removedArea`'s second boolean (the box clip before it is not built). Not re-measured on that canvas. Kobin, 2026-09-22: mixed in with the renderer, so it waits for the PAPER agent's report (WORKLIST item 3) |
+| F58 | **fixed 2026-09-22, unverified** | the report carries a 4 MB local extract instead of the document, gzipped and sent in parts; the whole drawing is an opt-in. Measured on the Magnum Opus in a second engine (3.99 MB → 1.08 MB, longest task 60.5 ms); Kobin's press of the button in his tab is owed |
+| F59 | open, medium — 2026-09-07 | a cold render of 882 pieces is 8 s (9 ms a group building Two.js paths); warm 87 ms. The case for a renderer without a DOM path per piece — which the raster renderer is, the default since 2026-09-22; what is left on that path is the cold tile bake on the main thread (the crossing stalls, the Scenes panel's background pictures). OPEN-FLAGS F59 has the current state |
 | F60 | **fixed 2026-09-08** | the set-scale dialog's Length input drew as a dark bar at the bottom of the screen: a selector left dangling on its comma in the 2026-09-01 cleanup fell through to the toast rule. Filed 2026-09-07 by the other session, deployed broken until 2026-09-08; fixed in 0732252, mislabelled F74 there |
-| F60, F61, F62 | open, low — 2026-09-07 | the scale dialog's dangling CSS selector; a NaN zoom anchor recursing; `stroke="undefined"` on every fill path. Found by the other session, confirmed |
+| F61, F62 | open, low — 2026-09-07 | a NaN zoom anchor recursing (`Camera.zoomFactorAt` still checks the factor only, 2026-09-22); `stroke="undefined"` on the SVG renderer's fill paths, `?svg` only since the raster default. Found by the other session, confirmed |
 | F63 | **fixed in the document 2026-09-08** | on canvas `mtqha19c7qjn` the other session had rewritten every z to depth×1e7+id, so a new stroke or mark (z = id) painted under everything and an eraser reached level-0 objects only. `tools/zorder-compact.js` relabelled z as the paint-order rank (1..12,544, ids untouched, old z backed up to a report); verified after reload with a real pen stroke on top. Local copy only: the cloud copy is stale until F64. The engine still assigns no z at creation (the Z-order item under UX) |
 | F64 | **fixed 2026-09-08** | the cloud sync of a 90 MB canvas failed inside lz-string ("Too many properties to enumerate"), retried every 30 s, and said so only in the console; each try stringified the document on the main thread. Fixed by the kobin-2 cloud copy (DESIGN.md §13): frame and log chunks gzipped by CompressionStream, a push mirrors the local store instead of stringifying the document, a failed sync is shown in the save bar with its size and backed off 1–30 min, and the main-thread fallback runs only where there is no worker at all. Seen in Chrome on a small canvas: push, pull and compaction; the 90 MB canvas's migration is still to be seen |
-| F65 | **open, medium — 2026-09-08; gate rebuilt the same evening** | Kobin: an object can be dragged out from under an eraser mark that never baked into it, the mark staying behind. The barrier (`_flushErasesFor`, `_settleSelectionErases`) exists and gates by result: a mark that ranks at or below the object's z, projects outside its box, grazes, or whose bake is refused counts as not touching it. Which he hit needs a report; the design question is whether a refused mark blocks the drag or travels with the ink  Built: settle before select, the mark's z stepping down with the bake, refused marks consumed (DESIGN.md §7); awaiting his try Kobin, later that night: still dragging baked objects under eraser bakes on the big canvas (z rewritten, F63) — TO CONFIRM on a fresh canvas before any work |
+| F65 | **open, medium — 2026-09-08; gate rebuilt the same evening** | Kobin: an object can be dragged out from under an eraser mark that never baked into it, the mark staying behind. The barrier (`_flushErasesFor`, `_settleSelectionErases`) exists and gates by result: a mark that ranks at or below the object's z, projects outside its box, grazes, or whose bake is refused counts as not touching it. Which he hit needs a report; the design question is whether a refused mark blocks the drag or travels with the ink  Built: settle before select, the mark's z stepping down with the bake, refused marks consumed (DESIGN.md §7); awaiting his try Kobin, later that night: still dragging baked objects under eraser bakes on the big canvas (z rewritten, F63) — TO CONFIRM on a fresh canvas before any work. 2026-09-23: not reproduced on fresh canvases in jsdom or his Chrome; the lasso's missing barrier and the barrier's mark left above the baker's own target fixed; F88 (a lost worker cut) fixed; F89 and F90 filed |
 | F66 | **fixed 2026-09-08** | an eraser over a moved object, made in a neighbouring frame at the object's own depth, cut nothing (the moved-object mapping chose its direction by depth; the home is named by id now), and a hairline eraser's slivers were culled as dust against the pen (dust is now what was narrower than a quarter pixel at the zoom the mark was drawn at, Kobin's rule). Three reports, replayed in jsdom with `erase.report.probe.js` before and after |
 | F67 | **fixed 2026-09-08** | a descent baked in the worker took the whole object with it: the kids were homed in a frame only the worker's lattice copy had minted, and the engine could not resolve their level. The job now returns the frames it minted and the apply merges them first; a load mints any frame its natives name, which repairs the document his autosave wrote. Report 20-48-33, replayed in jsdom; his saved snapshot loads with all 353 kids painted |
 | F68 | **fixed 2026-09-08** | with a moved object selected, zooming out until it was too small to see made the indicator jump: the frame's dot and the selection rect's fallback were placed from the stored bits, the offset table ignored. Both go through the table now (`_selFrameRect`, `_rectInActive`). His "smaller eraser-cut objects disappeared" from the same report did not reproduce: the replay paints all 1,520 objects where their tables say; the level-2 specks are simply under the level-1 cull |
@@ -138,6 +183,15 @@ restated here.
 | F71 | **fixed 2026-09-08** | a redo of a move or an add wiped the store's log (the inverse op had no seq and read as pre-log); the undo history would not have survived a reload. The inverse carries the seq now |
 | F72 | **fixed 2026-09-08** | an eraser made in an object's own frame over its moved picture cut nothing: with both ends the home, the table mapping took the home-to-picture branch. The caller names the direction now |
 | F73 | **fixed 2026-09-08** | a selected object too small to trace, in a frame whose selected content was wide, showed nothing (the frame-mark rule covered only a frame small as a whole): a member without a run, under 8 px, is now a dot where its picture is. His report 22-43-41, replayed |
+| F75 | fixed 2026-09-16 | the rasteriser's union pass lost ink on a row of more than 16,384 union edges; fixed in stage 0, before the raster path drew any drawing |
+| F76 | **open, low** | a fat stroke or eraser mark waiting for its perimeter loses a 96-unit strip seen one crossing in (`derive.solidQuad`); both renderers paint it; the look is RASTERISER-PLAN stage 7's A/B |
+| F77 | fixed 2026-09-22 | the raster band memo keyed on the job's `q`, so sync and settle packs reused a band flattened at another zoom (0.947 device px at 16×) |
+| F78 | fixed 2026-09-22/23 | Kobin's Earth move: a lasso-dragged frame's natives vanished — a tile cached across a settle carry that happened mid-bake (`TileStore._bakeSettled`). Beside it, open: SUBTREE-O1 §2.2's shift normalisation was never built |
+| F79 | **open, medium** | the stretched layer blit between quanta costs ~30 ms a compose smoothed (6.5 unsmoothed), measured in Kobin's Chrome |
+| F80 | fixed 2026-09-22 | the save format refused a frame id with `#n` before its last segment (a twin's children), so the Magnum Opus would not have reopened and scenes under twins were dropped on save. Open beside it: `LevelMap._take` lets an empty twin keep the mover's identity |
+| F81 | closed 2026-09-22, by decision | Kobin's tab ran out of memory on the Magnum Opus; the second-engine thumbnail fallback gated off under raster; the memory timeline not needed (Kobin) |
+| F82 | fixed 2026-09-22 | a ctrl-tap dropped the selected frames, so a drag left their content behind (Kobin's second Earth move) |
+| F83 | **open — fix built, Chrome owed** | a zoom-out crossing froze the main thread ~800 ms on the Magnum Opus (`TileStore._reroute`); PAPER-PLAN §10 S1/S2 built, jsdom 440 → 57–63 ms |
 | F44 | **fixed 2026-09-06, unverified** | arcs at depth were positioned through their centre and the freeze refused every piece on a tile line: any curved stroke's picture was off by a screen at its fifth crossing (Kobin's crossing jump). Fixed by his rule: the freeze is one radius (an arc whose bow over a tile diagonal is a quarter pixel, ~8.8e12 units, the same at every level) with an endpoint guard; the arcs about to freeze are cut in their chord frame; the boolean uses the same gate. Measured: three curved strokes hold their edge to 1/20 px through eight crossings, no arc past level 3. His green stroke at 4 → 5 is the acceptance |
 | F56 | **fixed 2026-09-06, unverified** | an erase nine crossings below two moved objects flooded the one the eraser never reached: since F55 the cede's unmoved square lands next door as often as not, and a kid homed in the camera frame with its ink in a neighbour cell derived its child tiles through the store's inexact ring projection. The kid is now homed in the square's owner frame, holding that frame's own piece. Replayed from Kobin's reports, `reported.regress.test.js` RR-9 |
 | F45 | fixed 2026-09-05, jsdom only | a crossing about a view centre on a cell boundary jumped the picture one cell; `camera.crossing.test.js` |
@@ -364,8 +418,10 @@ of step 1 rather than as a later tidy; the cache-square half of S1 can follow.
       rather than forensics: no bake slice over 16 ms on the reference document, no render
       over 50 ms at depth 6.
 - [ ] Stress documents an order of magnitude past anything drawn by hand (R4).
-- [ ] Multi-device: two tabs, two devices, offline, a mid-save close. The presence
-      heartbeat exists; nothing tests what it is for (R4).
+- [ ] Multi-device: two tabs, two devices, offline, a mid-save close. Tested in jsdom since
+      2026-09-22 (SYNC-PLAN: `sync.tabs`, `sync.devices`, real engines and a fake Firestore)
+      and two tabs seen in Chrome; owed: Kobin's laptop-and-phone check and a mid-save close
+      in a real browser (R4).
 
 **Coverage**
 
@@ -426,13 +482,26 @@ for Kobin's choice — none started:
       parts, 120 s with one part a commit and one push at a time (six a commit plus the
       30 s tick's second push had Firestore refusing every batch for ten minutes).
       Storage blobs (option B) stay possible later; the manifest names each chunk. Still
-      open here: the dev server pushes to the same Firestore as the deployed app (Kobin,
-      2026-09-08), and the explicit Save still serialises the document once for the
-      thumbnails.
-- [ ] **Thumbnails:** render scenes in the LIVE engine (jump, rasterise, jump back — the
+      open here: the explicit Save still serialises the document once (`saveLocal`; the
+      thumbnails no longer need it under raster). **Multi-device and local/cloud sync
+      (WORKLIST item 2, Kobin 2026-09-22) — BUILT 2026-09-22** (`.claude/SYNC-PLAN.md`,
+      DESIGN.md §13): one editor at a time (a Web Lock per canvas on the device, a lease on
+      the manifest), versions not clocks, a push that never overwrites, a conflict kept as two
+      canvases, and dev builds in their own collection (`dev-canvases`), so the dev server no
+      longer writes the deployed app's copy. jsdom-measured, two tabs seen in Chrome; Kobin's
+      two-device check owed.
+- [x] **Thumbnails:** render scenes in the LIVE engine (jump, rasterise, jump back — the
       camera restore is exact) or in a worker with only the scene's frames loaded; never a
-      second copy of the document.
-- [ ] **Memory:** MEASURED 2026-09-08 (`src/engine/memory.census.probe.js` on the exported
+      second copy of the document. **Built 2026-09-22/23** on the raster path:
+      `sceneOps.snapshotView` packs one plate of a scene's rect in the live engine's workers
+      and `thumbnails.renderThumbsLive` lands them one by one; the second engine
+      (`renderThumbs`) runs only under `?svg` (§2's Scenes button row, F81).
+- [x] **Memory — done as far as needed (Kobin, 2026-09-22):** the per-level tile cap, undo
+      bounded by bytes, the per-drawing budget and F81's memory timeline are not needed
+      (WORKLIST item 1). Built: the flat loops, tiles dropped for frames left, the sync churn
+      stopped; the SVG renderer's retained scenes and the thumbnail engine are off the raster
+      path. The 2026-09-08 entry follows.
+      MEASURED 2026-09-08 (`src/engine/memory.census.probe.js` on the exported
       canvas, forced GC, jsdom): 12,844 objects, all resolved shapes, 832,022 pieces (65 an
       object); the live heap after load with one scene is 721 MB. An arc piece is 344 B
       (an object plus three two-element arrays for 56 B of numbers), a line piece 192 B, a
@@ -462,13 +531,35 @@ for Kobin's choice — none started:
       nothing of the bake on the main thread but the apply: the descent went to the worker
       the same night as one job per family (`eraseDescent.js`; the family stays invalid
       until the new family comes back and is swapped in). The "one cede for a flooding
-      coarse object" idea is dropped at Kobin's word.
+      coarse object" idea is dropped at Kobin's word. Kobin, 2026-09-22: F57 is still an
+      issue; it waits for the PAPER agent (WORKLIST item 3).
 ## 4. UX
 
 The R3 scope, plus the product items that used to live in the README.
 
-- [ ] Scenes: the panel, thumbnails, naming, splitting, and the story for what a scene IS
-      to a user. The signature feature is currently a list of rows.
+- [ ] **Scenes: a UX/UI deep dive and redesign** (Kobin, 2026-09-22) — the panel, the
+      thumbnails, naming, splitting, and the story for what a scene IS to a user. The
+      signature feature is currently a list of rows. His priorities for the panel: it
+      loads in under a second; from a zoomed-out view you can find where things are drawn;
+      you can see what that place looked like, then what it looks like now; changing which
+      scenes are shown is simple, without lots of buttons. (The loading half is being
+      rebuilt on the rasteriser branch, 2026-09-22; the deep dive is the whole experience.)
+      2026-09-22 night, at his word: the panel is simple — picture, name, zoom and one rename
+      button; no filters, relation text, capture, split or remove — and the scene rules (v3:
+      saved in the file, worked out at pen-up in a worker) are being built
+      (`.claude/SCENES-PLAN.md` §6–§7).
+- [ ] **Public canvases** (Kobin, 2026-09-22): a canvas can be made public and viewed from
+      any account, or with no account at all (read-only; a share link; the gallery
+      shows it as public).
+- [ ] **Canvas sharing** (Kobin, 2026-09-22): share a canvas with another account —
+      view or edit — with the same cloud store and the write stream's one-push-at-a-time
+      rule in mind (memory: firestore-write-stream).
+- [ ] **Live editing on two devices, with merging** (Kobin, 2026-09-22): for now one editor
+      at a time (`.claude/SYNC-PLAN.md` R2, built 2026-09-22); merging concurrent edits later needs
+      object ids that cannot collide across devices (device-scoped id blocks), rebasing one
+      device's ops on the other's when both touched the same object or frame, and the
+      lattice's frame ids and shifts merged (SYNC-PLAN §3). The foundation for editing with
+      other people (canvas sharing, above).
 - [ ] The select and eraser tools, flagged 2026-07-07 as "weird": tap-select misses near a
       curve, selecting through a magnified fill grabs surprising objects, drag has no
       affordance, eraser size is hidden state.
@@ -477,7 +568,9 @@ The R3 scope, plus the product items that used to live in the README.
 - [ ] First-run: the app says "Beta" and offers one hint toast that self-dismisses.
 - [ ] Accessibility and keyboard: nothing is reachable by keyboard and the selection
       indicator is the only signal anything is selected.
-- [ ] "Export SVG" exports the viewport, not the drawing.
+- [ ] "Export SVG" exports the viewport, not the drawing. In raster mode (the default since
+      2026-09-22) it renders once through a one-off SVG engine (`thumbnails.withSvgEngine`);
+      RASTERISER-PLAN stage 8's export from the render list is to replace that.
 - [ ] Pre-lattice files are refused, not converted. A test-only converter exists; a
       decision is owed about whether it becomes a product one, and what the format promise
       is from here.
@@ -505,7 +598,9 @@ The R3 scope, plus the product items that used to live in the README.
       hex field) is Kobin's to scope. Not started.
 - [ ] Something that shows a canvas is LOADING (Kobin, 2026-09-15). Opening a canvas today
       shows nothing until the store is read, decoded and the first render lands — seconds
-      on a big drawing (F59: 8 s for the cold render alone). An indicator is the UX half;
+      on a big drawing (F59: 8 s for the cold render alone; the raster renderer loads the
+      Magnum Opus in 1.4 s against the SVG renderer's 6.2 s, measured 2026-09-22 in Kobin's
+      Chrome). An indicator is the UX half;
       the other half is the load itself, which is to be measured (store read, decode,
       lattice load, first render, each timed) and fixed if the renderer work does not
       fix it. Not started.
@@ -537,26 +632,27 @@ decision is recorded, what it was, and whether the 2026-09-07 measurements on th
 
 | change | recorded in | the decision then | standing now |
 |---|---|---|---|
-| **A raster renderer** — the finished picture drawn into canvas or WebGL tiles, SVG kept for the live stroke, the selection and text | only as one lever for the ants (OPEN-FLAGS F39: "a WebGL layer — Kobin: not yet"); never a design item of its own | not yet | **due for a design.** F59: 8 s to build 882 SVG groups, 9 ms each, paid again at every crossing into an unretained scene; F39: the crawl's repaint grows with the ink on screen. Both are the cost of a DOM path per piece. Canvas tiles first (the tile is already the unit of work), WebGL only if canvas raster is not enough. **Folded in 2026-09-08 (Kobin):** the quantised bake scale and the fat outline's window chop, the two rows struck below, are SVG-path workarounds this renderer replaces; what it inherits is the list of browser limits they were built against: a filled path's features under ~0.1 units vanish (F-Z), a path whose cubics run past ~1e7 device px is dropped and anchors are float32 (F40), ~~Skia mis-strokes above ~25k device px (`fatWidthPx`)~~. **Corrected 2026-09-11: the third is not inherited, and is being deleted (S7).** `fatWidthPx` gates *strokes*, and a stroke exists only until its perimeter resolves; everything settled is a filled `shape` that is never stroked, and the live stroke stays in SVG in stage 1. Two limits, not three |
-| **Threading** — the bake, the erase descent and the boolean in a worker | `docs/reference/perimeter-bake-options.md` §4 ("smaller first, threading second, possibly never"), `HANDOFF-strokeShape.md`, OPEN-FLAGS F22's "Not done", the "deliberately not built" block | deferred: a worker hides work rather than removing it; the real cost is asynchrony against a mutable document; CRA 4 cannot bundle a worker from the app's modules | **the calculus has flipped.** F57: a single erase step at depth is 0.6–2.5 s and indivisible, and Chrome throttles the bake's timers in a hidden tab. The asynchrony cost is still real (versioned jobs, stale results discarded, a barrier before selection — `_flushErasesFor` is half of it). The bundling objection is solvable now without the toolchain move: a small esbuild step producing a classic worker script under `public/`, the way `cloud/lzWorker.js` already loads one  **BUILT for the cut 2026-09-08:** `eraseJob.js` + `eraseWorkerClient.js` + `public/erase-worker.js` (esbuild), one cut in flight, versioned results, the barrier synchronous; the descent followed the same night as one job per family (eraseDescent.js); the shape bake is still on the main thread |
+| **A raster renderer** — the finished picture drawn into canvas or WebGL tiles, SVG kept for the live stroke, the selection and text | only as one lever for the ants (OPEN-FLAGS F39: "a WebGL layer — Kobin: not yet"); never a design item of its own | not yet | **BUILT, and the app's default since 2026-09-22** (`?svg` is the gate to the SVG renderer): our own float64 coverage rasteriser writing 512-device-px plates in Web Workers (`src/engine/raster/`, `public/raster-worker.js`; `.claude/RASTERISER-PLAN.md`, stages 0–6 accepted), with `.claude/PAPER-PLAN.md`'s stale-plate, preview, ladder and drag-plane work on top. Left: stage 7 (Kobin's look — "too busy right now, nothing urgent"), stage 8 (the export from the render list, the family merge, deleting the SVG content path), stage L (gated). The standing when it was written: **due for a design.** F59: 8 s to build 882 SVG groups, 9 ms each, paid again at every crossing into an unretained scene; F39: the crawl's repaint grows with the ink on screen. Both are the cost of a DOM path per piece. Canvas tiles first (the tile is already the unit of work), WebGL only if canvas raster is not enough. **Folded in 2026-09-08 (Kobin):** the quantised bake scale and the fat outline's window chop, the two rows struck below, are SVG-path workarounds this renderer replaces; what it inherits is the list of browser limits they were built against: a filled path's features under ~0.1 units vanish (F-Z), a path whose cubics run past ~1e7 device px is dropped and anchors are float32 (F40), ~~Skia mis-strokes above ~25k device px (`fatWidthPx`)~~. **Corrected 2026-09-11: the third is not inherited, and is being deleted (S7).** `fatWidthPx` gates *strokes*, and a stroke exists only until its perimeter resolves; everything settled is a filled `shape` that is never stroked, and the live stroke stays in SVG in stage 1. Two limits, not three |
+| **Threading** — the bake, the erase descent and the boolean in a worker | `docs/reference/perimeter-bake-options.md` §4 ("smaller first, threading second, possibly never"), `HANDOFF-strokeShape.md`, OPEN-FLAGS F22's "Not done", the "deliberately not built" block | deferred: a worker hides work rather than removing it; the real cost is asynchrony against a mutable document; CRA 4 cannot bundle a worker from the app's modules | **the calculus has flipped.** F57: a single erase step at depth is 0.6–2.5 s and indivisible, and Chrome throttles the bake's timers in a hidden tab. The asynchrony cost is still real (versioned jobs, stale results discarded, a barrier before selection — `_flushErasesFor` is half of it). The bundling objection is solvable now without the toolchain move: a small esbuild step producing a classic worker script under `public/`, the way `cloud/lzWorker.js` already loads one  **BUILT for the cut 2026-09-08:** `eraseJob.js` + `eraseWorkerClient.js` + `public/erase-worker.js` (esbuild), one cut in flight, versioned results, the barrier synchronous; the descent followed the same night as one job per family (eraseDescent.js); the shape bake is still on the main thread. The raster renderer's plates are rastered in four workers (`public/raster-worker.js`); the tile bake (F59, F83) stays on the main thread |
 | ~~**D1 — a piece as `{A, B, bulge}`** instead of centre and radius~~ | frame-lattice bible §0 D1, §10.4c, §10.9; Detail F1 | the last section-0 decision not built; a structural argument stands in for it | **dropped 2026-09-08, by Kobin:** "it isn't needed. The only limitation we are facing is the browser, and we're going to build around that with the GPU renderer. And, I want it to eventually be a line anyways, so that just builds an intermediate step." The renderer is centre-free already (`chordCubic`; the arc command carries a radius, and only while it is under 4.2e6 px on screen). The chop's grid solve still reads the stored centre, safe while no arc survives past level 3, which is F44's measurement |
 | **Store what has been looked at** (cede coarse objects' chains to tiles that hold references) vs **version the derivation** | §2 above, the 1.0 gate; the F55 design notes ("cede on reference stays as a second step") | undecided | **still undecided, and it gates every deploy.** Stored bits survive a derivation change; derived ones do not |
-| **The touching-arcs severance case** | frame-lattice bible §7.4 (D10), §10.9 | scoped, deliberately not built: tile the area and descend to decide contact | unchanged; nothing has needed it |
-| **The seam antialiasing rule** | frame-lattice bible §7.5 | look at it | unchanged; look at it on a real drawing |
-| **Frame garbage collection** | frame-lattice bible §7.8; Detail F6 | harmless leak | worth a number now: this canvas has 28 frames, and memory is the constraint (see "Saving and memory at scale") |
+| **The touching-arcs severance case** | frame-lattice bible §7.4 (D10), §10.9 | scoped, deliberately not built: tile the area and descend to decide contact | **on hold, Kobin 2026-09-22** ("you have enough agents to coordinate for now"); the proposed first step is a test of two grazing leftover pieces asked `_familyComponents` at each level (WORKLIST item 5) |
+| ~~**The seam antialiasing rule**~~ | frame-lattice bible §7.5 | look at it | **closed by Kobin, 2026-09-22**: both renderers accumulate an object's pieces as one shape before anti-aliasing and the seam pad overlaps them, so no seam line forms inside an object; stage 7's "no hairline at plate boundaries" is the one check left (bible §7 item 5) |
+| ~~**Frame garbage collection**~~ | frame-lattice bible §7.8; Detail F6; OPEN-FLAGS F94, F98 | — | **BUILT 2026-09-23 (uncommitted, unverified by Kobin)** to his rule, "if there ever is a frame, it has stuff in it" (decision 5): `engine/frameGc.js` forgets a frame with no natives, kids or shadows at a gesture's end or a camera-frame change, unless the camera's chain, its last four frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, a 40-step drag 8 → 38 → 10, the Magnum Opus export 968 → 46. Store-safe through F98's replay rule (DESIGN.md §8, §13) |
 | ~~**A move finer than the object can hold**~~ | frame-lattice bible §7.6b; Detail F7 | the model handles it; the UI question untouched | **closed by F41/F55 as built (2026-09-05), unverified by Kobin.** §7.6b was written when such a move was to be refused; §6.8, his correction the same day, says it accumulates, and the offsets table now stores every drag at the camera's depth, snapped to 2^-10 of that level's unit, with no depth limit. Nothing is discarded, so the UI question has no subject. The drag's only refusals left are frame-tree gaps, journaled as `skipped` |
 | ~~**Quantised bake scale**~~ — bake the nearest power of two and leave a residual transform, so path-space feature sizes stay in a known band | OPEN-FLAGS F-Z "What is still open" | the thin-scale fix pulls the lever at pre-render; the quantised bake was the fuller form | **struck 2026-09-08, folded into the raster renderer** (a raster tile is a bake at a fixed zoom shown through a residual scale, which is this design); the thin rescale stays until then |
 | ~~**The fat outline's window chop**~~ | OPEN-FLAGS F40, the last piece | cubics have no exact rect clip | **struck 2026-09-08, folded into the raster renderer** (a tile's coordinates are local, which is what the chop fakes); never seen on a real drawing |
 | **Incremental saves** | the R1 scope's OUT | built anyway on 2026-09-02 (F33) | done both halves 2026-09-08: the kobin-2 store's op log locally and its mirror in the cloud (DESIGN.md §13) |
 | **Automated visual regression** | proposal 5 | optional; Kobin's manual pass is the gate | unchanged |
-| **Stress documents and multi-device** | R4 | not started | the 11,497-object canvas IS the stress document now; F57–F59 are its findings |
-| **The ants' crawl budget** | OPEN-FLAGS F39's levers; §3 row 4 | deferred by Kobin 2026-09-07 | long term; the raster renderer above would make it moot |
+| **Stress documents and multi-device** | R4 | not started | the 11,497-object canvas IS the stress document now; F57–F59 are its findings. Kobin's Magnum Opus (42,856 natives over 16 levels, a 64 MB file) is the other; F78–F83 are its findings. Multi-device sync is WORKLIST item 2 (§3, saving) |
+| **The ants' crawl budget** | OPEN-FLAGS F39's levers; §3 row 4 | deferred by Kobin 2026-09-07 | long term. On the raster path the ants are painted on an overlay canvas (stage 5d): 1.5 ms paint + 2.8 ms blit a crawl phase in the 2026-09-22 testing round; the budget question itself is unchanged |
 | **Scale bar v2** — preset ratio grid, explicit Auto control, anchor conversion, frozen bar length, the grouped unit picker | `docs/reference/scale-bar-v1-spec.md` "Deferred (v2+)", `scale-bar-design-decisions.md` | v2 | unchanged; product |
 | **The toolchain** (S6) and the two big files (S4) | the structural lane | one piece at a time | S6 is what makes a native worker and a modern build possible; it moved up a notch with threading |
 | **AI scene names** | §4 | blocked on S6 | unchanged |
 | **Drawing through a zoom, crossings included** | §4, from F54's closure | future feature | unchanged |
 | **Per-object z-order and the Z-order UI; erase only selected** | §4, 2026-09-07 | not started | new |
-| **The O(1) subtree move** — frame identity separate from address, a per-frame shift, shadow-then-merge | .claude/SUBTREE-O1-PLAN.md (2026-09-14) | decided by Kobin 2026-09-14 (undo per action, frozen frame selection, erase covering cell + reach as one record, snapshot reliance, bookmarks follow) | built 2026-09-15 (jsdom), the erase covering a frame included |
+| **The O(1) subtree move** — frame identity separate from address, a per-frame shift, shadow-then-merge | .claude/SUBTREE-O1-PLAN.md (2026-09-14) | decided by Kobin 2026-09-14 (undo per action, frozen frame selection, erase covering cell + reach as one record, snapshot reliance, bookmarks follow) | built 2026-09-15 (jsdom), the erase covering a frame included; committed 4c99a8a. Kobin used it on the Magnum Opus on 2026-09-22: F78, F80 and F82 found and fixed. Not built: §2.2's shift normalisation (F78's open note) |
+| **The drag plane's merged runs pop at the drop** — past `MOVE_PLANE_LAYERS` (5: below, selected, between, selected, above) the smallest unselected run sandwiched between two selected ones is drawn UNDER the selection for the drag, so it jumps back over the moved ink at pen-up | `.claude/PAPER-PLAN.md` §10 ("A drag that always moves", item 1); `raster/MovePlane.js` | **accepted for now by Kobin, 2026-09-23 — revisit** | the trade was a drag that never refuses (ERASE-TEST's reading of his report: 48 of 65 drags refused before it). How often a merge shows on a real drawing is not measured (`planeStats.merged` counts them). Levers when it is picked up: more layers under the plate cap, or the occlusion cull PAPER-PLAN R1 left unbuilt |
 
 Read this table before proposing anything large: if it is here, the reasons it was
 deferred are in the column that names them, and the question is whether the standing has
@@ -574,10 +670,16 @@ Housekeeping (2026-09-07): D2, the reports folder inside the tree, is **dropped*
 asked, left it where it is (gitignored, and every replay test finds it); D4 resolved the
 other way, the TypeScript dependency runs S3's `npm run typecheck`; D5 done, the timing
 dump lives in `tools/.cache/` (gitignored). Still owed: after any change that adds or
-removes a function, rebuild and republish the four reference pages
-(`tools/docmaps/README.md`). `verify_coverage.py` on 2026-09-07 lists the autosave rework's
-functions and the 2026-09-03..07 engine work as gaps; `audit_stale.py` reports 0 stale
-names. The rebuild wants their descriptions written, an afternoon.
+removes a function, run `python tools/docmaps/rebuild.py` and republish the three
+generated pages (`tools/docmaps/README.md`). **Done 2026-09-22:** the generator repaired
+(the masker was hiding 29 of `selection.js`'s 33 methods; 61 hand-read edges that had
+stopped being calls fixed to where the call now is; `graph.py` now refuses a hand edge
+that names no node or is not a call), descriptions written for every function the pages
+lacked, including the raster, scenes, sync, storage and report work, and all four pages
+republished to their existing links; rebuilt again 2026-09-23 on the settled scene index
+and sync work, once more after the 14 unreferenced functions were deleted, and again at the
+end of the day's round: 2,282 functions in 113 files, 4,168 calls, 0 missing, 0 stale, the
+Call Map's 269 calls all calls.
 
 **Deliberately not built** (moved here from `docs/ai/10-STATUS.txt` on 2026-09-02):
 
@@ -729,9 +831,9 @@ C2  Renderer.js is 1,577 lines and mixes four jobs.                         medi
 
 C3  CanvasEditor.js is 1,290 lines.                                        medium
     Tool rail, scenes panel, scale HUD, six dialogs, three banners, the save
-    pipeline, the cloud pull, the presence heartbeat and the draft-on-unload
-    handler. The cloud/persistence effects are the natural first extraction -
-    they are four useEffects and three async functions with no JSX between them.
+    pipeline and the draft-on-unload handler. The cloud effects (the pull, the
+    30 s sync, the presence heartbeat) left on 2026-09-22 for
+    cloud/canvasSession.js (SYNC-PLAN); the persistence effects are next.
 
 --------------------------------------------------------------------------------
 D. HYGIENE - cheap, and two of them are real risks
@@ -1286,6 +1388,62 @@ something"
 
 Newest first. Recorded so nothing is re-investigated. Each block is the text that used to
 sit at the top of `50-TODO.txt`, unchanged.
+
+### 2026-09-22
+
+    THE RASTER RENDERER IS THE APP'S DEFAULT (Kobin): useKobinEngine's
+    rasterFromUrl is true unless ?svg (or ?raster=0); an export in raster mode
+    renders once through a one-off SVG engine (thumbnails.withSvgEngine). The
+    same day, before it: the swap task and stage 5d's review closed
+    (RASTERISER-PLAN D262-D265); the first browser pass in Kobin's Chrome (the
+    Magnum Opus in a second engine, load 1.4 s against the SVG's 6.2 s;
+    D266-D270); an Opus mock-user testing round (raster against SVG over 20
+    views within 0.001-0.98 % of pixels; its two defects fixed, D271-D273).
+    THE PAPER WORK (.claude/PAPER-PLAN.md): P1 stale plates before paper with
+    cross-quantum fallbacks; P3 the off-camera render list (listFor,
+    snapshotView, the crossing prebake); P2 the q-8 preview on a priority
+    queue; R5 cross-frame stand-ins, a floor on the hold and a ladder of coarse
+    plates rendered before a zoom-out (Kobin's fast zoom-out in his tab: screen
+    paper 2,566 -> 532 ms); P4's engine half (the drag's hold, one exit); then
+    the PAPER agent's section 10 S1-S7 (the drag plane precomputed at select,
+    the pen-up handoff, the reroute memo, the pack pre-pass, F83's fix) -
+    jsdom only, the Chrome run owed.
+    THE SCENES PANEL (.claude/SCENES-PLAN.md): thumbnails from snapshotView on
+    the live raster engine (click to painted panel 121-126 ms on the Magnum
+    Opus); the first open's 129.6 s re-cluster taken off the click; the panel
+    made simple at Kobin's word (picture, name, zoom, rename); the interim cap
+    cfg.scenesResolveMax (10,000 natives), then the v3 scene index replacing
+    scenes.js and the cap (being built that night).
+    FROM KOBIN'S MAGNUM OPUS: F78 (the Earth's houses vanished: a tile cached
+    across a mid-bake settle carry; TileStore._bakeSettled), F80 (the save
+    format refused a twin's children's frame ids), F82 (a ctrl-tap dropped the
+    selected frames), F81 (the tab ran out of memory; the second-engine
+    thumbnail fallback gated off under raster; closed by his decision). F77 (the
+    band memo keyed on q) fixed in passing; F79 and F83 filed.
+    KOBIN'S RULINGS (WORKLIST): memory done as far as needed - no per-level tile
+    cap, no byte-bounded undo, no per-drawing budget, no F81 timeline; saving at
+    scale next; the eraser at depth after the PAPER agent; stage 7 when he has
+    time.
+
+### 2026-09-15 to 2026-09-21 - the rasteriser, stages 0-6
+
+    Our own float64 coverage rasteriser writing 512-device-px plates in Web
+    Workers, on branch rasteriser (.claude/RASTERISER-PLAN.md, gitignored):
+    stage 0 the core and the union pass (F75 filed and fixed in it), 1
+    chordMath and the arc flattener, 2 and 2b packing and the recorded-geometry
+    suite, 3 the worker pool (public/raster-worker.js), 4 the plate cache, 5a
+    the picture layer, 5b the renderer subclass and the engine wiring, 5c and
+    5d the ant painter and the overlay layer, 6 the perf ring and report - each
+    reviewed and accepted. Nothing drew a drawing until 2026-09-22.
+
+### 2026-09-14 and 2026-09-15
+
+    S7 (one stroke path, the fat display bake deleted), S8 (the rest of the
+    vestige audit), row 11 (the frame tree for selecting and moving) and the
+    O(1) subtree move with the erase covering a frame
+    (.claude/SUBTREE-O1-PLAN.md), all jsdom only; committed on main as 4c99a8a
+    on 2026-09-15, not pushed. The detail is in §3 rows 10 and 11, the
+    structural lane and 10-STATUS.
 
 ### 2026-09-08
 

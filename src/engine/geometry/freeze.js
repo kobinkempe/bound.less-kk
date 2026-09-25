@@ -72,6 +72,7 @@
  * piece has no seam fields. The endpoint guard is the whole of the rule now.
  */
 import { ptAt, subPiece, canonArc, arcDir, arcPieceOf, canonPos } from "./arcPerimeter";
+import { sagittaOf } from "./chordMath";
 import { TILE, ENTER, TileGrid } from "../frameLattice";
 
 const TAU = Math.PI * 2;
@@ -94,21 +95,15 @@ const wrap = (d) => d - TAU * Math.floor(d / TAU);
 const EPS = 1e-12;
 
 /**
- * How far a piece bulges from its own chord, in the piece's own units.
- *
- * (chord/2) * |tan(sweep/4)| — the sagitta written with the BULGE, which is
- * tan(sweep/4) and is dimensionless, so the whole expression is local and the
- * radius never appears. A piece sweeping more than half a turn cannot be
- * straight by any measure and is reported as infinitely bulged rather than run
- * through a tangent that is about to change sign.
+ * How far a piece bulges from its own chord, in the piece's own units — the
+ * radius-free `(chord/2)·|tan(sweep/4)|`, which is `chordMath.sagittaOf` (the
+ * rasteriser's flattener sizes itself with the same expression; chordMath.test.js
+ * M2 asserts the two are bit-identical). Over half a turn it is Infinity rather
+ * than a tangent about to change sign.
  */
 export function pieceSagitta(p) {
     if (p.line) return 0;
-    const a = Math.abs(p.sweep);
-    if (!(a > 0)) return 0;
-    if (a > Math.PI) return Infinity;
-    const dx = p.B[0] - p.A[0], dy = p.B[1] - p.A[1];
-    return (Math.hypot(dx, dy) / 2) * Math.abs(Math.tan(a / 4));
+    return sagittaOf(p.A[0], p.A[1], p.B[0], p.B[1], p.sweep);
 }
 
 /** The chord of a piece, as a line. Its endpoints are carried through untouched. */

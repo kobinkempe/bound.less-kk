@@ -5,6 +5,8 @@
 import { cutJob, wireJob, unwireJob, wireResult, unwireResult } from "./eraseJob";
 import { rectLoop, loopsArea } from "./geometry/arcShape";
 import { Loop } from "./geometry/loop";
+import { bakeArcPerimeter } from "./geometry/arcPerimeter";
+import { repairLoops } from "./geometry/arcShape";
 
 const rect = (x0, y0, x1, y1) => rectLoop({ left: x0, top: y0, right: x1, bottom: y1 });
 
@@ -43,5 +45,28 @@ describe("cutJob", () => {
         const r2 = unwireResult(w.msg);
         expect(r2.kind).toBe("cut");
         expect(r2.regions.map((g) => g.map((l) => Array.from(l.buf)))).toEqual(r.regions.map((g) => g.map((l) => Array.from(l.buf))));
+    });
+});
+
+describe("a ring eraser that retraces its own start exactly (OPEN-FLAGS F89)", () => {
+    // A computed ring swept past one turn, sealed as the app seals a bake (`_sealed`), cut through a
+    // square: nothing of the band may be left. Before the fix the twice-covered sector subtracted
+    // twice and survived as ink (winding -1): 2,019 units² at 1.10 turns, the whole ring at 2.
+    const R = 110, w = 32, r = w / 2;
+    const ring = (turns) => {
+        const n = Math.max(2, Math.round((2 * Math.PI * R * turns) / 3));
+        const p = [];
+        for (let k = 0; k <= n; k++) { const t = (2 * Math.PI * turns * k) / n; p.push([R * Math.cos(t), R * Math.sin(t)]); }
+        return p;
+    };
+    test.each([1.1, 1.5, 2])("%p turns: the square minus the ring is the square minus the annulus", (turns) => {
+        const res = bakeArcPerimeter(ring(turns), w, { tol: 0.125 });
+        const clip = res.stats.openChains ? repairLoops(res.loops, w, {}) : res.loops;
+        const j = cutJob({ subject: rect(-300, -250, 300, 250), clip, w: 13, freezeR: undefined, graze: "cut" });
+        expect(j.kind).toBe("cut");
+        expect(j.regions).toHaveLength(2);                  // the disc, and the square round it
+        const left = j.regions.reduce((a, g) => a + Math.abs(loopsArea(g)), 0);
+        const want = 600 * 500 - Math.PI * ((R + r) ** 2 - (R - r) ** 2);
+        expect(Math.abs(left - want)).toBeLessThan(1);      // units²: nothing of the band survives
     });
 });

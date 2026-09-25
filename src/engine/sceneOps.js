@@ -1,50 +1,39 @@
 /**
- * Scenes - the named views a drawing accumulates.
+ * Scenes: the index's client, jumping to a scene, and a scene's picture.
  *
- * A scene is a level plus a rectangle, and the point of auto-scenes is that the
- * user does not create them: ink added at a zoom the drawing has not visited
- * proposes one, and proposals that keep being drawn into get promoted. Jumping
- * to a scene is a camera move, never a document change.
+ * The scenes themselves are the scene index's (sceneIndex.js, SCENES-PLAN §6/§7): saved in the
+ * file and kept current at idle by `sceneClient.js`. Jumping to a scene is a camera move, never a
+ * document change.
  *
- * `docs/auto-scenes-design-bible.md` is the reasoning.
- *
- * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
- * `KobinEngine.js` on 2026-08-31.
+ * Mixed into `KobinEngine.prototype` - see `mixin.js`.
  */
-import {
-    JOIN_WINDOWS,
-    WINDOW_WIDTHS,
-    computeSceneProposals,
-    levelHash,
-    matchScenes,
-    resolveCapture,
-    splitMembers,
-} from "./scenes";
-import { bboxOf } from "./geometry/derive";
+import { PLATE_PX } from "./raster/plate";
+import { SceneClient } from "./sceneClient";
+
+/**
+ * The camera that frames `rect` inside a `w × h` viewport: `jumpTo`'s own fit, and
+ * `snapshotView`'s. ONE implementation, so a thumbnail frames a scene exactly as jumping to it
+ * would and the two can never drift apart.
+ *
+ * @param {{x:number, y:number, w:number, h:number}} rect in some frame's units
+ * @param {number} w viewport width  @param {number} h viewport height (CSS px for `jumpTo`,
+ *        DEVICE px for `snapshotView`, where the scale IS the job's `Zq`)
+ * @returns {{inScale:number, inPanX:number, inPanY:number}|null} null where the fit is not a
+ *        positive finite number
+ */
+export function fitView(rect, w, h) {
+    const s = Math.min(w / rect.w, h / rect.h);
+    if (!(s > 0) || !Number.isFinite(s)) return null;
+    return {
+        inScale: s,
+        inPanX: (w - rect.w * s) / 2 - rect.x * s,
+        inPanY: (h - rect.h * s) / 2 - rect.y * s,
+    };
+}
 
 class SceneOps {
-
-    // ---- scenes (auto-scenes v2: docs/auto-scenes-design-bible.md) ----
-    // Scenes speak FRAME KEYS (see scenes.js). Provide the transforms plus the
-    // tree adjacency (depthOf / childrenOf) so clustering stitches across frame
-    // edges — parent ← each child — instead of depth±1, and sibling frames (far
-    // apart by construction) never merge.
-    // Canonical scene key for the active frame: the depth int on the spine, the
-    // frame id for a local sibling — matching scenes.js `normKey` so provisional
-    // and captured scenes reconcile with computed proposals.
-    _sceneKey() {
-        const f = this.cam.frame;
-        const d = this.lm.depthOf(f);
-        return String(d) === f ? d : f;
-    }
-    _sceneProj() {
-        return {
-            mapRect: (rect, from, to) => this.lm.mapRectF(rect, from, to),
-            widthFactor: (from, to) => this.lm.frameFactor(from, to),
-            depthOf: (k) => { const d = this.lm.depthOf(k); return d == null ? Number(k) : d; },
-            childrenOf: (k, keys) => { const f = this.lm.frameFor(k); const id = f && f.id; return id == null ? [] : keys.filter((x) => this.lm.parentOf(x) === id); },
-        };
-    }
+    /** The index client (made at construction; `scenes: false` for an engine that never lists scenes). */
+    _initScenes(on) { this._sceneClient = on ? new SceneClient(this) : null; }
     // Frame a rect (in `frameKey`'s coords) in the viewport. `frameKey` is a
     // frame id or a legacy depth int; it must exist in the frame tree. The
     // computed inScale may land outside [exit, enter]; _maybeCross normalizes it
@@ -54,189 +43,95 @@ class SceneOps {
         const f = this.lm.frameFor(frameKey);
         if (!f) return false; // unreachable frame / depth
         if (this._drawing) this.pointerUp();
-        const s = Math.min(this.width / rect.w, this.height / rect.h);
-        if (!(s > 0) || !Number.isFinite(s)) return false;
-        this.cam.set({
-            frame: f.id, activeLevel: f.depth, inScale: s,
-            inPanX: (this.width - rect.w * s) / 2 - rect.x * s,
-            inPanY: (this.height - rect.h * s) / 2 - rect.y * s,
-        });
+        const fit = fitView(rect, this.width, this.height);
+        if (!fit) return false;
+        this.cam.set({ frame: f.id, activeLevel: f.depth, ...fit });
         this.cam._maybeCross();
         this.renderer.clear();
         this._render();
         this._queueIdleFits();
         return true;
     }
-    // The real recompute — gated on per-level ink hashes, so it's free when
-    // nothing changed since the last resolve (bible: evaluation schedule).
+    /**
+     * A picture of `rect` in frame `frame`, at a camera that is never set (SCENES-PLAN S1; the
+     * crossing prebake of PAPER-PLAN R4 shares `listFor` underneath).
+     *
+     * The scale is `jumpTo`'s own — `fitView(rect, w, h)` — so a thumbnail frames a scene
+     * exactly as jumping to it would. It differs from `jumpTo` in three ways, all deliberate:
+     * the camera is not touched, `cam._maybeCross()` is NOT called (a crossing would change the
+     * frame the caller asked for), and the plate grid is not moved to the rect — the WORLD is,
+     * through `packJob`'s pack-time `offset`, so the rect lands on one plate and one job of one
+     * plate answers the whole request.
+     *
+     * The picture occupies the TOP-LEFT `w × h` device pixels of the returned plate; the caller
+     * crops it with a 1:1 `drawImage`.
+     *
+     * A frame the camera has never visited pays its tile bake inside this call, synchronously,
+     * and on a busy frame that is seconds (F59). There is no idle warm-up yet — the caller's
+     * own scheduling is what keeps it off a click until one lands.
+     *
+     * @param {object} req
+     * @param {string|number} req.frame a frame id or a legacy depth int
+     * @param {{x:number, y:number, w:number, h:number}} req.rect the region, in that frame's units
+     * @param {number} [req.w=320] the picture's width in DEVICE px; `w` and `h` are capped at 512
+     * @param {number} [req.h=240]
+     * @param {AbortSignal} [req.signal] the panel closing; a job already dispatched still
+     *        completes, its result is dropped, and the promise rejects with "aborted"
+     * @returns {Promise<ImageBitmap|{pixels:Uint8ClampedArray,width:number,height:number}|null>}
+     *        null off the raster path, for an unreachable frame or an unfittable rect, and for
+     *        an empty plate; the raw record where the scope has no `createImageBitmap` (jsdom)
+     */
+    snapshotView(req) {
+        const { frame, rect, signal } = req || {};
+        const w = Math.min(req && req.w > 0 ? req.w : 320, PLATE_PX);
+        const h = Math.min(req && req.h > 0 ? req.h : 240, PLATE_PX);
+        if (!this.raster || !this.renderer.snapshotJob) return Promise.resolve(null);
+        if (!rect || !(rect.w > 0) || !(rect.h > 0)) return Promise.resolve(null);
+        const f = this.lm.frameFor(frame);
+        if (!f) return Promise.resolve(null);
+        const fit = fitView(rect, w, h);
+        if (!fit) return Promise.resolve(null);
+        // `fitView`'s pans already carry the `− rect.x · s` term, so dividing them by the scale
+        // is the whole translation: it puts the rect's top-left at the letterbox margin inside
+        // plate (0, 0), which is where `jumpTo` puts it on the screen.
+        const Zq = fit.inScale;
+        const offset = [fit.inPanX / Zq, fit.inPanY / Zq];
+        const win = {
+            left: -offset[0], top: -offset[1],
+            right: w / Zq - offset[0], bottom: h / Zq - offset[1],
+        };
+        return this.renderer.snapshotJob({
+            list: this.listFor(f.id, win), frameId: f.id, Zq, offset, signal,
+        });
+    }
+    /**
+     * The scene list, brought up to date: inline, now (a first index of a loaded drawing included);
+     * with the scene worker, the next batch is started and the list as it stands comes back.
+     */
     refreshScenes() {
-        const hashes = {};
-        let changed = false;
-        for (const Ls of Object.keys(this.doc.nativesByLevel)) {
-            if (!(this.doc.nativesByLevel[Ls] || []).length) continue;
-            hashes[Ls] = levelHash(this.doc.nativesByLevel, Ls);
-            if (!this._levelHashes || this._levelHashes[Ls] !== hashes[Ls]) changed = true;
-        }
-        if (this._levelHashes) {
-            for (const L of Object.keys(this._levelHashes)) if (!(L in hashes)) changed = true;
-        }
-        if (!changed && this._sceneMembers && !this._scenesProvisional) {
-            return this.docMeta.scenes || [];
-        }
-        const proj = this._sceneProj();
-        // Re-homed patches are NOT new ink. A deep erase moves part of an object
-        // into frames that previously held nothing, and to the clustering that
-        // looks exactly like someone drawing a fine detail there: it opens a
-        // nested pocket, and the user's scene list grows every time they erase.
-        // That is the storage becoming visible, which §3.4's rule of thumb
-        // forbids. A patch fills a ceded TILE, which is 1/3000 of its parent's
-        // own frame and sub-pixel there, so leaving it out cannot lose a
-        // composition of any size the parent level can resolve.
-        //
-        // `attachRect` is what marks one. This used to test `srcId`, which the
-        // cede refactor deleted — leaving the filter a silent no-op that let
-        // every deep erase invent a scene again.
-        const forScenes = {};
-        for (const Ls of Object.keys(this.doc.nativesByLevel)) {
-            forScenes[Ls] = (this.doc.nativesByLevel[Ls] || []).filter((o) => o.attachRect == null);
-        }
-        const proposals = computeSceneProposals(forScenes, proj);
-        // Provisional scenes participate in matching so their ids/numbers
-        // survive the resolve; unmatched (unpinned) ones drop naturally.
-        const state = {
-            scenes: this.docMeta.scenes || [],
-            hidden: this.docMeta.hiddenScenes || [],
-            seq: this.docMeta.sceneSeq || 1,
-        };
-        const merged = matchScenes(state, proposals, proj);
-        for (const s of merged.scenes) delete s.provisional;
-        this.docMeta = { ...this.docMeta, scenes: merged.scenes, hiddenScenes: merged.hidden, sceneSeq: merged.seq };
-        this._sceneMembers = merged.members;
-        this._levelHashes = hashes;
-        this._scenesProvisional = false;
-        return merged.scenes;
+        if (this._sceneClient) this._sceneClient.flushNow();
+        return this.docMeta.scenes || [];
     }
-    // Pen-up freshness: assign the new stroke to an existing scene at its
-    // level or open a provisional one. No clustering runs here; the next
-    // refreshScenes() (Scenes panel / Save) resolves everything properly.
-    _noteInkAdded(o) {
-        this._scenesProvisional = true;
-        const F = this._sceneKey();
-        const b = bboxOf(o);
-        const w = o.lwFrame || 1e-9;
-        const rect = { x: b.x0, y: b.y0, w: Math.max(b.x1 - b.x0, w), h: Math.max(b.y1 - b.y0, w) };
-        const T = JOIN_WINDOWS * WINDOW_WIDTHS * w;
-        for (const s of this.docMeta.scenes || []) {
-            if (s.level !== F || s.captured) continue;
-            const gx = Math.max(0, Math.max(s.rect.x - (rect.x + rect.w), rect.x - (s.rect.x + s.rect.w)));
-            const gy = Math.max(0, Math.max(s.rect.y - (rect.y + rect.h), rect.y - (s.rect.y + s.rect.h)));
-            if (gx <= T && gy <= T) {
-                s.rect = {
-                    x: Math.min(s.rect.x, rect.x), y: Math.min(s.rect.y, rect.y),
-                    w: Math.max(s.rect.x + s.rect.w, rect.x + rect.w) - Math.min(s.rect.x, rect.x),
-                    h: Math.max(s.rect.y + s.rect.h, rect.y + rect.h) - Math.min(s.rect.y, rect.y),
-                };
-                s.hash = ""; // thumbnail refresh at next resolve
-                return;
-            }
-        }
-        let seq = this.docMeta.sceneSeq || 1;
-        const pad = 0.1 * Math.max(rect.w, rect.h);
-        const s = {
-            id: `s${seq}`, name: `Scene ${seq}`, level: F,
-            rect: { x: rect.x - pad, y: rect.y - pad, w: rect.w + 2 * pad, h: rect.h + 2 * pad },
-            pinned: false, auto: true, provisional: true, depth: 0,
-        };
-        seq += 1;
-        this.docMeta = { ...this.docMeta, scenes: [...(this.docMeta.scenes || []), s], sceneSeq: seq };
-    }
+    /** A user's name for a scene; it keeps its id and name through merges (SCENES-PLAN §6). */
     renameScene(id, name) {
+        if (this._sceneClient) return this._sceneClient.rename(id, name);
         const s = (this.docMeta.scenes || []).find((x) => x.id === id);
         if (!s || !name || !name.trim()) return false;
-        s.name = name.trim().slice(0, 120);
-        s.pinned = true; // a named scene never auto-drops
-        delete s.provisional;
+        s.name = name.trim().slice(0, 120); s.pinned = true; s.auto = false;
         return true;
     }
-    // Deleting also suppresses the frame so the same cluster can't resurrect.
-    deleteScene(id) {
-        const scenes = this.docMeta.scenes || [];
-        const s = scenes.find((x) => x.id === id);
-        if (!s) return false;
-        this.docMeta.scenes = scenes.filter((x) => x.id !== id);
-        this.docMeta.hiddenScenes = [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }];
-        return true;
+    /** The index client's account for a report: where it runs, what it has done, what waits. */
+    sceneReport() {
+        const c = this._sceneClient;
+        if (!c) return { on: false };
+        return { on: true, mode: c.remote ? "worker" : c.core ? "inline" : "none", dirty: c.dirty.size,
+            restoring: !!c.resync, inflight: !!c.inflight, ...c.stats };
     }
-    // Split: half-gap re-cluster of the scene's members. Children are pinned
-    // (they survive the next full-gap recompute) and the parent frame is
-    // suppressed (it can't come back as a fresh scene).
-    splitScene(id) {
-        const scenes = this.docMeta.scenes || [];
-        const s = scenes.find((x) => x.id === id);
-        if (!s) return null;
-        const ids = this._sceneMembers && this._sceneMembers[id];
-        const memberObjs = ids && ids.length
-            ? ids.map((i) => this.doc.getById(i)).filter(Boolean).map((r) => ({ o: r.obj, level: r.level }))
-            : this.doc.queryRect(s.level, { left: s.rect.x, top: s.rect.y, right: s.rect.x + s.rect.w, bottom: s.rect.y + s.rect.h })
-                .map((o) => ({ o, level: s.level }));
-        const parts = splitMembers(memberObjs, s.level, this._sceneProj());
-        if (!parts || parts.length < 2) return null;
-        let seq = this.docMeta.sceneSeq || 1;
-        const children = parts.map((p) => ({
-            id: `s${seq}`, name: `Scene ${seq++}`,
-            level: p.level, rect: p.rect, hash: p.hash,
-            pinned: true, auto: true, depth: s.depth || 0,
-        }));
-        const idx = scenes.findIndex((x) => x.id === id);
-        const next = scenes.slice();
-        next.splice(idx, 1, ...children);
-        this.docMeta = {
-            ...this.docMeta,
-            scenes: next,
-            hiddenScenes: [...(this.docMeta.hiddenScenes || []), { level: s.level, rect: s.rect }],
-            sceneSeq: seq,
-        };
-        if (this._sceneMembers) {
-            delete this._sceneMembers[id];
-            parts.forEach((p, i) => { this._sceneMembers[children[i].id] = p.memberIds; });
-        }
-        return children;
-    }
-    // The effective zoom a scene's frame is viewed at (for "at 240×" labels).
+    // The effective zoom a scene's frame is viewed at (for "at 240×" labels) — read off the one
+    // fit, so the label and the jump can never disagree. A degenerate rect reads 0, not Infinity.
     sceneZoom(s) {
-        const inScale = Math.min(this.width / s.rect.w, this.height / s.rect.h);
-        return this.lm.effectiveZoom(s.level, inScale);
-    }
-    // Capture this view (bible §4): retarget the matching scene or create a
-    // new pinned one. Captured frames are never auto-reframed by recomputes.
-    captureView(name) {
-        const win = this.cam.frameWindow(0);
-        const view = {
-            level: this._sceneKey(),
-            rect: { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top },
-        };
-        const target = resolveCapture(view, this.docMeta.scenes || [], this._sceneProj());
-        if (target) {
-            target.level = view.level;
-            target.rect = view.rect;
-            target.pinned = true;
-            target.captured = true;
-            target.hash = `cap${Date.now().toString(36)}`;
-            delete target.provisional;
-            if (name && name.trim()) target.name = name.trim().slice(0, 120);
-            this.docMeta = { ...this.docMeta };
-            return { scene: target, retargeted: true };
-        }
-        let seq = this.docMeta.sceneSeq || 1;
-        const s = {
-            id: `s${seq}`, name: (name && name.trim()) || `Scene ${seq}`,
-            level: view.level, rect: view.rect,
-            pinned: true, auto: false, captured: true, depth: 0,
-            hash: `cap${Date.now().toString(36)}`,
-        };
-        seq += 1;
-        this.docMeta = { ...this.docMeta, scenes: [...(this.docMeta.scenes || []), s], sceneSeq: seq };
-        return { scene: s, retargeted: false };
+        const fit = fitView(s.rect, this.width, this.height);
+        return this.lm.effectiveZoom(s.level, fit ? fit.inScale : 0);
     }
 }
 

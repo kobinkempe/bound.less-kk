@@ -233,6 +233,59 @@ describe("the op log after a reload", () => {
 
 // The subtree move in the log (SUBTREE-O1-PLAN §2.8): the header's lattice is the authority on
 // addresses, shifts and shadows; a settle is an entry of result tables; a deleted subtree's
+describe("a moved stroke replayed before its stale move's redo (REVIEWER-3's save lane, seed 715)", () => {
+    // Five gestures: the object is in the full snapshot, the add and move entries are stale, and only the
+    // immediate rewind of the replayed object (U-2) puts the undo's inverse back at the move's table.
+    const STROKE = [[536,375],[529.5,372.75],[527,371.5],[522.25,369.75],[516.5,369.25],[511.25,369],[506.25,369.25],[499.75,368],[493.75,365],[487.5,362.25],[485.25,357.75],[483,355],[480.5,350.75],[474.5,348.5],[471.25,344.25],[468.25,340.5],[465,335.5],[463.25,329.25],[461.25,324.25],[459.25,319],[456.25,316],[455,312.75],[451.5,307.25],[450.5,304.75],[451.75,298],[453.25,295.5],[453.25,288.5],[451.25,284.25],[450.5,280.5],[450,273],[449.5,270],[449.5,262.75],[449.75,258.75],[449.5,253],[450,248.5],[450.75,241.5],[450.5,236],[448.25,232.75],[446,227.5],[444.25,222.5],[443,219],[439.5,217],[435,212],[430.25,208.25],[426.75,206],[423.5,201.5],[420.5,195.25],[414.75,192.25],[412.5,190],[405.75,189.25],[402.75,189.25],[397.5,190],[391.75,189.25],[389.25,188.75],[386,190.5],[379.75,192],[376.5,194.25],[369.25,194.25],[364.75,192.25],[359,191.5],[352.25,191.25],[345.25,192.5],[339.25,193.25],[335.25,194],[330.25,193.25],[327,192],[320.5,193.25],[316,194.75],[312.25,195.5],[306,198],[303.25,199.75],[296.75,200.75],[293.25,201.75],[289,203],[285.5,206.75],[279.75,208.75],[277.25,209],[270,208.75],[267.25,207],[262.25,204.25],[259.5,197.5],[256.75,192.5],[255.5,189],[252.5,183.25],[252,178.75],[252,172.75],[251,166.25],[248.25,163.25],[245.25,160.25],[241.75,158.25],[238,153.75],[236.75,147.75],[235.25,145],[234.75,140.25],[232.5,137.25],[231.75,130.75],[233,128],[237.25,123.5],[241,119.5],[244.25,113.75],[248.5,111.75],[254.25,108.75],[257.5,106.75],[263.75,104.25],[270.25,101.5],[272.75,99.25],[276.25,96],[278.25,89.5],[281.5,84.25],[284.75,78],[286.5,74],[287.5,68],[288,61.75],[290.25,58.5],[292.75,55.75],[295,49.5],[297.25,45.25],[299,42.75],[300,40.25],[304.5,35.5],[307,30.75],[310,27.5],[312.5,23.75],[314,17],[314,15],[312.75,22],[313.5,28.75],[313.25,34.75],[314.75,39.5],[316.75,41.75],[320.75,43.25],[324.25,48],[325.75,53],[327,56.5],[328,61.25],[330.5,67.5],[333,71],[336,75.75],[338,77.5],[340,82.75],[341.75,86],[343.5,88.5],[344,94],[345,97.25],[349.25,99],[354.25,102.25],[356.75,106.25],[361.75,109],[365.25,113],[367.5,115.25],[374.25,115.75],[380.25,114.25],[387,113.25],[389.75,114],[395.75,114.5],[402.5,114.5],[409.5,112.5],[412.5,108.5],[417,106.5],[421.5,105],[425.25,102.25],[431.75,100.5],[439.25,101],[442.25,99.75],[445.5,98.75],[448.5,97],[451.25,94.25],[456.5,94.25],[459,95],[461.75,96.25],[467.25,99],[473.25,102.25],[475.25,106.25],[478.25,110.5],[478.75,114],[480,118.5],[479.75,123],[479,126.25],[477.5,132],[474.25,137],[472.75,139.5],[472.25,143.5],[470.5,148.75],[467.75,152.75],[466.75,155.75],[466.25,162],[466.25,168.75],[465.75,175.5],[465,182],[463.25,184.75],[462,190.5],[459.5,194.5],[455.75,198],[450.5,200],[444.5,201.5],[439.25,204],[434.5,208.25],[430.75,212.5],[428.25,214.75],[423.75,217],[417.5,218.75],[412.75,219.25],[409.75,217.75],[403,218.25],[396.75,219.5],[393.5,222.25],[390,223.25],[384.75,222],[380.25,220.75],[373.25,219.25],[368,218.75],[361.75,218],[358.25,215.25],[354.5,213.25],[351,210.75],[343.5,211],[338.75,210.25],[334.25,209.5],[329.25,207.75],[322.75,204.75],[319.75,200.75],[314,199.25],[310,200],[305.75,200.75],[298.75,201.25],[294.25,199.75],[288.75,199.75],[286,199],[283,197.5],[280.5,197.75],[275.25,195.5],[269.75,194.75],[265.75,193],[262.25,190.75],[255.25,189.75],[249,189.5],[243,190.5],[236,191.75],[231.75,192.75],[229,194.25],[223.25,193.5],[216.75,192.75],[211.75,190.75],[208.5,187.25],[203.75,185]];
+    const ERASER = [[229,115],[229.5,111.25],[229.5,104],[228,99.75],[228.25,95],[231,89.75],[232,82.5],[234.25,78],[238.25,74.75],[240,71.5],[242.25,66],[244,58.5],[242.75,52.5],[240.75,49.75],[239.75,43.75],[238.25,39],[236.75,31.75],[232,25.75],[223.75,22.5],[216.75,20.75],[211.25,15.75],[205.5,15],[200.75,17.5],[196.75,20],[192.75,24.5],[189.5,28.75],[187,33.5],[185,37.25],[183,40],[179.75,47.5],[177.5,55.75],[172.5,61.25],[168.75,67],[165.25,68.75],[156.25,69],[152.75,69.75],[147.5,70.5],[139,72.25],[134,72.25],[130.75,72.5]];
+    test("a history walk, a full save and a reload: the undos agree with the live engine", () => {
+        const E = mkEngine(800, 600);
+        const log = new OpLog(E);
+        E.setColor("#5533cc");
+        const s = drawStroke(E, STROKE, 30);
+        drag(E, [418, 186], [275, 143]);
+        expect(E.doc.getById(s.id).obj.below).toBeTruthy();
+        eraseGesture(E, ERASER, 3);                                  // a pending mark
+        E.flushErases(); E.flushBakes();
+        while (E.doc.canUndo()) E.undo();
+        while (E.doc.canRedo()) E.redo();
+        const entries = log.drain().entries;
+        const snap = snapshot(E, log);                              // a full save
+        const { F } = restore(snap, entries, E.lm.serialize());
+        const nat = (X) => { const n = X.doc.serializeNatives(); for (const k of Object.keys(n)) if (!n[k].length) delete n[k]; return JSON.stringify(n); };
+        E.undo(); F.undo();
+        expect(F.doc.getById(s.id) && F.doc.getById(s.id).obj.below).toEqual(E.doc.getById(s.id) && E.doc.getById(s.id).obj.below);   // red without the rewind: null
+        while (E.doc.canUndo()) { E.undo(); F.undo(); expect(nat(F) === nat(E)).toBe(true); }
+    });
+});
+
+describe("a frame deleted in the tick its strokes were drawn (REVIEWER-3 SAVE-4)", () => {
+    test("their add entries are kept: a reload's undo stack and undos agree with the live engine", () => {
+        const E = mkEngine(800, 600);
+        const log = new OpLog(E);
+        const snap = snapshot(E, log);
+        for (let i = 0; i < 3; i++) E.zoomFactorAt(400, 300, 16);
+        const F = E.cam.frame;
+        strokes(E, 3);
+        for (let i = 0; i < 3; i++) E.zoomFactorAt(400, 300, 1 / 16);
+        E.deselect();
+        E.setTool("select");
+        const loop = [[200, 100], [600, 100], [600, 500], [200, 500], [200, 102]];
+        E.pointerDown(loop[0][0], loop[0][1]);
+        for (const p of loop.slice(1)) E.pointerMove(p[0], p[1]);
+        E.pointerUp();
+        expect(E.selection.frames).toContain(F);
+        E.deleteSelection();
+        const d = log.drain();
+        expect(d.entries.filter((e) => e.op.k === "add").length).toBe(3);   // red: 0, set aside before the drain
+        const { F: G } = restore(snap, d.entries, E.lm.serialize());
+        expect(G.doc._undo.map((o) => o.op)).toEqual(E.doc._undo.map((o) => o.op));
+        // empty buckets aside: a load drops them, the live engine keeps "0"
+        const nat = (X) => { const n = X.doc.serializeNatives(); for (const k of Object.keys(n)) if (!n[k].length) delete n[k]; return JSON.stringify(n); };
+        for (let k = 0; k < 4; k++) { E.undo(); G.undo(); expect(nat(G) === nat(E)).toBe(true); }
+    });
+});
+
 // natives ride the entry; a merge is recorded on its op. Reloads agree with the live engine
 // byte for byte, undo and redo included.
 describe("the op log and a subtree moved as frames", () => {
@@ -295,6 +348,20 @@ describe("the op log and a subtree moved as frames", () => {
         E.undo(); F.undo(); same(F, E);
         E.redo(); F.redo(); same(F, E);
         E.undo(); F.undo(); same(F, E);
+    });
+
+    test("a redone move's settle is not merged into the next drag's: undo and redo after a reload agree (REVIEWER-3 SAVE-2)", () => {
+        const { E, log, R, snap } = fixture();
+        moveFrame(E, R, 40);
+        E.undo(); E.redo();                                           // R's shift pending again
+        moveFrame(E, R, 40);                                          // its render settles the first op's shift, then its own
+        const d = log.drain();
+        const { F } = restore(snap, d.entries, E.lm.serialize());
+        same(F, E);
+        E.undo(); F.undo(); same(F, E);
+        E.undo(); F.undo(); same(F, E);                               // red: the first op's undo took the second's shift
+        E.redo(); F.redo(); same(F, E);
+        E.redo(); F.redo(); same(F, E);
     });
 
     test("a settle after the drain is its own entry; a reload before it owes the shift, one after has it once", () => {

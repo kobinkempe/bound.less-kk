@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 import io, json
-import graph, render_graph2 as rg, descriptions, longdesc
+import graph, render_graph2 as rg, descriptions, longdesc, newdesc
 
 import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 SVG = rg.svg()
+_GEOM = rg.geometry()
+assert not _GEOM, "the graph's layout is broken:\n  " + "\n  ".join(_GEOM[:20])
+print("layout: %d function boxes in %d blocks, none outside its block, no overlap"
+      % (len(graph.nodes()), len(rg.BLOCKS)))
 ADJ = json.dumps(rg.adjacency())
 MODNAME = json.dumps(graph.MODNAME)
 MODOF = json.dumps({n: n.split(".", 1)[0] for n in graph.nodes()})
@@ -27,18 +31,30 @@ for _k, _v in longdesc.LONG.items():
     _m = _k.split(".", 1)[0]
     _BY_LEAF.setdefault((_m, _k.split(".")[-1]), _v)
 
-# Last resort: the text of the Code Map ROW that covers this function. A row
-# can cover four related helpers with one explanation between them, and showing
-# that explanation is better than showing its one-line summary.
+# Last resort: the text of the Code Map ROW that covers this function, read in
+# an article that documents its module. A row can cover four related helpers
+# with one explanation between them, and showing that explanation is better
+# than showing its one-line summary.
 _BY_ROW = descriptions.long_by_name()
+
+
+def _row_text(n):
+    mod = n.split(".", 1)[0]
+    arts = [newdesc.HOME.get(mod)] + sorted(a for a, ms in newdesc.ARTMOD.items() if mod in ms)
+    for a in arts:
+        per = _BY_ROW.get(a, {})
+        hit = per.get(graph.label(n)) or per.get(n.split(".")[-1])
+        if hit:
+            return hit
+    return None
+
 
 _LONG_NODE = {}
 for _n in graph.nodes():
     _leaf = _n.split(".")[-1]
     _hit = (longdesc.LONG.get(_n)
             or _BY_LEAF.get((_n.split(".", 1)[0], _leaf))
-            or _BY_ROW.get(graph.label(_n))
-            or _BY_ROW.get(_leaf))
+            or _row_text(_n))
     if _hit:
         _LONG_NODE[_n] = _hit
 LONGJ = json.dumps(_LONG_NODE)
@@ -57,7 +73,8 @@ for _li in sorted(rg.R["layers"]):
 FILEOPTS = "\n".join(
     '    <option value="%s">%s</option>' % (m, graph.MODNAME[m]) for m in _ORDER)
 
-PAGE = u"""<title>The bound.less Call Graph</title>
+PAGE = u"""<meta charset="utf-8">
+<title>The bound.less Call Graph</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
@@ -67,7 +84,7 @@ PAGE = u"""<title>The bound.less Call Graph</title>
   --ink:#191d22; --muted:#616a75; --rule:#d5dae0; --rule-strong:#b3bcc6;
   --object:#c8603f; --space:#3d6b8c; --warn:#8a6d12; --code-bg:#eef1f4;
   --k-fac:#191d22; --k-spc:#3d6b8c; --k-obj:#c8603f; --k-hlp:#7f8892;
-  --k-sca:#3f7a63; --k-shl:#6c5a92; --k-ui:#8a6d12; --k-ded:#a9b2bb;
+  --k-sca:#3f7a63; --k-shl:#6c5a92; --k-ras:#17849a; --k-ui:#8a6d12; --k-ded:#a9b2bb;
   --entry:#b3452f; --entry-ink:#ffffff; --testonly:#aab2bb; --dead:#b3452f;
   --edge:#c6ccd4; --edge-on:#c8603f; --edge-up:#3d6b8c; --grid:#e6eaee;
   --block:#e3e8ed; --block-line:#cdd4db;
@@ -77,7 +94,7 @@ PAGE = u"""<title>The bound.less Call Graph</title>
   --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
   --object:#e07a56; --space:#74a8cc; --warn:#cfae4e; --code-bg:#232830;
   --k-fac:#aeb6bf; --k-spc:#74a8cc; --k-obj:#e07a56; --k-hlp:#6e7781;
-  --k-sca:#6fae90; --k-shl:#a292c4; --k-ui:#cfae4e; --k-ded:#4e565f;
+  --k-sca:#6fae90; --k-shl:#a292c4; --k-ras:#4fbfd3; --k-ui:#cfae4e; --k-ded:#4e565f;
   --entry:#e8724f; --entry-ink:#14171b; --testonly:#565e67; --dead:#e8724f;
   --edge:#333c45; --edge-on:#e07a56; --edge-up:#74a8cc; --grid:#1d2229;
   --block:#1f242b; --block-line:#2d343c;
@@ -87,7 +104,7 @@ PAGE = u"""<title>The bound.less Call Graph</title>
   --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
   --object:#e07a56; --space:#74a8cc; --warn:#cfae4e; --code-bg:#232830;
   --k-fac:#aeb6bf; --k-spc:#74a8cc; --k-obj:#e07a56; --k-hlp:#6e7781;
-  --k-sca:#6fae90; --k-shl:#a292c4; --k-ui:#cfae4e; --k-ded:#4e565f;
+  --k-sca:#6fae90; --k-shl:#a292c4; --k-ras:#4fbfd3; --k-ui:#cfae4e; --k-ded:#4e565f;
   --entry:#e8724f; --entry-ink:#14171b; --testonly:#565e67; --dead:#e8724f;
   --edge:#333c45; --edge-on:#e07a56; --edge-up:#74a8cc; --grid:#1d2229;
   --block:#1f242b; --block-line:#2d343c;
@@ -181,6 +198,7 @@ h1 .thin{font-weight:500;color:var(--muted)}
 .cg-obj{color:var(--k-obj)} .cg-hlp{color:var(--k-hlp)}
 .cg-sca{color:var(--k-sca)} .cg-shl{color:var(--k-shl)}
 .cg-ui{color:var(--k-ui)}   .cg-ded{color:var(--k-ded)}
+.cg-ras{color:var(--k-ras)}
 .cg-ded rect{stroke-dasharray:2.5 2}
 /* The not-running blocks lay out AFTER every live one, so hiding them removes a
    contiguous tail and leaves no holes. Fit reads getBBox(), which ignores
@@ -308,7 +326,7 @@ footer a{color:var(--object)}
     depends on at the bottom. <strong>Click any function</strong> to light up everything it
     reaches and everything that reaches it, and to read what it does.</p>
   <div class="meta">
-    <span>Code at <b>f92c1d1</b>, branch <b>arc-pipeline</b></span>
+    <span>Code at <b>__CODEAT__</b>, branch <b>__BRANCH__</b></span>
     <span><b>__CROSS__</b> calls cross a file boundary &middot; <b>__INSIDE__</b> stay inside one</span>
     <span><b>__ENTRIES__</b> entry points &middot; <b>__TESTONLY__</b> test-only &middot; <b>__W_DEAD__</b> unreferenced</span>
     <span>The spine instead: <a href="https://claude.ai/code/artifact/d6ac1f2b-d7b1-4b47-a8f4-d1ca1be5dcba">The Call Map</a></span>
@@ -322,7 +340,7 @@ footer a{color:var(--object)}
   <button data-focus="eng.pointerUp">pointerUp</button>
   <button data-focus="eng.zoomFactorAt">zoomFactorAt</button>
   <button data-focus="eng.panBy">panBy</button>
-  <button data-focus="eng._bakeTick">_bakeTick</button>
+  <button data-focus="erp._bakeTick">_bakeTick</button>
   <input id="q" type="search" placeholder="find a function..." aria-label="Find a function">
   <span class="lbl" id="qn"></span>
   <select id="mod" aria-label="Show one file">
@@ -335,6 +353,7 @@ __FILEOPTS__
   <span class="legend">
     <span><i style="background:var(--k-fac)"></i>facade</span>
     <span><i style="background:var(--k-spc)"></i>space &amp; view</span>
+    <span><i style="background:var(--k-ras)"></i>paper (raster)</span>
     <span><i style="background:var(--k-obj)"></i>objects &amp; ink</span>
     <span><i style="background:var(--k-hlp)"></i>geometry helpers</span>
     <span><i style="background:var(--k-sca)"></i>scale bar</span>
@@ -387,22 +406,21 @@ one was found by reading the source &mdash; a call inside a registered listener,
 handler prop, or inside an effect the interface drives &mdash; not by picking the ones that looked
 important.</p>
 
-<p class="note"><strong>Grey boxes are test-only, and three boxes are struck through.</strong>
+<p class="note"><strong>Grey boxes are test-only, and __W_DEAD__ boxes are struck through.</strong>
 __TESTONLY__ functions have no production caller at all; a suite is the only thing that depends on
-them, which is a real constraint on changing them and worth seeing. The struck-through three are
-the ones nothing in <code>src/</code> names at all: <code>Document.canRedo</code>,
-<code>LevelMap._edge</code> and <code>curvePerimeter.minDist</code> — all
-three resolved in the 2026-08-31 cleanup: the first was wired up to grey the
-toolbar's Undo and Redo buttons, the other two deleted.</p>
+them, which is a real constraint on changing them and worth seeing. The struck-through ones are
+named nowhere in <code>src/</code> but at their own definition, tests included: __DEADLIST__.
+Each is a candidate for deletion &mdash; after a check by hand, since a function reached through a
+table or a string would read the same way.</p>
 
 <p class="note"><strong>Faint lines stay inside one file; solid ones leave it.</strong> That is
 the distinction worth drawing at this scale. A block whose edges are nearly all faint is
 self-contained &mdash; <code>scaleBar/catalog</code>, <code>clipperOutline</code> &mdash; and a
 block with a spray of solid lines leaving it is where the coupling lives. <code>KobinEngine</code>
-is the obvious one, and it is the reason the first item on the backlog is splitting it up.</p>
+and the five files mixed onto its prototype are the obvious ones.</p>
 
-<p class="note"><strong>Nothing on this page calls __ISO__ of these functions, and three of
-them are genuinely unused.</strong> Not the other __ISOMINUS__. A call is only drawn when it
+<p class="note"><strong>Nothing on this page calls __ISO__ of these functions, and __W_DEAD__ of
+them are named nowhere else at all.</strong> Not the other __ISOMINUS__. A call is only drawn when it
 resolves to a definite target; anything else is dropped rather than guessed at, so no incoming
 line means <em>not proven</em>, never <em>not there</em>. <strong>Click a function with a dashed
 outline and the panel says which case it is.</strong> The breakdown:</p>
@@ -423,9 +441,10 @@ independently finds __AGREE__ of those &mdash; which is the check on whether it 
 correctly rather than plausibly.</p>
 
 <p class="note"><strong>Blocks with a dashed outline are not running</strong>, and are hidden
-until you ask for them. They are 186 of the functions here &mdash; the retired
+until you ask for them. They are __DEDN__ of the functions here &mdash; the retired
 <code>KobinEngineV0</code>, the cubic-pipeline <code>curvePerimeter</code>, the polyline
-<code>strokeShape</code>, and the rest of <code>src/engine/__oracles__/</code>: independent
+<code>strokeShape</code>, the scene index by brute force, the rasteriser's coverage, and the
+rest of <code>src/engine/__oracles__/</code>: independent
 implementations the shipping code is <em>checked against</em>, reachable only from test suites,
 so webpack has never bundled any of it. They are on this page because they are in the
 repository and the promise here is that every function is; they lay out below everything live
@@ -464,7 +483,7 @@ alongside them were deleted on 2026-08-31.</p>
     "React component": "No line: React renders it as <Component/>; it is never called by name.",
     "passed as value": "No line: it is passed or exported rather than called here.",
     "test only": "No line in the app: only the test suites reference it.",
-    "UNREFERENCED": "Nothing calls it, and the name appears nowhere else in src/ — not even a test. One of three."
+    "UNREFERENCED": "Nothing calls it, and the name appears nowhere else in src/ — not even a test."
   };
   var svg = document.getElementById("cg");
   var frame = document.getElementById("frame");
@@ -880,6 +899,23 @@ def build():
     p = p.replace("__FILEOPTS__", FILEOPTS)
     p = p.replace("__DEDMODS__", json.dumps(sorted(
         m for m, g in graph.MOD.items() if g == "ded")))
+    import subprocess
+    _repo = os.path.dirname(os.path.dirname(HERE))
+
+    def _git(*a):
+        try:
+            return subprocess.check_output(("git",) + a, cwd=_repo, universal_newlines=True,
+                                           stderr=subprocess.DEVNULL).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return ""
+    _dirty = _git("status", "--porcelain", "--untracked-files=no", "--", "src")
+    p = p.replace("__CODEAT__", (_git("rev-parse", "--short", "HEAD") or "unknown")
+                  + (" + working tree" if _dirty else ""))
+    p = p.replace("__BRANCH__", _git("rev-parse", "--abbrev-ref", "HEAD") or "unknown")
+    p = p.replace("__DEDN__", "{:,}".format(sum(
+        1 for n in graph.nodes() if graph.MOD.get(n.split(".", 1)[0]) == "ded")))
+    _dead = sorted(rg.DEAD)
+    p = p.replace("__DEADLIST__", ", ".join("<code>%s</code>" % n for n in _dead) or "none")
     p = p.replace("__NODES__", "{:,}".format(S["nodes"]))
     p = p.replace("__EDGES__", "{:,}".format(S["edges"]))
     p = p.replace("__FILES__", str(S["files"]))

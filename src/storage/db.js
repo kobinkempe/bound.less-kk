@@ -163,17 +163,6 @@ export function putCanvas(id, { header, frames, frameIds, full }) {
     });
 }
 
-/** The stored kobin-1 document, reassembled, or null. */
-export function getCanvas(id) {
-    return tx(["canvases", "frames"], "readonly", async (canvases, store) => {
-        const h = await reqp(canvases.get(id));
-        if (!h) return null;
-        const recs = await reqp(store.index("byCanvas").getAll(only(id)));
-        const natives = {};
-        for (const r of recs) natives[r.frameId] = r.objects;
-        return headerToDoc(h, natives);
-    });
-}
 
 function headerToDoc(h, natives) {
     const doc = { format: h.format, version: h.version, meta: h.meta, camera: h.camera, crossings: h.crossings, natives };
@@ -189,11 +178,15 @@ export function listCanvasHeaders() {
     return tx(["canvases"], "readonly", (canvases) => reqp(canvases.getAll())).then((l) => l || []);
 }
 
-/** Rewrite the header through `fn(header) -> header`; no frames touched. */
-export function patchCanvasHeader(id, fn) {
+/**
+ * Rewrite the header through `fn(header) -> header`; no frames touched. With `writer`, refused
+ * ("fenced") when another tab holds the store (SYNC-PLAN R2); without one (the gallery) it is not.
+ */
+export function patchCanvasHeader(id, fn, writer = null) {
     return tx(["canvases"], "readwrite", async (canvases) => {
         const h = await reqp(canvases.get(id));
         if (!h) return false;
+        if (writer != null && h.writer && h.writer !== writer) return "fenced";
         canvases.put({ ...fn(h), id });
         return true;
     });
@@ -230,6 +223,10 @@ export function deleteOrphanFrames() {
 const bufferOf = (geo) => (geo.byteOffset === 0 && geo.byteLength === geo.buffer.byteLength
     ? geo.buffer : geo.buffer.slice(geo.byteOffset, geo.byteOffset + geo.byteLength));
 export const STORE_V2 = "kobin-2";
+// The sync's bookkeeping in the header (SYNC-PLAN R1/R3): `base` the cloud head last pulled or
+// pushed, `intent` the head a push is committing, `pending` its chunks not yet confirmed, `writer`
+// the tab holding the store. The saver's header never names them, so every write carries them.
+export const SYNC_FIELDS = ["base", "intent", "pending", "writer"];
 
 /**
  * Write a canvas in the kobin-2 store, in one transaction: the header, the frames in
@@ -238,12 +235,17 @@ export const STORE_V2 = "kobin-2";
  * current set. `full` makes the stored frame set match exactly and deletes the canvas's
  * v1 frame records (the first v2 write of a migrated canvas); `resetLog` empties the log
  * first (a document that started over). Returns false, writing nothing, for an
- * incremental write of a canvas with no header on disk.
+ * incremental write of a canvas with no header on disk; "fenced" when `writer` is not the tab
+ * holding the store (SYNC-PLAN R2); "stale" when the header's seq is behind the stored one and
+ * `rewind` is not set (a document the store was pulled into under must not overwrite it; only a
+ * whole-document write or a pull rewinds).
  */
-export function putCanvas2(id, { header, snapshots = {}, frameIds, entries = [], full = false, resetLog = false, dropBelow = 0 }) {
+export function putCanvas2(id, { header, snapshots = {}, frameIds, entries = [], full = false, resetLog = false, dropBelow = 0, writer = null, rewind = false }) {
     return tx(["canvases", "frames", "frames2", "log"], "readwrite", async (canvases, v1, frames2, log) => {
         const prev = await reqp(canvases.get(id));
         if (!prev && !full) return false;
+        if (prev && writer != null && prev.writer && prev.writer !== writer) return "fenced";
+        if (prev && !rewind && prev.store === STORE_V2 && (header.seq || 0) < (prev.seq || 0)) return "stale";
         const now = new Set(frameIds);
         const frameSeq = { ...((prev && prev.store === STORE_V2 && prev.frameSeq) || {}) };
         if (full) {
@@ -266,7 +268,11 @@ export function putCanvas2(id, { header, snapshots = {}, frameIds, entries = [],
         for (const e of entries) {
             log.put({ canvasId: id, seq: e.seq, t: e.t, op: e.op, geo: e.geo && e.geo.length ? bufferOf(e.geo) : null, touches: e.touches || [] });
         }
+        const sync = {};
+        if (prev) for (const k of SYNC_FIELDS) if (prev[k] !== undefined && !(k in header)) sync[k] = prev[k];
+        if (writer != null) sync.writer = writer;
         canvases.put({
+            ...sync,
             ...header,
             id,
             store: STORE_V2,
@@ -303,6 +309,89 @@ export function getCanvas2(id) {
     });
 }
 
+/**
+ * Copy a stored canvas, every record, to `toId` in one transaction (a conflict's copy, R5):
+ * the header through `patch(header)`, the frames and the log as they are. False when `fromId`
+ * has no header.
+ */
+export function copyCanvas2(fromId, toId, patch = (h) => h) {
+    return tx(["canvases", "frames", "frames2", "log"], "readwrite", async (canvases, v1, frames2, log) => {
+        const h = await reqp(canvases.get(fromId));
+        if (!h) return false;
+        for (const s of [v1, frames2, log]) {
+            const recs = await reqp(s.index("byCanvas").getAll(only(fromId)));
+            for (const r of recs) s.put({ ...r, canvasId: toId });
+        }
+        canvases.put({ ...patch({ ...h }), id: toId });
+        return true;
+    }).then((ok) => ok === true);
+}
+
+// ---- whole-canvas reads and copies in short transactions ----
+// A transaction's scope is a store, not a canvas: one that reads or copies a whole canvas blocks
+// every read-write on these stores across the origin while it runs. Measured 2026-09-22 in Chrome
+// on a store the size of the Magnum Opus (60 frames, 42,856 objects, 60 MB of geometry): a
+// one-transaction read 400–500 ms and a copy 1.4 s, a small write elsewhere waiting all of it;
+// one frame per transaction, 25 ms at most, the small write waiting 1–3 ms.
+
+// The header's fingerprint: every write changes `savedAt`.
+const stamp = (h) => (h ? `${h.seq}|${h.savedAt}|${JSON.stringify(h.frameSeq || {})}|${(h.frameIds || []).join(",")}` : "");
+
+/**
+ * getCanvas2 one frame per transaction. The header is read again at the end; a store written in
+ * between is read again (three tries), then in one transaction. `onChunk` is for tests.
+ */
+export async function getCanvas2Chunked(id, { onChunk = null } = {}) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const h = await tx(["canvases"], "readonly", (c) => reqp(c.get(id)));
+        if (!h) return null;
+        if (h.store !== STORE_V2) return getCanvas2(id);
+        const frames = [];
+        for (const fid of h.frameIds || []) {
+            const r = await tx(["frames2"], "readonly", (f) => reqp(f.get([id, fid])));
+            if (r) frames.push({ frameId: r.frameId, seq: r.seq || 0, objects: r.objects, geo: new Float64Array(r.geo) });
+            if (onChunk) await onChunk();
+        }
+        const logs = await tx(["log"], "readonly", (l) => reqp(l.index("byCanvas").getAll(only(id))));
+        const h2 = await tx(["canvases"], "readonly", (c) => reqp(c.get(id)));
+        if (stamp(h2) !== stamp(h)) continue;
+        const entries = (logs || [])
+            .map((r) => ({ seq: r.seq, t: r.t, op: r.op, geo: r.geo ? new Float64Array(r.geo) : new Float64Array(0), touches: r.touches || [] }))
+            .sort((a, b) => a.seq - b.seq);
+        return { header: h2, frames, entries };
+    }
+    return getCanvas2(id);
+}
+/**
+ * copyCanvas2 one frame per transaction, the header LAST (a copy torn midway has no header, and
+ * the gallery's sweep deletes its records: deleteOrphanFrames). The source must not change
+ * meanwhile (the session holds its pen and has the saver off); if it did, the copy is made again
+ * in one transaction. True when the copy landed.
+ */
+export async function copyCanvas2Chunked(fromId, toId, patch = (h) => h) {
+    const h = await tx(["canvases"], "readonly", (c) => reqp(c.get(fromId)));
+    if (!h) return false;
+    if (h.store !== STORE_V2) return copyCanvas2(fromId, toId, patch);
+    for (const fid of h.frameIds || []) {
+        await tx(["frames2"], "readwrite", async (f) => {
+            const r = await reqp(f.get([fromId, fid]));
+            if (r) f.put({ ...r, canvasId: toId });
+        });
+    }
+    await tx(["log"], "readwrite", async (l) => {
+        for (const r of await reqp(l.index("byCanvas").getAll(only(fromId)))) l.put({ ...r, canvasId: toId });
+    });
+    const ok = await tx(["canvases"], "readwrite", async (c) => {
+        const cur = await reqp(c.get(fromId));
+        if (stamp(cur) !== stamp(h)) return false;
+        c.put({ ...patch({ ...cur }), id: toId });
+        return true;
+    });
+    if (ok === true) return true;
+    await deleteCanvas(toId);
+    return copyCanvas2(fromId, toId, patch);
+}
+
 // ---- trash + backups: whole documents ----
 
 export function putTrashDoc(id, doc, deletedAt = new Date().toISOString()) {
@@ -323,9 +412,6 @@ export function putBackup(id, doc, at = new Date().toISOString()) {
 }
 export function getBackup(id) {
     return tx(["backups"], "readonly", (b) => reqp(b.get(id))).then((r) => (r ? r.doc : null));
-}
-export function deleteBackup(id) {
-    return tx(["backups"], "readwrite", (b) => { b.delete(id); return true; });
 }
 /** Drop backups older than `maxAgeMs`. Returns how many went. */
 export function sweepBackups(maxAgeMs) {
@@ -550,20 +636,25 @@ export async function requestPersistentStorage() {
     } catch (err) { return false; }
 }
 
-/** Some frames' snapshots (all when `frameIds` is null), for the cloud push. */
-export function getFrames2(id, frameIds = null) {
-    return tx(["frames2"], "readonly", async (frames2) => {
-        const recs = frameIds
-            ? (await Promise.all(frameIds.map((fid) => reqp(frames2.get([id, fid]))))).filter(Boolean)
-            : await reqp(frames2.index("byCanvas").getAll(only(id)));
-        return recs.map((r) => ({ frameId: r.frameId, seq: r.seq || 0, objects: r.objects, geo: new Float64Array(r.geo) }));
-    }).then((l) => l || []);
-}
-/** The log entries with seq above `fromSeq`, ascending. */
-export function getLogFrom(id, fromSeq = 0) {
-    return tx(["log"], "readonly", async (log) => {
-        const recs = await reqp(log.getAll(IDBKeyRange.bound([id, fromSeq], [id, Number.MAX_SAFE_INTEGER], true, false)));
-        return recs.map((r) => ({ seq: r.seq, t: r.t, op: r.op, geo: r.geo ? new Float64Array(r.geo) : new Float64Array(0), touches: r.touches || [] }))
-            .sort((a, b) => a.seq - b.seq);
-    }).then((l) => l || []);
+/**
+ * What a push sends, read in ONE transaction so the header, the frames and the entries agree:
+ * the header, the frames whose stored seq differs from `cloudFrameSeq` (frame id -> seq), and the
+ * entries in (`fromSeq`, header.seq]. Null for a canvas not in the kobin-2 store.
+ */
+export function readPushState(id, cloudFrameSeq, fromSeq) {
+    return tx(["canvases", "frames2", "log"], "readonly", async (canvases, frames2, log) => {
+        const header = await reqp(canvases.get(id));
+        if (!header || header.store !== STORE_V2) return null;
+        const localSeq = header.frameSeq || {};
+        const need = (header.frameIds || []).filter((fid) => !(fid in cloudFrameSeq) || cloudFrameSeq[fid] !== (localSeq[fid] || 0));
+        const recs = (await Promise.all(need.map((fid) => reqp(frames2.get([id, fid]))))).filter(Boolean);
+        const top = header.seq || 0;
+        const logs = top > fromSeq ? await reqp(log.getAll(IDBKeyRange.bound([id, fromSeq], [id, top], true, false))) : [];
+        return {
+            header,
+            frames: recs.map((r) => ({ frameId: r.frameId, seq: r.seq || 0, objects: r.objects, geo: new Float64Array(r.geo) })),
+            entries: logs.map((r) => ({ seq: r.seq, t: r.t, op: r.op, geo: r.geo ? new Float64Array(r.geo) : new Float64Array(0), touches: r.touches || [] }))
+                .sort((a, b) => a.seq - b.seq),
+        };
+    });
 }

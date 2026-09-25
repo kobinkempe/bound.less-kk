@@ -324,5 +324,3 @@ TileGrid.CACHE = new TileGrid(0, 0);
 export function objTileRect(px, py, i, j) { return new TileGrid(px, py).rect(i, j); }
 /** Every tile of the grid that `rect` reaches, HALF-OPEN — `TileGrid.range`. */
 export function objTileRange(px, py, rect) { return new TileGrid(px, py).range(rect); }
-/** The rect a window of tiles spans — `TileGrid.span`. */
-export function objTilesRect(px, py, cells) { return new TileGrid(px, py).span(cells); }

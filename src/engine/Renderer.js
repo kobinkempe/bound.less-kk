@@ -31,6 +31,8 @@ import { strokeLoops } from "./geometry/curveOutline";
 import { loopsBBox, chordCubic, chordArcMid, planArc } from "./geometry/arcShape";
 import { onRectEdge } from "./geometry/antRuns";
 import { rectTol } from "./rectMath";
+/** Frozen live-path chunk size: the tail's `d`, re-serialised every event, stays this short (D-1). */
+const LIVE_CHUNK = 128;
 
 /**
  * HOW A PIECE REACHES THE BROWSER (F40, 2026-09-04). Two things decide what is
@@ -347,7 +349,10 @@ const THIN_COORD_MAX = 4194304;
 // both. Tracing the outline as a loop covers both edges in one pass, so the
 // stroke width here is one ribbon: 2.5.
 const SVG_NS = "http://www.w3.org/2000/svg";
-const SEL_INK = "oklch(0.6 0.17 35)";
+// Exported for the raster overlay (RASTERISER-PLAN §2.5 seam 5, §15.3 5d Q4): the ant painter
+// paints in the same terracotta and resumes its crawl on the same timer, and the chevrons stay
+// here — one implementation, called from both paths.
+export const SEL_INK = "oklch(0.6 0.17 35)";
 // The speck: a mark down at the size of a pixel. It BLINKS rather than crawls —
 // its outline is shorter than one dash cycle, so as the pattern slides the whole
 // mark passes in and out of a gap. That is the file's behaviour and it is what
@@ -387,11 +392,13 @@ const selAntScale = (inkPx) => (inkPx == null || !isFinite(inkPx) ? 1
 // length and a "rise" it was 13 long by 2.6, which reads as a spike, and
 // measuring the arm against the horizontal made it look like 157 degrees when
 // the vertex angle was 22.6.
-const SEL_ARROW_SPAN = 17, SEL_ARROW_DEPTH = 6, SEL_ARROW_GAP = 24;
+export const SEL_ARROW_SPAN = 17, SEL_ARROW_DEPTH = 6, SEL_ARROW_GAP = 24;
 // How many runs shorter than a dash cycle share one path (see _renderSelOverlay).
 const SEL_BATCH_RUNS = 100;
-// How long after the last camera step the crawl stays frozen.
-const SEL_CRAWL_RESUME_MS = 150;
+// How long after the last camera step the crawl stays frozen. Exported because the raster
+// overlay freezes on the same rule, and 5d's bounded repaint over an uncovered strip is timed
+// by it (§15.3, stage 5d Q2).
+export const SEL_CRAWL_RESUME_MS = 150;
 
 
 
@@ -410,6 +417,7 @@ export default class Renderer {
         this._arcPlan = { enter, tol, segMax };
         this._arcPlanNoChop = { ...this._arcPlan, segMax: 0 };
         this.opacityGroups = true; this.debug = false;
+        this.liveChunk = LIVE_CHUNK;   // anchors behind the pen before they freeze (D-1)
         this.two = new Two({ width: this.width, height: this.height, autostart: true });
         this.two.appendTo(container);
         this.world = this.two.makeGroup();
@@ -462,6 +470,7 @@ export default class Renderer {
         this._lastRebuilds = 0;     // groups (re)built in the last render()
         this._hasFat = false;
         this._liveModel = null;     // the growing stroke: never outline-cached
+        this._ovOrigin = null;      // §2.5 seam 2: the raster path's overlay origin (FC6); null here
         this.lazyOutlines = true;   // fat strokes render RAW until they approach the
                                     // gate on screen (fit cost moves off pen-up and
                                     // onto idle/approach) — dev-toggleable
@@ -627,11 +636,32 @@ export default class Renderer {
 
     // Camera-only frame: no geometry rebuild. Sync the world transform, and
     // refresh opacity for faded groups (fade depends on inScale).
-    syncCameraOnly() {
-        this.syncWorld();
+    //
+    // `view` is the raster path's published composite (RASTERISER-PLAN §2.7
+    // FC2) and is undefined on the SVG path, which reads the camera as it
+    // always has.
+    syncCameraOnly(view) {
+        this.syncWorld(view);
         for (const entry of this._groups.values()) if (entry.fadeTag != null) this._applyOpacity(entry, entry.pieces[0]);
     }
-    syncWorld() {
+    syncWorld(view) {
+        this._syncWorldTransform(view);
+        this._renderOverlays(view);
+    }
+    // RASTERISER-PLAN §2.5 seam 1, corrected: the overlay tail lives HERE and
+    // not in `render()`, and it takes the view rather than the list (D200).
+    // `RasterRenderer.render` and `.syncCameraOnly` call it with the object
+    // `PictureLayer.view()` returned, so the ink, the SVG world group and
+    // `bl-sel-edges` take one mapping (FC2).
+    _renderOverlays(view) {
+        this._renderTileDebug();
+        this._renderEraseDebug();
+        this._renderSelection();
+        this._renderSelOverlay(view);
+    }
+    // §2.5 seam 1's other half: the world group's own transform, which
+    // `RasterRenderer` overrides to take the snapped `d` from the view.
+    _syncWorldTransform() {
         // Fold the active scene's origin into the world transform IN FLOAT64
         // (screen = inScale·(p − O) + [inPan + inScale·O]): anchors are stored
         // origin-relative (small), and the bracketed translation is ~screen-
@@ -643,14 +673,16 @@ export default class Renderer {
         this.world.scale = this.cam.inScale;
         this.world.translation.x = this.cam.inPanX + this.cam.inScale * o.x;
         this.world.translation.y = this.cam.inPanY + this.cam.inScale * o.y;
-        this._renderTileDebug();
-        this._renderEraseDebug();
-        this._renderSelection();
-        this._renderSelOverlay();
     }
 
     // ---- per-scene local origin (float32-safe path coordinates) ----
+    // §2.5 seam 2: `_ovOrigin` is the raster path's overlay origin (null in SVG
+    // mode) and it has ONE writer, in `RasterRenderer.addLive` (FC6). The object
+    // identity is load-bearing: `_selDecide` caches its decision on
+    // `c.origin === O` (`overlays.js:657`), so a fresh literal per call costs a
+    // 26–47 ms decision every frame with every suite green.
     _origin() {
+        if (this._ovOrigin) return this._ovOrigin;
         const sc = this._scenes.get(this._level);
         return (sc && sc.origin) || Renderer._ZERO;
     }
@@ -1288,14 +1320,37 @@ export default class Renderer {
     // the line tool's included (it re-seeds its two-sample pen on each move).
     // This is the whole point of the representation: what you watch appear is
     // the curve that gets resolved, so pen-up changes nothing you can see.
+    // `_live` is the TAIL under the pen; the anchors behind it that can no longer change go to frozen
+    // paths of `liveChunk` anchors, which Two never re-serialises (REVIEWER-2 D-1: the one path's
+    // whole `d` was rebuilt every event, 27 ms at 3,000 samples). All sit in `_liveRoot`, which
+    // carries the opacity, so a translucent stroke is composited once over its seams.
     addLive(o) {
         if (this._live) this.endLive();   // a stale path would be orphaned in the scene otherwise
-        const live = new Two.Path([], false, false, true);
-        live.noFill(); live.stroke = o.color; live.linewidth = o.lwFrame; live.cap = "round"; live.join = "round"; live.opacity = o.opacity == null ? 1 : o.opacity;
-        (this._activeRoot || this.world).add(live);
-        this._live = live; this._liveModel = o;
+        const root = new Two.Group();
+        root.opacity = o.opacity == null ? 1 : o.opacity;
+        const live = this._livePath(o.color, o.lwFrame, []);
+        root.add(live);
+        (this._activeRoot || this.world).add(root);
+        this._liveRoot = root; this._live = live; this._liveModel = o;
         this._liveStable = 0; this._liveGap = 0;
         return live;
+    }
+    _livePath(color, lw, verts) {
+        const p = new Two.Path(verts, false, false, true);
+        p.noFill(); p.stroke = color; p.linewidth = lw; p.cap = "round"; p.join = "round"; p.opacity = 1;
+        return p;
+    }
+    /** The tail's first `_liveStable - 1` anchors frozen into a path of their own; the tail restarts at the last. */
+    _freezeLive() {
+        const path = this._live, v = path.vertices, k = this._liveStable;
+        const j = v[k - 1];
+        const chunk = this._livePath(path.stroke, path.linewidth, v.slice(0, k));
+        // The tail's next cubic sets its first handle on the anchor before it: here, the move.
+        const r = j.controls ? j.controls.right : null;
+        const mv = new Two.Anchor(j.x, j.y, 0, 0, r ? r.x : 0, r ? r.y : 0, Two.Commands.move);
+        v.splice(0, k, mv);
+        this._liveRoot.add(chunk);
+        this._liveStable = 1;
     }
     /**
      * Re-lay the live chain from the pen's gaps.
@@ -1334,12 +1389,23 @@ export default class Renderer {
         }
         this._liveStable = stable;
         this._liveGap = finalTo;
+        if (this._liveStable > this.liveChunk) this._freezeLive();
     }
-    endLive() { if (this._live && this._live.parent) this._live.parent.remove(this._live); this._live = null; this._liveModel = null; }
+    endLive() {
+        if (this._live && this._live.parent) this._live.parent.remove(this._live);
+        if (this._liveRoot && this._liveRoot.parent) this._liveRoot.parent.remove(this._liveRoot);
+        this._live = null; this._liveRoot = null; this._liveModel = null;
+    }
 
     // The in-progress selection lasso, in SCREEN coordinates (it is a gesture,
     // not geometry — it never becomes part of the drawing).
     setLasso(fn) { this._lassoFn = fn; }
+    /** PAPER-PLAN R3: the engine's live drag, pulled by a renderer that draws the dragged ink itself (`supportsDragPlane`). */
+    setDragState(fn) { this._dragStateFn = fn; }
+    /** PAPER-PLAN §10 S4: the selection a drag plane is kept ready for; the SVG renderer has none. */
+    setPlaneState(fn) { this._planeFn = fn; }
+    /** A drag ended (`why`: drop, cancel, delete, deselect); `n` plates were dropped for it. The SVG renderer has nothing to do. */
+    endMove() {}
     /**
      * Redraw the selection layer alone.
      *
@@ -1427,6 +1493,9 @@ export default class Renderer {
      *     set in from the edge so the whole band shows.
      *   AN ARROW on each of those sides, breathing faintly, pointing the way
      *     the object carries on.
+     *
+     * The raster path overrides the whole method (`RasterRenderer._renderSelOverlay(view)`):
+     * its ants are a canvas and only the chevrons below stay SVG (RASTERISER-PLAN §10 stage 5d).
      */
     _renderSelOverlay() {
         const svg = this.two.renderer && this.two.renderer.domElement;
@@ -1543,6 +1612,27 @@ export default class Renderer {
             q.setAttribute("stroke-width", (SEL_ANT_W * kt).toFixed(2));
             Renderer._fitDash(q, Renderer._len(run), SEL_ANT_ON * kt, SEL_ANT_OFF * kt);
         }
+        this._renderSelChevrons(edges, kt, W, H);
+
+        // Last in the host, so they paint over the drawing.
+        const host = els.layer.parentNode;
+        if (host && host.lastChild !== els.edgeLayer) { host.appendChild(els.layer); host.appendChild(els.edgeLayer); }
+    }
+
+    /**
+     * RASTERISER-PLAN §2.5 seam 5: the chevrons that mark the sides a selection carries on past,
+     * in SCREEN pixels, drawn into `bl-sel-edges`. Extracted so the raster overlay calls this one
+     * implementation instead of shipping a second copy (§15.3, stage 5d Q4). `kt` is the ant
+     * scale; the inset is half the band, so a chevron sits where the edge run does.
+     *
+     * @param {{side:string, from:number, to:number, chevron?:boolean}[]} edges
+     * @param {number} kt @param {number} W @param {number} H screen CSS px
+     * @returns {number} chevrons drawn
+     */
+    _renderSelChevrons(edges, kt, W, H) {
+        const els = this._selEls;
+        if (!els || typeof document === "undefined") return 0;
+        const inset = (SEL_ANT_W * kt) / 2;
         const DIR = { left: 180, right: 0, top: -90, bottom: 90 };
         const withChevron = edges.filter((e) => e.chevron);
         Renderer._poolTo(els.screen, els.arrowPool, withChevron.length, null, () => {
@@ -1571,10 +1661,7 @@ export default class Renderer {
             els.arrowPool[i].setAttribute("transform",
                 "translate(" + x.toFixed(2) + "," + y.toFixed(2) + ") rotate(" + DIR[e.side] + ")");
         }
-
-        // Last in the host, so they paint over the drawing.
-        const host = els.layer.parentNode;
-        if (host && host.lastChild !== els.edgeLayer) { host.appendChild(els.layer); host.appendChild(els.edgeLayer); }
+        return withChevron.length;
     }
 
     /** One ant path: no fill, the terracotta, butt caps, and screen-pixel strokes under any transform. */
@@ -1602,25 +1689,30 @@ export default class Renderer {
      * promoted to its own compositing layer (see `_renderSelOverlay` for the
      * measurement that decided this).
      */
+    /**
+     * RASTERISER-PLAN §2.5 seam 6: one indicator layer element, sat exactly over the drawing's
+     * own `<svg>` wherever the host put it. This builds two below and the raster subclass one
+     * (`bl-sel-edges` alone), so the setup is one implementation.
+     */
+    _mkSelLayer(svg, host, cls) {
+        const l = document.createElementNS(SVG_NS, "svg");
+        l.setAttribute("class", cls);
+        l.setAttribute("aria-hidden", "true");
+        l.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible;will-change:transform;transform-origin:0 0;";
+        try {
+            const a = svg.getBoundingClientRect(), b = host.getBoundingClientRect();
+            if (a.left - b.left || a.top - b.top) { l.style.left = (a.left - b.left) + "px"; l.style.top = (a.top - b.top) + "px"; }
+        } catch (e) { /* no layout here */ }
+        return l;
+    }
+
     _buildSelOverlay(svg) {
         const host = svg.parentNode || document.body;
-        const mk = (cls) => {
-            const l = document.createElementNS(SVG_NS, "svg");
-            l.setAttribute("class", cls);
-            l.setAttribute("aria-hidden", "true");
-            l.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible;will-change:transform;transform-origin:0 0;";
-            // Sit exactly over the drawing's own <svg>, wherever the host put it.
-            try {
-                const a = svg.getBoundingClientRect(), b = host.getBoundingClientRect();
-                if (a.left - b.left || a.top - b.top) { l.style.left = (a.left - b.left) + "px"; l.style.top = (a.top - b.top) + "px"; }
-            } catch (e) { /* no layout here */ }
-            return l;
-        };
         // Two layers: the retained ants, moved by a CSS transform and repainted
         // only when the decision changes or the crawl steps; and the screen-edge
         // runs, which change every step and are a handful of paths. In one
         // layer the edge runs would have repainted every ant on every step.
-        const layer = mk("bl-sel-layer");
+        const layer = this._mkSelLayer(svg, host, "bl-sel-layer");
         const world = document.createElementNS(SVG_NS, "g");
         world.setAttribute("class", "bl-sel-world");
         // An anchor the ant paths are inserted before, so the dots always paint
@@ -1628,7 +1720,7 @@ export default class Renderer {
         const markAnchor = document.createElementNS(SVG_NS, "g");
         world.appendChild(markAnchor);
         layer.appendChild(world);
-        const edgeLayer = mk("bl-sel-edges");
+        const edgeLayer = this._mkSelLayer(svg, host, "bl-sel-edges");
         const screen = document.createElementNS(SVG_NS, "g");
         edgeLayer.appendChild(screen);
         host.appendChild(layer);
@@ -1655,13 +1747,6 @@ export default class Renderer {
             d += (i ? "L" : "M") + x.toFixed(2) + "," + y.toFixed(2) + " ";
         }
         return close ? d + "Z" : d.trim();
-    }
-
-    /** Several polylines in one `d`, each its own subpath. */
-    static _dAll(runs) {
-        let d = "";
-        for (const run of runs) d += Renderer._d(run, false) + " ";
-        return d.trim();
     }
 
     /** Total length of a polyline, in screen pixels. */

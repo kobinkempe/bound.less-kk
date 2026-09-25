@@ -1,6 +1,7 @@
 ================================================================================
 BOUND.LESS - CALL FLOW
-What calls what, from a finger on the glass to pixels. Written 2026-08-28.
+What calls what, from a finger on the glass to pixels. Written 2026-08-28; the
+raster path, the erase jobs, the saves and the loads brought to 2026-09-22.
 Indentation is the call chain. [HOT] marks a per-event or per-frame path.
 ================================================================================
 
@@ -8,18 +9,24 @@ MOUNT
 
   CanvasEditor
     useKobinEngine({ canvasId: id, onAutosave })
-      new KobinEngine(host, { width, height, onStatus })
+      new KobinEngine(host, { width, height, onStatus, raster: rasterFromUrl(href) })
+                                           raster unless ?svg (or ?raster=0)
         new LevelMap(cfg, w, h)            frame "0" only
         new Document()                     one empty bucket
         new Camera(lm, cfg, hooks)         hooks: finalizeLiveStroke, holdFrame
         new TileStore(lm, doc, cfg)        subscribes to doc changes
-        new Renderer(container, cam, cfg)  creates the Two.js scene
+        raster:  new PlateStore()
+                 new RasterRenderer(container, cam, cfg, { store, drain: _drainPlates, ... })
+                                           the ink canvas, the picture layer, the
+                                           overlay plane, the worker pool
+                 doc.subscribe(ev -> _plateEvents)   drained at the top of a frame
+        ?svg:    new Renderer(container, cam, cfg)  creates the Two.js scene
         renderer.setSelectionAnts / setLasso
         doc.subscribe(...)                 keeps the selection honest when the
                                            object under it is removed or re-homed
         _render()
       doc.subscribe(markDirty)             every event carries its frame id
-      loadCanvasDoc(id) -> engine.loadDrawing(...)   async; engineReady waits for it
+      loadCanvasStore(id)                  async; engineReady waits for it (see LOADING)
       addEventListener pointerdown/move/up, wheel, resize, keydown,
                        visibilitychange, pagehide
       setInterval(save("check"), 5000)     retries after a backoff; writes a
@@ -47,12 +54,16 @@ DRAWING A STROKE   [HOT]
     engine.pointerUp()
       _pointerUp
         _note({kind:"draw", ...})          journal it BEFORE pts is deleted
-        renderer.endLive()
+        renderer.endLive()                 raster: the live MODEL goes, the path is
+                                           held until the plates under the stroke
+                                           are fresh (LIVE_HOLD_MS 500 at most,
+                                           PAPER-PLAN §10 S5)
         doc.finalize(o)                    index it; announce the final bbox
         _queueBake(o)                      new ArcBakeJob(pts, lw, {centre: pen.arcs()})
         _scheduleBake(0)
         doc.pushUndo({op:"add"})
-        _noteInkAdded(o)                   provisional scene assignment
+        (scenes: the scene client's Document subscription marks the object;
+         it is indexed at idle - SCENES-PLAN §7.4, being built 2026-09-22)
         _render()
         _queueIdleFits()
 
@@ -92,29 +103,49 @@ ERASING   [HOT at gesture time, deferred for the geometry]
   pointerdown with tool "erasePartial"
     _pointerDown -> a stroke with erase:true, colour #ffffff
                     (the gesture costs nothing; z-order makes it correct)
-  ...later, from _bakeTickInner:
+  ...later, from _bakeTickInner - one cut or one descent in flight at a time
+  (DESIGN.md section 7, 2026-09-08):
+    _eraseFramesPass(Erec)                a frame the mark covers whole (cell +
+                                          reach inside its ink, nothing drawn
+                                          above the mark) goes as containers,
+                                          one bake step, no cut
+    _nextEraseTarget(Erec)                from _candidatesUnder: the spatial index
+                                          of every reachable level, z descending
     _bakeOne(Erec, target)
       if the target is a stroke      -> _forceBake it first
       if the target is a legacy fill -> doc.fillToShapeById
-      if depth(target) < depth(erase) AND it is a pure descent:
-        _bakeRehome                                       CEDE
-          for each frame on the way down, one crossing at a time:
-            lm.mapRectF(eraseBox, HE, F)                  where the eraser is
-            union in the NEXT frame's cell extent         (bible 10.12)
-            objTileRange / objTileRect on the OBJECT's grid
-            _inkShapeInRect(cur, curFrame, F, R)          the tile's ink, exact
-            _cull(shapeComponents(inTile), w)             refuse a degenerate tile
-            on the last link: subtractShape(local, clipLocal)
-            doc.cedeTileById(...)                         cut the parent, mint kids
-          _resplitFamily(op, editKey)
-      else:
-        lm.projectF(E, HE, HO)                            the eraser, in the
-                                                          target's frame
-        transformLoops(...)  centre on the SUBJECT, not the eraser
-        subtractShape(subject, clip)                      the exact boolean
-        _cull(shapeComponents(res.loops), w)              drop dust
-        doc.eraseReplaceById(id, regions)
-        if it split and it was in a family -> _resplitFamily
+      homed shallower, on an ancestor chain:                     CEDE
+        _bakeRehome -> _bakeRehomeInner: the target, the eraser and lm.serialize()
+          runDescentAsync (the erase worker) or descentJob inline:
+            on a VirtualDoc, one crossing at a time: squareInkOf (the level's
+            square ink as the tile store derives it, F42), cedeVirtual (the
+            parent cut in its own coordinates)
+          -> _onCutResult -> _applyDescent: lm.merge(the frames the job minted,
+             F67), the family minted with real ids, the steps on the op,
+             _resplitFamily
+      else:                                                      CUT IN PLACE
+        _eraserLoopsInto(loops, HE, o, HO)  the eraser in the target's frame,
+                                            a moved object's table inverted
+        runCutAsync (the erase worker) or cutJob inline: the boolean centred on
+          the SUBJECT, the removal measured locally and the graze rule,
+          shapeComponents, dropDust (a quarter pixel at the mark's zoom)
+        -> _onCutResult -> _applyCut: doc.eraseReplaceById, _resplitFamily if
+           it split; a result whose target changed (_ver) is dropped
+      _lowerMark(Erec, target)            the mark's z steps below what it handled
+      (the cut and the step run in _neutral: their events reach _drainPlates tagged
+       `neutral` and stale no plate - the mark already paints what they change, F90)
+      (a step past a target left whole over ink is not neutral; a graze or an inkless
+       descent refusal leaves nothing whole, F109)
+    a mark with nothing left under it: _noteSpent, consumed (its removal stales its plates once)
+  the barrier: _flushErasesFor(id) / _settleSelectionErases() run the same jobs
+    inline before a select or a drag; _flushErasesFor steps the mark (_lowerMark)
+    when what it bakes is the mark's next target; _settleLassoErases(poly) bakes
+    out every mark the loop meets before a lasso is judged (flushErases(ids));
+    a mark whose cut is in the worker is never spent by a barrier: flushErases,
+    and _flushErasesFor before it bakes another object of that mark, run that
+    cut inline first (_settleInflight); the drag's barrier skips such a mark
+  only the pen's holder bakes: a read-only engine's tick polls (500 ms) until it
+    has the pen; a destroyed engine drops a late worker answer (OPEN-FLAGS F96)
 
   SEVERANCE
     _resplitFamily(op, key)
@@ -131,11 +162,22 @@ SELECTING AND MOVING
 
   pointerdown with tool "select"
     _hitTest(x, y)                          topmost first, bbox then exact
+    (the first move past SELECT_DRAG_PX: _beginSelectDrag; selected ink under the press,
+     covered or not, wins over the topmost - _hitTest(x, y, , only = _isSelected))
     on ink:
       _flushErasesFor(hit)                  the erase barrier
       _settleSelectionErases()              ...for EVERYTHING about to move
       _dragSel = { start, moves, moved }
       store.setBatch(true)                  stop patching off-screen tiles
+      _beginHold()                          raster: renderer.planeAccepts() aims the drag
+                                            plane (PAPER-PLAN §10 S4, S4z, §10.14; normally
+                                            cached since the selection was made): layers by z,
+                                            "z<n>_<q>" - the ink below the selection, each
+                                            selected run on transparent plates, each run above
+                                            it in place - at the plane's own level and at a
+                                            quick one two octaves under it; runs merged past 5,
+                                            the level coarser past the plate cap; accepted -> the
+                                            members' plate events are held until _endMove
     on paper:
       _lasso = { pts, ctrl }
   pointermove
@@ -152,12 +194,20 @@ SELECTING AND MOVING
           cell makes a shadow) -> doc.noteRefile per address change, doc.setFrameShift (the rest, D+1/D+2),
           doc.noteFrameOwner; a frame a render settled since is doc.unsettle'd first
       _render()                             reading a moved frame's list settles its shift (doc.at)
+        -- or, with the hold and the plane live: renderer.syncCameraOnly() alone, no list;
+           _planeStep picks what the compose draws, the selection translated by the pointer:
+           the plane's own level whole, else the quick one, else a level's selected layers
+           alone, else a stopgap rastered here (a selection of <= 500 objects)
   pointerup
     _homeShift / _normalizeHome for a member outside its cell (geometry snapshots kept for it)
     doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
       or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, settled, merged}
     doc.holdMerges = false                  a shadow merges at its resident's first read from here on
     store.setBatch(false)
+    _endMove("drop")                        the one exit: _releaseMove (one collapsed invalidation),
+                                            renderer.endMove -> the plane LANDS (stays, clipped per
+                                            cell, until each cell's own plate is fresh; MOVE_HOLD_MS),
+                                            then one _render()
 
   undo of a moveFrames (Document._invert)
     per frame entry: unmerge each merged record (lm.unadoptShadow), unsettle from the settle record
@@ -165,7 +215,7 @@ SELECTING AND MOVING
     _undoMove(moves)                        the per-object members as a move's
 
   the lasso path
-    _applyLasso -> _lassoFind(poly)
+    _applyLasso -> _settleLassoErases(poly) (the erase barrier) -> _lassoFind(poly)
       visit(frame, s, tx, ty)
         out of reach  -> skip the frame AND its subtree
         enclosed      -> takeAll(frame) with no per-object test
@@ -176,6 +226,15 @@ RENDERING   [HOT]
 
   _render()
     _buildList()
+      listFor(frame, window, forCamera=true)    THE THREE STEPS BELOW ARE INSIDE IT.
+                                                The crossing prebake and snapshotView
+                                                make the same call off camera, where
+                                                it takes contentOffCamera (the pin
+                                                set saved by value) and the TARGET
+                                                frame's depth
+      store.framesLeft(F) on a change of frame  AFTER the read, keeping what it
+                                                pinned (F83); the camera's, never
+                                                listFor's
       store.content(frame, window)
         for each visible cache tile, both directions:
           _ensureUp(F,i,j)   -> _bakeUp: chain through the parent's up-tiles,
@@ -189,7 +248,17 @@ RENDERING   [HOT]
                                 directly, clipped by _downPieces
       store.ownContent(frame)               a plain read of doc.at(frame)
       sort by (z, id)                       global z-order
-    renderer.render(list, frame)
+    renderer.render(list, frame)            RASTER (the default):
+      RasterRenderer.render: _activateLevel (the overlay scene), _frameStep(list)
+        visibleChords -> layer.frameFor(cam, chords)   the view: plates, sync or held
+        sync:   _renderSync - the screen rastered on this thread
+        plates: store.want(view) -> hits + misses; _planeStep (the drag plane);
+                layer.compose(hits) - stale plates and fallbackCover's stand-ins
+                under them, then the layer blit; _post(misses) ->
+                rasterWorkerClient -> the worker -> _onResult -> _deliver ->
+                layer.onPlateBatch -> one compose per arriving job
+      syncWorld(view)                       the SVG overlay's transform (live stroke)
+    renderer.render(list, frame)            ?svg - the SVG renderer:
       _activateLevel(frame)                 swap in this level's SVG subtree
       _maybeReorigin(scene)                 re-anchor if drifted past 1.5e6 px
       group pieces by editId when fully present, else by id
@@ -207,6 +276,15 @@ RENDERING   [HOT]
     renderer.update()                       two.update() -> the SVG
     _emit()                                 onStatus -> React, throttled to 50 ms
 
+  THE RASTER PATH's other jobs:
+    _maybePrebake / _crossTarget            near a crossing: the target frame's
+                                            preview plates (listFor off camera)
+    _maybeLadder                            while still: coarse plates for the
+                                            zoomed-out screens (PAPER-PLAN R5b)
+    sceneOps.snapshotView(req)              one plate of any frame and rect, for
+                                            a scene's thumbnail (snapshotJob, not
+                                            _post); never touches the plate store
+
   PAN AND ZOOM take the fast path when they can:
     panBy / zoomFactorAt
       cam.panBy / cam.zoomFactorAt -> _settle (cross and/or shift)
@@ -214,7 +292,9 @@ RENDERING   [HOT]
          OR needsFadeFlip OR needsReorigin OR needsWindowChop:   _render()
          (pan tests only the visible set, needsReorigin and needsWindowChop)
       else: renderer.syncCameraOnly() + update() + _emit()
-             - one matrix write, no path is rebuilt
+             - SVG: one matrix write, no path is rebuilt
+             - raster: _drainPlates, then _frameStep on the last list (the
+               compose, and posts for what the new view misses)
 
 AUTOSAVE   (useKobinEngine, since 2026-09-02)
 
@@ -238,23 +318,38 @@ AUTOSAVE   (useKobinEngine, since 2026-09-02)
 SAVING   (the Save button)
 
   handleSave / persistCanvas(name)
-    engine.refreshScenes()                  scenes ride the save file
+    engine.refreshScenes()                  the scene client's list; scenes ride
+                                            the save file (meta.scenes, and the
+                                            index's state as meta.sceneIndex)
     engine.saveLocal(name)
-      engine.serializeDrawing()
-        encodeDrawing({camera, crossings, natives, meta})
-          Camera.state / LevelMap.serialize / Document.serializeNatives
-      saveCanvasDoc(id, doc)                db.putCanvas, full
+      saver.saveNow()                       the store's write (AUTOSAVE's path, forced)
+      engine.serializeDrawing()             the kobin-1 document, for the index
     upsertIndexEntry(entry)
-    ensureThumbs(doc, scenes)
-      renderThumbs -> A SECOND KobinEngine, one jumpTo + rasterize per scene
+    ensureThumbs(scenes, () => doc)
+      raster: renderThumbsLive -> sceneOps.snapshotView per scene, <= 4 in
+              flight, each landing through onThumb; a miss keeps the old picture
+      ?svg:   renderThumbs -> withSvgEngine: a second KobinEngine over a copy
       saveThumbs -> db.putThumbs, then the LRU trim
-    cloudSaveCanvas(uid, entry, json, thumbs)
-      encodeCanvasPayloadAsync -> lzWorker -> lz1 Uint8Array -> 700 KiB chunks
-      write the parts in batches of six, THEN the parent doc
-      -> { packMs, putMs, bytes, parts }   notePerf("cloudSave")
+    session.pushNow({ thumbs })             CanvasSession: one push at a time (5 min)
+      cloudPushCanvas2(uid, entry, source, { epoch })   refused unless the cloud
+                                            head is the local base and the lease ours
+      frame chunks newer than the cloud's, log chunks past its seq, gzipped,
+      700 KiB parts one a commit, THEN the manifest (the parent doc)
+      -> notePerf("cloudSave")
 
 LOADING
 
+  from the store (useKobinEngine, on mount):
+    loadCanvasStore(id)                     a v1 canvas comes back {legacy} and
+                                            loads the old way
+    engine.loadDrawing({ ...envelope, natives }, { render: false })   the frame snapshots
+    log.replay(entries, frameSeq)           the entries after each frame's seq:
+                                            the undo/redo stacks, a pending
+                                            eraser's done set
+    _scheduleBake()
+    macroYield(); _render()                 once, a task later (renderLoaded): the load
+                                            and a cold render were one 5-7 s task (F87)
+  a file or a legacy canvas:
   engine.loadDrawing(raw)
     decodeDrawing(raw)                      validates before anything is touched;
                                             refuses pre-lattice files; repairs
@@ -263,7 +358,37 @@ LOADING
     doc.loadNatives(d.natives)              emits reset -> the tile cache clears
     cam.set(d.camera); cam.settle()         a file may record an illegal zoom
     _scheduleBake()                         resume any eraser the file carried
-    renderer.clear(); _render(); _queueIdleFits()
+    renderer.clear(); _render() (not with { render: false }); _queueIdleFits()
+
+OPENING, THE PEN AND THE FOLLOW (.claude/SYNC-PLAN.md, cloud/canvasSession.js)
+
+  useKobinEngine({ gated: true })               the engine read-only, the saver off
+  CanvasEditor effect, once engineReady and sign-in has resolved (or 3 s passed)
+    new CanvasSession({ editor: editorFromHook(...) }).start()
+      locks.request("boundless:canvas:<id>", { ifAvailable })   Web Locks, else storageLocks
+        not granted: read-only, queued for the lock; BroadcastChannel "saved"
+          { seq, data } while visible: a write that moved data -> editor.reload({ keepCamera });
+          a camera or name write -> editor.refreshMeta() (the header's name and scale);
+          one follow at a time, the next after the gap (F87)
+      granted (_holdDevice): gen += 1; setWriter(token); claimStore(id, token)
+        (from here only this tab's writes land: db.putCanvas2 refuses "fenced");
+        a reload if the store moved; read-only, not saving, while the cloud answers
+        cloudGetCanvasMeta -> cloudTakeLease         a transaction; skew-proof
+        decideOpen(local header, manifest)          sync | push | pull |
+                                                    conflict: forkCanvas, whole pull |
+                                                    stash: stashCanvasStore, whole pull
+                                                    (no copy landed: no pull, retried)
+        cloudPullCanvas2({ have }) -> applyPulledStore(token) -> editor.reload
+        _edit: setSaving(true), setReadOnly(false)   every step re-checks `gen`
+      every 20 s while visible: cloudRenewLease (also while handing over); another
+        device's `want` -> flush, push, cloudReleaseLease({ to: asker }), read-only
+      cloudWatchManifest: the lease lost -> read-only and follow; a new head
+        while read-only -> the fast-forward pull (only while visible)
+      a write refused ("fenced"/"stale") -> keepUnsaved (a new canvas) -> follow or reload
+      stop(): flush while holding the store -> the last push -> idle() -> release
+  Edit here: another tab -> channel "want" (answered at once), stolen after 5 s;
+             another device -> cloudAskLease, taken once let go to it, or once the
+             lease sits unrenewed for a TTL of this device's clock, or after 6 min
 
 THE SCALE BAR - a pure function of zoom, computed in React
 

@@ -22,7 +22,8 @@
 import Renderer from "./Renderer";
 import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawStroke, drag, descend, ascend, erase } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
-import { loopRuns, runLength, circleLoop } from "./geometry/antRuns";
+import { loopRuns, runLength, circleLoop, onRectEdge } from "./geometry/antRuns";
+import { rectTol } from "./rectMath";
 import { rectLoop } from "./geometry/arcShape";
 
 jest.setTimeout(60000);
@@ -880,5 +881,72 @@ describe("a selected frame in the indicator (subtree O(1), 2026-09-15)", () => {
         E._selDec = null;
         E._selectionAnts();
         expect(reads).toBe(0);
+    });
+    // OPEN-FLAGS F103: a lasso from far away takes the frame enclosing a tiny cluster; its cell is
+    // over 2 px but its content is culled from the list, and nothing showed as selected.
+    test("t4 a selected frame whose cell is over 2 px and whose content is culled is a dot on its content", () => {
+        const E = hMkEngine(800, 600);
+        const F = E.lm.cellChild("0", 4, 4), G = E.lm.cellChild(F.id, 1200, -800), H = E.lm.cellChild(G.id, 0, 0);
+        const o = rect(E, H.id, 40000, -30000, 20000, 20000);             // 3 levels down: culled at any zoom of "0"
+        E.setTool("select");
+        E._setSelection([], [F.id]);
+        const { got, c } = markAt(E);
+        expect(E._lastList.some((p) => p.id === o.id)).toBe(false);
+        expect(got).toBeTruthy();
+        expect(got.marks.length).toBe(1);
+        const pic = pictureCentrePx(E, o, H.id);
+        expect(Math.hypot(c[0] - pic[0], c[1] - pic[1])).toBeLessThan(1.5);
+        // F's cell is 32 px here: the dot is on the content, not the cell's centre
+        const cell = E.cam.levelPointToScreen(F.id, 0, 0);
+        expect(Math.hypot(cell[0] - pic[0], cell[1] - pic[1])).toBeGreaterThan(3);
+    });
+});
+
+/**
+ * F125 (REPORTS, Kobin's phone report 2026-09-24T06-40-12: "phantom ants"): a family member's
+ * window was placed by the TRACED piece's residual, not where the member is drawn. A fill moved at
+ * its home and nicked two levels down cedes a kid that carries no table (the move is whole cells
+ * three levels down); traced from the moved parent's piece, the kid's window was shifted half a
+ * frame and the parent's hole edge along it drew a square of ants inside the ink.
+ */
+describe("F125 the ants skip a ceded square's edge under a moved object", () => {
+    hUseEngines();
+    test("PA-1 a moved fill nicked two levels down: no ant along the kid's window seen from one level up", () => {
+        const E = hMkEngine(800, 600);
+        E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(120,140,160)", opacity: 1,
+            polys: [[[250, 150], [550, 150], [550, 450], [250, 450]]] }, "0");
+        E._render();
+        E.setTool("select");
+        E.pointerDown(400, 300); E.pointerUp();
+        E.pointerDown(400, 300); for (let k = 1; k <= 6; k++) E.pointerMove(400 + (37 * k) / 6, 300 + (23 * k) / 6); E.pointerUp();
+        const sx = 437, sy = 323;
+        for (let g = 0; E.activeLevel < 2 && g < 600; g++) E.zoomAt(sx, sy, -1000);
+        E.setEraserSize(12); E.setTool("erasePartial");
+        E.pointerDown(sx - 10, sy); for (let k = 1; k <= 4; k++) E.pointerMove(sx - 10 + 5 * k, sy); E.pointerUp();
+        E.flushBakes(); E.flushErases();
+        for (let g = 0; E.activeLevel > 1 && g < 600; g++) E.zoomAt(sx, sy, 1000);
+        for (let g = 0; E.cam.inScale > 2 && g < 100; g++) E.zoomAt(sx, sy, 1000);
+        const F = E.cam.frame, members = [];
+        for (const L of E.doc.levels()) for (const o of E.doc.list(L)) if (!o.erase) members.push({ o, L });
+        const kid = members.find((m) => m.o.attachRect && E.lm.depthOf(m.L) === 2);
+        expect(kid && !kid.o.below).toBe(true);                        // the case: a kid with no table
+        const pick = members.find((m) => E.lm.depthOf(m.L) === E.activeLevel) || members[0];
+        E.setTool("select");
+        E._setSelection([pick.o.id], []);
+        E._render();
+        Object.defineProperty(E.renderer, "antPainter", { value: true, configurable: true });
+        E._selDec = null;
+        const ants = E._selectionAnts();
+        const A = kid.o.attachRect;
+        const Rw = E.lm.mapRectF({ left: A.x0, top: A.y0, right: A.x1, bottom: A.y1 }, kid.L, F);
+        const rect = { x0: Rw.left, y0: Rw.top, x1: Rw.right, y1: Rw.bottom }, eps = rectTol(rect);
+        let along = 0;
+        for (const r of ants ? ants.runs : []) {
+            for (const q of r.pieces) {
+                const len = q.line || !(q.r > 0) ? Math.hypot(q.B[0] - q.A[0], q.B[1] - q.A[1]) : Math.abs(q.sweep) * q.r;
+                if (onRectEdge(q, rect, eps)) along += len * E.cam.inScale;
+            }
+        }
+        expect(along).toBe(0);                                           // red before: 256 px, the square's four sides
     });
 });

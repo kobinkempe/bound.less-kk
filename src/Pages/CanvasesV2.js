@@ -13,12 +13,12 @@ import {
     readIndex, migrateLegacyAutosave, editedLabel, deletedLabel, depthLabel, newCanvasId,
     loadCanvasDoc, saveCanvasDoc, loadCoverThumb, upsertIndexEntry, statsFromDoc,
     trashCanvas, readTrash, restoreCanvas, renameCanvasLocal, purgeTrashEntry, duplicateCanvas,
-    migrateStorage, sweepStorage, storageUsage, requestPersistentStorage,
+    migrateStorage, sweepStorage, storageUsage, requestPersistentStorage, cloudPushSource, getDeviceId,
 } from "../storage/localCanvases";
 import { decodeDrawing } from "../engine/persist";
 import useUser, { signInWithGoogle, signOutUser } from "../cloud/useUser";
 import {
-    cloudListCanvases, cloudSaveCanvas, cloudLoadCanvas,
+    cloudListCanvases, cloudSaveCanvas, cloudLoadCanvas, cloudPushCanvas2, isDevBuild,
     cloudTrashCanvas, cloudRestoreCanvas, cloudRenameCanvas, cloudDeleteCanvas,
 } from "../cloud/canvasSync";
 
@@ -64,39 +64,51 @@ export default function CanvasesV2() {
         storageUsage().then(setUsage);
         if (!user) { setCanvases(local); return; }
         try {
-            let cloud = await cloudListCanvases(user.uid);
+            const cloud = await cloudListCanvases(user.uid);
             // Deletions propagate: a canvas tombstoned in the cloud moves this
             // browser's copy into the local recycle bin too.
             const tombstoned = new Set(cloud.filter((c) => c.deletedAt).map((c) => c.id));
             if (local.some((e) => tombstoned.has(e.id))) {
-                local.filter((e) => tombstoned.has(e.id)).forEach((e) => trashCanvas(e.id));
+                // One at a time: each rewrites the bin's index, and two at once can drop a row.
+                for (const e of local.filter((x) => tombstoned.has(x.id))) await trashCanvas(e.id);
                 local = readIndex();
             }
-            // One-way catch-up: local canvases the account doesn't know yet.
-            // Tombstoned ids count as known — a stale device must not
-            // resurrect a canvas deleted elsewhere.
-            const known = new Set(cloud.map((c) => c.id));
-            const missing = local.filter((e) => !known.has(e.id));
-            for (const entry of missing) {
-                const doc = await loadCanvasDoc(entry.id);
-                if (doc) await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
-            }
-            if (missing.length) cloud = await cloudListCanvases(user.uid);
-            const active = cloud.filter((c) => !c.deletedAt);
-            const covers = {};
-            for (const c of active) if (c.thumbs?.cover?.data) covers[c.id] = c.thumbs.cover.data;
-            setCloudCovers(covers);
-            // Merge by id — freshest savedAt wins the metadata.
-            const byId = new Map();
-            for (const e of [...local, ...active]) {
-                const prev = byId.get(e.id);
-                if (!prev || String(e.savedAt || "") > String(prev.savedAt || "")) byId.set(e.id, e);
-            }
-            const merged = [...byId.values()].sort(
-                (a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")),
-            );
-            setCanvases(merged);
+            // The list shows first: the catch-up below can take minutes on a big canvas.
+            const show = (list) => {
+                const active = list.filter((c) => !c.deletedAt);
+                const covers = {};
+                for (const c of active) if (c.thumbs?.cover?.data) covers[c.id] = c.thumbs.cover.data;
+                setCloudCovers(covers);
+                // Merge by id — freshest savedAt wins the metadata.
+                const byId = new Map();
+                for (const e of [...local, ...active]) {
+                    const prev = byId.get(e.id);
+                    if (!prev || String(e.savedAt || "") > String(prev.savedAt || "")) byId.set(e.id, e);
+                }
+                setCanvases([...byId.values()].sort(
+                    (a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")),
+                ));
+            };
+            show(cloud);
             setSyncNote(null);
+            // One-way catch-up: local canvases the account doesn't know yet, one at a time, a
+            // kobin-2 store as its chunks (never its JSON: F64). Tombstoned ids count as known — a
+            // stale device must not resurrect a canvas deleted elsewhere. Not in a development
+            // build: its collection starts empty (SYNC-PLAN R7) and would receive every local
+            // canvas; there a canvas goes up when it is opened and edited.
+            const known = new Set(cloud.map((c) => c.id));
+            const missing = isDevBuild() ? [] : local.filter((e) => !known.has(e.id));
+            for (const entry of missing) {
+                try {
+                    const source = await cloudPushSource(entry.id);
+                    if (source) await cloudPushCanvas2(user.uid, entry, source, { deviceId: getDeviceId() });
+                    else {
+                        const doc = await loadCanvasDoc(entry.id);
+                        if (doc) await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
+                    }
+                } catch (err) { /* stays local this visit; the next one tries again */ }
+            }
+            if (missing.length) show(await cloudListCanvases(user.uid));
         } catch (err) {
             setCanvases(local);
             setSyncNote("Cloud sync unavailable right now — showing this browser's canvases.");

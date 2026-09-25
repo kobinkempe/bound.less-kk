@@ -4,22 +4,20 @@ import {
     Home, Layers, Pen, Pencil, Eraser, Highlighter,
     ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
     CircleOff, Undo2, Redo2, Palette, Save, MoreVertical,
-    Bookmark, Scissors,
 } from "lucide-react";
 import Button from "../Components/ui/Button";
 import Input from "../Components/ui/Input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../Components/ui/Dialog";
 import useKobinEngine, { zoomLabel } from "../hooks/useKobinEngine";
 import {
-    newCanvasId, upsertIndexEntry, statsFromDoc, loadCanvasDoc,
-    loadThumbs, saveThumbs, readIndex, backupCanvasDoc, trashCanvas, removeCanvas,
-    duplicateCanvas, stashOverwrittenVersion, getDeviceId,
+    newCanvasId, upsertIndexEntry, statsFromDoc,
+    loadThumbs, saveThumbs, readIndex, trashCanvas, removeCanvas, isBinnedStore,
+    duplicateCanvas, getDeviceId, getDeviceName, replaceCanvasStore,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
-import {
-    cloudLoadCanvas, cloudGetCanvasMeta, cloudTrashCanvas, cloudPushCanvas2, cloudLoadCanvas2,
-    cloudSetEditing, cloudClearEditing,
-} from "../cloud/canvasSync";
+import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, isDevBuild } from "../cloud/canvasSync";
+import { CanvasSession, editorFromHook } from "../cloud/canvasSession";
+import { SyncStatus, SyncBanner, showsNotice, useNarrow, useBannerClearance } from "../Components/editor/SyncChip";
 import {
     computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
     validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
@@ -33,11 +31,9 @@ import FileActionsMenu from "../Components/editor/FileActionsMenu";
 import SaveDrawingDialog from "../Components/editor/SaveDrawingDialog";
 import ScaleDragBar from "../Components/editor/ScaleDragBar";
 import "../Stylesheets/boundless-ui.css";
-import { renderThumbs } from "../storage/thumbnails";
+import { renderThumbs, renderThumbsLive } from "../storage/thumbnails";
 
 const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
-
-const perfNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /** Pen width presets — highlighter renders at width × 2.5 in the engine. */
 const PEN_WIDTH = 12;
@@ -81,6 +77,7 @@ const TOOL_SECTIONS = [
         ],
     },
 ];
+const TOOL_BY_ID = new Map(TOOL_SECTIONS.flatMap((s) => s.items).map((t) => [t.id, t]));
 
 export default function CanvasEditor() {
     const { canvasId } = useParams();
@@ -103,63 +100,83 @@ export default function CanvasEditor() {
     useEffect(() => {
         if (canvasId === "new") history.replace(`/canvas/${realId}${location.search}`);
     }, [canvasId, realId, history, location.search]);
-    // Cloud-dirty tracking: every local autosave marks the canvas as needing a
-    // cloud push (drawings used to sync ONLY on explicit Save, so a canvas
-    // autosaved on one device opened empty/stale on another). The index entry
-    // is freshened too, so savedAt reflects the last edit and freshest-wins
-    // pulls can compare local vs cloud honestly. Unsaved scratch canvases
-    // (no index entry yet) stay local-only until first explicitly saved.
-    const cloudDirtyRef = useRef(false);
-    const onAutosave = useCallback(({ name, stats }) => {
+    // ONE EDITOR AT A TIME (SYNC-PLAN): `CanvasSession` holds this canvas's device lock and cloud
+    // lease, decides at open (push, pull, or keep both), pushes one push at a time with a backoff
+    // shown in the save bar, follows another tab or device while read-only, and hands the pen over.
+    // Every local write freshens the gallery entry (its savedAt is for display) and tells it.
+    const sessionRef = useRef(null);
+    const onAutosave = useCallback(({ name, stats, seq, data }) => {
         const entry = readIndex().find((e) => e.id === realId);
-        if (!entry) return;
-        upsertIndexEntry({
-            ...entry,
-            name: (name && name !== "untitled" ? name : null) || entry.name,
-            savedAt: new Date().toISOString(),
-            ...stats,
-        });
-        cloudDirtyRef.current = true;
+        if (entry) {
+            upsertIndexEntry({
+                ...entry,
+                name: (name && name !== "untitled" ? name : null) || entry.name,
+                savedAt: new Date().toISOString(),
+                ...stats,
+            });
+        }
+        if (sessionRef.current) sessionRef.current.onLocalSaved(seq, { data });
     }, [realId]);
-    const engine = useKobinEngine({ canvasId: realId, onAutosave });
-    const { user } = useUser();
-    // CLOUD-DIRTY MUST NOT DEPEND ON A SUCCESSFUL LOCAL WRITE. `onAutosave`
-    // above only fires when localStorage accepted the bytes, so with autosave
-    // off — or simply with storage full — the flag never became true and the
-    // 30 s background push never ran. The document itself is the honest signal:
-    // it changed, so the cloud copy is behind.
+    // Gated: read-only and not saving until the session holds the pen (SYNC-PLAN R2).
+    const engine = useKobinEngine({
+        canvasId: realId, onAutosave, gated: true,
+        onRefused: (kind) => { if (sessionRef.current) sessionRef.current.onRefused(kind); },
+    });
+    const { user, ready: userReady } = useUser();
+    // The session waits for sign-in to resolve, but not for ever: after 3 s it starts signed out
+    // (and restarts if an account arrives later).
+    const [authTimedOut, setAuthTimedOut] = useState(false);
+    useEffect(() => { const t = setTimeout(() => setAuthTimedOut(true), 3000); return () => clearTimeout(t); }, []);
+    const sessionReady = engine.engineReady && (userReady || authTimedOut);
+    const engineApiRef = useRef(engine);
+    engineApiRef.current = engine;
+    // The cloud is behind whenever the document changed, whether or not the local write landed (a
+    // full browser store must not stop the cloud push). A load's reset is not an edit.
     useEffect(() => {
         const E = engine.engineRef.current;
         if (!E) return undefined;
-        // A load's reset is not an edit: what was just pulled or restored is
-        // not new work for the cloud.
-        return E.doc.subscribe((ev) => { if (!(ev.kind === "reset" && ev.load)) cloudDirtyRef.current = true; });
+        return E.doc.subscribe((ev) => { if (!(ev.kind === "reset" && ev.load) && sessionRef.current) sessionRef.current.markDirty(); });
     }, [engine.engineReady, engine.engineRef]);
-    // A failed sync is SHOWN (the bar below the toolbar, with the size that
-    // failed) and retried with an exponential backoff, 1 min to 30 min, not
-    // every 30 s: on a 100 MB drawing each try stringified the whole document
-    // on the main thread and failed in the compressor (F64).
-    const [cloudError, setCloudError] = useState(null);
-    const cloudFailRef = useRef({ count: 0, until: 0 });
-    // ONE PUSH AT A TIME. A push of a large canvas takes minutes (the frames read back,
-    // gzipped and committed 6 parts a batch); the 30 s tick used to start another beside
-    // it whenever the bake had dirtied the document again, and Firestore's write stream
-    // answered "exhausted maximum allowed queued writes" every minute while the tab
-    // churned gigabytes (seen 2026-09-08 on the 12,849-object canvas). Busy holds until
-    // the SDK settles the push, deadline or not, so a timed-out push cannot be doubled.
-    const cloudBusyRef = useRef(false);
-    const PUSH_DEADLINE_MS = 5 * 60000;
-    const withDeadline = (p, ms, why) => new Promise((res, rej) => {
-        const t = setTimeout(() => rej(new Error(why)), ms);
-        p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
-    });
+    const [sync, setSync] = useState(null);
+    const [syncNotice, setSyncNotice] = useState(null);
+    const [deviceName] = useState(() => getDeviceName());
+    // A phone's width: the sync status is an icon, and the title chip stops short of the top-right
+    // group, whose width the observer keeps in --bl-top-right-w.
+    const narrow = useNarrow();
+    const topRightRef = useRef(null);
+    const [topRightW, setTopRightW] = useState(0);
+    useEffect(() => {
+        const el = topRightRef.current;
+        if (!el || typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver(() => setTopRightW(el.offsetWidth));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    // A failed push rides the save bar, keyed by its message for dismissal.
+    const cloudError = sync && sync.cloud === "error" && sync.error ? { at: sync.error, message: sync.error } : null;
+    // Read-only: another tab or device has the pen, or the cloud has not answered yet at open.
+    const readOnly = !sync || sync.mode !== "editing";
     // Dev console handle for the cloud manifest, behind the same ?dev as the panel.
     useEffect(() => {
         if (!devUnlocked || !user) return undefined;
         window.__cloudMeta = () => cloudGetCanvasMeta(user.uid, realId);
         return () => { delete window.__cloudMeta; };
     }, [devUnlocked, user, realId]);
+    // The dev Report's view of the cloud sync, and the strings it must never carry (OPEN-FLAGS F58).
+    const reportCtx = (drawing) => ({
+        drawing,
+        secrets: user ? [user.uid, user.email, user.displayName, user.phoneNumber].filter(Boolean) : [],
+        cloud: (() => {
+            const ss = sessionRef.current;
+            return {
+                signedIn: !!user, dirty: !!(ss && ss.dirty), busy: !!(ss && ss.busy), fails: ss ? ss.fail.count : 0,
+                retryInMs: ss ? Math.max(0, ss.fail.until - Date.now()) : 0, error: cloudError ? cloudError.message : null,
+                mode: ss ? ss.state.mode : null, why: ss ? ss.state.why : null, state: ss ? ss.state.cloud : null,
+            };
+        })(),
+    });
     const editorRef = useRef(null);
+    useBannerClearance(editorRef);   // the sync banner under the top bar, the tool rail under the banner
     const fileRef = useRef(null);
     const colorSectionRef = useRef(null);
     const paletteAnchorRef = useRef(null);
@@ -174,6 +191,7 @@ export default function CanvasEditor() {
     const [scenes, setScenes] = useState([]);
     const [sceneThumbs, setSceneThumbs] = useState({});
     const [sceneRename, setSceneRename] = useState(null); // { id, draft }
+    const scenesAbortRef = useRef(null);                     // cancels the live thumbnails when the panel closes
     const [activeTool, setActiveTool] = useState("pen");
     const [hintDismissed, setHintDismissed] = useState(false);
     const [toast, setToast] = useState(null);
@@ -193,8 +211,6 @@ export default function CanvasEditor() {
     const [fileOpen, setFileOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [leaveOpen, setLeaveOpen] = useState(false);
-    const [remoteEditing, setRemoteEditing] = useState(false);
-    const [remoteBannerDismissed, setRemoteBannerDismissed] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [nameDraft, setNameDraft] = useState("");
@@ -247,7 +263,10 @@ export default function CanvasEditor() {
     // renderThumbs builds a WHOLE SECOND ENGINE and loads the drawing into it,
     // then rasterizes one image per scene. It is far and away the most expensive
     // thing the editor does, and until 2026-08-21 it was invisible.
-    const ensureThumbs = async (doc, list) => {
+    // SCENES-PLAN S2: on the raster path the thumbnails come from the LIVE engine's workers, one
+    // small job a scene, landing one by one; the old second-engine path serves only what that
+    // cannot (raster off, an unreachable frame). `docFn` serialises the drawing lazily, for that.
+    const ensureThumbs = async (list, docFn) => {
         const tThumb = (typeof performance !== "undefined" ? performance.now() : Date.now());
         const noteThumbs = (n) => {
             try { engine.engineRef.current?.notePerf?.("thumbs", tThumb, { scenes: n }); }
@@ -255,7 +274,22 @@ export default function CanvasEditor() {
         };
         try {
             const existing = await loadThumbs(realId, list.map((s) => s.id));
-            const fresh = await renderThumbs(doc, list, existing);
+            const E = engine.engineRef.current;
+            let fresh = {}, missed = list;
+            if (E && E.raster) {
+                const live = await renderThumbsLive(E, list, existing, {
+                    signal: scenesAbortRef.current ? scenesAbortRef.current.signal : null,
+                    onThumb: (id, entry) => setSceneThumbs((t) => ({ ...t, [id]: entry })),
+                });
+                fresh = live.out; missed = live.missed;
+            }
+            // The second-engine path only under `?svg`: it serialises the whole document and
+            // loads it into a second engine, which on the Magnum Opus is an out-of-memory
+            // reload (Kobin, 2026-09-22). A raster miss keeps the scene's last picture.
+            if (missed.length && !(E && E.raster)) {
+                const doc = docFn ? docFn() : (E ? E.serializeDrawing() : null);
+                if (doc) Object.assign(fresh, await renderThumbs(doc, missed, existing));
+            }
             noteThumbs(Object.keys(fresh).length);
             // The primary scene (first in the list) doubles as the gallery
             // cover — alias its thumb under the "cover" key that the gallery
@@ -279,15 +313,10 @@ export default function CanvasEditor() {
     const persistCanvas = async (name) => {
         const E = engine.engineRef.current;
         const tSave = (typeof performance !== "undefined" ? performance.now() : Date.now());
-        const tScenes = tSave;
-        if (E) setScenes(E.refreshScenes()); // scenes ride the save file (docMeta)
-        if (E) E.notePerf?.("scenes", tScenes, { where: "save" });
-        // A FULL localStorage MUST NOT TAKE THE CLOUD DOWN WITH IT. This used to
-        // return here the moment the local write failed, so a signed-in user
-        // whose browser storage was full could not save to their account by any
-        // route: the Save button stopped short of `cloudSaveCanvas`, and the
-        // background sync never ran because `cloudDirtyRef` was only ever set by
-        // a SUCCESSFUL local autosave. Serialize independently and carry on.
+        // The scene index rides the save as it stands (unindexed ids listed dirty): a save never waits on it.
+        if (E) setScenes(E.docMeta.scenes || []);
+        // A failed local write (a full browser store) must not stop the save to the account:
+        // serialize independently and carry on.
         const saved = await engine.saveLocal(name);
         const local = !!saved;
         const doc = saved || (E ? E.serializeDrawing() : null);
@@ -302,112 +331,61 @@ export default function CanvasEditor() {
             ...statsFromDoc(doc),
         };
         upsertIndexEntry(entry);
-        const fresh = await ensureThumbs(doc, doc.meta.scenes || []);
+        const fresh = await ensureThumbs(doc.meta.scenes || [], () => doc);
         if (E) E.notePerf?.("saveTotal", tSave, { scenes: (doc.meta.scenes || []).length });
         let cloud = false;
-        if (user) {
-            // The cloud copy mirrors the local store (frames newer than the
-            // cloud's and the log past its seq), so nothing is stringified;
-            // timed for the report like the local save is.
-            const tCloud = perfNow();
-            try {
-                if (cloudBusyRef.current) throw new Error("a cloud push is still running");
-                const source = await engine.cloudPushSource();
-                if (!source) throw new Error("nothing in the local store to push yet");
-                cloudBusyRef.current = true;
-                const push = cloudPushCanvas2(user.uid, entry, source, { deviceId: getDeviceId(), thumbs: Object.keys(fresh).length ? fresh : null, dropBelow: source.dropBelow });
-                const release = () => { cloudBusyRef.current = false; };
-                push.then(release, release);
-                const r = await withDeadline(push, PUSH_DEADLINE_MS, "the push did not finish in 5 min");
-                if (E) E.notePerf?.("cloudSave", tCloud, { where: "save", ...(r || {}) });
-                cloud = true;
-                cloudDirtyRef.current = false;
-            } catch (err) {
-                console.warn("cloud save failed", err);
-                cloudDirtyRef.current = true; // autosync retries
-                showToast(/still running/.test(String(err && err.message))
-                    ? "Saved to this browser — the cloud sync is still running"
-                    : "Saved to this browser — cloud sync failed");
-            }
+        const ss = sessionRef.current;
+        if (user && ss) {
+            const r = await ss.pushNow({ thumbs: Object.keys(fresh).length ? fresh : null });
+            cloud = !!r.ok;
+            if (r.busy) showToast("Saved to this browser — the cloud sync is still running");
         }
         return { local, cloud };
     };
 
-    // Background cloud sync: push the latest autosaved state every 30s while
-    // signed in and dirty, and on tab-hide (phones background the tab long
-    // before a user thinks to press Save). Thumbs aren't regenerated here —
-    // the server merge keeps the previously stored set.
-    const cloudAutosync = useCallback(async () => {
-        if (!user || !cloudDirtyRef.current) return;
-        if (Date.now() < cloudFailRef.current.until) return;
-        if (cloudBusyRef.current) return;   // the tick after the running push lands retries
+    // The panel's refresh: the scene index's list (kept current at idle, SCENES-PLAN §7; with the
+    // worker a refresh starts the next batch and a later tick shows it) and the pictures of the
+    // scenes that changed, in the background. A list that did not change is not looked at again.
+    const scenesListRef = useRef(null);
+    const refreshScenesPanel = () => {
         const E = engine.engineRef.current;
         if (!E) return;
-        const entry = readIndex().find((e) => e.id === realId);
-        if (!entry) return; // never explicitly saved — stays local-only
-        cloudDirtyRef.current = false; // claim; re-set on failure
-        const t0 = perfNow();
-        let bytes = 0;
-        try {
-            const source = await engine.cloudPushSource();
-            if (!source) { cloudDirtyRef.current = true; return; }   // nothing on disk yet; the local save comes first
-            cloudBusyRef.current = true;
-            const push = cloudPushCanvas2(user.uid, {
-                ...entry,
-                savedAt: new Date().toISOString(),
-                ...engine.stats(),
-            }, source, { deviceId: getDeviceId(), dropBelow: source.dropBelow });
-            const release = () => { cloudBusyRef.current = false; };
-            push.then(release, release);
-            const r = await withDeadline(push, PUSH_DEADLINE_MS, "the push did not finish in 5 min");
-            bytes = (r && r.bytes) || 0;
-            E.notePerf?.("cloudSave", t0, { where: "sync", ...(r || {}) });
-            cloudFailRef.current = { count: 0, until: 0 };
-            setCloudError(null);
-        } catch (err) {
-            cloudDirtyRef.current = true;
-            const f = cloudFailRef.current;
-            f.count += 1;
-            const waitMs = Math.min(30 * 60000, 60000 * Math.pow(2, f.count - 1));
-            f.until = Date.now() + waitMs;
-            const mb = bytes ? Math.round(bytes / 1048576) : null;
-            const why = String((err && err.message) || err).slice(0, 80);
-            const wait = waitMs >= 60000 ? `${Math.round(waitMs / 60000)} min` : `${Math.round(waitMs / 1000)} s`;
-            setCloudError({ at: Date.now(), message: `Cloud sync failed${mb != null ? ` (${mb} MB)` : ""}: ${why}. Saved in this browser only; next try in ${wait}.` });
-            E.notePerf?.("cloudSaveFail", t0, { where: "sync", bytes, tries: f.count, waitMs });
-            console.warn("cloud autosync failed", err);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, realId]);
-
-    useEffect(() => {
-        if (!user) return;
-        const timer = setInterval(cloudAutosync, 30000);
-        const onHide = () => { if (document.visibilityState === "hidden") cloudAutosync(); };
-        document.addEventListener("visibilitychange", onHide);
-        return () => {
-            clearInterval(timer);
-            document.removeEventListener("visibilitychange", onHide);
-            cloudAutosync(); // last push when leaving the editor
-        };
-    }, [user, cloudAutosync]);
-
-    // Opening the panel recomputes scenes (cheap) and freshens stale thumbs.
+        const list = E.refreshScenes();
+        if (list === scenesListRef.current) return;
+        scenesListRef.current = list;
+        setScenes(list);
+        ensureThumbs(list);
+    };
+    // The scenes as stored and their cached pictures, with no resolve: what the panel opens on.
+    const showStoredScenes = () => {
+        const E = engine.engineRef.current;
+        if (!E) return;
+        const list = E.docMeta.scenes || [];
+        setScenes(list);
+        loadThumbs(realId, list.map((s) => s.id)).then((t) => setSceneThumbs((have) => ({ ...t, ...have })));
+    };
+    // Opening the panel shows the stored list at once and refreshes after it has painted; closing
+    // it cancels the thumbnails in flight.
     const openScenesPanel = () => {
         setScenesOpen((o) => {
             if (!o) {
-                const E = engine.engineRef.current;
-                if (E) {
-                    const list = E.refreshScenes();
-                    setScenes(list);
-                    loadThumbs(realId, list.map((s) => s.id)).then(setSceneThumbs);
-                    ensureThumbs(E.serializeDrawing(), list);
-                }
-            }
+                if (scenesAbortRef.current) scenesAbortRef.current.abort();
+                scenesAbortRef.current = typeof AbortController === "function" ? new AbortController() : null;
+                showStoredScenes();
+                scenesListRef.current = null;
+                setTimeout(() => refreshScenesPanel(), 50);
+            } else if (scenesAbortRef.current) { scenesAbortRef.current.abort(); scenesAbortRef.current = null; }
             return !o;
         });
         setHintDismissed(true);
     };
+    // While the panel is open, a scene drawn into or moved refreshes about a second later (S4).
+    useEffect(() => {
+        if (!scenesOpen) return undefined;
+        const t = setInterval(() => refreshScenesPanel(), 1000);
+        return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scenesOpen]);
 
     const jumpToScene = (s) => {
         engine.engineRef.current?.jumpTo(s.level, s.rect);
@@ -418,61 +396,77 @@ export default function CanvasEditor() {
         const E = engine.engineRef.current;
         if (E && E.renameScene(sceneRename.id, sceneRename.draft)) {
             setScenes([...E.docMeta.scenes]);
-            persistCanvas();
+            engine.patchDocMeta({});   // the name rides the header: an autosave writes it, not a whole Save (ST-2)
         }
         setSceneRename(null);
     };
-    const removeScene = (s) => {
-        const E = engine.engineRef.current;
-        if (E && E.deleteScene(s.id)) {
-            setScenes([...E.docMeta.scenes]);
-            persistCanvas();
-        }
-    };
-    const splitSceneRow = (s) => {
-        const E = engine.engineRef.current;
-        const children = E && E.splitScene(s.id);
-        if (!children) { showToast("Nothing to split here"); return; }
-        setScenes([...E.docMeta.scenes]);
-        persistCanvas();
-    };
-    const captureCurrentView = () => {
+
+    // After a reload from the store or a pull, the title and the scale come from the document again;
+    // a gallery rename touches only the cloud's name, which outranks the one in the drawing.
+    const scaleDefRef = useRef(null);
+    scaleDefRef.current = scaleDef;
+    const afterReload = (cloudName) => {
         const E = engine.engineRef.current;
         if (!E) return;
-        const r = E.captureView();
-        setScenes([...E.docMeta.scenes]);
-        persistCanvas();
-        showToast(r.retargeted ? `Reframed "${r.scene.name}"` : "View captured");
+        if (cloudName && cloudName !== "untitled" && E.docMeta.name !== cloudName) engine.patchDocMeta({ name: cloudName });
+        const raw = E.docMeta && E.docMeta.name;
+        setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
+        const def = validateScaleDef(E.docMeta && E.docMeta.scaleDef);
+        if (JSON.stringify(def || null) !== JSON.stringify(scaleDefRef.current || null)) {
+            setScaleDef(def || null);
+            setScaleSession(def ? clearDisplayPrefs(null, def) : null);
+        }
     };
-
-    // Presence heartbeat: while a signed-in cloud canvas is open in a visible
-    // tab, stamp `editing` on its parent doc every 30s and watch for a fresh
-    // stamp from a DIFFERENT device — that shows the overwrite warning banner.
+    // The session starts once the document is restored and sign-in has resolved (SYNC-PLAN R2, R4).
     useEffect(() => {
-        if (!user || !engine.engineReady) return;
-        const device = getDeviceId();
-        const FRESH_MS = 2 * 60 * 1000; // ~4 missed beats before the banner clears
-        let stopped = false;
-        const beat = async () => {
-            if (stopped || document.visibilityState !== "visible") return;
-            try {
-                const meta = await cloudGetCanvasMeta(user.uid, realId);
-                if (stopped || !meta) return; // not in the cloud (yet) — nothing to guard
-                const e = meta.editing;
-                setRemoteEditing(!!(e && e.device && e.device !== device
-                    && Date.now() - Date.parse(e.at) < FRESH_MS));
-                await cloudSetEditing(user.uid, realId, device);
-            } catch (err) { /* offline — try again next beat */ }
-        };
-        beat();
-        const timer = setInterval(beat, 30000);
+        if (!sessionReady) return undefined;
+        let live = true;
+        const ss = new CanvasSession({
+            canvasId: realId, uid: user ? user.uid : null, deviceId: getDeviceId(), deviceName: getDeviceName(),
+            editor: editorFromHook(() => engineApiRef.current),
+            onState: (st) => { if (live) setSync(st); },
+            onNotice: (n) => {
+                if (!live) return;
+                if (n.kind === "pulled" || n.kind === "reloaded") afterReload(n.name);
+                else if (showsNotice(n)) setSyncNotice({ ...n, at: Date.now() });
+            },
+            onPerf: (kind, t0, data) => {
+                try { const E = engineApiRef.current.engineRef.current; if (E && E.notePerf) E.notePerf(kind, t0, data); } catch (err) { /* diagnostics only */ }
+            },
+        });
+        sessionRef.current = ss;
+        if (devUnlocked) window.__kobinSync = ss;
+        ss.start();
+        const onVis = () => ss.onVisibility(document.visibilityState === "visible");
+        document.addEventListener("visibilitychange", onVis);
         return () => {
-            stopped = true;
-            clearInterval(timer);
-            cloudClearEditing(user.uid, realId, device).catch(() => {});
+            live = false;
+            document.removeEventListener("visibilitychange", onVis);
+            if (sessionRef.current === ss) sessionRef.current = null;
+            if (window.__kobinSync === ss) delete window.__kobinSync;
+            ss.stop();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, engine.engineReady, realId]);
+    }, [sessionReady, user, realId]);
+    // R7: a canvas from the REAL collection copied in as a new canvas (a dev build reads it, never writes it).
+    const copyRealIn = async () => {
+        if (!user) { showToast("Sign in first"); return; }
+        const id0 = window.prompt("Copy which canvas from the real cloud? (its id)", realId);
+        if (!id0) return;
+        try {
+            const pulled = await cloudLoadCanvas2(user.uid, id0.trim(), { real: true });
+            if (!pulled) { showToast("No kobin-2 copy of that canvas in the real cloud"); return; }
+            const id = newCanvasId();
+            const name = `${pulled.meta.name || "Untitled canvas"} (real copy)`;
+            const header = { ...pulled.header, name, meta: { ...(pulled.header.meta || {}), name }, base: null };
+            if (!(await replaceCanvasStore(id, { header, frames: pulled.frames, entries: pulled.entries }))) { showToast("Couldn't store the copy"); return; }
+            upsertIndexEntry({ id, name, savedAt: new Date().toISOString(), strokes: pulled.header.strokes || 0, levels: pulled.header.levels || 0 });
+            if (pulled.thumbs) await saveThumbs(id, pulled.thumbs);
+            history.push(`/canvas/${id}${location.search}`);
+        } catch (err) {
+            showToast("Couldn't copy: " + String((err && err.message) || err).slice(0, 60));
+        }
+    };
 
     // Browser closed (or tab killed) on a never-saved drawing: file it as a
     // draft so the gallery lists it instead of stranding it in a hidden slot.
@@ -500,96 +494,6 @@ export default function CanvasEditor() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [realId]);
 
-    // Pull from the account once the engine is up — when this browser has no
-    // copy, OR when the cloud copy is fresher than the local one (edited on
-    // another device since; freshest-wins now that autosave bumps savedAt).
-    useEffect(() => {
-        if (!engine.engineReady || !user) return;
-        let stale = false;
-        (async () => {
-            try {
-                const localDoc = await loadCanvasDoc(realId);
-                if (localDoc) {
-                    const meta = await cloudGetCanvasMeta(user.uid, realId);
-                    const localAt = readIndex().find((e) => e.id === realId)?.savedAt || "";
-                    if (!meta || String(meta.savedAt || "") <= String(localAt)) return;
-                }
-                const meta2 = await cloudGetCanvasMeta(user.uid, realId);
-                if (meta2 && meta2.format === "kobin-2") {
-                    const pulled = await cloudLoadCanvas2(user.uid, realId);
-                    if (stale || !pulled) return;
-                    // Never replace a local drawing with an empty cloud copy.
-                    if (localDoc && !(pulled.meta.strokes > 0)) return;
-                    if (localDoc && statsFromDoc(localDoc).strokes > 0) {
-                        try {
-                            const entry = readIndex().find((e) => e.id === realId);
-                            await stashOverwrittenVersion(localDoc,
-                                (entry && entry.name) || (localDoc.meta && localDoc.meta.name !== "untitled" && localDoc.meta.name) || "Untitled canvas");
-                        } catch (err) { /* the backup below still covers it */ }
-                    }
-                    await backupCanvasDoc(realId);
-                    if (stale) return;
-                    const ok = await engine.replaceStore(pulled);
-                    if (!ok) return;
-                    const cloudName = pulled.meta && pulled.meta.name;
-                    if (cloudName && cloudName !== "untitled") engine.patchDocMeta({ name: cloudName });
-                    upsertIndexEntry({
-                        id: realId,
-                        name: (cloudName && cloudName !== "untitled" ? cloudName : null) || "Untitled canvas",
-                        savedAt: new Date().toISOString(),
-                        ...engine.stats(),
-                    });
-                    if (pulled.thumbs) await saveThumbs(realId, pulled.thumbs);
-                    if (cloudName && cloudName !== "untitled") setCanvasTitle(cloudName);
-                    return;
-                }
-                const res = await cloudLoadCanvas(user.uid, realId);
-                if (stale || !res || !res.json) return;
-                const parsed = JSON.parse(res.json);
-                // Never replace a local drawing with an empty cloud copy (the
-                // stale-cloud shape of the bug this pull is here to fix).
-                if (localDoc && statsFromDoc(parsed).strokes === 0) return;
-                // A competing save is about to overwrite real local work —
-                // file this device's version in the recycle bin (restorable
-                // via "Restore deleted canvases"). Metadata-only refreshes
-                // (e.g. a rename elsewhere) don't clutter the bin.
-                if (localDoc) {
-                    try {
-                        if (statsFromDoc(localDoc).strokes > 0
-                            && JSON.stringify(localDoc.natives) !== JSON.stringify(parsed.natives)) {
-                            const entry = readIndex().find((e) => e.id === realId);
-                            await stashOverwrittenVersion(localDoc,
-                                (entry && entry.name)
-                                || (localDoc.meta && localDoc.meta.name !== "untitled" && localDoc.meta.name)
-                                || "Untitled canvas");
-                        }
-                    } catch (err) { /* the backup below still covers it */ }
-                }
-                await backupCanvasDoc(realId); // recoverable if this merge was wrong
-                if (stale) return;
-                engine.engineRef.current.loadDrawing(parsed);
-                // Gallery renames only touch the cloud parent doc — its name
-                // outranks whatever is embedded in the drawing JSON.
-                const cloudName = res.meta && res.meta.name;
-                if (cloudName && cloudName !== "untitled") engine.patchDocMeta({ name: cloudName });
-                const doc = await engine.saveLocal();
-                if (doc) {
-                    const nm2 = doc.meta && doc.meta.name;
-                    upsertIndexEntry({
-                        id: realId,
-                        name: (nm2 && nm2 !== "untitled" ? nm2 : null) || "Untitled canvas",
-                        savedAt: new Date().toISOString(),
-                        ...statsFromDoc(doc),
-                    });
-                }
-                if (res.thumbs) await saveThumbs(realId, res.thumbs);
-                const nm = engine.docMeta()?.name;
-                if (nm && nm !== "untitled") setCanvasTitle(nm);
-            } catch (err) { /* offline or not ours — stay blank */ }
-        })();
-        return () => { stale = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [engine.engineReady, user, realId]);
 
     const commitScaleDef = (def) => {
         const valid = validateScaleDef(def);
@@ -710,7 +614,7 @@ export default function CanvasEditor() {
     const deleteCanvas = async () => {
         const doc = await engine.saveLocal(); // freshest strokes ride into the bin
         engine.disablePersist();
-        cloudDirtyRef.current = false;
+        if (sessionRef.current) sessionRef.current.discard();
         const stats = doc ? statsFromDoc(doc) : { strokes: 0, levels: 0 };
         const indexed = readIndex().some((e) => e.id === realId);
         if (!indexed && stats.strokes === 0) {
@@ -739,7 +643,9 @@ export default function CanvasEditor() {
     // via Home asks keep-as-draft vs discard, and an unexpected browser close
     // files the drawing as a draft automatically (beforeunload effect below).
     const hasUnsavedDraft = () => {
+        if (readOnly) return false;                   // another tab's draft: not this tab's to keep or discard
         if (readIndex().some((e) => e.id === realId)) return false;
+        if (isBinnedStore(realId)) return false;      // deleted elsewhere while open: the bin has it, edits included
         const E = engine.engineRef.current;
         if (!E) return false;
         try { return statsFromDoc(E.serializeDrawing()).strokes > 0; } catch (err) { return false; }
@@ -761,6 +667,7 @@ export default function CanvasEditor() {
         history.push("/canvases");
     };
     const discardDraft = async () => {
+        if (readOnly) return;
         engine.disablePersist();
         await removeCanvas(realId);
         setLeaveOpen(false);
@@ -782,6 +689,9 @@ export default function CanvasEditor() {
             return;
         }
         setSizeOpen(false);
+        applyTool(t);
+    };
+    const applyTool = (t) => {
         setActiveTool(t.id);
         if (t.tool) engine.setTool(t.tool);
         else if (t.penType) {
@@ -789,6 +699,26 @@ export default function CanvasEditor() {
             if (t.width != null) engine.setWidth(t.width);
         }
     };
+
+    // Viewing only: the pan tool and the rail collapsed (Kobin, 2026-09-23); taking the pen back
+    // restores the tool and the rail as they were.
+    const viewing = !!sync && sync.mode === "readonly";
+    const editing = !!sync && sync.mode === "editing";
+    const beforeViewRef = useRef(null);
+    useEffect(() => {
+        if (viewing && !beforeViewRef.current) {
+            beforeViewRef.current = { tool: activeTool, open: toolsOpen };
+            applyTool(TOOL_BY_ID.get("pan"));
+            setToolsOpen(false);
+        } else if (editing && beforeViewRef.current) {
+            const b = beforeViewRef.current;
+            beforeViewRef.current = null;
+            const t = TOOL_BY_ID.get(b.tool);
+            if (t) applyTool(t);
+            setToolsOpen(b.open);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewing, editing]);
 
     sizeAnchorRef.current = (DRAW_TOOL_IDS.has(activeTool) || activeTool === "eraser")
         ? (drawToolRefs.current[activeTool] ?? null)
@@ -882,13 +812,14 @@ export default function CanvasEditor() {
             {liveBar && <ScaleDragBar a={liveBar.a} b={liveBar.b} label="drag…" />}
             {pendingBar && <ScaleDragBar a={pendingBar.a} b={pendingBar.b} label="?" dashed={false} />}
 
-            <div className="bl-editor-overlay bl-editor-top-left bl-flex bl-gap-2">
+            <div className="bl-editor-overlay bl-editor-top-left bl-flex bl-gap-2"
+                style={topRightW ? { "--bl-top-right-w": `${topRightW}px` } : undefined}>
                 <Link to="/canvases" onClick={onLeaveEditor}>
                     <Button variant="outline" size="icon" className="bl-shadow-panel" title="Back to canvases">
                         <Home size={16} />
                     </Button>
                 </Link>
-                <div className="bl-editor-chip bl-editor-title-chip">
+                <div className={"bl-editor-chip bl-editor-title-chip" + (narrow ? " bl-editor-title-chip--compact" : "")}>
                     {editingName ? (
                         <input
                             className="bl-title-input"
@@ -903,15 +834,16 @@ export default function CanvasEditor() {
                             autoFocus
                         />
                     ) : (
-                        <button type="button" className="bl-title-btn" onClick={startRename} title="Rename canvas">
+                        <button type="button" className="bl-title-btn" onClick={startRename} title="Rename canvas" disabled={readOnly}>
                             <span className="bl-font-display bl-text-sm bl-title-text">{canvasTitle}</span>
                         </button>
                     )}
+                    <SyncStatus sync={sync} signedIn={!!user} deviceName={deviceName} compact={narrow} />
                 </div>
             </div>
 
             <div className="bl-editor-overlay bl-editor-top-right">
-                <div className="bl-editor-top-right-group">
+                <div className="bl-editor-top-right-group" ref={topRightRef}>
                     <div className="bl-scenes-anchor">
                         <Button
                             size="sm"
@@ -968,7 +900,9 @@ export default function CanvasEditor() {
                                             ) : (
                                                 <button type="button" className="bl-scene-jump" onClick={() => jumpToScene(s)}>
                                                     {sceneThumbs[s.id]?.data
-                                                        ? <img src={sceneThumbs[s.id].data} alt={s.name} className="bl-scene-thumb" />
+                                                        ? <img src={sceneThumbs[s.id].data} alt={s.name}
+                                                            className={"bl-scene-thumb" + (sceneThumbs[s.id].hash !== (s.hash || "") ? " bl-scene-thumb--stale" : "")}
+                                                            title={sceneThumbs[s.id].hash !== (s.hash || "") ? "Refreshing…" : undefined} />
                                                         : <div className="bl-scene-thumb bl-scene-thumb-placeholder" />}
                                                     <div style={{ minWidth: 0, flex: 1 }}>
                                                         <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
@@ -979,25 +913,14 @@ export default function CanvasEditor() {
                                                 </button>
                                             )}
                                             <div className="bl-scene-actions">
-                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Rename scene"
+                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Rename scene" disabled={readOnly}
                                                     onClick={() => setSceneRename({ id: s.id, draft: s.name })}>
                                                     <Pencil size={13} />
-                                                </button>
-                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Split scene"
-                                                    onClick={() => splitSceneRow(s)}>
-                                                    <Scissors size={13} />
-                                                </button>
-                                                <button type="button" className="bl-tool-btn bl-scene-action" title="Remove scene"
-                                                    onClick={() => removeScene(s)}>
-                                                    <X size={13} />
                                                 </button>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <button type="button" className="bl-scene-bookmark" onClick={captureCurrentView}>
-                                    <Bookmark size={14} /> Capture this view
-                                </button>
                             </div>
                         )}
                     </div>
@@ -1018,6 +941,11 @@ export default function CanvasEditor() {
                             <button {...dbgBtn(engine.preBake)} onClick={() => engine.setPreBake(!engine.preBake)}>PreBake</button>
                             <button {...dbgBtn(engine.retainScenes)} onClick={() => engine.setRetainScenes(!engine.retainScenes)}>Retain</button>
                             <button
+                                {...dbgBtn(engine.raster)}
+                                onClick={() => engine.setRaster(!engine.raster)}
+                                title="Raster: draw the ink into 512 px plates on a canvas instead of into SVG. The renderer is built once, so this rewrites ?raster and RELOADS. Off is the SVG renderer, one keystroke away."
+                            >Raster</button>
+                            <button
                                 {...dbgBtn(engine.trace)}
                                 onClick={() => engine.setTrace(!engine.trace)}
                                 title="Trace: log EVERY operation instead of only those over 8 ms, and keep a much deeper log. Off by default because one pinch would otherwise flood the log. Turn on, reproduce the problem, then Report."
@@ -1032,7 +960,20 @@ export default function CanvasEditor() {
                                 onClick={() => engine.setErasedebug(!engine.erasedebug)}
                                 title="Erase debug: a colour per real shape, orange outlines, GREEN where pieces are joined across a tile edge, black = temporary tile, yellow = eraser mark"
                             >Erase</button>
-                            <button {...dbgBtn(false)} onClick={engine.sendReport}>{engine.reportLabel}</button>
+                            <button
+                                {...dbgBtn(false)}
+                                onClick={() => engine.sendReport(reportCtx(false))}
+                                title="Report: the instruments, the recent history and the drawing on and around the screen, gzipped to the report server on :3001. Saved as a file if the server cannot be reached."
+                            >{engine.reportLabel}</button>
+                            <button
+                                {...dbgBtn(false)}
+                                onClick={() => engine.sendReport(reportCtx(true))}
+                                title="Report with the WHOLE drawing after it, in gzip parts (tens of MB on a big canvas)."
+                            >+Drawing</button>
+                            {isDevBuild() && (
+                                <button {...dbgBtn(false)} onClick={copyRealIn}
+                                    title="Copy a canvas from the REAL cloud collection into this dev build as a new canvas. The real copy is only read; this build writes dev-canvases (SYNC-PLAN R7).">Copy real</button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1054,7 +995,7 @@ export default function CanvasEditor() {
                                             type="button"
                                             title={t.label}
                                             className={`bl-tool-btn${activeTool === t.id ? " active" : ""}`}
-                                            disabled={t.live ? !t.live(engine.status) : false}
+                                            disabled={(readOnly && t.id !== "pan") || (t.live ? !t.live(engine.status) : false)}
                                             onClick={() => selectTool(t)}
                                         >
                                             <t.icon size={16} />
@@ -1071,6 +1012,7 @@ export default function CanvasEditor() {
                                             type="button"
                                             aria-label={`Color ${c}`}
                                             className={`bl-swatch${engine.color === c ? " active" : ""}`}
+                                            disabled={readOnly}
                                             style={{ backgroundColor: c }}
                                             onClick={() => engine.setColor(c)}
                                         />
@@ -1081,6 +1023,7 @@ export default function CanvasEditor() {
                                     type="button"
                                     className="bl-tool-btn"
                                     title="Custom color"
+                                    disabled={readOnly}
                                     onClick={() => { setColorOpen((o) => !o); setSizeOpen(false); }}
                                 >
                                     <Palette size={16} />
@@ -1089,7 +1032,7 @@ export default function CanvasEditor() {
                             <div className="bl-tool-section">
                                 <div className="bl-tool-divider" />
                                 <button type="button" className="bl-tool-btn"
-                                    title={user ? "Save to cloud" : "Save to browser"} onClick={handleSave}>
+                                    title={user ? "Save to cloud" : "Save to browser"} onClick={handleSave} disabled={readOnly}>
                                     <Save size={16} />
                                 </button>
                                 <div className="bl-popover-anchor" ref={fileAnchorRef}>
@@ -1103,6 +1046,7 @@ export default function CanvasEditor() {
                                             onExportSvg={engine.exportSvg}
                                             onDuplicate={duplicateCurrent}
                                             onDelete={() => setDeleteOpen(true)}
+                                            readOnly={readOnly}
                                             onClose={() => setFileOpen(false)}
                                             anchorRef={fileAnchorRef}
                                         />
@@ -1156,10 +1100,10 @@ export default function CanvasEditor() {
 
             <div className="bl-editor-overlay bl-editor-bottom-right bl-scale-controls">
                 {scaleDef && (
-                    <Button variant="ghost" size="sm" className="bl-text-muted" onClick={clearScaleDef}>Clear</Button>
+                    <Button variant="ghost" size="sm" className="bl-text-muted" onClick={clearScaleDef} disabled={readOnly}>Clear</Button>
                 )}
                 <Button variant="outline" size="sm" className="bl-shadow-panel bl-flex bl-gap-2"
-                    onClick={() => { setPendingBar(null); setDefineMode(true); }} title="Define scale by dragging">
+                    onClick={() => { setPendingBar(null); setDefineMode(true); }} title="Define scale by dragging" disabled={readOnly}>
                     <Ruler size={14} /> Set scale
                 </Button>
                 <div className="bl-scale-hud" ref={scaleHudRef}>
@@ -1212,22 +1156,23 @@ export default function CanvasEditor() {
             )}
 
             {!hintDismissed && (
-                <div className="bl-hint">Scroll or pinch to zoom — open Scenes to bookmark a view</div>
+                <div className="bl-hint">Scroll or pinch to zoom — open Scenes to jump to a drawing</div>
             )}
 
-            {remoteEditing && !remoteBannerDismissed && (
-                <div className="bl-remote-banner" role="alert">
-                    <span>
-                        “{canvasTitle}” is open on another device — please save and close on your
-                        other device to avoid it overwriting your changes on this device. You can
-                        restore your overwritten changes on the Your canvases page by clicking
-                        “Restore deleted canvases”.
-                    </span>
-                    <button type="button" title="Dismiss" onClick={() => setRemoteBannerDismissed(true)}>
-                        <X size={14} />
-                    </button>
-                </div>
-            )}
+            <div className="bl-top-notices">
+                <SyncBanner sync={sync} compact={narrow} onTakeOver={() => { if (sessionRef.current) sessionRef.current.takeOver(); }} />
+                {syncNotice && (
+                    <div className="bl-remote-banner" role="status">
+                        <span>
+                            {syncNotice.message}
+                            {syncNotice.id && <> — <Link to={`/canvas/${syncNotice.id}${location.search}`}>open it</Link></>}
+                        </span>
+                        <button type="button" title="Dismiss" onClick={() => setSyncNotice(null)}>
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {toast && <div className="bl-toast">{toast}</div>}
 

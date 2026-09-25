@@ -17,7 +17,7 @@ import { R as CROSS_RATIO, W as FRAME_W, REACH } from "./frameLattice";
 import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
-import { insideShape } from "./geometry/arcShape";
+import { insideTester } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
 import { addOffset, sameBelow, snapDisplacement, cloneBelow, sameShift } from "./geometry/offsets";
 
@@ -30,14 +30,15 @@ export const SELECT_DRAG_PX = 8;
 
 // The ink test behind the lasso is a hand-gesture question, so it is asked
 // at a hand-gesture precision: the outline flattened to LASSO_INK_TOL_PX,
-// never more than LASSO_INK_MAX_PTS points of it, against a loop decimated to
-// LASSO_LOOP_MAX_PTS. Measured on Kobin's 2026-09-03 drawing at a quarter
-// pixel and against the loop as drawn: twelve borderline shapes cost 985 ms,
-// eighty each, with the largest of them tens of thousands of points against a
-// few hundred loop edges.
+// never more than LASSO_INK_MAX_PTS points of it (twelve borderline shapes cost
+// 985 ms at a quarter pixel on Kobin's 2026-09-03 drawing), against the loop as
+// drawn: `loopTester`'s grid carries its edges, and every 7th point of a slow
+// loop cut inside or outside the line by a finger's wiggle (REPORTS 2026-09-24:
+// a family 0.6 px inside dropped; the same cost undecimated).
 const LASSO_INK_TOL_PX = 3;
 const LASSO_INK_MAX_PTS = 3000;
-const LASSO_LOOP_MAX_PTS = 160;
+/** Walks a lasso may make: a torn family re-reads its path's frames once; a third pass finds none (LASSO-1). */
+const LASSO_PASSES = 3;
 
 const everyNth = (pts, max) => {
     if (pts.length <= max) return pts;
@@ -67,23 +68,28 @@ class Selection {
     }
     /**
      * A press that has travelled: a lasso or a move, decided here. With nothing
-     * selected a drag is always a lasso; a ctrl drag always is; otherwise a
-     * drag from ink moves — the selection if the ink is part of it, that one
-     * object if not — and a drag from paper lassoes.
+     * selected, or with ctrl, a drag is a lasso; from paper it lassoes; from ink
+     * it moves the whole selection when selected ink is anywhere under the press,
+     * covered or not (Kobin, 2026-09-23), else it selects the topmost object there
+     * alone and moves that. A tap still takes the topmost (`_selectTap`).
      */
     _beginSelectDrag(P, sx, sy) {
         const startLasso = () => {
             this._lasso = { pts: [[P.sx, P.sy], [sx, sy]], ctrl: P.ctrl, moved: true };
             this.renderer.refreshSelection();
         };
+        const sel = this.selection;
+        let hit = P.hit, hitSel = hit != null && !!sel && this._isSelected(hit);
+        if (hit != null && !hitSel && sel && !P.ctrl) {
+            const under = this._hitTest(P.sx, P.sy, undefined, (id) => this._isSelected(id));
+            if (under != null) { hit = under; hitSel = true; }
+        }
         // A press on a selected frame's mark drags the selection as a press on selected ink does.
-        const frameHit = P.hit == null && this.selection && this.selection.frames.length ? this._frameUnderPoint(P.sx, P.sy) : null;
-        if ((P.hit == null && !frameHit) || P.ctrl || !this.selection) { startLasso(); return; }
-        // Pressing an object that is ALREADY selected keeps the whole selection
-        // and drags it; pressing a different one selects it alone.
+        const frameHit = !hitSel && sel && sel.frames.length ? this._frameUnderPoint(P.sx, P.sy) : null;
+        if ((hit == null && !frameHit) || P.ctrl || !sel) { startLasso(); return; }
         if (frameHit) { /* the frame's mark: the selection stands */ }
-        else if (!this._isSelected(P.hit)) this.select(P.sx, P.sy);
-        else this._flushErasesFor(P.hit);
+        else if (!hitSel) this.select(P.sx, P.sy);
+        else this._flushErasesFor(hit);
         // The erase barrier has to cover EVERYTHING that is about to move, not
         // just the piece under the finger. A mark is a native sitting at fixed
         // coordinates; ink dragged out from under one that has not been applied
@@ -98,6 +104,7 @@ class Selection {
         // A drag rewrites the same objects on every pointer event; tiles the
         // camera cannot see are not worth patching that often.
         this.store.setBatch(true);
+        this._beginHold();                   // PAPER-PLAN R3: the members' plate events wait for `_endMove`
         this._dragSelection(sx, sy);
     }
     /**
@@ -121,8 +128,6 @@ class Selection {
         const d = this._dragSel;
         if (!d) return;
         if (d.moved && commitIfMoved) { this._pointerUp(); return; }
-        this._dragSel = null;
-        this.store.setBatch(false);
         if (d.moved) {
             // Back to the frame and the table the drag started from; a move touches nothing else (F55).
             for (const [id, st] of d.moves) {
@@ -132,7 +137,7 @@ class Selection {
             }
             if (d.frames && d.frames.size) this._restoreFrames(d);
         }
-        this._render();
+        this._endMove("cancel");
     }
 
     // ---- multi-selection (bible §5.3) ----
@@ -151,9 +156,120 @@ class Selection {
         }));
     }
     // Is the frame `level` one of `frames`, or under one?
+    /**
+     * Whether frame `level` is under any of `frames`. Answered once per level for a frames array while
+     * the lattice and the array stand: the O(ids) walks over a lasso's 29k ids asked it per id, 0.55 s
+     * of `isUnder` on the Magnum Opus (REVIEWER-4). An array refilled in place to the same length must
+     * drop its entry (`_ufMemo.delete`), as `_lassoFind`'s passes do (REVIEWER-5).
+     */
     _underFrames(level, frames) {
-        for (const f of frames) if (this.lm.isUnder(f, level)) return true;
-        return false;
+        if (!frames.length) return false;
+        const lk = this.lm.addrEpoch + "|" + this.lm.frames.size;
+        const memo = this._ufMemo || (this._ufMemo = new WeakMap());
+        let c = memo.get(frames);
+        if (!c || c.lk !== lk || c.n !== frames.length) memo.set(frames, (c = { lk, n: frames.length, m: new Map() }));
+        const k = String(level);
+        let v = c.m.get(k);
+        if (v === undefined) {
+            v = false;
+            for (const f of frames) if (this.lm.isUnder(f, level)) { v = true; break; }
+            c.m.set(k, v);
+        }
+        return v;
+    }
+    /**
+     * Every frame with a native in its subtree: each frame that holds one, and its ancestors —
+     * O(frames with natives × depth). A visited cell with nothing under it stands for nothing, and a
+     * selection that held one drew a dot on blank paper (Kobin's report 2026-09-23 08-16-23: 50 of them).
+     */
+    _inkedFrames() {
+        const out = new Set();
+        for (const k of this.doc.levels()) {
+            if (!this.doc.count(k)) continue;
+            for (let f = this.lm.frame(k); f && !out.has(f.id); f = f.parent != null ? this.lm.frame(f.parent) : null) out.add(f.id);
+        }
+        return out;
+    }
+    /**
+     * A settle carried natives out of `frame` (or back into it, an unsettle). During a drag and its
+     * drop's render they wait for `_endMove`: a step can unsettle them again, and a frame the drag
+     * moved out of the selection is not selected until the drop is over. Otherwise they wait for the
+     * end of the render whose list build settled them (`_flushCarried`): changed inside it, the
+     * selection ran a camera step on the old list and cut the render's perf row short.
+     */
+    _followCarries(frame, carries) {
+        const s = this.selection, d = this._dragSel || (this._dropping && this._dropping.d);
+        if (!s || !s.frames.length) return;
+        if (d) {
+            if ((d.frames && d.frames.has(frame)) || this._underFrames(frame, s.frames)) {
+                const bag = this._dragSel ? (this._carried || (this._carried = new Set())) : this._dropping.ids;
+                for (const c of carries) bag.add(c[0]);
+            }
+            return;
+        }
+        if (!this._underFrames(frame, s.frames)) return;
+        const q = this._carriedLater || (this._carriedLater = new Map());
+        for (const c of carries) q.set(c[0], String(frame));
+        // A list built outside a render (a ladder rung, a prebake) has no end to flush at.
+        if (!this._carriedFlush) { this._carriedFlush = true; Promise.resolve().then(() => this._flushCarried()); }
+    }
+    /** The carries queued outside a drag, for the selection they were carried out of: at a render's end, or a microtask later. */
+    _flushCarried() {
+        this._carriedFlush = false;
+        const q = this._carriedLater;
+        this._carriedLater = null;
+        const s = this.selection;
+        if (!q || !q.size || !s) return;
+        const ids = [];
+        for (const [id, frame] of q) if (this.lm.frame(frame) && this._underFrames(frame, s.frames)) ids.push(id);
+        if (!ids.length) return;
+        if (this._dragSel) { for (const id of ids) (this._carried || (this._carried = new Set())).add(id); return; }
+        this._reselect(ids, []);
+    }
+    /** Of `ids`, the frames no selected frame holds (a sub-cell rest re-homed them next door), coarsest first, none under another. */
+    _outsideSelection(ids) {
+        const s = this.selection, out = [];
+        if (!s) return out;
+        const fr = [];
+        for (const id of ids) { const f = this.lm.frame(id); if (f) fr.push(f); }
+        for (const f of fr.sort((p, q) => p.depth - q.depth)) {
+            if (this._underFrames(f.id, s.frames) || this._underFrames(f.id, out)) continue;
+            out.push(f.id);
+        }
+        return out;
+    }
+    /** An undo or a redo: the natives it re-homes and the frames it re-addresses out of the selection stay selected. */
+    _keepingSelection(fn) {
+        if (!this.selection || !this.selection.frames.length) return fn();
+        this._moving = { ids: new Set(), frames: new Set() };
+        try { return fn(); } finally {
+            const m = this._moving;
+            this._moving = null;
+            if (this.selection && (m.ids.size || m.frames.size)) this._reselect([...m.ids], this._outsideSelection(m.frames));
+        }
+    }
+    /**
+     * The selection keeps standing for the ink it stood for (DESIGN.md §10). A subtree drag's rest
+     * and its settles move ink across cell edges (§8): a frame no selected frame holds any more joins
+     * as a frame, a carried native as an id (and leaves the ids when a selected frame holds it
+     * again), and a frame left with no ink leaves.
+     */
+    _reselect(ids, torn) {
+        const s = this.selection;
+        if (!s) return;
+        const frames = s.frames.concat(torn);
+        const add = [], back = new Set();
+        for (const id of ids) {
+            const rec = this.doc.getById(id);
+            if (!rec) continue;
+            const under = this._underFrames(rec.level, frames), listed = s.ids.includes(id);
+            if (!under && !listed) add.push(id);
+            else if (under && listed) back.add(id);
+        }
+        const inked = this._inkedFrames();
+        const keep = frames.filter((f) => inked.has(f));
+        if (!add.length && !back.size && keep.length === s.frames.length && keep.every((f, k) => f === s.frames[k])) return;
+        this._setSelection(s.ids.filter((id) => !back.has(id)).concat(add), keep);
     }
     // Every native, with its bbox in the ACTIVE frame's units. Nothing in the
     // engine uses this any more — `_lassoFind` walks the frame tree instead —
@@ -233,20 +349,24 @@ class Selection {
         }
         const found = [];
         const frames = [];
-        const ink = loopTester(everyNth(poly, LASSO_LOOP_MAX_PTS));
+        const ink = loopTester(poly);
         // An enclosed frame is ONE entry of the selection. Its natives and its whole
         // subtree are inside the loop by invariant 2, tables included, so nothing under
         // it is read: O(1) per enclosed frame.
         const takeAll = (id) => { frames.push(id); };
+        const inked = this._inkedFrames();
+        // Enclosed frames holding part of a family the loop does not bound: read as straddling (LASSO-1).
+        const noWhole = new Set();
         // `s`/`tx`/`ty` carry the frame's coordinates into the active frame's.
         // Used only for the two FRAME-level decisions, which are coarse; every
         // per-object rect still goes through `mapRectF` hop by hop.
         const visit = (id, s, tx, ty, skip) => {
+            if (!inked.has(id)) return;                                       // nothing under it to select
             const own = { left: -REACH * s + tx, top: -REACH * s + ty,
                 right: REACH * s + tx, bottom: REACH * s + ty };
             if (own.right < box.left || own.left > box.right
                 || own.bottom < box.top || own.top > box.bottom) return;      // out of reach
-            if (rectInsidePolygon(poly, own)) { takeAll(id); return; }        // enclosed
+            if (!noWhole.has(id) && rectInsidePolygon(poly, own)) { takeAll(id); return; }   // enclosed
             for (const o of this.doc.queryRect(id, { left: (box.left - tx) / s, top: (box.top - ty) / s,
                 right: (box.right - tx) / s, bottom: (box.bottom - ty) / s })) {
                 if (o.erase) continue;
@@ -267,35 +387,14 @@ class Selection {
                 visit(c.id, s / CROSS_RATIO, c.centre.x * s + tx, c.centre.y * s + ty, null);
             }
         };
-        // The active frame and everything under it...
-        visit(this.cam.frame, 1, 0, 0, null);
-        // ...then out through each ancestor, skipping the branch already done.
-        let child = this.lm.frame(this.cam.frame), s = 1, tx = 0, ty = 0;
-        while (child && child.parent != null) {
-            const c = child.centre;
-            if (!c) break;
-            s *= CROSS_RATIO; tx -= c.x * s; ty -= c.y * s;
-            visit(child.parent, s, tx, ty, child.id);
-            child = this.lm.frame(child.parent);
-        }
-        // A MOVED OBJECT OR A CEDED KID IS INDEXED AT ITS STORED BITS and drawn elsewhere
-        // (F41/F55), so the frames' indexes above never see its picture — a loop around
-        // moved ink selected nothing (F69, Kobin's report 21-23-56). Every object with a
-        // table, judged where it is drawn.
-        if (this.doc.hasOffsets()) {
-            const have = new Set(found);
-            const F = this.cam.frame;
-            for (const id of this.doc.offsetIds()) {
-                if (have.has(id)) continue;
-                const rec = this.doc.getById(id);
-                if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
-                if (frames.length && this._underFrames(rec.level, frames)) continue;   // its frame is already one entry
-                const r = this._rectInActive(rec.obj, rec.level);
-                if (!r) continue;
-                if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
-                if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
-                if (this._inkInsidePolygon(rec.obj, rec.level, ink)) found.push(id);
-            }
+        for (let pass = 0; pass < LASSO_PASSES; pass++) {
+            found.length = 0; frames.length = 0;
+            if (this._ufMemo) this._ufMemo.delete(frames);   // refilled in place: `_underFrames`' memo keys on the array
+            this._lassoWalk(visit);
+            this._lassoMoved(poly, box, ink, found, frames);
+            const torn = frames.length ? this._tornUnder(frames, found) : null;
+            if (!torn || !torn.size) break;
+            for (const f of torn) noWhole.add(f);
         }
         // A RE-HOMED FAMILY IS ONE OBJECT, and "fully bounded by the loop" is
         // asked of the whole of it: a loop around a ceded tile alone has not
@@ -314,12 +413,86 @@ class Selection {
             const key = this.doc.editKey(rec.obj);
             let ok = whole.get(key);
             if (ok === undefined) {
-                ok = this.doc.editGroup(rec.obj).every((m) => m.obj.erase || set.has(m.obj.id));
+                ok = this._familyBounded(rec.obj, set, frames);
                 whole.set(key, ok);
             }
             if (ok) out.push(id);
         }
         return { ids: out, frames };
+    }
+    /** The lasso's frame walk: the active frame and everything under it, then out through each ancestor. */
+    _lassoWalk(visit) {
+        visit(this.cam.frame, 1, 0, 0, null);
+        let child = this.lm.frame(this.cam.frame), s = 1, tx = 0, ty = 0;
+        while (child && child.parent != null) {
+            const c = child.centre;
+            if (!c) break;
+            s *= CROSS_RATIO; tx -= c.x * s; ty -= c.y * s;
+            visit(child.parent, s, tx, ty, child.id);                        // skipping the branch already done
+            child = this.lm.frame(child.parent);
+        }
+    }
+    /**
+     * Is the family of `o` bounded by the loop: every piece found, a pending mark, or under an
+     * enclosed frame (a piece homed there is taken through it, report 2026-09-24T04-25-10)?
+     */
+    _familyBounded(o, found, frames) {
+        return this.doc.editGroup(o).every((m) => m.obj.erase || found.has(m.obj.id)
+            || (frames.length > 0 && this._underFrames(m.level, frames)));
+    }
+    /**
+     * The frames an enclosed frame may not stand for whole: the path from each keyed native under
+     * it whose family the loop does not bound (a ceded kid of a stroke outside it) up to the frame.
+     * Reads only the keyed natives under enclosed frames (`Document.keyedIn`), never their other
+     * ink (REVIEWER-3 LASSO-1: a drag then tore the kid out of the stroke).
+     */
+    _tornUnder(frames, found) {
+        const keyed = new Set();
+        for (const k of this.doc.keyedFrames()) {
+            for (let f = this.lm.frame(k); f && !keyed.has(f.id); f = f.parent != null ? this.lm.frame(f.parent) : null) keyed.add(f.id);
+        }
+        const set = new Set(found), whole = new Map(), torn = new Set();
+        const check = (fid, top) => {
+            for (const o of this.doc.keyedIn(fid) || []) {
+                const key = this.doc.editKey(o);
+                let ok = whole.get(key);
+                if (ok === undefined) { ok = this._familyBounded(o, set, frames); whole.set(key, ok); }
+                if (ok) continue;
+                for (let f = this.lm.frame(fid); f; f = f.parent != null ? this.lm.frame(f.parent) : null) {
+                    torn.add(f.id);
+                    if (f.id === top) break;
+                }
+            }
+        };
+        const down = (fid, top) => {
+            check(fid, top);
+            for (const c of this.lm.childrenOf(fid)) if (keyed.has(c.id)) down(c.id, top);
+        };
+        for (const X of frames) if (keyed.has(X)) down(X, X);
+        return torn;
+    }
+    /**
+     * A MOVED OBJECT OR A CEDED KID IS INDEXED AT ITS STORED BITS and drawn elsewhere
+     * (F41/F55), so the frames' indexes never see its picture — a loop around
+     * moved ink selected nothing (F69, Kobin's report 21-23-56). Every object with a
+     * table, judged where it is drawn.
+     */
+    _lassoMoved(poly, box, ink, found, frames) {
+        if (this.doc.hasOffsets()) {
+            const have = new Set(found);
+            const F = this.cam.frame;
+            for (const id of this.doc.offsetIds()) {
+                if (have.has(id)) continue;
+                const rec = this.doc.getById(id);
+                if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
+                if (frames.length && this._underFrames(rec.level, frames)) continue;   // its frame is already one entry
+                const r = this._rectInActive(rec.obj, rec.level);
+                if (!r) continue;
+                if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
+                if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
+                if (this._inkInsidePolygon(rec.obj, rec.level, ink)) found.push(id);
+            }
+        }
     }
     /**
      * Is this object's INK wholly inside the loop? The outline is flattened at
@@ -388,11 +561,17 @@ class Selection {
         this._emit();
         return this.selection;
     }
+    // A ctrl-tap adds or removes ONE object and keeps every selected frame (OPEN-FLAGS F82: the
+    // frames were dropped, and a drag then left their content behind). An object inside a
+    // selected frame is already selected through it, so the tap changes nothing.
     _toggleSelected(id) {
+        const frames = this.selection ? [...(this.selection.frames || [])] : [];
+        const rec = this.doc.getById(id);
+        if (rec && frames.length && this._underFrames(rec.level, frames)) return this.selection;
         const cur = this.selection ? [...this.selection.ids] : [];
         const i = cur.indexOf(id);
         if (i >= 0) cur.splice(i, 1); else cur.push(id);
-        return this._setSelection(cur);
+        return this._setSelection(cur, frames);
     }
     // Close the loop and apply it.
     //   plain     replace the selection with everything the loop bounds
@@ -400,6 +579,7 @@ class Selection {
     //             inside the current selection, which REMOVES instead
     _applyLasso(L) {
         const poly = L.pts.map(([x, y]) => this.cam.screenToFrame(x, y));
+        this._settleLassoErases(poly);       // erase barrier: the marks the loop meets bake out first
         const { ids: found, frames } = this._lassoFind(poly);
         if (!L.ctrl) {
             if (found.length || frames.length) this._setSelection(found, frames); else this.deselect();
@@ -442,7 +622,8 @@ class Selection {
     }
     deselect() {
         if (!this.selection) return;
-        this.selection = null; this._dragSel = null;
+        if (this._dragSel) this._endMove("deselect");   // the one exit: batch, hold and merges released
+        this.selection = null;
         this.renderer.syncCameraOnly(); this.renderer.update();
         this._emit();
     }
@@ -506,15 +687,20 @@ class Selection {
         const seen = new Map();                          // (frame, table) -> the answer
         const rehomes = new Map();                       // target frame -> ids, in member order
         const offsets = [];                              // [id, table] whose table changed
-        for (const rec of this._selectionMembers()) {
-            const id = rec.obj.id;
+        // The members once a drag: a step re-homes them, and every re-home rebuilt the family index
+        // over the whole document (36–80 ms a step on the Earth, REVIEWER A1-4).
+        if (!d.members) d.members = this._selectionMembers().map((m) => m.obj);
+        for (const o of d.members) {
+            const id = o.id;
+            if (this.doc._byId.get(id) !== o || o._gone) continue;       // gone meanwhile
             let st = d.moves.get(id);
             if (!st) {
-                st = { from: rec.level, to: rec.level, dx: 0, dy: 0, baseBelow: cloneBelow(rec.obj.below) };
+                st = { from: o._home, to: o._home, dx: 0, dy: 0, baseBelow: cloneBelow(o.below) };
                 st.below = st.baseBelow;
+                st.key = st.from + "|" + JSON.stringify(st.baseBelow || null);
                 d.moves.set(id, st);
             }
-            const key = st.from + "|" + JSON.stringify(st.baseBelow || null);
+            const key = st.key;
             let put = seen.get(key);
             if (!put) { put = this._displaceMember(st.from, st.baseBelow, camDepth, tx, ty); seen.set(key, put); }
             if (put.why) { skip(id, st.from, put.why); continue; }
@@ -533,7 +719,12 @@ class Selection {
             if (d.frameStart.size && this._dragFrames(d, camDepth, tx, ty)) moved = true;
         }
         d.moved = d.moved || moved;
-        this._render();
+        // With the hold on, the drag plane draws the move (PAPER-PLAN §10 S4): no list is built per
+        // step — 120–240 ms each on the Magnum Opus — and the plates stay as they were until the drop.
+        if (this._holdMove && this.renderer.dragLight && this.renderer.dragLight()) {
+            if (!d.listAt) d.listAt = d.start;           // the list the ants decide on is the pre-drag one
+            this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+        } else { d.listAt = null; this._render(); }
     }
     /**
      * The frames a drag moves AS FRAMES: each selected root's subtree within three levels of
@@ -565,14 +756,12 @@ class Selection {
      * two steps at once (O(its natives): the cost of drawing it). Never per object otherwise.
      */
     _dragFrames(d, camDepth, tx, ty) {
-        const targets = this.lm.moveSubtreeTargets(null, camDepth, tx, ty, d.frameStart);
+        const targets = this.lm.moveSubtreeTargets(null, camDepth, tx, ty, d.frameStart, (id) => { const e = d.frames.get(id); return e ? e.shiftBefore : null; });
         const apply = [];
         for (const t of targets) {
             const e = d.frames.get(t.id);
             if (t.why) { (d.skipped || (d.skipped = [])).push({ id: t.id, level: t.id, why: t.why }); continue; }
-            const sx = (e.shiftBefore ? e.shiftBefore[0] : 0) + t.rest[0];
-            const sy = (e.shiftBefore ? e.shiftBefore[1] : 0) + t.rest[1];
-            e.shiftAfter = (sx || sy) ? [sx, sy] : null;
+            e.shiftAfter = t.shift;                        // within ±W/2, its whole cells in the address (§2.2)
             if (e.settled && !sameShift(e.shiftAfter, [e.settled.dx, e.settled.dy])) { this.doc.unsettle(e.id, e.settled); e.settled = null; }
             apply.push(t);
         }
@@ -586,7 +775,8 @@ class Selection {
             const w = was.get(t.id);
             const addrChanged = to.parent !== w.parent || to.i !== w.i || to.j !== w.j;
             const shiftChanged = !e.settled && !sameShift(f.shift, e.shiftAfter);
-            if (addrChanged) this.doc.noteRefile(t.id, w, to);
+            // A shift alone moves the frame's picture too: the caches drop its footprint as for a re-address.
+            if (addrChanged || shiftChanged) this.doc.noteRefile(t.id, w, to);
             if (shiftChanged) this.doc.setFrameShift(t.id, e.shiftAfter);
             this.doc.noteFrameOwner(t.id, e);
             e.to = to;
@@ -686,7 +876,9 @@ class Selection {
             if (!rec) continue;
             for (const m of this.doc.editGroup(this.doc.editKey(rec.obj))) {
                 if (seen.has(m.obj.id)) continue;
-                seen.add(m.obj.id); out.push(m);
+                seen.add(m.obj.id);
+                if (s.frames.length && this._underFrames(m.level, s.frames)) continue;   // its frame moves it: once
+                out.push(m);
             }
         }
         // Selected frames are not expanded: the drag moves them as frames (`_dragFrames`) and
@@ -694,14 +886,18 @@ class Selection {
         return out;
     }
     /**
-     * Delete everything selected, families included, as ONE undoable action.
-     *
-     * This used to call `_eraseWhole` once per selected id, and each call
-     * pushed its own undo op — so a lasso of three strokes and Delete needed
-     * three Ctrl+Z to come back, one object at a time (measured 2026-09-05).
-     * The user did one thing; the history records one thing.
+     * Delete what the selection stands for as ONE undoable action: its ids with their families and
+     * its frames as containers. First the carries not yet applied and, mid-drag, the ink the drag has
+     * moved out of its frames join it; otherwise they would join only at the drop (F93).
      */
     deleteSelection() {
+        if (this._carriedLater) this._flushCarried();
+        const dr = this._dragSel;
+        if (dr && this.selection) {
+            const carried = this._carried ? [...this._carried] : [];
+            this._carried = null;
+            this._reselect(carried, dr.frames ? this._outsideSelection(dr.frames.keys()) : []);
+        }
         const s = this.selection; if (!s) return false;
         const records = [];
         const seen = new Set();
@@ -731,6 +927,7 @@ class Selection {
         if (!frameRecords.length) this.doc.pushUndo({ op: "eraseMany", records });
         else if (!records.length) this.doc.pushUndo({ op: "removeFrames", records: frameRecords });
         else this.doc.pushUndo({ op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frameRecords }] });
+        if (this._dragSel || this._holdMove) this._endMove("delete");   // the members' removals were held
         this.deselect();
         this._render();
         return true;
@@ -742,7 +939,8 @@ class Selection {
         const s = this.selection; if (!s) return null;
         return {
             id: s.id, ids: [...s.ids], frames: [...s.frames],
-            count: s.ids.length + s.frames.reduce((n, f) => n + this._subtreeCount(f), 0),
+            // A frame under another selected one is counted by it (an undo re-nests a frame a drag tore off).
+            count: s.ids.length + s.frames.reduce((n, f) => n + (this._underFrames(f, s.frames.filter((x) => x !== f)) ? 0 : this._subtreeCount(f)), 0),
             type: s.obj ? s.obj.type : "frame", level: s.level,
         };
     }
@@ -756,15 +954,31 @@ class Selection {
     // answers "inside" exactly, but picking wants a little reach, so a miss is
     // retried on a ring of probes at the slack radius. Eight is enough: the ink
     // is a pen stroke, never a needle.
-    _shapeHit(loops, p, slack) {
-        if (insideShape(loops, p)) return true;
+    _shapeHit(loops, p, slack, o = null) {
+        // The nine probes share one index of the pieces, kept per object while its loops stand
+        // (195 ms a pick over 14,119 pieces with a scan a probe, REVIEWER-3 EFF-2). A WeakMap: a
+        // native is wired to the erase worker, and a field holding a function would not clone.
+        let inside = null;
+        if (o) {
+            const m = this._hitIx || (this._hitIx = new WeakMap());
+            const c = m.get(o);
+            if (c && c.loops === loops && c.ver === o._ver) inside = c.inside;
+            else { inside = insideTester(loops); m.set(o, { loops, ver: o._ver, inside }); }
+        } else inside = insideTester(loops);
+        if (inside(p)) return true;
         if (!(slack > 0)) return false;
         for (let k = 0; k < 8; k++) {
             const a = (k * Math.PI) / 4;
-            if (insideShape(loops, [p[0] + slack * Math.cos(a), p[1] + slack * Math.sin(a)])) return true;
+            if (inside([p[0] + slack * Math.cos(a), p[1] + slack * Math.sin(a)])) return true;
         }
         return false;
     }
+    /**
+     * A mark smaller than the reach is picked anywhere its box is within reach: the eight probes
+     * sit on the reach's ring, and a sub-pixel dot between them was picked only by a press exactly
+     * on it (TESTER-2, 2026-09-24: a press on a lassoed dot took the ink under it).
+     */
+    _tinyHit(b, slack) { return slack > 0 && b.x1 - b.x0 < slack && b.y1 - b.y0 < slack; }
     /**
      * What is under this screen point, or null. Public because the cursor has
      * to answer the same question the click will: ctrl over a selected object
@@ -774,7 +988,8 @@ class Selection {
     // `slackPx`: how far past the ink a pick still counts, in screen pixels.
     // Six for every real pick; tests that ask "is this point INSIDE the ink"
     // (a hole a few pixels wide, seen from far above) pass 0.
-    _hitTest(sx, sy, slackPx = 6) {
+    // `only(id)`: when given, the topmost hit it accepts (a pick among the selection).
+    _hitTest(sx, sy, slackPx = 6, only = null) {
         const p0 = this.cam.screenToFrame(sx, sy);
         const list = this._lastList;
         const slack = slackPx / this.cam.inScale;
@@ -792,7 +1007,7 @@ class Selection {
                 const b = bboxOf(o, this.store.live);
                 if (p[0] < b.x0 - slack || p[0] > b.x1 + slack
                     || p[1] < b.y0 - slack || p[1] > b.y1 + slack) continue;
-                hit = this._shapeHit(o.loops, p, slack);
+                hit = this._tinyHit(b, slack) || this._shapeHit(o.loops, p, slack, o);
             }
             else if (o.type === "fill") {
                 // The same reach as a shape gets. A fill here is almost always
@@ -804,7 +1019,7 @@ class Selection {
                 const b = bboxOf(o, this.store.live);
                 if (p[0] < b.x0 - slack || p[0] > b.x1 + slack
                     || p[1] < b.y0 - slack || p[1] > b.y1 + slack) continue;
-                hit = windingOfPoint(o.polys, p) !== 0;
+                hit = this._tinyHit(b, slack) || windingOfPoint(o.polys, p) !== 0;
                 for (let k = 0; k < 8 && !hit && slack > 0; k++) {
                     const a = (k * Math.PI) / 4;
                     hit = windingOfPoint(o.polys, [p[0] + slack * Math.cos(a), p[1] + slack * Math.sin(a)]) !== 0;
@@ -819,6 +1034,7 @@ class Selection {
             // through to whatever it covers (select() then flushes its bake).
             const nat = this.doc.getById(o.id);
             if (nat && nat.obj.erase) continue;
+            if (only && !only(o.id)) continue;
             return o.id;
         }
         return null;

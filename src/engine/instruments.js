@@ -22,6 +22,7 @@
  * them.
  */
 import { perfNow } from "./now";
+import { growth as rasterGrowth } from "./raster/rasterPerf";
 
 // ---- long animation frames --------------------------------------------------
 // WHERE THE TIME ACTUALLY GOES, straight from the browser.
@@ -46,6 +47,7 @@ const LOAF_KEPT = 25;
 export class LongFrames {
     constructor() {
         this.worst = [];
+        this.recent = [];   // the last LOAF_KEPT, whatever their length: a report sent right after a freeze
         this.count = 0;
         this.totalMs = 0;
         this.supported = false;
@@ -95,10 +97,12 @@ export class LongFrames {
         this.worst.push(rec);
         this.worst.sort((a, b) => b.ms - a.ms);
         if (this.worst.length > LOAF_KEPT) this.worst.length = LOAF_KEPT;
+        this.recent.push(rec);
+        if (this.recent.length > LOAF_KEPT) this.recent.shift();
     }
     report() {
         return { supported: this.supported, count: this.count,
-            totalMs: +this.totalMs.toFixed(0), worst: this.worst.slice(0, LOAF_KEPT) };
+            totalMs: +this.totalMs.toFixed(0), worst: this.worst.slice(0, LOAF_KEPT), recent: this.recent.slice() };
     }
     stop() { try { if (this._obs) this._obs.disconnect(); } catch (err) { /* ignore */ } this._obs = null; }
 }
@@ -192,9 +196,16 @@ export class GrowthLog {
         let svgNodes = null;
         try { if (typeof document !== "undefined") svgNodes = document.querySelectorAll("svg *").length; }
         catch (err) { /* ignore */ }
+        // The three the raster path grows (§8.5): the plate cache's count and bytes and the
+        // packer's memo. Null when no renderer has attached, which is every SVG-mode session.
+        // `svgNodes` stays beside them because the overlay is still SVG.
+        const ras = rasterGrowth();
         const s = {
             t: Date.now(),
             heapMB,
+            plates: ras ? ras.plates : null,
+            plateBytes: ras ? ras.plateBytes : null,
+            packedBytes: ras ? ras.packedBytes : null,
             svgNodes,
             frames: E.lm && E.lm.frames ? E.lm.frames.size : null,
             buckets: E.doc ? E.doc.levels().length : null,
@@ -264,8 +275,11 @@ export class FrameMeter {
     _start() {
         if (typeof requestAnimationFrame !== "function") return;
         this._last = 0;
-        const tick = (ts) => {
-            const now = typeof ts === "number" ? ts : perfNow();
+        // Callback time, never the frame's timestamp argument: Chrome hands a late callback the
+        // time of the frame it was scheduled for, so a 27 ms task read a 16.7 ms interval and the
+        // raster ring's BROWSER inference went negative on every long task (RASTERISER-PLAN D269).
+        const tick = () => {
+            const now = perfNow();
             if (this._last) this.record(now - this._last);
             this._last = now;
             if (now >= this._until) { this._raf = null; this._last = 0; return; }
@@ -282,6 +296,10 @@ export class FrameMeter {
         // frames, landing near the moment someone switches away to click
         // something. Counting them cost most of a day on 2026-08-21.
         if (typeof document !== "undefined" && document.hidden) { this.hidden++; return; }
+        // The raster ring's BROWSER attribution is `rafDelta - mainMs` and it rides THIS loop:
+        // a second rAF loop would keep a phone's display pipeline awake (§8.1, D28). It sits
+        // after the hidden guard, so a tab-switch pause never patches a row.
+        if (this.onFrame) this.onFrame(ms, Date.now());
         this.frames++; this.totalMs += ms;
         let i = 0;
         while (i < FRAME_BUCKETS.length && ms > FRAME_BUCKETS[i]) i++;

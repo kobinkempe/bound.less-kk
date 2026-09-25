@@ -15,12 +15,11 @@
  * undo/redo stacks come back from the same entries, and a pending eraser's done set
  * is the ids its bake entries name, so it picks up where it left off.
  *
- * ORDER. Entries take their seq when the event happens, in event order; an `add`, a
- * `mark` and a `put` encode at drain time (a stroke has resolved by then) but keep the
- * array index they had when the op landed; a bake step encodes the moment it lands
- * (its pieces may be cut again before the tick). Every apply on replay is idempotent,
- * and an entry whose frames all hold a newer snapshot is skipped — an undo or redo
- * included, whose inverse is then built from the entry's own data.
+ * ORDER. Entries take their seq when the event happens, in event order; an `add`, a `mark`
+ * and a `put` encode at drain time but keep the array index they had when the op landed; a
+ * bake step encodes the moment it lands. Replay is idempotent and skips what the snapshots
+ * hold (`snapshotRule`; a frame the header does not list holds everything, F98) — an undo
+ * or redo's inverse is then built from the entry's own data.
  *
  * THE LATTICE IS THE HEADER'S (the subtree move, DESIGN.md §8). Every write carries
  * `lm.serialize()` with its entries, so the stored addresses, shifts and shadows are never
@@ -32,10 +31,22 @@
  */
 import { encodeEntry, decodeEntry } from "./format2";
 import { encodeBelow, decodeBelow } from "./geometry/offsets";
-import { nativeFromRecord } from "./Document";
+import { nativeFromRecord, UNDO_CAP } from "./Document";
 
 const lvl = (v) => (v == null ? null : String(v));
 const EMPTY = new Float64Array(0);
+
+/**
+ * Whether the stored snapshots already hold an entry at `seq` touching `levels`: every such frame's
+ * snapshot is at or past it. A frame the header does not list (`listed`, its frameIds) was empty at
+ * that write, so it holds every entry (F98: a container a later drop emptied had lost its seq, and its
+ * entries replayed over newer snapshots). Replay and foldStore's log tail share this rule.
+ */
+export function snapshotRule(frameSeq = {}, listed = null) {
+    const has = listed ? new Set([...listed].map(String)) : null;
+    const at = (x) => (has && !has.has(String(x)) ? Infinity : (frameSeq[x] || 0));
+    return (seq, levels) => { const L = [...levels].filter((x) => x != null); return L.length > 0 && L.every((x) => seq <= at(x)); };
+}
 
 export class OpLog {
     constructor(engine) {
@@ -89,15 +100,16 @@ export class OpLog {
         return null;
     }
     // A frame's shift settled into its natives' tables, or a cancelled drag's tables restored:
-    // an entry of the result tables, coalesced with a settle of the same frame queued just
-    // before it (a drag unsettles and settles a visible frame every event). A carry changed
+    // an entry of the result tables, coalesced with a settle of the same frame and the same move
+    // op queued just before it (a drag unsettles and settles a visible frame every event; another
+    // op's settle merged in hung on the wrong op in replay, REVIEWER-3 SAVE-2). A carry changed
     // homes, so both frames snapshot.
     _onSettle(ev) {
         const rec = ev.rec;
         const of = this._ownerSeq(ev.owner);
         const touches = [...new Set([lvl(ev.frame), ...rec.carries.map((c) => lvl(c[1]))])];
         const last = this.queue[this.queue.length - 1];
-        if (last && last.k === "settle" && last.frame === lvl(ev.frame)) { last.rec = rec; if (of != null) last.of = of; last.touches = touches; }
+        if (last && last.k === "settle" && last.frame === lvl(ev.frame) && (last.of ?? null) === (of ?? null)) { last.rec = rec; last.touches = touches; }
         else this.queue.push({ seq: this._next(), k: "settle", frame: lvl(ev.frame), of, rec, touches });
         if (rec.carries.length) for (const L of touches) this.forced.add(L);
     }
@@ -117,6 +129,12 @@ export class OpLog {
         }
         if (ev.kind === "settle") { this._onSettle(ev); return; }
         if (ev.kind === "mergeFrame") { this._onMerge(ev); return; }
+        // Frames frame GC forgot: a record; the header's lattice already lacks them, so replay skips it.
+        if (ev.kind === "forget") {
+            const frames = ev.frames.map(lvl);
+            this.queue.push({ seq: this._next(), k: "forget", touches: frames, encoded: { op: { k: "forget", frames }, geo: EMPTY } });
+            return;
+        }
         const op = ev.op;
         if (ev.kind === "bake") {
             const st = ev.step;
@@ -210,7 +228,9 @@ export class OpLog {
         const out = new Set();
         const at = (id) => { const r = this.doc.getById(id); if (r) out.add(lvl(r.level)); };
         switch (op.op) {
-            case "add": at(op.id); break;
+            // An undone add is already gone when this runs: its frame is where this tick removed it from
+            // (REVIEWER-2 U-1: it named none, forced no snapshot, and the stroke came back at a reload).
+            case "add": { at(op.id); const r = this.removed.get(op.id); if (r && r.level != null) out.add(r.level); break; }
             case "absent": if (op.level != null) out.add(lvl(op.level)); break;
             case "move": if (op.from != null) out.add(lvl(op.from)); if (op.to != null) out.add(lvl(op.to)); at(op.id); break;
             case "moveMany": for (const m of op.moves) { if (m.from != null) out.add(lvl(m.from)); if (m.to != null) out.add(lvl(m.to)); at(m.id); } break;
@@ -268,7 +288,10 @@ export class OpLog {
             let enc = it.encoded;
             if (it.k === "add" || it.k === "mark" || it.k === "put") {
                 const cur = this.doc.getById(it.id);
-                const src = cur ? { obj: cur.obj, level: lvl(cur.level) } : this.removed.get(it.id);
+                // Set aside with its frame in the same tick: neither live nor removed, still its own record (SAVE-4).
+                const aside = !cur && !this.removed.has(it.id) ? this.doc._byId.get(it.id) : null;
+                const src = cur ? { obj: cur.obj, level: lvl(cur.level) }
+                    : this.removed.get(it.id) || (aside ? { obj: aside, level: lvl(aside._home) } : null);
                 if (!src) continue;                                   // came and went inside the tick, recorded elsewhere
                 it.touches = [src.level];
                 enc = encodeEntry({ k: it.k, level: src.level, index: it.index, obj: src.obj });
@@ -300,30 +323,30 @@ export class OpLog {
 
     // ---- replay ----
     /**
-     * Apply stored entries onto the loaded document: an entry is skipped when every frame
-     * it touches already holds a newer snapshot, and every apply is idempotent. Rebuilds
-     * the undo/redo stacks from the ops among them and re-registers pending erasers with
-     * the done sets their bake entries name. `entries` ascend by seq; `frameSeq` maps a
-     * frame id to the seq of its stored snapshot.
+     * Apply stored entries onto the loaded document: an entry is skipped when the snapshots
+     * already hold it (`snapshotRule`), and every apply is idempotent. Rebuilds the undo/redo
+     * stacks from the ops among them and re-registers pending erasers with the done sets their
+     * bake entries name. `entries` ascend by seq; `frameSeq` maps a frame id to the seq of its
+     * stored snapshot; `listed` is the header's frameIds (without it, every frame counts as listed).
      */
-    replay(entries, frameSeq = {}) {
+    replay(entries, frameSeq = {}, listed = null) {
         const wasReplaying = this.replaying;
         this.replaying = true;
         this._replaySettles = [];
-        try { return this._replay(entries, frameSeq); } finally {
+        try { return this._replay(entries, frameSeq, listed); } finally {
             this.replaying = wasReplaying;
             for (const ev of this._replaySettles) this._onSettle(ev);   // `_replayOps` still names the ops for `of`
             this._replaySettles = [];
             this._replayOps = null;
         }
     }
-    _replay(entries, frameSeq) {
+    _replay(entries, frameSeq, listed) {
         const doc = this.doc, E = this.E;
         const ops = new Map();          // seq -> { op, entry, levels, spent }
         this._replayOps = ops;
         const marks = new Map();        // strokeId -> the same record
         let undo = [], redo = [];
-        const stale = (seq, levels) => { const L = [...levels].filter((x) => x != null); return L.length > 0 && L.every((x) => seq <= (frameSeq[x] || 0)); };
+        const stale = snapshotRule(frameSeq, listed);
         // ONE OBJECT PER ID across every record (F70). In a live session the ops and the
         // document share identity, so an undo that resets a moved piece resets the object
         // every later record holds; a replay that decoded each record on its own broke
@@ -345,15 +368,33 @@ export class OpLog {
         };
         const liveOrDoc = (rec) => { const cur = doc.getById(rec.id); if (cur) { made.set(rec.id, cur.obj); return cur.obj; } return live(rec); };
         const at = (index) => (index == null || index < 0 ? 1e9 : index);
-        const fresh = (seq, op, entry, levels) => { op._seq = seq; const rec = { op, entry, levels: new Set(levels.map(lvl)), spent: false }; ops.set(seq, rec); undo.push(op); redo = []; return rec; };
+        // The table and home a stale undo or redo of a move leaves an object at while it is out of the
+        // document (REVIEWER-2 U-2: its add entry encodes it at drain time, moved; a redo brought it back moved).
+        const rewound = new Map();
+        const rewind = (obj, id) => {
+            const r = rewound.get(id);
+            if (!r || doc.getById(id)) return obj;
+            if ("below" in r) { if (r.below) obj.below = r.below; else delete obj.below; }
+            return obj;
+        };
+        // Capped as `Document.pushUndo` caps it, op by op: history never names more than it did live (F94).
+        const fresh = (seq, op, entry, levels) => {
+            op._seq = seq; const rec = { op, entry, levels: new Set(levels.map(lvl)), spent: false }; ops.set(seq, rec);
+            undo.push(op); if (undo.length > UNDO_CAP) undo.shift();
+            redo = []; return rec;
+        };
         // The inverse of an op whose effect the snapshot already holds, from the entry's data.
         const inverseFromData = (rec) => {
             const op = rec.op, e = rec.entry;
             switch (op.op) {
-                case "add": return { op: "absent", obj: liveOrDoc(e.obj), level: e.level, index: at(e.index) };
+                case "add": {
+                    const r = rewound.get(e.obj.id), out = !doc.getById(e.obj.id);
+                    return { op: "absent", obj: rewind(liveOrDoc(e.obj), e.obj.id), level: r && r.level != null && out ? r.level : e.level, index: at(e.index) };
+                }
                 case "absent": return { op: "add", id: op.obj.id };
                 case "eraseCommit":
-                    if (!op.strokeRec && !rec.spent) op.strokeRec = { obj: liveOrDoc(e.obj), level: e.level, index: at(e.index) };
+                    // A spent mark has nothing to restore (U-3: an older record re-inserted it and it baked again).
+                    op.strokeRec = rec.spent ? null : (op.strokeRec || { obj: liveOrDoc(e.obj), level: e.level, index: at(e.index) });
                     op.op = "eraseRevert"; return op;
                 case "eraseRevert": op.op = "eraseCommit"; return op;
                 case "move": return { op: "move", ...doc._invertMove(op) };
@@ -442,13 +483,14 @@ export class OpLog {
                     const rec = marks.get(e.mark);
                     const levels = [e.level, ...(e.levels || [])];
                     if (rec) for (const L of levels) rec.levels.add(lvl(L));
-                    const apply = !stale(seq, levels);
-                    const step = { removed: { obj: liveOrDoc(e.removed.obj), level: e.level, index: at(e.removed.index) }, pieces: [] };
-                    if (apply) doc.removeById(e.removed.obj.id);
+                    // Per frame: a piece whose frame's snapshot is newer is there already, or was cut again since.
+                    const step = { removed: { obj: liveOrDoc(e.removed.obj), level: e.level, index: at(e.removed.index) }, pieces: [], _seq: seq };
+                    if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;   // steps after the reload land after these
+                    if (!stale(seq, [e.level])) doc.removeById(e.removed.obj.id);
                     e.pieces.forEach((pr, i) => {
                         const L = (e.levels && e.levels[i]) || e.level;
                         const obj = liveOrDoc(pr);
-                        if (apply && !doc.getById(pr.id)) doc.insertAt(obj, L, 1e9);
+                        if (!stale(seq, [L]) && !doc.getById(pr.id)) doc.insertAt(obj, L, 1e9);
                         step.pieces.push({ obj, level: L });
                     });
                     if (rec) rec.op.baked.push(step);
@@ -457,15 +499,17 @@ export class OpLog {
                 case "bakeFrames": {
                     const rec = marks.get(e.mark);
                     const records = frameRecs(e.frames);
-                    for (const r of records) { if (rec) rec.levels.add(lvl(r.frame)); if (!stale(seq, [r.frame])) doc.detachFrame(r.frame); }
-                    if (rec) rec.op.baked.push({ frames: records });
+                    for (const r of records) { if (rec) rec.levels.add(lvl(r.frame)); if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r); }
+                    if (rec) rec.op.baked.push({ frames: records, _seq: seq });   // in the steps' order: undo reverts newest first (F128)
+                    if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;
                     break;
                 }
                 case "rekey": {
                     const rec = marks.get(e.mark);
                     for (const r of e.rekeys) { const cur = doc.getById(r.id); if (cur) Object.assign(cur.obj, r.after); }
                     doc.keysChanged();
-                    if (rec) rec.op.baked.push({ rekey: e.rekeys });
+                    if (rec) rec.op.baked.push({ rekey: e.rekeys, _seq: seq });
+                    if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;
                     break;
                 }
                 case "removeMany": {
@@ -508,7 +552,7 @@ export class OpLog {
                 }
                 case "removeFrames": {
                     const records = frameRecs(e.records);
-                    for (const r of records) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame);
+                    for (const r of records) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r);
                     fresh(seq, { op: "removeFrames", records }, e, records.map((r) => r.frame));
                     break;
                 }
@@ -516,7 +560,7 @@ export class OpLog {
                     const records = (e.records || []).map((r) => ({ obj: liveOrDoc(r.obj), level: r.level, index: at(r.index) }));
                     for (const r of records) if (!stale(seq, [r.level])) doc.removeById(r.obj.id);
                     const frames = frameRecs(e.frames);
-                    for (const r of frames) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame);
+                    for (const r of frames) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r);
                     fresh(seq, { op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frames }] }, e,
                         [...records.map((r) => r.level), ...frames.map((r) => r.frame)]);
                     break;
@@ -525,7 +569,20 @@ export class OpLog {
                     const rec = ops.get(e.of);
                     if (!rec) break;
                     const op = rec.op;
-                    const inv = op.op === "moveFrames" ? undoFrames(op, seq) : stale(seq, rec.levels) ? inverseFromData(rec) : doc._invert(op);
+                    const old = stale(seq, rec.levels);
+                    if (old && (op.op === "move" || op.op === "moveMany")) {
+                        // `op` is the op to invert next (after an undo, already the inverse): either way
+                        // the member ends at its `from` and `belowBefore` (REVIEWER-3 SAVE-1).
+                        for (const m of (op.op === "move" ? [op] : op.moves)) {
+                            rewound.set(m.id, "belowBefore" in m ? { below: m.belowBefore, level: m.from } : { level: m.from });
+                            const o = made.get(m.id);
+                            if (o) rewind(o, m.id);
+                        }
+                    }
+                    // The document's stacks are the replay's so far: an erase gesture's undo or redo asks which other
+                    // gestures' steps consumed or minted its pieces (Document._stepIndex), and they live in these.
+                    doc._undo = undo; doc._redo = redo;
+                    const inv = op.op === "moveFrames" ? undoFrames(op, seq) : old ? inverseFromData(rec) : doc._invert(op);
                     inv._seq = op._seq; rec.op = inv;
                     if (e.k === "undo") { undo = undo.filter((x) => x !== op); redo.push(inv); }
                     else { redo = redo.filter((x) => x !== op); undo.push(inv); }
@@ -536,10 +593,11 @@ export class OpLog {
                     if (cur && !stale(seq, [cur.level])) { Object.assign(cur.obj, e.set); doc.keysChanged(); }
                     break;
                 }
+                case "forget": break;                              // the lattice is the header's
                 default: break;
             }
         }
-        doc._undo = undo.slice(-200); doc._redo = redo;
+        doc._undo = undo.slice(-UNDO_CAP); doc._redo = redo;
         // Pending erasers: the gesture's op and its done set, so the bake resumes.
         E._eraseCommits.clear(); E._bakeDone.clear(); E._cutInflight = null;
         for (const [strokeId, rec] of marks) {

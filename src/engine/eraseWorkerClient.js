@@ -55,8 +55,6 @@ function getWorker() {
     return worker;
 }
 
-/** Is there somewhere to send a cut? (Once false, false for the session.) */
-export function eraseWorkerAvailable() { return !!transport || !!getWorker(); }
 
 /**
  * The cut off the main thread: a promise of the result (regions as Loops), or null

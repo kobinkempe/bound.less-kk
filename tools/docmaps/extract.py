@@ -4,10 +4,14 @@
 Every edge this emits corresponds to a real call site, so the graph stays what
 its header claims: read off the source, not inferred. Anything that cannot be
 resolved to a known node is dropped rather than guessed.
-"""
-import os, re, json, collections
 
-import os
+Run from the repository root, after `inventory.py`. Every file the inventory
+names must have a module key in MODFILE, or this stops and names the file.
+"""
+import os, re, json, collections, sys
+
+from _mask import mask
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 ROOT = "src"
@@ -15,6 +19,7 @@ BS = chr(92)
 
 # module key -> source file. Keys match graph.py's MOD/MODNAME vocabulary.
 MODFILE = {
+    # the engine: one prototype in six files, and what it is built from
     "eng": "src/engine/KobinEngine.js",
     "erp": "src/engine/erasePipeline.js",
     "ovl": "src/engine/overlays.js",
@@ -25,14 +30,39 @@ MODFILE = {
     "rmt": "src/engine/rectMath.js",
     "mix": "src/engine/mixin.js",
     "now": "src/engine/now.js",
+    "ejb": "src/engine/eraseJob.js",
+    "eds": "src/engine/eraseDescent.js",
+    "ewc": "src/engine/eraseWorkerClient.js",
+    "rep": "src/engine/report.js",
+    # space, the store and the saved form
     "cam": "src/engine/Camera.js",
     "lm":  "src/engine/LevelMap.js",
     "ts":  "src/engine/TileStore.js",
     "rnd": "src/engine/Renderer.js",
     "doc": "src/engine/Document.js",
     "per": "src/engine/persist.js",
-    "scn": "src/engine/scenes.js",
+    "f2":  "src/engine/format2.js",
+    "opl": "src/engine/oplog.js",
     "fl":  "src/engine/frameLattice.js",
+    # the scene index
+    "six": "src/engine/sceneIndex.js",
+    "scc": "src/engine/sceneClient.js",
+    "swc": "src/engine/sceneWorkerClient.js",
+    # the raster renderer: the paper
+    "rr":  "src/engine/raster/RasterRenderer.js",
+    "pic": "src/engine/raster/PictureLayer.js",
+    "pls": "src/engine/raster/PlateStore.js",
+    "ovy": "src/engine/raster/OverlayLayer.js",
+    "mvp": "src/engine/raster/MovePlane.js",
+    "anp": "src/engine/raster/antPaint.js",
+    "plt": "src/engine/raster/plate.js",
+    "rco": "src/engine/raster/rasterCore.js",
+    "rjb": "src/engine/raster/rasterJob.js",
+    "rpk": "src/engine/raster/rasterPack.js",
+    "rpf": "src/engine/raster/rasterPerf.js",
+    "rwc": "src/engine/raster/rasterWorkerClient.js",
+    "rwk": "src/engine/worker/rasterWorker.js",
+    # geometry
     "shp": "src/engine/geometry/arcShape.js",
     "arc": "src/engine/geometry/arcPerimeter.js",
     "bia": "src/engine/geometry/biarc.js",
@@ -44,6 +74,10 @@ MODFILE = {
     "ply": "src/engine/geometry/polyline.js",
     "clb": "src/engine/geometry/clipperBoolean.js",
     "cvo": "src/engine/geometry/curveOutline.js",
+    "lop": "src/engine/geometry/loop.js",
+    "off": "src/engine/geometry/offsets.js",
+    "chm": "src/engine/geometry/chordMath.js",
+    "ant": "src/engine/geometry/antRuns.js",
     # the scale bar
     "sbi": "src/engine/scaleBar/index.js",
     "cat": "src/engine/scaleBar/catalog.js",
@@ -62,9 +96,18 @@ MODFILE = {
     "val": "src/engine/scaleBar/validate.js",
     # shell, storage, cloud
     "hok": "src/hooks/useKobinEngine.js",
+    "rps": "src/hooks/reportSend.js",
+    "db":  "src/storage/db.js",
     "loc": "src/storage/localCanvases.js",
     "thm": "src/storage/thumbnails.js",
+    "fld": "src/storage/foldStore.js",
     "cld": "src/cloud/canvasSync.js",
+    "css": "src/cloud/canvasSession.js",
+    "syn": "src/cloud/syncCore.js",
+    "slk": "src/cloud/storageLocks.js",
+    "st2": "src/cloud/store2.js",
+    "gz":  "src/cloud/gzip.js",
+    "lzw": "src/cloud/lzWorker.js",
     "fba": "src/cloud/firebaseApp.js",
     "usr": "src/cloud/useUser.js",
     "edt": "src/Pages/CanvasEditor.js",
@@ -84,44 +127,58 @@ MODFILE = {
     "sdd": "src/Components/editor/SaveDrawingDialog.js",
     "sdb": "src/Components/editor/ScaleDragBar.js",
     "sup": "src/Components/editor/ScaleUnitPicker.js",
+    "syc": "src/Components/editor/SyncChip.js",
     "wop": "src/Components/editor/WidthOpacityPanel.js",
     "aps": "src/Components/editor/useAnchorPopoverStyle.js",
     "cka": "src/Components/editor/useClickAway.js",
-    # not running: the oracles (src/engine/__oracles__) and the testkit
+    # not running: the oracles (src/engine/__oracles__)
     "v0":  "src/engine/__oracles__/KobinEngineV0.js",
     "cvp": "src/engine/__oracles__/curvePerimeter.js",
     "sks": "src/engine/__oracles__/strokeShape.js",
     "bks": "src/engine/__oracles__/bakeStrategies.js",
     "ced": "src/engine/__oracles__/cede.js",
     "ers": "src/engine/__oracles__/erase.js",
+    "cov": "src/engine/__oracles__/coverageOracle.js",
+    "sor": "src/engine/__oracles__/sceneOracle.js",
     "reportWebVitals": "src/reportWebVitals.js",
-    "tsp": "src/engine/__testkit__/scaleBar.js",
 }
 FILEMOD = {v: k for k, v in MODFILE.items()}
 
-# `this.<field>` -> the module that field holds an instance of. Hand-written,
-# because these five are assigned from an import and the assignment does not
-# name the class. Everything else is learned exactly, below, from
-# `this.x = new SomeClass()`.
-_ENGINE_FIELDS = {"lm": "lm", "doc": "doc", "cam": "cam", "store": "ts", "renderer": "rnd"}
+# `this.<field>` -> the module(s) that field holds an instance of. Hand-written,
+# because these are assigned from an import, behind a condition or a default,
+# and the assignment does not name one class. Everything else is learned
+# exactly, below, from `this.x = new SomeClass()`.
+#
+# The engine's `renderer` is a RasterRenderer by default and a Renderer under
+# `?svg`, and RasterRenderer extends Renderer, so a call on it is a call into
+# whichever of the two defines the method - both, when the raster one overrides.
+#
+# A value is `module:Class` where the module defines more than one class, so
+# `this.doc.add()` reaches `Document.add` and not `LevelIndex.add`.
+_ENGINE_FIELDS = {"lm": "lm:LevelMap", "doc": "doc:Document", "cam": "cam:Camera",
+                  "store": "ts:TileStore",
+                  "renderer": ["rr:RasterRenderer", "rnd:Renderer"],
+                  "plates": "pls:PlateStore", "_sceneClient": "scc:SceneClient"}
 FIELD = {
-    "ts":  {"lm": "lm", "doc": "doc"},
-    "cam": {"lm": "lm"},
-    "rnd": {"cam": "cam", "two": None},
+    "ts":  {"lm": "lm:LevelMap", "doc": "doc:Document"},
+    "cam": {"lm": "lm:LevelMap"},
+    "rnd": {"cam": "cam:Camera", "two": None},
+    "rr":  {"cam": "cam:Camera", "two": None, "store": "pls:PlateStore",
+            "layer": "pic:PictureLayer", "_overlay": "ovy:OverlayLayer",
+            "_plane": "mvp:MovePlane"},
+    "pic": {"store": "pls:PlateStore"},
+    "scc": {"core": "six:SceneIndex"},
     "v0":  {},
 }
 # Every file mixed onto the engine's prototype sees the same `this` and so the
-# same five fields. Without this, `this.doc.removeById()` in erasePipeline.js
-# resolved to nothing and 26 hand edges went missing.
+# same fields.
 for _m in ("eng", "erp", "ovl", "sel", "sco", "fil"):
     FIELD[_m] = dict(_ENGINE_FIELDS)
 
-# ONE PROTOTYPE, SIX FILES. The 2026-08-31 split moved most of KobinEngine's
-# methods into mixin files that `engine/mixin.js` copies back onto the same
-# prototype, so `this._queueBake()` in `KobinEngine.js` reaches a method defined
-# in `erasePipeline.js`. Without this the extractor loses every intra-engine
-# call that now crosses a file - the hand-list agreement fell from 88% to 77%
-# on the first rebuild after the split, which is what pointed at it.
+# ONE PROTOTYPE, SIX FILES. `engine/mixin.js` copies five mixin classes onto
+# KobinEngine's prototype, so `this._queueBake()` in `KobinEngine.js` reaches a
+# method defined in `erasePipeline.js`. Without this the hand-list agreement
+# fell from 88% to 77% (2026-08-31).
 PROTOTYPE = ("eng", "erp", "ovl", "sel", "sco", "fil")
 
 KW = {"if", "for", "while", "switch", "catch", "return", "function", "typeof",
@@ -129,94 +186,79 @@ KW = {"if", "for", "while", "switch", "catch", "return", "function", "typeof",
       "default", "delete", "void", "this", "super", "constructor"}
 
 # The same list minus `constructor`, for DEFINITIONS. A constructor is a real
-# function with real call sites in it - `KobinEngine.constructor` is where the
-# five instrument classes are built - so it has to become a node. It stays in
+# function with real call sites in it, so it has to become a node. It stays in
 # KW above, because `new Foo()` at a CALL site is not a call to a method named
 # "constructor".
 KW_DEF = KW - {"constructor"}
 
+# A local declaration inside a definition, and a definition line's parameters.
+LOCAL_DECL = re.compile(r'\b(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)')
+PARAMS = re.compile(r'^[^(]*\(([^)]*)\)')
 
-def strip_noise(line):
-    out, i, n, q = [], 0, len(line), None
-    while i < n:
-        c = line[i]
-        if q:
-            if c == BS:
-                i += 2
-                continue
-            if c == q:
-                q = None
-            i += 1
-            continue
-        if c == '"' or c == "'" or c == "`":
-            q = c
-            i += 1
-            continue
-        if c == "/" and i + 1 < n and line[i + 1] == "/":
-            break
-        out.append(c)
-        i += 1
-    return "".join(out)
+_Q = "[\"']"
+IMPORT_NAMED = re.compile(
+    r'import\s+(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s+' + _Q + r'([^"\']+)' + _Q, re.S)
+IMPORT_NS = re.compile(
+    r'import\s+(?:([A-Za-z_$][\w$]*)\s*,\s*)?\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+' + _Q + r'([^"\']+)' + _Q)
+
+
+def _target(here, spec):
+    if not spec.startswith("."):
+        return None
+    tgt = os.path.normpath(os.path.join(here, spec)).replace(BS, "/")
+    for cand in (tgt, tgt + ".js", tgt + "/index.js"):
+        if cand in FILEMOD:
+            return FILEMOD[cand]
+    return None
 
 
 def parse(path):
-    """-> (defs, imports)
+    """-> (defs, imports, masked lines, extends)
 
     defs:    list of {name, klass, kind, lo, hi}  (1-indexed inclusive lines)
-    imports: {local name -> module key}
+    imports: {local name -> module key}; a namespace import maps its name too
+    extends: {class name -> parent class name}
     """
     src = open(path, encoding="utf-8", errors="replace").read()
-    lines = src.split("\n")
     here = os.path.dirname(path)
 
     imports = {}
-    for m in re.finditer(r'import\s+(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s+["' + "'" + r']([^"' + "'" + r']+)["' + "'" + r']', src, re.S):
-        spec = m.group(3)
-        if not spec.startswith("."):
+    for m in IMPORT_NAMED.finditer(src):
+        mod = _target(here, m.group(3))
+        if not mod:
             continue
-        tgt = os.path.normpath(os.path.join(here, spec)).replace(BS, "/")
-        for cand in (tgt, tgt + ".js", tgt + "/index.js"):
-            if cand in FILEMOD:
-                mod = FILEMOD[cand]
-                if m.group(1):
-                    imports[m.group(1)] = mod
-                if m.group(2):
-                    for p in m.group(2).split(","):
-                        p = p.strip()
-                        if not p:
-                            continue
-                        local = p.split(" as ")[-1].strip()
-                        if re.match(r'^[A-Za-z_$][\w$]*$', local):
-                            imports[local] = mod
-                break
+        if m.group(1):
+            imports[m.group(1)] = mod
+        if m.group(2):
+            for p in m.group(2).split(","):
+                p = p.strip()
+                if not p:
+                    continue
+                local = p.split(" as ")[-1].strip()
+                if re.match(r'^[A-Za-z_$][\w$]*$', local):
+                    imports[local] = mod
+    for m in IMPORT_NS.finditer(src):
+        mod = _target(here, m.group(3))
+        if mod:
+            imports[m.group(2)] = mod
+            if m.group(1):
+                imports[m.group(1)] = mod
 
-    defs, depth, klass, kdepth, inblock = [], 0, None, None, False
+    extends = dict(re.findall(r'class\s+([A-Za-z_$][\w$]*)\s+extends\s+([A-Za-z_$][\w$]*)', src))
+
+    lines = mask(src).split("\n")
+    defs, depth, klass, kdepth = [], 0, None, None
     open_defs = []
-    for idx, raw in enumerate(lines, 1):
-        s = raw.strip()
-        if inblock:
-            if "*/" in s:
-                inblock = False
-            continue
-        if s.startswith("/*"):
-            if "*/" not in s:
-                inblock = True
-            continue
-        if s.startswith("//") or s.startswith("*"):
-            depth_before = depth
-        clean = strip_noise(raw)
+    for idx, clean in enumerate(lines, 1):
+        s = clean.strip()
         started = None
         if klass is not None and depth == kdepth + 1:
-            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*([A-Za-z_$][\w$]*)\s*\(', raw)
+            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*([A-Za-z_$][\w$]*)\s*\(', clean)
             if mm and mm.group(1) not in KW_DEF:
                 started = {"name": mm.group(1), "klass": klass, "kind": "method"}
-        # TOP LEVEL, two ways. Depth counting is exact for plain JS, but a
-        # JSX file can drift it - CanvasesV2 sits at depth 1 for its last
-        # three hundred lines - and a drifted counter silently swallows every
-        # declaration after the drift. Column zero is the second witness: this
-        # codebase writes top-level declarations flush left and nothing else,
-        # so either signal alone is enough to start a definition.
-        if depth == 0 or (raw[:1] and raw[:1] not in " 	"):
+        # TOP LEVEL, two ways: depth zero, or a definition flush left (a JSX
+        # file can drift the depth; see inventory.py).
+        if depth == 0 or (clean[:1] and clean[:1] not in " \t"):
             mc = re.match(r'(?:export\s+(?:default\s+)?)?class\s+([A-Za-z_$][\w$]*)', s)
             if mc:
                 klass, kdepth = mc.group(1), depth
@@ -243,43 +285,61 @@ def parse(path):
                 d["hi"] = idx
                 defs.append({k: d[k] for k in ("name", "klass", "kind", "lo", "hi")})
                 open_defs.remove(d)
+            elif depth <= d["depth"] and idx == d["lo"] and (
+                    "{" in clean or clean.rstrip().endswith(";")):
+                # a definition that opens and closes on its own line - a one-line
+                # method `map(fn) { ... }`, or an arrow with no body braces - owns
+                # that line only; left open, it took the next line's calls too
+                # and chained Loop's one-liners into false edges.
+                d["hi"] = idx
+                defs.append({k: d[k] for k in ("name", "klass", "kind", "lo", "hi")})
+                open_defs.remove(d)
         if klass is not None and depth <= kdepth:
             klass, kdepth = None, None
     for d in open_defs:
         d["hi"] = len(lines)
         defs.append({k: d[k] for k in ("name", "klass", "kind", "lo", "hi")})
-    return defs, imports, lines
+    return defs, imports, lines, extends
 
 
 def learn_fields(src, classes):
-    """`this.x = new SomeClass()` -> {x: SomeClass}, for classes we know.
+    """`this.x = new SomeClass()` -> {x: module}, for classes we know.
 
     EXACT, not a guess: the assignment is right there in the constructor. Only
     classes this codebase defines are kept - `new Map()` and `new Two()` tell
     us nothing about our own call graph, and mapping them would invent edges
     into a built-in.
-
-    This is what connects the four instrument classes. `EventLatency.report`
-    looked like dead code on the published graph until this existed.
     """
     out = {}
     for f, cls in re.findall(r'this\.([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Z][\w$]*)', src):
         if cls in classes:
-            out[f] = classes[cls]
+            out[f] = classes[cls] + ":" + cls
     return out
 
 
+def check_modfile():
+    """Every inventoried file needs a module key; name the ones that do not."""
+    inv = json.load(open(os.path.join(HERE, "data", "inventory.json")))
+    missing = sorted(p for p in inv if p not in FILEMOD)
+    gone = sorted(p for p in FILEMOD if not os.path.exists(p))
+    if missing or gone:
+        for p in missing:
+            print("  no module key in extract.MODFILE: %s (%d functions)" % (p, len(inv[p])))
+        for p in gone:
+            print("  extract.MODFILE names a file that is not there: %s" % p)
+        sys.exit("extract.py: MODFILE is out of step with the inventory")
+
+
 def main():
-    universe = {}          # mod -> set of node-local names ("f", "Class.m")
+    check_modfile()
+    universe = {}          # mod -> {node-local name ("f", "Class.m") -> def}
     parsed = {}
     for mod, path in MODFILE.items():
-        if not os.path.exists(path):
-            continue
-        defs, imports, lines = parse(path)
-        parsed[mod] = (defs, imports, lines)
-        # CANONICAL NAME, matching the convention already in graph.py: the bare
-        # function name, qualified with its class only when the module defines
-        # that name more than once (ChainBuilder.step vs ArcBakeJob.step).
+        defs, imports, lines, extends = parse(path)
+        parsed[mod] = (defs, imports, lines, extends)
+        # CANONICAL NAME: the bare function name, qualified with its class only
+        # when the module defines that name more than once (ChainBuilder.step
+        # vs ArcBakeJob.step).
         seen = {}
         for d in defs:
             if d["kind"] == "class":
@@ -305,12 +365,20 @@ def main():
             if d["kind"] == "class":
                 classmod.setdefault(n, m)
 
-    # module -> {field: module}, the hand-written map plus what was learned
+    # module -> parent module, from `class A extends B` where B is ours
+    parent = {}
+    for mod, (defs, imports, lines, extends) in parsed.items():
+        for child, base in extends.items():
+            if base in classmod and classmod[base] != mod:
+                parent[mod] = classmod[base]
+
+    # module -> {field: [modules]}, the hand-written map plus what was learned
     fieldmap = {}
-    for mod, (defs, imports, lines) in parsed.items():
-        learned = learn_fields(chr(10).join(lines), classmod)
-        merged = dict(learned)
-        merged.update(FIELD.get(mod, {}))      # the hand-written entries win
+    for mod, (defs, imports, lines, extends) in parsed.items():
+        raw = open(MODFILE[mod], encoding="utf-8", errors="replace").read()
+        merged = {k: [v] for k, v in learn_fields(raw, classmod).items()}
+        for k, v in FIELD.get(mod, {}).items():      # the hand-written entries win
+            merged[k] = [] if v is None else (list(v) if isinstance(v, list) else [v])
         fieldmap[mod] = merged
 
     def node_of(mod, name, klass=None):
@@ -325,41 +393,66 @@ def main():
             return mod + "." + name
         return None
 
+    def method_of(spec, fn):
+        """`fn` on an instance: `spec` is `module:Class` (or a module whose one
+        class is meant), falling back to the class it extends."""
+        mod, _, cls = spec.partition(":")
+        seen = set()
+        while mod and mod not in seen:
+            seen.add(mod)
+            if cls:
+                hit = node_of(mod, fn, cls)
+            else:
+                for cname, cmod in classmod.items():
+                    if cmod == mod and (cname + "." + fn) in universe.get(mod, {}):
+                        cls = cname
+                        break
+                hit = (node_of(mod, fn, cls) if cls else None) or node_of(mod, fn)
+            if hit:
+                return hit
+            mod, cls = parent.get(mod), None
+        return None
+
     edges = collections.Counter()
     sites = collections.defaultdict(list)
     call = re.compile(r'(?:(this)\.([A-Za-z_$][\w$]*)\.|(this|[A-Za-z_$][\w$]*)\.)?([A-Za-z_$][\w$]*)\s*\(')
 
-    for mod, (defs, imports, lines) in parsed.items():
+    for mod, (defs, imports, lines, extends) in parsed.items():
         # longest definitions last so an inner def wins its own lines
         ordered = sorted([d for d in defs if d["kind"] != "class"],
                          key=lambda d: (d["hi"] - d["lo"]))
         owner = {}
-        for d in ordered:
+        for d in reversed(ordered):
             for ln in range(d["lo"], d["hi"] + 1):
                 owner[ln] = d
-        for ln, raw in enumerate(lines, 1):
+        # Names a definition declares inside itself - a local helper, a
+        # parameter. A bare call to one of them is not a call to the
+        # module-level function of the same name (`close()` inside
+        # `clipPolylineToRect` is its own closure, not `polyline.close`).
+        local = {}
+        for d in ordered:
+            body = "\n".join(lines[d["lo"] - 1:d["hi"]])
+            names = set(LOCAL_DECL.findall(body))
+            head = PARAMS.search(lines[d["lo"] - 1])
+            if head:
+                names |= set(re.findall(r'[A-Za-z_$][\w$]*', head.group(1)))
+            names.discard(d["name"])
+            local[id(d)] = names
+        for ln, clean in enumerate(lines, 1):
             d = owner.get(ln)
             if not d:
                 continue
             src_node = node_of(mod, d["name"], d["klass"])
             if not src_node:
                 continue
-            clean = strip_noise(raw)
             for m in call.finditer(clean):
                 this_kw, fld, obj, fn = m.groups()
                 if fn in KW:
                     continue
-                dst = None
+                dsts = []
                 if this_kw == "this" and fld:
-                    fmod = fieldmap.get(mod, {}).get(fld)
-                    if fmod:
-                        # a learned field names a CLASS, so try its method first
-                        cls = None
-                        for cname, cmod in classmod.items():
-                            if cmod == fmod and (cname + "." + fn) in universe.get(fmod, {}):
-                                cls = cname
-                                break
-                        dst = (node_of(fmod, fn, cls) if cls else None) or node_of(fmod, fn)
+                    for fmod in fieldmap.get(mod, {}).get(fld, []):
+                        dsts.append(method_of(fmod, fn))
                 elif obj == "this":
                     dst = node_of(mod, fn, d["klass"]) or node_of(mod, fn)
                     if not dst and mod in PROTOTYPE:
@@ -369,19 +462,24 @@ def main():
                             dst = node_of(other, fn)
                             if dst:
                                 break
+                    if not dst and mod in parent:
+                        dst = method_of(parent[mod], fn)
+                    dsts.append(dst)
                 elif obj:
                     if obj in imports:
-                        dst = node_of(imports[obj], fn) or node_of(imports[obj], fn, obj)
+                        dsts.append(node_of(imports[obj], fn) or node_of(imports[obj], fn, obj))
                     elif obj in universe.get(mod, ()):
-                        dst = node_of(mod, fn, obj)
-                else:
+                        dsts.append(node_of(mod, fn, obj))
+                elif fn not in local[id(d)]:
                     dst = node_of(mod, fn, d["klass"]) or node_of(mod, fn)
                     if not dst and fn in imports:
                         dst = node_of(imports[fn], fn)
-                if dst and dst != src_node:
-                    edges[(src_node, dst)] += 1
-                    if len(sites[(src_node, dst)]) < 3:
-                        sites[(src_node, dst)].append("%s:%d" % (MODFILE[mod], ln))
+                    dsts.append(dst)
+                for dst in dsts:
+                    if dst and dst != src_node:
+                        edges[(src_node, dst)] += 1
+                        if len(sites[(src_node, dst)]) < 3:
+                            sites[(src_node, dst)].append("%s:%d" % (MODFILE[mod], ln))
 
     allnodes = sorted(m + "." + x for m in universe for x in universe[m])
     print("modules parsed : %d" % len(parsed))
@@ -394,7 +492,7 @@ def main():
                                 for n, d in v.items()}
                             for k, v in universe.items()},
                "modfile": MODFILE},
-              open(os.path.join(HERE, "data", os.path.join(HERE, "data", "graphdata.json")), "w"), indent=0)
+              open(os.path.join(HERE, "data", "graphdata.json"), "w"), indent=0)
     per = collections.Counter(a.split(".")[0] for a, b in edges)
     for k, v in per.most_common(20):
         print("   %-5s %d" % (k, v))

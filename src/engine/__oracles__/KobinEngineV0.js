@@ -122,7 +122,6 @@ export default class KobinEngineV0 {
     setColor(c) { this.color = c; }
     setWidth(w) { this.penWidth = w; }
     setOpacity(o) { this.opacity = o; }
-    setOutlineMode(b) { this.outlineMode = !!b; this._renderActive(); this.two.update(); this._emit(); }
     // Toggle per-object opacity groups (tile-edge Option B). Fills are baked with or
     // without the seam-overlap pad, so cached tiles must rebake to match the mode.
     setOpacityGroups(b) {
@@ -133,7 +132,6 @@ export default class KobinEngineV0 {
         this._renderActive(); this.two.update(); this._emit();
     }
     setDebug(b) { this.debug = !!b; this._renderActive(); this.two.update(); }
-    setKDebug(b) { this.kdebug = !!b; this._renderActive(); this.two.update(); this._emit(); }
     setTileDebug(b) { this.tileDebug = !!b; this._renderTileDebug(); this.two.update(); }
     resize(w, h) {
         if (w === this.width && h === this.height) return; // mobile fires resize on URL-bar show/hide

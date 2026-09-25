@@ -62,9 +62,9 @@ silently disappearing rather than merely being slow.
 | **Frame** | a cell of the lattice. Belongs to **space**. An object's address and the spatial index. Frames cannot overlap, so "which frame am I in" is a division, not a search. A frame **never cuts geometry**; it only decides which objects are looked at. | `LevelMap.js` |
 | **Tile** | where an object is clipped, and therefore where a curve may be frozen to a line. Belongs to **the object**: carried as a phase `(px, py)` in `[0, W)`, two numbers, surviving every move for free, because re-homing changes local coordinates by exactly one frame and `W mod W` is zero. Same *size* as a frame, a different *grid*. | `frameLattice.js`, `geometry/freeze.js` |
 | **Cache tile** | the render cache's own frame-aligned square. Decides how much work one bake covers, and nothing else. Clips arcs, which is exact. (Until 2026-09-07 it also marked every end it made, `seamA`/`seamB`, so the level below could not freeze on an edge it invented; the one-radius freeze's endpoint guard refuses such an edge on its own, and the marks are gone.) | `TileStore.js` |
-
-All three are `W` across and were three near-identical APIs with two phase conventions. Since 2026-09-07 they are one value type, `TileGrid` (`frameLattice.js`): the object's grid is `TileGrid.at(o.tile)`, the cache's is `TileGrid.CACHE`, and a frame's own square is that grid's `(0, 0)`. `range` is the half-open rule (a rect ending on a boundary belongs below — what the chop and the cede cut on), `touching` the closed one the cache reads by; each keeps its callers' arithmetic to the bit, because which squares a cache reads and where an object's tiles fall are both things a saved drawing's deep picture depends on.
 | **Object** | a native, stored in one frame. Its id is its creation order *and* its z-order. A logical object may be several natives across several frames sharing one `editId` — which is what an erase leaves when it cedes a tile downward. | `Document.js` |
+
+The frame, the tile and the cache tile are all `W` across and were three near-identical APIs with two phase conventions. Since 2026-09-07 they are one value type, `TileGrid` (`frameLattice.js`): the object's grid is `TileGrid.at(o.tile)`, the cache's is `TileGrid.CACHE`, and a frame's own square is that grid's `(0, 0)`. `range` is the half-open rule (a rect ending on a boundary belongs below — what the chop and the cede cut on), `touching` the closed one the cache reads by; each keeps its callers' arithmetic to the bit, because which squares a cache reads and where an object's tiles fall are both things a saved drawing's deep picture depends on.
 
 ---
 
@@ -138,7 +138,15 @@ antialiasing).
 
 At pen-up the perimeter is **resolved**: build both rails and both caps as one
 closed chain, cut it at its own self-crossings, throw away the fragments buried
-under the pen, restitch the survivors into closed loops.
+under the pen, restitch the survivors into closed loops. A stroke that retraces itself exactly
+(a computed ring drawn past one turn) lays two copies of its boundary on one
+circle: those are cut where each other ends and kept once, an all-but-tangent
+pair meets at one point, and the sliver of one copy that peels off inside the
+other by less than the burial margin is pruned before the restitch (OPEN-FLAGS
+F89) — the union has winding 1 everywhere. A stroke whose last sample IS its first is periodic:
+its seam gets one tangent (`BiarcPen.closeLoop`), so every rail arc ends on its own circle (the
+two one-sided tangents left 4 seam arcs up to 0.039 units off, which the inside test read as two
+crossings, F117).
 
 It is a **job with a cursor in it** (`ArcBakeJob`) — eight phases, every one
 resumable, stepped in 8 ms slices off the same timer the erase bakes use. It
@@ -305,7 +313,9 @@ other test, so the two agree everywhere.
 **Top-down by z, from the index.** The objects under a mark come from the spatial
 index of every reachable level (plus every moved object, whose stored bits sit
 elsewhere than its picture), sorted by z, highest first, cached on the mark until the
-document changes (`_candidatesUnder`). Before this the bake walked every object of
+document changes (`_candidatesUnder`; the mark's box is mapped once per home frame and
+offset table, which objects moved together share: mapped per object, the first scan over the
+Magnum Opus's 19,547 moved natives took 300 ms, now 95). A mark whose chain leaves the home frame sideways into a ring neighbour and then descends re-homes and cedes down its own chain below that neighbour: cut in place two crossings under, the eraser is below the boolean's weld and grazes (F129). A frame's index answers a rect off its union box at once, and scans flat past 2^40 units: a mark's box mapped six levels up and across arrived at 1e21, where the cell walk steps by nothing, and the tab froze (F127). Before this the bake walked every object of
 every level per mark at ~0.6 ms each: on the 12,849-object canvas five minutes a mark
 before the next mark got a turn, and a second per pointer-up, because the selection
 barrier asked the same question (erase.stuck.probe.js).
@@ -316,8 +326,22 @@ object's z, once no unhandled object shares the z. Pieces a cut mints inherit th
 parent's z and so land above the mark. The mark is white ink on a white ground, so at
 every moment the picture is right: objects above it show their holes, objects below
 it are hidden by it — and the move gate is the z order: `_flushErasesFor` skips what
-sits above the mark. The barrier never lowers the mark (it bakes out of order); the z
-rides the log as a `put` of the mark and a reload resumes above it.
+sits above the mark. The barrier lowers the mark only when what it bakes is the mark's
+next target, or the one whose cut is in the worker — the tick's own order — so the
+cut-out of the object the baker is on drags above the mark; anything else it bakes out
+of order, the mark stays, and those pieces pass under the white mark until the bake
+is done (2026-09-23, `erase.stack.test.js`) — on `?svg`. A drag's barrier (`_settleSelectionErases`) costs nothing with no mark pending and one mark scan a round otherwise, following the pieces a bake mints through the document's events (2,000-object selections took seconds when it scanned twice per id; `move.startCost.test.js`). The raster renderer draws a
+pending mark as nothing at all: it is a mask over the ink below it that it has not baked
+(Kobin, 2026-09-23: "we ALWAYS show something that baked on top of it"). An item's coverage
+is multiplied by (1 − the mark's) where the mark is above it and the item is not in the
+mark's handled set less what is still whole (a cut in the worker, a refusal over ink) —
+the set and the mark's z as they stood when the render list was built: a list carries them
+and every pack of it masks with those (F121: a cut rebuilds no list, and a stale list packed
+with the live set drew the cut target whole over the band, cached fresh). A graze, or a descent refused with none of the target's ink near the eraser (`inkless`), leaves nothing whole: the mark's step past it changes no pixel and stales no plate, like a cut's (F109; on the Magnum Opus 84 of a bake's 98 steps were such refusals, and the bake took 30 s instead of 18–22 s); a cut-out
+baked out of order shows over the ring wherever it is dragged, while outside the ring the
+z order is untouched (`rasterCore.resolveMask`, `rasterPack` `markDone`,
+`raster.mask.test.js`). The z rides the log as a `put` of the mark and a reload resumes
+above it.
 
 **A target the bake cannot take is done**, with the refusal on the gesture's journal
 note; a mark with nothing left under it is consumed. Nothing retries.
@@ -332,7 +356,25 @@ is gone or changed (`_ver`) is dropped and the target baked again; a worker fail
 runs the job inline; where there is no worker (jsdom, an old browser) the job runs
 inline, so every erase suite checks the same geometry. The barrier stays synchronous:
 "if an object is baking, you can't even select it until it is baked", and a cut in
-flight for that object is baked on the spot, its late result dropped.
+flight for that object is baked on the spot, its late result dropped. **A lasso is a
+barrier too** (Kobin, 2026-09-23: a lasso over a stack still baking freezes until the
+bake is done, then the ants march): every mark whose box meets the loop's box is baked
+out before the loop is judged (`_settleLassoErases`), so the loop takes every cut-out
+and not the part the baker had reached. **A mark whose cut is in the worker is not
+spent early**: a flush, and a select about to bake another object of that mark, run
+that cut inline first (`_settleInflight`), a drag's barrier leaves such a mark to the
+tick, and a result that lands on a mark an undo took leaves its target undone, so the
+redo cuts it (OPEN-FLAGS F88). **Undo and redo follow the bake steps across marks**: two marks
+pending bake out of stack order (an older mark can cut a newer mark's piece, and the newer cut
+the result), so each step carries its order and whether it is applied. An erase's undo reverts
+its steps and every step of any gesture that consumed what they made, newest first (those are
+suspended); a redo re-applies its steps and then any suspended step of an applied gesture whose
+source is back (`Document._stepsUndo`/`_stepsRedo`, F118); a reload rebuilds the flags from the
+log's order, every kind of step included (a re-key step without it was undone out of order, F128),
+and the document. **Only the pen's holder bakes**: a read-only tab or device
+shows the store the holder bakes into and waits for the pen, and a closed editor drops a
+late worker answer (F96). A mark saved mid-bake resumes from the log's bake entries on
+reopen, and from its own z on a file load; either ends as an uninterrupted bake.
 
 **The descent is one job per family** (`eraseDescent.js`, Kobin's design: "invalidate
 the whole object, wait till the worker sends the new object shapes back, then swap the
@@ -353,7 +395,9 @@ before a kid is added; a load mints any frame its natives name (F67).
 dust when it is narrower than a quarter of a pixel at the zoom the mark was drawn at
 (`bakePx`, the mark's pixels per unit, through the frame factor into the subject's
 units; `eraseJob.dustBarFor`). Not the pen's hundredth, which culled the slivers a
-4 px eraser carves at 561,917× into a stroke drawn at 1× — ink the user shaped. A
+4 px eraser carves at 561,917× into a stroke drawn at 1× — ink the user shaped. The
+cede's own parent cut and a descent's middle link are judged the same way (F112: by the pen,
+a round cap 0.3 units past a ceded cell, 1,229 px tall at the erase's zoom, went as dust). A
 rect cut with no mark behind it keeps the pen rule.
 
 **The boolean's classifier** was the cost, not the cuts: every fragment of A was
@@ -400,7 +444,15 @@ never came apart however carefully it was cut (F26).
 Severance asks about **geometry, not ancestry**. Re-homing normalizes each member
 on its own local coordinates, so two members of one family can settle on
 different branches while sitting in exactly the same place; requiring literal
-parent-child made one unchanged object report as three.
+parent-child made one unchanged object report as three. Two kids side by side in
+NEIGHBOURING cells (a cede over a cell seam) are compared in one cell's coordinates,
+whole frames apart (`_cellOffset`): compared raw they never met, and one blob became
+several split along the seam (F124, Kobin's "shattered" report).
+
+A member the test **cannot evaluate** — its frame, or a frame one of its possible parents is
+homed in, is missing from the lattice — keeps the family's key: "cannot evaluate" is not
+"disconnected" (F104). A kid rekeyed away by a lost frame stays behind when its parent moves, a
+rectangle left where the hole was.
 
 ---
 
@@ -505,7 +557,44 @@ list is first read, when `Document._mergeShadows` settles both, appends the
 shadow's natives to the resident's list, re-parents its kids (`adoptShadow`: a
 free cell taken, an occupied one shadowed in turn) and deletes it — O(the shadow's
 natives), the cost of reading them; the selection follows, the merged natives as
-ids and the kids as frames. A drag holds merges until its op is on the stack.
+ids and the kids as frames, and so does the camera when the shadow was its frame (an
+undo putting a moved frame back where the camera's empty twin sat: left on the gone
+frame, the canvas drew nothing and new ink went to a frame the lattice lacked, F126).
+A drag holds merges until its op is on the stack.
+
+**A settle can happen inside a tile bake** (F78, 2026-09-22, Kobin's Earth move on the
+Magnum Opus). `_bakeDown` and `_bakeUp` read frames through `Document.at`, so a settle's
+carry can re-home natives into a frame the bake has already passed over while the tile
+is not yet in the cache for the events to patch; the empty tile was then served for the
+session. `TileStore._bakeSettled` runs a bake again when `Document.rev` moved under it,
+at most three times (`_rebakes`). **An added native is patched into the cached tiles** a cold
+bake would put it in: a direct child's up tile derives it, a chained up tile takes it from its
+parent squares' pieces, coarsest first, and one whose parents are not all cached goes
+(2026-09-24 TB-1; dropped, a cut in an ancestor frame rebuilt the whole view cold, 1.4–1.7 s at
+depth 9 on the Magnum Opus; `tile.patch.test.js` compares every cached tile to a cold bake).
+**The shift stays within ±W/2** (`.claude/SUBTREE-O1-PLAN.md`
+§2.2, built 2026-09-23): each drag event carries whole cells of the frame's shift into its
+address (`moveSubtreeTargets`, given each frame's shift at the drag's start), so a settle
+carries only the natives whose own tables cross a cell edge, and a change of the shift alone
+refiles the frame so its plates follow. Not built: `_take` lets a resident with kids keep its
+cell even when its whole subtree is empty, so an empty twin can take the mover's identity (F80).
+
+**A frame holds something** (frame GC, F94; Kobin: "if there ever is a frame, it has stuff in
+it"). Every pointer event of a subtree drag mints the containers its target chains pass
+through, and the next leaves most of them empty — 80–103 in one 40-step drag on his phone
+drawing, whose lattice held 471 empty cells of 495. `engine/frameGc.js` forgets a frame with
+no natives, kids or shadows at a gesture's end or a change of the camera's frame, unless the
+camera is in it or above it, left it within the last four frames (a crossing back composes
+through it), or an undo or redo op names it (`opFrames`: history puts things back there by
+id; the frame goes when the op leaves history). Never mid-gesture, and never during a load: a
+restored store is swept once it is in (`engine.sweepFrames`). A forgotten frame held nothing,
+so the store no longer lists it and replay counts it as holding every entry (§13, F98); the
+next write's header lattice lacks it and the op log records it (`forget`); its tiles and
+plates go with it, since an unmoved frame's id can be minted again by a later read and its old
+tiles would be served without what changed meanwhile (F111). Undo and redo collect too. A
+moved frame's id is not minted again in the session. The rest and the settles move ink across cell edges — a
+kid re-homed under the neighbour container, a native carried next door — so what was selected
+stays selected by §10's rule.
 
 One op per gesture, `{ op: "moveFrames", frames: [{ id, from, to, shiftBefore,
 shiftAfter, settled, merged }], moves }`, the frame entries beside the per-object
@@ -538,7 +627,87 @@ be undone and logged exactly where the per-object path wrote every table at once
 
 ## 9. Rendering
 
-`Renderer` is the only class that touches Two.js. One persistent `Two.Group` per
+Two renderers draw the same render list (`KobinEngine._buildList`, through
+`listFor`). **The raster renderer is the app's default since 2026-09-22** (Kobin);
+the SVG renderer is behind the `?svg` URL gate (`useKobinEngine.rasterFromUrl`), and
+a one-off SVG engine (`thumbnails.withSvgEngine`) makes the SVG export and the `?svg`
+thumbnails. The deployed build (2026-09-08) is SVG only.
+
+### The raster renderer (`src/engine/raster/`)
+
+`RasterRenderer` extends `Renderer` and draws the ink into **plates**: 512-device-pixel
+squares of the screen, measured in **pixels** — a tile, a cell and a cache square are
+measured in frame units, and calling two of them one thing once froze an arc to two
+chords (F36). Our own float64 coverage rasteriser fills them (`rasterCore.js`: arcs
+flattened centre-free to 1/16 device px, a family filled as one nonzero union) in a pool
+of workers (`public/raster-worker.js`), from jobs `rasterPack.js` packs off the render
+list — read over what its plates cover, the window grown by one preview plate (F119: a plate past
+the listed squares was rastered as paper and cached fresh); a pool that fails after a worker has answered (an error, or a job silent past 30 s and
+still silent a check later) is replaced, three times, before the session rasters inline, and a
+script that never loaded goes inline at once (`rasterWorkerClient`, 2026-09-24 RW-1). A plate is painted family by family in z order from the TOPMOST family whose coverage
+fills the whole plate opaquely (the occlusion cull, Kobin 2026-09-23): at the Magnum Opus's
+nucleus ~40 whole-plate backdrops a plate were each resolved over all 262,144 pixels, 97 % of
+a 165–580 ms job; with the cull 6.3 families a plate and 10.8 ms; `PlateStore` caches them by frame, zoom quantum and cell (96 MiB on a desktop,
+56 MiB on a phone), and `PictureLayer` composes them onto one canvas, stretched between
+quanta. A light view is rastered on the main thread instead (the sync path, left for a
+frame over `SYNC_MAX_MS`, 8 ms, or past its chord budget; a pen-up band is priced by its pen's height
+too, a 337 px scribble having stayed sync for 20 s, F130). A scanline's crossings past 32 are
+merge-sorted (a wide band crosses one hundreds of times; the insertion sort was 4–16 s a plate).
+
+What keeps paper off the screen (`.claude/PAPER-PLAN.md`): an invalidated plate is shown
+**stale** until its replacement lands, and a replacement that lands still behind but newer than the stale
+pixels takes their place, so a stream of invalidations cannot keep a plate's oldest ink on screen (F106); a cached plate of another quantum, or of another
+frame through the frame-to-frame affine, stands in for a missing one
+(`PlateStore.fallbackCover`; a compose draws at most `COMPOSE_IMAGES` 30 images — Chrome's 2D canvas
+pays ~100 ms a frame past 33 distinct ones with any scaled — so stand-ins under the view's own
+plates are dropped and a greedy cover is kept first); a zoom-out asks first for a coarse preview eight quanta down,
+and a **ladder** of coarse plates for the zoomed-out screens is rastered while the camera
+is still (every 2 octaves to 22; the far rungs, every 6 to 52, are off behind `ladderFar`: each was one
+unsliced 10–17 s list build at depth 9 in Kobin's tab). A rung runs only at a true idle (no forced timeout), never
+while a report is sending, and is read 50 ms at a time (30 on a phone): a read that passes it stops
+at the next tile (a tile completes with its parent chain, 0.3–0.8 s a level on the Magnum Opus) and
+the rung continues at the next idle hop, its tiles kept (120 hops at most; 250 ms slices were 0.3 s
+stalls six in a row, TESTER-3); a rung whose last read still took over 250 ms (120 on a phone) ends
+that view's ladder; a desktop tab releases
+its plates only after five minutes hidden (a phone at once), so a glance away rebuilds nothing; a held picture shrinks no further than `S_MIN_HOLD` (0.5). A drag draws the
+selection from plates made when it was selected, split by z so the drag keeps its true depth:
+the ink below the selection, the selected runs on transparent plates (moved with the
+pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5
+layers the smallest run between two selected ones is drawn under them, over `MOVE_PLANE_PLATES`
+40 plates, 24 on a phone, the layers are cut coarser; a quick level two octaves coarser is drawn
+until the plane's own is whole (a level coarser than the camera list's margin reads its own
+list over its plates, F122), and before either the selection's own layers alone or, for a
+small selection, a stopgap rastered on the main thread: a drag always moves);
+at the drop each cell keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s
+safety limit); a pen-up keeps the live SVG path until the plates under the stroke are fresh
+(`LIVE_HOLD_MS`, a 3 s safety limit) whatever the view's mode, the pen-up's render being free to
+leave the sync path (F120), and re-anchored when the next stroke moves the overlay origin (F131), a translucent one clipped meanwhile to the cells still stale
+(over its plated self the alpha would double; 2026-09-24 D-2). A pen-up rasters its plates twice,
+the band and then the shape: the band kept on the plates is not the shape's picture everywhere
+(raster.phone P3/P4, Kobin's report 08-13-01; D-3 is open). An erase's bake renders only for a change that
+shows: with every event since the last render neutral (its cuts and steps under the mark, F109)
+the timed render is skipped and the next camera step rebuilds the list first (`_eraseListStale`;
+about 50 renders a Magnum Opus bake at 120–220 ms each). Until its perimeter resolves a stroke is banded along the
+curve through its samples, as the SVG renderer and the hit test draw it, and the resolve
+re-rasters its plates: by a camera step, no list built, when the stroke is homed in the camera's
+frame (it is its own list item); by a render when the list holds a projected copy (F92). The live stroke stays
+SVG: a short tail under the pen and frozen chunks of 128 anchors behind it, one group carrying the
+opacity (one path's whole `d` was rebuilt every event: 27 ms at 3,000 samples, D-1); the selection ants are painted on an overlay canvas (`OverlayLayer.js`, `antPaint.js`). A destroyed engine is inert — `_render`, the camera steps and the overlay return at once — because a remount builds the next engine in the same host and a late step would put the old selection's ants back over it (F101).
+`sceneOps.snapshotView` packs one plate of any frame and rect, off camera, for the Scenes
+panel's pictures. The engine's own `raster` option defaults to off, so the suites and the
+one-off engines are SVG.
+
+Measured in Kobin's Chrome on 2026-09-22: the Magnum Opus (42,857 natives) loads in 1.4 s
+against the SVG renderer's 6.2 s, and the two agree on 20 views to 0.001–0.98 % of pixels,
+the difference a sub-quarter-pixel vertical offset (the whole-device-pixel pan snap). The
+paper work, measured in his tab on 2026-09-22 (paper = each frame's uncovered share × its
+time on screen): a fast zoom-out 1,429 → 37–51 ms, a fast zoom-in 902 → 0 ms, slow zooms and
+pans 0; drags on a scratch canvas build no list and show no paper. The design and its decision log are `.claude/RASTERISER-PLAN.md`;
+Kobin's look is its stage 7.
+
+### The SVG renderer (`?svg`)
+
+`Renderer` is the class that builds Two.js paths for the ink. One persistent `Two.Group` per
 object id, kept sorted by `(z, id)`; a per-frame diff rebuilds a group only when
 its piece *signature* changes; a camera-only frame touches nothing but the world
 transform and faded groups' opacity.
@@ -598,7 +767,9 @@ Five things in it are load-bearing and none is obvious:
 - **The selection indicator is raw SVG in layers of its own, not Two.js.** It
   is built from the pieces the renderer is drawing — never from the document —
   on arcs, nothing flattened, with the tile cuts skipped by the rectangle that
-  made them; decided once per render and moved between camera steps by a CSS
+  made them (a family member's window placed where THAT member is drawn, by its
+  own table or none: placed by the traced piece's residual, a kid ceded below a
+  move drew a square of ants inside the ink, F125); decided once per render and moved between camera steps by a CSS
   transform the compositor applies. It has its own `<svg>` because in the
   drawing's, every frame of the crawl re-rasterised the drawing (measured
   2026-09-03: 50 ms a frame, 16.7 once split). The crawl is stepped, because the
@@ -634,13 +805,39 @@ because that is the only direction in which the scale factor stays a number.
 Measured on a six-level tower of twelve objects: a loop round the whole canvas
 tests **2** of them. An object with a displacement table is indexed at its stored
 bits and drawn elsewhere, so after the walk every one the active frame can reach is
-judged where its picture is (F69). An **enclosed frame is one entry** of the
+judged where its picture is (F69). A frame with no native anywhere in its subtree — a
+visited cell — stands for nothing: the walk neither takes nor enters it (`_inkedFrames`,
+O(frames with natives × depth); F93). An **enclosed frame is one entry** of the
 selection (`selection.frames`, 2026-09-15): nothing under it is read; a native is
 selected when its home is the frame, under it, or a shadow of either
 (`_isSelected`, `LevelMap.isUnder`); the status count sums the subtree's list
 lengths (`walk`); a drag moves it as a frame (§8) and delete sets its lists aside as
-containers (`Document.removeFrameSubtree`, one `removeFrames` op, O(frames)). A
-keyless native is a family of one and skips the family re-check (2026-09-14).
+containers (`Document.removeFrameSubtree`, one `removeFrames` op, O(frames)). Ink placed
+in a set-aside frame afterwards (drawn where it was, re-homed or ceded there) makes the frame
+live again: its old natives are flagged `_gone` one by one then, and only then; an undo of the
+delete merges them back beside the new ink, and a redo sets only them aside (F107). A
+keyless native is a family of one and skips the family re-check (2026-09-14). A family piece homed under an enclosed frame counts as inside, and is moved by that frame's re-address, never also per object (F100). An object whose box pokes out of the loop is asked about its ink against the loop AS DRAWN (every 7th point of a slow loop, joined, cut inside the line by the finger's wiggle and dropped ink 0.6 px inside it; REPORTS 2026-09-24, `select.lasso.test.js` LD-1/2).
+An enclosed frame is **not** one entry when a keyed native under it (a ceded kid, a patch) belongs
+to a family the loop does not bound: the frames from that native up to the enclosed one are read
+as straddling, so the piece is judged with its family and left out, and the rest is found one by one
+(`_tornUnder`, from `Document.keyedIn`, a per-frame set of keyed natives — no other ink is read; F108).
+
+**The selection stands for the same ink** (F93). A subtree drag's rest re-homes a selected
+frame's kid under the neighbour container, and a settle carries a frame's natives next door
+(§8); at the drop, at any later settle of a selected frame, and after an undo or a redo,
+what left every selected frame joins the selection — a frame as a frame, a native as an id —
+an id back under a selected frame leaves the ids, and a selected frame left with no ink
+leaves (`_reselect`). A frame under another selected frame is counted once.
+
+**A press picks, a drag moves** (`_selectTap`, `_beginSelectDrag`). Nothing changes on
+pointer-down, so a pinch never selects. A tap takes the topmost object under the point. A
+drag with nothing selected, or with ctrl, is a lasso; from paper it lassoes; from ink it
+moves the whole selection when selected ink is anywhere under the press — covered by an
+unselected object or not (Kobin, 2026-09-23; `_hitTest`'s `only`), or a selected frame's
+mark is there — and otherwise selects the topmost object there alone and moves it. A pick
+reaches 6 px past the ink; a mark smaller than that reach is picked anywhere its box is within
+it (`_tinyHit`: the reach's eight probes passed between them, and a press on a lassoed dot took
+the ink under it, TESTER-2 2026-09-24).
 
 **The indicator shows what is drawn.** Ants run along the render list's pieces,
 so a magnified shape that the browser could not hold as arcs is shown from the
@@ -653,7 +850,9 @@ where its picture is, unless it is a re-homed family's kid, which shows through 
 family (F73). A selected frame is one box, its own cell (`_selTable`): a dot under
 2 px, and above it the pieces on screen homed under it are traced from the render
 list, a member drawn but too small for a run a dot from its piece; the frame's
-natives are never read. There is no budget: every selected piece on screen is
+natives are never read. A selected frame that shows nothing that way — its content culled from the
+list, three levels under a lasso made from far away — is a dot where its content is, from its
+subtree's index extents (`_selFrameContent`, F103). There is no budget: every selected piece on screen is
 outlined, and what a full selection costs is the repaint of its length, which
 the roadmap holds.
 
@@ -661,15 +860,35 @@ the roadmap holds.
 
 ## 11. Scenes
 
-The coherent drawings hidden inside a canvas, found by deterministic ink
-clustering. All distances are relative to **stroke width**, which encodes the
-zoom the ink was drawn at: a window is 600 stroke widths, and two things join
-across a gap of 1.5 windows. Clustering runs per adjacent frame pair, projecting
-the finer level's geometry through that one crossing; union-find is keyed by
-global stroke id, so membership chains across levels. Much-finer members inside a
-scene re-cluster at their own scale into nested **pockets**. Re-homed patches
-(anything with an `attachRect`) are excluded — a deep erase would otherwise
-invent a scene every time.
+The coherent drawings hidden inside a canvas, kept by a **scene index saved in the
+file** and updated at pen-up (and on every erase, move and undo) in a background
+worker at the lowest priority — never re-clustered, so opening a file computes
+nothing (`sceneIndex.js`, `sceneClient.js`; `docs/reference/scenes-v3-design-bible.md`).
+A scene (1) tells you about ink you cannot see from here without a small pan or
+zoom and (2) frames a picture of it, less long stray marks; levels never split one.
+Every distance is in **stroke widths**, the width an object counts with being its
+thickness now, capped at its pen: ink closer than 900 widths joins (`JOIN_PX` 2,250
+px at the zoom where the stroke is 2.5 px), and a scene holds widths within 16×
+(`ZOOM_SPREAD`) — finer detail inside it is a **child** scene, a coarser picture
+drawn around it a parent. A lonely run of one object longer than two chunks is
+**stray**: not framed, and it never bridges two drawings. A whole scene moved is
+one origin change; part of one leaves and re-joins where it lands; removing ink
+split-checks what is left, the side with more ink keeping the id and name (a
+renamed scene keeps its own through a merge). Storage never makes a scene —
+erase pieces keep their object's scene and re-homed patches (`attachRect`) are
+not indexed while their family has other ink (a family of patches alone is the
+drawing, and is) — but a **fine eraser's carving is detail**: its footprint, at the
+eraser's width, is a child scene framed on the carving. Wide scenes get **parts** (at most 12),
+crowds of siblings **regions**. Names set aside by a merge or an erase come back
+to a scene covering their frame (undo, a split, a redraw). Nested scenes whose frames show the
+same subject (each holding the other's centre, within 3×) are **one row** of the list, framed
+on the tighter, or on its renamed member (Kobin 2026-09-23: "two scenes for Saturn"). A frame is
+the ink and 10 %, with no minimum. The index is packed into typed arrays (grids as cell tables over
+one pool, chunks in shared pools) and the main thread keeps three numbers an object: 26 MB on the
+Magnum Opus where it was 79 (SCENES-PLAN §7.8). Its main-thread tick waits out a stroke, a drag,
+a lasso, a cut in flight, rastering, a pan and a zoom step (`_camBusy`, 2026-09-24 SC-1), up to
+3 s, and runs in idle time forced after 5 s at most. A worker that fails a batch is replaced and
+the index restarts from the last saved state, three times, before it goes inline (SC-3).
 
 ---
 
@@ -706,9 +925,17 @@ drawing is written as version 2 only when it holds one; everything else is
 still version 1 and opens in any build. An object's displacement table
 (`below`, section 8) rides the native record in both versions.
 
+**Frame ids.** A frame's id is its birth chain, `0/i,j/…`; a cell a moved frame vacated
+mints a twin with `#n` on its segment, and every descendant carries that `#n` inside its
+own id. `persist.js` has one grammar for both of its checks (`FRAME_ID`, a `#n` on any
+segment): until 2026-09-22 it allowed one on the last segment only, so a twin's children
+failed `decodeNatives` and the scenes under them were dropped on save (F80).
+
 **dev-0** (`snapshot`/`loadSnapshot`) is a second, separate format: the whole
-engine state including the crossing records, carried by the diagnostic report so
-a bug can be replayed exactly as it was seen. Not the save format.
+engine state including the crossing records. Not the save format. The diagnostic
+report carried it whole until 2026-09-22 (92 MB on a big drawing, F58); it now
+carries a local extract in kobin-2 frame form that `report.loadReport` turns back
+into a dev-0 snapshot (§14).
 
 **kobin-2** (2026-09-08; `src/engine/format2.js`, `src/engine/oplog.js`) — the
 store, as opposed to the file. A frame's natives are small JSON headers plus ONE
@@ -743,9 +970,29 @@ to and forces the resident's snapshot (the shadow's row goes with the write), a
 frames' natives (Kobin's decision: the snapshots hold them), and a `removeFrames`
 or `deleteMany` carries every deleted native's geometry, because its row goes with
 the write. A settle after a drain is its own entry, coalesced with one just before it
-for the same frame (a drag settles and unsettles a visible frame every event); the
+for the same frame and the same move op (a drag settles and unsettles a visible frame every
+event; another op's settle merged in hung on the wrong op in replay, F110); the
 saver drains once more after its snapshots, because reading a frame for its row
 settles it; a failed write keeps its forced frames as well as its entries.
+
+**What the snapshots hold** (F98, 2026-09-23, Kobin's Earth). A load skips an entry when
+every frame it touches holds a snapshot at or past it (`oplog.snapshotRule`), and a frame the
+header does not list held nothing at that write, so it holds every entry. A subtree drag walks
+its per-object members through a container per drop, and the next drop empties it; an emptied
+list leaves the header's frame list, its seq with it, and until that day replay read the
+container as seq 0, put the older drop's tables back over the newer snapshot and skipped the
+entry that had moved them since — the Earth's disc loaded two diameters off its city. A bake
+step applies per frame (a piece whose frame's snapshot is newer is there already, or was cut
+away since); the saver snapshots every listed frame that has no stored snapshot, so a frame
+emptied and later drawn in again is never listed at seq 0; and replay caps the rebuilt undo
+stack op by op, as `pushUndo` does. The format did not change: every listed frame has a
+snapshot, so the cloud manifest's `frameIds` and chunks carry the rule as they are. Frame GC
+(§8) leans on it: a forgotten frame is an unlisted one. **Undo and redo in replay** (2026-09-24,
+REVIEWER-2 U-1..U-4, REVIEWER-3 SAVE-1): the undo of an add names the frame the object was
+removed from; a stale undo or redo of a move rewinds each member to the op it inverts —
+always that op's `from` and `belowBefore`, since after an undo the op held is already the
+inverse — so a later add entry, encoded at drain time, is not read as already moved; a
+redone erase reuses its commit.
 
 **Local storage**: IndexedDB (`src/storage/db.js`, version 2) — one header record
 per canvas, one `frames2` record per frame holding the headers and the raw
@@ -761,16 +1008,58 @@ log entries is one chunk (`src/cloud/store2.js`), gzipped by the browser's own
 lz-string, whose JS-object dictionary fails on a 100 MB drawing, F64) and split
 into 700 KiB parts; a push sends the frames whose stored snapshot is newer than
 the cloud's and the entries past the cloud's seq, then the manifest (the parent
-doc) **last**, and deletes the parts it replaced after. A copy pushed by another
-device or an old lz1 copy is replaced whole; lz1 copies still pull the old way. A
-failed sync is shown in the save bar with its size and retried with a backoff,
+doc) **last**, and deletes the parts it replaced after. An old lz1 copy is replaced
+by the first kobin-2 push and still pulls the old way; nothing else is ever replaced
+(below). A failed sync is shown in the save bar with its size and retried with a backoff,
 1 min to 30 min. One push at a time (a 5 min deadline; busy holds until the SDK
 settles) and one part a commit: measured 2026-09-08 on the 12,849-object canvas,
 six parts a batch with the 30 s tick starting a second push beside the first had
 Firestore's write stream answering `resource-exhausted` every minute for ten
 minutes while the tab churned 2–3 GB; with the guard and one part a commit the
 full push (27 MB gzipped, 50 parts) took 120 s, the SDK still logging that error
-between batches and retrying through it.
+between batches and retrying through it. "One at a time" is per page, not per
+session (2026-09-23): every push runs in `canvasSync`'s one lane, so a session
+restarted mid-push (Fast Refresh, a remount) or the next canvas opened after a
+leave push waits for it, and a push whose tab lost the store stops at its next part.
+
+**Several tabs and devices: one editor at a time** (2026-09-22, `.claude/SYNC-PLAN.md`;
+`src/cloud/syncCore.js`, `canvasSession.js`). A canvas's history has a head `{epoch,
+seq}`: the op log's seq, and an epoch that changes each time another device or tab takes
+the pen. The manifest carries `head` and `lease {device, tab, name, epoch, until}`; the
+local header carries `base`, the cloud head it last pulled or pushed. On the device the
+pen is a Web Lock per canvas (over localStorage where there are no Web Locks, freed when its
+page goes away: F97); in the cloud
+it is the lease, taken and renewed (every 20 s while visible, free after 90 s unrenewed —
+to another device only 5 min past its holder's clock, or after a follower has watched it
+sit unchanged for 90 s of its own) in transactions. A renewal waits out a push while the lease still has half its life (both transact on the manifest; racing, one failed its precondition and retried every few minutes). A tab or device without it is read-only
+(the engine pans on every press and refuses undo; the saver writes nothing) and follows
+while visible: a same-device tab reloads the store when the holder says "saved" on a
+BroadcastChannel after a write that moved data, and reads only the header's name and scale
+after one that did not (a camera, a name: the reload was 5–7 s of main thread on the Magnum
+Opus, F87), another device pulls the new head (only the changed frames and the
+entries past its base) when the manifest changes. "Edit here" asks the holder to save and
+let go; the holder pushes and releases the lease to the asker alone, renewing while it does,
+so a slow hand-over is waited for rather than forced. The lock is backed by a fence: every
+grant claims the store with a token, every write carries it and is refused inside its
+IndexedDB transaction once another tab has claimed (and so is a write whose document is
+behind the store), so a tab that lost the pen mid-`await` or thawed after a freeze writes
+nothing; what it could not write is kept as a new canvas. A push never overwrites: its
+parts are named by its epoch and a nonce of its own, it is never doubled (busy holds until
+the SDK settles it), and the manifest's transaction requires the cloud head to be the local
+base and the lease to be this device's; a refused push leaves only parts no manifest names,
+which the next push sweeps. Opening compares versions, never clocks: ahead is a fast-forward
+push, behind a fast-forward pull (which drops the local entries below the cloud log's floor:
+kept, they rebuilt ops the pusher had undone as undoable, F113), and both moved makes the local copy a new canvas
+("<name> — edits from <device>, <date>") while the cloud copy stays this one. A clock
+decides once, for a pair from before versions whose ancestry is unknown, and both of its
+answers keep both copies (a copy of the whole store in the recycle bin, or a new canvas);
+if the copy cannot be made, the pull does not happen. Whole-canvas reads and copies run a
+frame per transaction: a transaction's scope is a store, so one over a whole canvas blocks
+every write in the origin (0.4–1.4 s measured on a store the Magnum Opus's size). Only a
+production build on the deployed app's own hosts reads and writes `canvases`; every other
+build or host (the dev server, localhost, a LAN IP, a preview channel) uses
+`users/{uid}/dev-canvases` (one Firebase project serves both); the dev panel's Copy real
+reads a real canvas in as a new one.
 
 ---
 
@@ -782,31 +1071,35 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 | | |
 |---|---|
 | `perfLog` | operations over 8 ms (everything, in trace mode) |
+| `perfLong` | every `perfLog` entry of 200 ms or more, the last 100 of the session: the log itself rolls over in a minute or two of work, so a report's long idle tasks were unattributable (2026-09-24). Idle work is timed by name — `ladder` (the rung's list), `ladderPost` (its pack), `prebake`, `prebakePost`, `idleFit`, `sceneTick`. |
 | `frameMeter` | the gap between animation frames — the only instrument here that sees paint. Samples only around interaction. |
 | `longFrames` | Chrome's long-animation-frame: script vs style-and-layout vs what is left over, which is paint and compositing. **The subtraction is the whole point.** |
 | `eventLatency` | input to pixels in three phases. `presentMs` is the only one that reaches past the main thread to the compositor. |
 | `growth` | heap and every cache that could grow, sampled over time. A snapshot cannot show accumulation. |
 | `journal` | the last 40 **gestures** with their pointer paths, what each erase cut, and whether the object came apart. A snapshot shows the wreck; the journal shows the gesture that made it. |
-| `snapshot` | the whole document, and it is a **loadable drawing** — every captured report can be replayed. |
+| `report` | the Report button (`src/engine/report.js`, sent by `hooks/reportSend.js`; OPEN-FLAGS F58): the instruments above, the save, cloud, move, erase and scene state, the journal and the undo and redo stacks, and a **local extract** — the natives on screen and around it, largest first, up to 4 MB of JSON, with the whole lattice — which `loadReport` loads back into an engine at the recorded camera, so a report is still a **loadable drawing**. The whole drawing is an opt-in (`+Drawing`) in kobin-2 parts. Built task by task, gzipped off the main thread, posted in parts to `tools/report-server.js`; `tools/report-read.js` prints its headline numbers. Reports before 2026-09-22 carry the whole document as `snapshot`. |
+| `rasterPerf` | the raster path's ring (`src/engine/raster/rasterPerf.js`): each frame's time in five buckets by phase — ENGINE, RASTERISER, TRANSFER, BROWSER, OVERLAY — with a one-word verdict; `E.renderer.perf.report()`, and the report's `raster` section. |
 
 ---
 
 ## 15. The code, as it stands
 
-85 source files, 85 test files.
+104 source files outside the oracles and the testkit, 131 test files and 12 probes
+(counted 2026-09-22).
 
 ### The engine
 
 | file | |
 |---|---|
-| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline, pan/zoom, pointer input, undo/redo/clear |
+| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (`_buildList`, `listFor`), the raster path's plate drain, the drag's hold and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
-| `eraseJob.js`, `eraseWorkerClient.js`, `worker/eraseWorker.js` | one cut as a pure job; the worker client (inline where there is none); the worker's entry, bundled to `public/erase-worker.js` |
+| `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js`, `worker/eraseWorker.js` | one cut as a pure job; the descent as one job per family; the worker client (inline where there is none); the worker's entry, bundled to `public/erase-worker.js` |
 | `overlays.js` | the selection indicator and the erase debug view |
 | `selection.js` | selecting, hit-testing, dragging |
-| `sceneOps.js` | auto-scenes |
+| `sceneOps.js` | scenes: `refreshScenes` and `renameScene` through the scene client, `sceneZoom`, `jumpTo`/`fitView`, `snapshotView` |
 | `files.js` | snapshot/dev-0 and the kobin-1 save format |
 | `instruments.js` | the four measurement instruments |
+| `report.js` | the dev report (§14, F58): its sections, the local extract, the whole drawing in parts, `loadReport`. Sent by `hooks/reportSend.js`, received by `tools/report-server.js`, read by `tools/report-read.js` |
 | `mixin.js`, `now.js`, `rectMath.js` | the small shared pieces |
 
 The five files after `KobinEngine.js` are **mixed onto its prototype** — they are
@@ -819,12 +1112,16 @@ way, and throws if two files claim the same name.
 | `Document.js` | natives, z-order, the undo stack |
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache |
-| `Renderer.js` | the only class that touches Two.js |
-| `persist.js`, `format2.js`, `oplog.js`, `scenes.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, scene clustering, the lattice constants |
+| `Renderer.js` | the SVG renderer, and the base class of the raster one |
+| `raster/` | the raster renderer: `RasterRenderer`, `PictureLayer`, `PlateStore`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; `worker/rasterWorker.js` is bundled to `public/raster-worker.js` |
+| `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
+| `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |
 
 `geometry/` is pure functions and no state: `loop` (the stored form), `arcShape` (the boolean),
 `arcPerimeter` (the resumable bake), `biarc` (the pen), `derive`, `connect`,
-`freeze`, `hittest`, `lasso`, `curveOutline`, `polyline`, `clipperBoolean`.
+`freeze`, `offsets` (the displacement table), `chordMath` (the radius-free chord arithmetic
+the freeze and the rasteriser share), `antRuns`, `hittest`, `lasso`, `curveOutline`,
+`polyline`, `clipperBoolean`.
 
 ### Two directories that are not shipped
 
@@ -867,20 +1164,25 @@ names every place Clipper is still reached. See OPEN-FLAGS X2–X4.
 | | |
 |---|---|
 | `docs/OPEN-FLAGS.md` | the open defect register, F- and X-numbered. Start here when something is wrong. |
-| `docs/issue-log.md` | the running log of what was found and what was done |
+| `docs/ROADMAP.md` | the plan, the backlog, the register of deferred design changes and the DONE ledger |
+| `docs/issue-log.md` | history, frozen at 2026-07-09 |
 | `docs/UAT.md` | the acceptance script |
 | `docs/ai/` | the same material as plain text, for an agent with no context |
 | `docs/reference/` | the design bibles, handoffs, option papers, test catalogs and measurement reports this document was distilled from. Kept and tracked; consult when you need the full argument rather than the conclusion. |
-| `tools/docmaps/` | generates the published Code Map and Call Graph |
+| `tools/docmaps/` | generates the published Code Map, Call Graph and Call Map |
 
-Two generated reference pages cover all of `src/` function by function:
+Three generated reference pages cover all of `src/`:
 
 - **Code Map** — every function in the file that defines it, with a one-line
   summary and an expandable explanation.
 - **Call Graph** — the same functions as a graph, drawn inside file blocks, with
-  entry points marked, test-only functions greyed, and unreferenced ones struck
-  through.
+  entry points marked and test-only functions greyed.
+- **Call Map** — seven flows from the entry points as call trees, every row a
+  call the source makes.
 
-`tools/docmaps/README.md` has the rebuild order. Both pages must pass
-`verify_coverage.py` (every function is on both) and `audit_stale.py` (neither
-names something the source no longer defines) after any change to `src/`.
+`python tools/docmaps/rebuild.py` rebuilds all three and stops at the first
+failing check; `tools/docmaps/README.md` has the order. After any change to
+`src/`, `verify_coverage.py` (every function is on both the Code Map and the
+Call Graph) and `audit_stale.py` (neither names something the source no longer
+defines) must pass. Rebuilt and republished 2026-09-23 from the working tree:
+2,282 functions in 113 files, 0 missing, 0 stale.

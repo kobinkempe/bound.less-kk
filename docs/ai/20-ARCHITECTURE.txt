@@ -1,6 +1,7 @@
 ================================================================================
 BOUND.LESS - THE ARCHITECTURE, IN ONE PASS
-Written 2026-08-28, updated 2026-08-31.
+Written 2026-08-28, updated 2026-09-22 (moving, erasing and rendering brought
+to DESIGN.md sections 7-9).
 
 DESIGN.md AT THE REPOSITORY ROOT IS THE SAME MATERIAL, AND IT IS THE ONE THAT
 IS MAINTAINED. It was distilled from this file and from the design bibles on
@@ -8,7 +9,7 @@ IS MAINTAINED. It was distilled from this file and from the design bibles on
 the module map as it stands after the engine split. Read it first.
 
 This file survives because docs/ai/ is meant to be readable with nothing but
-cat, and because everything in it is still true. When the two disagree, DESIGN.md
+cat, and it is kept true in outline; DESIGN.md has the detail. When the two disagree, DESIGN.md
 is the one that was updated - fix this file rather than leaving both standing
 (90-MAINTENANCE, rule 8).
 
@@ -204,6 +205,12 @@ THE ERASE
     path, 232-386 ms renders rebuilding it, and a view-sized pad that was 2 px at
     one zoom and 0.19 px at another.
 
+    Since F42 (2026-09-04) the descent takes each level's ink from the tile
+    store's own derivation, never recomputing it. Since 2026-09-08 the targets
+    come from the spatial index top-down by z, the mark's z steps down with the
+    bake, and one cut and one whole descent per family run as jobs in a worker
+    (public/erase-worker.js). DESIGN.md section 7.
+
 SEVERANCE - is the family still one object?
 
     Once a ceded tile is cut out of its parent, this is a GRAPH, not a walk.
@@ -235,8 +242,14 @@ MOVING
     cell or larger is applied to the member's ADDRESS - it is re-homed into the
     cell that many steps along and its geometry is NOT TOUCHED, because
     neighbouring cells' origins differ by exactly one frame and the same local
-    coordinates therefore describe the moved object exactly. Only the sub-cell
-    remainder, smaller than one frame at any depth, reaches geometry.
+    coordinates therefore describe the moved object exactly. The sub-cell
+    remainder does not reach a stored coordinate either (F55, 2026-09-05): it
+    is snapped to 2^-10 units at the move level and kept in the object's
+    DISPLACEMENT TABLE (geometry/offsets.js), applied at paint and inverted on
+    every input. A selected FRAME moves as a frame (2026-09-15): its address
+    changes and no object is touched; its sub-cell rest waits on the frame as
+    a shift, settled into its natives' tables at the first read of its list
+    (DESIGN.md section 8).
 
     Every member expands the SAME displacement, so members that share an ancestor
     take bit-identical digits there and their relative positions cannot move.
@@ -252,7 +265,15 @@ MOVING
 
 RENDERING
 
-    Renderer is the only class that touches Two.js. One persistent Two.Group per
+    Since 2026-09-22 the app draws with the RASTER renderer (src/engine/raster/;
+    RasterRenderer extends Renderer): our own float64 coverage rasteriser in
+    Web Workers fills 512-device-px plates, which are cached by frame, zoom
+    quantum and cell and composed onto one canvas; a stale or coarser plate
+    stands in until a fresh one lands. The live stroke stays SVG and the ants
+    are painted on an overlay canvas. The SVG renderer below is behind ?svg.
+    DESIGN.md section 9 has both.
+
+    The SVG renderer: Renderer builds the Two.js paths. One persistent Two.Group per
     object id, kept sorted by (z, id) = global z-order; a per-frame diff rebuilds
     a group only when its piece SIGNATURE changes; a camera-only frame touches
     nothing but the world transform and faded groups' opacity.
@@ -345,15 +366,19 @@ SELECTION
 
 SCENES
 
-    The coherent drawings hidden inside a canvas, found by deterministic ink
-    clustering. All distances are relative to STROKE WIDTH, which encodes the
-    zoom the ink was drawn at: a window is 600 stroke widths, and two things join
-    across a gap of 1.5 windows. Clustering runs per adjacent frame pair,
-    projecting the finer level's geometry through that one crossing; union-find
-    is keyed by global stroke id, so membership chains across levels. Much-finer
-    members inside a scene re-cluster at their own scale into nested POCKETS.
-    Re-homed patches (anything with an attachRect) are excluded - a deep erase
-    would otherwise invent a scene every time.
+    The coherent drawings hidden inside a canvas, kept by a SCENE INDEX saved in
+    the file (meta.sceneIndex) and updated per batch of changed objects at idle,
+    in its own worker at the lowest priority - never re-clustered, so a load
+    files every object straight into its saved scene (sceneIndex.js, the pure
+    core; sceneClient.js, the main thread; docs/reference/scenes-v3-design-
+    bible.md). Distances are in STROKE WIDTHS (the thickness an object has now,
+    capped at its pen): ink within 900 widths joins, a scene holds widths within
+    16x, and finer detail inside one is a CHILD scene. A lonely run of one object
+    longer than two chunks is stray: not framed, never a bridge. A whole scene
+    moved is one origin change; removing ink split-checks what is left. Erase
+    pieces keep their object's scene and re-homed patches (attachRect) are not
+    indexed - storage never makes a scene - but a fine eraser's carving is a
+    child scene through its FOOTPRINT. Wide scenes get PARTS, crowds REGIONS.
 
 PERSISTENCE
 
@@ -386,11 +411,18 @@ PERSISTENCE
     its first save moves it. Cloud: Firestore, a mirror of the local store -
     frame and log chunks (cloud/store2.js) gzipped by CompressionStream
     (cloud/gzip.js, never lz-string: F64) in 700 KiB parts, the manifest (parent
-    doc) written LAST, replaced parts deleted after; lz1 copies still pull.
+    doc) written LAST, replaced parts deleted after; lz1 copies still pull. One
+    editor at a time: a Web Lock per canvas and a lease on the manifest; a push
+    that never overwrites; a dev build in users/{uid}/dev-canvases (SYNC-PLAN,
+    DESIGN.md §13; cloud/syncCore.js, cloud/canvasSession.js).
+    Frame ids: a twin frame's #n may sit on any segment of a descendant's id,
+    and persist.js's one FRAME_ID grammar accepts that (F80, 2026-09-22).
 
 WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
 
-    KobinEngine.js was 3,506 lines. It is 855 now, and holds construction, the
+    KobinEngine.js was 3,506 lines. It was 855 after the split and is 1,409 on
+    2026-09-22 (the raster path's plate drain, the drag's hold, listFor, the
+    crossing prebake and the ladder came in). It holds construction, the
     compat accessors, the tool and style setters, the perf log, the render
     pipeline, pan and zoom, pointer input, and undo/redo - roughly the shape of
     a gesture, start to finish.
@@ -403,9 +435,10 @@ WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
       erasePipeline.js   the eraser and the resumable bake behind it
       overlays.js        the selection indicator and the erase debug view
       selection.js       selecting, hit-testing, dragging
-      sceneOps.js        auto-scenes
+      sceneOps.js        scenes: the index client, jumps, pictures
       files.js           dev-0 and the kobin-1 save format
       instruments.js     the four instruments below (not a mixin - four classes)
+      report.js          the dev report: sections, a local extract, loadReport (F58)
       mixin.js           the copier. Object.assign copies NOTHING here, because
                          class prototype methods are non-enumerable; it uses
                          descriptors, and it THROWS if two files claim one name.
@@ -436,3 +469,6 @@ DIAGNOSTICS - all of it dev-only, none of it on the drawing path
                    wreck; the journal shows the gesture that made it.
     snapshot       the whole document, and it is a LOADABLE DRAWING - every
                    captured report can be replayed.
+    rasterPerf     the raster path's ring: each frame's time in five buckets
+                   (ENGINE, RASTERISER, TRANSFER, BROWSER, OVERLAY) and a
+                   one-word verdict; E.renderer.perf.report().

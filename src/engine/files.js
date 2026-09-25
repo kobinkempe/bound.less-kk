@@ -35,6 +35,8 @@ class Files {
         this._mintNamedFrames(snap.natives);
         this._bakeJobs = []; this._bakeQueued.clear();
         this.doc.loadNatives(snap.natives); // reset event clears the tile cache
+        // a snapshot carries no scenes: the index builds afresh at idle, not from the last document's
+        this.docMeta = { ...this.docMeta, scenes: [], sceneIndex: null, sceneSeq: null };
         this.cam.set(snap.camera || { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
         this.cam.settle();                  // a file may record an illegal zoom
         this.renderer.clear();
@@ -56,23 +58,26 @@ class Files {
     // stores the envelope and only the frames that changed; [] for the
     // envelope alone. The document is the same shape in every case, so
     // nothing downstream has to know which it got.
+    // The scene index's saved state (`meta.sceneIndex`, SCENES-PLAN §7) comes from its client: the
+    // last batch's state with every id not yet indexed listed as `dirty`.
     serializeDrawing(meta = {}, { frames = null } = {}) {
+        const sceneIndex = this._sceneClient ? this._sceneClient.exportForSave() : this.docMeta.sceneIndex;
         const doc = encodeDrawing({
             camera: this.cam.state(), crossings: this.lm.serialize(),
             natives: this.doc.serializeNatives(frames),
-            meta: { ...this.docMeta, ...meta },
+            meta: { ...this.docMeta, sceneIndex, ...meta },
         });
         this.docMeta = {
             name: doc.meta.name,
             createdAt: doc.meta.createdAt,
             scaleDef: doc.meta.scaleDef ?? null,
             scenes: doc.meta.scenes ?? [],
-            hiddenScenes: doc.meta.hiddenScenes ?? [],
-            sceneSeq: doc.meta.sceneSeq ?? 1,
+            sceneIndex: doc.meta.sceneIndex ?? null,
         };
         return doc;
     }
-    loadDrawing(raw) {
+    // `render` false: the caller renders (the store restore replays its log first, then renders once).
+    loadDrawing(raw, { render = true } = {}) {
         const d = decodeDrawing(raw); // throws before any engine state changes
         this.lm.load(d.crossings);
         this._mintNamedFrames(d.natives);
@@ -84,16 +89,18 @@ class Files {
         this._bakeDone.clear();
         this._cutInflight = null;   // a worker result for the old document is dropped on arrival
         this._scheduleBake(); // resume baking any eraser strokes the file carried
+        // The saved scene list shows at once; the index restores from `sceneIndex` at idle (an
+        // old file without one is built afresh, keeping the old scenes' ids and names by overlap).
         this.docMeta = {
             name: d.meta.name,
             createdAt: d.meta.createdAt,
             scaleDef: d.meta.scaleDef ?? null,
             scenes: d.meta.scenes ?? [],
-            hiddenScenes: d.meta.hiddenScenes ?? [],
-            sceneSeq: d.meta.sceneSeq ?? 1,
+            sceneIndex: d.meta.sceneIndex ?? null,
+            sceneSeq: d.meta.sceneSeq ?? null,
         };
         this.renderer.clear();
-        this._render();
+        if (render) this._render();
         this._queueIdleFits();
         return true;
     }

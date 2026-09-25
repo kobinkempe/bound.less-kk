@@ -33,13 +33,14 @@ you have read anything.
 
 ```bash
 npm start              # dev server on :3000
-npm run test:quick     # ~100-150 s, 1130 tests, no *.slow.test.js and no *.probe.js
+npm run test:quick     # ~100-150 s, ~1,650 tests in 107 suites, no *.slow.test.js and no *.probe.js
 npm run test:slow      # ~500 s (1,320 s beside a dev server and Chrome), 616 tests
 npm run test:erase     # the slow erase suites only
 npm run typecheck      # JSDoc-checked geometry (tsconfig.geometry.json); 0 errors is the bar
-npm run build:worker   # esbuild bundles the erase worker into public/erase-worker.js (runs before start/build)
+npm run build:worker   # esbuild bundles the workers into public/ (erase-worker.js, raster-worker.js, scene-worker.js; runs before start/build)
 npm run lint           # eslint, including the layering rule (import/no-restricted-paths)
 npm run report-server  # receives in-app diagnostic reports on :3001
+start-boundless.cmd    # Kobin's one click (tools/launch.js): app, report and fixture servers, phone URL + QR
 ```
 
 Deployed at <https://bound-less-kk.web.app> — `firebase deploy --only hosting`.

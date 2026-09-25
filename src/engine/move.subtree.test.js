@@ -51,6 +51,25 @@ const dragDirect = (E, p, dx, dy) => {
 };
 const settleAll = (E) => { for (const k of [...E.lm.frames.keys()]) E.doc.at(k); };
 
+describe("two subtree moves undone and redone with their frame unread (REVIEWER-3 MOVE-1)", () => {
+    useEngines();
+    test("mv1 the second redo keeps the first's pending shift: the natives end where they were", () => {
+        const { E, R } = fixture(20);
+        const move = (dx, dy) => { E._setSelection([], [R.id]); dragDirect(E, press(E, R.id), dx, dy); E.pointerUp(); };
+        move(40, 0);                                              // A: its drop's render settles R
+        move(0, 25);                                              // B: shiftBefore null
+        settleAll(E);
+        const want = bytes(E), at = addrOf(E, R.id);
+        E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400 + 3e6, inPanY: 300 });   // far away: nothing reads R
+        E.undo(); E.undo(); E.redo();
+        expect(E.lm.frame(R.id).shift).toBeTruthy();              // the fixture: A's shift pending, unread
+        E.redo();
+        settleAll(E);
+        expect(addrOf(E, R.id)).toEqual(at);
+        expect(bytes(E) === want).toBe(true);                     // red: A's shift overwritten by B's
+    });
+});
+
 describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
     useEngines();
     test("t1 a drag from the frame's mark re-addresses the frames and touches no object", () => {
@@ -221,20 +240,20 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         expect(bytes(E)).toBe(start);
         expect(addrOf(E, A1.id)).toEqual({ parent: A.id, i: 1, j: 1 });
     });
-    test("t9 an empty visited cell yields to the mover and takes its place back when the mover leaves", () => {
+    test("t9 an empty visited cell yields to the mover; holding nothing, it is collected at the drop (F94)", () => {
         const { E, A } = build();
         const C = E.lm.cellChild("1", 8, 0);              // visited, nothing in it
         const start = bytes(E);
-        drop(E, A, -64);
+        E._setSelection([], [A.id]);
+        dragDirect(E, press(E, A.id), -64, 0);
         expect(E.lm.findCellChild("1", 8, 0)).toBe(E.lm.frame(A.id));
         expect(E.lm.frame(C.id).shadowOf).toBe(A.id);
         expect(E.lm.frame(A.id).shadowOf).toBeNull();
-        // Reading A merges the empty shadow away; undo restores the container as the cell's resident.
-        E.doc.at(A.id);
-        expect(E.lm.frame(C.id)).toBeUndefined();
+        E.pointerUp();
+        expect(E.lm.frame(C.id)).toBeUndefined();         // no natives, kids or shadows, named by no op
+        expect(E.lm.frame(A.id)._shadows).toBeFalsy();
         expect(E.undo()).toBe(true);
-        expect(E.lm.findCellChild("1", 8, 0)).toBe(E.lm.frame(C.id));
-        expect(E.lm.frame(C.id).shadowOf).toBeNull();
+        expect(E.lm.findCellChild("1", 8, 0)).toBeNull();
         expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 10, j: 0 });
         expect(bytes(E)).toBe(start);
     });
@@ -251,8 +270,7 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         expect(E.lm.frame(A.id).shadowOf).toBe(E.lm.frame("1/12,0").id);
         E.pointerUp();
         expect([rehome(), rehomeMany(), offsets()]).toEqual([0, 0, 0]);
-        for (let i = 7; i <= 9; i++) expect(E.lm.findCellChild("1", i, 0).id).toBe("1/" + i + ",0");
-        expect(E.lm.findCellChild("1", 10, 0)).toBeNull();
+        for (let i = 7; i <= 10; i++) expect(E.lm.findCellChild("1", i, 0)).toBeNull();   // the visited cells held nothing: collected at the drop (F94)
     });
 });
 

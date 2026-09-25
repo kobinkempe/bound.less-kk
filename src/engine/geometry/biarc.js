@@ -347,6 +347,23 @@ export class BiarcPen {
         if (pts.length === 2) return [pts[0], pts[0], pts[1], pts[1]];
         return [pts[g], this.ctrl[g].right, this.ctrl[g + 1].left, pts[g + 1]];
     }
+    /**
+     * A stroke that ends exactly where it began is PERIODIC: its seam handle is the one an interior sample gets
+     * (from the samples either side of it), so the first and last gaps leave and arrive with one tangent. The
+     * live pen treats the stroke as open; the resolve calls this once, and the rails' seam then lies on their
+     * arcs' circles (the one-sided tangents differed by ~3e-4 rad, and `_closeSeam`'s mean left the seam arcs'
+     * ends off their circles by pen × Δθ / 2). Returns whether it changed anything.
+     */
+    closeLoop() {
+        const pts = this.pts, last = pts.length - 1;
+        if (last < 3 || pts[0][0] !== pts[last][0] || pts[0][1] !== pts[last][1]) return false;
+        const c = controlsFor(pts[last - 1], pts[0], pts[1]);
+        this.ctrl[0] = c;
+        this.ctrl[last] = c;                    // pts[last] is pts[0]: the same handle, the same numbers
+        this.gaps[0] = arcsForGap(this._cubic(0), this.tol);
+        this.gaps[last - 1] = arcsForGap(this._cubic(last - 1), this.tol);
+        return true;
+    }
     /** Flat arc list. Rebuilt on demand — the pen path itself walks `gaps`. */
     arcs() { const out = []; for (const g of this.gaps) for (const a of g) out.push(a); return out; }
 }

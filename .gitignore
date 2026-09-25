@@ -33,5 +33,7 @@ yarn-error.log*
 # one-off jest --json timing dumps (tools/.cache/, moved off the repo root 2026-09-07)
 /tools/.cache
 
-# the erase worker bundle: esbuild output, rebuilt by prestart/prebuild (npm run build:worker)
+# the erase, raster and scene worker bundles: esbuild output, rebuilt by prestart/prebuild (npm run build:worker)
 /public/erase-worker.js
+/public/scene-worker.js
+/public/raster-worker.js

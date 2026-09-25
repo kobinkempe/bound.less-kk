@@ -16,6 +16,8 @@
  *   clipPolylineToRect an open polyline to a window
  *   decimatePolyline   drop the points a given resolution cannot show
  *   strokeStripNear    the analytic strip for a stroke far wider than the view
+ *   strokeStripRound   the same band with ROUND joins and caps, written flat, for the
+ *                      rasteriser: `strokeStripNear(..., {joins:"round", tol})` opts into it
  *   capsulePoly        one segment's round-capped outline
  *   netRingsArea       signed area of a ring set
  *
@@ -171,7 +173,8 @@ export function flattenCurveNear(pts, tol, rect, rIn, rOut) {
 }
 
 // Signed (shoelace) area of one ring; sign encodes orientation.
-// exported for clipperBoolean.js, which is the only other caller
+// exported for clipperBoolean.js and raster/rasterPack.js, which weighs a family's union
+// orientation with it and needs the same quantity arcShape.loopArea returns (RASTERISER-PLAN D97)
 export function ringSignedArea(ring) {
     let s = 0;
     for (let i = 0, n = ring.length; i < n; i++) {
@@ -312,10 +315,13 @@ export function clipRingsToRect(polys, rect) {
  * @param {Array<[number,number]>} pts   centerline run (window coords)
  * @param {number} width                 stroke width
  * @param {{left,top,right,bottom}} rect the window the output must be exact in
- * @param {{startCap?:boolean, endCap?:boolean}} [opts] true-stroke-end flags
- * @returns {number[][][]} rings, each a list of [x, y]
+ * @param {{startCap?:boolean, endCap?:boolean, joins?:string, tol?:number, out?:object}} [opts]
+ *   true-stroke-end flags; `joins: "round"` is the opt-in flat path below, which ignores `rect`
+ * @returns {number[][][]|{xy:Float64Array,ring:Uint32Array,rings:number,pts:number}} rings,
+ *   each a list of [x, y] — or, under `joins: "round"`, the flat form `strokeStripRound` returns
  */
 export function strokeStripNear(pts, width, rect, opts = {}) {
+    if (opts.joins === "round") return strokeStripRound(pts, width, opts);
     const half = width / 2;
     const out = [];
     const diagR = Math.hypot(rect.right - rect.left, rect.bottom - rect.top);
@@ -386,6 +392,144 @@ export function strokeStripNear(pts, width, rect, opts = {}) {
         if (area > 0) ring.reverse();
     }
     return out;
+}
+
+/**
+ * The ROUND-JOINED band of a polyline, written flat: one rectangle per segment, a pie-slice
+ * fan at each interior vertex and a half-disc cap at each end, every ring wound POSITIVE so
+ * nonzero fill unions them — and unions them with the rest of the family when that is wound the
+ * same way (D105, D106: the DEFAULT path below winds the other way, and a family mixing the two
+ * cancels to a hole; the bake builds one such family today, OPEN-FLAGS F76). Opt in with
+ * `strokeStripNear(pts, w, rect, {joins:"round", tol})`;
+ * `rect` is then unused, which is the reason this path exists — `capPiece` takes its angular
+ * span from the rect, so two windows give two different caps and a plate boundary shows a
+ * hairline (RASTERISER-PLAN §4.8). The miter ribbon is what the default path keeps: it matches
+ * the level-0 curve outline's join, which the stored derivation depends on.
+ *
+ * `tol` is the chord tolerance in the points' own units. A fan spanning `delta` costs
+ * `ceil(delta / (2·acos(1 − tol/half)))` chords, so a stroke thinner than the tolerance costs
+ * one chord per fan and a 10⁴ px one costs what it needs.
+ *
+ * @param {Array<[number,number]>} pts centerline
+ * @param {number} width
+ * @param {{tol?:number, out?:{xy:Float64Array, ring:Uint32Array}}} opts
+ * @returns {{xy:Float64Array, ring:Uint32Array, rings:number, pts:number, area:number}} `ring[k]`
+ *   is ring k's first POINT in `xy` (x, y pairs); ring k ends where ring k+1 begins, the last at
+ *   `pts`. `area` is the band's own signed area, which every ring's normalisation makes ≥ 0.
+ */
+export function strokeStripRound(pts, width, opts = {}) {
+    const half = width / 2;
+    const tol = opts.tol > 0 ? opts.tol : half / 64;
+    // The widest angle one chord may span: sagitta half·(1 − cos(θ/2)) ≤ tol. Past tol ≥ half
+    // the argument leaves [−1, 1] and the clamp makes it one chord, which is that same rule at
+    // a radius under the tolerance — §4.4's own answer for a sub-pixel arc.
+    const step = half > 0 ? 2 * Math.acos(Math.max(-1, Math.min(1, 1 - tol / half))) : Math.PI;
+    const w = new RingWriter(opts.out);
+    const p = [];
+    for (const q of pts) {
+        const n = p.length;
+        if (!n || q[0] !== p[n - 1][0] || q[1] !== p[n - 1][1]) p.push(q);
+    }
+    if (!p.length || !(half > 0)) return w.done();
+    if (p.length === 1) { disc(w, p[0][0], p[0][1], half, step); return w.done(); }
+
+    const n = p.length, dx = [], dy = [];
+    for (let i = 0; i < n - 1; i++) {
+        const ex = p[i + 1][0] - p[i][0], ey = p[i + 1][1] - p[i][1];
+        const len = Math.hypot(ex, ey);
+        dx.push(ex / len); dy.push(ey / len);
+        // the segment's own rectangle: ±half along its normal (−dy, dx)
+        const ox = (-ey / len) * half, oy = (ex / len) * half;
+        w.startRing();
+        w.pt(p[i][0] + ox, p[i][1] + oy); w.pt(p[i + 1][0] + ox, p[i + 1][1] + oy);
+        w.pt(p[i + 1][0] - ox, p[i + 1][1] - oy); w.pt(p[i][0] - ox, p[i][1] - oy);
+        w.close();
+    }
+    for (let i = 1; i < n - 1; i++) {
+        const cross = dx[i - 1] * dy[i] - dy[i - 1] * dx[i];
+        const dot = dx[i - 1] * dx[i] + dy[i - 1] * dy[i];
+        const turn = Math.atan2(cross, dot);
+        if (turn === 0) continue;
+        // The OUTER side of the turn is the one the rectangles leave open; the inner notch is
+        // already covered by them. A reversal (|turn| = π) has no outer side, so it takes a disc.
+        if (Math.abs(Math.abs(turn) - Math.PI) < 1e-12) { disc(w, p[i][0], p[i][1], half, step); continue; }
+        const s = cross > 0 ? -1 : 1;
+        const a0 = Math.atan2(s * dx[i - 1], -s * dy[i - 1]);   // angle of s·(−dy, dx)·half
+        fanAt(w, p[i][0], p[i][1], half, a0, turn, step);
+    }
+    // The caps: a half-disc past each true end, swept from one offset to the other through the
+    // direction of travel. Round at both ends is what `Renderer._pushStroke` asks the browser
+    // for (`Renderer.js:1222-1223`), so the picture does not change with the rasteriser.
+    fanAt(w, p[0][0], p[0][1], half, Math.atan2(dx[0], -dy[0]), Math.PI, step);
+    const L = n - 2;
+    fanAt(w, p[n - 1][0], p[n - 1][1], half, Math.atan2(-dx[L], dy[L]), Math.PI, step);
+    return w.done();
+}
+
+/** A pie slice: the centre, then `ceil(|delta|/step)` chords of the circle from `a0`. */
+function fanAt(w, cx, cy, r, a0, delta, step) {
+    w.startRing();
+    w.pt(cx, cy);
+    const k = Math.max(1, Math.ceil(Math.abs(delta) / step));
+    for (let i = 0; i <= k; i++) {
+        const a = a0 + (delta * i) / k;
+        w.pt(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    w.close();
+}
+
+/** The whole circle, with no centre point and at least a triangle, so a dot under the tolerance
+ *  still carries ink. `fanAt`'s pie slice is the other shape and they are not interchangeable. */
+function disc(w, cx, cy, r, step) {
+    w.startRing();
+    const k = Math.max(3, Math.ceil((2 * Math.PI) / step));
+    for (let i = 0; i < k; i++) {
+        const a = (2 * Math.PI * i) / k;
+        w.pt(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    w.close();
+}
+
+/**
+ * The flat ring buffer `strokeStripRound` writes into: x, y pairs in `xy`, ring starts in
+ * `ring`. It grows by doubling from the caller's arrays, which is why the caller gets the
+ * arrays back rather than passing them and assuming they were filled. It also totals the
+ * band's signed area, which `close` has already computed for every ring it normalises.
+ */
+class RingWriter {
+    constructor(out) {
+        this.xy = (out && out.xy) || new Float64Array(256);
+        this.ring = (out && out.ring) || new Uint32Array(16);
+        this.n = 0; this.r = 0; this.start = 0; this.area = 0;
+    }
+    startRing() {
+        if (this.r === this.ring.length) { const g = new Uint32Array(this.r * 2); g.set(this.ring); this.ring = g; }
+        this.ring[this.r++] = this.n;
+        this.start = this.n;
+    }
+    pt(x, y) {
+        if (this.n * 2 + 2 > this.xy.length) { const g = new Float64Array(this.xy.length * 2); g.set(this.xy); this.xy = g; }
+        this.xy[this.n * 2] = x; this.xy[this.n * 2 + 1] = y; this.n++;
+    }
+    /** Normalise the ring just written to one winding — POSITIVE, which is the winding of a
+     *  boolean shape and of every band this path ships, though NOT of the default path's rings
+     *  below (D105, D106) — and add its signed area (non-negative after it) to the band's total. */
+    close() {
+        let area = 0;
+        for (let i = this.start; i < this.n; i++) {
+            const j = i + 1 < this.n ? i + 1 : this.start;
+            area += this.xy[i * 2] * this.xy[j * 2 + 1] - this.xy[j * 2] * this.xy[i * 2 + 1];
+        }
+        this.area += (area < 0 ? -area : area) / 2;
+        if (area < 0) {
+            for (let a = this.start, b = this.n - 1; a < b; a++, b--) {
+                const x = this.xy[a * 2], y = this.xy[a * 2 + 1];
+                this.xy[a * 2] = this.xy[b * 2]; this.xy[a * 2 + 1] = this.xy[b * 2 + 1];
+                this.xy[b * 2] = x; this.xy[b * 2 + 1] = y;
+            }
+        }
+    }
+    done() { return { xy: this.xy, ring: this.ring, rings: this.r, pts: this.n, area: this.area }; }
 }
 
 /**

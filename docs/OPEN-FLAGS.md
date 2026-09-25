@@ -17,7 +17,12 @@ log and is a different thing.
 Read this file at the start of any session about baking, erasing, or stroke geometry.
 When summarising status for a handoff, point at this file by path.
 
-Last updated **2026-09-08**.
+Last updated **2026-09-22** by the docs pass: every index row checked against its section and
+the code — F60's row closed (its section and `boundless-ui.css` already said fixed), F81 closed by
+Kobin's decision, F29/F30/F34/F23's rows brought to their 2026-09-07 closures, rows added for
+F63–F73. Open: F57, F59, F61, F62, F65, F76, F79, F83, F84, F85, F87 (filed and narrowed 2026-09-23); F86, F94, F97 and F98 filed and fixed 2026-09-23; F33 awaits its phone run, and the
+"fixed, unverified" rows await Kobin's browser. Fixed on 2026-09-22/23: F58, F77, F78, F80, F82. Every
+fixed flag keeps its index row, struck.
 
 **THE FRAME LATTICE IS IN (2026-08-19).** A frame is a cell of a fixed lattice, a move is
 arithmetic on an address rather than a translation of geometry, and the magnify chain carries
@@ -58,12 +63,79 @@ is the one dev surface left.
 | [F55](#f55) | ~~a move loses registration with detail three or more levels below the level it is made at~~ — **FIXED 2026-09-05, unverified by Kobin.** His "star in a corner": a small stroke drawn against a coarse object's edge four crossings down, both moved together from above. The small one moved by exact address digits; the coarse one's coordinates took the displacement with ONE float rounding at the move level, and the chain magnified that rounding by 4096 per level below: 3.25 units four levels below a home-level move, 1,229 four levels below a level-1 move. Now a move never touches a stored coordinate at any level: the displacement, snapped to 2^-10 units at the move level, lives in the object's table (`below[k]`, k ≥ 0), the tiles are unmoved space, the table's whole-frame digits say which frame a moved object's pieces are read from and its remainder is applied at paint and subtracted from every input. Measured in jsdom (`move.registration.test.js`): the coarse object's pieces four levels below the move are the same bits in the new frame, the star's bits untouched, their gap unchanged to 1e-9 | `selection.js` `_dragSelection`, `geometry/offsets.js`, `LevelMap.objShift`, `TileStore._reroute`, `derive.js deriveStep` | **fixed, unverified** |
 | [F56](#f56) | ~~an erase below two moved objects flooded one of them over the whole tile~~ — **FIXED 2026-09-06, unverified by Kobin.** His reports 06-16-21/24: two objects homed at level 1, dragged at level 10, a 4-px eraser at level 10 on one of them; the other, whose ink the eraser never reached, was ceded nine levels down and its level-10 kid was a solid square where the render's piece is a wedge. Since F55 the square a link reads is the erase less the remainder, which lands in the NEIGHBOUR of the unmoved frame as often as not; the kid was homed in the camera-path frame with its ink in cell (i, j), and its child tiles were derived through the store's ring projection (an up-then-down hop that loses low bits) while the chain derived the same ink by the exact direct hop. Measured: the level-7 kid's edge 2.5 units from the chain's, 2% more ink one level down, a solid square three down. The kid is now homed in the frame that OWNS the square, holding that frame's own piece for its own cell. Replayed: the untouched object is refused at the last link and unwound (F47), the erased one's kids are the chain's pieces at every level | `erasePipeline.js` `_bakeRehomeInner` (the square's owner) | **fixed, unverified** |
 | [F54](#f54) | ~~a wheel tick during a stroke ends the stroke and drops the rest of the gesture~~ — **CLOSED 2026-09-07 by Kobin's decision, not a bug**: *"It can just end like it does today. Eventually, we'd want it to keep drawing as you zoom even past a level, but that's a future feature."* `Camera.zoomFactorAt` finalizes the live stroke on every zoom; the rest of the gesture draws nothing. Drawing through a zoom, crossings included, is on the roadmap's UX list | `Camera.zoomFactorAt` | closed — by design |
-| [F57](#f57) | **an eraser at depth on a big drawing never finishes, and the tab locks while it tries** — measured 2026-09-07 on Kobin's 11,497-object canvas: twelve eraser marks pending; a hand-driven bake loop ran 81 steps in 20 s at 0.64–2.5 s a step (each a `rehome` descent, 1.99 s the worst) and finished none of them; with the timers running the tab stayed unresponsive past 45 s. The slice budget is 8 ms but one target is indivisible. His "eraser bakes failing" | `erasePipeline._bakeOne` / `_bakeRehomeInner` | **high — open** |
-| [F58](#f58) | **a diagnostic report of a big drawing cannot be sent** — the same canvas serialises to 92 MB (`snapshot()` 0.7 s, `JSON.stringify` 1.5 s, the heap +280 MB for the string) and the report server destroys any body over 20 MB, so the button says Failed and nothing is written. Kobin's report of 2026-09-07 | `useKobinEngine.sendReport` / `tools/report-server.js` | medium — open |
+| [F57](#f57) | **an eraser at depth on a big drawing never finishes, and the tab locks while it tries** — measured 2026-09-07 on Kobin's 11,497-object canvas: twelve eraser marks pending; a hand-driven bake loop ran 81 steps in 20 s at 0.64–2.5 s a step (each a `rehome` descent, 1.99 s the worst) and finished none of them; with the timers running the tab stayed unresponsive past 45 s. The slice budget is 8 ms but one target is indivisible. His "eraser bakes failing". **Built 2026-09-08** (section below, DESIGN.md §7): targets from the spatial index top-down by z, `RayIndex` in the boolean (2.6 s → 175 ms a cut), the cut and the whole descent as jobs in `public/erase-worker.js`; the shape bake, the apply and `_removedArea`'s second boolean stay on the main thread; not re-measured on that canvas. **Kobin, 2026-09-22:** still an issue, mixed in with the renderer — picked up after the PAPER agent reports (WORKLIST item 3) | `erasePipeline._bakeOne` / `_bakeRehomeInner`, `eraseJob.js`, `eraseDescent.js` | **high — open** |
+| [F58](#f58) | ~~**a diagnostic report of a big drawing cannot be sent**~~ — **FIXED 2026-09-22, unverified by Kobin** (the app's own button on his canvas is owed). The report no longer carries the document: the instruments, the recent history and a LOCAL EXTRACT capped at 4 MB of JSON — the natives on screen and around it, with the lattice — gzipped off the main thread and posted in parts; the whole drawing is an opt-in (`+Drawing`) in 1 MB kobin-2 parts. Measured on the Magnum Opus in a second engine: 3.99 MB → 1.08 MB, built in 52 tasks, the longest 60.5 ms; the whole drawing 35 parts, 35.0 → 15.5 MB, and it loads back to the same render list | `engine/report.js`, `hooks/reportSend.js`, `tools/report-server.js`, `tools/report-read.js` | **fixed, unverified** |
 | [F59](#f59) | **a cold render of a busy view takes seconds** — the load-time render of the canvas above: 7,987 ms for 882 pieces; a warm render of the same list 87 ms (list 4, groups 69, update 14). The cost is building Two.js paths, ~9 ms a group, and every crossing into an unvisited scene pays it again. The other session measured 949 ms at 2,545 pieces | `Renderer._buildPieces` | medium — open |
-| [F60](#f60) | **the scale-bar dialog's Length field is a full-width bar at the bottom of the window** — `boundless-ui.css` line 435 ends `.bl-scale-field .bl-input,` with no block, so the selector joins the `.bl-toast` rule below it and inherits `position:fixed; bottom:5rem`. Found by the other session, confirmed in the file | `src/Stylesheets/boundless-ui.css` | low — open, one line |
+| [F60](#f60) | ~~the scale-bar dialog's Length field was a full-width bar at the bottom of the window~~ — **FIXED 2026-09-08** in 0732252, where it was labelled F74 by mistake: the dangling `.bl-scale-field .bl-input,` selector fell through to the `.bl-toast` rule; it now closes its own rule (`box-sizing: border-box; width: 100%`, `boundless-ui.css` ~429, checked 2026-09-22). Measured in Kobin's Chrome: the input inside the dialog | `src/Stylesheets/boundless-ui.css` | fixed |
 | [F61](#f61) | **a non-finite zoom anchor recurses until the stack overflows** — `Camera.zoomFactorAt` checks `factor` but not `sx`/`sy`; a NaN anchor makes `inPanX/Y` NaN, `cellOf` returns NaN digits, `neighbour` hands back the same frame and `cellChild` recurses on identical arguments. A real pointer is always finite; the other session hit it with its own bad input. One guard | `Camera.zoomFactorAt` / `LevelMap.cellChild` | low — open |
-| [F62](#f62) | **paths are emitted with `stroke="undefined"`** — seen in the DOM of both the in-app browser and Chrome: a `setAttribute("stroke", undefined)` somewhere in the renderer's fill path. Harmless (an invalid paint is ignored) | `Renderer.js` | low — open |
+| [F62](#f62) | **paths are emitted with `stroke="undefined"`** — seen in the DOM of both the in-app browser and Chrome: a `setAttribute("stroke", undefined)` somewhere in the renderer's fill path. Harmless (an invalid paint is ignored). The SVG renderer's fill path, so `?svg` only since the raster renderer became the default (2026-09-22) | `Renderer.js` | low — open |
+| [F63](#f63) | ~~on canvas `mtqha19c7qjn` new ink painted under everything and an eraser reached level-0 objects only~~ — another session had rewritten every z to depth × 1e7 + id. **FIXED IN THE DOCUMENT 2026-09-08** (`tools/zorder-compact.js`: z = paint-order rank, ids untouched). The engine still assigns no z at creation (the Z-order item, ROADMAP §4) | `tools/zorder-compact.js` | fixed in the document |
+| [F64](#f64) | ~~the cloud sync of a big canvas failed inside the compressor, every 30 s, silently~~ — **FIXED 2026-09-08** by the kobin-2 cloud mirror (gzip chunks, one push at a time, one part a commit, a failure shown with its size and backed off). The 90 MB canvas's full push measured at 27 MB in 120 s | `src/cloud/canvasSync.js`, `store2.js`, `gzip.js` | fixed |
+| [F65](#f65) | **an object can be dragged out from under an eraser mark that never baked into it; the mark stays behind** — the barrier gates by result, and four ways through it are listed in the section. 2026-09-08: settle before select, the mark's z stepping down with the bake, refused marks consumed (DESIGN.md §7). Kobin, later that night, on the z-rewritten canvas: still happening — to confirm on a fresh canvas first. 2026-09-23: not reproduced on fresh canvases (jsdom and his Chrome); the lasso's missing barrier and the barrier's mark left above the baker's own target fixed (section) | `erasePipeline._flushErasesFor` / `_settleSelectionErases` / `_settleLassoErases` | medium — open |
+| [F66](#f66) | ~~an eraser over a moved object, made in a neighbouring frame at the object's own depth, cut nothing; a hairline eraser's slivers were culled as dust~~ — **FIXED 2026-09-08**: the mapping names the home by id; dust is narrower than a quarter pixel at the mark's own zoom | `LevelMap.mapPointObj` / `projectLoopsObj`, `eraseJob.dustBarFor` | fixed |
+| [F67](#f67) | ~~a descent baked in the worker took the whole object with it~~ — **FIXED 2026-09-08**: the job returns the frames its lattice copy minted and the apply merges them; a load mints any frame its natives name | `eraseDescent.descentJob`, `LevelMap.merge` / `ensureId` | fixed |
+| [F68](#f68) | ~~with a moved object selected, zooming out made the indicator jump~~ — **FIXED 2026-09-08**: the frame's dot goes through the offset table | `overlays._selFrameRect`, `_rectInActive` | fixed |
+| [F69](#f69) | ~~a lasso around moved objects or ceded kids selected nothing~~ — **FIXED 2026-09-08**: an object with a table is judged where its picture is | `selection._lassoFind` | fixed |
+| [F70](#f70) | ~~after a reload a redo brought a piece back with a later table~~ — **FIXED 2026-09-08**: replay keeps one object per id | `oplog.js` | fixed |
+| [F71](#f71) | ~~a redo of a move or an add wiped the store's log~~ — **FIXED 2026-09-08**: the inverse keeps its seq | `Document` undo / `oplog.js` | fixed |
+| [F72](#f72) | ~~an eraser made in an object's own frame over its moved picture cut nothing~~ — **FIXED 2026-09-08**: the caller names the mapping's direction | `LevelMap.mapPointObj` callers | fixed |
+| [F73](#f73) | ~~a selected object too small to trace, in a frame with wide selected content, showed nothing~~ — **FIXED 2026-09-08**: a member without a run is a dot of its own | `overlays._selectionAnts` | fixed |
+| [F75](#f75) | ~~the rasteriser's union pass lost the ink of a pixel row carrying more than 16,384 union edges~~ — **FIXED 2026-09-16**, the day it was filed: the row is walked once per sub-scanline with its crossings gathered over as many buffer-fulls of edges as it holds (`walkRowChunked`). Fixed before the raster renderer drew any drawing (it became the app's default on 2026-09-22) | `src/engine/raster/rasterCore.js` | fixed |
+| [F83](#f83) | **a zoom-out crossing freezes the main thread ~800 ms on the Magnum Opus** — measured 2026-09-22 in Kobin's tab (bacteria → mite → ladybird): 834 and 833 ms at the two crossings, all of it the camera's list build for the new level, and inside it `TileStore._reroute` (754 of 764 ms): 16,889 of the drawing's 42,856 objects carry a move table, at a deep level every one of them is read back from the tiles its table points to, and those tiles — 106 of them — are baked cold. A warm build of the same view is 101 ms. The ladder (PAPER-PLAN R5b) warms the crossing view's own tiles but not those. Tried and reverted the same day: prefiltering the objects by their drawn box (identical visible list, but mapping 16,889 boxes through their tables cost more on a warm render than it saved). Levers: an affine per (home, table) group for the prefilter, the reroute's tiles warmed by the ladder's crossing step, or the bake off the main thread (F59). **FIX BUILT 2026-09-22 (PAPER-PLAN §10 S1, S2), not yet measured in Chrome:** the ladder DID warm those tiles — `TileStore.framesLeft` deleted them at the crossing, before the camera's read; it now runs after the read and keeps what the read pinned (the first list at the parent 440 → 57–63 ms in jsdom on the Sep 15 export, `paper.cost.probe.js` B), and the grouping scan over every table is memoised per frame and document revision (a warm list 113–140 → 53–76 ms, A). **Measured in Kobin's Chrome the same day:** the first fix was not enough — the ladder's warmed reroute tiles for the WIDER windows were still deleted at the first crossing and re-baked 929 ms two ticks before the second; `framesLeft` now also keeps what the ladder and the crossing prebake read ahead (`TileStore._warm`, PAPER-PLAN §10 S9). After it, three 90-tick fast zoom-outs from his depth-10 view (10 → 8) had no freeze during the ticks; 1.2–1.8 s remain after a gesture and on an edge-anchored one, and 2.2–2.7 s entering a cold level on a fast zoom-in (F59's bake) | `src/engine/TileStore.js` `_reroute`, `framesLeft` | open — narrowed |
+| [F84](#f84) | **a ceded kid's `w` is in its parent's units** — found 2026-09-22 by the SCENES agent reading the code: `Document.cedeTileById` and `eraseDescent.cedeVirtual` copy `src.w` to kids homed one or more levels deeper, so a kid's pen reads R^k too thin in its own frame (`_promoteOversize` does scale it). Readers: `cutJob`'s pen dust rule for a mark with no `bakePx` (then R^k too lenient) and `repairLoops` at a load; the scene index indexes a kid only when its family has no ink outside kids, and then counts it at its own mean width, never its `w` (review 2026-09-22). Low: every mark since F66 carries `bakePx` | `Document.cedeTileById`, `eraseDescent.cedeVirtual` | open, low |
+| [F85](#f85) | **a scene item longer than `MAX_CHUNKS` chunks costs the square of its chunk growth in grid cells** — found 2026-09-22 by the SCENES agent (a random test made 64×-long chunks and took a 4 GB heap; not seen in the product): `sceneGeom` keeps an object to 2,048 chunks by making each chunk longer than `CHUNK` widths, and the index files a chunk in every cell its box covers at its own band | `sceneClient.sceneGeom`, `sceneIndex._cellsIn` | open, low (latent: none on the Magnum Opus) |
+| [F87](#f87) | **the store-to-engine restore is one multi-second main-thread task on the Magnum Opus, and it ran when nothing needed it** — seen 2026-09-22 in Kobin's tab as a 6.8–7.6 s `IDBTransaction.oncomplete` task "after each camera jump" (PAPER-PLAN §10.7), and in his report of 2026-09-23 08:00Z as 3.4 s at 01:21:11Z beside the first raster jobs of a new engine. It is `useKobinEngine` `restoreFrom` (decode, `loadDrawing` with its cold first render, the replay, a second render) as one continuation of the store's last read; it runs at every mount of the editor (on the dev server, every hot reload from another agent's edit), and a same-device read-only tab ran it for every save of the holder's, a camera-only save included. **FIXED IN PART 2026-09-23:** a write that moved no data is followed by the header alone; a follow asked for mid-follow waits the gap; the restore renders once, after the replay, in a task of its own; the fold (`docFromStore`) does not render. Still one task each: the load (2.1–4.1 s in a hidden tab) and the cold first render (F59, up to 6.7 s at a heavy view) | `hooks/useKobinEngine.js` `restoreFrom`, `cloud/canvasSession.js` `_reloadFollow`, `storage/foldStore.js` | open — narrowed |
+| [F88](#f88) | ~~**a cut in the erase worker could be lost**: an undo and redo while it was in flight, a drag started while it was a mark's last, a flush, or a select of the mark's NEXT object (which stepped the mark below the object in flight) left that object whole~~ — found 2026-09-23 by the ERASE-TEST agent (jsdom, a ring through a stack; not reported). **FIXED the same day**: a result landing on a mark an undo took leaves its target undone; a drag's barrier does not spend a mark with a cut in flight; `flushErases` runs the cut in flight first (`_settleInflight`), and so does the select barrier before it bakes another object of that mark (the fourth path, found by the round's review). Tests `erase.stack.test.js` (5; each break-check red) | `erasePipeline._onCutResult` / `_settleSelectionErases` / `flushErases` | **fixed** |
+| [F89](#f89) | ~~**a ring stroke that retraces its own start EXACTLY is sealed with two chords, and as an eraser leaves a wedge of ink** — re-measured 2026-09-23 by two agents (Node, the repo's bake and `eraseJob.cutJob`): it needs lap 2 to lie on lap 1's arcs to ~1e-4 units (a computed perfect circle, or repeated identical samples); every hand-wobbled ring (54 of 54 at 0.5–2 units, 44 of 45 down to 0.001) bakes clean. Exact copies of an edge tie the burial test and both are kept; where the doubling ends the copy peels off tangentially, no crossing is found, and `repairLoops` closes the 4 loose ends with 2 pen-wide radial chords. As an eraser the sector between them is LEFT as ink (winding −1): 2,019 units² at 1.10 turns, the whole ring at 2.0; the first reading's "removed more than swept" was a double count~~ — **FIXED 2026-09-23**: two arcs on one circle are cut where each other ends and kept once; an all-but-tangent pair meets at one point; a tie sliver that dead-ends at both ends is pruned. Exact rings 1.02–2.0 turns × pens 4–64: 0 open chains, nothing of the band left as an eraser; controls bit-identical | `arcPerimeter.js` `_cut` / `_classify` / `_pruneTies` | **fixed** |
+| [F90](#f90) | ~~**during a long bake the raster picture keeps the pre-erase plates: the ring vanishes when the live path is let go and nothing under it changes on screen until the bake stops**~~ — **FIXED 2026-09-23 (PAPER agent; unverified by Kobin)**: a cut and the mark's step down are tagged picture-neutral and drain without staling a plate; the spent mark's removal stales its plates once; a held path past `LIVE_HOLD_MS` waits while the plates under it are in flight (≤ 15 s). Chrome, the same 1,000-band ring: ring cells fresh from 5.0 s after pen-up and for 72 % of a 25.6 s bake (was 0 % of 36.2 s), 4 of 12 arrivals stale (was 60 of 64), 22 epoch bumps (was 30,018). Measured 2026-09-23 in Kobin's Chrome (scratch engine, a ring through 1,000 huge strokes): every cut stales the plates under the ring and each re-raster arrives after the next cut (80 of 101 plate arrivals stale), so the cells under the ring showed the drawing as it was before the erase for the whole bake (~35 s); paused, the plates were fresh within 0.2 s; in 9 of 9 click-drags of a cut-out mid-bake the drag plane was not whole 6 s after the tap and the disc did not move on screen until the drop. With 300 strokes the ring showed throughout. A cut is picture-neutral by design (DESIGN.md §7: the white mark already paints what the cut removes) | `RasterRenderer` / `PlateStore` invalidation on bake events | medium — open |
+| [F91](#f91) | ~~**on the phone, dragging an object that another is drawn over was really jumpy**~~ — **FIXED 2026-09-23 (unverified by Kobin)**, his report 08-11-20 (the beige object under the green one): its drag plane needed 16 plates and the phone's cap was 12, so the drag re-rastered each step and each plate showed the object where it was when that plate was packed. `MOVE_PLANE_PLATES_PHONE` 12 → 24, the desktop's share of its cache | `raster/MovePlane.js` | fixed |
+| [F92](#f92) | ~~**a finished line looked chunky and corner-y until a pan or a zoom**~~ — **FIXED 2026-09-23 (unverified by Kobin)**, report 08-13-01: the raster packer banded a raw stroke as straight lines through its samples (the SVG renderer and the hit test draw the curve through them), and the resolved perimeter's plate events waited for the next camera step | `raster/rasterPack.bandFor`, `erasePipeline._stepShapeBakes` | fixed |
+| [F93](#f93) | ~~**a zoomed-out lasso selected empty frames (a dot each on blank paper), and a drag of the selection left its ink unselected**~~ — **FIXED 2026-09-23 (unverified by Kobin)**, reports 08-16-19 / 08-16-23 (4 ids + 50 frames on a 26-object drawing; all 50 empty) | `selection._lassoFind`, `_reselect`, `KobinEngine._endMove` | fixed |
+| [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
+| [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
+| [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F131](#f131) | ~~**a stroke just drawn jumped across the screen when the next stroke started after a zoom or pan**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the FREEZE agent from Kobin's report 2026-09-24T21-08-16 ("a piece suddenly jumped ... as I was zooming"): a held live path is drawn relative to the overlay origin of its own stroke, and the next pen-down re-chose the origin. Also behind his "pieces disappeared, then came back" (21-09-45): the jumped path was released at the 15 s limit before its slow plates landed | `RasterRenderer.addLive` | **fixed** |
+| [F130](#f130) | ~~**a very wide pen stroke froze the tab for 20 s at pen-up, and the drawing's plates took 4–26 s to appear (new pieces missing meanwhile)**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the FREEZE agent from Kobin's reports 21-08-16, 21-09-45 and 21-13-54: a 337 px pen's pen-up band is a thousand overlapping rings, and the rasteriser's crossing sort was an insertion sort, quadratic in them; the sync switch priced the band by length only, so the pen-up rastered on the main thread | `rasterCore.sortCrossings`, `rasterPack.itemChords` | **fixed** |
+| [F129](#f129) | ~~**an eraser used two or more zoom levels deep on a stroke that crosses its frame's edge, zoomed into on the far side, did nothing: the mark was spent and the ink showed again**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's lasso fuzz (seed 4604): the chain to the mark leaves the home frame sideways, so the erase cut in place, where the eraser is smaller than the boolean's weld and grazed; nothing was logged. F27's symptom below two crossings | `erasePipeline._bakeOne`, `eraseDescent.descentJob` | **fixed** |
+| [F128](#f128) | ~~**after a reload, undoing an erase could leave a patch the eraser had handed down split off from its object, so a later drag left a rectangle of ink behind**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-5 reviewing the day's changes: a regression of F118's step graph — the op log's replay gave re-key and frame steps no order, so the undo reverted the re-key before the cut that had consumed the patch | `oplog` replay "rekey" / "bakeFrames" | **fixed** |
+| [F127](#f127) | ~~**an eraser used in a part of the drawing far from other ink froze the tab for good**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's lasso fuzz (a hang, seed 4133): the mark's box mapped into a frame six levels up and across arrived at x = 1.15e21, and the spatial index's cell walk stepped by nothing there. Likely one cause of F57 | `Document` `LevelIndex.query` | **fixed** |
+| [F126](#f126) | ~~**after an undo of a frame move made from far out, the canvas went blank: nothing drawn, taps missed, and new strokes vanished (lost or mis-homed at save)**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's lasso fuzz (seed 2208): the camera's frame was merged away by the undo and the camera stayed on it. Kobin's Earth-style move (lasso a subtree from far out, drag it, zoom back in where it was, Ctrl+Z) is the real-use path | `KobinEngine` (a doc subscription), `Document._mergeShadows` | **fixed** |
+| [F125](#f125) | ~~**phantom ants: a square of marching ants inside a selected object, along the edges of a patch an eraser had handed down, on objects moved before they were erased**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the REPORTS agent in Kobin's phone report 2026-09-24T06-40-12: each family member's window was placed by the traced piece's residual instead of where that member is drawn. The MISSING ants in that report are mostly F124's wrong splits (a straight edge against another family's ink reads as a join) | `overlays._selSeamRects` | **fixed** |
+| [F124](#f124) | ~~**an erase "shattered" a drawing: one blob came out as several objects split along a cell seam, so a tap took a square-edged chunk and a drag pulled it off**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the REPORTS agent in Kobin's phone report 2026-09-24T06-40-12: an erase whose cede straddles two cells hands the ink down as two kids in two frames, and the family test compared the second kid in its own cell's coordinates, a whole frame off, so the two never met. Kobin's canvas keeps the 5 wrong splits it already made (re-joining them is his call) | `erasePipeline._familyComponents`, `_cellOffset` | **fixed** |
+| [F123](#f123) | ~~**a highlighter stroke looked darker for a moment after pen-up on a busy drawing**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-4 in jsdom (TESTER-2 saw it in Chrome): the held live path was unclipped over plates that already painted the stroke | `RasterRenderer._releaseHeldLive`, `_plateShows` | **fixed** |
+| [F122](#f122) | ~~**a white block under a big selection at the start of a drag, near a cache square's edge: the drag's coarse picture of what lies under the selection had paper where ink is**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-4 in jsdom (not yet seen in Chrome): F119's cause in the drag plane. A plane level more than two octaves coarser than the view was packed from the camera's list, which covers only two octaves' worth past the view | `MovePlane.farLevels`, `coverOf`, `requests`; `RasterRenderer._aimPlane`, `_planeStopgap`, `listForPlane` | **fixed** |
+| [F121](#f121) | ~~**while an eraser mark was being baked, ink it had already cut could pop back over the eraser band, whole, and stay until the mark was spent**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-4 in jsdom (not yet seen in Chrome; likely TESTER's "~5 % flicker after F106" and part of "weird z-order when erasing"): a plate packed after a bake slice from the list built before it drew the handled targets whole and unmasked, and was cached fresh | `KobinEngine.listFor`, `_markNow`; `RasterRenderer.noteListMarks`, `_marksOf`; `rasterPack.packJob` (`markZ`) | **fixed** |
+| [F120](#f120) | ~~**a stroke just drawn vanished at pen-up until its plates landed (100–160 ms), on a light drawing whose last frame was slow**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-4 in jsdom (a phone "issue when drawing" candidate, not yet seen on the phone): the live path was held only when the view before the pen-up was on the plates path, and the pen-up's own render could leave the sync path | `RasterRenderer.endLive` | **fixed** |
+| [F119](#f119) | ~~**white bands of paper, up to a plate wide, that stayed on screen after a zoom-out or a pan near a cache square's edge until something was edited there**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-4 in jsdom (not yet seen in Chrome): the camera's render list read only the cache squares touching the window, the ladder's and the prebake's only theirs, while the plates packed from them reach up to a plate — up to 4,096 px for a rung — further. The part past the listed squares was rastered as paper and cached FRESH, so nothing re-rastered it. Worse at dpr 1 (desktop) than on a phone. Every list now reads what its plates cover | `KobinEngine._listWin`, `_ladderRung`, `_maybePrebake`; `RasterRenderer.plateCover`, `listMargin` | **fixed** |
+| [F118](#f118) | ~~**with two eraser marks pending, undo and redo could leave a piece of ink stacked over the stroke it came from, and one that survived undoing everything**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's cloud and history-walk fuzz: the older mark's bake cut a piece the newer mark had made, and undo and redo in stack order put back whatever was not in the document, with no idea which op owned it | `Document._invert` "eraseCommit" / "eraseRevert", `_stepIndex`, `_stepsUndo`, `_stepsRedo`; `oplog` replay | **fixed** |
+| [F117](#f117) | ~~**the inside/outside test near a tightly curved edge could miss a shallow crossing: an intersection returned false ink, and a hit or lasso test next to such an edge could read the wrong side**~~ — **FIXED 2026-09-24 (unverified by Kobin), second attempt** (the first was reverted: it lost the inner piece of a bar cut by a ring eraser, raster.mask K4), found by REVIEWER-3's geometry fuzz: `rayCross` took the chord-frame form on curved minor arcs, whose first-order seed is off by far more than a near-tangent ray's offset. A CLASSIFIER change: it moves results only where the classification was wrong (the deploy gate's derivation question) | `arcShape.rayCross` | **fixed** |
+| [F116](#f116) | ~~**two subtree moves undone and redone with their frame unread since landed the cluster up to half a cell off**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's subtree fuzz: after the first move's redo its sub-cell rest was pending on the frame (nothing had read it, the camera far away), and the second's redo set its own shift over it | `Document._invert` "moveFrames" | **fixed** |
+| [F115](#f115) | ~~**strokes drawn and then deleted with their frame before the next save lost their add entries: after a reload their ops were missing from the undo stack**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's fuzz (3 seeds): the drain found such a stroke neither live nor removed (set aside with its frame) and dropped its add as "came and went" | `oplog` drain | **fixed** |
+| [F114](#f114) | ~~**a pending eraser mark seen from another zoom level drew as white ink, over strokes drawn after it**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-1 reading the code (E-5): a tile's copy of the mark had lost its `erase` flag and kept the z it was derived at while the mark's own z stepped down. A render list now stamps a mark's pieces with both | `KobinEngine.listFor` | **fixed** |
+| [F113](#f113) | ~~**a device that followed another by fast-forward pulls rebuilt ops the other had undone as undoable**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's cloud lane (real push and pull on the fake Firestore): the fast-forward kept the local log entries below the cloud's compaction floor, so after it the follower's undo stack held an add the pen-holder had undone; an undo there applied a stale inverse. Now the pull returns the manifest log's floor and the fast-forward drops below it | `canvasSync.cloudPullCanvas2`, `localCanvases.applyPulledStore` | **fixed** |
+| [F112](#f112) | ~~**an erase at depth removed ink outside the eraser: a thin remnant of the ceded parent went as dust by the pen's rule**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's fuzz: a round cap 0.3 units past a ceded cell (under 1 % of a 60-unit pen) was culled — 1,229 px tall at the erase's zoom, 62,000 times the eraser's area; a two-tile cede then lost a rectangle-edged block of 272 cells. The cede's parent cut and a descent's middle link now judge dust at the mark's zoom, as an in-place cut does (F66) | `eraseDescent.cedeVirtual`, `descentJob`, `Document.cedeTileById` | **fixed** |
+| [F111](#f111) | ~~**after an undo at depth a moved object's ink could vanish from the view until something rebuilt its tiles**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's fuzz: an undo's render minted a frame a moved object's picture is read from and cached its tiles; the undo's frame GC forgot the frame but not its tiles; the next undo re-inserted the object, whose tile patch skipped the forgotten frame's tiles; the next render minted the frame again under the same id and served the stale tile. The frame GC now drops a forgotten frame's tiles and plates, and a tile of a missing frame is dropped at any add or remove | `frameGc.collectFrames`, `TileStore.forgetFrame` / `_addObject` / `_removeObject` | **fixed** |
+| [F110](#f110) | ~~**after a reload, an undo of a subtree move could put the moved frame's natives at the wrong table**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3's fuzz: a settle queued for a redone move op and the next drag's own settle of the same frame were coalesced into one entry carrying the second's result under the first op's seq, so a replayed undo of the first subtracted the second's shift. Settles now coalesce only for the same op | `oplog._onSettle` | **fixed** |
+| [F109](#f109) | ~~**an erase on a big drawing baked ~10 s slower than its cuts needed, re-rastering the plates under the mark at almost every step**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the TESTER attributing a 23–50 s bake on the Magnum Opus copy at depth 9: 84 of the mark's 98 z steps a bake were untagged (F90's rule: the step passes a target the mark left whole), and each staled the plates under the mark. The targets were ones the mark never had ink under — a descent refused because "tile holds none of its ink", or a graze — so the steps changed no pixel. Now a graze and a descent refusal that found no ink near the eraser (`inkless`) leave the mark's whole set. Measured A/B on the same 20-px stroke (two runs each): bake 18.0–22.5 s against 30.0–31.4 s, plate epoch bumps 73 against 2,341–2,396, render time 5.6–7.0 s against 8.9–10.1 s | `erasePipeline._applyCut`, `_applyDescent`; `eraseDescent.descentJob` | **fixed** |
+| [F108](#f108) | ~~**a lasso round a frame took a ceded kid under it whose stroke ran outside the loop; a drag then tore the patch out of the stroke (a rectangular hole where you had erased)**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3 (its LASSO-1) in jsdom: a 30-px stroke nicked at depth 2, looped from depth 0 with a 20-px circle, gave `{frames: ["0/13,9/-2048,1664"]}`, and a drag from the frame mark moved the kid 100 px and the rest of its family 0. An enclosed frame was one entry with no family test (the mirror of F100). Now the frames from such a kid up to the enclosed one are read as straddling and the kid is judged with its family | `selection._lassoFind`, `_tornUnder`; `Document.keyedIn` | **fixed** |
+| [F107](#f107) | ~~**ink drawn where a lassoed frame had been deleted could not be selected, lassoed or erased until a reload**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-3 (its DOC-1) in jsdom: `getById` answered null for every native homed in a set-aside frame, the new ones too, so the stroke was drawn but no tap, lasso or eraser reached it; an undo of the delete then dropped from the list anything placed there meanwhile | `Document.getById`, `_reuseDetached`, `detachFrame`, `insertFrameSubtree` | **fixed** |
+| [F105](#f105) | ~~**a highlighter stroke partly vanished at pen-up, where the plates under it had not landed yet**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by REVIEWER-2 reading the code (its D-2): a translucent stroke's held live path was taken down as soon as the FIRST cell under it was fresh (over its plated self it doubles the alpha), so across the other cells the stroke was gone until their plates landed. Now it is held until every cell is fresh and clipped meanwhile to the stale cells | `RasterRenderer._releaseHeldLive`, `_clipHeld` | **fixed** |
+| [F106](#f106) | ~~**mid-bake, the ink under an eraser band came back on screen for seconds, cut off at a plate's straight edge**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the TESTER on the Magnum Opus copy at depth 9: sampled every 250–400 ms through 13–50 s bakes, 60–77 % of the band showed its pre-erase ink after the held stroke was let go. A mark's step past a target it left whole is not picture-neutral (F90's rule), and on a big drawing those steps staled the 16 plates under the mark every ~170 ms (96 in one bake) against a 200–650 ms raster: every re-raster arrived behind and `PlateStore.put` refused it, so the plate from before the mark stayed on screen. A behind arrival that is newer than the stale pixels cached now replaces them and stays stale (`"newer"`), composed and re-posted. After: the worst sample 590 px of 10,114 (5.8 %), the end 0 | `PlateStore.put`, `PictureLayer._take` | **fixed** |
+| [F104](#f104) | ~~**a ceded kid homed in a frame the lattice had lost was severed from its family for good; a later move of the parent left the kid behind as a rectangle and carried a rectangular hole**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the TESTER on the Magnum Opus export in Kobin's scenario 5 (moving erased objects): the dark-green background (family 11841), dragged at depth 9, wore ants on all four sides of a 32-unit square: its parent's rect hole, filled exactly by kid 47217, whose key had been rekeyed to 47300 at 2026-09-22 23:34:19Z (seq 267). `_familyComponents` skips a member whose frame has no depth, so a kid in F99's lost frame was a component of its own. 18 such kids on the export join their families again once the frame is back; the repair of those is Kobin's call. Now a member that cannot be evaluated keeps the family's key | `erasePipeline._familyComponents` / `_resplitFamily` | **fixed** |
+| [F103](#f103) | ~~**a lasso made from far away round a tiny cluster showed nothing as selected**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the TESTER in Kobin's scenario 7 (moving small objects from far away): the loop takes the frame enclosing the cluster, whose CELL is 8 px on screen while its content, three levels down, is culled from the list; a cell of 2 px or more is not a dot, and no piece of it was in the list, so `_selectionAnts` returned null — though the drag moved it. Such a frame is now a dot where its content is, from its subtree's index extents | `overlays._selDecide`, `_selFrameContent` | **fixed** |
+| [F101](#f101) | ~~**a destroyed raster engine put its selection overlay back into the host the next engine uses**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the TESTER in Chrome: a hot-reload remount landed during a held drag of 8,810 ids and the new engine's picture wore the old selection's ants (a `bl-overlay` canvas the new renderer did not own). `destroy()` removes the overlay, but any late camera step or render — a zoom, a pan, a resize, `_render`, `syncCameraOnly` — re-created it through `_makeOverlay` and appended it to the host again. A destroyed engine is now inert | `KobinEngine._render` / `panBy` / `zoomFactorAt` / `resize`, `RasterRenderer._renderSelOverlay` | **fixed** |
+| [F100](#f100) | ~~**a phone lasso missed objects: a ceded family whose other pieces sat under an enclosed frame**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, report 2026-09-24T04-25-10: a loop round the whole screen took ids 7, 10, 13 and two frames and dropped 60 and 66, whose pieces 62/63 and 68/69 are homed under the enclosed frame `-1/3,3`. Also fixed: such a piece was moved twice (per object and with its frame), reachable before by a ctrl-tap | `selection._lassoFind`, `_selectionMembers` | **fixed** |
+| [F97](#f97) | ~~**a reload of the editing tab showed "Viewing only · open in another tab" for about 10 s on the phone**~~ — Kobin 2026-09-23 ("it initially says that the page is open on another device, and it takes a minute to unlock"). The phone reaches the dev server by LAN IP over http, not a secure context, so there are no Web Locks and the tab's lock is a localStorage key (`storageLocks.js`) that only goes free 10 s after its last heartbeat; the reloaded page's old key was still fresh. Reproduced in Chrome on the LAN address: read-only 2.0 → 11.2 s after the reload. **FIXED 2026-09-23**: a page going away (`pagehide`) removes its keys, so the reload takes the lock at once (editing at its first check, 1.7 s into the load); a second live tab still waits. The cloud lease was never the cause: a device's own lease is its own (`leaseState` "mine") | `cloud/storageLocks.js` | fixed |
+| [F96](#f96) | ~~**a pending eraser mark was baked where it must not be: in a read-only tab or device that follows the holder, and in an editor already closed when a worker's answer landed**~~ — found 2026-09-23 by the ERASE-TEST agent (Kobin: "saving and closing an erase mid-bake, then re-opening"). **FIXED the same day**: a read-only engine's tick waits for the pen (polled every 500 ms); a destroyed engine drops a late worker answer. The save side held: closed or navigated away mid-bake, reopened from the kobin-2 store, downloaded and loaded or imported, followed, or handed over, every run ended piece for piece equal to an uninterrupted bake (jsdom; and 100 strokes in Kobin's Chrome) | `erasePipeline._bakeTickInner` / `_onCutResult` | **fixed** |
+| [F95](#f95) | ~~**a gallery card showed another canvas's picture**~~ — **CLOSED 2026-09-23, not a defect** (Kobin read it right): the picture is the gallery's placeholder (`Images/ui/canvas-botanical.jpg`), shown for any canvas with no saved cover; this one had none | `CanvasesV2` | closed |
+| [F86](#f86) | ~~**a download, a delete to the bin, a duplicate or a backup of a kobin-2 canvas dropped the edits only its op log held; a canvas only in the cloud as kobin-2 could not be downloaded or duplicated**~~ — found 2026-09-23 by the DOCMAPS agent reading the code. `loadCanvasDoc` read the frame snapshots without the log tail, and `cloudLoadCanvas` read a kobin-2 manifest as lz1 (empty JSON). **FIXED 2026-09-23**: `loadCanvasDoc` folds the tail through a detached engine (`storage/foldStore.js`); trash keeps the store in place, duplicate and backup copy it whole; `cloudLoadCanvas` pulls and folds a kobin-2 copy. Tests `logTail.test.js` (7) | `storage/localCanvases.js`, `storage/foldStore.js`, `cloud/canvasSync.js` `cloudLoadCanvas` | **fixed** |
+| [F82](#f82) | ~~**a ctrl-tap dropped every selected frame**, so a drag afterwards left the frames' content behind — Kobin's second Earth-move recreation (2026-09-22): 1,884 shapes of the region frame moved, the city, the houses and everything deeper did not, because the selection that reached the drag held no frame. `_toggleSelected` rebuilt the selection from its ids alone~~ — **FIXED 2026-09-22**: the toggle keeps the frames, and a ctrl-tap on an object inside a selected frame is a no-op (it is already selected through the frame). Measured in his tab: the city's drawn box is inside the moved region's box and inside three of the moved shapes; a lasso round the city takes the city frame at depth 4 and at depth 5, so the lasso itself was right. The exact selection and displacement are in `src/engine/__fixtures__/earth-move-2.json`, replayed by `earth.move.probe.js` N/O on the real drawing. Test `select.lasso.test.js` F82 (2) | `src/engine/selection.js` `_toggleSelected` | **fixed** |
+| [F81](#f81) | ~~Kobin's tab ran out of memory and had to be reloaded~~ — **CLOSED 2026-09-22 by Kobin's decision: the memory timeline is not needed** (with the tile cap, byte-bounded undo and the per-drawing budget, WORKLIST item 1). Probable cause gated off, not reproduced; reopen on a recurrence. (2026-09-22, his Local Magnum Opus: 42,856 natives, after a cold Scenes refresh of 28 pictures and a six-step zoom-out) — the JS heap was 127 MB against a 4.2 GB limit after the reload, so the renderer died on something other than the heap. The one path that can take hundreds of MB on that drawing is the Scenes panel's fallback: a scene the live `snapshotView` cannot picture goes to `renderThumbs`, which serialises the WHOLE document, deep-copies it and loads it into a second SVG engine (`thumbnails.js` `withSvgEngine`) — on every Save too. Not reproduced; **the path is gated off under the raster engine (2026-09-22)**: `CanvasEditor.ensureThumbs` runs it only under `?svg`, and a raster miss keeps the scene's last picture. The other bounded users of memory measured in the same session: plates 64.0 MB (the cap), the picture layer 29.4 MB, the ink canvas 11.0 MB, the tile cache ≤ 512 tiles | `src/Pages/CanvasEditor.js` `ensureThumbs`, `src/storage/thumbnails.js` `withSvgEngine` | closed — by decision |
+| [F80](#f80) | ~~**a drawing with a frame under a twin could not be opened, and every scene under one was dropped on save** — `persist.js`'s frame-id grammar accepted a `#n` on the LAST segment only, while `LevelMap._childId` puts the parent's `#n` INSIDE every child's id (`…/-149,-746#2/-1809,550`)~~ — **FIXED 2026-09-22**, the day it was found in Kobin's Local Magnum Opus: a lasso move of the Earth's frames, the camera crossing into the vacated cells (which minted `#2` twins along the chain), and an undo (the originals came back as shadows and merged into the twins) left 42,856 natives under `#2` ids; the autosave at 15:24Z wrote them, so the next reload would have refused the canvas (`decodeNatives` throws, the restore backs the store up and leaves the engine empty), and the save at 15:53Z dropped his 15 starred deep scenes (`validScene` → `isFrameKey`). One `FRAME_ID` grammar for both sites; `persist.ids.test.js` covers the inner segment. His canvas was reloaded on the fix and the scenes restored from his Sep 15 export. What made the twins take the identity is the lattice's shadow rule (`LevelMap._take`: a resident with kids keeps the cell, even when its whole subtree is empty) — still open as a design item (P4 was built without it, PAPER-PLAN §8) | `src/engine/persist.js` `FRAME_ID`, `isFrameKey`, `decodeNatives` | **fixed** |
+| [F79](#f79) | **the between-quanta layer blit costs ~30 ms a compose when smoothed** — `PictureLayer.compose`'s stretched branch draws the whole layer canvas (3072×2048 device px) into the 2256×1302 ink canvas with `imageSmoothingEnabled` on: measured in Kobin's Chrome by the P1 build of `.claude/PAPER-PLAN.md` (2026-09-23) at **29.9 ms p50 with `{alpha: true}` and 33.1 with `{alpha: false}`** (min 28.8 / 28.4, max 31.7 / 33.5; one 512² plate 2.77 vs 3.08 ms), against **6.5 ms with smoothing off**. One blit per compose on the gesture path between quanta — a pinch or a wheel zoom pays it every frame until the settle. Not introduced by the paper work (the transparent layer is not what costs; smoothing is); nobody had timed it in the app's own timeline before. Levers: a lower-quality filter, a smaller layer source (the published range's sub-rectangle is already what is blitted), or a `drawImage` per plate at the stretch instead of one layer blit | `PictureLayer.compose` (the `s !== 1` branch), `_recomposeLayer` | medium — open |
+| [F78](#f78) | ~~**a lasso-dragged child frame's natives vanish from the picture** (the Earth's houses, Kobin 2026-09-22) — a frame one level below the camera is ~3 screen px, so a loop over the Earth takes deep frames whole; the drag leaves them a shift, and the next bake's `Document.at` settles it and CARRIES the natives to the neighbour cell while the tile is being baked, before the tile is in the cache for the `add` events to patch, so an EMPTY tile is cached with `chainSeq(F)` unchanged and served for the session (undo re-bakes, which is why it restores)~~ — **FIXED 2026-09-23**: `TileStore._bakeSettled` runs a bake again when `Document.rev` moved under it (at most three times, counted in `_rebakes`); `move.settle.test.js` reproduces the lasso drag on both renderers (red with the guard baking once). Measured by the analysis on the real drawing: 15,192 pieces before, 13,469 after the drag unguarded, 15,192 guarded. A second, separate defect found on the way is open: SUBTREE-O1-PLAN §2.2's shift normalisation (carry whole cells into the address, keep the shift inside ±W/2) was never built, so a frame's shift reaches 1.8 cells and forces an O(objects) carry on one pointer event | `TileStore._ensureUp` / `_ensureDown` / `_bakeSettled`, `Document.at` / `_settleIfPending` | **fixed** |
+| [F77](#f77) | ~~**a fat stroke's flattened band was memoised on the job's `q`, not on its zoom**, so every synchronous frame (`"s"`) and every settle (`"e"`) — the two keys that carry the camera's exact, varying `Zq` under one constant `q` — reused a band flattened at whatever zoom came first~~ — **FIXED 2026-09-22**, the day it was found (by the analysis behind `.claude/PAPER-PLAN.md`, not by a report). Measured in jsdom through the shipped `bandFor`: the deviation is linear in the zoom ratio and reaches **0.947 device px at a 16× sync zoom** (0.237 at 4×), against Kobin's quarter-pixel bar. Re-keyed on `round(log2(Zq) · QUANTA_PER_OCTAVE)`, which `itemChords` already uses; a coarser request now reuses a cached finer band, which is what lets PAPER-PLAN §7.2's `q − 8` preview pack without building one. Red on the shipped memo | `src/engine/raster/rasterPack.js` `bandFor` | fixed |
+| [F76](#f76) | **a fat stroke — or a fat eraser mark — loses a 96-unit strip of its own ink down a tile boundary while it is still waiting for its perimeter, seen from one crossing IN** — the bake gives one object two pieces wound against each other: `classifyUp`'s SOLID tier stands a tile a pen covers in for a POSITIVE quad (`derive.solidQuad`), while the same object's EDGE tiles give the NEGATIVE rings of `bandRings`, and the two overlap by the 2 × 48-unit seam pad. Both renderers fill a family as ONE nonzero path, so +1 and −1 cancel there. Measured 2026-09-16 in node through the shipped modules: **49,152 units of ink of 262,144 blanked on one 512 px plate, worst pixel 1.000, a 96 device px strip at Zq 1**. **Corrected 2026-09-21** by a reproduction on the app's own engine (`.claude/rasteriser/08-F76-REPRO.md`, eleven cases): it is the MAGNIFY chain, so one crossing **in** and not out, and only a native still `type: "stroke"` makes the pair — once the perimeter resolves, the same object gives two POSITIVE pieces and no hole, so a settled drawing never shows it. A pending **eraser** mark is the same kind of native and cancels identically (96 units = **6.00 CSS px**, winding 1, 0, 0, 0, −1), leaving a strip of ink unerased inside the mark until it resolves. Not a raster defect — the SVG renderer merges the same two pieces into one path today | `src/engine/geometry/derive.js` `solidQuad` | **open, low** |
 | ~~F13~~ | ~~bakes wrong on dense strokes~~ — **CLOSED by F15's fix**: the arc-length window is gone entirely | `geometry/curvePerimeter.js` | closed |
 | ~~F14~~ | ~~pre-culls unsound~~ — **CLOSED**: the sampled cull is replaced by a conservative bbox bound, see F19; centerline cull still off | `geometry/curvePerimeter.js` | closed |
 | ~~F19~~ | ~~pre-cull dropped real boundary at large pen widths~~ — **CLOSED** | `geometry/curvePerimeter.js` | closed |
@@ -73,15 +145,15 @@ is the one dev surface left.
 | [F20](#f20) | ~~classification leaves ~121 junctions unbalanced~~ **SOLVED by the arc pipeline (F21)** — 0 unbalanced on the same stroke | `geometry/curvePerimeter.js` | superseded |
 | [F21](#f21) | **arc pipeline lands: exact offsets, closed-form crossings, exact burial oracle** — 3.8x faster, F20 gone | `geometry/arcPerimeter.js` | live |
 | [F22](#f22) | **the arc pipeline is WIRED IN**: biarc pens, sliced pen-up bake, exact arc-boolean erase, arc tiles | engine-wide | live |
-| [F23](#f23) | **five things Kobin reported after using it** — unclosed geometry stored, dust natives, a move over an unbaked mark, one-object-per-80ms erase, tile churn on drags | engine-wide | live |
+| [F23](#f23) | ~~five things Kobin reported after using it~~ — unclosed geometry stored, dust natives, a move over an unbaked mark, one-object-per-80ms erase, tile churn on drags. **CLOSED 2026-09-07 by Kobin's decision** after the Chrome reproduction pass (the section) | engine-wide | closed |
 | [F24](#f24) | CLOSED. A cut that FINISHED an earlier cut fell on coincident boundary, which the intersectors cannot see; and a biarc pen's 4.99e17-radius arcs made the distance test cancel to zero | `geometry/arcShape.js` | closed |
 | ~~F28~~ | ~~the app freezes when moving half of a split object~~ — **CLOSED by the frame lattice** (2026-08-19): it was F25 wearing a different coat, and a drag no longer rewrites deep coordinates at all | `KobinEngine._dragSelection` | closed |
-| [F29](#f29) | **a piece fades out of existence while zooming out** after being cut off the main piece — caught mid-fade | `Renderer._fade` / `TileStore` | **high** |
-| [F30](#f30) | **an eraser is consumed without cutting anything** — the first cede at a new level did nothing; does NOT reproduce synchronously | `KobinEngine._bakeTick` | **high** |
+| [F29](#f29) | ~~a piece fades out of existence while zooming out~~ — **CLOSED 2026-09-07 by Kobin's decision**: in Chrome every fading piece was under 0.3 px; reopen on a report | `Renderer._fade` / `TileStore` | closed |
+| [F30](#f30) | ~~an eraser is consumed without cutting anything~~ — **CLOSED 2026-09-07 by Kobin's decision**: not reproduced synchronously nor on the timer path in Chrome; F46/F47 fixed the mechanisms that fit it; still instrumented | `KobinEngine._bakeTick` | closed |
 | ~~F-Z~~ | ~~a thin, long stroke vanishes while zooming out~~ — **FIXED AND VERIFIED 2026-08-26.** Chrome drops a filled path whose features are too small IN THE COORDINATES HANDED OVER, whatever the transform; the fix rescales such an object by a power of two at pre-render and divides its group matrix by the same. Kobin confirmed it in a browser. [Full account](#f-z--a-thin-long-stroke-vanishes-while-zooming-out) — keep it, the canvas-rasterization trap in it is what cost three wrong diagnoses | `Renderer._applyThinScale` | closed |
 | [F35](#f35) | **a group move displaces one member** — an object placed in a corner at level 5 was not in the corner after being moved together with smaller objects. Reported 2026-08-26, no capture yet. **Folded into F41 (2026-09-04), instrumented:** the `depth <= camDepth` branch this section suspected is gone (offsets below the home replace it), and a drag now journals every member it could not move with the reason (`skipped` on the move note). The 0.143-unit drift could NOT be replayed — the F35 snapshots carry no journal — so this waits for a fresh report, which will now explain itself. **Mechanism found 2026-09-05: it is [F55](#f55)** — F41's "registration by construction" holds at the move level and one below, not three or more below, where the one rounded addition at the move level is magnified 4096× per level; 0.143 units is that rounding three levels down. **F55 built the same day**: a move no longer touches a coordinate at any level, and the deep picture of a moved object is the same bits in the new frame. Closes when Kobin sees his corner hold | `selection.js` `_dragSelection` | **fixed with F55, unverified** |
-| [F34](#f34) | ~~an erase seals CHORDS ACROSS THE SHAPE~~ — **ROOT CAUSE FOUND AND FIXED 2026-08-26**: `circleCircle` computed `h² = r1² - a²`, which is pure noise once r1 is ~1e10 and r2 is ~21. Crossings were lost or halved, so chains could not pair. Kobin's own reproduction goes from 6 failures in 21 gestures to **0 of 21**. Needs his eyes in a browser | `geometry/arcPerimeter.js` `circleCircle` | **fixed, unverified** |
-| [F33](#f33) | **autosave dies silently when localStorage fills** — the drawing then exists only in the tab. **REWORKED 2026-09-02**: the document moved to IndexedDB, one record per frame, written incrementally off the document's own events; local autosave is back ON. Measured so far only on a two-stroke drawing in the in-app browser (1.7–1.9 ms a write); the phone run on the 16M-character drawing is Kobin's to take | `storage/db.js` / `hooks/useKobinEngine.js` | **reworked, unverified** |
+| [F34](#f34) | ~~an erase seals CHORDS ACROSS THE SHAPE~~ — **ROOT CAUSE FOUND AND FIXED 2026-08-26**: `circleCircle` computed `h² = r1² - a²`, which is pure noise once r1 is ~1e10 and r2 is ~21. Crossings were lost or halved, so chains could not pair. Kobin's own reproduction goes from 6 failures in 21 gestures to **0 of 21**; the same in his Chrome on 2026-09-07. **CLOSED 2026-09-07 by Kobin's decision** | `geometry/arcPerimeter.js` `circleCircle` | closed |
+| [F33](#f33) | **autosave dies silently when localStorage fills** — the drawing then exists only in the tab. **REWORKED 2026-09-02**: the document moved to IndexedDB, one record per frame, written incrementally off the document's own events; local autosave is back ON. Measured so far only on a two-stroke drawing in the in-app browser (1.7–1.9 ms a write); the phone run on the 16M-character drawing is Kobin's to take. Since 2026-09-08 the store is kobin-2 (DESIGN.md §13) and the done-when is unchanged and unmeasured | `storage/db.js` / `hooks/useKobinEngine.js` | **reworked, unverified** |
 | F32 | ~~the lasso sometimes misses objects~~ — **DIAGNOSED AND FIXED 2026-09-03**, from Kobin's phone screenshot: the containment test was on the object's BOX, so a slanted stroke whose box corners poked out of the loop was dropped while its ink lay wholly inside (the crossbar of a "t"). Where the box straddles the loop the INK itself is now asked (`_inkInsidePolygon` -> `polylineInsidePolygon`). The other thing a loop "misses" is whatever the closing chord cuts — the straight line from where the finger lifts back to where it started, which is drawn, and in that screenshot ran through "Hello" and "there". The fully-bounded rule stands | `engine/selection.js` `_lassoFind` / `geometry/lasso.js` | **fixed, unverified** |
 | [F36](#f36) | **three things are called a tile and they are three APIs** — the frame cell, the object's tile grid and the render-cache square are all W across and differ only in phase convention, and they have been confused once already: a chop clipped to the cache square froze one arc to two different chords. Kobin, 2026-09-02: *a real bug, just unlikely to be caught*. **Closed as a bug by F42 (2026-09-04) and F56 (2026-09-06):** the erase no longer computes an object-tile block of its own — it reads the piece's window (`clip`) and grid phase (`tile`) off the tile store's piece — and since F56 it reads that piece from the frame that owns the square, so the erase and the render cannot disagree about a grid or a frame any more. **S1 done 2026-09-07:** one `TileGrid` value type (`frameLattice.js`) — `at(phase)` for the object's grid, `CACHE` for the render square, `range` half-open and `touching` closed, each keeping its callers' arithmetic to the bit — and `LevelMap.tileRect/tileRange`, `freeze.tileWindow/tileClipRect` and `deriveStep` go through it | `frameLattice.js` / `LevelMap.js` / `geometry/freeze.js` | closed |
 | [F39](#f39) | ~~a dense selection zoomed slowly and showed solid outlines instead of ants~~ — **FIXED 2026-09-03**, third design of the day: the ants come from the render list's pieces, on arcs, nothing flattened, tile cuts skipped by the rectangle that made them; decided once per render and moved between steps by a CSS transform on a layer of their own. Overlay JavaScript per zoom step 17 → 0.8 ms; a frame with the crawl running 50 → 16.7 ms under the old budget. The budget is then removed at Kobin's instruction and the crawl's repaint becomes the cost: 50 ms a frame at the report camera, 200 at 4× in — the phone's to feel, levers in the roadmap. Same day: the lasso asks "fully bounded" of a whole family, the ants ride with a drag, and a frame is one dot only under 2 px | `engine/overlays.js` `_selectionAnts` / `_selDecide`, `geometry/antRuns.js`, `Renderer._renderSelOverlay` | closed |
@@ -1164,6 +1236,10 @@ feature: the live stroke would have to change frames mid-gesture.
 <a id="f57"></a>
 ### F57 — OPEN, high. An eraser at depth on a big drawing never finishes, and the tab locks while it tries.
 
+Kobin, 2026-09-22: still an issue, but mixed in with the renderer, so it is picked up after
+the PAPER agent reports (`.claude/WORKLIST.md` item 3). Nothing below has been re-measured on
+the canvas since 2026-09-08.
+
 2026-09-08, evening — three of the four causes built out (DESIGN.md §7 "Order, gate and
 the worker"): (1) the target scan walked every object of the document per mark
 (0.6 ms each; five minutes a mark on the 12,849-object canvas, a second a pointer-up)
@@ -1225,7 +1301,7 @@ but the step in flight. Seen in Chrome: a mark left after two of four steps
 finished the other two on reload. The cost of a step is unchanged.
 
 <a id="f58"></a>
-### F58 — OPEN, medium. A diagnostic report of a big drawing cannot be sent.
+### F58 — FIXED 2026-09-22, unverified by Kobin. A diagnostic report of a big drawing could not be sent.
 
 The same canvas: `snapshot()` takes 0.73 s and `JSON.stringify` of it 1.5 s and makes
 a 92 MB string (96,455,585 bytes), lifting the heap from 587 to 869 MB. The report
@@ -1234,6 +1310,50 @@ button says Failed; nothing reaches `.kobin-reports/`. Fix: the report should no
 the whole document — a header, the journal, the instruments and only the frames the
 camera has visited (or a size cap with the snapshot dropped and said so), and the
 server's cap raised to match; a report that cannot be sent is a report that says why.
+
+**Fixed 2026-09-22 (the REPORT agent).** The report is assembled by `src/engine/report.js`
+and sent by `src/hooks/reportSend.js`; DESIGN.md §14 has its sections.
+- **No document, a local extract instead.** Every native is scored by the zoom-out that
+  first brings it on screen and its size in px there; what the render list draws on screen
+  goes first, then the selection, then the rest of the render list (the tile window), then
+  the rest within 4096× of zoom-out, largest first, until 4 MB of JSON. It is written in
+  kobin-2 frame form (headers plus the geometry's doubles, exact) with the whole lattice,
+  and `report.loadReport` turns it back into a dev-0 snapshot at the recorded camera and
+  screen size. A moved native is judged where its picture is. Nothing in the build mints a
+  frame, settles a shift or emits a document event.
+- **The whole drawing is an opt-in** (`+Drawing` in the dev panel): the natives in parts of
+  about 1 MB of doubles, each a gzipped kobin-2 frame chunk, sent after the report.
+- **Never one long task.** Built task by task with a message-channel yield between (a
+  `setTimeout(0)` chain took 11 minutes to send one in a tab hidden for over five:
+  Chrome runs chained timers once a minute there); one stringify; gzip by
+  `CompressionStream`, off the main thread.
+- **The server** (`tools/report-server.js`) takes gzip parts and reassembles them in index
+  order into `report-<time>.json`, keeps drawing parts as sent under
+  `report-<time>.drawing/` with a manifest, streams every body to disk, refuses a part over
+  32 MB with 413, still takes an older build's single JSON body, and serves `/latest`,
+  `/list` and `/file/<name>`. The old reports stay readable.
+- **What it carries**: paper (the raster ring, the picture layer's counters and uncovered
+  cells, the plate store, the renderer's and the drag plane's counters, the ladder),
+  freezes (long frames, worst and most recent, with their scripts; the frame meter; input
+  latency; the perf log), moves (the selection, the drag and its hold, pending frame
+  shifts, shadows, the last move ops), erasing (pending marks, the bake queue, the cut in
+  flight, the counters), saving (the saver's state, last write and failure) and the cloud
+  sync's, scenes (the list and the index's own `sceneReport`), memory, the camera and its
+  frame path, the device, page errors and the last 50 console warnings and errors, the
+  journal and the undo and redo stacks. Never the user's identity: the uid, email and name
+  are scrubbed wherever they appear, and anything shaped like an email, a JWT or an API key.
+- **If the server cannot be reached** the button says so and the report is saved as a file.
+
+Measured on the Magnum Opus (the Sep 15 file, 42,857 natives, 556,712 pieces) in a second
+raster engine in a hidden tab of Kobin's Chrome, so no paint and no long-frame entries:
+at the saved camera (depth 4, 6,840 natives on screen) a freshly loaded drawing's report
+was 3.99 MB → 1.08 MB gzip, built in 722 ms over 52 tasks with the longest 60.5 ms, then
+stringified in 111 ms, gzipped in 486 ms off the main thread and posted in 243 ms; its
+extract held 2,962 of the natives on screen. At depth 11: 3.64 MB → 1.21 MB, longest task
+15.5 ms; the whole drawing 35 parts, 35.0 → 15.5 MB, encoding 595 ms in all and 38.5 ms at
+most. The depth-11 extract loaded by `replayReport` into a third engine gave the source's
+render list exactly (108 items, the same geometry checksum); the whole drawing loaded back
+to 42,857 natives with the same list. Owed: the app's own button pressed on Kobin's canvas.
 
 <a id="f59"></a>
 ### F59 — OPEN, medium. A cold render of a busy view takes seconds.
@@ -1374,6 +1494,18 @@ size that failed, instead of retrying the same failure every 30 s.
 
 <a id="f65"></a>
 ### F65 — OPEN, medium. An object can be dragged out from under an eraser mark that never baked into it; the mark stays behind.
+
+2026-09-23 (ERASE-TEST agent, Kobin's request: a ring through a stack, selected while it bakes).
+Measured on fresh canvases, jsdom and his Chrome: a tap on an object the baker has not reached cuts
+it before it is selected (never an uncut object moved; 100, 300 and 1,000-stroke stacks all ended
+with every object in exactly two pieces); a cut-out the baker has passed drags above the mark at
+every step. Three holes closed: a LASSO had no barrier and took only the cut-outs baked so far (5 of
+10) — it now bakes out every mark its loop meets first (1,000 strokes with 400 left: a 4.0 s freeze,
+then all 1,000 cut-outs selected and the ants drawn); the select barrier left the mark ABOVE the
+cut-out of the object the baker was on, so that disc passed under the white mark — it now steps the
+mark as the tick would when it bakes the mark's next target; and a cut in the worker could be lost
+(F88). By design still: an object the barrier cuts out of order sits below the mark and passes under
+it until the bake ends.
 
 2026-09-08, evening — Kobin's decisions: an object under an unbaked mark cannot be
 selected until the mark has baked into it (the barrier stays synchronous, and bakes an
@@ -2847,6 +2979,10 @@ A wheel zoom with no edit: a header-only write ten seconds later, 1.9 ms. Reload
 both strokes and the zoom came back, and the reload itself wrote nothing. Leaving
 by Home offered the draft dialog as before.
 
+**2026-09-08: the store is kobin-2** (DESIGN.md §13, `.claude/SAVE-FORMAT-PLAN.md`): a
+frame is headers plus one Float64Array, an op log carries the edits, IndexedDB v2 holds both
+raw, and a v1 canvas moves on its first save. The 90 MB canvas opened on it the same day.
+
 **NOT measured**, and the reason this stays open: the 16-million-character
 drawing on the phone. The done-when is unchanged — no `autosave` entry over 50 ms
 there. Also unexercised outside the unit tests: the quota-failure path, and a
@@ -4075,6 +4211,7 @@ chain incrementally already, which was the only part of B worth having.
 
 ---
 
+<a id="f66"></a>
 ### F66 — FIXED 2026-09-08. An eraser over a MOVED object, made in a neighbouring frame at the object's own depth, cut nothing; and a hairline eraser's slivers were culled as dust.
 
 Kobin's reports `19-53-03`, `19-53-14` and `19-54-14` (2026-09-08): he dragged a family of
@@ -4102,6 +4239,7 @@ wafers under a quarter pixel; RR-2's 0.2-unit wafer at 1× is still dust. What r
 design: a hairline scribble leaves a comb of slivers, each its own object after the
 resplit.
 
+<a id="f67"></a>
 ### F67 — FIXED 2026-09-08. A descent baked in the worker took the whole object with it: its kids were homed in a frame only the worker's lattice copy had minted.
 
 Kobin, an hour after E7 went live in his tab: "an eraser baked and took the whole object
@@ -4130,6 +4268,7 @@ all 353 kids paint at the report's camera. `erase.worker.test.js`: the transport
 kids whose picture lies outside their home's window was measured on the way and is fine:
 the store's reroute reads the neighbour's tile at the shifted window.
 
+<a id="f68"></a>
 ### F68 — FIXED 2026-09-08. With a moved object selected, zooming out until it was too small to see made the indicator jump.
 
 Kobin, report `21-23-56`, after moving everything on the canvas together: "the object
@@ -4157,6 +4296,7 @@ at level 2. The lineage he cut sits half a level-0 unit left of the untouched ki
 he had dragged it. Explained the same night by F69: a lasso around them selected nothing,
 so he took them for gone.
 
+<a id="f69"></a>
 ### F69 — FIXED 2026-09-08. A lasso around moved objects or ceded kids selected nothing.
 
 Kobin: "even tiny invisible objects should appear when I do a lasso around their general
@@ -4172,6 +4312,7 @@ and leaves them to that pass. `select.lasso.test.js`: a stroke dragged across th
 is found at its new place and not its old one; kids ceded from a moved object, too
 small to see, are found by a loop round them.
 
+<a id="f70"></a>
 ### F70 — FIXED 2026-09-08. After a reload, a redo brought a piece back with a table from later in its history.
 
 Kobin's screenshot after one redo of the first erase: a small mark off to the side of the
@@ -4189,6 +4330,7 @@ record is refreshed to the object it actually removed. `oplog.test.js`: a piece 
 moved and cut again survives a reload with one identity and an undo history that matches
 the live engine step for step.
 
+<a id="f71"></a>
 ### F71 — FIXED 2026-09-08. A redo of a move or an add wiped the store's log.
 
 Found reading the store during F70: the canvas had three fresh snapshots and no log
@@ -4199,6 +4341,7 @@ without the seq, so every redo of one read as pre-log and the saver reset the lo
 Fixed: the inverse carries the seq (`_carrySeq`). `oplog.test.js`: a redo of a move is
 logged as a redo, and the tick is not a full write.
 
+<a id="f72"></a>
 ### F72 — FIXED 2026-09-08. An eraser made in an object's own frame over its moved picture cut nothing.
 
 Found writing F70's test. `mapPointObj` picks the direction of a table by which end is
@@ -4209,6 +4352,7 @@ projections and the indicator's view window say "to the home", the rest map to t
 picture as before. `erase.moved.test.js`: an eraser made at the home over the moved
 picture cuts the ink there, and the rest stays where the drag left it.
 
+<a id="f73"></a>
 ### F73 — FIXED 2026-09-08. A selected object too small to trace, in a frame whose selected content was wide, showed nothing.
 
 Kobin's report `22-43-41` and screenshot: the 352 slivers of the cut dot and the one
@@ -4223,6 +4367,837 @@ SEL_OBJECT_DOT_PX on screen is a dot where its picture is, dots on one pixel mer
 one (`mergeClose`). In the replay the sliver gets its dot at the report's camera; a few
 untraceable specks inside the traced bundle get dots among the ants. `selection.indicator.test.js`:
 a speck beside a large selected stroke keeps a dot once its ring is under a half pixel.
+
+<a id="f75"></a>
+### F75 — FIXED 2026-09-16, the day it was filed. The new rasteriser's union pass lost ink on a pixel row carrying more than 16,384 union edges.
+
+Filed from the stage-0 review of `.claude/RASTERISER-PLAN.md` and fixed closing that stage out.
+No drawing was ever affected: the raster core is standalone and the SVG renderer still draws
+every pixel Kobin sees. It is written down because the defect was in shipped code.
+
+The union pass (§4.2 of the plan) loads one family's edges into a fixed buffer of 16,384. When
+they do not fit, the family's rows are halved and walked in bands, which is correct and tested
+(R15). A band **already one row** deep had nothing left to halve: the code walked that row with
+the edges loaded before the buffer filled, and the ink of the rest was simply absent — no error,
+no throw, and nothing in the picture to say which row was short.
+
+Fixed in `src/engine/raster/rasterCore.js` (`walkRowChunked`): such a row is walked once per
+sub-scanline, and each sub-scanline's crossings are gathered over as many buffer-fulls of edges
+as the row holds before the winding is walked, so the winding is the whole row's and no edge is
+dropped. A second *deposit* — this row's union from one buffer-full, then from the next — would
+have been wrong the other way: where two buffer-fulls overlap, their coverage would be added
+twice, which is the double-counting the union pass exists to prevent.
+
+Measured in jsdom on the fixture it was filed with: 8,500 ribbons 0.2 px wide and one block
+40 px wide, all inside pixel row 200 (17,002 union edges; the item's box is rows 199–201, split
+once to the single row 200, which then overflows). The block at x 460–500 reads byte **191**
+where it read **0**, and **40 pixels of ink came back** — the block's own: the row carries ink in
+440 pixels where it carried 400. The counter `counts[7]` moved 401 → 491, but that is the
+pixels the resolve blended inside the row's touched range and not its ink (§8.3 of the plan);
+what it recorded was the block's span. The identical fixture at 100 ribbons reads 191 and 491
+as it always did. `rasterCore.test.js` R17 is that fixture, those readings, and the whole row
+against the independent coverage oracle (worst difference 0.00196, half an 8-bit step).
+
+The second walk costs the row's geometry read 16 more times per extra buffer-full: **10.7–11.3 ms
+on a 16,386-edge row whose walk otherwise takes 3.3–3.4 ms**, and **+1.2 % (1,913 → 1,935 ms) on the
+fixture above**, where what the time actually goes on is the insertion sort over 17,002
+crossings a sub-scanline (plan §8.6 measurement 15). The counter `coreStats.unionOverflow` went
+with the defect: `unionRefills` counts the extra buffer-fulls, which is a cost and not a loss.
+
+<a id="f97"></a>
+### F97 — FIXED 2026-09-23, the day it was reported (Kobin). A reload of the editing tab on the phone was read-only for about 10 s.
+
+Kobin: "When I refresh a page, it initially says that the page is open on another device, and it
+takes a minute to unlock it." The phone opens the dev server at its LAN address over http, which
+is not a secure context, so `navigator.locks` does not exist and the session falls back to
+`storageLocks.js`: the tab's lock is a localStorage key renewed every second and taken over only
+after 10 s without a heartbeat. A reload kills the page without letting it remove its key, so the
+new page found the key fresh and waited it out as a read-only tab ("Viewing only · This canvas is
+open in another tab"). Reproduced in Chrome on the LAN address: read-only from 2.0 s to 11.2 s
+after the reload. On localhost (Web Locks, which the browser frees with the page) the same reload
+was editing 2.4 s in. The cloud lease was not involved: the new page's lease request names the same
+device, and a device's own lease is its own.
+
+Fixed: the lock manager removes its keys on `pagehide` (a reload, a close), so the reload takes the
+lock at once (measured: editing at the first check, 1.7 s into the load); a crashed tab still frees
+it after 10 s; a second live tab still waits. `storageLocks.test.js` "a page that goes away lets
+its lock go at once" failed first; break-checked on a copy.
+
+A second path shows the other-device banner for a minute and is by design, not changed: an
+editing tab that is hidden stops renewing its lease, and a watching device takes the pen once the
+lease has sat unchanged for 90 s; a device that opens meanwhile shows "<holder> has the pen" until
+then.
+
+<a id="f96"></a>
+### F96 — FIXED 2026-09-23, the day it was found (ERASE-TEST agent). A pending eraser mark was baked where it must not be.
+
+Kobin: "did the tester test saving and closing an erase mid-bake, then re-opening or loading in the
+image from a file?" Tested with real engines and savers (the hook) over fake IndexedDB, two tabs,
+and two devices over the fake Firestore; each run compared, piece for piece (the stored loops), with
+an engine that baked the same drawing straight through. What held: closed mid-bake and reopened from
+the kobin-2 store (the mark back at its lowered z; the done set from the log's bake entries, so an
+object a select cut out of order is not a target again); downloaded mid-bake and loaded into another
+canvas, or imported by the gallery (`saveCanvasDoc`: no log, the pieces below the mark looked at again
+and left unchanged); closed with a drag in progress and undo/redo entries around the erase (the undone
+add stays out; redo, and undo of the whole erase, work after the reopen); the pen handed over mid-bake
+between tabs and between devices. In Kobin's Chrome (a new tab, hidden, a scratch canvas; 100 wide
+strokes, a ring, 40 baked, the store flushed): a reload resumed 60 cuts through the worker, a
+navigation away and back did the same, and a mid-bake download loaded through the editor's own file
+input did the same; 100 of 100 objects identical to the reference each time, and saved.
+
+What did not hold, both fixed with a failing test first: (1) a READ-ONLY tab or device baked the
+pending mark itself — the follower's restore scheduled the bake and the tick never asked who holds the
+pen (3 cuts in the follower tab; the phone likewise) — now a read-only engine's tick polls every
+500 ms until it has the pen; (2) an editor closed (the engine destroyed) with a cut in the worker went
+on baking when the answer landed (2 ticks within 1.8 s, and on) — now `_onCutResult` drops an answer
+for a destroyed engine. Tests `hooks/erase.resume.test.js` (6), `erase.follow.test.js` (2),
+`erase.devices.test.js` (2); break-checks on unimported copies, 1 red each (the read-only guard red in
+both the tab and the device test).
+
+<a id="f95"></a>
+### F95 — CLOSED 2026-09-23, not a defect. A gallery card showed another canvas's picture.
+
+Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision 10), its card in the dev gallery (`localhost:3000/#/canvases`, signed in) showed the detailed mushroom-and-fern drawing that is also the cover of `mu4kzn6e5nhwpu1y`. Read from the browser's IndexedDB before binning: the canvas held 4 strokes on one level, one scene, one `frames2` chunk and 12 log entries, and NO rows in `thumbs` — so the gallery's picture was not a local cover (`loadCoverThumb`) but its cloud record's `thumbs.cover` (`CanvasesV2`'s `cloudCovers`). Not investigated. To rule out first: the live thumbnail path (`renderThumbsLive`, since 2026-09-22) filing a picture under the wrong canvas id, and the cloud push carrying another canvas's `cover`. The canvas is in the recycle bin (restorable 30 days) if its cloud record is wanted for the diagnosis.
+
+**Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
+
+<a id="f131"></a>
+### F131 — FIXED 2026-09-24 (unverified by Kobin), found by the FREEZE agent (report 2026-09-24T21-08-16). A held stroke jumped at the next pen-down.
+
+At pen-up the live SVG path is held until the plates under the stroke are fresh (F105/F120), and its anchors are relative to the overlay origin chosen when it was drawn (`h.og`). `addLive` re-chooses the origin at every pen-down (the view centre, FC6) and folds it into the world transform every overlay child shares, so a held path drawn under the old origin moved by inScale × the origin's change. Measured (FREEZE, node, the report's strokes 12 and 13 with plates that never land): (28.6, −15.7) CSS px, exactly inScale × Δorigin. It showed now because F130's slow bands kept holds up to LIVE_HOLD_MAX_MS (15 s), long enough for the next stroke after a zoom; the same path then released at the limit before its plates landed — Kobin's "pieces randomly disappeared, then came back" (21-09-45). **Fixed**: when the origin changes, every held path is re-anchored by its own offset (`translation = og − origin`); its clip rects are in its own space and move with it. Test `raster.liveHold.test.js` LH-3 (a stroke held, the camera panned and zoomed, the next pen-down: the held stroke's first point within 0.5 px of where it is drawn; red before, break-checked). Not yet checked in Chrome (the clip's alignment after a re-anchor).
+
+<a id="f130"></a>
+### F130 — FIXED 2026-09-24 (unverified by Kobin), found by the FREEZE agent (reports 21-08-16, 21-09-45, 21-13-54). A wide pen froze the tab and starved the raster pool.
+
+Kobin: "a piece suddenly jumped ... then the whole tab froze for a while"; "the pieces randomly disappeared, then came back a few seconds later"; a move that showed only after seconds. Until a stroke's perimeter resolves it is rastered as a band: one rectangle per flattened segment and a fan per join (F92). The px-90 pen at inScale 128 is 337 device px wide; stroke 14 became 1,125 overlapping rings, stroke 17 2,553, and every sub-scanline crossed 598 of them on average (1,132 at most). `sortCrossings` was an insertion sort ("a scanline holds a handful"), quadratic in that, and the union pass's per-row list reverses push order, so a left-to-right scribble arrived descending, its worst case: 1.025e9 moves, 4.0–4.7 s a plate (stroke 14), 15.6–16.2 s (stroke 17); all four raster workers stuck 15–26 s, new strokes' plates queued behind them. The sync switch priced the band by its flattened length alone (5,520 chords, under the 10,000 bar), so the pen-up stayed on the main thread: 4 plates, 20.7 s. **Fixed**: past 32 crossings a bottom-up merge sort, as stable as the insertion sort, so every plate is the same to the byte (FREEZE: 0 differing bytes over a 162,889-px plate; stroke 14 292–364 ms a plate, stroke 17 637–891 ms); and a band's price is multiplied by max(1, pen height in device px / 32), so the scribble prices at 48,519 and leaves the sync path. Tests `raster/rasterCore.sort.test.js` (RS-1 the sort equals a stable sort at 5–3,000 crossings with ties; RS-2 a 1,200-crossing descending run takes the merge path; RS-3 the scribble priced past twice the sync budget, ten times a thin pen on the same path; break-checked); raster.job CH1's bound now divides out the pen's height. **Still**: a 2-plate job for stroke 17 is ~1.5–1.8 s; an x-sorted active edge list kept between sub-scanlines, or one outline per stroke pass in `bandFor`, is the next lever (not done).
+
+<a id="f129"></a>
+### F129 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (lane lasso2, seed 4604, 14 px of ink left in the band at depth 3; shrunk to 7 gestures). An erase deep across a frame edge grazed.
+
+A stroke across frame 0's lower edge, zoomed into on the far side: the camera's chain is up out of the stroke's home and down through the neighbouring cell. `_bakeOne` sends a mark to the descent only for a pure descent (no up links), so this went to the cut in place (F27's fallback). There, two or more crossings under, the eraser projected into the stroke's stored coordinates is about 1e-7 units across at y ≈ -65,497, below the boolean's weld (1e-12 of the coordinates, 6.6e-8): `cutJob` returned "grazed", nothing removed, the mark spent, nothing on the journal. Measured by REVIEWER-3: one crossing cuts; two at inScale 4–16 cut; two at 64–128, and three and four, remove nothing; the home side cuts at every depth. **Fixed**: when the chain passes through a ring neighbour of the home at the home's depth, the mark re-homes and the descent runs down the mark's own chain below that neighbour, where the ink is read as a ring native (`_bakeOne`'s `ring`, `descentJob`, which checks the neighbour itself). Test `erase.seamBranch.test.js` (three crossings; two crossings at inScale 128; both red before, break-checked). **Not covered**: a picture more than one cell from its home with the home kept (a table under `_normalizeHome`'s threshold, ink two cells over) still goes to the in-place cut; REVIEWER-3 suggests a logged refusal there instead of a silent graze.
+
+<a id="f128"></a>
+### F128 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-5 (a review of the day's changes). F118's step graph after a reload: a re-key reverted out of order.
+
+F118's rewrite orders an erase gesture's bake steps by `_seq` and undoes them newest first. Live steps get it in `recordBake`, and the log's replay gave it to cut steps, but not to the "bakeFrames" and "rekey" steps it rebuilt: `_stepIndex` stamped those lazily, after every replayed step. A gesture that re-keys a ceded kid (a severance) and then consumes it: after a reload the undo reverted the re-key FIRST, while the kid was still consumed (the guard skipped it), then the cut put the kid back on the split-off key. A tap-drag of the stroke then left the kid behind, F104's rectangle from a fresh cause. Measured by REVIEWER-5 (the F104 fixture, 4 of 4 mark variants): live undo, key 1; replayed undo, key 13. **Fixed**: the replay stamps the log's seq on both kinds of step. Test `erase.provenance.test.js` EP-5 (red before; break-checked).
+
+<a id="f127"></a>
+### F127 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (seed 4133 hung at step 71). An eraser far from the ink froze the tab.
+
+`_candidatesUnder` maps the mark's box into every frame with a path and asks each frame's spatial index. Three strokes at level 0; zoom out five levels, pan about 31 cells over, zoom in six: frame "0" is six levels up and six across from the mark's frame, and the box arrived there at x = 1.15e21 with no width. `LevelIndex.query` judged the rect small (1 × 2 cells, under the object count) and walked its cells from floor(1.15e21 / 2048) = 5.6e17 with `cx++`, a no-op on a float past 2^53: `cx <= x1` never failed, and `flushErases` never returned (the lane's 30 s timeout; the same gesture one level nearer returns in 2 ms). The same query serves the lasso, `TileStore._ringNatives` and the report. Likely one cause of F57 ("an eraser at depth on a big drawing never finishes, and the tab locks"). **Fixed**: a query that misses the index's union box returns at once, and one with any coordinate past 2^40 scans the objects flat. Test `erase.farHang.test.js` (FH-1 an astronomical query returns empty and a huge one scans flat; FH-2 the five gestures: the erase finishes and the mark is spent).
+
+<a id="f126"></a>
+### F126 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (lane lasso2, seed 2208). An undo merged the camera's frame away.
+
+Four gestures: a dot at depth 0; zoom out two levels, ctrl-lasso frame "0" and drag it by (158, −77) (`moveFrames` re-addresses it); zoom back in — the camera re-enters the vacated spine cell and mints an empty twin "0#2", which becomes the camera's frame; undo. The undo puts "0" back into its cell, the twin (empty, childless) yields and becomes its shadow (`_take`), the undo's own render reads "0", `_mergeShadows` merges the twin into it and `adoptShadow` deletes the twin — and the camera stayed on the deleted frame. Measured (REVIEWER-3): the render list 0, a hit test on the dot null, pans and zooms did not recover it, and the next dot went into `nativesByLevel["0#2"]`, which no frame holds (lost or mis-homed at save). **Fixed**: the engine follows a merge of the camera's frame (`cam.frame = ev.into`; the two are one cell, settled, so the view's coordinates carry over) and draws once more after the read that merged it. Test `move.camMerge.test.js` (CM-1 the four gestures: the camera's frame exists, the view draws, a new stroke's home frame exists, red before; CM-2 a camera a level out stays in its own frame; break-checked).
+
+<a id="f125"></a>
+### F125 — FIXED 2026-09-24 (unverified by Kobin), found by the REPORTS agent in Kobin's phone report 2026-09-24T06-40-12. Phantom ants along a ceded square inside the ink.
+
+Kobin: "phantom ants or missing ants on various selections, esp. on that reported image". The ants skip a straight piece lying on any family member's window (the tile cut and the F37 join rule in one test, `_selSeamRects`), with every window where the ink is DRAWN. A member's window was shifted by the TRACED piece's residual rather than placed by the member's own table. Families 1715 and 1887 were moved at depth 6 before the erases: their depth-8 remnants carry a table entry of (-32768, 16384) and a half-frame residual, their depth-9 kids none (three levels down the move is whole cells). Tracing a remnant, the kid's window was put half a frame off, and the remnant's hole edge along it drew ants. Measured by REPORTS (engine ants against the selection's own ink edges): at move 39's camera 150 of 1,744 CSS px of ants more than 1 px from any edge; zoomed out to inScale 12, 866 px, three sides of the square; selecting 1913, 142 px. **Fixed**: a member's window by its own table (`mapRectObj`) or none; the piece's own clip keeps its residual. Phantom 150 → 0, 866 → 0, 142 → 0, and 6 other cameras unchanged to the pixel. Test `selection.indicator.test.js` PA-1 (a moved fill nicked two levels down, seen from one level up: 256 px of ants on the square's sides before, 0 after; break-checked). The MISSING ants: a straight edge on a window counts as a join even where the ink across it belongs to another family — F124's wrong splits (1715 125 px, 1887 136 px at the report camera) or ink dragged away (1894 64.5 px). With F124's outcome applied by hand and this fix, both objects at the report camera have 0 px missing and 0 phantom. Kobin's canvas keeps F124's 5 wrong keys, so those edges stay without ants until he decides to re-join them. Not measured: a window edge that really faces paper while the family stays joined elsewhere would also get no ants (`_selDecide` skips whole windows, not the joined stretches).
+
+<a id="f124"></a>
+### F124 — FIXED 2026-09-24 (unverified by Kobin), found by the REPORTS agent in Kobin's phone report 2026-09-24T06-40-12. A two-cell cede's kids were never joined: one object became several along the seam.
+
+Kobin: "an eraser shattered a doc into too many pieces (they didn't stay connected at the tile seams, I think)". The ink was not broken: the grey blob at his camera (depth 8) is 7 families, and its pixels form 2 components — the only real separation is one erase's line, 3.3 units at depth 9. Five of the splits touch directly across the seam between cells -1428,1293 and -1428,1294 (2,599 device px of contact in all). A cede hands ink down one cache square at a time (F42), so a gesture over a cell seam mints kids in two frames, the second cut from the parent's remnant so that its edge lies exactly on the first's window. `_familyComponents`' same-depth branch compared the neighbour kid's window and outline in its OWN cell's coordinates against this kid's window: whole frames off, the contact test looked at the wrong side and the kids never joined, although the branch's comment and F42 say they should. Erase 27 in the report ceded 1873 into both cells and the re-split made 1 family 4; erases 28 and 34 each cut a piece whose only link was across the seam. **Fixed**: a kid in a neighbouring cell is brought into this one's coordinates, exact whole-frame offsets (`_cellOffset`, from `peekNeighbour`), before the same test. Measured by REPORTS: the report's 7 keys give 2 classes, the pixel components exactly. Test `erase.cedeSeam.test.js` (CS-1 a nick across the seam that severs nothing leaves one family, red before; CS-2 a nick inside one cell; CS-3 a band that parts the dot across both cells gives two), break-checked two ways. **Not repaired**: the 5 wrong keys already on Kobin's canvas stay until he decides to re-join them (like F104's 18 kids). The ants have the matching gap (`_familyJoinNotes`, no same-depth branch): with REPORTS.
+
+<a id="f123"></a>
+### F123 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-4 in jsdom from TESTER-2's Chrome sighting. A held highlighter drawn over its own plated self.
+
+F105 clips a held translucent path to the cells still stale. The shape bake stales every cell under the stroke, including cells whose plates already paint it (the band raster that landed first), so the clip covered every cell and the path doubled the alpha over those until the shape's plates landed. Measured (REVIEWER-4, one worker at 60 ms, a 30-px highlighter at 0.4): 3 of 6 cells doubled. **Fixed**: the clip keeps only the cells whose plate is missing or does not paint the stroke (`_plateShows`, the plate's painted-id set); the release still waits for every cell fresh. Test `raster.move.test.js` L4b (break-checked).
+
+<a id="f122"></a>
+### F122 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-4 in jsdom. The drag plane's coarse levels packed from a list that did not cover them.
+
+F119 again, in the drag plane. `MovePlane._cut` coarsens the main level up to `PLANE_COARSEN_MAX` (3 octaves) and adds a quick level `PLANE_QUICK_OCTAVES` (2) coarser again, so a level can be 5 octaves coarse, and every level was packed from the camera's list, which after F119 reads one preview plate (2 octaves) past the view. A level-k plate overhangs the view by up to 2^k view plates; past the listed squares its BELOW plates held paper, and BELOW is drawn whole over its cells mid-drag (`_planeBelow` skips the view's own plates there). The common case is a selection whose layers pass the cap once (main k = 1): its quick level is k = 3, the level drawn first. Measured (REVIEWER-4, jsdom, 2000×1400, `planeCap` 20, the window 500 units short of a square edge, a child fill as wide as the screen selected): two quick-level BELOW plates 76,800 px each of paper where the root fill is. **Fixed**: a level more than `PREVIEW_QUANTA` coarser than the view (`MovePlane.farLevels`) gets its own list over the rect its plates cover (`coverOf`), built off camera once per cut through the engine's `listFor` (`RasterRenderer.listForPlane`), and its requests and the stopgap pack from it; the layers are still cut from the camera's list. Test `raster.listCover.test.js` LCV-3 (break-checked: with no plane list it is red). Cost, measured by TESTER-3 in Chrome: that list build ran inside the aim, 0.2–0.6 s in the frame after every select and every drop on a 9-item scratch view; it is now built at idle, 40 ms a read (the ladder's budgeted read), and the far level is posted when its list is in (`RasterRenderer._farList`, `MovePlane.listPending`; LCV-3 asserts no build inside an aim, break-checked). Drag frames on that view: 14–19 ms.
+
+<a id="f121"></a>
+### F121 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-4 in jsdom. A mid-bake plate masked a stale list with the live handled set.
+
+A pending mark masks the ink under it that it has not handled (Kobin, 2026-09-23). The pack read the handled set live (`renderer.markDone`, `_bakeDone` less `_uncut`), but packed a list built before the bake's latest slice: a cut is neutral and rebuilds no list (`_renderSoon` sets `_eraseListStale`). So the list still held target T whole while the live set already said T was handled: T was exempt from the mask and painted whole over the band, and the plate, whose epoch no neutral event moves, was cached fresh until the mark was spent. The mark's z had the same flaw: the own-frame mark is the live object, its z steps down as it bakes, and a pack at a quantum the list had not been prepassed at read the new z, under T. Measured (REVIEWER-4, jsdom, one worker at 80 ms a job, six stacked strokes, a pending mark, a pen stroke across the band whose strips queued behind one bake tick): plate 0|0|1,1 fresh and 13,047 px wrong (12,850 of them ink over the band), still wrong five ticks later; in REVIEWER-4's content-check lane, 2 of 7 erase seeds (10,856 px and 260 px). On the Magnum Opus a job is 200–650 ms and a cut lands every ~200 ms, so any post mid-bake could do it: a stroke drawn, a pan inside `_renderSoon`'s window, a shape bake's camera sync. **Fixed**: `listFor` snapshots, per pending mark in the list, its z and its handled-less-whole set (`_markNow`) and hands them to the renderer with the list (`noteListMarks`); every pack of that list masks with its snapshot (`_marksOf`: the view, the sync raster, the plane's stopgap, scene snapshots) and `packJob` takes the mark's z from it (`markZ`). A stale list then masks T whole under the mark, the picture F90's neutrality claims for the cut. Cost: one Set copy per pending mark per list build. Test `raster/raster.markSnap.test.js` (REVIEWER-4: MS-1 the queued-strip pack after a neutral slice, MS-2 the z drift at a first settle pack; both red with the live set, and red with the done snapshot but no z).
+
+<a id="f120"></a>
+### F120 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-4 in jsdom. The live path dropped at a pen-up that left the sync path.
+
+`RasterRenderer.endLive` held the live path until its plates were fresh only when the view before the pen-up was on the plates path (`_planeViewOk`); on the sync path it dropped the path, the sync raster being due to draw the stroke in the pen-up frame. But that frame's `_syncSwitch` can leave the sync path — on a last sync frame over `SYNC_MAX_MS` (8 ms), or on the new stroke's chords past the budget — and nothing is cached on the sync path, so every cell was a miss and the compose drew the carried picture without the stroke. Measured (REVIEWER-4, jsdom, a 2-worker pool at 20–40 ms): the stroke on screen nowhere for 158 ms (a 20 ms last sync frame) and 139 ms (the chords past the budget). A phone's sync frames are often over 8 ms, and fast handwriting defers the previous stroke's bake, so the pen-up render is often the first after a slow frame. **Fixed**: the path is held whatever the view's mode; `_releaseHeldLive` already takes it down in a frame that stays sync. Test `raster.liveHold.test.js` (LH-1 held then handed off, LH-2 released in the pen-up frame on the sync path; break-checked both ways).
+
+<a id="f119"></a>
+### F119 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-4 in jsdom. Paper bands that stayed: plates packed from a list that did not cover them.
+
+Kobin, repeatedly: "I'm still seeing paper when I zoom out", worse on desktop than phone. The render list is read from cache squares (a square is 4,096–16,000 px at shallow in-frame zooms): `_buildList` read the squares touching `cam.frameWindow(0)`, and `_visibleChanged` keyed on the same. Every request packed from that list covers more than the window — the view's plates overhang it by up to 512 device px, the preview (q − 8) and the drag plane's quick level by up to 2,048 — and the ladder's rungs and the crossing prebake built `listFor(frame, win)` for plates at q − 12 and q − 8 that reach up to 4,096 px past `win`. A square's derived pieces are clipped to the square plus a 48-unit seam pad, so the part of a plate outside the listed squares was rastered as paper, and cached as FRESH: no later render re-rastered it. Measured (REVIEWER-4, jsdom, inline worker): a root fill seen from the depth-1 child at inScale 0.04 with the window's edge 4 px short of the next square — two fresh plates 62,976 of 262,144 px wrong, a 123-device-px white band, still wrong after pans of 10, 100 and 300 px, and `uncoveredCells()` read 0 (the old paper check cannot see it); a zoom-out ladder at inScale 0.3 — rung plates at q − 27 212,480 px wrong, up to 12 wrong fresh plates in the store at once. At dpr 1 a band is up to 512 CSS px, on a dpr-3 phone 170: the desktop/phone difference. **Fixed**: the camera's list reads its window grown by one plate of the preview's quantum, the coarsest packed from it (`_listWin`, `RasterRenderer.listMargin`), and `_visibleChanged` keys on the same; a rung and the prebake read the rect their plates cover (`RasterRenderer.plateCover`). Test `raster.listCover.test.js` (LCV-1 the square's edge, before and after a pan; LCV-2 the ladder): every fresh plate equals the same plate rastered from a list four plates wide around it. The cost: at inScale 1/32 and dpr 1 the camera's list reads half a square more per side (2–3 squares an axis instead of 1–2), negligible at inScale ≥ 1; not yet timed on the Magnum Opus.
+
+<a id="f118"></a>
+### F118 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz (cloud seed 217, reproduced without the cloud). Two pending eraser marks: undo and redo put back ink no op owned.
+
+An erase's undo reverses its bake steps and, being RESILIENT, puts a step's source back only if none of the object is in the document — "stale replays were how duplicated, stacked geometry formed". With two marks pending, the steps interleave out of stack order: a drag's barrier bakes the newer mark M2 on piece 4 (4 → 7, on M2's op), then the older mark M1 cuts that 7 (7 → 12, recorded on M1's op, earlier on the stack). Undoing M2 then M1, M1's step 7 → 12 removed 12 and re-inserted 7 — a piece of 4, while M1's own first step put the stroke 1 back: 7 lay over 1, and after undoing everything 7 stayed, owned by nothing. Redo had the mirror fault (a piece M1's applied step had consumed came back). Minimal repro (REVIEWER-3, 8 gestures, synchronous): two strokes, M1 pending, a zoom, a tap-drag, M2 pending, a tap-drag, then a full history walk. **Fixed**: at each erase undo and redo the Document reads, from the ops on the undo and redo stacks, which step minted each piece and which consumed each object (`_bakeProvenance`). An undone step's source that another UNDONE op minted comes back as that op's source instead, recursively; a redone step's piece that another still-APPLIED op consumed comes back as what that op made of it. Test `erase.provenance.test.js` EP-1 (the 8 gestures: every undo state without duplicates, nothing left after undo-all, the redo walk byte-equal to the state before): red before (3 ids left); break-checks on an unimported copy: each half removed, red. The erase, op-log and undo suites: 31 suites, 436 tests pass.
+
+**Not fixed by that; replaced the same day by a step graph (REVIEWER-3).** The redo side still failed a full history walk (a redone step whose source another UNDONE gesture had minted was skipped, and nothing removed the source of the step that minted it), and a cyclic case (gesture A cuts B's piece, B cuts that piece, A cuts B's result) duplicated ink on undo. Now every bake step has its order (`_seq`, from `recordBake` and from the log on replay) and an applied flag: undo of a gesture reverts its applied steps plus every applied step of any gesture that consumed what they made, transitively, newest first (those steps are suspended); redo re-applies its steps in order where their sources are present, then any suspended step of an applied gesture whose source is back. A step rebuilt by a reload is applied when its gesture is, its source is gone and the step that minted its source is applied; the log's replay runs each undo and redo against the stacks built so far. Tests EP-2 (every state of the walk), EP-3 (the cyclic case, 14 gestures), EP-4 (reload from a snapshot early and mid-history, both interleavings), red before; REVIEWER-3's cloud, save, erase and async-worker lanes 0 failures over ~2,000 steps.
+
+<a id="f117"></a>
+### F117 — OPEN (a fix landed and was reverted, 2026-09-24), found by REVIEWER-3's geometry fuzz. A shallow crossing near a curved edge was missed.
+
+`rayCross` asks where a ray crosses each piece. For a minor arc whose radius is at least its chord it uses the chord frame (freeze.js), which exists for radii like 5e12, where it is exact; it seeds Newton from a quadratic that is first order in the arc's height, off by about L⁴/64r³. On a curved arc (r 5.9, chord 3.0: 6e-3 units) a ray running 2e-4 inside the arc near its tangent crosses it 0.049 units away, and the seed's discriminant went negative: the crossing was never found, the winding read 0, and a fragment was classified on the wrong side. REVIEWER-3's case: an 810-piece stroke and its translate by 0.0045 — the intersection's area 4,315 instead of 1,011, 6 open chains sealed (14,567 units² of false ink), 294 wrong cells on a 90×90 grid. The difference (what an erase keeps) was right in the cases checked; the intersection feeds an erase's `removed` measure and `clipShapeToRect` (the tile chain), and the same test answers `insideShape` (hit tests, the lasso's ink test). **Fixed**: the chord frame only where its seed's error is below 1e-15 of the magnitudes; elsewhere the centre form, exact to ~r·1e-16. Measured by REVIEWER-3: the case reads difference 3.1706 + intersection 1,010.856 = area(A), 0 sealed, 0 grid mismatches; near-translate pairs at scale 1, worst area identity 3.26 → 3.8e-7. Test `geometry/arcShape.both.test.js` G1 (13 minor arcs of r 6: points 2e-4, 1e-3, 1e-2 inside the top read inside), red before. The slow erase suites (10 suites, 437 tests) pass. **A classifier change**: it moves results only where a fragment was classified wrong, but it is a change to the derivation for the deploy gate. **Reverted the same day**: with the gate, raster.mask.test.js K4 lost the inner piece of a green bar cut by a ring eraser (r 100, 72 samples, chords ~8.7 — arcs the gate sends to the centre form): at (300, 300) red showed where green was never erased. Bisected on copies (the gate alone). The slow erase suites had passed; K4 is a quick raster test. Back with REVIEWER-3 for a fix that keeps both its case and K4; the G1 unit case left the repo with it.
+
+**Fixed again, 2026-09-24 (gate4 + GEOM-2)**. K4's cause: a ring drawn to close exactly on its first sample baked 4 rail arcs at the seam whose far end sat 5e-4 to 0.039 units off their stored circle (the pen's two one-sided tangents at the seam, averaged by `_closeSeam`); the chord frame builds its circle through the ends and was right there, the centre form used the stored centre, and a ray through the seam vertex hit both neighbouring arcs. Two fixes, both REVIEWER-3's. (1) The seam (`BiarcPen.closeLoop`, called by the resolve): a stroke whose last sample is its first gets one periodic tangent there, so every arc ends on its circle (0 of 6 test rings off, from 4 each) and a closed ring's area is the annulus to 1e-6 (short by up to 3.1 units² before). (2) The classifier (`rayCross`, gate4): the chord frame only where its seed's error is below 1e-15 of the magnitudes; a minor arc otherwise asked about the circle through its own ends, a ray through either stored end a graze, and the position along the arc measured from its middle. Measured by REVIEWER-3: K4 and 81 variants the same as the tree before; its fixture 0 sealed, 0 grid mismatches; 9 of 9,518 winding queries on 56 real strokes wrong before, 0 after. Tests `geometry/arcPerimeter.test.js` "a ring that closes exactly on its first sample" (6 cases, break-checked); the slow erase suites 9 of 10 pass (the tenth, fidelity.compare, still running at filing); raster.mask K4 passes. **A classifier and bake change**: the deploy gate's derivation question.
+
+<a id="f116"></a>
+### F116 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's subtree fuzz (seed 521). Two subtree moves undone and redone landed the cluster off.
+
+A cluster drawn one level in, its frame lassoed and dragged (move A, a sub-cell rest pending as the frame's shift), read (A's shift settled into the tables), dragged again (move B: `shiftBefore` null); the camera zoomed away so nothing reads the frame; undo ×2, redo ×2. The redo of A left A's rest pending — nothing read the frame — and the redo of B, which assumes the frame's shift is its own `shiftBefore`, set B's shift over it: the tables ended 65,536 units (half a depth-plus-one cell) off in x. **Fixed**: the inversion of a `moveFrames` settles first any pending shift that is not the op's own; the settle is recorded on the frame's current owner (the earlier op's entry), whose own undo unsettles it by record. Test `move.subtree.test.js` mv1 (two moves, the camera 3e6 away, undo ×2, redo ×2: natives byte-equal and the frame's address as before). Break-check on an unimported copy: without the settle, red.
+
+<a id="f115"></a>
+### F115 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz. Strokes deleted with their frame in the tick they were drawn lost their add entries.
+
+The op log encodes an `add` at drain time from the live object, or from the tick's `removed` map. A native set aside with its frame (`removeFrameSubtree`, a subtree delete) is neither: `getById` answers null and no per-object remove event fires. So three strokes drawn a level in and deleted as their frame before the next save had no entries; after a reload the rebuilt undo stack lacked their adds (subtree lane seeds 502 and 518, cloud lane seed 207). **Fixed**: the drain falls back to the set-aside native, which stays in `_byId`; replay is unchanged (the frame is unlisted at the write, so the entry only rebuilds the op). Test `oplog.test.js` "a frame deleted in the tick its strokes were drawn": the drain holds 3 adds, the reload's undo stack equals the live one and four undos agree. Break-check: without the fallback, red.
+
+<a id="f114"></a>
+### F114 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-1 reading the code (E-5). A pending eraser mark seen from another zoom level drew as white ink.
+
+Kobin's rule (2026-09-23): a pending mark is a stand-in for nothing, so anything baked shows on top of it. At home the mark is a native with `erase`, and the plates mask with it. Seen from another frame it is a tile's copy — magnified up or projected down — and the derivation copied its id, z and colour but not `erase`: the copy painted as white ink. And its z was the one it was derived at, while the mark's own z steps down with the bake (`setZById`, an `attrOnly` change the tile store ignores), so strokes drawn after the mark could sort under the white copy. **Fixed** in the one pass every render list makes over its pieces (`listFor`, before its z sort): a piece of a pending mark gets `erase` and the mark's current z. Test `erase.markFrame.test.js` EM-1 (a mark magnified into a deeper frame: every piece a mask; after a z step, every piece at the new z). Break-check: without the stamp, red. Possibly part of Kobin's "weird z-order issues when erasing" (2026-09-23). Measured in Chrome (TESTER-2, a pending d9 mark seen from d8 through a real bake, two runs): 0 of 44 list copies white, every one a mask. Their z is the mark's as of the last list build: with the bake's neutral renders skipped (F109's tail) it lags the mark's steps between builds; no pixel consequence found, since the targets the mark has passed are in its handled set.
+
+<a id="f113"></a>
+### F113 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's cloud lane. A following device's rebuilt undo stack held ops the pen-holder had undone.
+
+REVIEWER-3 ran the real `cloudPushCanvas2`/`cloudPullCanvas2` on the fake Firestore with a model of `applyPulledStore` and the restore (seed 105, step 19). Device A drained entries 16–22 in one tick and compacted them in the next, before its next push, whose `dropBelow` removed chunk 1–15 from the manifest. Device B, fast-forwarded twice, held 1–15 and 23–32: it never saw 16 ("undo of 11"). The documents agreed (the snapshot rule skips the stale entries); the histories did not — B's undo stack rebuilt add #11, and an undo on B applied an inverse A had already applied. **Fixed**: `cloudPullCanvas2` returns `logFloor`, the lowest `seqFrom` of the manifest's log chunks (the header's seq + 1 when the log is empty), and the fast-forward in `applyPulledStore` passes it to `putCanvas2` as `dropBelow`. Tests: `localCanvases.sync.test.js` (a fast-forward with a floor of 10 over a local 1–3 keeps 10–12 only), and `canvasSync.push.test.js` (a fast-forward's floor is where a whole pull starts).
+
+<a id="f112"></a>
+### F112 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's erase fuzz. An erase at depth removed ink outside the eraser.
+
+"An erase never removes more than the eraser swept." A cede cuts the ceded cell out of the parent and culls what is left with `dropDust`, which by the pen's rule drops components narrower than 1 % of `w` in the PARENT's units. Repro (REVIEWER-3, measured): at level 0, 1×, a vertical stroke of width 60 whose round cap pokes 0.3 units below cell row 11; zoomed 4,096× to depth 1 (frame 0/12,11), an 8-px eraser: the family's area fell by 1.596 level-0 units², where the eraser's whole area is 2.5e-5 — the cap's sliver, 1,229 px tall at the erase's zoom, gone as dust. The fuzz found it as a rectangle-edged block of 272 cells lost outside the band (a second tile ceded read the remnant that had lost it). DESIGN §7 has judged dust at the mark's zoom since F66; three sites still used the pen: `eraseDescent.cedeVirtual` (the parent's cut), the middle link's cull of a square's ink in `descentJob`, and `Document.cedeTileById`. **Fixed**: each takes `dustBarFor(E.bakePx, lm.frameFactor(HE, <its frame>))`; a mark with no recorded zoom keeps the pen rule. Workers rebuilt. Test `erase.cedeDust.test.js` (2): a cap 0.3 past the cell loses no more than the eraser's box (red before: 1.596 against 4e-5); the control, 2 units past, the same. Break-check on an unimported copy: the pen rule at the cede's cut, the 0.3 case red.
+
+<a id="f111"></a>
+### F111 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz. After an undo at depth a moved object's ink vanished from the view.
+
+Measured by bisecting renders over 21 fuzz gestures (draw at depth 0, two erases at depth 1, a tap-drag of the family, more erases, zoom to depth 3, undo, undo): after the second undo the render list was EMPTY while a fresh engine at the same camera listed the object over the whole screen; the next eraser there "flooded" the screen with the ink that had been missing. The first undo's render minted F0 — the frame the moved piece's picture is read from (`_reroute` → `objShift`) — and cached its up tiles, kept past the camera by `_reroute`; the undo's frame GC (added the same day, G12) then forgot F0, empty and unnamed, but TileStore kept its tiles. The second undo re-inserted the piece; `_addObject` met F0's tile, found `isAncestor` false (F0 gone) and `_depth(F0)` falling back to 0, and neither patched nor dropped it; the next render minted F0 again under the same id (an unmoved frame's id is not retired), its chain sum matched, and the stale tile was served. **Fixed**: `collectFrames` calls `TileStore.forgetFrame` (its tiles, pins, warm keys, reroute memo and chain sum) and drops the forgotten frames' plates; `_addObject` and `_removeObject` also drop any tile whose frame is missing. Test `frame.gc.test.js` G13: a frame's tiles kept past the camera, the frame collected, ink added over its cell, the frame minted again — the ink is listed (red with both halves off).
+
+<a id="f110"></a>
+### F110 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz. After a reload, an undo of a subtree move put the moved frame's natives at the wrong table.
+
+Six gestures: a stroke at depth −2; its frame lassoed from two levels out and dragged (moveFrames #8, a pending shift); #8 undone and redone (the shift pending again); the selection dragged again (#15, whose settle carries the stroke a cell over); save, reload, undo, undo — live, the stroke back at "−2" with no table; reloaded, with #8's table. The first settle after the redo is queued "of 8"; the second drag's own mid-drag settle of the same frame (its op not on a stack yet, `of` null) was coalesced into it — its `rec` replaced, `of` left at 8 — so replay hung #15's settle on #8's frame entry, and undoing #8 after the reload subtracted #15's shift. **Fixed**: `_onSettle` coalesces only a settle of the same frame and the same op; the drag's own settle rides its frame entry at drain. Test `oplog.test.js` "a redone move's settle is not merged into the next drag's": undo, undo, redo, redo after a reload agree with the live engine byte for byte (red before at the second undo). Break-check on an unimported copy: the old coalescing, 1 red.
+
+<a id="f109"></a>
+### F109 — FIXED 2026-09-24 (unverified by Kobin), found by the TESTER agent timing a bake. A mark's step past ink it never covered staled the plates under it.
+
+Attributing Kobin's "general slowness" on the Magnum Opus copy (43,197 natives, depth 9, the membrane, his Chrome, visible). The drain's log for one 20-px organic erase: 95 z steps of the mark, 87 untagged, each passing exactly the target just handled, still in the mark's `_uncutOf` set. F90's rule untags such a step, because passing a target the mark left whole can uncover its ink, and the step then stales every plate under the mark: the stream F106 was about, and a re-raster each. The targets were refusals: the note lists 12 (`_rehomeBail` stops there), all "no tile ceded: tile holds none of its ink". The descent had found none of the target's ink near the eraser, so nothing of it was under the mask and the step changed no pixel. An in-place graze (a removal under the graze bar) is the same case.
+
+**Fixed:** `descentJob` returns `inkless` with a refusal when the link it stopped at found no ink of the target near the eraser (none in its tiles, dust, or a graze) and no tile went unread (an eraser or picture frame not found, a square's frame not found, a need wider than the 2x2 tiles it reads). `_applyDescent` removes an inkless refusal's target from `_uncutOf`, and `_applyCut` removes a graze's. The step past it is then picture-neutral like a cut's. A refusal over ink (a fill with no perimeter, a cede refused) still stales that step (`raster.bake.test.js` B3/B4 unchanged).
+
+Measured in the tab, A/B on the same stroke with the old rule put back by a hook on the engine instance, run alternately (new, old, new, old; undo and idle between):
+
+| | bake | z steps untagged | plate epoch bumps | renders | render time |
+|---|---|---|---|---|---|
+| F109 | 22.5 s, 18.0 s | 0 of 98 | 73, 73 | 50, 47 | 7.0 s, 5.6 s |
+| before | 31.4 s, 30.0 s | 84 of 98 | 2,396, 2,341 | 54, 53 | 10.1 s, 8.9 s |
+
+52 cuts in every run and the same 12 listed refusals; the document back to 43,197 natives after each undo.
+
+**Left:** ~50 renders a bake from `_renderSoon` (E-2), about one per landed cut, at 120–220 ms each. The coordinator is taking that. The 50 s bake seen before a reload was not reproduced.
+
+Tests: `erase.neutral.test.js` (new, 5). An in-place graze in a ring's hole and a descent at depth 1 refused "tile holds none of its ink" each leave every z step neutral, driven through `_bakeTick`. A real cut is the control. `descentJob` is inkless with no ink, and not inkless when a stubbed tile's ink covers the eraser but cannot be ceded. Break-checks on an unimported copy: graze kept whole, 1 red; inkless ignored, 1 red; `inked` never set, 1 red.
+
+<a id="f108"></a>
+### F108 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 reading the code and a jsdom repro. A lasso round a frame took a ceded kid whose family was outside the loop; a drag tore it out.
+
+The lasso's frame walk takes an ENCLOSED frame as one entry and reads nothing under it (O(1) per frame, Kobin's subtree requirement). The per-object path has asked since 2026-09-03 that a keyed family be wholly inside ("a loop around a ceded tile alone ... must not take it"); the frame path never did. Repro (REVIEWER-3, measured): a 30-px stroke across the screen at depth 0, a 12-px eraser nick at depth 2, the camera back at depth 0 (inScale 16), a 20-px circle round the nick: selection `{ids: [], frames: ["0/13,9/-2048,1664"]}`, the kid (id 6) selected through its frame, and a drag from the frame mark moved it 100 px and ids 3 and 5 not at all — the patch torn out of its stroke, a rectangular hole where the nick was. A loop round the whole screen with the stroke running off it took the kids too, through `0/13,9`. **Fixed**: the Document keeps, per frame, the set of its natives with a family key (`keyedIn`; maintained where natives enter and leave lists: add, insertAt, removeById, the re-homes, shadow merges and unmerges, subtree set-asides and restores, a reset — a rekey is keyed to keyed, so the sets do not change). After the walk, `_tornUnder` reads only the keyed natives under each enclosed frame and asks each family the per-object question (every piece found, a pending mark, or under an enclosed frame); for a family that fails, the frames from that native up to the enclosed frame are read as straddling in a second walk, where the piece is found one by one and dropped with its family, and the rest of those frames' ink is found one by one. Unkeyed content keeps the O(1) path; the cost is O(keyed frames × depth) plus the family lookups (`editGroup`, which the per-object path already pays). Test `select.lassoFamilyFrame.test.js` (3): the small loop takes none of the family and the keyless stroke beside the nick; the whole-screen loop at inScale 16 takes none of it, and at inScale 1, where it encloses the stroke, all of it; a drag after the small loop moves every piece alike or none. LF-4 builds the case where the enclosed frame holds no ink of its own and the kid sits a frame below it. The bookkeeping is checked against a recount in `select.detachedFrame.test.js`. Break-checks on an unimported copy: without `_tornUnder` 4 red; marking only the kid's own frame, not the path up to the enclosed one, 1 red (LF-4).
+
+<a id="f107"></a>
+### F107 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 in a jsdom repro. Ink drawn where a lassoed frame had been deleted could not be selected, lassoed or erased.
+
+A delete of an enclosed frame sets its subtree's lists aside by reference (`removeFrameSubtree`, O(frames)) and marks each FRAME in `_detached`; `getById` answered null for any native homed in a detached frame. Nothing un-detached a frame, so anything placed there afterwards — a stroke drawn where the frame was (the camera frame is that frame again once you zoom back in), a drag member re-homed into its cell, a kid a descent cedes there — was listed and drawn but unreadable: a tap's hit test found it and `select` returned null, a whole-screen lasso selected nothing, an eraser over it (flushed) left it whole and consumed the mark. Its add was also dropped from the op log at drain (no record), so it was missing from the undo stack rebuilt after a reload. Second hazard: an undo of the delete REPLACED the frame's list with the record's, dropping anything added there meanwhile (a bake's pieces). **Fixed**: the first placement into a set-aside frame (`add`, `insertAt`, the re-homes, a shadow merge) flags that frame's set-aside natives `_gone` one by one — O(that list), only then — and the frame is live again; `getById` also answers null for `_gone`. An undo of the delete appends the record's natives to a list that holds new ink (un-flagged, indexed); a redo, given the record, sets only the record's natives aside and keeps the rest. Test `select.detachedFrame.test.js` (3): the new stroke reads, is tapped, lassoed and cut; undo ×2 brings the deleted (erased, so keyed) pieces back and takes the new stroke away, redo ×2 the other way, every listed native readable; a restore into a frame holding new ink keeps it and a set-aside of the record leaves it. Break-checks on an unimported copy: no reuse 2 red; no merge on restore 1 red; no partial set-aside 1 red. **The same day, a regression (REVIEWER-3 DOC-2)**: the record held the frame's list by reference, and an undo put that array back, so later ops changed or replaced it; after undo, undo, redo, redo of an add and the delete, the redo found the record's (now empty) array and set nothing aside — the deleted stroke stayed on screen. `detachFrame(frame, rec)` now refreshes the record to what it set aside, and a restore that merged records the ink placed while the frame was set aside (`kept`), which alone a redo leaves listed. Test DF-4; break-checks: no refresh 1 red, no `kept` 1 red.
+
+<a id="f105"></a>
+### F105 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-2 reading the code. A highlighter stroke partly vanished at pen-up.
+
+On the plates path a pen-up keeps the live SVG path until the plates under the stroke are fresh (`LIVE_HOLD_MS`). A translucent stroke was the exception: its path over plates that already hold it doubles the alpha, so it was taken down when the FIRST cell under it was fresh — and wherever the other cells' plates had not landed, the stroke was not drawn at all until they did (a long highlighter stroke over several cells on a busy pool: hundreds of ms). Now a translucent held path is released like an opaque one, when every cell under it is fresh, and until then carries an SVG `clipPath` of the stale cells' rects in its own origin-relative space (`_clipHeld`; Two.js 0.7 masks only groups and leaves a `clip-path` it did not set alone), rebuilt when the stale set changes and removed with the path. Test `raster.move.test.js` L4: one of the cells fresh, the path stays up clipped to exactly the others; all fresh, it goes with its clip. Break-checks on an unimported copy: the old first-fresh release 1 red; no clip 1 red. Measured in Chrome (TESTER-2, Magnum copy, dpr 1.5): a 26-px highlighter across 4+ cells was clipped to 7, 5, then 2 stale cells and released at 439 ms, whole in every screenshot; with arrivals held back for alternate cells, the clip rects' screen edges matched the plate edges to 0.002 CSS px, and 1.5x zooms across a fresh/clipped edge showed one uniform tone. Left by design: past `LIVE_HOLD_MS` with a cell not in flight the path goes and the stroke is missing there until the plate lands; and over a stale plate that still shows translucent ink since undone, that ink shows under the path while it lasts. Not tested: a held path during a stretched view mid-zoom.
+
+<a id="f106"></a>
+### F106 — FIXED 2026-09-24 (unverified by Kobin), found the same day by the TESTER agent. Mid-bake, the ink under an eraser band came back on screen for seconds, cut off at a plate's straight edge.
+
+Kobin's "screwed up eraser marks" and "weird z-order when erasing", on the Magnum Opus copy in a scratch canvas at depth 9 (the membrane beside the Earth's city), in his Chrome, visible. Each erase was an organic 20-px stroke through the lipids; the ink canvas was read every 250–400 ms through the bake and the inked pixels inside the band (radius − 2.5 px) counted. Three bakes of 13–24 s: once the held SVG stroke was let go (~2–3.5 s), 4,518–11,214 of 14,570 band pixels (up to 77 %) showed their pre-erase ink in bursts of 0.6–1.5 s, and in one bake ~8,000 of 13,773 for the first 9 s. A captured frame shows the band white down to y ≈ 533 and then stopped at a horizontal straight edge, the dark green and the lipid heads under it. No stand-in was drawn (`_planFallbacks` returned nothing) and no frame event fired: the plates under the band were the view's own, stale. The drain's log for one bake: 96 `change` events of the mark with `attrOnly` (its z steps), each non-neutral and each staling the 16 plates under it — `_lowerMark` is tagged neutral, but the engine untags a step that passes a target the mark's `_uncutOf` set still holds whole (refused, grazed — 12 refusals, "tile holds none of its ink", in that bake — or a cut not landed), F90's rule, since passing it can uncover ink. A step every ~170 ms against a 200–650 ms raster at that view (`rasterJob` 650 ms measured): every re-raster arrived behind its key's epoch, `PlateStore.put` refused it (`stalePuts`), and R1 kept the plate's last cached pixels — rastered before the mark existed — on screen. **Fixed**: an arrival behind the key's epoch that is newer than the stale pixels cached (`rec.epoch > cur.epoch`) replaces them and stays stale (`put` returns `"newer"`, counted in `staleNewer`); the layer composes it and re-posts it as for any stale arrival. An arrival for a key with nothing cached, or no newer than what is cached, is refused as before, so a hard-removed plate (a frame event, the settle's `"e"`) never comes back through this. Measured after, same view and stroke size: the worst sample 590 of 10,114 band pixels (5.8 %) at 10.8–11.3 s and 427 at 13–14 s, 0 at the end, 0 outside the band; `staleNewer` 120, `stalePuts` 0; the bake itself unchanged in kind (1,034 rect drops). Tests: `raster.plates.test.js` "F106" (2: five invalidations in a row each leave a newer stale plate composing, and a current arrival is cached as ever; an older or equal arrival, or one for a plate not cached, is refused and closed) and L10's "rule 1 still tests…" updated to the new rule; `raster.picture.test.js` J5 "an arrival newer than the stale pixels…" (composed, the old bitmap closed, re-posted). Break-checks on an unimported copy: the store rule removed 4 red, the layer's compose removed 1 red. **Left:** the residual ~5 % bursts (not chased; a whole target passed by the mark is expected to show until its bake ends) and the rate of non-neutral steps itself — each still stales the whole mark's plates, where only the passed target's own footprint changes. Most of those steps passed a refusal with no ink under the mark, and those are neutral now (F109).
+
+<a id="f104"></a>
+### F104 — FIXED 2026-09-24 (unverified by Kobin), found the same day by the TESTER agent. A ceded kid in a lost frame was severed from its family; a move of the parent then left a rectangle behind.
+
+Kobin's scenario 5 on the Magnum Opus export (07:44Z, 43,157 natives) in the app, at depth 9 (the membrane beside the Earth's city), after F99's recovery. A tap on the dark-green background selected family 11841 (47034 at depth 8, 47670/47671 at 9, 47291 at 10); its ants included a 32-unit square — a depth-10 tile — dashed on all four sides. Parent 47670 has two rect holes: one filled by 47291, the other, on screen (219.7, 97)–(283.8, 161), filled exactly by kid 47217 (depth 10, home `…/1107,1196/-1589,-770`, attachRect ±65584) whose key is 47300. Dragging the family by (80, 40) px took the hole with it and left 47217 where it was: a rectangle of ground left behind and a rectangular hole carried along — Kobin's "rectangular holes". The op log (a copy of his store, log 66–603): seq 228 (23:23:38Z) made 47217 on key 11841; seq 267 (23:34:19Z), after mark 47235 cut 47036, rekeyed it to 47300. With its old key put back in memory, `_familyComponents(11841)` puts all five in one class — the geometry joins them. `_familyComponents` does `if (kidDepth == null) continue`: a kid whose home frame the lattice lacks has no doorway, comes out a component of its own, and `_resplitFamily` rekeys it away permanently. So F99's frame was already gone in the session at 23:34Z (between seq 258 and 267, no op logged). Counted on the export: 433 rekeys in the log, 40 of kids homed in the lost frames; with the old key put back, 18 of them join their family again (47217–47230, 47232–47234, 47149: all rekeyed at seq 267–308), and 22 stay apart (the first bake's, seq 102–214, when the camera was in the frame, and 47231) — genuine severances. **Fixed**: `_familyComponents` reports the members whose frame has no depth; when there are any, `_resplitFamily` keeps on the original key every component holding one of them and every component made only of ceded kids (their doorway may be that member) — "cannot evaluate" is not "disconnected". Test `erase.unresolved.test.js` (6): a control cut splits normally with every frame present; the same cut with the kid's frame forgotten keeps the kid on the key (red before: 1 → 11); three moved-band nicks stay one family; a kid whose PARENT's frame is gone keeps the key. Break-checks on an unimported copy: without the fold 2 red; without the kid-only rule 1 red. **Open, Kobin's call:** re-joining the 18 kids already severed in his drawing — and a re-joined kid must also take its parent's table, because the doorway test compares unmoved stored bits and calls a kid left behind by a move "joined".
+
+<a id="f103"></a>
+### F103 — FIXED 2026-09-24 (unverified by Kobin), found the same day by the TESTER agent. A lasso made from far away round a tiny cluster showed nothing as selected.
+
+Kobin's scenario 7, "moving small objects from far away", in Chrome on a scratch engine: four small strokes drawn at depth 4, the camera zoomed out to depth 1 (inScale 0.25), a 60-px loop round the spot. The loop took one frame (the depth-2 cell enclosing them), the status counted it, and the screen showed nothing: `_selectionAnts()` returned null. A press on the empty spot still dragged it. The frame's box in `_selTable` is its whole CELL, which is 8 px there, so it is not a dot (under `SEL_FRAME_MARK_PX`, 2 px); the decision then looks for the pieces homed under it in the render list, and content three levels below the camera is culled from the list. So neither a mark nor a run was made. Now a selected frame that ends the decision with no run and no dot of its own is a dot where its content is drawn: the union of its subtree's index extents (`Document.frameExtent`, each through its frame's pending shift) mapped into the camera frame, O(frames), read only on that fallback, and no frame's list is read. Test `selection.indicator.test.js` t4, a frame over 2 px with content three levels down: one mark within 1.5 px of the content's picture and more than 3 px from the cell's centre. Break-checks on an unimported copy: without the fallback 1 red; with the cell's centre for the content 1 red. Measured in Chrome after the fix: the same lasso gives `marks: 1`, a red speck on the spot.
+
+<a id="f101"></a>
+### F101 — FIXED 2026-09-24 (unverified by Kobin), found the same day by the TESTER agent. A destroyed raster engine put its selection overlay back into its host.
+
+Seen in Chrome on a scratch copy of the Magnum Opus: a lasso of the inner solar system (8,810 ids and 4 frames) was held mid-drag when a hot reload remounted the editor. The new engine restored the document from the store with nothing selected, yet the screen kept the old drag's ants: one `canvas.bl-overlay` and four edge strips in `bl-editor-host` that the new renderer's `_overlay` (null) did not own. Measured on second engines in the same tab: `destroy()` alone leaves the host with no canvas; one late call afterwards — `zoomAt`, `panBy`, `resize`, `_render` or a `syncCameraOnly` — puts `bl-overlay` and its four strips back, because `_renderSelOverlay` finds `_overlay` null and builds a new layer (`_makeOverlay`) on the old host. A late pointer move, pointer up or `setTool` does not. Which late caller reached the old engine in the app was not pinned (the hook removes its own listeners before `destroy()`); a remount runs the next engine in the same host, so any of them shows. The fix makes a destroyed engine inert: `_render`, `panBy`, `zoomFactorAt` and `resize` return at once (no list, no plates, no frame GC, no camera change), and `RasterRenderer._renderSelOverlay` returns before building anything. Test `raster.overlay.test.js` "F101" (5 cases: after `destroy()`, a late zoom, render, pan, resize or camera step leaves no overlay canvas, no new list, the camera and size unmoved). Break-checks on an unimported copy (`.claude/bcheck`, source md5 unchanged): each of the five guards removed turns exactly its own case red (1 each).
+
+<a id="f100"></a>
+### F100 — FIXED 2026-09-24 (unverified by Kobin), found by the REVIEWER agent from Kobin's phone report 2026-09-24T04-25-10. A lasso missed a ceded family whose other pieces sat under an enclosed frame.
+
+Kobin: "the lasso select is missing objects." `_lassoFind` takes a re-homed family only when every piece is in the loop's id set (`editGroup(...).every(m => set.has(m.obj.id))`), but pieces homed under an ENCLOSED frame are taken as that frame, never as ids, so the family read as partly outside. On the report's drawing (21 natives) a loop round the whole screen returned 7, 10, 13 and the frames `-1/3,3` and `0`, dropping 60 (pieces 62, 63) and 66 (pieces 68, 69). Fixed: a piece counts as inside when its home is under a selected frame. The fix needs a second half: `_selectionMembers` now skips a family member homed under a selected frame, which the frame's own re-address moves — otherwise it moved twice (per object and with its frame), a path a ctrl-tap on 60 with `-1/3,3` selected already reached. `select.cededLasso.test.js` CL-1 (the lasso takes 60 and 66) and CL-2 (a drag moves 60, 62 and 63 by the same amount); break-checks on copies outside src/: without the lasso guard both fail, without the members guard CL-2 fails. 19 select/move/erase/GC suites, 270 tests, green.
+
+<a id="f99"></a>
+### F99 — FIXED 2026-09-24 (unverified by Kobin), filed 2026-09-23 by the orchestrator from the PHONE agent's finding. 43 natives were homed in a frame the saved lattice did not have, and were never drawn.
+
+Diagnosing F98 on a read-only copy of the local Magnum Opus (mu34hlxc1t16986e), the PHONE agent found 43 natives (41 of them already in the 07:44Z export) whose home is `…/1107,1196/-1589,-770` — a frame whose id path runs through the `#2` twin `0/30,17/-880,-46/-149,-746#2` — and no such frame in the stored lattice. On load, `files._mintNamedFrames` / `LevelMap.ensureId` re-mint a missing frame from its id's birth chain, but cannot for an id with a `#n` segment, so these natives are loaded and never drawn. Separate from F98's displacement. Not yet known: which operation dropped the frame (a `_take` shadow or twin identity, F80's note; a merge; an older GC path), and whether the natives' true place can be recovered from the op log or the 2026-09-22 backup. First step: a test that builds a twin's child frame, drops it from the lattice the way the store can, and reloads.
+
+**Fixed 2026-09-24** (the REVIEWER agent's finding A1-2, confirmed by the TESTER on report 04-06-17): the natives are CEDED KIDS — the black band #101219 (family 15432, z 15430–15433) cedes patch 47214 (3 loops, 233 pieces) and 41 more into `…/1107,1196/-1589,-770`; undrawn, the band's parents show green through RECTANGULAR HOLES where the kids should be, which is what Kobin saw near the Earth's city. The frame was born by a camera crossing at 2026-09-22 23:22:19Z, last named by seq 258 (23:24:05Z), and gone by the next session (07:54Z): it left the lattice at a load or a header write in between — no logged op removes it; not yet pinned. `ensureId` walked from the spine through `cellChild`, whose ids cannot carry `#n`, and minted along the way even when it failed. Now: validate every segment first; find the deepest prefix the lattice has; below it add each missing frame with its EXACT id in its birth cell, or as a SHADOW of the cell's resident (merged at the next read); `merge` (a descent's minted frames) and `_loadFrames` re-mint a missing parent instead of skipping it or adding an unreachable orphan. `lattice.ensureId.test.js` EI-1..3, 5, 6 and `lattice.ensureId.slow.test.js` EI-4 (report 04-06-17: no native homed in a missing frame; 47214's home exists); break-checks on copies outside src/: each of the five guards turns a test red. Still open: which load or write dropped the frame.
+
+<a id="f98"></a>
+### F98 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. A reload after a subtree drag put its members back at an older drop's tables.
+
+Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth disappeared and left behind a square. It was looking fine and then it got destroyed in a hot reload." Diagnosed read-only on a copy of his store (IndexedDB dumped at 23:40Z; header seq 603, 28 frame records, log 66–603). **No ink was lost**: every id gone since the 07:44Z export is named by a removal or bake entry. The disc (1,881 natives, home `A/-1069,-1336`, A = `0/30,17/-880,-46/-149,-746#2/-1809,550`) loaded 0.71 A-units (two diameters) from its city (3,831 natives in `A/-1069,-1336/1795,546`); at his saved camera only the city was on screen — the square. The hot reload was only the first load since his move at 23:03Z; any reload would have done it.
+
+**Cause.** His subtree drags 478–485 walked the disc's members through a container per drop (`A/-831,-1352`, `-901,-1350`, … `-1067,-1336`), each emptied by the next drop. `Document._forgetIfEmpty` drops an emptied list, so the saver's `frameIds` (then every key of `nativesByLevel`) left the container out and `putCanvas2` deleted its `frameSeq`. On load, `OpLog` judged each move member stale by the snapshot seqs of its `from` and `to`: drop 485's member (from `-1067,-1336`, no seq, so 0) counted as unapplied and set the tables `[[50092,-29060]]` over the snapshot's; entry 538, which had moved them to `[[53020,-29151]]` inside `-1069,-1336`, was skipped because that frame's snapshot (540) is newer. The same rule, whole-entry for a bake step, put back 7 pieces the next bake step had cut again, and 485's move put back 47199, erased at 493. The per-member rule and `_forgetIfEmpty` are older (the kobin-2 store, 121fc1f); the trigger — a drop whose members pass through containers the next drop empties — came with the subtree move, 4c99a8a, which is not deployed. **It gates any deploy of 4c99a8a.** Whether the deployed build reaches it another way is not measured.
+
+**Fix.** (1) `oplog.snapshotRule`: a frame the header does not list was empty at that write, so it holds every entry; replay and foldStore's log tail share it. (2) A bake step applies per frame. (3) The saver snapshots every listed frame that has no stored snapshot, so a container emptied and later drawn in again is never listed at seq 0 (without it the same replay happens through the re-listed frame). (4) Replay caps the rebuilt undo stack op by op, as `pushUndo` does, so it never names more frames than history did live (F94 depends on it). No format change: the header's `frameIds` already says which frames are empty, and every listed frame now has a snapshot, so the cloud manifest (`frameIds`, one chunk per listed frame) carries it as it is.
+
+**Every path that reads `frameSeq` or `frameIds`, checked:** `db.putCanvas2` (keeps seqs for listed frames only — unchanged, correct under the rule); the saver (lists, snapshots, the floor); `OpLog` replay (stale, `applyMoves`, bake); `foldStore` (`logTail`, `docFromStore` — the download, the recycle bin and a duplicate or backup of a kobin-2 canvas copy records whole or fold through it); the cloud push (`readPushState` / `canvasSync` `need`: listed frames whose seq differs), the pull (`frameSeq` from the chunks, `frameIds` from the manifest) and `syncCore.sameFrames` (seqs of frames with snapshots, which every listed frame now has); the compaction floor (listed frames, the undo window and marks; an unlisted frame holds nothing below it); the report extract reads no store.
+
+**Tests** (failing first on the old code, the first three exactly as his canvas did — members at drop 2's table `[[0,-65536,0]]`, not drop 3's `[[0,-53248,0]]`): `hooks/store.subtree.test.js` — the real saver and kobin-2 store over fake IndexedDB: three drops saved between, then reopened; the same through `foldStore`; pushed to and pulled from the fake Firestore into another canvas; a container emptied and drawn in again; an undone drop whose container frame GC collected while the log still names it. `oplog.snapshots.test.js` R1–R3, `storage/foldStore.listed.test.js`. Break-checks on copies outside `src/`: every piece of the fix turns a test red.
+
+**His canvas.** The store copy loads with the fix as it should: the disc on its city (disc − city 0.0039, 0.1104 A-units, the export's), the Earth filling his saved camera, 43,291 natives (the header's 43,299 counted the 8 pieces the bad load resurrected). If his tabs saved since 23:40Z, check again before relying on this.
+
+<a id="f94"></a>
+### F94 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent (found replaying Kobin's report 08-16-23). A subtree drag mints empty frames on every pointer event.
+
+Each event of a drag of selected frames computes every moving frame's target chain from its start address (`LevelMap.moveSubtreeTargets`). A kid's chain carries a digit into its parent's level wherever the kid's own cell overflows (the same arithmetic as the per-object path, so registration is exact), so the kid's parent step is often not the cell its moving parent is headed for, and that step is minted (`cellChild`). The next event targets other cells; the earlier containers stay, empty. Measured in jsdom and in Chrome on the report's drawing (a lasso of the screen at inScale 2.9, a 40-step drag of 28.9 × 15.7 units): 86, 80 and 103 new frames, all but one empty; the lattice he sent held 473 depth-0 frames, 471 empty, in trails under -2/0,1 … -2/1,3. They cost a saved header, every `walk`, and — until F93 — a place in every lasso.
+
+**Fixed by frame GC, Kobin's rule** ("I would kind of prefer the frame to automatically delete when everything is deleted out of it … if there ever is a frame, it has stuff in it"), `engine/frameGc.js`. A frame with no natives, kids or shadows is forgotten (`LevelMap.forget`, `Document.forgetFrame`) unless the camera is in it or above it, left it within the last 4 frames (a crossing back composes through it), or an undo or redo op names it (`opFrames`; it goes when the op leaves history). Candidates are what a gesture minted or emptied and what dropped ops named; they are collected at a gesture's end (the drop, a cancel) and at a change of the camera's frame, never mid-gesture or while an erase job holds a lattice copy. A load adds none: `useKobinEngine` sweeps every frame once the restored store is in and settled (`engine.sweepFrames`). The op log records each collection (`forget`, skipped by replay: the header's lattice already lacks the frames), and a forgotten frame is unlisted, so F98's rule holds its entries. A moved frame's id is not minted again in the session. Measured: his phone drawing 495 → 8 frames (1.7 ms), a 40-step drag 8 → 38 during → 10 after the drop; the Magnum Opus export 968 → 46 (922 in 3.5 ms); undo, redo, a reload through the op log, and undo and redo after it exact. Tests `frame.gc.test.js` G1–G10 and `store.subtree.test.js`; break-checks on copies. The first build (live 17:12–17:37 MDT, with a sweep at the first gesture after a load) was switched off when the Earth damage was reported; the damage was F98, not this.
+
+<a id="f93"></a>
+### F93 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. A zoomed-out lasso selected empty frames, and a drag of the selection left its ink unselected.
+
+Kobin, 08:16: "I zoomed out on that same drawing and tried selecting everything with a lasso, and got some weird results. Not sure what was even happening." His selection held 4 ids and 50 frames; the lattice held 26 natives in 8 frames of 495. Replayed on his drawing (jsdom and Chrome, phone engine): the 50 frames were depth-0 cells under -2/0,2 with nothing in them (F94's trail), each drawn as a dot; a lasso of the whole screen at the drag's zoom took ids 28, 44 and 224 frames, 222 of them empty; and after the 40-step drag the drop's settles had carried the natives of the selected frames -1 and -2/0,1 into -2/1,0 … -2/1,2 — outside every selected frame — so the selection counted 2 of 24 natives and drew 220 dots on blank paper. Two more ways to lose ink were found building the fix: the drag's rest re-homes a selected frame's kid under the neighbour container (a digit carry), and the drop's own render settles such a kid before it is selected.
+
+**Fixed:** `_lassoFind` neither takes nor enters a frame with no native in its subtree (`_inkedFrames`, O(frames with natives × depth)); a merge hands the selection only inked kids; `_reselect` keeps the selection standing for the same ink — at the drop (`_endMove`, which also collects the drop render's carries), at any later settle of a selected frame (a `subscribeOps` on `settle`), and after an undo or a redo (`_keepingSelection`, since an undo's unsettle sends no notice): a frame that left every selected frame joins as a frame, a carried native as an id, an id back under a selected frame leaves the ids, an inkless frame leaves; the status count counts a nested frame once. **Measured:** his drawing, lasso + 40-step drag at inScale 2.9 — the lasso takes ids 28, 44 + frames -1, -2/0,1 (no empty frame); after the drop 24 of 24 natives selected, 0 inkless frames, 3 dots (jsdom and Chrome alike); after undo 24 selected, no id also under a frame. **Tests:** `select.inkless.test.js` I1–I8, each red on the code before (I7 raster, the plane drawing the drag). Break-checks: the lasso's skip 2 red; the settle subscription 5; the drop's reselect 5; the drop render's carries 1; the merge filter 1; the way back 1; the inkless prune 3; undo 1; redo 1; the nested count 1; the torn-off frames 2; `_dropHold`'s reset of the carries 0 (defence: stale ids after a reset mid-drag). **Review fixes (same day):** outside a drag the carries wait for the end of the render whose list build settled them (changed inside it, the selection ran a camera step on the old list and cut the raster perf row short), and a delete mid-drag takes what the drag has moved out of the selected frames — I9 (svg, raster) and I10, red before; break-checks 2, 4, 1, 1.
+
+<a id="f92"></a>
+### F92 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. A finished line looked chunky and corner-y until a pan or a zoom.
+
+Kobin, 08:13: "I drew a red line. The red line looks chunky/corner-y right after I finish drawing it, then it stays that way until I pan or zoom." Two causes, both on the raster path only. (1) Between pen-up and its resolve a stroke is raw, and `rasterPack.bandFor` banded it as straight segments through its samples (`strokeStripNear(item.pts)`), where the SVG renderer draws the pen's curve and the hit test the curve through the samples; a phone's fast finger leaves samples tens of pixels apart, so the handoff from the live SVG path showed corners. (2) The resolve (`_stepShapeBakes`) deliberately does not render (two renders a pen-up cost 185 s of a 203 s session at 1,000 strokes), and on the raster path nothing else drained its plate event, so the plates kept the raw band until the next camera step. **Fixed:** a native stroke is banded along `flattenCurve` of its samples at the plate tolerance, its cull box taking in the spline's control points (`strokeCurved`); a resolve on a raster engine takes a camera step (`syncCameraOnly`: the drain re-posts the stroke's plates, no list is built). **Measured** in Chrome (a phone engine, 8 samples on a circle, pen 5): after the handoff the ink across a chord's midpoint lies 8.5–13 px outward, on the curve (it lay on the chord before, jsdom P2); the resolve left 0 plate events queued and re-posted 8 plates with no pan or zoom; after they landed the ink was at the same 8.5–13 px. **Tests:** `raster/raster.phone.test.js` P2, P2b, P3, red before; break-checks the curve 1, the box 1, the camera step 1. **Review nit, fixed the same day:** the camera step packs from the render list it finds, and a stroke homed away from the camera's frame is there as a projected raw copy — plates re-rastered from it were fresh, so later renders kept its raw band (jsdom: a stroke drawn at inScale 1/30, the view zoomed out across the crossing before the resolve; 11,846 pixels from the picture drawn from scratch, before and after a full render). A resolve of such a stroke now renders. P4, red before; break-check on a copy 1.
+
+<a id="f91"></a>
+### F91 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. On the phone, dragging an object that another is drawn over was really jumpy.
+
+Kobin, 08:11: "When I try to move the beige object in that picture around, it gets really jumpy. And that's a simpler drawing." The beige object (id 39, #a06b2c at 0.45) lies under the green one (44). Its drag plane (PAPER-PLAN §10.8: below, the selection, what is over it) needed 16 plates at the report's zoom and at the zoom he dragged at, and the phone's `MOVE_PLANE_PLATES_PHONE` was 12 — 0.8 of a phone screen, where the desktop's 40 of 96 is 1.7 screens — so every drag of it was refused (`plateRefused` 4 in the report) and re-rastered each step: each arriving plate shows the object where it was when that plate was packed. The green one needed exactly 12 and dragged smoothly. **Fixed:** the cap is 24, the desktop's share of its cache (visible set 15–20 + 24 pinned of 56; the ladder can lose a few plates while a large plane is pinned, as on the desktop, and is rebuilt once a view). **Measured** in Chrome (a second engine at 411×750 @2.625 with the phone cap on his drawing, the beige object at his zoom, 40 paced steps): with the fix 1 list per drag and the object's leading edge on the pointer (0 px) from step 4 on; at 12, 38 lists, the edge one step behind on every step and bursts to 9.5 px — with this desktop's workers, which are several times faster than the phone's. **Test:** `raster/raster.phone.test.js` P1, red at 12. A selection past 24 plates or 5 layers still drags the old way (a full-screen object under another is ~45 plates); a coarser plane would cover it (the question is in the report).
+
+<a id="f90"></a>
+### F90 — FIXED 2026-09-23 (PAPER agent; unverified by Kobin), filed the same day by the ERASE-TEST agent. During a long bake the raster picture kept the pre-erase plates.
+
+**Fixed.** `erasePipeline._neutral` wraps `_applyCut`'s replace and remove and `_lowerMark`'s z step;
+the engine's document subscriber tags their events `neutral`, and `_drainPlates` drains them without
+a drop (`PlateStore.s.neutralEvents`). The mark's own removal when it is spent is not neutral: it
+stales every plate that holds it, once. `raster.bake.test.js`: B1 (six cuts, 0 epoch bumps; the
+spent mark bumps) and B2 (after the bake and the removal, all six plates — two under the ring, four
+it never reached — byte-equal to a fresh raster). Break-checks on copies: the drain's skip 1, the
+tag 1. And a held live path past `LIVE_HOLD_MS` now waits while every stale cell under it has a plate
+in flight at its current epoch or strips are still queued, up to 15 s (`liveExtends`; move test L3, break-check 1). Measured in
+Kobin's tab on a second engine, the same scene before (the tag switched off on that engine) and
+after, 1,000 wavy bands 500 × 420, a ring of radius 110 through them:
+
+| | before | after |
+|---|---|---|
+| bake | 36.2 s | 25.6 s |
+| ring cells fresh | never during the bake (first at 36.2 s) | from 5.0 s, 72 % of the bake |
+| plate arrivals stale | 60 of 64 | 4 of 12 |
+| epoch bumps | 30,018 | 22 |
+| live path held | timed out at 3 s; 28.6 s ring invisible | held 5.4 s, handed over to fresh plates (9 extensions, 0 timeouts); never invisible |
+
+R1's occlusion cull (families under an opaque family covering the whole plate) is not built: with
+nothing staling the plates, the 5 s a 1,000-family plate takes is paid once, not per cut.
+
+**As filed:**
+
+Measured in Kobin's Chrome on a scratch engine (a second engine over a new canvas, no autosave):
+1,000 wide wavy pen strokes over one another, a ring erased through all of them. The bake ran at
+~30–60 ms a cut in the worker (main thread free: 53 frames over 50 ms of 4,270). Every cut's
+document events stale the plates under the ring; their re-raster, with 1,000 families in each plate,
+arrives after the next cut, so 80 of 101 plate arrivals were stale and the cells under the ring kept
+the plates rastered before the erase. The live eraser path is held for `LIVE_HOLD_MS` and then let
+go, so the ring disappeared from the screen and came back only when the bake stopped (paused at
+600 of 1,000: every cell fresh 0.2 s later). A tap on a cut-out mid-bake took 9–83 ms and its drag
+started in 6–15 ms, but in 9 of 9 tries the drag plane was not whole 6 s after the tap, so the disc
+stayed where it was on screen (the ants moved) until the drop. With 300 strokes the mid-bake screenshots showed the ring. Two things point at the
+fix, neither built: a cut changes no pixel (the white mark already covers what it removes), so the
+bake's own events need not stale the plates until the mark is spent; and families under an opaque
+family that covers a whole plate need not be rastered (PAPER-PLAN §10.4 R1, measured at 0.5 % on the
+Magnum Opus, and the whole cost here).
+
+<a id="f89"></a>
+### F89 — FIXED 2026-09-23 (was OPEN, low), filed 2026-09-23 by the ERASE-TEST agent. A ring stroke that retraces its own start exactly is sealed with two chords; as an eraser it leaves a wedge of ink.
+
+A stroke that ends exactly at its start gets closed rails (no caps, F10's closed-stroke fix); one
+that overshoots does not, and its perimeter bake cannot stitch the overlap. Measured (jsdom, eraser
+size 16, i.e. 32 units wide, a ring of radius 110 through a 600 × 500 square):
+
+| turns | mark loops | repair | removed | disc |
+|---|---|---|---|---|
+| 0.95 | 1 (290 pieces) | none | 21,815 | not severed |
+| 1.00 | 2 (144 / 144) | none | 22,117 | 27,759 |
+| 1.02 | 2 | none | 22,117 | 27,759 |
+| 1.10 | 1 (302), 30 self-crossings | 4 open chains, 2 chords of 32 units, 64 fabricated | 23,640 | 27,759 |
+| 1.25 | 3 | 2 open chains, 2 chords of 32 | 26,879 | 27,759 |
+
+So an overshooting ring removes more than the eraser swept (DESIGN.md §7's invariant), and an
+object whose edge crosses the closure is cut with 4 more sealed chains (a bar across it: 2.2 units²
+off). In Kobin's Chrome, a 1.1-turn ring through 100, 300 and 1,000 strokes: the cut-outs looked at
+carried a wedge of the band at the closure (the top one's ants traced it), the ring showed a gap there, and while the
+bake ran an unbaked object showed through the gap. Where to look: the resolve of a stroke whose far
+ends overlap (`arcPerimeter.js`), before `repairLoops` has to seal it.
+
+**Re-measured the same day (two agents, Node bundles of the repo's bake, `repairLoops` and `eraseJob.cutJob`; scratchpad `ring-explain/`), which corrects the reading above:**
+
+- **Only an exact retrace fails.** A ring of radius 110 on a perfect circle fails at every turn count from 1.03 to 2.0 (pen 32). Rings with a hand's wobble bake clean: 54 of 54 at 0.5–2 units, 44 of 45 down to 0.001 units (the other: one 0.009-unit chord, exact paint). Jitter of 1e-4 units per sample bakes clean 5 of 5; 1e-6 still fails. Same-direction exact retraces of straight lines, back-and-forth scrubs at any offset (0 to 2.1 r), a 60° figure-8 and spirals with turns 1.9–2.1 r apart are all clean.
+- **Mechanism** (1.10 turns, 72 samples): 140 of 144 centre arcs lie on the drawn circle to 2–4e-11, so from 5.5° to 30.5° both laps' rails are arcs of the same two circles. Every one of the 54 fragments there sits within 1.3e-13 of r from the other lap's centreline — a tie, read as not buried — so both copies are kept. Where the doubling ends, the copy peels off the circle tangentially and `circleCircle` returns 0 points (d − |r1 − r2| = 0 to −3.2e-14), so no vertex is made; four junctions are left unbalanced and the walk gives 4 open chains. `repairLoops` joins each loose end to its nearest partner, straight across the band: two radial chords of 32.00 units, ~48 units apart. The outline covers the sector between them twice (winding 2). The crossing count is 17, not the 30 in the table above.
+- **As pen ink** the paint is exact to 0.2 units² except in two windows where a chord runs along an edge instead of across: 1.03–1.06 turns at pen 32 (≤ 26 units², a 4 × 19 px sliver in the hole) and 1.04–1.14 at pen 64 (≤ 281 units², 26 × 55 px).
+- **As an eraser it removes too LITTLE.** Through the real cut, the doubly-covered sector subtracts twice: the square's +1 meets −2, winding −1, and nonzero paints it. Left behind: 2,019 units² at 1.10 turns (a 48 × 68 px wedge — the "wedge of the band" seen in Chrome), 5,329 at 1.25, 10,867 at 1.50, and at 2.0 turns the whole ring (nothing visibly erased). Over-removal ≤ 0.11 units² everywhere. The table's "removed" column counts the twice-covered sector twice (23,640 = 22,117 + ~1,524), so the 6.9 % and 21.5 % "more than swept" above are a double count, not over-removal.
+- **What it means:** a hand-drawn ring does not hit this; a computed ring or a replayed synthetic stroke does. **Kobin, 2026-09-23 (decision 2): fix it, low priority; the fix must clear the wedges** — an exact-retrace ring bakes with no open chains and, as an eraser, leaves nothing of the band (at 1.03–2.0 turns, pens 4–64). Candidate fix: break the tie so exact copies keep one (e.g. by chain order), and cut where a copy peels off tangentially. The measuring scripts are in the session scratchpad `ring-explain/` (`entry.js`, `patch.js`); the tests belong in `arcPerimeter.test.js` and the erase suites.
+
+**FIXED 2026-09-23 (ERASE-TEST agent; Kobin's acceptance measured, not yet seen by him).** Four
+changes in the bake (`arcPerimeter.js`), each needed: (1) two rail arcs on one circle (centre and
+radius within r·1e-9) are an OVERLAP, not a crossing — each is cut at the other's ends that fall
+inside it (`_overlapCuts`), so the doubled stretch splits into identical fragment pairs; (2) of two
+kept fragments with the same two vertices, the same circle and the same sweep, only the first is
+kept (a union has winding 1, not 2); (3) where a lap's end arc peels off the circle tangentially,
+the two intersection points of an all-but-tangent pair (closer than r·1e-5) are one point; (4) a kept
+fragment that ties with another stretch of the centreline (within the margin of r, the classify's
+new three-way `Oracle.verdict`) and dead-ends at both of its vertices is pruned before the stitch
+(`_pruneTies`: the sliver of one lap that sits inside the other by less than the margin).
+Measured on exact rings (radius 110, samples 3 units apart), turns 1.02–1.30 by 0.02, 1.5 and 2.0,
+pens 4, 16, 32 and 64 (68 cases): 0 open chains, 0 fabricated edge, and as an eraser through a square
+0.02–0.25 units² left of the band (the measurement's own floor: the clean exact 1.00 ring reads 0.13
+at pen 32) against 30–44,233 before; over-removal ≤ 0.064. The exact 1.00 ring at four pens, the 0.90 and 0.98 rings, 57 wobbled rings, the
+scrubs (0–2.1 r, stopped or not), the figure-8, the S-curve and the spirals (1.9–2.1 r) are bit-identical
+to before; three 600-sample scribbles differ in bits only (the same loop count, 0 open chains, the same
+paint error; 20–53 fewer crossings, where all-but-tangent pairs now meet at one point).
+Cost, CPU time min of 11: a 3,000-sample scribble 344–359 ms before, 344–360 after; 1,500 samples
+109–125 before, 110–125 after (Windows' 15.6 ms timer granularity). Tests: `arcPerimeter.test.js`
+(24 rings: annulus, balanced, no chord, area) and `eraseJob.test.js` (3: the square minus the ring),
+all red before. Break-checks on copies outside the tree (a private jest config mapping the bake to a
+copy with one change removed; the control 48 of 48 green): the overlap cuts 13 red, keep-one 30, the
+prune 4, the one-point tangency 1. The erase worker bundle (`public/erase-worker.js`) still carries the
+old bake until `npm run build:worker` runs (owed, held while the canvas repair is under way).
+
+<a id="f88"></a>
+### F88 — FIXED 2026-09-23, the day it was found (ERASE-TEST agent, jsdom; not reported). A cut in the erase worker could be lost.
+
+The tick adds a target to the mark's done set before it posts the cut. Three paths then lost it:
+an undo took the mark while the cut was in flight, the result was dropped as stale and the target
+stayed done, so the redo never cut it; a drag started while the mark's LAST cut was in flight made
+`_settleSelectionErases` find no target left and spend the mark, and the result landed on no mark;
+`flushErases` (the selected-frame barrier) did the same. The fourth, found by the round's review:
+a select of the mark's NEXT object while the current one's cut was in flight baked it "in order"
+and stepped the mark below both, so the object in flight was never a candidate again — lost to an
+undo/redo, or dragged away uncut before its answer landed (the answer then dropped as changed).
+Each left an object whole where the ring had been. Fixed: `_onCutResult` leaves the target undone
+when its mark is gone; the drag's barrier leaves a mark with a cut in flight to the tick;
+`flushErases`, and the select barrier before it bakes another object of that mark, run the cut in
+flight inline first (`_settleInflight`). `erase.stack.test.js`: one test each for the first three
+(1 red each on its break-check), two for the fourth (2 red).
+
+<a id="f87"></a>
+### F87 — OPEN, narrowed 2026-09-23 (filed and fixed in part by the STALL agent). The store-to-engine restore is one multi-second main-thread task on the Magnum Opus, and it ran when nothing needed it.
+
+**Seen.** PAPER-PLAN §10.7: a 6.8–7.6 s task that Chrome's long-animation-frame entry attributed to
+`IDBTransaction.oncomplete`, "after each of the harness's camera jumps", in Kobin's tab on his Local
+Magnum Opus (2026-09-22); once the camera was found at depth 11 after it. His report of 2026-09-23
+08:00Z (`.kobin-reports/report-2026-09-23T08-00-24-297Z.json`) has one: 3,401.5 ms at 01:21:11Z,
+script `main.chunk.js`, anonymous, followed at 01:21:15Z by raster jobs 1–4 (a new engine's first)
+and the rasterPack warning a load of this drawing prints.
+
+**What it is.** `useKobinEngine`'s `restoreFrom` — every frame decoded, `loadDrawing` (validation,
+the lattice, `Document.loadNatives`, a cold first `_render`), the log replayed, a second `_render` —
+ran as one continuation of `getCanvas2Chunked`'s last IndexedDB read, which is the name Chrome
+gives the task. It runs at every mount of the editor: opening a canvas, and on the dev server every
+hot reload that another agent's source edit sends (a Fast Refresh remounts the editor; the camera
+at depth 11 was the STORED camera, which only a remount or an opening pull applies), besides
+`_holdDevice`'s reload when the pen changes tabs and a pull. A camera jump alone does not reach it
+(below). The chain that does: a second tab of the canvas, read-only and following, reloaded the
+whole store for every "saved" the holder posted — a camera-only autosave included.
+
+**Measured 2026-09-23** on a copy: a second dev server on :3007 (a separate origin, signed out), the
+2026-09-23 07:44Z export imported through the gallery (21 frames, 43,157 natives), new tabs of
+Kobin's Chrome that were HIDDEN throughout (the window reported `visibilityState` hidden; CPU time
+by instrumentation — each `oncomplete` wrapped with its transaction's creation stack and timed to
+the next MessageChannel message, engine methods wrapped for spans; no paint was measured). Before:
+the restore as one task of 13.1 s at the first mount, 6.4–7.7 s on remounts (one unprovoked, another
+agent's edit to `sceneIndex.js` at 01:52:24 local), 5.7 and 5.4 s on `__kobinSaver.reload()` at a
+depth-3 view (`loadDrawing` 5.1 s: validation ~1 s, `loadNatives` 1.7 s, the first `_render` 2.35 s;
+the second `_render` 0.15 s). A camera jump: `jumpTo` 1.2–5.6 s synchronous (the cold bake of the new
+view, F59), then a camera-only autosave of 9–65 ms and no IndexedDB task over 20 ms. The follower:
+4,993 ms for a 28 ms camera-only save of the holder's; one stroke (two data writes 21 ms apart) made
+two reloads back to back. jsdom (`src/engine/restore.cost.probe.js`, the saved camera): decode 125 ms,
+validation 864, `nativeFromRecord` 688, `loadDrawing` 9,815 of which its render 7,485; the fold with
+a one-entry tail 16,416 ms with its render, 2,578 without.
+
+**Fixed.** The saver's write says whether it moved data (entries, snapshots, a whole or reset write);
+the editor passes it to `CanvasSession.onLocalSaved` and the "saved" message carries it; a follow
+owed no data reads only the stored name and scale (`refreshMeta`), and a data write stays owed
+across later camera saves (`_followData`). A follow asked for while one runs is scheduled when it
+ends, gap included (`_following`, `_followNext`). `restoreFrom` loads without rendering
+(`loadDrawing(raw, { render: false })`) and the caller renders once after the replay, a macro task
+later (`renderLoaded`, `report.macroYield`); the mount renders before the editor is ready.
+`docFromStore`'s detached engine loads without rendering. After, same tabs and copy: the follower
+after a camera-only save 0 loads, 0 renders, no task over 20 ms; after a stroke one reload (the load
+3,739 ms in the IndexedDB task, the render 7,064 ms in its own), the next owed after the gap; a mount
+2,059 and 3,212 ms in the IndexedDB task (the load) with the render 6,748 ms in its own task at the
+depth-4 view that `jumpTo` had taken 5.6 s to bake; `reload()` 3,822 / 4,145 ms + 6,532 / 6,549 ms.
+Tests (red on the old code): `sync.tabs` (a camera-only save, a rename, an owed stroke behind a
+camera save, the gap), `restore.render` (2), `CanvasEditor.sync` (the editor passes `data`),
+`logTail` (the fold). Break-checks on unimported copies: 13 guards, each 1–3 red, a control 0.
+
+**Open.** The load is still one task (2.1–4.1 s here: validation and `nativeFromRecord` could run a
+frame per task before the commit, which needs `persist`, `Document` and `files` to take prepared
+frames), and so is the cold first render (F59). A follow reload that has already read the owed write
+still runs once more after the gap. On the dev server every source edit remounts the editor, a
+restore each time, and sometimes two (`_holdDevice` when the pen changes tabs in the race).
+
+<a id="f86"></a>
+### F86 — FIXED 2026-09-23, the day it was filed (found by the DOCMAPS agent reading the code; not reported). A kobin-2 canvas lost the edits only its op log held when it was downloaded, deleted to the bin, duplicated or backed up; a kobin-2 canvas only in the cloud could not be downloaded or duplicated.
+
+The kobin-2 store holds each frame's snapshot as of some seq and the op log past it; the editor
+loads both (`useKobinEngine` restoreFrom replays the log onto the snapshots). `loadCanvasDoc`
+read the snapshots alone, and its callers were the gallery's download, `trashCanvas` (a delete
+from the gallery or the editor, and a cloud tombstone found by the gallery), `duplicateCanvas`
+(gallery and editor) and `backupCanvasDoc` (a canvas the editor could not open): each dropped
+the log tail — every edit since the frames were last snapshotted — and the trash and the
+duplicate dropped the undo history too, being written back as a fresh document. Separately,
+`cloudLoadCanvas` read a kobin-2 manifest as an lz1 one (no `parts`, no codec) and returned empty
+JSON, so the gallery could neither download nor duplicate a canvas whose only copy was kobin-2
+in the cloud.
+
+Fixed: `loadCanvasDoc` is the whole drawing — `storage/foldStore.js` `docFromStore` replays the
+tail through a detached engine exactly as the editor does, and with no tail returns the frames
+as before without making an engine. `trashCanvas` leaves a kobin-2 store where it is and lists it
+in the bin (`store: true`, as a stash is); restore re-lists it, and neither a purge nor an expiry
+deletes a store that is back in the gallery (a tombstone undone elsewhere). `duplicateCanvas`
+copies the store whole (`forkCanvas`), and `backupCanvasDoc` copies it into the bin, once while
+it is unchanged. `cloudLoadCanvas` pulls a kobin-2 copy and folds it. `src/storage/logTail.test.js`
+(7 tests) failed on the old code and each guard was break-checked on copies (10 of 10 red).
+
+<a id="f85"></a>
+### F85 — OPEN, low, filed 2026-09-22 by the SCENES agent (latent; found by a random test, not in the product). A scene item whose chunks outgrow CHUNK widths fills the grids with the square of the growth.
+
+`sceneGeom` walks an object in chunks of `CHUNK` (600) widths of the width it counts with, doubling the chunk length until it has at most `MAX_CHUNKS` (2,048). The index files each chunk in every cell of its box at bands from its own reach up (`_cellsIn`), cell side about its reach, so a chunk `g` times too long covers about `(g·2/3)²` cells per band when diagonal. Growth needs an outline longer than 1.2 M widths: a stroke that long cannot be drawn, but an erase piece counts with `min(pen, meanWidth)` floored at 10⁻⁶ of its pen, so a piece a thousandth of its pen thick and 1,200 pens around would get `g` = 2, and one 10⁻⁵ thick `g` ≈ 16 (~100 cells a chunk). `dropHairlines` removes the thinnest loops, which is why none is seen. Measured 2026-09-22: no chunk on the Magnum Opus is wider than `CHUNK` widths (widest 1.00×, `scenes.memory.probe.js`); the random generator's thinned erase pieces had kept 64× chunks and blew the heap (4 GB) — the generator now re-cuts them. Fix, when needed: grow the counted width instead of the chunk (the object counts as coarser ink; a semantic change, so Kobin's), or file an over-long chunk only at the band its box fits.
+
+<a id="f84"></a>
+### F84 — OPEN, low, filed 2026-09-22 by the SCENES agent (read in the code, not reported). A ceded kid's `w` is its parent's pen in the parent's units.
+
+`Document.cedeTileById` (and its virtual twin `eraseDescent.cedeVirtual`) mints the kids of a cede with `obj.w = src.w`, but a kid is homed at the erase's level, k ≥ 1 crossings below its parent, where the same pen is R^k = 4096^k larger in units. `erasePipeline._promoteOversize` scales `w` when it moves an object up a level; the cede does not scale it down. What reads a kid's `w`: `cutJob`'s dust rule (`dropDust(groups, w, bar)`) when the cutting mark has no `bakePx` — the pen rule, then R^k too lenient — and `repairLoops(…, o.w)` for a damaged kid at a load. The scene index (SCENES-PLAN §7.7) keeps kids out of the index as storage while their family has ink outside kids; a family of kids alone (its remnant erased) is indexed at each kid's own mean width, never its `w` — read at `w`, a kid two crossings down would have been walked in chunks 4096² too short (review 2026-09-22). Fix when next in `cedeTileById`: `w = src.w * frameFactor(parent, kid)`; old files keep the old value (harmless to everything above).
+
+<a id="f82"></a>
+### F82 — FIXED 2026-09-22, the day it was found. A ctrl-tap dropped the selected frames, and the drag that followed left their content behind.
+
+Kobin recreated the Earth move in his tab and left the moved objects selected. The selection
+was 1,886 independent objects (no edit families): 1,884 shapes of the region frame
+`…/-1809,550/-650,-1325` (water and land), one native of the camera frame and one of depth 3 —
+and no frame. The move op was a `moveMany` (no `moveFrames`), displacement (-11,634.30, -607.09)
+depth-4 units at the file's saved camera. The city frame `…/-650,-1325/-1398,-79` (and the
+houses, garden, ladybird… under it) sits on the region: its drawn box is inside the moved group's
+box and inside three of the moved shapes by winding. So the region went and the city stayed,
+which is what he saw: no houses at the region's new place, and undo "bringing them back".
+
+The lasso is not at fault: `_lassoFind` run in his tab with loops round the city takes the city
+frame whole at depth 4 (inScale 150) and at depth 5 (inScale 0.8), and a loop that took the
+three shapes under the city encloses its point. The one path that turns a lasso's frames into
+none is `_toggleSelected` — a ctrl-tap — which rebuilt the selection with `_setSelection(ids)`
+and the default `frames = []`. The two stray coarse objects in his selection are what a ctrl-tap
+adds. Fixed: the toggle keeps the frames; a ctrl-tap on an object under a selected frame does
+nothing (removing one object from a frame selection would expand the frame — not done).
+
+The stale-tile disappearance of the first incident (F80's section) is a different mechanism and
+stays open.
+
+<a id="f81"></a>
+### F81 — CLOSED 2026-09-22 by Kobin's decision (filed the same day). Kobin's tab ran out of memory on the Magnum Opus and had to be reloaded.
+
+Kobin: "I had to reload it because it ran out of memory and got an error" — after a cold
+Scenes refresh (all 28 pictures re-rendered through `snapshotView`, 444 tiles baked, plates at
+their 64 MB cap) and a six-step zoom-out with a per-frame paper sampler running. After his
+reload the heap read 127 MB used / 152 MB allocated against a 4.2 GB limit, so the renderer
+process died on GPU or bitmap memory, not on the JavaScript heap.
+
+The one path on that drawing that can take hundreds of MB is the thumbnail fallback: any scene
+`renderThumbsLive` cannot picture (a null or rejected `snapshotView`) went to `renderThumbs`,
+which serialises the whole 64 MB document, deep-copies it (`JSON.parse(JSON.stringify)`) and
+loads it into a second, SVG-rendering `KobinEngine` — the path the Scenes work replaced, kept
+as the fallback for `?svg`. `persistCanvas` ran the same fallback on every Save. Whether a
+scene missed during the refresh was not recorded, so this is the probable cause, not the
+measured one.
+
+Done 2026-09-22: `CanvasEditor.ensureThumbs` takes the fallback only when the engine is not the
+raster one; under raster a miss keeps the scene's last picture.
+
+**Closed 2026-09-22 by Kobin's decision**: the memory timeline that was owed here is not needed
+(WORKLIST item 1, with the per-level tile cap, undo bounded by bytes and the per-drawing budget).
+Not reproduced; the probable cause stays gated off. Reopen on a recurrence, with the heap, the
+plate bytes and the tile count read at the time.
+
+<a id="f80"></a>
+### F80 — FIXED 2026-09-22, the day it was found. The save format refused any frame id carrying `#n` before its last segment, which is every child of a twin frame.
+
+Found reading Kobin's Local Magnum Opus in his Chrome after his report "I tried undoing back
+to the beginning and the houses and everything smaller than that seems to have disappeared".
+The natives were intact (a per-native diff against his Sep 15 export: all 42,856 identical in
+frame, geometry, table, colour, opacity and width; the one missing was his own erase, still on
+the undo stack). What the drag and undo had changed was IDENTITY: the camera, crossing into the
+cells the moved frames had vacated, minted twins (`LevelMap._childId` appends `#2` to a taken
+birth chain), the undo brought the originals back as the twins' shadows, and `Document.at`
+merged them into the twins at the next read — so the Earth chain became
+`0/30,17/-880,-46/-149,-746#2/-1809,550/-650,-1325/-1398,-79/…`.
+
+`persist.js` tested frame ids with `/^-?\d+(\/-?\d+,-?\d+)*(#\d+)?$/` — `#n` at the END only —
+in two places: `isFrameKey` (scenes, silently dropped on save because "scenes are regenerable")
+and `decodeNatives` (a throw, so the drawing does not open; the restore path backs the store up
+and leaves the engine empty, and the first edit would have autosaved that emptiness over it).
+The canvas had been in that state on disk since the autosave at 15:24Z; my own save at 15:53Z
+dropped the 15 starred deep scenes. Fixed with one `FRAME_ID` = `/^-?\d+(#\d+)?(\/-?\d+,-?\d+(#\d+)?)*$/`
+for both sites and a test for the inner segment; his tab was reloaded on the fix (restored
+42,856 natives) and the scenes put back from the export.
+
+The houses' disappearance itself was a stale down tile of the city frame (673 pieces where a
+fresh bake gives ~4,200) that survived the move and undo. **Not reproduced**: `move.twin.test.js`
+(2026-09-22, six green on both renderers) plays the shape — a lasso move of a subtree, the
+camera crossing into the vacated cells so two or four twins are minted along the chain, undo —
+with the camera inside the deepest twin and above the chain, and the picture equals a fresh bake
+each time; the merges cascade one level per read and the `refile`/`mergeFrame` footprints drop
+the tiles as designed. What his session had that the test does not: several moves and undos in
+a row, the Scenes panel's off-camera reads on the twin chains meanwhile, and the F78 guard's
+three-rebake cap under a bake that merged as it read (`_rebakes` was 4). Suspects, in that
+order; the fresh-bake comparison is the check to run on the next report.
+
+Design item still open (P4 was built as PAPER-PLAN §10 S4 without it): `LevelMap._take` lets a resident with kids keep
+the cell even when its whole subtree is empty, so an empty twin takes the mover's identity and
+every bookmark and scene naming the mover breaks. A subtree-empty resident should yield.
+
+### F79 — OPEN, filed 2026-09-23 from the P1 build's own measurement in Kobin's Chrome. The stretched layer blit between quanta costs ~30 ms a compose smoothed (6.5 ms unsmoothed).
+
+`PictureLayer.compose` between quanta composes the plates 1:1 into a layer canvas sized for the
+worst-case grid at `S_MIN` and then draws that whole layer into the ink canvas scaled by `s`
+(§6.2), with `imageSmoothingEnabled` on so the stretch does not alias. P1 timed that draw on
+Kobin's machine while checking whether a transparent layer (`{alpha: true}`, needed so the
+in-range holes show R1's fallbacks) costs more than an opaque one: it does not (29.9 vs 33.1 ms
+p50), but the blit itself is 30 ms either way and 6.5 ms with smoothing off. It runs once per
+compose on every camera step between quanta, i.e. throughout a zoom until the settle, and is
+therefore most of a 60 Hz frame on its own. Stage 7 should see it in the perf ring as `br.blit`
+on camera rows in `plates` mode with `s ≠ 1`; the levers are listed in the row.
+
+<a id="f78"></a>
+### F78 — FIXED 2026-09-23, filed the same day from Kobin's report of 2026-09-22 ("I moved the Earth and it made the house objects disappear … undo … they re-appear"). Root-caused in jsdom by an analysis agent (`.claude/EARTH-MOVE-ANALYSIS.md`, probe `src/engine/earth.move.probe.js`, 11 tests, 329 s with the 64 MB drawing).
+
+The gesture was a lasso, not a tap: at the saved camera a frame one level deeper than the camera
+spans 48 frame units, about 3 screen px, so a loop over the Earth encloses whole deep frames
+(981 ids and 4 frames, op `moveFrames`). `selection._dragFrames` re-addresses the frames and
+parks the sub-cell remainder on each as `frame.shift`; the render then bakes a down tile of the
+camera's frame, `_bakeDown` reads `doc.at(G)`, and `Document._settleIfPending` applies the shift
+and re-homes any native whose k = 0 entry leaves ±HALF_W to the neighbour cell — a frame the bake
+had already skipped as empty. The `add` events reach `TileStore._addObject`, but the in-flight
+tile is not in the cache yet, so the patch lands nowhere; the empty tile is then cached with
+`seq = chainSeq(F)`, which sums `addrSeq` along F's ANCESTRY and never changes when a child is
+re-addressed. The same shape exists on the up path (`_bakeUp` → `doc.at(parentId)`). Both
+renderers show it (the render list is the same); undo restores because it re-bakes.
+
+**The fix** (`TileStore._bakeSettled`, ~12 lines): a bake whose `Document.rev` moved under it is
+run again, at most three times; `rev` bumps on every emit, which is exactly a settle inside
+`at()`. After the cap the tile is cached as it stands, which is the old behaviour. Verified: the
+synthetic case (two fills in one child frame, lasso, drag 113 px) and the real drawing both keep
+every native drawn and equal a fresh bake piece for piece. Not timed: a subtree drag that settles
+many frames on one render may re-bake once per settling frame — stage 7 times it.
+
+**Open beside it**: SUBTREE-O1-PLAN §2.2's shift normalisation was never built (`selection.js`
+`_dragFrames` writes `shiftBefore + rest` unbounded); measured shifts reach 1.8 cells, forcing an
+O(objects) carry of a whole frame (1,604 re-homes on the Magnum Opus) on one pointer event. It
+does NOT cause F78 (probe test H: a small rest with a table near the cell edge still loses them)
+and is its own change with its own test.
+
+<a id="f77"></a>
+### F77 — FIXED 2026-09-22, the day it was found, by the P1 builder of `.claude/PAPER-PLAN.md`. Found in passing by the analysis behind that plan (`.claude/paper/C-preview-prebake-live.md` §3.4), not by a report.
+
+`rasterPack.bandFor(item, q, Zq, cfg)` memoised a fat stroke's flattened band on the JOB'S `q`
+(`e.bands.get(q)`), while the geometry it builds depends on `Zq` (`tol = ARC_TOL / Zq`). For a
+numeric quantum that is sound — `q` determines `Zq` — but **three keys carry no zoom of their
+own**: `"s"`, every synchronous frame (§6.5), which packs at the camera's exact, continuously
+varying `Zq`; `"e"`, every settle (D24), likewise; and a thumbnail's per-call key. So a stroke's
+band was flattened once, at whatever zoom the first sync frame of the session happened to be at,
+and reused at every later one. The settle — which exists to make the picture sharp at rest —
+could not be sharper on a fat stroke than the first settle's zoom.
+
+**Measured** (jsdom, through the shipped `bandFor`, a 60-unit stroke with two round joins and two
+round caps; the maximum distance from the finer band's points to the coarser band's own segments,
+converted to device px at the finer zoom):
+
+| band built at | drawn at | max deviation |
+|---|---|---|
+| Zq 1 | Zq 2 | 0.116 device px |
+| Zq 1 | Zq 4 | 0.237 device px |
+| Zq 1 | Zq 8 | 0.473 device px |
+| Zq 1 | Zq 16 | **0.947 device px** |
+
+Linear in the zoom ratio, as the flattening tolerance is: it passes Kobin's quarter-pixel bar
+(memory `kobin-arc-rendering-rule`; F40's "15 px is too much") just past a 4× zoom, and the sync
+path is where he spends most of his time.
+
+**The fix** is the key: `Math.round(Math.log2(Zq) * QUANTA_PER_OCTAVE)`, which is what
+`itemChords` already keys its own memo on (`rasterPack.js` `itemChords`). The two-entry retention
+keeps its meaning — two *zooms*, not two *strings*. The regression test is
+`raster.job.test.js` "F77 — two sync packs at different zooms build two bands, and the finer one
+is finer"; it is **red on the shipped memo** (verified by restoring `key = q`: one red).
+
+On top of the fix, a COARSER request now reuses a cached FINER band rather than building one (a
+finer flattening is a superset of chords and is inside the tolerance at every coarser zoom,
+counted in `packStats.bandHits`). That is what lets PAPER-PLAN §7.2's `q − 8` preview pack without
+building a single band. The reverse — a coarse band at a fine zoom — is never done, and is
+exactly this flag.
+
+### F76 — OPEN, low for pen ink, filed 2026-09-16 and CORRECTED 2026-09-21. In the window between pen-up and the perimeter resolving, a fat stroke — or a fat eraser mark — seen from one crossing IN loses a 96-unit strip of its own ink down the boundary between a tile its pen covers and a tile its pen only crosses.
+
+Found by the eighth review of stage 2 of `.claude/RASTERISER-PLAN.md` and re-measured by the fix
+pass. **It is a bake defect and not a rasteriser one**: the SVG renderer that draws every pixel
+Kobin sees today merges the same two pieces into one nonzero-filled path and cancels them the
+same way, so the new raster path reproduces the shipping picture rather than changing it. Nobody
+has yet looked for the strip in a browser — everything below is node and jsdom, and the look is
+stage 7's item 12, now a **held A/B** with a console script rather than a hunt through a drawing
+(below, and RASTERISER-PLAN §9.4 item 12).
+
+**Corrected 2026-09-21, in DIRECTION and in REACH**, by a reproduction that drives the shipping
+`KobinEngine` with its own pen, zoom and pan (`.claude/rasteriser/08-F76-REPRO.md`, eleven cases
+in jsdom). As filed, this entry read as if an ordinary settled drawing shows the strip while
+zoomed OUT. Measured, neither is so: it is the **magnify** chain and therefore one crossing
+**IN**, and it needs a native that is still `type: "stroke"`. The paragraphs below carry the
+correction where each claim was made.
+
+**What the bake builds.** `classifyUp` and `solidQuad` are called on the render path in exactly
+one place — `TileStore._bakeUp` (`TileStore.js:238`, `_solid` at `:337-340`), which builds the
+**magnify** chain, an ancestor frame's objects magnified into the frame being looked at. So the
+object has to be looked at from a frame BELOW its own: **one crossing in**. When one anchor's
+disc covers a whole child tile, `classifyUp` (`geometry/derive.js:451-484`) calls that tile SOLID
+and `derive.solidQuad` (`:489-499`) stands the whole band in for a four-vertex quad over the
+padded tile — which is what bounds the magnify chain and is not in question. **That quad is
+wound POSITIVE.** The same object's other tiles are
+EDGE, and `deriveStep`'s fat branch gives them `bandRings` fills, every ring of which
+`strokeStripNear`'s default tail winds NON-positive (`geometry/polyline.js:387-393`). Both pieces
+carry the object's own `id`, so both renderers treat them as one family and fill that family as
+**one nonzero-winding path** — `Renderer._buildPieces` merges every AREA piece of a group into
+one path per colour and sets no fill rule, so SVG's default nonzero applies; the rasteriser
+accumulates a family the same way. Adjacent pieces overlap by the seam pad (48 units either side)
+on purpose, so that no hairline shows between them. In that 96-unit strip the +1 and the −1 sum
+to zero and the ink is gone.
+
+**Measured** on esbuild bundles of the shipped modules in plain node, against
+`src/engine/__oracles__/coverageOracle.js`, at the shipped lattice constants. The fixture, in
+full, so it re-runs: `cfg` = `KobinEngine`'s own DEFAULTS (`base` 1/16, `enter` = `s` = 256,
+`exit` = 1/32, so the seam pad is 48; `polygonizeWidthFrac` 1/3; `fatWidthPx` 4000), `width`
+1280, `t` = {0, 0}, tiles of `TILE` = `W` = 131072 centred on their index, and one native stroke
+of `lwFrame` **46** with centreline `[[0, 0], [-24, 0]]` in parent units — the far end points
+*away* from the boundary, which is the whole of it.
+
+| what | reading |
+|---|---|
+| tier of tile (0, 0) / tile (1, 0) | `solid` / `edge` |
+| the solid tile's piece | 1 ring, signed area **+17,205,044,224** |
+| the edge tile's piece | 1 ring, signed area **−2,674,820,918.89** (the start cap's overhang, clipped to the padded neighbour tile) |
+| `rasterPack` | one family, `mixedWinding` **1**, `familyUnion` **1** (already routed), `attr[8]` **+1** |
+| one 512 px plate at Zq 1, both pieces translated rigidly by (−65,280, +256) so the tile boundary lands on plate column 256 — a translation changes no winding and no overlap | ink **212,992** of the union's **262,144** — **49,152 units gone**, worst pixel **1.000**, blank columns **208…303 = 96 device px**, which is the 2 × 48 seam pad |
+
+Three controls, measured beside it. (1) The same stroke run **through** the neighbour tile
+(`[[0, 0], [24, 0]]`) loses **nothing** — 262,144 = 262,144, worst 0.000 — because the band there
+is a ribbon plus a segment rectangle plus two caps and its winding is 2, not 1; **that is why this
+has stayed invisible**, and it is the same reason the plan's earlier partial-overlap measurement
+lost nothing. (2) Pens of 45.3, 46 and 60 lose the same 49,152: the SOLID threshold is
+`hypot(65584, 65584) / 2048` = **45.288** frame units, which a 13 px pen reaches at `inScale`
+≤ 0.287 (`KobinEngine.js:697` makes `lwFrame` = pen ÷ `inScale`; 13 is the default width, `:116`)
+— so the WIDTH is easy to reach while drawing a little zoomed out inside the level, and the width
+is only one of the four conditions (see the reproduction below). (3) At `lwFrame` 200 the same
+49,152 appears at the tile (2, 0) / (3, 0) boundary instead: the loss follows the solid/edge
+frontier outward and a fatter pen does not remove it.
+
+**Reproduced on the app's own engine (2026-09-20, jsdom, eleven cases).** The recipe and every
+reading are in `.claude/rasteriser/08-F76-REPRO.md`; the console script is
+`.claude/rasteriser/f76-repro.js` and the proof that runs that script's own text is
+`f76-repro.probe.js` beside it. It draws one fat dab with the app's pen, zooms in one crossing
+about the anchor, zooms back out inside the new level, and pans the tile boundary three quarters
+of the way across the window. **Four things have to be true at once**, and the hand attempt of
+2026-09-16 that found nothing met none of them:
+
+| # | what it needs | measured |
+|---|---|---|
+| 1 | the object seen from a DESCENDANT frame | zoom **in** one crossing. Zooming out builds `downContent` (`_bakeDown`), which never calls `classifyUp` at all |
+| 2 | the native still `type: "stroke"` | holds from pen-down until the first idle slice after pen-up, when `Document.bakeShapeById` (`Document.js:970`) replaces it with a `shape` in place |
+| 3 | one anchor's disc covering a whole padded child tile | `lwFrame` > **45.288** frame units — the threshold control (2) reads |
+| 4 | only the NEAR cap reaching the neighbouring tile | the centreline longer than `pen/2 − 16` px; otherwise the far cap covers the strip too and the winding there is 2 |
+
+**Case H returns this entry's own two numbers to the digit**: a 46-unit pen, driven by the app's
+pen and zoom rather than by a fixture, gives **+17,205,044,224** and **−2,674,820,918.89**. The
+synthetic fixture and the live path are the same geometry. **Case D is the one that changes the
+severity**: let the same drawing settle for one idle slice and the native is a `shape`, for which
+`classifyUp` returns EDGE unconditionally (`derive.js:467-471`) — measured, its two pieces are
+**both positive** (+17,205,044,224 and +14,007,119,893) and nothing cancels. So **a settled
+drawing does not show this at all**, and the window in which it can is pen-up to the first idle
+slice: short on a light canvas, longer on a big one where the bake queue is behind (F57).
+
+**The eraser, measured 2026-09-21 on the same rig (cases J and K).** The second `solidQuad` call
+site is the eraser's (`eraseDescent.js:80`), and a pending eraser mark is the same kind of native
+a pen stroke is — `type: "stroke"`, `erase: true`, white ink through the pen pipeline, with
+`lwFrame = 2 × eraserPx ÷ inScale` (`KobinEngine.js:651-661`). Case J is case A with **one thing
+changed, the tool**: an eraser of radius 45 px, which is the same `lwFrame` 90 the pen case draws.
+
+| case | what it is | reading |
+|---|---|---|
+| **J** | a fat eraser mark left pending, seen one crossing in | the family **cancels**: quad **+17,205,044,224** against band **−15,057,776,838.99**, strip **96 frame units = 6.00 CSS px**, winding across it **1, 0, 0, 0, −1** — case A's numbers exactly |
+| **K** | the control, the same mark settled | **2 positive pieces, 0 negative**; no overlapping pair, nothing cancels |
+
+**What that means on screen.** An eraser mark is painted as white ink over the drawing until the
+bake folds it into the objects beneath, so a strip the mark loses is a strip the eraser does not
+cover: **about 6 CSS px of ink still showing down a tile boundary, inside the mark just made**.
+It lasts as long as the pen case and for the same reason — the mark is queued for the same
+perimeter resolve at pen-up (`_queueBake`, which has no `erase` branch), and `_eraseStrokes` only
+hands the bake erasers that have already become shapes, so a mark cannot be consumed before it
+has stopped being a stroke. The eraser reaches condition 3 more easily than the pen, because the
+slider is a RADIUS and `lwFrame` is twice it: the default 16 px eraser clears 45.288 at `inScale`
+≤ 0.71, where the default 13 px pen needs `inScale` ≤ 0.287. **Read in the code and not
+measured**: the erase BAKE is a separate path and is not cancelled this way —
+`eraseDescent.squareInkOf` asks one tile of one object at a time and uses either the solid quad
+OR the `deriveStep` pieces, never both in one filled family, so what the erase cuts into the
+document is unaffected.
+
+**How wide the strip is on a screen.** 96 frame units, so 96 × Zq device px, where Zq is device
+px per frame unit. The measurement above is Zq 1. **The 0.94 device px this entry used to lead
+with is not reachable**: it assumed a camera showing one whole tile across a 1,280 px window, and
+the level's own zoom floor (`exit` = 1/32) stops the camera at about 40,960 units across, a third
+of a tile. At the camera the reproduction reaches (`inScale` 1/16) the strip is **6.00 CSS px**,
+or 9 device px at dpr 1.5, and it widens with the zoom.
+
+**How bad it is.** For pen ink, **low**: it needs a fat stroke, a view from one crossing below
+it, and the seconds between pen-up and the perimeter resolving — and a settled drawing never
+shows it (case D). For the eraser it is the same mechanism and the same window, but what it
+leaves is ink where the user has just erased rather than a gap in ink just drawn, so that is the
+case worth the browser look. Nothing saved to a file is wrong either way (below).
+
+**Two things this is not.** Routing the family to the union pass does not repair it: that pass
+walks a family's union items together and emits where their **joint** winding is non-zero, and in
+the measurement above the family was already routed (`familyUnion` 1) and lost the 49,152 all the
+same. And no stored ring is wrong — the quad and the band are both **derived**, minted at every
+bake, so nothing saved to a file has to change.
+
+**The fix, named but not made here.** `derive.solidQuad` should wind its quad the way the same
+object's EDGE tiles are wound at that level: non-positive when the source is a stroke this
+level's fat gate will band (`derive.js:656`), positive otherwise — a shape's own covers quad is
+positive and must stay so (measured +100 on a 10 × 10 tile). It is about two lines and touches no
+stored geometry, and it fixes **both** renderers at once; the gate's inputs (`s`, the level's
+width, `cfg`) are at both call sites (`TileStore.js:337-340`, `eraseDescent.js:80`), so the
+helper's signature moves with it. It changes what Kobin sees at a tile boundary, so it waits on
+his own look — but no longer on the four-camera comparison, which a settled drawing cannot
+answer: **RASTERISER-PLAN §9.4 item 12 is now the HELD A/B the reproduction gives** (paste the
+script, magnify `__f76.zoomRect`, call `__f76release()`, magnify the same rectangle again), and
+**stage 8 owns the edit**, gated on that A/B and on the eraser reading above. Flipping a whole
+item's ring set inside `rasterPack` instead is explicitly not
+the answer — it would make the raster path disagree with the SVG path before he has compared
+them (plan §4.2).
+
+**What counts it meanwhile.** `rasterPack.packStats.mixedWinding` counts the items of a family
+wound against that family's own total and logs one line a session. Until this flag closes a
+non-zero reading is **this** defect and not an anomaly, which is what the plan's §8.5 and stage 6
+now say.
 
 ## F-Z — a thin, long stroke vanishes while zooming out
 

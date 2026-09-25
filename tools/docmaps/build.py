@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import io, gen, trees
 
-HEAD = u"""<title>The bound.less Call Map</title>
+HEAD = u"""<meta charset="utf-8">
+<title>The bound.less Call Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
@@ -11,7 +12,7 @@ HEAD = u"""<title>The bound.less Call Map</title>
   --paper:#f2f4f6; --surface:#ffffff; --surface-2:#e9edf1;
   --ink:#191d22; --muted:#616a75; --rule:#d5dae0; --rule-strong:#b3bcc6;
   --object:#c8603f; --space:#3d6b8c; --warn:#8a6d12; --code-bg:#eef1f4;
-  --k-fac:#191d22; --k-spc:#3d6b8c; --k-obj:#c8603f; --k-hlp:#9aa4ae;
+  --k-fac:#191d22; --k-spc:#3d6b8c; --k-ras:#17849a; --k-obj:#c8603f; --k-hlp:#9aa4ae;
   --k-line:#c3cad2;
 }
 @media (prefers-color-scheme: dark){
@@ -19,7 +20,7 @@ HEAD = u"""<title>The bound.less Call Map</title>
     --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
     --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
     --object:#e07a56; --space:#74a8cc; --warn:#cfae4e; --code-bg:#232830;
-    --k-fac:#e6e9ec; --k-spc:#74a8cc; --k-obj:#e07a56; --k-hlp:#6c7681;
+    --k-fac:#e6e9ec; --k-spc:#74a8cc; --k-ras:#4fbfd3; --k-obj:#e07a56; --k-hlp:#6c7681;
     --k-line:#39424b;
   }
 }
@@ -27,7 +28,7 @@ HEAD = u"""<title>The bound.less Call Map</title>
   --paper:#13161a; --surface:#1b1f24; --surface-2:#232830;
   --ink:#e6e9ec; --muted:#98a1ab; --rule:#2b3138; --rule-strong:#3c444d;
   --object:#e07a56; --space:#74a8cc; --warn:#cfae4e; --code-bg:#232830;
-  --k-fac:#e6e9ec; --k-spc:#74a8cc; --k-obj:#e07a56; --k-hlp:#6c7681;
+  --k-fac:#e6e9ec; --k-spc:#74a8cc; --k-ras:#4fbfd3; --k-obj:#e07a56; --k-hlp:#6c7681;
   --k-line:#39424b;
 }
 
@@ -116,19 +117,25 @@ INTROS = {
         the ink beneath it.</p>""",
     "erase": u"""<p>One decision at the top governs everything below it: is the target at or below
         the level the erase was made at, or above it? At or below, the cut happens here. Above, the
-        work descends instead (Fig 4).</p>""",
-    "descent": u"""<p>The loop body runs once per level crossed. Every step hands ink down;
-        <strong>only the last one cuts</strong>. Skipping the chain and jumping straight to the erase
-        level makes the ceded tile exactly zero units wide at five crossings — a silent failure.</p>""",
-    "render": u"""<p>The widest tree here, and the one with a cycle in it: <code>_bakeUp</code> calls
-        itself on the parent, one level at a time. <strong>A composed long jump upward cancels
-        catastrophically</strong>, which is why the chain exists at all.</p>""",
+        work descends instead (Fig 4). <strong>The cut is one job</strong>, <code>cutJob</code>: the
+        same function in the erase worker and inline, with the document side applied on the main
+        thread by <code>_applyCut</code>.</p>""",
+    "descent": u"""<p>One job for the whole family. Every cede is virtual, each level's square ink
+        is derived exactly as the tile store derives it, and nothing touches the document until the
+        whole descent has succeeded. Every step hands ink down; <strong>only the last one
+        cuts</strong>. Skipping the chain and jumping straight to the erase level makes the ceded tile
+        exactly zero units wide at five crossings.</p>""",
+    "render": u"""<p>The widest tree here, and the one with a cycle in it: <code>_ensureUp</code>
+        reaches its parent's tiles one level at a time. <strong>A composed long jump upward cancels
+        catastrophically</strong>, which is why the chain exists at all. Both renderers draw the same
+        render list; the raster one is the default, the SVG one is behind <code>?svg</code>.</p>""",
     "camera": u"""<p>Every camera gesture funnels into <code>_settle</code>, which crosses and shifts
-        until the camera is in a legal state. The five <code>needs*</code> questions afterwards decide
-        the only thing that matters for cost: <strong>full render, or one transform.</strong></p>""",
-    "select": u"""<p>The two halves of a drag are split by depth. A member coarser than the camera
-        translates normally; a member <em>deeper</em> than the camera has its <strong>address</strong>
-        changed instead and its geometry never touched.</p>""",
+        until the camera is in a legal state. The <code>needs*</code> questions afterwards decide the
+        only thing that matters for cost: <strong>a new render list, or the same one moved.</strong></p>""",
+    "select": u"""<p>A press changes nothing: a tap selects at pen-up, and a drag starts past
+        <code>SELECT_DRAG_PX</code>. <strong>A drag never touches a stored coordinate</strong>: whole
+        cells go into the address, the rest into the object's displacement table, and a selected frame
+        moves as a frame.</p>""",
 }
 
 def build():
@@ -140,21 +147,24 @@ def build():
   <h1>The bound.less<br><span class="thin">Call Map</span></h1>
   <p class="standfirst">Seven call trees, from the public entry points down to the pure
     helpers. Each one is a path the code actually takes, traced from the source rather
-    than from the design.</p>
+    than from the design, and every call in them is checked against the source when the
+    page is built.</p>
   <div class="mast-meta">
-    <span>Code at <b>f92c1d1</b>, branch <b>arc-pipeline</b></span>
-    <span>Traced <b>2026-08-27</b></span>
-    <span><b>259</b> calls across <b>7</b> flows</span>
+    <span>Code at <b>__CODEAT__</b>, branch <b>__BRANCH__</b></span>
+    <span>Traced <b>__DATE__</b></span>
+    <span><b>__ROWS__</b> calls across <b>__FLOWS__</b> flows</span>
   </div>
   <div class="legend">
     <div><b><i style="background:var(--k-fac)"></i>The facade</b><p>KobinEngine. Routes input,
       owns the queues, holds no geometry.</p></div>
     <div><b><i style="background:var(--k-spc)"></i>Space and the view</b><p>Camera, LevelMap,
-      TileStore, Renderer. Where things are, and what you see.</p></div>
+      TileStore, the SVG Renderer. Where things are, and what you see.</p></div>
+    <div><b><i style="background:var(--k-ras)"></i>The paper</b><p>The raster renderer: the render
+      list rastered into cached plates, in a pool of workers.</p></div>
     <div><b><i style="background:var(--k-obj)"></i>The object</b><p>Document, and the ink
       geometry: arcShape, arcPerimeter, biarc, freeze.</p></div>
     <div><b><i style="background:var(--k-hlp)"></i>Shared helpers</b><p>Pure functions with no
-      state: derive, frameLattice, connect, lasso, clipperOutline.</p></div>
+      state: derive, connect, lasso, polyline, curveOutline.</p></div>
   </div>
 </header>
 <div class="cols">
@@ -175,14 +185,15 @@ def build():
         parts.append(u'<section id="%s">' % key)
         parts.append(u'<h2><span class="num">FIG %d</span> %s</h2>' % (i, title))
         parts.append(u'<p class="sub">%d calls &middot; %d levels deep</p>'
-                     % (len(rows), max(d for d, n, k, c in rows) + 1))
+                     % (len(rows), max(r[0] for r in rows) + 1))
         parts.append(INTROS.get(key, u""))
         parts.append(u'<div class="figbox">%s</div>' % svg)
         parts.append(u'</section>')
 
     parts.append(u"""
 <footer>
-  Traced by reading the source at f92c1d1 — call sites verified, not inferred from names.
+  Traced by reading the source at __CODEAT__; every parent-to-child call is checked against
+  it (<code>tools/docmaps/check.py</code>), not inferred from names.
   Recursion is marked where it happens; a call that leads into another figure says so
   rather than repeating its subtree.<br><br>
   Companions: <a href="https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56">The
@@ -195,7 +206,30 @@ def build():
 </div>""")
     return u"\n".join(parts)
 
+def fill(page):
+    """The masthead's facts, from the trees and from git."""
+    import datetime, subprocess, os
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def git(*a):
+        try:
+            return subprocess.check_output(("git",) + a, cwd=repo, universal_newlines=True,
+                                           stderr=subprocess.DEVNULL).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return ""
+    head = git("rev-parse", "--short", "HEAD") or "unknown"
+    dirty = git("status", "--porcelain", "--untracked-files=no", "--", "src")
+    rows = sum(len(gen.parse(spec)) for _k, _t, spec in trees.TREES)
+    return (page.replace("__CODEAT__", head + (" + working tree" if dirty else ""))
+            .replace("__BRANCH__", git("rev-parse", "--abbrev-ref", "HEAD") or "unknown")
+            .replace("__DATE__", datetime.date.today().isoformat())
+            .replace("__ROWS__", str(rows)).replace("__FLOWS__", str(len(trees.TREES))))
+
+
 if __name__ == "__main__":
-    out = build()
-    io.open("../boundless-call-map.html", "w", encoding="utf-8").write(out)
-    print("wrote boundless-call-map.html  (%d chars)" % len(out))
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = fill(build())
+    io.open(os.path.join(here, "pages", "boundless-call-map.html"), "w",
+            encoding="utf-8", newline="\n").write(out)
+    print("wrote pages/boundless-call-map.html  (%d chars)" % len(out))

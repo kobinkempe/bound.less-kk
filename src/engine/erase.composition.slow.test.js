@@ -328,9 +328,8 @@ describe("CP-9 — jumping into a hole", () => {
         const E = mkEngine();
         band(E, 200);
         descend(E, 2, 400, 300);
-        E.captureView("spot");
-        const sc = (E.docMeta.scenes || []).find((s) => s.name === "spot");
-        expect(sc).toBeTruthy();
+        const win = E.cam.frameWindow(0);   // the view, saved as a jump
+        const sc = { level: E.cam.frame, rect: { x: win.left, y: win.top, w: win.right - win.left, h: win.bottom - win.top } };
         // Erase it away at ITS OWN level — at depth 2 the band is 9e6 times the
         // screen and no gesture can swallow it (topology TP-2).
         topView(E);
@@ -387,14 +386,12 @@ describe("CP-12 — an erase across a scene boundary", () => {
         const E = mkEngine();
         drawStroke(E, [[100, 300], [340, 300]], 60, BLUE);
         drawStroke(E, [[460, 300], [700, 300]], 60, RED);
-        E.refreshScenes();
-        const before = (E.docMeta.scenes || []).length;
+        const before = E.refreshScenes().map((s) => s.id);
         erase(E, [[200, 260], [600, 260]], 24);            // a long gesture over both
         expect(families(E)).toBe(2);                       // neither was severed
         for (const c of [BLUE, RED]) {
             expect(natives(E).some((r) => r.obj.color === c)).toBe(true);
         }
-        E.refreshScenes();
-        expect((E.docMeta.scenes || []).length).toBe(before);
+        expect(E.refreshScenes().map((s) => s.id)).toEqual(before);
     });
 });

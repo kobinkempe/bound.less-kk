@@ -65,6 +65,23 @@ export function loopTester(poly) {
             (cells[k] || (cells[k] = [])).push(i);
         }
     }
+    // Each grid row's edges: a point's even-odd ray (pointInPolygon's) meets only edges spanning its y, all in its row.
+    const rows = new Array(G);
+    for (let i = 0; i < n; i++) {
+        const a = poly[i], c = poly[(i + 1) % n];
+        const y0 = cy(Math.min(a[1], c[1])), y1 = cy(Math.max(a[1], c[1]));
+        for (let y = y0; y <= y1; y++) (rows[y] || (rows[y] = [])).push(i);
+    }
+    const insideRow = (p) => {
+        if (!(p[1] >= t && p[1] <= b)) return false;   // no edge spans y: pointInPolygon's count is 0
+        const list = rows[cy(p[1])];
+        let inside = false;
+        if (list) for (const k of list) {
+            const a = poly[(k + 1) % n], c = poly[k];     // pointInPolygon's (poly[i], poly[i - 1])
+            if ((a[1] > p[1]) !== (c[1] > p[1]) && p[0] < ((c[0] - a[0]) * (p[1] - a[1])) / (c[1] - a[1]) + a[0]) inside = !inside;
+        }
+        return inside;
+    };
     const stamp = new Int32Array(n);
     let tick = 0;
     const segmentCrosses = (p, q) => {
@@ -86,26 +103,17 @@ export function loopTester(poly) {
         return false;
     };
     return {
-        inside: (p) => pointInPolygon(poly, p),
+        inside: insideRow,
         ringInside: (ring) => {
             const m = ring ? ring.length : 0;
             if (m < 1) return false;
-            if (!pointInPolygon(poly, ring[0])) return false;
+            if (!insideRow(ring[0])) return false;
             for (let k = 0; k < m; k++) {
                 if (segmentCrosses(ring[k], ring[(k + 1) % m])) return false;
             }
             return true;
         },
     };
-}
-
-/**
- * Is the polyline (an ink outline ring) entirely inside the closed polygon?
- * `loopTester(poly).ringInside(ring)`, for one ring; build the tester once when
- * asking about many.
- */
-export function polylineInsidePolygon(poly, ring) {
-    return loopTester(poly).ringInside(ring);
 }
 
 /**

@@ -21,7 +21,7 @@
     "web-vitals": "^1.0.1"
   },
   "scripts": {
-    "build:worker": "esbuild src/engine/worker/eraseWorker.js --bundle --format=iife --target=es2019 --outfile=public/erase-worker.js",
+    "build:worker": "esbuild src/engine/worker/eraseWorker.js --bundle --format=iife --target=es2019 --outfile=public/erase-worker.js && esbuild src/engine/worker/rasterWorker.js --bundle --format=iife --target=es2019 --outfile=public/raster-worker.js && esbuild src/engine/worker/sceneWorker.js --bundle --format=iife --target=es2019 --outfile=public/scene-worker.js",
     "prestart": "npm run build:worker",
     "prebuild": "npm run build:worker",
     "start": "react-scripts start",
@@ -77,6 +77,14 @@
                 "./geometry",
                 "./frameLattice.js"
               ]
+            },
+            {
+              "target": "./src/engine/raster",
+              "from": "./src/engine/Document.js"
+            },
+            {
+              "target": "./src/engine/raster",
+              "from": "./src/engine/LevelMap.js"
             },
             {
               "target": "./src/engine/frameLattice.js",

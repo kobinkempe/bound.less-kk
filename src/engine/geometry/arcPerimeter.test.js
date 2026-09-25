@@ -299,3 +299,76 @@ describe("a pause in the middle of a stroke", () => {
         }
     });
 });
+
+/**
+ * A RING THAT RETRACES ITS OWN START EXACTLY (OPEN-FLAGS F89): a computed circle drawn past one
+ * turn. Over the overlap both laps' rails are arcs of the same two circles, every fragment a tie
+ * with the other lap (exactly r from its centreline, not buried), so both copies were kept; where a
+ * lap's end-effect arc left the circle tangentially no vertex was made. Four junctions stayed
+ * unbalanced, the walk gave 4 open chains and the seal drew two pen-wide chords across the band.
+ * The union of such a stroke is the plain annulus.
+ */
+describe("a ring that retraces its own start exactly", () => {
+    const R = 110;
+    const ring = (turns) => {
+        const n = Math.max(2, Math.round((2 * Math.PI * R * turns) / 3));
+        const p = [];
+        for (let k = 0; k <= n; k++) { const t = (2 * Math.PI * turns * k) / n; p.push([R * Math.cos(t), R * Math.sin(t)]); }
+        return p;
+    };
+    const cases = [];
+    for (const w of [4, 16, 32, 64]) for (const turns of [1.02, 1.1, 1.18, 1.3, 1.5, 2]) cases.push([turns, w]);
+    test.each(cases)("%p turns at pen %i: the annulus, closed and balanced, no chord", (turns, w) => {
+        const { loops, stats } = bakeArcPerimeter(ring(turns), w, { tol: 0.125 });
+        expect([stats.openChains, stats.unbalanced, loops.length]).toEqual([0, 0, 2]);
+        expect(loops.flat().filter((p) => p.line).length).toBe(0);   // a pen's outline is arcs; a chord is a seal
+        let area = 0;
+        for (const l of loops) {
+            let a = 0;
+            const ox = l[0].A[0], oy = l[0].A[1];
+            for (const p of l) {
+                a += (p.A[0] - ox) * (p.B[1] - oy) - (p.B[0] - ox) * (p.A[1] - oy);
+                if (!p.line) a += p.r * p.r * (p.sweep - Math.sin(p.sweep));
+            }
+            area += a / 2;
+        }
+        const want = Math.PI * ((R + w / 2) ** 2 - (R - w / 2) ** 2);
+        expect(Math.abs(Math.abs(area) - want) / want).toBeLessThan(2e-4);   // the overlap counted once
+    });
+});
+
+/**
+ * A ring whose last sample IS its first (GEOM-2, REVIEWER-3): the seam gets one tangent
+ * (`BiarcPen.closeLoop`). With the pen's two one-sided tangents, the four rail arcs at the seam
+ * ended up to 0.039 units off their own circles, the inside test read a ray through the seam as two
+ * crossings (the GEOM-1 gate's K4 failure), and the ring's area came out short by up to 3.1 units².
+ */
+describe("a ring that closes exactly on its first sample", () => {
+    const R = 110;
+    const closed = (n) => {
+        const p = [];
+        for (let k = 0; k < n; k++) { const t = (2 * Math.PI * k) / n; p.push([R * Math.cos(t), R * Math.sin(t)]); }
+        p.push([p[0][0], p[0][1]]);
+        return p;
+    };
+    const cases = [];
+    for (const n of [24, 72]) for (const w of [4, 16, 32]) cases.push([n, w]);
+    test.each(cases)("%i samples at pen %i: every arc ends on its circle, and the area is the annulus", (n, w) => {
+        const { loops } = bakeArcPerimeter(closed(n), w, { tol: 0.125 });
+        let off = 0, area = 0;
+        for (const l of loops) {
+            let a = 0;
+            const ox = l[0].A[0], oy = l[0].A[1];
+            for (const p of l) {
+                a += (p.A[0] - ox) * (p.B[1] - oy) - (p.B[0] - ox) * (p.A[1] - oy);
+                if (p.line) continue;
+                a += p.r * p.r * (p.sweep - Math.sin(p.sweep));
+                for (const V of [p.A, p.B]) off = Math.max(off, Math.abs(Math.hypot(V[0] - p.C[0], V[1] - p.C[1]) - p.r));
+            }
+            area += a / 2;
+        }
+        expect(off).toBeLessThan(1e-9);                                     // red before: 5e-4 to 0.039
+        const want = Math.PI * ((R + w / 2) ** 2 - (R - w / 2) ** 2);
+        expect(Math.abs(Math.abs(area) - want) / want).toBeLessThan(1e-6);   // red before at n 24: short by 0.39 to 3.1
+    });
+});

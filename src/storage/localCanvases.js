@@ -1,11 +1,10 @@
 /**
  * Local, per-browser canvas store — the public face of `db.js`.
  *
- * Documents, thumbnails, recycle-bin payloads and pre-pull backups live in
- * IndexedDB (see db.js for why, and for the per-frame shape). Three small
- * things stay in localStorage because the shell reads them synchronously:
- * the gallery index (`kobin.canvases`), the trash index (`kobin.trash`) and
- * the device id. Everything that touches a document is async.
+ * Canvases, thumbnails, the recycle bin's older documents and the backups of old-store canvases
+ * that would not open live in IndexedDB (db.js says why). The gallery index (`kobin.canvases`),
+ * the bin's index (`kobin.trash`) and the device id stay in localStorage, read synchronously by
+ * the shell. Everything that touches a document is async.
  *
  * An unsaved canvas still autosaves (so reload never loses work) but only
  * INDEXED canvases are listed in the gallery; leaving the editor files a
@@ -17,9 +16,12 @@
  * legacy key is left in place as a safety net.
  */
 
-import { encodeRecords, decodeObjects } from "../engine/format2";
+import { encodeRecords } from "../engine/format2";
+import { defaultDeviceName } from "../cloud/syncCore";
+import { docFromStore } from "./foldStore";
 import {
-    putCanvas, putCanvas2, getCanvas2, getFrames2, getLogFrom, getCanvasHeader, listCanvasHeaders, patchCanvasHeader, deleteCanvas,
+    putCanvas, putCanvas2, getCanvasHeader, listCanvasHeaders, patchCanvasHeader, deleteCanvas, STORE_V2,
+    readPushState, getCanvas2Chunked, copyCanvas2Chunked,
     deleteOrphanFrames, putTrashDoc, getTrashDoc, deleteTrashDoc, listTrashIds,
     putBackup, sweepBackups, putThumbs, getThumbs, deleteThumbs, sweepThumbs,
     migrateLocalStorage, storageEstimate, requestPersistentStorage as requestPersist,
@@ -62,6 +64,14 @@ export function getDeviceId() {
     }
 }
 
+/** This device's name as other devices see it (SYNC-PLAN R9): set once, default the browser and OS. */
+export function getDeviceName() {
+    try { return localStorage.getItem("kobin.deviceName") || defaultDeviceName(); } catch (err) { return defaultDeviceName(); }
+}
+export function setDeviceName(name) {
+    try { if (name && String(name).trim()) localStorage.setItem("kobin.deviceName", String(name).trim().slice(0, 40)); } catch (err) { /* quota */ }
+}
+
 // ---- the gallery index (localStorage, synchronous) ----
 
 export function readIndex() {
@@ -91,7 +101,9 @@ export function statsFromNatives(natives) {
     for (const [lvl, arr] of Object.entries(natives || {})) {
         if (!Array.isArray(arr) || arr.length === 0) continue;
         strokes += arr.length;
-        const n = Number(lvl);
+        // A lattice frame id is "<spine depth>[#n]/i,j/…": one level per segment below the first (ST-1).
+        const segs = String(lvl).split("/");
+        const n = parseInt(segs[0], 10) + segs.length - 1;
         if (Number.isFinite(n)) {
             if (n < minLevel) minLevel = n;
             if (n > maxLevel) maxLevel = n;
@@ -148,7 +160,8 @@ export async function saveCanvasDoc(id, doc) {
         const { header, frames, frameIds } = docToRecord(doc);
         const snapshots = {};
         for (const fid of frameIds) snapshots[fid] = { ...encodeRecords(frames[fid] || []), seq: 0 };
-        const ok = await putCanvas2(id, { header: { ...header, seq: 0 }, snapshots, frameIds, full: true, resetLog: true });
+        // A document written whole has no cloud lineage (SYNC-PLAN R4 decides it at the next open).
+        const ok = await putCanvas2(id, { header: { ...header, seq: 0, base: null, intent: null }, snapshots, frameIds, full: true, resetLog: true, rewind: true });
         return ok === true;
     } catch (err) {
         return false;
@@ -156,8 +169,9 @@ export async function saveCanvasDoc(id, doc) {
 }
 /**
  * The saver's write: this tick's log `entries`, the frames whose `snapshots` it took,
- * the full frame set, and the compaction floor. Rejects on failure; false when there is
- * no base record and `full` was not set.
+ * the full frame set, the compaction floor and the tab's `writer` token. Rejects on failure;
+ * false when there is no base record and `full` was not set; "fenced" or "stale" when the
+ * store is another tab's or ahead of this document (db.putCanvas2).
  */
 export function writeCanvas2(id, args) {
     return putCanvas2(id, args);
@@ -169,7 +183,7 @@ export function writeCanvas2(id, args) {
  */
 export async function loadCanvasStore(id) {
     try {
-        const r = await getCanvas2(id);
+        const r = await getCanvas2Chunked(id);
         if (!r) return null;
         if (r.legacy) return r;
         const frames = {};
@@ -177,12 +191,6 @@ export async function loadCanvasStore(id) {
         return { header: r.header, frames, entries: r.entries };
     } catch (err) { return null; }
 }
-// A kobin-2 frame as kobin-1 records with PLAIN arrays (a stored loop is a view of the
-// frame's geometry; a document handed to JSON, the trash or a backup must not carry one).
-function plainRecords(objects, geo) {
-    return decodeObjects(objects, geo).map((r) => (r.loops ? { ...r, loops: r.loops.map((l) => Array.from(l)) } : r));
-}
-
 /**
  * The incremental write the editor's autosave uses. `header` is the envelope
  * without natives, `frames` only the frames that changed, `frameIds` the full
@@ -193,26 +201,27 @@ export function writeCanvas(id, { header, frames, frameIds, full }) {
     return putCanvas(id, { header, frames, frameIds, full });
 }
 
-/** The stored document as kobin-1 (plain arrays), from either store, or null. */
+/** The stored drawing as ONE kobin-1 document (plain arrays): its frames and its log tail (F86), or null. */
 export async function loadCanvasDoc(id) {
-    try {
-        const r = await getCanvas2(id);
-        if (!r) return null;
-        if (r.legacy) return r.legacy;
-        const natives = {};
-        for (const f of r.frames) natives[f.frameId] = plainRecords(f.objects, f.geo);
-        const { store, frameIds, frameSeq, seq, ...h } = r.header;
-        return { format: h.format, version: h.version, meta: h.meta, camera: h.camera, crossings: h.crossings, natives };
-    } catch (err) { return null; }
+    try { return docFromStore(await loadCanvasStore(id)); } catch (err) { return null; }
 }
 
 export async function hasCanvasDoc(id) {
     try { return !!(await getCanvasHeader(id)); } catch (err) { return false; }
 }
 
+/**
+ * Remove a canvas: its gallery row and its store. A store the bin lists (`store: true`, put there
+ * by another tab or a cloud tombstone while this one had it open) is the bin's: only the row goes.
+ */
 export async function removeCanvas(id) {
     writeIndex(readIndex().filter((e) => e.id !== id));
+    if (isBinnedStore(id)) return;
     try { await deleteCanvas(id); } catch (err) { /* ignore */ }
+}
+/** Whether the bin lists `id` as a whole store (read synchronously, for the editor's leave prompt). */
+export function isBinnedStore(id) {
+    return readTrashIndex().some((e) => e.id === id && e.store);
 }
 
 /**
@@ -228,23 +237,28 @@ export async function renameCanvasLocal(id, name, savedAt = new Date().toISOStri
 }
 
 /**
- * Keep a copy of the current document before a cloud pull overwrites it —
- * belt-and-braces recovery for a bad merge decision. Backups expire after a
- * week (`sweepStorage`); one per canvas, the newest wins.
+ * Keep a copy of a canvas the editor could not open, before a save writes over it. A kobin-2 store
+ * is copied whole into the bin, once while it is unchanged (reading it is what failed; F86); an
+ * older document goes to the backups, which expire after a week (`sweepStorage`).
  */
 export async function backupCanvasDoc(id) {
     try {
+        const h = await getCanvasHeader(id);
+        if (h && h.store === STORE_V2) {
+            if ((await readTrash()).some((t) => t.backupOf === id && t.seq === (h.seq || 0))) return;
+            const name = (readIndex().find((e) => e.id === id) || {}).name || h.name || "Untitled canvas";
+            await binCopy(id, `${name} (could not be opened)`, { backupOf: id, seq: h.seq || 0 });
+            return;
+        }
         const doc = await loadCanvasDoc(id);
         if (doc) await putBackup(id, doc);
     } catch (err) { /* best-effort */ }
 }
 
 // ---- recycle bin ----
-// Deleting moves the index entry into a trash index (localStorage) and the
-// document into the trash store, so it can be restored; entries expire after
-// 30 days. Scene thumbs stay under their normal keys while trashed (restore
-// gets covers back for free) and are only removed when the trash entry
-// expires or is purged.
+// A deleted canvas's row moves to the bin's index for 30 days. A kobin-2 store stays where it is
+// (`store: true`, F86), as do stash and backup copies; an old-store document moves to the trash
+// store. Scene thumbs keep their keys until the entry expires or is purged.
 
 export const TRASH_INDEX_KEY = "kobin.trash";
 export const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -274,6 +288,7 @@ export async function readTrash() {
         const t = Date.parse(e.deletedAt);
         if (Number.isFinite(t) && now - t <= TRASH_TTL_MS) { live.push(e); continue; }
         try { await deleteTrashDoc(e.id); } catch (err) { /* ignore */ }
+        if (e.store && !isIndexed(e.id)) { try { await deleteCanvas(e.id); } catch (err) { /* ignore */ } }
         try { await deleteThumbs(e.id); } catch (err) { /* ignore */ }
     }
     if (live.length !== list.length) writeTrash(live);
@@ -281,16 +296,28 @@ export async function readTrash() {
     return live;
 }
 
+// A store listed in the gallery again (a tombstone undone elsewhere) is never deleted by a bin entry.
+const isIndexed = (id) => readIndex().some((e) => e.id === id);
+
 /**
- * Move a canvas (index entry + document) to the trash. `fallbackEntry` covers
- * canvases with no index entry (never-saved scratch, or cloud-only listings)
- * so the recycle bin still shows a row for them. Returns the trash entry.
+ * Move a canvas to the trash. A kobin-2 store stays where it is, log and undo history included
+ * (F86), and the bin lists it (`store: true`); an older document moves into the trash store.
+ * `fallbackEntry` covers canvases with no index entry (never-saved scratch, or cloud-only
+ * listings) so the recycle bin still shows a row for them. Returns the trash entry.
  */
 export async function trashCanvas(id, fallbackEntry = null) {
     const entry = readIndex().find((e) => e.id === id) || fallbackEntry;
+    writeIndex(readIndex().filter((e) => e.id !== id));
+    writeTrash(readTrashIndex().filter((e) => e.id !== id));   // an older entry must not expire over this one
+    let h = null;
+    try { h = await getCanvasHeader(id); } catch (err) { /* ignore */ }
+    if (h && h.store === STORE_V2) {
+        const t = { id, name: "Untitled canvas", strokes: h.strokes || 0, levels: h.levels || 0, savedAt: null, ...(entry || {}), deletedAt: new Date().toISOString(), store: true };
+        writeTrash([t, ...(await readTrash()).filter((e) => e.id !== id)]);
+        return t;
+    }
     let doc = null;
     try { doc = await loadCanvasDoc(id); } catch (err) { /* ignore */ }
-    writeIndex(readIndex().filter((e) => e.id !== id));
     if (!entry && !doc) return null;
     if (doc) {
         try { await putTrashDoc(id, doc); } catch (err) { doc = null; /* quota — entry still listed; cloud may hold the data */ }
@@ -318,6 +345,13 @@ export async function restoreCanvas(id) {
     const list = await readTrash();
     const t = list.find((e) => e.id === id);
     if (!t) return null;
+    if (t.store) {
+        // A whole store (a trashed kobin-2 canvas, a stash, a backup): the records are there; it is listed again.
+        const { deletedAt, store, backupOf, seq, ...entry } = t;
+        upsertIndexEntry({ ...entry, savedAt: t.savedAt || new Date().toISOString() });
+        writeTrash(list.filter((e) => e.id !== id));
+        return t;
+    }
     let doc = null;
     try { doc = await getTrashDoc(id); } catch (err) { /* ignore */ }
     if (doc) {
@@ -367,17 +401,25 @@ export async function stashOverwrittenVersion(doc, name) {
 export async function purgeTrashEntry(id) {
     const list = await readTrash();
     try { await deleteTrashDoc(id); } catch (err) { /* ignore */ }
+    if (list.some((e) => e.id === id && e.store) && !isIndexed(id)) { try { await deleteCanvas(id); } catch (err) { /* ignore */ } }
     try { await deleteThumbs(id); } catch (err) { /* ignore */ }
     writeTrash(list.filter((e) => e.id !== id));
 }
 
 /**
- * Copy a canvas into a fresh document + index entry named "<name> copy", cover
- * thumb included. `fallbackDoc`/`fallbackName` cover cloud-only canvases whose
- * drawing was fetched separately (a document or its JSON). Returns the new
- * entry, or null.
+ * Copy a canvas into a fresh canvas + index entry named "<name> copy", cover thumb included. A
+ * kobin-2 store is copied whole, log and undo history included (F86). `fallbackDoc`/`fallbackName`
+ * cover cloud-only canvases whose drawing was fetched separately (a document or its JSON).
+ * Returns the new entry, or null.
  */
 export async function duplicateCanvas(id, fallbackDoc = null, fallbackName = null) {
+    let h = null;
+    try { h = await getCanvasHeader(id); } catch (err) { /* ignore */ }
+    if (h && h.store === STORE_V2) {
+        const own = readIndex().find((e) => e.id === id);
+        const base = (own && own.name) || fallbackName || docName({ meta: h.meta }, null) || "Untitled canvas";
+        try { return await forkCanvas(id, base + " copy"); } catch (err) { return null; }
+    }
     let doc = await loadCanvasDoc(id);
     if (!doc && fallbackDoc) {
         if (typeof fallbackDoc === "string") { try { doc = JSON.parse(fallbackDoc); } catch (err) { return null; } }
@@ -547,22 +589,114 @@ export function depthLabel(levels) {
 }
 
 /**
- * What the cloud push reads: the stored header (frame seqs and the last entry seq)
- * and two readers the push calls for only what the cloud is missing. Null for a
- * canvas not yet in the kobin-2 store.
+ * What the cloud push reads: `read(cloudFrameSeq, fromSeq)` — the header, the frames the cloud
+ * lacks and the entries past its seq, in ONE transaction so they agree — `setSync` for its
+ * bookkeeping under the tab's `writer` token, and `alive()`, false once another tab claimed the
+ * store (the push stops at its next part). Null for a canvas not yet in the kobin-2 store.
  */
-export async function cloudPushSource(id) {
+export async function cloudPushSource(id, writer = null) {
     const header = await getCanvasHeader(id);
-    if (!header || header.store !== "kobin-2") return null;
+    if (!header || header.store !== STORE_V2) return null;
     return {
         header,
-        readFrames: (frameIds) => getFrames2(id, frameIds),
-        readLog: (fromSeq) => getLogFrom(id, fromSeq),
+        read: (cloudFrameSeq, fromSeq) => readPushState(id, cloudFrameSeq, fromSeq),
+        setSync: (patch) => setSyncState(id, patch, writer),
+        alive: async () => {
+            if (writer == null) return true;
+            const h = await getCanvasHeader(id);
+            return !!h && (!h.writer || h.writer === writer);
+        },
     };
 }
+/** The stored header alone (listing fields, seqs, the sync fields), or null. */
+export async function getStoreHeader(id) {
+    try { return (await getCanvasHeader(id)) || null; } catch (err) { return null; }
+}
+/**
+ * Patch the sync fields (`base`, `intent`, `pending`) of a stored canvas under `writer`.
+ * `addPending` / `dropPending` (chunk names) change the pending list inside the transaction,
+ * so two patches at once both land. Resolves true, false (no canvas) or "fenced".
+ */
+export function setSyncState(id, patch, writer = null) {
+    const { addPending, dropPending, ...rest } = patch;
+    return patchCanvasHeader(id, (h) => {
+        const out = { ...h, ...rest };
+        if (addPending || dropPending) {
+            let list = (rest.pending !== undefined ? rest.pending : h.pending) || [];
+            if (dropPending) list = list.filter((c) => !dropPending.includes(c.chunk));
+            for (const c of addPending || []) if (!list.some((x) => x.chunk === c.chunk)) list = [...list, c];
+            out.pending = list;
+        }
+        return out;
+    }, writer);
+}
+/** The tab now holding the pen claims the store: from here only its token writes (SYNC-PLAN R2). */
+export function claimStore(id, token) {
+    return patchCanvasHeader(id, (h) => ({ ...h, writer: token }));
+}
 /** A pulled kobin-2 store written whole, its log replacing the local one. */
-export async function replaceCanvasStore(id, { header, frames, entries }) {
+export async function replaceCanvasStore(id, { header, frames, entries }, writer = null) {
     const snapshots = {};
     for (const fid of Object.keys(frames)) snapshots[fid] = frames[fid];
-    return putCanvas2(id, { header, snapshots, frameIds: Object.keys(frames), entries, full: true, resetLog: true });
+    return putCanvas2(id, { header, snapshots, frameIds: header.frameIds || Object.keys(frames), entries, full: true, resetLog: true, rewind: true, writer });
+}
+/**
+ * A pull written into the store (SYNC-PLAN R4) under `writer`: whole when `pulled.full` (the log
+ * replaced), else a fast-forward — the frames it downloaded, the entries past the local seq, the
+ * cloud's frame set and header — with `base` the cloud head it came from. A fast-forward drops the
+ * local entries below the cloud's log floor: the pusher compacted them, and kept here they rebuilt
+ * ops it had undone as undoable (REVIEWER-3 SAVE-3).
+ */
+export function applyPulledStore(id, pulled, base, writer = null) {
+    const header = { ...pulled.header, base, intent: null };
+    if (pulled.full) return replaceCanvasStore(id, { header, frames: pulled.frames, entries: pulled.entries }, writer);
+    return putCanvas2(id, { header, snapshots: pulled.frames, frameIds: pulled.header.frameIds, entries: pulled.entries,
+        dropBelow: pulled.logFloor > 0 ? pulled.logFloor : 0, writer });
+}
+// A copy's header: its own name, no cloud lineage, no writer.
+function copyHeader(h, name) {
+    const out = { ...h, name, meta: { ...(h.meta || {}), name }, savedAt: new Date().toISOString() };
+    delete out.base; delete out.intent; delete out.pending; delete out.writer;
+    return out;
+}
+/**
+ * The recycle-bin safety net for a store about to be replaced by a pull (SYNC-PLAN R4): the whole
+ * store copied to a new id, "<name> (overwritten)", listed in the bin, restored as it is. Returns
+ * the trash entry, or null when no copy landed (the caller must not pull then).
+ */
+export function stashCanvasStore(id, name) {
+    return binCopy(id, (name || "Untitled canvas") + " (overwritten)");
+}
+// The store copied whole to a new id named `label` and listed in the bin (`store: true`, restored
+// as it is), with `extra` on its entry. The entry, or null when no copy landed.
+async function binCopy(id, label, extra = {}) {
+    const newId = newCanvasId();
+    let stats = { strokes: 0, levels: 0 };
+    let ok = false;
+    try { ok = await copyCanvas2Chunked(id, newId, (h) => { stats = { strokes: h.strokes || 0, levels: h.levels || 0 }; return copyHeader(h, label); }); } catch (err) { ok = false; }
+    if (!ok) return null;
+    const at = new Date().toISOString();
+    const t = { id: newId, name: label, savedAt: at, ...stats, deletedAt: at, store: true, ...extra };
+    writeTrash([t, ...(await readTrash()).filter((e) => e.id !== newId)]);
+    return t;
+}
+/**
+ * A conflict's copy (SYNC-PLAN R5): the stored canvas copied whole to a new id named `name`,
+ * without its cloud lineage, and listed in the gallery. Returns the new index entry, or null.
+ */
+export async function forkCanvas(id, name) {
+    const newId = newCanvasId();
+    let stats = { strokes: 0, levels: 0 };
+    const ok = await copyCanvas2Chunked(id, newId, (h) => {
+        stats = { strokes: h.strokes || 0, levels: h.levels || 0 };
+        return copyHeader(h, name);
+    });
+    if (!ok) return null;
+    try {
+        const cover = await getThumbs(id, ["cover"]);
+        if (cover.cover) await putThumbs(newId, { cover: cover.cover });
+    } catch (err) { /* thumb is a nicety */ }
+    const entry = { id: newId, name, savedAt: new Date().toISOString(), ...stats };
+    upsertIndexEntry(entry);
+    return entry;
 }

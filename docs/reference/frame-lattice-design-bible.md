@@ -567,7 +567,13 @@ asserts the two endpoints are bit-equal in screen coordinates. **[open — cheap
    direction, and it inherits the same bias: everything rounds toward *still whole*.
 
    **[open — deliberately not built yet. Scoped, understood, and not blocking.]**
-5. **§4.5 — the seam antialiasing rule.** Settle by looking at it.
+5. ~~§4.5 — the seam antialiasing rule.~~ **Closed by Kobin, 2026-09-22.** Both renderers
+   accumulate all of an object's pieces as one shape before anti-aliasing (the raster
+   renderer's family pass, `RASTERISER-PLAN.md` §4.5; the SVG renderer's one nonzero path a
+   family), and the 48-unit seam pad overlaps adjacent pieces, so no seam line can form inside an
+   object and no extension rule is needed. Two effects at seams remain and are tracked
+   elsewhere: F76 (a fat stroke's strip before its perimeter resolves) and the conflation line
+   between two DIFFERENT same-coloured families (rasteriser stage 8).
 6. ~~Cede rects under re-homing.~~ **Closed by §6.6** — mint them on the object's freeze
    partition and they are move-invariant, so two cedes either side of a move cannot land on
    different alignments.

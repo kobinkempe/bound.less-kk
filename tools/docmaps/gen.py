@@ -1,6 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Render an indented call tree to SVG with computed coordinates."""
+"""Render an indented call tree to SVG with computed coordinates.
+
+A tree is written in `trees.py`, one call per line, two spaces per level:
+
+    display | nodes | note
+
+`nodes` names the graph node(s) the row stands for: `mod.fn`; several
+alternatives joined by `,` (`frz.tileWindow,frz.tileClipRect`); a hop the
+source makes through a listener or a hook as `a>b` (the row is reached through
+`a`, its children are called by `b`); or `-` for a row that is not a call (a
+note about state), which may have no children. The swatch colour is the
+node's group in `graph.MOD`, so it cannot disagree with the Call Graph, and
+`check.py` proves every parent-child pair is a call the source makes.
+"""
 import io, re, html
+import graph
 
 INDENT = 21.0     # px per depth level
 ROW    = 20.0     # px per row
@@ -13,14 +27,20 @@ NOTE_X = 452.0    # notes start here
 CHARW  = 6.35     # IBM Plex Mono ~11.5px advance
 
 KINDS = {
-    "fac": "var(--k-fac)",   # KobinEngine — the facade
-    "spc": "var(--k-spc)",   # Camera / LevelMap / TileStore / Renderer
-    "obj": "var(--k-obj)",   # Document + ink geometry
+    "fac": "var(--k-fac)",   # the engine: KobinEngine and the files mixed onto it
+    "spc": "var(--k-spc)",   # Camera, LevelMap, TileStore, the SVG renderer, the store
+    "ras": "var(--k-ras)",   # the raster renderer: the paper
+    "obj": "var(--k-obj)",   # Document and the ink geometry
     "hlp": "var(--k-hlp)",   # shared pure helpers
+    "shl": "var(--k-hlp)",
+    "ui":  "var(--k-hlp)",
+    "sca": "var(--k-hlp)",
+    "ded": "var(--k-hlp)",
 }
 
+
 def parse(spec):
-    """`  name | kind | note` -> flat list of (depth, name, kind, note)."""
+    """-> flat list of (depth, display, kind, note, nodes)"""
     rows = []
     for raw in spec.split("\n"):
         if not raw.strip() or raw.lstrip().startswith("#"):
@@ -28,10 +48,13 @@ def parse(spec):
         depth = (len(raw) - len(raw.lstrip(" "))) // 2
         parts = [p.strip() for p in raw.strip().split("|")]
         name = parts[0]
-        kind = parts[1] if len(parts) > 1 and parts[1] else "hlp"
+        nodes = parts[1] if len(parts) > 1 else "-"
         note = parts[2] if len(parts) > 2 else ""
-        rows.append((depth, name, kind, note))
+        last = nodes.split(",")[0].split(">")[-1]
+        kind = graph.group(last) if last != "-" and last.split(".", 1)[0] in graph.MOD else "hlp"
+        rows.append((depth, name, kind, note, nodes))
     return rows
+
 
 def render(spec, title):
     rows = parse(spec)
@@ -45,7 +68,7 @@ def render(spec, title):
 
     # connectors: for each row, find its children (next rows at depth+1 until
     # depth drops to <= its own)
-    for i, (d, name, kind, note) in enumerate(rows):
+    for i, (d, name, kind, note, nodes) in enumerate(rows):
         kids = []
         for j in range(i + 1, n):
             dj = rows[j][0]
@@ -65,7 +88,7 @@ def render(spec, title):
             out.append('<path d="M%g,%g H%g" stroke="var(--k-line)" stroke-width="1" fill="none"/>'
                        % (x, ys[j], cx - 1))
 
-    for i, (d, name, kind, note) in enumerate(rows):
+    for i, (d, name, kind, note, nodes) in enumerate(rows):
         y = ys[i]
         x = LEFT + d * INDENT
         col = KINDS.get(kind, KINDS["hlp"])
@@ -81,10 +104,11 @@ def render(spec, title):
     out.append("</svg>")
     return "\n".join(out), h, rows
 
+
 def check(rows, title):
     """Report anything that would overflow the viewBox."""
     bad = []
-    for d, name, kind, note in rows:
+    for d, name, kind, note, nodes in rows:
         tx = LEFT + d * INDENT + NAMEDX
         end = tx + len(name) * CHARW
         if note:
@@ -93,3 +117,38 @@ def check(rows, title):
         if end > WIDTH - 4:
             bad.append((name, round(end)))
     return bad
+
+
+def calls(rows):
+    """Every row's claim, checked against the source: (row, problem) pairs."""
+    probs = []
+    stack = []            # (depth, the nodes a child must be called by)
+    for d, name, kind, note, nodes in rows:
+        while stack and stack[-1][0] >= d:
+            stack.pop()
+        parents = stack[-1][1] if stack else None
+        if nodes == "-":
+            if parents is None:
+                probs.append((name, "a non-call row at the root"))
+            stack.append((d, None))
+            continue
+        heads, tails = [], []
+        for alt in nodes.split(","):
+            hop = alt.split(">")
+            for x in hop:
+                if x not in graph.NODES:
+                    probs.append((name, "%s is not a node" % x))
+            for a, b in zip(hop, hop[1:]):
+                if a in graph.NODES and b in graph.NODES and not graph.is_call(a, b):
+                    probs.append((name, "%s does not call %s" % (a, b)))
+            heads.append(hop[0])
+            tails.append(hop[-1])
+        if parents is not None:
+            if not parents:
+                probs.append((name, "its parent row is not a call"))
+            for h in heads:
+                if h in graph.NODES and not any(graph.is_call(p, h) for p in parents
+                                                if p in graph.NODES):
+                    probs.append((name, "%s is not called by %s" % (h, " / ".join(parents))))
+        stack.append((d, tails))
+    return probs

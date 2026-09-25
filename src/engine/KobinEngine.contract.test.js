@@ -123,7 +123,7 @@ test("status reports undo availability, so the toolbar can grey its buttons", ()
 test("report payload can be built without throwing", () => {
     const E = mkEngine();
     E.pointerDown(100, 100); E.pointerMove(150, 150); E.pointerUp();
-    // the shape `useKobinEngine.sendReport` POSTs to tools/report-server.js
+    // the engine reads the report makes (`report.js` builds the report itself since 2026-09-22, F58)
     const payload = {
         camera: { level: E.activeLevel, inScale: E.inScale, effectiveZoom: E._effectiveZoom() },
         counts: {

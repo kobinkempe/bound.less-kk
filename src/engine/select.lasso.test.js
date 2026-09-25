@@ -193,6 +193,40 @@ describe("L-3/L-4 — size does not decide membership; boundedness does", () => 
     });
 });
 
+describe("the ink test reads the loop as drawn (REPORTS 2026-09-24)", () => {
+    // A slow, careful loop has the most points; every 7th of them, joined, cut inside the drawn
+    // line by the finger's wiggle, and ink 0.6 px inside the line was dropped. The ink here is a
+    // sliver along one bulge of the loop: its box pokes out (so the ink itself is asked), its ink
+    // lies inside the drawn line and outside the thinned one.
+    const R = 40, N = 1000, STEP = Math.ceil(N / 160);
+    const at = (r, a) => [400 + r * Math.cos(a), 300 + r * Math.sin(a)];
+    const loop = () => {
+        const pts = [];
+        for (let k = 0; k < N; k++) pts.push(at(R + 3 * Math.sin((Math.PI * (k % STEP)) / STEP), (2 * Math.PI * k) / N));
+        return pts;
+    };
+    const sliver = (E, r0, r1) => {
+        const a = (2 * Math.PI * (STEP * 10 + STEP / 2)) / N, w = 0.025;   // mid-bulge, radial
+        const n = [-Math.sin(a) * w, Math.cos(a) * w], A = at(r0, a), B = at(r1, a);
+        return E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#123", opacity: 1,
+            polys: [[[A[0] - n[0], A[1] - n[1]], [B[0] - n[0], B[1] - n[1]], [B[0] + n[0], B[1] + n[1]], [A[0] + n[0], A[1] + n[1]]]] }, "0");
+    };
+    const pick = (E) => {
+        E._render();
+        return E._lassoFind(loop().map(([sx, sy]) => E.cam.screenToFrame(sx, sy))).ids;
+    };
+    test("LD-1 ink inside a bulge of the drawn loop, outside the thinned one, is selected", () => {
+        const E = mkEngine();
+        const o = sliver(E, R + 0.8, R + 2.5);
+        expect(pick(E)).toContain(o.id);                   // red before: the thinned loop left it out
+    });
+    test("LD-2 the same sliver reaching past the bulge is not", () => {
+        const E = mkEngine();
+        const o = sliver(E, R + 0.8, R + 4);
+        expect(pick(E)).not.toContain(o.id);
+    });
+});
+
 describe("L-5 — clicking elsewhere drops the lasso selection", () => {
     test("and selects that object instead", () => {
         const E = mkEngine();
@@ -628,5 +662,40 @@ describe("an enclosed frame is one selection entry (subtree O(1), 2026-09-14)", 
         expect(E.doc.getById(ids[N - 1])).toBeNull();
         expect(E.undo()).toBe(true);
         expect(bytes()).toBe(before);
+    });
+});
+
+// OPEN-FLAGS F82, Kobin's Earth move of 2026-09-22: a lasso took the region's shapes and the city
+// frame on them, a ctrl-tap then rebuilt the selection from its ids alone, and the drag moved the
+// region without the city, the houses and everything deeper.
+describe("F82 — a ctrl-tap keeps the selected frames", () => {
+    const fill = (E, x, y, s, level) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#c33",
+        opacity: 1, polys: [[[x, y], [x + s, y], [x + s, y + s], [x, y + s]]] }, level);
+    test("adding and removing an object leaves the frame selected", () => {
+        const E = mkEngine();
+        const kid = E.lm.cellChild("0", 3, 2);
+        const a = fill(E, -40, -40, 80, "0");
+        const b = fill(E, 100, 100, 40, "0");
+        fill(E, -100, -100, 200, kid.id);
+        E._render();
+        E._setSelection([a.id], [kid.id]);
+        E._toggleSelected(b.id);
+        expect(E.selection.ids.slice().sort()).toEqual([a.id, b.id].sort());
+        expect(E.selection.frames).toEqual([kid.id]);          // red before: []
+        E._toggleSelected(a.id);
+        expect(E.selection.ids).toEqual([b.id]);
+        expect(E.selection.frames).toEqual([kid.id]);
+    });
+    test("a ctrl-tap on an object inside a selected frame changes nothing", () => {
+        const E = mkEngine();
+        const kid = E.lm.cellChild("0", 3, 2);
+        const a = fill(E, -40, -40, 80, "0");
+        const c = fill(E, -100, -100, 200, kid.id);
+        E._render();
+        E._setSelection([a.id], [kid.id]);
+        const before = E.selection;
+        E._toggleSelected(c.id);
+        expect(E.selection).toBe(before);
+        expect(E.selection.ids).toEqual([a.id]);
     });
 });

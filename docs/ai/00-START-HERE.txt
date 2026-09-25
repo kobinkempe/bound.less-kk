@@ -2,33 +2,43 @@
 BOUND.LESS - START HERE
 Plain text on purpose. This directory (docs/ai/) is the entry point for anyone,
 human or agent, who has not worked on this codebase before.
-Written 2026-08-28. Keep it current: see 90-MAINTENANCE.txt.
+Written 2026-08-28, brought to the tree's state 2026-09-22. Keep it current:
+see 90-MAINTENANCE.txt.
 ================================================================================
 
 WHAT THIS IS
     An infinite-zoom vector drawing canvas. You draw, you zoom in about 4,096x,
     and you keep drawing at the new scale, for ever. A React app; the whole
-    interesting part is a hand-written engine in src/engine/ that renders through
-    Two.js into one SVG.
+    interesting part is a hand-written engine in src/engine/. Since 2026-09-22 it
+    draws the ink with its own float64 rasteriser, in Web Workers, into 512-px
+    plates on a canvas (src/engine/raster/); the older SVG renderer (Two.js into
+    one SVG) is behind ?svg on a canvas URL.
 
-    It is one person's project (Kobin Kempe). There is no team, no CI, no code
-    review. Correctness is established by a large Jest suite plus Kobin using the
-    app and sending back a diagnostic report. Both matter and neither is
-    sufficient - see THE RULES below.
+    It is one person's project (Kobin Kempe). There is no team and no code
+    review; CI runs the typecheck and the quick suite on a push. Correctness is
+    established by a large Jest suite plus Kobin using the app and sending back
+    a diagnostic report. Both matter and neither is sufficient - see THE RULES
+    below.
 
 WHERE THINGS ARE
     repository      C:\Users\Surface\Documents\bound.less-kk
                     github.com/kobinkempe/bound.less-kk
-    working branch  arc-pipeline
-    main branch     main
+    working branch  rasteriser - from main at 4c99a8a (2026-09-15, not pushed);
+                    everything since is UNCOMMITTED on it
+    main branch     main (origin/main is 0732252, 2026-09-08)
     deployed        https://bound-less-kk.web.app   (Firebase Hosting)
                     deploy: firebase deploy --only hosting   (config firebase.json)
+                    last deployed 2026-09-08 from 0732252 (SVG only). Every
+                    deploy waits on the 1.0 compatibility decision (ROADMAP §2).
     backend         Firebase project bound-less-kk. Google auth + Firestore.
                     Rules in firestore.rules. Client config is public by design
                     (src/cloud/firebaseApp.js).
-    reports         .kobin-reports/  - diagnostic bundles POSTed by the in-app
-                    Report button. NOT in git. 156 MB and growing; do not read
-                    one into context, script over it. Since 2026-09-02 it also
+    reports         .kobin-reports/  - diagnostic reports from the dev panel's
+                    Report button (tools/report-server.js). NOT in git. Do not
+                    read one into context: `node tools/report-read.js latest`
+                    prints its headline numbers; a report loads into an engine
+                    with src/engine/__testkit__/reportReplay.js (jsdom) or
+                    window.__kobinReport.replayReport (a page). Since 2026-09-02 it also
                     holds recovered/, shots/ and f35/renders/ - the debug data
                     that used to sit in public/ and ship with every build.
 
@@ -36,10 +46,15 @@ RUN IT
     npm install
     npm start              dev server on :3000   (or the "boundless" launch config)
     npm run report-server  report receiver on :3001, writes .kobin-reports/
-    npm run test:quick     everything except *.slow.test.js   (~150 s, 1011 tests)
+    npm run build:worker   esbuild bundles the erase and raster workers into
+                           public/ (runs before start and build; rerun it after
+                           any geometry change - the dev server does not watch)
+    npm run test:quick     everything except *.slow.test.js   (~110-180 s run
+                           alone; 107 suites / 1,649 tests on 2026-09-22)
                            *.probe.js files are measurement harnesses the suite
                            skips; tools/harnesses/README.md says how to run one
-    npm run test:slow      the slow suites            (~500 s, 612 tests)
+    npm run test:slow      the slow suites            (~500 s; 616 tests at the
+                           last count)
     npm run test:erase     the nine erase.*.slow suites + fidelity.compare.slow
     npm run test:all       both
     npm run typecheck      tsc with checkJs over src/engine/geometry + frameLattice
@@ -52,12 +67,17 @@ RUN IT
     npm run build          production build to build/
 
     CI: .github/workflows/ci.yml runs typecheck + test:quick on every push and
-    pull request and test:all nightly, on Node 14 (the CRA 4 toolchain). It
-    exists in the tree since 2026-09-07 and runs once the tree is pushed.
+    pull request and test:all nightly, on Node 14 (the CRA 4 toolchain). Pushed
+    with 121fc1f on 2026-09-08.
+
+    A single suite: CI=true npx react-scripts test --watchAll=false <path>
+    (a bare npx jest finds nothing).
 
     Dev tools in the app: append ?dev to a canvas URL, e.g.
     /#/canvas/new?dev  - reveals the Dev panel (level/zoom/object readouts, the
-    debug overlays, and the Report button).
+    debug overlays, and the Report button). ?svg selects the SVG renderer (the
+    panel's Raster button toggles it and reloads); without it the canvas draws
+    with the raster renderer.
 
 ROUTES
     /#/                 HomeV2        marketing page
@@ -74,24 +94,32 @@ PUBLISHED REFERENCE PAGES
     The same material as this directory, generated from the source and rendered
     for a human with a screen. Kobin has the links; they update in place.
 
+    Rebuilt and republished on 2026-09-23 from the working tree of the
+    rasteriser branch (4c99a8a + uncommitted work): 2,282 functions in 113
+    files, 0 missing, 0 stale. Anything that lands after that is not on them
+    until the generator runs again and the pages are republished.
+
     The Code Map      https://claude.ai/code/artifact/2d3a3acd-0a89-4e2b-a161-3445bdd19756
-                      Every function in src/ - 1,087 of them across 78 files -
+                      Every function in src/ - 2,282 of them across 113 files -
                       in the file that defines it, with a line saying what it
                       does in the design and an expandable full explanation.
     The Call Graph    https://claude.ai/code/artifact/ee3012b4-86a3-4b0a-b232-8c73b73bd7b0
-                      The same 1,087 functions as a graph, 1,905 calls between
+                      The same 2,282 functions as a graph, 4,168 calls between
                       them, each drawn inside its file's block. Click a
                       function for its callers, what it reaches, and its
-                      explanation. 34 entry points are filled, 26 test-only
-                      functions greyed; nothing is struck through any more.
+                      explanation. 40 entry points are filled, 69 test-only
+                      functions greyed, none named nowhere else (14 deleted).
     The Call Map      https://claude.ai/code/artifact/d6ac1f2b-d7b1-4b47-a8f4-d1ca1be5dcba
-                      The six entry points as call trees. The reading version.
+                      Seven flows from the entry points as call trees, 269
+                      calls, each checked against the source. The reading version.
     The Logical Design
                       https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56
-                      The design argument. Hand-written, no generator.
+                      The design argument. Hand-written, no generator;
+                      corrected on 2026-09-22 where the code had moved on.
 
-    The generator lives in tools/docmaps/ with a README. Two checks there are
-    the ones that matter, and both must pass after any change to src/:
+    The generator lives in tools/docmaps/ with a README. After any change to
+    src/, run python tools/docmaps/rebuild.py: it rebuilds all three generated
+    pages and stops at the first failing check. The two that matter most:
         python tools/docmaps/verify_coverage.py    every function is on both pages
         python tools/docmaps/audit_stale.py        neither page names something gone
 
@@ -112,6 +140,10 @@ READ IN THIS ORDER
                                       It replaced 50-TODO, 60-RECOMMENDATIONS and
                                       70-RELEASES on 2026-09-02.
     7. docs/OPEN-FLAGS.md             THE live issue list. Authoritative.
+       The working plans live under .claude/ (gitignored, on Kobin's machine
+       only): WORKLIST.md (his order and rulings), RASTERISER-PLAN.md,
+       PAPER-PLAN.md, SCENES-PLAN.md, SUBTREE-O1-PLAN.md, SAVE-FORMAT-PLAN.md,
+       ERASE-WORKER-PLAN.md, and AGENT-PREAMBLE.md for any agent.
     8. the design bibles, only when you are about to touch what they cover.
        They moved to docs/reference/ on 2026-08-31 - still tracked, just no
        longer in the way:
@@ -121,7 +153,7 @@ READ IN THIS ORDER
                                                  with the code.
          reference/erase-tile-window-design-bible.md  erasing and severance.
                                                  §5 and §2.3 are superseded.
-         reference/auto-scenes-design-bible.md        scene discovery.
+         reference/scenes-v3-design-bible.md          scenes: the saved index.
          reference/scale-bar-ruling-design-bible.md   the real-units scale bar.
          reference/local-frames-design-bible.md       SUPERSEDED. History only.
          docs/issue-log.md                       HISTORY. Stops 2026-07-09.
@@ -147,8 +179,9 @@ THE RULES - these are not style preferences, each one cost something
     6.  PREFER THE ESTIMATOR THAT DEGRADES LOCALLY. Anything that integrates
         along a boundary trades a bounded local error for an unbounded global
         one. This geometry cannot supply the exactness that trade needs.
-    7.  DO NOT COMMIT OR PUSH unless asked. The quarter's work was committed on
-        2026-09-01 as f6f1062; 10-STATUS.txt lists what has changed since.
+    7.  DO NOT COMMIT, PUSH OR DEPLOY unless asked. The last commits are
+        121fc1f and 0732252 (2026-09-08, pushed) and 4c99a8a (2026-09-15, main,
+        not pushed); 10-STATUS.txt lists what has changed since.
     8.  WHEN A DESIGN DOCUMENT AND THE CODE DISAGREE, find out which is wrong
         and fix THAT, then say so in the document. Do not leave both standing.
 

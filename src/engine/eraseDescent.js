@@ -107,14 +107,14 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
  * remnants and the kids minted with virtual ids. Returns what the document's version
  * returns, plus the specs `_applyDescent` mints from.
  */
-function cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts) {
+function cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar) {
     const rec = vdoc.getById(id);
     if (!rec) return null;
     const src = rec.obj;
     if (src.type !== "shape") return null;
     const R = { left: holeInParent.x0, top: holeInParent.y0, right: holeInParent.x1, bottom: holeInParent.y1 };
     const cut = subtractShape(src.loops, rectLoop(R), boolOpts).loops;
-    const groups = dropDust(shapeComponents(cut), src.w);
+    const groups = dropDust(shapeComponents(cut), src.w, dustBar);   // the mark's bar, not the pen's (ERASE-1)
     const removed = vdoc.removeById(id);
     if (!removed) return null;
     const z = src.z != null ? src.z : src.id;
@@ -140,7 +140,9 @@ function cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile
  * The descent. `input` = `{ target: {obj, level}, E: {id, loops, w}, HE }`; the target's
  * object is read, never written. Returns `{ steps, stats }` — each step
  * `{ removedId, parents: [spec], kids: [spec] }` with `spec = { vid, level, obj }` — or
- * `{ refused: why, stats }`. `stats`: sealed booleans and dust, for the engine's tallies.
+ * `{ refused: why, stats, inkless }`. `stats`: sealed booleans and dust, for the engine's tallies.
+ * `inkless`: the link the descent stopped at found none of the target's ink near the eraser
+ * (none in the tiles, dust, or a graze) and no tile went unread, so no ink lies under the mark (F109).
  * `minted`: the frames the descent added to (or re-parented in) the lattice it ran on,
  * for the engine's own lattice to merge (F67) — a kid can be homed a cell over from
  * any frame the engine has visited.
@@ -155,7 +157,13 @@ export function descentJob(world, input) {
     const stats = { openChains: 0, dust: 0, seals: [] };
     const squareInk = world.squareInk || squareInkOf;
     const vdoc = new VirtualDoc([{ obj: o, level: HO }]);
-    const path = lm.framePath(HO, HE);
+    // Ink homed in a ring neighbour of the mark's chain at the home's depth reaches the descent there as a
+    // ring native: descend the mark's own chain below that neighbour (REVIEWER-3 ERASE-4, F129).
+    const path0 = lm.framePath(HO, HE), dHO = lm.depthOf(HO);
+    const ringA = path0 && path0.up.length ? path0.down.find((f) => lm.depthOf(f) === dHO) : null;
+    let near = false;
+    if (ringA) for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) { const n = (di || dj) ? lm.peekNeighbour(HO, di, dj) : null; if (n && String(n.id) === String(ringA)) near = true; }
+    const path = near ? { up: [], down: path0.down.filter((f) => lm.depthOf(f) > dHO) } : path0;
     if (!path || path.up.length || !path.down.length) return { refused: "not a pure descent", stats };
     if (!E.loops || !E.loops.length) return { refused: "eraser has no perimeter", stats };
     const clipAtHE = E.loops;
@@ -168,11 +176,13 @@ export function descentJob(world, input) {
     let why = null;
     let curIds = new Set([o.id]);
     let lastCeded = false;
+    let inked = false, unread = false;   // this link found ink near the eraser; some tile was never read
     for (let k = 0; k < path.down.length && curIds.size; k++) {
         const F = path.down[k];
         const last = k === path.down.length - 1;
+        inked = false;
         const eraseAtF = lm.mapRectF(eraseAtHE, HE, F);
-        if (!eraseAtF) { why = "the eraser maps to nothing in " + F; break; }
+        if (!eraseAtF) { why = "the eraser maps to nothing in " + F; unread = true; break; }
         const next = k + 1 < path.down.length ? lm.frame(path.down[k + 1]) : null;
         const cf = lm.frame(F);
         const kidIds = new Set();
@@ -183,7 +193,7 @@ export function descentJob(world, input) {
             const c0rec = vdoc.getById(cid0);
             const c0 = c0rec && c0rec.obj;
             const shift = c0 && c0.below ? lm.objShift(c0.below, c0rec.level, F) : null;
-            if (c0 && c0.below && !shift) { why = "the picture's frame cannot be found in " + F; continue; }
+            if (c0 && c0.below && !shift) { why = "the picture's frame cannot be found in " + F; unread = true; continue; }
             const F0 = shift ? shift.F0 : F;
             const rem = shift ? shift.rem : [0, 0];
             const kdep = c0rec ? lm.depthOf(F) - lm.depthOf(c0rec.level) : 1;
@@ -203,6 +213,7 @@ export function descentJob(world, input) {
             }
             const rg = lm.tileRange(F0, need);
             const i1 = Math.min(rg.i1, rg.i0 + 1), j1 = Math.min(rg.j1, rg.j0 + 1);
+            if (i1 < rg.i1 || j1 < rg.j1) unread = true;
             const ncx = (need.left + need.right) / 2, ncy = (need.top + need.bottom) / 2;
             const pref = lm.tileRange(F0, { left: ncx, right: ncx, top: ncy, bottom: ncy });
             const order = [[pref.i0, pref.j0]];
@@ -212,7 +223,7 @@ export function descentJob(world, input) {
                 if (only) break;
                 const own0 = (i || j) ? lm.neighbour(F0, i, j) : null;
                 const ownF = (i || j) ? lm.neighbour(F, i, j) : null;
-                if ((i || j) && (!own0 || !ownF)) { why = "the square's frame cannot be found"; continue; }
+                if ((i || j) && (!own0 || !ownF)) { why = "the square's frame cannot be found"; unread = true; continue; }
                 const F0n = own0 ? own0.id : F0, Fn = ownF ? ownF.id : F;
                 const needIn = (i || j) ? { left: need.left - i * FRAME_W, right: need.right - i * FRAME_W, top: need.top - j * FRAME_W, bottom: need.bottom - j * FRAME_W } : need;
                 for (const cid of [...ids]) {
@@ -223,7 +234,7 @@ export function descentJob(world, input) {
                     if (!ink) { why = "tile holds none of its ink"; continue; }
                     if (i === pref.i0 && j === pref.j0 && covers(ink.clip, needIn)) only = true;
                     const groups = shapeComponents(ink.loops);
-                    const solid = dropDust(groups, cur.w);
+                    const solid = dropDust(groups, cur.w, dustBarFor(E.bakePx, lm.frameFactor(HE, F0n)));
                     stats.dust += groups.length - solid.length;
                     if (!solid.length) { why = "the tile's ink is degenerate"; continue; }
                     let specs;
@@ -240,6 +251,7 @@ export function descentJob(world, input) {
                     } else {
                         specs = solid.map((g) => ({ loops: g }));
                     }
+                    inked = true;
                     const Rc = ink.clip;
                     const wParent = lm.mapRectF(Rc, F0n, crec.level);
                     if (!wParent || !(wParent.right > wParent.left) || !(wParent.bottom > wParent.top)) { why = "the tile maps to nothing in the parent"; continue; }
@@ -250,7 +262,8 @@ export function descentJob(world, input) {
                         : [0, 0]);
                     const step = cedeVirtual(vdoc, cid, Fn, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
-                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, kidBelow, boolOpts);
+                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, kidBelow, boolOpts,
+                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)));
                     if (!step) { why = "cedeTileById refused"; continue; }
                     const spec = (p) => ({ vid: p.obj.id, level: p.level, obj: p.obj });
                     steps.push({ removedId: step.removed.obj.id, parents: step.parents.map(spec), kids: step.kids.map(spec) });
@@ -262,8 +275,9 @@ export function descentJob(world, input) {
         }
         curIds = kidIds;
     }
-    if (!steps.length) return { refused: "no tile ceded: " + (why || "?"), stats };
-    if (!lastCeded) return { refused: "last link refused: " + (why || "?"), stats };
+    const inkless = !inked && !unread;
+    if (!steps.length) return { refused: "no tile ceded: " + (why || "?"), stats, inkless };
+    if (!lastCeded) return { refused: "last link refused: " + (why || "?"), stats, inkless };
     const minted = [];
     for (const f of lm.frames.values()) if (!had.has(f.id) || had.get(f.id) !== f.parent) minted.push({ id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j });
     return { steps, stats, minted };
@@ -281,11 +295,15 @@ const objOut = (o, transfer) => {
 };
 const objIn = (o) => (o.loops ? { ...o, loops: o.loops.map(wrap) } : o);
 
-/** A descent job as a message plus the buffers to transfer: the target and the eraser copied, the lattice as `lm.serialize()`. */
+/**
+ * A descent job as a message plus the buffers to transfer: the target and the eraser copied, the
+ * lattice as `lm.serialize()` and its retired ids, which the copy must not mint again (A1-3).
+ */
 export function wireDescent(world, input) {
     const transfer = [];
     const msg = {
-        lattice: world.lm.serialize(), width: world.width, height: world.lm.height, cfg: world.cfg, opacityGroups: world.opacityGroups,
+        lattice: world.lm.serialize(), retired: world.lm._retired ? [...world.lm._retired] : null,
+        width: world.width, height: world.lm.height, cfg: world.cfg, opacityGroups: world.opacityGroups,
         freezeR: input.freezeR, HE: input.HE,
         target: { level: String(input.target.level), obj: objOut(input.target.obj, transfer) },
         E: { id: input.E.id, w: input.E.w, bakePx: input.E.bakePx, loops: input.E.loops.map(own) },
@@ -297,6 +315,7 @@ export function wireDescent(world, input) {
 export function unwireDescent(m) {
     const lm = new LevelMap(m.cfg, m.width, m.height);
     lm.load(m.lattice);
+    if (m.retired && m.retired.length) lm._retired = new Set(m.retired);
     const world = { lm, cfg: m.cfg, width: m.width, opacityGroups: m.opacityGroups };
     const input = { freezeR: m.freezeR, HE: m.HE, target: { level: m.target.level, obj: objIn(m.target.obj) }, E: { id: m.E.id, w: m.E.w, bakePx: m.E.bakePx, loops: m.E.loops.map(wrap) } };
     return { world, input };

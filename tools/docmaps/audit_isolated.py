@@ -25,7 +25,7 @@ Buckets, in the order they are tested:
   React component   rendered as `<Foo />`, never called as `Foo(`.
   passed as value   named without being called: a callback, an export, a
                     default. Something holds it, so it is not unreferenced.
-  test only         referenced only from *.test.js.
+  test only         referenced only from *.test.js or a *.probe.js.
   UNREFERENCED      the name appears nowhere but its own definition.
 
 Only the last bucket is a candidate for deletion, and even then check by hand:
@@ -42,6 +42,14 @@ SRC = os.path.join(REPO, "src")
 sys.path.insert(0, HERE)
 import graph
 import _mask
+
+
+IDENT = re.compile(r'[A-Za-z_$][\w$]*')
+
+
+def _is_test(p):
+    """A suite, a probe (run by the test runner, never bundled) or the testkit."""
+    return ".test." in p or ".probe." in p or "__testkit__" in p
 
 
 def all_files():
@@ -69,7 +77,10 @@ def main():
     for p in all_files():
         texts[p] = io.open(p, encoding="utf-8", errors="replace").read()
     prod = {p: t for p, t in texts.items()
-            if ".test." not in p and "__testkit__" not in p}
+            if not _is_test(p)}
+    # Every identifier in each file, so "does this file name X" is a set lookup
+    # rather than a regex over the whole file for each of 2,200 functions.
+    tokens = {p: set(IDENT.findall(t)) for p, t in texts.items()}
 
     # Names the LANGUAGE calls, never the code. `JSON.stringify(range)` invokes
     # toJSON with the name appearing nowhere - no static call graph can see it.
@@ -101,10 +112,8 @@ def main():
             continue
 
         # anything outside the defining file that mentions the name
-        elsewhere_prod = [p for p, t in prod.items()
-                          if p != own and re.search(r'\b' + re.escape(leaf) + r'\b', t)]
-        elsewhere_test = [p for p, t in texts.items()
-                          if ".test." in p and re.search(r'\b' + re.escape(leaf) + r'\b', t)]
+        elsewhere_prod = [p for p in prod if p != own and leaf in tokens[p]]
+        elsewhere_test = [p for p in texts if _is_test(p) and leaf in tokens[p]]
 
         if elsewhere_prod:
             hit = "\n".join(prod[p] for p in elsewhere_prod)
@@ -167,9 +176,9 @@ def main():
         leaf = rest.split(".")[-1]
         own = os.path.join(REPO, MODFILE[mod]).replace("\\", "/")
         pat = re.compile(r'\b' + re.escape(leaf) + r'\b')
-        if any(p != own and pat.search(t) for p, t in prod.items()):
+        if any(p != own and leaf in tokens[p] for p in prod):
             continue
-        if not any(".test." in p and pat.search(t) for p, t in texts.items()):
+        if not any(_is_test(p) and leaf in tokens[p] for p in texts):
             continue
         # and nothing in its own file except the definition itself, counted on
         # the MASKED source - a header comment naming the function is not a use

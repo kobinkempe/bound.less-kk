@@ -378,10 +378,9 @@ class Overlays {
      * turned the debug view into a slideshow. Keyed by the members and their
      * edit counters, so any change to the family recomputes it.
      *
-     * Shared by the erase-debug overlay (which paints joins GREEN) and the
-     * selection indicator (which refuses to run ants along them). One
-     * implementation, so the two can never disagree about where an object
-     * really ends.
+     * Read by the erase-debug overlay, which paints joins GREEN; it pairs a kid
+     * with the level above only, so two kids side by side show orange. The ants
+     * skip family windows by `_selSeamRects`.
      */
     _familyJoinNotes(keys, byKey, C) {
         const joins = new Map();
@@ -478,8 +477,15 @@ class Overlays {
      *     runs,           [{ d, len }] ant runs in RETAINED space (see below)
      *     marks,          [{ d }] the dots, same space, stroked as specks
      *     edges,          [{ side, from, to, chevron }] in SCREEN space, per step
+     *     off,            [dx, dy] the drag's own screen CSS px, already inside `transform`
      *     inkPx, covered
      *   }
+     *
+     * UNDER THE CANVAS PAINTER (`renderer.antPainter`, RASTERISER-PLAN §10 stage 5d) a run is
+     * `{ pieces, closed, len }` and a mark `{ pieces, closed }` — the same geometry in FRAME
+     * units, with no path string built. `off` is returned because that painter needs the drag
+     * alone: folded into `transform.tx` it could only be recovered by subtracting the mapping
+     * back out, which is the second derivation §2.7 FC2 exists to forbid.
      *
      * WHERE THE GEOMETRY COMES FROM. The pieces the renderer is drawing —
      * `_lastList`, the tile store's content for the active frame plus the
@@ -546,17 +552,22 @@ class Overlays {
         // (see setTool), and this second check keeps the overlay honest even if
         // some path sets `tool` without going through there.
         if (!s || this.tool !== "select") return null;
-        const table = this._selTable(s);
-        if (!table.count) return null;
-        const dec = this._selDecide(s, table);
-        const sc = this.cam.inScale;
         const d = this._dragSel;
+        // A drag keeps its first decision (below), so it needs no table: the table is keyed on the
+        // document's revision, which every drag step moves (PAPER-PLAN §10 S7).
+        const kept = this._selDec;
+        const held = d && kept && kept.drag === d && kept.sel === s && kept.frame === this.cam.frame;
+        const table = held ? null : this._selTable(s);
+        if (!held && !table.count) return null;
+        const dec = held ? kept : this._selDecide(s, table);
+        const sc = this.cam.inScale;
         const off = (d && dec.drag === d && d.last) ? [d.last[0] - dec.dragAt[0], d.last[1] - dec.dragAt[1]] : [0, 0];
         const edges = this._selEdges(dec, off);
         if (!dec.runs.length && !dec.marks.length && !edges.list.length) return null;
         return {
             key: dec.key,
             transform: { k: sc / dec.scale, tx: this.cam.inPanX + sc * dec.origin.x + off[0], ty: this.cam.inPanY + sc * dec.origin.y + off[1] },
+            off,
             runs: dec.runs, marks: dec.marks, inkPx: dec.inkPx,
             edges: edges.list, covered: edges.covered,
         };
@@ -635,6 +646,23 @@ class Overlays {
     }
 
     /**
+     * A selected frame's content where it is drawn, in F's units: the union of its subtree's index
+     * extents, each through its frame's pending shift. O(frames); no list is read (F103).
+     */
+    _selFrameContent(f, F) {
+        let out = null;
+        this.lm.walk(f, (g) => {
+            const ext = this.doc.frameExtent(g.id);
+            if (!ext) return;
+            const b = ext.box, t = g.shift || [0, 0];
+            const r = this.lm.mapRectF({ left: b.x0 + t[0], top: b.y0 + t[1], right: b.x1 + t[0], bottom: b.y1 + t[1] }, g.id, F);
+            if (!r) return;
+            out = out ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) } : r;
+        });
+        return out;
+    }
+
+    /**
      * The decision: which frames are one mark, which pieces get ants and along
      * which of their pieces, in retained coordinates. Cached; see
      * `_selectionAnts` for the key.
@@ -660,7 +688,16 @@ class Overlays {
 
         const runs = [], marks = [], pieces = [];
         let inkPx = Infinity;
-        const retained = (loop, closed) => runPathData({ pieces: loop, closed }, O.x, O.y, sc);
+        // RASTERISER-PLAN §10 stage 5d's one additive fork, read ONCE a decision: the SVG
+        // renderer wants `runPathData`'s string and the canvas painter wants the run's own
+        // pieces, which are already the render list's frame coordinates (`runPathData` is what
+        // applied `(p − O)·sc`, so the raster path reads no origin at all — FC6/G12). Measured at
+        // F39's report density (§8.6 row 17): the string costs 8.24–8.92 ms of a decision and
+        // 278.1 KB of path data, keeping the pieces 0.33–0.65 ms and nothing.
+        const wantPath = !this.renderer.antPainter;
+        const retained = wantPath
+            ? (loop, closed) => ({ d: runPathData({ pieces: loop, closed }, O.x, O.y, sc) })
+            : (loop, closed) => ({ pieces: loop, closed });
         const win = this.cam.frameWindow(SEL_KEEP_FRACTION * Math.max(this.width, this.height) / sc);
         const keep = { x0: win.left, y0: win.top, x1: win.right, y1: win.bottom };
 
@@ -679,7 +716,7 @@ class Overlays {
             // frame stays visibly larger than a half-pixel one.
             const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
             const rad = Math.max(SEL_MIN_TRACE_PX, span) / 2 / sc;
-            marks.push({ d: retained(circleLoop(cx, cy, rad), true) });
+            marks.push(retained(circleLoop(cx, cy, rad), true));
         }
 
         // ---- the pieces on screen that belong to the selection -------------------
@@ -699,6 +736,7 @@ class Overlays {
         const seamCache = new Map();
         const traced = new Set();
         const small = [];
+        const shownFrames = new Set();           // selected frames with a run or a dot from a piece
         for (const piece of list) {
             const own = table.ids.has(piece.id);
             const fr = own ? null : frameOf(piece.id);
@@ -733,14 +771,15 @@ class Overlays {
                     for (const run of clipRunToRect(seamRun, keep)) {
                         const len = runLength(run.pieces) * sc;
                         if (len < SEL_MIN_RUN_PX) continue;
-                        runs.push({ d: retained(run.pieces, run.closed), len });
+                        runs.push({ ...retained(run.pieces, run.closed), len });
                         traced.add(piece.id);
+                        if (fr) shownFrames.add(fr);
                     }
                 }
             }
             // A frame member drawn but too small for a run is a dot where it is drawn (F73's
             // rule, from the piece: the frame's natives are not read).
-            if (fr && !traced.has(piece.id) && bounds && sizePx < SEL_OBJECT_DOT_PX) small.push({ left: bounds.x0, top: bounds.y0, right: bounds.x1, bottom: bounds.y1 });
+            if (fr && !traced.has(piece.id) && bounds && sizePx < SEL_OBJECT_DOT_PX) { small.push({ left: bounds.x0, top: bounds.y0, right: bounds.x1, bottom: bounds.y1 }); shownFrames.add(fr); }
         }
 
         // ---- selected objects too small to trace: a dot each (F73) ----------------
@@ -758,16 +797,26 @@ class Overlays {
             if (Math.max(r.right - r.left, r.bottom - r.top) * sc >= SEL_OBJECT_DOT_PX) continue;
             small.push(r);
         }
+        // A selected frame over the mark size whose content is culled from the list showed nothing
+        // at all: a dot where its content is drawn (F103).
+        for (const fr of table.frames) {
+            if (marked.has(fr) || shownFrames.has(fr)) continue;
+            const r = this._selFrameContent(fr, F);
+            if (!r || r.right < win.left || r.left > win.right || r.bottom < win.top || r.top > win.bottom) continue;
+            small.push(r);
+        }
         for (const r of mergeClose(small, SEL_FRAME_MARK_PX / sc)) {
             const span = Math.max(r.right - r.left, r.bottom - r.top) * sc;
             const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-            marks.push({ d: retained(circleLoop(cx, cy, Math.max(SEL_MIN_TRACE_PX, span) / 2 / sc), true) });
+            marks.push(retained(circleLoop(cx, cy, Math.max(SEL_MIN_TRACE_PX, span) / 2 / sc), true));
         }
 
         this._selDecSeq = (this._selDecSeq || 0) + 1;
         this._selDec = { key: this._selDecSeq, list, sel: s, rev: this.doc.rev, frame: F, origin: O, win,
             scale: sc, runs, marks, inkPx, pieces,
-            drag, dragAt: drag ? (drag.last ? [drag.last[0], drag.last[1]] : [drag.start[0], drag.start[1]]) : null };
+            // The pointer the decided geometry belongs to: the drag's start when the drag builds no
+            // list (the plane, PAPER-PLAN §10 S4 — `_lastList` is the one from before the drag).
+            drag, dragAt: drag ? (drag.listAt ? [drag.listAt[0], drag.listAt[1]] : drag.last ? [drag.last[0], drag.last[1]] : [drag.start[0], drag.start[1]]) : null };
         return this._selDec;
     }
 
@@ -819,11 +868,12 @@ class Overlays {
                 const R = m.obj.attachRect;
                 if (!R) continue;
                 const Rl = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
-                // `mapRectObj` answers where the picture IS (remainder
-                // included, F55), so it is not shifted again; a window in the
-                // member's own frame, and one reached exactly, still are.
-                const mapped = m.level === F ? shift(Rl)
-                    : (m.obj.below ? this.lm.mapRectObj(Rl, m.level, F, m.obj.below, m.level) : shift(this.lm.mapRectF(Rl, m.level, F)));
+                // Where the MEMBER is drawn: its own table (`mapRectObj`, remainder included, F55), or
+                // none. The traced piece's residual is not the member's: a kid ceded three levels
+                // below a move carries no table, and shifted by its parent's half-frame residual its
+                // window missed the hole's edge, which drew a square of ants inside the ink (F125).
+                const mapped = m.obj.below ? this.lm.mapRectObj(Rl, m.level, F, m.obj.below, m.level)
+                    : (String(m.level) === String(F) ? Rl : this.lm.mapRectF(Rl, m.level, F));
                 if (mapped) rects.push(clipRect(mapped));
             }
         }

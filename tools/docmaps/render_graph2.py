@@ -172,6 +172,34 @@ def svg():
     return "\n".join(o)
 
 
+def geometry():
+    """The drawing checked mechanically (README: a block drawn empty in Chrome
+    looked like a layout bug and was not one; this is what rules the layout out):
+    every function box inside its own block, no two blocks overlapping, and every
+    file name inside its block at 1x. -> list of problems."""
+    bad = []
+    for m, b in BLOCKS.items():
+        x0, y0, x1, y1 = BX[m], BY[m], BX[m] + b["w"], BY[m] + b["h"]
+        for n in b["nodes"]:
+            c, _r = b["slot"][n]
+            w = b["colw"][c]
+            if (X[n] - w / 2.0 < x0 - 0.01 or X[n] + w / 2.0 > x1 + 0.01
+                    or Y[n] - NH / 2.0 < y0 - 0.01 or Y[n] + NH / 2.0 > y1 + 0.01):
+                bad.append("box %s falls outside block %s" % (n, m))
+        if b["titlew"] > b["w"] - 2 * LM.BLOCK_PAD + 0.01:
+            bad.append("the name of %s is wider than its block" % m)
+    mods = sorted(BLOCKS)
+    for i, a in enumerate(mods):
+        ax0, ay0 = BX[a], BY[a]
+        ax1, ay1 = ax0 + BLOCKS[a]["w"], ay0 + BLOCKS[a]["h"]
+        for c in mods[i + 1:]:
+            cx0, cy0 = BX[c], BY[c]
+            cx1, cy1 = cx0 + BLOCKS[c]["w"], cy0 + BLOCKS[c]["h"]
+            if ax0 < cx1 and cx0 < ax1 and ay0 < cy1 and cy0 < ay1:
+                bad.append("blocks %s and %s overlap" % (a, c))
+    return bad
+
+
 def adjacency():
     dn = collections.defaultdict(list)
     up = collections.defaultdict(list)

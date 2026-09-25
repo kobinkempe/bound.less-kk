@@ -10,6 +10,7 @@ export default function FileActionsMenu({
     onDelete,
     onClose,
     anchorRef,
+    readOnly = false,
 }) {
     const ref = useClickAway(onClose, anchorRef);
     return (
@@ -20,16 +21,20 @@ export default function FileActionsMenu({
             <button type="button" className="bl-file-menu-item" onClick={() => { onExportSvg(); onClose(); }}>
                 <Download size={14} /> Export SVG
             </button>
-            <button type="button" className="bl-file-menu-item" onClick={() => { onOpenFile(); onClose(); }}>
-                <FolderOpen size={14} /> Load from file…
-            </button>
+            {!readOnly && (
+                <button type="button" className="bl-file-menu-item" onClick={() => { onOpenFile(); onClose(); }}>
+                    <FolderOpen size={14} /> Load from file…
+                </button>
+            )}
             <button type="button" className="bl-file-menu-item" onClick={() => { onDuplicate(); onClose(); }}>
                 <Copy size={14} /> Duplicate canvas
             </button>
-            <div className="bl-file-menu-divider" />
-            <button type="button" className="bl-file-menu-item bl-file-menu-item--danger" onClick={() => { onDelete(); onClose(); }}>
-                <Trash2 size={14} /> Delete canvas
-            </button>
+            {!readOnly && <div className="bl-file-menu-divider" />}
+            {!readOnly && (
+                <button type="button" className="bl-file-menu-item bl-file-menu-item--danger" onClick={() => { onDelete(); onClose(); }}>
+                    <Trash2 size={14} /> Delete canvas
+                </button>
+            )}
         </div>
     );
 }

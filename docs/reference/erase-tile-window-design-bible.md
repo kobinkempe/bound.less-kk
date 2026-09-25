@@ -3,7 +3,9 @@
 > residue bookkeeping: a move is address arithmetic now, so path-independence is
 > what the arithmetic does rather than something to be arranged. §2.6/§3.2 (cut
 > the tile out of the parent) shipped — see `docs/HANDOFF-cede-refactor.md`.
-> Everything else here still describes the erase model.
+> Everything else here still describes the erase model. (2026-09-22: "Nothing built yet"
+> below is the status of 2026-08-03; what was built, through the erase worker of
+> 2026-09-08, is DESIGN.md §7. The two files named above are in `docs/reference/`.)
 
 # Erase by Tile Window — Design Bible
 
