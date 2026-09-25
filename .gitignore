@@ -37,3 +37,6 @@ yarn-error.log*
 /public/erase-worker.js
 /public/scene-worker.js
 /public/raster-worker.js
+
+# comment-stripped live-code dumps (review aid)
+/live-code/
