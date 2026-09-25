@@ -199,7 +199,7 @@ orchestrator, and its harness numbers in the status log. Kobin looks at the whol
 | a stored plate's generation is monotone; exact iff `plate.G ≥ cell.dirtySince` | random interleavings of changes, dispatches and arrivals: no arrival lowers a plate's G; the compose never draws as exact a plate a later change touched |
 | the scene's items equal `listFor`'s sorted output | a jsdom fuzz over draw, erase, move, undo, crossing; compared after every operation until `listFor` is deleted |
 | a mark hides exactly its targets, and the masked target looks like its cut pieces | random object under a random mark: the plate with the mask equals the plate with the pieces and no mask, under the AA tolerance; an object moved under the mark after pen-up is unmasked |
-| a family's union is insensitive to a one-ulp disagreement at a shared edge | perturb one shared edge by an ulp; the plate is unchanged |
+| a family's union is insensitive to a one-ulp disagreement at a shared edge | perturb one shared edge by an ulp; the plate is unchanged, except that a byte on the shared edge may move one alpha step where the exact value is a rounding tie (built: `raster.familyUlp.test.js`) |
 | the placed read equals the numeric table | random tables and depths: the picture through `placed()` equals the picture through the home frame with the table applied, to 1e-9 |
 | the pyramid's crossing mapping is exact | random frames and cells: the parent's coarser cell by integer arithmetic equals `_mapFrame`'s affine to the bit |
 | a selection stands for the same ink through settles, merges and cuts | the lasso lane's fuzz; a selected frame's contents before and after, and a cut step re-targeting a selected object to its pieces |
