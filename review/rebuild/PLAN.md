@@ -45,28 +45,48 @@ The geometry pipeline (lattice, tiles, the boolean, the bake, moves as tables, t
 white stroke with a deferred bake) is unchanged except where §1.7 says. The rasteriser core
 (`rasterCore.js`: coverage, family union, masks, occlusion) is unchanged except for a clip box.
 
-### 1.1 The scene: one object between the document and the renderer (§3.2, R25 §4.2, §4.10, §10.1, §10.5)
+### 1.1 The scene: one object between the document and the renderer (§3.2; A2 §2–§3; R25 §4.2, §4.10, §10.1, §10.5)
 
-- `Scene` subscribes to the document and keeps, per camera frame, an **item table** sorted by z:
-  the frame's own natives, the visible tiles' pieces (TileStore already patches those in place),
-  and the re-routed moved objects. An item carries id, z (read from the object, not copied at
-  derive time: R25 H8), kind, a geometry reference, its box, its residual, its family key, the
-  erase data of §1.3, and `held` during a drag.
-- Document events update the table incrementally; a full rebuild only on a crossing or a change
-  of the visible tile range.
-- **Generation.** Every change to the table increments `G`. An item update dirties the plate
-  cells over old box ∪ new box at every level of the frame; each cell records `dirtySince = G`.
-- **Freshness is one comparison.** A job carries the `G` it was packed from; a stored plate
-  carries its `G`; a result replaces the stored plate iff its `G` is newer; a plate is exact iff
-  `plate.G ≥ cell.dirtySince`, otherwise it is a stand-in.
-- **`placed(item)`** is the one accessor for an item's geometry as drawn (or the numeric offset
-  the worker applies). The pack, the hit test, the ants, the lasso and the erase read through it.
-- Deleted by this: per-key epochs and their five drop kinds, quantum strings and frame
-  sequences, the four request records, `_footBelow` and `_drawnRectIn`, ids per plate,
-  `noteListMarks`/done snapshots, neutral event tags, `_uncut`, `_eraseListStale`,
-  `_renderSoon`'s skip rule, the list rebuild per erase step, `listFor`'s per-item document
-  lookups. `listFor` stays only for the SVG renderer and the comparison until the SVG renderer's
-  own step; the scene's items equal `listFor`'s sorted output, checked by a fuzz.
+- The class is **`Stage`** (`src/engine/Stage.js`, `engine.stage`; "the scene" in prose — the Scenes
+  panel owns that word in code). It subscribes to the document after `TileStore` and keeps, for the
+  camera's frame, an **item table** in paint order: a chunked z-sorted list (24–26 µs to replace one
+  item by three at 25k–45k items, A2 exp2) with indexes by native id, by source tile, by piece and by
+  home frame. Items are the frame's own natives, the visible tiles' pieces (a new `TileStore.onTile`
+  hook reports every in-place patch; an id → tiles index replaces the whole-cache scan on remove)
+  and the re-routed moved objects (a pushed memo). An item reads z, family key and erase data from
+  the live native (R25 H8), keeps its box and its offset, and is `pending` from pen-down until its
+  shape bake lands (packs skip it, the pick sees it) and `held` during a drag. Nothing is written
+  onto a piece or a native.
+- **Generation.** One global integer `G`, bumped once per commit: an event outside a batch, a batch
+  (a drop, an undo, a delete, a load: `stage.batch`), a mask-state change, a drag delta while view
+  plates draw held items. Events apply eagerly; the table is never behind the document.
+- **Dirtiness is the changed native's drawn footprint, before and after, from the event itself**
+  (`oldBbox`/`oldLw` exist; B-SCENE adds `oldBelow` to offsets-only changes), mapped into every frame
+  that has plates. The plate store **tracks** every cell it holds or has a job for
+  (`track(key, frame, box)`), and a commit sets `dirtySince = G` on every tracked cell its
+  footprints meet — the grid is exactly the cells anyone can ask about. A bounded dirt log per frame
+  gives a partial re-render the rectangles to clip to. Picture-preserving changes (a settle, a merge,
+  an inkless refusal) carry no footprint; a change that flips a family's union routing, sign, colour
+  or alpha dirties the family's whole box (measured first, §5.1 Q15).
+- **Freshness is one comparison.** A job carries the `G` it was packed from; a result replaces the
+  stored plate iff its `G` is newer (F106 with nothing added); a plate is exact iff
+  `plate.G ≥ dirtySince(key)`. The interface A3 builds on is A2 §3.4: `generation`, `onCommit`,
+  `sync`, `covers`, `items`, `placed`, `placeNative`, `changesSince`, `snapshot`, `marks`, `masks`,
+  `track`/`untrack`/`dirtySince`/`dirtyRects`, `hold`/`setDragDelta`/`release`, `batch`.
+- **`placed(item)`** is the one read of an item's geometry as drawn; **`placeNative(nat, frame)`** the
+  same for any native (box, `toStored`, `fromStored`). Both read membership and placement only
+  through A1's `PlacementModel` (`nativesIn`, `placement`, `displaced`, plus `frameFootprint`), which
+  B-SCENE implements over today's calls and B-MODEL replaces underneath.
+- **One frame path**: `engine.frame()` runs `stage.sync(frame, window, budget)`, the renderer's step,
+  the overlay decision keyed on `G`, and the status; `syncCameraOnly`, `_render`'s five predicates,
+  `_eraseListStale`, `_renderSoon`'s skip and `_renderPending` go on the raster path. A crossing or a
+  frame re-address rebuilds the table; a window change adds and drops tiles; the camera's tile read
+  is budgeted (`TileStore.read` lists misses instead of throwing) and `covers()` says which cells may
+  be rendered.
+- Deleted by this: per-key epochs and their five drop kinds, the job's epoch array, ids per plate,
+  `_footBelow`, `_drawnRectIn`, the plate-event queue and drain, the drag's hold of plate events
+  (`stage.hold` replaces it), the per-list mark snapshots, the stale-list machinery. `listFor` stays
+  for the SVG renderer and the equivalence fuzz (`stage.equiv`), and goes with them.
 
 ### 1.2 Plates: a picture pyramid with a level step (§3.3, R25 §4.1, §4.3, §4.8, §6.5, §8; A3)
 
@@ -123,28 +143,52 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   the attention point and dealt round-robin across strips; a per-frame pack budget (4 ms) while
   moving; a job aimed at where the camera will be on arrival; cancellation by purpose generation.
 
-### 1.3 Erasing: the mask as document state, cuts in parallel (decision 3; §3.5, R25 §4.9, §10.2, §12.2; R24 §4.6)
+### 1.3 Erasing: the mask as document state, cuts in parallel (decision 3; A2 §4; §3.5; R25 §4.9, §10.2, §12.2)
 
-- **Targets at pen-up.** A mark records the ids the candidate scan finds under it when it is
-  drawn (saved with the mark). Only targets and their pieces are ever masked or cut. An object
-  moved under a pending mark later is not a target: it shows through and is untouched.
-- **`handledBy`** on each native: the set of mark ids whose bake has dealt with it; pieces inherit
-  the parent's set plus the cutting mark; a refusal adds the mark. Persisted; derivable for old
-  files from the op log's bake entries at load.
-- **The mask rule is pure**: item *i* is masked by mark *M* iff *i* is a target of *M* (or a piece
-  of one), `M.id ∉ i.handledBy`, `i.z < M.z`, and their boxes meet. No z-stepping, no done sets,
-  no per-list snapshots. Anything baked shows on top of a pending mark.
-- **Cuts in parallel**: up to one cut per worker, results applied in the mark's z order, early
-  arrivals buffered; descents (which mint frames) stay serialised. One boolean per target when
-  several marks pending over it are all above it in z.
-- **Barriers stay** (decision 3, part two): a lasso and a tap-select over pending targets bake
-  those targets first, in parallel, without the 200-round cap, with a visible "finishing the
-  erase" state. Because a target is always cut before it can be dragged, a target never moves
-  while pending, so the mask by position is exact.
-- Pending marks are a set maintained by events. Mask slots: 16, marks that no masked item lies
-  between merged into one slot, marks past that painted as white ink.
-- Deleted: `_lowerMark` and the half-integer z steps, `_bakeDone`/`_uncut`, `noteListMarks`,
-  `_eraseStrokes()` scans, the one-cut-at-a-time queue, the 200-round cap.
+- **Three fields**, all document state, restored by reference by the step graph: `targets` on the
+  mark (the ids under it when its shape landed, never changed after); `targetOf` and `handledBy` on
+  any native, inherited by every piece a cut or a cede mints (the cutting mark added to
+  `handledBy`); a refusal or a graze adds the mark to `handledBy`.
+- **Registration** runs in the same commit as the mark's shape landing (the first bake slice, a
+  macrotask after pen-up; every reader that needs the mask before that — the pick, a barrier —
+  resolves pending perimeters first): the frames pass, the candidate scan once, `targets` recorded.
+  Nothing can move under a mark before that: every gesture that moves ink flushes pending perimeters
+  first, and the mark's op is on top of the undo stack (a stated invariant with a test).
+- **The rule is pure** (`eraseRule.underMask`): item *i* is masked by mark *M* iff *M* has landed,
+  `M ∈ i.targetOf`, `M ∉ i.handledBy`, `z(i) < z(M)`, and their boxes meet. Kobin's semantics follow:
+  an object dragged under a pending mark is not a target and shows through; anything baked has the
+  mark in `handledBy` and shows on top; a new stroke has a higher z. The pick skips a masked target
+  where the mark covers it.
+- **What an erase step dirties.** The shape landing: the mark's box. A cut or descent applied on a
+  pending pair: `box(mark) ∩ box(target)` ∪ the dust boxes — a small rectangle, re-rendered through
+  the clip box (inline when small) — so the band where the target's edge crosses the eraser's is
+  exact step by step (A2 measured it at up to 57/255 if left; the outlines of re-flattened arcs
+  outside the mark's box differ by ≤ 16/255, the arc tolerance, until those cells next render).
+  A refusal over ink: `box(target) ∩ box(mark)`. A graze or an inkless refusal: nothing. The mark
+  spent: its box.
+- **Cuts in parallel**: dispatched ahead in the serial order (marks oldest first, targets top-down)
+  through `pool.submit({kind: "cut" | "descent", prio: 3, …})`, applied strictly in serial order
+  through a reorder buffer so a parallel bake produces the serial bake's document, ids and op log;
+  descents serialised; a per-target lock; one worker reserved for cuts while any are pending. Until
+  A3's queue lands, an interim N-worker erase pool behind the same `submit`.
+- **The barriers stay, asynchronous and uncapped**: a tap, a drag start and a lasso dispatch their
+  pending pairs at the head of the cut queue and park the gesture's continuation; rounds apply in
+  serial order until no pair is left; the selection follows the cuts to the pieces; the tab stays
+  responsive; a chip "Finishing the erase…" after 150 ms; a new gesture, tool change or undo cancels
+  the parked continuation. A drag's barrier bakes the selection's members and the marks homed under
+  its frames only (B4); a lasso's bakes every pair whose target's box meets the loop's (H5).
+- **Mask slots**: 16, byte-sized, marks sharing a slot exactly when no item lies under both with
+  different bits; past 16 the least-conflicting pair is merged and the older mark's cuts raised;
+  **never white ink** (it would hide exactly the objects Kobin's rule says show).
+- Persistence: the fields in object headers (kobin-1 stays version 1: additive), refusals as `attr`
+  entries, `targetOf` derived at load from every known mark's `targets`; a file saved before the
+  change registers each mark once by the old rule minus its log's bake entries. Spent marks' ids are
+  pruned from live natives.
+- Deleted: `_lowerMark` and the half-integer z, `_bakeDone`/`_uncut`, the per-list snapshots,
+  `_eraseStrokes()` scans (a set maintained by events), the one-cut-at-a-time queue, the 200-round
+  cap, the neutral mode flag (the Stage classifies from the event's `by` and the rule),
+  `_renderSoon`'s skip. One boolean per target under several marks is deferred (measure ten dabs
+  with the pool first).
 
 ### 1.4 Moving (decision 4; §3.4, R24 §4.7, R25 D1)
 
@@ -260,7 +304,7 @@ orchestrator, and its harness numbers in the status log. Kobin looks at the whol
 |---|---|
 | a stored plate's generation is monotone; exact iff `plate.G ≥ cell.dirtySince` | random interleavings of changes, dispatches and arrivals: no arrival lowers a plate's G; the compose never draws as exact a plate a later change touched |
 | the scene's items equal `listFor`'s sorted output | a jsdom fuzz over draw, erase, move, undo, crossing; compared after every operation until `listFor` is deleted |
-| a mark hides exactly its targets, and the masked target looks like its cut pieces | random object under a random mark: the plate with the mask equals the plate with the pieces and no mask, under the AA tolerance; an object moved under the mark after pen-up is unmasked |
+| a mark hides exactly its targets, and the masked target looks like its cut pieces | A2 §6.4 row 3: the pack's bit equals an oracle from the op history; plates kept through a bake against a fresh raster differ only within 1.5 px of a mark's edge (re-rendered step by step under §1.3) or on a cut arc's outline by ≤ 16/255; an object moved under the mark after its registration is unmasked and never cut |
 | a family's union is insensitive to a one-ulp disagreement at a shared edge | perturb one shared edge by an ulp; the plate is unchanged, except that a byte on the shared edge may move one alpha step where the exact value is a rounding tie (built: `raster.familyUlp.test.js`) |
 | the placed read equals the numeric table | random tables and depths: the picture through `placed()` equals the picture through the home frame with the table applied, to 1e-9 |
 | the pyramid's crossing mapping is exact | random frames and cells: the parent's coarser cell by integer arithmetic equals `_mapFrame`'s affine to the bit |
@@ -305,8 +349,8 @@ to it. The sixteen questions:
 7. **Q7 yes.** A new stroke and a new mark are pending from pen-up to their shape bake, then one
    rectangle re-render and the group commit (§1.5). This is an ask on B-SCENE: A2's `finalize` row
    becomes "pending until `bakeShapeById`, then packable with its footprint". For a mark, its targets
-   are recorded and its mask is in force for the hit test and the bake from pen-up; the plates apply it
-   when the shape lands, and the live white path covers the targets until then, as today.
+   are recorded when its shape lands (A2-Q10), in the same commit; the pick and the barriers resolve
+   pending perimeters first; the live white path covers its region until then, as today.
 8. **Q8 yes.** localStorage per device, a URL override that wins, never the canvas record.
 9. **Q9 yes.** The GPU merge through one scratch `OffscreenCanvas`; jsdom keeps raw pixels and a
    typed-array sub-rectangle copy, which is what the property test checks.
@@ -358,4 +402,42 @@ Read in full. Option (c) is adopted as written; §1.7 above was rewritten to it.
 Orchestrator's additions: the lint that forbids `.below` reads outside the model (A1 risk 1) is part
 of C1's deliverable; the "no read mutates" property (`rev`, `offRev`, `addrEpoch` unchanged across
 every read) is added to PLAN §3.
+
+### 5.3 To A2 (the scene, the generation model, the erase rule) — 2026-09-26
+
+Read in full. Adopted as written in `A2-scene.md`, with §1.1 and §1.3 above rewritten to it and one
+change of the orchestrator's (A2-Q2). The fifteen questions:
+
+1. **A2-Q1 `Stage`.** Yes; "the scene" in prose.
+2. **A2-Q2 a cut step re-renders its small rectangle.** Not fully neutral: an applied cut or descent on
+   a pending pair dirties `box(mark) ∩ box(target)` ∪ its dust boxes, re-rendered through A3's clip
+   box (inline when small); the mark's box at spend. That is Kobin's decision 2 applied to the band
+   exp4 measured (up to 57/255 along the eraser's edge), at about fourteen small re-renders per
+   Magnum-Opus bake. The arc-outline differences outside the mark's box (≤ 16/255, the flattening
+   tolerance) are accepted until those cells next render, and row 3 (b)'s envelope is the gate for
+   them. The classifier stays per event from `by` and the rule; the choice is one line there, as A2
+   says.
+3. **A2-Q3 merge, never white ink.**
+4. **A2-Q4 defer** one boolean per target; measure ten quick dabs with the pool first.
+5. **A2-Q5 build against `submit`**; an interim N-worker erase pool if B-ERASE lands before A3's
+   queue; the transport swap is B-PYRAMID's.
+6. **A2-Q6 asynchronous always**, inline where there is no worker. Kobin's "barriers stay" is the
+   semantics (nothing selected, moved or judged before its cuts land); the freeze was never the
+   feature. The feel (a tap that selects a moment later, a drag that jumps to the finger, the chip
+   after 150 ms) is his to judge at the end, and is named in the report to him.
+7. **A2-Q7 yes**, the pick follows the mask.
+8. **A2-Q8 yes**, JSON ids on the header; the geometry array only if a real mark measures over ~1k.
+9. **A2-Q9 keep**, and Kobin is asked once with the example (an undone older erase's source comes
+   back whole and the newer mark drawn over its pieces does not cut it).
+10. **A2-Q10 at the shape landing.** §5.1 Q7's wording corrected.
+11. **A2-Q11 yes**, B-SCENE's hold queues held natives' events and releases one batch.
+12. **A2-Q12 keep** `z(i) < z(M)`.
+13. **A2-Q13 yes**, the frames pass at registration.
+14. **A2-Q14 yes**, off-camera reads through `stage.snapshot`.
+15. **A2-Q15 yes**, prune spent marks' ids.
+
+Orchestrator's additions: A1's contract gains `frameFootprint(frame)` (A2 §7.3), so a frame's
+footprint is the model's answer, not `cell ± REACH` computed in the Stage; the two cede bodies become
+one function with a receiver (R25 D4) in B-ERASE; `Document.setZById` keeps no production caller and is
+noted as the reserved z op's hook.
 
