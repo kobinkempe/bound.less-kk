@@ -175,3 +175,73 @@ the O(1) lasso degrades). §6 aligns the contract with A2's `placed`/`placeNativ
 never; Q2 op repair vs a second parent pointer; Q3 newcomer cancellation; Q4 C4 now; Q5 version 3;
 Q6 legacy inverses; Q7 frozen oracle; Q8 co-residents as selection units; Q9 delete leaves the
 lattice; Q10 order; Q11 legacy kids stay).
+
+## 2026-09-26 00:26 UTC — A2 (analyst) — scene / generation / erase rule — checkpoint 3
+**Working on:** `review/rebuild/A2-scene.md` is written end to end (§0–§9, appendix A, ~1,550 lines);
+now proofreading every `file:line` against the tree and aligning with what landed meanwhile: A3's
+design adopted (PLAN §1.2/§1.5 rewritten, §5.1's answers — Q7 pending items to the shape bake, Q12
+TileStore's partial read, Q15 family-level dirt are B-SCENE's) and A1 §6's `PlacementModel` contract.
+**Measured:** exp3 — a plain walk of the chunked table 0.3–1.6 ms at 45k–100k items; the rule plus a box
+test for 3 marks over every item 1.5–4.7 ms (a pack evaluates only its strip's items).
+**Decisions made:** adopted PLAN §5.1 Q7 (a new mark is unlanded until its shape bake; registration and
+the frames pass ride that commit; no "unresolved" rule — readers that need the mask flush perimeters
+first), Q12, Q15 (the family rule computed with the pack's own functions, measured before kept), A1's
+`PlacementModel` as the only placement read, A3's one pool with the `submit` contract (an interim erase
+pool only if B-ERASE lands first).
+**Questions asked:** 15, in the document's §9 (Q1 name `Stage`; Q2 neutral steps; Q3 no white ink; Q4
+defer joint cuts; Q5 pool order; Q6 async barriers; Q10 registration at the shape landing …).
+
+## 2026-09-26 00:35 UTC — B-FOUNDATION (builder) — clip box, level.js, input coalescing + ScaleHud, Dev levers, harness — start
+**Proposal.** *Approach:* five deliverables in the brief's order, each green (typecheck 0, lint 0, every
+touched suite alone) before the next. (1) A3's `make-clip-core.py` "rows" variant transcribed into
+`rasterCore.js`: the clip is module state set by `renderPlate(…, clip)` and reset in a `finally`;
+`job.clips` on the wire (validated; the result echoes it; a clipped plate serialises only its rectangle,
+`createImageBitmap(img, x0, y0, w, h)` or `copyPlate(rgba, clip)`); `rasterCore.clip.test.js` is E1 as a
+test, the merge through the wire, and golden hashes of whole plates taken from the unmodified core for
+"byte-identical to today"; a break-check per rule on an unimported copy. (2) `level.js`, pure; BigInt only
+where a sum leaves 2^53; the seven-step test. (3) `cfg.frames`, "sync" by default; in "raf" the four entry
+points mutate and request a frame, `_frame()` runs the deferred half once, `flush()` runs it now, a press or
+release flushes first; `PictureLayer._flush` calls an injected `onArrive`; `onZoom`; `<ScaleHud>` owns the
+session, the picker and the write-back. (4) Lever fields in `DEFAULTS`, setters that only store, a small
+storage module (localStorage + URL override), panel controls, `<DevStats>` on its own timer. (5) `--dense`,
+`--scenario`, `synth-drawing.js`, the rAF paper sampler, frameMeter deltas, two compose counters, baseline.
+*Decisions (confidence):* clip as module state, A3's form (0.9); union bands start at the clip's rows as in
+A3's measured reference (0.7, Q1); byte-identity by goldens from the pre-change core (0.8); `mapCell(lm, S, A,
+ℓ, i, j, B)` and `coarser(lm, S, F, ℓ, i, j, k)` take the lattice and the step explicitly (0.75); in "raf" a
+pointer down/up, undo and redo flush the pending frame first so a drop sees the last pointer (0.8); the scale
+session reset is derived from `scaleDef`'s identity inside `<ScaleHud>` (0.7); levers in localStorage key
+`bl.devLevers`, URL wins, setters store only (0.85); synthetic frame ids literally as A3 §9.3 names them (0.6).
+*Questions (recommendation):* Q1 the union pass inside a clip restarts its band at the clip's top, so an
+edge crossing it gets x from that start (equal to an ulp; a byte moves only on a float32 rounding
+coincidence; E1: 0 in 1,248) — keep A3's rule and state the exception, or reference the whole render's band
+start? **Keep, measure; switch if a seed shows a byte.** Q2 `pinchUpdate` ignores its pan's crossing today
+(only the zoom's triggers a render) — **keep that parity in "raf", flag it.** Q3 A3 §9.3 lists `"1/1,0"`,
+`"1/-1,1"` under depth 1, but those ids are depth-2 children of `"1"` — **use the ids as written.** Q4
+`maxImagesPerCompose` as a high-water mark cannot be differenced per gesture — **high-water in
+`pictureStats`, plus a per-gesture max from an in-page wrap in the harness.** Q5 add `level.js` to
+`npm run typecheck`? **Yes if it types clean with a structural lattice type.**
+**Working on:** reading done (preamble, CLAUDE.md, PLAN §0–§5, A3 in full, TEST-MAP, A3's `a3/core` scripts,
+the code). Files I edit: `raster/rasterCore.js`, `rasterJob.js`, `worker/rasterWorker.js`, new
+`raster/rasterCore.clip.test.js`, `raster/level.js`, `raster/level.crossmap.test.js`; `KobinEngine.js` (frame
+loop + `panBy`, `zoomFactorAt`, `pinchUpdate`, the drag's pointer move); `PictureLayer.js` (`_flush` and the
+compose counters only); `hooks/useKobinEngine.js`; `Pages/CanvasEditor.js`; new `Components/editor/ScaleHud.js`,
+`DevStats.js`; `tools/harnesses/`; DESIGN §9, `docs/ai/40-CALL-FLOW.txt`, the harness README.
+**Measured:** baseline typecheck 0 errors; lint 0 errors, 6 warnings; worker bundles before any edit: erase
+`a1fafca3d543d5a447fff295498d274a`, raster `13c28c877cbbef91c275cbc7edc7dd6a`, scene `dce304b81ac598a67b8aa15c2daa2d93`.
+**Decisions made:** as the proposal.
+**Questions asked:** Q1–Q5 above; continuing past them.
+
+## 2026-09-26 00:34 UTC — A2 (analyst) — scene / generation / erase rule — done
+**Working on:** finished. `review/rebuild/A2-scene.md` (1,627 lines): the `Stage` API and its event table,
+freshness by G with the interface A3 builds on (§3.4), the erase rule end to end, Kobin's cases traced,
+deletions with `file:line`, the migration (S1–S3, E1–E5), rows 1/2/3/5/7 as tests, seams with A1 and A3,
+7 least-sure items, 15 questions (numbered A2-Q1…Q15). No file outside `review/rebuild/A2-scene.md` and
+this log was written; experiments in the scratchpad `a2/`.
+**Measured:** exp4 (node + jsdom, the raster engine, K4's flow on real resolved strokes, 8 seeds): plates kept
+through an in-order bake's neutral steps differ from a fresh raster in 86–500 pixels a case — up to 11–57/255
+within 1.5 px of the eraser's edge, at most 3–13/255 elsewhere on outlines up to 64 px away (0–28 pixels outside
+the mark's box); no target or piece used the union pass, so the far part is the 1/16 px arc re-flattening, not a
+routing flip. `raster.mask.test.js` run alone: 5/5 (K4's 0 bytes holds for axis-aligned fills).
+**Decisions made:** the neutral classification stays (it is today's behaviour, measured), with row 3 (b)'s
+envelope as its gate; everything else as checkpoint 3.
+**Questions asked:** A2-Q1…A2-Q15 in the document's §9.
