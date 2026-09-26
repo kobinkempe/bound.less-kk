@@ -245,3 +245,17 @@ routing flip. `raster.mask.test.js` run alone: 5/5 (K4's 0 bytes holds for axis-
 **Decisions made:** the neutral classification stays (it is today's behaviour, measured), with row 3 (b)'s
 envelope as its gate; everything else as checkpoint 3.
 **Questions asked:** A2-Q1…A2-Q15 in the document's §9.
+
+## 2026-09-26 — orchestrator (Fable) — wave 1 read; wave 2 launched
+**Working on:** A1, A2 and A3 read in full; their 42 questions answered in PLAN §5.1–§5.3; PLAN §1.1,
+§1.2, §1.3, §1.5, §1.7 rewritten to the three designs. B-FOUNDATION (clip box, `level.js`, input
+coalescing + ScaleHud, Dev levers, harness) running since 00:35 UTC; B-SCENE (A2 §6.2 S1–S3, with A1's
+contract as an adapter) launched now. B-PYRAMID starts from B-SCENE's S2 checkpoint once B-FOUNDATION has
+landed; B-ERASE after S3; B-MODEL-C1 after B-SCENE.
+**Measured:** nothing new; the baseline is RENDERER-REBUILD §6.
+**Decisions made:** A2-Q2 changed — an applied cut step dirties `box(mark) ∩ box(target)` ∪ dust (a clip
+re-render), not nothing; A2-Q3 merge never white ink; A2-Q6 asynchronous barriers; A2-Q10 targets at the
+shape landing; A1 Q1 re-home at the drop; A1 Q2 the op repair; A3 Q2 the bounded stretch band; A3 Q5
+freshness-first lookup with the patch rule.
+**Questions asked:** to Kobin (non-blocking): "moved into" membership; the same group after a re-parenting
+(A1 Q2); an undone older erase under a newer mark (A2-Q9).
