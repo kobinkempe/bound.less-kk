@@ -178,21 +178,52 @@ render for the view > the view's plates > the drag layers > cuts, with one worke
 whenever any are pending > prefetch > thumbnails and snapshots. Cancellation by generation and
 visibility. Buffers pooled as now; the pack memo by reference (no second copy of visible loops).
 
-### 1.7 The document model: container and lattice untangled (decision 9; its own design first)
+### 1.7 The document model: container and lattice untangled (decision 9; A1's option (c))
 
 Today a frame is three things at once: a coordinate system that keeps numbers small and exact; a
-spatial bucket the tile derivation relies on (invariant 2: a native never overhangs its frame's
-neighbourhood by more than REACH, so a tile finds its ink in nine cells); and the container Kobin
-means. The engine re-buckets objects to keep the first two true (a settle carries natives across a
-cell edge, a whole-cell move re-homes, an erase at depth cedes into child frames), and a frame-based
-selection has to chase those re-bucketings (`_reselect`, `_followCarries`, `_flushCarried`,
-`_keepingSelection`, the merge handler; F78, F93, F100, F107, F108, F126). The target: the
-container relation is its own thing (an object belongs to the frame it was drawn or moved into),
-an object's numbers live in whatever frame keeps them exact, and finding ink for a tile goes
-through an index of displaced objects (which exists for moved objects: `_rerouteGroups`,
-`objShift`) instead of the reach rule; carries and whole-cell re-homes go; the O(1) subtree move
-survives. Analysis A1 designs it; it is built as its own step after §1.1–§1.3, and the scene's
-`placed()` accessor is what lets it land without touching the renderer again.
+spatial bucket the tile derivation relies on (invariant 2: a native's *stored bits* lie within its
+cell ± REACH, so a tile finds its ink in nine cells); and the container Kobin means. A1 found that
+invariant 2 is needed only for stored bits, and stored bits never move: what the engine's
+re-bucketings protect is the distance between a *picture* and its stored bits. The re-bucketings are
+the settle that carries natives across a cell edge at any read, the per-event re-homes and frame
+mints of a drag, the merge of a shadow into its cell's resident at a read, `_normalizeHome`'s
+whole-frame translation at the drop, the revival of a deleted frame when ink lands in its cell, and the
+cede that spreads one object over several frames. Nine of the eleven move flags Kobin saw trace to
+them (F78, F93, F94, F100, F107, F108, F110, F116, F126; F65 is the erase rule, F91 the phone's plate
+cap). The design, `A1-document-model.md` §4.4, in four steps:
+
+- **C1 — a frame's shift is placement, composed on read.** Never pushed into its natives: no settle,
+  no carry, no read that mutates. One model accessor composes frame shift ⊕ own table; `objShift` and
+  `residual` honour the whole-frame carry at the home depth (today they drop it: 0.75 W comes back as
+  −0.25 W); the reroute covers every displaced picture including whole shifted frames and views above
+  the home; new ink in a shifted frame takes −shift in its own table; enclosure boxes are the union of
+  the cell ± REACH and its shifted copy (closes H6). Measured picture-neutral: 716 of 720 placements
+  bit-identical, the rest one ulp at the parent view, 480 of 480 at and below the home.
+- **C2 — membership changes only at the end of a user action.** No document writes during a drag; at
+  the drop a per-object member is re-homed once and a subtree re-addressed once (the 183–290 frames a
+  40-step drag mints become the final 8–13); `_normalizeHome` goes; the selection is repaired from the
+  op's own record, never from events. "An object belongs to the frame it was drawn or moved into."
+- **C3 — a frame keeps its identity.** No merges: a frame landing on an occupied cell is a permanent
+  co-resident; lookups and every by-cell reader see co-residents; each co-resident is its own
+  selection unit; the camera is handed to the resident at the re-address; GC promotes; a deleted
+  subtree leaves the lattice (F107's revival sets go).
+- **C4 — a cede's kids live in private frames of their object.** The lasso never takes a private frame
+  whole and every other frame keeps the O(1) enclosed rule with no family pass; F108's 17,007-id torn
+  walk goes for new content (legacy kids keep the backstop rule). Severance compares cells.
+
+What it deletes: `_settleIfPending` and its seven call sites, `unsettle` (legacy inverse only), the
+settle entries and their coalescing, `_bakeSettled`, `_followCarries`/`_flushCarried`/`_keepingSelection`,
+F116's foreign-shift settle, `_mergeShadows`/`adoptShadow`/`unmerge`/`holdMerges`, the `mergeFrame` event,
+the merge handler and F126's follow, `_reuseDetached` and the F107 sets, `_normalizeHome`. What it adds:
+one composition accessor, co-resident lookups, a `private` frame flag, a version-3 gate (an older build
+refuses a file with a shift, a co-resident or a private frame rather than dropping them; files the
+deployed build and the phone saved carry none and open unchanged). The lattice's coordinates are
+unchanged, so A3's integer crossing map is untouched. **The contract with the scene** (A1 §6):
+`nativesIn(F)`, `placement(o, F) → {F0, rem}`, `displaced(F)`, and shift fields on `refile` events; the
+scene reads nothing else for membership or placement, so B-MODEL lands without touching the renderer.
+Order: the contract inside B-SCENE (step 0); C1 right after B-SCENE; C2 inside B-DRAG; then C3; then C4.
+Equivalence: a frozen copy of today's model under `__oracles__/model-v1/` and a fuzz that compares every
+derived tile piece bit for bit and the selection's ink after every random op.
 
 ### 1.8 Kept as is
 
@@ -214,7 +245,8 @@ writes the per-component design and the answers, and writes or commissions the i
 when the generation API is fixed. One reviewer pass per build. The orchestrator reads every diff
 and runs the harness.
 
-**Wave 3:** B-MODEL (§1.7, to A1's design) and B-DRAG (no writes during a drag, §1.4). Then the
+**Wave 3:** B-MODEL-C1 (the composition on read, right after B-SCENE and in parallel with B-PYRAMID),
+B-DRAG (no writes during a drag, §1.4, carrying C2), then B-MODEL-C3 and C4 (§1.7). Then the
 remaining helpers from the analysis §3.1 that the waves above have not absorbed (batch delete,
 `objShift` per group at a crossing, the plate budget arithmetic).
 
@@ -232,7 +264,9 @@ orchestrator, and its harness numbers in the status log. Kobin looks at the whol
 | a family's union is insensitive to a one-ulp disagreement at a shared edge | perturb one shared edge by an ulp; the plate is unchanged, except that a byte on the shared edge may move one alpha step where the exact value is a rounding tie (built: `raster.familyUlp.test.js`) |
 | the placed read equals the numeric table | random tables and depths: the picture through `placed()` equals the picture through the home frame with the table applied, to 1e-9 |
 | the pyramid's crossing mapping is exact | random frames and cells: the parent's coarser cell by integer arithmetic equals `_mapFrame`'s affine to the bit |
-| a selection stands for the same ink through settles, merges and cuts | the lasso lane's fuzz; a selected frame's contents before and after, and a cut step re-targeting a selected object to its pieces |
+| a selection stands for the same ink through drags, undo, redo and cuts, with no event chasing | the selection fuzz against the frozen model oracle (A1 §5 check 2): the selection's ink equals the oracle's and the ink it was made with, mapped through cuts to pieces; no inkless frame |
+| no read changes the document | `rev`, `offRev`, `addrEpoch` and the lattice's frame set unchanged across `listFor`, `content`, a lasso, a hit test, a pack and a snapshot, over the fuzz's states |
+| every derived tile piece is bit-identical to the frozen model's | the tile fuzz (A1 §5 check 1) over random op sequences, at and below the home to the bit, one ulp above it |
 | a partial re-render equals a full one | random dirty rectangles: the plate re-rendered through the clip box equals the plate rendered whole, pixel for pixel |
 
 The existing raster suites that assert an ordered call log on a recording context (about fifteen
@@ -297,4 +331,31 @@ to it. The sixteen questions:
 Two additions of the orchestrator's: the plane is keyed by its own zoom `Zp` as A3 §6 argues (not by
 ℓv), and the level lever offers 1, 2 and 3 only. B-PYRAMID's scope and its split into builders are set
 in §5.3 once A2 is answered.
+
+### 5.2 To A1 (the document model) — 2026-09-26
+
+Read in full. Option (c) is adopted as written; §1.7 above was rewritten to it. The eleven questions:
+
+1. **Q1 at the drop.** A per-object member is re-homed once, at the drop (C2). Kobin's words are "a
+   collection of objects and frames, which is written at a location", and an object dragged into a
+   cell joins that cell's frame: "moved into" is the reading. It is put to him once (leastSure 3);
+   the build does not wait for it.
+2. **Q2 the op repair** in B-MODEL. Whether a moved frame's subtree must stay literally the same group
+   after a re-parenting is put to Kobin; if yes, the second parent pointer is the contained follow-up
+   A1 describes.
+3. **Q3 the −shift entry** for new ink in a shifted frame.
+4. **Q4 C4 as B-MODEL's last step.** It is F108-COST's option (c), which he was offered.
+5. **Q5 yes**, version 3 when the lattice carries a shift, a co-resident or a private frame.
+6. **Q6 keep** the legacy inverses in one quarantined module with a deletion date and a test that no
+   production path outside replay imports it.
+7. **Q7 the frozen copy** under `src/engine/__oracles__/model-v1/`, as `KobinEngineV0` was.
+8. **Q8 yes**, each co-resident its own selection unit.
+9. **Q9 yes**, a deleted subtree leaves the lattice.
+10. **Q10 the order as recommended**: the contract inside B-SCENE; C1 as its own build right after
+    B-SCENE, in parallel with B-PYRAMID; C2 inside B-DRAG; then C3; then C4.
+11. **Q11 no**, legacy ceded kids stay where they are under the backstop rule.
+
+Orchestrator's additions: the lint that forbids `.below` reads outside the model (A1 risk 1) is part
+of C1's deliverable; the "no read mutates" property (`rev`, `offRev`, `addrEpoch` unchanged across
+every read) is added to PLAN §3.
 
