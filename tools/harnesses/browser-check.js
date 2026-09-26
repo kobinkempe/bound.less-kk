@@ -10,8 +10,9 @@
  * Needs a dev server (`npm start`, on Node 14: CRA 4 does not start on Node 17+) and Playwright
  * with a Chromium. In the Claude cloud container both are preinstalled (Playwright at
  * /opt/node22/lib/node_modules/playwright, Chromium at /opt/pw-browsers/chromium) and this runs
- * under Node 22. Headless Chromium draws with software GL, so it cannot see the compositor's own
- * costs (the 33-image cliff, GPU texture uploads); the scripting numbers and the pixels are real.
+ * under Node 22. Headless Chromium draws with software GL: the scripting numbers, the pixels and the
+ * compose's ~33-distinct-image cliff (0.1 → 26 ms of script at 34 scaled bitmaps, A3 E6) are real;
+ * GPU texture uploads and the compositor's scaling are not, and wait for Kobin's Chrome.
  * Output: one JSON object per state on stdout, screenshots under --out (default tools/.cache/browser-check).
  */
 const fs = require("fs");

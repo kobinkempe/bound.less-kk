@@ -68,36 +68,60 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   lookups. `listFor` stays only for the SVG renderer and the comparison until the SVG renderer's
   own step; the scene's items equal `listFor`'s sorted output, checked by a fuzz.
 
-### 1.2 Plates: a picture pyramid with a level step (§3.3, R25 §4.1, §4.3, §4.8, §6.5, §8)
+### 1.2 Plates: a picture pyramid with a level step (§3.3, R25 §4.1, §4.3, §4.8, §6.5, §8; A3)
 
-- Plates keyed `(frame, level, i, j)`, level an integer; `LEVEL_STEP` doublings per level (1 by
-  default; 2 and 3 selectable on the Dev panel; the cross-frame mapping needs `LEVEL_STEP` to
-  divide 12). At zoom Z the view draws from the nearest level, stretched between `2^-(s/2)` and
-  `2^(s/2)`.
-- **Compose is a lookup per screen cell**: the fresh plate at the view's level; else its stale
-  one; else the parent cell's plate up to N levels coarser; else the children one level finer;
-  else paper. Across a frame crossing the parent frame's level `L − 12/LEVEL_STEP` is the same
-  picture, by integer arithmetic (R = 4096 = 2^12). Every pixel is drawn from exactly one source.
-- **The rest render**: when the camera has been still one animation frame, the visible cells at
-  the exact zoom, inline on the main thread when the estimate (chords *and* screen pixels) is
-  small, in the workers otherwise; shown when complete; discarded by any move. This is the whole
-  of today's sync path and settle.
-- **Partial re-render** (decision 2, 5): `renderPlate` takes a clip box; a small dirty rectangle
-  is re-rendered inline into the existing bitmap at full resolution; a large dirty region shows
-  the coarser level's cells (blurrier, never older) until the fresh plates land.
-- **One prefetch queue**, all budgeted, in this order: one ring beyond the view at the view's
-  level; the coarser levels for the view; the crossing target's first level. The camera's own
-  tile derivation gets the same budget off-camera reads have; a tile not ready is absent this
-  frame and the pyramid covers it. The ladder, the prebake, the preview, the carry, the hold, the
-  pending quantum, the settle machine, `fallbackCover` and sync-as-a-mode are deleted.
-- **Cache**: LRU by bytes, protecting the view's level and the rest set; the default budget is
-  three views' worth on a desktop and two on a phone, under a hard ceiling, both on the Dev panel.
-- **Input** is coalesced to one view step per animation frame; the editor page stops re-rendering
-  on every wheel event (R25 W1).
-- **Scheduling** (R25 §6.5): jobs sorted by distance from the attention point (screen centre, or
-  the wheel focus, or the pointer) and dealt round-robin across strips; at most a few new plate
-  jobs admitted per frame while the camera moves; a job whose plate the camera's velocity will
-  carry off screen is skipped.
+- Plates keyed `(frame, level ℓ, i, j)` with `LEVEL_STEP` = S doublings per level: `Z(ℓ) = 2^(ℓS)`,
+  **finer is larger**. S ∈ {1, 2, 3} (1 by default; the Dev panel lever, decision 1); S must divide 12
+  for the cross-frame map to be integral. The view draws from `ℓv = floor((log2 Z − log2 σmin)/S)` with
+  a bounded stretch `σ ∈ [σmin, σmin·2^S)`, `σmin = 2^−½` (at S = 1 this is nearest rounding; at S = 2
+  and 3 the view is magnified up to 2.8× and 5.7× mid-gesture and never minified past 0.71, so a view
+  needs 40 plates at every S on Kobin's desktop instead of 77 / 135); σmin rises to 1 or 2^½ on screens
+  where the view would need more than 48 plates. The Dev panel shows the magnification range beside the
+  step.
+- **Compose is a plan per screen cell, freshness before resolution** (decision 2): the fresh plate at
+  ℓv; else the same picture from another frame (integer mapping across a crossing); else the fresh
+  finer children (within the image budget); else a fresh coarser plate up to N levels up, and where a
+  stale plate at ℓv exists, that stale plate with the fresh coarser picture drawn over its dirty
+  rectangles only (so nothing outside a change blurs); else the stale plate; else paper. Base plates are
+  opaque and cells are disjoint, so every pixel is drawn from exactly one source. Across a frame
+  crossing the parent frame's level `ℓ + 12/S` is the same picture, cell `(i + ci·2^(8+ℓS), j + cj·2^(8+ℓS))`,
+  integral iff `ℓS ≥ −8` (R = 4096 = 2^12; checked to the bit on 3,036 corners, A3 E2); coarser than
+  that a frame's picture *is* its parent's level.
+- **The image budget**: a compose draws at most `COMPOSE_IMAGES` (30) distinct images directly; past it
+  the plan is drawn once into a surface and blitted scaled. The cliff past ~33 scaled images is real in
+  headless Chromium too (A3 E6: 0.1 → 26 ms), so the harness gates it.
+- **The rest render**: at the first still animation frame the visible cells at the exact Z, **inline**
+  when `0.73 µs·chords + 34 ns·box-pixels + 0.15 ms·non-empty cells ≤ 8 ms` (constants calibrated
+  online from `rasterPerf`), else in the workers after 100 ms more of stillness; shown when complete;
+  its plates are records like any other, kept through a pure pan (Z unchanged) and discarded by a zoom,
+  a frame change, a lateral frame shift, a resize or a dpr change. This is the whole of today's sync
+  path and settle.
+- **Partial re-render** (decisions 2, 5): `renderPlate` takes a clip box (rows restricted, x not folded:
+  byte-identical to a whole render in 960 of 960 clips, A3 E1); a patch lands in the immutable plate by
+  a GPU merge through one scratch `OffscreenCanvas` (0.5 ms median). A small dirty rectangle is
+  re-rendered inline at full resolution within a 6 ms budget; a large dirty region gets the finest
+  coarser level whose patch fits the budget, drawn over the dirty rectangles only, with the full
+  patches following from the workers at top priority.
+- **One prefetch queue**, budgeted and centre-out: the near coarser levels ℓv − 1 and ℓv − 2 with a
+  one-cell margin; the far coarser levels the ladder used to hold (about 50 plates, now ordinary
+  pyramid levels found by index); the crossing target; the ring at ℓv − 1 (at ℓv only at rest within
+  budget). The camera's own tile read is cache-only while moving; missing tiles bake at idle one per
+  slice; a cell whose tiles are not all in the scene is planned from stand-ins, never rendered. The
+  ladder, the prebake, the preview, the carry, the hold, the pending quantum, the settle machine,
+  `fallbackCover`, sync-as-a-mode and quantum-string job identity are deleted (A3 §4.6).
+- **Cache**: LRU by bytes; pinned = the drawn set plus the plane (≤ one view + 40 plates by
+  construction, H1 closed); protected = ℓv's ring, the rest set, ℓv − 1, ℓv − 2, the frame just left,
+  the far levels; default budget 3 views (120 MiB) desktop and 2 views (70 MiB) phone under a
+  256 / 96 MiB ceiling; views and ceiling on the Dev panel; levers persist in localStorage with a URL
+  override, never in the canvas record.
+- **Input** is coalesced in the engine: events move the camera at once and request a frame; one
+  `requestAnimationFrame` step renders, plans, posts, triggers the rest render and emits; `cfg.frames =
+  "raf" | "sync"` and `engine.flush()` for the suites and the harness. The scale HUD gets its own
+  `engine.onZoom` subscription so the editor page stops re-rendering per wheel event (R25 W1).
+- **Scheduling** (A3 §4.4): typed jobs with a required priority (rest 0 > view 1 > plane 2 > cuts 3 with
+  one worker reserved while any are pending > prefetch 4 > thumbnails 5); cells sorted by distance from
+  the attention point and dealt round-robin across strips; a per-frame pack budget (4 ms) while
+  moving; a job aimed at where the camera will be on arrival; cancellation by purpose generation.
 
 ### 1.3 Erasing: the mask as document state, cuts in parallel (decision 3; §3.5, R25 §4.9, §10.2, §12.2; R24 §4.6)
 
@@ -132,14 +156,20 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   delta at pack time; at the drop every member's table is written once, one undo entry, old ∪ new
   boxes dirtied; the plane holds per cell until the fresh plates land, as now.
 
-### 1.5 The live stroke and the SVG renderer (decision 6; R25 §4.5, §4.10)
+### 1.5 The live stroke and the SVG renderer (decision 6; R25 §4.5, §4.10; A3 §3.6, §7)
 
-- The SVG tail and frozen chunks stay. A `LiveStrokeLayer` around one SVG group is what the raster
-  app needs of Two.js; `RasterRenderer` composes layers (picture, live stroke, ants, chevrons) and
-  stops inheriting `Renderer`. `Renderer` (Two.js) stays as a separate class for the SVG export and
-  the pixel comparison; `?svg` remains a gate for now.
-- At pen-up the resolved shape is re-rendered into the dirty rectangle (§1.2); the SVG path is
-  held only until that lands. The translucent hold's per-cell clipPath goes with the double raster.
+- The SVG tail and frozen chunks stay in a `LiveStrokeLayer` inside one `SvgLayer` (one Two.js
+  instance: the live stroke, the lasso, the debug overlays). `RasterRenderer` becomes a plain class
+  composing `PicturePyramid`, `SvgLayer`, `OverlayLayer` (ants) and the chevrons, and stops inheriting
+  `Renderer`; the lasso, the debug overlays and the chevrons become one shared module both renderers
+  call. `Renderer` (Two.js) stays as a separate class for `?svg`, the SVG export and the pixel
+  comparison.
+- **Pen-up**: the new stroke, and a new eraser mark, is *pending* in the scene from pen-up until its
+  shape bakes (packs skip it, it is hit-testable, it dirties nothing; the SVG path shows it); when the
+  shape lands, one partial re-render of the drawn cells under its rectangle, and a **group commit**
+  publishes those plates and releases the SVG path in the same task, so no frame shows both or neither
+  (a translucent stroke's alpha is applied once). This ends the double raster (D-3) and the per-cell
+  clipPath. A group older than 3 s commits what it has.
 
 ### 1.6 The worker pool
 
@@ -220,3 +250,51 @@ agents at once. Agents write status to `review/rebuild/STATUS-LOG.md`. The orche
 harness (`tools/harnesses/browser-check.js`) before and after each build and records the numbers.
 
 ## 5. The orchestrator's answers, per component (appended as proposals return)
+
+### 5.1 To A3 (the pyramid, the rest render, partial re-render, the queue, levers, MovePlane, SVG) — 2026-09-26
+
+Read in full. The design is adopted as written in `A3-pyramid.md`; §1.2 and §1.5 above were rewritten
+to it. The sixteen questions:
+
+1. **Q1 yes.** Levels finer = larger, `Z(ℓ) = 2^(ℓS)`; the parent's same picture is `ℓ + 12/S`,
+   integral iff `S | 12` and `ℓS ≥ −8`. PLAN corrected; DESIGN §9 gets the same sentence when B-PYRAMID
+   lands.
+2. **Q2 yes.** The bounded band `[σmin, σmin·2^S)`, σmin = 2^−½, adaptive past 48 plates. The lever
+   shows the magnification range for the chosen S.
+3. **Q3 yes.** Inline at the first still frame; the worker rest set after `REST_QUIET_MS` = 100 ms of
+   stillness, a cfg so the Dev panel can show it.
+4. **Q4 yes.** Rest plates survive a pure pan; a lateral frame shift, a zoom, a frame change, a resize
+   or a dpr change discards them.
+5. **Q5 yes.** Freshness first, with the patch rule and `PATCH_MAX` = ½ cell; `olderMs` counts the one
+   case older can still show, and the harness reports it.
+6. **Q6 yes.** The ring at ℓv − 1 by default, at ℓv only at rest within budget.
+7. **Q7 yes.** A new stroke and a new mark are pending from pen-up to their shape bake, then one
+   rectangle re-render and the group commit (§1.5). This is an ask on B-SCENE: A2's `finalize` row
+   becomes "pending until `bakeShapeById`, then packable with its footprint". For a mark, its targets
+   are recorded and its mask is in force for the hit test and the bake from pen-up; the plates apply it
+   when the shape lands, and the live white path covers the targets until then, as today.
+8. **Q8 yes.** localStorage per device, a URL override that wins, never the canvas record.
+9. **Q9 yes.** The GPU merge through one scratch `OffscreenCanvas`; jsdom keeps raw pixels and a
+   typed-array sub-rectangle copy, which is what the property test checks.
+10. **Q10 yes.** Coalescing in the engine's frame; `cfg.frames = "raf" | "sync"`, `engine.flush()`; the
+    suites and the one-off SVG engines run sync.
+11. **Q11 yes.** `engine.onZoom(cb)` once per frame; a `<ScaleHud>` leaf owns `scaleSession` and the
+    write-back; `onStatus` throttled at 100 ms with no bypass; the scale dialog reads the camera when it
+    saves.
+12. **Q12 yes.** Cache-only camera reads while moving; missing tiles bake at idle one per slice; the
+    partial read `read(F, rect, budgetMs) → {items, missing, complete}` is B-SCENE's (it owns
+    TileStore's surface with the scene); the resumable per-tile bake cursor is its own item after
+    B-PYRAMID, measured on the Magnum-class synthetic drawing.
+13. **Q13 yes.** "Never both."
+14. **Q14 yes.** Only the SEL layers grow by one screen.
+15. **Q15 yes, measured first.** B-SCENE dirties the family's whole box when a change alters its union
+    routing, winding sign, alpha or colour; a cut of a target under its own mark dirties nothing
+    (A2's picture-preserving rule). One measurement (bytes changed in untouched pieces when routing
+    flips, on the synthetic drawing) decides whether the family rule stays or becomes dead weight.
+16. **Q16 yes.** `maxImagesPerCompose` and compose ms become harness metrics; the harness header and
+    the cloud preamble are corrected today.
+
+Two additions of the orchestrator's: the plane is keyed by its own zoom `Zp` as A3 §6 argues (not by
+ℓv), and the level lever offers 1, 2 and 3 only. B-PYRAMID's scope and its split into builders are set
+in §5.3 once A2 is answered.
+

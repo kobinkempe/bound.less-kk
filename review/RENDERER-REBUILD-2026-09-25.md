@@ -377,9 +377,10 @@ make it the gate for the rebuild it needs three additions, each small:
    assumed.
 
 Run it in both places: the cloud's headless Chromium after every push, and Kobin's Chrome when
-he has a moment. The two disagree in known ways (headless has no GPU compositor, so the 33-image
-cliff and texture-upload hitches are invisible there; the scripting costs and the pixels are
-the same), which is why both are needed and why neither replaces the phone.
+he has a moment. The two disagree in known ways (headless has no GPU compositor, so texture-upload
+hitches and the compositor's scaling are invisible there; the scripting costs, the pixels and,
+as A3 measured, the 33-image compose cliff are the same), which is why both are needed and why
+neither replaces the phone.
 
 ### 4.5 What stays open after all of it
 
