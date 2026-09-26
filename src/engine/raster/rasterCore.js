@@ -108,6 +108,10 @@ let DEBUG = false;
 let ALPHA_OUT = false;
 let famY0 = 0, famY1 = TH;
 let needFullClear = false;
+// The clip box of the plate being drawn, plate-local px, half-open: the whole plate unless `renderPlate` was
+// handed one. Rows are restricted to it and x is not folded at its edges, so every sum inside it runs as the
+// whole plate's does (A3 §3.1; rasterCore.clip.test.js).
+let CX0 = 0, CY0 = 0, CX1 = TW, CY1 = TH;
 
 /** Debug checks: every edge must land inside its family's declared box, or the clear misses a row. */
 export function setDebugChecks(on) { DEBUG = !!on; }
@@ -216,24 +220,29 @@ export function addEdge(x0, y0, x1, y1) {
     if (y0 === y1) return 0;
     let dir = 1;
     if (y0 > y1) { const tx = x0; x0 = x1; x1 = tx; const ty = y0; y0 = y1; y1 = ty; dir = -1; }
-    if (y1 <= 0 || y0 >= TH) return 0;
+    if (y1 <= CY0 || y0 >= CY1) return 0;
 
     const dxdy = (x1 - x0) / (y1 - y0);
     let x = x0, ytop = y0;
     if (y0 < 0) { x = x0 - y0 * dxdy; ytop = 0; }
     const ybot = y1 < TH ? y1 : TH;
-    if (DEBUG && (Math.floor(ytop) < famY0 || Math.ceil(ybot) > famY1)) {
-        throw new Error("rasterCore: rows " + Math.floor(ytop) + ".." + Math.ceil(ybot)
-            + " are outside the family box " + famY0 + ".." + famY1 + ", so the clear will miss one");
+    if (DEBUG) {
+        const r0 = Math.max(Math.floor(ytop), CY0), r1 = Math.min(Math.ceil(ybot), CY1);
+        if (r0 < famY0 || r1 > famY1) {
+            throw new Error("rasterCore: rows " + r0 + ".." + r1
+                + " are outside the family box " + famY0 + ".." + famY1 + ", so the clear will miss one");
+        }
     }
 
+    // A row above the clip is walked and not deposited: x reaches the clip by the same additions as on
+    // the whole plate, so the clip's deposits are the whole plate's to the bit.
     let y = Math.floor(ytop);
-    while (y < ybot) {
+    while (y < ybot && y < CY1) {
         const rowTop = y > ytop ? y : ytop;
         const rowBot = (y + 1) < ybot ? (y + 1) : ybot;
         const dy = rowBot - rowTop;
         const xnext = x + dxdy * dy;
-        addStep(y, x, xnext, dy * dir);
+        if (y >= CY0) addStep(y, x, xnext, dy * dir);
         x = xnext;
         y++;
     }
@@ -265,8 +274,13 @@ export function resolveFamily(out, r, g, b, alpha, y0, y1, maskBits = 0) {
         const base = y * ACC_STRIDE, row = y * TW;
         const rm = ROWMAX[y];
         const xb = rm + 1 < TW ? rm + 1 : TW;
-        let acc = 0, p = (y * TW + xa) * 4;
-        for (let x = xa; x < xb; x++, p += 4) {
+        // The sum starts at the row's first touched column wherever the clip does: left of the clip it
+        // is summed and not written.
+        let acc = 0, x = xa;
+        for (; x < xb && x < CX0; x++) acc += ACC[base + x];
+        const xe = xb < CX1 ? xb : CX1;
+        let p = (row + x) * 4;
+        for (; x < xe; x++, p += 4) {
             acc += ACC[base + x];
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
@@ -286,16 +300,19 @@ export function resolveFamily(out, r, g, b, alpha, y0, y1, maskBits = 0) {
             }
             covered++;
         }
+        if (xb >= CX1) continue;
         // The tail. A row whose sum is still non-zero here was clamped at x = TW, which forces
         // ROWMAX = TW − 1 (D32) — so xb is TW and this loop is empty: the clamp, not the tail,
         // is what paints a clamped row to its edge. What TAIL_EPS earns is the other case — at
         // 1e-9 the f32 residue of a closed loop (~6e-8) blended every remaining column of every
         // row of a thin shape and added 15 % to its coverage (D33).
+        const xt = xb > CX0 ? xb : CX0;
+        p = (row + xt) * 4;
         if ((acc > TAIL_EPS || acc < -TAIL_EPS) && maskBits) {
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
-            for (let x = xb; x < TW; x++, p += 4) {
-                const a = c * alpha * (M ? 1 - M[row + x] : keepAt(maskBits, row + x));
+            for (let x2 = xt; x2 < CX1; x2++, p += 4) {
+                const a = c * alpha * (M ? 1 - M[row + x2] : keepAt(maskBits, row + x2));
                 if (a <= 0) continue;
                 const inv = 1 - a;
                 out[p] = r * a + out[p] * inv;
@@ -309,10 +326,10 @@ export function resolveFamily(out, r, g, b, alpha, y0, y1, maskBits = 0) {
             if (c > 1) c = 1;
             const a = c * alpha;
             if (a >= 1) {
-                for (let x = xb; x < TW; x++, p += 4) { out[p] = r; out[p + 1] = g; out[p + 2] = b; if (ALPHA_OUT) out[p + 3] = 255; covered++; }
+                for (let x2 = xt; x2 < CX1; x2++, p += 4) { out[p] = r; out[p + 1] = g; out[p + 2] = b; if (ALPHA_OUT) out[p + 3] = 255; covered++; }
             } else if (a > 0) {
                 const inv = 1 - a;
-                for (let x = xb; x < TW; x++, p += 4) {
+                for (let x2 = xt; x2 < CX1; x2++, p += 4) {
                     out[p] = r * a + out[p] * inv;
                     out[p + 1] = g * a + out[p + 1] * inv;
                     out[p + 2] = b * a + out[p + 2] * inv;
@@ -364,7 +381,7 @@ function depositFamily(job, it, last, ox, oy, Zq, y0, y1) {
     return edges;
 }
 
-/** Could this family hide the whole plate: opaque, under no mark, not a mark, its drawn boxes spanning the plate? */
+/** Could this family hide the whole clip: opaque, under no mark, not a mark, its drawn boxes spanning the clip? */
 function coverCandidate(job, it, last, ox, oy, Zq) {
     const meta = job.meta, attr = job.attr;
     let first = -1, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -380,20 +397,21 @@ function coverCandidate(job, it, last, ox, oy, Zq) {
         if (attr[a + 3] > y1) y1 = attr[a + 3];
     }
     if (first < 0 || !(attr[first * 9 + 7] >= 1)) return false;
-    return x0 * Zq - ox <= 0 && y0 * Zq - oy <= 0 && x1 * Zq - ox >= TW && y1 * Zq - oy >= TH;
+    return x0 * Zq - ox <= CX0 && y0 * Zq - oy <= CY0 && x1 * Zq - ox >= CX1 && y1 * Zq - oy >= CY1;
 }
 
-/** Does the coverage in ACC fill every pixel of the plate (to COVER_MIN)? */
+/** Does the coverage in ACC fill every pixel of the clip (to COVER_MIN)? The sum runs from column 0. */
 function fillsPlate() {
-    for (let y = 0; y < TH; y++) {
+    for (let y = CY0; y < CY1; y++) {
         const base = y * ACC_STRIDE, rm = ROWMAX[y];
         const xb = rm + 1 < TW ? rm + 1 : TW;
+        const xe = xb < CX1 ? xb : CX1;
         let acc = 0;
-        for (let x = 0; x < xb; x++) {
+        for (let x = 0; x < xe; x++) {
             acc += ACC[base + x];
-            if ((acc < 0 ? -acc : acc) < COVER_MIN) return false;
+            if (x >= CX0 && (acc < 0 ? -acc : acc) < COVER_MIN) return false;
         }
-        if (xb < TW && (acc < 0 ? -acc : acc) < COVER_MIN) return false;
+        if (xb < CX1 && (acc < 0 ? -acc : acc) < COVER_MIN) return false;
     }
     return true;
 }
@@ -405,7 +423,10 @@ function keepAt(bits, i) {
     return keep;
 }
 
-/** A pending mark's family resolved into mask `k` instead of onto the plate: its coverage, the max over its items. */
+/**
+ * A pending mark's family resolved into mask `k` instead of onto the plate: its coverage, the max over its
+ * items. The plane is a whole plate, written and read inside the clip only.
+ */
 function resolveMask(k, y0, y1) {
     let M = MASKS[k];
     if (!M) M = MASKS[k] = new Float32Array(TW * TH);
@@ -415,17 +436,20 @@ function resolveMask(k, y0, y1) {
         if (xa > TW - 1) continue;
         const base = y * ACC_STRIDE, row = y * TW, rm = ROWMAX[y];
         const xb = rm + 1 < TW ? rm + 1 : TW;
-        let acc = 0;
-        for (let x = xa; x < xb; x++) {
+        let acc = 0, x = xa;
+        for (; x < xb && x < CX0; x++) acc += ACC[base + x];
+        const xe = xb < CX1 ? xb : CX1;
+        for (; x < xe; x++) {
             acc += ACC[base + x];
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
             if (c > M[row + x]) M[row + x] = c;
         }
+        if (xb >= CX1) continue;
         if (acc > TAIL_EPS || acc < -TAIL_EPS) {
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
-            for (let x = xb; x < TW; x++) if (c > M[row + x]) M[row + x] = c;
+            for (let x2 = xb > CX0 ? xb : CX0; x2 < CX1; x2++) if (c > M[row + x2]) M[row + x2] = c;
         }
     }
 }
@@ -598,29 +622,40 @@ function walkUnion(yb0, yb1) {
 // ---------------------------------------------------------------------------
 
 /**
- * Paint the whole plate the paper colour; the plate is opaque, so a blit is a copy (D7) — except a
+ * Paint the plate the paper colour; the plate is opaque, so a blit is a copy (D7) — except a
  * TRANSPARENT plate (`a` 0), the drag plane's ink (PAPER-PLAN §10 S4), which `unpremultiply` ends.
+ * `rect` = [x0, y0, x1, y1] paints only that box (a clipped render); null, the whole plate.
  */
-export function fillPaper(out, r, g, b, a = 255) {
+export function fillPaper(out, r, g, b, a = 255, rect = null) {
     if ((out.byteOffset & 3) === 0 && out.length === TW * TH * 4) {
         const u32 = new Uint32Array(out.buffer, out.byteOffset, TW * TH);
-        out[0] = r; out[1] = g; out[2] = b; out[3] = a;
-        u32.fill(u32[0]);                             // one pixel written in this platform's byte order
+        const at = rect ? rect[1] * TW + rect[0] : 0;
+        out[at * 4] = r; out[at * 4 + 1] = g; out[at * 4 + 2] = b; out[at * 4 + 3] = a;
+        const v = u32[at];                            // one pixel written in this platform's byte order
+        if (!rect) { u32.fill(v); return; }
+        for (let y = rect[1]; y < rect[3]; y++) u32.fill(v, y * TW + rect[0], y * TW + rect[2]);
         return;
     }
-    for (let p = 0; p < out.length; p += 4) { out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = a; }
+    if (!rect) { for (let p = 0; p < out.length; p += 4) { out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = a; } return; }
+    for (let y = rect[1]; y < rect[3]; y++) {
+        for (let p = (y * TW + rect[0]) * 4, e = (y * TW + rect[2]) * 4; p < e; p += 4) { out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = a; }
+    }
 }
 
 /**
  * A transparent plate's resolve accumulated premultiplied colour; `ImageData` is straight alpha,
  * so each partly covered pixel is divided back. Without it every antialiased edge darkens (B §3.3).
+ * `rect` as `fillPaper`'s.
  */
-export function unpremultiply(out) {
-    for (let p = 0; p < out.length; p += 4) {
-        const A = out[p + 3];
-        if (A === 0 || A === 255) continue;
-        const k = 255 / A;
-        out[p] = out[p] * k; out[p + 1] = out[p + 1] * k; out[p + 2] = out[p + 2] * k;
+export function unpremultiply(out, rect = null) {
+    const x0 = rect ? rect[0] : 0, y0 = rect ? rect[1] : 0, x1 = rect ? rect[2] : TW, y1 = rect ? rect[3] : TH;
+    for (let y = y0; y < y1; y++) {
+        for (let p = (y * TW + x0) * 4, e = (y * TW + x1) * 4; p < e; p += 4) {
+            const A = out[p + 3];
+            if (A === 0 || A === 255) continue;
+            const k = 255 / A;
+            out[p] = out[p] * k; out[p + 1] = out[p + 1] * k; out[p + 2] = out[p + 2] * k;
+        }
     }
 }
 
@@ -796,7 +831,7 @@ function emitArc(ax, ay, bx, by, sweep, cx, cy, ox, oy, mode, yb0, yb1) {
     let s = sweep;
     for (let d = 0; d <= D; d++) { KTAB[d] = bulgeK(s); s *= 0.5; }
 
-    const px1 = ox + TW, py0 = oy, py1 = oy + TH;
+    const px1 = ox + TW, py0 = oy + CY0, py1 = oy + CY1;     // the clip's rows: nothing outside them is read
     let edges = 0, sp = 6;
     STACK[0] = ax; STACK[1] = ay; STACK[2] = bx; STACK[3] = by; STACK[4] = sweep; STACK[5] = 0;
     while (sp > 0) {
@@ -1110,6 +1145,10 @@ function unionPass(job, first, last, ox, oy, Zq, y0, y1) {
  * RGBA scratch, PLATE_PX² × 4 bytes; `counts` is §8.3's 8 words and `timings` §8.2's 7
  * doubles — pass `timings` to turn the phase clocks on, which costs four clock reads a family.
  *
+ * `clip` = [x0, y0, x1, y1], plate-local integer px, half-open: only those pixels are written, each
+ * the byte the whole plate holds there (A3 §3.1, PLAN §3's partial re-render row). Omitted, the whole
+ * plate, byte for byte as before the clip existed.
+ *
  * The job is §3.3's format: meta 8 words an item, attr 9 doubles, geom the numbers, subs the
  * start of each loop's numbers (kind 0) or each ring's first point (kind 1) within the item's
  * geom span — the next entry, or the item's end, is where it stops.
@@ -1119,14 +1158,33 @@ function unionPass(job, first, last, ox, oy, Zq, y0, y1) {
  * @param {Uint8ClampedArray} out
  * @param {Uint32Array} [counts]
  * @param {Float64Array} [timings]
+ * @param {ArrayLike<number>} [clip]
  */
-export function renderPlate(job, plateIndex, out, counts, timings) {
+export function renderPlate(job, plateIndex, out, counts, timings, clip) {
+    if (clip) setClip(clip);
+    try { return paintPlate(job, plateIndex, out, counts, timings); }
+    finally { CX0 = 0; CY0 = 0; CX1 = TW; CY1 = TH; }
+}
+
+/** Take a clip box; one that is not integral or not inside the plate would write other rows, so it throws. */
+function setClip(c) {
+    const x0 = c[0], y0 = c[1], x1 = c[2], y1 = c[3];
+    if (!(Number.isInteger(x0) && Number.isInteger(y0) && Number.isInteger(x1) && Number.isInteger(y1)
+        && x0 >= 0 && y0 >= 0 && x0 < x1 && y0 < y1 && x1 <= TW && y1 <= TH)) {
+        throw new Error("rasterCore: the clip " + Array.from(c).join(",") + " is not an integral box inside the plate");
+    }
+    CX0 = x0; CY0 = y0; CX1 = x1; CY1 = y1;
+}
+
+function paintPlate(job, plateIndex, out, counts, timings) {
     const clock = timings ? (typeof performance !== "undefined" ? performance : Date) : null;
     const meta = job.meta, attr = job.attr, rgb = job.rgb;
     const n = job.nItems | 0, Zq = job.Zq;
     const ox = job.plates[plateIndex * 2] * TW, oy = job.plates[plateIndex * 2 + 1] * TH;
     ALPHA_OUT = job.paper.length > 3 && job.paper[3] === 0;
-    fillPaper(out, job.paper[0], job.paper[1], job.paper[2], ALPHA_OUT ? 0 : 255);
+    const clipped = CX0 !== 0 || CY0 !== 0 || CX1 !== TW || CY1 !== TH;
+    const rect = clipped ? [CX0, CY0, CX1, CY1] : null;
+    fillPaper(out, job.paper[0], job.paper[1], job.paper[2], ALPHA_OUT ? 0 : 255, rect);
     if (DRAWN.length < n) DRAWN = new Uint8Array(n + 256);
 
     if (!CORE_KEYS) { CORE_KEYS = Object.keys(coreStats); CORE_SNAP = new Float64Array(CORE_KEYS.length); }
@@ -1164,7 +1222,7 @@ export function renderPlate(job, plateIndex, out, counts, timings) {
     }
 
     // Pass 0 resolves the pending marks into their masks; pass 1 paints the rest, masked, from the
-    // topmost family that covers the whole plate opaquely: everything under it is hidden (Kobin,
+    // topmost family that covers the whole clip opaquely: everything under it is hidden (Kobin,
     // 2026-09-23; 41 whole-plate backdrops a plate under the Magnum Opus's nucleus).
     for (let pass = hasMask ? 0 : 1; pass < 2; pass++) {
         let from = 0, covered = -1;
@@ -1176,12 +1234,12 @@ export function renderPlate(job, plateIndex, out, counts, timings) {
                 // A candidate that falls short is deposited again when it is painted: its counts are taken back.
                 const chords = arcChords;
                 for (let k = 0; k < CORE_KEYS.length; k++) CORE_SNAP[k] = coreStats[CORE_KEYS[k]];
-                const edges = depositFamily(job, it, last, ox, oy, Zq, 0, TH);
+                const edges = depositFamily(job, it, last, ox, oy, Zq, CY0, CY1);
                 if (fillsPlate()) { nEdges += edges; from = f; covered = f; occStats.occluded += f; break; }
                 arcChords = chords;
                 for (let k = 0; k < CORE_KEYS.length; k++) coreStats[CORE_KEYS[k]] = CORE_SNAP[k];
                 occStats.coverMisses++;
-                clearFamily(0, TH);
+                clearFamily(CY0, CY1);
             }
             if (clock) tEdges += clock.now() - t0;
         }
@@ -1190,22 +1248,30 @@ export function renderPlate(job, plateIndex, out, counts, timings) {
             const isMask = (meta[it * 8 + 6] & FLAG_MASK) !== 0;
             if (isMask !== (pass === 0)) continue;
             // the family's pixel box: the union of its drawn items' boxes, rounded outward
-            let by0 = Infinity, by1 = -Infinity, first = -1;
+            let by0 = Infinity, by1 = -Infinity, bx0 = Infinity, bx1 = -Infinity, first = -1;
             for (let k = it; k <= last; k++) {
                 if (!DRAWN[k]) continue;
                 const a = k * 9;
                 const t = attr[a + 1] * Zq - oy, b = attr[a + 3] * Zq - oy;
                 if (t < by0) by0 = t;
                 if (b > by1) by1 = b;
+                if (clipped) {
+                    const l = attr[a] * Zq - ox, r = attr[a + 2] * Zq - ox;
+                    if (l < bx0) bx0 = l;
+                    if (r > bx1) bx1 = r;
+                }
                 if (first < 0) first = k;
                 if (meta[k * 8 + 6] & 4) nUnion++;
             }
             if (first < 0) continue;
+            // A family whose box misses the clip grown by 2 px (a deposit spills a column right) writes no
+            // pixel of it and is skipped whole. Its items are never pruned one by one: their sums still run.
+            if (clipped && f !== covered && (bx1 < CX0 - 2 || bx0 > CX1 + 2 || by1 < CY0 - 2 || by0 > CY1 + 2)) continue;
             // Rounded outward with a hair of slack: the box and the edges are mapped by two
             // expressions that can differ by an ulp, and a row outside the box is a row the
             // clear never visits and the next family inherits.
-            let y0 = Math.max(0, Math.floor(by0 - BOX_SLACK)), y1 = Math.min(TH, Math.ceil(by1 + BOX_SLACK));
-            if (f === covered) { y0 = 0; y1 = TH; }             // its accumulation is already in ACC
+            let y0 = Math.max(CY0, Math.floor(by0 - BOX_SLACK)), y1 = Math.min(CY1, Math.ceil(by1 + BOX_SLACK));
+            if (f === covered) { y0 = CY0; y1 = CY1; }           // its accumulation is already in ACC
             if (y1 <= y0) continue;
             nFam++;
             t0 = clock ? clock.now() : 0;
@@ -1224,7 +1290,7 @@ export function renderPlate(job, plateIndex, out, counts, timings) {
         }
     }
 
-    if (ALPHA_OUT) { unpremultiply(out); ALPHA_OUT = false; }
+    if (ALPHA_OUT) { unpremultiply(out, rect); ALPHA_OUT = false; }
     if (counts) {
         counts[0] = n; counts[1] = nDrawn; counts[2] = nFam; counts[3] = nUnion;
         counts[4] = nEdges; counts[5] = arcChords; counts[6] = nRows; counts[7] = nCovered;
