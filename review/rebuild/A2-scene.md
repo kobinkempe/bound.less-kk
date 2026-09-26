@@ -36,8 +36,12 @@ table updated per event lets the prepass patch only the families a delta touched
 mints (the cutter added to `handledBy`); a refusal or a graze adds the mark to `handledBy`. The rule,
 one pure function used by the pack, the bake, the barriers and the hit test:
 
-> item *i* is masked by pending mark *M* iff `M ∈ i.targetOf`, `M ∉ i.handledBy`, `z(i) < z(M)`, and
-> their boxes meet — and while *M* is still unresolved (pen-up to perimeter, a few ms), iff `z(i) < z(M)`.
+> item *i* is masked by mark *M* iff *M*'s shape has landed, `M ∈ i.targetOf`, `M ∉ i.handledBy`,
+> `z(i) < z(M)`, and their boxes meet.
+
+From pen-up until its shape lands a mark is *pending* in the scene like a new stroke (PLAN §1.5, §5.1
+Q7): no pack applies it, the live white path covers its region, and the pick and the barriers resolve
+it (registering its targets) before they read it.
 
 Undo restores the fields by reference (a removed object is frozen), the op log carries them in the
 object headers it already writes, and a file saved before the change derives them at load from the
@@ -186,7 +190,7 @@ Item = {
   zKey,     // nat.z ?? nat.id, refreshed on the native's attr/rekey events (R25 H8: never piece.z)
   fam,      // nat.editId ?? nat.id, refreshed likewise
   held,     // in a drag's hold (§2.7)
-  live,     // the stroke being drawn (the pack skips it; the SVG path draws it)
+  pending,  // from pen-down until its shape bake lands (PLAN §1.5): hit-testable, skipped by every pack
   seq,      // position within the source, for a total order
 }
 ```
@@ -259,7 +263,7 @@ one pass, as `_releaseMove` is today for a drop.
 |---|---|
 | a settle, an unsettle, a replayed settle (`offsetsOnly` with `settle: true`) | the frame's shift is already in every picture (every picture reader settles through `Document.at` first); the `refile` that set the shift dirtied the footprints |
 | a shadow merge or split (`mergeFrame`/`splitFrame`) for the natives it moves | shadow and resident share the cell, so the coordinates are unchanged; the vanished frame id's plates are removed (its key names a frame that no longer exists) |
-| the mark's registration (§4.2) | the unresolved rule masked the same ink |
+| the frames pass (§4.2), in the commit where the mark's shape lands | the covered natives lie inside the mark's box, which that commit dirties anyway |
 | an erase step by the mark that was masking its target (`by`, §4.5) | the masked target renders as its pieces; only the dust boxes are dirtied |
 | a graze, a refusal with no ink under the mark (`inkless`) | nothing under the mark changes |
 
@@ -318,8 +322,10 @@ cells.
 
 | event (emitter) | table delta | dirt |
 |---|---|---|
-| `add`, `live: true` (`Document.add`, pen-down, `Document.js:579`) | an own item flagged `live` if homed in F (the pack skips it, as `packJob`'s `live` does) | none — the SVG live path draws it |
-| `finalize` (`:597`) | the own item leaves `live`; tile deltas for its pieces elsewhere | footprint after |
+| `add`, `live: true` (`Document.add`, pen-down, `Document.js:579`) | an own item, `pending` (PLAN §1.5, §5.1 Q7): hit-testable, skipped by every pack and snapshot | none — the SVG live path draws it |
+| `finalize` (`:597`, pen-up) | still `pending`; its pieces in other frames' tiles (tile deltas) are pending with it — the flag is the native's | none |
+| `change` from `bakeShapeById` (`:1144`) on a pending native: the shape lands | `pending` cleared: packable from this G; for a mark, the frames pass and registration in the same commit (§4.2) | footprint after — the shape's box; for a mark, its box, which bounds every pixel its mask changes. A3's partial re-render and group commit publish it and release the SVG path in one task |
+| `remove` of a native still `pending` (an undo before its shape landed, `cancelStroke`) | its items leave | none — it was never packed |
 | `add` (a new object, an undo's `insertAt` `:658`, a replay insert) | own item if homed in F; tile deltas; a rerouted item if its table has digits at D (§2.10) | footprint after, or none if `by` is a neutral erase step (§4.5) |
 | `remove` (`removeById` `:638`) | every item of the id (`byId`) | footprint before (the removed object is frozen), or dust only if `by` is neutral |
 | `remove` + `add` with `rehome` (`rehomeById` `:854`, `rehomeManyById` `:893`) | the own item leaves or joins F; tile deltas; its reroute group recomputed | footprint before (old home) ∪ after (new home); none for a settle's carry (`carry: true`, picture-preserving) |
@@ -604,19 +610,25 @@ Three fields, all document state, all on objects the step graph already restores
 | `targetOf` | any native | the marks whose `targets` named it or an object it was cut from | registration (adds the mark); inherited by every piece minted from it (§4.3) |
 | `handledBy` | any native | the marks whose bake has dealt with it or with an object it was cut from | a refusal or a graze (adds the mark); a cut or a cede (its pieces inherit the source's set plus the cutting mark) |
 
-A mark *M* is **pending** while it is an erase native in the document with a resolved perimeter or
-still being resolved; it is **unresolved** from pen-up until its perimeter resolves (`targets`
-undefined). The rule, in `src/engine/eraseRule.js`, one pure function used by the pack, the bake,
-the barriers, the hit test and the Stage's neutral classification:
+A mark is **live** while it is an erase native in the document. From pen-up until its shape bake
+lands (`bakeShapeById`) it is **pending in the scene**, as a new stroke is (PLAN §1.5, §5.1 Q7): packs
+skip it, the live white SVG path covers its region, and `targets` is undefined. When the shape lands,
+registration (§4.2) runs in the same commit and the mark becomes packable. The rule, in
+`src/engine/eraseRule.js`, one pure function used by the pack, the bake, the barriers, the pick and
+the Stage's neutral classification:
 
 ```js
-/** Is native `o` under pending mark `M`'s mask (before any box test)? */
+/** Is native `o` under mark `M`'s mask (before any box test)? */
 export function pendingUnder(o, M) {
-    if (o.erase || !(zOf(o) < zOf(M))) return false;
-    if (M.targets === undefined) return true;          // unresolved: everything below it, as drawn
+    if (M.targets === undefined || o.erase || !(zOf(o) < zOf(M))) return false;   // not yet landed: masks nothing
     return has(o.targetOf, M.id) && !has(o.handledBy, M.id);
 }
 ```
+
+A reader that must see a mark's mask before its shape has landed — the pick at a press, a barrier —
+resolves pending perimeters first (`flushBakes`), as every barrier already does
+(`erasePipeline.js:1207`, `:1256`, `:1314`); the press does it only when a mark is pending, which is
+a press within the first slices after an eraser's pen-up.
 
 - **The pack** adds "their boxes meet" (the item's box against the mark's mask box in the job, as
   today, `rasterPack.js:1013–1016`).
@@ -638,13 +650,15 @@ native, and in `_forceBake` (`:137`) — every path that resolves a mark's perim
 
 1. **The frames pass** (`_eraseFramesPass`, `:455–501`) moves here from the first `_nextEraseTarget`:
    frames the mark's ink covers whole, with `maxZUnder(F) < z(M)`, are set aside as one bake step
-   (`removeFrameSubtree(F, { by: M.id })`), O(frames). Their natives are masked by the unresolved rule
-   at that instant, and wholly inside the mark's full coverage, so the step changes no pixel (§4.5).
+   (`removeFrameSubtree(F, { by: M.id })`), O(frames). Their natives lie wholly inside the mark's full
+   coverage, under the live white path, and inside the box this commit dirties (§4.5).
 2. **The candidate scan** (`_candidatesUnder`'s body, `:402–446`, without the done set and without
    the `doc.rev` keying): every reachable frame's index over the mark's box, and every moved native
    mapped once per (home, table); kept if not an erase native, `z < z(M)` and `_eraseMayTouch`.
 3. `M.targets = ids` (sorted), and for each target `o`: `o.targetOf = o.targetOf ∪ {M.id}`.
-4. One `targets` event (§2.8) and a G bump; no dirt.
+4. The mark stops being pending: one commit with the shape's change, the frames pass and the
+   registration, dirtying the mark's box (§2.8) — the plates under it gain the mask there, A3's partial
+   re-render and group commit publish them and release the live white path in one task (PLAN §1.5).
 
 **Why at resolve and not at pen-up.** The scan needs the mark's box, and a pen-up is main-thread time
 the user feels: the scan measured 20 ms (10.5k candidates) to 131 ms (45k natives, 20k moved) in node
@@ -653,10 +667,10 @@ first bake slice runs one macrotask after the pen-up (`_scheduleBake(0)`, `Kobin
 same moment today's first `_candidatesUnder` runs, so registration adds no main-thread time — it
 replaces the rebuilt scans (§4.13).
 
-**The window between pen-up and resolve is exact.** Until registration the mark masks by the
-unresolved rule (`z(o) < z(M)`), which at that moment is the same set of objects registration will
-record, up to objects whose ink does not reach the eraser's box (the mask has no coverage over them
-anyway). Nothing can be moved under the mark in that window: every gesture that moves ink first
+**Nothing can move under the mark before its targets are recorded.** Between pen-up and the shape's
+landing the plates do not apply the mark (the live white path covers its region, as today), so the
+only question is whether the recorded targets are what was under the mark when it was drawn. They are,
+because nothing can be moved under it in that window: every gesture that moves ink first
 flushes pending perimeters — a select (`_flushErasesFor` → `flushBakes`, `erasePipeline.js:1207`), a
 drag's start (`_settleSelectionErases` → `flushBakes`, `:1256`), a lasso (`_settleLassoErases`,
 `:1314`) — and an undo of anything but the mark itself is impossible while the mark's op is on top of
@@ -718,7 +732,7 @@ In `packJob` (`rasterPack.js:965–1016`) the mark block becomes:
 
 | change | pixels | dirt |
 |---|---|---|
-| registration | the same set is masked before and after (§4.2) | none |
+| the shape landing, with registration and the frames pass (§4.2) | the mark's mask appears on the plates (the live white path covered it until now) | box(mark), every frame — one commit; A3's group commit swaps the path for the plates |
 | the frames pass (a covered frame set aside, `by: M`) | its natives were masked under full coverage | none |
 | a cut or a descent applied by the bake or a barrier, `by: M`, target pending under M | the masked target renders as its pieces: coverage × (1 − mark) against the coverage of target − eraser; equal except where the target's own edge and the eraser's edge cross in one pixel. `raster.mask.test.js` K4 measured **0 differing bytes** between plates kept through such steps and a fresh raster of the result (fills and a ring) | the **dust boxes** only: components `dropDust` removed (`eraseJob.js:49–52`, `Document.js:1092`, `eraseDescent.js:117`, `:237`) can lie outside the eraser's box — a hairline narrower than a quarter pixel at the bake's zoom goes whole — so the job returns their boxes and the step's events carry them |
 | a graze, or a refusal with `inkless` | no ink under the mark | none |
@@ -1097,6 +1111,166 @@ state is the same, reached without the z step.
   from the pieces' headers: the bake resumes on exactly the pairs left, and an object dragged across
   the mark before the reload is still not a target after it — which the z rule could not keep (it
   re-derived candidates from z at every scan).
+
+---
+
+## 6. Deletions, migration, tests, risks, effort
+
+### 6.1 The deletion list
+
+**B-SCENE** (deleted when `cfg.scene` becomes the default, step S3 below; the SVG path keeps `listFor`):
+
+| what | where |
+|---|---|
+| the queued plate events and their subscriber (the neutral-tag half moves into the Stage's classifier until B-ERASE) | `KobinEngine.js:177`, `:194–216` |
+| `_footBelow` and its seeding and clearing | `KobinEngine.js:181`, `:651–655`, `:714`, `:729`, `:734` |
+| the drain and its footprint rules | `_drainPlates` `KobinEngine.js:704–736`, `_refilePlates` `:744–749`, `_cellFootIn` `:751–759`, `_frameListPlates` `:765–772`, `EVERYWHERE` `:89` |
+| the drag's hold of plate events | `_holdMove` `:184`, `_beginHold` `:775–787`, `_framesFootIn` `:794–808`, `_heldByMove` `:824–830`, `_underHeldFrames` `:831–835`, `_releaseMove` `:894–910`, `_movedRectsIn` `:916–940`, `MOVE_RECTS_MAX` `:63` → `stage.hold`/`release` |
+| `_drawnRectIn` | `KobinEngine.js:956–977` |
+| the per-list mark snapshot | `listFor`'s `:650`, `:669–680`; `_markNow` `:692`; `RasterRenderer.js:249–250`, `:1319–1329` (`noteListMarks`, `_marksOf`); `rasterPack.js` `markZ` (`:915`, `:973`) |
+| the stale-list machinery | `_eraseListStale` `KobinEngine.js:985`, `:1040`, `:1065`, `erasePipeline.js:786`; `_visibleChanged` `KobinEngine.js:1022–1026` and the `_render`/`syncCameraOnly` split in `panBy`/`zoomFactorAt` `:1040–1042`, `:1065–1067` (raster path) |
+| the camera step's drain | `RasterRenderer.syncCameraOnly`'s `_drain` `:1018`, `opts.drain` `:178` |
+| per-key epochs and their drops | `PlateStore.js`: `epochs` `:146`, `epochOf` `:448`, `isCurrent` `:450`, `beginJob`'s epoch array `:456–470`, `staleInFlight` `:482–486`, `dropById` `:498–511`, `dropRectPerFrame` `:524–556`, `onDocEvent` `:685–700`, `_drop` `:789–792`, `_isStale` `:795`, `_bump` `:805–809`, `_pruneEpochs` `:812–818`, `EPOCH_MAX` `:44`; the epoch counters in `this.s` |
+| ids per plate | `PlateStore.js:84–105` (`ascending`, `anyId`, `holdsId`), `put`'s `ids` `:430–431`; `rasterWorker.js` `idsForPlate` `:60–72` and the id runs in the result; `rasterWorkerClient.js` `plateIds` `:613–616`; `RasterRenderer._plateShows` `:854–857` (→ `plate.G >= Gs`) |
+| the job's epoch array | `rasterJob.js`'s `JOB_ARRAYS` `"epochs"` → one `G` scalar; `rasterPack.packJob`'s `epochs` option `:1047` |
+| the dispatch epoch check | `RasterRenderer._stillWanted`'s `:1367–1378` |
+| `TileStore._removeObject`'s scan of every tile | `TileStore.js:663–670` → the id → tiles index |
+| suites (TEST-MAP) | `raster.markSnap.test.js` (148), `raster.listCover.test.js` (140, replaced by the coverage property), `move.hold.test.js` (164); the epoch and id rules of `raster.plates.test.js`; `raster.job.test.js`'s epoch cases ported to G |
+
+**B-ERASE:**
+
+| what | where |
+|---|---|
+| the neutral mode flag and the untagging | `_neutral` `erasePipeline.js:551–555`, `_neutralUnder` `:557`, `_pictureNeutral`; the Stage's temporary `isNeutral` predicate from B-SCENE |
+| `_uncut` | `KobinEngine.js:201–202`, `:206–215`; `_uncutOf` `erasePipeline.js:559–564` and its 8 call sites |
+| done sets | `_bakeDone` `KobinEngine.js:243`; `_doneSet` `erasePipeline.js:176–180`; `markDone` `KobinEngine.js:282–285`, `RasterRenderer.js:246`; `files.js:89`; `oplog.js:601–609` (becomes the old-file derivation, §4.9) |
+| the z step | `_lowerMark` `erasePipeline.js:528–534` (and its calls `:372`, `:768`, `:1230`); `setZById` keeps no production caller |
+| the rebuilt candidate scans | `_candidatesUnder`'s keying `erasePipeline.js:402–409`, `_zScan`, `_ownChange` `:539–544`; `_nextEraseTarget` `:504–521` → `serialHead()` |
+| the one-cut queue | `_cutInflight` (17 sites: `erasePipeline.js:338`, `:725–736`, `:746–775`, `:791–795`, `:1083–1092`, `:1216–1225`, `:1289`, `:1335–1336`; `files.js:90`; `oplog.js:602`; `frameGc.js:79`; `sceneClient.js:397`; `report.js:344`) → the pool's in-flight map |
+| the barrier loops | `_flushErasesFor` `erasePipeline.js:1206–1250`, `_settleSelectionErases` `:1253–1308` (the 200-round cap `:1272`), `_settleLassoErases` `:1310–1327`, `flushErases` `:1333–1353` → one barrier over pairs (§4.11) |
+| the scans for marks | `_eraseStrokes`'s body `erasePipeline.js:111–118`; `_settleLassoErases`'s scan of every native `:1311–1312` |
+| `_renderSoon`'s skip | `erasePipeline.js:777–789`, `ERASE_RENDER_MS` `:55` |
+| the done-set mask | `rasterPack.js:965–984`, `:1011–1016`; `MASKS_MAX = 8` `rasterJob.js:45`; float masks `rasterCore.js:80`, `:409–429` |
+| suites (TEST-MAP) | `erase.neutral.test.js` (125), `erase.zorder.test.js` (86), `raster.bake.test.js` (212); `raster.mask.test.js` replaced (row 3); `erase.markFrame.test.js` replaced (z and erase read from the object); `erase.cost`, `erase.worker`, `erase.stack`'s barrier mechanics, `move.startCost` MS-2, `hooks/erase.resume` ported |
+
+### 6.2 The migration path
+
+The strangler order R25/RENDERER-REBUILD §4.2 asks for, with the Stage built beside `listFor` and one
+flag, `cfg.scene` (engine option and `?scene=0|1`), keeping both until the browser comparison is in:
+
+| step | builds | behind the flag? | runs in both modes |
+|---|---|---|---|
+| **S1** | `Stage` (table, G, `placed`/`placeNative`, `hold`, snapshots), TileStore's hook and id index, the event fields (`oldBelow`, `settle`, `carry`, the `rekey` event); the equivalence probe and test (row 2), the placed test (row 5) | no behaviour change: the Stage is maintained, nothing reads it but the tests | everything |
+| **S2** | freshness by G: the plate store's G and tracked cells, `dirtySince`, jobs with one G; the drain, epochs, ids per plate, `_footBelow` and the rect footprints deleted; `_holdMove` → `stage.hold` | the **source of the pack** is switched: the Stage's items (on) or `_lastList` stamped with the G it was built at (off) | G-freshness and the hold, in both: a list built at G packs jobs at G, which is also H3's fix for the old path |
+| **S3** | the harness comparison (A3's paper metric, frame times, the pixel diff against `?svg` at rest, before and after); then `cfg.scene` on by default; the raster path stops calling `listFor`; `_eraseListStale`, the list snapshots, `_visibleChanged`'s split deleted | the default flips | `listFor` stays for the SVG renderer and the probe |
+| **E1** | the fields, inheritance at the mint sites, registration (with the frames pass moved), persistence and the load-time derivation | requires S3 | — |
+| **E2** | the rule in the pack; 16 exact slots, byte masks, overflow merging; the neutral classification by `by`; the mark-aware pick | | |
+| **E3** | the lineage index, the reorder-buffer bake, the erase pool (`submit(kind, job, priority)`) | | |
+| **E4** | the asynchronous barriers, `status.erase`, the chip | | |
+| **E5** | the deletions of §6.1 and their suites; DESIGN §7/§9, `docs/ai/20-`/`40-` | | |
+
+B-PYRAMID starts from S2's checkpoint (the G interface fixed, PLAN §2). B-ERASE does not depend on
+B-PYRAMID (the pool is separate until B-PYRAMID's scheduler absorbs it). B-DRAG replaces the hold's
+queued events with `setDragDelta`. B-MODEL replaces `placeNative`'s internals and the Stage's reroute
+adapter (§7).
+
+### 6.3 What stays after both builds
+
+`listFor` (the SVG renderer, the probe), `TileStore`'s reroute memo and `offTouchedSince` (for
+`listFor` only; deleted with it or with A1's displaced index), the step graph, `eraseJob`/
+`eraseDescent`'s geometry, the frames pass (moved, not changed), `setZById` (the reserved z op).
+
+### 6.4 The property tests (PLAN §3 rows 1, 2, 3, 5, 7)
+
+**Row 1 — a stored plate's generation is monotone; exact iff `plate.G ≥ cell.dirtySince`.**
+`src/engine/stage.fresh.test.js` (plus a 200-seed probe). A Document, LevelMap, TileStore and Stage
+(no renderer); the new PlateStore; a fake pool whose jobs are packed at dispatch (the job's G =
+`stage.generation` then) and answered in a random order after random delays. Seeded random steps: a
+document change (add, remove, a table change, a re-home, a geometry edit, a frame re-address, an
+undo — some inside `stage.batch`), a dispatch for a random wanted cell at one of three frames and four
+levels, an arrival, an eviction. After every step: (a) no stored plate's G ever decreased; (b) for
+every stored plate, `exact` equals the brute-force answer "no commit after plate.G whose footprint —
+recomputed independently from the logged before/after states through `LevelMap.mapRectObj` — meets the
+cell"; (c) an arrival with `g > stored.G` replaced a stale stored plate (F106). Drives: the Stage's
+event handlers and batching, `track`/`untrack`/`dirtySince`, `PlateStore.put`/`beginJob`/`endJob`.
+
+**Row 2 — the scene's items equal `listFor`'s sorted output.** §2.14: `stage.equiv.test.js` (5 seeds ×
+40 steps, quick suite) and `stage.equiv.probe.js` (60 × 80). Drives: every event handler of §2.8,
+TileStore's hook, the window diff, the reroute adapter, a crossing's rebuild, a reload.
+
+**Row 3 — a mark hides exactly its targets; the masked target looks like its cut pieces; an object
+moved under the mark after pen-up is unmasked.** `src/engine/raster/raster.eraseRule.test.js`
+(replacing `raster.mask.test.js`), real pixels from `packJob` + `renderPlate` over the Stage's items
+(`softCanvas` for the composed view where needed). Seeded: 3–12 objects (strokes, fills, shapes, one
+translucent, one keyed family through a cede), 1–3 eraser gestures, a random subset of other objects
+dragged across a mark after its registration.
+- (a) *Exactly its targets*: at every step of the bake, for every item and pending mark, the bit the
+  pack sets equals an oracle computed from the op history (targets recorded at registration; each cut
+  step maps its removed id to its pieces; a refusal adds the mark) — lineage by replay, not by the
+  fields under test.
+- (b) *The masked target is its pieces*: rasterise the plates over each mark's box before a step and
+  after it; they differ by at most one alpha step per channel (K4 measured 0 bytes for fills and a
+  ring) — and after the whole bake, a fresh raster equals the plates kept through the neutral steps
+  within the same tolerance. This is the test the neutral classification (§4.5) stands on.
+- (c) *Moved under after pen-up*: every dragged-across object's pixels equal those of a raster with the
+  marks deleted outright, at every drag step (the drag plane's SEL layer) and after the drop; and it is
+  never cut (its id never appears in a step's `removed`). Includes a drag begun in the unresolved window
+  (the barrier's `flushBakes` resolves and registers first).
+- (d) *Two marks, lower first* (§5.6) and *refused over ink* (§5.7), deterministic cases.
+Drives: registration, the three mint sites, `pendingUnder`, the pack's slots and bits, the core's mask
+pass, the reorder buffer, the Stage's classifier.
+
+**Row 5 — the placed read equals the numeric table.** `src/engine/stage.placed.test.js`. Random natives
+at random homes with random snapped tables (entries at depths 0–4), a camera frame at random depths
+above and below the home over random lattice paths of up to three frame steps (A3's E2: beyond that the
+float affine itself rounds). For each native's items in the camera table: the points of `placed(item)`
+(`geom` translated by `off`) against a reference computed exactly — the stored points mapped through
+the exact chain plus the table's total translation Σ below[k]·R^(D−hd−k), in BigInt dyadic arithmetic,
+rounded once — to 1e-9 of the frame's units; and the inverse, `placeNative(nat, F).toStored(p)` for
+random input points, back to the same tolerance. Drives: `objShift`, the tile derivation of rerouted
+groups, `placed`, `placeNative`, the hit test's inverse (`p − off`).
+
+**Row 7 — the selection stands for the same ink through cuts** (A1 owns settles and merges).
+`src/engine/select.eraseBarrier.test.js`. Random objects under random pending marks; (a) a tap on a
+pending target: after the barrier, `selection.ids` is exactly the set of the target's pieces — all
+descendants through every mark pending over it — and `_selectionMembers` covers them and nothing else;
+a drag moves exactly them; (b) a lasso over a region with pending targets: the selection equals
+`_lassoFind` of the same loop over a clone of the document baked to completion first (the
+brute-force oracle), including a mark outside the loop's box trimming an object into it (H5); (c) a
+frame selection with a pending mark homed under it: the mark is finished before the frame moves (B4's
+scope). Drives: the barrier rounds, the selection's re-targeting from the steps, `_lassoFind`.
+
+### 6.5 Risks
+
+1. **Hidden writers.** Anything that changes what an item draws without an event leaves the table
+   wrong: the idle fitter's `_outline` (`KobinEngine.js:1303–1306`), `_resplitFamily` writing `editId`
+   then `keysChanged()` with no event (`erasePipeline.js:1036–1042`), replay's `adopt` mutating an object
+   in place (`oplog.js:356–361`, harmless because a load resets the Stage after it). Each gets an event
+   or a `stage.touch(id)`; the equivalence fuzz is what finds the next one.
+2. **Re-entrancy.** `Document.at` settles and carries inside the Stage's own reads; tile bakes can
+   settle frames they read (F78). The Stage queues events raised inside `sync` and drains them after,
+   bounded; a bug here is a table off by one event, which the fuzz catches.
+3. **Dirt cost on bulk operations.** Per-event footprints on a 20k-member undo without `batch` would be
+   20k passes over the tracked cells; every bulk entry point must be wrapped. Measure the 20k undo
+   (today's `_releaseMove` is the reference: one pass).
+4. **The neutral classification's premise** (§4.5, least-sure 1).
+5. **Asynchronous barriers** change what a tap and a drag feel like (least-sure 2).
+6. **Two builds in one file.** B-ERASE's mask block and B-PYRAMID's pack both edit
+   `rasterPack.packJob`, and both touch the worker pool. Keep B-ERASE to the mark block and the erase
+   client; B-PYRAMID owns the rest.
+7. **A1 changes the mint sites.** "Cede kids in private frames" (A1's leaning) must keep §4.3's two
+   lines in whatever mints the kids.
+8. **Mixed-version editing mid-bake** loses the remaining erase of a pending mark (§4.9).
+
+### 6.6 Effort (agent-days, one builder, tests and docs included)
+
+| build | pieces | estimate |
+|---|---|---|
+| **B-SCENE** | the Stage core — table, indexes, window diff, rebuild, G, commit/batch, `changesSince` (2.5); TileStore's hook and id index (1); the event fields and the dirt/tracking (1.5); the plate store's G and the renderer's pack from items (1.5); the consumers — pick, ants, `_planeState`, `_selectionRect`, the overlay's cache keys (1); rows 1, 2, 5 and the probe (1.5–2); deletions and docs (0.5–1) | **8–11** |
+| **B-ERASE** | fields, inheritance, registration with the frames pass moved (1.5); persistence, `attr` entries, the load-time derivation (1.5); the rule in the pack, slots, byte masks (1); the lineage index, reorder buffer, erase pool (2); asynchronous barriers, `status.erase`, the chip (1.5); rows 3 and 7 and the ported suites (1.5); deletions and docs (0.5) | **8–10** (joint cuts not included: +2–3 if Q4 says now) |
+
+RENDERER-REBUILD §4.3 put step 1 at "one to two weeks with the tests" and step 4 at "a few days once 1
+holds"; the asynchronous barriers and the persistence derivation are why B-ERASE is more than a few.
 
 ---
 
