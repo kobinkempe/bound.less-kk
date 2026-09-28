@@ -1,8 +1,7 @@
 /**
- * PlateStore.js — the plate cache (RASTERISER-PLAN §3.7 and §5.4): keys, LRU with the
- * visible set pinned, a byte cap, the five invalidation rules, the settle's own quantum
- * drop (§6.3), the invalidation epoch (D25), the in-flight map and the
- * `visibilitychange` release.
+ * PlateStore.js — the plate cache (RASTERISER-PLAN §3.7): keys, LRU with the visible set
+ * pinned, a byte cap, the settle's own quantum drop (§6.3), the in-flight map, the
+ * `visibilitychange` release, and freshness by generation (A2-scene.md §3.1).
  *
  * Four facts a reader needs not to break it:
  *
@@ -11,17 +10,16 @@
  *     heap, often a GPU texture; dropping the reference frees it only when GC decides, which
  *     on a phone under pressure is too late (§3.7). `_remove` marks the entry `dead` first,
  *     so a compose still holding it draws nothing rather than throwing on a closed bitmap.
- *   - **An invalidating drop KEEPS the pixels** (PAPER-PLAN R1): `_drop` bumps the epoch and
- *     leaves the record, and a record is STALE when `e.epoch !== epochOf(e.key)` — derived,
- *     never flagged, because the epoch map already owns that fact (D25). `want` returns a
- *     stale record as a hit AND as a miss, so the screen keeps old ink until the replacement
- *     lands. A stale plate in the visible range is pinned by `want`'s own range loop.
- *   - **The epoch is what catches a plate that was in flight when the document changed.**
- *     The five drop rules can only see plates that are already cached; a plate posted
- *     before the change and cached after it is stale for ever without the epoch (D25).
- *   - **It holds no camera, no document and no lattice.** `KobinEngine` is the only place
- *     that maps a document event into a rectangle in a frame's own units and hands it here
- *     (§2.6, and the eslint zones enforce it).
+ *   - **A plate carries the `G` its job was packed at**, and is exact iff
+ *     `G >= fresh.dirtySince(key)` (rule 2); a result replaces the stored plate iff its G is
+ *     newer (rule 1, F106). A change keeps the pixels (PAPER-PLAN R1): `want` returns a stale
+ *     record as a hit AND as a miss, so the screen keeps old ink until the replacement lands.
+ *   - **Every cell stored or in flight is tracked** by the freshness source (the engine's
+ *     Stage) from `beginJob` or `put` until neither holds it: a job's plate is judged against
+ *     every change after its G, whenever it lands. A hard drop (a quantum, a frame, a reset)
+ *     refuses the jobs it finds in flight.
+ *   - **It holds no camera, no document and no lattice.** The Stage maps a change into a
+ *     frame's units; this store asks it one number a key.
  */
 
 import { PLATE_PX, QUANTA_PER_OCTAVE, plateKey } from "./plate";
@@ -42,8 +40,6 @@ export const PHONE_CACHE_BYTES = 56 * 1024 * 1024;   // 24 held + 24 incoming + 
 const EDGE_PAD_PX = 1;
 /** How long a desktop tab stays hidden before its plates are released (a phone releases at once). */
 export const HIDDEN_RELEASE_MS = 5 * 60 * 1000;
-/** Epoch entries kept before the ones no plate and no job needs are pruned. */
-const EPOCH_MAX = 4096;
 
 /**
  * The cross-quantum window `fallbackCover` will stand a cached plate in at, in quanta of the
@@ -81,30 +77,6 @@ export function defaultCacheBytes(env) {
     return isPhoneBudget(env) ? PHONE_CACHE_BYTES : DESKTOP_CACHE_BYTES;
 }
 
-/** Is the painted-id set ascending? Rule 1 binary-searches it, so an unsorted set loses drops. */
-function ascending(ids) {
-    for (let k = 1; k < ids.length; k++) if (ids[k] <= ids[k - 1]) return false;
-    return true;
-}
-
-/** Does a plate's painted-id set hold any of `want`? Walks the SHORTER of the two. */
-function anyId(ids, want) {
-    if (want.size <= ids.length) { for (const id of want) if (holdsId(ids, id)) return true; return false; }
-    for (let k = 0; k < ids.length; k++) if (want.has(ids[k])) return true;
-    return false;
-}
-
-/** Is `id` in a plate's sorted painted-id set? */
-export function holdsId(ids, id) {
-    let lo = 0, hi = ids.length - 1;
-    while (lo <= hi) {
-        const m = (lo + hi) >> 1, v = ids[m];
-        if (v === id) return true;
-        if (v < id) lo = m + 1; else hi = m - 1;
-    }
-    return false;
-}
-
 /**
  * A plate RANGE's box in its frame's own units, grown by `pad` device pixels; null when `Zq` is
  * unusable. `i1`/`j1` are inclusive, as `plateRange`'s are.
@@ -123,12 +95,8 @@ const EVERYWHERE_BOX = { left: -Infinity, top: -Infinity, right: Infinity, botto
 
 /** Coarsest first, then by plate index, so a cover set is drawn bottom-up and deterministically. */
 
-/** Touching counts as meeting, as `TileStore._onFrameEvent` does: invalidation is conservative. */
-function meets(r, b) {
-    if (!r) return true;                 // no usable Zq: drop rather than keep a stale plate
-    if (!b) return false;
-    return !(b.right < r.left || b.left > r.right || b.bottom < r.top || b.top > r.bottom);
-}
+/** No freshness source (a store in a suite that never changes a document): every plate is exact. */
+const ALWAYS_EXACT = { track() {}, untrack() {}, dirtySince: () => 0, stats: { tracked: 0 } };
 
 export default class PlateStore {
     /**
@@ -141,16 +109,14 @@ export default class PlateStore {
      */
     constructor(opts = {}) {
         /**
-         * The freshness source (the engine's Stage, A2 §3.1): with it a plate carries the `G` its job was
-         * packed at and is exact iff `G >= fresh.dirtySince(key)`; the cells stored or in flight are
-         * tracked there. Without it, the per-key epochs of D25 (the engine's drain), until the switch.
+         * The freshness source (the engine's Stage, A2 §3.1): `track`/`untrack` a cell stored or in
+         * flight, `dirtySince(key)` the newest change that met it.
          */
-        this.fresh = opts.fresh || null;
+        this.fresh = opts.fresh || ALWAYS_EXACT;
         this.maxBytes = opts.maxBytes != null ? opts.maxBytes : defaultCacheBytes(opts.env);
         this.phone = this.maxBytes === PHONE_CACHE_BYTES;
         this.cache = new Map();      // key -> entry
-        this.epochs = new Map();     // key -> integer, bumped by every invalidating drop (D25)
-        this.inflight = new Map();   // key -> { jobId, key, frameId, q, i, j, Zq, epoch }
+        this.inflight = new Map();   // key -> { jobId, key, frameId, q, i, j, Zq, G, refused }
         this.jobs = new Map();       // jobId -> key[]
         this.bytes = 0;
         this._pins = new Set();      // the visible set: never evicted (TileStore.js:50-58)
@@ -169,21 +135,19 @@ export default class PlateStore {
             wants: 0, hits: 0, misses: 0, inFlightSkips: 0,
             puts: 0, stalePuts: 0, replaced: 0,
             evictions: 0, overCapPinned: 0,
-            dropsById: 0, dropsByRect: 0, dropsByQ: 0, dropsAll: 0, dropsFrames: 0, ladderEvictions: 0,
-            noIds: 0, noZq: 0, noEpoch: 0, badIds: 0,
-            epochBumps: 0, epochPrunes: 0,
+            dropsByQ: 0, dropsAll: 0, dropsFrames: 0, ladderEvictions: 0,
+            noZq: 0, noG: 0, refused: 0,
             // A second `{pin:"add"}` caller over a live added set: the one-caller rule D184's
             // rebuild rests on, observed and never enforced (§15.3, 5a's fourth review Q1).
             addCallerMismatch: 0,
-            // PAPER-PLAN R1: a drop keeps the pixels, so these say how much of the cache is
+            // PAPER-PLAN R1: a change keeps the pixels, so these say how much of the cache is
             // behind the document and how often the screen was saved by it.
-            staleKept: 0, staleHits: 0, staleReplaced: 0, staleEvictions: 0, staleNewer: 0,
+            staleHits: 0, staleReplaced: 0, staleEvictions: 0, staleNewer: 0,
             // the cross-quantum cover walk (§7.1): scans, candidates written, entries the cap cut
             fallbackScans: 0, fallbackCandidates: 0, fallbackDropped: 0,
             abandons: 0,
             bitmapsOpen: 0, bitmapsClosed: 0,
-            drains: 0, drainedEvents: 0, releases: 0,
-            neutralEvents: 0,               // bake steps under their mark, drained without a drop (F90)
+            releases: 0,
             dpr: 0,
         };
         this._doc = opts.doc !== undefined ? opts.doc : (typeof document !== "undefined" ? document : null);
@@ -238,12 +202,11 @@ export default class PlateStore {
      * `addCallerMismatch` rather than refused: nothing on the render path throws (D187).
      *
      * **A STALE record is returned as a hit AND as a miss** (PAPER-PLAN R1): the compose keeps
-     * drawing its pixels while the re-post goes out, and the miss carries the BUMPED epoch, which
-     * is what `_stillWanted` and `put`'s guard judge the replacement by (D25). `hits.length +
+     * drawing its pixels while the re-post goes out, packed at a newer G. `hits.length +
      * misses.length` can therefore exceed the cell count; the completeness tests in
      * `PictureLayer` are `!misses.length && !inFlight`, which a stale plate correctly holds open.
      *
-     * @returns {{hits: object[], misses: {key:string,i:number,j:number,epoch:number}[], inFlight:number}}
+     * @returns {{hits: object[], misses: {key:string,i:number,j:number}[], inFlight:number}}
      */
     want(view, opts = {}) {
         const pin = opts.pin || "replace";
@@ -263,7 +226,7 @@ export default class PlateStore {
                     this.s.staleHits++;                 // and on, so the re-post goes out (R1)
                 }
                 if (this.inflight.has(key)) { inFlight++; continue; }
-                misses.push(this.fresh ? { key, i, j } : { key, i, j, epoch: this.epochOf(key) });
+                misses.push({ key, i, j });
             }
         }
         if (add) {
@@ -390,93 +353,36 @@ export default class PlateStore {
     // ---- write path ----
 
     /**
-     * A rastered plate arrives. `rec` is `{ frameId, q, Zq, i, j, epoch, bitmap|pixels,
-     * bytes?, ids? }`. Two things the caller must get right, both counted here because
-     * neither can be seen in the picture afterwards:
+     * A rastered plate arrives: `rec` is `{ frameId, q, Zq, i, j, G, bitmap|pixels, bytes?, jobId? }`,
+     * `G` the generation its job was packed at (A2 §3.1). Rule 1: it replaces the stored plate iff
+     * there is none or its `G` is newer — a newer result that is itself behind still replaces older
+     * stale pixels and is re-posted, so a stream of changes cannot keep a plate's oldest ink on
+     * screen (F106); at equal G the pixels are equal and the stored plate stays. A result of a job a
+     * hard drop refused is discarded and its bitmap closed; one with no `G` is counted in `noG`.
      *
-     *   - **Every result must carry the `epoch` its job was begun with.** A result with no
-     *     `epoch` is cached however far the key's epoch has moved, which is the stale plate
-     *     D25 exists to catch; it is counted in `noEpoch`.
-     *   - **`ids` must be ascending** — it is the plate's painted-id set and rule 1
-     *     binary-searches it. One that is not is counted in `badIds` and sorted here, so a
-     *     packing mistake costs a sort rather than stale ink nothing explains (D84).
-     *
-     * A result whose epoch is behind is discarded and its bitmap closed — the plate was
-     * invalidated while it was in flight (D25) — and the caller re-posts it. Unless the plate's
-     * cached pixels are stale and OLDER than the result: then the result replaces them and stays
-     * stale (`"newer"`), still re-posted. A stream of invalidations (a bake's steps, one every
-     * ~170 ms on the Magnum Opus) otherwise refused every arrival and kept the pixels from before
-     * the first of them on screen — the ink under an eraser mark, back for seconds (F106).
-     *
-     * @returns {"cached"|"stale"|"newer"}
+     * @returns {"cached"|"stale"|"newer"} cached: stored or kept exact; newer: stored, still behind
      */
     put(rec) {
-        if (this.fresh) return this._putG(rec);
-        const key = rec.key || plateKey(rec.frameId, rec.q, rec.i, rec.j);
-        this._endKey(key, rec.jobId);
-        this.s.puts++;
-        // Counted on arrival, not on caching, so `bitmapsOpen − bitmapsClosed` is what the
-        // store still holds even when a result is discarded here.
-        if (rec.bitmap && typeof rec.bitmap.close === "function") this.s.bitmapsOpen++;
-        let newer = false;
-        if (rec.epoch == null) this.s.noEpoch++;
-        else if (rec.epoch !== this.epochOf(key)) {
-            const cur = this.cache.get(key);
-            if (!cur || cur.dead || !this._isStale(cur) || !(rec.epoch > cur.epoch)) {
-                this.s.stalePuts++;
-                closeOf(rec, this.s);
-                return "stale";
-            }
-            this.s.staleNewer++;
-            newer = true;
-        }
-        const old = this.cache.get(key);
-        // The replace is where a stale record's bitmap is closed (R1): `_drop` keeps it, so this
-        // is the one place old ink is freed on the good path. The key stays the base or a rung.
-        const inBase = this._base.has(key), inLadder = this._ladder.has(key);
-        if (old) { if (this._isStale(old)) this.s.staleReplaced++; this._remove(key); this.s.replaced++; }
-        const bytes = rec.bytes != null ? rec.bytes : PLATE_BYTES;
-        let ids = rec.ids || null;
-        if (ids && ids.length > 1 && !ascending(ids)) { this.s.badIds++; ids = Int32Array.from(ids).sort(); }
-        const entry = {
-            key, frameId: rec.frameId, q: rec.q, Zq: rec.Zq, i: rec.i, j: rec.j,
-            bitmap: rec.bitmap || null, pixels: rec.pixels || null,
-            bytes, ids, epoch: newer ? rec.epoch : this.epochOf(key), lru: ++this._clock,
-        };
-        if (!rectOf(entry)) this.s.noZq++;
-        this.cache.set(key, entry);
-        if (inBase) this._base.add(key);
-        if (inLadder) this._ladder.add(key);
-        this.bytes += bytes;
-        this._evict();
-        return newer ? "newer" : "cached";
-    }
-
-    /**
-     * `put` by generation (A2 §3.1, PLAN §3 row 1). Rule 1: a result replaces the stored plate iff there
-     * is none or its `G` is newer — a newer result that is itself behind still replaces older stale
-     * pixels (F106) and is re-posted; at equal G the pixels are equal and the stored plate stays. A
-     * result of a job a hard drop refused (`dropFrames`, `dropQuantum`, `dropAll`, `abandonQuantum`)
-     * is discarded. Rule 2 is `isExact`.
-     *
-     * @returns {"cached"|"stale"|"newer"}
-     */
-    _putG(rec) {
         const key = rec.key || plateKey(rec.frameId, rec.q, rec.i, rec.j);
         const f = this.inflight.get(key);
         const refused = !!f && f.refused && (rec.jobId == null || f.jobId === rec.jobId);
         this._endKey(key, rec.jobId);
         this.s.puts++;
+        // Counted on arrival, not on caching, so `bitmapsOpen − bitmapsClosed` is what the
+        // store still holds even when a result is discarded here.
         if (rec.bitmap && typeof rec.bitmap.close === "function") this.s.bitmapsOpen++;
         const cur = this.cache.get(key);
         if (refused || rec.G == null || (cur && !cur.dead && !(rec.G > cur.G))) {
-            if (rec.G == null) this.s.noEpoch++;
+            if (refused) this.s.refused++;
+            if (rec.G == null) this.s.noG++;
             closeOf(rec, this.s);
             this._untrackIfIdle(key);
             if (!refused && cur && !cur.dead && this.isExact(cur)) return "cached";
             this.s.stalePuts++;
             return "stale";
         }
+        // The replace is where a stale record's bitmap is closed (R1): a change keeps it, so this
+        // is the one place old ink is freed on the good path. The key stays the base or a rung.
         const inBase = this._base.has(key), inLadder = this._ladder.has(key);
         if (cur) { if (!this.isExact(cur)) this.s.staleReplaced++; this._remove(key, true); this.s.replaced++; }
         const bytes = rec.bytes != null ? rec.bytes : PLATE_BYTES;
@@ -498,19 +404,13 @@ export default class PlateStore {
         return exact ? "cached" : "newer";
     }
 
-    /** Rule 2 (A2 §3.1): the plate reflects every commit that could change its pixels. */
-    isExact(e) {
-        if (!this.fresh) return e.epoch === this.epochOf(e.key);
-        return e.G >= this.fresh.dirtySince(e.key);
-    }
+    /** Rule 2 (A2 §3.1): the plate reflects every change that could move its pixels. */
+    isExact(e) { return e.G >= this.fresh.dirtySince(e.key); }
 
     /** A key neither stored nor in flight leaves the freshness source's tracked set. */
     _untrackIfIdle(key) {
-        if (this.fresh && !this.cache.has(key) && !this.inflight.has(key)) this.fresh.untrack(key);
+        if (!this.cache.has(key) && !this.inflight.has(key)) this.fresh.untrack(key);
     }
-
-    /** A hard drop's jobs still in flight deliver nothing for their keys. */
-    _refuse(f) { f.refused = true; }
 
     // ---- the invalidation epoch and the in-flight map (D25, §8.4 rule 4) ----
 

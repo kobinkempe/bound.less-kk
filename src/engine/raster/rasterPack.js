@@ -898,7 +898,6 @@ function famStale(f) {
  *   dpr       devicePixelRatio, for the quantised fade only
  *   cfg       the engine cfg (enter, cullPx, fadeLoPx, arcTolerancePx)
  *   paper     [r, g, b]
- *   epochs    Int32Array, one per plate (§5.4); defaults to zeros
  *   G         the scene's generation the list was read at (A2 §3.1): every plate of the job carries it
  *   jobId, frameSeq, postedAt
  *   pool      a `BufferPool`, or null to allocate fresh
@@ -909,7 +908,6 @@ function famStale(f) {
  *             takes a family whole — so the union sign never differs between the two jobs.
  *   markDone  `(markId) => Set` of what a pending eraser mark has baked: those items are not
  *             under its mask; without it everything below a mark is (Kobin, 2026-09-23)
- *   markZ     `(markId) => z` the mark had when the list was built, over the list's own (E-9)
  *   offset    `[dx, dy]` in frame units, added to every item's `res` — the way a caller that
  *             wants an arbitrary rectangle on ONE plate moves the world instead of the grid
  *             (SCENES-PLAN S1). The core already applies `res` per item, nothing goes on the
@@ -918,7 +916,7 @@ function famStale(f) {
  * @returns {object} the job `rasterCore.renderPlate` and `rasterJob.wireJob` both read
  */
 export function packJob(list, opts) {
-    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, live = null, offset = null, only = null, omit = null, markDone = null, markZ = null } = opts;
+    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, live = null, offset = null, only = null, omit = null, markDone = null } = opts;
     const binner = new PlateBinner(plates, Zq);
 
     // 1 — the families, in the order the SVG renderer stacks them: (z, renderId) ascending,
@@ -976,8 +974,7 @@ export function packJob(list, opts) {
         if (!d.o.erase) continue;
         let M = markOf.get(d.fam);
         if (!M) {
-            const z = markZ ? markZ(d.o.id) : null;
-            markOf.set(d.fam, (M = { k: Math.min(markOf.size, MASKS_MAX - 1), z: z != null ? z : d.fam.z, done: markDone ? markDone(d.o.id) : null, box: [Infinity, Infinity, -Infinity, -Infinity] }));
+            markOf.set(d.fam, (M = { k: Math.min(markOf.size, MASKS_MAX - 1), z: d.fam.z, done: markDone ? markDone(d.o.id) : null, box: [Infinity, Infinity, -Infinity, -Infinity] }));
         }
         const b = d.g.box ? boxWithRes(d.g.box, d.res) : d.box;
         if (b[0] < M.box[0]) M.box[0] = b[0];
@@ -1057,7 +1054,6 @@ export function packJob(list, opts) {
         // Every array in the job is the packer's OWN copy: `wireJob` transfers them, which
         // detaches the buffer, and a job that aliased the caller's plate list would leave the
         // store holding a zero-length array after the first post.
-        epochs: opts.epochs ? Int32Array.from(opts.epochs) : new Int32Array(plates.length / 2),
         q, Zq, plateW: PLATE_PX,
         plates: Int32Array.from(plates),
         paper: Uint8Array.from(paper),
@@ -1071,7 +1067,6 @@ function emptyJob(opts, plates, paper, pool) {
         frameSeq: opts.frameSeq != null ? opts.frameSeq : 0,
         postedAt: opts.postedAt != null ? opts.postedAt : 0,
         G: opts.G != null ? opts.G : 0,
-        epochs: opts.epochs ? Int32Array.from(opts.epochs) : new Int32Array(plates.length / 2),
         q: opts.q || 0, Zq: opts.Zq, plateW: PLATE_PX,
         plates: Int32Array.from(plates),
         paper: Uint8Array.from(paper),
