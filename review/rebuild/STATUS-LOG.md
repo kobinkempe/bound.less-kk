@@ -685,3 +685,16 @@ Typecheck 0; lint 0 errors, 6 warnings. Retake (`--dense --scenario all`, 4e8ce8
 harness ran on :3012. Gestures took 1.4–3.7× the builder's, so paper and frame counts are not comparable and the sampler's
 effect is not isolated. Server on :3011 stopped; worktree removed.
 **Questions asked:** kill those three pids and retake on a quiet machine (recommend yes; 2 of 4 cores are lost to them).
+
+## 2026-09-28 14:25 UTC — orchestrator (Fable) — the B-FOUNDATION review closed; the orphaned jest run stopped
+**Working on:** the reviewer's fixes committed (3c721aa): the union pass exact inside a clip, the goldens
+and the raster bundle (`033935ef63ebe8c3d12ab8bb650fff8d`) regenerated, the clip suite split, the sampler
+at compose time, the lever-decoding minor. Its baseline retake was contended (load 12–13 on 4 cores) by a
+jest run the first B-SCENE builder left behind when its context overflowed at 05:3x — two workers at 98 %
+CPU for 8.7 hours under `scratchpad/b2/app` — now killed; load is back to ~3 with three agents.
+**Measured:** nothing quotable from the retake; the reviewer's own scenarios 3 and 6 earlier agreed with the
+builder's baseline within variance.
+**Decisions made:** no separate quiet retake now — B-PYRAMID-2 measures old and new back to back behind
+`cfg.pyramid` on the same machine, which is the comparison that matters; the harness gains a load-average
+line in its output so a contended run is visible (an ask for B-PYRAMID-2). B-FOUNDATION is closed.
+**Questions asked:** none.
