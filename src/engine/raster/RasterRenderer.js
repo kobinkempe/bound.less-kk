@@ -878,17 +878,19 @@ export default class RasterRenderer extends Renderer {
     /**
      * Is every cell under a held path painting it or on its way — its plate in flight at a G that
      * paints it, or strips still queued (a busy pool packs them later: the 1,000-band ring's were)?
+     * A stroke whose shape has not landed is on its way: the packs skip it until then (PLAN §1.5).
      */
     _liveCellsComing(v, h) {
+        const Gs = this._shownFrom(h);
+        if (Gs == null) return !!this.stage && this.stage.itemsOf(h.id).some((it) => it.pending);
         const r = plateRange(h.box, v.Zq), queued = rasterWorkerReport().queued > 0;
         const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
         let coming = 0;
-        const Gs = this._shownFrom(h);
         for (let j = j0; j <= j1; j++) {
             for (let i = i0; i <= i1; i++) {
                 if (this._plateShowsG(v, i, j, h)) continue;
                 const f = this.store.inflight.get(plateKey(v.frameId, v.q, i, j));
-                if (f ? Gs == null || f.G < Gs : !queued) return false;
+                if (f ? f.G < Gs : !queued) return false;
                 coming++;
             }
         }

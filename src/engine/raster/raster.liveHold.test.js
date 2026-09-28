@@ -47,6 +47,9 @@ describe("F120 the live path at a pen-up that leaves the sync path", () => {
         expect(E.renderer.layer.view().mode).toBe("plates");
         expect(E.renderer._liveHeld.length).toBe(1);        // red before: dropped, the stroke nowhere
         await flush();
+        expect(E.renderer._liveHeld.length).toBe(1);        // pending its shape: on no plate yet (PLAN §1.5)
+        while (E._stepShapeBakes(1000));                    // the shape lands; its plates are posted
+        await flush();
         E.renderer._releaseHeldLive(E.renderer._view, null);
         expect(E.renderer._liveHeld.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);

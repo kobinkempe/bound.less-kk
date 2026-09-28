@@ -790,7 +790,13 @@ export default class KobinEngine {
         // The raster path packs the Stage's items and builds no list (A2 §6.2 S3); the SVG path draws `listFor`'s.
         if (!ras) this._lastList = this._buildList();
         this.stage.sync(this.cam.frame, this._listWin(), Infinity);
-        if (ras) { this._lastList = this.stage.items(); ras.noteList(perfNow() - tList); }
+        if (ras) {
+            // A change of frame: the tiles of frames the camera left go, after the read pinned the new view's (F83).
+            const F = this.cam.frame;
+            if (F !== this._tileFrame) { this.store.framesLeft(F); this._tileFrame = F; }
+            this._lastList = this.stage.items();
+            ras.noteList(perfNow() - tList);
+        }
         this.renderer.render(this._lastList, this.cam.frame);
         this.renderer.update();
         this._emit();
@@ -822,9 +828,12 @@ export default class KobinEngine {
      */
     _tableStep(crossed) {
         if (crossed) { this._render(); return; }
-        this.stage.sync(this.cam.frame, this._listWin(), Infinity);
-        this._lastList = this.stage.items();
-        this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+        this._syncStep(); this.renderer.update(); this._emit();
+    }
+    /** A step without a render: on the raster path the table is synced first (a tile an event dropped is read again). */
+    _syncStep() {
+        if (this.raster) { this.stage.sync(this.cam.frame, this._listWin(), Infinity); this._lastList = this.stage.items(); }
+        this.renderer.syncCameraOnly();
     }
     _visibleChanged() {
         const r = this.lm.tileRange(this.cam.frame, this._listWin());

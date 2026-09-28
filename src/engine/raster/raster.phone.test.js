@@ -186,17 +186,18 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         const id = E.doc.list(E.cam.frame).slice(-1)[0].id;
         expect(E.doc.getById(id).obj.type).toBe("stroke");
         const before = plateAt(E, E.renderer.layer.view().q, 330, 240).e;
-        expect(before && before.pixels).toBeTruthy();             // the raw stroke's plate
+        expect(!!(before && before.pixels)).toBe(false);          // pending its shape it is on no plate (PLAN §1.5)
+        expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(true);   // the live path draws it
         E._scheduleBake = bake;
         while (E._stepShapeBakes(1000));                           // the resolve, as `_bakeTick` runs it: no render of its own
         expect(E.doc.getById(id).obj.type).toBe("shape");
+        const Gs = E.stage.landedAt(id);
+        expect(Gs).toBeGreaterThan(0);
         await flush();
-        expect(E.plates.fresh.dirtySince(before.key)).toBeGreaterThan(before.G);   // the resolve is dirt at once, no camera step
-        // A list read before the resolve cannot make the plate exact (A2 §6.2 S2): the next render's list does.
-        expect(E.plates.isExact(E.plates.get(before.key))).toBe(false);
-        E._render(); await flush();
         const after = plateAt(E, E.renderer.layer.view().q, 330, 240);
-        expect(after.e).not.toBe(before);                          // re-rastered from the shape
+        expect(after.e && after.e.pixels).toBeTruthy();            // the shape, posted by the bake's camera step
+        expect(after.e.G).toBeGreaterThanOrEqual(Gs);
         expect(E.renderer.layer.cellFresh(E.renderer.layer.view(), after.e.i, after.e.j)).toBe(true);
+        expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(false);   // and the live path went with it
     });
 });

@@ -369,7 +369,7 @@ describe("selection indicator (engine)", () => {
         expect(got.inkPx).toBeLessThan(40);
     });
 
-    test("the decision is made once per render and a zoom step reuses it", () => {
+    test("the decision stands while the scene's G does: a zoom step and a render of nothing reuse it, a change decides again", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[200, 200], [300, 260], [400, 210]]);
         E.setTool("select");
@@ -381,10 +381,16 @@ describe("selection indicator (engine)", () => {
         expect(b.key).toBe(a.key);
         expect(b.runs).toBe(a.runs);
         expect(b.transform.k).toBeCloseTo(a.transform.k * 1.02, 9);
-        // A render — the tile set changed, say — decides again.
+        const G0 = E.stage.generation;
+        E._render();                                         // nothing changed: no commit (A2 §2.11)
+        expect(E.stage.generation).toBe(G0);
+        expect(E._selectionAnts().key).toBe(a.key);
+        // A change elsewhere: G moves, the decision is remade.
+        E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#333", opacity: 1,
+            polys: [[[600, 500], [640, 500], [640, 540], [600, 540]]] }, E.cam.frame);
         E._render();
-        const c = E._selectionAnts();
-        expect(c.key).not.toBe(a.key);
+        expect(E.stage.generation).toBeGreaterThan(G0);
+        expect(E._selectionAnts().key).not.toBe(a.key);
     });
 
     test("the lasso appears while you drag it and clears on release", () => {

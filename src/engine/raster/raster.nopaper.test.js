@@ -138,7 +138,7 @@ describe("no paper where anything was ever shown (PAPER-PLAN §10.13)", () => {
         const E = mkEngine();
         drawing(E);
         E._render(); await flush();
-        const lists = jest.spyOn(E, "listFor");
+        const lists = jest.spyOn(E.stage, "snapshot");   // a rung reads the Stage off camera
         E._reportBusy = true;
         E._lastCamMove = -1e9; E._ladderAt = null;
         E._buildLadder();
@@ -212,7 +212,7 @@ describe("no paper where anything was ever shown (PAPER-PLAN §10.13)", () => {
         drawing(E);
         E._render(); await flush();
         E.ladderRungBudgetMs = -1;                              // every rung is over budget
-        const lists = jest.spyOn(E, "listFor");
+        const lists = jest.spyOn(E.stage, "snapshot");   // a rung reads the Stage off camera
         E._lastCamMove = -1e9; E._ladderAt = null;
         E._buildLadder();
         for (let k = 0; k < 20 && E._ladderBusy; k++) await idle();
@@ -230,7 +230,7 @@ describe("no paper where anything was ever shown (PAPER-PLAN §10.13)", () => {
         E._render(); await flush();
         E.store.bumpEpoch();                                    // every tile cold
         E.ladderSliceMs = 1e-6;                                 // each hop bakes one tile chain, then gives up
-        const lists = jest.spyOn(E, "listFor");
+        const lists = jest.spyOn(E.stage, "snapshot");   // a rung reads the Stage off camera
         const posts = jest.spyOn(E.renderer, "ladderPlates");
         const over0 = E.store.overBudget || 0;
         E._lastCamMove = -1e9; E._ladderAt = null;

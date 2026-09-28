@@ -716,6 +716,10 @@ const edgeLayerOf = (E) => E.renderer.host.querySelector(".bl-sel-edges");
 function sameDecision(svgE, rasE) {
     expect(rasE.cam.inScale).toBe(svgE.cam.inScale);
     expect(rasE.cam.frame).toBe(svgE.cam.frame);
+    // A decision stands while G does (A2 §2.11), and the two paths commit at different steps (the SVG
+    // render's tile reads, the raster table's), so each decides afresh here — a drag keeps its first.
+    if (!svgE._dragSel) svgE._selDec = null;
+    if (!rasE._dragSel) rasE._selDec = null;
     const a = svgE._selectionAnts(), b = rasE._selectionAnts();
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();

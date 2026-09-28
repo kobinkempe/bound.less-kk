@@ -1,18 +1,20 @@
 /**
- * A plate is packed from a list that read every cache square the plate covers (REVIEWER-4 P-1:
- * the camera's list read the squares touching the window, the ladder's and the prebake's their
- * window, while the plates packed from them reach up to one plate — up to 4,096 px for a rung —
- * further; the part past the listed squares was rastered as paper and cached FRESH, a white band
- * no later render re-rastered). Every fresh plate is compared with the same plate rastered from a
- * list built wide around it.
+ * stage.cover.test.js — every plate job holds every item overlapping the plate (A2 §2.12, the
+ * TEST-MAP's replacement for `raster.listCover.test.js`). The camera's plates are packed from the
+ * Stage's table only where `covers` says every tile under them is read; the ladder's, the crossing
+ * prebake's and a drag plane's far levels from a snapshot of their plates' rectangle. Two checks: at
+ * the pack, the job's ids against the items `listFor` finds over the plate (the brute-force read);
+ * after it, every exact plate against the same plate rastered from a list read wide around it
+ * (REVIEWER-4 P-1: past the read squares a plate was rastered as paper and cached fresh).
  */
-import KobinEngine from "../KobinEngine";
-import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
-import { packJob } from "./rasterPack";
-import { renderPlate, TW, TH } from "./rasterCore";
-import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
-import { PLATE_PX, plateKey } from "./plate";
-import { W } from "../frameLattice";
+import KobinEngine from "./KobinEngine";
+import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
+import { packJob } from "./raster/rasterPack";
+import { renderPlate, TW, TH } from "./raster/rasterCore";
+import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./raster/rasterJob";
+import { PLATE_PX, plateKey } from "./raster/plate";
+import { drawnBox } from "./placementModel";
+import { W } from "./frameLattice";
 
 jest.setTimeout(120000);
 
@@ -39,6 +41,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fill = (E, x, y, w, h, color, frame = "0") => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
     polys: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]] }, frame);
 
+/** A plate's rectangle in its frame's units. */
+const plateRect = (Zq, i, j) => { const u = PLATE_PX / Zq; return { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u }; };
+/**
+ * The pack's own check, wrapped: every item `listFor` reads over a plate whose drawn box meets the plate's
+ * inside (a device pixel in) is among the job's ids. Returns the misses, "plate:id".
+ */
+function watchJobs(E) {
+    const R = E.renderer, pack = R._packNow.bind(R), out = { jobs: 0, plates: 0, misses: [] };
+    R._packNow = (req, strip, jobId, pool) => {
+        const job = pack(req, strip, jobId, pool);
+        if (!job || req.only || req.omit || typeof req.q !== "number") return job;
+        const ids = new Set(job.ids.subarray(0, job.nItems));
+        out.jobs++;
+        for (let p = 0; p * 2 < strip.length; p++) {
+            const r = plateRect(req.Zq, strip[p * 2], strip[p * 2 + 1]), e = 1 / req.Zq;
+            const inner = { left: r.left + e, top: r.top + e, right: r.right - e, bottom: r.bottom - e };
+            out.plates++;
+            for (const o of E.listFor(req.frameId, r)) {
+                if (E.stage._pending.has(o.id)) continue;                        // pending its shape: on no plate (PLAN §1.5)
+                const b = drawnBox(o), dx = o.res ? o.res[0] : 0, dy = o.res ? o.res[1] : 0;
+                if (b.right + dx < inner.left || b.left + dx > inner.right || b.bottom + dy < inner.top || b.top + dy > inner.bottom) continue;
+                if (!ids.has(o.id)) out.misses.push(req.q + "|" + strip[p * 2] + "," + strip[p * 2 + 1] + ":" + o.id);
+            }
+        }
+        return job;
+    };
+    return out;
+}
+
 /** The plate rastered from a list built four plates wide around it. */
 function refPixels(E, frameId, q, Zq, i, j) {
     const u = PLATE_PX / Zq, pad = 4;
@@ -51,7 +82,7 @@ function refPixels(E, frameId, q, Zq, i, j) {
 }
 const WHITE = (() => { const a = new Uint8ClampedArray(TW * TH * 4); a.fill(255); return a; })();
 const diffPx = (a, b) => { let n = 0; for (let k = 0; k < a.length; k += 4) if (Math.abs(a[k] - b[k]) > 8 || Math.abs(a[k + 1] - b[k + 1]) > 8 || Math.abs(a[k + 2] - b[k + 2]) > 8) n++; return n; };
-/** Every fresh numeric-quantum plate in the store that differs from its reference by 64 px or more. */
+/** Every exact numeric-quantum plate in the store that differs from its reference by 64 px or more. */
 function badPlates(E) {
     const out = [];
     for (const e of E.plates.cache.values()) {
@@ -63,22 +94,37 @@ function badPlates(E) {
     return out;
 }
 
-describe("P-1 — a plate's list covers the plate", () => {
-    test("LCV-1 at a cache square's edge, the view's fresh plates hold the ink past the window, before and after a pan", async () => {
+describe("every plate job holds every item overlapping the plate", () => {
+    test("C1 the camera's jobs, over many objects, through pans across cache squares and a zoom", async () => {
+        const E = mkEngine();
+        for (let k = 0; k < 40; k++) fill(E, -3000 + (k % 8) * 760, -1600 + Math.floor(k / 8) * 640, 420, 300, "rgb(" + (30 + 5 * k) + ",90,160)", "0");
+        const seen = watchJobs(E);
+        E._render(); await flush();
+        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await flush(); }
+        for (let k = 0; k < 6; k++) { E.zoomAt(400, 300, 300); await flush(); }
+        expect(seen.jobs).toBeGreaterThan(5);
+        expect(seen.plates).toBeGreaterThan(20);
+        expect(seen.misses).toEqual([]);
+        expect(badPlates(E)).toEqual([]);
+    });
+
+    test("C2 at a cache square's edge, the view's exact plates hold the ink past the window, before and after a pan", async () => {
         const E = mkEngine();
         fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");      // the child sees it as up content, clipped per square
         E._render(); await flush();
         const child = E.lm.ensureSpine(1);
         const s = 0.04, edgeX = W / 2 - 100;                         // the window's right edge 4 px short of square 1
         const left = edgeX - 800 / s, top = -300 / s;
+        const seen = watchJobs(E);
         E.cam.set({ frame: child, inScale: s, inPanX: -left * s, inPanY: -top * s });
         E._render(); await flush();
-        expect(badPlates(E)).toEqual([]);                             // red: two plates, 62,976 px of paper
+        expect(badPlates(E)).toEqual([]);                             // red with the list's window: 62,976 px of paper
         E.panBy(-10, 0); await flush();
         expect(badPlates(E)).toEqual([]);
+        expect(seen.misses).toEqual([]);
     });
 
-    test("LCV-2 a zoom-out ladder's rungs hold the ink their plates reach", async () => {
+    test("C3 a zoom-out ladder's rungs, read as snapshots, hold the ink their plates reach", async () => {
         const E = mkEngine();
         fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");
         E._render(); await flush();
@@ -86,14 +132,18 @@ describe("P-1 — a plate's list covers the plate", () => {
         const s = 0.3, cx = 50000;
         E.cam.set({ frame: child, inScale: s, inPanX: 400 - cx * s, inPanY: 300 });
         E._render(); await flush();
+        const snaps = jest.spyOn(E.stage, "snapshot");
+        const seen = watchJobs(E);
         E._lastCamMove = -1e9; E._ladderAt = null;
         E._buildLadder();
         for (let k = 0; k < 60 && E._ladderBusy; k++) { await sleep(40); await flush(); }
         await flush();
-        expect(badPlates(E)).toEqual([]);                             // red: the q-27 rung, 212,480 px
+        expect(snaps).toHaveBeenCalled();
+        expect(seen.misses).toEqual([]);
+        expect(badPlates(E)).toEqual([]);                             // red with the rung's window: the q-27 rung, 212,480 px
     });
 
-    test("LCV-3 a drag plane's level coarser than the list's margin holds the ink its BELOW plates reach (P-2)", async () => {
+    test("C4 a drag plane's level coarser than the table's margin reads a snapshot at idle and holds the ink its BELOW plates reach (P-2)", async () => {
         const E = mkEngine(2000, 1400);
         fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");
         E._render(); await flush();
@@ -103,18 +153,19 @@ describe("P-1 — a plate's list covers the plate", () => {
         const sel = fill(E, left + 100 / s, top + 100 / s, 1800 / s, 1200 / s, "rgb(200,60,40)", child);
         E._render(); await flush();
         E.renderer._planeCap = 20;
-        // The far list is built at idle, never inside an aim (the select's and the drop's frames: 0.2–0.6 s in Chrome).
-        const R = E.renderer, aim = R._aimPlane.bind(R), hook = R.listForPlane;
+        // The far level is read at idle, never inside an aim (the select's and the drop's frames: 0.2–0.6 s in Chrome).
+        const R = E.renderer, aim = R._aimPlane.bind(R), snap = E.stage.snapshot.bind(E.stage);
         let aiming = false, inAim = 0, built = 0;
         R._aimPlane = (v) => { aiming = true; try { return aim(v); } finally { aiming = false; } };
-        R.listForPlane = (...args) => { if (aiming) inAim++; built++; return hook(...args); };
+        E.stage.snapshot = (...args) => { if (aiming) inAim++; built++; return snap(...args); };
         E.setTool("select"); E._setSelection([sel.id], []); E._render();
         const pl = E.renderer._plane;
         for (let t0 = Date.now(); !(pl.layers.length && pl.checkReady(E.plates)) && Date.now() - t0 < 5000;) { await sleep(20); await flush(); }
         E.pointerDown(1000, 700); E.pointerMove(1010, 705); await flush();
-        expect(pl.quick && pl.quick.k).toBeGreaterThan(2);           // the case: a quick level past the camera list's margin
+        expect(pl.quick && pl.quick.k).toBeGreaterThan(2);           // the case: a quick level past the table's margin
         for (let t0 = Date.now(); (pl.quick.listPending || !pl._whole(pl.quick, E.plates)) && Date.now() - t0 < 5000;) { await sleep(20); await flush(); }
-        expect(pl.quick.list).toBeTruthy();                           // built at idle, not in the aim
+        expect(pl.quick.list).toBeTruthy();                           // read at idle, not in the aim
+        expect(pl.quick.G).toBeGreaterThan(0);                        // and packed at the snapshot's G
         expect(built).toBeGreaterThan(0);
         expect(inAim).toBe(0);
         expect(pl._whole(pl.quick, E.plates)).toBe(true);

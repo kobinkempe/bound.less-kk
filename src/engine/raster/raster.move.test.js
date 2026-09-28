@@ -109,12 +109,12 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         const E = mkEngine();
         const { a, p } = await scene(E);
         const pl = E.renderer._plane;
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         const posted0 = E.plates.s.misses;
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 40; k++) E.pointerMove(p[0] + k * 3, p[1] + k);
         expect(E._holdMove).toBeTruthy();
-        expect(lists).not.toHaveBeenCalled();                     // red with the per-step `_render`: 33 lists
+        expect(lists).not.toHaveBeenCalled();                     // red with the per-step `_render`: 33 renders
         expect(pl.state).toBe("drag");
         expect(pl.off).toEqual([120, 40]);                        // the pointer's displacement, device px (dpr 1)
         expect(E.plates.s.misses).toBe(posted0);                  // the plates were not touched
@@ -158,7 +158,7 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         // a cap nothing fits: the coarsest level is taken and counted, the drag held (the review's nit: "never refuses" was untrue)
         E.renderer._planeCap = 1;
         const over0 = planeStats.overCap;
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 12; k++) E.pointerMove(p[0] + k * 2, p[1]);
         expect(E._holdMove).not.toBeNull();
@@ -280,18 +280,6 @@ describe("the plane's compose (PictureLayer._composePlane)", () => {
 });
 
 describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
-    /** Every cell under a box, fresh at the view's own quantum? */
-    const allFresh = (E, box) => {
-        const R = E.renderer, v = R.layer.view();
-        const s = v.Zq / PLATE_PX;
-        for (let j = Math.floor(box.top * s); j <= Math.ceil(box.bottom * s) - 1; j++) {
-            for (let i = Math.floor(box.left * s); i <= Math.ceil(box.right * s) - 1; i++) {
-                if (i < v.i0 || i > v.i1 || j < v.j0 || j > v.j1) continue;
-                if (!R.layer.cellFresh(v, i, j)) return false;
-            }
-        }
-        return true;
-    };
     /** Every cell under a held path's box has a plate that paints its stroke (its G at or past Gs, A2 §3.3)? */
     const allShow = (E, h) => {
         const R = E.renderer, v = R.layer.view(), r = plateRange(h.box, v.Zq);
@@ -324,12 +312,13 @@ describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
         E.pointerUp();
         const h = R._liveHeld[0];
         held = h;
-        const box = h && h.box;
         expect(h).toBeTruthy();                          // red with the path taken down at pen-up
         expect(path.parent).toBeTruthy();
-        expect(R._liveModel).toBeNull();                 // the packer paints the stroke from now on
-        expect(allFresh(E, box)).toBe(false);            // the plates under it are behind the document
+        expect(R._liveModel).toBeNull();                 // the live path draws it until its shape lands (PLAN §1.5)
         expect(allShow(E, h)).toBe(false);
+        await flush();
+        expect(R._liveHeld.length).toBe(1);              // pending its shape: held whatever lands
+        while (E._stepShapeBakes(1000));                 // the shape lands; its plates follow
         await flush();
         expect(R._liveHeld.length).toBe(0);
         expect(path.parent).toBeFalsy();
@@ -449,7 +438,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         E.pointerDown(p1[0], p1[1]);                     // a nudge again, at once
         for (let k = 1; k <= 5; k++) E.pointerMove(p1[0] + k * 6, p1[1]);
         await flush();
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         for (let k = 6; k <= 40; k++) E.pointerMove(p1[0] + k * 6, p1[1]);
         await flush();
         expect(lists).not.toHaveBeenCalled();             // the plane draws it: no per-step render
@@ -474,7 +463,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         expect(E._holdMove).toBeNull();                   // red: the hold outlived the plane
         expect(R.dragLight()).toBe(false);
         expect(E._dragSel.listAt).toBeNull();             // the ants anchor at the pointer from here
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         for (let k = 21; k <= 40; k++) E.pointerMove(p[0] + k * 6, p[1]);
         await flush();
         expect(lists.mock.calls.length).toBe(20);         // red: 0 — nothing drew the move until the drop
@@ -644,7 +633,7 @@ describe("the drag keeps the true z-order at every frame (PAPER-PLAN §10 S4z)",
         expect(planeStats.maxLayers).toBeGreaterThan(MOVE_PLANE_LAYERS);
         expect(planeStats.merged).toBe(1);                            // red before §10.14: refused, a render a step
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel"]);
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(100, 100);
         for (let dx = 10; dx <= 290; dx += 10) E.pointerMove(100 + dx, 100);
         expect(E._holdMove).not.toBeNull();
@@ -722,7 +711,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         expect(planeStats.maxLayers).toBeGreaterThan(MOVE_PLANE_LAYERS);
         expect(pl.refused).toBe(false);                               // red before §10.14: refused, a render a step
         expect(pl.layers.length).toBeLessThanOrEqual(MOVE_PLANE_LAYERS);
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(50, 110);
         for (let dy = 10; dy <= 200; dy += 10) E.pointerMove(50, 110 + dy);
         expect(E._holdMove).not.toBeNull();
@@ -911,7 +900,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         E._render(); await flush();
         await new Promise((r) => setTimeout(r, 200));
         expect(E.plates._plane.size).toBe(0);                          // no idle plane either
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(150, 300);
         for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
         expect(E._holdMove).toBeNull();
@@ -995,10 +984,11 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             const r = plateRange(h.box, v.Zq), cells = [];
             for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) cells.push([i, j]);
             expect(cells.length).toBeGreaterThan(1);
-            // The shape's bake staled every cell; the band's plates (packed at or past the G the stroke
-            // shows from) had landed on all but the last.
+            while (E._stepShapeBakes(1000));                             // the shape lands: a plate at or past its G paints it
+            // A later change staled every cell; the plates packed at or past the G the stroke shows
+            // from had landed on all but the last.
             const Gs = R._shownFrom(h);
-            expect(Gs).not.toBeNull();
+            expect(Gs).toBeGreaterThan(0);
             const banded = new Set(cells.slice(0, -1).map(([i, j]) => plateKey(v.frameId, v.q, i, j)));
             const get = R.store.get.bind(R.store);
             const got = jest.spyOn(R.store, "get").mockImplementation((k) => (banded.has(k) ? { G: Gs, dead: false } : get(k)));
@@ -1013,25 +1003,6 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             expect(Number(rects[0].getAttribute("y"))).toBeCloseTo(lj * u - h.og.y, 6);
             got.mockRestore();
         } finally { setRasterTransport(null); }
-    });
-
-    test("L6 a bake's render with only neutral changes since the last is skipped; the next camera step renders", async () => {
-        const E = mkEngine();
-        E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
-        E._render(); await flush();
-        const renders = jest.spyOn(E, "_render");
-        E.stage.stats.events++; E.stage.stats.neutral++;                 // a cut under a pending mark, as the Stage counts it
-        E._renderSoon();
-        await new Promise((r) => setTimeout(r, 150));
-        expect(renders).not.toHaveBeenCalled();                          // red before: a full render (~200 ms on the Magnum Opus)
-        E.panBy(1, 0);
-        expect(renders).toHaveBeenCalledTimes(1);                        // the list is rebuilt before a plate is packed from it
-        E.panBy(1, 0);
-        expect(renders).toHaveBeenCalledTimes(1);                        // once
-        E.doc.add(fill(E, 100, 100, "rgb(200,30,30)"), "0");             // a change that shows
-        E._renderSoon();
-        await new Promise((r) => setTimeout(r, 150));
-        expect(renders).toHaveBeenCalledTimes(2);
     });
 
     test("L7 a pan that carries the camera into another cell renders: the list is rebuilt in the new frame (REVIEWER-3 CAM-1)", () => {

@@ -302,7 +302,7 @@ class ErasePipeline {
             if (promoted || away) this._render();
             else {
                 this._renderPending = true;
-                if (this.raster) { this.renderer.syncCameraOnly(); this.renderer.update(); }
+                if (this.raster) { this._syncStep(); this.renderer.update(); }
             }
         }
         return this._bakeJobs.length > 0;

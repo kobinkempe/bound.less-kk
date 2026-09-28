@@ -269,8 +269,13 @@ RENDERING
     RasterRenderer extends Renderer): our own float64 coverage rasteriser in
     Web Workers fills 512-device-px plates, which are cached by frame, zoom
     quantum and cell and composed onto one canvas; a stale or coarser plate
-    stands in until a fresh one lands. The live stroke stays SVG and the ants
-    are painted on an overlay canvas. The SVG renderer below is behind ?svg.
+    stands in until a fresh one lands. What it packs is the SCENE (Stage.js,
+    A2): the camera frame's items kept from the document's events, never
+    behind it, and one generation G a commit. A change dirties the plate cells
+    its drawn footprint meets; a job carries the G it was packed at; a plate
+    is exact iff its G >= its cell's dirtySince. The live stroke stays SVG and
+    the ants are painted on an overlay canvas. The SVG renderer below is behind
+    ?svg and draws listFor's render list, which equals the scene's items.
     DESIGN.md section 9 has both.
 
     The SVG renderer: Renderer builds the Two.js paths. One persistent Two.Group per
@@ -422,7 +427,8 @@ WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
 
     KobinEngine.js was 3,506 lines. It was 855 after the split and is 1,409 on
     2026-09-22 (the raster path's plate drain, the drag's hold, listFor, the
-    crossing prebake and the ladder came in). It holds construction, the
+    crossing prebake and the ladder came in; on 2026-09-28 the drain and the
+    footprint rules left for Stage.js, A2). It holds construction, the
     compat accessors, the tool and style setters, the perf log, the render
     pipeline, pan and zoom, pointer input, and undo/redo - roughly the shape of
     a gesture, start to finish.

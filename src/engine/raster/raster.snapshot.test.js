@@ -139,7 +139,7 @@ test("S1 a snapshot leaves the camera, the tile frame and the tile pins exactly 
     expect([...E.store._pins].sort()).toEqual(pins0);
 });
 
-test("S1 BREAK-CHECK: with `content` in place of `contentOffCamera`, the visible pin set is replaced", async () => {
+test("S1 BREAK-CHECK: with `content` in the snapshot's read, the visible pin set is replaced", async () => {
     // `content` adds each key it reads to `_pins` and then REPLACES the field with its own
     // range. Off camera that unpins the whole visible screen, and the prebake's `_evict` can
     // then take the tiles the user is looking at.
@@ -147,7 +147,8 @@ test("S1 BREAK-CHECK: with `content` in place of `contentOffCamera`, the visible
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
     await paint(E);
     const pins0 = [...E.store._pins].sort();
-    E.store.contentOffCamera = (F, rect) => E.store.content(F, rect);
+    const read = E.store.read.bind(E.store);
+    E.store.read = (F, rect, budget) => { E.store.content(F, rect); return read(F, rect, budget); };
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 1e5, y: 1e5, w: 400, h: 300 } });
     expect([...E.store._pins].sort()).not.toEqual(pins0);
     await flush();

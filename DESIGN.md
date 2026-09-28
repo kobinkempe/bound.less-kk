@@ -335,9 +335,9 @@ pending mark as nothing at all: it is a mask over the ink below it that it has n
 (Kobin, 2026-09-23: "we ALWAYS show something that baked on top of it"). An item's coverage
 is multiplied by (1 − the mark's) where the mark is above it and the item is not in the
 mark's handled set less what is still whole (a cut in the worker, a refusal over ink) —
-the set and the mark's z as they stood when the render list was built: a list carries them
-and every pack of it masks with those (F121: a cut rebuilds no list, and a stale list packed
-with the live set drew the cut target whole over the band, cached fresh). A graze, or a descent refused with none of the target's ink near the eraser (`inkless`), leaves nothing whole: the mark's step past it changes no pixel and stales no plate, like a cut's (F109; on the Magnum Opus 84 of a bake's 98 steps were such refusals, and the bake took 30 s instead of 18–22 s); a cut-out
+the set and the mark's z as they stand when the job is packed, read from the scene's table,
+which is never behind the document (F121's stale list packed with the live set has no list to
+happen on; a cut under its mark dirties its band, PLAN §5.3 A2-Q2). A graze, or a descent refused with none of the target's ink near the eraser (`inkless`), leaves nothing whole: the mark's step past it changes no pixel and stales no plate, like a cut's (F109; on the Magnum Opus 84 of a bake's 98 steps were such refusals, and the bake took 30 s instead of 18–22 s); a cut-out
 baked out of order shows over the ring wherever it is dragged, while outside the ring the
 z order is untouched (`rasterCore.resolveMask`, `rasterPack` `markDone`,
 `raster.mask.test.js`). The z rides the log as a `put` of the mark and a reload resumes
@@ -627,8 +627,9 @@ be undone and logged exactly where the per-object path wrote every table at once
 
 ## 9. Rendering
 
-Two renderers draw the same render list (`KobinEngine._buildList`, through
-`listFor`). **The raster renderer is the app's default since 2026-09-22** (Kobin);
+The raster renderer draws the **scene** (`Stage.js`, below); the SVG renderer draws the
+render list (`KobinEngine._buildList`, through `listFor`), which the scene equals item for item
+(`stage.equiv`). **The raster renderer is the app's default since 2026-09-22** (Kobin);
 the SVG renderer is behind the `?svg` URL gate (`useKobinEngine.rasterFromUrl`), and
 a one-off SVG engine (`thumbnails.withSvgEngine`) makes the SVG export and the `?svg`
 thumbnails. The deployed build (2026-09-08) is SVG only.
@@ -640,9 +641,11 @@ squares of the screen, measured in **pixels** — a tile, a cell and a cache squ
 measured in frame units, and calling two of them one thing once froze an arc to two
 chords (F36). Our own float64 coverage rasteriser fills them (`rasterCore.js`: arcs
 flattened centre-free to 1/16 device px, a family filled as one nonzero union) in a pool
-of workers (`public/raster-worker.js`), from jobs `rasterPack.js` packs off the render
-list — read over what its plates cover, the window grown by one preview plate (F119: a plate past
-the listed squares was rastered as paper and cached fresh); a pool that fails after a worker has answered (an error, or a job silent past 30 s and
+of workers (`public/raster-worker.js`), from jobs `rasterPack.js` packs off the scene's items —
+the table is read over the window grown by one preview plate, and a plate is packed only where
+the table covers it (F119: a plate past the read squares was rastered as paper and cached fresh);
+off camera (the ladder, the crossing prebake, a plane's far level, a Scenes picture) from a
+snapshot of the target's rectangle, at the snapshot's G; a pool that fails after a worker has answered (an error, or a job silent past 30 s and
 still silent a check later) is replaced, three times, before the session rasters inline, and a
 script that never loaded goes inline at once (`rasterWorkerClient`, 2026-09-24 RW-1). A plate is painted family by family in z order from the TOPMOST family whose coverage
 fills the whole plate opaquely (the occlusion cull, Kobin 2026-09-23): at the Magnum Opus's
@@ -654,9 +657,24 @@ frame over `SYNC_MAX_MS`, 8 ms, or past its chord budget; a pen-up band is price
 too, a 337 px scribble having stayed sync for 20 s, F130). A scanline's crossings past 32 are
 merge-sorted (a wide band crosses one hundreds of times; the insertion sort was 4–16 s a plate).
 
-What keeps paper off the screen (`.claude/PAPER-PLAN.md`): an invalidated plate is shown
-**stale** until its replacement lands, and a replacement that lands still behind but newer than the stale
-pixels takes their place, so a stream of invalidations cannot keep a plate's oldest ink on screen (F106); a cached plate of another quantum, or of another
+**The scene and freshness** (`Stage.js`, `placementModel.js`; `review/rebuild/A2-scene.md` §2–§3).
+The Stage keeps the camera frame's items in paint order — its own natives, the visible tiles'
+pieces, the rerouted moved objects — from the document's and the tile cache's events, so it is
+never behind the document; an item reads z and the erase data from the live native, and `placed`
+is the one read of where it is drawn. One integer **G** moves once a commit (an event outside a
+batch; a drop, an undo, a delete, a load as one batch). A change dirties every plate cell its
+drawn footprint meets, before and after (the event carries the old box, width and table;
+a settle, a merge or an inkless refusal carries none; a union family whose routing flips dirties
+its whole box); the plate store tracks every cell it holds or has a job for. A job carries the G
+it was packed at, a result replaces the stored plate iff its G is newer, and a plate is exact iff
+its G ≥ its cell's `dirtySince` — no epochs, no painted-id sets, no queued events drained at a
+frame. A drag the plane draws is held in the Stage (`stage.hold`): its events wait, and the drop
+is one commit that dirties where the selection started and where it ended. A stroke is pending
+from pen-down until its shape lands: packs skip it and the pick sees it.
+
+What keeps paper off the screen (`.claude/PAPER-PLAN.md`): a stale plate is shown until its
+replacement lands, and a replacement that lands still behind but newer than the stale pixels
+takes their place, so a stream of changes cannot keep a plate's oldest ink on screen (F106); a cached plate of another quantum, or of another
 frame through the frame-to-frame affine, stands in for a missing one
 (`PlateStore.fallbackCover`; a compose draws at most `COMPOSE_IMAGES` 30 images — Chrome's 2D canvas
 pays ~100 ms a frame past 33 distinct ones with any scaled — so stand-ins under the view's own
@@ -675,26 +693,23 @@ the ink below the selection, the selected runs on transparent plates (moved with
 pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5
 layers the smallest run between two selected ones is drawn under them, over `MOVE_PLANE_PLATES`
 40 plates, 24 on a phone, the layers are cut coarser; a quick level two octaves coarser is drawn
-until the plane's own is whole (a level coarser than the camera list's margin reads its own
-list over its plates, F122), and before either the selection's own layers alone or, for a
+until the plane's own is whole (a level coarser than the table's margin reads a snapshot
+over its plates, at idle, F122), and before either the selection's own layers alone or, for a
 small selection, a stopgap rastered on the main thread: a drag always moves);
 at the drop each cell keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s
-safety limit); a pen-up keeps the live SVG path until the plates under the stroke are fresh
-(`LIVE_HOLD_MS`, a 3 s safety limit) whatever the view's mode, the pen-up's render being free to
-leave the sync path (F120), and re-anchored when the next stroke moves the overlay origin (F131), a translucent one clipped meanwhile to the cells still stale
-(over its plated self the alpha would double; 2026-09-24 D-2). A pen-up rasters its plates twice,
-the band and then the shape: the band kept on the plates is not the shape's picture everywhere
-(raster.phone P3/P4, Kobin's report 08-13-01; D-3 is open). An erase's bake renders only for a change that
-shows: with every event since the last render neutral (its cuts and steps under the mark, F109)
-the timed render is skipped and the next camera step rebuilds the list first (`_eraseListStale`;
-about 50 renders a Magnum Opus bake at 120–220 ms each). Until its perimeter resolves a stroke is banded along the
-curve through its samples, as the SVG renderer and the hit test draw it, and the resolve
-re-rasters its plates: by a camera step, no list built, when the stroke is homed in the camera's
-frame (it is its own list item); by a render when the list holds a projected copy (F92). The live stroke stays
+safety limit); a pen-up keeps the live SVG path until the plates under the stroke paint it — a
+plate packed at or past the G its shape landed in (A2 §3.3; `LIVE_HOLD_MS`, a 3 s safety limit) —
+whatever the view's mode, the pen-up's render being free to leave the sync path (F120), and
+re-anchored when the next stroke moves the overlay origin (F131), a translucent one clipped meanwhile
+to the cells whose plate does not paint it yet (over its plated self the alpha would double; D-2).
+The band is never packed: until its perimeter resolves a stroke is drawn by its live path alone,
+and the resolve's commit stales the plates under it, which the next camera step re-posts. A bake
+renders at most every 100 ms (`_renderSoon`); a cut under its mark dirties only its footprint
+inside the mark's box (PLAN §5.3 A2-Q2), so plates the mark never reaches keep. The live stroke stays
 SVG: a short tail under the pen and frozen chunks of 128 anchors behind it, one group carrying the
 opacity (one path's whole `d` was rebuilt every event: 27 ms at 3,000 samples, D-1); the selection ants are painted on an overlay canvas (`OverlayLayer.js`, `antPaint.js`). A destroyed engine is inert — `_render`, the camera steps and the overlay return at once — because a remount builds the next engine in the same host and a late step would put the old selection's ants back over it (F101).
-`sceneOps.snapshotView` packs one plate of any frame and rect, off camera, for the Scenes
-panel's pictures. The engine's own `raster` option defaults to off, so the suites and the
+`sceneOps.snapshotView` packs one plate of any frame and rect, off camera (a Stage snapshot), for
+the Scenes panel's pictures. The engine's own `raster` option defaults to off, so the suites and the
 one-off engines are SVG. `renderPlate` takes a clip box (`job.clips` on the wire; the partial
 re-render's primitive, which nothing posts yet): rows are restricted to it and x is not folded at
 its edges, so every pixel inside it is the whole plate's byte and nothing outside it is written —
@@ -702,9 +717,11 @@ measured on 180 seeded random clips and on a clip-and-paste merge per kind of ch
 (`rasterCore.clip.test.js`, A3 §3.1).
 The page's engine takes input in animation frames (`cfg.frames` "raf"; the suites and the one-off
 engines keep "sync"): a wheel, pinch, pan or drag event moves the camera or records the pointer at
-once, and one `_frame()` a frame runs the render or the camera-only step, the drag's step at the
-last pointer, a stroke's SVG update and one compose for arrived plates; the scale HUD follows the
-zoom through `engine.onZoom`, so a zoom no longer re-renders the editor (A3 §5).
+once, and one `_frame()` a frame runs the camera step, the drag's step at the last pointer, a
+stroke's SVG update and one compose for arrived plates; the scale HUD follows the zoom through
+`engine.onZoom`, so a zoom no longer re-renders the editor (A3 §5). On the raster path the camera
+step is the table's: `stage.sync(frame, window)` reads and drops tiles as the window moves, and
+the renderer steps; only a crossing renders (a pinch's pan crossing a cell edge counts as one).
 
 Measured in Kobin's Chrome on 2026-09-22: the Magnum Opus (42,857 natives) loads in 1.4 s
 against the SVG renderer's 6.2 s, and the two agree on 20 views to 0.001–0.98 % of pixels,
@@ -839,7 +856,9 @@ an id back under a selected frame leaves the ids, and a selected frame left with
 leaves (`_reselect`). A frame under another selected frame is counted once.
 
 **A press picks, a drag moves** (`_selectTap`, `_beginSelectDrag`). Nothing changes on
-pointer-down, so a pinch never selects. A tap takes the topmost object under the point. A
+pointer-down, so a pinch never selects. A tap takes the topmost object under the point, read
+from the scene's items where they are drawn (`stage.placed`: an input at p reaches an item at
+p − its offset), a stroke pending its shape included. A
 drag with nothing selected, or with ctrl, is a lasso; from paper it lassoes; from ink it
 moves the whole selection when selected ink is anywhere under the press — covered by an
 unselected object or not (Kobin, 2026-09-23; `_hitTest`'s `only`), or a selected frame's
@@ -848,19 +867,20 @@ reaches 6 px past the ink; a mark smaller than that reach is picked anywhere its
 it (`_tinyHit`: the reach's eight probes passed between them, and a press on a lassoed dot took
 the ink under it, TESTER-2 2026-09-24).
 
-**The indicator shows what is drawn.** Ants run along the render list's pieces,
+**The indicator shows what is drawn.** Ants run along the scene's items (`stage.placed`; the
+decision is remade when G moves),
 so a magnified shape that the browser could not hold as arcs is shown from the
 tile pieces that hold it, and a frame whose selected content is under 2 px on
 screen is one dot with none of its members visited — the frame's box bounds
 them all, by invariant 2, and the box is taken where the ink is drawn, through
-each member's displacement table (F68). A selected member that traces to nothing —
-its runs under the half-pixel minimum, or culled from the list — is a dot of its own
+each member's placement (`stage.placeNative`, F68). A selected member that traces to nothing —
+its runs under the half-pixel minimum, or culled from the table — is a dot of its own
 where its picture is, unless it is a re-homed family's kid, which shows through its
 family (F73). A selected frame is one box, its own cell (`_selTable`): a dot under
-2 px, and above it the pieces on screen homed under it are traced from the render
-list, a member drawn but too small for a run a dot from its piece; the frame's
+2 px, and above it the pieces on screen homed under it are traced from the scene's
+items, a member drawn but too small for a run a dot from its piece; the frame's
 natives are never read. A selected frame that shows nothing that way — its content culled from the
-list, three levels under a lasso made from far away — is a dot where its content is, from its
+table, three levels under a lasso made from far away — is a dot where its content is, from its
 subtree's index extents (`_selFrameContent`, F103). There is no budget: every selected piece on screen is
 outlined, and what a full selection costs is the repaint of its length, which
 the roadmap holds.
@@ -1100,7 +1120,7 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 
 | file | |
 |---|---|
-| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (`_buildList`, `listFor`), the raster path's plate drain, the drag's hold and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
+| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync on the raster path; `_buildList`, `listFor` on the SVG path), the drag's hold in the Stage and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
 | `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js`, `worker/eraseWorker.js` | one cut as a pure job; the descent as one job per family; the worker client (inline where there is none); the worker's entry, bundled to `public/erase-worker.js` |
 | `overlays.js` | the selection indicator and the erase debug view |

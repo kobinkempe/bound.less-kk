@@ -640,3 +640,48 @@ B-SCENE-2's end entry. PLAN §2 records the split. Three agents run: B-SCENE-2, 
 **Decisions made:** B-PYRAMID split in two halves (context window and file ownership); its second half
 owns every shared-file line the first half asks for.
 **Questions asked:** none.
+
+## 2026-09-28 14:15 UTC — B-PYRAMID-1 (builder) — PyramidStore, PicturePyramid, jobQueue, prefetch: start
+**Working on (the proposal).** Four new modules under `src/engine/raster/`, nothing shared edited. `PyramidStore` (A3 §1.1, §4.5):
+records keyed by `level.js`, rule 1 in `put`, `exact(r)` = `r.G ≥ fresh.dirtySince(key)` re-read at each call and kept as `r.dirtyG`,
+jobs tracked from `beginJob`, hard drops refusing in-flight keys, eviction by class rank (stale-undrawn, off-path, finer, far-by-distance,
+LRU; then the protected classes far → frame left → ℓv−1/−2 → rest → ℓv ring), budget `views × viewPlates(σmin·2^−h)` MiB. `PicturePyramid`
+(A3 §1.3–§3.5, §9.1): FC2 view; §1.4's plan per cell verbatim; **rest mode** = the level plan under the rest cells that have no rest plate,
+then every rest cell with a plate on top (exact 1:1; stale: own + a fresh level cover over its dirty bbox, or the cover whole, or own
+stale); every draw placed by the one published affine, destination edges rounded to device px (adjacent cells share an edge, no seam);
+direct ≤ 30 images else the surface; one budget object counting distinct images and distinct records (the pin cap, one view). Rest
+estimate, inline/worker executors, `patchPlan`, merge, group commit, integrals; `pack(job)` and `measure(job)` are the renderer's
+callbacks, requests leave by `onRequest`. `jobQueue` pure over `{free, submit}` + clock; `prefetch.js` `prefetchPlan`.
+**Decisions made:** rest-mode layering as above (medium-high: the rest grid at Z never aligns with level grids); the plan's record cap =
+one view, so pinned ≤ view + plane holds on small screens where 30 images > one view (high); surface rule literal, scaled ≤ 30 − own
+(medium); constants calibrated against the estimate's own E/A/U per job (medium).
+**Questions asked:** (1) the plan test needs scaled and sub-rect `drawImage` in `__testkit__/softCanvas.js`, which skips them: I add an
+opt-in 4th argument (default unchanged, its 4 suites re-run) — recommend yes, one implementation. (2) K_u has no union-row count in a
+result: calibrate each constant against the E/A/U the estimate priced that job with — recommend yes. (3) at 84 cells (own ≥ 30) the
+literal surface rule leaves no stand-ins: missing cells stale or paper — recommend literal until the harness says otherwise.
+(4) `isPhoneBudget`, `COMPOSE_IMAGES`, `STRIPS_PER_WORKER` are copied into the new modules; the second half deletes the old ones.
+WHERE I AM: writing `__testkit__/fakeStage.js`, then `PyramidStore.js` and its property test.
+
+## 2026-09-28 14:25 UTC — reviewer (B-FOUNDATION review) — the union fix, adopted: end
+**Working on:** done; nothing committed. `raster/rasterCore.js` (tied crossings applied together in `emitRuns`; each union
+edge keeps its own start); the clip suite split: `rasterCore.clip.test.js` (quick, 11 tests, 9.9 s), `rasterCore.clip.slow.test.js`
+(10 tests, 42 s), shared helpers and the 24 regenerated goldens in `__testkit__/clipSuite.js`; `tools/harnesses/browser-check.js`
+(paper sampled after every compose too); A3 §3.1's dated correction; `public/raster-worker.js`.
+**Measured:** goldens: 10 of 24 moved, 21 bytes, one level each (the old core reproduces all 24 old ones with today's packer).
+Break-checks (unimported copy; red of quick 11 / slow 10): tie grouping out 2 / 5; own start out 1 / 1; both 2 / 5. Bundles:
+erase `a1fafca3d543d5a447fff295498d274a`, raster `033935ef63ebe8c3d12ab8bb650fff8d`, scene `dce304b81ac598a67b8aa15c2daa2d93` (rebuilt twice, same).
+Raster suites alone: every failure is B-SCENE-2's porting. The 8 failing suites on two copies of one snapshot fail 4 tests with
+the fix and 4 without; the one fix-only test (§8.4 rule 2 timing, `raster.engine`) fails alone under the old core too.
+Typecheck 0; lint 0 errors, 6 warnings. Retake (`--dense --scenario all`, 4e8ce80 + the fix, :3011, one run) beside the builder's:
+| scenario | builder 04:45: gesture, paper (max), >50 ms, composes n/ms/img | retake 14:00: the same |
+|---|---|---|
+| 1 zoom-out / back | 43.8 s, 3,247 (75 %), 129/275, 158/223/29 · 29.0 s, 0, 126/223 | 60.5 s, 5,741 (88 %), 132/261, 172/376/29 · 50.2 s, 0, 178/276 |
+| 2 slow zoom | 13.5 s, 1,449 (63 %), 23/332, 56/31/13 | 50.6 s, 456 (25 %), 96/190, 101/164/29 |
+| 3 pan · 4 lasso · 4 drag | 2.3 s, 28 · 2.5 s, 0 · 4.4 s, 0, 33 img | 3.9 s, 0 · 4.7 s, 0 · 7.5 s, 0, 33 img |
+| 5 pen-up · 6 undo | 10.6 s, released 5 ms · exact 44 ms | 4.9 s, released 2,416 ms · exact 133 ms |
+| 7 erase + 30 ticks | 18.6 s, 50/259, mark spent 16.9 s | 32.5 s, 59/336, bake not done at the 30 s deadline |
+**The retake is contended, not a baseline:** load 12–13 on 4 cores throughout. Another agent's jest workers
+(`scratchpad/b2/app`, pids 18144/18179/18181, `raster.engine`+`nopaper`) have spun at 2 × 98 % since 05:34, and a second
+harness ran on :3012. Gestures took 1.4–3.7× the builder's, so paper and frame counts are not comparable and the sampler's
+effect is not isolated. Server on :3011 stopped; worktree removed.
+**Questions asked:** kill those three pids and retake on a quiet machine (recommend yes; 2 of 4 cores are lost to them).

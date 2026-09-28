@@ -542,7 +542,7 @@ class Selection {
             ids: live, frames: fr, id: rec ? rec.obj.id : null, editId: rec ? this.doc.editKey(rec.obj) : null,
             level: rec ? rec.level : fr[0], obj: rec ? rec.obj : null,
         };
-        this.renderer.syncCameraOnly(); this.renderer.update();
+        this._syncStep(); this.renderer.update();
         this._emit();
         return this.selection;
     }
@@ -609,7 +609,7 @@ class Selection {
         if (!this.selection) return;
         if (this._dragSel) this._endMove("deselect");   // the one exit: batch, hold and merges released
         this.selection = null;
-        this.renderer.syncCameraOnly(); this.renderer.update();
+        this._syncStep(); this.renderer.update();
         this._emit();
     }
     // The VISIBLE union of a logical edit family in the active frame — tight
@@ -708,6 +708,7 @@ class Selection {
         // step — 120–240 ms each on the Magnum Opus — and the plates stay as they were until the drop.
         if (this._holdMove && this.renderer.dragLight && this.renderer.dragLight()) {
             if (!d.listAt) d.listAt = d.start;           // the list the ants decide on is the pre-drag one
+            // The table stays as the drag began (the Stage holds it); the drop's render reads what moved.
             this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
         } else { d.listAt = null; this._render(); }
     }

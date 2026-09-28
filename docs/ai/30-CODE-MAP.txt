@@ -288,22 +288,28 @@ THE RASTER RENDERER - src/engine/raster/  (2026-09-15..22; the app's default
 since 2026-09-22; .claude/RASTERISER-PLAN.md and PAPER-PLAN.md are the design)
 
 RasterRenderer.js   The Renderer subclass that draws the ink into plates, and the
-                    only poster of raster jobs: the render path (_post, the
-                    epochs at the pack, one compose per arriving job), the sync
+                    only poster of raster jobs: the render path over the Stage's
+                    items (_post, a job packed at the Stage's G and refused at
+                    dispatch where the table does not cover it, one compose per
+                    arriving job), the sync
                     path for a light view, the crossing prebake and the ladder's
                     posts, snapshotJob (one plate of any rect, for the scenes),
                     the drag plane (_aimPlane/_planeStep/_endPlane, endMove) and
-                    endLive's hold until the plates under a stroke are fresh.
+                    endLive's hold until the plates under a stroke paint it (a
+                    plate at or past the G its shape landed in).
 PictureLayer.js     The mapping from the camera to plates and the compose onto
                     one canvas: the zoom quantum and its hold (S_MIN_HOLD), the
                     stale-before-paper compose with fallbacks from other quanta
                     and frames, the preview, the plane's under and moved plates,
                     the sync path's limit (SYNC_MAX_MS 8).
 PlateStore.js       The plate cache: keys frame|q|i,j, byte-capped (96 MiB
-                    desktop, 56 MiB phone), stale derived from the epochs,
-                    want (hits and misses), fallbackCover, the ladder's plates
-                    evicted last, the plane's pins, the document-event drops.
-rasterPack.js       The render list into a job: bands for fat strokes (memo keyed
+                    desktop, 56 MiB phone); a plate's G and the freshness
+                    source (the Stage): rule 1 in put (a newer G replaces),
+                    rule 2 isExact (G >= dirtySince); every cell stored or in
+                    flight tracked; want (hits and misses), fallbackCover, the
+                    ladder's plates evicted last, the plane's pins, the hard
+                    drops (a quantum, a frame, a reset) refusing their jobs.
+rasterPack.js       Items into a job (one G a job): bands for fat strokes (memo keyed
                     on the zoom, F77), the per-list pre-pass, only/omit for the
                     drag, the pack-time offset snapshotView uses.
 rasterCore.js       The rasteriser: float64 edges, centre-free arc flattening to
@@ -397,13 +403,16 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      snapshotView. The interim cap
                                      cfg.scenesResolveMax, captureView, splitScene
                                      and deleteScene went with scenes.js
-                      the raster path _drainPlates (document events to the
-                                     plate store), _beginHold / _endMove /
-                                     _releaseMove (the drag's hold and its one
-                                     exit), _planeState, listFor (a render list
-                                     for any frame and rect, off camera too),
+                      the raster path _tableStep (the camera step:
+                                     stage.sync, the renderer's step),
+                                     _neutralOf (the Stage's erase classifier
+                                     until B-ERASE), _beginHold / _endMove /
+                                     _releaseMove (the drag's hold in the Stage
+                                     and its one exit), _planeState, listFor (the
+                                     SVG path's render list, and the probe's),
                                      _crossTarget / _maybePrebake (the crossing
-                                     prebake), _maybeLadder (the zoom-out ladder)
+                                     prebake), _maybeLadder (the zoom-out ladder;
+                                     both read stage.snapshot)
                       files          serializeDrawing / loadDrawing (kobin-1)
                       [DEV]          the four instrument classes at the top of
                                      the file (LongFrames, EventLatency,
@@ -478,6 +487,20 @@ Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     a bake step of `frames` inside eraseCommit; maxZUnder is
                     the erase's bound for taking a frame whole (LevelIndex
                     keeps maxZ, only growing).
+Stage.js            THE SCENE (A2 §2-§3, PLAN §1.1). The camera frame's items in
+                    paint order - its own natives, the visible tiles' pieces, the
+                    rerouted moved objects - kept from the document's events and
+                    TileStore.onTile, never behind the document; G, one bump a
+                    commit; footprints from the events (oldBbox, oldBelow, the
+                    family rule) set dirtySince on every tracked plate cell;
+                    sync(frame, window, budget), covers, items, placed,
+                    placeNative, changesSince, snapshot, track/untrack/
+                    dirtySince/dirtyRects, hold/release/batch, onCommit. Item: a
+                    piece with z, erase and family read from the live native.
+placementModel.js   The document model as the Stage reads it (A1 §6's
+                    PlacementModel): nativesIn, placement, displaced,
+                    frameFootprint, toStored/fromStored/footprint over today's
+                    calls; B-MODEL replaces the bodies, the Stage does not change.
 TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     what a render reads [HOT]. Incremental: a document change
                     patches the cached tiles rather than dropping them, except

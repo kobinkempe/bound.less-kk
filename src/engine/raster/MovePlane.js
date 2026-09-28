@@ -93,6 +93,7 @@ export default class MovePlane {
         this.sel = null;          // the engine's selection identity the plane was built for
         this.ids = null;          // the selection's ids in that list
         this.list = null;
+        this.vr = "";             // the view's plate range the layers were cut over
         this.frameId = null; this.q = null; this.Zq = 1;   // the VIEW the plane was cut for
         this.main = null;         // the plane's own level: { k, pq, pZq, layers, keys, tags, r, selR, below: Set of "i,j" }
         this.quick = null;        // the quick level, coarser, or null
@@ -124,7 +125,8 @@ export default class MovePlane {
     /**
      * (Re)aim the plane at a selection, a list and a view. Returns true when the plane is (still)
      * valid for them; a change of selection, frame or zoom resets it (the caller frees the old tags,
-     * `gen`). A new list with the same selection re-cuts the layers, so a pan keeps what is cached.
+     * `gen`). A new list, or a view over other plates, with the same selection re-cuts the layers,
+     * so a pan keeps what is cached (the Stage's items keep their array while the table does).
      */
     aim(st, list, view, cfg, max, dpr = 1, live = null) {
         if (this.state === "drag" || this.state === "land") return true;
@@ -136,8 +138,9 @@ export default class MovePlane {
             this.sel = st.key; this.frameId = view.frameId; this.q = view.q; this.Zq = view.Zq;
             planeStats.builds++;
         }
-        if (this.list !== list || this.ids !== st.ids || this.max !== max) {
-            this.list = list; this.ids = st.ids; this.max = max;
+        const vr = view.i0 + "," + view.i1 + "," + view.j0 + "," + view.j1;
+        if (this.list !== list || this.ids !== st.ids || this.max !== max || this.vr !== vr) {
+            this.list = list; this.ids = st.ids; this.max = max; this.vr = vr;
             this._cut(list, st.ids, view, cfg, max, dpr, live);
         }
         return !this.refused;

@@ -270,13 +270,14 @@ export default class TileStore {
         const deadline = bounded ? perfNow() + budgetMs : 0;
         const pins = new Set(this._pins), holdEvict = this._holdEvict;
         this._holdEvict = true;
-        let baked = 0;
+        let baked = 0, over = false;
         try {
             for (const [F, dir, i, j] of cells) {
                 const key = F + "|" + dir + "|" + i + "," + j;
                 let tile = this.peek(key);
                 if (!tile) {
-                    if (!this.lm.frame(F) || (bounded && (budgetMs <= 0 || (baked > 0 && perfNow() > deadline)))) { missing.push(key); continue; }
+                    if (!this.lm.frame(F)) { missing.push(key); continue; }
+                    if (bounded && (budgetMs <= 0 || (baked > 0 && perfNow() > deadline))) { missing.push(key); over = true; continue; }
                     tile = dir === "up" ? this._ensureUp(F, i, j) : this._ensureDown(F, i, j);
                     baked++;
                 } else tile.lru = ++this._clock;
@@ -284,6 +285,7 @@ export default class TileStore {
                 if (this.warmReads) this._warm.add(key);
             }
         } finally { this._pins = pins; this._holdEvict = holdEvict; }
+        if (over && budgetMs > 0) this.overBudget = (this.overBudget || 0) + 1;   // a read its budget stopped
         return { tiles, missing, complete: !missing.length };
     }
     /** The camera's pin set, replaced (what `content` does at its end), then the eviction it held. */

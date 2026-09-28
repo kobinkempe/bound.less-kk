@@ -318,13 +318,14 @@ export default class Stage {
         const items = [];
         const seen = new Set();
         const offs = new Map();
+        // A positive budget reads at least one tile a call (a cold rung goes further every try); 0 is the cache alone.
         const offOf = (nat) => {
             let o = offs.get(nat.id);
             if (o === undefined) { const pl = this.model.placement(nat, F); o = pl ? pl.rem : ZERO; offs.set(nat.id, o); }
             return o;
         };
         const t0 = perfNow();
-        const left = () => (budgetMs === Infinity ? Infinity : Math.max(0, budgetMs - (perfNow() - t0)));
+        const left = () => (budgetMs === Infinity ? Infinity : budgetMs <= 0 ? 0 : Math.max(1e-9, budgetMs - (perfNow() - t0)));
         const d = this.model.displaced(F);
         const read = this.store.read(F, rect, left());
         if (!read.complete) return null;
@@ -532,6 +533,9 @@ export default class Stage {
         let rebuilt = false;
         this._sync++;
         try {
+            // The frame's natives read as `listFor` reads them each render: a pending shift settles and
+            // shadows merge on this read today (A1 C1 makes it pure); their events are queued below.
+            this.model.nativesIn(F);
             for (let round = 0; ; round++) {
                 if (this._need || F !== this.frame) { this._rebuild(F, window, left()); rebuilt = true; }
                 else if (round === 0 && !sameRect(window, this.window)) this._setWindow(window);
