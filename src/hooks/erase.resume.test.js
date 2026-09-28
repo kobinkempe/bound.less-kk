@@ -228,6 +228,7 @@ describe("an erase saved mid-bake", () => {
         bakeSteps(E(), 2);
         act(() => { const e = E(); e.setTool("select"); e.pointerDown(C[0], 45); e.pointerUp(); });   // the bar's top end: cut by the barrier
         const barPieces = ink(E()).filter((o) => E()._zOf(o) === barZ).map((o) => o.id);
+        console.log("DBG after tap", marks(E()), JSON.stringify(E()._eraseStrokes().map((m) => [m.obj.id, m.obj.type, (m.obj.targets || []).length, !!E()._headOf(m)])), [...E()._marks.values()].map((o) => [o.id, o.type, !!E().doc.getById(o.id)]));
         expect(barPieces.length).toBeGreaterThan(1);
         act(() => view.unmount());
         const targets = [];
@@ -236,6 +237,7 @@ describe("an erase saved mid-bake", () => {
         try {
             const held = await mountHeld("c1");
             view = held.view;
+            console.log("DBG after reload", marks(E()), [...E()._marks.values()].map((o) => [o.id, o.type, !!E().doc.getById(o.id), (o.targets || []).length]));
             expect(marks(E())).toBe(1);
             held.go();
             expect(await bakeOut(E())).toBe(true);

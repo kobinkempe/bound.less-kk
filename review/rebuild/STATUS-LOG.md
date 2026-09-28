@@ -943,3 +943,21 @@ stored under a re-addressed id) — fixed, test red on the shipped store; childr
 red on the shipped plan; prefetch's far test flaked once under load (real 8 ms clock) — frozen clock. Six suites 52/52.
 **Decisions made:** majors reported, not applied (brief: majors with a proposed fix).
 **Questions asked:** none yet. WHERE I AM: typecheck, lint, the four softCanvas suites, then the end entry and the report.
+
+## 2026-09-28 19:17 UTC — reviewer (B-SCENE review) — checkpoint: the zoom-out paper "regression" diagnosed
+**Working on:** the diagnosis is done; rows 1–9 under way. Edits so far (main tree, not yet run): `PlateStore.js` (`put`,
+`endJob`, `_refuse`, constructor: refusal per job), `RasterRenderer.js` (`_packable`/`_stillWanted`: refusals by reason;
+`_releaseHeldLive`: no limit while pending), `Stage.js` (`_reconcile`: re-keys logged for `changesSince`), `overlays.js`
+(the ants' outline window through `placeNative`); tests in `raster.plates`, `raster.liveHold`, `stage.cover`, `stage.hold`.
+**Measured (scenario 1, worktrees 9b1edbb = both paths, 1cac470 = the landing; post-paint sampler `rv2/bcp.js`, load
+2.1–2.7):** paper as painted — 1cac470 36.6 / 382.5 ms, list path 49.8 / 0 ms; the compose sampler in the same runs 242 /
+510 vs 493 / 198. Refusals at dispatch in every scenario-1 run (7 runs, all trees and modes): `covers` 0, dirt 0, dead
+quantum 0–15 strips; every paper cell counted was `covers()`-true. ~900 plates posted, 306–409 packed: the rest are
+superseded in the client's queue (one frameSeq per q), not refused. Earlier samplers on the same trees spread 302–9,139
+(1cac470) and 921–6,192 (list path).
+**Decisions made:** verdict — not a defect and not a `covers` consequence: B-SCENE-2's 9,784 vs 821 is the rAF-only
+sampler (4e8ce80's), which charges the share read before the engine's frame across the whole (long) frame; its spread on
+one tree is 2–9 s. Nothing for B-PYRAMID-2's budgeted read to fix here; the counters stay in `report()` for it.
+**Questions asked:** none.
+WHERE I AM: harness scenarios 7 (erase) and 6 (undo) with stage stats (`batch3.sh`), then the suites for my edits, the
+batch-cost experiment (`rv2/exp-batch.cjs`), typecheck, lint, the quick suite, the end entry.
