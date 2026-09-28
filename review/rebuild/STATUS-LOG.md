@@ -1133,3 +1133,21 @@ copy), `rasterCore.clip.slow` 4 (whole-plate goldens differ: rasterCore/rasterPa
 red once in the combined run, green alone.
 **Decisions made:** the pen-up group commit done in P1 (`_pyrLive`), since `?pyramid=1` needs strokes to hand off.
 **Questions asked:** none. WHERE I AM: a headless check of `?pyramid=1` on a dev server (port 3010), then the P1 entry.
+
+## 2026-09-28 20:28 UTC — B-PYRAMID-2 (builder) — P1 checkpoint: `?pyramid=1` draws the app through the pyramid
+**Working on:** P1 done (files as in the 20:25 entry, plus `DevStats.js`: the pyramid's own level/σ, rest executor,
+images over 10 s, jobs by priority). `?pyramid=0` builds exactly the old path (the gate test; the old suites).
+**Measured:** headless Chromium 141, 1280×800@1, dev server on :3010, load 4.9 → 4.5, `browser-check.js` round trip
+(3 strokes, 40 wheel ticks out and back), same tree both ways — `pyramid=1`: 3 live holds, 3 handoffs, 0 timeouts; ink
+25,244 px before and after, same hash; 196 composes, 53.3 ms compose in all, max 18 images; 114 plates, 0 evictions, 0
+over-cap pins; no page errors. `pyramid=0`: ink 25,244 / 25,244, same hash; 1 handoff of 3 holds; 159 composes, 421.1 ms;
+max 12 images. Rest mode reached after drawing on the pyramid (inline rest). jsdom: raster.pyramid 7/7 (×3), levers 5/5,
+the six pyramid suites 58/58; typecheck 0; eslint 0 errors. Break-checks: 16 P1 rules, each red (1–4).
+**Decisions made:** the pen-up group commit (A3 §3.6) wired now (`_pyrLive`); the drag plane off on the pyramid's path
+until P3 (`supportsDragPlane` false: every drag step renders); the covers refusal only for worker jobs (an inline job packs
+the camera's table, whose margin is four view cells); the client's own queue stays for the old path until P6.
+**Questions asked:** `_renderPending` lives in `erasePipeline.js` (B-ERASE's): its removal (brief §3.2) needs that file —
+recommend B-ERASE drops it, or the orchestrator hands me the three lines. RV5 red (`selection.js:713`'s `Stage.batch`
+commits under a held drag) and `rasterCore.clip.slow` goldens (4) are not mine: for B-ERASE.
+WHERE I AM: P2 — a jsdom test of the pen-up call order (the path goes in the task whose compose shows its plates), then
+the olderMs fuzz (draw/undo/redo/erase/zoom/crossing with the fake pool).

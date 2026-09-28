@@ -10,18 +10,22 @@ function readStats(E) {
     const P = E.plates && E.plates.report ? E.plates.report() : null;
     const F = E.frameMeter ? E.frameMeter.report() : null;
     const LF = E.longFrames ? E.longFrames.report() : null;
+    const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
     const dpr = L && L.dpr > 0 ? L.dpr : (typeof window !== "undefined" && window.devicePixelRatio) || 1;
     const Z = E.cam.inScale * dpr, S = E.cfg.levelStep;
-    const lv = levelFor(Z, S);
+    const pyr = !!(L && L.level != null && L.sigmaMin != null);      // the pyramid's own view: its level, σ and σmin
+    const lv = pyr ? L.level : levelFor(Z, S);
     const since = Date.now() - 10000;
     const long = LF ? (LF.recent || []).filter((r) => r.t >= since) : [];
     return {
-        S, lv, sigma: Z / zOf(lv, S),
+        S, lv, sigma: pyr ? L.s : Z / zOf(lv, S),
         mode: L ? L.mode : "svg", stretch: L ? L.s : null,
         paper: L && L.paperMs != null ? [L.paperMs, L.blurMs, L.olderMs] : null,
-        composes: L ? L.composes : null, maxImages: L ? L.maxImagesPerCompose : null, composeMs: L ? L.composeMs : null,
+        rest: pyr ? [L.restInline, L.restWorker, L.restMs] : null,
+        composes: L ? L.composes : null, maxImages: L ? (pyr ? L.imagesMax10s : L.maxImagesPerCompose) : null, composeMs: L ? L.composeMs : null,
         plates: P ? P.plates : null, mib: P ? P.plateBytes / MIB : null, capMib: P ? P.maxBytes / MIB : null,
-        pinned: P ? P.pinned : null, inFlight: P ? P.inFlight : null,
+        pinned: P ? P.pinned : null, stale: P && P.stale != null ? P.stale : null, inFlight: P ? P.inFlight : null,
+        jobs: Q ? [Q.queued, Q.inFlight] : null,
         longN: long.length, longWorst: long.reduce((m, r) => Math.max(m, r.ms), 0),
         hist: F ? F.hist : null,
     };
@@ -31,7 +35,8 @@ const f1 = (v) => (v == null ? "–" : (+v).toFixed(1));
 
 /**
  * The Dev panel's counters on a timer of their own (500 ms), so a zoom or an arrival never re-renders the
- * editor for them. What the pyramid will carry (`paperMs`, `blurMs`, `olderMs`) shows once a layer has it.
+ * editor for them. On the pyramid's path they are its own: the view's level and σ, paper/blur/older, the rest
+ * executor, the images over 10 s, and the queue's jobs by priority.
  */
 export default function DevStats({ engineRef, intervalMs = 500 }) {
     const [s, setS] = useState(null);
@@ -46,8 +51,10 @@ export default function DevStats({ engineRef, intervalMs = 500 }) {
         <div className="bl-dev-stats" style={{ marginTop: 6, fontSize: 11, lineHeight: 1.35 }}>
             <div><b>level</b> ℓ{s.lv} at S={s.S}, σ {f1(s.sigma)} · <b>view</b> {s.mode} s {f1(s.stretch)}</div>
             {s.paper && <div><b>paper</b> {f1(s.paper[0])} · blur {f1(s.paper[1])} · older {f1(s.paper[2])} ms</div>}
-            <div><b>plates</b> {s.plates ?? "–"} · {f1(s.mib)}/{f1(s.capMib)} MiB · pinned {s.pinned ?? "–"} · in flight {s.inFlight ?? "–"}</div>
-            <div><b>compose</b> {s.composes ?? "–"} · max {s.maxImages ?? "–"}/30 images · {f1(s.composeMs)} ms total</div>
+            {s.rest && <div><b>rest</b> inline {s.rest[0]} · workers {s.rest[1]} · last {f1(s.rest[2])} ms</div>}
+            <div><b>plates</b> {s.plates ?? "–"} · {f1(s.mib)}/{f1(s.capMib)} MiB · pinned {s.pinned ?? "–"}{s.stale != null ? " · stale " + s.stale : ""} · in flight {s.inFlight ?? "–"}</div>
+            {s.jobs && <div><b>jobs</b> queued {s.jobs[0].join("/")} · in flight {s.jobs[1].join("/")} (prio 0–5)</div>}
+            <div><b>compose</b> {s.composes ?? "–"} · max {s.maxImages ?? "–"}/30 images{s.rest ? " (10 s)" : ""} · {f1(s.composeMs)} ms total</div>
             <div><b>long frames</b> (10 s) {s.longN}{s.longN ? ", worst " + f1(s.longWorst) + " ms" : ""}</div>
             {s.hist && <div><b>frames</b> {Object.entries(s.hist).map(([k, v]) => k + ":" + v).join(" ")}</div>}
         </div>
