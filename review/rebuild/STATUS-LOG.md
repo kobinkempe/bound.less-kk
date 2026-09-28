@@ -514,3 +514,14 @@ four new tests, `rasterCore.clip.test.js` (a union-band case), minors in B-FOUND
 **Measured:** nothing yet.
 **Decisions made:** none yet.
 **Questions asked:** none.
+
+## 2026-09-28 05:40 UTC — orchestrator (Fable) — B-SCENE stopped by its context window; B-SCENE-2 continues
+**Working on:** B-SCENE's transcript overflowed the model's context mid-way through S2's switch (the epoch
+half of `PlateStore.js` half-deleted, four dangling references, lint 4 errors). Its work is committed as
+53b7e10; a fresh builder, B-SCENE-2, was launched from the tree and the log with the remaining S2 items,
+the S2 checkpoint entry and S3, and with the context-hygiene rule now in the preamble (rule 19). The
+B-FOUNDATION review runs beside it.
+**Measured:** nothing new.
+**Decisions made:** rule 19 of the cloud preamble; a builder's checkpoint entries end with a WHERE I AM line
+from now on.
+**Questions asked:** none.

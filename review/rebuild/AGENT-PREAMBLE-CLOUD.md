@@ -60,3 +60,9 @@ sections your brief names, then `review/rebuild/PLAN.md`, then your brief's docu
     files that are yours; do not edit others' files, and re-read a file before you edit it. Say in
     your status entry which files you are in.
 18. **No endless waiters**: any wait loop has a deadline and matches what the job really prints.
+19. **Keep your own context small** (a builder died of a full context window on 2026-09-28, mid-edit):
+    never print a whole large file — read by `grep -n` and line ranges; run suites with their output
+    filtered (`| grep -E '^(PASS|FAIL)|Tests:|✕'`) and print failure details only on a failure; keep a
+    status entry under 25 lines; end every checkpoint entry with one line `WHERE I AM: <the next concrete
+    edit>`, so a successor can continue from the tree and the log alone; keep the final report under 60
+    lines.
