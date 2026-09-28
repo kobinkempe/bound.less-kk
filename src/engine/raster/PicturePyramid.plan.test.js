@@ -3,12 +3,13 @@
  * every source painted a flat colour of its own, random mixes of fresh, stale, coarser, finer, other-frame and
  * missing plates; every sampled screen pixel carries its planned source's colour and the source a rule oracle
  * chooses for its cell; a translucent family rendered by the core at ℓ and ℓ − 1 never composes darker than
- * either source; the image budget and the one-view record cap hold; the patch rule (e) puts the coarser picture
- * inside the dirty rectangles only.
+ * either source; the image budget (stand-ins ≤ COMPOSE_IMAGES − the plane's images, own plates apart) and the drawn
+ * bound hold; no cell is paper or older while a fresh source for it is cached, on the B-PYRAMID-1 review's
+ * constructed screens (PLAN §5.6 M1, M2); the patch rule (e) puts the coarser picture inside the dirty rectangles only.
  */
 import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";
-import PyramidStore, { levelCell, restCell, planeCell, PLATE_BYTES } from "./PyramidStore";
+import PyramidStore, { levelCell, restCell, planeCell, ownBound, viewUnit, PLATE_BYTES } from "./PyramidStore";
 import PicturePyramid, { PATCH_MAX, SURFACE_IDLE_MS } from "./PicturePyramid";
 import { COMPOSE_IMAGES, zOf, levelKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
 import { packJob } from "./rasterPack";
@@ -31,14 +32,14 @@ const cam = (frame, inScale, panX, panY, w, h) => ({
     frameWindow: () => ({ left: -panX / inScale, top: -panY / inScale, right: (w - panX) / inScale, bottom: (h - panY) / inScale }),
 });
 
-function setup(W, H, S = 1) {
+function setup(W, H, S = 1, dpr = 1) {
     const lm = new LevelMap({ enter: ENTER, base: BASE, exit: EXIT }, W, H);
     lm.ensureSpine(0);
     const A = lm.cellChild("0", 1, 2).id;
     const stage = fakeStage();
     const store = new PyramidStore({ fresh: stage, maxBytes: 4000 * PLATE_BYTES, phone: false, doc: null });
-    const ctx = softCtx(W, H, P, { scaled: true });
-    const pyr = new PicturePyramid(null, { store, stage, lm, cfg: { levelStep: S }, width: W, height: H, dpr: 1, pixels: true, context: ctx,
+    const ctx = softCtx(Math.round(W * dpr), Math.round(H * dpr), P, { scaled: true });
+    const pyr = new PicturePyramid(null, { store, stage, lm, cfg: { levelStep: S }, width: W, height: H, dpr, pixels: true, context: ctx,
         setTimer: () => null, clearTimer: () => {} });
     const colour = new Map();
     const put = (c, G) => {
@@ -48,6 +49,15 @@ function setup(W, H, S = 1) {
     };
     return { lm, A, stage, store, ctx, pyr, colour, put };
 }
+/** The surface on a software canvas of its own size (jsdom has no 2D canvas). */
+const surfaceOn = (t) => { t.pyr._mk = (w, h) => ({ width: w, height: h, getContext: () => softCtx(w, h, P, { scaled: true }) }); };
+/** A drag plane of `n` images (OVER, off the view's cells): the compose's stand-in cap becomes COMPOSE_IMAGES − n. */
+function planeOf(t, F, Zp, n) {
+    const cells = [];
+    for (let k = 0; k < n; k++) { t.put(planeCell(F, Zp, "o", 1000 + k, 0), 0); cells.push([1000 + k, 0]); }
+    t.pyr.setPlane({ showing: true, state: "drag", partial: false, frameId: F, Zp, off: [0, 0], layers: [{ kind: "over", tag: "o", cells }] });
+}
+const paperCells = (P0) => P0.cells.filter((c) => c.draws.some((d) => !d.rec)).length;
 
 /** The device rect a draw paints, from the published affine, edges to the nearest pixel. */
 const devRect = (d, v) => [
@@ -281,9 +291,10 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect(d.map((x) => x.rec.key)).toEqual([levelKey(F, 3, S, 0, 0)]);
     });
 
-    test("the record cap: a plan takes at most one view of distinct records, however many children are ready", () => {
-        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
-        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: 4 × 3 cells
+    test("the drawn bound: every own-grid record and at most COMPOSE_IMAGES stand-ins, however many children are ready", () => {
+        const W = 1600, H = 1200, t = setup(W, H), F = String(t.A);
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: 5 × 4 cells
         const v = t.pyr._v;
         expect(v.level).toBe(4);
         let n = 0;
@@ -292,39 +303,44 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
             else for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, 5, S, 2 * i + a, 2 * j + b), 0);
         }
         const P0 = t.pyr.compose();
-        expect(n).toBeGreaterThanOrEqual(12);
-        expect(P0.keys.size).toBeLessThanOrEqual(t.pyr.viewUnit);
-        expect(P0.images).toBeLessThanOrEqual(COMPOSE_IMAGES);
-        expect(P0.draws.filter((d) => d.rec && d.rec.level === 5).length).toBeGreaterThan(0);
+        expect(n).toBe(20);
+        expect(P0.own).toBe(10);                                              // own plates are never refused for the stand-ins
+        expect(P0.scaled).toBe(28);                                           // 7 cells' children: 40 were ready
+        expect(P0.keys.size).toBeLessThanOrEqual(ownBound(t.pyr.wDev, t.pyr.hDev) + COMPOSE_IMAGES);
+        expect(t.pyr.s.surface).toBe(1);                                      // 38 images: through the surface
     });
 
-    test("the image budget: direct under COMPOSE_IMAGES distinct images, else the surface with scaled ≤ 30 − own", () => {
+    test("the image budget: direct under COMPOSE_IMAGES images, else the surface; stand-ins ≤ COMPOSE_IMAGES − the plane's, own plates apart", () => {
         const W = 3000, H = 2000, t = setup(W, H), F = String(t.A);
         const drawn = new Set();
         const inner = t.ctx.drawImage;
         t.ctx.drawImage = function (bm, ...a) { drawn.add(bm); return inner.call(this, bm, ...a); };
-        t.pyr._mk = () => ({ width: 0, height: 0, getContext: () => softCtx(4096, 4096, P, { scaled: true }) });
+        surfaceOn(t);
         t.pyr.frameFor(cam(t.A, 8, -100, -100, W, H));                      // this screen's σmin is 1: ℓ 3 at σ 1
         const v = t.pyr._v, l = v.level;
         expect([l, v.s]).toEqual([3, 1]);
         const cells = [];
         for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) cells.push([i, j]);
-        expect(cells.length).toBeGreaterThan(COMPOSE_IMAGES + 3);
+        expect(cells.length).toBe(35);
         cells.slice(3).forEach(([i, j]) => t.put(levelCell(F, l, S, i, j), 0));
         for (const [i, j] of cells) t.put(levelCell(F, l - 2, S, i >> 2, j >> 2), 0);
-        const P0 = t.pyr.compose();                                       // own > 30: the surface, and no scaled stand-in
-        expect(P0.own).toBeGreaterThan(COMPOSE_IMAGES);
-        expect(P0.scaled).toBe(0);
+        const P0 = t.pyr.compose();                                       // 32 own: the surface, and the three missing cells still take ℓ 1
+        expect([P0.own, P0.scaled, paperCells(P0)]).toEqual([32, 1, 0]);
         expect(t.pyr.s.surface).toBe(1);
         expect(drawn.size).toBe(1);                                       // the ink canvas took the surface alone
         drawn.clear();
         cells.slice(3, 16).forEach(([i, j]) => t.store.dropWhere((x) => x.key === levelKey(F, l, S, i, j)));
-        const P1 = t.pyr.compose();                                       // own ≤ 30: stand-ins up to 30 − own, drawn directly
-        expect(P1.scaled).toBeGreaterThan(0);
-        expect(P1.scaled).toBeLessThanOrEqual(COMPOSE_IMAGES - P1.own);
-        expect(P1.images).toBeLessThanOrEqual(COMPOSE_IMAGES);
+        const P1 = t.pyr.compose();                                       // 19 own + 2 stand-ins: drawn directly
+        expect([P1.own, P1.scaled, P1.images]).toEqual([19, 2, 21]);
         expect(drawn.size).toBe(P1.images);
         expect(t.pyr.s.direct).toBe(1);
+        planeOf(t, F, zOf(l, S), 28);                                     // the plane's 28 images leave two stand-ins: both fit
+        const P2 = t.pyr.compose();
+        expect([P2.plane.images, P2.scaled, paperCells(P2)]).toEqual([28, 2, 0]);
+        planeOf(t, F, zOf(l, S), 29);                                     // one: the cells under the second ℓ 1 plate are paper
+        const P3 = t.pyr.compose();
+        expect([P3.plane.images, P3.scaled, paperCells(P3)]).toEqual([29, 1, 6]);
+        expect(t.pyr.s.surface).toBe(3);
     });
 
     test("a translucent family split across ℓ and ℓ − 1 never composes darker than either source", () => {
@@ -369,7 +385,7 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect(P0.cells.some((c) => c.draws.length === 4)).toBe(true);
         expect(P0.cells.some((c) => c.draws.length === 1 && c.draws[0].rec && c.draws[0].rec.level === 2)).toBe(true);
         expect(P0.draws.some((d) => !d.rec)).toBe(false);
-        expect(P0.keys.size).toBeLessThanOrEqual(t.pyr.viewUnit);
+        expect([P0.scaled, P0.cells.filter((c) => c.draws.length === 4).length]).toEqual([29, 7]);   // ℓ 2 and 28 children: 48 were ready
         // The children went to the cells nearest the attention point (the screen centre).
         const d = (c) => (((c.i + 0.5) * 512 - v.ox) * v.s + v.dx - W / 2) ** 2 + (((c.j + 0.5) * 512 - v.oy) * v.s + v.dy - H / 2) ** 2;
         const kid = P0.cells.filter((c) => c.draws.length === 4).map(d), not = P0.cells.filter((c) => c.draws.length === 1).map(d);
@@ -385,7 +401,9 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (!bare.includes(i + "," + j)) t.put(levelCell(F, 4, S, i, j), 0);
         t.put(levelCell(F, 3, S, 0, 0), 0);
         kids(1, 1); kids(1, 0); kids(3, 2);
-        const P0 = t.pyr.compose();                                            // room for two cells' children after the base plan
+        planeOf(t, F, 16, COMPOSE_IMAGES - 10);                                // ten stand-ins: ℓ 3 and two cells' children
+        const P0 = t.pyr.compose();
+        expect(P0.scaled).toBe(9);
         expect(P0.draws.some((d) => !d.rec)).toBe(false);
         expect(P0.cells.find((c) => c.i === 3 && c.j === 2).draws).toHaveLength(4);
         expect(P0.cells.find((c) => c.i === 1 && c.j === 1).draws).toHaveLength(4);

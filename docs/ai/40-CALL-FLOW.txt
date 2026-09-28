@@ -65,8 +65,9 @@ DRAWING A STROKE   [HOT]
         _note({kind:"draw", ...})          journal it BEFORE pts is deleted
         renderer.endLive()                 raster: the live MODEL goes, the path is
                                            held until the plates under the stroke
-                                           are fresh (LIVE_HOLD_MS 500 at most,
-                                           PAPER-PLAN §10 S5)
+                                           paint it (no limit while its shape is
+                                           pending; then LIVE_HOLD_MS 3 s, up to 15 s
+                                           from the landing; PLAN §5.4 Q2)
         doc.finalize(o)                    index it; announce the final bbox
         _queueBake(o)                      new ArcBakeJob(pts, lw, {centre: pen.arcs()})
         _scheduleBake(0)

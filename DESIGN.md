@@ -698,7 +698,8 @@ over its plates, at idle, F122), and before either the selection's own layers al
 small selection, a stopgap rastered on the main thread: a drag always moves);
 at the drop each cell keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s
 safety limit); a pen-up keeps the live SVG path until the plates under the stroke paint it — a
-plate packed at or past the G its shape landed in (A2 §3.3; `LIVE_HOLD_MS`, a 3 s safety limit) —
+plate packed at or past the G its shape landed in (A2 §3.3; no limit while the shape is pending, PLAN
+§5.4 Q2; then `LIVE_HOLD_MS`, a 3 s safety limit, extended to 15 s from the landing while its plates come) —
 whatever the view's mode, the pen-up's render being free to leave the sync path (F120), and
 re-anchored when the next stroke moves the overlay origin (F131), a translucent one clipped meanwhile
 to the cells whose plate does not paint it yet (over its plated self the alpha would double; D-2).
