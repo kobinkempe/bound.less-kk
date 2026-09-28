@@ -178,10 +178,12 @@ THE BOOLEAN  (src/engine/geometry/arcShape.js)
 
 THE ERASE
 
-    An eraser IS a stroke: background-coloured ink through the pen pipeline, so
-    the gesture costs nothing however complex the drawing. It commits instantly
-    and z-order alone makes the picture correct. Folding it into the ink beneath
-    happens later, one object per idle slice.
+    An eraser IS a stroke through the pen pipeline, so the gesture costs nothing
+    however complex the drawing. When its shape lands it records its TARGETS (the
+    ink under it when drawn) and until it is spent it hides exactly those
+    (eraseRule.underMask: targetOf names the mark, handledBy does not); ink moved
+    under it later, drawn after it, or already baked shows. Cutting it out of each
+    target happens later, in workers and in slices.
 
     Two cases, decided by where the gesture was made relative to the target:
 
@@ -206,10 +208,12 @@ THE ERASE
     one zoom and 0.19 px at another.
 
     Since F42 (2026-09-04) the descent takes each level's ink from the tile
-    store's own derivation, never recomputing it. Since 2026-09-08 the targets
-    come from the spatial index top-down by z, the mark's z steps down with the
-    bake, and one cut and one whole descent per family run as jobs in a worker
-    (public/erase-worker.js). DESIGN.md section 7.
+    store's own derivation, never recomputing it. Since 2026-09-28 (B-ERASE) the
+    targets are recorded once, at the landing, from the spatial index; cuts and
+    descents (one job per family) run in a pool of erase workers, dispatched ahead
+    and applied in the serial order (marks oldest first, targets top-down) through
+    a reorder buffer; a tap, a drag's start and a lasso wait, parked, for the cuts
+    under them. DESIGN.md section 7.
 
 SEVERANCE - is the family still one object?
 
@@ -407,8 +411,9 @@ PERSISTENCE
     entries carrying results - the objects removed and made, never a gesture to
     recompute. A tick appends entries and rewrites a frame's snapshot only when
     its entries have outgrown it or an undo/redo/move touched it; a load replays
-    the entries after each frame's seq and rebuilds the undo/redo stacks and a
-    pending eraser's done set from them (an interrupted erase resumes).
+    the entries after each frame's seq and rebuilds the undo/redo stacks from them;
+    a pending eraser resumes from its targets and its pieces' handledBy, in their
+    headers, targetOf derived from the marks' targets at load.
 
     Local storage: IndexedDB (storage/db.js, version 2) - a header record per
     canvas, a frames2 record per frame (headers + the raw buffer), a log record
@@ -438,7 +443,7 @@ WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
     `this` bound to the engine; only the file changed, and every method moved
     byte-identical.
 
-      erasePipeline.js   the eraser and the resumable bake behind it
+      erasePipeline.js   the eraser, the targets, the parallel bake and the barriers
       overlays.js        the selection indicator and the erase debug view
       selection.js       selecting, hit-testing, dragging
       sceneOps.js        scenes: the index client, jumps, pictures

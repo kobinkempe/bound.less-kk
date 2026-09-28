@@ -122,6 +122,9 @@ src/Components/editor/
                             title chip (icon only at ≤ 480 px, icon + short
                             label wider; syncLabel is its accessible name),
                             opening the details card (this device's name).
+    EraseChip               "Finishing the erase…" beside it while a tap, drag
+                            or lasso waits on the cuts under it, 150 ms on
+                            (status.erase.finishing; A2 §4.11).
                             useBannerClearance measures the top bar, the
                             banner stack and the rail: stack under the bar,
                             rail under the stack when they share columns.
@@ -252,23 +255,36 @@ src/cloud/storageLocks.js      navigator.locks over localStorage, where there ar
 
 THE ENGINE - src/engine/
 
+eraseRule.js        THE ERASE RULE (A2 §4.1, 2026-09-28): underMask(o, M) — o is
+                    under mark M's mask iff M landed (targets), M in o.targetOf,
+                    M not in o.handledBy, z(o) < z(M); read by the pack, the
+                    bake, the barriers, the pick and the Stage's step class
+                    (inLineage). inheritErase: a piece's lineage at the three
+                    mint sites. Sorted id arrays (has, withId, withoutId). Pure.
+cede.js             CEDE A TILE: the one body of Document.cedeTileById and the
+                    descent's virtual cede (R25 D4): the parent's hole cut
+                    exactly, remnants and kids in one family with the lineage
+                    inherited, the remnant's dust boxes on its removal.
 eraseJob.js         ONE CUT AS A JOB (2026-09-08): cutJob({subject, clip, w,
                     freezeR, graze}) — the boolean, the removal measured locally
                     (F46), the graze rule ("cut" in place / "cede" the rehome's),
                     shapeComponents and dropDust; result {kind: grazed|removed|
-                    cut, regions as Loops, stats, dust}. wireJob/unwireJob and
-                    wireResult/unwireResult carry it between threads as
+                    cut, regions as Loops, stats, dust, dustBoxes}. wireJob/unwireJob
+                    and wireResult/unwireResult carry it between threads as
                     transferable buffers, bit for bit. Geometry imports only.
-eraseWorkerClient.js runCutAsync(job): a promise from public/erase-worker.js, or
-                    null where there is no Worker (jsdom; then the pipeline runs
-                    cutJob inline). setEraseTransport stands in a transport for
-                    tests. Modelled on cloud/lzWorker.js.
+eraseWorkerClient.js THE INTERIM ERASE POOL (A2 §4.7): submit({kind, prio, barrier,
+                    job, key}) -> a promise of the cut's or the descent's result,
+                    or null where there is no worker (jsdom; the pipeline runs the
+                    job inline). max(1, min(3, cores - 1 - rasterWorkers)) workers,
+                    a barrier's jobs first, RW-1's respawn and watchdog. Until the
+                    raster pool's queue takes the cut kind (a transport swap).
+                    setEraseTransport stands in a transport for tests.
 eraseDescent.js     THE DESCENT AS ONE JOB (2026-09-08, Kobin's design):
                     descentJob(world, input) runs the rehome descent on a
                     VirtualDoc (the target read, every cede virtual, negative
                     ids), squareInkOf deriving each level's square ink as
-                    TileStore._bakeUp does for that one object, cedeVirtual
-                    the parent cut; returns steps (plus `minted`, the frames
+                    TileStore._bakeUp does for that one object, cede.js the
+                    parent cut; returns steps with their dust boxes (plus `minted`, the frames
                     the job's lattice copy gained, F67) or a refusal. wireDescent /
                     unwireDescent carry the target, the eraser and the lattice
                     (LevelMap.serialize) to the worker; _applyDescent in
@@ -343,14 +359,16 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                     file's prototype back onto this one. They are still this
                     class's methods and still run with `this` bound to the
                     engine - the split was a MOVE, every method byte-identical.
-                      erasePipeline.js  the eraser + the resumable bake  ~1110
-                                        (2026-09-08: _candidatesUnder from the
-                                        spatial index top-down by z, _lowerMark,
-                                        _applyCut, _onCutResult; DESIGN.md §7;
-                                        2026-09-15: _eraseFramesPass takes a
-                                        frame the mark covers whole as containers;
-                                        2026-09-23: _settleLassoErases, the
-                                        lasso's barrier; _settleInflight, OPEN-FLAGS F88)
+                      erasePipeline.js  the eraser + the bake + barriers ~1400
+                                        (2026-09-28, A2 §4: _registerMark at the
+                                        landing (the frames pass, the scan once,
+                                        targets); the marks set and the lineage;
+                                        _bakeRun: the serial head, the reorder
+                                        buffer, the lookahead through submit;
+                                        _eraseBarrier with the tap, drag and lasso
+                                        barriers, parked while cuts are out;
+                                        _deriveTargetOf / _eraseLoaded at a load;
+                                        pruning a spent mark's id; DESIGN.md §7)
                       overlays.js       selection indicator + erase debug ~930
                       selection.js      select, hit-test, drag            ~830
                       instruments.js    LongFrames, EventLatency,
@@ -867,7 +885,8 @@ raster renderer (raster/raster.*.test.js, rasterCore, chordMath,
 useKobinEngine.raster), moves (move.subtree, move.settle, move.twin,
 move.hold, move.below, move.registration, reroute.memo, tileEviction), scenes
 (scenes.cap, storage/thumbnails.live), the store (format2, oplog,
-persist.ids), the eraser (eraseJob, erase.worker, erase.zorder, erase.moved).
+persist.ids), the eraser (eraseJob, erase.worker, erase.rule, erase.moved,
+raster.eraseRule, select.eraseBarrier).
 
     the lattice          frameLattice, LevelMap, digitRange, move.deep,
                          chain.exact, objectTiles, frameLattice, frameLeak

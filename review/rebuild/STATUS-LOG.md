@@ -1064,3 +1064,26 @@ errors, 6 warnings (baseline).
 **Questions asked:** none new (Q5, Q6 stand).
 WHERE I AM: break-checks on a copy under `scratchpad/b-erase/bc` (the rule's clauses, the landing batch, inheritance, the
 classifier, dust, pruning, the lock, the reorder buffer, the z key, the barrier's flush, the pick), then docs, then test:erase.
+
+## 2026-09-28 19:56 UTC — B-PYRAMID-2 (builder) — P0 checkpoint: the plan's two caps (PLAN §5.6 M1, M2)
+**Working on:** P0 done. `PicturePyramid.js`: stand-ins capped at `COMPOSE_IMAGES − plane.images`, own-grid records
+counted apart; at rest the level plan's plates are stand-ins (1:1 and own when Z is the level's own zoom); `_ownCount`,
+`viewUnit` and the one-view record cap gone (`pinBound` in `report()`); a binding budget reserves each non-sharp cell's
+coarsest exact source, then plans nearest the attention point first (`_coarsest`). `PyramidStore.js`: `ownBound`,
+`pinnedBound` (the floor), the ceiling raised to the floor. `level.js`: `COMPOSE_IMAGES` moved here (the floor needs it;
+no cycle). Suites: the review's four screens moved into `PicturePyramid.plan.test.js`, three old-cap tests rewritten, two
+new (rest stand-ins, the binding reserve); the budget test at the four screens. Docs: PLAN §1.2, A3 §0.9, §1.4 (3)(4),
+§1.5, §4.5, TEST-MAP rows. `MovePlane.js` untouched (its constants move at P3).
+**Measured:** six suites 58/58 (52 before), 25 s, load 3.9; typecheck 0; eslint 0 on the five files. Break-checks on the
+copy (`scratchpad/bp2/bc`), each red: cap ignores the plane 2; own counted against the cap 7; rest plates counted 1;
+level plates own at rest 1; no 1:1 exemption 1; one-view record cap re-imposed 3; no cap 5; floor = view + plane 1;
+ceiling not raised 1; own bound without σ = 1 1; reserve removed 1; no re-plan 1; sharp cells reserving 1. Pinned
+bound: 110 desktop, 89 / 99 phones, 147 on 2560×1440@2. Phone high-water (390×844@3, 400 seeded jsdom screens, full
+plane): 70 pinned vs 99. Paper beside a cached coarser plate (300 seeded screens each, desktop / 2560@2 / phone@3): level
+mode under a drag plane 8 / 13 / 17 runs → 1 / 1 / 1 (one cell, the coarsest set over the cap); rest after long pans
+1 / 13 / 6 (up to 10 cells, 21 %) → 0.
+**Decisions made:** the reserve (A3 §1.5 says excess cells move to coarser sources; the cell-order plan did not; local to
+`_planCells`, unchanged when nothing is refused); the ceiling rule for every device (a desktop lever of 64 is raised too).
+**Questions asked:** none blocking — adopt the reserve (recommend yes). The B-SCENE reviewer has ended: on to P1.
+WHERE I AM: P1 — read `RasterRenderer`'s constructor/frame step as the reviewer left them, then construct `PyramidStore`,
+`PicturePyramid`, `JobQueue` under `cfg.pyramid` in the constructor.

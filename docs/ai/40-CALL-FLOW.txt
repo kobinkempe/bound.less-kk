@@ -19,7 +19,7 @@ MOUNT
         new Document()                     one empty bucket
         new Camera(lm, cfg, hooks)         hooks: finalizeLiveStroke, holdFrame
         new TileStore(lm, doc, cfg)        subscribes to doc changes
-        new Stage({ doc, lm, store, model, cfg, isNeutral })   the scene (A2 §2): subscribes
+        new Stage({ doc, lm, store, model, cfg })   the scene (A2 §2): subscribes
                                            after the tile store and to its onTile hook;
                                            every commit bumps G and dirties the tracked
                                            plate cells its footprints meet
@@ -103,57 +103,60 @@ THE BAKE TIMER - one timer for both kinds of bake
             (the next pen-up, a crossing, an undo, an erase bake); a
             promotion renders at once; flushBakes renders if pending. This
             halves the renders per pen-up - each walked every group.
-        for each pending eraser stroke:
-          _nextEraseTarget(Erec)            z-below, reachable, ink nearby
-          _bakeOne(Erec, target)            see ERASING
-        when a mark has nothing left to cut: _noteSpent, doc.removeById
+        a mark's shape landing registers it in the same commit (see ERASING)
+        _bakeRun(deadline)                  see ERASING
 
 ERASING   [HOT at gesture time, deferred for the geometry]
 
   pointerdown with tool "erasePartial"
-    _pointerDown -> a stroke with erase:true, colour #ffffff
-                    (the gesture costs nothing; z-order makes it correct)
-  ...later, from _bakeTickInner - one cut or one descent in flight at a time
-  (DESIGN.md section 7, 2026-09-08):
-    _eraseFramesPass(Erec)                a frame the mark covers whole (cell +
-                                          reach inside its ink, nothing drawn
-                                          above the mark) goes as containers,
-                                          one bake step, no cut
-    _nextEraseTarget(Erec)                from _candidatesUnder: the spatial index
-                                          of every reachable level, z descending
-    _bakeOne(Erec, target)
-      if the target is a stroke      -> _forceBake it first
-      if the target is a legacy fill -> doc.fillToShapeById
-      homed shallower, on an ancestor chain:                     CEDE
-        _bakeRehome -> _bakeRehomeInner: the target, the eraser and lm.serialize()
-          runDescentAsync (the erase worker) or descentJob inline:
-            on a VirtualDoc, one crossing at a time: squareInkOf (the level's
-            square ink as the tile store derives it, F42), cedeVirtual (the
-            parent cut in its own coordinates)
-          -> _onCutResult -> _applyDescent: lm.merge(the frames the job minted,
-             F67), the family minted with real ids, the steps on the op,
-             _resplitFamily
+    _pointerDown -> a stroke with erase:true (pending in the scene: packs skip it,
+                    the live white path shows it)
+  its shape landing (_stepShapeBakes / _forceBake, in one stage.batch):
+    doc.bakeShapeById
+    _registerMark(Erec)                     A2 §4.2
+      _eraseFramesPass(Erec)                a frame the mark covers whole (cell +
+                                            reach inside its ink, nothing drawn
+                                            above the mark) goes as containers,
+                                            one bake step, events `by` the mark
+      _candidatesUnder(Erec, named)         the spatial index of every reachable
+                                            level + moved natives, once
+      targetOf += M on each; doc.setTargetsById(M, ids)   an `attr` entry
+  ...later, from _bakeTickInner -> _bakeRun(deadline)   (A2 §4.7)
+    _serialHead()                           the oldest mark, its first pending
+                                            target by (z, id) (_orderOf, _headOf)
+    its job landed in the reorder buffer?  -> _applyLanded (valid: same _ver,
+                                            lattice, still pending) -> _applyPair
+    none yet                                -> _dispatchPair(Erec, target)
+      _eraseMayTouch false                  -> handled in memory (_silent)
+      _jobFor: homed shallower, on an ancestor chain:            CEDE
+        descentJob on a VirtualDoc (squareInkOf, cede.js), one at a time
       else:                                                      CUT IN PLACE
-        _eraserLoopsInto(loops, HE, o, HO)  the eraser in the target's frame,
-                                            a moved object's table inverted
-        runCutAsync (the erase worker) or cutJob inline: the boolean centred on
-          the SUBJECT, the removal measured locally and the graze rule,
-          shapeComponents, dropDust (a quarter pixel at the mark's zoom)
-        -> _onCutResult -> _applyCut: doc.eraseReplaceById, _resplitFamily if
-           it split; a result whose target changed (_ver) is dropped
-      _lowerMark(Erec, target)            the mark's z steps below what it handled
-      (the cut and the step run in _neutral: the Stage's classifier (_neutralOf) gives a cut
-       the mark, so its footprint is dirt inside the mark's box only; a step, none - F90, A2-Q2)
-      (a step past a target left whole over ink is not neutral; a graze or an inkless
-       descent refusal leaves nothing whole, F109)
-    a mark with nothing left under it: _noteSpent, consumed (its removal stales its plates once)
-  the barrier: _flushErasesFor(id) / _settleSelectionErases() run the same jobs
-    inline before a select or a drag; _flushErasesFor steps the mark (_lowerMark)
-    when what it bakes is the mark's next target; _settleLassoErases(poly) bakes
-    out every mark the loop meets before a lasso is judged (flushErases(ids));
-    a mark whose cut is in the worker is never spent by a barrier: flushErases,
-    and _flushErasesFor before it bakes another object of that mark, run that
-    cut inline first (_settleInflight); the drag's barrier skips such a mark
+        _projected(E, HE, o)                the eraser in the target's coordinates,
+                                            memoised per (home, table)
+        cutJob: the boolean on the SUBJECT, graze rule, dropDust + dustBoxes
+      submit({kind, prio: 3, barrier, job, key}) (eraseWorkerClient) -> a promise
+        into _cuts, or null (no worker): the job runs and applies inline
+    _applyCut: doc.eraseReplaceById(id, regions, by, dust) (pieces inherit the
+      lineage, handled by M), _resplitFamily if it split; a graze:
+      doc.setHandledById(..., {inkless})
+    _applyDescent: lm.merge(minted), the family minted from the LIVE target's
+      lineage, removals `by` M with their dust; a refusal: _refuse -> setHandledById
+    the Stage classifies each event (_stepOf: `by` + eraseRule.inLineage): the
+      target's box inside the mark's, plus dust; a graze or inkless refusal none
+    _lookahead()                            dispatch ahead up to the pool's free
+                                            slots; a target pending under an
+                                            earlier mark waits (the lock)
+    a mark with nothing pending: _spendMark -> _noteSpent, doc.removeById (its box
+      re-rastered), _pruneMark (its id off its lineage)
+  the barriers (A2 §4.11): _tapBarrier(id, then) from select (then the point is
+    picked again), _dragBarrier(then) from _beginSelectDrag (members, frames, the
+    marks homed under them), _lassoBarrier(poly, then) from _applyLasso (every pair
+    whose target's box meets the loop's) -> _eraseBarrier: flushBakes, rounds of
+    pairs (each target with its earliest pending mark) through _dispatchPair
+    {barrier: true}; inline where there is no worker, else parked (_barrier,
+    status.erase.finishing, the EraseChip after 150 ms) until _barrierStep
+    applies the last round; cancelled by a press, a tool change, an undo, a
+    deselect; _finishBarrier spends the marks it emptied
   only the pen's holder bakes: a read-only engine's tick polls (500 ms) until it
     has the pen; a destroyed engine drops a late worker answer (OPEN-FLAGS F96)
 
@@ -175,8 +178,9 @@ SELECTING AND MOVING
     (the first move past SELECT_DRAG_PX: _beginSelectDrag; selected ink under the press,
      covered or not, wins over the topmost - _hitTest(x, y, , only = _isSelected))
     on ink:
-      _flushErasesFor(hit)                  the erase barrier
-      _settleSelectionErases()              ...for EVERYTHING about to move
+      select(sx, sy, members) / members()   the erase barriers: the hit object's,
+      _dragBarrier(start)                   then EVERYTHING about to move; parked
+                                            while cuts are in workers
       _dragSel = { start, moves, moved }
       store.setBatch(true)                  stop patching off-screen tiles
       _beginHold()                          raster: renderer.planeAccepts() aims the drag
@@ -228,7 +232,8 @@ SELECTING AND MOVING
     _undoMove(moves)                        the per-object members as a move's
 
   the lasso path
-    _applyLasso -> _settleLassoErases(poly) (the erase barrier) -> _lassoFind(poly)
+    _applyLasso -> _lassoBarrier(poly) (the erase barrier; the loop stays drawn while
+      parked) -> _judgeLasso -> _lassoFind(poly)
       visit(frame, s, tx, ty)
         out of reach  -> skip the frame AND its subtree
         enclosed      -> takeAll(frame) with no per-object test
@@ -385,9 +390,12 @@ LOADING
     loadCanvasStore(id)                     a v1 canvas comes back {legacy} and
                                             loads the old way
     engine.loadDrawing({ ...envelope, natives }, { render: false })   the frame snapshots
-    log.replay(entries, frameSeq)           the entries after each frame's seq:
-                                            the undo/redo stacks, a pending
-                                            eraser's done set
+    stage.batch(log.replay(entries, frameSeq))   the entries after each frame's seq,
+                                            one commit: the undo/redo stacks, the
+                                            pending erasers' ops; _deriveTargetOf
+    engine._eraseLoaded()                   targetOf from every known mark's targets;
+                                            a mark from before them registered once,
+                                            its targets logged (A2 §4.9)
     _scheduleBake()
     macroYield(); _render()                 once, a task later (renderLoaded): the load
                                             and a cold render were one 5-7 s task (F87)
@@ -399,6 +407,7 @@ LOADING
     lm.load(d.crossings)
     doc.loadNatives(d.natives)              emits reset -> the tile cache clears
     cam.set(d.camera); cam.settle()         a file may record an illegal zoom
+    _eraseLoaded() (render) / _deriveTargetOf() (the store's: its replay follows)
     _scheduleBake()                         resume any eraser the file carried
     renderer.clear(); _render() (not with { render: false }); _queueIdleFits()
 

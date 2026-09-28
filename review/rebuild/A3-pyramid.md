@@ -228,7 +228,13 @@ rest cells that have no rest plate, then every rest cell that has one over it �
 took at most one view of distinct records; the B-PYRAMID-1 review showed that cap (and counting own plates against
 the stand-ins) put paper or an older picture on screen while a fresh source was cached (PLAN §5.6 M1, M2). Since
 B-PYRAMID-2 P0 the plan draws every own-grid record and at most `COMPOSE_IMAGES` − the plane's images stand-ins, which
-is the construction behind §4.5's corrected pinned bound.
+is the construction behind §4.5's corrected pinned bound. (4) *B-PYRAMID-2 P0:* planned in cell order, a binding
+budget spent its room on the first cells' finer stand-ins and left later cells paper beside a cached coarser plate
+(jsdom, 300 seeded screens each: in level mode under a drag plane of 0–25 images, 8 / 13 / 17 runs on Kobin's desktop /
+2560×1440@2 / 390×844@3, up to 17 cells; at rest after a long pan, 1 / 13 / 6 runs, up to 10 cells, 21 % of the
+screen). So when the plan refuses a stand-in, every cell not drawn sharp from its own grid first reserves its coarsest
+exact source and the cells are planned again nearest the attention point first: 1 / 1 / 1 runs of one cell (the
+coarsest set itself over the cap) and 0 at rest. When nothing is refused the plan is the rules' choice, unchanged.
 
 ### 1.5 Direct scaled draws versus the surface, against the image cliff
 

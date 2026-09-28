@@ -403,6 +403,19 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect([P0.scaled, paperCells(P0)]).toEqual([3, 0]);                  // cell order alone left two cells paper
         expect(P0.cells.filter((c) => lv(c) === 3).length).toBeGreaterThanOrEqual(4);
         expect(P0.cells.filter((c) => lv(c) === 2).length).toBeGreaterThan(0);
+        // Cells drawn sharp from their own grid reserve nothing: the room goes to the stand-ins.
+        const u = setup(2048, 768), G = String(u.A);
+        u.pyr.frameFor(cam(u.A, 16 * 0.72, -200, -200, 2048, 768));           // cells (0..6, 0..2)
+        const w = u.pyr._v, miss = ["0,0", "0,2", "2,2"];
+        expect([w.i0, w.i1, w.j0, w.j1]).toEqual([0, 6, 0, 2]);
+        for (let j = w.j0; j <= w.j1; j++) for (let i = w.i0; i <= w.i1; i++) {
+            if (miss.includes(i + "," + j)) u.put(levelCell(G, 3, S, i >> 1, j >> 1), 0);
+            else u.put(levelCell(G, 4, S, i, j), 0);
+            u.put(levelCell(G, 2, S, i >> 2, j >> 2), 0);
+        }
+        planeOf(u, G, 16, COMPOSE_IMAGES - 2);
+        const P1 = u.pyr.compose(), at = (i, j) => P1.cells.find((c) => c.i === i && c.j === j).draws.map((d) => d.rec.level);
+        expect([paperCells(P1), at(2, 2), at(0, 0), at(0, 2)]).toEqual([0, [3], [2], [2]]);
     });
 
     test("children cover a cell with no other source before they sharpen a blurred one nearer the attention point", () => {

@@ -236,11 +236,12 @@ health check, and F34 is what it looks like when it goes wrong.
 
 ## 7. Erasing
 
-An eraser **is** a stroke: background-coloured ink through the pen pipeline, so
-the gesture costs nothing however complex the drawing. It commits instantly and
-z-order alone makes the picture correct — it covers exactly what was below it
-when drawn. Folding it into the ink beneath happens later, one object per idle
-slice.
+An eraser **is** a stroke through the pen pipeline, so the gesture costs nothing
+however complex the drawing. When its shape lands it records its **targets** — the
+ink under it when it was drawn — and until it is spent it hides exactly those (the
+erase rule, below): ink moved under it later, drawn after it, or already baked shows
+(Kobin, 2026-09-25). Cutting it out of each target happens later, in workers and in
+slices.
 
 **The invariant: an erase never removes more than the eraser swept.**
 
@@ -308,73 +309,104 @@ the chain kept, moving the picture one level down by the arc's bulge. Since
 the freeze became one radius (section 5) the boolean uses that gate and no
 other test, so the two agree everywhere.
 
-### Order, gate and the worker (2026-09-08)
+### Targets, the rule, the parallel bake and the barriers (2026-09-28)
 
-**Top-down by z, from the index.** The objects under a mark come from the spatial
-index of every reachable level (plus every moved object, whose stored bits sit
-elsewhere than its picture), sorted by z, highest first, cached on the mark until the
-document changes (`_candidatesUnder`; the mark's box is mapped once per home frame and
-offset table, which objects moved together share: mapped per object, the first scan over the
-Magnum Opus's 19,547 moved natives took 300 ms, now 95). A mark whose chain leaves the home frame sideways into a ring neighbour and then descends re-homes and cedes down its own chain below that neighbour: cut in place two crossings under, the eraser is below the boolean's weld and grazes (F129). A frame's index answers a rect off its union box at once, and scans flat past 2^40 units: a mark's box mapped six levels up and across arrived at 1e21, where the cell walk steps by nothing, and the tab froze (F127). Before this the bake walked every object of
-every level per mark at ~0.6 ms each: on the 12,849-object canvas five minutes a mark
-before the next mark got a turn, and a second per pointer-up, because the selection
-barrier asked the same question (erase.stuck.probe.js).
+`review/rebuild/A2-scene.md` §4 is the design; `eraseRule.js`, `erasePipeline.js` and
+`eraseWorkerClient.js` are the code.
 
-**The mark's z follows the bake down** (Kobin's design). After each object the mark
-has handled — cut, grazed, refused or not touching — its z steps to just below that
-object's z, once no unhandled object shares the z. Pieces a cut mints inherit their
-parent's z and so land above the mark. The mark is white ink on a white ground, so at
-every moment the picture is right: objects above it show their holes, objects below
-it are hidden by it — and the move gate is the z order: `_flushErasesFor` skips what
-sits above the mark. The barrier lowers the mark only when what it bakes is the mark's
-next target, or the one whose cut is in the worker — the tick's own order — so the
-cut-out of the object the baker is on drags above the mark; anything else it bakes out
-of order, the mark stays, and those pieces pass under the white mark until the bake
-is done (2026-09-23, `erase.stack.test.js`) — on `?svg`. A drag's barrier (`_settleSelectionErases`) costs nothing with no mark pending and one mark scan a round otherwise, following the pieces a bake mints through the document's events (2,000-object selections took seconds when it scanned twice per id; `move.startCost.test.js`). The raster renderer draws a
-pending mark as nothing at all: it is a mask over the ink below it that it has not baked
-(Kobin, 2026-09-23: "we ALWAYS show something that baked on top of it"). An item's coverage
-is multiplied by (1 − the mark's) where the mark is above it and the item is not in the
-mark's handled set less what is still whole (a cut in the worker, a refusal over ink) —
-the set and the mark's z as they stand when the job is packed, read from the scene's table,
-which is never behind the document (F121's stale list packed with the live set has no list to
-happen on; a cut under its mark dirties its band, PLAN §5.3 A2-Q2). A graze, or a descent refused with none of the target's ink near the eraser (`inkless`), leaves nothing whole: the mark's step past it changes no pixel and stales no plate, like a cut's (F109; on the Magnum Opus 84 of a bake's 98 steps were such refusals, and the bake took 30 s instead of 18–22 s); a cut-out
-baked out of order shows over the ring wherever it is dragged, while outside the ring the
-z order is untouched (`rasterCore.resolveMask`, `rasterPack` `markDone`,
-`raster.mask.test.js`). The z rides the log as a `put` of the mark and a reload resumes
-above it.
+**Targets are recorded when the mark's shape lands** (`_registerMark`, in the landing's
+commit: the plates gain its mask as the live white path goes). First the frames it covers
+whole go as containers (below); then every reachable native under its box, below its z,
+whose box its eraser's reaches — from the index of every reachable level, plus every moved
+native through its table, the box mapped once per home and table (mapped per object, the first
+scan over the Magnum Opus's 19,547 moved natives took 300 ms, then 95). The ids go in the mark's
+`targets` and the mark in each target's `targetOf`. A frame's index answers a rect off its union
+box at once and scans flat past 2^40 units (F127); a mark whose chain leaves its frame sideways
+into a ring neighbour cedes down its own chain below that neighbour (F129). **Nothing can move
+under a mark before its targets are recorded**: every gesture that moves ink resolves pending
+perimeters first, and until the landing the mark's op is on top of the undo stack
+(`erase.rule.test.js`, `raster.eraseRule.test.js` (c)).
 
-**A target the bake cannot take is done**, with the refusal on the gesture's journal
-note; a mark with nothing left under it is consumed. Nothing retries.
+**The rule** (`eraseRule.underMask`): native `o` is under mark `M`'s mask iff `M` has landed,
+`M ∈ o.targetOf`, `M ∉ o.handledBy` and `z(o) < z(M)`. Every piece a cut or a cede mints inherits
+its source's `targetOf`, and its `handledBy` plus the cutting mark (`inheritErase`, at the three
+mint sites: `eraseReplaceById`, `cede.js` — the one body of `Document.cedeTileById` and the
+descent's virtual cede — and `_applyDescent`, from the live target); a refusal or a graze adds the
+mark to `handledBy` (`setHandledById`). So an object dragged across a pending mark, a stroke drawn
+over it, and a piece it has cut all show; a piece of a target another mark still owes stays masked
+by that one until it cuts it (two marks over one object, the lower cutting first: at no moment does
+the ink under the upper show). The mark's z never moves. The raster renderer draws a pending mark as
+nothing: the pack sets an item's mask bits from the rule where the boxes meet, in up to 16 slots that
+marks share exactly (no item under both boxes with different bits; past 16 the slot it over-hides
+least, counted as `maskOverflow`, never white ink), and the core multiplies the item's coverage by
+(1 − the slot's coverage), a byte plane. The pick skips a masked target where its mark's ink covers
+the point, so a press there takes what shows. The SVG renderer (`?svg`) still paints a pending mark
+as white ink at its z — over pieces already baked too, now the z no longer steps.
+
+**What an erase step dirties** (PLAN §5.3 A2-Q2; the scene classifies each event by the mark it
+names, `by`, and the rule): a cut or a descent on the mark's lineage, the target's box inside the
+mark's and the boxes of the dust it dropped; a refusal over ink, the target's box inside the mark's
+(its ink under the mark shows again); a graze or an inkless refusal, nothing; a frame set aside at
+the landing, nothing past the landing's box; the landing and the spend, the mark's box. Measured
+(`raster.eraseRule.test.js` (b), plates kept through a bake against a fresh raster): 0 differing
+bytes for fills; strokes differ only on the outlines of cut arcs, flattened again from their new
+ends (3–6/255 measured, 16/255 the bound), inside the cut objects' boxes, until those cells next render.
+
+**The bake** (A2 §4.7). The pending marks are a set kept by events, and each mark's lineage (the live
+natives with it in `targetOf`) an index. The serial order is marks oldest first, each mark's targets
+top-down by (z, id) as they joined. Jobs are dispatched ahead in that order through the erase pool
+(`eraseWorkerClient.submit`: an interim pool of `max(1, min(3, cores − 1 − rasterWorkers))`
+workers until the raster pool's queue takes the cut kind; RW-1's respawn and watchdog; inline
+where there is no worker) and applied strictly in that order through a reorder buffer, so a
+parallel bake leaves the inline bake's document, ids, steps and log (three seeds of shuffled
+arrivals, `erase.rule.test.js`). A target pending under an earlier mark is not dispatched for a
+later one; descents run one at a time; a landed job applies only if its target is unchanged
+(`_ver`: a move or a settle projected the eraser through another table), the lattice not
+re-addressed and the pair still pending, else it is dispatched again; a pair its eraser's box
+misses is handled in memory only (no pixel of it is under the mask). The lookahead writes nothing
+to the document. A mark with nothing pending is spent, logged `spent`, its box re-rastered, and its
+id pruned from its lineage; a live native never names a mark that cannot return (spent, or its redo
+branch gone): dropped as it re-enters by an undo and at a load, so the undo of a finished erase
+restores the document exactly. `erase.cost.test.js`: no scan during the bake.
+
+**The barriers stay, asynchronous** (A2 §4.11; Kobin: "if an object is baking, you can't even
+select it until it is baked"). A tap bakes the pending pairs of the hit object's family and then
+picks the point again, so the selection is the piece under the finger (SM-5); a drag's start bakes
+those among the selection's members and under its frames, and every pair of a mark homed under a
+selected frame (B4); a lasso every pair whose target's drawn box meets the loop's box, wherever its
+mark is (H5), and judges the cut-outs. Each target is cut with the earliest mark it is pending under,
+round after round, in serial order, until none is left (no cap); the selection follows the steps to
+the pieces. Where the cuts are in workers the gesture is parked: a tap selects when they land, a drag
+starts from the press and jumps to the finger or, released meanwhile, applies whole, a lasso's loop
+stays drawn; after 150 ms the title shows "Finishing the erase…" (`status.erase.finishing`,
+`EraseChip.js`); a new press, a tool change, an undo, a deselect or a pinch cancels it (its cuts go on
+as the bake's). Where there is no worker the rounds run inline and the gesture completes at once.
+Every tap and drag barrier resolves pending perimeters first; a barrier ends by spending the marks
+it emptied. `select.eraseBarrier.test.js`, `erase.stack.test.js`.
 
 **One cut is a job** (`eraseJob.js`): the boolean, the removal measured locally, the
 graze rule (in place, or the cede's), the components and the dust cull, on loops in
 and Loops out — the same function on the main thread and in the erase worker
 (`public/erase-worker.js`, esbuild's bundle of the geometry layer; `npm run
 build:worker`, run before start and build). The pipeline dispatches one cut at a
-time and applies the result on the main thread (`_applyCut`); a result whose target
-is gone or changed (`_ver`) is dropped and the target baked again; a worker failure
-runs the job inline; where there is no worker (jsdom, an old browser) the job runs
-inline, so every erase suite checks the same geometry. The barrier stays synchronous:
-"if an object is baking, you can't even select it until it is baked", and a cut in
-flight for that object is baked on the spot, its late result dropped. **A lasso is a
-barrier too** (Kobin, 2026-09-23: a lasso over a stack still baking freezes until the
-bake is done, then the ants march): every mark whose box meets the loop's box is baked
-out before the loop is judged (`_settleLassoErases`), so the loop takes every cut-out
-and not the part the baker had reached. **A mark whose cut is in the worker is not
-spent early**: a flush, and a select about to bake another object of that mark, run
-that cut inline first (`_settleInflight`), a drag's barrier leaves such a mark to the
-tick, and a result that lands on a mark an undo took leaves its target undone, so the
-redo cuts it (OPEN-FLAGS F88). **Undo and redo follow the bake steps across marks**: two marks
-pending bake out of stack order (an older mark can cut a newer mark's piece, and the newer cut
-the result), so each step carries its order and whether it is applied. An erase's undo reverts
+time and applies the result on the main thread (`_applyCut`), in the serial order above;
+a worker failure runs the job inline; where there is no worker (jsdom, an old browser)
+the job runs inline, so every erase suite checks the same geometry. A result that lands
+on a mark an undo took is dropped; its target stays pending and the redo cuts it (OPEN-FLAGS
+F88). **Undo and redo follow the bake steps across marks**: a barrier bakes out of the marks'
+stack order, and a history from before the rule (an older build's log) can hold an older mark's
+cut of a newer mark's piece, so each step carries its order and whether it is applied. An erase's undo reverts
 its steps and every step of any gesture that consumed what they made, newest first (those are
 suspended); a redo re-applies its steps and then any suspended step of an applied gesture whose
 source is back (`Document._stepsUndo`/`_stepsRedo`, F118); a reload rebuilds the flags from the
 log's order, every kind of step included (a re-key step without it was undone out of order, F128),
 and the document. **Only the pen's holder bakes**: a read-only tab or device
 shows the store the holder bakes into and waits for the pen, and a closed editor drops a
-late worker answer (F96). A mark saved mid-bake resumes from the log's bake entries on
-reopen, and from its own z on a file load; either ends as an uninterrupted bake.
+late worker answer (F96). A mark saved mid-bake resumes on reopen from its `targets` and its
+pieces' `handledBy` in their headers, `targetOf` derived at load from every known mark's `targets`
+(live, or held by an undone gesture); either ends as an uninterrupted bake. A mark from a file
+written before the fields registers once at load by the old rule — the scan under its stepped z,
+less the ids its log's bake entries name, whose pieces it has handled — and its `targets` is logged.
 
 **The descent is one job per family** (`eraseDescent.js`, Kobin's design: "invalidate
 the whole object, wait till the worker sends the new object shapes back, then swap the
@@ -385,8 +417,8 @@ job exactly as the tile store derives it for that one object (`classifyUp`,
 piece bit for bit; nothing touches the document until the whole descent has succeeded,
 so a refused last link needs no unwinding. The worker gets the target, the eraser and
 the lattice (`LevelMap.serialize`) and returns the steps; `_applyDescent` mints the
-family with real ids in the order `cedeTileById` gave them and records the steps on the
-gesture's op. Inline where there is no worker, and for the barrier. The frames the job
+family with real ids in the order its cedes minted them and records the steps on the
+gesture's op. Inline where there is no worker. The frames the job
 mints on its lattice copy (a kid is homed by the carry, often a cell over from any frame
 the engine has visited) come back with the steps and are merged into the engine's lattice
 before a kid is added; a load mints any frame its natives name (F67).
@@ -409,7 +441,7 @@ bucket the ray's line falls in and its neighbours, and the answer is `rayCross`'
 own. Measured on the same cuts: 2,630 → 175 ms and 2,377 → 143 ms, results identical.
 
 **An erase covering a frame takes it whole** (2026-09-15; Kobin's rule, the subtree
-move's counterpart in §8). Before a mark's first per-object target, the frames under
+move's counterpart in §8). At the mark's registration, before its targets are taken, the frames under
 the mark's own are walked as the lasso walks them (out from the mark's frame, one hop
 at a time, a subtree skipped when its box misses the mark): a frame whose cell plus the
 reach its content may have (invariant 2), grown by the flatten's tolerance, lies inside
@@ -417,7 +449,8 @@ the mark's ink, and under which nothing is drawn above the mark (`Document.maxZU
 an upper bound kept per frame index: a native drawn since the mark, or a piece a cut
 minted, keeps the frame on the per-object path and its kids are judged on their own),
 goes as containers — its lists set aside by reference, one bake step in the gesture's
-op, no cut, O(frames). Undo re-attaches them with the rest of the gesture; the op log
+op, no cut, O(frames). A native drawn into such a frame after the landing stays: it is not a
+target. Undo re-attaches them with the rest of the gesture; the op log
 carries the natives' geometry (`bakeFrames`) because their rows go with the write. An
 empty container is not a step. `move.subtree.test.js` t11–t13, `oplog.test.js`.
 
@@ -705,8 +738,8 @@ re-anchored when the next stroke moves the overlay origin (F131), a translucent 
 to the cells whose plate does not paint it yet (over its plated self the alpha would double; D-2).
 The band is never packed: until its perimeter resolves a stroke is drawn by its live path alone,
 and the resolve's commit stales the plates under it, which the next camera step re-posts. A bake
-renders at most every 100 ms (`_renderSoon`); a cut under its mark dirties only its footprint
-inside the mark's box (PLAN §5.3 A2-Q2), so plates the mark never reaches keep. The live stroke stays
+renders at most every 100 ms (`_renderSoon`); a cut on a pending pair dirties only its footprint
+inside the mark's box and its dust (§7, PLAN §5.3 A2-Q2), so plates the mark never reaches keep. The live stroke stays
 SVG: a short tail under the pen and frozen chunks of 128 anchors behind it, one group carrying the
 opacity (one path's whole `d` was rebuilt every event: 27 ms at 3,000 samples, D-1); the selection ants are painted on an overlay canvas (`OverlayLayer.js`, `antPaint.js`). A destroyed engine is inert — `_render`, the camera steps and the overlay return at once — because a remount builds the next engine in the same host and a late step would put the old selection's ants back over it (F101).
 `sceneOps.snapshotView` packs one plate of any frame and rect, off camera (a Stage snapshot), for
