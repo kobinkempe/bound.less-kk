@@ -54,7 +54,7 @@ class SceneOps {
     }
     /**
      * A picture of `rect` in frame `frame`, at a camera that is never set (SCENES-PLAN S1; the
-     * crossing prebake of PAPER-PLAN R4 shares `listFor` underneath).
+     * crossing prebake of PAPER-PLAN R4 shares the Stage's snapshot underneath, A2 §2.13).
      *
      * The scale is `jumpTo`'s own — `fitView(rect, w, h)` — so a thumbnail frames a scene
      * exactly as jumping to it would. It differs from `jumpTo` in three ways, all deliberate:
@@ -100,9 +100,9 @@ class SceneOps {
             left: -offset[0], top: -offset[1],
             right: w / Zq - offset[0], bottom: h / Zq - offset[1],
         };
-        return this.renderer.snapshotJob({
-            list: this.listFor(f.id, win), frameId: f.id, Zq, offset, signal,
-        });
+        const snap = this.stage.snapshot(f.id, win, Infinity);
+        if (!snap) return Promise.resolve(null);
+        return this.renderer.snapshotJob({ list: snap.items(), frameId: f.id, Zq, offset, signal });
     }
     /**
      * The scene list, brought up to date: inline, now (a first index of a loaded drawing included);

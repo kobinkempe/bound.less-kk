@@ -15,7 +15,7 @@
  * stroke, pen-up to the live path's release), 6 undo (Ctrl+Z of it, to exact), 7 erase (an eraser across the
  * stack, then a zoom while its bake runs: a zoom under the pen ends the stroke) — each in a fresh page, each
  * printing its deltas as one JSON line: paper (PAPER-PLAN
- * §9: each rAF's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
+ * §9: each picture's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
  * `olderMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
  * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`).
  *
@@ -146,9 +146,11 @@ async function roundTrip(browser) {
 // ---------------------------------------------------------------------------
 
 /**
- * Runs in the page: the probes. A rAF sampler integrates paper forward (each sample's uncovered share of
- * the screen's cells, `layer.uncoveredCells()` over `_rFull`, charged for the time until the next sample),
- * and `layer.compose` is wrapped for the most images one compose drew in the window being measured.
+ * Runs in the page: the probes. Paper is integrated forward: each sample's uncovered share of the screen's
+ * cells (`layer.uncoveredCells()` over `_rFull`) is charged for the time until the next sample. A sample is
+ * taken after every compose, since the probe's rAF callback runs before the engine's frame and alone would
+ * read the picture one frame late, and at every rAF, for a change no compose made. `layer.compose` is wrapped
+ * for that and for the most images one compose drew in the window being measured.
  */
 function installProbes() {
     const E = window.__kobinEngine;
@@ -159,17 +161,22 @@ function installProbes() {
         const r = L._rFull, cells = (r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1);
         return cells > 0 ? Math.min(1, L.uncoveredCells() / cells) : 0;
     };
-    const tick = (now) => {
+    const sample = (now) => {
         P.paperMs += P.share * (now - P.last);
         P.share = shareNow();
         if (P.share > P.maxShare) P.maxShare = P.share;
         P.last = now; P.samples++;
-        requestAnimationFrame(tick);
     };
+    const tick = (now) => { sample(Math.max(now, P.last)); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
     if (L && L.compose) {
         const compose = L.compose.bind(L);
-        L.compose = (plates) => { const n = compose(plates); P.composes++; if (n > P.maxImages) P.maxImages = n; return n; };
+        L.compose = (plates) => {
+            const n = compose(plates);
+            P.composes++; if (n > P.maxImages) P.maxImages = n;
+            sample(Math.max(performance.now(), P.last));
+            return n;
+        };
     }
     return true;
 }

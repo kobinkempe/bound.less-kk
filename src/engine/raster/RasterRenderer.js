@@ -153,8 +153,8 @@ export default class RasterRenderer extends Renderer {
      * @param {number} [opts.width] CSS px @param {number} [opts.height] CSS px
      * @param {object} [opts.store] the `PlateStore`; the ENGINE constructs it, with the Stage as its
      *        freshness source, and owns its lifetime and `destroy`
-     * @param {object} [opts.stage] the engine's `Stage`: jobs are packed at its generation
-     * @param {boolean} [opts.scene] packs read the Stage's items (on) or the render list (off)
+     * @param {object} [opts.stage] the engine's `Stage`: plates are packed from its items at its
+     *        generation. Without one (the suites' renderer) `render`'s list is packed at the store's G
      * @param {object} [opts.layer] a `PictureLayer` to use instead of building one (the suite's)
      * @param {number} [opts.dpr] devicePixelRatio override, for the suite
      * @param {string} [opts.paper] the paper colour, which must agree with the host's CSS
@@ -170,14 +170,9 @@ export default class RasterRenderer extends Renderer {
         super(container, camera, cfg, opts);
         this.host = container || null;
         this.store = opts.store || null;
-        /**
-         * The scene (the engine's Stage, A2 §3): a job is packed at its generation, and with `scene` on
-         * the packs read its table instead of the render list. The plate store's freshness source is it.
-         */
+        /** The scene (the engine's Stage, A2 §3): packs read its items at its generation; it is the store's freshness source. */
         this.stage = opts.stage || null;
-        this.scene = !!opts.scene && !!this.stage;
-        this._listG = new WeakMap();     // a list packs read -> the G it was read at
-        this._sceneArr = null; this._sceneArrG = -1;
+        this._sceneArr = null; this._sceneSrc = null; this._sceneArrG = -1;
         this.perf = opts.perf || rasterPerf;
         this._nextSeq = opts.frameSeq || null;
         /** §8.4 rule 1's join, bumped on EVERY camera step and not only on a full render (Q12). */
@@ -248,8 +243,6 @@ export default class RasterRenderer extends Renderer {
         this.forcePerStepDrag = false;
         /** The engine's `(markId) => Set` of what a pending eraser mark has handled: those ids are not masked by it. */
         this.markDone = null;
-        /** The engine's `(frameId, rect) => list` off camera, for a drag plane's levels past the camera list (P-2). */
-        this.listForPlane = null;
         this._planeFn = null;
         this._landTimer = null;
         this._planeTimer = null;
@@ -504,19 +497,19 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * A far plane level's own list (F122), built at idle a budget at a time: built in the aim it was a
-     * 0.2–0.6 s frame after every select and every drop (TESTER-3, Chrome). The level is posted when
-     * its list is in; a re-cut level is forgotten.
+     * A far plane level's own items (F122): the Stage's snapshot of its rectangle, read at idle a budget
+     * at a time (built in the aim it was a 0.2–0.6 s frame after every select and every drop, TESTER-3).
+     * The level is posted when its snapshot is in, packed at the snapshot's G; a re-cut level is forgotten.
      */
     _farList(pl, lvl, tries) {
         lvl.listPending = true;
         planeIdle(() => {
             if (this._destroyed || (pl.quick !== lvl && pl.main !== lvl)) return;
             const r = pl.coverOf(lvl);
-            const list = r && this.listForPlane ? this.listForPlane(pl.frameId, r, FAR_LIST_BUDGET_MS) : null;
-            if (list === null && r && this.listForPlane && tries < FAR_LIST_TRIES) { this._farList(pl, lvl, tries + 1); return; }
-            lvl.list = list || null;
-            if (list) this._listG.set(list, this._G());
+            const snap = r && this.stage ? this.stage.snapshot(pl.frameId, r, FAR_LIST_BUDGET_MS) : null;
+            if (snap === null && r && this.stage && tries < FAR_LIST_TRIES) { this._farList(pl, lvl, tries + 1); return; }
+            lvl.list = snap ? snap.items() : null;
+            lvl.G = snap ? snap.generation : null;
             lvl.listPending = false;
             if (!lvl.list) planeStats.farListFallbacks++;
             this._postPlane(pl);
@@ -525,7 +518,8 @@ export default class RasterRenderer extends Renderer {
 
     /** What the plane's layers lack, one post a layer (their cells are a list, not a range). */
     _postPlane(pl) {
-        const reqs = pl.requests(pl.list);
+        // A level without its own snapshot packs the live table at the pack's G (A2 §3.3), not the list it was aimed from.
+        const reqs = pl.requests(this.stage ? null : pl.list);
         if (!reqs) return 0;
         let n = 0;
         const one = this._planeCell || (this._planeCell = { frameId: null, q: null, Zq: 1, i0: 0, i1: 0, j0: 0, j1: 0 });
@@ -593,7 +587,7 @@ export default class RasterRenderer extends Renderer {
         let n = 0;
         for (const L of sel) n += L.cells.length;
         if (!n || n > STOPGAP_PLATES) return;
-        const t0 = perfNow(), s = this._syncScratch(n), layers = [], list = lvl.list || pl.list;
+        const t0 = perfNow(), s = this._syncScratch(n), layers = [], list = lvl.list || (this.stage ? this._sceneList() : pl.list);
         for (const L of sel) {
             const plates = new Int32Array(L.cells.length * 2);
             L.cells.forEach(([i, j], p) => { plates[2 * p] = i; plates[2 * p + 1] = j; });
@@ -980,15 +974,13 @@ export default class RasterRenderer extends Renderer {
     noteList(ms) { this._add(SLOT.list, ms); }
 
     /**
-     * Steps 1–7 of §5.1: a change is already the Stage's dirt, applied when it committed (A2 §2.5).
-     * `G` is the generation the list was built at (the engine reads it before the build).
+     * Steps 1–7 of §5.1: the Stage's items (A2 §3; `list` only for a renderer without one). A change is
+     * already the Stage's dirt, applied when it committed (A2 §2.5).
      */
-    render(list, frame, G) {
+    render(list, frame) {
         if (!this._rowOpen) this._beginFrame("render");
         this._activateLevel(frame);
-        this._lastList = this.scene ? this._sceneList() : (list || []);
-        if (!this.scene) this._listG.set(this._lastList, G != null ? G : this._G());
-        this._noteShown(this._lastList);
+        this._lastList = this.stage ? this._sceneList() : (list || []);
         this._noteFatPending(this._lastList);
         const view = this._frameStep(this._lastList);
         this.syncWorld(view);                          // step 7, plus the SVG world transform
@@ -1003,7 +995,10 @@ export default class RasterRenderer extends Renderer {
      */
     syncCameraOnly() {
         this._beginFrame("camera");
-        if (this.scene) this._lastList = this._sceneList();
+        if (this.stage) {
+            const list = this._sceneList();
+            if (list !== this._lastList) { this._lastList = list; this._noteFatPending(list); }
+        }
         const view = this._frameStep(this._lastList);
         super.syncCameraOnly(view);
         this._endFrame();
@@ -1245,10 +1240,10 @@ export default class RasterRenderer extends Renderer {
         const req = {
             frameSeq: this.frameSeq, q: src.q, Zq: src.Zq, frameId: src.frameId,
             mode: src.mode, why, plates,
-            // OFF CAMERA (PAPER-PLAN R4): the crossing prebake's request carries the target
-            // frame's own render list — `listFor`'s, not `_buildList`'s — and is not answerable
-            // by `layer.status()`, which only ever names the camera's quanta.
-            list: src.list || null, offCam: !!src.offCam,
+            // OFF CAMERA (PAPER-PLAN R4): the crossing prebake's request carries the target frame's
+            // own items and the G they were read at (a Stage snapshot), and is not answerable by
+            // `layer.status()`, which only ever names the camera's quanta.
+            list: src.list || null, G: src.G != null ? src.G : null, offCam: !!src.offCam,
             // The drag plane's two kinds (S4): the plates without the selection, and its ink alone
             // on a transparent plate.
             only: src.only || null, omit: src.omit || null, paper: src.paper || null,
@@ -1294,42 +1289,37 @@ export default class RasterRenderer extends Renderer {
         try { return this._packNow(req, strip, jobId, pool); } finally { if (own) this._closeRow(); }
     }
 
-    /** The scene's items packs paint — a stroke pending its shape is skipped (PLAN §1.5) — one array per generation. */
+    /** The Stage's items packs paint — a stroke pending its shape is skipped (PLAN §1.5) — one array a table version and G. */
     _sceneList() {
-        const G = this.stage.generation;
-        if (this._sceneArrG !== G) {
+        const src = this.stage.items(), G = this.stage.generation;
+        if (src !== this._sceneSrc || G !== this._sceneArrG) {
             const out = [];
-            for (const it of this.stage.items()) if (!it.pending) out.push(it);
-            this._sceneArr = out; this._sceneArrG = G;
-            this._listG.set(out, G);
+            for (const it of src) if (!it.pending) out.push(it);
+            this._sceneArr = out; this._sceneSrc = src; this._sceneArrG = G;
         }
         return this._sceneArr;
     }
 
-    /** What a request packs from: its own list (off camera, the plane's levels), else the camera's. */
-    _packList(req) { return req.list || (this.scene ? this._sceneList() : this._lastList); }
+    /** What a request packs from: its own list (a snapshot's, off camera), else the camera's. */
+    _packList(req) { return req.list || (this.stage ? this._sceneList() : this._lastList); }
 
-    /** The G a job packed from `list` carries: the G that list was read at (A2 §3.1), else the current one. */
-    _genOf(req, list) {
-        if (req.G != null) return req.G;
-        const g = this._listG.get(list);
-        return g != null ? g : this._G();
-    }
+    /** The G a job carries (A2 §3.1): its snapshot's, else the current one — the table is never behind. */
+    _genOf(req) { return req.G != null ? req.G : this._G(); }
 
     /** The current generation: the store's freshness source's (the Stage), 0 for a store with none. */
     _G() { const f = this.store && this.store.fresh; return f && f.generation != null ? f.generation : 0; }
 
     /**
-     * Dispatch's half of freshness: a list read before a change under a plate cannot make it exact
-     * (its next render's list will), and a camera plate is packed only where the scene's table holds
-     * every tile under it (F119, A2 §2.12).
+     * Dispatch's half of freshness: a snapshot read before a change under a plate cannot make it exact
+     * (a later one will), and a camera plate is packed only where the table holds every tile under it
+     * (F119, A2 §2.12).
      */
     _packable(req, strip) {
-        const list = this._packList(req), G = this._genOf(req, list), u = PLATE_PX / req.Zq;
+        const G = this._genOf(req), u = PLATE_PX / req.Zq;
         for (let p = 0; p * 2 < strip.length; p++) {
             const i = strip[p * 2], j = strip[p * 2 + 1];
             if (G < this.store.fresh.dirtySince(plateKey(req.frameId, req.q, i, j))) { rasterStats.refusedAtDispatch++; return false; }
-            if (this.scene && !req.list && !this.stage.covers(req.frameId, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u })) {
+            if (this.stage && !req.list && !this.stage.covers(req.frameId, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u })) {
                 rasterStats.refusedAtDispatch++;
                 return false;
             }
@@ -1337,16 +1327,9 @@ export default class RasterRenderer extends Renderer {
         return true;
     }
 
-    /** The list path: a held pen-up path's `Gs` is the G of the first list that holds its stroke. */
-    _noteShown(list) {
-        if (this.scene || !this._liveHeld.length) return;
-        const G = this._listG.get(list);
-        for (const h of this._liveHeld) if (h.Gs == null && list.some((o) => o.id === h.id)) h.Gs = G;
-    }
-
-    /** The G from which a plate paints stroke `h.id` (A2 §3.3): its shape's landing, or the list's (`_noteShown`). */
+    /** The G from which a plate paints stroke `h.id` (A2 §3.3): the commit its shape landed in. */
     _shownFrom(h) {
-        if (h.Gs == null && this.scene) h.Gs = this.stage.landedAt(h.id);
+        if (h.Gs == null && this.stage) h.Gs = this.stage.landedAt(h.id);
         return h.Gs;
     }
 
@@ -1362,7 +1345,7 @@ export default class RasterRenderer extends Renderer {
         const objs = new Array(n);
         for (let p = 0; p < n; p++) objs[p] = { i: strip[p * 2], j: strip[p * 2 + 1] };
         const list = this._packList(req);
-        const G = this._genOf(req, list);
+        const G = this._genOf(req);
         this.store.beginJob(jobId, req, objs, G);
         const t0 = perfNow();
         const job = packJob(list, {
@@ -1516,8 +1499,8 @@ export default class RasterRenderer extends Renderer {
     // ---- off camera: the crossing prebake (R4) and the snapshot (S1) ----
 
     /**
-     * PAPER-PLAN R4. The engine has aimed at the frame this approach would cross into and built
-     * its render list off camera (`KobinEngine.listFor`); this rasters that frame's PREVIEW —
+     * PAPER-PLAN R4. The engine has aimed at the frame this approach would cross into and read it
+     * off camera (a Stage snapshot, A2 §2.13); this rasters that frame's PREVIEW —
      * the plates at `q − PREVIEW_QUANTA` of the POST-crossing quantum, 2–6 of them on a desktop
      * screen where a full set is 20–24 — so the first frame after the crossing composes from
      * cache instead of from paper.
@@ -1540,19 +1523,20 @@ export default class RasterRenderer extends Renderer {
      *
      * @param {{id: string, dir: "up"|"down", inScale: number}} t `KobinEngine._crossTarget`'s aim
      * @param {{left:number, top:number, right:number, bottom:number}} win the view, in `t.id`'s units
-     * @param {object[]} list `listFor(t.id, win)`
+     * @param {{items: () => object[], generation: number}} snap `stage.snapshot(t.id, plateCover(…))`:
+     *        its items, packed at the G it was read at
      * @returns {number} strips queued
      */
-    prebakePlates(t, win, list, dq = PREVIEW_QUANTA, mode = "prebake") {
+    prebakePlates(t, win, snap, dq = PREVIEW_QUANTA, mode = "prebake") {
+        const list = snap && snap.items();
         if (!this.store || !t || !win || !list || !list.length) return 0;
-        if (!this._listG.has(list)) this._listG.set(list, this._G());
         const q = quantumFor(t.inScale, this.layer.dpr).q - dq;
         const Zq = zqOf(q);
         const r = plateRange(win, Zq);
         if (mode === "ladder" && (r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1) > LADDER_MAX_PLATES) { rasterStats.ladderRefused++; return 0; }
         const src = {
             frameId: t.id, q, Zq, i0: r.i0, i1: r.i1, j0: r.j0, j1: r.j1,
-            mode, list, offCam: true, prio: 3,
+            mode, list, G: snap.generation, offCam: true, prio: 3,
         };
         const got = this.store.want(src, { pin: "none" });
         if (mode === "ladder") {
@@ -1569,17 +1553,17 @@ export default class RasterRenderer extends Renderer {
 
     /**
      * The rect, in `t.id`'s units, the plates of a request `dq` quanta under `t`'s over `win` cover:
-     * the list they are packed from must read all of it, not `win` alone (P-1).
+     * the snapshot they are packed from must read all of it, not `win` alone (P-1).
      */
     plateCover(t, win, dq) {
         const Zq = zqOf(quantumFor(t.inScale, this.layer.dpr).q - dq), r = plateRange(win, Zq), u = PLATE_PX / Zq;
         return { left: r.i0 * u, top: r.j0 * u, right: (r.i1 + 1) * u, bottom: (r.j1 + 1) * u };
     }
-    /** How far past the window the camera's list must read: one plate of the preview's quantum, the coarsest packed from it (P-1). */
+    /** How far past the window the Stage's table must read: one plate of the preview's quantum, the coarsest packed from it (P-1). */
     listMargin(inScale) { return PLATE_PX / zqOf(quantumFor(inScale, this.layer.dpr).q - PREVIEW_QUANTA); }
 
     /** PAPER-PLAN R5b: one rung of the zoom-out ladder — `prebakePlates` at `LADDER_DQ`, the same unpinned low-priority post. */
-    ladderPlates(t, win, list) { return this.prebakePlates(t, win, list, LADDER_DQ, "ladder"); }
+    ladderPlates(t, win, snap) { return this.prebakePlates(t, win, snap, LADDER_DQ, "ladder"); }
 
     /**
      * The plates a rung still lacks, with no list and no post: its keys are marked as the ladder's
@@ -1615,7 +1599,7 @@ export default class RasterRenderer extends Renderer {
      * applies per item. One plate, and the crop is a 1:1 `drawImage`.
      *
      * @param {object} o
-     * @param {object[]} o.list `listFor(frame, rect)`
+     * @param {object[]} o.list the items to draw (`stage.snapshot(frame, rect)`'s)
      * @param {string|number} o.frameId the frame, for the job's own key
      * @param {number} o.Zq device px per frame unit — `fitView`'s exact scale, not a quantum
      * @param {[number, number]} o.offset the pack-time translation, in FRAME units

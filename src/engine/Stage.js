@@ -185,11 +185,6 @@ export default class Stage {
         /** The camera frame the table is for, and the window it covers (the frame's units). */
         this.frame = null;
         this.window = null;
-        /**
-         * Whether packs paint a stroke between its pen-up and its shape landing (the list path,
-         * `cfg.scene` off): then its `finalize` dirties its band's footprint. The Stage's own packs skip it.
-         */
-        this.packsPending = false;
         this._list = new ChunkList();
         this._byId = new Map();       // native id -> Set<Item>
         this._byKey = new Map();      // tile key -> Set<Item>
@@ -200,6 +195,8 @@ export default class Stage {
         this._own = new Map();        // native id -> its own item (homed in the camera's frame)
         this._itemOf = new WeakMap(); // piece -> the Item it last was: one object a piece, so the pack's memo hits
         this._keys = new Map();       // watched tile key -> { key, frame, i, j, d, tile, win, groups, next }
+        this._keysVer = 0;            // bumped when a key is watched or retired: the tile store's camera pins follow it
+        this._pinnedVer = -1;
         this._winKeys = new Set();
         this._groups = new Map();     // group key -> { gk, F0, rem, ids, keys }
         this._gOf = new Map();        // native id -> its group key
@@ -238,7 +235,7 @@ export default class Stage {
         this._logFloor = 0;
         this._logCur = null;
         this.stats = { commits: 0, rebuilds: 0, syncs: 0, reads: 0, missed: 0, queued: 0, items: 0, rerouteDiffs: 0,
-            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0, events: 0 };
+            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0 };
         this._unsubDoc = doc.subscribe((ev) => this._onDoc(ev));
         this._unsubTile = store.onTile((ev) => this._onTile(ev));
     }
@@ -522,7 +519,8 @@ export default class Stage {
     /**
      * Make the table the camera frame's over `window` (A2 §2.11, §2.12): a crossing rebuilds, a
      * window change adds and drops tiles, what an event dropped is read again. Tiles are read until
-     * `budgetMs` is spent; what is not read yet is not covered.
+     * `budgetMs` is spent; what is not read yet is not covered. The tiles it watches are the tile
+     * store's camera pins. A sync that changed nothing commits nothing: G moves only with the table.
      */
     sync(frameId, window, budgetMs = Infinity) {
         const cf = this.lm.frameFor(frameId);
@@ -531,10 +529,11 @@ export default class Stage {
         this.stats.syncs++;
         const t0 = perfNow();
         const left = () => (budgetMs === Infinity ? Infinity : Math.max(0, budgetMs - (perfNow() - t0)));
+        let rebuilt = false;
         this._sync++;
         try {
             for (let round = 0; ; round++) {
-                if (this._need || F !== this.frame) this._rebuild(F, window, left());
+                if (this._need || F !== this.frame) { this._rebuild(F, window, left()); rebuilt = true; }
                 else if (round === 0 && !sameRect(window, this.window)) this._setWindow(window);
                 this._drainQueue();
                 this._settle();
@@ -543,7 +542,14 @@ export default class Stage {
             }
         } finally { this._sync--; }
         this._drainQueue();
-        this._commit();
+        if (this._pinnedVer !== this._keysVer) { this._pinnedVer = this._keysVer; this.store.setCameraPins(this._keys.keys()); }
+        if (!this._batch && (rebuilt || this._owed())) this._commit();
+    }
+
+    /** An event applied or the table changed since the last commit. */
+    _owed() {
+        return !!(this._logCur || this._events || this._foot.length || this._batchFoot.size || this._landing.length
+            || this._info.drop.length || this._info.reset);
     }
 
     /** Every event of `fn` is one commit (a drop, an undo, a delete, a load: A2 §2.5). */
@@ -563,7 +569,6 @@ export default class Stage {
 
     _onDoc(ev) {
         const neutral = this._isNeutral ? this._isNeutral(ev) : null;
-        this.stats.events++;
         if (this._hold && ev.kind !== "reset" && this._held(ev)) { this._hold.queue.push({ ev, neutral }); return; }
         if (this._sync) { this._queue.push({ ev, neutral }); this.stats.queued++; return; }
         this._applyDoc(ev, neutral);
@@ -704,13 +709,10 @@ export default class Stage {
         if (!o || ev.id == null) return;
         const pending = this._pending.has(ev.id);
         if (k === "add") {
-            if ((ev.live && !ev.rehome) || ev.carry) return;
-            if (pending && !this.packsPending) return;
+            if ((ev.live && !ev.rehome) || ev.carry || pending) return;
             this._after(ev.id, with_(this._stateOf(o, ev.level)));
-        } else if (k === "finalize") {
-            if (this.packsPending) this._after(ev.id, this._stateOf(o, ev.level));
         } else if (k === "remove") {
-            if (ev.carry || (pending && !this.packsPending)) return;
+            if (ev.carry || pending) return;
             this._before(ev.id, with_(this._stateOf(o, ev.level)));
         } else if (k === "change") {
             if (ev.settle) return;
@@ -898,7 +900,7 @@ export default class Stage {
         this._list.clear();
         this._byId.clear(); this._byKey.clear(); this._byPiece.clear(); this._byHome.clear(); this._homeOf.clear();
         this._byFam.clear(); this._famTraits.clear(); this._famBefore.clear();
-        this._own.clear(); this._keys.clear(); this._winKeys.clear(); this._groups.clear(); this._gOf.clear();
+        this._own.clear(); this._keys.clear(); this._keysVer++; this._winKeys.clear(); this._groups.clear(); this._gOf.clear();
         this._missing.clear();
     }
 
@@ -1108,6 +1110,7 @@ export default class Stage {
             const t = this._parseKey(key);
             ks = { key, frame: t.frame, i: t.i, j: t.j, d: t.d, tile: null, win: false, groups: new Set(), next: 0 };
             this._keys.set(key, ks);
+            this._keysVer++;
         }
         return ks;
     }
@@ -1117,6 +1120,7 @@ export default class Stage {
         if (ks.win || ks.groups.size) { if (ks.tile) this._refreshKey(ks.key); return; }
         this._dropKeyItems(ks.key);
         this._keys.delete(ks.key);
+        this._keysVer++;
         this._missing.delete(ks.key);
     }
 

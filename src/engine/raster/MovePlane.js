@@ -265,7 +265,7 @@ export default class MovePlane {
         for (const lvl of [this.quick, this.main]) {
             if (!lvl || lvl.listPending) continue;
             for (const L of lvl.layers) {
-                const base = { frameId: this.frameId, Zq: lvl.pZq, q: L.tag, list: lvl.list || list, offCam: true, prio: 2, mode: "plane", cells: L.cells };
+                const base = { frameId: this.frameId, Zq: lvl.pZq, q: L.tag, list: lvl.list || list, G: lvl.list ? lvl.G : null, offCam: true, prio: 2, mode: "plane", cells: L.cells };
                 out.push(L.kind === "below" ? { ...base, omit: L.omit } : { ...base, only: L.ids, paper: [0, 0, 0, 0] });
             }
         }
