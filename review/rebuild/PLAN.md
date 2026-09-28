@@ -452,3 +452,23 @@ footprint is the model's answer, not `cell ± REACH` computed in the Stage; the 
 one function with a receiver (R25 D4) in B-ERASE; `Document.setZById` keeps no production caller and is
 noted as the reserved z op's hook.
 
+
+### 5.4 To B-SCENE-2 (its end report of 2026-09-28) and asks carried to B-PYRAMID-2
+
+1. **Q1 no interim fix** for the erase bake's 1.6× (a cut step re-rasters whole plates under the mark
+   until the clip re-render lands): B-PYRAMID-2's partial re-render is the fix; the reviewer attributes
+   the cost meanwhile.
+2. **Q2 yes**, no cap on a pending stroke's live path: the path is the picture until the shape lands.
+   Applied by the B-SCENE reviewer as a minor.
+3. **Q3 yes**, dispatch refusals counted by reason in `report()` and read by the harness; the reviewer
+   adds them for the zoom-out diagnosis, B-PYRAMID-2 keeps them.
+4. **Q4 yes**, the `raster.plates` tests whose code still runs stay until B-PYRAMID-2 deletes that code.
+
+Asks carried to B-PYRAMID-2 from B-SCENE-2's open items: the camera's `sync` budget (`Infinity`
+today; A3 §4.2's budgeted read with `covers` planning stand-ins); `_renderPending`'s removal;
+`job.ids` off the wire once the cover test reads the Stage; the harness printing the load average
+with every run (a contended run must be visible); the zoom-out paper regression's cause as the
+reviewer finds it (a `covers` refusal after crossings is the suspect).
+
+Correction to the status log of 14:25 UTC: the jest run that loaded the machine for 8.7 hours was
+B-SCENE-2's own S2 break-check, orphaned when the session limit stopped it, not the first builder's.

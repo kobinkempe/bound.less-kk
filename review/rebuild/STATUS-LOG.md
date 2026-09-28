@@ -762,3 +762,16 @@ zoom: bake 31.0 vs 19.4 s, 143 vs 66 composes. Round trip (both modes): 23,444 i
 its memo key only (B-ERASE rewrites it); `_renderPending` kept (PLAN §1.1 lists it; `flushBakes` reads it).
 **Questions asked:** in the report (the erase cost before partial re-render; the zoom-out refusals; the 15 s pending cap).
 WHERE I AM: done — B-PYRAMID-2 may take `RasterRenderer`, `PictureLayer`, `PlateStore`, `MovePlane`, `KobinEngine`.
+
+## 2026-09-28 15:50 UTC — orchestrator (Fable) — B-SCENE landed (1cac470); its review and B-ERASE launched
+**Working on:** B-SCENE-2's S2+S3 committed as 1cac470; the review pass launched (`opus-reviewer`) with
+the zoom-out paper regression first (9,784 vs 821 ms in its back-to-back pair; the pre-flip snapshot
+18d5e2f still carries both paths for a quiet comparison), then rows 1, 2, 5, the coverage and
+no-read-mutates properties, the hold, the camera step, the deletion list, the pending path's cap, the
+erase bake's cost. B-ERASE launched (`opus-builder`, E1–E5 of A2 §6.2, the interim erase pool behind
+`submit`). Three agents run: B-PYRAMID-1, the B-SCENE reviewer, B-ERASE. B-MODEL-C1 waits for the
+reviewer and B-ERASE (its files overlap both).
+**Measured:** B-SCENE-2's pair (load 2–3): pen-up exact at 425 ms (never before); zoom-out paper
+9,784 vs 821 ms; erase bake 31.0 vs 19.4 s; undo exact 97 vs 37 ms; round trip pixel-identical both ways.
+**Decisions made:** PLAN §5.4 (B-SCENE-2's Q1–Q4; the asks carried to B-PYRAMID-2; the orphan correction).
+**Questions asked:** none.
