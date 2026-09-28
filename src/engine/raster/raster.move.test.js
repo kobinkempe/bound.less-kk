@@ -302,6 +302,7 @@ describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
         expect(path && path.parent).toBeTruthy();
         const seen = [];
         const R = E.renderer, orig = R._deliver.bind(R);
+        E._scheduleBake = () => {};                                   // the shape lands when the test steps the bake
         let held = null;
         // After every arrival and its own release: the path is still up, or every cell's plate paints the stroke.
         R._deliver = (recs, jobId) => {

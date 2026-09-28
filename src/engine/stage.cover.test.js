@@ -9,6 +9,7 @@
  */
 import KobinEngine from "./KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
+import { rasterStats } from "./raster/RasterRenderer";
 import { packJob } from "./raster/rasterPack";
 import { renderPlate, TW, TH } from "./raster/rasterCore";
 import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./raster/rasterJob";
@@ -82,6 +83,15 @@ function refPixels(E, frameId, q, Zq, i, j) {
 }
 const WHITE = (() => { const a = new Uint8ClampedArray(TW * TH * 4); a.fill(255); return a; })();
 const diffPx = (a, b) => { let n = 0; for (let k = 0; k < a.length; k += 4) if (Math.abs(a[k] - b[k]) > 8 || Math.abs(a[k + 1] - b[k + 1]) > 8 || Math.abs(a[k + 2] - b[k + 2]) > 8) n++; return n; };
+/** The view's cells with no exact plate: after a camera step and its arrivals, none (the table followed the window). */
+function holes(E) {
+    const v = E.renderer.layer.view(), out = [];
+    for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) {
+        const e = E.plates.get(plateKey(v.frameId, v.q, i, j));
+        if (!e || e.dead || !E.plates.isExact(e)) out.push(i + "," + j);
+    }
+    return out;
+}
 /** Every exact numeric-quantum plate in the store that differs from its reference by 64 px or more. */
 function badPlates(E) {
     const out = [];
@@ -100,7 +110,7 @@ describe("every plate job holds every item overlapping the plate", () => {
         for (let k = 0; k < 40; k++) fill(E, -3000 + (k % 8) * 760, -1600 + Math.floor(k / 8) * 640, 420, 300, "rgb(" + (30 + 5 * k) + ",90,160)", "0");
         const seen = watchJobs(E);
         E._render(); await flush();
-        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await flush(); }
+        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await flush(); expect(holes(E)).toEqual([]); }
         for (let k = 0; k < 6; k++) { E.zoomAt(400, 300, 300); await flush(); }
         expect(seen.jobs).toBeGreaterThan(5);
         expect(seen.plates).toBeGreaterThan(20);
@@ -120,8 +130,38 @@ describe("every plate job holds every item overlapping the plate", () => {
         E._render(); await flush();
         expect(badPlates(E)).toEqual([]);                             // red with the list's window: 62,976 px of paper
         E.panBy(-10, 0); await flush();
+        expect(holes(E)).toEqual([]);
+        expect(badPlates(E)).toEqual([]);
+        // Camera steps, no render and no cell change, until the view reaches square -1: its tiles are read by the step.
+        const frame0 = E.cam.frame, rebuilds0 = E.stage.stats.rebuilds;
+        for (let k = 0; k < 6; k++) { E.panBy(750, 0); await flush(); expect(holes(E)).toEqual([]); }   // red at the sixth when the step does not sync
+        expect(E.cam.frame).toBe(frame0);
+        expect(E.stage.stats.rebuilds).toBe(rebuilds0);               // a window change is not a rebuild (A2 §2.12)
         expect(badPlates(E)).toEqual([]);
         expect(seen.misses).toEqual([]);
+    });
+
+    test("C5 a camera plate the table does not cover waits: refused at dispatch, packed once the table reads it (F119)", async () => {
+        const E = mkEngine();
+        fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");
+        E._render(); await flush();
+        const child = E.lm.ensureSpine(1);
+        const s = 0.04, edgeX = W / 2 - 100;                         // two cache squares across the view
+        E.cam.set({ frame: child, inScale: s, inPanX: -(edgeX - 800 / s) * s, inPanY: 300 });
+        E._render(); await flush();
+        const v = E.renderer.layer.view();
+        const far = plateRect(v.Zq, v.i1, v.j0);                      // the right edge's plate, in the second square
+        E.plates.dropAll(false);
+        const win = E._listWin();
+        E.stage.sync(E.cam.frame, { ...win, right: win.left + 1 }, Infinity);   // the table reads the left square alone
+        expect(E.stage.covers(v.frameId, far)).toBe(false);
+        const refused0 = rasterStats.refusedAtDispatch;
+        E.renderer.syncCameraOnly(); await flush();                  // posts the view with the table short
+        expect(rasterStats.refusedAtDispatch).toBeGreaterThan(refused0);
+        expect(E.plates.get(plateKey(v.frameId, v.q, v.i1, v.j0))).toBeUndefined();   // red without the check: paper cached exact
+        E._render(); await flush();                                   // the table reads the window: packed
+        expect(holes(E)).toEqual([]);
+        expect(badPlates(E)).toEqual([]);
     });
 
     test("C3 a zoom-out ladder's rungs, read as snapshots, hold the ink their plates reach", async () => {

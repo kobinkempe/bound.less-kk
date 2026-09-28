@@ -2,12 +2,14 @@
  * A 2D context that composites for real, lazily, for jsdom (which has no canvas): it records the
  * last compose's fills and 1:1 blits of raw-pixel plates (un-premultiplied RGBA, as the raster
  * core writes them), with their rectangle clips, and `at(x, y)` replays them source-over for that
- * one pixel. A scaled blit is counted in `scaled` and not drawn: the tests stay at s = 1.
+ * one pixel. A scaled blit is counted in `scaled` and not drawn: the tests stay at s = 1 — unless
+ * `opts.scaled`, where the 5- and 9-argument `drawImage` are drawn by nearest sampling of the source
+ * rectangle at each pixel's centre (the pyramid's plan tests).
  *
  * NOT collected by jest (the directory is `__testkit__`). Used by the drag's z-order tests
- * (`raster/raster.move.test.js`) and the translucent-move tests.
+ * (`raster/raster.move.test.js`), the translucent-move tests and `PicturePyramid.plan.test.js`.
  */
-export function softCtx(w, h, platePx) {
+export function softCtx(w, h, platePx, opts = {}) {
     let clip = null, path = [], ops = [];
     const stack = [];
     const inClip = (c, x, y) => !c || c.some(([cx, cy, cw, ch]) => x >= cx && x < cx + cw && y >= cy && y < cy + ch);
@@ -21,7 +23,13 @@ export function softCtx(w, h, platePx) {
             if (x <= 0 && y <= 0 && x + rw >= w && y + rh >= h && !clip) ops = [];   // a compose begins: the paper
             ops.push({ fill: rgb(ctx.fillStyle), r: [x, y, rw, rh], clip });
         },
-        drawImage(bm, x, y, dw) {
+        drawImage(bm, x, y, dw, ...rest) {
+            if (opts.scaled && (rest.length === 1 || rest.length === 5)) {
+                const a = rest.length === 5 ? [x, y, dw, ...rest] : [0, 0, platePx, platePx, x, y, dw, rest[0]];
+                ctx.scaled++;
+                ops.push({ src: bm.pixels, sx: a[0], sy: a[1], sw: a[2], sh: a[3], x: a[4], y: a[5], dw: a[6], dh: a[7], clip, scaled: true });
+                return;
+            }
             if (dw != null && dw !== platePx) { ctx.scaled++; return; }
             ops.push({ src: bm.pixels, x: Math.round(x), y: Math.round(y), clip });
         },
@@ -36,7 +44,12 @@ export function softCtx(w, h, platePx) {
                     if (x >= Math.round(rx) && x < Math.round(rx + rw) && y >= Math.round(ry) && y < Math.round(ry + rh)) out.splice(0, 3, ...op.fill);
                     continue;
                 }
-                const sx = x - op.x, sy = y - op.y;
+                let sx = x - op.x, sy = y - op.y;
+                if (op.scaled) {
+                    if (sx < 0 || sy < 0 || sx >= op.dw || sy >= op.dh) continue;
+                    sx = Math.min(platePx - 1, Math.max(0, Math.floor(op.sx + ((sx + 0.5) * op.sw) / op.dw)));
+                    sy = Math.min(platePx - 1, Math.max(0, Math.floor(op.sy + ((sy + 0.5) * op.sh) / op.dh)));
+                }
                 if (sx < 0 || sy < 0 || sx >= platePx || sy >= platePx) continue;
                 const s = (sy * platePx + sx) * 4, a = op.src[s + 3] / 255;
                 for (let c = 0; c < 3; c++) out[c] = op.src[s + c] * a + out[c] * (1 - a);

@@ -363,7 +363,8 @@ function mkPerf() {
         rows,
         strips: 0,
         attach() {}, detach() {},
-        beginFrame(seq, kind) { open = { seq, kind, t0: clock(), slots: {}, mainMs: 0, wallMs: 0, info: null }; rows.push(open); },
+        // `backMs`: an arrival's row starts where the client's unwire did (`xfer.in`, `rasterPerf.beginFrame`).
+        beginFrame(seq, kind, backMs = 0) { open = { seq, kind, t0: clock() - (backMs > 0 ? backMs : 0), slots: {}, mainMs: 0, wallMs: 0, info: null }; rows.push(open); },
         endFrame() {
             if (!open) return;
             // ONE clock read for both totals, as `rasterPerf.endFrame` takes one `end` for

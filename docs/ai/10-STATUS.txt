@@ -29,6 +29,15 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-28 - THE SCENE (review/rebuild/A2-scene.md, B-SCENE and B-SCENE-2). The raster
+    path packs the Stage (src/engine/Stage.js): the camera frame's items kept from the
+    document's events, never behind it, one generation G a commit. A change dirties the
+    plate cells its drawn footprint meets; a plate is exact iff its G >= its cell's
+    dirtySince; a newer G replaces a stored plate (F106). Deleted: the plate epochs, the
+    painted-id sets, the queued-event drain, _footBelow, the per-list mark snapshots, the
+    list path on the raster path (listFor stays for ?svg and the probe). A drag the plane
+    draws is held in the Stage; a pen-up stroke is on no plate until its shape lands.
+
 2026-09-26/28 - THE RENDERER REBUILD'S FOUNDATION (review/rebuild/PLAN.md, B-FOUNDATION).
     rasterCore.renderPlate takes a clip box (job.clips on the wire): inside it the
     whole plate's bytes, outside it nothing written, and with no clip the plates

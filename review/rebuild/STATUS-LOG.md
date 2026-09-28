@@ -698,3 +698,67 @@ builder's baseline within variance.
 `cfg.pyramid` on the same machine, which is the comparison that matters; the harness gains a load-average
 line in its output so a contended run is visible (an ask for B-PYRAMID-2). B-FOUNDATION is closed.
 **Questions asked:** none.
+
+## 2026-09-28 14:27 UTC — B-SCENE-2 (builder) — S3: the flip is in; the ported suites green alone; the quick suite running
+**Working on:** the raster path packs the Stage alone (no `cfg.scene`, no `?scene`: the list path is deleted with it). Since the
+last entry: `_syncStep` (a camera-only step syncs the table first; a plane drag step does not: the Stage holds it, and a sync
+mid-drag read tiles while merges were held, so a drop onto a visited cell stopped merging); `sync` reads the frame's natives as
+`listFor` did (a pending shift settles, shadows merge: `move.twin`); snapshots read at least one tile a call (a cold rung
+progresses; `readTiles` counts `overBudget`); `MovePlane.aim` re-cuts on a new plate range (the items keep their array while
+the table does); a pen-up path is held while its shape is pending; the arrival row starts at the client's unwire
+(`beginFrame(seq, kind, backMs)`; a leaner `_takeResult` showed `xfer.in` outside its row). Suites: `stage.cover.test.js`
+replaces `raster.listCover` (jobs' ids against `listFor` over the plate, and the pixel oracle); new `KobinEngine.pinch.test.js`;
+ported: move (render counts, L1, L4b; L6 deleted with the skip), phone P3, liveHold LH-1, snapshot S1 break-check, nopaper
+(ladder spies), overlay G11 (each decides afresh), selection.indicator (the decision keyed on G), engine (the recorder).
+Docs: DESIGN §7/§9/§10/§15, `docs/ai/20-`, `30-` (Stage.js, placementModel.js), `40-`.
+**Measured:** the harness (S2 tree, :3012, the 4e8ce80 harness, load 7–10 from other agents): list path vs Stage, penup exact
+never vs 588 ms, release 795 vs 586 ms, undo exact 76 vs 298 ms, zoom-out paper 7.7 s vs 2.6 s; timings not comparable (rerun).
+**Questions asked:** none. WHERE I AM: the quick suite, then S3 break-checks and the harness pair rerun.
+
+## 2026-09-28 14:40 UTC — B-PYRAMID-1 (builder) — checkpoint 1: PyramidStore and the plan green
+**Working on:** files mine: `raster/PyramidStore.js`, `raster/PicturePyramid.js`, their two tests, `__testkit__/fakeStage.js` (new),
+`__testkit__/softCanvas.js` (opt-in `{scaled}` 4th argument, default unchanged). Next: the rest and patch tests, `jobQueue.js`, `prefetch.js`.
+**Measured:** `PyramidStore.property.test.js` 8/8 (6 seeds × 700 steps: >10,000 exact checks against the log, >200 exact plan draws
+checked, every older arrival closed); `PicturePyramid.plan.test.js` 7/7 (24 random level trials + 12 rest trials, >100,000 sampled pixels
+equal the plan's source, every cell's source equal to a rule oracle's, all eight source kinds seen). Break-checks on the unimported copy
+(`scratchpad/bp1/breakcheck.py`): 31 rules, 31 red (store 18: 1–3 red of 8 each; plan 13: 1–2 of 7 each). Lint 0 errors (6 warnings,
+baseline), typecheck 0.
+**Decisions made:** refusal is by job id as well as by key (a refused job's late result behind a newer job for the same key was stored
+otherwise); the store never sets its own budget, the renderer applies `pyramid.budgetBytes()` (a side effect in a constructor hid a test's cap).
+**Questions asked:** none new. WHERE I AM: writing `PicturePyramid.rest.test.js` (trigger, estimate cases of A3 §2.2, pan keeps / zoom drops).
+
+## 2026-09-28 14:58 UTC — B-PYRAMID-1 (builder) — checkpoint 2: the rest render, partial re-render and the group commit green
+**Working on:** `PicturePyramid.rest.test.js` (8) and `PicturePyramid.patch.test.js` (6) added; next `jobQueue.js`, then `prefetch.js`.
+**Measured:** rest 8/8 (§2.2's cases: 4.06 ms inline, 14.95 ms and 60 HiDPI cells to the workers; inline exact in the still frame;
+quiet → one prio-0 group shown when complete; pan keeps, zoom/frame/resize discard and close). Patch 6/6: the undo inline, 3 seeds, all
+four plates byte-equal to the post-undo whole render and >100,000 screen pixels equal; coarse-first 2 seeds: 0 changed pixels still
+showing the old value, 0 pixels outside the change altered, `olderMs` 0; the GPU merge (software OffscreenCanvas) equals `pastePatch`
+in 13 of 13. Break-checks: 25 more rules, 25 red (rest 11, patch 9, group 5); 56 of 56 so far. Lint 0 errors, typecheck 0.
+**Decisions made:** two found by the tests: the rest trigger wants only cells with no plate (it re-rendered stale rest cells whole and
+starved the patch path); a patch's dirty box is grown by a pixel before it is drawn (12 changed pixels showed the old value at a .5 edge).
+Outward rounding was added and removed again: redundant with the growth (neither break went red alone). Calibration is fed by the
+renderer (`onSample`, `sampleOf`), not self-applied: a cold JIT's inline timings flipped the next rest to the workers (a flaky test).
+**Questions asked:** none new. WHERE I AM: writing `raster/jobQueue.js` (typed jobs, priorities, the cut reservation, dealing, admission, velocity).
+
+## 2026-09-28 15:35 UTC — B-SCENE-2 (builder) — S3 done: the raster path packs the Stage alone — end
+**Working on:** done; nothing committed. S3 files: `KobinEngine.js` (raster `_render` builds no list; `_tableStep`/`_syncStep`
+are the camera step; `pinchUpdate` carries its pan's crossing; ladder and prebake read `stage.snapshot`; `cfg.scene`,
+`listForPlane`, `_eraseListStale` gone), `Stage.js` (`sync` commits only when owed, pins the camera's tiles, reads `nativesIn`;
+`packsPending` gone; snapshots read a tile a call), `TileStore.js` (`overBudget` in `readTiles`), `erasePipeline.js`
+(`_renderSoon`'s skip gone), `selection.js`, `overlays.js` (ants keyed on G), `sceneOps.js` (thumbnails via snapshot),
+`raster/RasterRenderer.js` (list path, `_listG`, `_noteShown` gone; a pending stroke's path held; the arrival row starts at the
+unwire), `raster/MovePlane.js`, `raster/rasterPerf.js`, `hooks/useKobinEngine.js` (the S2 `?scene` gate, removed again). Tests:
+new `stage.cover.test.js` (for `raster.listCover`, deleted), `KobinEngine.pinch.test.js`; ported raster move/phone/liveHold/
+snapshot/nopaper/overlay/engine, `selection.indicator`. Docs: DESIGN §7/§9/§10/§15, `docs/ai/10-`/`20-`/`30-`/`40-`, TEST-MAP.
+**Measured:** quick suite 2,101 pass, 12 skipped, 1 fail (raster.move L1's bake timing: stubbed, 45/45 alone); typecheck 0; lint
+0 errors, 6 warnings; bundles unchanged (raster `033935ef…`, the review's). Break-checks, S3 tree (red of guarding suites): rule 1
+2/45, F106 3/45, rule 2 29/96, tracking 4/96, refusal 5/45, dirt 11/51, one-commit release 2/48, hold 5/48, engine hold 6/48,
+covers 1/5, no idle commit 1/44, step syncs 1/24, `nativesIn` 2/6, pinch 2/2, drag step 1/19, pending hold 1/53, snapshot
+progress 1/19, re-cut 2/45, ants on G 1/41, arrival row 1 of 2 runs. Harness back to back (4e8ce80 harness, load 2–3, B-PYRAMID's
+jest beside), Stage vs list path: zoom-out 47.3 vs 57.9 s, paper 9,784 vs 821 ms (plates rastered 230 vs 300 of ~890 posted);
+slow zoom 45.1 vs 42.7 s; pan 2.5 vs 2.7 s; drag 6.2 vs 5.2 s; pen-up exact 425 ms vs never; undo exact 97 vs 37 ms; erase +
+zoom: bake 31.0 vs 19.4 s, 143 vs 66 composes. Round trip (both modes): 23,444 ink px drawn, 25,244 after (baseline 25,244).
+**Decisions made:** the list path deleted with the flip (the flag had nothing left to choose); `_candidatesUnder` keeps `below` as
+its memo key only (B-ERASE rewrites it); `_renderPending` kept (PLAN §1.1 lists it; `flushBakes` reads it).
+**Questions asked:** in the report (the erase cost before partial re-render; the zoom-out refusals; the 15 s pending cap).
+WHERE I AM: done — B-PYRAMID-2 may take `RasterRenderer`, `PictureLayer`, `PlateStore`, `MovePlane`, `KobinEngine`.

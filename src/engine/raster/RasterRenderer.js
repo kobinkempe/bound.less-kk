@@ -1096,7 +1096,7 @@ export default class RasterRenderer extends Renderer {
     _endFrame() { this._rowOpen = false; this._closeRow(); }
 
     /** Every row this module opens goes through these two, so `_post` can tell whether one is live. */
-    _openRow(seq, kind) { this._rowLive = true; this.perf.beginFrame(seq, kind); }
+    _openRow(seq, kind, backMs = 0) { this._rowLive = true; this.perf.beginFrame(seq, kind, backMs); }
     _closeRow() { this._rowLive = false; this.perf.endFrame(); }
 
     /**
@@ -1399,7 +1399,8 @@ export default class RasterRenderer extends Renderer {
         // frame step already posted, and counting it in `dupPostQ` would report ordinary
         // re-posting as a rule violation to stage 7.
         this._postQ.length = 0;
-        this._openRow(seq, "arrival");
+        // The client's unwire (`xfer.in`) ran in this task before the row could open: the row starts there.
+        this._openRow(seq, "arrival", info ? info.recvMs : 0);
         try { return this._takeResult(req, res, info, seq); } finally { this._closeRow(); }
     }
 

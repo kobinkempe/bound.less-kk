@@ -385,6 +385,11 @@ describe("selection indicator (engine)", () => {
         E._render();                                         // nothing changed: no commit (A2 §2.11)
         expect(E.stage.generation).toBe(G0);
         expect(E._selectionAnts().key).toBe(a.key);
+        // A commit with no document change (the idle fitter's outline; a tile read): decided again.
+        const rev = E.doc.rev, k1 = E._selectionAnts().key;
+        E.stage.touch(o.id);
+        expect(E.doc.rev).toBe(rev);
+        expect(E._selectionAnts().key).not.toBe(k1);
         // A change elsewhere: G moves, the decision is remade.
         E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#333", opacity: 1,
             polys: [[[600, 500], [640, 500], [640, 540], [600, 540]]] }, E.cam.frame);
