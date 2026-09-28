@@ -691,12 +691,15 @@ class ErasePipeline {
     }
     /** Mark M's lineage in the serial order, top-down by (z, id), with a cursor past what is no longer pending. */
     _orderOf(M) {
-        const at = (id) => { const o = this.doc._byId.get(id); return o ? zOf(o) : -Infinity; };
-        const cmp = (a, b) => (at(b) - at(a)) || (b - a);
         let ord = this._order.get(M.id);
+        // Keyed by the z each id had when it joined (a native's z never changes; a piece inherits it): a
+        // removed id keeps its place, so the order is a function of the ids alone, whenever they arrive.
+        const zk = (id) => { let z = ord.z.get(id); if (z === undefined) { const o = this.doc._byId.get(id); ord.z.set(id, (z = o ? zOf(o) : -Infinity)); } return z; };
+        const cmp = (a, b) => (zk(b) - zk(a)) || (b - a);
         if (!ord) {
             const s = this._lineage.get(M.id);
-            ord = { list: s ? [...s].sort(cmp) : [], pos: 0, extra: new Set() };
+            ord = { list: s ? [...s] : [], pos: 0, extra: new Set(), z: new Map() };
+            ord.list.sort(cmp);
             this._order.set(M.id, ord);
         } else if (ord.extra.size) {
             for (const id of ord.extra) {

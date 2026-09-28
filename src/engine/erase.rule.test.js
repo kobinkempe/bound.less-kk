@@ -138,11 +138,12 @@ describe("A2 §4.9: the load-time derivation for a file from before `targets`", 
     /** Three bars under one mark; the old bake's first step cut the top bar and stepped the mark's z below it. */
     const oldDrawing = () => {
         const E = mkEngine(800, 600);
+        const log = new OpLog(E);                                             // attached from the start, as the saver's is
         E._scheduleBake = () => {};
         const bars = [fill(E, 200, 200, 600, 240, "rgb(200,40,40)"), fill(E, 200, 280, 600, 320, "rgb(40,160,40)"), fill(E, 200, 360, 600, 400, "rgb(40,40,200)")];
         E._render();
         eraseGesture(E, [[400, 150], [400, 450]], 20);
-        return { E, bars, M: E._eraseStrokes()[0].obj };
+        return { E, log, bars, M: E._eraseStrokes()[0].obj };
     };
     const shapes = (E) => live(E).filter((o) => !o.erase).map((o) => [o.z != null ? o.z : o.id, o.color, JSON.stringify(o.loops.map((l) => Array.from(l.buf)))].join("|")).sort();
     test("kobin-1: the mark registers by its stepped z, and the bake ends as an uninterrupted one", () => {
@@ -165,14 +166,14 @@ describe("A2 §4.9: the load-time derivation for a file from before `targets`", 
         expect(M).toBeTruthy();
     });
     test("kobin-2: a mark's log names what its bake had done; those pieces are handled, not targets, and the derivation is logged once", () => {
-        const { E, bars, M } = oldDrawing();
+        const { E, log, bars, M } = oldDrawing();
         const R = mkEngine(800, 600); R._scheduleBake = () => {};
         R.loadDrawing(E.serializeDrawing()); R.flushErases();
         const want = shapes(R);
-        const log = new OpLog(E);
+        const d0 = log.drain();
         const snap = snapshot(E, log);
         E._bakeNext();
-        const entries = log.drain().entries.filter((e) => e.op.k !== "attr");
+        const entries = [...d0.entries, ...log.drain().entries].filter((e) => e.op.k !== "attr");   // an old build logs no `attr`
         for (const e of entries) for (const o of [e.op.obj, e.op.removed && e.op.removed.obj, ...(e.op.pieces || [])]) if (o) { delete o.targetOf; delete o.handledBy; delete o.targets; }
         const { F, log: FL } = restore(snap, entries, E.lm.serialize(), true);
         const FM = F.doc.getById(M.id).obj;
@@ -195,25 +196,26 @@ describe("A2 §4.10: undo, redo and a replay after a reload agree", () => {
         for (let k = states.length - 2; k >= 0; k--) { E.redo(); settle(E); expect(state(E) === states[k]).toBe(true); }
         return states;
     };
+    // Each case draws its ink (`fill` adds no op), `snap()` stores the frames, then its gestures run.
     const cases = {
-        "the mark undone mid-bake, then redone: its targets pending again, the bake resumes": (E) => {
+        "the mark undone mid-bake, then redone: its targets pending again, the bake resumes": (E, snap) => {
             fill(E, 200, 200, 600, 240); fill(E, 200, 280, 600, 320);
-            E._render();
+            E._render(); snap();
             eraseGesture(E, [[400, 150], [400, 450]], 20);
             E._bakeNext();
             return () => { E.undo(); };
         },
-        "an older erase undone after a newer one was drawn over its pieces": (E) => {
+        "an older erase undone after a newer one was drawn over its pieces": (E, snap) => {
             fill(E, 200, 250, 600, 350);
-            E._render();
+            E._render(); snap();
             eraseGesture(E, [[300, 200], [300, 400]], 20);
             settle(E);                                                        // K baked and spent
             eraseGesture(E, [[250, 300], [550, 300]], 20);                     // M over K's pieces
             return () => { E.undo(); E.undo(); };
         },
-        "a mark undone, its target cut by another mark, the mark redone": (E) => {
+        "a mark undone, its target cut by another mark, the mark redone": (E, snap) => {
             fill(E, 200, 250, 600, 350);
-            E._render();
+            E._render(); snap();
             eraseGesture(E, [[300, 200], [300, 400]], 20);                     // M1
             eraseGesture(E, [[500, 200], [500, 400]], 20);                     // M2
             const M2 = E._eraseStrokes()[1].obj;
@@ -226,9 +228,8 @@ describe("A2 §4.10: undo, redo and a replay after a reload agree", () => {
             const E = mkEngine(800, 600);
             E._scheduleBake = () => {};
             const log = new OpLog(E);
-            const d0 = log.drain();
-            const snap = snapshot(E, log);
-            const then = build(E);
+            let d0 = null, snap = null;
+            const then = build(E, () => { d0 = log.drain(); snap = snapshot(E, log); });
             then();
             const d1 = log.drain();
             const { F } = restore(snap, [...d0.entries, ...d1.entries], E.lm.serialize());
