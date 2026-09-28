@@ -489,3 +489,19 @@ any frame its natives name" is not true there) — suggested as its own task, no
 pan's crossing, as today (keep; flag); Q5 `level.js` into typecheck (later, with a structural lattice type); Q6 the
 clip suite's 23 s (keep); Q7 the `ensureId` spine gap (a small task before B-MODEL); Q8 today's drag compose
 reaches 33 images — B-PYRAMID's image budget should count the plane with the base.
+
+## 2026-09-28 05:05 UTC — orchestrator (Fable) — B-FOUNDATION read and committed; its review launched
+**Working on:** read the diff of B-FOUNDATION's files since 0e90872 (the frame loop, the wire, the pack's
+F132 fix, `level.js`, the hook, the levers, the HUD, DevStats, the core's clip rules); committed as 4e8ce80
+with B-SCENE's interleaved S1/S2 edits noted as unreviewed; the review pass (`opus-reviewer`, xhigh)
+launched with seven items, pressing on the union pass's band start inside a clip and on a frame that both
+pans and zooms. B-SCENE continues; B-PYRAMID waits for its S2 checkpoint entry.
+**Measured:** B-FOUNDATION's baseline of today's renderer on the synthetic drawing (its end entry): a
+43.8 s zoom-out shows 3,247 ms of paper (max share 75 %), 129 of 275 frames over 50 ms; the drag's
+compose reaches 33 images, the cliff; the pen-up releases the live path in 5 ms; an undo is exact in 44 ms.
+Headless, SwiftShader, 3 workers, one run each: the before-picture for B-PYRAMID.
+**Decisions made:** the `LevelMap.ensureId("2")` spine gap B-FOUNDATION found (a load mints no missing
+spine frame, so natives under it load undrawn) goes to B-MODEL-C1's brief as a first item, not to a side
+task; B-FOUNDATION's Q1 (keep A3's band start) is the reviewer's to decide; Q8 (the drag plane counted in
+the image budget) goes to B-PYRAMID's brief.
+**Questions asked:** none.

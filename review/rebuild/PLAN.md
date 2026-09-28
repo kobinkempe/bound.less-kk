@@ -289,7 +289,9 @@ writes the per-component design and the answers, and writes or commissions the i
 when the generation API is fixed. One reviewer pass per build. The orchestrator reads every diff
 and runs the harness.
 
-**Wave 3:** B-MODEL-C1 (the composition on read, right after B-SCENE and in parallel with B-PYRAMID),
+**Wave 3:** B-MODEL-C1 (the composition on read, right after B-SCENE and in parallel with B-PYRAMID; its
+first item is the `LevelMap.ensureId` spine gap B-FOUNDATION found, so that a load mints a missing spine
+frame as F67 promises),
 B-DRAG (no writes during a drag, §1.4, carrying C2), then B-MODEL-C3 and C4 (§1.7). Then the
 remaining helpers from the analysis §3.1 that the waves above have not absorbed (batch delete,
 `objShift` per group at a crossing, the plate budget arithmetic).
