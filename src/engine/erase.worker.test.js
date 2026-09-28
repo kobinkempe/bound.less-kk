@@ -4,7 +4,7 @@
  * serial order exactly as the synchronous path would have; a result for a target that moved
  * meanwhile is dropped and the target baked again; a barrier waits for a cut in flight.
  */
-import { mkEngine, useEngines, drawStroke, eraseGesture, descend, drag, painted } from "./__testkit__/harness";
+import { mkEngine, useEngines, drawStroke, eraseGesture, descend, ascend, drag, painted } from "./__testkit__/harness";
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
@@ -107,6 +107,30 @@ describe("the erase worker", () => {
         expect(E._cutStale).toBe(1);
         expect(E.doc.getById(A.id)).toBeNull();            // ceded after all, from where it moved to
         expect(E._eraseStrokes()).toHaveLength(0);
+    });
+
+    test("the lookahead holds a target back while an older mark is pending over it (the per-target lock): no job goes stale", async () => {
+        const two = (E) => {
+            drawStroke(E, [[100, 300], [700, 300]], 24);                  // T1
+            drawStroke(E, [[400, 100], [400, 500]], 24);                  // T2, crossing it under (400, 300)
+            descend(E, 2);
+            eraseGesture(E, [[300, 250], [500, 350]], 30);                 // M1 over both: two descents, one at a time
+            ascend(E, 0);
+            eraseGesture(E, [[150, 250], [150, 350]], 30);                 // M2 over T1 alone: a plain cut
+            E._scheduleBake = () => {};
+        };
+        const S = mkEngine(800, 600);
+        two(S);
+        S.flushErases();
+        setEraseTransport(transport, { slots: 3 });
+        const E = mkEngine(800, 600);
+        two(E);
+        await later(150);
+        E._bakeTick();
+        expect(flying(E).map((c) => c.kind)).toEqual(["descent"]);       // M1's second descent waits; M2's cut on it with it
+        expect(await settle(E)).toBe(true);
+        expect(E._cutStale || 0).toBe(0);
+        expect(natives(E)).toBe(natives(S));
     });
 
     test("a barrier on a target whose cut is in a worker waits for that cut and applies it: nothing cut twice", async () => {

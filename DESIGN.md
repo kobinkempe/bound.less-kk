@@ -331,7 +331,8 @@ perimeters first, and until the landing the mark's op is on top of the undo stac
 `M ∈ o.targetOf`, `M ∉ o.handledBy` and `z(o) < z(M)`. Every piece a cut or a cede mints inherits
 its source's `targetOf`, and its `handledBy` plus the cutting mark (`inheritErase`, at the three
 mint sites: `eraseReplaceById`, `cede.js` — the one body of `Document.cedeTileById` and the
-descent's virtual cede — and `_applyDescent`, from the live target); a refusal or a graze adds the
+descent's virtual cede — and `_applyDescent`, which mints the descent's pieces again from the live
+target, the worker's copy being as old as the dispatch); a refusal or a graze adds the
 mark to `handledBy` (`setHandledById`). So an object dragged across a pending mark, a stroke drawn
 over it, and a piece it has cut all show; a piece of a target another mark still owes stays masked
 by that one until it cuts it (two marks over one object, the lower cutting first: at no moment does

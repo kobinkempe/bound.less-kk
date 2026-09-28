@@ -1098,3 +1098,21 @@ push-triggered runs; five runs still in progress on the branch were cancelled th
 **Measured:** nothing new.
 **Decisions made:** `[skip ci]` on every commit until Kobin says otherwise (task list #8).
 **Questions asked:** none.
+
+## 2026-09-28 20:13 UTC — B-ERASE — progress (break-checks)
+
+**Done:** the break-check run on the unimported copy (27 breaks, one line each, 300 s cap) is at 24 of 27.
+Red so far: handledBy clause (hang: the bake never empties), eraseReplaceById inheritance 9/51, classifier
+without `by` 3/44, dust on the event 1/15, prune on re-entry 4/40, prune at spend 7/55, barrier lock 1/71,
+serial order by z at arrival 2/15, barrier resolves perimeters 2/44, a press lands the mark 1/36, the pick
+1/23, lookahead writes nothing 3/22, old-file named ids 1/21, attr entries 1/32, refusal handles 2/23,
+barrier spends 3/21, `_ver` validity 2/17, byte masks 1/28.
+**Zero red, now covered:** the rule's landed and z clauses (unreachable through the engine: registration
+names only natives below the mark and a native's z never changes; a pure test pins each clause), the
+landing's one commit (5.1 now watches every Stage commit for a landed mark without `targets`), cede's and
+`_applyDescent`'s inheritance (a cede lineage test; two marks over an edge five crossings down), the
+lookahead's per-target lock (M1's second descent waiting, M2's cut on it held: no stale job). Re-run of
+those five on the copy after the run ends.
+**Docs:** DESIGN §7 says the descent's pieces take their lineage from the live target at apply.
+**Questions asked:** none new.
+WHERE I AM: waiting for the last three breaks, then the five re-runs, build:worker, the erase suites, test:erase.
