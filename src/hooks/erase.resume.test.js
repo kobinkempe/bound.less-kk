@@ -216,7 +216,7 @@ describe("an erase saved mid-bake", () => {
     });
 
     test("an object a select cut out of order before the close is not cut again after it", async () => {
-        let view = await mount("c1");
+        let view = await mount("c4");            // its own canvas: the last test's closing write lands late
         const e0 = E();
         act(() => {                                          // a bar drawn first, under the whole stack, sticking out of it
             e0.setTool("pen"); e0.setWidth(20); e0.setColor("#aa3300");
@@ -228,16 +228,14 @@ describe("an erase saved mid-bake", () => {
         bakeSteps(E(), 2);
         act(() => { const e = E(); e.setTool("select"); e.pointerDown(C[0], 45); e.pointerUp(); });   // the bar's top end: cut by the barrier
         const barPieces = ink(E()).filter((o) => E()._zOf(o) === barZ).map((o) => o.id);
-        console.log("DBG after tap", marks(E()), JSON.stringify(E()._eraseStrokes().map((m) => [m.obj.id, m.obj.type, (m.obj.targets || []).length, !!E()._headOf(m)])), [...E()._marks.values()].map((o) => [o.id, o.type, !!E().doc.getById(o.id)]));
         expect(barPieces.length).toBeGreaterThan(1);
         act(() => view.unmount());
         const targets = [];
         const bake0 = KobinEngine.prototype._dispatchPair;
         KobinEngine.prototype._dispatchPair = function (Erec, t, o) { targets.push(t.obj.id); return bake0.call(this, Erec, t, o); };
         try {
-            const held = await mountHeld("c1");
+            const held = await mountHeld("c4");
             view = held.view;
-            console.log("DBG after reload", marks(E()), [...E()._marks.values()].map((o) => [o.id, o.type, !!E().doc.getById(o.id), (o.targets || []).length]));
             expect(marks(E())).toBe(1);
             held.go();
             expect(await bakeOut(E())).toBe(true);

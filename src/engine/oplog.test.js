@@ -6,6 +6,7 @@
 import { mkEngine, useEngines, drawStroke, eraseGesture, descend, drag, click } from "./__testkit__/harness";
 import { encodeObjects, decodeObjects } from "./format2";
 import { OpLog } from "./oplog";
+import { underMask } from "./eraseRule";
 import { rectLoop } from "./geometry/arcShape";
 
 useEngines();
@@ -149,16 +150,19 @@ describe("the op log", () => {
         B.flushBakes();
         const mark = B._eraseStrokes()[0];
         expect(mark).toBeTruthy();
-        for (let i = 0; i < 3; i++) { const t = B._nextEraseTarget(mark); if (t) B._bakeOne(mark, t); }
-        const doneB = new Set(B._bakeDone.get(mark.obj.id));
-        expect(doneB.size).toBeGreaterThan(0);
+        for (let i = 0; i < 3; i++) B._bakeNext();
+        const handled = (E) => { const out = []; for (const L of E.doc.levels()) for (const o of E.doc.list(L)) if ((o.handledBy || []).includes(mark.obj.id)) out.push(o.id); return out.sort((x, y) => x - y); };
+        const pending = (E) => { const M = E.doc.getById(mark.obj.id).obj, out = []; for (const L of E.doc.levels()) for (const o of E.doc.list(L)) if (underMask(o, M)) out.push(o.id); return out.sort((x, y) => x - y); };
+        expect(handled(B).length).toBeGreaterThan(0);
         const d = log.drain();
         expect(d.entries.filter((e) => e.op.k === "bake").length).toBe(3);
-        // C: reopened from the snapshot plus the log.
+        // C: reopened from the snapshot plus the log: the handled pieces and the pending targets from the headers.
         const { F: C, stats } = restore(snap, d.entries);
         expect(stats.marks).toBe(1);
         expect(C._eraseCommits.has(mark.obj.id)).toBe(true);
-        expect(new Set(C._bakeDone.get(mark.obj.id))).toEqual(doneB);
+        expect(handled(C)).toEqual(handled(B));
+        expect(pending(C)).toEqual(pending(B));
+        expect(pending(C).length).toBeGreaterThan(0);
         expect(natives(C)).toBe(natives(B));
         C.flushErases();
         expect(natives(C)).toBe(natives(A));
