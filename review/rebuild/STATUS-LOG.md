@@ -340,3 +340,17 @@ merge; `level.js` takes the lattice and S explicitly, `{ level, i, j }` with Big
 literals (CRA 4's webpack and the es2019 worker bundles reject `1n`); not added to `npm run typecheck` (Q5 open).
 **Questions asked:** Q1–Q5 of the start entry stand; new: Q6 the clip suite runs 23 s in the quick suite — keep,
 or move the random part to a `.slow` twin? Recommend keep (four suites already run 20–70 s).
+
+## 2026-09-28 04:10 UTC — orchestrator (Fable) — resumed after the weekly usage limit
+**Working on:** the session stopped on 2026-09-26 when Kobin's weekly limit hit, with B-FOUNDATION
+starting its harness deliverable and B-SCENE about to run S1's suites. The container kept the tree and
+both transcripts; the uncommitted work was committed as a snapshot (717cd85) and both builders were
+resumed by message with the same briefs and coordination rules. The custom agent definitions
+(`opus-builder`, `opus-reviewer`, `opus-analyst`, effort max / xhigh) loaded at this session start and
+are used for every launch from here (B-PYRAMID, B-ERASE, B-MODEL, the reviewers).
+**Measured:** nothing new.
+**Decisions made:** B-SCENE's proposal questions Q1–Q5 answered yes as recommended (strict no-mutation
+for the Stage's reads with cold-read mutations counted; stale before paper except a refused job;
+`plate.G ≥ Gs` for the live hold in S2; `frameFootprint` as `{frame: parent, rect}`; `rekey` outside the
+`offRev` bump).
+**Questions asked:** none.
