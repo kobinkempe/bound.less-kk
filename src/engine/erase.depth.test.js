@@ -215,6 +215,25 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
     });
 });
 
+describe("A2 §4.3 — a descent's pieces keep every pending mark's claim", () => {
+    test("two marks over an edge five crossings down: the older one's descent mints pieces the newer one still cuts", () => {
+        const E = mkEngine();
+        drawStroke(E, [[250, 280], [550, 320]], 24);
+        descendOnEdge(E, 5);
+        const y = edgeAt(E, 400, 250, 300);
+        expect([inkAt(E, 480, y + 24), inkAt(E, 440, y + 18)]).toEqual([true, true]);
+        E._scheduleBake = () => {};                                        // both pending until the flush
+        E.setEraserSize(20);
+        eraseGesture(E, [[400, y - 40], [400, y + 40]]);
+        eraseGesture(E, [[480, y - 40], [480, y + 40]]);
+        expect(E._eraseStrokes()).toHaveLength(2);
+        E.flushErases();
+        expect(inkAt(E, 400, y + 12)).toBe(false);
+        expect(inkAt(E, 480, y + 24)).toBe(false);                         // the newer mark's cut, on the older one's pieces
+        expect(inkAt(E, 440, y + 18)).toBe(true);
+    });
+});
+
 describe("F43 — a cut anywhere on a line moves the line's picture nowhere else", () => {
     test("a nick made two crossings down, 300 px along the edge, leaves the picture six crossings down bit-identical", () => {
         // The measurement the previous test declined to claim, now claimed.

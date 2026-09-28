@@ -97,7 +97,7 @@ function DevLevers({ engine, dbgBtn }) {
         );
     };
     return (
-        <div style={{ marginTop: 6 }} title="Renderer levers (A3 §8): stored for this device; a URL parameter of the same name wins at load. They change no picture until the pyramid lands.">
+        <div style={{ marginTop: 6 }} title="Renderer levers (A3 §8): stored for this device; a URL parameter of the same name wins at load. They take effect at once on the pyramid's path (Pyramid on), and change nothing on the old one.">
             <div>
                 <b>levels</b>{LEVEL_STEPS.map((step) => (
                     <button key={step} {...dbgBtn(lv.levelStep === step)} onClick={() => engine.setLevelStep(step)}>{step === 1 ? "2×" : step === 2 ? "4×" : "8×"}</button>
@@ -927,6 +927,11 @@ export default function CanvasEditor() {
                                 onClick={() => engine.setRaster(!engine.raster)}
                                 title="Raster: draw the ink into 512 px plates on a canvas instead of into SVG. The renderer is built once, so this rewrites ?raster and RELOADS. Off is the SVG renderer, one keystroke away."
                             >Raster</button>
+                            <button
+                                {...dbgBtn(engine.pyramid)}
+                                onClick={() => engine.setPyramid(!engine.pyramid)}
+                                title="Pyramid: draw the raster path through the picture pyramid instead of the old plates path (A3 §7.4). Rewrites ?pyramid and RELOADS; for the comparison until the old path is deleted."
+                            >Pyramid</button>
                             <button
                                 {...dbgBtn(engine.trace)}
                                 onClick={() => engine.setTrace(!engine.trace)}

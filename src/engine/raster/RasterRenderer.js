@@ -86,6 +86,8 @@ const planeIdle = (fn) => (typeof requestIdleCallback === "function" ? requestId
  * (`PictureLayer._syncSwitch` keeps the sync path while `n <= 2 × budget`).
  */
 const CHORD_CAP = (budget) => 2 * budget + 1;
+/** The pyramid's estimate counts chords only this far: 20,000 × 0.73 µs is past any inline budget (A3 §2.2). */
+const MEASURE_CHORD_CAP = 20000;
 
 /**
  * Quarter-octave steps below the live quantum that a PREVIEW is rastered at (PAPER-PLAN §7.4,
@@ -1519,6 +1521,278 @@ export default class RasterRenderer extends Renderer {
         if (jobId == null || !this.store) return 0;
         rasterStats.jobsEnded++;
         return this.store.endJob(jobId);
+    }
+
+    // ---- the picture pyramid's path (A3 §10.1 step 6; `cfg.pyramid` until the old path is deleted) ----
+
+    /** The store, the pyramid (the layer) and the queue (A3 §1, §4): this renderer packs, measures, posts and lands for them (FC3). */
+    _pyrBuild(container, dpr, opts) {
+        const store = this.store = new PyramidStore({
+            fresh: this.stage, cfg: this.cfg, wDev: Math.round(this.width * dpr), hDev: Math.round(this.height * dpr),
+        });
+        const pyr = this.pyramid = new PicturePyramid(container, {
+            store, stage: this.stage, lm: this.stage.lm, cfg: this.cfg, width: this.width, height: this.height, dpr,
+            paper: this.paper, makeCanvas: opts.makeCanvas, context: opts.context,
+            onRequest: (jobs) => this.queue.push(jobs),
+            pack: (job) => this._pyrPack(job, null, null),
+            measure: (job) => this._pyrMeasure(job),
+            onSample: (s) => pyr.calibrate(s),
+        });
+        const base = opts.pool || rasterPool;
+        const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
+        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => pyr.refresh() });
+        this.layer = pyr;
+        this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
+        this._pyrPrefetchKey = null;
+    }
+
+    /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
+    onLevers() { if (this.pyramid) this.store.setBudget(this.pyramid.budgetBytes()); }
+
+    /**
+     * One camera step on the pyramid: the view (and in it the rest render, the patches and the view's requests),
+     * the queue's frame, the compose, the pen-up groups, and the prefetch once the camera is still.
+     */
+    _pyrStep() {
+        const pyr = this.pyramid, q = this.queue;
+        const tv = perfNow();
+        const view = pyr.frameFor(this.cam);
+        this._add(SLOT.view, perfNow() - tv);
+        this._view = view;
+        this.perf.noteView(view);
+        q.setMotion(this._pyrMotion(view));
+        q.frame();
+        q.pump();
+        const t1 = perfNow();
+        const P = pyr.compose();
+        this.perf.noteCompose(perfNow() - t1, P.images, 1);
+        this._pyrLive(view);
+        if (!this._pyrMot.moving) this._pyrPrefetch(view);
+        return view;
+    }
+
+    /** The queue's motion (A3 §4.4): moving iff the published affine changed since the last step, and its velocity. */
+    _pyrMotion(v) {
+        const m = this._pyrMot, t = perfNow(), pyr = this.pyramid;
+        const same = m.frame === v.frameId && m.k > 0;
+        const moving = same && (v.k !== m.k || v.tx !== m.tx || v.ty !== m.ty);
+        const dt = Math.max(1, t - m.t);
+        const vel = moving ? { px: [(v.tx - m.tx) / dt, (v.ty - m.ty) / dt], zoom: Math.log2(v.k / m.k) / dt } : { px: [0, 0], zoom: 0 };
+        m.t = t; m.k = v.k; m.tx = v.tx; m.ty = v.ty; m.frame = v.frameId; m.moving = moving;
+        return {
+            moving, vel, attention: null,
+            view: { frameId: v.frameId, level: v.level, S: v.S, Z: v.Z, k: v.k, tx: v.tx, ty: v.ty, wDev: pyr.wDev, hDev: pyr.hDev, sigmaMin: pyr.sigmaMin },
+        };
+    }
+
+    /** At idle — the camera still and nothing of the view's or a patch's queued or in flight — the prefetch, once a view revision. */
+    _pyrPrefetch(v) {
+        if (!v || v.frameId == null) return;
+        const q = this.queue, r = q.report();
+        for (let p = 0; p < PRIO.prefetch; p++) if (r.queued[p] || r.inFlight[p]) return;
+        const key = v.rev + ":" + this.pyramid.gens.prefetch;
+        if (this._pyrPrefetchKey === key) return;
+        this._pyrPrefetchKey = key;
+        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens: this.pyramid.gens });
+        if (!jobs.length) return;
+        this.pyramid.setFar(farKeysOf(jobs));
+        q.push(jobs);
+        q.pump();
+    }
+
+    /** The table window's margin: four view cells, so the near prefetch's ℓv − 1 packs from the camera's table (A3 §4.2). */
+    _pyrMargin(inScale) {
+        const pyr = this.pyramid, S = this._view ? this._view.S : LEVEL_STEP;
+        return 4 * PLATE_PX / zOf(levelFor(inScale * pyr.dpr, S, null, pyr.sigmaMin), S);
+    }
+
+    /** A table's items packs paint (a stroke pending its shape is skipped, PLAN §1.5). */
+    _tableList(tab) {
+        const out = [];
+        for (const it of tab.items()) if (!it.pending) out.push(it);
+        return out;
+    }
+
+    /**
+     * A typed job packed (A2 §3.1): from its own table (the prefetch's off-camera snapshot) at that table's G, else
+     * from the Stage at its G. A worker job keeps only the cells the camera's table covers (A3 §4.2: the others are
+     * drawn from stand-ins and asked for again); `beginJob` tracks them from here. `jobId` null: the inline executor's.
+     */
+    _pyrPack(job, jobId, bufPool) {
+        const tab = job.table || null;
+        const list = tab ? this._tableList(tab) : this._sceneList();
+        const G = tab ? tab.generation : this.stage.generation;
+        let cells = job.cells, clips = job.clips || null;
+        if (!tab && jobId != null) {
+            const keep = [];
+            for (let k = 0; k < cells.length; k++) {
+                const c = cells[k], u = PLATE_PX / c.Z;
+                if (this.stage.covers(c.frame, { left: c.i * u, top: c.j * u, right: (c.i + 1) * u, bottom: (c.j + 1) * u })) keep.push(k);
+                else rasterStats.refusedCoverPlates++;
+            }
+            if (keep.length < cells.length) { cells = keep.map((k) => cells[k]); if (clips) clips = keep.map((k) => clips[k]); }
+            if (!cells.length) { rasterStats.refusedCover++; return null; }
+        }
+        const plates = new Int32Array(cells.length * 2);
+        for (let k = 0; k < cells.length; k++) { plates[k * 2] = cells[k].i; plates[k * 2 + 1] = cells[k].j; }
+        if (jobId != null) this.store.beginJob(jobId, cells, G);
+        const t0 = perfNow();
+        const packed = packJob(list, {
+            plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: this._paperRgb, G, jobId, frameSeq: this.frameSeq,
+            pool: bufPool, live: this._liveModel,
+        });
+        if (clips) {
+            const cl = new Int32Array(clips.length * 4);
+            for (let k = 0; k < clips.length; k++) cl.set(clips[k], k * 4);
+            packed.clips = cl;
+        }
+        job.packedCells = cells; job.packedClips = clips;
+        const ms = perfNow() - t0;
+        this._packMs += ms;
+        this._add(SLOT.pack, ms);
+        return packed;
+    }
+
+    /**
+     * The estimate's inputs (A3 §2.2, §3.3) over a job's cells at `job.Z`, or their clips: E the visible chords
+     * (capped past any inline budget), A the item box pixels inside them, U the union items' rows inside them,
+     * P the cells an item meets.
+     */
+    _pyrMeasure(job) {
+        const list = job.table ? this._tableList(job.table) : this._sceneList();
+        const Z = job.Z, u = PLATE_PX / Z, n = job.cells.length;
+        const rects = new Array(n);
+        let win = null;
+        for (let k = 0; k < n; k++) {
+            const c = job.cells[k], cl = job.clips && job.clips[k];
+            const r = cl ? { left: (c.i * PLATE_PX + cl[0]) / Z, top: (c.j * PLATE_PX + cl[1]) / Z, right: (c.i * PLATE_PX + cl[2]) / Z, bottom: (c.j * PLATE_PX + cl[3]) / Z }
+                : { left: c.i * u, top: c.j * u, right: (c.i + 1) * u, bottom: (c.j + 1) * u };
+            rects[k] = r;
+            win = win ? { left: Math.min(win.left, r.left), top: Math.min(win.top, r.top), right: Math.max(win.right, r.right), bottom: Math.max(win.bottom, r.bottom) } : { ...r };
+        }
+        if (!win) return { E: 0, A: 0, U: 0, P: 0 };
+        const E = visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this._liveModel);
+        const hit = new Uint8Array(n);
+        let A = 0, U = 0;
+        for (const o of list) {
+            if (o === this._liveModel) continue;
+            const b = itemBox(o, this.cfg);
+            if (!b) continue;
+            const r0 = o.res, x0 = b[0] + (r0 ? r0[0] : 0), y0 = b[1] + (r0 ? r0[1] : 0), x1 = b[2] + (r0 ? r0[0] : 0), y1 = b[3] + (r0 ? r0[1] : 0);
+            if (x1 < win.left || x0 > win.right || y1 < win.top || y0 > win.bottom) continue;
+            const union = entryFor(o, this.cfg).union;
+            for (let k = 0; k < n; k++) {
+                const r = rects[k], w = Math.min(x1, r.right) - Math.max(x0, r.left), h = Math.min(y1, r.bottom) - Math.max(y0, r.top);
+                if (w <= 0 || h <= 0) continue;
+                hit[k] = 1;
+                A += w * h * Z * Z;
+                if (union) U += h * Z;
+            }
+        }
+        let P = 0;
+        for (let k = 0; k < n; k++) P += hit[k];
+        return { E, A, U, P };
+    }
+
+    /** The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused. */
+    _pyrSubmit(st, pool) {
+        const plates = new Int32Array(st.cells.length * 2);
+        for (let k = 0; k < st.cells.length; k++) { plates[k * 2] = st.cells[k].i; plates[k * 2 + 1] = st.cells[k].j; }
+        return pool.submit({
+            req: { prio: st.prio, pack: (_, jobId, bufPool) => this._pyrPack(st, jobId, bufPool), onResult: (res, info) => this._pyrResult(st, res, info), onDrop: (d) => this._pyrDrop(st, d) },
+            plates,
+        });
+    }
+
+    /**
+     * A strip's result: every plate a record for `onResult` — a whole plate's pixels made a bitmap first where the
+     * scope can, a clip's kept as the patch — then `endJob`, the slot, the calibration sample and one compose.
+     */
+    _pyrResult(st, res, info) {
+        const seq = info && info.frameSeq != null ? info.frameSeq : this.frameSeq;
+        this._openRow(seq, "arrival", info ? info.recvMs : 0);
+        try {
+            this.perf.noteJob(info, res);
+            const cells = st.packedCells || st.cells, clips = st.packedClips || null, n = res.plates.length / 2;
+            const recs = [];
+            let wait = false;
+            for (let p = 0; p < n; p++) {
+                const c = cells[p], px = res.pixels ? res.pixels[p] : null, bm = res.bitmaps ? res.bitmaps[p] : null;
+                const clip = clips ? clips[p] : null;
+                const whole = !clip || (clip[0] === 0 && clip[1] === 0 && clip[2] === PLATE_PX && clip[3] === PLATE_PX);
+                if (px && whole) wait = true;
+                recs.push({ ...c, G: res.G, bitmap: bm, pixels: px, jobId: res.jobId, clip: whole ? null : clip, bytes: whole && (bm || px) ? PLATE_PX * PLATE_PX * 4 : 0 });
+            }
+            if (!wait) { this._pyrLand(st, recs, res, info); return null; }
+            rasterStats.bitmapWaits++;
+            return Promise.all(recs.map((r) => (r.pixels && !r.clip ? plateBitmap(r.pixels) : null)))
+                .then((bms) => { for (let p = 0; p < recs.length; p++) if (bms[p]) { recs[p].bitmap = bms[p]; recs[p].pixels = null; } }, () => null)
+                .then(() => {
+                    this._openRow(seq, "arrival");
+                    try { this._pyrLand(st, recs, res, info); } finally { this._closeRow(); }
+                });
+        } finally { this._closeRow(); }
+    }
+
+    _pyrLand(st, recs, res, info) {
+        if (this._destroyed) { this.store.endJob(res.jobId); return; }
+        for (const r of recs) this.pyramid.onResult(r);
+        rasterStats.batches++; rasterStats.batchPlates += recs.length;
+        this._endJob(res.jobId);
+        this.queue.done(st.id, info ? info.wallMs : null);
+        this.pyramid.calibrate(sampleOf(res, st.est && st.est.U));
+        this.queue.pump();
+        if (this.layer.deferCompose) this.layer.deferCompose(); else this.pyramid.compose();
+        if (!this._pyrMot.moving) this._pyrPrefetch(this._view);
+    }
+
+    /** A strip that will not land: its id ended, its slot freed, the view's cells asked for again at the next step. */
+    _pyrDrop(st, d) {
+        rasterStats.dropsHandled++;
+        this.perf.noteDrop(st, d);
+        if (d && d.jobId != null) this._endJob(d.jobId);
+        if (!d || d.before) return;                 // inside the queue's own pump: it counts the refusal itself
+        this.queue.done(st.id);
+        this.pyramid.refresh();
+        if (!this._destroyed) this.queue.pump();
+    }
+
+    /**
+     * The pen-up rule (PLAN §1.5, A3 §3.6): a held path stays while its stroke is pending — no limit (PLAN §5.4 Q2);
+     * once its shape has landed, one group commit publishes the drawn cells under its box and takes the path down
+     * in the same task. An undo or a cancel (the stroke left the table) or the camera leaving its frame takes it down
+     * now; a group past LIVE_HOLD_MS commits what it has (the compose checks).
+     */
+    _pyrLive(v) {
+        const held = this._liveHeld;
+        if (!held.length || !v) return 0;
+        const now = perfNow();
+        let n = 0, late = false;
+        for (let k = held.length - 1; k >= 0; k--) {
+            const h = held[k];
+            if (h.group) { if (now > h.until) late = true; continue; }
+            const items = this.stage.itemsOf(h.id);
+            if (!items.length || String(h.frameId) !== String(v.frameId)) { this._pyrTakeDown(h, false); n++; continue; }
+            if (items.some((it) => it.pending)) { h.until = now + 250; continue; }
+            h.group = "live:" + h.id;
+            h.until = now + LIVE_HOLD_MS + 20;
+            this.pyramid.groupCommit(h.group, h.box, () => { if (this._pyrTakeDown(h, true)) this.update(); });
+        }
+        if (late) this.pyramid.compose();
+        return n;
+    }
+
+    /** One held path taken down (`handoff`: its plates published in this task); false when it was already gone. */
+    _pyrTakeDown(h, handoff) {
+        const at = this._liveHeld.indexOf(h);
+        if (at < 0) return false;
+        if (h.path.parent) h.path.parent.remove(h.path);
+        const ms = perfNow() - h.at;
+        if (ms > rasterStats.liveHoldMsMax) rasterStats.liveHoldMsMax = ms;
+        if (handoff) rasterStats.liveHandoffs++;
+        this._liveHeld.splice(at, 1);
+        if (!this._liveHeld.length && this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
+        return true;
     }
 
     // ---- off camera: the crossing prebake (R4) and the snapshot (S1) ----

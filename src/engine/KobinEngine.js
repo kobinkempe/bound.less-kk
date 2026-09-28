@@ -141,10 +141,13 @@ export default class KobinEngine {
      *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
      * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
      *        this device's stored ones), over this device's defaults
+     * @param {boolean} [opts.pyramid] the raster path draws through the picture pyramid (`?pyramid=1`, A3 §7.4);
+     *        off, the old plates path, until the comparison is done and that path is deleted
      */
-    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null } = {}) {
+    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null, pyramid = false } = {}) {
         this.cfg = { ...DEFAULTS, ...leverDefaults(isPhoneBudget()), ...cleanLevers(levers) };
         if (frames === "raf" || frames === "sync") this.cfg.frames = frames;
+        this.cfg.pyramid = !!pyramid;
         this.onStatus = onStatus || (() => {});
         this.width = width || window.innerWidth;
         this.height = height || window.innerHeight;
@@ -190,12 +193,14 @@ export default class KobinEngine {
         /** A live drag the plane draws: its members and frame roots, whose events the Stage holds (A2 §2.7). */
         this._holdMove = null;
         if (this.raster) {
-            this.plates = new PlateStore({ fresh: this.stage });
+            this.plates = this.cfg.pyramid ? null : new PlateStore({ fresh: this.stage });
             this.renderer = new RasterRenderer(container, this.cam, this.cfg, {
                 width: this.width, height: this.height, store: this.plates, stage: this.stage,
                 frameSeq: () => ++this._frameSeq,
                 notePerf: (op, t0, extra) => this.notePerf(op, t0, extra),
             });
+            // On the pyramid's path the renderer builds its store (it is sized by the screen); the engine owns its lifetime.
+            if (this.cfg.pyramid) this.plates = this.renderer.store;
             // A commit's hard drops (A2 §3.4): a frame whose id now means another place, another document.
             this.stage.onCommit((G, info) => {
                 if (info.reset) { this.plates.dropAll(false); this.renderer.dropCarry(); return; }
@@ -361,10 +366,13 @@ export default class KobinEngine {
     }
     setRetainScenes(b) { this.retainScenes = !!b; this.renderer.setRetainScenes(this.retainScenes); this._render(); }
     /**
-     * The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into `cfg`, anything else ignored.
-     * Stored only: until B-PYRAMID reads them (PLAN §1.2) no plate, job or picture changes with them.
+     * The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into `cfg`, anything else ignored. On the
+     * pyramid's path they take effect now: the budget in one eviction pass, a step change at this render's view.
      */
-    setLevers(patch) { Object.assign(this.cfg, cleanLevers(patch)); }
+    setLevers(patch) {
+        Object.assign(this.cfg, cleanLevers(patch));
+        if (this.cfg.pyramid && this.renderer.onLevers && !this._destroyed) { this.renderer.onLevers(); this._render(); }
+    }
     /** The level step S, one of `LEVEL_STEPS` (the Dev panel's 1·2·3 toggle). Returns the step in force. */
     setLevelStep(s) { this.setLevers({ levelStep: s }); return this.cfg.levelStep; }
     /** The plate cache's budget: `views` screens (1–8) under `ceilingMiB` (64–512). Returns the pair in force. */
@@ -852,9 +860,14 @@ export default class KobinEngine {
         if (fr.drag && this._dragSel && this.selection) { this._dragSelection(fr.drag[0], fr.drag[1]); stepped = true; }
         if (fr.zoom) { this._zoomStep(fr.crossed, t0); stepped = true; }
         else if (fr.pan) { this._panStep(fr.crossed, t0); stepped = true; }
-        if (stepped) return;
+        if (stepped) {
+            // Stillness is seen only on a frame (A3 §2.1): the pyramid gets one more after a camera step.
+            if (this.cfg.pyramid && (fr.zoom || fr.pan)) this._pend().still = true;
+            return;
+        }
         if (fr.svg) this.renderer.update();
-        if (fr.arrived && this.renderer.layer) { this.renderer.layer.compose(); pictureStats.arrivalComposes++; }
+        if (fr.still && this.raster) this.renderer.syncCameraOnly();
+        else if (fr.arrived && this.renderer.layer) { this.renderer.layer.compose(); pictureStats.arrivalComposes++; }
     }
 
     // ---- pan / zoom ----
@@ -964,7 +977,7 @@ export default class KobinEngine {
      * Every camera step and render restarts it, so nothing is built during a gesture.
      */
     _maybeLadder() {
-        if (!this.raster || !this.plates || !this.renderer.ladderPlates || this._destroyed) return;
+        if (!this.raster || !this.plates || !this.renderer.ladderPlates || this._destroyed || this.cfg.pyramid) return;   // the prefetch's far levels instead
         if (this._ladderTimer != null) clearTimeout(this._ladderTimer);
         this._ladderTimer = setTimeout(() => {
             this._ladderTimer = null;
@@ -1091,7 +1104,7 @@ export default class KobinEngine {
         return { frame: f.id, inScale: s, win: { left: p[0] - hw, top: p[1] - hh, right: p[0] + hw, bottom: p[1] + hh } };
     }
     _maybePrebake() {
-        if (this._prebakeQueued) return;
+        if (this._prebakeQueued || this.cfg.pyramid) return;   // the prefetch's crossing target instead
         const aim = this._crossTarget();
         if (!aim) return;
         this._prebakeQueued = true;

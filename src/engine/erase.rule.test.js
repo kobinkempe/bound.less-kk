@@ -11,6 +11,8 @@ import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
 import { underMask, inLineage } from "./eraseRule";
+import Document from "./Document";
+import { shapeFromRings, normalizeLoops } from "./geometry/arcShape";
 import { lcg } from "./__testkit__/rasterLists";
 
 useEngines();
@@ -59,6 +61,25 @@ test("the rule as a function: each clause decides on its own (A2 §4.2)", () => 
     expect(underMask({ ...T, handledBy: [7] }, M)).toBe(false);              // handled
     expect(inLineage({ ...T, handledBy: [7] }, M)).toBe(true);
     expect(inLineage({ ...T, z: 9 }, M) || inLineage(T, { ...M, targets: undefined })).toBe(false);
+});
+
+test("a cede passes the lineage on: its pieces keep `targetOf`, gain `by` in `handledBy`, and its events carry `by` (A2 §4.3)", () => {
+    const d = new Document();
+    const src = { type: "fill", origin: "native", id: d.allocId(), polys: [[[0, 0], [100, 0], [100, 100], [0, 100]]],
+        color: "#000", opacity: 1, targetOf: [7, 9], handledBy: [4] };
+    d.add(src, "0");
+    const by = [];
+    d.subscribe((ev) => { if (ev.kind === "add" || ev.kind === "remove") by.push(ev.by); });
+    const rect = { x0: 10, y0: 10, x1: 90, y1: 90 };
+    const step = d.cedeTileById(src.id, "1", [normalizeLoops(shapeFromRings([[[10, 20], [40, 20], [40, 80], [10, 80]]]))],
+        rect, rect, undefined, undefined, undefined, undefined, 7);
+    expect(step.pieces.length).toBeGreaterThan(1);                          // the cut parent and the kid
+    for (const p of step.pieces) {
+        expect(p.obj.targetOf).toEqual([7, 9]);
+        expect(p.obj.handledBy).toEqual([4, 7]);
+    }
+    expect(by.length).toBeGreaterThan(1);
+    expect(by.every((b) => b === 7)).toBe(true);
 });
 
 describe("A2 §5: Kobin's semantics, through the fields", () => {

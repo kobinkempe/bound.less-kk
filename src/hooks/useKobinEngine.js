@@ -68,6 +68,21 @@ export function hrefWithRaster(href, on) {
     const tail = h >= 0 ? cut.slice(h) : cut;
     return cut + (tail.indexOf("?") >= 0 ? "&" : "?") + "svg";
 }
+/**
+ * The picture pyramid's gate (A3 §7.4): `?pyramid=1` draws the raster path through it, anything else the old
+ * plates path, until the comparison is done and that path is deleted. Delimited like `raster`, construction-time.
+ */
+export function pyramidFromUrl(href) {
+    const m = /[?&]pyramid(?:=([^&#]*))?(?=[&#]|$)/.exec(String(href || ""));
+    return !!m && (m[1] === undefined || m[1] === "1" || m[1] === "true" || m[1] === "on");
+}
+/** The same URL with the pyramid's gate set to `on`, where the query already lives. */
+export function hrefWithPyramid(href, on) {
+    const cut = String(href || "").replace(/([?&])pyramid(=[^&#]*)?(&|(?=#)|$)/g, "$1").replace(/([?&])(?=#|$)/g, "");
+    const h = cut.indexOf("#");
+    const tail = h >= 0 ? cut.slice(h) : cut;
+    return cut + (tail.indexOf("?") >= 0 ? "&" : "?") + "pyramid=" + (on ? "1" : "0");
+}
 
 const AUTOSAVE_OFF_NOTICE = {
     off: true, quota: false, at: Date.now(),
@@ -200,7 +215,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         // "raf": input steps the picture once an animation frame (A3 §5). The levers: the URL's over this
         // device's stored ones, over the engine's per-device defaults (A3 §8).
         const engine = new KobinEngine(host, {
-            width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href), frames: "raf",
+            width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href), frames: "raf", pyramid: pyramidFromUrl(window.location.href),
             levers: readLevers({ href: window.location.href, storage: leverStorage() }),
         });
         setLeverState(leversOf(engine));
@@ -979,6 +994,13 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         setRaster: (on) => {
             if (typeof window === "undefined") return;
             window.location.href = hrefWithRaster(window.location.href, !!on);
+            window.location.reload();
+        },
+        // The same for the picture pyramid's gate (A3 §7.4), until the old path is deleted.
+        pyramid: pyramidFromUrl(typeof window !== "undefined" ? window.location.href : ""),
+        setPyramid: (on) => {
+            if (typeof window === "undefined") return;
+            window.location.href = hrefWithPyramid(window.location.href, !!on);
             window.location.reload();
         },
         undo: () => { E()?.undo(); saverRef.current?.markAllDirty(); },
