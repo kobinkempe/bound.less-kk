@@ -910,7 +910,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         E.pointerUp();
     });
 
-    test("L3 past LIVE_HOLD_MS a path stays while the plates under it are being rastered, and goes when none is", async () => {
+    test("L3 past LIVE_HOLD_MS a path stays while its shape is pending or its plates are being rastered; the last limit runs from the landing", async () => {
         const E = mkEngine();
         E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
         E._render(); await flush();
@@ -928,7 +928,12 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             h.until = 0;                                              // the limit has passed
             expect(R._releaseHeldLive(v, null)).toBe(0);              // red before: taken down with its plates on the way (F90: 5 s)
             expect(rasterStats.liveExtends).toBe(ext0 + 1);
-            h.until = 0; h.at -= 20000;                               // and past LIVE_HOLD_MAX_MS
+            h.until = 0; h.at -= 20000;                               // past LIVE_HOLD_MAX_MS, the shape still pending:
+            expect(R._releaseHeldLive(v, null)).toBe(0);              // the path is the picture (PLAN §5.4 Q2)
+            while (E._stepShapeBakes(1000));                          // the shape lands; its plates park in flight
+            h.until = 0;
+            expect(R._releaseHeldLive(v, null)).toBe(0);              // the limit runs from the landing
+            h.until = 0; h.since -= 20000;                            // past LIVE_HOLD_MAX_MS from the landing
             expect(R._releaseHeldLive(v, null)).toBe(1);
         } finally { setRasterTransport(null); }
     });

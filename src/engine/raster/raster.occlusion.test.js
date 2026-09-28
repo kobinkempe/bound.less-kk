@@ -87,8 +87,10 @@ describe("the occlusion cull (PAPER-PLAN §10.18)", () => {
     });
 
     test("O5 backdrops under a pending eraser mark are masked, so none of them hides the ones under it", () => {
-        const mark = shapeItem(90, [rect(100, 100, 300, 300)], { color: "#ffffff", erase: true, z: 90 });
-        const r = both(backdrops(5).concat([mark]));
+        const mark = shapeItem(90, [rect(100, 100, 300, 300)], { color: "#ffffff", erase: true, z: 90, targets: [1, 2, 3, 4, 5] });
+        const list = backdrops(5).concat([mark]);
+        for (const o of list) if (!o.erase) o.targetOf = [90];            // its targets (eraseRule.underMask)
+        const r = both(list);
         expect(r.differ).toBe(0);
         expect(r.occluded).toBe(0);                        // red when a masked backdrop counts as a cover: the ring shows its own colour, not the one under
     });

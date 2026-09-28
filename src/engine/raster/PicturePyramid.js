@@ -9,20 +9,20 @@
  *   - Base plates are opaque: a later draw replaces an earlier one, so every pixel ends with one source.
  *     Rest mode draws the level plan under the rest cells that have no rest plate, then every rest cell
  *     that has one (the rest grid at an arbitrary Z never aligns with a level grid).
- *   - The plan takes at most one view (`viewUnit`) of distinct records, the store's pinned bound.
+ *   - The plan draws every own-grid record it finds (1:1 in the surface) and at most COMPOSE_IMAGES − the plane's
+ *     images stand-ins (scaled: another level, children, and at rest the level plan's plates), PLAN §5.6 M1.
+ *     Past COMPOSE_IMAGES distinct images it composes through the surface. Hence the store's pinned bound (M2).
  *   - Stillness is seen only on a frame: the caller runs one more `frameFor` after the camera stops.
  *   - It posts nothing: requests leave through `onRequest(jobs)` and results come back through `onResult`
  *     (the renderer is the one poster, FC3). `pack(job)`, `measure(job)` and the calibration samples are the renderer's.
  */
 import { PLATE_PX, plateRange } from "./plate";
-import { LEVEL_STEP, coarser, levelFor, levelKey, mapCell, ownFloor, restKey, planeKey, sigmaMinFor, zOf } from "./level";
-import { levelCell, restCell, cellBox, viewUnit, budgetBytes, PLATE_BYTES } from "./PyramidStore";
+import { COMPOSE_IMAGES, LEVEL_STEP, coarser, levelFor, levelKey, mapCell, ownFloor, restKey, planeKey, sigmaMinFor, zOf } from "./level";
+import { levelCell, restCell, cellBox, budgetBytes, pinnedBound, PLATE_BYTES } from "./PyramidStore";
 import { renderPlate } from "./rasterCore";
 import { copyPlate, pastePatch, COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
 import { perfNow } from "../now";
 
-/** Distinct images one compose draws directly; past it the plan goes through the surface (A3 §1.5, E6's ~33 cliff). */
-export const COMPOSE_IMAGES = 30;
 /** The patch rule (e) draws the fresh coarser picture over the dirty rectangles while they are at most this share of the cell. */
 export const PATCH_MAX = 0.5;
 /** A group older than this commits what it has (A3 §3.6). */
@@ -55,12 +55,15 @@ function mkCanvas(w, h) {
 const hasOffscreen = () => typeof OffscreenCanvas !== "undefined" && typeof ImageData !== "undefined";
 
 /**
- * One compose's image budget (A3 §1.5): own-grid records are drawn 1:1 in the surface and always taken;
- * scaled ones (another level, a mapped frame's cover, children) at most `scaledCap` distinct.
+ * One compose's image budget (A3 §1.5, PLAN §5.6 M1): own-grid records are drawn 1:1 in the surface and always
+ * taken; scaled ones (another level, a mapped frame's cover, children) at most `scaledCap` distinct. `levelScaled`:
+ * at rest the level plan's own-level plates are drawn scaled onto the rest grid, so `base` takes them as stand-ins.
  */
 class PlanBudget {
-    constructor(scaledCap) { this.scaledCap = scaledCap; this.own = new Set(); this.scaled = new Set(); }
+    constructor(scaledCap, levelScaled = false) { this.scaledCap = scaledCap; this.levelScaled = levelScaled; this.own = new Set(); this.scaled = new Set(); }
     keep(r) { this.own.add(r); }
+    /** A level plate of the view's own level (or its mapped twin): own-grid, or a stand-in at rest. */
+    base(r) { if (this.levelScaled) return this.take([r]); this.own.add(r); return true; }
     take(recs) {
         let add = 0;
         for (const r of recs) if (!this.own.has(r) && !this.scaled.has(r)) add++;
@@ -189,7 +192,8 @@ export default class PicturePyramid {
         this.wDev = Math.max(1, Math.round(this.cssW * this.dpr));
         this.hDev = Math.max(1, Math.round(this.cssH * this.dpr));
         this.sigmaMin = sigmaMinFor(this.wDev, this.hDev);
-        this.viewUnit = viewUnit(this.wDev, this.hDev);
+        /** The store's pinned bound on this screen (PLAN §5.6 M2), in plates: the budget's floor. */
+        this.pinBound = pinnedBound(this.wDev, this.hDev, !!(this.store && this.store.phone));
     }
 
     /** The store's budget for this screen (A3 §4.5): the renderer's to apply at construction and on a resize. */
@@ -301,9 +305,7 @@ export default class PicturePyramid {
      */
     plan(v = this._v) {
         const plane = this._planePlan(v);
-        const own = this._ownCount(v);
-        const cap = Math.max(0, Math.min(COMPOSE_IMAGES - plane.images, this.viewUnit) - own);
-        const B = new PlanBudget(cap);
+        const B = new PlanBudget(Math.max(0, COMPOSE_IMAGES - plane.images), v.mode === "rest" && zOf(v.level, v.S) !== v.Z);
         const P = { v, draws: [], base: [], cells: [], budget: B, plane, keys: new Set(), images: 0 };
         if (v.mode === "rest") this._planRest(v, P, B); else this._planLevel(v, P, B);
         // What is drawn: own-grid records 1:1 (a destination as wide as its source), the rest scaled.
@@ -316,19 +318,6 @@ export default class PicturePyramid {
         P.own = own1.size; P.scaled = all.size - own1.size;
         P.images = all.size + plane.images;
         return P;
-    }
-
-    /** An upper bound of the own-grid records the plan can draw 1:1: every own record on screen, or its mapped twin. */
-    _ownCount(v) {
-        const st = this.store;
-        let n = 0;
-        for (let j = v.j0; j <= v.j1; j++) {
-            for (let i = v.i0; i <= v.i1; i++) {
-                if (v.mode === "rest") { if (st.get(restKey(v.frameId, v.Z, i, j))) n++; continue; }
-                if (st.get(levelKey(v.frameId, v.level, v.S, i, j)) || this._mapped(v.frameId, v.level, v.S, i, j)) n++;
-            }
-        }
-        return n;
     }
 
     _planLevel(v, P, B) {
@@ -376,9 +365,9 @@ export default class PicturePyramid {
         const st = this.store, S = v.S, Zl = zOf(l, S), N = Math.ceil(8 / S);
         const dst = gBox(Zl, i, j, v.Zq);
         const own = st.get(levelKey(F, l, S, i, j));
-        if (own && st.exact(own)) { B.keep(own); out.push(draw(own, WHOLE, dst, "sharp", true)); return; }        // (a)
+        if (own && st.exact(own) && B.base(own)) { out.push(draw(own, WHOLE, dst, "sharp", true)); return; }     // (a)
         const m = this._mapped(F, l, S, i, j);
-        if (m) { B.keep(m); out.push(draw(m, WHOLE, dst, "sharp", true)); return; }                               // (b)
+        if (m && B.base(m)) { out.push(draw(m, WHOLE, dst, "sharp", true)); return; }                            // (b)
         const cb = boxOf(Zl, i, j);
         for (let k = 1; k <= N; k++) {                                                                              // (d)
             const c = coarser(this.lm, S, F, l, i, j, k);
@@ -390,8 +379,7 @@ export default class PicturePyramid {
             if (!sub || !B.take([r])) continue;
             if (own) {                                                                                              // (e)
                 const D = this._dirtyIn(F, own, cellBox(own), cb);
-                if (D && D.area <= (cb.right - cb.left) * (cb.bottom - cb.top) * PATCH_MAX) {
-                    B.keep(own);
+                if (D && D.area <= (cb.right - cb.left) * (cb.bottom - cb.top) * PATCH_MAX && B.base(own)) {
                     out.push(draw(own, WHOLE, dst, "sharp", false, true));
                     out.push(draw(r, subIn(sub, cb, D.bbox), gRect(D.bbox, v.Zq), "blur", true));
                     return;
@@ -400,7 +388,7 @@ export default class PicturePyramid {
             out.push(draw(r, sub, dst, "blur", true));
             return;
         }
-        if (own) { B.keep(own); out.push(draw(own, WHOLE, dst, "older", false)); return; }                          // (f)
+        if (own && B.base(own)) { out.push(draw(own, WHOLE, dst, "older", false)); return; }                       // (f)
         for (let k = 1; k <= N; k++) {
             const c = coarser(this.lm, S, F, l, i, j, k);
             if (!c) break;
@@ -1241,7 +1229,7 @@ export default class PicturePyramid {
     report() {
         const v = this._v;
         return {
-            mode: v.mode, level: v.level, S: v.S, s: v.s, Z: v.Z, sigmaMin: this.sigmaMin, viewUnit: this.viewUnit,
+            mode: v.mode, level: v.level, S: v.S, s: v.s, Z: v.Z, sigmaMin: this.sigmaMin, pinBound: this.pinBound,
             rest: this._rest ? { Z: this._rest.Z, shown: this._rest.shown } : null, groups: this._groups.size,
             est: { ...this._k }, surfaceLive: !!this._surface, imagesMax10s: this._images.reduce((m, x, k) => (k % 2 ? Math.max(m, x) : m), 0), ...this.s,
         };

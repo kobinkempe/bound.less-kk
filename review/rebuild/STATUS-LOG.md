@@ -998,3 +998,22 @@ bound, the budget floor and the phone ceiling; the reviewer's four constructed s
 any B-ERASE file until P1, which waits for the B-SCENE reviewer's end entry.
 **Measured:** nothing yet. **Decisions made:** none yet. **Questions asked:** none.
 WHERE I AM: reading PLAN §5.6 and the reviewer's four screens, then `PicturePyramid.js`'s surface rule.
+
+## 2026-09-28 19:32 UTC — B-ERASE (builder) — progress: the ported erase suites green; new tests next
+**Working on:** fixes found by the ported suites: a live native names no dead mark (spent, or whose redo branch went) —
+pruned at spend, as it re-enters (undo, a frame back) and at a load, so undo of a finished erase restores the document
+exactly and a replay agrees with the live history (EP-4); every tap/drag barrier resolves pending perimeters first (a
+raw stroke dragged broke the ants); the barrier's per-target lock is global (an older mark never cuts a newer one's
+piece); a barrier ends by spending the marks it emptied; `deselect`/tool/press/undo cancel a parked gesture; the
+lookahead never writes the document. Ported: erase.stack (async barriers, the parked drag of A2 §5.5), erase.worker,
+erase.cost (0 scans in the bake), move.startCost, provenance (EP-1 as a set: a barrier's out-of-stack order; EP-3's
+older-cuts-newer history built by `flushErases(only)`), the three hook erase suites, oplog, A13-2, F66, move.subtree t12
+(split by the landing's timing), occlusion O5 (targets), the harness's picture oracle (masks, not white ink).
+Deleted: erase.neutral, erase.zorder, raster.bake, raster.mask, erase.markFrame (replacements follow).
+**Measured:** 8 ported suites + 8 more: all green alone; typecheck 0; lint 0 errors, 6 warnings (baseline).
+**Decisions made:** a tap re-hits after its barrier (A2 §4.11 step 1; SM-5 and RR-3/4: the half not pressed stays),
+not "all the target's pieces" (§5.5, row 7 (a)) — see Q5.
+**Questions asked:** Q5 row 7 (a) vs SM-5: I kept SM-5's re-hit (rec.: keep; a drag's barrier still carries a
+selection to all the pieces of its members). Q6 the SVG renderer paints a pending mark as white ink at its own z,
+now over baked pieces and objects dragged under it (`?svg`, export) — rec.: B-PYRAMID-2's SVG demotion masks targets.
+WHERE I AM: writing raster.eraseRule.test.js (row 3 a–d), then select.eraseBarrier, erase.rule (A2 §5), parallel.

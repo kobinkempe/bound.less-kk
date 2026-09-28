@@ -10,14 +10,15 @@
  *   - Every key stored or in flight is tracked by the freshness source (the Stage) from `beginJob` or `put`
  *     until neither holds it; a hard drop refuses the jobs it finds in flight, so they land nothing.
  *   - Only `_remove` closes a bitmap, and it marks the record `dead` first: a compose holding it draws nothing.
- *   - Pinned ≤ one view + the plane cap by construction: the drawn set is `PicturePyramid`'s plan, which
- *     takes at most one view of distinct records (`viewUnit`), and the plane pins at most MOVE_PLANE_PLATES.
+ *   - Pinned ≤ `pinnedBound` by construction (PLAN §5.6 M2): the drawn set is `PicturePyramid`'s plan — one
+ *     own-grid record per view cell and at most COMPOSE_IMAGES stand-ins — and the plane pins at most its cap.
+ *     The byte budget never goes under that bound.
  *
  * It holds no camera, no document and no lattice: `setView` hands it the view's level, ring, rest set, path
  * and the prefetch's far set, which is all the eviction order reads.
  */
 import { PLATE_PX } from "./plate";
-import { LEVEL_HYST, levelKey, planeKey, restKey, sigmaMinFor, viewPlates, zOf } from "./level";
+import { COMPOSE_IMAGES, LEVEL_HYST, levelKey, planeKey, restKey, sigmaMinFor, viewPlates, zOf } from "./level";
 import { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE } from "./MovePlane";
 
 /** Bytes one 512² RGBA plate costs, as a bitmap or as raw pixels: exactly 1 MiB. */
@@ -55,14 +56,28 @@ export function viewUnit(wDev, hDev) {
 export const planeCap = (phone) => (phone ? MOVE_PLANE_PLATES_PHONE : MOVE_PLANE_PLATES);
 
 /**
- * The cache budget in bytes: `views` views under `ceilingMiB`, never under one view plus the plane cap
- * (the pinned set's own bound). `cfg` carries `plateViews` and `plateCeilingMiB` (`devLevers.js`).
+ * The most own-grid records a plan draws, one per view cell: the level view at the band's floor σmin·2^−h, or
+ * the rest set at σ = 1 (77 on a 2560×1440@2 screen, where one view is 54).
+ */
+export function ownBound(wDev, hDev) {
+    return Math.max(viewUnit(wDev, hDev), viewPlates(1, Math.max(1, wDev), Math.max(1, hDev)));
+}
+
+/** The pinned bound in plates (= MiB), PLAN §5.6 M2: own-grid records + COMPOSE_IMAGES stand-ins + the plane cap. */
+export function pinnedBound(wDev, hDev, phone) {
+    return ownBound(wDev, hDev) + COMPOSE_IMAGES + planeCap(phone);
+}
+
+/**
+ * The cache budget in bytes: `views` views, never under the pinned bound (the floor) nor over the ceiling,
+ * which is itself never under the floor (99 MiB on a 390×844@3 phone against the lever's 96). `cfg` carries
+ * `plateViews` and `plateCeilingMiB` (`devLevers.js`).
  */
 export function budgetBytes(cfg, wDev, hDev, phone) {
-    const unit = viewUnit(wDev, hDev);
+    const floor = pinnedBound(wDev, hDev, phone);
     const views = cfg && cfg.plateViews > 0 ? cfg.plateViews : (phone ? 2 : 3);
-    const ceiling = cfg && cfg.plateCeilingMiB > 0 ? cfg.plateCeilingMiB : (phone ? 96 : 256);
-    return Math.max(unit + planeCap(phone), Math.min(ceiling, views * unit)) * MiB;
+    const ceiling = Math.max(floor, cfg && cfg.plateCeilingMiB > 0 ? cfg.plateCeilingMiB : (phone ? 96 : 256));
+    return Math.min(ceiling, Math.max(floor, views * viewUnit(wDev, hDev))) * MiB;
 }
 
 /** A level plate's cell: frame F at Z(ℓ) for step S. The descriptor `beginJob`, `put` and the plan share. */

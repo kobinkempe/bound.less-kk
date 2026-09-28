@@ -9,8 +9,8 @@
 import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";
 import PyramidStore, { levelCell, restCell, planeCell, PLATE_BYTES } from "./PyramidStore";
-import PicturePyramid, { COMPOSE_IMAGES, PATCH_MAX, SURFACE_IDLE_MS } from "./PicturePyramid";
-import { zOf, levelKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
+import PicturePyramid, { PATCH_MAX, SURFACE_IDLE_MS } from "./PicturePyramid";
+import { COMPOSE_IMAGES, zOf, levelKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { fakeStage, meets } from "../__testkit__/fakeStage";

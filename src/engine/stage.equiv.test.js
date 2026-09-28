@@ -7,6 +7,7 @@
  */
 import { useEngines } from "./__testkit__/harness";
 import { runStageFuzz, compareStage, pureReads } from "./__testkit__/stageFuzz";
+import { resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
 
 useEngines();
 
@@ -26,6 +27,24 @@ describe("the Stage's table equals listFor's (PLAN §3 row 2)", () => {
                 if (p) fails.push("step " + step + " (" + op + "): " + p + " changed the document");
             });
             expect(fails).toEqual([]);
+        });
+    }
+});
+
+describe("…and on the raster engine: the drag's hold released, the table's camera step", () => {
+    beforeEach(() => { resetRasterWorkerClient(); setRasterWorkerCount(1); });
+    for (const seed of [2, 4, 5]) {
+        test("seed " + seed + ", " + STEPS + " steps", () => {
+            const fails = [];
+            let holds = 0;
+            runStageFuzz(seed, STEPS, (E, step, op) => {
+                if (!E.stage.__counted) { E.stage.__counted = true; const hold = E.stage.hold.bind(E.stage); E.stage.hold = (x) => { holds++; return hold(x); }; }
+                if (fails.length) return;
+                const c = compareStage(E);
+                if (c.diff) fails.push("step " + step + " (" + op + "): " + c.diff);
+            }, { raster: true });
+            expect(fails).toEqual([]);
+            expect(holds).toBeGreaterThan(0);                  // a drag the plane drew, released into the table
         });
     }
 });

@@ -1466,8 +1466,9 @@ export default class KobinEngine {
     // ---- undo / redo / clear ----
     // A drag in progress is cancelled first: its start snapshots describe the document the undo
     // is about to change (B §1.2, defect 1).
-    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.undo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
-    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.redo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    // An undo or a redo is one Stage commit (A2 §2.5): per event, a 5,000-object one cost 0.5–0.9 s in node.
+    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.undo()))) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.redo()))) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
     /** Frame GC over every frame: the saver calls it once a restored store is in (F94). */
     sweepFrames() { return this.readOnly ? 0 : sweepFrames(this); }
     clear() {

@@ -601,16 +601,18 @@ class Selection {
     // Tap-select the topmost object under the point (same hit policy as the
     // object eraser). Selecting through a derived piece selects the NATIVE —
     // edits apply at its home level and re-derive everywhere. The erase barrier
-    // (A2 §4.11): what is pending over the object's family is cut first and the
-    // selection is its pieces — parked while the cuts are in workers; an object
-    // the cuts took whole is picked again. `after`: run once it is selected.
+    // (A2 §4.11): what is pending over the object's family is cut first — parked
+    // while the cuts are in workers — and then the point is picked again, so the
+    // selection is the piece under the finger (SM-5: the half not pressed stays).
+    // `after`: run once the tap has settled.
     select(sx, sy, after = null, guard = 0) {
         const id = this._hitTest(sx, sy);
         if (id == null) { this.deselect(); if (after) after(); return null; }
-        const done = this._tapBarrier(id, (ids) => {
-            if (ids.length) this._setSelection(ids);
-            else if (guard < 8) { this._render(); this.select(sx, sy, after, guard + 1); return; }
-            else this.deselect();
+        const done = this._tapBarrier(id, (ids, b) => {
+            if (!b.rounds && ids.length) { this._setSelection(ids); if (after) after(); return; }
+            this._render();
+            if (guard < 8) { this.select(sx, sy, after, guard + 1); return; }   // what shows there now
+            this.deselect();
             if (after) after();
         });
         return done && this.selection ? this.selection.id : null;

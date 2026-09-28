@@ -316,9 +316,10 @@ describe("an erase covering a frame takes it whole (subtree O(1), 2026-09-15)", 
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start);
     });
-    test("t12 a native drawn after the mark keeps the frame on the per-object path", () => {
+    test("t12 a native drawn after the mark, before its shape lands, keeps the frame on the per-object path", () => {
         const { E, R, K, ids } = build();
-        eraseGesture(E, [[500, 460], [620, 460]], 130);
+        E.setEraserSize(130); E.setTool("erasePartial");            // the mark's pen-up; its shape lands at the flush
+        E.pointerDown(500, 460); E.pointerMove(620, 460); E.pointerUp();
         const late = rects(E, R.id, 1, 9)[0];                       // drawn under the pending mark: above it in z
         const cuts = spy(E.doc, "eraseReplaceById");
         E.flushErases();
@@ -328,6 +329,17 @@ describe("an erase covering a frame takes it whole (subtree O(1), 2026-09-15)", 
         const taken = lastOp(E).baked.flatMap((st) => (st.frames ? st.frames.map((r) => r.frame) : []));
         expect(taken).not.toContain(R.id);                          // R stays on the per-object path...
         expect(taken).toContain(K.id);                              // ...and its kid, wholly under the mark and below it in z, goes whole
+    });
+    test("t12b a native drawn into a frame after the mark took it whole at its landing stays, above the mark", () => {
+        const { E, R, K, ids } = build();
+        eraseGesture(E, [[500, 460], [620, 460]], 130);            // landed: R and K set aside at registration (A2 §4.2)
+        const taken = lastOp(E).baked.flatMap((st) => (st.frames ? st.frames.map((r) => r.frame) : []));
+        expect(taken.sort()).toEqual([R.id, K.id].sort());
+        const late = rects(E, R.id, 1, 9)[0];
+        E.flushErases();
+        expect(E.doc.getById(late)).toBeTruthy();                   // drawn after the mark: not one of its targets
+        expect(E.doc.getById(ids.R[0])).toBeNull();                 // the older ones went with the frame
+        expect(E._eraseStrokes()).toHaveLength(0);
     });
     test("t13 a mark that covers the natives but not the frame's reach cuts per object", () => {
         const { E, R } = build();

@@ -804,8 +804,10 @@ class ErasePipeline {
      */
     _dispatchPair(Erec, target, { ahead = false, barrier = false, inline = false } = {}) {
         const E = Erec.obj, HE = Erec.level;
-        if (E.type === "stroke") this._forceBake(E);              // called on a mark not yet landed: it lands and registers
         const o0 = target.obj;
+        // A lookahead changes nothing in the document: a target still to resolve waits for its turn.
+        if (ahead && (E.type !== "shape" || o0.type !== "shape")) return "none";
+        if (E.type === "stroke") this._forceBake(E);              // called on a mark not yet landed: it lands and registers
         if (o0.type === "stroke") this._forceBake(o0);            // an erase reached it first
         if (o0.type === "fill") this.doc.fillToShapeById(o0.id);  // a pre-arc drawing
         const rec = this.doc.getById(o0.id);
@@ -1288,8 +1290,10 @@ class ErasePipeline {
     _eraseBarrier(kind, pairsOf, then, follow = null) {
         this._cancelBarrier();
         const b = { kind, pairsOf, then, follow: new Set(follow || []), keys: new Set(), t0: perfNow(), rounds: 0, press: this._pressWait, lasso: false, prev: null };
+        // Pending perimeters resolve first: a mark registers before anything moves under it (A2 §4.2),
+        // and a selection moves shapes, not raw strokes. A lasso with no mark pending costs nothing more.
+        if (kind !== "lasso" || this._marks.size) this.flushBakes();
         if (!this._marks.size) { then([...b.follow].filter((id) => this.doc.getById(id)), b); return true; }
-        if (this._marksUnlanded()) this.flushBakes(); else this._registerLanded();
         this._barrier = b; this._follow = b.follow;
         if (this._barrierAdvance(b)) return true;
         this._emit();

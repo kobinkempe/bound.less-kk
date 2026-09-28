@@ -18,10 +18,10 @@ const live = [];
 export function useEngines() {
     afterEach(() => { while (live.length) { try { live.pop().destroy(); } catch (e) { /* ignore */ } } });
 }
-export function mkEngine(w = 800, h = 600) {
+export function mkEngine(w = 800, h = 600, opts = null) {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const e = new KobinEngine(host, { width: w, height: h });
+    const e = new KobinEngine(host, { width: w, height: h, ...opts });
     live.push(e);
     return e;
 }

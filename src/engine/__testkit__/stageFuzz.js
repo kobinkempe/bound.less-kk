@@ -7,7 +7,7 @@
  *
  * NOT collected by jest (the directory is `__testkit__`); nothing in the app imports it.
  */
-import { mkEngine, drawStroke, eraseGesture, descend, ascend } from "./harness";
+import { mkEngine as mkHarnessEngine, drawStroke, eraseGesture, descend, ascend } from "./harness";
 import { OpLog } from "../oplog";
 import { encodeObjects, decodeObjects } from "../format2";
 import { collectFrames } from "../frameGc";
@@ -132,7 +132,13 @@ function snapshotOf(E, log) {
  * One seeded run: `steps` operations, `check(E, step, op)` after each. Returns the ops taken.
  * The engine is replaced by a reload (kobin-1 or the op log); `onEngine` sees each one.
  */
-export function runStageFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
+export function runStageFuzz(seed, steps, check, { w = 800, h = 600, raster = false } = {}) {
+    // The raster engine: plates packed from the Stage, the drag's hold, the table's camera step; no sync raster.
+    const mkEngine = (a, b) => {
+        const E = mkHarnessEngine(a, b, raster ? { raster: true, scenes: false } : null);
+        if (raster) { E.renderer.layer.syncBudget = 0; E.renderer.layer._sync = false; }
+        return E;
+    };
     const rnd = lcg(seed * 7919 + 17);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
     const pick = (a) => a[Math.floor(rnd() * a.length)];

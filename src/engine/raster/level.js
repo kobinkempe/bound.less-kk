@@ -6,8 +6,8 @@
  * frame's level is a plate of any other frame's level by integer arithmetic on the lattice's cell
  * digits, never by a float affine.
  *
- * Pure: integers and powers of two, no state. `plate.js` keeps the grid (`plateRange`, the origin);
- * nothing imports this yet but its test (B-PYRAMID wires it, PLAN §2).
+ * Pure: integers and powers of two, no state. `plate.js` keeps the grid (`plateRange`, the origin); the
+ * constants the pyramid's plan and store share (the view's plate bound, the compose's image cap) live here.
  */
 import { R, W } from "../frameLattice";
 import { PLATE_PX } from "./plate";
@@ -22,6 +22,11 @@ export const LEVEL_HYST = 1 / 8;
 export const SIGMA_MIN = 2 ** -0.5;
 /** Plates a view may need before its σmin rises to 1, then 2^½ (A3 §1.3). */
 export const VIEW_PLATES_MAX = 48;
+/**
+ * Distinct images one compose draws directly, and the scaled images (stand-ins) a plan may draw beside the plane's:
+ * past ~33 scaled images Chrome's 2D canvas flushes per image (A3 §1.5, E6; PLAN §5.6 M1).
+ */
+export const COMPOSE_IMAGES = 30;
 
 const CROSS_OCT = Math.log2(R);                       // 12: a crossing is 4096×
 const OFFSET_OCT = Math.log2(W) - Math.log2(PLATE_PX); // 8: a child cell's offset is its digit × 2^(8 + ℓS) plates
