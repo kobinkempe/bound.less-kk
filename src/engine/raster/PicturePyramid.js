@@ -304,7 +304,7 @@ export default class PicturePyramid {
 
     /**
      * The plan for view `v`: `{ draws, keys, images, own, scaled, planeImages, cells }`. A draw is `{ rec | null
-     * (paper), sx, sy, sw, sh, x0, y0, x1, y1 (view-grid px), cls: "sharp"|"blur"|"older"|"paper", exact }`;
+     * (paper), sx, sy, sw, sh, x0, y0, x1, y1 (view-grid px), cls: "sharp"|"blur"|"older"|"held"|"paper", exact }`;
      * `exact` marks the steps (a)–(e) sources, which the invariant of PLAN §3 row 1 is about.
      */
     plan(v = this._v) {
@@ -312,6 +312,7 @@ export default class PicturePyramid {
         const B = new PlanBudget(Math.max(0, COMPOSE_IMAGES - plane.images), v.mode === "rest" && zOf(v.level, v.S) !== v.Z);
         const P = { v, draws: [], base: [], cells: [], budget: B, plane, keys: new Set(), images: 0 };
         if (v.mode === "rest") this._planRest(v, P, B); else this._planLevel(v, P, B);
+        if (this._groups.size) this._markHeld(P);
         // What is drawn: own-grid records 1:1 (a destination as wide as its source), the rest scaled.
         const own1 = new Set(), all = new Set();
         for (const d of P.draws) {
@@ -378,6 +379,24 @@ export default class PicturePyramid {
             if (r && st.exact(r) && this._sub(F, l, i, j, c, S)) best = r;
         }
         return best;
+    }
+
+    /**
+     * A stale draw under an open pen-up group's rectangle, older than its stroke, shows the current picture with the
+     * held path over it (A3 §3.6): class "held", which the integrals do not charge as older.
+     */
+    _markHeld(P) {
+        const v = P.v, gs = [];
+        for (const g of this._groups.values()) {
+            if (g.purpose === "live" && g.rect) gs.push({ G: g.G, x0: g.rect.left * v.Zq, y0: g.rect.top * v.Zq, x1: g.rect.right * v.Zq, y1: g.rect.bottom * v.Zq });
+        }
+        if (!gs.length) return;
+        for (const c of P.cells) {
+            for (const d of c.draws) {
+                if (d.cls !== "older" || !d.rec) continue;
+                if (gs.some((g) => d.rec.G < g.G && d.x0 < g.x1 && d.x1 > g.x0 && d.y0 < g.y1 && d.y1 > g.y0)) d.cls = "held";
+            }
+        }
     }
 
     /** (c): all 2^S × 2^S children of the cell, one level finer, exact; or null. */

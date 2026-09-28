@@ -737,6 +737,7 @@ export default class RasterRenderer extends Renderer {
         // otherwise stay in flight for ever and `want` would return them as in-flight rather
         // than as misses — a permanent hole with every suite green (rasterWorkerClient's header).
         if (this.queue) this.queue.clear();
+        if (this._pyrOff) { this._pyrOff(); this._pyrOff = null; }
         this._abandon("destroy");
         dropQueued("destroy");
         this._destroyed = true;
@@ -1545,6 +1546,9 @@ export default class RasterRenderer extends Renderer {
         this.layer = pyr;
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
+        // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
+        // while the path is still up (A3 §3.6).
+        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view); });
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
@@ -1586,12 +1590,16 @@ export default class RasterRenderer extends Renderer {
         };
     }
 
-    /** At idle — the camera still and nothing of the view's or a patch's queued or in flight — the prefetch, once a view revision. */
+    /**
+     * At idle — the camera still and nothing of the view's or a patch's queued or in flight — the prefetch, once a view
+     * revision and a generation: a change stales the cached coarser levels, and a zoom's stand-in must be fresh
+     * (decision 2: blurrier, never older).
+     */
     _pyrPrefetch(v) {
         if (!v || v.frameId == null) return;
         const q = this.queue, r = q.report();
         for (let p = 0; p < PRIO.prefetch; p++) if (r.queued[p] || r.inFlight[p]) return;
-        const key = v.rev + ":" + this.pyramid.gens.prefetch;
+        const key = v.rev + ":" + this.pyramid.gens.prefetch + ":" + this.stage.generation;
         if (this._pyrPrefetchKey === key) return;
         this._pyrPrefetchKey = key;
         const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens: this.pyramid.gens });
@@ -1762,7 +1770,7 @@ export default class RasterRenderer extends Renderer {
      * The pen-up rule (PLAN §1.5, A3 §3.6): a held path stays while its stroke is pending — no limit (PLAN §5.4 Q2);
      * once its shape has landed, one group commit publishes the drawn cells under its box and takes the path down
      * in the same task. An undo or a cancel (the stroke left the table) or the camera leaving its frame takes it down
-     * now; a group past LIVE_HOLD_MS commits what it has (the compose checks).
+     * now; a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage commit and every step.
      */
     _pyrLive(v) {
         const held = this._liveHeld;

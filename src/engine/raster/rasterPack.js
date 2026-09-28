@@ -1057,30 +1057,44 @@ export function packJob(list, opts) {
 }
 
 /**
- * The job's mask slots (A2 §4.4): each item's masking marks by the rule, and each mark's slot. Marks
- * go in paint order to the first slot they share exactly — no item under both boxes with its bits
- * different, so the shared plane (the max of their coverages) hides only what each would alone; an
- * item under both reads 1 − max for (1 − a)(1 − b), which differ only where the two edges overlap.
- * Past MASKS_MAX a mark joins the slot it over-hides the fewest items in (`maskOverflow`): never
- * white ink, which would hide what the rule says shows. Returns item -> its masking marks.
+ * The job's mask slots (A2 §4.4): each item's masking marks by the rule, and each mark's slot. The
+ * core masks a family whole, by the bits of all its items, so marks share a slot only where it is
+ * exact per family: no family whose box meets both has one and not the other among its items'
+ * marks. The shared plane is the max of their coverages; a family under both reads 1 − max for
+ * (1 − a)(1 − b), which differ only where the two edges overlap. Past MASKS_MAX a mark joins the
+ * slot it over-hides the fewest families in (`maskOverflow`): never white ink, which would hide what
+ * the rule says shows. Returns item -> its masking marks.
  */
 function maskSlots(items, marks) {
-    const m = marks.length, maskedBy = new Map(), conflict = new Float64Array(m * m);
+    const m = marks.length, maskedBy = new Map(), conflict = new Float64Array(m * m), fams = new Map();
     for (const d of items) {
         if (d.o.erase) continue;
         const b = d.g.box ? boxWithRes(d.g.box, d.res) : d.box;
-        let under = null, hit = null;
+        let F = fams.get(d.fam);
+        if (!F) fams.set(d.fam, (F = { box: [b[0], b[1], b[2], b[3]], hit: null }));
+        else {
+            if (b[0] < F.box[0]) F.box[0] = b[0];
+            if (b[1] < F.box[1]) F.box[1] = b[1];
+            if (b[2] > F.box[2]) F.box[2] = b[2];
+            if (b[3] > F.box[3]) F.box[3] = b[3];
+        }
+        let hit = null;
         for (const K of marks) {
             if (b[0] > K.box[2] || b[2] < K.box[0] || b[1] > K.box[3] || b[3] < K.box[1]) continue;
-            (under || (under = [])).push(K);
-            if (underMask(d.o, K.o)) (hit || (hit = [])).push(K);
+            if (!underMask(d.o, K.o)) continue;
+            (hit || (hit = [])).push(K);
+            if (!F.hit) F.hit = new Set();
+            F.hit.add(K);
         }
         if (hit) maskedBy.set(d, hit);
-        if (!under || under.length < 2) continue;
+    }
+    for (const F of fams.values()) {
+        const b = F.box, under = [];
+        for (const K of marks) if (!(b[0] > K.box[2] || b[2] < K.box[0] || b[1] > K.box[3] || b[3] < K.box[1])) under.push(K);
         for (let x = 0; x < under.length; x++) {
             for (let y = x + 1; y < under.length; y++) {
                 const A = under[x], B = under[y];
-                if ((hit && hit.includes(A)) !== (hit && hit.includes(B))) { conflict[A.i * m + B.i]++; conflict[B.i * m + A.i]++; }
+                if (!!(F.hit && F.hit.has(A)) !== !!(F.hit && F.hit.has(B))) { conflict[A.i * m + B.i]++; conflict[B.i * m + A.i]++; }
             }
         }
     }
