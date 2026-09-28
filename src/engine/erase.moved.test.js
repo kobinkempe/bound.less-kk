@@ -58,7 +58,8 @@ describe("erasing a moved object from a sibling frame (F66)", () => {
         const mark = E._eraseStrokes()[0];
         expect(mark).toBeTruthy();
         // The candidate is found and the eraser's box, mapped into the stored coordinates, meets the ink.
-        const t = E._nextEraseTarget(mark);
+        expect(mark.obj.targets).toEqual([A.id]);
+        const t = E._headOf(mark);
         expect(t && t.obj.id).toBe(A.id);
         E.flushErases();
         const left = inkAt(E, home);

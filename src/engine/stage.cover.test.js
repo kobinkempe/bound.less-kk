@@ -3,7 +3,7 @@
  * TEST-MAP's replacement for `raster.listCover.test.js`). The camera's plates are packed from the
  * Stage's table only where `covers` says every tile under them is read; the ladder's, the crossing
  * prebake's and a drag plane's far levels from a snapshot of their plates' rectangle. Two checks: at
- * the pack, the job's ids against the items `listFor` finds over the plate (the brute-force read);
+ * the pack, the list it packs from against the items `listFor` finds over the plate (the brute-force read);
  * after it, every exact plate against the same plate rastered from a list read wide around it
  * (REVIEWER-4 P-1: past the read squares a plate was rastered as paper and cached fresh).
  */
@@ -46,14 +46,17 @@ const fill = (E, x, y, w, h, color, frame = "0") => E.doc.add({ type: "fill", or
 const plateRect = (Zq, i, j) => { const u = PLATE_PX / Zq; return { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u }; };
 /**
  * The pack's own check, wrapped: every item `listFor` reads over a plate whose drawn box meets the plate's
- * inside (a device pixel in) is among the job's ids. Returns the misses, "plate:id".
+ * inside (a device pixel in) is in the list the job was packed from, at the same offset. Returns the
+ * misses, "plate:id". The pack's cull is the pixel check's (`badPlates`).
  */
 function watchJobs(E) {
     const R = E.renderer, pack = R._packNow.bind(R), out = { jobs: 0, plates: 0, misses: [] };
     R._packNow = (req, strip, jobId, pool) => {
+        const src = R._packList(req);
         const job = pack(req, strip, jobId, pool);
         if (!job || req.only || req.omit || typeof req.q !== "number") return job;
-        const ids = new Set(job.ids.subarray(0, job.nItems));
+        const ids = new Map();
+        for (const it of src) ids.set(it.piece || it, it.res || null);
         out.jobs++;
         for (let p = 0; p * 2 < strip.length; p++) {
             const r = plateRect(req.Zq, strip[p * 2], strip[p * 2 + 1]), e = 1 / req.Zq;
@@ -63,7 +66,9 @@ function watchJobs(E) {
                 if (E.stage._pending.has(o.id)) continue;                        // pending its shape: on no plate (PLAN §1.5)
                 const b = drawnBox(o), dx = o.res ? o.res[0] : 0, dy = o.res ? o.res[1] : 0;
                 if (b.right + dx < inner.left || b.left + dx > inner.right || b.bottom + dy < inner.top || b.top + dy > inner.bottom) continue;
-                if (!ids.has(o.id)) out.misses.push(req.q + "|" + strip[p * 2] + "," + strip[p * 2 + 1] + ":" + o.id);
+                const r2 = ids.get(o);
+                const same = r2 !== undefined && (r2 ? r2[0] : 0) === dx && (r2 ? r2[1] : 0) === dy;
+                if (!same) out.misses.push(req.q + "|" + strip[p * 2] + "," + strip[p * 2 + 1] + ":" + o.id);
             }
         }
         return job;
@@ -155,9 +160,11 @@ describe("every plate job holds every item overlapping the plate", () => {
         const win = E._listWin();
         E.stage.sync(E.cam.frame, { ...win, right: win.left + 1 }, Infinity);   // the table reads the left square alone
         expect(E.stage.covers(v.frameId, far)).toBe(false);
-        const refused0 = rasterStats.refusedAtDispatch;
+        const refused0 = rasterStats.refusedAtDispatch, cover0 = rasterStats.refusedCover, plates0 = rasterStats.refusedCoverPlates;
         E.renderer.syncCameraOnly(); await flush();                  // posts the view with the table short
         expect(rasterStats.refusedAtDispatch).toBeGreaterThan(refused0);
+        expect(rasterStats.refusedCover).toBeGreaterThan(cover0);     // counted by reason (PLAN §5.4 Q3)
+        expect(rasterStats.refusedCoverPlates).toBeGreaterThan(plates0);
         expect(E.plates.get(plateKey(v.frameId, v.q, v.i1, v.j0))).toBeUndefined();   // red without the check: paper cached exact
         E._render(); await flush();                                   // the table reads the window: packed
         expect(holes(E)).toEqual([]);

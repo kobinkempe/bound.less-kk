@@ -459,7 +459,7 @@ describe("deferred area erase", () => {
         };
         E.doc.add(eraser, child.id);
 
-        expect(E._bakeOne({ obj: eraser, level: child.id }, { obj: src, level: "0" })).toBe(true);
+        expect(E._dispatchPair({ obj: eraser, level: child.id }, { obj: src, level: "0" }, { inline: true })).toBe("applied");
         // The source is cut and its child exists in the far frame, in the same
         // family — `src.id` still names it, because a one-region replace keeps
         // the key even though the object itself was swapped for a fill.

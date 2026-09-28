@@ -17,8 +17,13 @@ const dragSteps = (E, from, to, steps) => {
     for (let i = 1; i <= steps; i++) E.pointerMove(from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps);
     E.pointerUp();
 };
-const nat = (E) => { const n = E.doc.serializeNatives(); for (const k of Object.keys(n)) if (!n[k].length) delete n[k]; return JSON.stringify(n); };
 const ids = (E) => { const out = []; for (const k of E.doc.levels()) for (const o of E.doc.list(k)) if (!o.erase) out.push(o.id); return out.sort((x, y) => x - y); };
+// The document as a set: each frame's natives sorted by id, so a redo that re-inserts at another index still compares.
+const state = (E) => {
+    const n = E.doc.serializeNatives(), out = [];
+    for (const k of Object.keys(n).sort()) if (n[k].length) out.push([k, n[k].map((o) => JSON.stringify(o)).sort()]);
+    return JSON.stringify(out);
+};
 
 test("EP-1 undo to the start leaves nothing; redo to the end gives back the state before, exactly", () => {
     const E = mkEngine();
@@ -30,7 +35,7 @@ test("EP-1 undo to the start leaves nothing; redo to the end gives back the stat
     eraseGesture(E, [[641,12],[665.25,84.75],[734.5,207.5]], 48);          // the newer mark, pending
     dragSteps(E, [650, 70], [467, -92], 3);                    // the newer baked first; the older then cuts its piece
     E.flushErases(); E.flushBakes();
-    const fwd = nat(E);
+    const fwd = state(E);
     let n = 0;
     while (E.doc.canUndo()) {
         E.undo(); n++;
@@ -39,16 +44,11 @@ test("EP-1 undo to the start leaves nothing; redo to the end gives back the stat
     }
     expect(ids(E)).toEqual([]);                                 // red: a piece no op owns stays behind
     for (let k = 0; k < n; k++) E.redo();
-    expect(nat(E) === fwd).toBe(true);                          // red: a consumed piece comes back as well
+    // As a set per frame: a barrier bakes out of the marks' stack order, so the redo appends in another order.
+    expect(state(E) === fwd).toBe(true);                        // red: a consumed piece comes back as well
 });
 
 // ---- EP-2..EP-4: the same interleavings walked state by state, and across a reload (REVIEWER-3 fuzz, 2026-09-24) ----
-// The document as a set: each frame's natives sorted by id, so a redo that re-inserts at another index still compares.
-const state = (E) => {
-    const n = E.doc.serializeNatives(), out = [];
-    for (const k of Object.keys(n).sort()) if (n[k].length) out.push([k, n[k].map((o) => JSON.stringify(o)).sort()]);
-    return JSON.stringify(out);
-};
 const settle = (E) => { E.flushErases(); E.flushBakes(); };
 /** Undo to the start recording every state, then redo to the end: each redo must land on the state its undo left. */
 function walk(E) {
@@ -91,10 +91,16 @@ test("EP-2 a redone step whose source an undone gesture made takes that gesture'
 });
 
 test("EP-3 undo of a gesture whose piece an applied gesture went on to cut takes that cut back first: no ink twice", () => {
+    // Two marks over one stroke, the newer baked alone first (a test's `flushErases(only)`; live bakes
+    // cut a target in its marks' order, but an older build's log holds such histories): the newer cuts
+    // X in two, P; the older, still applied, then cuts the piece of P under it into Q.
     const E = mkEngine();
-    interleave(E, true);
+    drawStroke(E, [[200, 300], [600, 300]], 20);
+    eraseGesture(E, [[500, 250], [500, 350]], 20);             // the older mark, over the right half
+    eraseGesture(E, [[400, 250], [400, 350]], 20);             // the newer, across the middle
+    const newest = E._eraseStrokes().slice(-1)[0];
+    E.flushErases(new Set([newest.obj.id]));
     settle(E);
-    // The newer gesture cut X into pieces P; the older, still applied, cut one of P into Q.
     const erases = E.doc._undo.filter((op) => op.op === "eraseCommit");
     const newer = erases[erases.length - 1], older = erases[erases.length - 2];
     const cut = newer.baked.find((st) => st.removed && st.pieces && st.pieces.length);

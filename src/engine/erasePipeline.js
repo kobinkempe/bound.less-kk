@@ -132,7 +132,11 @@ class ErasePipeline {
             this._rebuildEraseIndex();
             return;
         }
-        if (k === "addFrame") { this._order.clear(); return; }   // natives back by reference, no events of their own
+        if (k === "addFrame") {                    // natives back by reference, no events of their own
+            this._order.clear();
+            if (!this._eraseReplaying) for (const o of this.doc.list(ev.frame)) if (o.targetOf || o.handledBy) this._pruneDead(o);
+            return;
+        }
         if ((k !== "add" && k !== "remove") || !ev.obj || (k === "remove" && ev.rehome)) return;
         const o = ev.obj;
         if (o.erase) {
@@ -140,7 +144,33 @@ class ErasePipeline {
             else { this._marks.delete(o.id); this._dropCuts(o.id); }
             return;
         }
+        if (k === "add" && !this._eraseReplaying && (o.targetOf || o.handledBy)) this._pruneDead(o);
         if (o.targetOf) for (const m of o.targetOf) { if (k === "add") this._lineageAdd(m, o.id); else this._lineageDelete(m, o.id); }
+    }
+    /**
+     * Whether mark `id` can mask anything again: in the document (set aside with a frame too), or
+     * held by an undone gesture that a redo brings back. A spent mark never returns (its gesture
+     * undoes by its steps), nor does one whose redo branch a new op cleared.
+     */
+    _markAlive(id) {
+        const o = this.doc._byId.get(id);
+        if (o && o.erase && !o._gone) return true;
+        const u = this.doc._undo, r = this.doc._redo, h = this._held;
+        if (!h || h.u !== u || h.r !== r || h.ul !== u.length || h.rl !== r.length || h.ut !== u[u.length - 1] || h.rt !== r[r.length - 1]) {
+            const set = new Set();
+            for (const op of u) if (op.strokeRec && op.strokeRec.obj) set.add(op.strokeRec.obj.id);
+            for (const op of r) if (op.strokeRec && op.strokeRec.obj) set.add(op.strokeRec.obj.id);
+            this._held = { u, r, ul: u.length, rl: r.length, ut: u[u.length - 1], rt: r[r.length - 1], set };
+        }
+        return this._held.set.has(id);
+    }
+    /** A live native names no mark that cannot return (A2 §4.6): dropped as it re-enters, and at a load. */
+    _pruneDead(o) {
+        let t = o.targetOf, h = o.handledBy;
+        if (t) for (const m of t) if (!this._markAlive(m)) t = withoutId(t, m);
+        if (h) for (const m of h) if (!this._markAlive(m)) h = withoutId(h, m);
+        if (t !== o.targetOf) { if (t.length) o.targetOf = t; else delete o.targetOf; }
+        if (h !== o.handledBy) { if (h.length) o.handledBy = h; else delete o.handledBy; }
     }
     /** A bake step replaces what a running barrier follows by its pieces (A2 §4.11 step 3). */
     _onEraseStep(ev) {
@@ -470,6 +500,8 @@ class ErasePipeline {
             if (!M.targets) continue;
             for (const id of M.targets) { const o = this.doc._byId.get(id); if (o && !o.erase) o.targetOf = withId(o.targetOf, M.id); }
         }
+        this._held = null;
+        for (const o of this.doc._byId.values()) if (!o.erase && (o.targetOf || o.handledBy)) this._pruneDead(o);
         this._rebuildEraseIndex();
     }
     /** A document loaded and its log replayed: the lineage derived, and a mark from before `targets` registered — its `targets` logged once. */
@@ -772,6 +804,7 @@ class ErasePipeline {
      */
     _dispatchPair(Erec, target, { ahead = false, barrier = false, inline = false } = {}) {
         const E = Erec.obj, HE = Erec.level;
+        if (E.type === "stroke") this._forceBake(E);              // called on a mark not yet landed: it lands and registers
         const o0 = target.obj;
         if (o0.type === "stroke") this._forceBake(o0);            // an erase reached it first
         if (o0.type === "fill") this.doc.fillToShapeById(o0.id);  // a pre-arc drawing
@@ -1299,14 +1332,21 @@ class ErasePipeline {
         }
         return false;
     }
-    /** The barrier's next round: its pairs in serial order, each target with its earliest mark only. */
+    /**
+     * The barrier's next round: each target its pairs name, with the earliest mark it is pending under
+     * anywhere (the per-target lock: a target is cut in the serial order of its marks, so an older
+     * mark never cuts a newer one's piece), in serial order.
+     */
     _barrierRound(b) {
-        const pairs = b.pairsOf(b);
-        const rank = new Map(this._eraseStrokes().map((m, i) => [m.obj.id, i]));
-        pairs.sort((p, q) => (rank.get(p.Erec.obj.id) - rank.get(q.Erec.obj.id)) || (zOf(q.rec.obj) - zOf(p.rec.obj)) || (q.rec.obj.id - p.rec.obj.id));
+        const marks = this._eraseStrokes(), rank = new Map(marks.map((m, i) => [m.obj.id, i]));
         const seen = new Set(), out = [];
-        for (const p of pairs) if (!seen.has(p.rec.obj.id)) { seen.add(p.rec.obj.id); out.push(p); }
-        return out;
+        for (const p of b.pairsOf(b)) {
+            if (seen.has(p.rec.obj.id)) continue;
+            seen.add(p.rec.obj.id);
+            const Erec = marks.find((m) => this._pendingPair(m.obj, p.rec.obj)) || p.Erec;
+            out.push({ Erec, rec: p.rec });
+        }
+        return out.sort((p, q) => (rank.get(p.Erec.obj.id) - rank.get(q.Erec.obj.id)) || (zOf(q.rec.obj) - zOf(p.rec.obj)) || (q.rec.obj.id - p.rec.obj.id));
     }
     _finishBarrier(b) {
         if (this._barrier !== b) return;

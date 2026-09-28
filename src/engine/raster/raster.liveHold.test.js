@@ -55,6 +55,29 @@ describe("F120 the live path at a pen-up that leaves the sync path", () => {
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
     });
 
+    test("LH-4 a stroke pending its shape keeps its path past every limit; the limit counts from the landing", async () => {
+        const E = mkEngine();
+        fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
+        E._render(); await flush();
+        E.renderer.layer.noteSyncCost(20);
+        const t0 = rasterStats.liveTimeouts, hand0 = rasterStats.liveHandoffs;
+        stroke(E);
+        const h = E.renderer._liveHeld[0];
+        h.at -= 60000; h.until = 0;                         // a minute past pen-up, the shape still pending
+        E.renderer._releaseHeldLive(E.renderer._view);
+        expect(E.renderer._liveHeld.length).toBe(1);        // red before: timed out at 15 s, the stroke nowhere
+        expect(rasterStats.liveTimeouts).toBe(t0);
+        while (E._stepShapeBakes(1000));                    // the shape lands; its plates are posted
+        h.until = 0;
+        E.renderer._releaseHeldLive(E.renderer._view);
+        expect(E.renderer._liveHeld.length).toBe(1);        // its plates are coming: the limit runs from the landing
+        await flush();
+        E.renderer._releaseHeldLive(E.renderer._view);
+        expect(E.renderer._liveHeld.length).toBe(0);
+        expect(rasterStats.liveTimeouts).toBe(t0);
+        expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
+    });
+
     test("LH-2 a pen-up that stays sync holds nothing past its own frame", async () => {
         const E = mkEngine();
         fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");

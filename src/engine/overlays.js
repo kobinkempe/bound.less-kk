@@ -259,7 +259,7 @@ class Overlays {
                     // where its picture is; the view, in its units, is the
                     // view brought back through those offsets.
                     let vrO = vr;
-                    if (o.below) vrO = this.lm.mapRectObj(win, F, L, o.below, L, true) || vr;
+                    if (o.below) vrO = this.stage.placeNative(o, F).toStored(win) || vr;
                     rings = this._outlineInView(o, vrO, tol);
                     if (rk) C.rings.set(rk, rings);
                 }

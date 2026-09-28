@@ -914,3 +914,19 @@ softCanvas suites). Next for the orchestrator: the B-PYRAMID-2 brief drafted whi
 **Measured:** load 0.20 / 0.06 / 0.02 at the resume — no orphaned workers this time.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-28 19:02 UTC — B-ERASE (builder) — resumed after the session-limit stop
+**Working on:** E1–E3 are in the tree (snapshot 9b97bae), unverified: `eraseRule.js`, `cede.js` (one body for
+`cedeTileById` and the descent), dust boxes (`eraseJob.dustBoxes`), events carrying `by`/`dust`/`inkless`, the Stage's
+`_stepOf` classifier (the `isNeutral` dep gone), Item getters for the fields, byte masks and 16 slots, the pack's
+`maskSlots`, format2/persist/oplog (`attr` entries)/files/hook derivation calls, the interim pool (`submit`), and
+`erasePipeline.js` rewritten (marks set, lineage, registration at the landing, `_bakeRun` with the reorder buffer,
+`_eraseBarrier` + tap/drag/lasso barriers, `_spendMark` with pruning); KobinEngine (`_initErase`, status `erase`,
+cancel on press/tool/undo, the parked lasso drawn), selection (barrier call sites, `_marksAt` pick).
+**Measured:** before the stop, typecheck 0 and lint 0 on the changed files; a smoke run of 7 suites: 73 pass, 9 fail
+(provenance EP-1..4, KobinEngine.edit 4 deferred-erase cases, erase.moved F66, eraseDescent.frames A13-2).
+**Decisions made:** EP-1's failure is array order only (the natives' set and geometry equal; a barrier's time order vs
+the redo's stack order) — pending a look at EP-3/EP-4, whose "the older cuts the newer's piece" setup the rule no longer
+produces (a piece of a handled target is handled).
+**Questions asked:** none new.
+WHERE I AM: re-running the smoke run; then EP-4's diff, the four KobinEngine.edit cases, A13-2, F66.

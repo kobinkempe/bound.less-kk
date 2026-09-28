@@ -714,6 +714,32 @@ describe("the hard drops, a crossing, the report and the replace", () => {
         expect(store.report().refused).toBe(1);
     });
 
+    test("a refused job stays refused when a newer job for its key begins before it lands", () => {
+        // Two strips for one key queued in one frameSeq (a frame step's post and an arrival's re-post)
+        // dispatch apart; a hard drop between them refuses the first, and the second's record replaces it.
+        const store = mkStore({ maxBytes: 8 * PLATE_BYTES, doc: null });
+        const e1 = { frameId: "0", q: "e", Zq: 3.1, i0: 0, i1: 0, j0: 0, j1: 0 };
+        const e2 = { ...e1, Zq: 3.3 };
+        store.beginJob(11, e1, [{ i: 0, j: 0 }], 0);
+        expect(store.dropQuantum("e")).toBe(1);
+        store.beginJob(12, e2, [{ i: 0, j: 0 }], 0);
+        const late = mkBitmap();
+        expect(store.put({ jobId: 11, frameId: "0", q: "e", Zq: 3.1, i: 0, j: 0, G: 0, bitmap: late })).toBe("stale");
+        expect(late.closed).toBe(true);
+        expect(store.put({ jobId: 12, frameId: "0", q: "e", Zq: 3.3, i: 0, j: 0, G: 0, bitmap: mkBitmap() })).toBe("cached");
+        expect(store.get(plateKey("0", "e", 0, 0)).Zq).toBe(3.3);
+        // Another document: the old one's job lands after the new one's began, and is discarded.
+        const v = view("0", 0, 0, 0, 0, 0);
+        store.beginJob(13, v, [{ i: 5, j: 5 }], 0);
+        store.dropAll(false);
+        store.beginJob(14, v, [{ i: 5, j: 5 }], 1);
+        expect(store.put({ jobId: 13, frameId: "0", q: 0, Zq: 1, i: 5, j: 5, G: 0, bitmap: mkBitmap() })).toBe("stale");
+        expect(store.get(plateKey("0", 0, 5, 5))).toBeUndefined();
+        store.endJob(13);
+        expect(store.put({ jobId: 14, frameId: "0", q: 0, Zq: 1, i: 5, j: 5, G: 1, bitmap: mkBitmap() })).toBe("cached");
+        expect(store.report().refused).toBe(2);
+    });
+
     test("rule 5 — a frame crossing drops nothing, so crossing back is a hit", () => {
         const store = mkStore({ maxBytes: 8 * PLATE_BYTES, doc: null });
         const home = view("0", 0, 0, 1, 0, 0), child = view("6", 12, 0, 1, 0, 0);

@@ -64,7 +64,7 @@ const LADDER_MAX_PLATES = 24;
  * until its plates landed (review minor 6).
  */
 export const LIVE_HOLD_MS = 3000;
-/** The longest a held path waits past LIVE_HOLD_MS while the plates under it are in flight. */
+/** The longest a held path waits, from its shape's landing, while the plates under it are in flight (none while it is pending). */
 const LIVE_HOLD_MAX_MS = 15000;
 let liveClipSeq = 0;
 /** The stopgap's bounds: a selection this small, over this few plates, is rastered on the main thread. */
@@ -120,6 +120,9 @@ export const rasterStats = {
     // path throws (D187's principle).
     dupPostQ: 0,
     jobsEnded: 0, dropsHandled: 0, staleArrivals: 0, refusedAtDispatch: 0,
+    // Strips refused at dispatch, by reason (PLAN §5.4 Q3): a snapshot older than the cell's dirt, the
+    // table not covering a camera plate (and that strip's uncovered plates, left to stand-ins), a dead quantum.
+    refusedDirt: 0, refusedCover: 0, refusedCoverPlates: 0, refusedDead: 0,
     quantumDrops: 0, settleDrops: 0,
     syncFrames: 0, syncPlates: 0, syncNoImageData: 0, syncBytes: 0,
     batches: 0, batchPlates: 0, bitmapWaits: 0,
@@ -810,9 +813,12 @@ export default class RasterRenderer extends Renderer {
             const h = held[k];
             let done = !this._planeViewOk(v) || v.frameId !== h.frameId;
             if (!done && now > h.until) {
-                // Past the limit with every cell under it being rastered at a G that paints it
-                // (a 1,000-family plate takes 5 s): wait on, up to LIVE_HOLD_MAX_MS.
-                if (now - h.at < LIVE_HOLD_MAX_MS && this._liveCellsComing(v, h)) { h.until = now + 250; rasterStats.liveExtends++; }
+                // Past the limit with every cell under it being rastered at a G that paints it (a
+                // 1,000-family plate takes 5 s): wait on, up to LIVE_HOLD_MAX_MS from the shape's landing.
+                // Until the shape lands the path is the picture: no limit (PLAN §5.4 Q2).
+                const pending = this._shownFrom(h) == null && !!this.stage && this.stage.itemsOf(h.id).some((it) => it.pending);
+                if (pending) h.since = now;
+                if ((pending || now - (h.since || h.at) < LIVE_HOLD_MAX_MS) && this._liveCellsComing(v, h)) { h.until = now + 250; rasterStats.liveExtends++; }
                 else { done = true; rasterStats.liveTimeouts++; }
             }
             if (!done && this.stage && !this.stage.itemsOf(h.id).length) done = true;   // an undo, a cancel
@@ -1318,9 +1324,13 @@ export default class RasterRenderer extends Renderer {
         const G = this._genOf(req), u = PLATE_PX / req.Zq;
         for (let p = 0; p * 2 < strip.length; p++) {
             const i = strip[p * 2], j = strip[p * 2 + 1];
-            if (G < this.store.fresh.dirtySince(plateKey(req.frameId, req.q, i, j))) { rasterStats.refusedAtDispatch++; return false; }
+            if (G < this.store.fresh.dirtySince(plateKey(req.frameId, req.q, i, j))) { rasterStats.refusedAtDispatch++; rasterStats.refusedDirt++; return false; }
             if (this.stage && !req.list && !this.stage.covers(req.frameId, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u })) {
-                rasterStats.refusedAtDispatch++;
+                rasterStats.refusedAtDispatch++; rasterStats.refusedCover++;
+                for (let k = p; k * 2 < strip.length; k++) {
+                    const a = strip[k * 2], b = strip[k * 2 + 1];
+                    if (!this.stage.covers(req.frameId, { left: a * u, top: b * u, right: (a + 1) * u, bottom: (b + 1) * u })) rasterStats.refusedCoverPlates++;
+                }
                 return false;
             }
         }
@@ -1373,7 +1383,7 @@ export default class RasterRenderer extends Renderer {
             const q = String(req.q);
             const alive = q === String(st.q) || q === String(st.pendQ) || q === String(st.heldQ)
                 || q === String(st.prevQ) || (q === "e" && st.settlePending);
-            if (!alive) { rasterStats.refusedAtDispatch++; return false; }
+            if (!alive) { rasterStats.refusedAtDispatch++; rasterStats.refusedDead++; return false; }
         }
         return this._packable(req, strip);
     }

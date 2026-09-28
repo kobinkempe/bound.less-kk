@@ -335,11 +335,13 @@ export class OpLog {
      * stored snapshot; `listed` is the header's frameIds (without it, every frame counts as listed).
      */
     replay(entries, frameSeq = {}, listed = null) {
-        const wasReplaying = this.replaying;
+        const wasReplaying = this.replaying, eraseWas = this.E._eraseReplaying;
         this.replaying = true;
+        this.E._eraseReplaying = true;   // the lineage is derived once the stacks are rebuilt, not per insert
         this._replaySettles = [];
         try { return this._replay(entries, frameSeq, listed); } finally {
             this.replaying = wasReplaying;
+            this.E._eraseReplaying = eraseWas;
             for (const ev of this._replaySettles) this._onSettle(ev);   // `_replayOps` still names the ops for `of`
             this._replaySettles = [];
             this._replayOps = null;

@@ -118,6 +118,7 @@ export default class PlateStore {
         this.cache = new Map();      // key -> entry
         this.inflight = new Map();   // key -> { jobId, key, frameId, q, i, j, Zq, G, refused }
         this.jobs = new Map();       // jobId -> key[]
+        this._refusedJobs = new Set(); // job ids a hard drop refused: a newer job for the same key overwrites the record
         this.bytes = 0;
         this._pins = new Set();      // the visible set: never evicted (TileStore.js:50-58)
         // The ADDED set, pinned beside the visible one: a "replace" want rebuilds `_pins` alone,
@@ -365,7 +366,7 @@ export default class PlateStore {
     put(rec) {
         const key = rec.key || plateKey(rec.frameId, rec.q, rec.i, rec.j);
         const f = this.inflight.get(key);
-        const refused = !!f && f.refused && (rec.jobId == null || f.jobId === rec.jobId);
+        const refused = (rec.jobId != null && this._refusedJobs.has(rec.jobId)) || (!!f && f.refused && (rec.jobId == null || f.jobId === rec.jobId));
         this._endKey(key, rec.jobId);
         this.s.puts++;
         // Counted on arrival, not on caching, so `bitmapsOpen − bitmapsClosed` is what the
@@ -434,6 +435,7 @@ export default class PlateStore {
 
     /** The job came back, failed, or was abandoned before dispatch. */
     endJob(jobId) {
+        this._refusedJobs.delete(jobId);
         const keys = this.jobs.get(jobId);
         if (!keys) return 0;
         this.jobs.delete(jobId);
@@ -547,7 +549,7 @@ export default class PlateStore {
     }
 
     /** A job a hard drop refused: its result is discarded on arrival (`put`). */
-    _refuse(f) { f.refused = true; }
+    _refuse(f) { f.refused = true; this._refusedJobs.add(f.jobId); }
 
     // Rule 5 is that a frame CROSSING drops nothing, so it has no method here: the key
     // carries the frame, an inactive frame's plates are retained and fall out by the byte

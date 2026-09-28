@@ -1,7 +1,8 @@
 /**
  * A descent cannot home ink where the lattice has no frame (REVIEWER A1-3, against new F99s): the
  * worker's copy of the lattice knows the retired ids it must not mint again, and a result whose
- * piece names a frame still missing after the merge is refused, the document untouched.
+ * piece names a frame still missing after the merge is refused: no geometry changes, and the target
+ * is handled by the mark (A2 §5.7: its ink under the mark shows again).
  */
 import { useEngines, mkEngine, drawStroke, eraseGesture } from "./__testkit__/harness";
 import { wireDescent, unwireDescent } from "./eraseDescent";
@@ -20,15 +21,17 @@ test("A13-1 the worker's lattice copy keeps the retired ids: a moved frame's id 
     expect(world.lm.cellChild("0", 7, 3).id).not.toBe(X.id);          // red: the copy minted it again
 });
 
-test("A13-2 a descent whose piece names a frame the lattice lacks is refused, the document untouched", () => {
+test("A13-2 a descent whose piece names a frame the lattice lacks is refused, the geometry untouched", () => {
     const E = mkEngine();
     const o = drawStroke(E, [[300, 300], [500, 300]], 20);
     E._scheduleBake = () => {};
     eraseGesture(E, [[380, 280], [420, 320]], 20);
     const Erec = E._eraseStrokes()[0];
-    const before = JSON.stringify(E.doc.serializeNatives());
+    const geometry = () => JSON.stringify(E.doc.serializeNatives(), (k, v) => (k === "handledBy" ? undefined : v));
+    const before = geometry();
     const kid = { type: "shape", origin: "native", loops: o.loops, color: "#000", opacity: 1 };
     const r = { stats: { seals: [], dust: 0 }, minted: [], steps: [{ removedId: o.id, parents: [], kids: [{ vid: -1, level: "0/99,99/5,5", obj: kid }] }] };
-    expect(E._applyDescent(Erec, { obj: o, level: "0" }, r, { op: { op: "eraseCommit", baked: [] }, done: new Set() })).toBe(false);
-    expect(JSON.stringify(E.doc.serializeNatives())).toBe(before);     // red: the kid homed in a missing frame
+    expect(E._applyDescent(Erec, { obj: o, level: "0" }, r)).toBe(false);
+    expect(geometry()).toBe(before);                                   // red: the kid homed in a missing frame
+    expect(E.doc.getById(o.id).obj.handledBy).toEqual([Erec.obj.id]);
 });
