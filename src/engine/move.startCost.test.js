@@ -1,7 +1,7 @@
 /**
- * The erase barrier at a drag's start scans the document a bounded number of times, not once per
- * selected id (REVIEWER A3-2: on the Magnum Opus 1,000 selected ids took 7.7 s and 4,000 took 39 s
- * with no mark pending — two full scans per id).
+ * The erase barrier at a drag's start (`_dragBarrier`, A2 §4.11) scans the document a bounded number
+ * of times, not once per selected id (REVIEWER A3-2: on the Magnum Opus 1,000 selected ids took 7.7 s
+ * and 4,000 took 39 s with no mark pending — two full scans per id).
  */
 import { useEngines, mkEngine, eraseGesture } from "./__testkit__/harness";
 import { rectLoop } from "./geometry/arcShape";
@@ -44,7 +44,7 @@ describe("MS — a drag's start costs a bounded number of document scans", () =>
         E._render();
         E._setSelection(ids.slice(0, 500));
         const scans = jest.spyOn(E, "_eraseStrokes");
-        E._settleSelectionErases();
+        E._dragBarrier(() => {});
         expect(scans.mock.calls.length).toBeLessThanOrEqual(2);   // red: two per id
     });
     test("MS-2 a mark pending over the selection is still baked out before the drag, and the new pieces stay selected", () => {
@@ -55,7 +55,7 @@ describe("MS — a drag's start costs a bounded number of document scans", () =>
         E.flushBakes();
         E._setSelection(ids.slice(0, 100));
         const before = new Set(ids.slice(0, 100));
-        E._settleSelectionErases();
+        E._dragBarrier(() => {});
         expect(E._eraseStrokes().length).toBe(0);                    // the mark is spent
         const sel = E.selection ? E.selection.ids : [];
         const pieces = [];                                             // what the bake cut out of the selected shapes

@@ -1352,6 +1352,7 @@ class ErasePipeline {
         if (this._barrier !== b) return;
         this._barrier = null; this._follow = null;
         if (b.rounds) this._perf("eraseBarrier", b.t0, false, { kind: b.kind, rounds: b.rounds });
+        for (const Erec of this._eraseStrokes()) if (!this._headOf(Erec)) this._spendMark(Erec);   // what the gesture emptied goes now
         b.then([...b.follow].filter((id) => this.doc.getById(id)), b);
         this._emit();
         this._scheduleBake(0);

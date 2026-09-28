@@ -1083,8 +1083,9 @@ export default class Stage {
         for (const it of [...items]) {
             const want = it.grp != null ? this._groups.get(it.grp) : null;
             const o = want ? want.rem : off;
-            if (fk != null && fk !== it.fk) { this._unfile(it); it.fk = fk; this._file(it); }
-            if (zk != null && zk !== it.zk) { this._list.remove(it); it.zk = zk; if (!sameOff(o, it.off)) this._setOff(it, o); this._list.insert(it); continue; }
+            // A new family or paint key is a change `changesSince` reports (the pack's family table keys on both).
+            if (fk != null && fk !== it.fk) { this._logChange(it); this._unfile(it); it.fk = fk; this._file(it); }
+            if (zk != null && zk !== it.zk) { this._logChange(it); this._list.remove(it); it.zk = zk; if (!sameOff(o, it.off)) this._setOff(it, o); this._list.insert(it); continue; }
             if (!sameOff(o, it.off)) this._setOff(it, o);
         }
     }

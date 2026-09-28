@@ -189,6 +189,22 @@ describe("PyramidStore — PLAN §3 row 1 (monotone G; exact iff no later change
         expect(store.put({ ...c, G: 0, bitmap: bitmap(), jobId: 2 })).toBe("cached");
     });
 
+    test("a hard drop refuses a job that a newer one for the same key overtook in the in-flight map", () => {
+        const stage = fakeStage();
+        const store = new PyramidStore({ fresh: stage, maxBytes: 64 * PLATE_BYTES, phone: false, doc: null });
+        const c = levelCell("F", 0, 1, 0, 0);
+        store.beginJob(1, [c], 0);
+        stage.commit({ F: [{ left: 1, top: 1, right: 2, bottom: 2 }] });      // overtakes job 1: the cell is wanted again
+        expect(store.wants(c.key)).toBe(true);
+        store.beginJob(2, [c], stage.generation);
+        store.dropFrames((f) => f === "F");                                    // the id now means another place
+        const late = bitmap();
+        expect(store.put({ ...c, G: 0, bitmap: late, jobId: 1 })).toBe("refused");
+        expect(late.closed).toBe(true);
+        expect(store.put({ ...c, G: 1, bitmap: bitmap(), jobId: 2 })).toBe("refused");
+        expect(store.get(c.key)).toBeUndefined();
+    });
+
     test("in-flight dedupe: a key in flight packed at or after its dirt is not wanted again; one a change overtook is", () => {
         const stage = fakeStage();
         const store = new PyramidStore({ fresh: stage, maxBytes: 64 * PLATE_BYTES, phone: false, doc: null });

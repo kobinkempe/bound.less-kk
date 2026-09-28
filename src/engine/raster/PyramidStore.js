@@ -104,7 +104,7 @@ export default class PyramidStore {
         this.maxBytes = opts.maxBytes != null ? opts.maxBytes : budgetBytes(opts.cfg, opts.wDev || 1280, opts.hDev || 800, this.phone);
         this.cache = new Map();       // key -> record
         this.inflight = new Map();    // key -> { jobId, key, cell, G, refused }
-        this.jobs = new Map();        // jobId -> key[]
+        this.jobs = new Map();        // jobId -> cell descriptors
         this._refusedJobs = new Set();
         this._levelFrames = new Map(); // frame -> level records held there
         this.bytes = 0;
@@ -247,23 +247,21 @@ export default class PyramidStore {
 
     /** A job packed at `G` for these cells (descriptors): each is in flight and tracked from now. */
     beginJob(jobId, cells, G) {
-        const keys = [];
         for (const c of cells) {
-            keys.push(c.key);
             this.inflight.set(c.key, { jobId, key: c.key, cell: c, G, refused: false });
             this.fresh.track(c.key, c.frame, cellBox(c) || EVERYWHERE, G);
         }
-        this.jobs.set(jobId, keys);
+        this.jobs.set(jobId, cells.slice());
     }
 
     /** The job came back, failed or was abandoned: its keys leave the in-flight map. */
     endJob(jobId) {
-        const keys = this.jobs.get(jobId);
+        const cells = this.jobs.get(jobId);
         this._refusedJobs.delete(jobId);
-        if (!keys) return 0;
+        if (!cells) return 0;
         this.jobs.delete(jobId);
         let n = 0;
-        for (const key of keys) {
+        for (const { key } of cells) {
             const f = this.inflight.get(key);
             if (f && f.jobId === jobId) { this.inflight.delete(key); n++; this._untrackIfIdle(key); }
         }
@@ -307,11 +305,15 @@ export default class PyramidStore {
             if (!pred(r)) continue;
             this._remove(r.key); n++;
         }
-        for (const f of this.inflight.values()) {
-            if (f.refused || (spare && spare(f.cell)) || !pred(f.cell)) continue;
-            f.refused = true;
-            this._refusedJobs.add(f.jobId);
-            n++;
+        // By job, not through the in-flight map: a job that a newer one for the same key overtook is no longer in it.
+        for (const [jobId, cells] of this.jobs) {
+            if (this._refusedJobs.has(jobId)) continue;
+            let hit = 0;
+            for (const c of cells) if (!(spare && spare(c)) && pred(c)) hit++;
+            if (!hit) continue;
+            this._refusedJobs.add(jobId);
+            for (const c of cells) { const f = this.inflight.get(c.key); if (f && f.jobId === jobId) f.refused = true; }
+            n += hit;
         }
         this.s.drops += n;
         return n;
@@ -439,11 +441,11 @@ export default class PyramidStore {
         const f = this.inflight.get(key);
         if (!f || (jobId != null && f.jobId !== jobId)) return;
         this.inflight.delete(key);
-        const keys = this.jobs.get(f.jobId);
-        if (keys) {
-            const at = keys.indexOf(key);
-            if (at >= 0) keys.splice(at, 1);
-            if (!keys.length) this.jobs.delete(f.jobId);
+        const cells = this.jobs.get(f.jobId);
+        if (cells) {
+            const at = cells.findIndex((c) => c.key === key);
+            if (at >= 0) cells.splice(at, 1);
+            if (!cells.length) this.jobs.delete(f.jobId);
         }
     }
 }

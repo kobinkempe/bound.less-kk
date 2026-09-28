@@ -10,6 +10,7 @@
  */
 import KobinEngine from "../KobinEngine";
 import { pieceInks, inks } from "./ink";
+import { underMask } from "../eraseRule";
 import { encodeLoops } from "../geometry/arcShape";
 
 const live = [];
@@ -115,17 +116,35 @@ export function roundTrip(E, out = 0, sx = 400, sy = 300) {
 export const painted = (E) => { E._render(); return E._objs().filter((o) => !o.erase); };
 /** Everything the renderer draws, INCLUDING un-baked eraser marks. */
 export const paintedAll = (E) => { E._render(); return E._objs(); };
-/** The piece painting `p` last, counting eraser marks — literally what shows. */
-export function topAtAll(E, sx, sy) {
-    const list = paintedAll(E), p = E.cam.screenToFrame(sx, sy);
-    for (let i = list.length - 1; i >= 0; i--) if (pieceInks(list[i], p)) return list[i];
+/**
+ * The piece that shows at frame point `p` of `list` (paint order): a pending mark paints nothing and
+ * hides, where its ink covers `p`, exactly what the erase rule names (`underMask`, A2 §4.1).
+ */
+function visibleAt(E, list, p) {
+    const over = [];
+    for (const it of list) {
+        if (!it.erase || !pieceInks(it, p)) continue;
+        const rec = E.doc.getById(it.id);
+        if (rec && !over.includes(rec.obj)) over.push(rec.obj);
+    }
+    for (let i = list.length - 1; i >= 0; i--) {
+        const it = list[i];
+        if (it.erase || !pieceInks(it, p)) continue;
+        const rec = E.doc.getById(it.id);
+        if (rec && over.some((M) => underMask(rec.obj, M))) continue;
+        return it;
+    }
     return null;
 }
+/** The piece that shows at a screen point — literally what shows, pending marks' masks applied. */
+export function topAtAll(E, sx, sy) {
+    return visibleAt(E, paintedAll(E), E.cam.screenToFrame(sx, sy));
+}
 /**
- * What the user actually sees: a cell is set when the TOP-most thing painting it
- * is real ink rather than an eraser mark. This is the only fair way to compare a
- * drawing before and after a bake — `raster` counts the ink still sitting under
- * an un-baked mark, which is exactly the ink the user cannot see.
+ * What the user actually sees: a cell is set where ink shows through every pending
+ * mark's mask. This is the only fair way to compare a drawing before and after a
+ * bake — `raster` counts the ink still sitting under an un-baked mark, which is
+ * exactly the ink the user cannot see.
  */
 export function rasterVisible(E, n = 48, box) {
     const b = box || { x0: 0, y0: 0, x1: E.width, y1: E.height };
@@ -136,9 +155,7 @@ export function rasterVisible(E, n = 48, box) {
         for (let i = 0; i < n; i++) {
             const p = E.cam.screenToFrame(b.x0 + ((i + 0.5) / n) * (b.x1 - b.x0),
                 b.y0 + ((j + 0.5) / n) * (b.y1 - b.y0));
-            let top = null;
-            for (let k = list.length - 1; k >= 0; k--) if (pieceInks(list[k], p)) { top = list[k]; break; }
-            row += (top && !top.erase) ? "#" : ".";
+            row += visibleAt(E, list, p) ? "#" : ".";
         }
         out.push(row);
     }

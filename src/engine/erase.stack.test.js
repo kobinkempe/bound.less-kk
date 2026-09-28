@@ -2,13 +2,15 @@
  * A ring erased through a stack of big overlapping objects, and what the select tool does while
  * that bake is still running (Kobin, 2026-09-23): a lasso waits for the bake and then selects every
  * cut-out; a cut-out the baker has passed drags above the mark still baking below it; a select
- * bakes what it touches first (F65); undo/redo and drags with a cut in the worker lose no cut.
- * The bake is ticked by hand here; the timing on 100 and 1,000 objects is `erase.stack.probe.js`.
+ * bakes what it touches first (F65); undo/redo and drags with cuts in the workers lose no cut, and a
+ * gesture waits, parked, for the cuts under it (A2 §4.11). The bake is ticked by hand here; the
+ * timing on 100 and 1,000 objects is `erase.stack.probe.js`.
  */
 import { mkEngine, useEngines, eraseGesture, topAtAll } from "./__testkit__/harness";
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { intersectShape, loopsArea, loopsBBox } from "./geometry/arcShape";
+import { underMask } from "./eraseRule";
 
 const C = [400, 300], RING_R = 110, ERASER = 16;
 const later = (ms = 2) => new Promise((r) => setTimeout(r, ms));
@@ -56,20 +58,17 @@ function stack(n, { under } = {}) {
     }
     return { E, objs, Erec, want };
 }
-/** What the tick does, `k` times, inline: the next target cut, the mark stepped below it; then its render. */
+/** What the tick does, `k` times, inline: the next pair in the serial order cut; then its render. */
 function bakeSteps(E, Erec, k) {
-    for (let i = 0; i < k; i++) {
-        const t = E._nextEraseTarget(Erec);
-        if (!t) break;
-        E._bakeOne(Erec, t, { sync: true });
-        E._lowerMark(Erec, t);
-    }
+    for (let i = 0; i < k && E._headOf(Erec); i++) E._bakeNext();
     E._render();
 }
 async function settle(E, max = 200) {
-    for (let i = 0; i < max && (E._eraseStrokes().length || E._cutInflight); i++) { E._bakeTick(); await later(4); }
-    return E._eraseStrokes().length === 0 && !E._cutInflight;
+    for (let i = 0; i < max && (E._eraseStrokes().length || E._eraseBusy() || E._barrier); i++) { E._bakeTick(); await later(4); }
+    return E._eraseStrokes().length === 0 && !E._eraseBusy();
 }
+/** The targets whose cuts are in a worker. */
+const flying = (E) => [...E._cuts.values()].filter((c) => c.state === "flight").map((c) => c.id);
 const ink = (E) => { const out = []; for (const L of E.doc.levels()) for (const o of E.doc.list(L)) if (!o.erase) out.push(o); return out; };
 /** Every object whose pieces' area is not its area with the ring out: uncut, cut twice, or lost. */
 function audit(E, want) {
@@ -138,7 +137,7 @@ describe("a ring erased through a stack, while it bakes", () => {
         bakeSteps(E, Erec, 6);
         const zMark = E._zOf(Erec.obj);
         const { id, seen } = dragFrom(E, C, 20);
-        expect(E._zOf(E.doc.getById(id).obj)).toBeGreaterThan(zMark);
+        expect(underMask(E.doc.getById(id).obj, Erec.obj)).toBe(false);   // handled: the mark hides it nowhere
         expect(E._zOf(Erec.obj)).toBe(zMark);               // a drag does not touch the mark
         expect(seen.slice(2)).toEqual(Array(18).fill("SEL"));   // the disc over the ring, not the white mark
         E.flushErases();
@@ -153,7 +152,7 @@ describe("a ring erased through a stack, while it bakes", () => {
         const { id, seen } = dragFrom(E, C, 12);            // the next object down: the select bakes it
         const z = E._zOf(E.doc.getById(id).obj);
         expect(z).toBeLessThan(zMark);                     // it was the baker's next target
-        expect(E._zOf(Erec.obj)).toBeLessThan(z);          // red before: the barrier left the mark above it
+        expect(underMask(E.doc.getById(id).obj, Erec.obj)).toBe(false);   // its pieces are handled: shown over the mark
         expect(seen.slice(2)).toEqual(Array(10).fill("SEL"));   // red before: MARK at every step
         E.flushErases();
         expect(audit(E, want)).toEqual([]);
@@ -182,7 +181,7 @@ describe("a ring erased through a stack, while it bakes", () => {
         setEraseTransport(worker());
         const { E, want } = stack(8);
         E._bakeTick();
-        expect(E._cutInflight).not.toBeNull();
+        expect(E._eraseBusy()).toBe(true);
         E.undo();
         await later(10);                                    // the worker's answer lands on no mark
         E.redo();
@@ -197,7 +196,7 @@ describe("a ring erased through a stack, while it bakes", () => {
             polys: [[[20, 20], [60, 20], [60, 60], [20, 60]]] }, E.cam.frame);   // drawn after the mark, away from it
         E._render();
         E._bakeTick();
-        expect(E._cutInflight).not.toBeNull();
+        expect(E._eraseBusy()).toBe(true);
         dragFrom(E, [40, 40], 5);
         expect(await settle(E)).toBe(true);
         expect(audit(E, want)).toEqual([]);                 // red before: the mark spent at the drag, the blob never cut
@@ -208,8 +207,8 @@ describe("a ring erased through a stack, while it bakes", () => {
         const { E, objs, want } = stack(6);
         E._bakeTick();
         const A = objs[5], B = objs[4];
-        expect(E._cutInflight && E._cutInflight.id).toBe(A.id);
-        E._flushErasesFor(B.id);                            // the select barrier on B, the next object down
+        expect(flying(E)).toContain(A.id);
+        E._tapBarrier(B.id, () => {});                      // the select barrier on B, the next object down
         E._render();
         E.undo();
         await later(40);                                    // A's answer lands on no mark
@@ -223,12 +222,26 @@ describe("a ring erased through a stack, while it bakes", () => {
         const { E, objs, want } = stack(6);
         E._bakeTick();
         const A = objs[5], B = objs[4];
-        expect(E._cutInflight && E._cutInflight.id).toBe(A.id);
-        E._flushErasesFor(B.id);
+        expect(flying(E)).toContain(A.id);
+        E._tapBarrier(B.id, () => {});
+        const sq = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#c03030", opacity: 1,
+            polys: [[[20, 20], [60, 20], [60, 60], [20, 60]]] }, E.cam.frame);   // away from the ring
         E._render();
-        dragFrom(E, C, 5, 20);                              // A is on top at the centre: tap it, drag it
-        expect(E.doc.getById(A.id)).toBeNull();             // red before: A dragged away uncut
+        E._setSelection([sq.id]);                          // something else selected: a press on A then selects A and drags it (A2 §5.5)
+        const moved = new Set();
+        for (const f of ["setOffsetsById", "moveById", "rehomeById"]) {
+            const orig = E.doc[f].bind(E.doc);
+            E.doc[f] = (id, ...a) => { moved.add(id); return orig(id, ...a); };
+        }
+        E.setTool("select");
+        E.pointerDown(C[0], C[1]);                          // A is on top at the centre
+        for (let i = 1; i <= 5; i++) E.pointerMove(C[0] + 20 * i, C[1]);
+        E.pointerUp();
+        expect(E._barrier).not.toBeNull();                  // the drag waits, parked, for A's cut
         expect(await settle(E)).toBe(true);
+        expect(E.doc.getById(A.id)).toBeNull();
+        expect(moved.has(A.id)).toBe(false);                // red before: A dragged away uncut
+        expect(moved.size).toBeGreaterThan(0);              // its pieces moved, the drag applied whole
         expect(audit(E, want)).toEqual([]);
     });
 
@@ -236,7 +249,7 @@ describe("a ring erased through a stack, while it bakes", () => {
         setEraseTransport(worker(20));
         const { E, want } = stack(3);
         E._bakeTick();
-        expect(E._cutInflight).not.toBeNull();
+        expect(E._eraseBusy()).toBe(true);
         E.flushErases();
         expect(E._eraseStrokes()).toHaveLength(0);
         await later(40);

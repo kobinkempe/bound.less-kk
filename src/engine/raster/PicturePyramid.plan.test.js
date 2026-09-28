@@ -375,6 +375,22 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         const kid = P0.cells.filter((c) => c.draws.length === 4).map(d), not = P0.cells.filter((c) => c.draws.length === 1).map(d);
         expect(Math.max(...kid)).toBeLessThanOrEqual(Math.min(...not));
     });
+
+    test("children cover a cell with no other source before they sharpen a blurred one nearer the attention point", () => {
+        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: cells (0..3, 0..2)
+        const v = t.pyr._v, kids = (i, j) => { for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, 5, S, 2 * i + a, 2 * j + b), 0); };
+        expect([v.i0, v.i1, v.j0, v.j1]).toEqual([0, 3, 0, 2]);
+        const bare = ["1,1", "1,0", "3,2"];                                    // (1, 1) and (1, 0): ℓ 3 and children; (3, 2): children only
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (!bare.includes(i + "," + j)) t.put(levelCell(F, 4, S, i, j), 0);
+        t.put(levelCell(F, 3, S, 0, 0), 0);
+        kids(1, 1); kids(1, 0); kids(3, 2);
+        const P0 = t.pyr.compose();                                            // room for two cells' children after the base plan
+        expect(P0.draws.some((d) => !d.rec)).toBe(false);
+        expect(P0.cells.find((c) => c.i === 3 && c.j === 2).draws).toHaveLength(4);
+        expect(P0.cells.find((c) => c.i === 1 && c.j === 1).draws).toHaveLength(4);
+        expect(P0.cells.find((c) => c.i === 1 && c.j === 0).draws.map((d) => d.cls)).toEqual(["blur"]);
+    });
 });
 
 describe("PicturePyramid — the view, the requests, the plane, the integrals, the surface's life", () => {

@@ -24,7 +24,8 @@ function world({ inScale = 2, maxPlates = 400 } = {}) {
     const Z = inScale, S = 1, lv = levelFor(Z, S);
     const Zq = zOf(lv, S), s = Z / Zq;
     const view = { frameId: B, level: lv, S, Z, Zq, s, k: Z, tx: -300, ty: -200, dpr: 1, cssW: W, cssH: H };
-    return { lm, A, B, stage, store, view, reads, cfg: { enter: ENTER, exit: EXIT, levelStep: 1, gens: { prefetch: 3 } } };
+    // A frozen clock: under a loaded jest run the real one spent the 8 ms read budget and the far test lost reads.
+    return { lm, A, B, stage, store, view, reads, cfg: { enter: ENTER, exit: EXIT, levelStep: 1, gens: { prefetch: 3 }, now: () => 0 } };
 }
 
 describe("prefetch (A3 §4.3)", () => {

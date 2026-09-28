@@ -109,3 +109,16 @@ describe("the Stage's hold (A2 §2.7)", () => {
         expect(stage.holding).toBe(false);
     });
 });
+
+describe("changesSince (A2 §2.4)", () => {
+    test("a family re-key and a new paint key are changes of the items they move", () => {
+        const { doc, stage, shape } = world();
+        const a = shape(0, 0), b = shape(1000, 0);
+        const G0 = stage.generation;
+        a.editId = b.id; doc.keysChanged([a.id]);            // a family join: `fam` moved, the box did not
+        expect(stage.changesSince(G0).changed.map((c) => c.item.id)).toEqual([a.id]);
+        const G1 = stage.generation;
+        doc.setZById(b.id, -5);                               // paint order moved
+        expect(stage.changesSince(G1).changed.map((c) => c.item.id)).toEqual([b.id]);
+    });
+});

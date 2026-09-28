@@ -1,8 +1,8 @@
 /**
- * An erase's bake picks its targets from one candidate scan per mark and does not repaint after
- * every slice (REVIEWER E-1: the scan was rebuilt twice per target — the cut bumped `doc.rev`, the
- * z step changed the key — 85 ms of overhead a target on the Magnum Opus; E-2: a full render after
- * every slice and every landed cut, though a pending mark's cuts change no pixel until it is spent).
+ * An erase's bake takes its targets from one candidate scan per mark — its registration, when its
+ * shape lands (A2 §4.2) — and does not repaint after every slice (REVIEWER E-1: the scan was rebuilt
+ * twice per target, 85 ms of overhead a target on the Magnum Opus; E-2: a full render after every
+ * slice and every landed cut, though a pending mark's cuts change no pixel until it is spent).
  */
 import { useEngines, mkEngine, eraseGesture, drawStroke } from "./__testkit__/harness";
 
@@ -39,20 +39,16 @@ describe("EC — the cost of an erase's bake", () => {
         const E = setup();
         const before = E._scanBuilds || 0;
         E.flushErases();
-        expect((E._scanBuilds || 0) - before).toBeLessThanOrEqual(2);     // red: two per target
+        expect((E._scanBuilds || 0) - before).toBe(0);                     // red: two per target
     });
-    test("EC-3 the idle bake, which steps the mark's z down after each target, scans once too", () => {
+    test("EC-3 the idle bake scans no more than a flush: the scan is the registration's", () => {
         const E = setup();
+        expect(E._eraseStrokes()[0].obj.targets.length).toBeGreaterThan(10);   // registered at the landing
         const before = E._scanBuilds || 0;
-        const z0 = E._zOf(E._eraseStrokes()[0].obj);
-        let lowered = false;
-        for (let k = 0; k < 500 && E._eraseStrokes().length; k++) {
-            E._bakeTickInner();
-            const m = E._eraseStrokes()[0];
-            if (m && E._zOf(m.obj) < z0) lowered = true;
-        }
-        expect(lowered).toBe(true);                                         // the path under test ran
-        expect((E._scanBuilds || 0) - before).toBeLessThanOrEqual(2);     // red with z in the key
+        let slices = 0;
+        for (let k = 0; k < 500 && E._eraseStrokes().length; k++) { E._bakeTickInner(); slices++; }
+        expect(slices).toBeGreaterThan(1);                                  // the path under test ran, in slices
+        expect((E._scanBuilds || 0) - before).toBe(0);                     // red: a scan a slice or a target
     });
     test("EC-2 the idle bake repaints a handful of times, not once per slice, and ends where a flush ends", async () => {
         const E = setup();

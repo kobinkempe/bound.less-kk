@@ -616,6 +616,7 @@ class Selection {
         return done && this.selection ? this.selection.id : null;
     }
     deselect() {
+        this._cancelBarrier();              // a gesture parked on its erase barrier goes with the selection
         if (!this.selection) return;
         if (this._dragSel) this._endMove("deselect");   // the one exit: batch, hold and merges released
         this.selection = null;

@@ -1,8 +1,8 @@
 /**
- * The erase worker's path, driven through a stand-in transport (jsdom has no Worker):
- * the tick dispatches one cut, its result lands later and is applied exactly as the
- * synchronous path would have; a result for a target that moved meanwhile is dropped
- * and the target baked again; the barrier's synchronous bake wins over a cut in flight.
+ * The erase pool's path, driven through a stand-in transport (jsdom has no Worker): the tick
+ * dispatches the serial head and its lookahead, the results land later and are applied in the
+ * serial order exactly as the synchronous path would have; a result for a target that moved
+ * meanwhile is dropped and the target baked again; a barrier waits for a cut in flight.
  */
 import { mkEngine, useEngines, drawStroke, eraseGesture, descend, drag, painted } from "./__testkit__/harness";
 import { setEraseTransport } from "./eraseWorkerClient";
@@ -19,9 +19,11 @@ const inkOf = (E) => { const out = []; for (const k of E.doc.levels()) for (cons
 const natives = (E) => JSON.stringify(E.serializeDrawing().natives);
 
 async function settle(E, max = 60) {
-    for (let i = 0; i < max && (E._eraseStrokes().length || E._cutInflight); i++) { E._bakeTick(); await later(4); }
-    return E._eraseStrokes().length === 0 && !E._cutInflight;
+    for (let i = 0; i < max && (E._eraseStrokes().length || E._eraseBusy()); i++) { E._bakeTick(); await later(4); }
+    return E._eraseStrokes().length === 0 && !E._eraseBusy();
 }
+/** The jobs in a worker, in dispatch order. */
+const flying = (E) => [...E._cuts.values()].filter((c) => c.state === "flight");
 const scene = (E) => {
     const A = drawStroke(E, [[100, 300], [700, 300]], 20);
     const B = drawStroke(E, [[100, 330], [700, 330]], 20);
@@ -43,7 +45,7 @@ describe("the erase worker", () => {
         const E = mkEngine(800, 600);
         scene(E);
         E._bakeTick();
-        expect(E._cutInflight).not.toBeNull();     // one cut in the worker
+        expect(flying(E).length).toBe(3);           // the head and its lookahead, in the workers
         expect(E._eraseStrokes()).toHaveLength(1);  // nothing applied yet
         expect(await settle(E)).toBe(true);
         expect(natives(E)).toBe(natives(S));
@@ -55,8 +57,8 @@ describe("the erase worker", () => {
         const E = mkEngine(800, 600);
         const { A } = scene(E);
         E._bakeTick();
-        const inflight = E._cutInflight;
-        expect(inflight).not.toBeNull();
+        const inflight = flying(E)[0];
+        expect(inflight).toBeTruthy();
         const movedId = inflight.id;
         E.doc.moveById(movedId, 40, 0);   // in frame units, under the mark still
         expect(await settle(E)).toBe(true);
@@ -83,7 +85,7 @@ describe("the erase worker", () => {
         deep(E);
         await later(150);                            // the tick stays out of a moving camera's way
         E._bakeTick();
-        expect(E._cutInflight && E._cutInflight.kind).toBe("descent");
+        expect(flying(E).map((c) => c.kind)).toEqual(["descent"]);   // descents one at a time
         expect(await settle(E)).toBe(true);
         expect(natives(E)).toBe(natives(S));
         expect(E.doc.levels().length).toBeGreaterThan(1);
@@ -99,7 +101,7 @@ describe("the erase worker", () => {
         E._scheduleBake = () => {};
         await later(150);
         E._bakeTick();
-        expect(E._cutInflight && E._cutInflight.kind).toBe("descent");
+        expect(flying(E).map((c) => c.kind)).toEqual(["descent"]);
         E.doc.moveById(A.id, 1, 0);
         expect(await settle(E)).toBe(true);
         expect(E._cutStale).toBe(1);
@@ -107,19 +109,20 @@ describe("the erase worker", () => {
         expect(E._eraseStrokes()).toHaveLength(0);
     });
 
-    test("the barrier's synchronous bake wins over a cut in flight; the late result is dropped", async () => {
+    test("a barrier on a target whose cut is in a worker waits for that cut and applies it: nothing cut twice", async () => {
         setEraseTransport(transport);
         const E = mkEngine(800, 600);
         scene(E);
         E._bakeTick();
-        const id = E._cutInflight.id;
-        expect(E._flushErasesFor(id)).toBe(true);   // baked now, on the main thread
+        const id = flying(E)[1].id;                  // a lookahead cut, not the head's
+        let pieces = null;
+        expect(E._tapBarrier(id, (ids) => { pieces = ids; })).toBe(false);   // parked: its cut is in the worker
+        expect(E._eraseStatus()).toEqual({ marks: 1, finishing: true });
+        expect(E.doc.getById(id)).not.toBeNull();
+        await later(6);                              // the three land; the barrier applies its own
         expect(E.doc.getById(id)).toBeNull();
-        const n = inkOf(E).length;
-        await later(6);                              // the worker's result arrives: stale, dropped
-        expect(E._cutInflight).toBeNull();
-        expect(inkOf(E).length).toBe(n);
-        expect(E._cutStale).toBe(1);
+        expect(pieces.length).toBe(2);               // the selection it would make: exactly the pieces
+        expect(E._cutStale || 0).toBe(0);
         expect(await settle(E)).toBe(true);
         expect(inkOf(E).length).toBe(6);
     });
@@ -152,7 +155,7 @@ describe("the erase worker", () => {
         expect(E.lm.frame(kidLevel)).toBeUndefined();      // nothing here has minted it
         await later(150);
         E._bakeTick();
-        expect(E._cutInflight && E._cutInflight.kind).toBe("descent");
+        expect(flying(E).map((c) => c.kind)).toEqual(["descent"]);
         expect(await settle(E)).toBe(true);
         expect(E.lm.frame(kidLevel)).toBeTruthy();
         for (const L of E.doc.levels()) expect(E.lm.frame(L)).toBeTruthy();

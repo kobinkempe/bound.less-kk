@@ -930,3 +930,16 @@ the redo's stack order) — pending a look at EP-3/EP-4, whose "the older cuts t
 produces (a piece of a handled target is handled).
 **Questions asked:** none new.
 WHERE I AM: re-running the smoke run; then EP-4's diff, the four KobinEngine.edit cases, A13-2, F66.
+
+## 2026-09-28 19:14 UTC — reviewer (B-PYRAMID-1 review) — checkpoint: two majors (the plan's two caps), three minors fixed
+**Working on:** in `PyramidStore.js`, `PicturePyramid.js`, `PyramidStore.property.test.js`, `PicturePyramid.plan.test.js`,
+`prefetch.test.js` only. Constructed screens on an unimported copy (`scratchpad/rv/bc`, `PicturePyramid.review.test.js`).
+**Measured:** shipped code, four constructed cases, 4 red: 2560×1440@2 level mode after a pan, 5 cells paper with ℓv−1 cached;
+the same at rest (77 rest cells > one view of 54), 5 paper; 390×844@3, 35 cells, 29 own, stand-ins from ℓv−1/ℓv−2: 3 paper;
+desktop 2256×1218 at σ 0.72 (40 cells, all cached) an undo over two cells: 0 patched, older shown. Attribution on the copy:
+`cap = 30 − own` alone reds 1 and 3; the one-view record cap alone reds 2 and 4; `cap = 30 − plane` makes all 4 green and reds
+3 existing plan tests (each pins a cap). Minors: a hard drop missed a job overtaken in the in-flight map (its late result
+stored under a re-addressed id) — fixed, test red on the shipped store; children upgrade now paper → older → blur — fixed, test
+red on the shipped plan; prefetch's far test flaked once under load (real 8 ms clock) — frozen clock. Six suites 52/52.
+**Decisions made:** majors reported, not applied (brief: majors with a proposed fix).
+**Questions asked:** none yet. WHERE I AM: typecheck, lint, the four softCanvas suites, then the end entry and the report.

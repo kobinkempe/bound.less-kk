@@ -90,20 +90,15 @@ function stackAndRing(e, n) {
 function bakeSteps(e, k) {
     act(() => {
         const Erec = e._eraseStrokes()[0];
-        for (let i = 0; i < k && Erec; i++) {
-            const t = e._nextEraseTarget(Erec);
-            if (!t) break;
-            e._bakeOne(Erec, t, { sync: true });
-            e._lowerMark(Erec, t);
-        }
+        for (let i = 0; i < k && Erec && e._headOf(Erec); i++) e._bakeNext();
         e._render();
     });
 }
-/** Counts every object a tab's engine bakes (its `_bakeOne`), on the engine instance. */
+/** Counts every pair a tab's engine bakes (its `_dispatchPair`), on the engine instance. */
 function countBakes(e) {
     const c = { n: 0 };
-    const orig = e._bakeOne.bind(e);
-    e._bakeOne = (...a) => { c.n++; return orig(...a); };
+    const orig = e._dispatchPair.bind(e);
+    e._dispatchPair = (...a) => { c.n++; return orig(...a); };
     return c;
 }
 

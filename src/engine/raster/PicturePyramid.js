@@ -340,14 +340,15 @@ export default class PicturePyramid {
     /**
      * Level ℓ's cells of frame F, in two passes so the budget moves excess cells to coarser, shared sources (A3 §1.5):
      * every cell's plan without children first, then (c) — all 2^S × 2^S children exact — as an upgrade of the cells
-     * not already sharp, nearest the attention point first, while the budget takes them.
+     * not already sharp while the budget takes them: paper first, then older, then blurred, each nearest the attention point first.
      */
     _planCells(v, F, l, list, B) {
         const cells = list.map(({ i, j }) => { const c = { i, j, draws: [] }; this._planCell(v, F, l, i, j, B, c.draws); return c; });
         const a = this._attn || [this.wDev / 2, this.hDev / 2];
         const gx = (a[0] - v.dx) / v.s + v.ox, gy = (a[1] - v.dy) / v.s + v.oy, f = PLATE_PX * (v.Zq / zOf(l, v.S));
+        const need = (c) => (c.draws.some((d) => !d.rec) ? 0 : c.draws.some((d) => d.cls === "older") ? 1 : 2);
         const up = cells.filter((c) => !(c.draws.length === 1 && c.draws[0].cls === "sharp"))
-            .map((c) => ({ c, d: ((c.i + 0.5) * f - gx) ** 2 + ((c.j + 0.5) * f - gy) ** 2 })).sort((p, q) => p.d - q.d);
+            .map((c) => ({ c, r: need(c), d: ((c.i + 0.5) * f - gx) ** 2 + ((c.j + 0.5) * f - gy) ** 2 })).sort((p, q) => p.r - q.r || p.d - q.d);
         const n = 1 << v.S, Zk = zOf(l + 1, v.S);
         for (const { c } of up) {
             if (n * n > B.room()) break;

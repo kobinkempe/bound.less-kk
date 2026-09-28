@@ -149,20 +149,15 @@ function bakeSteps(M, k) {
     const e = E(M);
     M.rtl.act(() => {
         const Erec = e._eraseStrokes()[0];
-        for (let i = 0; i < k && Erec; i++) {
-            const t = e._nextEraseTarget(Erec);
-            if (!t) break;
-            e._bakeOne(Erec, t, { sync: true });
-            e._lowerMark(Erec, t);
-        }
-        if (Erec && !e._nextEraseTarget(Erec)) e._bakeTick();   // nothing left: the tick spends the mark
+        for (let i = 0; i < k && Erec && e._headOf(Erec); i++) e._bakeNext();
+        if (Erec && !e._headOf(Erec)) e._bakeTick();   // nothing left: the tick spends the mark
         e._render();
     });
 }
 function countBakes(e) {
     const c = { n: 0 };
-    const orig = e._bakeOne.bind(e);
-    e._bakeOne = (...a) => { c.n++; return orig(...a); };
+    const orig = e._dispatchPair.bind(e);
+    e._dispatchPair = (...a) => { c.n++; return orig(...a); };
     return c;
 }
 

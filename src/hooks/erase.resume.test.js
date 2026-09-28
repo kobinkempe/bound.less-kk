@@ -69,16 +69,11 @@ function stackAndRing(n) {
     });
     expect(marks(e)).toBe(1);
 }
-/** The tick's work, `k` objects: the next target cut, the mark stepped below it. */
+/** The tick's work, `k` pairs: the next target in the serial order cut. */
 function bakeSteps(e, k) {
     act(() => {
         const Erec = e._eraseStrokes()[0];
-        for (let i = 0; i < k; i++) {
-            const t = e._nextEraseTarget(Erec);
-            if (!t) break;
-            e._bakeOne(Erec, t, { sync: true });
-            e._lowerMark(Erec, t);
-        }
+        for (let i = 0; i < k && Erec && e._headOf(Erec); i++) e._bakeNext();
         e._render();
     });
 }
@@ -106,7 +101,7 @@ function sig(e) {
 const pieceCounts = (s) => { const c = {}; for (const v of Object.values(s)) c[v.length] = (c[v.length] || 0) + 1; return c; };
 async function bakeOut(e, ms = 60000) {
     const t0 = Date.now();
-    while ((marks(e) || e._cutInflight) && Date.now() - t0 < ms) await act(async () => { await later(20); });
+    while ((marks(e) || e._eraseBusy()) && Date.now() - t0 < ms) await act(async () => { await later(20); });
     return marks(e) === 0;
 }
 
@@ -124,13 +119,13 @@ describe("an erase saved mid-bake", () => {
         const ref = reference(E().serializeDrawing());
         expect(pieceCounts(ref)).toEqual({ 2: 10 });        // the reference: every stroke a disc and a remnant
         bakeSteps(E(), 4);
-        const zMark = E()._zOf(E()._eraseStrokes()[0].obj);
+        const targets = E()._eraseStrokes()[0].obj.targets.slice();
         await act(async () => { await api.flushSave(); });
         act(() => view.unmount());                          // close: the hook's last-chance write, the engine destroyed
         const held = await mountHeld("c1");
         view = held.view;
-        expect(marks(E())).toBe(1);                         // the mark came back, pending
-        expect(E()._zOf(E()._eraseStrokes()[0].obj)).toBe(zMark);
+        expect(marks(E())).toBe(1);                         // the mark came back, pending, with its targets
+        expect(E()._eraseStrokes()[0].obj.targets).toEqual(targets);
         held.go();
         expect(await bakeOut(E())).toBe(true);
         expect(sig(E())).toEqual(ref);
@@ -206,8 +201,9 @@ describe("an erase saved mid-bake", () => {
         old._bakeTick = () => { ticks.n++; return tick0(); };
         delete old._scheduleBake;                            // the engine's own timers from here
         act(() => { old._bakeTick(); });
-        expect(old._cutInflight).not.toBeNull();             // one cut in the worker
-        const flying = old._cutInflight.id;
+        const out = [...old._cuts.values()].filter((c) => c.state === "flight");
+        expect(out.length).toBeGreaterThan(0);               // cuts in the workers
+        const flying = out[0].id;
         act(() => view.unmount());                           // closed with the cut in flight (the unmount's own write)
         const n0 = ticks.n;
         await act(async () => { await later(1800); });       // its answer lands after the close
@@ -233,20 +229,19 @@ describe("an erase saved mid-bake", () => {
         act(() => { const e = E(); e.setTool("select"); e.pointerDown(C[0], 45); e.pointerUp(); });   // the bar's top end: cut by the barrier
         const barPieces = ink(E()).filter((o) => E()._zOf(o) === barZ).map((o) => o.id);
         expect(barPieces.length).toBeGreaterThan(1);
-        expect(E()._zOf(E()._eraseStrokes()[0].obj)).toBeGreaterThan(barZ);   // out of order: the mark stays above it
         act(() => view.unmount());
         const targets = [];
-        const bake0 = KobinEngine.prototype._bakeOne;
-        KobinEngine.prototype._bakeOne = function (Erec, t, o) { targets.push(t.obj.id); return bake0.call(this, Erec, t, o); };
+        const bake0 = KobinEngine.prototype._dispatchPair;
+        KobinEngine.prototype._dispatchPair = function (Erec, t, o) { targets.push(t.obj.id); return bake0.call(this, Erec, t, o); };
         try {
             const held = await mountHeld("c1");
             view = held.view;
             expect(marks(E())).toBe(1);
             held.go();
             expect(await bakeOut(E())).toBe(true);
-        } finally { KobinEngine.prototype._bakeOne = bake0; }
+        } finally { KobinEngine.prototype._dispatchPair = bake0; }
         expect(targets.length).toBeGreaterThan(0);
-        for (const id of barPieces) expect(targets).not.toContain(id);          // the log's bake entries named them done
+        for (const id of barPieces) expect(targets).not.toContain(id);          // their headers name the mark handled
         expect(sig(E())).toEqual(ref);
         act(() => view.unmount());
     });
