@@ -869,3 +869,48 @@ planned source, the undo byte-equal inline and never older coarse-first, the GPU
 phone under the one-view cap). Files I may edit: those only. Not in the B-SCENE reviewer's or B-ERASE's files.
 **Measured:** nothing yet. **Decisions made:** none yet. **Questions asked:** none.
 WHERE I AM: baseline run of the six suites and the four other softCanvas suites.
+
+## 2026-09-28 18:58 UTC — reviewer (B-PYRAMID-1 review) — resumed after the session-limit stop
+**Working on:** the review from the tree (9b97bae); my files unchanged since 877ba07 (checked by diff). Read so far: the four modules
+in full, fakeStage, the plan and store suites' fixtures.
+**Measured:** baseline six suites 50/50 (15:40). The four other softCanvas suites before the stop: 74/75, the one red
+`raster.mask` K3 — `runCutAsync is not a function` from `erasePipeline.js:722` (B-ERASE's files mid-edit, not this review's);
+re-run now. E6b/E6c (headless Chromium, `scratchpad/rv/e6b-mixed.cjs`, `e6c-bitmap.cjs`), median JS ms of one frame's draws:
+1:1 alone 30 → 0.2, 60 → 6.6, 77 → 13.9; mixed 26 own + 4 scaled 0.1, 32 + 4 6.4, 60 + 10 20.9, 77 + 7 14.2; 0 + 34 scaled 21.9;
+the surface blit + K scaled with no recompose 15–23 ms for K = 4–25 (the blit is itself a scaled image of 5–8 k px); a recompose
+of the surface 26–38 ms (canvas) / 67–93 ms (OffscreenCanvas + transfer). So the cost follows distinct images per canvas flush,
+scaled or not, past ~33 — and a scaled blit of a big surface costs like the cliff by itself in software GL.
+**Decisions made:** none yet. **Questions asked:** none.
+WHERE I AM: the constructed 84-cell case and the 390×844@3 phone case in `PicturePyramid.plan.test.js`, then the store's refusal
+order (endJob before put) and the rest-mode cap.
+
+## 2026-09-28 18:58 UTC — reviewer (B-SCENE review) — resumed after the session-limit stop
+**Working on:** the zoom-out paper comparison, then rows 1, 2, 5 and the rest of the brief. Correction to the brief: 18d5e2f
+does NOT carry both paths (its renderer ignores `opts.scene`; `?scene` only flips `packsPending`); the S2 checkpoint 9b1edbb
+does. Old = worktree `scratchpad/rv2/old` at 9b1edbb (`?scene=0` list path, `?scene=1` Stage), new = `rv2/new` at 1cac470.
+**Measured (scenario 1 "zoomout", paper ms, load 1-min at start):** current harness (1cac470's sampler): list path 2,135
+(2.40), 921 (2.43), 5,660 (1.83, instrumented); 9b1edbb Stage 4,780 (2.54), 5,377 (2.87), 4,717 (2.47, instr.); 1cac470
+302 (2.67), 873 (2.79), 2,580 (2.10, instr.). B-SCENE-2's harness (4e8ce80's rAF-only sampler, instrumented trees): 1cac470
+9,139 (1.17), 6,152 (2.99); list path 6,192 (2.23), 2,198 (2.13). Refusal counters (instrumented, scenario 1): `covers`
+refusals 0 on every tree and mode; dirt refusals 0; visibility-half refusals 4–15 strips; every paper cell counted was
+`covers()`-true (190–314 cell-composes). ~890 plates posted, 330–350 packed: the rest superseded in the client's queue.
+Finding so far (not a verdict yet): no covers mechanism; the 9,784 vs 821 pair is inside the metric's run-to-run spread.
+Also found (reading): `PlateStore`'s hard-drop refusal lives on the in-flight record, which a newer `beginJob` for the
+same key overwrites (a refused job's late result is then stored); `stage.batch` has no caller outside `release`.
+**Decisions made:** measure against worktrees, not the main tree (B-ERASE's edits are in it).
+**Questions asked:** none yet.
+WHERE I AM: restart :3021/:3022, run `batch2.sh` (post-paint sampler `bcp.js`, 2 × new vs list path), then the
+PlateStore refusal fix with a test in `raster.plates.test.js`.
+
+## 2026-09-28 19:00 UTC — orchestrator (Fable) — resumed after the second session-limit stop of the day
+**Working on:** the tree as the three agents left it at ~15:55 (container clock) snapshot-committed as 9b97bae and
+pushed; the container had been rebooted in between (every process gone: the reviewer's two dev servers and its
+`batch2.sh`, B-ERASE's smoke run, the B-PYRAMID-1 reviewer's background suites; the scratchpad, its two worktrees
+`rv2/old` 9b1edbb and `rv2/new` 1cac470, and the agents' transcripts survived). All three resumed from their transcripts
+with the environment changes spelled out: B-ERASE (from its first smoke run; `zz_berase_debug.test.js` is in the
+snapshot, to be deleted before its checkpoint), the B-SCENE reviewer (told to serve `rv2/new` for the zoom-out pair,
+since the main tree now carries B-ERASE's half-built erase path), the B-PYRAMID-1 reviewer (re-running the four other
+softCanvas suites). Next for the orchestrator: the B-PYRAMID-2 brief drafted while they work.
+**Measured:** load 0.20 / 0.06 / 0.02 at the resume — no orphaned workers this time.
+**Decisions made:** none new.
+**Questions asked:** none.
