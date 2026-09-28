@@ -973,3 +973,17 @@ with `cap = 30 − plane` (3 old plan tests red: they pin the caps). Four softCa
 **Decisions made:** majors M1 (own plates counted against the stand-in cap) and M2 (the one-view record cap) proposed, not applied.
 **Questions asked:** adopt M1+M2's fix; stand-ins on the ink canvas after the blit (measure first); the phone floor over its
 ceiling; MOVE_PLANE_PLATES to level.js. WHERE I AM: done.
+
+## 2026-09-28 19:35 UTC — orchestrator (Fable) — the B-PYRAMID-1 review landed (8194de4); B-PYRAMID-2 launched on P0
+**Working on:** the B-PYRAMID-1 review's edits committed (a hard drop refuses by job; children upgrade paper → older →
+blur; the far prefetch test on a frozen clock); its two majors adopted in PLAN §5.6 (M1 stand-ins counted apart from own
+plates, `cap = COMPOSE_IMAGES − plane.images`; M2 the one-view record cap replaced by the pinned bound and the floor) and
+made B-PYRAMID-2's P0; the B-SCENE reviewer's zoom-out verdict recorded as closed (§5.6 item 8: the rAF-only sampler, not
+a defect). B-PYRAMID-2 (`opus-builder`, brief `review/rebuild/briefs/B-PYRAMID-2.md`) launched now on P0 only, since P0
+touches only the four pyramid modules; P1 onward after the B-SCENE reviewer's end entry. `raster.move` L3's red attributed
+to the reviewer's `_releaseHeldLive` change (§5.4 Q2) and sent to it. Three agents run: B-ERASE, the B-SCENE reviewer,
+B-PYRAMID-2. The B-MODEL-C1 brief is written (`briefs/B-MODEL-C1.md`); it launches after B-ERASE, its review and the
+B-SCENE reviewer.
+**Measured:** raster.move 44/45 (L3, as above), 12 s. The review's E6b: 1:1 draws 60 → 6.6 ms, 34 scaled → 21.9 ms.
+**Decisions made:** PLAN §5.6 items 1–8.
+**Questions asked:** none.
