@@ -469,6 +469,7 @@ function freeSlot() {
     return inFlight.size + heldNoSlot === 0 ? null : undefined;   // inline: one at a time, here
 }
 
+/** Pack and post one entry into `slot`. False when the pack declined or threw (`onDrop` has fired with the id). */
 function dispatch(entry, slot) {
     const jobId = ++seq;
     let job;
@@ -477,12 +478,12 @@ function dispatch(entry, slot) {
     } catch (err) {
         stats.failed++;
         if (entry.req.onDrop) entry.req.onDrop({ jobId, plates: entry.plates, why: "pack", before: true });
-        return;
+        return false;
     }
     if (!job) {
         stats.dropsBefore++;
         if (entry.req.onDrop) entry.req.onDrop({ jobId, plates: entry.plates, why: "empty", before: true });
-        return;
+        return false;
     }
     job.jobId = jobId;
     if (job.frameSeq == null) job.frameSeq = entry.req.frameSeq;
@@ -503,7 +504,7 @@ function dispatch(entry, slot) {
         const p = transport(msg, transfer);
         donePost();
         p.then((out) => onMessage(slot, out || {}), (err) => onFailed(jobId, err, slot));
-        return;
+        return true;
     }
     if (slot) {
         try {
@@ -513,14 +514,34 @@ function dispatch(entry, slot) {
         } catch (err) {
             onFailed(jobId, err, slot);
         }
-        return;
+        return true;
     }
     // The inline path: the worker's own entry on this thread, so both paths draw the same
     // pixels and jsdom checks the shipped one (§10 stage 3).
     donePost();
     Promise.resolve().then(() => runJob(msg, { receivedAt: now() }))
         .then((out) => onMessage(null, out.msg), (err) => onFailed(jobId, err, null));
+    return true;
 }
+
+/** Free slots now: idle workers, a transport's spare capacity, or the one inline slot when nothing is in flight. */
+function freeSlots() {
+    if (transport) return Math.max(0, rasterWorkerCount() - inFlight.size - heldNoSlot);
+    if (!broken) spawnPool(true);
+    if (workers.length) { let n = 0; for (const s of workers) if (s.jobId == null) n++; return n; }
+    return inFlight.size + heldNoSlot === 0 ? 1 : 0;
+}
+
+/**
+ * The pool as `jobQueue.js` sees it (the picture pyramid's path, A3 §4.4): its size, its free slots, and a
+ * submit that dispatches one `{ req: { pack, onResult, onDrop, prio }, plates }` at once — false when no slot
+ * is free or the pack declined. The queue above (`submitPlates`) is the old path's.
+ */
+export const rasterPool = Object.freeze({
+    size: () => activeCount(),
+    free: () => freeSlots(),
+    submit: (entry) => { const slot = freeSlot(); return slot === undefined ? false : dispatch(entry, slot); },
+});
 
 /** A job's terminal failure. `slot` is the one it was posted into, null on the slotless paths. */
 function onFailed(jobId, err, slot) {

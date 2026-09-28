@@ -179,7 +179,8 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   A3's queue lands, an interim N-worker erase pool behind the same `submit`.
 - **The barriers stay, asynchronous and uncapped**: a tap, a drag start and a lasso dispatch their
   pending pairs at the head of the cut queue and park the gesture's continuation; rounds apply in
-  serial order until no pair is left; the selection follows the cuts to the pieces; the tab stays
+  serial order until no pair is left; the selection follows the cuts to the pieces (a tap re-picks the
+  point once they land, SM-5: B-ERASE, A2 §4.14); the tab stays
   responsive; a chip "Finishing the erase…" after 150 ms; a new gesture, tool change or undo cancels
   the parked continuation. A drag's barrier bakes the selection's members and the marks homed under
   its frames only (B4); a lasso's bakes every pair whose target's box meets the loop's (H5).

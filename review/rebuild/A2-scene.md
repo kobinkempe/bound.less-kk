@@ -1110,6 +1110,39 @@ barrier (A2-Q7).
 | `_flushErasesFor`'s in-order / out-of-order split | `erasePipeline.js:1206–1234` | gone: the mark does not step, every applied step is neutral |
 | the mask slot cap of 8 | `rasterJob.js:45`, `rasterPack.js:974` | 16 exact slots, bytes, overflow merged (§4.4) |
 
+### 4.14 As built (B-ERASE, 2026-09-28) — where the build differs or adds
+
+- **A tap re-picks after its barrier** (§4.11 step 1's "the re-hit"): the selection is the piece under the
+  finger, not all of the target's pieces as §5.5 and §6.4 row 7 (a) say — SM-5 and RR-3/4 pin Kobin's
+  rule that the half not pressed stays. A drag's barrier still carries a selection to all the pieces of its
+  members (step 3). Asked of the orchestrator (B-ERASE Q5).
+- **Pruning is an invariant**, not only a spend-time step (§4.6): a live native never names a mark that
+  cannot return (spent, or its redo branch cleared) — dropped at the spend from the lineage, as a native
+  re-enters (an undo, a frame back) and at a load. Without it an undo of a finished erase left the dead
+  id on the restored sources, and a replay disagreed with the live history.
+- **The serial order** is keyed by each id's z as it joined the mark's order (a native's z never changes):
+  a removed id keeps its place, so the order is a function of the ids alone; ordered by a live lookup, the
+  parallel bake diverged from the serial one (two of three seeds). **The lookahead writes nothing**: a
+  target still a stroke or a fill waits for its turn at the head.
+- **The per-target lock is global in a barrier**: each target a barrier names is cut with the earliest
+  mark it is pending under anywhere, so no live bake has an older mark cut a newer one's piece (those
+  histories remain possible from an older build's log and from a test's `flushErases(only)`; the step
+  graph still handles them).
+- **Every tap and drag barrier resolves pending perimeters first**, as the old ones did (a raw stroke
+  dragged by its table broke the ants); a lasso only with a mark pending. A barrier ends by spending the
+  marks it emptied. `deselect` also cancels a parked gesture.
+- **A landed mark without `targets`** — an old file, a test's direct add, an undone old mark redone —
+  registers at first sight (the tick, `flushBakes`) by the §4.9 rule: one path.
+- **Slots**: two marks share when no item under both boxes has different bits; an item carrying both bits
+  reads 1 − max(a, b) for (1 − a)(1 − b), which differ only where the two marks' edges overlap. Past 16,
+  the slot the mark over-hides fewest items in (`maskOverflow`); the serial order already bakes the
+  oldest mark first, so no separate raise.
+- **Redo** re-applies steps with ordinary footprints (a step does not record its dust); only a live bake
+  step carries `by`.
+- **The SVG renderer** still paints a pending mark as white ink at its z, now over baked pieces and
+  objects dragged under it too (`?svg`, export): a mask per target there is B-PYRAMID-2's (the SVG
+  demotion), asked as B-ERASE Q6.
+
 ---
 
 ## 5. Kobin's semantics, traced through the new rule

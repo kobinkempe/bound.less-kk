@@ -142,6 +142,32 @@ describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new 
         expect(E._lassoParked).toBeNull();
         expect(E.selection.ids.length).toBe(2);                                 // the red's two pieces
     });
+    test("a drag whose cuts land while the pointer is down starts from the press and jumps to the finger (A2 §5.5)", async () => {
+        setEraseTransport(worker(20));
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const R = fill(E, 200, 200, 330, 300, "rgb(200,40,40)");
+        const O = fill(E, 600, 450, 700, 520, "rgb(40,160,40)");
+        E._render();
+        eraseGesture(E, [[270, 180], [270, 320]], 12);
+        E._setSelection([O.id]);                                               // something else selected: a press on R selects and drags it
+        E.setTool("select");
+        E.pointerDown(220, 250);
+        E.pointerMove(240, 260); E.pointerMove(260, 270);                      // parked: R's cut is in the worker
+        expect(E._barrier).not.toBeNull();
+        expect(E._dragSel).toBeNull();
+        for (let k = 0; k < 40 && E._barrier; k++) await later(5);
+        expect(E._dragSel).not.toBeNull();                                     // started, from the press, at the finger
+        const piece = E.selection.ids[0];
+        expect(E.doc.getById(R.id)).toBeNull();
+        const at = () => E._rectInActive(E.doc.getById(piece).obj, "0");
+        const x0 = at().left;
+        E.pointerMove(300, 270);
+        expect(at().left).toBeCloseTo(x0 + 40, 6);                            // it follows the finger
+        E.pointerUp();
+        expect(E._dragSel).toBeNull();
+    });
+
     test("a tap parked on its cuts is cancelled by a new press; the cuts go on as the bake's", async () => {
         setEraseTransport(worker(20));
         const E = mkEngine(800, 600);

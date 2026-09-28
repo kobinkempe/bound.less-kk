@@ -194,6 +194,18 @@ function checkWatchdog() {
     if (workers.some((s) => s.rec)) armWatchdog();
 }
 
+/** Tests: the pool forgotten, its workers terminated, its counts zeroed. */
+export function resetEraseWorkerClient() {
+    if (watchdog != null) { clearTimeout(watchdog); watchdog = null; }
+    terminate();
+    queue.length = 0;
+    broken = false; answered = false; respawns = 0; seq = 0;
+    transport = null; transportSlots = MAX_ERASE_WORKERS; inTransport = 0;
+    for (const k of Object.keys(stats)) stats[k] = 0;
+}
+/** Tests: one watchdog check now. */
+export function _checkEraseWatchdogForTests() { if (watchdog != null) { clearTimeout(watchdog); watchdog = null; } checkWatchdog(); }
+
 /** Dev/diagnostics: the pool's state and counts. */
 export function eraseWorkerStats() {
     return { ...stats, seq, workers: workers.length, busy: workers.filter((s) => s.rec).length, queued: queue.length,

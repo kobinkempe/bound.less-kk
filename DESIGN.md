@@ -1014,11 +1014,12 @@ idempotently, and the undo/redo stacks come back from the same entries — every
 record of an id decoding to one object, the later record's state winning, so the
 stacks share identity with the document as they do in a live session (F70), and an
 op's inverse keeping its seq so a redo is an entry rather than a reset (F71). A pending
-eraser's done set is the ids its bake entries name, so an erase interrupted by a
-tab close resumes where it left off; with no entries it restarts from the stroke.
-Compaction never drops an entry younger than the undo window or belonging to a
-pending mark. Header fields a build does not know ride through (`_extra`), and
-an `attr` entry is reserved for per-object changes such as z-order.
+eraser resumes from its headers: the mark's `targets`, its pieces' `handledBy`, with
+`targetOf` derived at load from every known mark's `targets` (§7), so an erase
+interrupted by a tab close resumes where it left off. Compaction never drops an entry
+younger than the undo window or belonging to a pending mark. Header fields a build does
+not know ride through (`_extra`), and an `attr` entry carries a per-object field set on
+its own: a mark's `targets`, a refusal's `handledBy` (A2 §4.9), and later z-order.
 
 **The lattice is the header's** (2026-09-15, the subtree move of §8). Every write
 carries `LevelMap.serialize` — addresses, shifts, shadows — beside its entries, so

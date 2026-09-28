@@ -792,6 +792,7 @@ export default class Document {
         this._emit({ kind: "change", id, level: rec.level, obj: rec.obj, attrOnly: true, attr: { targets: targets.slice() } });
         return rec;
     }
+    /** The reserved `attr` z op's hook (DESIGN.md §13): no production caller since a mark's z stopped stepping (A2 §4.13). */
     setZById(id, z) {
         const rec = this.getById(id);
         if (!rec) return null;

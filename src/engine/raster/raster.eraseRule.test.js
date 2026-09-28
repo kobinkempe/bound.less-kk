@@ -20,6 +20,7 @@ import * as core from "./rasterCore";
 import { PLATE_PX } from "./plate";
 import { FLAG_MASK } from "./rasterJob";
 import { loopsBBox } from "../geometry/arcShape";
+import { underMask } from "../eraseRule";
 
 useEngines();
 jest.setTimeout(120000);
@@ -240,6 +241,30 @@ describe("row 3 (c) an object moved under a mark after its registration draws as
             expect(E.doc.getById(Y.id)).not.toBeNull();
         });
     }
+});
+
+describe("the scene reads the erase fields from the natives (was erase.markFrame, REVIEWER E-5)", () => {
+    test("a mark magnified into a deeper frame: its tile items and its target's carry the natives' fields, and the pack masks the target there", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const T = drawStroke(E, [[250, 300], [550, 300]], 30);
+        eraseGesture(E, [[300, 260], [500, 340]], 40);
+        const M = E._eraseStrokes()[0].obj;
+        for (let i = 0; i < 3; i++) E.zoomFactorAt(400, 300, 16);
+        expect(E.cam.frame).not.toBe(M._home);                                 // seen from another frame
+        E._render();
+        const items = E.stage.items(), mi = items.filter((it) => it.id === M.id), ti = items.filter((it) => it.id === T.id);
+        expect(mi.length).toBeGreaterThan(0);
+        expect(mi.every((it) => it.piece !== M && it.erase && it.targets === M.targets)).toBe(true);   // tile copies, read through the native
+        expect(ti.length).toBeGreaterThan(0);
+        expect(ti.every((it) => it.targetOf === T.targetOf && underMask(it, mi[0]))).toBe(true);
+        const b = ti[0].box, i0 = Math.floor(b.left / PLATE_PX), j0 = Math.floor(b.top / PLATE_PX);
+        clearPackCaches();
+        const j = packJob(items.filter((it) => !it.pending), { plates: Int32Array.of(i0, j0), q: 0, Zq: 1, dpr: 1, cfg: E.cfg, paper: [255, 255, 255] });
+        let masked = 0;
+        for (let k = 0; k < j.nItems; k++) if (j.ids[k] === T.id && j.meta[k * 8 + 7]) masked++;
+        expect(masked).toBeGreaterThan(0);
+    });
 });
 
 describe("row 3 (d) deterministic cases", () => {

@@ -29,6 +29,17 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-28 - THE ERASE RULE (review/rebuild/A2-scene.md §4, B-ERASE). A mark records its
+    targets when its shape lands and masks exactly those (src/engine/eraseRule.js):
+    ink moved under it later, drawn after it, or already baked shows; its z no longer
+    steps. Cuts run in an interim pool of erase workers, dispatched ahead and applied
+    in the serial order through a reorder buffer (the inline bake's ids and log); a
+    tap, a drag's start and a lasso wait, parked, for the cuts under them, with a chip
+    "Finishing the erase..." after 150 ms. Deleted: the neutral tags, the done sets,
+    _lowerMark, the one-cut queue, the barrier loops and their 200-round cap, the 8
+    float mask planes (16 byte planes now). ?svg still paints a pending mark as white
+    ink at its z. OPEN-FLAGS F65 left for Kobin's browser.
+
 2026-09-28 - THE SCENE (review/rebuild/A2-scene.md, B-SCENE and B-SCENE-2). The raster
     path packs the Stage (src/engine/Stage.js): the camera frame's items kept from the
     document's events, never behind it, one generation G a commit. A change dirties the

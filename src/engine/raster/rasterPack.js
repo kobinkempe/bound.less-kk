@@ -790,7 +790,7 @@ function prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset) {
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
         if (o === live) continue;
-        // A pending mark is in every job, whatever it packs: it masks the ink it has not baked.
+        // A pending mark is in every job, whatever it packs: it masks the items the erase rule names.
         if (only && !only.has(o.id) && !o.erase) continue;
         if (omit && omit.has(o.id) && !o.erase) continue;
         const fade = fadeQ(o, Zq, dpr, cfg);

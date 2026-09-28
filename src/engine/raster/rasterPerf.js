@@ -135,7 +135,8 @@ const KINDS = ["render", "camera", "arrival", "crawl", "settle"];
 const K_RENDER = KINDS.indexOf("render");
 const K_ARRIVAL = KINDS.indexOf("arrival");
 const K_CRAWL = KINDS.indexOf("crawl");
-const MODES = ["unknown", "sync", "plates", "settle"];
+/** Append-only (D19): a row stores the index. "level" and "rest" are the picture pyramid's (A3 §4.6). */
+const MODES = ["unknown", "sync", "plates", "settle", "level", "rest"];
 
 /** `q` is a number on the raster path and a letter on the other two; the ring holds integers. */
 const Q_SYNC = -1000, Q_SETTLE = -1001, Q_UNKNOWN = -1002;

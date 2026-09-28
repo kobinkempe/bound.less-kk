@@ -1430,6 +1430,7 @@ class ErasePipeline {
     /** The engine status's erase part: the pending marks, and whether a gesture waits on their cuts (the editor's chip). */
     _eraseStatus() {
         let marks = 0;
+        if (!this._marks) return { marks, finishing: false };   // an emit from the constructor, before `_initErase`
         for (const o of this._marks.values()) if (this.doc.getById(o.id)) marks++;
         return { marks, finishing: !!this._barrier };
     }

@@ -37,7 +37,7 @@ import Renderer from "../Renderer";
 import { perfNow } from "../now";
 import PictureLayer from "./PictureLayer";
 import { PLATE_PX, PREVIEW_QUANTA, plateKey, plateOriginPx, plateRange, quantumFor, zqOf } from "./plate";
-import { packJob, parseColour, visibleChords, packStats, COORD_BOUND } from "./rasterPack";
+import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox } from "./rasterPack";
 import { renderPlate, coreStats, TW, TH } from "./rasterCore";
 import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
 import { antStats, selAntScale } from "./antPaint";
@@ -46,8 +46,13 @@ import MovePlane, { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, MOVE_HOLD_MS, pl
 import * as rasterPerf from "./rasterPerf";
 import {
     submitPlates, dropQueued, abandonInFlight, ensureRasterPool, destroyRasterPool,
-    plateBitmap, stripSizeFor, rasterWorkerReport,
+    plateBitmap, stripSizeFor, rasterWorkerReport, rasterPool,
 } from "./rasterWorkerClient";
+import PyramidStore from "./PyramidStore";
+import PicturePyramid, { sampleOf } from "./PicturePyramid";
+import JobQueue, { PRIO } from "./jobQueue";
+import { prefetchPlan, farKeysOf } from "./prefetch";
+import { LEVEL_STEP, levelFor, zOf } from "./level";
 
 /** The preview's quantum offset, re-exported for the renderer's callers (P3's tests import it here). */
 export { PREVIEW_QUANTA };
@@ -201,7 +206,10 @@ export default class RasterRenderer extends Renderer {
 
         const dpr = opts.dpr > 0 ? opts.dpr
             : (typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
-        this.layer = opts.layer || new PictureLayer(container, camera, {
+        /** The picture pyramid's path (`cfg.pyramid`, A3 §7.4, §10.1): its store, the pyramid as the layer, the queue. */
+        this.pyramid = null; this.queue = null;
+        if (cfg && cfg.pyramid && this.stage) this._pyrBuild(container, dpr, opts);
+        else this.layer = opts.layer || new PictureLayer(container, camera, {
             store: this.store, width: this.width, height: this.height, dpr, paper: this.paper,
             makeCanvas: opts.makeCanvas,
             // `layerOpts` is the layer's own knobs — `syncBudget` (stage 7 tunes it), the
@@ -405,6 +413,7 @@ export default class RasterRenderer extends Renderer {
         super.setSize(w, h);
         const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : this.layer.dpr;
         for (const l of this._layers) if (l) l.setSize(w, h, dpr);
+        if (this.pyramid) this.store.setBudget(this.pyramid.budgetBytes());   // the budget follows the screen (A3 §4.5)
         this._armDpr(dpr);
     }
 
@@ -449,10 +458,13 @@ export default class RasterRenderer extends Renderer {
     // ---- the drag plane (PAPER-PLAN §10 S4) ----
 
     /** A different document is coming (a load, a reset): the last picture is no stand-in for it (§10.13). */
-    dropCarry() { this.layer.dropCarry(); }
+    dropCarry() { if (this.layer.dropCarry) this.layer.dropCarry(); }
 
-    /** The engine reads this once, at construction: the drag's plate events are held only where the renderer draws the dragged ink itself. */
-    get supportsDragPlane() { return true; }
+    /**
+     * The engine reads this once, at construction: the drag's plate events are held only where the renderer draws
+     * the dragged ink itself. Not yet on the pyramid's path (its plane is B-PYRAMID-2 P3): every step renders there.
+     */
+    get supportsDragPlane() { return !this.pyramid; }
 
     /** The engine's selection, as `{ key, ids }` of the current list or null; pulled each camera step. */
     setPlaneState(fn) { this._planeFn = fn; }
@@ -805,6 +817,7 @@ export default class RasterRenderer extends Renderer {
      * @returns {number} paths taken down
      */
     _releaseHeldLive(v) {
+        if (this.pyramid) return this._pyrLive(v);
         const held = this._liveHeld;
         if (!held.length) return 0;
         const now = perfNow();
@@ -1015,6 +1028,7 @@ export default class RasterRenderer extends Renderer {
      * posts. Returns the published view, which is the object `_renderOverlays` is handed (FC2).
      */
     _frameStep(list) {
+        if (this.pyramid) return this._pyrStep();
         const layer = this.layer;
         this._postQ.length = 0;
         const t0 = perfNow();
@@ -1571,7 +1585,10 @@ export default class RasterRenderer extends Renderer {
         return { left: r.i0 * u, top: r.j0 * u, right: (r.i1 + 1) * u, bottom: (r.j1 + 1) * u };
     }
     /** How far past the window the Stage's table must read: one plate of the preview's quantum, the coarsest packed from it (P-1). */
-    listMargin(inScale) { return PLATE_PX / zqOf(quantumFor(inScale, this.layer.dpr).q - PREVIEW_QUANTA); }
+    listMargin(inScale) {
+        if (this.pyramid) return this._pyrMargin(inScale);
+        return PLATE_PX / zqOf(quantumFor(inScale, this.layer.dpr).q - PREVIEW_QUANTA);
+    }
 
     /** PAPER-PLAN R5b: one rung of the zoom-out ladder — `prebakePlates` at `LADDER_DQ`, the same unpinned low-priority post. */
     ladderPlates(t, win, snap) { return this.prebakePlates(t, win, snap, LADDER_DQ, "ladder"); }
@@ -1690,6 +1707,7 @@ export default class RasterRenderer extends Renderer {
             plane: this._plane.state, planeCells: this._plane.cellCount(),
             ...rasterStats,
             packed: packStats.packed, culled: packStats.culled,
+            queue: this.queue ? this.queue.report() : null,
         };
     }
 }

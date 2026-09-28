@@ -22,9 +22,9 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 | `PicturePyramid.rest.test.js` | 201 | A3 §2: the still-frame trigger, §2.2's worked estimates, inline and worker executors, pan keeps / zoom, frame, resize discard, D272's backstop, calibration (B-PYRAMID-1) | NEW | — |
 | `PicturePyramid.patch.test.js` | 275 | A3 §3.2–§3.6: the undo of one stroke inline (byte-equal) and coarse-first (never older), a patch that misses dirt stays stale, the GPU merge equals `pastePatch`, pen-up's group commit inline and held (B-PYRAMID-1) | NEW | — |
 | `jobQueue.test.js`, `prefetch.test.js` | 266 | A3 §4.1, §4.3, §4.4: priorities, the cut reservation, admission per frame, dealing, the velocity rule, generations, dedupe; the prefetch plan on a small lattice (B-PYRAMID-1) | NEW | — |
-| `raster.mask.test.js` | 153 | the mark masks only the ink it has not baked; the plane with a mark; what counts as baked | REPLACE | PLAN §3 row 3: the pure rule (targets at pen-up, `handledBy`), incl. the drag-across case |
+| `raster.mask.test.js` | 153 | the mark masks only the ink it has not baked; the plane with a mark; what counts as baked | REPLACE | PLAN §3 row 3: the pure rule (targets at pen-up, `handledBy`), incl. the drag-across case — 2026-09-28: deleted (B-ERASE); `raster.eraseRule.test.js` (row 3 a–d, the drag-across, the markFrame case) |
 | `raster.markSnap.test.js` | 148 | F121 per-list done snapshots | DELETE with `noteListMarks` | row 3 — deleted 2026-09-28 (B-SCENE-2, S2) |
-| `raster.bake.test.js` | 212 | F90 a bake step under its mark stales no plate (neutral events) | DELETE with the neutral tags | row 3's equivalence (a cut under its mark re-renders its rectangle to the same pixels) — 2026-09-28: ported to the Stage (B-SCENE-2): a cut dirties only inside the mark's box (A2-Q2), the classifier by `stats.neutral` |
+| `raster.bake.test.js` | 212 | F90 a bake step under its mark stales no plate (neutral events) | DELETE with the neutral tags | row 3's equivalence (a cut under its mark re-renders its rectangle to the same pixels) — 2026-09-28: ported to the Stage (B-SCENE-2): a cut dirties only inside the mark's box (A2-Q2), the classifier by `stats.neutral` — 2026-09-28: deleted with the neutral tags (B-ERASE); the dirt of a step is `erase.rule.test.js` (box(M) ∩ box(T) and the dust) and row 3 (b) |
 | `raster.listCover.test.js` | 140 | F119 `_listWin` covers the plates the list reads | DELETE with `listFor`'s window | a scene test: every plate job holds every item overlapping the plate — 2026-09-28: replaced by `src/engine/stage.cover.test.js` (jobs' ids against `listFor` over each plate, and the pixel oracle) |
 | `raster.liveHold.test.js` | 96 | F120 the live path held whatever the view's mode | PORT | `LiveStrokeLayer`: held until its rectangle is fresh |
 | `raster.nopaper.test.js` | 456 | stale before paper; the carry, the ladder, the hold (PAPER-PLAN §10.13) | DELETE with the carry, the ladder and the hold | the pyramid lookup test (row 1) and the harness's paper metric |
@@ -46,16 +46,18 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 |---|---|---|---|---|
 | `Renderer.*.test.js` (arcs, chop, reorigin, retention, thinscale) | 877 | the SVG renderer | KEEP (the SVG renderer stays for export and comparison) | — |
 | `Renderer.liveChunk.test.js` | 61 | the live stroke's frozen chunks | PORT | `LiveStrokeLayer` |
-| `erase.neutral.test.js` | 125 | F109 neutral steps | DELETE with the neutral tags | row 3 |
-| `erase.zorder.test.js` | 86 | the mark's z follows the bake down | DELETE with `_lowerMark` | row 3 |
-| `erase.markFrame.test.js` | 28 | E-5 a mark's derived pieces carry `erase` and its z | REPLACE | the scene reads z and the erase data from the object |
-| `erase.cost.test.js` | 68 | EC the candidate scan's cost | PORT (targets recorded at pen-up; the scan runs once) | — |
-| `erase.worker.test.js` | 178 | the erase worker | PORT (the shared pool, parallel cuts) | — |
-| `erase.stack.test.js` | 259 | a ring through a stack while it bakes: every object ends in two pieces | KEEP the property; PORT the barrier mechanics | — |
+| `erase.neutral.test.js` | 125 | F109 neutral steps | DELETE with the neutral tags | row 3 — 2026-09-28: deleted (B-ERASE) |
+| `erase.zorder.test.js` | 86 | the mark's z follows the bake down | DELETE with `_lowerMark` | row 3 — 2026-09-28: deleted with `_lowerMark` (B-ERASE) |
+| `erase.markFrame.test.js` | 28 | E-5 a mark's derived pieces carry `erase` and its z | REPLACE | the scene reads z and the erase data from the object — 2026-09-28: deleted; its case is in `raster.eraseRule.test.js` (a mark's tile items read the natives' fields) |
+| `erase.cost.test.js` | 68 | EC the candidate scan's cost | PORT (targets recorded at pen-up; the scan runs once) | — — 2026-09-28: ported (B-ERASE): the scan is the registration's, none during the bake |
+| `erase.worker.test.js` | 178 | the erase worker | PORT (the shared pool, parallel cuts) | — — 2026-09-28: ported (B-ERASE): the lookahead, serial apply, a barrier waiting for a cut in flight |
+| `erase.stack.test.js` | 259 | a ring through a stack while it bakes: every object ends in two pieces | KEEP the property; PORT the barrier mechanics | — — 2026-09-28: ported (B-ERASE): async barriers, the parked drag (A2 §5.5) |
 | `erase.provenance.test.js` | 194 | F118 the step graph | KEEP | — |
+| `erase.rule.test.js` | 300 | A2 §5's cases through the fields, the landing's one commit, the pick, cut and dust dirt, the load-time derivation (kobin-1, kobin-2), §4.10 live vs replayed, parallel = serial (B-ERASE, 2026-09-28) | NEW | — |
+| `select.eraseBarrier.test.js` | 170 | PLAN §3 row 7: a tap selects the piece under the finger once its cuts land; a lasso equals the baked clone's (H5); a frame's drag finishes its marks (B4); parked and cancelled through the pool (B-ERASE) | NEW | — |
 | every other `erase.*` (cede, depth, retrace, severance, fidelity, matrix, layered, contract, composition, styles, fuzz, deepsever, moved, unresolved, dust, seams, farHang, seamBranch, curve.depth) | ~4,700 | the geometry of cuts and descents | KEEP | — |
 | `move.hold.test.js` | 164 | R3 the drag's hold of plate events | DELETE with `_holdMove` (no writes during a drag) | the held-items test in the scene suite — deleted 2026-09-28 (B-SCENE-2, S2); `stage.hold.test.js` and raster.move RV5 |
-| `move.startCost.test.js` | 66 | a drag's start costs a bounded number of scans | PORT | — |
+| `move.startCost.test.js` | 66 | a drag's start costs a bounded number of scans | PORT | — — 2026-09-28: MS-1/MS-2 through `_dragBarrier` (B-ERASE) |
 | `move.below/deep/drag/registration/settle/subtree/twin/normalise/camMerge` | ~1,900 | the document model of moves | KEEP; DECIDE with A1 (the untangling changes settles and carries) | — |
 | `select.*` | ~1,460 | selection, lasso, families, detached frames | KEEP; DECIDE with A1 | — |
 | `tile.patch.test.js`, `tile.reroute.test.js`, `reroute.memo.test.js` | 323 | TileStore patches and the reroute memo | KEEP; the memo's suite PORTs if the scene absorbs it | — |

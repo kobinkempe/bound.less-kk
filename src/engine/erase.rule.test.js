@@ -10,7 +10,7 @@ import { encodeObjects, decodeObjects } from "./format2";
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
-import { underMask } from "./eraseRule";
+import { underMask, inLineage } from "./eraseRule";
 import { lcg } from "./__testkit__/rasterLists";
 
 useEngines();
@@ -46,6 +46,21 @@ function restore(snap, entries, crossings, strip = false) {
     return { F, log };
 }
 
+test("the rule as a function: each clause decides on its own (A2 §4.2)", () => {
+    // The engine cannot reach the first three today (registration names only natives below the mark,
+    // and a native's z never changes); the rule states them, and these pin them.
+    const M = { id: 7, z: 7, erase: true, targets: [3] };
+    const T = { id: 3, targetOf: [7] };
+    expect(underMask(T, M)).toBe(true);
+    expect(underMask(T, { ...M, targets: undefined })).toBe(false);          // a mark that has not landed
+    expect(underMask({ ...T, z: 9 }, M)).toBe(false);                        // above the mark
+    expect(underMask({ ...T, erase: true }, M)).toBe(false);                 // a mark is never masked
+    expect(underMask({ ...T, targetOf: [5] }, M)).toBe(false);               // not in the lineage
+    expect(underMask({ ...T, handledBy: [7] }, M)).toBe(false);              // handled
+    expect(inLineage({ ...T, handledBy: [7] }, M)).toBe(true);
+    expect(inLineage({ ...T, z: 9 }, M) || inLineage(T, { ...M, targets: undefined })).toBe(false);
+});
+
 describe("A2 §5: Kobin's semantics, through the fields", () => {
     test("5.1 the landing records the targets in the commit that lands the shape; an object dragged across is not one, never cut", () => {
         const E = mkEngine(800, 600);
@@ -57,10 +72,14 @@ describe("A2 §5: Kobin's semantics, through the fields", () => {
         const M = E._marks.get(E.doc._nextId - 1);
         expect(M.type).toBe("stroke");                                        // pending in the scene: unlanded
         expect(M.targets).toBeUndefined();
-        const G0 = E.stage.generation;
+        const G0 = E.stage.generation, bare = [];
+        const off = E.stage.onCommit((G) => { const r = E.doc.getById(M.id); if (r && r.obj.type === "shape" && r.obj.targets === undefined) bare.push(G); });
         E.flushBakes();
+        off();
         expect(M.targets).toEqual([T.id]);
         expect(E.stage.landedAt(M.id)).toBe(G0 + 1);                          // one commit: the shape, the frames pass, the targets
+        expect(bare).toEqual([]);                                             // no commit shows the shape without its targets
+        expect(E.stage.generation).toBe(G0 + 1);
         expect(underMask(T, M)).toBe(true);
         E.doc.moveById(Y.id, 280, -180);                                      // across the mark, after its registration
         expect(underMask(E.doc.getById(Y.id).obj, M)).toBe(false);
