@@ -524,11 +524,11 @@ describe("X2 — every entry carries a frameSeq, asserted under the 8 ms floor",
 // ---- X3 — a stale job, with why and with before/after dispatch --------------
 
 describe("X3 — a dropped job is logged with why and with when", () => {
-    test("before dispatch and after arrival, each with epoch, q, frameId, frameSeq and plates", () => {
-        rp.noteDrop({ frameSeq: 11, q: -3, frameId: "0", epoch: 4 },
+    test("before dispatch and after arrival, each with q, frameId, frameSeq and plates", () => {
+        rp.noteDrop({ frameSeq: 11, q: -3, frameId: "0" },
             { jobId: null, plates: Int32Array.from([0, 0, 1, 0]), why: "frame", before: true });
-        rp.noteDrop({ frameSeq: 12, q: -2, frameId: "0", epoch: 5 },
-            { jobId: 9, plates: Int32Array.from([2, 0]), why: "epoch", before: false,
+        rp.noteDrop({ frameSeq: 12, q: -2, frameId: "0" },
+            { jobId: 9, plates: Int32Array.from([2, 0]), why: "empty", before: false,
                 stale: [0] });
         const st = rp.report().stale;
         expect(st.length).toBe(2);
@@ -537,12 +537,11 @@ describe("X3 — a dropped job is logged with why and with when", () => {
         expect(byWhy.frame.plates).toBe(2);
         expect(byWhy.frame.frameSeq).toBe(11);
         expect(byWhy.frame.q).toBe("-3");
-        expect(byWhy.frame.epoch).toBe(4);
         expect(byWhy.frame.frameId).toBe("0");
         expect(byWhy.frame.t).toBe(WALL0 + t);
-        expect(byWhy.epoch.before).toBe(false);
-        expect(byWhy.epoch.jobId).toBe(9);
-        expect(byWhy.epoch.stale).toBe(1);
+        expect(byWhy.empty.before).toBe(false);
+        expect(byWhy.empty.jobId).toBe(9);
+        expect(byWhy.empty.stale).toBe(1);
         expect(perfCalls.filter((c) => c.op === "rasterStale").length).toBe(2);
     });
 
@@ -561,10 +560,10 @@ describe("X3 — a dropped job is logged with why and with when", () => {
         // The 8-deep log answers "which drops", the tally answers "how many of each": a phone
         // that dropped 300 strips shows eight whys and one total without it (§8.5).
         for (let i = 0; i < 60; i++) {
-            rp.noteDrop({ frameSeq: i }, { why: ["epoch", "quantum", "frame"][i % 3] });
+            rp.noteDrop({ frameSeq: i }, { why: ["empty", "quantum", "frame"][i % 3] });
         }
         let rep = rp.report();
-        expect(rep.staleByWhy).toEqual({ epoch: 20, quantum: 20, frame: 20 });
+        expect(rep.staleByWhy).toEqual({ empty: 20, quantum: 20, frame: 20 });
         expect(rep.stale.length).toBe(8);
         expect(rep.meta.staleDrops).toBe(60);
         // twelve distinct reasons are kept and the rest fall into `other`, so a `why` a caller

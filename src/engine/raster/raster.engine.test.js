@@ -2,7 +2,7 @@
  * raster.engine.test.js — stage 5b's own suite (RASTERISER-PLAN §9.2's E series and §10 stage
  * 5b's acceptance).
  *
- * **At the stage's CHECKPOINT this file holds the strip/beginJob/epochs seam alone** — §15.3's
+ * **At the stage's CHECKPOINT this file held the strip/beginJob seam alone** (now by G, A2 §3.1) — §15.3's
  * MUST of 13:20, written before the checkpoint by its own ruling (Q13) — and E1–E8, the two
  * counters and §8.4 rule 2 are the continuation's.
  *
@@ -19,13 +19,14 @@ import Renderer from "../Renderer";
 import RasterRenderer, { rasterStats, resetRasterStats } from "./RasterRenderer";
 import PlateStore, { PLATE_BYTES } from "./PlateStore";
 import { pictureStats, resetPictureStats } from "./PictureLayer";
-import { packJob, packStats, resetPackStats } from "./rasterPack";
+import { packStats, resetPackStats } from "./rasterPack";
 import * as rasterPerf from "./rasterPerf";
 import { plateKey, PLATE_PX } from "./plate";
 import {
     setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient, rasterWorkerReport,
 } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
+import { freshStub } from "../__testkit__/freshStub";
 import {
     drawStroke, eraseGesture, raster, rasterZ, colorAt, camShot, camRestore, frameToScreen,
 } from "../__testkit__/harness";
@@ -100,7 +101,7 @@ function mkRenderer(opts = {}) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const cam = opts.cam || mkCam(400, 300);
-    const store = opts.store || new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null });
+    const store = opts.store || new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null, fresh: freshStub() });
     const R = new (opts.klass || RasterRenderer)(host, cam, CFG, {
         width: 400, height: 300, dpr: 1, store, makeCanvas: mkRec,
         // The PLATES path: a fixture small enough to test is also light enough for §6.5's
@@ -126,17 +127,11 @@ afterEach(() => {
     rasterPerf.reset();
 });
 
-/** Everything the document event of §5.4 rule 2 reaches: the whole frame. */
-const EVERYWHERE = () => ({ left: -1e6, top: -1e6, right: 1e6, bottom: 1e6 });
-
 // ---------------------------------------------------------------------------
-// The strip / beginJob / epochs seam (§15.3's MUST of 2026-09-21 13:20; §10 item 12)
+// The strip / beginJob / G seam (A2 §3.1–§3.2)
 // ---------------------------------------------------------------------------
 
-test("a key dropped while its strip is in flight is re-posted ONCE, and then caches", async () => {
-    // The client hands `pack(plates, jobId, pool)` a flat Int32Array while `beginJob` takes
-    // objects and RETURNS the epochs; a job packed without them carries zeros, and after the
-    // first drop of any key every arrival for it reads stale and is re-posted for ever.
+test("a key changed while its strip is in flight is stored behind, re-posted ONCE, and then exact", async () => {
     const gate = mkGate();
     const { R, cam, store } = mkRenderer();
     const item = fillItem(7, 20, 20, 120);
@@ -147,27 +142,28 @@ test("a key dropped while its strip is in flight is re-posted ONCE, and then cac
     expect(store.inflight.has(key)).toBe(true);             // one plate, one strip, one job
     expect(gate.length).toBe(1);
 
-    // The document changes while the job is in flight. Rule 1 cannot see the plate (it is in
-    // no cache and in no id set), so rule 2 is the one that reaches it — and all it can do is
-    // bump the epoch, which is what D25 is for.
-    store.dropRectPerFrame(EVERYWHERE);
-    expect(store.epochOf(key)).toBe(1);
+    // The document changes while the job is in flight (its cell is tracked from `beginJob`), and
+    // the engine renders the change: a list at the new G.
+    store.fresh.dirty();
+    expect(store.fresh.dirtySince(key)).toBe(1);
+    R.render([item], cam.frame);
+    expect(gate.length).toBe(1);                            // the key is in flight: nothing posted twice
 
     await gate.release();
-    expect(pictureStats.staleDrops).toBe(1);                // the arrival carried epoch 0
-    expect(pictureStats.reposts).toBe(1);                   // ...and was asked for again, once
+    expect(pictureStats.staleDrops).toBe(0);                // rule 1: stored though behind, stale before paper
+    expect(store.isExact(store.get(key))).toBe(false);
+    expect(pictureStats.reposts).toBe(1);                   // ...and asked for again, once
     // The re-post is a post at the `q` the frame step already posted, in a LATER task: item
     // 15's rule is one post per `q` per task, and counting this one would report ordinary
     // re-posting to stage 7 as a rule violation.
     expect(rasterStats.dupPostQ).toBe(0);
-    expect(store.size()).toBe(0);
     expect(gate.length).toBe(1);                            // the re-post is in flight
 
     await gate.release();
-    expect(pictureStats.staleDrops).toBe(1);                // the second job carried epoch 1
     expect(pictureStats.reposts).toBe(1);
     expect(store.size()).toBe(1);
-    expect(store.get(key).epoch).toBe(1);
+    expect(store.get(key).G).toBe(1);
+    expect(store.isExact(store.get(key))).toBe(true);
     expect(gate.length).toBe(0);
 
     // Every minted id was ended, and nothing is left in flight (D164).
@@ -177,32 +173,7 @@ test("a key dropped while its strip is in flight is re-posted ONCE, and then cac
     expect(rasterWorkerReport().inFlight).toBe(0);
 });
 
-test("BREAK-CHECK: with the epochs left out of the pack, the same plate is re-posted without bound", async () => {
-    // The break the MUST names: `packJob`'s `opts.epochs` defaults to ZEROS, so every arrival
-    // for a key that has ever been dropped reads stale, for ever, and the screen keeps a hole
-    // nothing explains. Four rounds here; it does not converge.
-    class NoEpochs extends RasterRenderer {
-        _pack(req, strip, jobId) {
-            this.store.beginJob(jobId, req, [{ i: strip[0], j: strip[1] }]);
-            return packJob(this._lastList, {
-                plates: strip, q: req.q, Zq: req.Zq, dpr: 1, cfg: CFG, paper: [255, 255, 255],
-                jobId, frameSeq: req.frameSeq,
-            });
-        }
-    }
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer({ klass: NoEpochs });
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    store.dropRectPerFrame(EVERYWHERE);
-
-    for (let k = 0; k < 4; k++) await gate.release();
-    expect(pictureStats.staleDrops).toBe(4);
-    expect(pictureStats.reposts).toBe(4);
-    expect(store.size()).toBe(0);
-    expect(gate.length).toBe(1);                            // still asking
-});
-
-test("a clean strip caches on its first arrival, and the epochs it carried are the store's", async () => {
+test("a clean strip caches on its first arrival, exact at the G it carried", async () => {
     const gate = mkGate();
     const { R, cam, store } = mkRenderer();
     R.render([fillItem(7, 20, 20, 120)], cam.frame);
@@ -213,8 +184,8 @@ test("a clean strip caches on its first arrival, and the epochs it carried are t
     expect(pictureStats.staleDrops).toBe(0);
     expect(pictureStats.reposts).toBe(0);
     expect(store.size()).toBe(1);
-    expect(store.get(key).epoch).toBe(0);
-    expect(store.epochOf(key)).toBe(0);
+    expect(store.get(key).G).toBe(0);
+    expect(store.isExact(store.get(key))).toBe(true);
     expect(rasterStats.jobsEnded).toBe(1);
     // One job of N plates is ONE batch, which is what `onPlateBatch` exists for (D173).
     expect(rasterStats.batches).toBe(1);
@@ -311,7 +282,7 @@ test("one frame posts at most ONE submitPlates per q, and two quanta are live to
     R.layer._req.frameId = v.frameId;
     R.layer._req.Zq = v.Zq * 1.5;
     R.layer._req.i0 = v.i0; R.layer._req.i1 = v.i1; R.layer._req.j0 = v.j0; R.layer._req.j1 = v.j1;
-    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, epoch: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
+    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
 
     expect(rasterStats.posts).toBe(2);
     expect(rasterStats.dupPostQ).toBe(0);                   // never twice at one q in one frame
@@ -331,7 +302,7 @@ test("the settle's post opens a row of its own when none is live, and none insid
     expect(perf.rows.map((r) => r.kind)).toEqual(["render"]);
     const v = R.layer.view();
     R.layer._req.frameId = v.frameId; R.layer._req.Zq = v.Zq;
-    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, epoch: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
+    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
     expect(perf.rows.map((r) => r.kind)).toEqual(["render", "settle"]);
     const row = perf.rows[1];
     expect(row.seq).toBe(R.frameSeq);                       // the posting frame's seq: not a camera step
@@ -348,7 +319,7 @@ test("a strip the pump dispatches after an arrival packs inside a row of its own
     const { R, cam } = mkRenderer({ ropts: { perf } });
     R.render([fillItem(7, 20, 20, 120)], cam.frame);       // one strip parked at the gate: the worker is busy
     const v = R.layer.view();
-    R._post(v, [{ i: 3, j: 3, epoch: 0, key: plateKey(v.frameId, v.q, 3, 3) }], "view");
+    R._post(v, [{ i: 3, j: 3, key: plateKey(v.frameId, v.q, 3, 3) }], "view");
     expect(rasterWorkerReport().queued).toBe(1);            // behind the parked one
     const n = perf.rows.length;
     await gate.release();                                   // the arrival, then the pump
@@ -365,7 +336,7 @@ test("BREAK-CHECK: a second post at the SAME q inside one frame is counted, not 
     const { R, cam } = mkRenderer();
     R.render([fillItem(7, 20, 20, 120)], cam.frame);
     const v = R.layer.view();
-    R._post(v, [{ i: 9, j: 9, epoch: 0, key: plateKey(v.frameId, v.q, 9, 9) }], "view");
+    R._post(v, [{ i: 9, j: 9, key: plateKey(v.frameId, v.q, 9, 9) }], "view");
     expect(rasterStats.dupPostQ).toBe(1);
     expect(rasterWorkerReport().liveRequests).toBe(1);      // one q, one live request
 });
@@ -450,12 +421,12 @@ test("§8.4 rule 2: the main buckets sum on a frame that PACKS AND POSTS, light 
      * Each ASSERTED frame is invalidated first. Against one unmoving camera the second and
      * third renders are cache hits — `want` returns no miss, nothing is packed and nothing is
      * posted — so `eng.pack` and `xfer.out`, the two buckets a raster frame is about, would be
-     * in no asserted row (the review of 5b, 2026-09-21). The drop bumps the key's epoch, so the
-     * frame misses, `_pack` runs and the submit's own bracket is written.
+     * in no asserted row (the review of 5b, 2026-09-21). A change under every cell stales the
+     * plates, so the frame misses, `_pack` runs and the submit's own bracket is written.
      */
     const packedIn = [];
     function step(list) {
-        store.dropRectPerFrame(EVERYWHERE);
+        store.fresh.dirty();
         const p0 = packStats.packed;
         R.render(list, cam.frame);
         packedIn.push(packStats.packed - p0);
@@ -714,9 +685,9 @@ test("a dead quantum's queued strips are dropped with the DEAD q, never the bare
 
     // A strip queued at a quantum the view has left, and one at the settle's "e" beside it.
     R._post({ q: live - 3, Zq: 1, frameId: R.layer.view().frameId, mode: "quantum" },
-        [{ i: 0, j: 0, epoch: 0 }], "quantum");
+        [{ i: 0, j: 0 }], "quantum");
     R._post({ q: "e", Zq: 1, frameId: R.layer.view().frameId, mode: "settle" },
-        [{ i: 1, j: 0, epoch: 0 }], "settle");
+        [{ i: 1, j: 0 }], "settle");
     const queuedBefore = rasterWorkerReport().queued + rasterWorkerReport().inFlight;
     expect(queuedBefore).toBe(3);
 
@@ -896,15 +867,15 @@ test("E1 BREAK-CHECK: the same comparison against a picture the plates were neve
     const E = mkEngine();
     drawStroke(E, [[60, 60], [340, 240]], 24);
     await paint(E);
-    // The document changes and the plates are NOT invalidated: what the grid then reads is the
-    // old picture, and the comparison that passes above fails by a wide margin.
+    // The document changes and the plates are NOT told (the Stage's dirt is cut): what the grid
+    // then reads is the old picture, and the comparison that passes above fails by a wide margin.
     const puts = E.plates.report().puts;
-    const real = E._drainPlates;
-    E._drainPlates = function noDrain() { this._plateEvents.length = 0; return 0; };
+    const real = E.stage._dirt;
+    E.stage._dirt = function noDirt() {};
     drawStroke(E, [[60, 240], [340, 60]], 24);
     E._render();
     await flush();
-    E._drainPlates = real;
+    E.stage._dirt = real;
     expect(E.plates.report().puts).toBe(puts);              // nothing was re-rastered
     expect(compareGrid(E).clear).toBeGreaterThan(20);
 });
@@ -921,11 +892,10 @@ test("E1 BREAK-CHECK: the same comparison against a picture the plates were neve
  * by rule 5, are dropped by the edit and re-rastered when the camera comes back.
  */
 /**
- * A plate is INVALIDATED when the key's epoch has moved past the record's. Under PAPER-PLAN R1 a
- * drop KEEPS the pixels as a stale hit, so `cache.has` no longer separates the two states and
- * this is what P7's assertions read.
+ * A cached plate a change has met since its G (rule 2, A2 §3.1). Under PAPER-PLAN R1 a stale
+ * plate KEEPS its pixels, so `cache.has` does not separate the two states.
  */
-const staleAt = (E, k) => { const e = E.plates.cache.get(k); return !!e && e.epoch !== E.plates.epochOf(k); };
+const staleAt = (E, k) => { const e = E.plates.cache.get(k); return !!e && !E.plates.isExact(e); };
 
 async function crossIn(E) {
     let guard = 0;
@@ -946,13 +916,12 @@ test("E2 (P7) an object drawn one crossing in drops the RETAINED plates of the f
     for (const k of home) expect(E.plates.cache.has(k)).toBe(true);   // rule 5: a crossing drops nothing
     expect(E.plates.cache.size).toBeGreaterThan(home.length);         // ...and this frame's are beside them
 
-    // A stroke drawn HERE carries a NEW id, so rule 1 (`dropById`) can see no plate that ever
-    // painted it: the retained frame-"0" plates can only be reached by rule 2's mapping of the
-    // footprint into EVERY frame the cache holds, which is the whole of problem 7.
-    const byRect = E.plates.report().dropsByRect;
+    // The retained frame-"0" plates are reached only by the footprint mapped into EVERY frame
+    // with tracked cells, which is the whole of problem 7.
+    const dirtied = E.stage.stats.dirtied;
     drawStroke(E, [[120, 120], [280, 180]], 24);
     await paint(E);
-    expect(E.plates.report().dropsByRect).toBeGreaterThan(byRect);
+    expect(E.stage.stats.dirtied).toBeGreaterThan(dirtied);
     for (const k of home) expect(staleAt(E, k)).toBe(true);
 
     // ...and the camera returns to a cache that has to raster that frame again, to the picture
@@ -968,20 +937,20 @@ test("E2 (P7) an object drawn one crossing in drops the RETAINED plates of the f
     expect(plateGrid(E)).toBe(warm);
 });
 
-test("E2 BREAK-CHECK: with the §5.4 drain removed, the retained plates survive the edit made at the other level", async () => {
+test("E2 BREAK-CHECK: with the Stage's dirt cut, the retained plates survive the edit made at the other level", async () => {
     const E = mkEngine();
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
     const home = [...E.plates.cache.keys()];
     await crossIn(E);
 
-    const real = E._drainPlates;
-    E._drainPlates = function noDrain() { this._plateEvents.length = 0; return 0; };
+    const real = E.stage._dirt;
+    E.stage._dirt = function noDirt() {};
     drawStroke(E, [[120, 120], [280, 180]], 24);
     await paint(E);
-    E._drainPlates = real;
-    // the plates are there either way under R1, so what the break-check reads is the EPOCH:
-    // with no drain nothing invalidated them and the compose would draw them as current ink
+    E.stage._dirt = real;
+    // the plates are there either way under R1, so what the break-check reads is exactness:
+    // with no dirt nothing staled them and the compose would draw them as current ink
     for (const k of home) expect(staleAt(E, k)).toBe(false);
 });
 
@@ -992,16 +961,13 @@ test("E2 BREAK-CHECK: a footprint mapped into the ACTIVE frame only leaves the o
     const home = [...E.plates.cache.keys()];
     await crossIn(E);
 
-    // Rule 2 minus its per-frame half: the footprint is mapped into the camera's own frame and
-    // into no other, which is the mapping §5.4's table says would leave a level-0 plate holding
-    // stale paper after something was drawn at level 6.
-    const real = E._drawnRectIn;
-    E._drawnRectIn = function activeOnly(ev, prev, frameId) {
-        return String(frameId) === String(this.cam.frame) ? real.call(this, ev, prev, frameId) : null;
-    };
+    // The footprint mapped into the camera's own frame and into no other would leave a level-0
+    // plate holding stale paper after something was drawn at level 6.
+    const real = E.stage._rectsIn;
+    E.stage._rectsIn = function activeOnly(states, F) { return String(F) === String(E.cam.frame) ? real.call(this, states, F) : []; };
     drawStroke(E, [[120, 120], [280, 180]], 24);
     await paint(E);
-    E._drawnRectIn = real;
+    E.stage._rectsIn = real;
     for (const k of home) expect(staleAt(E, k)).toBe(false);
 });
 
@@ -1098,28 +1064,26 @@ test("§15.3 Q4: a LOADED object's first move drops the old address, and the pla
     E.loadDrawing(JSON.parse(JSON.stringify(doc)));
     E._render();
     const id = E._objs()[0].id;
-    // A load emits one `reset` and no per-object event, so the drain has nothing to record and
-    // `_buildList`'s seed is the only thing that can know the table these plates are painted
-    // with (§15.3's 2026-09-22 Q4). The break-check below is what proves it is load-bearing.
-    expect(E._footBelow.has(id)).toBe(true);
+    // A load emits one `reset` and no per-object event: the old address of the first move comes
+    // from that change's own `oldBelow` (A2 §2.8). The break-check below proves it load-bearing.
     expect(E.plates.inflight.size).toBeGreaterThan(0);       // every plate of the screen is out
     const [wx, wy] = wasAt(E), [nx, ny] = nowAt(E);
     expect(inkedAt(E, wx, wy)).toBe(null);                   // nothing cached yet
 
     // `Document.undo` restores a move with exactly this call, and a one-shot move is the case
-    // D231 stated as open: the plate painting the OLD address is in flight, in no cache and in
-    // no id set, so rule 1 cannot see it and only the old rect can bump its epoch.
+    // D231 stated as open: the plate painting the OLD address is in flight, and only the old
+    // footprint can stale it.
     E.doc.setOffsetsById(id, [[MOVE, 0]]);
     E._render();
     await drain(gate);
 
-    expect(pictureStats.staleDrops).toBeGreaterThan(0);      // the old-address plate was refused
+    expect(E.plates.report().staleNewer).toBeGreaterThan(0); // the old-address plate arrived behind and was re-posted
     expect(inkedAt(E, wx, wy)).toBe(false);                  // ...and where it was is paper
     expect(inkedAt(E, nx, ny)).toBe(true);                   // ...and the ink is where it went
     expect(compareGrid(E).clear).toBe(0);
 });
 
-test("BREAK-CHECK: with the memo unseeded, that same plate arrives and caches the object where it no longer is", async () => {
+test("BREAK-CHECK: with `oldBelow` left out of the footprint, that same plate caches the object where it no longer is", async () => {
     const doc = await oneStrokeDoc();
     const gate = mkGate();
     const E = mkEngine(1600, 400);
@@ -1127,17 +1091,19 @@ test("BREAK-CHECK: with the memo unseeded, that same plate arrives and caches th
     E._render();
     const id = E._objs()[0].id;
 
-    E._footBelow.clear();                                    // the memo as it was before §15.3 Q4
+    const real = E.stage._footOf;
+    E.stage._footOf = function noOld(ev, n) { return real.call(this, ev.offsetsOnly ? { ...ev, oldBelow: ev.obj.below } : ev, n); };
     E.doc.setOffsetsById(id, [[MOVE, 0]]);
     E._render();
     await drain(gate);
+    E.stage._footOf = real;
 
     const [wx, wy] = wasAt(E);
     expect(inkedAt(E, wx, wy)).toBe(true);                   // stale ink, and nothing left to drop it
     expect(compareGrid(E).clear).toBeGreaterThan(0);
 });
 
-test("a geometry move with the old footprint's plate in flight: `oldBbox` reaches the epoch", async () => {
+test("a geometry move with the old footprint's plate in flight: `oldBbox` reaches the dirt", async () => {
     // The drag writes OFFSETS (`below`), so this path — `moveById`/`setGeometryById`/
     // `bakeShapeById`, every one of which carries `oldBbox` and `oldLw` — has no other test.
     const doc = await oneStrokeDoc();
@@ -1152,7 +1118,7 @@ test("a geometry move with the old footprint's plate in flight: `oldBbox` reache
     E._render();
     await drain(gate);
 
-    expect(pictureStats.staleDrops).toBeGreaterThan(0);
+    expect(E.plates.report().staleNewer).toBeGreaterThan(0);
     expect(inkedAt(E, wx, wy)).toBe(false);
     expect(inkedAt(E, nx, ny)).toBe(true);
     expect(compareGrid(E).clear).toBe(0);
@@ -1166,15 +1132,13 @@ test("BREAK-CHECK: with `oldBbox` dropped from the event, the geometry move leav
     E._render();
     const id = E._objs()[0].id;
 
-    const real = E._drawnRectIn;
-    E._drawnRectIn = function noOld(ev, prev, frameId) {
-        return real.call(this, { ...ev, oldBbox: null, oldLw: 0 }, prev, frameId);
-    };
+    const real = E.stage._footOf;
+    E.stage._footOf = function noOld(ev, n) { return real.call(this, { ...ev, oldBbox: null, oldLw: 0 }, n); };
     const [wx, wy] = wasAt(E);
     E.doc.moveById(id, MOVE, 0);
     E._render();
     await drain(gate);
-    E._drawnRectIn = real;
+    E.stage._footOf = real;
 
     expect(inkedAt(E, wx, wy)).toBe(true);                   // the plate arrived with the old picture
     expect(compareGrid(E).clear).toBeGreaterThan(0);
@@ -1454,11 +1418,11 @@ test("R2: a prio-0 request's strip dispatches ahead of queued prio-1 strips, and
     const orig = R._pack.bind(R);
     R._pack = (req, strip, jobId, pool) => { packed.push(String(req.q)); return orig(req, strip, jobId, pool); };
     // Six more view plates: with one worker they queue as prio-1 strips behind the parked one.
-    R._post(v, [3, 4, 5, 6, 7, 8].map((i) => ({ i, j: 3, epoch: 0, key: plateKey(v.frameId, v.q, i, 3) })), "view");
+    R._post(v, [3, 4, 5, 6, 7, 8].map((i) => ({ i, j: 3, key: plateKey(v.frameId, v.q, i, 3) })), "view");
     // ...then the preview, aimed 8 quanta below the view's, posted at prio 0.
     R.layer._aimPreview(Number(v.q), v.frameId);
     const p = R.layer.previewRequest();
-    R._post(p, [{ i: 0, j: 0, epoch: 0, key: plateKey(v.frameId, p.q, 0, 0) }], "preview");
+    R._post(p, [{ i: 0, j: 0, key: plateKey(v.frameId, p.q, 0, 0) }], "preview");
     expect(rasterWorkerReport().queued).toBeGreaterThanOrEqual(2);
     const refused = rasterStats.refusedAtDispatch;
     await gate.release();                                           // the parked job answers; the pump picks next

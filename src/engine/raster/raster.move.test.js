@@ -11,6 +11,7 @@
 import KobinEngine from "../KobinEngine";
 import PictureLayer from "./PictureLayer";
 import PlateStore, { PLATE_BYTES } from "./PlateStore";
+import { freshStub } from "../__testkit__/freshStub";
 import MovePlane, { planeStats, resetPlaneStats, MOVE_PLANE_LAYERS, MOVE_PLANE_PLATES, MOVE_HOLD_MS } from "./MovePlane";
 import { plateKey, plateRange, PLATE_PX } from "./plate";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount, setRasterTransport } from "./rasterWorkerClient";
@@ -226,14 +227,14 @@ describe("the plane's compose (PictureLayer._composePlane)", () => {
         const lm = { width: 1024, height: 512, depthOf: () => 0, frame: () => true, ensureSpine: () => "0" };
         const cam = new Camera(lm, {});
         cam.inScale = 1; cam.inPanX = 0; cam.inPanY = 0;
-        const store = new PlateStore({ maxBytes: 64 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ maxBytes: 64 * PLATE_BYTES, doc: null, fresh: freshStub() });
         const layer = new PictureLayer(null, cam, {
             store, width: 1024, height: 512, dpr: 1,
             makeCanvas: (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = rec(); c.getContext = () => x; c.rec = x; return c; },
         });
         const v = layer.frameFor(cam, 1e9);
         const bm = (tag) => ({ tag, close() {} });
-        const put = (q, i, j, tag) => store.put({ frameId: v.frameId, q, Zq: v.Zq, i, j, epoch: store.epochOf(plateKey(v.frameId, q, i, j)), bitmap: bm(tag), bytes: PLATE_BYTES });
+        const put = (q, i, j, tag) => store.put({ frameId: v.frameId, q, Zq: v.Zq, i, j, G: store.fresh.generation, bitmap: bm(tag), bytes: PLATE_BYTES });
         return { layer, store, v, put, ctx: layer._canvas.rec };
     }
     const plane = (v, over = false) => {
@@ -263,8 +264,8 @@ describe("the plane's compose (PictureLayer._composePlane)", () => {
         put(v.q, 0, 0, "plate"); put(v.q, 1, 0, "plate1"); put("z0_" + v.q, 0, 0, "under"); put("z1_" + v.q, 0, 0, "ink");
         const pl = plane(v);
         pl.state = "land";
-        store.dropById(new Set());                             // nothing stale yet
-        store._drop(plateKey(v.frameId, v.q, 0, 0));           // the drop staled cell (0,0) only
+        const k00 = plateKey(v.frameId, v.q, 0, 0);
+        store.fresh.dirty((c) => c.key === k00);               // a change staled cell (0,0) only
         layer.setPlane(pl);
         layer.compose([]);
         expect(ctx.of("clip").length).toBe(1);
@@ -291,8 +292,16 @@ describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
         }
         return true;
     };
+    /** Every cell under a held path's box has a plate that paints its stroke (its G at or past Gs, A2 §3.3)? */
+    const allShow = (E, h) => {
+        const R = E.renderer, v = R.layer.view(), r = plateRange(h.box, v.Zq);
+        for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) {
+            for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) if (!R._plateShowsG(v, i, j, h)) return false;
+        }
+        return true;
+    };
 
-    test("L1 the live path stays until the plates under the stroke are fresh: no arrival leaves neither", async () => {
+    test("L1 the live path stays until the plates under the stroke paint it: no arrival leaves neither", async () => {
         const E = mkEngine();
         E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
         E._render();
@@ -305,24 +314,26 @@ describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
         expect(path && path.parent).toBeTruthy();
         const seen = [];
         const R = E.renderer, orig = R._deliver.bind(R);
-        let box = null;
-        // After every arrival and its own release: the path is still up, or every cell under the stroke is fresh.
+        let held = null;
+        // After every arrival and its own release: the path is still up, or every cell's plate paints the stroke.
         R._deliver = (recs, jobId) => {
             const out = orig(recs, jobId);
-            if (box) seen.push(!!(R._liveHeld[0] && R._liveHeld[0].path.parent) || allFresh(E, box));
+            if (held) seen.push(!!(R._liveHeld[0] && R._liveHeld[0].path.parent) || allShow(E, held));
             return out;
         };
         E.pointerUp();
         const h = R._liveHeld[0];
-        box = h && h.box;
+        held = h;
+        const box = h && h.box;
         expect(h).toBeTruthy();                          // red with the path taken down at pen-up
         expect(path.parent).toBeTruthy();
         expect(R._liveModel).toBeNull();                 // the packer paints the stroke from now on
         expect(allFresh(E, box)).toBe(false);            // the plates under it are behind the document
+        expect(allShow(E, h)).toBe(false);
         await flush();
         expect(R._liveHeld.length).toBe(0);
         expect(path.parent).toBeFalsy();
-        expect(allFresh(E, box)).toBe(true);
+        expect(allShow(E, h)).toBe(true);
         expect(seen.length).toBeGreaterThan(0);
         expect(seen.every(Boolean)).toBe(true);
     });
@@ -470,6 +481,27 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         E.pointerUp();
     });
 
+    test("RV5 the plane's drag is held in the Stage: its steps commit nothing, its drop is one commit (A2 §2.7)", async () => {
+        const E = mkEngine();
+        const { a, p } = await scene(E);
+        E.pointerDown(p[0], p[1]);
+        E.pointerMove(p[0] + 6, p[1] + 6);
+        await flush();
+        expect(E._holdMove && E._holdMove.ids.has(a.id)).toBe(true);
+        expect(E.stage.holding).toBe(true);
+        const G0 = E.stage.generation, dirt0 = E.stage.stats.dirtied, held0 = E.stage.stats.held;
+        for (let k = 2; k <= 20; k++) E.pointerMove(p[0] + k * 6, p[1] + k * 6);
+        await flush();
+        expect(E.stage.generation).toBe(G0);              // red without the hold: a commit a step
+        expect(E.stage.stats.dirtied).toBe(dirt0);
+        const release = jest.spyOn(E.stage, "release");
+        E.pointerUp();
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(E.stage.holding).toBe(false);
+        expect(E.stage.stats.held).toBeGreaterThan(held0);   // the steps' events, applied at the drop
+        expect(E.stage.stats.dirtied).toBeGreaterThan(dirt0); // where it was and where it is
+    });
+
     test("RV4 a full render mid-drag bakes no copy of the dragged object into the ordinary plates", async () => {
         const E = mkEngine();
         const { p } = await scene(E);
@@ -480,7 +512,9 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         const at = [p[0] + 120, p[1] + 120];
         const v0 = R.layer.view();
         const X = (at[0] * v0.dpr - v0.dx + v0.ox) / v0.Zq, Y = (at[1] * v0.dpr - v0.dy + v0.oy) / v0.Zq;
-        E.plates.dropRectPerFrame(() => ({ left: X - 1, top: Y - 1, right: X + 1, bottom: Y + 1 }));   // that plate must re-raster
+        const i = Math.floor((X * v0.Zq) / PLATE_PX), j = Math.floor((Y * v0.Zq) / PLATE_PX);
+        E.plates.dropFrames((f) => String(f) === String(v0.frameId));   // every plate, that one too, must re-raster
+        expect(E.plates.get(plateKey(v0.frameId, v0.q, i, j))).toBeUndefined();
         E._render();                                      // a cut landing, a crossing: the list now holds the move
         await flush();
         const c = rgbaAt(E, R.layer.view().q, at[0], at[1]);
@@ -927,14 +961,14 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) cells.push([i, j]);
             expect(cells.length).toBeGreaterThan(1);
             const [fi, fj] = cells[0];
-            const fresh = jest.spyOn(R.layer, "cellFresh").mockImplementation((vv, i, j) => i === fi && j === fj);
-            expect(R._releaseHeldLive(v, null)).toBe(0);                  // red before: taken down at the first fresh cell
+            const fresh = jest.spyOn(R, "_plateShowsG").mockImplementation((vv, i, j) => i === fi && j === fj);
+            expect(R._releaseHeldLive(v, null)).toBe(0);                  // red before: taken down at the first cell that paints it
             expect(h.path.parent).toBeTruthy();
             const id = (h.path._renderer.elem.getAttribute("clip-path") || "").replace(/^url\(#|\)$/g, "");
             const cp = id && document.getElementById(id);
             expect(cp).toBeTruthy();
             const rects = [...cp.querySelectorAll("rect")];
-            expect(rects.length).toBe(cells.length - 1);                   // every stale cell, not the fresh one
+            expect(rects.length).toBe(cells.length - 1);                   // every cell whose plate lacks it, not the one that has it
             const u = PLATE_PX / v.Zq, [si, sj] = cells[1];
             expect(Number(rects[0].getAttribute("x"))).toBeCloseTo(si * u - h.og.x, 6);
             expect(Number(rects[0].getAttribute("y"))).toBeCloseTo(sj * u - h.og.y, 6);
@@ -961,11 +995,13 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             const r = plateRange(h.box, v.Zq), cells = [];
             for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) cells.push([i, j]);
             expect(cells.length).toBeGreaterThan(1);
-            // The shape's bake staled every cell; the band's plates had landed on all but the last.
-            const fresh = jest.spyOn(R.layer, "cellFresh").mockImplementation(() => false);
+            // The shape's bake staled every cell; the band's plates (packed at or past the G the stroke
+            // shows from) had landed on all but the last.
+            const Gs = R._shownFrom(h);
+            expect(Gs).not.toBeNull();
             const banded = new Set(cells.slice(0, -1).map(([i, j]) => plateKey(v.frameId, v.q, i, j)));
             const get = R.store.get.bind(R.store);
-            const got = jest.spyOn(R.store, "get").mockImplementation((k) => (banded.has(k) ? { ids: Int32Array.of(h.id), dead: false } : get(k)));
+            const got = jest.spyOn(R.store, "get").mockImplementation((k) => (banded.has(k) ? { G: Gs, dead: false } : get(k)));
             expect(R._releaseHeldLive(v, null)).toBe(0);
             const id = (h.path._renderer.elem.getAttribute("clip-path") || "").replace(/^url\(#|\)$/g, "");
             const cp = id && document.getElementById(id);
@@ -975,7 +1011,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
             const u = PLATE_PX / v.Zq, [li, lj] = cells[cells.length - 1];
             expect(Number(rects[0].getAttribute("x"))).toBeCloseTo(li * u - h.og.x, 6);
             expect(Number(rects[0].getAttribute("y"))).toBeCloseTo(lj * u - h.og.y, 6);
-            got.mockRestore(); fresh.mockRestore();
+            got.mockRestore();
         } finally { setRasterTransport(null); }
     });
 
@@ -984,7 +1020,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
         E._render(); await flush();
         const renders = jest.spyOn(E, "_render");
-        E._plateEvents.push({ kind: "change", id: -1, neutral: true });   // a cut under a pending mark
+        E.stage.stats.events++; E.stage.stats.neutral++;                 // a cut under a pending mark, as the Stage counts it
         E._renderSoon();
         await new Promise((r) => setTimeout(r, 150));
         expect(renders).not.toHaveBeenCalled();                          // red before: a full render (~200 ms on the Magnum Opus)

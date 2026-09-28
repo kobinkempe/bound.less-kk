@@ -31,7 +31,7 @@
  * ported BUG-02/05 invariants).
  */
 import { perfNow } from "./now";
-import { BASE, ENTER, EXIT, REACH, R, cellCentre } from "./frameLattice";
+import { BASE, ENTER, EXIT } from "./frameLattice";
 import { BiarcPen } from "./geometry/biarc";
 import Camera from "./Camera";
 import Document from "./Document";
@@ -43,7 +43,6 @@ import { createPlacementModel } from "./placementModel";
 import RasterRenderer, { LADDER_DQ, PREVIEW_QUANTA } from "./raster/RasterRenderer";
 import PlateStore, { isPhoneBudget } from "./raster/PlateStore";
 import { pictureStats } from "./raster/PictureLayer";
-import { bboxOf } from "./geometry/derive";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
 import { residual, encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
@@ -62,9 +61,6 @@ import { initFrameGc, noteFrameEvent, noteCameraFrame, collectFrames, sweepFrame
 // Eraser strokes paint in the canvas background color — visually "erased"
 // the instant they're drawn, before any geometry work happens.
 const ERASE_COLOR = "#ffffff";
-// A drag's collapsed drop names every member's start and end box up to this many members; past it
-// one union box per address (a rigid translation keeps a union box a union box). PAPER-PLAN R3.
-const MOVE_RECTS_MAX = 256;
 // PAPER-PLAN R5b / §10 S6 / §10.18, the zoom-out ladder: the screens zoomed out 4× … 4,194,304×
 // (LADDER_NEAR rungs, 22 octaves) about the centre, rastered coarse once the camera has been still,
 // one rung an idle callback, drawn only as stand-ins; 2–6 plates a rung (LADDER_MARGIN at
@@ -89,8 +85,6 @@ const PERF_LONG_MS = 200;
 const PERF_LONG_CAP = 100;
 /** The ladder's idle hop, with no forced timeout: a rung is one unsliced list build (up to 17 s at depth 9). */
 const ladderIdle = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn) : setTimeout(fn, 30));
-/** A rect every plate meets: a frame's own plates, staled whole. */
-const EVERYWHERE = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
 
 const DEFAULTS = {
     // The lattice constants (bible section 0). Every one is a power of two, so
@@ -124,6 +118,9 @@ const DEFAULTS = {
     // Input frames (A3 §5): "raf" moves the camera per event and steps the picture once an animation
     // frame (the page's engine); "sync" steps per call, as the suites and the one-off engines expect.
     frames: "sync",
+    // What plates are packed from (A2 §6.2): the Stage's items (true) or the render list, stamped
+    // with the G it was built at (false). `?scene=0|1` in the app.
+    scene: false,
     // The Dev levers (A3 §8, `devLevers.js`), a desktop's values; a phone's replace them at construction.
     // Stored only until B-PYRAMID's pyramid and store read them (PLAN §1.2).
     ...leverDefaults(false),
@@ -145,12 +142,14 @@ export default class KobinEngine {
      *        teardown path nothing tests.
      * @param {"raf"|"sync"} [opts.frames] "raf": camera and drag input step the picture once an
      *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
+     * @param {boolean|null} [opts.scene] `cfg.scene` over its default: plates packed from the Stage
      * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
      *        this device's stored ones), over this device's defaults
      */
-    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null } = {}) {
+    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null, scene = null } = {}) {
         this.cfg = { ...DEFAULTS, ...leverDefaults(isPhoneBudget()), ...cleanLevers(levers) };
         if (frames === "raf" || frames === "sync") this.cfg.frames = frames;
+        if (scene != null) this.cfg.scene = !!scene;
         this.onStatus = onStatus || (() => {});
         this.width = width || window.innerWidth;
         this.height = height || window.innerHeight;
@@ -184,52 +183,37 @@ export default class KobinEngine {
         });
         this.store = new TileStore(this.lm, this.doc, this.cfg);
         // The scene (A2 §2): after the tile store, so its events see tiles already patched.
-        this.stage = new Stage({ doc: this.doc, lm: this.lm, store: this.store, model: createPlacementModel({ doc: this.doc, lm: this.lm, store: this.store }) });
+        this.stage = new Stage({
+            doc: this.doc, lm: this.lm, store: this.store, cfg: this.cfg,
+            model: createPlacementModel({ doc: this.doc, lm: this.lm, store: this.store }),
+            isNeutral: (ev) => this._neutralOf(ev),
+        });
+        // A spent mark's uncut set goes with it (the neutral tags' bookkeeping, until B-ERASE).
+        this.doc.subscribe((ev) => {
+            if (!this._uncut) return;
+            if (ev.kind === "reset") this._uncut.clear();
+            else if (ev.kind === "remove" && ev.obj && ev.obj.erase) this._uncut.delete(ev.id);
+        });
         this.raster = !!raster;
-        /** The plate cache, on the raster path only: the ENGINE owns its lifetime, the §5.4 drain and the footprint. */
+        /** The plate cache, on the raster path only; the Stage is its freshness source (A2 §3.1). */
         this.plates = null;
         /** §8.4 rule 1's join. One writer — the renderer bumps it through the injected function, once a CAMERA step. */
         this._frameSeq = 0;
-        /** §5.4: document events are queued here and drained at the top of a frame, never handled where they arrive. */
-        this._plateEvents = this.raster ? [] : null;
-        /**
-         * id -> the displacement table this object was last DRAWN with, so a move's old drawn
-         * box is known (§5.4). Written by `_buildList` (set-if-absent) and by the drain.
-         */
-        this._footBelow = this.raster ? new Map() : null;
-        // PAPER-PLAN R3: a live drag's members, frame roots and start addresses; their plate
-        // events are held by `_drainPlates` and released once by `_endMove`. Null between drags.
+        /** A live drag the plane draws: its members and frame roots, whose events the Stage holds (A2 §2.7). */
         this._holdMove = null;
         if (this.raster) {
-            this.plates = new PlateStore({});
+            this.plates = new PlateStore({ fresh: this.stage });
             this.renderer = new RasterRenderer(container, this.cam, this.cfg, {
-                width: this.width, height: this.height, store: this.plates,
+                width: this.width, height: this.height, store: this.plates, stage: this.stage, scene: this.cfg.scene,
                 frameSeq: () => ++this._frameSeq,
-                drain: () => this._drainPlates(),
                 notePerf: (op, t0, extra) => this.notePerf(op, t0, extra),
             });
-            this.doc.subscribe((ev) => {
-                // A reset is a DIFFERENT document under the same ids, so the memo is cleared
-                // here and not at the drain: `_buildList` re-seeds it from the new document
-                // before the drain runs, and a stale table would send the old address of an
-                // object that never was there.
-                if (ev.kind === "reset" && this._footBelow) this._footBelow.clear();
-                if (ev.kind === "reset") this.renderer.dropCarry();   // the last picture is another document's
-                if (this._uncut && (ev.kind === "reset" || (ev.kind === "remove" && ev.obj && ev.obj.erase))) {
-                    if (ev.kind === "reset") this._uncut.clear(); else this._uncut.delete(ev.id);
-                }
-                let neutral = this._pictureNeutral;
-                // A mark's step that passes a target it left whole uncovers that ink (erasePipeline._neutral).
-                const whole = neutral && ev.kind === "change" && ev.obj && ev.obj.erase && this._uncut ? this._uncut.get(ev.id) : null;
-                if (whole && whole.size) {
-                    const zm = this._zOf(ev.obj);
-                    for (const id of whole) {
-                        const r = this.doc.getById(id);
-                        if (!r) whole.delete(id);
-                        else if (this._zOf(r.obj) > zm) { neutral = false; whole.delete(id); }
-                    }
-                }
-                this._plateEvents.push(neutral ? { ...ev, neutral: true } : ev);
+            // A list packs a stroke between its pen-up and its shape landing; the Stage's items do not.
+            this.stage.packsPending = !this.cfg.scene;
+            // A commit's hard drops (A2 §3.4): a frame whose id now means another place, another document.
+            this.stage.onCommit((G, info) => {
+                if (info.reset) { this.plates.dropAll(false); this.renderer.dropCarry(); return; }
+                for (const pred of info.drop) this.plates.dropFrames(pred);
             });
         } else {
             this.renderer = new Renderer(container, this.cam, this.cfg, { width: this.width, height: this.height });
@@ -671,8 +655,6 @@ export default class KobinEngine {
         const d = this.lm.depthOf(F);
         const D = d == null ? 0 : d;
         const resById = hasOff ? new Map() : null;
-        const seed = forCamera ? this._footBelow : null;
-        let marks = null;
         for (const o of list) {
             const rec = this.doc.getById(o.id);
             if (rec && rec.obj.editId != null) o.editId = rec.obj.editId;
@@ -680,15 +662,6 @@ export default class KobinEngine {
             // copy lost `erase` and kept the z it was derived at (REVIEWER E-5: white ink over what
             // is drawn after it).
             if (rec && rec.obj.erase && o !== rec.obj) { o.erase = true; if (rec.obj.z != null) o.z = rec.obj.z; }
-            if (rec && rec.obj.erase && !(marks && marks.has(o.id))) (marks || (marks = new Map())).set(o.id, this._markNow(rec.obj));
-            // §5.4's old-address memo, seeded HERE from what is about to be painted (§15.3's
-            // 2026-09-22 Q4): filled only from events, an object's FIRST move after a reload
-            // has no old address for `_drawnRectIn`. Set-if-absent, never overwrite: the drain
-            // runs after this walk, so overwriting would hand it the table of the very edit it
-            // is about to map.
-            if (seed && rec && !seed.has(o.id)) {
-                seed.set(o.id, rec.obj.below || null);
-            }
             let res = null;
             if (hasOff && rec && rec.obj.below) {
                 res = resById.get(o.id);
@@ -699,18 +672,6 @@ export default class KobinEngine {
         // z defaults to id (creation order); cut pieces carry their source's z
         // so a stroke stays at its depth after a boolean erase splits it.
         list.sort((a, b) => ((a.z != null ? a.z : a.id) - (b.z != null ? b.z : b.id)) || (a.id - b.id));
-        if (marks && this.renderer.noteListMarks) {
-            // Each mark's handled set only as far as this list holds it: the whole set carries every far
-            // moved native (19.5k on the Magnum Opus), a copy a list build (REVIEWER-5).
-            for (const [id, m] of marks) {
-                const d = this.renderer.markDone && this.renderer.markDone(id);
-                if (!d) continue;
-                const done = new Set();
-                for (const o of list) if (d.has(o.id)) done.add(o.id);
-                m.done = done;
-            }
-            this.renderer.noteListMarks(list, marks);
-        }
         // C's risk 5: a cold frame's bake is seconds (F59), so an off-camera build that paid one
         // shows up in the report rather than only in a stall. `_perf`'s 8 ms floor is the filter.
         // The camera's own build is timed by `_render` and charged to `eng.list`.
@@ -718,125 +679,35 @@ export default class KobinEngine {
         return list;
     }
     /**
-     * A pending mark's z as it stands, for the lists built now (its handled set is added by `listFor`):
-     * a pack of a list masks by what the list shows. A cut is neutral and rebuilds no list, so a pack of
-     * the older list with the live set drew the cut object whole and unmasked, cached fresh (F121).
+     * The Stage's classifier (A2 §2.8, until B-ERASE): an erase step tagged neutral under its mark is
+     * that mark (its footprint inside the mark's box only, PLAN §5.3 A2-Q2) or `true` (no dirt); a
+     * mark's step that passes a target it left whole uncovers that ink and is not neutral.
      */
-    _markNow(m) { return { z: m.z != null ? m.z : m.id, done: null }; }
-    /**
-     * §5.4's drain: every document event since the last frame, mapped to the plate cache's
-     * invalidation rules. It runs AFTER `_buildList` and before the render because `_buildList`
-     * itself emits — `TileStore.ownContent` → `Document.at` settles a moved frame and emits one
-     * `offsetsOnly` change per native — so a drain before it would leave this frame composing
-     * plates the drain would have dropped. The camera path reaches it through the renderer's
-     * injected `drain`, which covers `selection.js`'s two overlay-only `syncCameraOnly` calls
-     * as well as the engine's own.
-     *
-     * @returns {number} events drained
-     */
-    _drainPlates() {
-        const q = this._plateEvents;
-        if (!q || !this.plates) return 0;
-        let n = 0;
-        // The queue grows while it drains (a drop bumps nothing, but a handler may emit), so it
-        // is walked by index and cut once.
-        for (let k = 0; k < q.length; k++) {
-            const ev = q[k];
-            if (this._holdMove && this._heldByMove(ev)) continue;   // R3: neither drained nor memoised
-            if (ev.neutral) {                                       // a bake step under its mark (F90): no pixel changed
-                if (ev.obj && ev.id != null && this._footBelow) this._footBelow.set(ev.id, ev.obj.below || null);
-                this.plates.s.neutralEvents++;
-                n++;
-                continue;
+    _neutralOf(ev) {
+        let neutral = this._pictureNeutral || null;
+        const whole = neutral && ev.kind === "change" && ev.obj && ev.obj.erase && this._uncut ? this._uncut.get(ev.id) : null;
+        if (whole && whole.size) {
+            const zm = this._zOf(ev.obj);
+            for (const id of whole) {
+                const r = this.doc.getById(id);
+                if (!r) whole.delete(id);
+                else if (this._zOf(r.obj) > zm) { neutral = null; whole.delete(id); }
             }
-            if (ev.kind === "refile" && ev.frame != null && ev.from && ev.to) { this._refilePlates(ev); n++; continue; }
-            if ((ev.kind === "mergeFrame" || ev.kind === "splitFrame") && ev.frame != null) {
-                if (ev.kind === "mergeFrame") this.plates.dropFrames((G) => G === ev.frame);   // the merged-away frame's own keys
-                n++;
-                continue;
-            }
-            if ((ev.kind === "removeFrame" || ev.kind === "addFrame") && ev.frame != null && this._frameListPlates(ev)) { n++; continue; }
-            const prev = ev.id != null && this._footBelow ? this._footBelow.get(ev.id) : undefined;
-            this.plates.onDocEvent(ev, (frameId) => this._drawnRectIn(ev, prev, frameId));
-            if (ev.obj && ev.id != null && this._footBelow) this._footBelow.set(ev.id, ev.obj.below || null);
-            n++;
         }
-        q.length = 0;
-        // A hint, not a store: losing it costs the OLD-address rect of the next move of that
-        // object, which rule 1 covers for every plate that is cached rather than in flight.
-        if (this._footBelow && this._footBelow.size > 1024) this._footBelow.clear();
-        this.plates.noteDrain(n);
-        return n;
+        return neutral;
     }
-    /**
-     * A frame re-addressed (a subtree drag's step or its undo): its own plates and those under it are
-     * removed — their surroundings moved — and elsewhere only its cell grown by one, at the old address
-     * and the new, is staled. `dropAll` here wiped every stand-in at each step of a frame drag the
-     * plane refused: 899 in one phone report (PAPER-PLAN §10.13).
-     */
-    _refilePlates(ev) {
-        let n = this.plates.dropFrames((G) => this.lm.isUnder(ev.frame, G));
-        const at = [ev.from, ev.to].filter((a) => a && a.parent != null && this.lm.frame(String(a.parent)));
-        n += this.plates.dropRectPerFrame((G) => this._cellFootIn(at, G));
-        return n;
-    }
-    /** Cells `at` (`{parent, i, j}`), each grown by the subtree's reach, in frame G's units; null when none maps. */
-    _cellFootIn(at, G) {
-        const h = REACH / R, out = [];
-        for (const a of at) {
-            const c = cellCentre(a.i, a.j);
-            const m = this.lm.mapRectF({ left: c.x - h, top: c.y - h, right: c.x + h, bottom: c.y + h }, String(a.parent), G);
-            if (m) out.push(m);
-        }
-        return out.length ? out : null;
-    }
-    /**
-     * A frame's list removed or put back (a subtree delete, its undo): the frame's own plates and those
-     * under it are staled, and elsewhere its cell grown by one. False — the caller's `dropAll` — for a
-     * root or a frame the lattice no longer has.
-     */
-    _frameListPlates(ev) {
-        if (!ev.count) return true;
-        const f = this.lm.frame(String(ev.frame));
-        if (!f || f.parent == null || !f.cell) return false;
-        const at = [{ parent: f.parent, i: f.cell.i, j: f.cell.j }];
-        this.plates.dropRectPerFrame((G) => (this.lm.isUnder(ev.frame, G) ? EVERYWHERE : this._cellFootIn(at, G)));
-        return true;
-    }
-    // ---- the drag's hold (PAPER-PLAN R3, B-drag-bitmap §1.2, §2.3) ----
-    /** The hold, taken once at `_beginSelectDrag`: the members' ids and start addresses, the selected frame roots. */
+    // ---- the drag's hold (A2 §2.7: the Stage holds the drag's events until its end) ----
+    /** The hold, taken once at `_beginSelectDrag` when the plane draws the drag: the Stage holds its events. */
     _beginHold() {
         this._holdMove = null;
         if (!this._moveHoldOn || !this.raster || !this.selection) return;
         // The plane is aimed (and what it lacks posted) now; a selection it refuses drags the old way.
         if (this.renderer.planeAccepts && !this.renderer.planeAccepts()) return;
-        const ids = new Set(), startBelow = new Map(), startLevel = new Map();
-        for (const rec of this._selectionMembers()) {
-            ids.add(rec.obj.id);
-            startLevel.set(rec.obj.id, rec.level);
-            startBelow.set(rec.obj.id, rec.obj.below || null);
-        }
+        const ids = new Set();
+        for (const rec of this._selectionMembers()) ids.add(rec.obj.id);
         const frames = (this.selection.frames || []).slice();
-        this._holdMove = { ids, frames, startBelow, startLevel, at: null, frameStart: this._framesFootIn(frames) };
-    }
-    /**
-     * Each selected frame's subtree — its cell grown by one, [−REACH, REACH]² in its own units
-     * (invariant 2) — mapped into every frame the plate cache holds: taken at the drag's start and
-     * again at its drop, so the drop stales exactly what the subtree left and where it landed.
-     */
-    _framesFootIn(frames) {
-        const out = new Map();
-        if (!frames.length || !this.plates) return out;
-        const ext = { left: -REACH, top: -REACH, right: REACH, bottom: REACH };
-        const seen = new Set();
-        for (const e of this.plates.cache.values()) seen.add(e.frameId);
-        for (const f of this.plates.inflight.values()) seen.add(f.frameId);
-        for (const G of seen) {
-            const rs = [];
-            for (const root of frames) { const r = this.lm.frame(root) ? this.lm.mapRectF(ext, root, G) : null; if (r) rs.push(r); }
-            if (rs.length) out.set(G, rs);
-        }
-        return out;
+        this._holdMove = { ids, frames, at: null };
+        this.stage.hold({ ids, frames });
     }
     /**
      * The renderer's plane can no longer draw the live drag (the camera left its frame, the sync path,
@@ -848,23 +719,6 @@ export default class KobinEngine {
         const n = this._releaseMove();
         if (this._dragSel) this._dragSel.listAt = null;
         return n;
-    }
-    /**
-     * An event the drag answers for at its end: a member's, a re-address of a dragged frame or
-     * one under it, or a settle's per-native change under one. Not drained and not memoised, so
-     * `_footBelow` keeps the table the object was last DRAWN with.
-     */
-    _heldByMove(ev) {
-        const h = this._holdMove;
-        if (ev.id != null && h.ids.has(ev.id)) return true;
-        if (!h.frames.length) return false;
-        if (ev.kind === "refile" && ev.frame != null) return this._underHeldFrames(ev.frame);
-        return ev.level != null && this._underHeldFrames(ev.level);
-    }
-    _underHeldFrames(level) {
-        const h = this._holdMove; if (!h) return false;
-        for (const root of h.frames) if (root === level || this.lm.isUnder(root, level)) return true;
-        return false;
     }
     /**
      * The drag plane's input (PAPER-PLAN §10 S4), pulled by the renderer each camera step: the
@@ -900,8 +754,8 @@ export default class KobinEngine {
     }
     /**
      * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo: the gesture,
-     * the tile batch and the merge hold cleared, the plate hold released as one collapsed
-     * invalidation, the renderer told, one render.
+     * the tile batch and the merge hold cleared, the Stage's hold released as one commit, the
+     * renderer told, one render.
      */
     _endMove(why) {
         const d = this._dragSel, carried = this._carried || new Set();
@@ -923,91 +777,10 @@ export default class KobinEngine {
         const n = this._releaseMove();
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
     }
-    /** Rules 1–4 once: every member's plates by id, the start and end footprints, and `dropAll` when a frame moved. */
+    /** The hold's end: the Stage applies what it held as one commit, dirtying the start and the end (A2 §2.7). */
     _releaseMove() {
         const h = this._holdMove; this._holdMove = null;
-        if (!h || !this.plates) return 0;
-        let n = this.plates.dropById(h.ids);
-        n += this.plates.dropRectPerFrame((frameId) => this._movedRectsIn(h, frameId));
-        if (h.frames.length) {
-            // A moved frame's own plates, and those of every frame under it, are removed; elsewhere the
-            // subtree's start and end are staled (review major 3; `dropAll` blanked the whole screen).
-            n += this.plates.dropFrames((G) => h.frames.some((root) => this.lm.isUnder(root, G)));
-            const end = this._framesFootIn(h.frames);
-            n += this.plates.dropRectPerFrame((G) => {
-                const rs = (h.frameStart.get(G) || []).concat(end.get(G) || []);
-                return rs.length ? rs : null;
-            });
-        }
-        return n;
-    }
-    /**
-     * Every member's drawn box at its end address and, when it changed, at its start — the
-     * mapping `_drawnRectIn` makes, at both addresses. Past MOVE_RECTS_MAX members one union box
-     * per address. Over-dropping is safe; under-dropping is F68/F69 again.
-     */
-    _movedRectsIn(h, frameId) {
-        const F = String(frameId);
-        const out = [];
-        let union = null;
-        const add = (rect, H, below) => {
-            const m = this.lm.mapRectObj(rect, H, F, below, H, false);
-            if (!m) return;
-            if (h.ids.size <= MOVE_RECTS_MAX) out.push(m);
-            else union = union ? { left: Math.min(union.left, m.left), top: Math.min(union.top, m.top), right: Math.max(union.right, m.right), bottom: Math.max(union.bottom, m.bottom) } : m;
-        };
-        for (const id of h.ids) {
-            const rec = this.doc.getById(id);
-            if (!rec) continue;
-            const o = rec.obj;
-            const b = bboxOf(o, this._drawing);
-            const half = (o.type === "fill" ? 0 : (o.lwFrame || 0)) / 2;
-            const r = { left: b.x0 - half, top: b.y0 - half, right: b.x1 + half, bottom: b.y1 + half };
-            add(r, rec.level, o.below);
-            const L0 = h.startLevel.get(id), b0 = h.startBelow.get(id);
-            if (L0 !== rec.level || b0 !== (o.below || null)) add(r, L0, b0);
-        }
-        if (union) out.push(union);
-        return out.length ? out : null;
-    }
-
-    /**
-     * One event's DRAWN box in `frameId`'s units — the object's bbox plus `lwFrame / 2` for a
-     * stroke, through the object's own displacement table (F72's rule). `TileStore._addObject`
-     * builds the same box for the same purpose: a bare bbox leaves the plates holding a fat
-     * stroke's outer edge undropped.
-     *
-     * An edit has **two** old addresses and both are covered here: the GEOMETRY it had, which
-     * `Document._afterEdit` carries as `oldBbox`/`oldLw`, and the TABLE it had, which the
-     * per-id memo carries. They are independent — a drag of an object that owns offsets moves
-     * both — so the footprint is every combination that changed, at most four rects.
-     * `half` is taken from the WIDER of the two widths, which is what drops the band a
-     * narrowed stroke used to cover with its bbox unmoved.
-     *
-     * @returns {object|object[]|null} `dropRectPerFrame`'s footprint
-     */
-    _drawnRectIn(ev, prev, frameId) {
-        const o = ev.obj;
-        if (!o || ev.level == null) return null;
-        const H = String(ev.level), F = String(frameId);
-        const b = bboxOf(o, this._drawing);
-        const lw = o.type === "fill" ? 0 : (o.lwFrame || 0);
-        const half = Math.max(lw, ev.oldLw || 0) / 2;
-        const box = (bb) => ({ left: bb.x0 - half, top: bb.y0 - half, right: bb.x1 + half, bottom: bb.y1 + half });
-        const r = box(b);
-        // A move REPLACES the table rather than mutating it (`Document.setOffsetsById`), so
-        // identity is what says the object has not moved since the last drain.
-        const movedTable = prev !== undefined && prev !== (o.below || null);
-        const ob = ev.oldBbox;
-        const movedGeom = !!ob && (ob.x0 !== b.x0 || ob.y0 !== b.y0 || ob.x1 !== b.x1 || ob.y1 !== b.y1);
-        const out = [];
-        const add = (rect, below) => { const m = this.lm.mapRectObj(rect, H, F, below, H, false); if (m) out.push(m); };
-        add(r, o.below);
-        if (movedGeom) add(box(ob), o.below);
-        if (movedTable) add(r, prev);
-        if (movedTable && movedGeom) add(box(ob), prev);
-        if (!out.length) return null;
-        return out.length === 1 ? out[0] : out;
+        return h ? this.stage.release() : 0;
     }
     _render() {
         // A destroyed engine is inert: a late step would rebuild lists and plates in the host the
@@ -1016,6 +789,7 @@ export default class KobinEngine {
         const t0 = perfNow();
         this._renderPending = false;   // a deferred bake render is satisfied by any render (`_stepShapeBakes`)
         this._eraseListStale = false;
+        this._evAtRender = [this.stage.stats.events, this.stage.stats.neutral];   // `_renderSoon`'s skip
         // The camera changed frame: what it left may go (F94) — before the list, whose memos count frames.
         if (noteCameraFrame(this)) collectFrames(this, true);
         // RASTER (§8.1): the list build is ENGINE work, so the frame's perf row opens HERE and
@@ -1024,11 +798,12 @@ export default class KobinEngine {
         const ras = this.raster ? this.renderer : null;
         if (ras) ras.beginRender();
         const tList = perfNow();
+        // The list holds every commit up to G0 (a read that commits mid-build only makes it conservative).
+        const G0 = this.stage.generation;
         this._lastList = this._buildList();
-        this.stage.sync(this.cam.frame, this._listWin(), Infinity);   // S1: kept beside the list, read by no renderer yet
+        this.stage.sync(this.cam.frame, this._listWin(), Infinity);
         if (ras) ras.noteList(perfNow() - tList);
-        this._drainPlates();
-        this.renderer.render(this._lastList, this.cam.frame);
+        this.renderer.render(this._lastList, this.cam.frame, G0);
         this.renderer.update();
         this._emit();
         this._perf("render", t0, false, { n: this._lastList.length, fat: this.renderer._hasFat });
@@ -1390,9 +1165,8 @@ export default class KobinEngine {
                 if (o.lwFrame * this.cfg.enter <= gate) continue;
                 if (perfNow() - t0 > 8) { more = true; break; }
                 this.renderer.ensureOutline(o, o.origin === "native");
-                // The fit bumps no `_ver` and emits no document event, so the plates holding
-                // this stroke would keep its RAW round band at that quantum for ever (§15.3 Q5).
-                if (this.plates) this.plates.dropById(o.id);
+                // The fit emits no document event: its footprint is the Stage's dirt (§15.3 Q5).
+                if (this.plates) this.stage.touch(o.id);
                 fitted++;
             }
             this._perf("idleFit", t0, false, { fitted, more });

@@ -238,7 +238,7 @@ export default class Stage {
         this._logFloor = 0;
         this._logCur = null;
         this.stats = { commits: 0, rebuilds: 0, syncs: 0, reads: 0, missed: 0, queued: 0, items: 0, rerouteDiffs: 0,
-            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0 };
+            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0, events: 0 };
         this._unsubDoc = doc.subscribe((ev) => this._onDoc(ev));
         this._unsubTile = store.onTile((ev) => this._onTile(ev));
     }
@@ -563,6 +563,7 @@ export default class Stage {
 
     _onDoc(ev) {
         const neutral = this._isNeutral ? this._isNeutral(ev) : null;
+        this.stats.events++;
         if (this._hold && ev.kind !== "reset" && this._held(ev)) { this._hold.queue.push({ ev, neutral }); return; }
         if (this._sync) { this._queue.push({ ev, neutral }); this.stats.queued++; return; }
         this._applyDoc(ev, neutral);

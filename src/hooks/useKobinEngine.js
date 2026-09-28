@@ -57,6 +57,17 @@ export function rasterFromUrl(href) {
     if (r && (r[1] === "0" || r[1] === "false" || r[1] === "off")) return false;
     return true;
 }
+/**
+ * What plates are packed from (A2 §6.2): `?scene=1` the Stage's items, `?scene=0` the render list;
+ * absent (or unreadable), null, and the engine's own default stands. Construction-time, as above.
+ */
+export function sceneFromUrl(href) {
+    const m = /[?&]scene=([^&#]*)(?=[&#]|$)/.exec(String(href || ""));
+    if (!m) return null;
+    if (m[1] === "0" || m[1] === "false" || m[1] === "off") return false;
+    if (m[1] === "1" || m[1] === "true" || m[1] === "on") return true;
+    return null;
+}
 /** The same URL with the SVG gate set (`on` false) or cleared (`on` true), where the query already lives. */
 export function hrefWithRaster(href, on) {
     const s = String(href || "");
@@ -200,6 +211,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         // device's stored ones, over the engine's per-device defaults (A3 §8).
         const engine = new KobinEngine(host, {
             width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href), frames: "raf",
+            scene: sceneFromUrl(window.location.href),
             levers: readLevers({ href: window.location.href, storage: leverStorage() }),
         });
         setLeverState(leversOf(engine));

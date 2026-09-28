@@ -261,7 +261,7 @@ function rasterOf(E, sub) {
         plane: sub("raster.plane", () => (R._plane && R._plane.stats ? { ...R._plane.stats } : null)),
         overlay: sub("raster.overlay", () => (R._overlay && R._overlay.report ? brief(R._overlay.report()) : null)),
         ladder: { built: E._ladderAt != null, busy: !!E._ladderBusy, steps: (E._ladderSteps || []).length },
-        drains: sub("raster.drain", () => ({ queued: E._plateEvents ? E._plateEvents.length : 0, footBelow: E._footBelow ? E._footBelow.size : 0 })),
+        stage: sub("raster.stage", () => ({ G: E.stage.generation, ...E.stage.stats })),
     };
 }
 

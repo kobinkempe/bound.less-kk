@@ -41,10 +41,14 @@ function bakeByTicks(E) {
     while (marks(E) && g++ < 2000) { E._lastCamMove = null; E._bakeTick(); }
     expect(marks(E)).toBe(0);
 }
-/** The mark's own z steps as the drain will see them, with their neutral tags. */
+/** The mark's own z steps as the Stage's classifier sees them, with their neutral tags. */
 function watchSteps(E) {
-    const steps = [], q = E._plateEvents, push = q.push;
-    q.push = function (ev) { if (ev && ev.kind === "change" && ev.attrOnly && ev.obj && ev.obj.erase) steps.push(!!ev.neutral); return push.apply(this, arguments); };
+    const steps = [], cls = E.stage._isNeutral;
+    E.stage._isNeutral = (ev) => {
+        const n = cls(ev);
+        if (ev && ev.kind === "change" && ev.attrOnly && ev.obj && ev.obj.erase) steps.push(!!n);
+        return n;
+    };
     return steps;
 }
 

@@ -412,36 +412,24 @@ export default class PlateStore {
         if (!this.cache.has(key) && !this.inflight.has(key)) this.fresh.untrack(key);
     }
 
-    // ---- the invalidation epoch and the in-flight map (D25, §8.4 rule 4) ----
-
-    /** The epoch a job must carry for this key; 0 for a key nothing has ever dropped. */
-    epochOf(key) { const e = this.epochs.get(key); return e === undefined ? 0 : e; }
-    /** Is a job's epoch for this key still the current one? Checked before dispatch and on arrival. */
-    isCurrent(key, epoch) { return epoch === this.epochOf(key); }
+    // ---- the in-flight map (A2 §3.2) ----
 
     /**
-     * Record a strip as in flight and return its epochs, in the job's own plate order
-     * (§3.3's `epochs`). `plates` is `want`'s miss list, or any `[{ key, i, j }]`.
+     * Record a strip as in flight and track its cells from now: a change after `G` that meets one
+     * stales the plate the job brings, whenever it lands. `plates` is `want`'s miss list, or any
+     * `[{ key, i, j }]`; `G` is the generation the job is packed at.
      */
     beginJob(jobId, view, plates, G) {
-        const out = this.fresh ? null : new Int32Array(plates.length);
         const keys = [];
         for (let n = 0; n < plates.length; n++) {
             const p = plates[n];
             const key = p.key || plateKey(view.frameId, view.q, p.i, p.j);
             keys.push(key);
-            if (this.fresh) {
-                const f = { jobId, key, frameId: view.frameId, q: view.q, Zq: view.Zq, i: p.i, j: p.j, G, refused: false };
-                this.inflight.set(key, f);
-                this.fresh.track(key, view.frameId, rectOf(f) || EVERYWHERE_BOX, G);
-                continue;
-            }
-            const epoch = this.epochOf(key);
-            out[n] = epoch;
-            this.inflight.set(key, { jobId, key, frameId: view.frameId, q: view.q, Zq: view.Zq, i: p.i, j: p.j, epoch });
+            const f = { jobId, key, frameId: view.frameId, q: view.q, Zq: view.Zq, i: p.i, j: p.j, G, refused: false };
+            this.inflight.set(key, f);
+            this.fresh.track(key, view.frameId, rectOf(f) || EVERYWHERE_BOX, G);
         }
         this.jobs.set(jobId, keys);
-        return out;
     }
 
     /** The job came back, failed, or was abandoned before dispatch. */
@@ -454,80 +442,7 @@ export default class PlateStore {
         return n;
     }
 
-    /** Plates in flight whose epoch is already behind: the work §8.4 rule 4 drops before dispatch. */
-    staleInFlight() {
-        let n = 0;
-        for (const f of this.inflight.values()) if (this.fresh ? f.G < this.fresh.dirtySince(f.key) : f.epoch !== this.epochOf(f.key)) n++;
-        return n;
-    }
-
-    // ---- the five invalidation rules (§5.4) ----
-
-    /**
-     * Rule 1 — every plate whose painted-id set holds `id`, which is **one id or a `Set` of
-     * them**: a drag's collapsed invalidation names every moved id at once and must walk the
-     * cache once, not once an id (PAPER-PLAN R3). A plate with no id set cannot be tested and is
-     * dropped (counted in `noIds`); nothing in the shipped path leaves one out.
-     *
-     * @param {number|Set<number>} id
-     */
-    dropById(id) {
-        const many = id instanceof Set;
-        if (many && !id.size) return 0;
-        let n = 0;
-        for (const e of [...this.cache.values()]) {
-            if (e.ids) {
-                if (many) { if (!anyId(e.ids, id)) continue; } else if (!holdsId(e.ids, id)) continue;
-            } else this.s.noIds++;
-            this._drop(e.key); n++;
-        }
-        this.s.dropsById += n;
-        return n;
-    }
-
-    /**
-     * Rules 2 and 3 — the drawn footprint, mapped into **every frame the cache holds** and
-     * not only the active one, and into every frame a job is in flight for. `foot` is
-     * `(frameId) => rect | rect[] | null`, called once per distinct frame (`TileStore`'s own
-     * per-level memo, `TileStore.js:482-500`).
-     *
-     * The rect is the object's **drawn** box — its bbox plus `lwFrame / 2` for a stroke, in
-     * that frame's own units, with `res` applied, at the old address and the new — as
-     * `TileStore._addObject`'s own overlap test builds it. A bare bbox leaves the plates
-     * holding a fat stroke's outer edge undropped, which D77's one device pixel does not
-     * cover.
-     */
-    dropRectPerFrame(foot) {
-        if (!foot) return 0;
-        const memo = new Map(), bumped = new Set();
-        const rectsFor = (frameId) => {
-            if (memo.has(frameId)) return memo.get(frameId);
-            const r = foot(frameId);
-            const arr = !r ? [] : (Array.isArray(r) ? r : [r]);
-            memo.set(frameId, arr);
-            return arr;
-        };
-        const hit = (p) => {
-            const rects = rectsFor(p.frameId);
-            if (!rects.length) return false;
-            const box = rectOf(p);
-            for (const r of rects) if (meets(box, r)) return true;
-            return false;
-        };
-        let n = 0;
-        for (const e of [...this.cache.values()]) {
-            if (!hit(e)) continue;
-            this._drop(e.key); bumped.add(e.key); n++;
-        }
-        // A plate in flight is in no id set and in no cache, so this is the only rule that
-        // can reach it — which is what the epoch is for (D25).
-        for (const f of [...this.inflight.values()]) {
-            if (bumped.has(f.key) || !hit(f)) continue;
-            this._bump(f.key); bumped.add(f.key); n++;
-        }
-        this.s.dropsByRect += n;
-        return n;
-    }
+    // ---- the hard drops: the plates go, their jobs in flight land nothing ----
 
     /**
      * Every plate at one quantum, cached and in flight — the settle's own drop (§6.3, D83).
@@ -535,25 +450,23 @@ export default class PlateStore {
      * per zoom the user stopped at, and that key carries **no zoom of its own**: a plate
      * settled at one exact zoom is a hit at any other until this drops it, so
      * `dropQuantum("e")` on the next camera move is a correctness rule and not housekeeping.
-     * The epoch is bumped like any invalidating drop, which is what refuses a settle job
-     * still in flight when the camera moved.
+     * Its jobs in flight are refused, so a settle job still out when the camera moved lands nothing.
      */
     dropQuantum(q) {
         const qs = String(q);              // the key concatenates q, so 3 and "3" are one quantum
-        const bumped = new Set();
+        const gone = new Set();
         let n = 0;
         for (const e of [...this.cache.values()]) {
             if (String(e.q) !== qs) continue;
-            // A HARD remove, not `_drop`: a settled plate must never survive as a stale hit and
-            // must never be a fallback, because `"e"` carries no zoom of its own (D83).
-            this._remove(e.key); this._bump(e.key);
-            this._pins.delete(e.key); this._held.delete(e.key); bumped.add(e.key); n++;
+            // A HARD remove: a settled plate must never survive as a stale hit and must never be a
+            // fallback, because `"e"` carries no zoom of its own (D83).
+            this._remove(e.key);
+            this._pins.delete(e.key); this._held.delete(e.key); gone.add(e.key); n++;
         }
         for (const f of [...this.inflight.values()]) {
             if (String(f.q) !== qs) continue;
-            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
-            if (bumped.has(f.key)) continue;
-            this._bump(f.key); bumped.add(f.key); n++;
+            this._refuse(f);
+            if (!gone.has(f.key)) n++;
         }
         this.s.dropsByQ += n;
         return n;
@@ -562,11 +475,10 @@ export default class PlateStore {
     /**
      * A request the camera moved PAST (PAPER-PLAN R1): its stragglers are refused and its cached
      * plates are kept, unpinned, as the best fallbacks on the screen. The document did not
-     * change, so a cached plate at this quantum is **not** stale and its epoch does not move —
-     * which is the whole difference from `dropQuantum`, whose hard remove is D83's correctness
-     * rule for the settle's `"e"` and must stay one.
+     * change, so a cached plate at this quantum is **not** stale — the whole difference from
+     * `dropQuantum`, whose hard remove is D83's correctness rule for the settle's `"e"`.
      *
-     * @returns {number} keys touched: the in-flight ones bumped, the cached ones unpinned
+     * @returns {number} keys touched: the in-flight ones refused, the cached ones unpinned
      */
     abandonQuantum(q) {
         const qs = String(q);
@@ -579,7 +491,7 @@ export default class PlateStore {
             if (String(f.q) !== qs) continue;
             // the pin of a key nothing ever cached is the half `dropQuantum` cannot reach either
             this._pins.delete(f.key); this._held.delete(f.key);
-            if (this.fresh) this._refuse(f); else this._bump(f.key);
+            this._refuse(f);
             n++;
         }
         this.s.abandons++;
@@ -587,25 +499,22 @@ export default class PlateStore {
     }
 
     /**
-     * Rule 4 — a frame event, and `reset`: everything goes, cached and in flight alike, with
-     * every bitmap closed. It does NOT stale (R1's exception): a frame event changes what a
-     * `frameId` MEANS, so a kept plate is not old ink at the right place but possibly ink at the
-     * wrong one, which is worse than paper; and `release` must free memory on a hidden tab.
+     * Everything goes, cached and in flight alike, with every bitmap closed: a reset (another
+     * document), `release` (a hidden tab frees its memory) and `destroy`.
      */
     dropAll(keepStandIns = true) {
-        const bumped = new Set();
+        const gone = new Set();
         let n = 0;
-        // A landing drag plane and the base keep their plates, staled: the moved picture's own (S4)
-        // and the last cover a zoom-out or a pan has (§10.13). A reset is another document: nothing stays.
+        // A landing drag plane and the base keep their plates: the moved picture's own (S4) and the
+        // last cover a zoom-out or a pan has (§10.13). A reset is another document: nothing stays.
         if (!keepStandIns) { this._plane = new Set(); this._base = new Set(); }
         for (const e of [...this.cache.values()]) {
             if (!this._plane.has(e.key) && !this._base.has(e.key)) this._remove(e.key);
-            this._bump(e.key); bumped.add(e.key); n++;
+            gone.add(e.key); n++;
         }
         for (const f of [...this.inflight.values()]) {
-            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
-            if (bumped.has(f.key)) continue;
-            this._bump(f.key); bumped.add(f.key); n++;
+            this._refuse(f);
+            if (!gone.has(f.key)) n++;
         }
         this._pins = new Set();
         this._held.clear();
@@ -614,30 +523,31 @@ export default class PlateStore {
     }
 
     /**
-     * Rule 4, narrowed for a subtree move (PAPER-PLAN §10, review major 3): REMOVE every plate of a
-     * frame `pred` names — a moved frame or one under it, whose surroundings changed — and nothing
-     * else; the caller stales what the move uncovered or covered elsewhere with `dropRectPerFrame`.
-     * `dropAll` at a frame drop blanked the whole screen, fallbacks and ladder included.
+     * REMOVE every plate of a frame `pred` names — a frame whose id now means another place (a
+     * re-address under it, a merge; the Stage's `onCommit` `drop`) — and refuse its jobs in flight.
+     * What the change uncovered or covered elsewhere is the Stage's dirt, not this.
      *
      * @param {(frameId:*)=>boolean} pred
      */
     dropFrames(pred) {
-        const bumped = new Set();
+        const gone = new Set();
         let n = 0;
         for (const e of [...this.cache.values()]) {
             if (this._plane.has(e.key) || !pred(e.frameId)) continue;
-            this._remove(e.key); this._bump(e.key);
-            this._pins.delete(e.key); this._held.delete(e.key); bumped.add(e.key); n++;
+            this._remove(e.key);
+            this._pins.delete(e.key); this._held.delete(e.key); gone.add(e.key); n++;
         }
         for (const f of [...this.inflight.values()]) {
             if (!pred(f.frameId)) continue;
-            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
-            if (bumped.has(f.key)) continue;
-            this._bump(f.key); n++;
+            this._refuse(f);
+            if (!gone.has(f.key)) n++;
         }
         this.s.dropsFrames += n;
         return n;
     }
+
+    /** A job a hard drop refused: its result is discarded on arrival (`put`). */
+    _refuse(f) { f.refused = true; }
 
     // Rule 5 is that a frame CROSSING drops nothing, so it has no method here: the key
     // carries the frame, an inactive frame's plates are retained and fall out by the byte
@@ -657,37 +567,8 @@ export default class PlateStore {
         return n;
     }
 
-    /**
-     * §5.4's mapping from one document event to the rules, with `KobinEngine` supplying the
-     * footprint because it is the only thing that knows the lattice. Events are DRAINED at
-     * the top of a render and never handled where they arrive: `Document.at` settles a moved
-     * frame inside `_buildList`, so a handler on the event would drop plates the compose two
-     * steps later is about to use.
-     *
-     * @param {{kind:string, id?:number, obj?:object, live?:boolean}} ev
-     * @param {((frameId:string|number)=>object|object[]|null)|null} foot
-     */
-    onDocEvent(ev, foot) {
-        if (!ev) return 0;
-        const k = ev.kind;
-        if (k === "reset") return this.dropAll(false);
-        if (k === "refile" || k === "removeFrame" || k === "addFrame" || k === "mergeFrame" || k === "splitFrame") {
-            return this.dropAll();
-        }
-        // A growing stroke is drawn by the SVG overlay, not into a plate (decision 4), and
-        // `finalize` announces it — `TileStore._onDoc`'s own rule.
-        if (k === "add" && ev.live) return 0;
-        if (!ev.obj && k !== "remove") return 0;
-        let n = 0;
-        if (ev.id != null) n += this.dropById(ev.id);
-        n += this.dropRectPerFrame(foot);
-        return n;
-    }
-
     // ---- the perf record (§8.5) ----
 
-    /** How many document events one render drained, and how often. */
-    noteDrain(n) { this.s.drains++; this.s.drainedEvents += n; }
     /** A dpr change resizes the canvas and leaves every plate valid: dpr is not in the key (D27). */
     noteDpr(dpr) { this.s.dpr = dpr; return this.cache.size; }
 
@@ -696,8 +577,7 @@ export default class PlateStore {
         return {
             plates: this.cache.size, plateBytes: this.bytes, maxBytes: this.maxBytes,
             phone: this.phone, pinned: this._pins.size, pinnedAdded: this._held.size, base: this._base.size,
-            inFlight: this.inflight.size, staleInFlight: this.staleInFlight(),
-            epochKeys: this.epochs.size, trackedKeys: this.fresh ? this.fresh.stats.tracked : 0,
+            inFlight: this.inflight.size, trackedKeys: this.fresh.stats.tracked,
             // `plateBytes` no longer falls when the document changes (R1), so a reader of a phone
             // report needs to see how much of the cap is spent on ink the document has left.
             ...this._staleBytes(),
@@ -713,7 +593,6 @@ export default class PlateStore {
         if (this._hideTimer != null) { clearTimeout(this._hideTimer); this._hideTimer = null; }
         this.inflight.clear();
         this.jobs.clear();
-        this.epochs.clear();
     }
 
     // ---- internals ----
@@ -738,8 +617,7 @@ export default class PlateStore {
         evictable.sort((a, b) => (a.st - b.st) || (a.lru - b.lru));
         for (const e of evictable) {
             if (this.bytes <= this.maxBytes) break;
-            // An eviction is not an invalidation: a FRESH plate's pixels are still right, so the
-            // epoch is NOT bumped and a result in flight for that key is still worth caching.
+            // An eviction is not an invalidation: a result in flight for that key is still worth caching.
             if (e.st === 0) this.s.staleEvictions++;
             else if (e.st === 2) this.s.ladderEvictions++;
             this._remove(e.key);
@@ -767,17 +645,7 @@ export default class PlateStore {
         return true;
     }
 
-    /**
-     * An invalidating drop: the epoch moves and **the pixels stay**, as a stale hit, until the
-     * replacement `put`s or an eviction takes it (PAPER-PLAN R1). `this.bytes` is not decremented
-     * — a stale plate is real memory and must be inside §6.6's cap.
-     */
-    _drop(key) {
-        this._bump(key);                            // ALWAYS, cached or not — D25 is unchanged
-        if (this.cache.has(key)) this.s.staleKept++;
-    }
-
-    /** Is this record's ink behind the document? Derived from the epoch map, never flagged (D25). */
+    /** Is this record's ink behind the document? Rule 2, asked of the freshness source. */
     _isStale(e) { return !this.isExact(e); }
 
     /** Stale records and the bytes they hold: §6.6's cap is now partly spent on old ink. */
@@ -785,23 +653,6 @@ export default class PlateStore {
         let n = 0, bytes = 0;
         for (const e of this.cache.values()) if (this._isStale(e)) { n++; bytes += e.bytes; }
         return { stale: n, staleBytes: bytes };
-    }
-
-    /** Bump a key's epoch — including a key that is not cached, which is the whole point (D25). */
-    _bump(key) {
-        if (this.fresh) return;
-        this.epochs.set(key, this.epochOf(key) + 1);
-        this.s.epochBumps++;
-        if (this.epochs.size > EPOCH_MAX) this._pruneEpochs();
-    }
-
-    /** Keep the epochs of what is cached or in flight; nothing else can carry a stale one. */
-    _pruneEpochs() {
-        for (const key of [...this.epochs.keys()]) {
-            if (this.cache.has(key) || this.inflight.has(key)) continue;
-            this.epochs.delete(key);
-            this.s.epochPrunes++;
-        }
     }
 
     /**

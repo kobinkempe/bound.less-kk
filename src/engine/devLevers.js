@@ -43,12 +43,16 @@ export function cleanLevers(o) {
     return out;
 }
 
-/** The levers a URL names: `[?&]name=value` wherever its query lives (a hash route keeps it in the hash). */
+/**
+ * The levers a URL names: `[?&]name=value` wherever its query lives (a hash route keeps it in the hash). A value
+ * that does not decode (`%` alone) is dropped: this runs while the page builds its engine, where a throw is a blank page.
+ */
 export function leversFromUrl(href) {
     const s = String(href || ""), out = {};
     for (const name of Object.keys(LEVERS)) {
         const m = new RegExp("[?&]" + name + "=([^&#]*)").exec(s);
-        if (m) out[name] = decodeURIComponent(m[1]);
+        if (!m) continue;
+        try { out[name] = decodeURIComponent(m[1]); } catch (err) { /* URIError: not a value */ }
     }
     return cleanLevers(out);
 }

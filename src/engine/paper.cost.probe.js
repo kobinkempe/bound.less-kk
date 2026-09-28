@@ -114,30 +114,30 @@ describe("paper costs on the Magnum Opus", () => {
         log("C tap selection ids=" + (sel ? sel.ids.length : 0) + " frames=" + (sel ? sel.frames.length : 0));
         if (!sel) return;
         const acc = {};
-        timeIt(E, "_buildList", acc); timeIt(E, "_drainPlates", acc); timeIt(E.renderer, "render", acc);
+        timeIt(E, "_buildList", acc); timeIt(E.stage, "sync", acc); timeIt(E.renderer, "render", acc);
         timeIt(E.renderer, "syncCameraOnly", acc); timeIt(E.doc, "setOffsetsById", acc); timeIt(E, "_displaceMember", acc);
         timeIt(E.renderer, "_frameStep", acc); timeIt(E.renderer, "_renderSelOverlay", acc); timeIt(E, "_emit", acc);
         E.renderer.setSelectionAnts(() => { const t = now(); try { return E._selectionAnts(); } finally { acc.ants = (acc.ants || 0) + now() - t; } });
         timeIt(E, "_selEdges", acc); timeIt(E, "_selDecide", acc);
         timeIt(E, "_flushErasesFor", acc); timeIt(E, "_settleSelectionErases", acc); timeIt(E, "_beginHold", acc); timeIt(E, "_selectionMembers", acc);
         timeIt(E.store, "setBatch", acc);
-        const s0 = { ...E.plates.s };
+        const s0 = { ...E.plates.s }, d0 = E.stage.stats.dirtied;
         E.pointerDown(cx, cy);
         const rows = [];
         for (let k = 1; k <= 12; k++) {
             for (const key of Object.keys(acc)) acc[key] = 0;
             const t = now();
             E.pointerMove(cx + 10 + k * 6, cy + k * 3);
-            rows.push([+(now() - t).toFixed(1), +acc._buildList.toFixed(1), +acc._drainPlates.toFixed(1), +acc.render.toFixed(1),
+            rows.push([+(now() - t).toFixed(1), +acc._buildList.toFixed(1), +acc.sync.toFixed(1), +acc.render.toFixed(1),
                 +acc.syncCameraOnly.toFixed(1), +acc._frameStep.toFixed(1), +acc._renderSelOverlay.toFixed(1), +acc.setOffsetsById.toFixed(1), +acc._displaceMember.toFixed(1), +acc._emit.toFixed(1),
                 +(acc.ants || 0).toFixed(1), +acc._selEdges.toFixed(1), +acc._selDecide.toFixed(1),
                 +acc._flushErasesFor.toFixed(1), +acc._settleSelectionErases.toFixed(1), +acc._beginHold.toFixed(1), +acc._selectionMembers.toFixed(1)]);
         }
         E.pointerUp();
         const s1 = E.plates.s;
-        log("C per step [total, list, drain, render, syncCameraOnly, frameStep, selOverlay, setOffsets, displace, emit, ants, selEdges, selDecide, flushErases, settleErases, beginHold, members] " + JSON.stringify(rows));
-        log("C over 12 steps: dropsById " + (s1.dropsById - s0.dropsById) + " dropsByRect " + (s1.dropsByRect - s0.dropsByRect)
-            + " staleKept " + (s1.staleKept - s0.staleKept) + " dropsAll " + (s1.dropsAll - s0.dropsAll) + " misses " + (s1.misses - s0.misses));
+        log("C per step [total, list, stage.sync, render, syncCameraOnly, frameStep, selOverlay, setOffsets, displace, emit, ants, selEdges, selDecide, flushErases, settleErases, beginHold, members] " + JSON.stringify(rows));
+        log("C over 12 steps: cells dirtied " + (E.stage.stats.dirtied - d0) + " dropsAll " + (s1.dropsAll - s0.dropsAll)
+            + " misses " + (s1.misses - s0.misses));
     });
 
     big("D — packing one screen at the camera's quantum: one strip vs per-plate strips", () => {

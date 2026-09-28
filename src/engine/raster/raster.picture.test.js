@@ -15,6 +15,7 @@
 import PictureLayer, { pictureStats, resetPictureStats, SETTLE_MS, SYNC_CHORD_BUDGET, SYNC_MAX_MS, S_MAX_HOLD, COMPOSE_IMAGES } from "./PictureLayer";
 import { PREVIEW_QUANTA } from "./plate";
 import PlateStore, { PLATE_BYTES } from "./PlateStore";
+import { freshStub } from "../__testkit__/freshStub";
 import { PLATE_PX, QUANTA_PER_OCTAVE, QUANTUM_HYSTERESIS, plateKey, plateRange, zqOf } from "./plate";
 import { OverlayBuffer } from "./antPaint";
 import Camera from "../Camera";
@@ -81,7 +82,7 @@ function mkTimers() {
 
 function mkLayer(opts = {}) {
     const cam = opts.cam || mkCam();
-    const store = opts.store !== undefined ? opts.store : new PlateStore({ maxBytes: 64 * PLATE_BYTES, doc: null });
+    const store = opts.store !== undefined ? opts.store : new PlateStore({ fresh: freshStub(), maxBytes: 64 * PLATE_BYTES, doc: null });
     const host = opts.host || document.createElement("div");
     const timers = opts.timers || mkTimers();
     const posted = [];
@@ -106,7 +107,7 @@ function fillRange(store, v, q, Zq) {
         for (let i = v.i0; i <= v.i1; i++) {
             const key = plateKey(v.frameId, q, i, j);
             const bitmap = mkBitmap(key);
-            store.put({ frameId: v.frameId, q, Zq, i, j, epoch: store.epochOf(key), bitmap });
+            store.put({ frameId: v.frameId, q, Zq, i, j, G: store.fresh.generation, bitmap });
             out.push({ key, bitmap });
         }
     }
@@ -238,7 +239,7 @@ describe("C1 — the composite's call sequence", () => {
         expect(lay.of("fillRect").length).toBe(0);
         const gone = plates[0];
 
-        store.dropById(-1);                                    // one drop takes the lot: no plate carries ids
+        store.fresh.dirty();                                   // a change under every cell
         expect(store.size()).toBe(plates.length);              // R1: every record kept, every one stale
         const after = store.want(reqOf(v));
         expect(after.hits.length).toBe(plates.length);
@@ -262,7 +263,7 @@ describe("C1 — the composite's call sequence", () => {
 
         // the replacement lands for one of them: that one is fresh, the rest are still stale ink
         store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: v.i0, j: v.j0,
-            epoch: store.epochOf(gone.key), bitmap: mkBitmap(gone.key) });
+            G: store.fresh.generation, bitmap: mkBitmap(gone.key) });
         expect(gone.bitmap.closed).toBe(true);                 // and only now is the old one closed
 
         store.dropAll();                                       // a frame event: paper is the honest answer
@@ -320,13 +321,13 @@ describe("C1 — the composite's call sequence", () => {
         // are correct ink), and one of the range's four cells is covered
         const key = plateKey(v.frameId, v.q, 3, 0);
         expect(layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: 3, j: 0,
-            bitmap: mkBitmap(key), epoch: store.epochOf(key) })).toBe("cached");
+            bitmap: mkBitmap(key), G: store.fresh.generation })).toBe("cached");
         expect(layer._nHits).toBe(7);
         expect(layer.report().covered).toBe(false);            // 7 drawn, 1 in range, 4 wanted
 
         for (const [i, j] of [[4, 0], [3, 1], [4, 1]]) {
             const k = plateKey(v.frameId, v.q, i, j);
-            layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, bitmap: mkBitmap(k), epoch: store.epochOf(k) });
+            layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, bitmap: mkBitmap(k), G: store.fresh.generation });
         }
         expect(layer.report().covered).toBe(true);             // all four cells of the range
     });
@@ -348,7 +349,7 @@ describe("C1 — the composite's call sequence", () => {
             for (let i = v.i0; i <= v.i1; i++) {
                 const key = plateKey(v.frameId, v.q, i, j);
                 if (key === hole) continue;
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
             }
         }
         layer.compose(store.want(reqOf(v)).hits);
@@ -432,7 +433,7 @@ describe("C2 — one snapped mapping, in all three modes", () => {
         ctx.clear();
         for (let j = req.j0; j <= req.j1; j++) {
             for (let i = req.i0; i <= req.i1; i++) {
-                layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i, j, bitmap: mkBitmap("e"), epoch: store.epochOf(plateKey(req.frameId, "e", i, j)) });
+                layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i, j, bitmap: mkBitmap("e"), G: store.fresh.generation });
             }
         }
         v = layer.view();
@@ -464,7 +465,7 @@ describe("C2 — one snapped mapping, in all three modes", () => {
             const req = layer.settleRequest();
             for (let j = req.j0; j <= req.j1; j++) {
                 for (let i = req.i0; i <= req.i1; i++) {
-                    layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i, j, bitmap: mkBitmap("e"), epoch: store.epochOf(plateKey(req.frameId, "e", i, j)) });
+                    layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i, j, bitmap: mkBitmap("e"), G: store.fresh.generation });
                 }
             }
             v = layer.view();
@@ -645,7 +646,7 @@ describe("C5 — the settle", () => {
         const blits0 = pictureStats.blits;
         for (let n = 0; n < posted[0].misses.length; n++) {
             const m = posted[0].misses[n];
-            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch });
+            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation });
             if (n < posted[0].misses.length - 1) {
                 expect(layer.view().mode).toBe("plates");
                 expect(pictureStats.blits).toBe(blits0);
@@ -672,7 +673,7 @@ describe("C5 — the settle", () => {
         timers.fire();
         const req = { ...layer.settleRequest() };
         for (const m of posted[0].misses) {
-            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch });
+            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         expect(store.size()).toBe(cached0 + posted[0].misses.length);
         const drops0 = store.report().dropsByQ;
@@ -707,7 +708,7 @@ describe("C5 — the settle", () => {
         expect(store.report().pinnedAdded).toBe(misses.length);
 
         for (const m of misses.slice(0, -1)) {                      // all but one arrive
-            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch });
+            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         const late = misses[misses.length - 1];
         expect(store.get(late.key)).toBeUndefined();                // still in flight: pinned, not cached
@@ -739,7 +740,7 @@ describe("C5 — the settle", () => {
         timers.fire();
         const req = layer.settleRequest();
         for (const m of posted[0].misses) {
-            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch });
+            layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         const rev = layer.view().rev;
         for (let i = 0; i < 5; i++) layer.frameFor(cam, null);
@@ -875,22 +876,22 @@ describe("FC5 — the stable view, caller-owned rects, nothing allocated per fra
 });
 
 // ---------------------------------------------------------------------------
-// The other half of J5 — edge case 4.14: a result held past a document change is
-// discarded, re-posted and never composited, and the discard is logged with why.
+// The other half of J5 — edge case 4.14, under A2 §3.1: a result held past a document change is
+// stored behind (stale before paper) and re-posted; one a hard drop refused is discarded, re-posted
+// and never composited, and the discard is logged with why.
 // ---------------------------------------------------------------------------
 
 describe("J5's other half — a result held past a document change", () => {
-    test("put says stale, nothing is composited for it, it is logged with why, and it is re-posted once", () => {
+    test("a refused result: put says stale, nothing is composited for it, it is logged with why, and it is re-posted once", () => {
         const { layer, cam, store, ctx, reposted } = mkLayer({ dpr: 1 });
         atQuantum(cam, 0, 1);
         const v = layer.frameFor(cam, null);
         const miss = store.want(reqOf(v)).misses[0];
-        const epochs = store.beginJob("job-1", v, [miss]);
-        store.dropById(7);                                          // the document changed under it
-        expect(store.dropRectPerFrame(() => ({ left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 }))).toBeGreaterThan(0);
+        store.beginJob("job-1", v, [miss], store.fresh.generation);
+        store.dropFrames((f) => f === v.frameId);                   // the frame's id now means another place
         const bitmap = mkBitmap(miss.key);
         ctx.clear();
-        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap, epoch: epochs[0], jobId: "job-1" });
+        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap, G: 0, jobId: "job-1" });
         expect(st).toBe("stale");
         expect(bitmap.closed).toBe(true);                           // the STORE closes it, not the layer
         expect(ctx.of("drawImage").length).toBe(0);
@@ -898,12 +899,29 @@ describe("J5's other half — a result held past a document change", () => {
         const log = layer.staleLog();
         expect(log.length).toBe(1);
         expect(log[0].key).toBe(miss.key);
-        expect(log[0].why).toBe("epoch");
+        expect(log[0].why).toBe("behind");
         expect(log[0].when).toBe("arrival");
         expect(reposted.length).toBe(1);
         expect(reposted[0].misses[0].key).toBe(miss.key);
-        expect(reposted[0].misses[0].epoch).toBe(store.epochOf(miss.key));
         expect(pictureStats.reposts).toBe(1);
+    });
+
+    test("a result held past a change with nothing stored is kept behind (stale before paper) and re-posted", () => {
+        const { layer, cam, store, ctx, reposted } = mkLayer({ dpr: 1 });
+        atQuantum(cam, 0, 1);
+        const v = layer.frameFor(cam, null);
+        const miss = store.want(reqOf(v)).misses[0];
+        store.beginJob("job-1", v, [miss], store.fresh.generation);
+        store.fresh.dirty();                                        // the document changed under it
+        const bitmap = mkBitmap(miss.key);
+        ctx.clear();
+        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap, G: 0, jobId: "job-1" });
+        expect(st).toBe("newer");
+        expect(bitmap.closed).toBe(false);
+        expect(ctx.of("drawImage").map((c) => c.a[0])).toContain(bitmap);   // old ink, not paper
+        expect(pictureStats.staleDrops).toBe(0);
+        expect(reposted.length).toBe(1);
+        expect(reposted[0].misses[0].key).toBe(miss.key);
     });
 
     // OPEN-FLAGS F106: under a stream of invalidations no arrival is current, and refusing them all
@@ -915,15 +933,15 @@ describe("J5's other half — a result held past a document change", () => {
         const plates = fillRange(store, v, v.q, v.Zq);
         layer.compose(store.want(reqOf(v)).hits);
         const target = plates[0];
-        const all = () => ({ left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 });
-        store.dropRectPerFrame(all);                                // the mark is added: every plate stale
+        store.fresh.dirty();                                        // the mark is added: every plate stale
         const got = store.want(reqOf(v));
         const miss = got.misses.find((m) => m.key === target.key);
-        const epochs = store.beginJob("job-1", v, [miss]);
-        store.dropRectPerFrame(all);                                // a bake step lands before the raster
+        const G1 = store.fresh.generation;
+        store.beginJob("job-1", v, [miss], G1);
+        store.fresh.dirty();                                        // a bake step lands before the raster
         const bitmap = mkBitmap("newer");
         ctx.clear();
-        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap, epoch: epochs[0], jobId: "job-1" });
+        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap, G: G1, jobId: "job-1" });
         expect(st).toBe("newer");
         expect(bitmap.closed).toBe(false);
         expect(target.bitmap.closed).toBe(true);                    // the older stale pixels are gone
@@ -932,17 +950,18 @@ describe("J5's other half — a result held past a document change", () => {
         expect(drawn).not.toContain(target.bitmap);
         expect(reposted.length).toBe(1);                            // still behind: asked for again
         expect(reposted[0].misses[0].key).toBe(target.key);
-        expect(reposted[0].misses[0].epoch).toBe(store.epochOf(target.key));
         expect(pictureStats.staleNewer).toBe(1);
         expect(pictureStats.staleDrops).toBe(0);
     });
 
     test("a stale arrival for a plate no longer on screen is logged and NOT re-posted", () => {
-        const { layer, cam, reposted } = mkLayer({ dpr: 1 });
+        const { layer, cam, store, reposted } = mkLayer({ dpr: 1 });
         atQuantum(cam, 0, 1);
         const v = layer.frameFor(cam, null);
         const key = plateKey("77", v.q, 0, 0);
-        const st = layer.onPlate({ frameId: "77", q: v.q, Zq: v.Zq, i: 0, j: 0, bitmap: mkBitmap(key), epoch: 99 });
+        store.put({ frameId: "77", q: v.q, Zq: v.Zq, i: 0, j: 0, G: 0, bitmap: mkBitmap(key) });
+        store.fresh.dirty((c) => c.key === key);                    // behind the document
+        const st = layer.onPlate({ frameId: "77", q: v.q, Zq: v.Zq, i: 0, j: 0, bitmap: mkBitmap(key), G: 0 });   // no newer than what is stored
         expect(st).toBe("stale");
         expect(pictureStats.staleUnwanted).toBe(1);
         expect(reposted.length).toBe(0);
@@ -957,7 +976,7 @@ describe("J5's other half — a result held past a document change", () => {
         layer.compose(got.hits);
         const miss = got.misses[0];
         ctx.clear();
-        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap: mkBitmap(miss.key), epoch: miss.epoch });
+        const st = layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, bitmap: mkBitmap(miss.key), G: store.fresh.generation });
         expect(st).toBe("cached");
         expect(pictureStats.arrivalComposes).toBe(1);
         expect(ctx.of("drawImage").length).toBe(1);
@@ -978,7 +997,7 @@ describe("J5's other half — a result held past a document change", () => {
         expect(misses.length).toBe(6);
         a.ctx.clear();
         const st = a.layer.onPlateBatch(misses.map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq,
-            i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch })));
+            i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: a.store.fresh.generation })));
         expect(st).toEqual(misses.map(() => "cached"));
         expect(pictureStats.arrivalComposes).toBe(1);
         expect(a.ctx.of("fillRect").length).toBe(1);                // one paper fill for the job
@@ -995,7 +1014,7 @@ describe("J5's other half — a result held past a document change", () => {
         b.ctx.clear();
         for (const m of m2) {
             b.layer.onPlate({ frameId: v2.frameId, q: v2.q, Zq: v2.Zq, i: m.i, j: m.j,
-                bitmap: mkBitmap(m.key), epoch: m.epoch });
+                bitmap: mkBitmap(m.key), G: b.store.fresh.generation });
         }
         expect(pictureStats.arrivalComposes).toBe(6);
         // six composes: the first paints paper, the five after carry the last picture instead (§10.13)
@@ -1008,16 +1027,15 @@ describe("J5's other half — a result held past a document change", () => {
         atQuantum(cam, 0, 1);
         const v = layer.frameFor(cam, null);
         const misses = store.want(reqOf(v)).misses.slice(0, 3);
-        const epochs = store.beginJob("job-1", v, misses);
-        expect(store.dropRectPerFrame(() => ({ left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 }))).toBeGreaterThan(0);
-        const st = layer.onPlateBatch(misses.map((m, n) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq,
-            i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: epochs[n] })));
-        expect(st).toEqual(["stale", "stale", "stale"]);
+        store.beginJob("job-1", v, misses, store.fresh.generation);
+        expect(store.fresh.dirty()).toBeGreaterThan(0);
+        const st = layer.onPlateBatch(misses.map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq,
+            i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: 0 })));
+        expect(st).toEqual(["newer", "newer", "newer"]);           // stored behind: stale before paper
         expect(reposted.length).toBe(1);                            // one call for the job
         expect(reposted[0].misses.length).toBe(3);
         expect(reposted[0].req).toBe(layer.view());
         expect(pictureStats.reposts).toBe(3);                       // per PLATE, as one at a time reads
-        expect(pictureStats.arrivalComposes).toBe(0);               // nothing composited for a stale job
     });
 
     test("a hit rastered at another zoom is refused and counted, not blitted (D83's own failure)", () => {
@@ -1041,11 +1059,11 @@ describe("J5's other half — a result held past a document change", () => {
         const req = layer.settleRequest();
         const miss = posted[0].misses[0];
         // the renderer's half: it posts the job and owns beginJob (§15.3 Q3)
-        const epochs = store.beginJob("job-e", req, [miss]);
-        expect(store.dropRectPerFrame(() => ({ left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 }))).toBeGreaterThan(0);
+        store.beginJob("job-e", req, [miss], store.fresh.generation);
+        expect(store.fresh.dirty()).toBeGreaterThan(0);
         const st = layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: miss.i, j: miss.j,
-            bitmap: mkBitmap(miss.key), epoch: epochs[0] });
-        expect(st).toBe("stale");
+            bitmap: mkBitmap(miss.key), G: 0 });
+        expect(st).toBe("newer");
         expect(reposted.length).toBe(1);
         expect(reposted[0].req).toBe(req);                          // the settle's, at Z
         expect(reposted[0].q).toBe("e");
@@ -1060,7 +1078,7 @@ describe("J5's other half — a result held past a document change", () => {
         expect(v.q).toBe("s");
         const bitmap = mkBitmap("sync");
         ctx.clear();
-        const st = layer.onPlate({ frameId: v.frameId, q: "s", Zq: v.Zq, i: v.i0, j: v.j0, bitmap, epoch: 0 });
+        const st = layer.onPlate({ frameId: v.frameId, q: "s", Zq: v.Zq, i: v.i0, j: v.j0, bitmap, G: 0 });
         expect(st).toBe("stale");
         expect(store.size()).toBe(0);                               // nothing cached at "s" (D159)
         expect(pictureStats.syncRefused).toBe(1);
@@ -1077,7 +1095,7 @@ describe("J5's other half — a result held past a document change", () => {
         atQuantum(cam, 0, 1);
         const v = layer.frameFor(cam, null);
         const miss = store.want(reqOf(v)).misses[0];
-        layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, pixels: new Uint8ClampedArray(4), epoch: miss.epoch });
+        layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: miss.i, j: miss.j, pixels: new Uint8ClampedArray(4), G: store.fresh.generation });
         expect(pictureStats.noBitmap).toBeGreaterThan(0);
         expect(ctx.of("drawImage").length).toBe(0);
     });
@@ -1136,7 +1154,7 @@ describe("the report and the release", () => {
      */
     test("every plate of the range is drawn into the layer, at every camera state between quanta", () => {
         for (const scr of [{ w: 411, h: 750, dpr: 2.625 }, { w: 1504, h: 812, dpr: 1 }]) {
-            const store = new PlateStore({ maxBytes: 256 * PLATE_BYTES, doc: null });
+            const store = new PlateStore({ fresh: freshStub(), maxBytes: 256 * PLATE_BYTES, doc: null });
             const { layer, cam } = mkLayer({ ...scr, width: scr.w, height: scr.h, dpr: scr.dpr, store,
                 cam: mkCam(scr.w, scr.h) });
             let states = 0, stretched = 0, worstCols = 0, worstRows = 0;
@@ -1206,7 +1224,7 @@ describe("the report and the release", () => {
         const v = layer.frameFor(cam, null);
         const key = plateKey(v.frameId, v.q, v.i1 + 3, v.j0);       // a plate off the right of the screen
         expect(layer.onPlate({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: v.i1 + 3, j: v.j0,
-            bitmap: mkBitmap(key), epoch: store.epochOf(key) })).toBe("cached");
+            bitmap: mkBitmap(key), G: store.fresh.generation })).toBe("cached");
         expect(pictureStats.arrivalsOutside).toBe(1);               // cached, composed nowhere
         expect(pictureStats.arrivalComposes).toBe(0);
 
@@ -1247,12 +1265,12 @@ describe("§6.3's retention — the held quantum", () => {
     const S_MIN = Math.pow(2, -QUANTUM_HYSTERESIS / QUANTA_PER_OCTAVE);
     /** Deliver one of the incoming quantum's plates, as the renderer's result callback would. */
     const deliver = (layer, post, m) => layer.onPlate({ frameId: post.req.frameId, q: post.q,
-        Zq: post.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch });
+        Zq: post.Zq, i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: layer.store.fresh.generation });
     /** Plates nothing wants, to push the cache over its cap. */
     function flood(store, n) {
         for (let i = 0; i < n; i++) {
             const key = plateKey("0", 99, i, 0);
-            store.put({ frameId: "0", q: 99, Zq: 1, i, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+            store.put({ frameId: "0", q: 99, Zq: 1, i, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         }
     }
     /** A screenful at the quantum in force, composed: the state a hold starts from. */
@@ -1328,16 +1346,16 @@ describe("§6.3's retention — the held quantum", () => {
         atT(cam, 0.76);
         layer.frameFor(cam, null);                                  // hold at q 0, ask for q 1
         const first = posted[0];
-        store.beginJob("j1", first.req, first.misses);              // the renderer's own in-flight map
-        const m = first.misses[0], epoch0 = m.epoch;
+        store.beginJob("j1", first.req, first.misses, 0);           // the renderer's own in-flight map
+        const m = first.misses[0];
 
         atT(cam, 1.76);
         layer.frameFor(cam, null);                                  // q 2: the q-1 request is abandoned
         expect(pictureStats.quantumAbandons).toBe(1);
-        expect(store.epochOf(m.key)).toBe(epoch0 + 1);              // dropQuantum's bump is what refuses it
+        expect(store.inflight.get(m.key).refused).toBe(true);       // the drop refuses its stragglers
 
         const blits0 = pictureStats.blits, bm = mkBitmap(m.key);
-        const st = layer.onPlate({ frameId: first.req.frameId, q: first.q, Zq: first.Zq, i: m.i, j: m.j, bitmap: bm, epoch: epoch0 });
+        const st = layer.onPlate({ jobId: "j1", frameId: first.req.frameId, q: first.q, Zq: first.Zq, i: m.i, j: m.j, bitmap: bm, G: 0 });
         expect(st).toBe("stale");
         expect(store.get(m.key)).toBeUndefined();
         expect(pictureStats.staleDrops).toBe(1);
@@ -1349,7 +1367,7 @@ describe("§6.3's retention — the held quantum", () => {
     });
 
     test("the complete newest set switches the view, keeps the old plates and unpins them", () => {
-        const store = new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ fresh: freshStub(), maxBytes: 16 * PLATE_BYTES, doc: null });
         const { layer, cam, posted, plates } = primed({ dpr: 1, store });
         expect(plates.length).toBe(6);
 
@@ -1362,7 +1380,7 @@ describe("§6.3's retention — the held quantum", () => {
         for (let n = 0; n < misses.length; n++) {
             const m = misses[n];
             layer.onPlate({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq, i: m.i, j: m.j,
-                bitmap: mkBitmap(m.key), epoch: m.epoch });
+                bitmap: mkBitmap(m.key), G: store.fresh.generation });
             if (n < misses.length - 1) expect(layer.view().q).toBe(0);   // held until the set is complete
         }
         const vv = layer.view();
@@ -1394,7 +1412,7 @@ describe("§6.3's retention — the held quantum", () => {
      * is evictable while it rasters (D178).
      */
     test("a pan while the new quantum is in flight evicts nothing held — and nothing incoming", () => {
-        const store = new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ fresh: freshStub(), maxBytes: 16 * PLATE_BYTES, doc: null });
         const { layer, cam, posted, plates, v } = primed({ dpr: 1, store });
         atT(cam, 0.76);
         layer.frameFor(cam, null);
@@ -1407,7 +1425,7 @@ describe("§6.3's retention — the held quantum", () => {
         const inc = misses.slice(0, 7);
         for (const m of inc) {
             layer.onPlate({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq, i: m.i, j: m.j,
-                bitmap: mkBitmap(m.key), epoch: m.epoch });
+                bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         expect(layer.report().held).toBe(true);
         expect(inc.every((m) => !!store.get(m.key))).toBe(true);
@@ -1518,7 +1536,7 @@ describe("§6.3's retention — the held quantum", () => {
             for (let i = v.i0; i <= v.i1; i++) {
                 const key = plateKey(v.frameId, v.q, i, j);
                 if (key === skipped) continue;
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
             }
         }
         layer.compose(store.want(reqOf(v)).hits);
@@ -1598,7 +1616,7 @@ describe("§6.3's retention — the held quantum", () => {
         ctx.clear();
         layer._lctx.clear();
         expect(layer.onPlate({ frameId: posted[0].req.frameId, q: 4, Zq: posted[0].Zq,
-            i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch })).toBe("cached");
+            i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation })).toBe("cached");
         expect(pictureStats.arrivalComposes).toBe(1);               // one arrival, one compose
         expect(layer._lctx.of("drawImage").length).toBe(1);         // the plate is in the layer
         // one nine-argument blit of the layer on the screen, over the fallbacks still under it:
@@ -1611,15 +1629,15 @@ describe("§6.3's retention — the held quantum", () => {
         const { layer, cam, store, posted } = primed({ dpr: 1 });
         atT(cam, 0.76);
         layer.frameFor(cam, null);
-        store.beginJob("j1", posted[0].req, posted[0].misses);
-        const m = posted[0].misses[0], epoch0 = m.epoch;
+        store.beginJob("j1", posted[0].req, posted[0].misses, 0);
+        const m = posted[0].misses[0];
 
         atT(cam, 0.1);                                              // back past the hysteresis, to the held quantum
         layer.frameFor(cam, null);
         expect(layer.report().held).toBe(false);
         expect(layer.report().holdWhy).toBe("return");
         expect(pictureStats.quantumAbandons).toBe(1);               // dropped once, not twice
-        expect(store.epochOf(m.key)).toBe(epoch0 + 1);              // its stragglers are refused on arrival (D25)
+        expect(store.inflight.get(m.key).refused).toBe(true);       // its stragglers are refused on arrival
         expect(layer.view().q).toBe(0);
         expect(layer.report().pendQ).toBe("");
         layer.compose(store.want(reqOf(layer.view())).hits);
@@ -1634,7 +1652,7 @@ describe("§6.3's retention — the held quantum", () => {
      * what is posted, either side of the switch that re-arms it.
      */
     test("no settle is armed or fired while a hold is in flight: two pinned sets, never three", () => {
-        const store = new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ fresh: freshStub(), maxBytes: 16 * PLATE_BYTES, doc: null });
         const { layer, cam, timers, posted, v } = primed({ dpr: 1, store });
         expect(timers.live().length).toBe(0);                       // s === 1 at the quantum
 
@@ -1655,7 +1673,7 @@ describe("§6.3's retention — the held quantum", () => {
         const req = posted[0].req, misses = posted[0].misses;
         for (const m of misses) {
             layer.onPlate({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq, i: m.i, j: m.j,
-                bitmap: mkBitmap(m.key), epoch: m.epoch });
+                bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         expect(pictureStats.holdSwitches).toBe(1);
         expect(layer.report().held).toBe(false);
@@ -1675,7 +1693,7 @@ describe("§6.3's retention — the held quantum", () => {
      * A switch cannot wait for the batch: it publishes a new view.
      */
     test("a job whose last plate completes the switch logs ONE compose, and it is the arrival's", () => {
-        const store = new PlateStore({ maxBytes: 32 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ fresh: freshStub(), maxBytes: 32 * PLATE_BYTES, doc: null });
         const { layer, cam, posted } = primed({ dpr: 1, store });
         atT(cam, 0.76);
         layer.frameFor(cam, null);
@@ -1683,7 +1701,7 @@ describe("§6.3's retention — the held quantum", () => {
         store.beginJob("j1", req, misses);
         const composes0 = pictureStats.composes;
         const recs = misses.map((m) => ({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq,
-            i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: m.epoch }));
+            i: m.i, j: m.j, bitmap: mkBitmap(m.key), G: store.fresh.generation }));
 
         const out = layer.onPlateBatch(recs);
         expect(out).toEqual(misses.map(() => "cached"));
@@ -1710,7 +1728,7 @@ describe("§6.3's retention — the held quantum", () => {
         expect(misses.length).toBe(8);
         for (const m of misses.slice(0, 7)) {
             layer.onPlate({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq, i: m.i, j: m.j,
-                bitmap: mkBitmap(m.key), epoch: m.epoch });
+                bitmap: mkBitmap(m.key), G: store.fresh.generation });
         }
         expect(layer.report().held).toBe(true);                     // seven of eight: still held
 
@@ -1718,7 +1736,7 @@ describe("§6.3's retention — the held quantum", () => {
         const last = misses[7];
         ctx.clear();
         layer.onPlate({ frameId: req.frameId, q: posted[0].q, Zq: posted[0].Zq, i: last.i, j: last.j,
-            bitmap: mkBitmap(last.key), epoch: last.epoch });       // …with no frameFor between
+            bitmap: mkBitmap(last.key), G: store.fresh.generation });       // …with no frameFor between
 
         const v = layer.view();
         expect(pictureStats.holdSwitches).toBe(1);
@@ -1765,7 +1783,7 @@ describe("§6.3's retention — the held quantum", () => {
             for (let i = r.i0; i <= r.i1; i++) {
                 const key = plateKey(post.req.frameId, 1, i, j);
                 if (key === last.key || store.get(key)) continue;
-                store.put({ frameId: post.req.frameId, q: 1, Zq: zqOf(1), i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                store.put({ frameId: post.req.frameId, q: 1, Zq: zqOf(1), i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
             }
         }
         expect((r.i1 - r.i0 + 1) * PLATE_PX).toBeGreaterThan(layer._layer.width);   // 6 columns into 5
@@ -1899,7 +1917,7 @@ describe("what 5b reads: the published status, and the sync path's surface", () 
         const req = layer.settleRequest();
         fillRange(store, req, "e", req.Zq);                     // the settled screenful arrives
         layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i: req.i0, j: req.j0,
-            bitmap: mkBitmap("late"), epoch: 0 });
+            bitmap: mkBitmap("late"), G: 0 });
         expect(layer.status().settlePending).toBe(false);
     });
 
@@ -1965,7 +1983,7 @@ describe("what 5b reads: the published status, and the sync path's surface", () 
             _endHold(why) { return why === "sync" ? false : super._endHold(why); }
         }
         const cam = mkCam();
-        const store = new PlateStore({ maxBytes: 64 * PLATE_BYTES, doc: null });
+        const store = new PlateStore({ fresh: freshStub(), maxBytes: 64 * PLATE_BYTES, doc: null });
         const layer = new KeepsHold(document.createElement("div"), cam, {
             store, makeCanvas: mkRec, width: 1504, height: 812, dpr: 1,
             onPlates: () => {}, onRepost: () => {},
@@ -2000,7 +2018,7 @@ describe("what 5b reads: the published status, and the sync path's surface", () 
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
                 // The record the renderer builds for an empty plate: no bitmap, no pixels, 0 bytes.
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: 0, bytes: 0 });
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: 0, bytes: 0 });
             }
         }
         const got = store.want(reqOf(v));
@@ -2024,7 +2042,7 @@ describe("what 5b reads: the published status, and the sync path's surface", () 
         const v = layer.frameFor(cam, null);
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: 0 });   // bytes defaulted
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: 0 });   // bytes defaulted
             }
         }
         layer.compose(store.want(reqOf(v)).hits);
@@ -2069,7 +2087,7 @@ describe("C7 — the fallback compose", () => {
         layer.compose(store.want(reqOf(v)).hits);
         expect(ctx.of("drawImage").length).toBe(plates.length);
 
-        store.dropById(-1);                                     // no plate carries ids: one drop takes the lot
+        store.fresh.dirty();                                    // a change under every cell
         ctx.clear();
         const after = store.want(reqOf(v));
         const n = layer.compose(after.hits);
@@ -2089,19 +2107,20 @@ describe("C7 — the fallback compose", () => {
         const v = layer.frameFor(cam, null);
         const plates = fillRange(store, v, v.q, v.Zq);
         layer.compose(store.want(reqOf(v)).hits);
-        store.dropById(-1);
+        store.fresh.dirty();
         const misses = store.want(reqOf(v)).misses;
         expect(misses.length).toBe(plates.length);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);               // the stale picture is what is on screen
         expect(ctx.of("drawImage").length).toBe(plates.length);
         expect(pictureStats.stalePlateBlits).toBe(plates.length);
-        const epochs = store.beginJob("job-r", v, misses);
+        const G = store.fresh.generation;
+        store.beginJob("job-r", v, misses, G);
         expect(store.want(reqOf(v)).misses.length).toBe(0);     // in flight: not asked for twice
 
-        // the re-post arrives at the bumped epoch, and nothing is re-posted a second time
-        const st = layer.onPlateBatch(misses.map((m, k) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq,
-            i: m.i, j: m.j, bitmap: mkBitmap(m.key), epoch: epochs[k] })));
+        // the re-post arrives at the current G, and nothing is re-posted a second time
+        const st = layer.onPlateBatch(misses.map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq,
+            i: m.i, j: m.j, bitmap: mkBitmap(m.key), G })));
         expect(st.every((x) => x === "cached")).toBe(true);
         expect(reposted.length).toBe(0);
         ctx.clear();
@@ -2117,7 +2136,7 @@ describe("C7 — the fallback compose", () => {
             for (let j = 0; j <= 1; j++) {
                 for (let i = 0; i <= 1; i++) {
                     const key = plateKey(v.frameId, q, i, j);
-                    store.put({ frameId: v.frameId, q, Zq, i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                    store.put({ frameId: v.frameId, q, Zq, i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
                 }
             }
         }
@@ -2141,7 +2160,7 @@ describe("C7 — the fallback compose", () => {
         const { layer, store, ctx, v } = primed({ dpr: 1 });
         const q = -4, Zq = zqOf(q);
         const key = plateKey(v.frameId, q, 0, 0);
-        store.put({ frameId: v.frameId, q, Zq, i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: v.frameId, q, Zq, i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         store.dropQuantum(v.q);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2161,7 +2180,7 @@ describe("C7 — the fallback compose", () => {
         for (let j = 0; j <= 1; j++) {
             for (let i = 0; i <= 3; i++) {
                 const key = plateKey(v.frameId, "e", i, j);
-                store.put({ frameId: v.frameId, q: "e", Zq: 1.7, i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                store.put({ frameId: v.frameId, q: "e", Zq: 1.7, i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
             }
         }
         store.dropQuantum(v.q);
@@ -2179,7 +2198,7 @@ describe("C7 — the fallback compose", () => {
         cam.lm.mapPointF = (p, G, F) => (G === "6" ? [p[0] - 256, p[1]] : null);
         const { layer, store, ctx, v } = primed({ dpr: 1, cam });
         const key = plateKey("6", -4, 0, 0);
-        store.put({ frameId: "6", q: -4, Zq: zqOf(-4), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: "6", q: -4, Zq: zqOf(-4), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         store.dropQuantum(v.q);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2194,7 +2213,7 @@ describe("C7 — the fallback compose", () => {
     test("another frame's plate is never a fallback", () => {
         const { layer, store, ctx, v } = primed({ dpr: 1 });
         const key = plateKey("6", -4, 0, 0);
-        store.put({ frameId: "6", q: -4, Zq: zqOf(-4), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: "6", q: -4, Zq: zqOf(-4), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         store.dropQuantum(v.q);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2206,7 +2225,7 @@ describe("C7 — the fallback compose", () => {
         const { layer, store, ctx, v } = primed({ dpr: 1 });
         expect(v.s).toBe(1);
         const key = plateKey(v.frameId, -4, 0, 0);
-        store.put({ frameId: v.frameId, q: -4, Zq: zqOf(-4), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: v.frameId, q: -4, Zq: zqOf(-4), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         store.dropQuantum(v.q);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2218,7 +2237,7 @@ describe("C7 — the fallback compose", () => {
     test("a coarse fallback that overhangs the canvas is clipped by it, not refused", () => {
         const { layer, store, ctx, v } = primed({ dpr: 1 });
         const key = plateKey(v.frameId, -12, 0, 0);             // r = 8: one plate over the whole screen
-        store.put({ frameId: v.frameId, q: -12, Zq: zqOf(-12), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: v.frameId, q: -12, Zq: zqOf(-12), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         store.dropQuantum(v.q);
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2262,7 +2281,7 @@ describe("C7 — the fallback compose", () => {
         const { layer, cam, store, timers, v } = primed({ dpr: 1 });
         expect(pictureStats.fallbackScans).toBe(0);              // the steady state pays nothing
         const key = plateKey(v.frameId, -4, 0, 0);
-        store.put({ frameId: v.frameId, q: -4, Zq: zqOf(-4), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: v.frameId, q: -4, Zq: zqOf(-4), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         layer.compose(store.want(reqOf(v)).hits);
         expect(pictureStats.fallbackScans).toBe(0);
         expect(pictureStats.fallbackBlits).toBe(0);
@@ -2276,7 +2295,7 @@ describe("C7 — the fallback compose", () => {
         for (let j = req.j0; j <= req.j1; j++) {
             for (let i = req.i0; i <= req.i1; i++) {
                 layer.onPlate({ frameId: req.frameId, q: "e", Zq: req.Zq, i, j, bitmap: mkBitmap("e"),
-                    epoch: store.epochOf(plateKey(req.frameId, "e", i, j)) });
+                    G: store.fresh.generation });
             }
         }
         expect(layer.view().mode).toBe("settle");
@@ -2300,14 +2319,14 @@ describe("C7 — the fallback compose", () => {
         const q1 = pend.q;                                       // the request object is re-aimed below
         const key = plateKey(pend.frameId, q1, pend.i0, pend.j0);
         expect(layer.onPlate({ frameId: pend.frameId, q: pend.q, Zq: pend.Zq, i: pend.i0, j: pend.j0,
-            bitmap: mkBitmap(key), epoch: store.epochOf(key) })).toBe("cached");
+            bitmap: mkBitmap(key), G: store.fresh.generation })).toBe("cached");
         expect(layer.report().holdSwitches).toBe(0);             // one of several: no switch
 
         atT(cam, 1.76);                                          // q 2: the q-1 request is abandoned
         layer.frameFor(cam, null);
         expect(pictureStats.quantumAbandons).toBe(1);
         expect(!!store.get(key)).toBe(true);                     // its PIXELS are kept…
-        expect(store.epochOf(key)).toBe(0);                      // …and they are not stale: nothing changed
+        expect(store.isExact(store.get(key))).toBe(true);        // …and they are not stale: nothing changed
 
         store.dropQuantum(q0);                                   // the held picture goes: only the abandoned one is left
         ctx.clear();
@@ -2345,7 +2364,7 @@ describe("C7 — the fallback compose", () => {
 
         // one coarse plate, cached from before the gesture, covers the whole screen
         const key = plateKey(v.frameId, -8, 0, 0);
-        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(key) });
         ctx.clear();
         layer._layerDirty = true;
         layer.compose(store.want(reqOf(v)).hits);
@@ -2368,18 +2387,18 @@ describe("C7 — the fallback compose", () => {
         for (let j = 0; j * t < h; j++) {
             for (let i = 0; i * t < w; i++) {
                 const key = plateKey(v.frameId, q, i, j);
-                store.put({ frameId: v.frameId, q, Zq, i, j, epoch: store.epochOf(key), bitmap: mkBitmap(key) });
+                store.put({ frameId: v.frameId, q, Zq, i, j, G: store.fresh.generation, bitmap: mkBitmap(key) });
             }
         }
     }
 
     test("FB1 a zoom-out's many finer stand-ins: the compose draws at most its image budget, the cover first, and no paper", () => {
         // Kobin's Chrome, 2026-09-23: 48 stand-ins a compose cost ~100 ms each (34+ distinct images), 33 cost ~2 ms.
-        const { layer, cam, store, ctx } = mkLayer({ dpr: 1, store: new PlateStore({ maxBytes: 400 * PLATE_BYTES, doc: null }) });
+        const { layer, cam, store, ctx } = mkLayer({ dpr: 1, store: new PlateStore({ fresh: freshStub(), maxBytes: 400 * PLATE_BYTES, doc: null }) });
         atT(cam, 0);
         const v = layer.frameFor(cam, null);
         const coarse = plateKey(v.frameId, -8, 0, 0);
-        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, epoch: store.epochOf(coarse), bitmap: mkBitmap(coarse) });
+        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(coarse) });
         for (let q = 1; q <= 4; q++) screenAt(store, v, q);          // the quanta the zoom-out came through: 62 plates
         ctx.clear();
         layer.compose(store.want(reqOf(v)).hits);
@@ -2397,7 +2416,7 @@ describe("C7 — the fallback compose", () => {
     test("FB2 a stand-in wholly under the view's own plates is not drawn; the one over the missing cell is", () => {
         const { layer, store, ctx, v } = primed({ dpr: 1 });
         const coarse = plateKey(v.frameId, -8, 0, 0);
-        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, epoch: store.epochOf(coarse), bitmap: mkBitmap(coarse) });
+        store.put({ frameId: v.frameId, q: -8, Zq: zqOf(-8), i: 0, j: 0, G: store.fresh.generation, bitmap: mkBitmap(coarse) });
         screenAt(store, v, 1);
         store._remove(plateKey(v.frameId, v.q, 1, 0));                // one cell of the view's own is gone
         ctx.clear();
@@ -2422,7 +2441,7 @@ describe("C7 — the fallback compose", () => {
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
                 const key = plateKey(v.frameId, v.q, i, j), empty = i === v.i0 && j === v.j0;
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: store.epochOf(key), bitmap: empty ? null : mkBitmap(key), bytes: empty ? 0 : PLATE_BYTES });
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: store.fresh.generation, bitmap: empty ? null : mkBitmap(key), bytes: empty ? 0 : PLATE_BYTES });
             }
         }
         layer.compose(store.want(reqOf(v)).hits);
@@ -2507,7 +2526,7 @@ describe("R2 — the preview", () => {
         const nHits = layer._nHits, composes = pictureStats.composes;
         const recs = prev.misses.map((m) => ({
             key: m.key, frameId: prev.req.frameId, q: prev.q, Zq: prev.Zq, i: m.i, j: m.j,
-            epoch: store.epochOf(m.key), bitmap: { width: PLATE_PX, height: PLATE_PX, close() {} }, bytes: 4, ids: [],
+            G: store.fresh.generation, bitmap: { width: PLATE_PX, height: PLATE_PX, close() {} }, bytes: 4,
         }));
         layer.onPlateBatch(recs);
         expect(pictureStats.composes).toBe(composes + 1);          // it showed at once

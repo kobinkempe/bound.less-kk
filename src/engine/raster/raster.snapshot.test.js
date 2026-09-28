@@ -204,22 +204,6 @@ test("S9 an off-camera read leaves the camera's own tiles cached, at the tile ca
     expect(camKeys.filter((k) => !E.store.cache.has(k))).toEqual([]);
 });
 
-test("S4 listFor does not seed §5.4's old-address memo; the camera's own build does", () => {
-    const E = mkEngine();
-    drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
-    E._render();
-
-    E._footBelow.clear();
-    E.listFor(E.cam.frame, E.cam.frameWindow(0));
-    // A seed taken between a document event and the drain records the NEW table as the old one,
-    // and `_drawnRectIn` then maps the old address to the new — a plate holding the object's old
-    // picture is left undropped.
-    expect(E._footBelow.size).toBe(0);
-
-    E._buildList();
-    expect(E._footBelow.size).toBeGreaterThan(0);
-});
-
 // ---------------------------------------------------------------------------
 // `snapshotView` — one job, one plate, the rect on it, and `PlateStore` untouched
 // ---------------------------------------------------------------------------

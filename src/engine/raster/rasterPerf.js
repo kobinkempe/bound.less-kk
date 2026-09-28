@@ -260,7 +260,7 @@ function mkJobRec() {
         inline: false, stale: 0 };
 }
 function mkDropRec() {
-    return { t: 0, why: "", before: false, jobId: 0, frameSeq: 0, q: "", frameId: "", epoch: 0,
+    return { t: 0, why: "", before: false, jobId: 0, frameSeq: 0, q: "", frameId: "",
         plates: 0, stale: 0 };
 }
 
@@ -584,7 +584,6 @@ export function noteDrop(req, d) {
     r.frameSeq = pick(d, req, "frameSeq", 0);
     r.q = String(pick(d, req, "q", ""));
     r.frameId = String(pick(d, req, "frameId", ""));
-    r.epoch = pick(d, req, "epoch", 0);
     r.plates = d && d.plates ? (d.plates.length / 2) | 0 : 0;
     r.stale = d && d.stale ? d.stale.length : 0;
     dropAt = (dropAt + 1) % DROPS_KEPT;
@@ -1054,7 +1053,7 @@ function dropsOut() {
     for (let k = 0; k < nDrops; k++) {
         const r = drops[(dropAt - 1 - k + DROPS_KEPT * 2) % DROPS_KEPT];
         out.push({ t: r.t, why: r.why, before: r.before, jobId: r.jobId, frameSeq: r.frameSeq,
-            q: r.q, frameId: r.frameId, epoch: r.epoch, plates: r.plates, stale: r.stale });
+            q: r.q, frameId: r.frameId, plates: r.plates, stale: r.stale });
     }
     return out;
 }

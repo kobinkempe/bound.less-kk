@@ -214,11 +214,11 @@ describe("PictureLayer._flush under deferCompose", () => {
         layer.deferCompose = () => { deferred++; };
         const c0 = pictureStats.composes;
         const bm = () => ({ width: PLATE_PX, height: PLATE_PX, close() {} });
-        layer.onPlateBatch(misses.slice(0, 3).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), epoch: m.epoch })));
+        layer.onPlateBatch(misses.slice(0, 3).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), G: 0 })));
         expect(deferred).toBe(1);
         expect(pictureStats.composes - c0).toBe(0);
         layer.deferCompose = null;
-        layer.onPlateBatch(misses.slice(3, 4).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), epoch: m.epoch })));
+        layer.onPlateBatch(misses.slice(3, 4).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), G: 0 })));
         expect(pictureStats.composes - c0).toBe(1);                       // without it, as before
         layer.destroy();
     });

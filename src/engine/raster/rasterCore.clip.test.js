@@ -340,10 +340,10 @@ describe("job.clips on the wire", () => {
         const job = twoPlates([0, 0, 512, 512, 10, 20, 30, 40]);
         const { msg, transfer } = wireJob(job);
         expect(transfer).toContain(job.clips.buffer);
-        expect(transfer.length).toBe(10);
+        expect(transfer.length).toBe(9);
         expect(Array.from(unwireJob(msg).clips)).toEqual([0, 0, 512, 512, 10, 20, 30, 40]);
         const plain = wireJob(twoPlates(null));
-        expect(plain.transfer.length).toBe(9);
+        expect(plain.transfer.length).toBe(8);
         expect(unwireJob(plain.msg).clips).toBeUndefined();
     });
 
@@ -362,10 +362,9 @@ describe("job.clips on the wire", () => {
         // The worker rendered the clip, not the plate: no family covered more than the clip's pixels.
         expect(res.counts[7]).toBeLessThanOrEqual(64 * 40 * res.counts[2]);
         expect(res.counts[6]).toBeLessThanOrEqual(40 * res.counts[2]);
-        const idBytes = res.idOff.byteLength + res.idSet.byteLength + res.timings.byteLength + res.counts.byteLength
-            + res.guards.byteLength + res.plates.byteLength + res.epochs.byteLength + res.clips.byteLength;
-        expect(resultBytes(res)).toBe(idBytes + 64 * 40 * 4 + TW * TH * 4);
-        expect(resultBytes({ ...res, pixels: null, bitmaps: [{}, {}] })).toBe(idBytes + 64 * 40 * 4 + TW * TH * 4);
+        const headBytes = res.timings.byteLength + res.counts.byteLength + res.guards.byteLength + res.plates.byteLength + res.clips.byteLength;
+        expect(resultBytes(res)).toBe(headBytes + 64 * 40 * 4 + TW * TH * 4);
+        expect(resultBytes({ ...res, pixels: null, bitmaps: [{}, {}] })).toBe(headBytes + 64 * 40 * 4 + TW * TH * 4);
     });
 
     test("copyPlate with a clip and pastePatch are inverse on the rectangle and leave the rest", () => {
@@ -396,5 +395,48 @@ describe("the packer's offset on a family it reuses from an earlier list (F132, 
         const out = whole(reused);
         const at = (x, y) => out[(y * TW + x) * 4];
         expect([at(30, 30), at(120, 30), at(220, 30)]).toEqual([10, 10, 10]);
+    });
+});
+
+/**
+ * `n` stroke bands (union items, overlapping rings by construction) walking across row `yTop` (two in three) or
+ * `yBot`, half of them translucent: the union pass's bands then start at the clip's top inside them.
+ */
+function bandsAcross(rnd, n, yTop, yBot) {
+    const rr = (a, b) => a + rnd() * (b - a);
+    const ri = (a, b) => Math.floor(rr(a, b + 1));
+    const list = [];
+    for (let k = 0; k < n; k++) {
+        const m = ri(4, 6), pts = [[rr(-40, TW + 40), (k % 3 === 2 ? yBot : yTop) + rr(-8, 8)]];
+        for (let v = 1; v < m; v++) pts.push([pts[v - 1][0] + rr(-35, 35), pts[v - 1][1] + rr(-8, 8)]);
+        list.push({ type: "stroke", origin: "native", id: k + 1, pts, lwFrame: rr(1, 40),
+            color: "rgb(" + ri(0, 255) + "," + ri(0, 255) + "," + ri(0, 255) + ")", opacity: rnd() < 0.5 ? rr(0.25, 0.85) : 1 });
+    }
+    return sortList(list);
+}
+
+describe("the union pass inside a clip (PLAN §3's partial re-render row; reviewer, 2026-09-28)", () => {
+    test("60 seeds of stroke bands crossing the clip's top and bottom rows: the whole plate's bytes inside the clip", () => {
+        const SEEDS = 60, counts = new Uint32Array(8);
+        let clips = 0, inside = 0, outside = 0, unionItems = 0, first = null;
+        for (let s = 0; s < SEEDS; s++) {
+            const rnd = lcg(31337 + 7919 * s);
+            const paper = s % 2 ? [0, 0, 0, 0] : [255, 255, 255];
+            const cy0 = 8 + Math.floor(rnd() * 300), cy1 = Math.min(TH, cy0 + 4 + Math.floor(rnd() * 60));
+            clearPackCaches();
+            const job = packFor(bandsAcross(rnd, 14, cy0 + 0.5 * rnd(), cy1 - 0.5 * rnd()), s >> 1, paper);
+            const full = whole(job, new Uint8ClampedArray(N));
+            const x0 = Math.floor(rnd() * 400), x1 = Math.min(TW, x0 + 1 + Math.floor(rnd() * 400));
+            for (const clip of [[0, cy0, TW, cy1], [x0, cy0 + Math.floor(rnd() * 3), x1, Math.max(cy0 + 3, cy1 - Math.floor(rnd() * 3))]]) {
+                const part = NOISE.slice();
+                core.renderPlate(job, 0, part, counts, null, clip);
+                unionItems += counts[3];
+                const d = compare(part, full, NOISE, clip);
+                clips++; inside += d.inside; outside += d.outside;
+                if (!first && d.first) first = { s, clip, ...d.first };
+            }
+        }
+        expect(unionItems).toBeGreaterThan(SEEDS * 12);
+        expect({ clips, inside, outside, first }).toEqual({ clips: 2 * SEEDS, inside: 0, outside: 0, first: null });
     });
 });

@@ -3,17 +3,16 @@
  * SVG (RASTERISER-PLAN §5.1, §5.4's caller half, §5.6, §6.5, §2.7 FC1–FC6).
  *
  * It owns the render path and nothing else: the layer computes the mapping and composes
- * (`PictureLayer`), the store caches and invalidates (`PlateStore`), the client queues and
- * posts (`rasterWorkerClient`), and `KobinEngine` owns the store's lifetime, the document-event
- * drain and the flag. **This module is the only poster**: it calls `beginJob`/`endJob` for every
- * job the client mints, and the layer never posts one (§15.3 Q3).
+ * (`PictureLayer`), the store caches (`PlateStore`), the client queues and posts
+ * (`rasterWorkerClient`), and `KobinEngine` owns the store's lifetime, the Stage and the flag.
+ * **This module is the only poster**: it calls `beginJob`/`endJob` for every job the client mints,
+ * and the layer never posts one (§15.3 Q3).
  *
  * Five things a reader needs in order not to break it:
  *
- *   - **The epochs go in at the PACK.** The client hands `pack(plates, jobId, pool)` a flat
- *     `Int32Array` while `PlateStore.beginJob` takes objects and RETURNS the epochs `packJob`
- *     needs; a job packed without them carries zeros, and after the first drop of any key every
- *     arrival for it reads stale and is re-posted for ever (§10 stage 5b item 12).
+ *   - **A job carries the G it is packed at** (A2 §3.1): `_packNow` reads it when the client pulls
+ *     the strip — the Stage's generation, or the G the list it packs was read at — `beginJob`
+ *     tracks its cells from then, and the result brings it back to `put`.
  *   - **Every job is packed and keyed from the OBJECT the callback handed it** — `layer.view()`
  *     for its own wants, `settleRequest()` or `quantumRequest()` for the layer's — and the three
  *     fields it needs are COPIED at that moment, because those request objects are mutated in
@@ -37,7 +36,6 @@ import Two from "two.js";
 import Renderer from "../Renderer";
 import { perfNow } from "../now";
 import PictureLayer from "./PictureLayer";
-import { holdsId } from "./PlateStore";
 import { PLATE_PX, PREVIEW_QUANTA, plateKey, plateOriginPx, plateRange, quantumFor, zqOf } from "./plate";
 import { packJob, parseColour, visibleChords, packStats, COORD_BOUND } from "./rasterPack";
 import { renderPlate, coreStats, TW, TH } from "./rasterCore";
@@ -48,7 +46,7 @@ import MovePlane, { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, MOVE_HOLD_MS, pl
 import * as rasterPerf from "./rasterPerf";
 import {
     submitPlates, dropQueued, abandonInFlight, ensureRasterPool, destroyRasterPool,
-    plateBitmap, plateIds, stripSizeFor, rasterWorkerReport,
+    plateBitmap, stripSizeFor, rasterWorkerReport,
 } from "./rasterWorkerClient";
 
 /** The preview's quantum offset, re-exported for the renderer's callers (P3's tests import it here). */
@@ -153,15 +151,14 @@ export default class RasterRenderer extends Renderer {
      * @param {object} cfg the engine cfg
      * @param {object} [opts]
      * @param {number} [opts.width] CSS px @param {number} [opts.height] CSS px
-     * @param {object} [opts.store] the `PlateStore`; the ENGINE constructs it and owns its
-     *        lifetime, the drain, the footprint and `destroy` (§5.4)
+     * @param {object} [opts.store] the `PlateStore`; the ENGINE constructs it, with the Stage as its
+     *        freshness source, and owns its lifetime and `destroy`
+     * @param {object} [opts.stage] the engine's `Stage`: jobs are packed at its generation
+     * @param {boolean} [opts.scene] packs read the Stage's items (on) or the render list (off)
      * @param {object} [opts.layer] a `PictureLayer` to use instead of building one (the suite's)
      * @param {number} [opts.dpr] devicePixelRatio override, for the suite
      * @param {string} [opts.paper] the paper colour, which must agree with the host's CSS
      * @param {() => number} [opts.frameSeq] the engine's own counter, bumped per camera step
-     * @param {() => number} [opts.drain] the engine's §5.4 document-event drain, run at the top
-     *        of a CAMERA-only frame. `render`'s own drain is the engine's, between `_buildList`
-     *        (which emits) and the call
      * @param {object} [opts.perf] a recorder with `rasterPerf`'s own names, for the suite; the
      *        shipped default is `rasterPerf` itself
      * @param {Function} [opts.notePerf] the engine's perf-log hook, handed to `perf.attach`
@@ -179,12 +176,10 @@ export default class RasterRenderer extends Renderer {
          */
         this.stage = opts.stage || null;
         this.scene = !!opts.scene && !!this.stage;
-        this._jobG = new Map();          // jobId -> the G it was packed at, read back at arrival
         this._listG = new WeakMap();     // a list packs read -> the G it was read at
         this._sceneArr = null; this._sceneArrG = -1;
         this.perf = opts.perf || rasterPerf;
         this._nextSeq = opts.frameSeq || null;
-        this._drain = opts.drain || null;
         /** §8.4 rule 1's join, bumped on EVERY camera step and not only on a full render (Q12). */
         this.frameSeq = 0;
         /** True between `beginRender` and `_endFrame`: the ENGINE opened this frame's row. */
@@ -255,8 +250,6 @@ export default class RasterRenderer extends Renderer {
         this.markDone = null;
         /** The engine's `(frameId, rect) => list` off camera, for a drag plane's levels past the camera list (P-2). */
         this.listForPlane = null;
-        /** Per render list, each pending mark's z and handled set when the list was built (`noteListMarks`, E-9). */
-        this._listMarks = new WeakMap();
         this._planeFn = null;
         this._landTimer = null;
         this._planeTimer = null;
@@ -523,7 +516,7 @@ export default class RasterRenderer extends Renderer {
             const list = r && this.listForPlane ? this.listForPlane(pl.frameId, r, FAR_LIST_BUDGET_MS) : null;
             if (list === null && r && this.listForPlane && tries < FAR_LIST_TRIES) { this._farList(pl, lvl, tries + 1); return; }
             lvl.list = list || null;
-            if (list && this.stage) this._listG.set(list, this.stage.generation);
+            if (list) this._listG.set(list, this._G());
             lvl.listPending = false;
             if (!lvl.list) planeStats.farListFallbacks++;
             this._postPlane(pl);
@@ -604,7 +597,7 @@ export default class RasterRenderer extends Renderer {
         for (const L of sel) {
             const plates = new Int32Array(L.cells.length * 2);
             L.cells.forEach(([i, j], p) => { plates[2 * p] = i; plates[2 * p + 1] = j; });
-            const job = packJob(list, { plates, q: L.tag, Zq: lvl.pZq, dpr: this.layer.dpr, cfg: this.cfg, paper: [0, 0, 0, 0], only: L.ids, live: this._liveModel, ...this._marksOf(list) });
+            const job = packJob(list, { plates, q: L.tag, Zq: lvl.pZq, dpr: this.layer.dpr, cfg: this.cfg, paper: [0, 0, 0, 0], only: L.ids, live: this._liveModel, markDone: this.markDone });
             const bms = new Map();
             for (let p = 0; p < L.cells.length; p++) {
                 renderPlate(job, p, s.rgba, s.counts.subarray(0, COUNTS_PER_PLATE), s.timings.subarray(0, TIMINGS_PER_PLATE));
@@ -721,9 +714,9 @@ export default class RasterRenderer extends Renderer {
      * many (D175).
      *
      * It is **not** on the render path, and that is a decision rather than an omission: at a
-     * quantum change `PictureLayer._endHold` already calls `dropQuantum(pend.q)`, which bumps
-     * those keys' epochs so every straggler is refused on arrival — and freeing the keys there
-     * would have the next `want` re-post plates the camera has just left. Teardown is the one
+     * quantum change `PictureLayer._endHold` already calls `dropQuantum(pend.q)`, which refuses
+     * every straggler on arrival — and freeing the keys there would have the next `want` re-post
+     * plates the camera has just left. Teardown is the one
      * place where nothing will ever arrive to end them.
      *
      * @returns {number} jobs abandoned
@@ -804,19 +797,19 @@ export default class RasterRenderer extends Renderer {
         this._liveTimer = setTimeout(() => {
             this._liveTimer = null;
             if (this._destroyed) return;
-            if (this._releaseHeldLive(this._view, null)) this.update();
+            if (this._releaseHeldLive(this._view)) this.update();
             this._armLiveTimer();
         }, Math.max(0, until - perfNow()) + 20);
     }
 
     /**
-     * Take down every held path whose plates have landed: all the cells under it fresh, or the time
-     * is up, or the camera left its frame or the plates path, or the stroke left the list (an undo, a
-     * cancel). Until then a translucent path is clipped to its stale cells: over its plated self it
-     * would double the alpha, and released at the first fresh cell it vanished from the rest (D-2).
+     * Take down every held path whose plates paint it (a plate at or past the G its stroke is shown
+     * from, A2 §3.3), or when the time is up, the camera left its frame or the plates path, or the
+     * stroke left the table (an undo, a cancel). Until then a translucent path is clipped to the
+     * cells whose plate does not paint it: over its plated self it would double the alpha (F123).
      * @returns {number} paths taken down
      */
-    _releaseHeldLive(v, list) {
+    _releaseHeldLive(v) {
         const held = this._liveHeld;
         if (!held.length) return 0;
         const now = perfNow();
@@ -825,15 +818,13 @@ export default class RasterRenderer extends Renderer {
             const h = held[k];
             let done = !this._planeViewOk(v) || v.frameId !== h.frameId;
             if (!done && now > h.until) {
-                // Past the limit with every stale cell under it being rastered at its current epoch
+                // Past the limit with every cell under it being rastered at a G that paints it
                 // (a 1,000-family plate takes 5 s): wait on, up to LIVE_HOLD_MAX_MS.
                 if (now - h.at < LIVE_HOLD_MAX_MS && this._liveCellsComing(v, h)) { h.until = now + 250; rasterStats.liveExtends++; }
                 else { done = true; rasterStats.liveTimeouts++; }
             }
-            const byG = !!this.store && !!this.store.fresh;
-            if (!done && byG && this.stage && !this.stage.itemsOf(h.id).length) done = true;   // an undo, a cancel
-            else if (!done && !byG && list && !list.some((o) => o.id === h.id)) done = true;
-            if (!done && byG) {
+            if (!done && this.stage && !this.stage.itemsOf(h.id).length) done = true;   // an undo, a cancel
+            if (!done) {
                 const r = plateRange(h.box, v.Zq);
                 const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
                 // Released when every cell's plate paints the stroke; a translucent path meanwhile is
@@ -841,22 +832,6 @@ export default class RasterRenderer extends Renderer {
                 const need = [];
                 for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!this._plateShowsG(v, i, j, h)) need.push(i, j);
                 done = need.length === 0;
-                if (done) rasterStats.liveHandoffs++;
-                else if (h.translucent) this._clipHeld(h, v, need, (i1 - i0 + 1) * (j1 - j0 + 1));
-            } else if (!done) {
-                const r = plateRange(h.box, v.Zq);
-                const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
-                // Released when every cell is fresh; clipped to the cells whose plate does not paint the stroke
-                // yet: over a stale plate that does (the band, before the shape's bake) it doubled the alpha (F123).
-                const stale = [], need = [];
-                for (let j = j0; j <= j1; j++) {
-                    for (let i = i0; i <= i1; i++) {
-                        if (this.layer.cellFresh(v, i, j)) continue;
-                        stale.push(i, j);
-                        if (h.translucent && !this._plateShows(v, i, j, h.id)) need.push(i, j);
-                    }
-                }
-                done = stale.length === 0;
                 if (done) rasterStats.liveHandoffs++;
                 else if (h.translucent) this._clipHeld(h, v, need, (i1 - i0 + 1) * (j1 - j0 + 1));
             }
@@ -870,12 +845,6 @@ export default class RasterRenderer extends Renderer {
         }
         if (!held.length && this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
         return n;
-    }
-
-    /** Does the view's plate at a cell, stale or fresh, paint object `id`? */
-    _plateShows(v, i, j, id) {
-        const e = this.store && this.store.get(plateKey(v.frameId, v.q, i, j));
-        return !!e && !e.dead && !!e.ids && holdsId(e.ids, id);
     }
 
     /**
@@ -913,24 +882,19 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * Is every cell under a held path fresh or on its way — its plate in flight at the key's current
-     * epoch, or strips still queued (a busy pool packs them later: the 1,000-band ring's were)?
+     * Is every cell under a held path painting it or on its way — its plate in flight at a G that
+     * paints it, or strips still queued (a busy pool packs them later: the 1,000-band ring's were)?
      */
     _liveCellsComing(v, h) {
         const r = plateRange(h.box, v.Zq), queued = rasterWorkerReport().queued > 0;
         const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
         let coming = 0;
-        const byG = !!this.store.fresh, Gs = byG ? this._shownFrom(h) : null;
+        const Gs = this._shownFrom(h);
         for (let j = j0; j <= j1; j++) {
             for (let i = i0; i <= i1; i++) {
-                const k = plateKey(v.frameId, v.q, i, j), f = this.store.inflight.get(k);
-                if (byG) {
-                    if (this._plateShowsG(v, i, j, h)) continue;
-                    if (f ? Gs == null || f.G < Gs : !queued) return false;
-                } else {
-                    if (this.layer.cellFresh(v, i, j)) continue;
-                    if (f ? f.epoch !== this.store.epochOf(k) : !queued) return false;
-                }
+                if (this._plateShowsG(v, i, j, h)) continue;
+                const f = this.store.inflight.get(plateKey(v.frameId, v.q, i, j));
+                if (f ? Gs == null || f.G < Gs : !queued) return false;
                 coming++;
             }
         }
@@ -1016,17 +980,14 @@ export default class RasterRenderer extends Renderer {
     noteList(ms) { this._add(SLOT.list, ms); }
 
     /**
-     * Steps 0–7 of §5.1. The document-event drain (step 0) is the ENGINE's, immediately before
-     * this call: `_buildList` → `TileStore.ownContent` → `Document.at` EMITS the `offsetsOnly`
-     * events, so a drain inside this method would leave the compose two steps later reading
-     * plates the drain would have dropped (§5.4). The drain is inside the row and has no slot of
-     * its own, so it reads in the row's residual (`rasterPerf`'s `notes.engRow`).
+     * Steps 1–7 of §5.1: a change is already the Stage's dirt, applied when it committed (A2 §2.5).
+     * `G` is the generation the list was built at (the engine reads it before the build).
      */
-    render(list, frame) {
+    render(list, frame, G) {
         if (!this._rowOpen) this._beginFrame("render");
         this._activateLevel(frame);
         this._lastList = this.scene ? this._sceneList() : (list || []);
-        if (this.stage && !this.scene) this._listG.set(this._lastList, this.stage.generation);
+        if (!this.scene) this._listG.set(this._lastList, G != null ? G : this._G());
         this._noteShown(this._lastList);
         this._noteFatPending(this._lastList);
         const view = this._frameStep(this._lastList);
@@ -1039,13 +1000,8 @@ export default class RasterRenderer extends Renderer {
     /**
      * §5.1's other half, and the common one: steps 1, 3, 4, 5 and 6 and nothing else — no list
      * build, no overlay rebuild. `super.syncCameraOnly(view)` is the SVG overlay's own transform.
-     *
-     * Step 0, the §5.4 drain, is the engine's function called here rather than at the engine's
-     * two camera sites, because `selection.js` calls this method as well (`:387`, `:446`) and a
-     * compose there would otherwise use plates a queued event has already invalidated.
      */
     syncCameraOnly() {
-        if (this._drain) this._drain();
         this._beginFrame("camera");
         if (this.scene) this._lastList = this._sceneList();
         const view = this._frameStep(this._lastList);
@@ -1081,7 +1037,7 @@ export default class RasterRenderer extends Renderer {
             if (this._dragStateFn && this._dragStateFn()) this._losePlane();
             else if (this._plane.state !== "idle" || this._plane.tags.length) this._endPlane();
             this._renderSync(list, view);
-            this._releaseHeldLive(view, list);          // the sync raster holds the stroke: nothing to wait for
+            this._releaseHeldLive(view);                   // the sync raster holds the stroke: nothing to wait for
             layer.noteSyncCost(this._sync.coreMs);         // D272: the switch reads the core's measure, not the estimate
             return view;
         }
@@ -1093,7 +1049,7 @@ export default class RasterRenderer extends Renderer {
         const t1 = perfNow();
         layer.compose(got.hits);                       // step 5
         this.perf.noteCompose(perfNow() - t1, got.hits.length, 1);
-        this._releaseHeldLive(view, list);
+        this._releaseHeldLive(view);
         if (got.misses.length) this._post(view, got.misses, "view");   // step 6
         return view;
     }
@@ -1188,7 +1144,7 @@ export default class RasterRenderer extends Renderer {
         const tp = perfNow();
         const job = packJob(list, {
             plates, q: view.q, Zq: view.Zq, dpr: view.dpr, cfg: this.cfg, paper: this._paperRgb,
-            live: this._liveModel, frameSeq: this.frameSeq, ...this._marksOf(list),
+            live: this._liveModel, frameSeq: this.frameSeq, markDone: this.markDone,
         });
         this._add(SLOT.pack, perfNow() - tp);
         // `br.blit` is the compose CALL and not the paint (§8.1), so only the `ImageData` half of
@@ -1282,18 +1238,13 @@ export default class RasterRenderer extends Renderer {
         const n = misses.length;
         // Centre-out (PAPER-PLAN §7.4) for the preview and the incoming quantum — the screenfuls
         // whose first arrival is what the eye waits for: `want`'s order is row-major, so the first
-        // strip was the top band and the centre arrived last. Sorted before `epoch0` is filled.
+        // strip was the top band and the centre arrived last.
         if (n > 1 && src.i1 != null && (src.mode === "preview" || src.mode === "quantum")) sortCentreOut(misses, src);
         const plates = new Int32Array(n * 2);
-        const fresh = !!this.store.fresh;
-        const epoch0 = fresh ? null : new Int32Array(n);
-        for (let k = 0; k < n; k++) {
-            plates[k * 2] = misses[k].i; plates[k * 2 + 1] = misses[k].j;
-            if (!fresh) epoch0[k] = misses[k].epoch;
-        }
+        for (let k = 0; k < n; k++) { plates[k * 2] = misses[k].i; plates[k * 2 + 1] = misses[k].j; }
         const req = {
             frameSeq: this.frameSeq, q: src.q, Zq: src.Zq, frameId: src.frameId,
-            mode: src.mode, why, plates, epoch0,
+            mode: src.mode, why, plates,
             // OFF CAMERA (PAPER-PLAN R4): the crossing prebake's request carries the target
             // frame's own render list — `listFor`'s, not `_buildList`'s — and is not answerable
             // by `layer.status()`, which only ever names the camera's quanta.
@@ -1308,7 +1259,6 @@ export default class RasterRenderer extends Renderer {
             onResult: (res, info) => this._onResult(req, res, info),
             onDrop: (d) => this._onDrop(req, d),
             stillWanted: (strip) => this._stillWanted(req, strip),
-            epochOf: fresh ? null : (i, j) => this.store.epochOf(plateKey(req.frameId, req.q, i, j)),
         };
         // §8.4 rule 3's queued-at is stamped BEFORE the dispatch (stage 6's hand-off H5): a free
         // worker takes a strip inside `submitPlates`, so a stamp after it reads posted-at before
@@ -1329,12 +1279,9 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * The pack callback, and **the one place the epochs enter a job**: `beginJob` is keyed by
-     * the job id the client mints at dispatch, takes `[{i, j}]` and RETURNS the epochs in the
-     * strip's own plate order, which is what `packJob`'s `opts.epochs` wants. A job packed
-     * without them carries zeros and every arrival for a key that was ever dropped reads stale
-     * for ever (§10 item 12). A strip dropped BEFORE dispatch was never begun, which is the
-     * client's own contract.
+     * The pack callback, and **the one place a job gets its G**: `beginJob` is keyed by the job id
+     * the client mints at dispatch and tracks the strip's cells from the G the job is packed at. A
+     * strip dropped BEFORE dispatch was never begun, which is the client's own contract.
      */
     _pack(req, strip, jobId, pool) {
         // A strip the client's pump dispatches when a worker frees runs in the ARRIVAL's task,
@@ -1345,19 +1292,6 @@ export default class RasterRenderer extends Renderer {
         const own = !this._rowLive;
         if (own) this._openRow(req.frameSeq, "arrival");
         try { return this._packNow(req, strip, jobId, pool); } finally { if (own) this._closeRow(); }
-    }
-
-    /** The engine's snapshot of the pending marks for `list`, taken when it was built (E-9). */
-    noteListMarks(list, marks) { this._listMarks.set(list, marks); }
-    /** `packJob`'s mark options for `list`: the snapshot taken with it, else the live handled sets. */
-    _marksOf(list) {
-        const snap = list && this._listMarks.get(list);
-        if (!snap) return { markDone: this.markDone };
-        const live = this.markDone;
-        return {
-            markDone: (id) => { const s = snap.get(id); return s ? s.done : live ? live(id) : null; },
-            markZ: (id) => { const s = snap.get(id); return s ? s.z : null; },
-        };
     }
 
     /** The scene's items packs paint — a stroke pending its shape is skipped (PLAN §1.5) — one array per generation. */
@@ -1375,12 +1309,15 @@ export default class RasterRenderer extends Renderer {
     /** What a request packs from: its own list (off camera, the plane's levels), else the camera's. */
     _packList(req) { return req.list || (this.scene ? this._sceneList() : this._lastList); }
 
-    /** The G a job packed from `list` carries: the G that list was read at (A2 §3.1). */
+    /** The G a job packed from `list` carries: the G that list was read at (A2 §3.1), else the current one. */
     _genOf(req, list) {
         if (req.G != null) return req.G;
         const g = this._listG.get(list);
-        return g != null ? g : (this.stage ? this.stage.generation : 0);
+        return g != null ? g : this._G();
     }
+
+    /** The current generation: the store's freshness source's (the Stage), 0 for a store with none. */
+    _G() { const f = this.store && this.store.fresh; return f && f.generation != null ? f.generation : 0; }
 
     /**
      * Dispatch's half of freshness: a list read before a change under a plate cannot make it exact
@@ -1402,7 +1339,7 @@ export default class RasterRenderer extends Renderer {
 
     /** The list path: a held pen-up path's `Gs` is the G of the first list that holds its stroke. */
     _noteShown(list) {
-        if (this.scene || !this._liveHeld.length || !this.stage) return;
+        if (this.scene || !this._liveHeld.length) return;
         const G = this._listG.get(list);
         for (const h of this._liveHeld) if (h.Gs == null && list.some((o) => o.id === h.id)) h.Gs = G;
     }
@@ -1425,14 +1362,13 @@ export default class RasterRenderer extends Renderer {
         const objs = new Array(n);
         for (let p = 0; p < n; p++) objs[p] = { i: strip[p * 2], j: strip[p * 2 + 1] };
         const list = this._packList(req);
-        const G = this.store.fresh ? this._genOf(req, list) : undefined;
-        const epochs = this.store.beginJob(jobId, req, objs, G);
-        if (G !== undefined) this._jobG.set(jobId, G);
+        const G = this._genOf(req, list);
+        this.store.beginJob(jobId, req, objs, G);
         const t0 = perfNow();
         const job = packJob(list, {
             plates: strip, q: req.q, Zq: req.Zq, dpr: this.layer.dpr, cfg: this.cfg,
-            paper: req.paper || this._paperRgb, epochs, G, jobId, frameSeq: req.frameSeq, pool,
-            live: this._liveModel, only: req.only, omit: req.omit || (req.only ? null : this._dragOmit), ...this._marksOf(list),
+            paper: req.paper || this._paperRgb, G, jobId, frameSeq: req.frameSeq, pool,
+            live: this._liveModel, only: req.only, omit: req.omit || (req.only ? null : this._dragOmit), markDone: this.markDone,
         });
         const ms = perfNow() - t0;
         this._packMs += ms;              // subtracted from the submit bracket, so `xfer.out` is the wire alone
@@ -1443,14 +1379,12 @@ export default class RasterRenderer extends Renderer {
     /**
      * §8.4 rule 4's other half, checked when the client PULLS a strip: the client knows only
      * that the strip's frame is the newest at its own `q`, so this answers "that `q` is still
-     * the camera's AND these plates' epochs have not moved since the want" (D185). A refusal
-     * costs a pull and no pack, and leaves no hole: the epoch moved because of an event drained
-     * at the top of a frame, and that same frame's `want` re-misses the plate.
+     * the camera's" (D185), then `_packable`. A refusal costs a pull and no pack; the next
+     * frame's `want` re-misses a plate still wanted.
      */
     _stillWanted(req, strip) {
         // An OFF-CAMERA request (the crossing prebake) is at a frame and a quantum `status()`
-        // never names, so the liveness half cannot answer for it and would refuse every strip
-        // silently. The epoch half below still applies: it is D25's guard, not the camera's.
+        // never names, so the liveness half cannot answer for it and would refuse every strip.
         if (!req.offCam) {
             const st = this.layer.status();
             const q = String(req.q);
@@ -1458,20 +1392,7 @@ export default class RasterRenderer extends Renderer {
                 || q === String(st.prevQ) || (q === "e" && st.settlePending);
             if (!alive) { rasterStats.refusedAtDispatch++; return false; }
         }
-        if (this.store.fresh) return this._packable(req, strip);
-        for (let p = 0; p * 2 < strip.length; p++) {
-            const i = strip[p * 2], j = strip[p * 2 + 1];
-            let at = -1;
-            for (let k = 0; k * 2 < req.plates.length; k++) {
-                if (req.plates[k * 2] === i && req.plates[k * 2 + 1] === j) { at = k; break; }
-            }
-            if (at < 0) { rasterStats.refusedAtDispatch++; return false; }
-            if (this.store.epochOf(plateKey(req.frameId, req.q, i, j)) !== req.epoch0[at]) {
-                rasterStats.refusedAtDispatch++;
-                return false;
-            }
-        }
-        return true;
+        return this._packable(req, strip);
     }
 
     /**
@@ -1508,13 +1429,10 @@ export default class RasterRenderer extends Renderer {
             const px = res.pixels ? res.pixels[p] : null;
             const bm = res.bitmaps ? res.bitmaps[p] : null;
             if (px) needsWait = true;
-            const fresh = !!this.store && !!this.store.fresh;
             recs.push({
                 key: plateKey(req.frameId, req.q, i, j),
-                frameId: req.frameId, q: req.q, Zq: req.Zq, i, j,
-                G: fresh ? this._jobG.get(res.jobId) : undefined,
-                epoch: !fresh && res.epochs ? res.epochs[p] : null,
-                bitmap: bm, pixels: px, ids: fresh ? null : plateIds(res, p), jobId: res.jobId,
+                frameId: req.frameId, q: req.q, Zq: req.Zq, i, j, G: res.G,
+                bitmap: bm, pixels: px, jobId: res.jobId,
                 // An empty plate carries neither, and it is paper: charging it 1 MB would price
                 // a blank screen at the whole cache (§6.6).
                 bytes: bm || px ? PLATE_PX * PLATE_PX * 4 : 0,
@@ -1568,7 +1486,7 @@ export default class RasterRenderer extends Renderer {
                     this.layer.compose();
                 }
             }
-            if (this._releaseHeldLive(this._view, null)) this.update();
+            if (this._releaseHeldLive(this._view)) this.update();
             if (!pl.showing) this._planeIdle();
         } finally {
             this.perf.noteCompose(perfNow() - t0, recs.length, 1);
@@ -1591,7 +1509,6 @@ export default class RasterRenderer extends Renderer {
 
     _endJob(jobId) {
         if (jobId == null || !this.store) return 0;
-        this._jobG.delete(jobId);
         rasterStats.jobsEnded++;
         return this.store.endJob(jobId);
     }
@@ -1628,7 +1545,7 @@ export default class RasterRenderer extends Renderer {
      */
     prebakePlates(t, win, list, dq = PREVIEW_QUANTA, mode = "prebake") {
         if (!this.store || !t || !win || !list || !list.length) return 0;
-        if (this.stage && !this._listG.has(list)) this._listG.set(list, this.stage.generation);
+        if (!this._listG.has(list)) this._listG.set(list, this._G());
         const q = quantumFor(t.inScale, this.layer.dpr).q - dq;
         const Zq = zqOf(q);
         const r = plateRange(win, Zq);
@@ -1686,7 +1603,7 @@ export default class RasterRenderer extends Renderer {
      * job and answered straight to the caller — the Scenes panel's thumbnails and, through the
      * same call, anything else that wants a picture the camera is not at.
      *
-     * It touches `PlateStore` NOWHERE: no `beginJob`, no `put`, no cache entry, `epochs` null.
+     * It touches `PlateStore` NOWHERE: no `beginJob`, no `put`, no cache entry.
      * Its `q` is a per-call string that carries no zoom of its own, so a cached plate under it
      * would come back as a hit at a zoom it was never rastered at — §6.5's rule for `"s"`. The
      * per-call number matters for a second reason: `submitPlates` drops every queued strip at
@@ -1724,7 +1641,7 @@ export default class RasterRenderer extends Renderer {
             const fail = (why) => { if (!settled) { settled = true; reject(new Error(why)); } };
             const req = {
                 frameSeq: this.frameSeq, q, Zq: o.Zq, frameId: o.frameId, mode: "snap", prio: 4,
-                why: "snapshot", plates: Int32Array.of(0, 0), epoch0: Int32Array.of(0),
+                why: "snapshot", plates: Int32Array.of(0, 0),
                 pack: (strip, jobId, pool) => {
                     if (aborted()) return null;                 // → onDrop("empty"), and the reject
                     // A dispatch outside a camera frame has no row, and an `_add` without one is
@@ -1735,7 +1652,7 @@ export default class RasterRenderer extends Renderer {
                     try {
                         return packJob(o.list, {
                             plates: strip, q, Zq: o.Zq, dpr: 1, cfg: this.cfg, paper: this._paperRgb,
-                            epochs: null, jobId, frameSeq: this.frameSeq, pool, offset: o.offset, ...this._marksOf(o.list),
+                            jobId, frameSeq: this.frameSeq, pool, offset: o.offset, markDone: this.markDone,
                         });
                     } finally { this._add(SLOT.pack, perfNow() - t0); if (own) this._closeRow(); }
                 },

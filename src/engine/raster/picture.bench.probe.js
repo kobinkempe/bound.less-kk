@@ -187,7 +187,7 @@ describe("§8.6 row 14 — the settle and the quantum change, on measurement 4's
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
                 const key = plateKey(v.frameId, v.q, i, j);
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: store.epochOf(key),
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: 0,
                     bitmap: { width: PLATE_PX, height: PLATE_PX, close() {} } });
                 hits.push(key);
             }
@@ -206,8 +206,7 @@ describe("§8.6 row 14 — the settle and the quantum change, on measurement 4's
         const req = { frameId: v.frameId, q: "e", Zq: Z, i0: re.i0, i1: re.i1, j0: re.j0, j1: re.j1 };
         for (let j = re.j0; j <= re.j1; j++) {
             for (let i = re.i0; i <= re.i1; i++) {
-                const key = plateKey(v.frameId, "e", i, j);
-                store.put({ frameId: v.frameId, q: "e", Zq: Z, i, j, epoch: store.epochOf(key),
+                store.put({ frameId: v.frameId, q: "e", Zq: Z, i, j, G: 0,
                     bitmap: { width: PLATE_PX, height: PLATE_PX, close() {} } });
             }
         }
@@ -273,8 +272,7 @@ describe("§8.6 row 14 — the settle and the quantum change, on measurement 4's
         const reqOf = (x) => ({ frameId: x.frameId, q: x.q, Zq: x.Zq, i0: x.i0, i1: x.i1, j0: x.j0, j1: x.j1 });
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
-                const key = plateKey(v.frameId, v.q, i, j);
-                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, epoch: store.epochOf(key),
+                store.put({ frameId: v.frameId, q: v.q, Zq: v.Zq, i, j, G: 0,
                     bitmap: { width: PLATE_PX, height: PLATE_PX, close() {} } });
             }
         }
@@ -302,7 +300,7 @@ describe("§8.6 row 14 — the settle and the quantum change, on measurement 4's
         const pendWantUs = ((now() - t) / REP) * 1000;
 
         // A second crossing before anything arrives: the first request is abandoned, which is
-        // `dropQuantum` on plates that are in flight and not cached (D25's epoch bump).
+        // `dropQuantum` on plates that are in flight and not cached (their jobs refused).
         const pend = layer.quantumRequest();
         const flight = [];
         for (let j = pend.j0; j <= pend.j1; j++) for (let i = pend.i0; i <= pend.i1; i++) flight.push({ i, j });

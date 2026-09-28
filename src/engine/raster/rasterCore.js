@@ -60,7 +60,7 @@ const BOX_SLACK = 1e-6;             // device px of outward slack on a family's 
 let ACC = ACC_F32 ? new Float32Array(ACC_STRIDE * TH) : new Float64Array(ACC_STRIDE * TH);
 const ROWMIN = new Int32Array(TH);  // first column touched in this row
 const ROWMAX = new Int32Array(TH);  // last VISIBLE column touched, never above TW − 1 (R14)
-const UEDGE = new Float64Array(4 * MAX_UEDGE);  // yTop, yBot, x at yTop, dx/dy
+const UEDGE = new Float64Array(5 * MAX_UEDGE);  // yTop, yBot, the edge's own start x0 and y0, dx/dy
 const UDIR = new Int8Array(MAX_UEDGE);          // +1 for an edge running down the screen
 const UHEAD = new Int32Array(TH);               // first edge starting in this row, −1 for none
 const UNEXT = new Int32Array(MAX_UEDGE);        // the links of that per-row list
@@ -482,14 +482,15 @@ function pushUnionEdge(ax, ay, bx, by, yb0, yb1) {
     if (ay > by) { const tx = ax; ax = bx; bx = tx; const ty = ay; ay = by; by = ty; dir = -1; }
     if (by <= yb0 || ay >= yb1) return true;
     const dxdy = (bx - ax) / (by - ay);
-    let yTop = ay, xTop = ax;
-    if (yTop < yb0) { xTop = ax + (yb0 - ay) * dxdy; yTop = yb0; }
+    const yTop = ay > yb0 ? ay : yb0;
     const yBot = by < yb1 ? by : yb1;
     if (!(yBot > yTop)) return true;
     if (uSeen++ < uSkip) return true;
     if (uCount >= MAX_UEDGE) return false;
-    const o = uCount * 4;
-    UEDGE[o] = yTop; UEDGE[o + 1] = yBot; UEDGE[o + 2] = xTop; UEDGE[o + 3] = dxdy;
+    // The edge's own start, not x at the band's top: a crossing is then the same float wherever the band
+    // (a split, a clip's top row) begins (rasterCore.clip.test.js).
+    const o = uCount * 5;
+    UEDGE[o] = yTop; UEDGE[o + 1] = yBot; UEDGE[o + 2] = ax; UEDGE[o + 3] = ay; UEDGE[o + 4] = dxdy;
     UDIR[uCount] = dir;
     uCount++;
     return true;
@@ -553,10 +554,10 @@ function growXS() {
 /** The crossings of UACT[0..nAct) with sub-scanline `ys`, appended after `n`; returns the new n. */
 function gatherCrossings(ys, n, nAct) {
     for (let a = 0; a < nAct; a++) {
-        const e = UACT[a], o = e * 4;
+        const e = UACT[a], o = e * 5;
         if (UEDGE[o] > ys || UEDGE[o + 1] <= ys) continue;
         if (2 * n + 2 > XS.length) growXS();
-        XS[2 * n] = UEDGE[o + 2] + (ys - UEDGE[o]) * UEDGE[o + 3];
+        XS[2 * n] = UEDGE[o + 2] + (ys - UEDGE[o + 3]) * UEDGE[o + 4];
         XS[2 * n + 1] = UDIR[e];
         n++;
     }
@@ -575,6 +576,10 @@ function emitRuns(y, n, w) {
     for (let c = 0; c < n; c++) {
         const was = wind;
         wind += XS[2 * c + 1];
+        // Every crossing at this x before the winding is read: a run ended and restarted at one x (−w then +w
+        // into one float32 cell) does not cancel exactly, and the order of tied crossings is the load order,
+        // which a clip's top row reverses for edges from above it (PLAN §3's partial re-render row).
+        while (c + 1 < n && XS[2 * c + 2] === XS[2 * c]) { c++; wind += XS[2 * c + 1]; }
         if (was === 0 && wind !== 0) xa = XS[2 * c];
         else if (was !== 0 && wind === 0) {
             let a = xa, b = XS[2 * c];
@@ -594,7 +599,7 @@ function emitRuns(y, n, w) {
 function walkUnion(yb0, yb1) {
     for (let y = yb0; y < yb1; y++) UHEAD[y] = -1;
     for (let e = 0; e < uCount; e++) {
-        let row = Math.floor(UEDGE[e * 4]) | 0;
+        let row = Math.floor(UEDGE[e * 5]) | 0;
         if (row < yb0) row = yb0; else if (row >= yb1) row = yb1 - 1;
         UNEXT[e] = UHEAD[row]; UHEAD[row] = e;
     }
@@ -605,7 +610,7 @@ function walkUnion(yb0, yb1) {
         for (let k = 0; k < UNION_K; k++) emitRuns(y, gatherCrossings(y + half + k * step, 0, nAct), w);
         let keep = 0;                                 // drop the edges that end inside this row
         const yNext = y + 1;
-        for (let a = 0; a < nAct; a++) { const e = UACT[a]; if (UEDGE[e * 4 + 1] > yNext) UACT[keep++] = e; }
+        for (let a = 0; a < nAct; a++) { const e = UACT[a]; if (UEDGE[e * 5 + 1] > yNext) UACT[keep++] = e; }
         nAct = keep;
     }
 }

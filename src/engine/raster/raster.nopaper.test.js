@@ -245,7 +245,7 @@ describe("no paper where anything was ever shown (PAPER-PLAN §10.13)", () => {
 
     test("N4 a pinned plane and the cap cannot evict the base", () => {
         const store = new PlateStore({ maxBytes: 4 * PLATE_BYTES, doc: null });
-        const put = (q, i) => store.put({ frameId: "0", q, Zq: 1, i, j: 0, epoch: 0, bitmap: { close() {} }, bytes: PLATE_BYTES });
+        const put = (q, i) => store.put({ frameId: "0", q, Zq: 1, i, j: 0, G: 0, bitmap: { close() {} }, bytes: PLATE_BYTES });
         for (let i = 0; i < 4; i++) put(0, i);
         store.want({ frameId: "0", q: 0, Zq: 1, i0: 0, i1: 3, j0: 0, j1: 0 });   // the screen pins the whole cap
         store.markLadder([plateKey("0", -20, 0, 0), plateKey("0", -20, 1, 0)], true);
@@ -273,8 +273,7 @@ describe("no paper where anything was ever shown (PAPER-PLAN §10.13)", () => {
         const farKey = plateKey(v.frameId, v.q, Math.floor(X / PLATE_PX), Math.floor(Y / PLATE_PX));
         const farPlate = E.plates.get(farKey);
         expect(farPlate).toBeTruthy();
-        E.doc.noteRefile(kid.id, { parent: "0", i: 3, j: 2 }, { parent: "0", i: 4, j: 2 });
-        E._drainPlates();
+        E.doc.noteRefile(kid.id, { parent: "0", i: 3, j: 2 }, { parent: "0", i: 4, j: 2 });   // the Stage's commit applies it
         expect(E.plates.s.dropsAll).toBe(all0);            // red with `refile` → dropAll
         expect(E.plates.get(farKey)).toBe(farPlate);
         expect(E.plates._isStale(farPlate)).toBe(false);
@@ -346,7 +345,7 @@ describe("the review of rounds 2–3", () => {
         E.doc.removeById(red.id);
         E._render();
         const rk = plateKey(v.frameId, v.q, ri, rj);
-        L.onPlate({ key: rk, frameId: v.frameId, q: v.q, Zq: v.Zq, i: ri, j: rj, epoch: E.plates.epochOf(rk), bitmap: null, pixels: null, bytes: 0, ids: new Int32Array(0) });
+        L.onPlate({ key: rk, frameId: v.frameId, q: v.q, Zq: v.Zq, i: ri, j: rj, G: E.stage.generation, bitmap: null, pixels: null, bytes: 0 });
         expect(pictureStats.carryComposes).toBeGreaterThan(0);
         expect(L._ctx.at(80 * v.dpr, 80 * v.dpr)).toEqual([255, 255, 255]);   // red before: the deleted square, carried
     });
@@ -394,19 +393,19 @@ describe("the review of rounds 2–3", () => {
         const X2 = Math.floor(org[0] * v.dpr - v.dx + v.ox), Y2 = Math.floor(org[1] * v.dpr - v.dy + v.oy);
         const kidKey = plateKey(v.frameId, v.q, Math.floor(X2 / PLATE_PX), Math.floor(Y2 / PLATE_PX));
         expect(farKey).not.toBe(kidKey);
-        const all0 = E.plates.s.dropsAll, farEpoch = E.plates.epochOf(farKey), kidEpoch = E.plates.epochOf(kidKey);
+        const all0 = E.plates.s.dropsAll, farDirt = E.stage.dirtySince(farKey), kidDirt = E.stage.dirtySince(kidKey);
         const recs = E.doc.removeFrameSubtree(kid.id);
         expect(recs).toBeTruthy();
         E._render();
         expect(E.plates.s.dropsAll).toBe(all0);            // red before: removeFrame dropped every plate
-        expect(E.plates.epochOf(kidKey)).toBeGreaterThan(kidEpoch);
-        expect(E.plates.epochOf(farKey)).toBe(farEpoch);
+        expect(E.stage.dirtySince(kidKey)).toBeGreaterThan(kidDirt);
+        expect(E.stage.dirtySince(farKey)).toBe(farDirt);
         expect(E.plates.get(farKey)).toBeTruthy();
         await flush();
         E.doc.insertFrameSubtree(recs);
         E._render();
         expect(E.plates.s.dropsAll).toBe(all0);
-        expect(E.plates.epochOf(farKey)).toBe(farEpoch);
+        expect(E.stage.dirtySince(farKey)).toBe(farDirt);
     });
 
     test("R5 a carry magnified past the stand-ins' window is not drawn (review nit: a scene jump carried at ~1e18x)", async () => {
@@ -428,11 +427,11 @@ describe("the review of rounds 2–3", () => {
         const store = new PlateStore({ maxBytes: 8 * PLATE_BYTES, doc: null });
         const closed = [];
         const bm = (k) => ({ close() { closed.push(k); } });
-        const put = (q, i) => { const k = plateKey("0", q, i, 0); store.put({ frameId: "0", q, Zq: 1, i, j: 0, epoch: 0, bitmap: bm(k), bytes: PLATE_BYTES }); return k; };
+        const put = (q, i) => { const k = plateKey("0", q, i, 0); store.put({ frameId: "0", q, Zq: 1, i, j: 0, G: 0, bitmap: bm(k), bytes: PLATE_BYTES }); return k; };
         const base = plateKey("0", -20, 0, 0), plane = plateKey("0", "z0_0_x", 0, 0);
         store.markLadder([base], true);
         put(-20, 0); put(0, 1);
-        store.put({ frameId: "0", q: "z0_0_x", Zq: 1, i: 0, j: 0, epoch: 0, bitmap: bm(plane), bytes: PLATE_BYTES });
+        store.put({ frameId: "0", q: "z0_0_x", Zq: 1, i: 0, j: 0, G: 0, bitmap: bm(plane), bytes: PLATE_BYTES });
         store.setPlanePins([plane]);
         store.destroy();
         expect(closed).toContain(base);                    // red before: kept, never closed
@@ -445,11 +444,11 @@ describe("the review of rounds 2–3", () => {
         const store = new PlateStore({ maxBytes: 8 * PLATE_BYTES, doc: null });
         const k = plateKey("0", -20, 0, 0);
         store.markLadder([k], true);
-        store.put({ frameId: "0", q: -20, Zq: 1, i: 0, j: 0, epoch: 0, bitmap: { close() {} }, bytes: PLATE_BYTES });
-        store.release("hidden");                           // stales it, keeps it
+        store.put({ frameId: "0", q: -20, Zq: 1, i: 0, j: 0, G: 0, bitmap: { close() {} }, bytes: PLATE_BYTES });
+        store.release("hidden");                           // keeps it
         expect(store._base.has(k) && !!store.get(k)).toBe(true);
         store.markLadder([k], true);                       // the return's ladder rebuild re-marks it
-        store.put({ frameId: "0", q: -20, Zq: 1, i: 0, j: 0, epoch: store.epochOf(k), bitmap: { close() {} }, bytes: PLATE_BYTES });
+        store.put({ frameId: "0", q: -20, Zq: 1, i: 0, j: 0, G: 1, bitmap: { close() {} }, bytes: PLATE_BYTES });   // a newer G replaces it
         expect(store._base.has(k)).toBe(true);             // red before: the replace took it out of the base
         expect(store._ladder.has(k)).toBe(true);
     });

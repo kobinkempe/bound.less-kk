@@ -17,7 +17,7 @@
 
 import React from "react";
 import { render, act } from "@testing-library/react";
-import useKobinEngine, { rasterFromUrl, hrefWithRaster } from "./useKobinEngine";
+import useKobinEngine, { rasterFromUrl, hrefWithRaster, sceneFromUrl } from "./useKobinEngine";
 
 // ---------------------------------------------------------------------------
 // The URL, which is the whole of the flag's interface (§5.1: construction-time; raster is the
@@ -50,6 +50,20 @@ test("rasterFromUrl: raster by default; `?svg` (and an explicit `?raster=0`) is 
         ["", true],
     ];
     for (const [href, want] of cases) expect([href, rasterFromUrl(href)]).toEqual([href, want]);
+});
+
+test("sceneFromUrl: `?scene=1` and `?scene=0` choose the pack's source, anything else leaves the engine's default", () => {
+    const cases = [
+        ["http://x/#/canvas/1", null],
+        ["http://x/#/canvas/1?scene=1", true],
+        ["http://x/#/canvas/1?dev&scene=0", false],
+        ["http://x/?scene=off#/canvas/1", false],
+        ["http://x/#/canvas/1?scene=on&svg", true],
+        ["http://x/#/canvas/1?scenes=0", null],          // another parameter, not this one
+        ["http://x/#/canvas/1?scene", null],             // a bare name is no choice
+        ["http://x/#/canvas/1?scene=maybe", null],
+    ];
+    for (const [href, want] of cases) expect([href, sceneFromUrl(href)]).toEqual([href, want]);
 });
 
 test("hrefWithRaster sets and clears the `?svg` gate where the query already lives, and round-trips", () => {

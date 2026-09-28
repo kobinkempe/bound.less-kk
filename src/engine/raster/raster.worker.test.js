@@ -97,7 +97,7 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
         expect(out.bitmaps).toBe(null);
         for (let p = 0; p < 2; p++) expect(same(out.pixels[p], ref[p])).toBe(true);
         expect(Array.from(out.plates)).toEqual([0, 0, 1, 0]);
-        expect(Array.from(out.epochs)).toEqual([0, 0]);
+        expect(out.G).toBe(job.G);                         // the job's generation, back unchanged (A2 §3.1)
         expect(out.counts.length).toBe(COUNTS_PER_PLATE * 2);
         expect(out.timings.length).toBe(TIMINGS_PER_PLATE * 2);
 
@@ -277,41 +277,14 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
         }
     });
 
-    test("W5 an empty plate is never allocated, and its id run is empty (§3.4)", async () => {
+    test("W5 an empty plate is never allocated (§3.4)", async () => {
         const job = packStrip([shapeItem(1, [rect(40, 40, 400, 300)])], [0, 0, 5, 5]);
         const res = unwireResult((await runJob(wireJob(job).msg)).msg);
         expect(Array.from(res.plates)).toEqual([0, 0, 5, 5]);
         expect(res.pixels[0]).not.toBe(null);
         expect(res.pixels[1]).toBe(null);
         expect(res.counts[COUNTS_PER_PLATE + 1]).toBe(0);              // nothing drawn on plate 1
-        expect(client.plateIds(res, 1).length).toBe(0);
-        expect(client.plateIds(res, 0).length).toBe(1);
-    });
-
-    test("W6 the painted-id set is the core's own prune — ascending, deduped, and a pruned id is absent", async () => {
-        // `z` puts the families in PAINT order and not in id order, so the set has to be sorted
-        // rather than arriving sorted: packed order here is 40, 7, 7, 9, 2.
-        const list = [
-            shapeItem(40, [rect(10, 10, 200, 200)], { z: 1 }),
-            shapeItem(7, [rect(300, 60, 500, 300)], { z: 2 }),
-            shapeItem(9, [rect(100, 300, 480, 500)], { z: 3 }),
-            shapeItem(7, [rect(120, 120, 300, 260)], { z: 2 }),         // a second piece of object 7
-            shapeItem(2, [rect(PLATE_X(1) + 20, 20, PLATE_X(1) + 300, 300)], { z: 4 }),
-        ];
-        const job = packStrip(list, [0, 0, 1, 0]);
-        expect(job.nItems).toBe(5);
-        const res = unwireResult((await runJob(wireJob(job).msg)).msg);
-        const p0 = Array.from(client.plateIds(res, 0)), p1 = Array.from(client.plateIds(res, 1));
-        // MEMBERSHIP, not a count: derived pieces of one object share an id (two items here are
-        // object 7's), so the deduped set is shorter than `itemsDrawn` on any real list.
-        expect(p0).toEqual([7, 9, 40]);                                 // ascending: `holdsId` bisects (D84)
-        expect(res.counts[1]).toBe(4);                                  // four items survived the prune
-        expect(p1).toEqual([2]);
-        expect(p0).not.toContain(2);                                    // pruned off plate 0, so not in its set
-        expect(p1).not.toContain(7);
-        expect(res.counts[COUNTS_PER_PLATE + 1]).toBe(1);
-        expect(res.idOff[0]).toBe(0);
-        expect(res.idOff[1]).toBe(3);
+        expect(res.counts[1]).toBe(1);
     });
 
     test("W18 the entry itself: the result is posted WITH its transfer list, and a throw posts raster-error", async () => {
@@ -368,10 +341,9 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
             expect(msg.pixels.filter(Boolean).length).toBe(2);
             expect(msg.recycled.length).toBe(6);                   // geom, meta, attr, subs, rgb, ids
             for (const r of msg.recycled) expect(transfer).toContain(r.buffer);
-            // and nothing else and nothing missing: the seven small arrays of §3.4 (plates,
-            // epochs, idOff, idSet, timings, counts, guards), a buffer a painted plate, and the
-            // job's own six going back
-            expect(transfer.length).toBe(7 + 2 + 6);
+            // and nothing else and nothing missing: the four small arrays of §3.4 (plates,
+            // timings, counts, guards), a buffer a painted plate, and the job's own six going back
+            expect(transfer.length).toBe(4 + 2 + 6);
 
             // the `receivedAt` stamp is the WORKER's own clock and a duration comes out of it: an
             // epoch stamp (`Date.now`) would make this hugely negative, and it cannot exceed the
@@ -469,28 +441,6 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         expect(await until(() => kept.length === 1, 300)).toBe(true);
         expect(kept[0].why).toBe("stale");
         expect(kept[0].before).toBe(true);
-    });
-
-    test("W9 a result whose epoch moved while it was in flight arrives stale, with why and when", async () => {
-        let epoch = 4;
-        const drops = [], got = [];
-        client.setRasterWorkerCount(1);
-        client.setRasterTransport(async (msg) => { await flush(10); return (await runJob(msg)).msg; });
-        client.submitPlates({
-            frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
-            epochOf: () => epoch,
-            pack: (p) => packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { epochs: Int32Array.from([epoch]) }),
-            onDrop: (d) => drops.push(d),
-            onResult: (res, info) => got.push(info),
-        });
-        await flush(0);
-        epoch = 5;                                                      // the document changed under it
-        expect(await until(() => got.length === 1, 300)).toBe(true);
-        expect(got[0].stale).toEqual({ stale: [0], why: "epoch" });
-        expect(drops.length).toBe(1);
-        expect(drops[0].before).toBe(false);
-        expect(drops[0].jobId).toBe(got[0].jobId);                      // the caller owes endJob on it
-        expect(client.rasterWorkerReport().staleOnArrival).toBe(1);
     });
 
     test("W10 the job's buffers come back and the pool fills them next time (§3.6)", async () => {
@@ -707,7 +657,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
             pack: (p, jobId) => { minted.push(jobId); return drawOne(p, jobId); },
             onDrop: (d) => { if (d.jobId != null) seen.push({ id: d.jobId, how: "drop:" + d.why, d }); },
-            onResult: (res, info) => seen.push({ id: info.jobId, how: "result" }),
+            onResult: (res, info) => seen.push({ id: info.jobId, how: "result", G: res.G }),
         }, over);
         client.setRasterWorkerCount(1);
         const ok = async (msg) => (await runJob(msg)).msg;
@@ -743,22 +693,16 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         expect(await until(() => seen.length === 5)).toBe(true);
         expect(seen[4].how).toBe("drop:boom");
 
-        // 6 — a stale arrival: the drop NAMES the stale plates and `onResult` still fires, so the
-        //     caller ends this id once and re-posts what the drop named (§15.3 Q7)
-        let epoch = 4;
+        // 6 — a late arrival is a result like any other, carrying the G it was packed at: the plate
+        //     store judges it (A2 §3.1), the client does not
         client.setRasterTransport(async (msg) => { await flush(5); return ok(msg); });
         client.submitPlates(base({
             frameSeq: 6,
-            epochOf: () => epoch,
-            pack: (p, jobId) => { minted.push(jobId); return packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, epochs: Int32Array.from([epoch]) }); },
+            pack: (p, jobId) => { minted.push(jobId); return packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, G: 4 }); },
         }));
-        await flush(0);
-        epoch = 5;
-        expect(await until(() => seen.length === 7)).toBe(true);
-        expect(seen[5].how).toBe("drop:epoch");
-        expect(seen[5].d.stale).toEqual([0]);
-        expect(seen[6].how).toBe("result");
-        expect(seen[6].id).toBe(seen[5].id);
+        expect(await until(() => seen.length === 6)).toBe(true);
+        expect(seen[5].how).toBe("result");
+        expect(seen[5].G).toBe(4);
 
         // 7 — a teardown with a job in flight: without `abandonInFlight` this id is never reported
         //     and its plates are in flight in the store for the rest of the session
@@ -767,8 +711,8 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         await flush(0);
         expect(client.rasterWorkerReport().inFlight).toBe(1);
         client.destroyRasterPool();
-        expect(seen.length).toBe(8);
-        expect(seen[7].how).toBe("drop:destroyed");
+        expect(seen.length).toBe(7);
+        expect(seen[6].how).toBe("drop:destroyed");
 
         expect(minted.length).toBe(7);
         expect(new Set(minted).size).toBe(7);                            // one id each, monotonic

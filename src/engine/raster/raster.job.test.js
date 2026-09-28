@@ -13,7 +13,7 @@
 import * as core from "./rasterCore";
 import * as pack from "./rasterPack";
 import {
-    wireJob, unwireJob, wireResult, unwireResult, validateJob, resultStale, copyPlate,
+    wireJob, unwireJob, wireResult, unwireResult, validateJob, copyPlate,
     BufferPool, jobBytes, META_WORDS, ATTR_DOUBLES, KIND_RINGS, FLAG_UNION, FLAG_ERASE,
 } from "./rasterJob";
 import { PLATE_PX, zqOf } from "./plate";
@@ -83,15 +83,16 @@ describe("the job wire (§3.3, §3.4)", () => {
             shapeItem(1, [rect(20, 20, 200, 200)]),
             fillItem(2, [rect(100.25, 250.5, 300, 400)]),
             strokeItem(3, [[60, 420], [400, 460]], 8),
-        ]);
+        ], { G: 41 });
         expect(job.nItems).toBe(3);
         const before = {};
-        for (const k of ["meta", "attr", "rgb", "subs", "geom", "ids", "plates", "epochs", "paper"]) before[k] = job[k].slice();
+        for (const k of ["meta", "attr", "rgb", "subs", "geom", "ids", "plates", "paper"]) before[k] = job[k].slice();
 
         const { msg, transfer } = wireJob(job);
-        expect(transfer.length).toBe(9);                       // one buffer per array, nothing shared
+        expect(transfer.length).toBe(8);                       // one buffer per array, nothing shared
         const back = unwireJob(msg);
         for (const k of Object.keys(before)) expect(same(back[k], before[k])).toBe(true);
+        expect(back.G).toBe(41);
         expect(back.Zq).toBe(job.Zq);
         expect(back.nItems).toBe(job.nItems);
         expect(back.plateW).toBe(PLATE_PX);
@@ -120,8 +121,8 @@ describe("the job wire (§3.3, §3.4)", () => {
         const worker = unwireJob(msg);
         const bitmap = { width: PLATE_PX, height: PLATE_PX, close() { this.width = 0; } };
         const res = {
-            jobId: worker.jobId, frameSeq: worker.frameSeq, plates: worker.plates, epochs: worker.epochs,
-            bitmaps: [bitmap], idOff: new Uint32Array(1), idSet: new Int32Array([1]),
+            jobId: worker.jobId, frameSeq: worker.frameSeq, plates: worker.plates, G: worker.G,
+            bitmaps: [bitmap],
             timings: new Float64Array(7), counts: new Uint32Array(8), guards: new Uint32Array(7),
             recycled: [worker.geom.buffer, worker.meta.buffer, worker.attr.buffer, worker.subs.buffer],
         };
@@ -300,19 +301,14 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(100 - 4 - fit - bandB[1]).toBeCloseTo(18.737, 3);        // and what `2·half + fit` still would
     });
 
-    test("J5 a result that arrives after a document change is stale by its epoch, and says why", () => {
-        const epochs = new Map([["0,0", 3], ["1,0", 7]]);
-        const epochOf = (i, j) => epochs.get(i + "," + j) || 0;
+    test("J5 the job's one G crosses the wire and comes back on its result unchanged (A2 §3.1)", () => {
         const plates = Int32Array.from([0, 0, 1, 0]);
-        const job = packOne([shapeItem(1, [rect(10, 10, 900, 300)])], { plates, epochs: Int32Array.from([3, 7]) });
-
-        // the transport holds the result while the document changes under it
-        const res = { jobId: 1, frameSeq: 1, plates: job.plates, epochs: job.epochs };
-        expect(resultStale(res, epochOf)).toBe(null);
-        epochs.set("1,0", 8);                                  // a drop of a key with nothing cached for it (D25)
-        const verdict = resultStale(res, epochOf);
-        expect(verdict.stale).toEqual([1]);
-        expect(verdict.why).toBe("epoch");
+        const job = unwireJob(wireJob(packOne([shapeItem(1, [rect(10, 10, 900, 300)])], { plates, G: 7 })).msg);
+        expect(job.G).toBe(7);
+        expect(job.epochs).toBeUndefined();                    // one scalar a job, no per-plate array
+        const res = unwireResult(wireResult({ jobId: 1, frameSeq: 1, G: job.G, plates: job.plates }).msg);
+        expect(res.G).toBe(7);                                 // the store judges the arrival by it (rule 1, rule 2)
+        expect(res.idSet).toBeUndefined();                     // no painted-id sets: nothing drops by id
     });
 
     test("J6 the RGBA scratch is copied out before the next plate, or a strip delivers one picture twice", () => {

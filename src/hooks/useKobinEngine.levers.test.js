@@ -49,6 +49,7 @@ describe("the levers' own rules", () => {
         expect(leversFromUrl("http://x/#/canvas/a?dev&levelStep=3&plateViews=4")).toEqual({ levelStep: 3, plateViews: 4 });
         expect(leversFromUrl("http://x/?compose=direct&restInline=never#/canvas/a")).toEqual({ compose: "direct", restInline: "never" });
         expect(leversFromUrl("http://x/#/canvas/a?levelStep=5")).toEqual({});           // not a lever value
+        expect(leversFromUrl("http://x/#/canvas/a?compose=%&levelStep=2")).toEqual({ levelStep: 2 });   // a malformed escape is dropped, not thrown
         const store = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };
         expect(saveLevers({ levelStep: 3, plateViews: 7, compose: "nope" }, store)).toBe(true);
         expect(JSON.parse(store.data[LEVERS_KEY])).toEqual({ levelStep: 3, plateViews: 7 });

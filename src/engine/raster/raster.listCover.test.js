@@ -55,7 +55,7 @@ const diffPx = (a, b) => { let n = 0; for (let k = 0; k < a.length; k += 4) if (
 function badPlates(E) {
     const out = [];
     for (const e of E.plates.cache.values()) {
-        if (e.dead || typeof e.q !== "number" || e.epoch !== E.plates.epochOf(e.key)) continue;
+        if (e.dead || typeof e.q !== "number" || !E.plates.isExact(e)) continue;
         const px = e.pixels || (e.bitmap && e.bitmap.pixels) || null;
         const d = diffPx(px || WHITE, refPixels(E, e.frameId, e.q, e.Zq, e.i, e.j));
         if (d >= 64) out.push(e.key + ":" + d);

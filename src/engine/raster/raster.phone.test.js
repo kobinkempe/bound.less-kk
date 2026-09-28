@@ -191,7 +191,10 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         while (E._stepShapeBakes(1000));                           // the resolve, as `_bakeTick` runs it: no render of its own
         expect(E.doc.getById(id).obj.type).toBe("shape");
         await flush();
-        expect(E._plateEvents.length).toBe(0);                     // red: the resolve's event waits for a camera step
+        expect(E.plates.fresh.dirtySince(before.key)).toBeGreaterThan(before.G);   // the resolve is dirt at once, no camera step
+        // A list read before the resolve cannot make the plate exact (A2 §6.2 S2): the next render's list does.
+        expect(E.plates.isExact(E.plates.get(before.key))).toBe(false);
+        E._render(); await flush();
         const after = plateAt(E, E.renderer.layer.view().q, 330, 240);
         expect(after.e).not.toBe(before);                          // re-rastered from the shape
         expect(E.renderer.layer.cellFresh(E.renderer.layer.view(), after.e.i, after.e.j)).toBe(true);

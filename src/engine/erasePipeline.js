@@ -548,13 +548,13 @@ class ErasePipeline {
      * mark's step down. The engine untags a step that passes a target the mark's `_uncutOf` set
      * still holds whole; the spent mark's removal stales its plates once.
      */
-    _neutral(fn) {
+    _neutral(fn, E = null) {
         const was = this._pictureNeutral;
-        this._pictureNeutral = true;
+        this._pictureNeutral = E || true;
         try { return fn(); } finally { this._pictureNeutral = was; }
     }
-    /** `fn` tagged neutral only while the mark is still above the target it changes. */
-    _neutralUnder(E, o, fn) { return this._zOf(E) > this._zOf(o) ? this._neutral(fn) : fn(); }
+    /** `fn` tagged neutral, as mark E's step (the Stage clips its footprint to E's box), only while E is above the target. */
+    _neutralUnder(E, o, fn) { return this._zOf(E) > this._zOf(o) ? this._neutral(fn, E) : fn(); }
     /** The targets mark `markId` has handled and left whole with ink under it (refused, or a cut not landed): still masked by it. */
     _uncutOf(markId) {
         const m = this._uncut || (this._uncut = new Map());
@@ -776,7 +776,8 @@ class ErasePipeline {
             // changed, so the list waits for the next render; a camera step makes one (`panBy`,
             // `_eraseListStale`). ~50 renders
             // a Magnum Opus bake at 120–220 ms each (TESTER 2026-09-24).
-            if (this.raster && this._plateEvents.every((ev) => ev.neutral)) { this._renderPending = true; this._eraseListStale = true; return; }
+            const st = this.stage.stats, at = this._evAtRender;
+            if (this.raster && at && st.events - at[0] === st.neutral - at[1]) { this._renderPending = true; this._eraseListStale = true; return; }
             this._render();
         }, ERASE_RENDER_MS);
     }

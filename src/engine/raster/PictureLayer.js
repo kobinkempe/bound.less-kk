@@ -24,7 +24,7 @@
  * range CLIPPED to what is still on screen: the renderer's own `want(view)` therefore asks for no
  * plate at the dying quantum, and the clipped range can never exceed the layer canvas (D158).
  * Three rules on top: only the newest quantum is ever requested, so a second crossing abandons
- * the first (`abandonQuantum`, whose epoch bump refuses its stragglers while its cached plates
+ * the first (`abandonQuantum`, which refuses its stragglers while its cached plates
  * stay as fallbacks, counted in `quantumAbandons`); the incoming set is asked for with
  * `{ pin: "add" }`, which pins into the
  * store's SECOND pin set so neither set can evict the other — a pin merged into the visible set
@@ -1410,7 +1410,7 @@ export default class PictureLayer {
      * time, leaving paper where its ink belongs. The layer closes that bitmap itself, because
      * the store, which closes every plate it drops, never receives it.
      *
-     * @param {object} rec `PlateStore.put`'s record: `{ frameId, q, Zq, i, j, epoch, bitmap }`
+     * @param {object} rec `PlateStore.put`'s record: `{ frameId, q, Zq, i, j, G, bitmap }`
      * @returns {"cached"|"stale"|"newer"}
      */
     onPlate(rec) {
@@ -1461,11 +1461,11 @@ export default class PictureLayer {
         const wanted = this._wanted(rec);
         if (st === "stale") {
             pictureStats.staleDrops++;
-            this._noteStale(key, rec, wanted ? "epoch" : "unwanted");
+            this._noteStale(key, rec, wanted ? "behind" : "unwanted");
             if (!wanted) { pictureStats.staleUnwanted++; return st; }
             // the request these pixels belong to, which for a settled plate or an incoming
             // quantum's is NOT the published view
-            if (this._onRepost) this._addMiss(b, this._reqFor(rec), this._missOf(key, rec));
+            if (this._onRepost) this._addMiss(b, this._reqFor(rec), { key, i: rec.i, j: rec.j });
             return st;
         }
         if (st === "newer") {
@@ -1473,7 +1473,7 @@ export default class PictureLayer {
             pictureStats.staleNewer++;
             if (!wanted) return st;
             const req = this._reqFor(rec);
-            if (this._onRepost) this._addMiss(b, req, this._missOf(key, rec));
+            if (this._onRepost) this._addMiss(b, req, { key, i: rec.i, j: rec.j });
             if (req === this._v) { this._addHit(this.store.get(key)); this._layerDirty = true; b.compose = true; }
             return st;
         }
@@ -1503,9 +1503,6 @@ export default class PictureLayer {
         }
         return st;
     }
-
-    /** A re-post's miss: the key's epoch where the store keeps epochs (the job's G is the pack's). */
-    _missOf(key, rec) { return this.store.fresh ? { key, i: rec.i, j: rec.j } : { key, i: rec.i, j: rec.j, epoch: this.store.epochOf(key) }; }
 
     /** The batch's own re-post, then its one compose — at the engine's next frame when it set `deferCompose` ("raf" frames, A3 §5). */
     _flush(b) {
@@ -1558,7 +1555,7 @@ export default class PictureLayer {
     staleLog() { return this._stale; }
 
     _noteStale(key, rec, why) {
-        const e = { key, why, epoch: rec.epoch, G: rec.G, q: rec.q, frameId: rec.frameId, when: "arrival", t: this._now() };
+        const e = { key, why, G: rec.G, q: rec.q, frameId: rec.frameId, when: "arrival", t: this._now() };
         if (this._stale.length < STALE_LOG) this._stale.push(e);
         else this._stale[this._staleAt % STALE_LOG] = e;
         this._staleAt++;
@@ -1627,7 +1624,7 @@ export default class PictureLayer {
     /**
      * The quantum moved. The view is held at the quantum that has plates and the NEW one becomes
      * the pending request; a second crossing before any plate arrives ABANDONS the first, which
-     * is `abandonQuantum` — the epoch bump refuses its stragglers at `put` (D25) while its cached
+     * is `abandonQuantum` — its stragglers are refused at `put` while its cached
      * plates stay as the screen's best fallbacks (R1) — so only
      * the newest quantum is ever asked for. With nothing composed there is nothing to hold and
      * the new quantum is published at once, which is the behaviour before this rule (`holdSkips`).
