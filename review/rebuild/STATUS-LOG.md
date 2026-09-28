@@ -987,3 +987,14 @@ B-SCENE reviewer.
 **Measured:** raster.move 44/45 (L3, as above), 12 s. The review's E6b: 1:1 draws 60 → 6.6 ms, 34 scaled → 21.9 ms.
 **Decisions made:** PLAN §5.6 items 1–8.
 **Questions asked:** none.
+
+## 2026-09-28 19:25 UTC — B-PYRAMID-2 (builder) — P0, the plan's two caps (PLAN §5.6 M1, M2) — start
+**Working on:** P0 only (brief §5): the stand-in cap `COMPOSE_IMAGES − plane.images` with own plates counted apart,
+`_ownCount` gone, rest mode's scaled ℓv plates as stand-ins; the one-view record cap and `viewUnit` replaced by the pinned
+bound, the budget floor and the phone ceiling; the reviewer's four constructed screens moved into
+`PicturePyramid.plan.test.js`. Files I am in: `src/engine/raster/PicturePyramid.js`, `PyramidStore.js`, `level.js`
+(constants only) and the six pyramid suites. Not touching `MovePlane.js`, `Stage.js`, `TileStore.js`, `PlateStore.js`,
+`RasterRenderer.js`, `PictureLayer.js`, `KobinEngine.js`, `overlays.js`, `placementModel.js` (the B-SCENE reviewer) or
+any B-ERASE file until P1, which waits for the B-SCENE reviewer's end entry.
+**Measured:** nothing yet. **Decisions made:** none yet. **Questions asked:** none.
+WHERE I AM: reading PLAN §5.6 and the reviewer's four screens, then `PicturePyramid.js`'s surface rule.
