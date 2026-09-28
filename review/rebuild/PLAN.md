@@ -116,9 +116,12 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   its plates are records like any other, kept through a pure pan (Z unchanged) and discarded by a zoom,
   a frame change, a lateral frame shift, a resize or a dpr change. This is the whole of today's sync
   path and settle.
-- **Partial re-render** (decisions 2, 5): `renderPlate` takes a clip box (rows restricted, x not folded:
-  byte-identical to a whole render in 960 of 960 clips, A3 E1); a patch lands in the immutable plate by
-  a GPU merge through one scratch `OffscreenCanvas` (0.5 ms median). A small dirty rectangle is
+- **Partial re-render** (decisions 2, 5): `renderPlate` takes a clip box (rows restricted, x not folded;
+  the union pass applies every crossing at one x before it tests the winding and starts each band edge
+  from the edge's own start — the B-FOUNDATION review of 2026-09-28 found stroke bands crossing the
+  clip's top off by one level in 30 of 799 clips without those two rules; with them 0 of 1,879 clips
+  differ from the whole render); a patch lands in the immutable plate by a GPU merge through one scratch
+  `OffscreenCanvas` (0.5 ms median). A small dirty rectangle is
   re-rendered inline at full resolution within a 6 ms budget; a large dirty region gets the finest
   coarser level whose patch fits the budget, drawn over the dirty rectangles only, with the full
   patches following from the workers at top priority.

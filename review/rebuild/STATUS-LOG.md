@@ -525,3 +525,94 @@ B-FOUNDATION review runs beside it.
 **Decisions made:** rule 19 of the cloud preamble; a builder's checkpoint entries end with a WHERE I AM line
 from now on.
 **Questions asked:** none.
+
+## 2026-09-28 04:50 UTC — B-SCENE-2 (builder, B-SCENE's successor) — finish S2, the S2 checkpoint entry, then S3 — start
+**Working on:** read B-SCENE's three entries, the preamble, PLAN §1.1/§1.3/§3/§5.3, A2 §3/§6.1/§6.2/§6.4, TEST-MAP.
+The tree is snapshot 53b7e10: S1 green; S2's Stage/store/renderer halves in; `PlateStore.js`'s epoch half
+half-deleted (lint: 4 errors, `anyId`/`holdsId`/`meets`/`EPOCH_MAX` in `dropById`, `dropRectPerFrame`,
+`_pruneEpochs`). Files I am in: `raster/PlateStore.js`, `raster/rasterJob.js`, `worker/rasterWorker.js`,
+`raster/rasterWorkerClient.js`, `raster/RasterRenderer.js`, `raster/PictureLayer.js`, `raster/rasterPack.js`,
+`KobinEngine.js` (the drain, the hold, `_footBelow`, `listFor`'s mark snapshot, the pack's source), `Stage.js`,
+`hooks/useKobinEngine.js` (the `?scene` gate), the raster/move suites TEST-MAP names; re-reading `rasterJob.js`/
+`rasterWorker.js` before each edit (the B-FOUNDATION reviewer may touch them for a clip defect).
+**Measured:** nothing yet.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: removing `PlateStore.js`'s epoch half (`dropById`, `dropRectPerFrame`, `_pruneEpochs` and their callers).
+
+## 2026-09-28 05:50 UTC — reviewer (B-FOUNDATION review) — checkpoint: a red test on purpose
+**Working on:** PLAN §3 row 8 decided: a clipped render is NOT byte-identical for union families. `rasterCore.clip.test.js`'s new last
+describe ("the union pass inside a clip", 60 seeds) is RED BY DESIGN on the shipped core (67 bytes inside, first seed 4: 153 vs 154)
+until the orchestrator rules on the fix; nobody else's change caused it. Also added: `scaleBar/scaleHud.rtl.test.js` (3/3).
+**Measured:** two mechanisms, isolated on scratch copies of the core. (1) exact ties: collinear edges of abutting rings, opposite
+directions, starting in different rows above the clip; the clip buckets them all at its top row in reverse load order, the tie
+sorts the other way, `emitRuns` ends and restarts a run at that x (−w then +w into one float32 cell) and the residue rides the
+running sum. (2) the band start: x from the clip's top (25.6 % of crossings differ by an ulp). Shipped 30/799 clips (79 bytes);
+x from each edge's own start 31/799; ties grouped 10/799 (17); both 0/799, 0/120 through band splits, 0/960 mixed lists.
+**Decisions made:** not fixed (a major: it moves 21 bytes of 10 of the 24 golden whole plates by one level).
+**Questions asked:** the fix (grouped ties + own-start x, 8 lines of the core) goes to the orchestrator in the report.
+WHERE I AM: harness scenarios 3 and 6, then levers/F132/lint/typecheck and the end entry.
+
+## 2026-09-28 05:35 UTC — B-SCENE-2 (builder) — S2 checkpoint: freshness by G; epochs, the drain, the old hold gone (A2 §6.2 S2)
+**Interface as built** (B-PYRAMID starts here). `src/engine/Stage.js` — `engine.stage = new Stage({doc, lm, store, model, cfg,
+isNeutral})`; `generation`; `onCommit(fn(G, {frames, drop: [pred(frameId)], reset}))` → unsubscribe; `sync(frameId, window,
+budgetMs = Infinity)`; `covers(frameId, rect)`; `items()` (paint order, one array a table version); `itemsTopDown()`; `itemsOf(id)`;
+`placed(item)` → `{geom, off}`; `placeNative(nat, frameId)` → `{box(), toStored(x), fromStored(x)}`; `changesSince(G0)` →
+`{added, removed, changed: [{item, off}]}` | null; `snapshot(frameId, rect, budgetMs)` → `{frame, rect, generation, items(),
+placed(), covers(), fresh()}` | null; `landedAt(id)`; `track(key, frameId, box, sinceG?)`; `untrack(key)`; `dirtySince(key)`;
+`dirtyRects(frameId, sinceG)` → Rect[] | null; `touch(id)`; `hold({ids, frames})`; `holding`; `release()` (one commit); `batch(fn)`;
+`forgetFrame(id)`; `packsPending`; `stats`. Not built: `marks()`/`masks()` (B-ERASE), `setDragDelta` (B-DRAG). `placementModel.js`:
+`nativesIn`, `placement`, `displaced`, `frameFootprint`, `toStored`/`fromStored`/`footprint`. **Wire:** `packJob(list, {G})` →
+`job.G`, one header scalar; the worker echoes `res.G`; no `epochs`, no id runs; `resultStale`, `plateIds`, `idsForPlate` gone.
+**Store:** `new PlateStore({maxBytes, env, doc, onRelease, fresh})`, `fresh` the Stage (none: always exact). Rule 1, `put`: stored
+iff none or `rec.G > stored.G` (a newer stale one too, F106); a refused job's result or one without G is discarded. Rule 2,
+`isExact(e)`: `e.G >= fresh.dirtySince(e.key)`. `beginJob(jobId, view, plates, G)` tracks; a cell neither stored nor in flight is
+untracked. Hard drops (`dropQuantum`, `abandonQuantum`, `dropFrames(pred)`, `dropAll`, `release`) refuse their in-flight jobs.
+**Renderer:** `{store, stage, scene}`; `render(list, frame, G)`; a job's G is the list's stamp (read before `_buildList`) or the
+Stage's G at pack; dispatch refuses a list older than the cell's dirt, and (scene) a cell the table does not cover.
+**Engine:** `cfg.scene` (false until S3; `scene` option, `?scene=0|1` in the hook); `onCommit` → `dropFrames`/`dropAll(false)`;
+`_neutralOf` is the Stage's classifier until B-ERASE; the plane's drag holds in the Stage; the idle fit `touch`es.
+**Measured:** typecheck 0; lint 0 errors (6 warnings, baseline). Quick suite 175 passed + 5 skipped suites, 2,106 tests + 12 skipped,
+0 failed (05:29, before the hook gate). Bundles: erase `a1fafca3…`, raster `3e101c17ada4e30132ee8d7ba8629e93`, scene `dce304b8…`.
+**Decisions made:** `resultStale` deleted, not ported (the store judges by G; the client has nothing to compare); P3 on the list path
+waits for the next render's list (H3's fix); suites deleted with their mechanisms: `raster.markSnap`, `move.hold`; ported: plates
+(epoch/id/rect rules out, rule 1/2 in), job, worker, engine, picture, nopaper, move, bake (A2-Q2's band), phone, snapshot, perf.
+**Questions asked:** none new. WHERE I AM: break-checks running on the copy; next, S3's harness comparison, then the flip.
+
+## 2026-09-28 06:40 UTC — reviewer (B-FOUNDATION review) — end
+**Working on:** done; nothing committed. Files: `raster/rasterCore.clip.test.js` (a union case appended, red by design), new
+`scaleBar/scaleHud.rtl.test.js`, `engine/devLevers.js` + one line of `hooks/useKobinEngine.levers.test.js` (a malformed `%` in a
+lever URL threw URIError inside the engine's construction: now dropped).
+**Measured:** major, PLAN §3 row 8: a clip is not byte-exact for union families (checkpoint above; fix = tied crossings applied
+together in `emitRuns` + x from each edge's own start; 0 bytes in 1,879 clips; moves 21 bytes of 10 of 24 goldens by one level).
+Suites before (4e8ce80, private worktree): raster + hooks + scaleBar 52 suites 788/788. After (shared tree, B-SCENE-2 mid-edit):
+52 suites 776/777, the 1 the union case. Typecheck 0; lint 0 errors, 6 warnings. ScaleHud break-checks: each of five lines 1–2 red
+of 3. Harness at 4e8ce80, headless, one run each: scenario 3 pan 2.28 s, paper 0 (baseline 28 ms), 7 of 100 frames > 50 ms,
+68 composes 10 ms, max 13 images, 19 plates; scenario 6 undo exact 86 ms (baseline 44), 0 paper, 3 composes, 8 images, 2 plates.
+**Decisions made:** frame loop, level.js, crossmap test, HUD, levers, F132: no defect found. Latent: `pinchUpdate` drops its pan's
+crossing, masked by `_visibleChanged` (TILE === W), live once that predicate goes. Harness sampler lags the engine's frame by one.
+**Questions asked:** in the report: the union fix; the clip suite's 44 s; the pinch crossing; the sampler's lag.
+
+## 2026-09-28 06:50 UTC — reviewer (B-FOUNDATION review) — the union fix, adopted: start
+**Working on:** the orchestrator's six asks: the union fix in `rasterCore.js` (tie grouping + own-start x), the 24 goldens
+regenerated, `build:worker`, the clip suite split into a quick part and `rasterCore.clip.slow.test.js`, the harness sampler at
+compose, the `--dense --scenario all` baseline on :3011, a dated correction in A3 §3.1. Files: `raster/rasterCore.js`, the clip
+test and its new slow twin, `tools/harnesses/browser-check.js`, `A3-pyramid.md`, `public/*-worker.js` (bundles).
+**Measured:** nothing new yet. **Decisions made:** none yet. **Questions asked:** none.
+WHERE I AM: re-reading `rasterCore.js` (the union pass) before the edit.
+
+## 2026-09-28 06:30 UTC — orchestrator (Fable) — the B-FOUNDATION review: one major, adopted
+**Working on:** the review found PLAN §3 row 8 false for union families (stroke bands crossing the clip's
+top: 30 of 799 clips off by one level, up to four on transparent plates) with two mechanisms — collinear
+edges of abutting rings sorted in a different order at the clip's top row, and the band start one ulp off —
+and an 8-line fix in the core measured to 0 of 1,879 clips. Adopted; the reviewer applies it, regenerates
+the 24 goldens (10 move by one level: a −w/+w pair at one x now cancels exactly), rebuilds the workers,
+splits the clip suite into a quick and a slow twin, moves the harness's paper sampler to compose time and
+retakes the baseline. The pinch's dropped pan crossing goes to B-SCENE-2's S3 (the build that removes
+`_visibleChanged`). One minor fixed inline: a lever value that does not URL-decode no longer throws while
+the hook builds the engine. Everything else held: the crossing map, the frame loop, the HUD, the levers, F132.
+**Measured:** the reviewer's scenarios 3 and 6 against the builder's baseline agree within run-to-run
+variance (pan 0 vs 28 ms paper, undo exact in 86 vs 44 ms).
+**Decisions made:** the union fix lands with the review, not as a tolerance in row 8 (transparent plane
+plates would carry a four-level error).
+**Questions asked:** none.
