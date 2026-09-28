@@ -1151,3 +1151,13 @@ recommend B-ERASE drops it, or the orchestrator hands me the three lines. RV5 re
 commits under a held drag) and `rasterCore.clip.slow` goldens (4) are not mine: for B-ERASE.
 WHERE I AM: P2 — a jsdom test of the pen-up call order (the path goes in the task whose compose shows its plates), then
 the olderMs fuzz (draw/undo/redo/erase/zoom/crossing with the fake pool).
+
+## 2026-09-28 23:53 UTC — orchestrator (Fable) — resumed after the third session-limit stop of the day
+**Working on:** the tree as B-ERASE and B-PYRAMID-2 left it at ~20:35 snapshot-committed as 2ab1a19; the container
+rebooted again (every process gone, the scratchpad and transcripts kept). Both resumed from their transcripts:
+B-ERASE at its docs step (TEST-MAP), with the two reds attributed to it restated (RV5's batch under a held drag; the
+clip.slow goldens after the mask changes); B-PYRAMID-2 in P2 (the never-older fuzz with its own timeout), with
+`_renderPending` deferred to P6. One slot free until B-ERASE reports.
+**Measured:** load 0.12 at the resume.
+**Decisions made:** none new.
+**Questions asked:** none.
