@@ -616,3 +616,27 @@ variance (pan 0 vs 28 ms paper, undo exact in 86 vs 44 ms).
 **Decisions made:** the union fix lands with the review, not as a tolerance in row 8 (transparent plane
 plates would carry a four-level error).
 **Questions asked:** none.
+
+## 2026-09-28 13:58 UTC — B-SCENE-2 (builder) — resumed after the session-limit stop (S3 mid-way)
+**Working on:** the tree is snapshot f2a1488. S3 so far, not yet run through the suites: the list path is gone from the raster
+path (`cfg.scene`, `?scene`, `packsPending`, `_listG`, `_noteShown`, `listForPlane` deleted; `_render` reads `stage.items()`;
+`_tableStep` is the raster camera step; ladder, prebake, far plane levels and thumbnails read `stage.snapshot` and pack at its G);
+`sync` commits only when owed and pins the camera's tiles; the ants' decision keys on G; `_renderSoon`'s skip and
+`_eraseListStale` gone; the pinch's pan crossing carried (new `KobinEngine.pinch.test.js`). The harness's list-path run (the S2
+tree, copy under scratchpad, :3012, the 4e8ce80 harness) is in; the scene run is next on the same copy and harness.
+**Measured:** S2 break-checks (unimported copy): rule 1 older/equal G 2 red of 45; F106 newer-though-behind 3/45; rule 2 29/96;
+tracking from `beginJob` 4/96; refusal 5/45; the Stage's dirt 11/51; the hold's one commit 4/49; the hold holds 4/49; the
+engine's plane hold 3/49. The rest timed out across the stop; re-run on the S3 tree.
+**Questions asked:** none. WHERE I AM: the `?scene=1` harness run on the S2 copy, then the suites on the S3 tree.
+
+## 2026-09-28 14:05 UTC — orchestrator (Fable) — resumed after the session limit; B-PYRAMID-1 launched
+**Working on:** Kobin's session limit stopped B-SCENE-2 (in S3, at the picture suite's port) and the
+reviewer (running the raster suites for the union fix); both resumed by message with the tree as they left
+it (snapshot f2a1488). B-SCENE-2's S2 checkpoint (05:35 UTC) fixed the interface and ran the quick suite
+green (2,106 tests, 0 failed), so B-PYRAMID-1 was launched on new files only (`PyramidStore`,
+`PicturePyramid`, `jobQueue`, the prefetch policy, their property tests); B-PYRAMID-2 integrates them after
+B-SCENE-2's end entry. PLAN §2 records the split. Three agents run: B-SCENE-2, the reviewer, B-PYRAMID-1.
+**Measured:** nothing new.
+**Decisions made:** B-PYRAMID split in two halves (context window and file ownership); its second half
+owns every shared-file line the first half asks for.
+**Questions asked:** none.

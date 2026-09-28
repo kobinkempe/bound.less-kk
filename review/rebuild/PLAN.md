@@ -286,11 +286,17 @@ re-render, the queue, the budget and Dev levers, the MovePlane port and the SVG 
 §1.4, §1.5). Each returns a design document under `review/rebuild/`. The orchestrator reads them,
 writes the per-component design and the answers, and writes or commissions the invariant tests.
 
-**Wave 2 — builds (big jobs):** B-SCENE (§1.1 with the freshness rule and `placed()`; the
-`listFor` equivalence fuzz; the property tests), then B-ERASE (§1.3) on it; B-PYRAMID (§1.2, §1.5,
-§1.6, input coalescing, the Dev levers, the MovePlane port) starting from B-SCENE's checkpoint,
-when the generation API is fixed. One reviewer pass per build. The orchestrator reads every diff
-and runs the harness.
+**Wave 2 — builds (big jobs):** B-FOUNDATION (the clip box, `level.js`, input coalescing and the
+scale HUD, the Dev levers, the harness — landed 2026-09-28 and reviewed); B-SCENE (§1.1 with the
+freshness rule and `placed()`; the `listFor` equivalence fuzz; the property tests; S1–S3), then
+B-ERASE (§1.3) on it; B-PYRAMID in two halves so that each fits one builder's context window and
+stays out of B-SCENE's files: **B-PYRAMID-1** (new modules only, from B-SCENE's S2 checkpoint:
+`PyramidStore`, `PicturePyramid` with the plan, the rest render, the patch merge and the integrals,
+`jobQueue`, the prefetch policy, and their property tests) and **B-PYRAMID-2** (after B-SCENE's S3:
+the renderer under `cfg.pyramid`, the pen-up group commit on the live path, the MovePlane port, the
+levers taking effect, the harness comparison both ways, the deletion of the old layer and store, the
+SVG demotion, docs). One reviewer pass per build. The orchestrator reads every diff and runs the
+harness.
 
 **Wave 3:** B-MODEL-C1 (the composition on read, right after B-SCENE and in parallel with B-PYRAMID; its
 first item is the `LevelMap.ensureId` spine gap B-FOUNDATION found, so that a load mints a missing spine
