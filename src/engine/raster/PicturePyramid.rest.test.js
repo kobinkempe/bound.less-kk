@@ -130,6 +130,16 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
         const P0 = t.pyr.compose();
         expect(P0.cells.some((c) => c.base)).toBe(true);                    // the exposed strip from the level plan
         expect(t.pyr.s.restDiscards).toBe(0);
+        // No level plate exists: the strip is paper, charged by its own share — not the base cells' under the rest plates.
+        const paper0 = t.pyr.s.paperMs;
+        t.clock.t += 100;
+        t.pyr.compose();
+        let bare = 0;
+        for (let y = 0; y < t.H; y += 4) for (let x = 0; x < t.W; x += 4) {
+            const px = (x - v.tx) / Z, py = (y - v.ty) / Z;
+            if (!t.store.get(restCell("F", Z, Math.floor(px * Z / 512), Math.floor(py * Z / 512)).key)) bare++;
+        }
+        expect(t.pyr.s.paperMs - paper0).toBeCloseTo(100 * bare / ((t.W / 4) * (t.H / 4)), 0);
         const inline0 = t.pyr.s.restInline;
         t.pyr.frameFor(cam("F", Z, -700, -300, t.W, t.H));
         expect(t.pyr.s.restInline).toBe(inline0 + 1);

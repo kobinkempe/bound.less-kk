@@ -28,7 +28,7 @@ export function dustBarFor(bakePx, f = 1) {
  *   alone, rE being half the eraser's box. Both rules as they were measured in (F46).
  *   `dustBar`: what is basically invisible at the zoom the mark was made in, in the
  *   subject's units (`dustBarFor`); dust is judged by it, not by the pen (F66).
- * @returns {{kind: "grazed"|"removed"|"cut", regions?: any[][], stats: any, removed: number, dust: number}}
+ * @returns {{kind: "grazed"|"removed"|"cut", regions?: any[][], stats: any, removed: number, dust: number, dustBoxes?: number[][]|null}}
  */
 export function cutJob(j) {
     const opts = { freezeR: j.freezeR };
@@ -50,7 +50,18 @@ export function cutJob(j) {
     const keep = dropDust(groups, j.w, j.dustBar);
     const dust = groups.length - keep.length;
     if (!keep.length) return { kind: "removed", stats, removed, dust };
-    return { kind: "cut", regions: keep.map((g) => g.map((l) => Loop.from(l))), stats, removed, dust };
+    return { kind: "cut", regions: keep.map((g) => g.map((l) => Loop.from(l))), stats, removed, dust, dustBoxes: dustBoxes(groups, keep) };
+}
+
+/**
+ * The boxes `[x0, y0, x1, y1]` of the components `dropDust` left out of `keep`, in their own
+ * coordinates, or null: dust can lie outside the eraser's box, so a cut's dirt names it (A2 §4.5).
+ */
+export function dustBoxes(groups, keep) {
+    if (keep.length === groups.length) return null;
+    const kept = new Set(keep), out = [];
+    for (const g of groups) if (!kept.has(g)) { const b = loopsBBox(g); if (b) out.push([b.x0, b.y0, b.x1, b.y1]); }
+    return out.length ? out : null;
 }
 
 const own = (l) => { const x = Loop.from(l); return { buf: x.buf.slice(), idx: x.idx.slice() }; };

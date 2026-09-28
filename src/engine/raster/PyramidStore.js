@@ -291,6 +291,8 @@ export default class PyramidStore {
      * and its ancestors: a record at level ℓ in frame H is the view frame's level ℓ − shift(H).
      */
     setView(v) { this._view = v || null; }
+    /** The context `setView` last set, or null. */
+    get view() { return this._view; }
 
     /** A new byte cap, and one eviction pass (pins respected; `overCapPinned` counts a cap the pins exceed). */
     setBudget(bytes) { this.maxBytes = bytes; this._evict(); }

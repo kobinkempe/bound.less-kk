@@ -775,3 +775,78 @@ reviewer and B-ERASE (its files overlap both).
 9,784 vs 821 ms; erase bake 31.0 vs 19.4 s; undo exact 97 vs 37 ms; round trip pixel-identical both ways.
 **Decisions made:** PLAN §5.4 (B-SCENE-2's Q1–Q4; the asks carried to B-PYRAMID-2; the orphan correction).
 **Questions asked:** none.
+
+## 2026-09-28 15:08 UTC (container clock) — reviewer (B-SCENE review) — S1–S3 against PLAN §3 and A2 — start
+**Working on:** read the preamble, PLAN §1.1/§3/§4/§5.3/§5.4, A2 §2/§3/§6.1/§6.2/§6.4, B-SCENE's and B-SCENE-2's entries.
+First the zoom-out paper regression: 18d5e2f in a private worktree (:3021, `?scene=0|1`) against the current tree (:3022),
+`browser-check.js --dense --scenario 1` twice each with `uptime`; then refusal counters in `RasterRenderer.report()`. Then
+rows 1, 2, 5, coverage/no-read-mutates, the hold, the camera step, the deletions, the pending path's cap (§5.4 Q2), the
+erase bake's cost. Files I may edit: `Stage.js` (outside `marks`/`masks`/the classifier), `TileStore.js`, `PlateStore.js`,
+`RasterRenderer.js`, `PictureLayer.js`, `MovePlane.js`, `KobinEngine.js`, `overlays.js`, `placementModel.js`, tests.
+**Measured:** nothing yet (load 0.18 / 0.96 / 2.14 at start).
+**Decisions made:** none yet.
+**Questions asked:** none.
+
+## 2026-09-28 15:13 UTC — B-PYRAMID-1 (builder) — checkpoint 3: all four modules and six suites green
+**Working on:** `raster/jobQueue.js` + `jobQueue.test.js` (7), `raster/prefetch.js` + `prefetch.test.js` (6) added; the plan suite grew
+the view, requests, step lever, plane, integrals and surface-lifetime tests (14). Next: dated corrections in A3, the TEST-MAP rows,
+the whole break-check set re-run on the final tree, the end entry.
+**Measured:** 10 suites together (mine and the four other `softCanvas` users) 124/124. Break-checks since checkpoint 2: queue 13/13
+red, prefetch 15/15, view/plane/integrals 12/12 — 96 of 96 rules red so far, each on the unimported copy.
+**Decisions made:** children (c) are planned as an upgrade after every cell's own-to-coarser plan, nearest the attention point first:
+greedy in cell order they took the whole budget and left later cells paper while a shared coarser plate was cached (a red test).
+The plan's image counts come from what it draws (1:1 when a destination is as wide as its source), not from the budget's reservations.
+The queue keeps `max(1, workers − 1)` for the cut reservation and the low-priority cap, so a one-worker pool is never starved.
+**Questions asked:** none new. WHERE I AM: the dated corrections in `A3-pyramid.md` §1.4, §2.1, §2.2, §3.4.
+
+## 2026-09-28 15:20 UTC — B-ERASE (builder) — E1–E5 of A2 §6.2: targets as data, the rule, the parallel bake, async barriers — start
+**Proposal.** `src/engine/eraseRule.js` holds the rule (`underMask`), the Stage's step test (`inLineage`: `targetOf ∋ M`,
+below M) and the mint-site inheritance; fields are sorted id arrays (high). Bake events carry `by` (and `dust`, `inkless`); the
+Stage classifies per event: an add/remove by M of an object in M's lineage dirties box(M) ∩ its box ∪ its dust boxes, a
+handled change box(T) ∩ box(M) or nothing if inkless, a frame set aside at registration nothing past the landing's box(M);
+undo and redo stay untagged (medium-high). Registration runs in one `stage.batch` with the landing; a landed mark found
+without `targets` (an old file, a test's direct add, an undone old mark returning) is registered by the old rule at first
+sight, one path (medium). One `cede(receiver, …)` in a new `src/engine/cede.js` (high). Marks set and lineage index are
+kept by add/remove/reset events, liveness read through `getById`, so a frame set aside needs no event (high). The bake: a
+reorder buffer applying in serial order, lookahead dispatch through `submit` to an interim N-worker pool in
+`eraseWorkerClient.js` (RW-1's respawn/watchdog), one descent in flight, inline where `submit` returns null (high). Slots:
+two marks share when no item under both boxes has different bits (medium). Barriers: one `_eraseBarrier(pairs, then)`,
+synchronous inline, parked otherwise (medium).
+**Questions asked:** Q1 overflow's "raise the older mark's cuts": the serial order already bakes the oldest mark first;
+I propose counting (`packStats.maskOverflow`) and no extra queue (rec.: accept). Q2 a landed mark without `targets` is
+registered at first sight by the old rule, not only at load (rec.: accept). Q3 redo re-applies steps with whole footprints
+(a step does not record its dust) (rec.: accept). Q4 a shared slot where an item has both bits paints `1 − max(a, b)` for
+`(1 − a)(1 − b)`, different only where the two marks' edges overlap (rec.: accept, row 3 (b)'s envelope).
+**Files I am in:** eraseRule.js, cede.js (new); erasePipeline, eraseJob, eraseDescent, eraseWorkerClient, Document,
+format2, persist, oplog, files, selection, frameGc/sceneClient/report (`_cutInflight`), rasterPack's mark block,
+rasterCore's mask functions, rasterJob `MASKS_MAX`, Stage's classifier and Item getters, KobinEngine (`_emit`,
+barrier sites, `_uncut`/`_bakeDone`/`markDone`/`_neutralOf` removal), RasterRenderer (`markDone` only), the hook's status
+and the editor's chip. WHERE I AM: E1 — eraseRule.js and cede.js.
+
+## 2026-09-28 15:24 UTC — B-PYRAMID-1 (builder) — progress: the group commit made safe; the final break-check run
+**Working on:** the whole break-check set (95 rules) running on the final tree; then the end entry. Docs done: seven dated notes in
+`A3-pyramid.md` (§1.4, §1.5, §2.1, §2.2, §3.4, §3.6, §4.4), five rows in `TEST-MAP.md`.
+**Measured:** my six suites 50/50 on the final code (typecheck 0, lint 0 errors).
+**Decisions made:** two holes found reading my own group commit, each now a test: a group holds only results packed at or after
+its G (an earlier job's plate lacks the stroke and would have released the path over it), and a change of the drawn set re-targets
+a pen-up's group (A3 §3.6 item 5; it was unbuilt). Two duplicate break rules dropped (S8, S17 against the store suite, which cannot
+see them; the plan suite's S8p and S17p do).
+**Questions asked:** none new. WHERE I AM: waiting for `scratchpad/bp1/final-breakcheck.log`; then the end entry and the report.
+
+## 2026-09-28 15:35 UTC — B-PYRAMID-1 (builder) — end: four modules and six suites, nothing wired
+**Working on:** done. New: `raster/PyramidStore.js`, `raster/PicturePyramid.js`, `raster/jobQueue.js`, `raster/prefetch.js`,
+`__testkit__/fakeStage.js`, six suites (`PyramidStore.property`, `PicturePyramid.plan|rest|patch`, `jobQueue`, `prefetch`);
+`__testkit__/softCanvas.js` takes an opt-in `{scaled}` 4th argument (default unchanged). Docs: seven dated notes in `A3-pyramid.md`,
+five TEST-MAP rows. No shared source file edited; the asks below are B-PYRAMID-2's.
+**Measured:** my six suites 50/50 (with the four other `softCanvas` suites 124/124 before the last test edits); the plan's random
+trial at S = 1, 2, 3. Break-checks on the unimported copy, final tree: 95 rules, 95 red (store 16, plan 24, rest 13, patch and group
+14, queue 13, prefetch 15; `scratchpad/bp1/final-breakcheck.log`, rules in `bp1/rules.py`). Typecheck 0; lint 0 errors (the 9
+warnings are in other files). Nothing measured in a browser: the modules are not wired.
+**Asks for B-PYRAMID-2** (in full in my report): RasterRenderer builds store, pyramid and queue and supplies `pack` (live table or
+`job.table`), `measure` (E, A, U, P) and the calibration samples (`onSample`, `sampleOf`); `_takeResult` feeds `onResult`, `endJob`,
+`queue.done`; the frame step runs frameFor → setMotion → frame → pump → compose, prefetch at idle with `setFar`; the pen-up calls
+`groupCommit` before the next frame; the engine asks one more frame after the camera stops; rasterWorkerClient adopts JobQueue;
+MovePlane's port publishes the plane shape and pins (move MOVE_PLANE_PLATES out of MovePlane first if it imports PyramidStore);
+`isPhoneBudget`, `COMPOSE_IMAGES`, `STRIPS_PER_WORKER` are duplicated until the old files go.
+**Questions asked:** as in the start entry (softCanvas opt-in; K_u against the estimate's own U; the literal surface rule at ≥ 30 own
+plates), plus: keep `max(1, workers − 1)` for the cut reservation? Recommend yes. WHERE I AM: done.

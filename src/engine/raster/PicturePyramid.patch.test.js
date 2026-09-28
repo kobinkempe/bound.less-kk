@@ -194,6 +194,38 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect(t.pyr.s.groupsTimedOut).toBe(1);
     });
 
+    test("pen-up's group: a result packed before the stroke landed is not the group's; a zoom re-targets it to the new drawn cells", () => {
+        const t = setup(43, (job) => ({ E: 100, A: job.kind === "rest" ? 1000 : 9e6, U: 0, P: 1 }));
+        t.doc.list = t.doc.list.filter((o) => o !== STROKE);
+        t.pyr.frameFor(cam(1));
+        t.pyr.frameFor(cam(1));
+        const G0 = t.stage.generation;
+        t.doc.list = t.doc.list.concat([STROKE]);
+        t.stage.commit({ F: [FOOT] });
+        const seen = [];
+        t.pyr.groupCommit("s900", FOOT, (info) => seen.push(info));
+        const job = t.posted.find((j) => j.group === "s900");
+        // A job packed before the landing (G0) comes back for one of the group's cells: put as a stand-in, not held.
+        expect(t.pyr.onResult({ ...job.cells[0], G: G0, clip: job.clips[0], pixels: new Uint8ClampedArray(4 * (job.clips[0][2] - job.clips[0][0]) * (job.clips[0][3] - job.clips[0][1])), jobId: 2 })).not.toBe("held");
+        expect(seen).toEqual([]);
+        // A zoom: the rest set goes, the drawn cells are the level's; the group now waits for those under the stroke.
+        t.pyr.frameFor(cam(1.1));
+        expect(t.pyr._v.mode).toBe("level");
+        const re = t.posted.filter((j) => j.group === "s900" && j !== job);
+        expect(re.length).toBe(1);
+        expect(re[0].cells.every((c) => c.kind === "level" && c.level === t.pyr._v.level)).toBe(true);
+        expect(seen).toEqual([]);
+        const late = { ...job.cells[1], G: t.stage.generation, pixels: new Uint8ClampedArray(512 * 512 * 4), bytes: PLATE_BYTES, jobId: 3 };
+        expect(t.pyr.onResult(late)).toBe("discarded");                     // a rest result of the discarded set
+        const packed = t.pack(re[0]);
+        re[0].cells.forEach((c, p) => {
+            const out = new Uint8ClampedArray(P * P * 4);
+            renderPlate(packed, p, out, null, null);
+            t.pyr.onResult({ ...c, G: packed.G, pixels: out, bytes: PLATE_BYTES, jobId: 4 });
+        });
+        expect(seen).toMatchObject([{ id: "s900", committed: re[0].cells.length, missing: 0, timedOut: false }]);
+    });
+
     test("a patch whose clip misses dirt since the record's G lands its pixels but leaves the record stale", () => {
         const t = setup(31, () => ({ E: 10, A: 10, U: 0, P: 1 }));
         t.pyr.frameFor(cam(1));

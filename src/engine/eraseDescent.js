@@ -11,7 +11,7 @@
  * kid a cede mints is the store's piece for the square, bit for bit (F42). Nothing is
  * applied until the whole descent has succeeded, so a refusal needs no unwinding (F47).
  * The result is a list of steps; `erasePipeline._applyDescent` mints the real objects in
- * the same order `Document.cedeTileById` did and records the steps on the gesture's op.
+ * the order the cedes (`cede.js`) minted them and records the steps on the gesture's op.
  *
  * `world` is `{ lm, cfg, width, opacityGroups }`: the engine's own on the main thread, a
  * LevelMap rebuilt from `lm.serialize()` in the worker. Same code, same bits. A test may
@@ -20,10 +20,11 @@
 import LevelMap from "./LevelMap";
 import { R as CROSS_RATIO, W as FRAME_W, childTilePhase } from "./frameLattice";
 import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf } from "./geometry/derive";
-import { loopsBBox, translateLoops, shapeComponents, dropDust, subtractShape, rectLoop } from "./geometry/arcShape";
-import { shiftDown, cloneBelow } from "./geometry/offsets";
+import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop } from "./geometry/arcShape";
+import { shiftDown } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
-import { cutJob, dustBarFor } from "./eraseJob";
+import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
+import { cede } from "./cede";
 
 const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
 
@@ -37,7 +38,7 @@ export class VirtualDoc {
     allocId() { return this.next--; }
     getById(id) { return this.map.get(id) || null; }
     add(obj, level) { this.map.set(obj.id, { obj, level: String(level) }); return obj; }
-    removeById(id) { const rec = this.map.get(id); if (rec) this.map.delete(id); return rec || null; }
+    removeById(id) { const rec = this.map.get(id); if (rec) this.map.delete(id); return rec || null; }   // the event options are the Document's
     editKey(o) { return o && o.editId != null ? o.editId : o && o.id; }
 }
 
@@ -103,43 +104,10 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
 }
 
 /**
- * `Document.cedeTileById` on the virtual document: the parent's hole cut exactly, the
- * remnants and the kids minted with virtual ids. Returns what the document's version
- * returns, plus the specs `_applyDescent` mints from.
- */
-function cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar) {
-    const rec = vdoc.getById(id);
-    if (!rec) return null;
-    const src = rec.obj;
-    if (src.type !== "shape") return null;
-    const R = { left: holeInParent.x0, top: holeInParent.y0, right: holeInParent.x1, bottom: holeInParent.y1 };
-    const cut = subtractShape(src.loops, rectLoop(R), boolOpts).loops;
-    const groups = dropDust(shapeComponents(cut), src.w, dustBar);   // the mark's bar, not the pen's (ERASE-1)
-    const removed = vdoc.removeById(id);
-    if (!removed) return null;
-    const z = src.z != null ? src.z : src.id;
-    const editKey = vdoc.editKey(src);
-    const mk = (loops, lvl, attach, tile, below) => {
-        const obj = {
-            type: "shape", origin: src.origin, id: vdoc.allocId(), z, loops,
-            color: src.color, opacity: src.opacity, editId: editKey,
-        };
-        if (src.w > 0) obj.w = src.w;
-        if (attach) obj.attachRect = { ...attach };
-        if (below) obj.below = below;
-        if (tile) obj.tile = [tile[0], tile[1]];
-        return { obj: vdoc.add(obj, lvl), level: String(lvl) };
-    };
-    const parents = groups.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, cloneBelow(src.below)));
-    const below1 = kidBelow !== undefined ? cloneBelow(kidBelow) : shiftDown(src.below, 1);
-    const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(below1)));
-    return { removed, parents, kids, pieces: parents.concat(kids) };
-}
-
-/**
  * The descent. `input` = `{ target: {obj, level}, E: {id, loops, w}, HE }`; the target's
  * object is read, never written. Returns `{ steps, stats }` — each step
- * `{ removedId, parents: [spec], kids: [spec] }` with `spec = { vid, level, obj }` — or
+ * `{ removedId, parents: [spec], kids: [spec], dust }` with `spec = { vid, level, obj }` and
+ * `dust` the boxes of the ink the step dropped as dust, in the removed object's coordinates — or
  * `{ refused: why, stats, inkless }`. `stats`: sealed booleans and dust, for the engine's tallies.
  * `inkless`: the link the descent stopped at found none of the target's ink near the eraser
  * (none in the tiles, dust, or a graze) and no tile went unread, so no ink lies under the mark (F109).
@@ -237,6 +205,7 @@ export function descentJob(world, input) {
                     const solid = dropDust(groups, cur.w, dustBarFor(E.bakePx, lm.frameFactor(HE, F0n)));
                     stats.dust += groups.length - solid.length;
                     if (!solid.length) { why = "the tile's ink is degenerate"; continue; }
+                    const lost = dustBoxes(groups, solid) || [];   // in F0n's units, mapped with the tile below
                     let specs;
                     if (last) {
                         const whole = [].concat(...solid);
@@ -245,6 +214,7 @@ export function descentJob(world, input) {
                         const r = cutJob({ subject: whole, clip: clipHere, w: cur.w, dustBar: dustBarFor(E.bakePx), freezeR: boolOpts.freezeR, graze: "cede" });
                         if (r.stats && r.stats.openChains) stats.seals.push({ id: cur.id, open: r.stats.openChains, area: r.stats.sealedArea, weld: r.stats.weld, retriedAt: r.stats.retriedAt || 0 });
                         stats.dust += r.dust || 0;
+                        if (r.dustBoxes) lost.push(...r.dustBoxes);
                         if (r.kind === "grazed") { why = "grazing: nothing removed"; continue; }
                         specs = r.kind === "cut" ? r.regions.map((g) => ({ loops: g })) : [];
                         if (!specs.length) { why = "nothing survives the cut"; }
@@ -260,13 +230,18 @@ export function descentJob(world, input) {
                     const ph = ink.tile || (cfo && cfo.centre
                         ? [childTilePhase(pcur[0], cfo.centre.x, CROSS_RATIO), childTilePhase(pcur[1], cfo.centre.y, CROSS_RATIO)]
                         : [0, 0]);
-                    const step = cedeVirtual(vdoc, cid, Fn, specs,
+                    const step = cede(vdoc, cid, Fn, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
                         { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, kidBelow, boolOpts,
-                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)));
+                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id);
                     if (!step) { why = "cedeTileById refused"; continue; }
                     const spec = (p) => ({ vid: p.obj.id, level: p.level, obj: p.obj });
-                    steps.push({ removedId: step.removed.obj.id, parents: step.parents.map(spec), kids: step.kids.map(spec) });
+                    const dust = (step.dust || []).slice();
+                    for (const d of lost) {
+                        const m = lm.mapRectF({ left: d[0], top: d[1], right: d[2], bottom: d[3] }, F0n, crec.level);
+                        if (m) dust.push([m.left, m.top, m.right, m.bottom]);
+                    }
+                    steps.push({ removedId: step.removed.obj.id, parents: step.parents.map(spec), kids: step.kids.map(spec), dust: dust.length ? dust : null });
                     if (last) lastCeded = true;
                     ids = ids.filter((x) => x !== cid).concat(step.parents.map((p) => p.obj.id));
                     for (const kd of step.kids) kidIds.add(kd.obj.id);
@@ -289,7 +264,7 @@ const own = (l) => { const x = Loop.from(l); return { buf: x.buf.slice(), idx: x
 const wrap = (x) => new Loop(x.buf, x.idx);
 const objOut = (o, transfer) => {
     const out = { ...o };
-    delete out._bbox; delete out._home; delete out._ver; delete out._zScan;
+    delete out._bbox; delete out._home; delete out._ver;
     if (o.loops) { out.loops = o.loops.map(own); for (const x of out.loops) transfer.push(x.buf.buffer, x.idx.buffer); }
     return out;
 };
@@ -324,10 +299,10 @@ export function wireDescentResult(r) {
     if (!r.steps) return { msg: r, transfer: [] };
     const transfer = [];
     const spec = (s) => ({ vid: s.vid, level: s.level, obj: objOut(s.obj, transfer) });
-    return { msg: { stats: r.stats, minted: r.minted, steps: r.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec) })) }, transfer };
+    return { msg: { stats: r.stats, minted: r.minted, steps: r.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) }, transfer };
 }
 export function unwireDescentResult(m) {
     if (!m.steps) return m;
     const spec = (s) => ({ vid: s.vid, level: s.level, obj: objIn(s.obj) });
-    return { stats: m.stats, minted: m.minted, steps: m.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec) })) };
+    return { stats: m.stats, minted: m.minted, steps: m.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) };
 }

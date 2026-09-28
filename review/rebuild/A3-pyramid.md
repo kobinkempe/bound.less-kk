@@ -216,6 +216,16 @@ can never blend twice — the failure R25 §6.5 warns today's greedy cover avoid
 opaque. The test (§10.2) paints each source a flat colour and asserts every pixel carries exactly its
 planned source's colour, and repeats it with a translucent family split across two levels.
 
+*Corrected when B-PYRAMID-1 built it (2026-09-28), each forced by a red test:* (1) step (c) is planned as an
+upgrade — every cell is planned without children first, then the cells not already sharp take their 2^S × 2^S
+exact children nearest the attention point first while the budget has room; in cell order the children took the
+whole budget and later cells fell to paper while a coarser plate that would have served them was cached. (2) Rest
+mode: the rest grid at an arbitrary Z never aligns with a level grid, so the compose draws the level plan under the
+rest cells that have no rest plate, then every rest cell that has one over it — exact 1:1; stale, the patch rule
+(e) or a fresh level cover of the cell, else the stale plate. Every pixel still ends with one source. (3) The plan
+takes at most one view of distinct records (`viewPlates(σmin·2^−h)`): that is the construction behind §4.5's
+"pinned ≤ one view + the plane" on screens where 30 images exceed one view.
+
 ### 1.5 Direct scaled draws versus the surface, against the image cliff
 
 Chrome's 2D canvas pays per frame once one frame holds more than ~33 distinct images with any scaled (PP
@@ -245,6 +255,10 @@ Memory: the surface is allocated on first need and freed after 10 s unused (toda
 today. R12's alternative — the surface as a DOM canvas scaled by a CSS transform, so the compositor does the
 per-frame scaling with no main-thread blit — is the measured experiment for Kobin's Chrome (headless has no
 compositor cost to compare, §9.4).
+
+*Built (2026-09-28):* the rule is taken literally — a plan whose own plates number 30 or more (the 84-cell
+2560×1440@2 rest set) draws no scaled stand-in, so a missing cell there shows its stale plate or paper. Whether that
+shows paper in a real gesture is the harness's to measure.
 
 ### 1.6 The cross-frame mapping
 
@@ -327,6 +341,10 @@ frame's and no input pending is **still**. On the first still frame:
   top priority per pause, and a dispatched job cannot be recalled (`rasterWorkerClient.js:44-45`). Today's
   settle waits 150 ms (`SETTLE_MS`, `PictureLayer.js:129`) for this reason. This is Q3.
 
+*Built (2026-09-28):* the still frame renders only the rest cells that have no plate; a stale rest plate is the
+partial re-render's (§3), which the rest trigger otherwise pre-empted with a whole re-render (a red test). The
+engine asks for one more frame after the camera stops: stillness is seen only on a frame.
+
 ### 2.2 The estimate, derived
 
 What the numbers say (all from the records, then this container):
@@ -357,6 +375,11 @@ ones (conservative: node is 3–4× faster); B-PYRAMID calibrates them online fr
 records per job (`ras.edges`/edges, `ras.accum`/coveredPx, `rasterWorker.js:103-108`), EWMA per session, so a
 phone gets its own. D272's measured exit stays as the backstop: an inline rest that measured over 8 ms marks
 the view class heavy until the estimate halves (`_syncSwitch`'s hysteresis, `PictureLayer.js:703-717`).
+
+*Built (2026-09-28):* the calibration is a hook the renderer feeds — `calibrate(sample)`, with `sampleOf(res, U)`
+for a worker result and `onSample` for an inline job — not applied by the inline executor to itself: a cold JIT's
+first inline timings flipped the next rest to the workers in a test. K_u is fitted against the union family-rows
+the estimate priced the job with, since a result counts none of its own.
 
 ### 2.3 The executor
 
@@ -518,6 +541,11 @@ When `T_patch` is over budget for the drawn cells a change touches:
 4. **Then** the changed cells' full-resolution patches go to the workers at priority 0 (they are visible
    correctness) and replace the coarse patch as they land.
 
+*Built (2026-09-28):* the fresh coarser picture is drawn over the dirty rectangles' box grown by a pixel (of the
+screen or the plate, the larger) — §3.2's rule for a clip applied to the draw; without it 12 changed pixels at a
+.5 edge kept their pre-undo value. The live path's group commit (§3.6) takes no coarse-first step: it waits for
+full resolution.
+
 ### 3.5 Worked example: undo of one stroke (Kobin's decision 2)
 
 Stroke s (id 812, 300 px long, 13 px pen) sits over a dense area; the view rests with the rest set complete
@@ -572,6 +600,10 @@ pen-up), and the live white path is released at the commit. This deletes `LIVE_H
 `_armLiveTimer`, `_releaseHeldLive`, `_plateShows`, `_clipHeld`, `_liveCellsComing` and the `liveClips` /
 `liveExtends` counters (`RasterRenderer.js:68-71`, `:790-910`, `:131-132`), and `raster.phone`'s P3/P4
 become the rectangle re-render test (TEST-MAP).
+
+*Built (2026-09-28):* a group holds only results packed at or after its own G (the commit its stroke landed in): a
+job packed before it comes back without the stroke and would otherwise release the path over a plate that lacks it.
+The re-target of item 5 runs on every change of the view's drawn set.
 
 ### 3.7 What a dirty rectangle must include (a requirement on A2)
 
@@ -705,6 +737,9 @@ All three stop while a report is sending (`E._reportBusy`, `hooks/reportSend.js:
   one-live-`frameSeq`-per-`q` (`current`, `dropStale`, `:86`, `:362-371`), `dropQueued(why, deadQ)`
   (`:398-410`), `_dropDead` (`RasterRenderer.js:1076-1096`) and `_stillWanted` (`:1356-1380`). In-flight
   dedupe: a key in flight with `G_pack ≥ dirtyG` is not re-posted; one a later change overtook may be.
+
+*Built (2026-09-28):* the cut reservation and the prefetch and thumbnail cap are `max(1, workers − 1)`, so a
+one-worker pool is never starved by a bake; the velocity rule runs only while the camera moves.
 
 ### 4.5 The cache budget
 

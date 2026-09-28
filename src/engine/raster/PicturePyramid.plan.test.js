@@ -31,7 +31,7 @@ const cam = (frame, inScale, panX, panY, w, h) => ({
     frameWindow: () => ({ left: -panX / inScale, top: -panY / inScale, right: (w - panX) / inScale, bottom: (h - panY) / inScale }),
 });
 
-function setup(W, H) {
+function setup(W, H, S = 1) {
     const lm = new LevelMap({ enter: ENTER, base: BASE, exit: EXIT }, W, H);
     lm.ensureSpine(0);
     const A = lm.cellChild("0", 1, 2).id;
@@ -86,7 +86,7 @@ function checkPixels(t, P0, fail, stride = 7) {
 
 /** §1.4's rules, independently: the source a level cell should show (the budget never binds in these trials). */
 function oracle(t, v, i, j) {
-    const st = t.store, F = v.frameId, l = v.level;
+    const st = t.store, F = v.frameId, l = v.level, S = v.S, N = Math.ceil(8 / S), n = 2 ** S;
     const ex = (r) => r && st.exact(r);
     const own = st.get(levelKey(F, l, S, i, j));
     if (ex(own)) return { src: own };
@@ -96,9 +96,9 @@ function oracle(t, v, i, j) {
         if (ex(r)) return { src: r };
     }
     const kids = [];
-    for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) kids.push(st.get(levelKey(F, l + 1, S, 2 * i + a, 2 * j + b)));
+    for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) kids.push(st.get(levelKey(F, l + 1, S, n * i + a, n * j + b)));
     if (kids.every(ex)) return { kids };
-    for (let k = 1; k <= 8; k++) {
+    for (let k = 1; k <= N; k++) {
         const c = coarser(t.lm, S, F, l, i, j, k);
         const r = c && st.get(levelKey(c.frame, c.level, S, c.i, c.j));
         if (!ex(r)) continue;
@@ -118,7 +118,7 @@ function oracle(t, v, i, j) {
         return { src: r };
     }
     if (own) return { src: own };
-    for (let k = 1; k <= 8; k++) {
+    for (let k = 1; k <= N; k++) {
         const c = coarser(t.lm, S, F, l, i, j, k);
         const r = c && st.get(levelKey(c.frame, c.level, S, c.i, c.j));
         if (r) return { src: r };
@@ -132,9 +132,11 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         const fail = (m) => { if (errors.length < 8) errors.push(m); };
         let checked = 0, cells = 0;
         const seen = { own: 0, mapped: 0, kids: 0, coarser: 0, patch: 0, stale: 0, staleCoarse: 0, paper: 0 };
-        for (let trial = 0; trial < 24; trial++) {
-            const rnd = lcg(900 + trial), W = 900, H = 700;
-            const t = setup(W, H);
+        const steps = new Set();
+        for (let trial = 0; trial < 30; trial++) {
+            const rnd = lcg(900 + trial), W = 900, H = 700, S = [1, 1, 2, 1, 3][trial % 5];
+            const t = setup(W, H, S);
+            steps.add(S);
             const l = 3 + Math.floor(rnd() * 3), Z = zOf(l, S) * (0.75 + rnd() * 0.6);
             const panX = -rnd() * 1500, panY = -rnd() * 1500;
             const c0 = cam(t.A, Z, panX, panY, W, H);
@@ -144,7 +146,7 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
             // Old plates everywhere at random, then dirt, then fresh ones: coarser, children, the root's twins.
             for (let j = v.j0 - 1; j <= v.j1 + 1; j++) for (let i = v.i0 - 1; i <= v.i1 + 1; i++) if (rnd() < 0.55) t.put(levelCell(F, l, S, i, j), 0);
             for (let k = 1; k <= 3; k++) {
-                for (let j = (v.j0 - 1) >> k; j <= (v.j1 + 1) >> k; j++) for (let i = (v.i0 - 1) >> k; i <= (v.i1 + 1) >> k; i++) if (rnd() < 0.3) t.put(levelCell(F, l - k, S, i, j), 0);
+                for (let j = (v.j0 - 1) >> (k * S); j <= (v.j1 + 1) >> (k * S); j++) for (let i = (v.i0 - 1) >> (k * S); i <= (v.i1 + 1) >> (k * S); i++) if (rnd() < 0.3) t.put(levelCell(F, l - k, S, i, j), 0);
             }
             for (let n = 0; n < 4; n++) {
                 const x = v.i0 * P / zOf(l, S) + rnd() * 3000 / zOf(l, S), y = v.j0 * P / zOf(l, S) + rnd() * 2400 / zOf(l, S);
@@ -154,9 +156,10 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
             const G = t.stage.generation;
             for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) {
                 const r = rnd();
-                if (r < 0.12) for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, l + 1, S, 2 * i + a, 2 * j + b), G);
-                else if (r < 0.3) t.put(levelCell(F, l - 1 - Math.floor(rnd() * 3), S, i >> 1, j >> 1), G);
-                else if (r < 0.38) { const off = 2 ** (8 + l * S); t.put(levelCell("0", l + 12, S, i + fa.cell.i * off, j + fa.cell.j * off), G); }
+                // Children only at S = 1: at 16 or 64 a cell they never fit this screen's one view of records.
+                if (r < 0.12 && S === 1) for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, l + 1, S, 2 * i + a, 2 * j + b), G);
+                else if (r < 0.3) { const k = 1 + Math.floor(rnd() * 3); t.put(levelCell(F, l - k, S, i >> (k * S), j >> (k * S)), G); }
+                else if (r < 0.38) { const off = 2 ** (8 + l * S); t.put(levelCell("0", l + 12 / S, S, i + fa.cell.i * off, j + fa.cell.j * off), G); }
             }
             const P0 = t.pyr.compose();
             checked += checkPixels(t, P0, fail);
@@ -166,13 +169,14 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
                 const o = oracle(t, v, cell.i, cell.j), ds = cell.draws;
                 const got = ds.map((d) => d.rec);
                 let ok;
-                if (o.kids) { ok = ds.length === 4 && o.kids.every((k) => got.includes(k)); seen.kids++; }
+                if (o.kids) { ok = ds.length === o.kids.length && o.kids.every((k) => got.includes(k)); seen.kids++; }
                 else if (o.patch) { ok = ds.length === 2 && got[0] === o.src && got[1] === o.patch; seen.patch++; }
                 else { ok = ds.length === 1 && got[0] === o.src; seen[!o.src ? "paper" : o.src.frame !== F ? "mapped" : o.src.level === l ? (t.store.exact(o.src) ? "own" : "stale") : (t.store.exact(o.src) ? "coarser" : "staleCoarse")]++; }
-                if (!ok) fail(`trial ${trial} cell ${cell.i},${cell.j}: the plan drew ${got.map((r) => (r ? r.key : "paper"))}, the rules say ${o.kids ? "children" : (o.src ? o.src.key : "paper") + (o.patch ? " + " + o.patch.key : "")}`);
+                if (!ok) fail(`S ${S} trial ${trial} cell ${cell.i},${cell.j}: the plan drew ${got.map((r) => (r ? r.key : "paper"))}, the rules say ${o.kids ? "children" : (o.src ? o.src.key : "paper") + (o.patch ? " + " + o.patch.key : "")}`);
             }
         }
         expect(errors).toEqual([]);
+        expect([...steps].sort()).toEqual([1, 2, 3]);
         for (const k of Object.keys(seen)) expect([k, seen[k] > 0]).toEqual([k, true]);
         expect(checked).toBeGreaterThan(100000);
         expect(cells).toBeGreaterThan(150);
@@ -366,6 +370,10 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect(P0.cells.some((c) => c.draws.length === 1 && c.draws[0].rec && c.draws[0].rec.level === 2)).toBe(true);
         expect(P0.draws.some((d) => !d.rec)).toBe(false);
         expect(P0.keys.size).toBeLessThanOrEqual(t.pyr.viewUnit);
+        // The children went to the cells nearest the attention point (the screen centre).
+        const d = (c) => (((c.i + 0.5) * 512 - v.ox) * v.s + v.dx - W / 2) ** 2 + (((c.j + 0.5) * 512 - v.oy) * v.s + v.dy - H / 2) ** 2;
+        const kid = P0.cells.filter((c) => c.draws.length === 4).map(d), not = P0.cells.filter((c) => c.draws.length === 1).map(d);
+        expect(Math.max(...kid)).toBeLessThanOrEqual(Math.min(...not));
     });
 });
 
@@ -397,22 +405,21 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
     test("the view's missing cells asked for once at priority 1, centre-out, with the view's generation", () => {
         const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
         const asked = [];
-        t.pyr._onRequest = (jobs) => asked.push(...jobs);
-        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
+        t.pyr._onRequest = (jobs) => asked.push(...jobs.filter((x) => x.kind === "view"));
         t.put(levelCell(F, 4, S, 0, 0), 0);
-        t.pyr.frameFor(cam(t.A, 16, -1, 0, W, H));
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // cells (0..1, 0..1); (0, 0) is there
         expect(asked.length).toBe(1);
         const j = asked[0];
         expect([j.kind, j.prio, j.purpose, j.gen, j.level]).toEqual(["view", 1, "view", t.pyr.gens.view, 4]);
-        expect(j.cells.map((c) => c.key)).not.toContain(levelKey(F, 4, S, 0, 0));
-        expect(j.attention).toEqual([(512 + 1) / 1 * 1, 384].map((x, k) => (k === 0 ? x : x)));
-        t.pyr.frameFor(cam(t.A, 16, -2, 0, W, H));
+        expect(j.cells.map((c) => c.key).sort()).toEqual([[1, 0], [0, 1], [1, 1]].map(([i, jj]) => levelKey(F, 4, S, i, jj)).sort());
+        expect(j.attention).toEqual([512, 384]);                              // the screen centre, in the job's grid px
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
         expect(asked.length).toBe(1);                                          // asked already: not again
         t.pyr.refresh();
-        t.pyr.frameFor(cam(t.A, 16, -3, 0, W, H));
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
         expect(asked.length).toBe(2);
         const g0 = t.pyr.gens.view;
-        t.pyr.frameFor(cam(t.A, 16 * 2.2, -3, 0, W, H));                        // a new level: a new generation, asked again
+        t.pyr.frameFor(cam(t.A, 16 * 2.2, 0, 0, W, H));                         // a new level: a new generation, asked again
         expect(t.pyr.gens.view).toBeGreaterThan(g0);
         expect(asked[2].gen).toBe(t.pyr.gens.view);
     });

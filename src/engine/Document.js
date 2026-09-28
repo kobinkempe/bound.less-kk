@@ -42,11 +42,13 @@
  */
 import {
     loopsBBox, translateLoops, transformLoopsAbout, encodeLoops, decodeLoops, shapeFromRings, normalizeLoops,
-    subtractShape, rectLoop, shapeComponents, dropDust, repairLoops, validEncodedLoops,
+    repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
 import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset, sameShift } from "./geometry/offsets";
 import { objectHeader, extraFields } from "./format2";
+import { inheritErase, withId } from "./eraseRule";
+import { cede } from "./cede";
 import { Loop } from "./geometry/loop";
 
 // Stored loops are Loops (geometry/loop.js): a piece read is a transient view, a piece
@@ -585,7 +587,7 @@ export default class Document {
     // Add a newly drawn object as a native of `level`. `live` = still growing
     // (a stroke between pointerDown and pointerUp): kept out of the spatial
     // index until finalize().
-    add(o, level, { live = false } = {}) {
+    add(o, level, { live = false, by = null } = {}) {
         const k = String(level);
         this._settleIfPending(k);   // the newcomer does not owe the frame's shift
         this._reuseDetached(k);
@@ -598,7 +600,9 @@ export default class Document {
         this._noteBelow(o);
         if (live) this._pending.add(o);
         else this._idx(k).add(o);
-        this._emit({ kind: "add", id: o.id, level: k, obj: o, live });
+        const ev = { kind: "add", id: o.id, level: k, obj: o, live };
+        if (by != null) ev.by = by;          // an erase step's piece (A2 §4.5)
+        this._emit(ev);
         return o;
     }
     // The stroke is done: geometry is immutable from here on -> index it and
@@ -643,8 +647,9 @@ export default class Document {
     }
 
     // Remove a native by id from whichever frame holds it (derived copies carry
-    // the source id, so this is "erase everywhere").
-    removeById(id) {
+    // the source id, so this is "erase everywhere"). `by`, `dust`: an erase step's
+    // mark and the boxes of the dust it dropped, for the scene's dirt (A2 §4.5).
+    removeById(id, { by = null, dust = null } = {}) {
         const obj = this._byId.get(id);
         if (!obj) return null;
         this._settleIfPending(obj._home);   // a carry can re-home it, so read the home after
@@ -659,7 +664,9 @@ export default class Document {
         this._pending.delete(obj);
         this._idx(Ls).remove(obj);
         this._forgetIfEmpty(Ls);
-        this._emit({ kind: "remove", id, level: Ls, obj });
+        const ev = { kind: "remove", id, level: Ls, obj };
+        if (by != null) { ev.by = by; if (dust) ev.dust = dust; }
+        this._emit(ev);
         return { obj, level: Ls, index: i };
     }
     // Re-insert at a remembered position (undo of an erase). Position only
@@ -762,6 +769,28 @@ export default class Document {
         this.lm.walk(rootId, (f) => { frames.add(f.id); const ix = this._index[f.id]; if (ix && ix.maxZ > m) m = ix.maxZ; });
         for (const o of this._pending) if (frames.has(o._home)) { const z = o.z != null ? o.z : o.id; if (z > m) m = z; }
         return m;
+    }
+    /**
+     * Mark `markId`'s bake has dealt with native `id` without cutting it — a refusal or a graze
+     * (A2 §4.1): `handledBy` gains it. `inkless`: no ink of it lay under the mark, so no pixel
+     * changes. Logged as an `attr` entry (A2 §4.9).
+     */
+    setHandledById(id, markId, { inkless = false } = {}) {
+        const rec = this.getById(id);
+        if (!rec) return null;
+        const o = rec.obj, h = withId(o.handledBy, markId);
+        if (h === o.handledBy) return rec;
+        o.handledBy = h;
+        this._emit({ kind: "change", id, level: rec.level, obj: o, attrOnly: true, attr: { handledBy: h.slice() }, by: markId, inkless });
+        return rec;
+    }
+    /** A mark's `targets`, recorded once when its shape lands (A2 §4.2); an `attr` entry in the log. */
+    setTargetsById(id, targets) {
+        const rec = this.getById(id);
+        if (!rec) return null;
+        rec.obj.targets = targets;
+        this._emit({ kind: "change", id, level: rec.level, obj: rec.obj, attrOnly: true, attr: { targets: targets.slice() } });
+        return rec;
     }
     setZById(id, z) {
         const rec = this.getById(id);
@@ -952,7 +981,7 @@ export default class Document {
      * detached by reference, no per-object work. Returns the records the op holds; null when the
      * root has no list and no descendants with one.
      */
-    removeFrameSubtree(rootId) {
+    removeFrameSubtree(rootId, { by = null } = {}) {
         const frames = [];
         this.lm.walk(rootId, (f) => frames.push(f.id));
         const records = [];
@@ -964,7 +993,9 @@ export default class Document {
             this._setKeyedAside(k);
             this._detached.add(k);
             this._detachedLists.set(k, arr);
-            this._emit({ kind: "removeFrame", frame: k, count: arr.length });
+            const ev = { kind: "removeFrame", frame: k, count: arr.length };
+            if (by != null) ev.by = by;      // a frame a mark covers whole, set aside at its landing (A2 §4.2)
+            this._emit(ev);
         }
         return records.length ? records : null;
     }
@@ -1010,8 +1041,10 @@ export default class Document {
     // inheriting the source's z/colour/opacity — disjoint leftovers select and
     // re-erase independently, with tight bboxes. This is what replaced the old
     // centerline cut: an erase now yields REGIONS, not pieces of a polyline.
-    eraseReplaceById(id, regions) {
-        const rec = this.removeById(id);
+    // `by`: the mark whose bake this is — every piece inherits the source's
+    // lineage with `by` handled (A2 §4.3); `dust`: the boxes the cut dropped.
+    eraseReplaceById(id, regions, by = null, dust = null) {
+        const rec = this.removeById(id, { by, dust });
         if (!rec) return null;
         const src = rec.obj;
         const z = src.z != null ? src.z : src.id;
@@ -1051,97 +1084,14 @@ export default class Document {
                 obj.editId = editKey;
                 if (src.attachRect) obj.attachRect = { ...src.attachRect };
             }
-            return this.add(obj, rec.level);
+            inheritErase(obj, src, by);
+            return this.add(obj, rec.level, { by });
         });
         return { removed: rec, pieces };
     }
-    /**
-     * CEDE A TILE (bible §2.1). The parent's ink is CUT: `holeInParent` is
-     * removed from it exactly, and the ink that was inside becomes new natives
-     * at `level` — the level the erase was made at, where everything is
-     * screen-scale.
-     *
-     * The parent is genuinely cut rather than merely recording a rect it has
-     * given away, and the difference matters twice over. Underneath a ceded
-     * rect the old model left the parent whole, so two lumps that the child had
-     * separated were still one polygon up here and severance had to re-cut them
-     * later, from bounding boxes, badly. And a parent that is whole has to have
-     * its hole subtracted at RENDER time, per view, which is what `ownContent`
-     * was and what made zooming slow and stale.
-     *
-     * The cut is precision-safe in a way that baking the ERASE into the parent
-     * never was: a tile is 12.8 parent units, 1/3000 of the parent's own frame.
-     * cedeRect is float-only, so the surviving edge IS the rect's coordinates.
-     *
-     * The parent may fall into several connected pieces; they all stay in one
-     * edit family, and so do the children. Whether that family is still one
-     * OBJECT is a separate question, answered over the whole family at once.
-     */
-    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar) {
-        const rec = this.getById(id);
-        if (!rec) return null;
-        const src = rec.obj;
-        if (src.type === "fill") this.fillToShapeById(id);
-        if (src.type !== "shape") return null;     // callers resolve strokes first
-        // The parent's hole is cut EXACTLY: subtracting an axis-aligned rect from
-        // a resolved perimeter is the same closed-form boolean everything else
-        // here uses. `cedeRect`'s float guillotine existed to avoid Clipper's
-        // lattice on this one operation; with no lattice anywhere there is
-        // nothing left for a special case to protect against, and the surviving
-        // edge IS the rect's coordinates either way.
-        const R = { left: holeInParent.x0, top: holeInParent.y0, right: holeInParent.x1, bottom: holeInParent.y1 };
-        // IN THE PARENT'S OWN COORDINATES, not local to the rect. This used to
-        // translate the parent onto the rect's centre, cut, and translate back,
-        // from the days when a parent's coordinates could run to 1e13. Under
-        // the lattice a native sits within a frame or two of its origin
-        // (invariant 2), so the magnitudes need no help — and the round trip
-        // was not free: `(v - c) + c` is not `v`, so every vertex of the
-        // parent, including the ones a thousand tiles from the hole, came back
-        // a rounding step from where it was. Invisible here; four crossings
-        // down, where the render chain has magnified that step 2.8e14 times,
-        // the whole picture of the remnant had moved (F42). The boolean keeps
-        // every piece it does not cut by reference, so cutting in place leaves
-        // the rest of the parent bit for bit as it was.
-        const cut = subtractShape(src.loops, rectLoop(R), boolOpts).loops;
-        // A sliver the rect leaves along an edge is dust if invisible at the mark's zoom (`dustBar`,
-        // F66); by the pen a cap 0.3 units past the cell was 1,229 px lost at depth (ERASE-1).
-        const groups = dropDust(shapeComponents(cut), src.w, dustBar);
-        const removed = this.removeById(id);
-        if (!removed) return null;
-        const z = src.z != null ? src.z : src.id;
-        const editKey = this.editKey(src);
-        const mk = (loops, lvl, attach, tile, below) => {
-            const obj = {
-                type: "shape", origin: src.origin, id: this.allocId(), z, loops,
-                color: src.color, opacity: src.opacity, editId: editKey,
-            };
-            if (src.w > 0) obj.w = src.w;
-            if (attach) obj.attachRect = { ...attach };
-            // The offsets below the home ride along (F41): what is left of the
-            // parent keeps the parent's table; the kid, one level down and with
-            // the first level's offset already in its coordinates, gets the
-            // same table shifted up one — its below[m] is the parent's
-            // below[m + 1] — so parent and kid go on agreeing at every depth.
-            if (below) obj.below = below;
-            // D4: "The object is a logical object - if it's been erased and
-            // that created child-ceded zones, the child objects go with it and
-            // have the same tile/clip-boundary structure." What is left of the
-            // parent keeps the parent's grid; what moved a level down gets that
-            // same grid expressed in the child's units, so a family clips on
-            // ONE partition at every level and a doorway still lands on the cut
-            // that made it.
-            if (tile) obj.tile = [tile[0], tile[1]];
-            return { obj: this.add(obj, lvl), level: String(lvl) };
-        };
-        // What is left of the parent, one native per connected piece...
-        const parents = groups.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, cloneBelow(src.below)));
-        // ...and what now lives in the tile. `level` is the frame the parent's
-        // PICTURE occupies there (F55) and the kid's table is the parent's from
-        // that level down — the caller has both from `LevelMap.objShift`; the
-        // default is right for a parent that has never been moved.
-        const below1 = kidBelow !== undefined ? cloneBelow(kidBelow) : shiftDown(src.below, 1);
-        const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(below1)));
-        return { removed, parents, kids, pieces: parents.concat(kids) };
+    /** CEDE A TILE (bible §2.1): `cede.js`, with this document as the receiver. */
+    cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by = null) {
+        return cede(this, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by);
     }
     /**
      * A drawn stroke BECOMES its resolved perimeter.

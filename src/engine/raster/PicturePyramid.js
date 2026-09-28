@@ -10,8 +10,9 @@
  *     Rest mode draws the level plan under the rest cells that have no rest plate, then every rest cell
  *     that has one (the rest grid at an arbitrary Z never aligns with a level grid).
  *   - The plan takes at most one view (`viewUnit`) of distinct records, the store's pinned bound.
+ *   - Stillness is seen only on a frame: the caller runs one more `frameFor` after the camera stops.
  *   - It posts nothing: requests leave through `onRequest(jobs)` and results come back through `onResult`
- *     (the renderer is the one poster, FC3). `pack(job)` and `measure(job)` are the renderer's.
+ *     (the renderer is the one poster, FC3). `pack(job)`, `measure(job)` and the calibration samples are the renderer's.
  */
 import { PLATE_PX, plateRange } from "./plate";
 import { LEVEL_STEP, coarser, levelFor, levelKey, mapCell, ownFloor, restKey, planeKey, sigmaMinFor, zOf } from "./level";
@@ -138,6 +139,7 @@ export default class PicturePyramid {
         };
         this._lastCompose = null;
         this._share = { paper: 0, blur: 0, older: 0 };
+        this._images = [];             // [t, images] of the last 10 s of composes (A3 §8's panel)
         this.lastPlan = null;
         this.s = {
             composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0,
@@ -200,7 +202,7 @@ export default class PicturePyramid {
     /** Forget which cells were asked for, so the next frame asks again (a job failed or was dropped). */
     refresh() { this._asked.clear(); }
     /** The prefetch's far zoom-out keys (`prefetch.js`): protected in the store, evicted first among the protected. */
-    setFar(keys) { if (this.store && this.store._view) this.store._view.far = new Set(keys); }
+    setFar(keys) { const v = this.store && this.store.view; if (v) v.far = new Set(keys); }
 
     // ---- the view (FC2, A3 §1.3) ----
 
@@ -212,6 +214,7 @@ export default class PicturePyramid {
     frameFor(cam) {
         const v = this._v;
         if (!cam) return v;
+        const rev0 = v.rev;
         const F = String(cam.frame);
         let Z = cam.inScale * this.dpr;
         if (!(Z > 0) || !isFinite(Z)) Z = 1;
@@ -231,6 +234,7 @@ export default class PicturePyramid {
         this._map(F, Z, S, lv);
         this._checkGroups();
         if (still) { if (this._onStill()) this._map(F, Z, S, lv); } else this._onMove();
+        if (v.rev !== rev0 && this._groups.size) this._retarget();
         this._patchStep();
         this._requestView();
         return v;
@@ -269,7 +273,7 @@ export default class PicturePyramid {
             id = f ? f.parent : null;
             shift += 12 / v.S;
         }
-        const prevView = this.store._view;
+        const prevView = this.store.view;
         const left = prevView && prevView.frame !== v.frameId ? prevView.frame : (prevView ? prevView.left : null);
         this.store.setView({
             frame: v.frameId, level: v.level, S: v.S, ring: { i0: r.i0 - 1, i1: r.i1 + 1, j0: r.j0 - 1, j1: r.j1 + 1 },
@@ -576,7 +580,7 @@ export default class PicturePyramid {
         const ctx = this._ctx;
         if (ctx) {
             if (ctx.setTransform) ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.imageSmoothingEnabled = v.s !== 1;
+            ctx.imageSmoothingEnabled = true;            // a 1:1 draw at whole pixels is exact either way; a stand-in is magnified
             ctx.fillStyle = this.paper;
             ctx.fillRect(0, 0, this.wDev, this.hDev);
             if (direct) for (const d of P.draws) this._paint(ctx, d, v, false);
@@ -588,6 +592,8 @@ export default class PicturePyramid {
         const ms = this._now() - t0;
         this.s.composes++; this.s.composeMs += ms; if (ms > this.s.composeMsMax) this.s.composeMsMax = ms;
         this.s.lastImages = P.images; if (P.images > this.s.maxImagesPerCompose) this.s.maxImagesPerCompose = P.images;
+        this._images.push(t0, P.images);
+        while (this._images.length && this._images[0] < t0 - 10000) this._images.splice(0, 2);
         return P;
     }
 
@@ -903,7 +909,8 @@ export default class PicturePyramid {
         const gid = this._groupOf.get(rec.key);
         if (gid != null) {
             const g = this._groups.get(gid);
-            if (g && g.need.has(rec.key)) {
+            // Only a result packed at or after the group's G shows what the group waits for (a pen-up's stroke).
+            if (g && g.need.has(rec.key) && rec.G >= g.G) {
                 g.need.delete(rec.key);
                 g.held.push(rec);
                 const b = rec.bytes || (rec.bitmap || rec.pixels || rec.patch ? PLATE_BYTES : 0);
@@ -1073,6 +1080,17 @@ export default class PicturePyramid {
      * commits what it has. Returns the group id.
      */
     groupCommit(id, rect, onCommit) {
+        const { stale, missing } = this._under(rect);
+        const keys = stale.map((x) => x.key).concat(missing.map((c) => c.key));
+        const g = this._openGroup(id, keys, onCommit, "live");
+        g.rect = rect;
+        if (!keys.length) { this._commitGroup(g); return id; }
+        this._askGroup(g, stale, missing);
+        return id;
+    }
+
+    /** The view's own drawn cells meeting `rect` that are not exact: `{ stale: records, missing: descriptors }`. */
+    _under(rect) {
         const v = this._v, st = this.store;
         const Zg = v.mode === "rest" ? v.Z : zOf(v.level, v.S);
         const r = plateRange(rect, Zg), stale = [], missing = [];
@@ -1084,25 +1102,46 @@ export default class PicturePyramid {
                 if (rec) stale.push(rec); else missing.push(c);
             }
         }
-        const keys = stale.map((x) => x.key).concat(missing.map((c) => c.key));
-        const g = this._openGroup(id, keys, onCommit, "live");
-        if (!keys.length) { this._commitGroup(g); return id; }
+        return { stale, missing };
+    }
+
+    /** A group's cells asked for: the stale ones patched (inline when it fits), the missing ones whole, at priority 0. */
+    _askGroup(g, stale, missing) {
+        const v = this._v;
         if (stale.length) {
             const plan = this.patchPlan(stale);
             plan.coarse = null;                  // the live path waits for full resolution: no coarse-first here
-            this.applyPatchPlan(plan, id);
+            this.applyPatchPlan(plan, g.id);
         }
-        if (missing.length && this._groups.has(id)) {
+        if (missing.length && this._groups.has(g.id)) {
+            const Zg = v.mode === "rest" ? v.Z : zOf(v.level, v.S);
             const job = this._job(v.mode === "rest" ? "rest" : "view", 0, { frame: v.frameId, Z: Zg, cells: missing, purpose: "live", gen: this.gens.view });
             if (v.mode !== "rest") { job.level = v.level; job.S = v.S; }
-            job.group = id;
+            job.group = g.id;
             this._request([job]);
         }
-        return id;
+    }
+
+    /**
+     * The view's drawn set moved (a zoom, a pan, a crossing) while a pen-up's group waits: it waits for the new drawn
+     * cells under its rectangle instead (A3 §3.6 item 5); what it held stays held, what is no longer drawn is let go.
+     */
+    _retarget() {
+        for (const g of [...this._groups.values()]) {
+            if (g.purpose !== "live" || !g.rect || !this._groups.has(g.id)) continue;
+            const { stale, missing } = this._under(g.rect);
+            const now = new Set(stale.map((x) => x.key).concat(missing.map((c) => c.key)));
+            const held = new Set(g.held.map((r) => r.key));
+            for (const k of [...g.need]) if (!now.has(k)) { g.need.delete(k); this._groupOf.delete(k); }
+            const s1 = stale.filter((x) => !g.need.has(x.key) && !held.has(x.key)), m1 = missing.filter((c) => !g.need.has(c.key) && !held.has(c.key));
+            for (const k of s1.map((x) => x.key).concat(m1.map((c) => c.key))) { g.need.add(k); this._groupOf.set(k, g.id); }
+            if (!g.need.size) { this._commitGroup(g); continue; }
+            this._askGroup(g, s1, m1);
+        }
     }
 
     _openGroup(id, keys, onCommit, purpose) {
-        const g = { id, need: new Set(keys), held: [], bytes: 0, at: this._now(), onCommit, purpose };
+        const g = { id, need: new Set(keys), held: [], bytes: 0, at: this._now(), onCommit, purpose, G: this.stage ? this.stage.generation : 0 };
         this._groups.set(id, g);
         for (const k of keys) this._groupOf.set(k, id);
         this._lastGroup = id;
@@ -1203,7 +1242,7 @@ export default class PicturePyramid {
         return {
             mode: v.mode, level: v.level, S: v.S, s: v.s, Z: v.Z, sigmaMin: this.sigmaMin, viewUnit: this.viewUnit,
             rest: this._rest ? { Z: this._rest.Z, shown: this._rest.shown } : null, groups: this._groups.size,
-            est: { ...this._k }, surfaceLive: !!this._surface, ...this.s,
+            est: { ...this._k }, surfaceLive: !!this._surface, imagesMax10s: this._images.reduce((m, x, k) => (k % 2 ? Math.max(m, x) : m), 0), ...this.s,
         };
     }
 
