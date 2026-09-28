@@ -188,6 +188,7 @@ let W = null;   // Float64Array(ROWS)          — wall-clock t
 
 let head = 0, used = 0, wraps = 0;
 let open = -1, openT0 = 0, openQueuedAt = 0;
+let openPre = 0;                    // main ms this task spent before its row opened: an arrival's unwire (`xfer.in`)
 let crawlTicks = 0;
 
 let src = {};                       // what `attach` was given
@@ -289,7 +290,7 @@ export function detach() { src = {}; }
 /** The suite's reset, and the only way the ring is freed. */
 export function reset() {
     F = null; I = null; W = null; jobs = null; drops = null;
-    head = 0; used = 0; wraps = 0; open = -1; openT0 = 0; openQueuedAt = 0; crawlTicks = 0;
+    head = 0; used = 0; wraps = 0; open = -1; openT0 = 0; openQueuedAt = 0; openPre = 0; crawlTicks = 0;
     nJobs = 0; nDrops = 0; dropAt = 0; nPending = 0;
     totalsT.fill(0); totalsC.fill(0); workerT.fill(0);
     histMain.fill(0); histWall.fill(0); histPlate.fill(0); kindRows.fill(0);
@@ -319,6 +320,7 @@ export function beginFrame(frameSeq, kind) {
     W[open] = wall();
     openT0 = clock();
     openQueuedAt = 0;
+    openPre = 0;
     I[base + C.frameSeq] = frameSeq | 0;
     I[base + C.kind] = kindCode(kind);
     I[base + C.q] = Q_UNKNOWN;
@@ -334,7 +336,7 @@ export function endFrame() {
     if (open < 0) { stats.orphanEnds++; return null; }
     const base = open * STRIDE;
     const end = clock();
-    const ms = end - openT0;
+    const ms = end - openT0 + openPre;
     F[base + T.mainMs] = ms;
     const t0 = openT0;
     const row = closeRow(0, end);
@@ -502,6 +504,7 @@ export function noteJob(info, res) {
     // row. `postMs` is not: the post ran in the task that submitted, and it rides the job
     // record beside the wall partition instead (Q7). `xfer.out` is the poster's own bracket.
     F[base + T["xfer.in"]] += +info.recvMs || 0;
+    openPre += +info.recvMs || 0;   // the client unwired before the arrival's row opened: inside this task's main time
     F[base + T["xfer.serialise"]] += +(res && res.serialiseMs) || 0;
     I[base + C.bytesOut] += info.bytesOut | 0;
     I[base + C.bytesIn] += info.bytesIn | 0;
@@ -611,6 +614,7 @@ export function noteCrawl(rep) {
     I.fill(0, base, base + STRIDE);
     W[open] = wall();
     openT0 = clock();
+    openPre = 0;
     openQueuedAt = 0;             // a tick has no job behind it, and a stale stamp would give it one
     I[base + C.frameSeq] = -crawlTicks;
     I[base + C.kind] = K_CRAWL;
