@@ -22,7 +22,8 @@
  *    there — a null is "nothing is drawn here", never "keep the old plate" (§6.2). **Empty means
  *    no item survived the PRUNE**, which is a box test, not a count of painted pixels: a plate
  *    every item reaches and none paints still allocates. That is the safe direction — the id set
- *    stays a superset, so an invalidation drops too much rather than too little (D177).
+ *    stays a superset, so an invalidation drops too much rather than too little (D177). A clipped
+ *    plate (`job.clips`, A3 §3.1) is its clip's rectangle alone, and its null is paper over the clip.
  *  - THE GUARDS ARE THE JOB'S, RESET WHEN IT IS TAKEN (§3.4). `nonFinite`, `fullClears`,
  *    `arcClamped` and `arcOverTurn` are the only evidence that a record was refused; a wire
  *    that drops them makes that invisible in the report as well as in the picture.
@@ -101,9 +102,10 @@ export async function runJob(msg, opts) {
     for (let p = 0; p < nPlates; p++) {
         const t0 = clock.now();
         timings[p * TIMINGS_PER_PLATE] = t0 - mark;
+        const clip = job.clips ? job.clips.subarray(p * 4, p * 4 + 4) : null;
         renderPlate(job, p, RGBA,
             counts.subarray(p * COUNTS_PER_PLATE, (p + 1) * COUNTS_PER_PLATE),
-            timings.subarray(p * TIMINGS_PER_PLATE, (p + 1) * TIMINGS_PER_PLATE));
+            timings.subarray(p * TIMINGS_PER_PLATE, (p + 1) * TIMINGS_PER_PLATE), clip);
         const t1 = clock.now();
         timings[p * TIMINGS_PER_PLATE + 1] = t1 - t0;
 
@@ -113,8 +115,10 @@ export async function runJob(msg, opts) {
             const set = idsForPlate(job);
             for (let k = 0; k < set.length; k++) ids.push(set[k]);
             // Serialised here and not after the loop: the next plate overwrites RGBA (§3.5).
-            if (useBitmap) bitmaps[p] = await createImageBitmap(new ImageData(RGBA, TW, TH));
-            else pixels[p] = copyPlate(RGBA);
+            if (useBitmap) {
+                const img = new ImageData(RGBA, TW, TH);
+                bitmaps[p] = await (clip ? createImageBitmap(img, clip[0], clip[1], clip[2] - clip[0], clip[3] - clip[1]) : createImageBitmap(img));
+            } else pixels[p] = copyPlate(RGBA, clip);
         }
         const t2 = clock.now();
         serialiseMs += t2 - t1;
@@ -129,7 +133,7 @@ export async function runJob(msg, opts) {
 
     const out = wireResult({
         jobId: job.jobId, frameSeq: job.frameSeq,
-        plates: job.plates, epochs: job.epochs,
+        plates: job.plates, epochs: job.epochs, clips: job.clips || null,
         bitmaps, pixels,
         idOff, idSet: Int32Array.from(ids),
         timings, counts, guards,

@@ -52,8 +52,12 @@ export const TIMING_NAMES = ["recvToStartMs", "startToFinishMs", "engClipMs", "e
 export const COUNT_NAMES = ["items", "itemsDrawn", "families", "unionItems", "edges", "chords", "rowsTouched", "coveredPx"];
 export const GUARD_NAMES = ["xsGrown", "unionSplits", "unionRefills", "fullClears", "nonFinite", "arcClamped", "arcOverTurn"];
 
-/** The fields of a job that cross as typed arrays, in the order they are wired. */
-const JOB_ARRAYS = ["epochs", "plates", "paper", "meta", "attr", "rgb", "subs", "geom", "ids"];
+/**
+ * The fields of a job that cross as typed arrays, in the order they are wired. `clips` is optional:
+ * 4 integers a plate, [x0, y0, x1, y1] plate-local and half-open, the part of each plate to render
+ * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole.
+ */
+const JOB_ARRAYS = ["epochs", "plates", "paper", "meta", "attr", "rgb", "subs", "geom", "ids", "clips"];
 
 const BYTES = (a) => (a ? a.byteLength : 0);
 
@@ -155,6 +159,16 @@ export function validateJob(job) {
     if (job.epochs && job.epochs.length * 2 !== job.plates.length) {
         throw new Error("rasterJob: one epoch per plate (§5.4)");
     }
+    if (job.clips) {
+        if (job.clips.length !== job.plates.length * 2) throw new Error("rasterJob: one clip, 4 numbers, per plate");
+        for (let p = 0; p < job.clips.length; p += 4) {
+            const x0 = job.clips[p], y0 = job.clips[p + 1], x1 = job.clips[p + 2], y1 = job.clips[p + 3];
+            if (!(Number.isInteger(x0) && Number.isInteger(y0) && Number.isInteger(x1) && Number.isInteger(y1)
+                && x0 >= 0 && y0 >= 0 && x0 < x1 && y0 < y1 && x1 <= PLATE_PX && y1 <= PLATE_PX)) {
+                throw new Error("rasterJob: clip " + p / 4 + " is not an integral box inside its plate");
+            }
+        }
+    }
     let fam = -1;
     for (let it = 0; it < n; it++) {
         const m = it * META_WORDS;
@@ -180,14 +194,15 @@ export function validateJob(job) {
 
 /**
  * The result as it goes back, with its transfer list (§3.4). `bitmaps` may hold nulls for
- * empty plates; a null is not transferable and is skipped.
+ * empty plates; a null is not transferable and is skipped. A clipped job's `clips` come back
+ * with it, and each of its plates is only its clip's rectangle.
  * @returns {{ msg: object, transfer: any[] }}
  */
 export function wireResult(res) {
     const msg = {
         kind: "raster-result",
         jobId: res.jobId, frameSeq: res.frameSeq,
-        plates: res.plates, epochs: res.epochs,
+        plates: res.plates, epochs: res.epochs, clips: res.clips || null,
         bitmaps: res.bitmaps || null, pixels: res.pixels || null,
         idOff: res.idOff, idSet: res.idSet,
         timings: res.timings, counts: res.counts, guards: res.guards,
@@ -196,7 +211,7 @@ export function wireResult(res) {
     };
     const transfer = [];
     const push = (x) => { if (x && transfer.indexOf(x) < 0) transfer.push(x); };
-    for (const k of ["plates", "epochs", "idOff", "idSet", "timings", "counts", "guards"]) {
+    for (const k of ["plates", "epochs", "clips", "idOff", "idSet", "timings", "counts", "guards"]) {
         if (msg[k] && msg[k].buffer) push(msg[k].buffer);
     }
     if (msg.bitmaps) for (const b of msg.bitmaps) if (b) push(b);
@@ -209,7 +224,7 @@ export function wireResult(res) {
 export function unwireResult(msg) {
     return {
         jobId: msg.jobId, frameSeq: msg.frameSeq,
-        plates: msg.plates, epochs: msg.epochs,
+        plates: msg.plates, epochs: msg.epochs, clips: msg.clips || null,
         bitmaps: msg.bitmaps, pixels: msg.pixels,
         idOff: msg.idOff, idSet: msg.idSet,
         timings: msg.timings, counts: msg.counts, guards: msg.guards,
@@ -238,10 +253,25 @@ export function resultStale(res, epochOf) {
  * One plate's pixels out of the worker's RGBA scratch. This is a COPY and has to be: the
  * scratch is reused by the next plate of the strip, `new ImageData(u8c, w, h)` aliases rather
  * than copies, and a transferred buffer is detached (§3.5). 1.05 MB a plate, which is the
- * fallback path's honest cost and measurement 7's other column.
+ * fallback path's honest cost and measurement 7's other column. With `clip` ([x0, y0, x1, y1]),
+ * only that rectangle, row by row: w·h·4 bytes.
  */
-export function copyPlate(rgba) {
-    return new Uint8ClampedArray(rgba);
+export function copyPlate(rgba, clip = null) {
+    if (!clip) return new Uint8ClampedArray(rgba);
+    const x0 = clip[0], y0 = clip[1], w = clip[2] - x0, h = clip[3] - y0;
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) out.set(rgba.subarray(((y0 + y) * PLATE_PX + x0) * 4, ((y0 + y) * PLATE_PX + x0 + w) * 4), y * w * 4);
+    return out;
+}
+
+/**
+ * A clipped result's pixels (`copyPlate(rgba, clip)`) written into a whole plate's, in place: the
+ * merge where there is no canvas to merge on (jsdom keeps raw pixels; A3 §3.2).
+ */
+export function pastePatch(plate, patch, clip) {
+    const x0 = clip[0], y0 = clip[1], w = clip[2] - x0, h = clip[3] - y0;
+    for (let y = 0; y < h; y++) plate.set(patch.subarray(y * w * 4, (y + 1) * w * 4), ((y0 + y) * PLATE_PX + x0) * 4);
+    return plate;
 }
 
 /** The job's bytes on the wire — `bytesIn` of §8.3, which is per JOB and never per plate. */
@@ -251,12 +281,13 @@ export function jobBytes(job) {
     return n;
 }
 
-/** The result's bytes, counting a plate's pixels at PLATE_PX² × 4 whichever path carried them. */
+/** The result's bytes, counting a plate's pixels at its clip's w·h·4 (PLATE_PX² × 4 whole) whichever path carried them. */
 export function resultBytes(res) {
     let n = BYTES(res.idOff) + BYTES(res.idSet) + BYTES(res.timings) + BYTES(res.counts) + BYTES(res.guards)
-        + BYTES(res.plates) + BYTES(res.epochs);
-    const px = PLATE_PX * PLATE_PX * 4;
-    if (res.pixels) for (const p of res.pixels) { if (p) n += p.byteLength != null ? p.byteLength : px; }
-    else if (res.bitmaps) for (const b of res.bitmaps) if (b) n += px;
+        + BYTES(res.plates) + BYTES(res.epochs) + BYTES(res.clips);
+    const c = res.clips;
+    const px = (p) => (c ? (c[p * 4 + 2] - c[p * 4]) * (c[p * 4 + 3] - c[p * 4 + 1]) * 4 : PLATE_PX * PLATE_PX * 4);
+    if (res.pixels) res.pixels.forEach((p, k) => { if (p) n += p.byteLength != null ? p.byteLength : px(k); });
+    else if (res.bitmaps) res.bitmaps.forEach((b, k) => { if (b) n += px(k); });
     return n;
 }

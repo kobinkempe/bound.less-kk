@@ -69,13 +69,13 @@ export function withReading(session, reading) {
 }
 
 /**
- * A6 / Hybrid B⁺: race-safe CanvasEditor write-back.
+ * A6 / Hybrid B⁺: race-safe write-back (`Components/editor/ScaleHud.js`).
  *
  * Reject a `next` that would wipe a live `userBand` unless that `next` was
  * computed from the current session identity (`sourceSession === s`).
  * Fail closed when `sourceSession` is missing — a stale unbanded closed-over
  * `next` must never replace a fresher pick.
- * True I-02 pool-exit clears still apply: CanvasEditor passes `sourceSession` from the
+ * True I-02 pool-exit clears still apply: ScaleHud passes `sourceSession` from the
  * same `useMemo` that produced `next`, so `sourceSession === s` on that path.
  *
  * @param {ScaleSession|null|undefined} s live React state

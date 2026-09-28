@@ -1039,7 +1039,7 @@ class ErasePipeline {
                 o.editId = k;
             }
         });
-        if (rekeys.length) { this.doc.keysChanged(); this.doc.recordBake(op, { rekey: rekeys }); }
+        if (rekeys.length) { this.doc.keysChanged(rekeys.map((r) => r.id)); this.doc.recordBake(op, { rekey: rekeys }); }
         return true;
     }
 

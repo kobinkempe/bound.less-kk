@@ -8,6 +8,7 @@ import { encodeObjects, decodeObjects } from "../engine/format2";
 import * as reportApi from "../engine/report";
 import { macroYield } from "../engine/report";
 import { sendDevReport, installConsoleTap, replayReport, scrubIdentity } from "./reportSend";
+import { LEVERS, readLevers, saveLevers } from "../engine/devLevers";
 import {
     loadCanvasStore, writeCanvas2, backupCanvasDoc, statsFromNatives, cloudPushSource,
     newCanvasId, saveCanvasDoc, upsertIndexEntry, statsFromDoc, getStoreHeader,
@@ -89,6 +90,16 @@ const DEFAULT_STATUS = {
     canUndo: false, canRedo: false,
 };
 
+/** The page's status updates at most this often; the scale HUD follows the zoom on its own (`engine.onZoom`). */
+const STATUS_THROTTLE_MS = 100;
+
+/** This device's localStorage, or null where the page may not use it (a private window, a sandbox). */
+function leverStorage() {
+    try { return typeof window !== "undefined" ? window.localStorage : null; } catch (err) { return null; }
+}
+/** The levers in force on an engine, for the Dev panel. */
+const leversOf = (E) => (E ? Object.fromEntries(Object.keys(LEVERS).map((k) => [k, E.cfg[k]])) : null);
+
 /**
  * Shared KobinEngine lifecycle: mount, pointer input, autosave, tool sync.
  * CanvasEditor (the product shell) is its only consumer since CanvasV2, which
@@ -158,6 +169,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
     const [tiledebug, setTiledebug] = useState(false);// dev: cache-tile rectangles
     const [erasedebug, setErasedebug] = useState(false); // dev: the erase/severance overlay
     const [status, setStatus] = useState(DEFAULT_STATUS);
+    const [levers, setLeverState] = useState(null);   // the Dev levers in force (A3 §8)
     const [reportLabel, setReportLabel] = useState("Report");
     // Set when an autosave throws. The work is not being persisted, and that
     // has to be visible somewhere other than the console.
@@ -176,24 +188,21 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         const host = hostRef.current;
         if (!host) return;
         const w = window.innerWidth, h = window.innerHeight;
-        const th = { last: 0, timer: null, latest: null, lastZoom: null };
+        const th = { last: 0, timer: null, latest: null };
         const onStatus = (s) => {
             th.latest = s;
-            // Flush zoom changes immediately so the scale HUD cannot skip rungs
-            // when wheel/trackpad bursts are coalesced by the 50ms throttle.
-            if (s.effectiveZoom !== th.lastZoom) {
-                th.lastZoom = s.effectiveZoom;
-                th.last = performance.now();
-                if (th.timer) { clearTimeout(th.timer); th.timer = null; }
-                setStatus(s);
-                return;
-            }
             const now = performance.now();
-            const due = 50 - (now - th.last);
+            const due = STATUS_THROTTLE_MS - (now - th.last);
             if (due <= 0) { th.last = now; setStatus(th.latest); }
             else if (!th.timer) th.timer = setTimeout(() => { th.timer = null; th.last = performance.now(); setStatus(th.latest); }, due);
         };
-        const engine = new KobinEngine(host, { width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href) });
+        // "raf": input steps the picture once an animation frame (A3 §5). The levers: the URL's over this
+        // device's stored ones, over the engine's per-device defaults (A3 §8).
+        const engine = new KobinEngine(host, {
+            width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href), frames: "raf",
+            levers: readLevers({ href: window.location.href, storage: leverStorage() }),
+        });
+        setLeverState(leversOf(engine));
         engineRef.current = engine;
         if (gated) engine.readOnly = true;
         // The raster report's BROWSER bucket is `rafDelta − mainMs` and it has no other producer:
@@ -950,6 +959,30 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         exportSvg,
         // The dev panel's renderer control: the flag is construction-time, so flipping it rewrites
         // the `?svg` gate and reloads.
+        // The Dev levers (A3 §8): into the engine, stored for this device (never in the canvas record);
+        // a URL override still wins at the next load.
+        levers,
+        setLevers: (patch) => {
+            const eng = E();
+            if (!eng) return;
+            eng.setLevers(patch);
+            saveLevers(patch, leverStorage());
+            setLeverState(leversOf(eng));
+        },
+        setLevelStep: (step) => {
+            const eng = E();
+            if (!eng) return;
+            eng.setLevelStep(step);
+            saveLevers({ levelStep: step }, leverStorage());
+            setLeverState(leversOf(eng));
+        },
+        setPlateBudget: (budget) => {
+            const eng = E();
+            if (!eng) return;
+            eng.setPlateBudget(budget);
+            saveLevers({ plateViews: budget && budget.views, plateCeilingMiB: budget && budget.ceilingMiB }, leverStorage());
+            setLeverState(leversOf(eng));
+        },
         raster: rasterFromUrl(typeof window !== "undefined" ? window.location.href : ""),
         setRaster: (on) => {
             if (typeof window === "undefined") return;

@@ -95,6 +95,7 @@ export function collectFrames(E, inRender = false) {
         if (!lm.forget(id)) continue;
         doc.forgetFrame(id);
         if (E.store && E.store.forgetFrame) E.store.forgetFrame(id);   // its tiles: the id can be minted again (RENDER-1)
+        if (E.stage) E.stage.forgetFrame(id);
         gone.push(id);
         todo.push(up);
     }

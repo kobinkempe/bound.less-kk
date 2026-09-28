@@ -78,6 +78,7 @@
  */
 
 import { PLATE_PX, QUANTA_PER_OCTAVE, QUANTUM_HYSTERESIS, PREVIEW_QUANTA, quantumFor, zqOf, plateRange, plateKey, plateOriginPx } from "./plate";
+import { perfNow } from "../now";
 
 /**
  * The smallest `s = Z/Zq` a held quantum can reach: `2^(−QUANTUM_HYSTERESIS/4)` = 0.8781 (§3.2).
@@ -193,6 +194,9 @@ export const pictureStats = {
     deadRefused: 0,                 // an entry the store removed between composes (§7.1's `dead`)
     syncRefused: 0,
     allocs: 0,
+    // The compose's own cost, for the harness (A3 §9.2): its ms, summed, and the most `drawImage` calls one
+    // compose made, against COMPOSE_IMAGES and the ~33-image cliff (A3 E6).
+    composeMs: 0, maxImagesPerCompose: 0,
 };
 
 export function resetPictureStats() {
@@ -730,6 +734,13 @@ export default class PictureLayer {
      * @returns {number} `drawImage` calls made
      */
     compose(plates) {
+        const t0 = perfNow();
+        const n = this._compose(plates);
+        pictureStats.composeMs += perfNow() - t0;
+        if (n > pictureStats.maxImagesPerCompose) pictureStats.maxImagesPerCompose = n;
+        return n;
+    }
+    _compose(plates) {
         if (plates) this._setHits(plates);
         const v = this._v, ctx = this._ctx, c = this._canvas;
         pictureStats.composes++;
@@ -1493,11 +1504,12 @@ export default class PictureLayer {
         return st;
     }
 
-    /** The batch's own re-post, then its one compose. */
+    /** The batch's own re-post, then its one compose — at the engine's next frame when it set `deferCompose` ("raf" frames, A3 §5). */
     _flush(b) {
         this._flushMisses(b);
         if (b.compose) {
             b.compose = false;
+            if (this.deferCompose) { this.deferCompose(); return; }
             this.compose();
             pictureStats.arrivalComposes++;
         }

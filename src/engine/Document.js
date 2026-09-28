@@ -326,8 +326,15 @@ export default class Document {
     noteId(id) { if (Number.isInteger(id) && id >= this._nextId) this._nextId = id + 1; }
     /** A frame was re-addressed (a subtree move): `from`/`to` are { parent, i, j }. The tile cache listens. */
     noteRefile(frameId, from, to) { this._emit({ kind: "refile", frame: String(frameId), from, to }); }
-    /** An editId changed on an object already in the document. */
-    keysChanged() { this._groups = null; this.rev++; }
+    /**
+     * Family keys (or other attributes) changed in place on these natives: the family index is
+     * rebuilt and subscribers get `{kind: "rekey", ids}`. Not through `_emit`: a key moves no table
+     * or home, and an `offRev` bump would rebuild the whole reroute memo.
+     */
+    keysChanged(ids) {
+        this._groups = null; this.rev++;
+        if (ids && ids.length) { const ev = { kind: "rekey", ids }; for (const fn of this._subs) fn(ev); }
+    }
 
     // ---- ids ----
     allocId() { return this._nextId++; }
@@ -391,16 +398,17 @@ export default class Document {
         if (!list.length) return;
         const tables = [], carried = [];
         for (const o of list) {
+            const oldBelow = o.below;
             const r = addOffset(o.below, 0, dx, dy);
             o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
             tables.push([o.id, r.below || null]);
             if (r.cellX || r.cellY) carried.push([o, r.cellX, r.cellY]);
-            this._emit({ kind: "change", id: o.id, level: k, obj: o, offsetsOnly: true });
+            this._emit({ kind: "change", id: o.id, level: k, obj: o, offsetsOnly: true, oldBelow, settle: true });
         }
         const carries = [];
         for (const [o, cx, cy] of carried) {
             const n = this.lm.neighbour(k, cx, cy);
-            if (n) { this.rehomeById(o.id, n.id); carries.push([o.id, n.id]); }
+            if (n) { this.rehomeById(o.id, n.id, { carry: true }); carries.push([o.id, n.id]); }
         }
         const rec = { dx, dy, tables, carries };
         const owner = this._frameOwner.get(k) || null;
@@ -430,13 +438,14 @@ export default class Document {
         for (const [id, after] of settled.tables) {
             const o = this._byId.get(id);
             if (!o) continue;
+            const oldBelow = o.below;
             const r = addOffset(after, 0, -settled.dx, -settled.dy);
             o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
             tables.push([id, r.below || null]);
-            this._emit({ kind: "change", id, level: o._home, obj: o, offsetsOnly: true });
+            this._emit({ kind: "change", id, level: o._home, obj: o, offsetsOnly: true, oldBelow, settle: true });
             if (o._home !== k) back.push(id);
         }
-        for (const id of back) this.rehomeById(id, k);
+        for (const id of back) this.rehomeById(id, k, { carry: true });
         if (!this._inUndo && tables.length) {
             this._notifyOps({ kind: "settle", frame: k, rec: { dx: -settled.dx, dy: -settled.dy, tables, carries: back.map((id) => [id, k]) }, owner: null });
         }
@@ -448,8 +457,8 @@ export default class Document {
             const o = this._byId.get(id);
             if (!o) continue;
             const to = homes.get(id);
-            if (to != null && o._home !== String(to)) this.rehomeById(id, to);
-            this.setOffsetsById(id, after || undefined);
+            if (to != null && o._home !== String(to)) this.rehomeById(id, to, { carry: true });
+            this.setOffsetsById(id, after || undefined, { settle: true });
         }
     }
     /**
@@ -772,14 +781,17 @@ export default class Document {
      * `offsetsOnly` so the tile store does not patch anything: the picture is
      * re-read from the unmoved tiles at its new address on the next render.
      */
-    setOffsetsById(id, below) {
+    setOffsetsById(id, below, { settle = false } = {}) {
         const rec = this.getById(id);
         if (!rec) return null;
         const o = rec.obj;
+        const oldBelow = o.below;
         o.below = cloneBelow(below);
         this._noteBelow(o);
         o._ver = (o._ver || 0) + 1;
-        this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true });
+        const ev = { kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true, oldBelow };
+        if (settle) ev.settle = true;
+        this._emit(ev);
         return rec;
     }
     /** A detached copy of a native's geometry, safe to translate from later. */
@@ -851,7 +863,7 @@ export default class Document {
      * Emits remove + add so the tile cache invalidates both where the object was
      * and where it now is.
      */
-    rehomeById(id, toLevel) {
+    rehomeById(id, toLevel, { carry = false } = {}) {
         const k = String(toLevel);
         const o0 = this._byId.get(id);
         if (o0) this._settleIfPending(o0._home);   // a carry can re-home it, so take the record after
@@ -871,7 +883,9 @@ export default class Document {
         // dragged, most of all — must not read it as the object going away, or
         // a drag drops every member the moment it re-homes and the rest of the
         // gesture moves only what happened to stay put.
-        this._emit({ kind: "remove", id, level: rec.level, obj: o, rehome: k });
+        const out = { kind: "remove", id, level: rec.level, obj: o, rehome: k };
+        if (carry) out.carry = true;
+        this._emit(out);
         this._reuseDetached(k);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
@@ -879,7 +893,9 @@ export default class Document {
         this._keyIn(k, o);
         if (!wasPending) this._idx(k).add(o);
         o._ver = (o._ver || 0) + 1;
-        this._emit({ kind: "add", id, level: k, obj: o, live: wasPending, rehome: rec.level });
+        const back = { kind: "add", id, level: k, obj: o, live: wasPending, rehome: rec.level };
+        if (carry) back.carry = true;
+        this._emit(back);
         return { obj: o, level: k };
     }
 
@@ -1453,7 +1469,7 @@ export default class Document {
         // A frame the mark covered whole went as containers: its lists come back by reference.
         if (st.frames) { this.insertFrameSubtree(st.frames); return; }
         // A severance's re-key: nothing geometric moved, so it just runs backwards.
-        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.before); } this.keysChanged(); return; }
+        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.before); } this.keysChanged(st.rekey.map((r) => r.id)); return; }
         // The source comes back only for pieces this step still owns: ones something unrecorded took (a
         // stale replay) are that thing's ink now, and the source over them stacked ink twice.
         let took = st.pieces.length === 0;
@@ -1463,7 +1479,7 @@ export default class Document {
     /** Re-applies a step whose source is in the document; false (still suspended) when it is not. */
     _applyStep(st) {
         if (st.frames) { for (const r of st.frames) this.detachFrame(r.frame, r); st._on = true; return true; }
-        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.after); } this.keysChanged(); st._on = true; return true; }
+        if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.after); } this.keysChanged(st.rekey.map((r) => r.id)); st._on = true; return true; }
         const r = this.removeById(st.removed.obj.id);
         if (!r) return false;
         st.removed = r;   // what this redo took out is what its undo puts back (F70)

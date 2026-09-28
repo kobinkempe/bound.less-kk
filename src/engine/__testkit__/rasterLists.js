@@ -6,6 +6,7 @@
  *
  * NOT collected by jest (the directory is `__testkit__`); nothing in the app imports it.
  */
+import { createHash } from "crypto";
 import { Loop } from "../geometry/loop";
 import { circleLoop } from "../geometry/antRuns";
 
@@ -75,9 +76,12 @@ export function sortList(list) {
     return list.sort((a, b) => ((a.z != null ? a.z : a.id) - (b.z != null ? b.z : b.id)) || (a.id - b.id));
 }
 
-/** FNV-1a over a byte array: a plate's fingerprint for a golden. */
-export function fnv1a(bytes) {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i], 0x01000193);
-    return h >>> 0;
+/** A plate's fingerprint for a golden: the first 16 hex digits of the SHA-1 of its bytes (native, ~1 ms a plate under jest). */
+export function plateHash(bytes) {
+    return createHash("sha1").update(bytes).digest("hex").slice(0, 16);
+}
+
+/** Do two byte arrays hold the same bytes? A native compare, for the plate-sized ones. */
+export function sameBytes(a, b) {
+    return a.length === b.length && Buffer.from(a.buffer, a.byteOffset, a.byteLength).equals(Buffer.from(b.buffer, b.byteOffset, b.byteLength));
 }

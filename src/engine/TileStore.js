@@ -87,9 +87,76 @@ export default class TileStore {
         this._chainSeq = new Map();       // frame -> chainSeq(frame), valid for one lattice addrEpoch
         this._chainSeqEpoch = -1;
         this._batch = false;    // a drag: many changes to the same objects, per frame
+        this._idTiles = new Map();        // native id -> keys of the cached tiles holding its pieces
+        this._tileSubs = null;            // `onTile` listeners
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
-    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); }
+    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); this._idTiles.clear(); this._tileSubs = null; }
+
+    // ---- the tile hook (A2 §2.9) ----
+    /**
+     * Every write to the cache or to a tile's `objs`, reported synchronously as it happens:
+     * `{kind: "bake", key, tile}` (a new tile object), `{kind: "append"|"remove", key, tile, pieces}`,
+     * `{kind: "drop", key, tile}`, `{kind: "clear"}`. Nothing else writes either.
+     */
+    onTile(fn) {
+        (this._tileSubs || (this._tileSubs = new Set())).add(fn);
+        return () => { if (this._tileSubs) this._tileSubs.delete(fn); };
+    }
+    _tileEv(ev) { if (this._tileSubs) for (const fn of this._tileSubs) fn(ev); }
+    _indexTile(key, tile) {
+        for (const p of tile.objs) {
+            let s = this._idTiles.get(p.id);
+            if (!s) this._idTiles.set(p.id, (s = new Set()));
+            s.add(key);
+        }
+    }
+    _unindexTile(key, tile) {
+        for (const p of tile.objs) {
+            const s = this._idTiles.get(p.id);
+            if (s && s.delete(key) && !s.size) this._idTiles.delete(p.id);
+        }
+    }
+    /** The one way a tile enters the cache. */
+    _setTile(key, tile) {
+        const old = this.cache.get(key);
+        if (old) this._unindexTile(key, old);
+        this.cache.set(key, tile);
+        this._indexTile(key, tile);
+        this._tileEv({ kind: "bake", key, tile });
+    }
+    /** The one way a tile leaves it. */
+    _dropTile(key) {
+        const tile = this.cache.get(key);
+        if (!tile) return false;
+        this.cache.delete(key);
+        this._unindexTile(key, tile);
+        this._tileEv({ kind: "drop", key, tile });
+        return true;
+    }
+    _clearTiles() { this.cache.clear(); this._idTiles.clear(); this._tileEv({ kind: "clear" }); }
+    /** Pieces pushed onto `tile.objs` from index `n0` on: indexed and reported. */
+    _appended(tile, n0) {
+        if (tile.objs.length <= n0) return;
+        const key = this._keyOf(tile);
+        if (this.cache.get(key) !== tile) return;
+        const pieces = tile.objs.slice(n0);
+        for (const p of pieces) {
+            let s = this._idTiles.get(p.id);
+            if (!s) this._idTiles.set(p.id, (s = new Set()));
+            s.add(key);
+        }
+        this._tileEv({ kind: "append", key, tile, pieces });
+    }
+    _keyOf(tile) { return tile.level + "|" + tile.dir + "|" + tile.i + "," + tile.j; }
+    /** The keys of the cached tiles holding pieces of native `id` (read-only), or null. */
+    tilesOf(id) { return this._idTiles.get(id) || null; }
+    /** A cached tile that is current (no bake, no LRU touch), or null. */
+    peek(key) {
+        const tile = this.cache.get(key);
+        if (!tile || tile.epoch !== this._epoch || tile.seq !== this.chainSeq(tile.level)) return null;
+        return tile;
+    }
 
     setOpacityGroups(v) { if (v !== this.opacityGroups) { this.opacityGroups = v; this.bumpEpoch(); } }
     /**
@@ -109,7 +176,7 @@ export default class TileStore {
      * patched, so what the user is looking at stays exact.
      */
     setBatch(on) { this._batch = !!on; }
-    bumpEpoch() { this._epoch++; this.cache.clear(); }
+    bumpEpoch() { this._epoch++; this._clearTiles(); }
 
     // ---- helpers ----
     _depth(frameId) { const d = this.lm.depthOf(frameId); return d == null ? 0 : d; }
@@ -180,6 +247,47 @@ export default class TileStore {
             throw e;
         } finally { this._deadline = null; this._pins = pins; this._holdEvict = false; this._evict(); }
     }
+    /**
+     * The tiles over `rect` in frame F, cached or baked while the budget lasts; a miss past it is
+     * listed, never thrown (A3 §4.2, PLAN §5.1 Q12). `budgetMs`: Infinity reads everything, 0 the
+     * cache alone, anything else bakes until the deadline and at least one tile (with its parent
+     * chain: a read stops between tiles, never inside a chain). The pins and the eviction are
+     * `contentOffCamera`'s: this read leaves both as they were (`setCameraPins` is the camera's).
+     *
+     * @returns {{tiles: Array<[string, object]>, missing: string[], complete: boolean}}
+     */
+    read(F, rect, budgetMs = Infinity) {
+        const cf = this.lm.frameFor(F);
+        if (!cf) return { tiles: [], missing: [], complete: true };
+        const range = this.lm.tileRange(cf.id, rect), cells = [];
+        for (let i = range.i0; i <= range.i1; i++) for (let j = range.j0; j <= range.j1; j++) for (const dir of ["up", "down"]) cells.push([cf.id, dir, i, j]);
+        return this.readTiles(cells, budgetMs);
+    }
+    /** `read` for a list of tiles, `[frame, dir, i, j]` each (a frame id as `read` would name it). */
+    readTiles(cells, budgetMs = Infinity) {
+        const tiles = [], missing = [];
+        const bounded = budgetMs !== Infinity;
+        const deadline = bounded ? perfNow() + budgetMs : 0;
+        const pins = new Set(this._pins), holdEvict = this._holdEvict;
+        this._holdEvict = true;
+        let baked = 0;
+        try {
+            for (const [F, dir, i, j] of cells) {
+                const key = F + "|" + dir + "|" + i + "," + j;
+                let tile = this.peek(key);
+                if (!tile) {
+                    if (!this.lm.frame(F) || (bounded && (budgetMs <= 0 || (baked > 0 && perfNow() > deadline)))) { missing.push(key); continue; }
+                    tile = dir === "up" ? this._ensureUp(F, i, j) : this._ensureDown(F, i, j);
+                    baked++;
+                } else tile.lru = ++this._clock;
+                tiles.push([key, tile]);
+                if (this.warmReads) this._warm.add(key);
+            }
+        } finally { this._pins = pins; this._holdEvict = holdEvict; }
+        return { tiles, missing, complete: !missing.length };
+    }
+    /** The camera's pin set, replaced (what `content` does at its end), then the eviction it held. */
+    setCameraPins(keys) { this._pins = new Set(keys); this._evict(); }
     /** A new ladder is being read: the last one's warm tiles go back to the ordinary rules. */
     clearWarm() { this._warm.clear(); }
     /**
@@ -309,7 +417,7 @@ export default class TileStore {
         this._nest++;   // a tile's parents are baked with it: a read stops between tiles, never inside a chain
         try { objs = this._bakeSettled(() => this._bakeUp(F, i, j)); } finally { this._nest--; }
         const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
-        this.cache.set(key, tile);
+        this._setTile(key, tile);
         this._readBakes++;
         return tile;
     }
@@ -466,7 +574,7 @@ export default class TileStore {
         if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
         const objs = this._bakeSettled(() => this._bakeDown(F, i, j));
         const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
-        this.cache.set(key, tile);
+        this._setTile(key, tile);
         this._readBakes++;
         return tile;
     }
@@ -603,7 +711,7 @@ export default class TileStore {
         if (cur && cur.parent != null) foot.push([cur.parent, cur.cell.i, cur.cell.j]);
         else if (ev.at && ev.at.parent != null) foot.push([ev.at.parent, ev.at.i, ev.at.j]);   // a merged frame is gone from the lattice
         if (ev.kind === "refile" && ev.from && ev.from.parent != null) foot.push([ev.from.parent, ev.from.i, ev.from.j]);
-        if (ev.kind === "mergeFrame") for (const [key, tile] of this.cache) if (tile.level === ev.frame) this.cache.delete(key);
+        if (ev.kind === "mergeFrame") for (const [key, tile] of this.cache) if (tile.level === ev.frame) this._dropTile(key);
         if (!foot.length) return;
         const reach = REACH / R;    // in the parent's units
         const pad = seamPadFor(this.cfg);
@@ -622,13 +730,13 @@ export default class TileStore {
             const t = padRect(this.lm.tileRect(tile.level, tile.i, tile.j), pad);
             for (const r of rects) {
                 if (r.right < t.left || r.left > t.right || r.bottom < t.top || r.top > t.bottom) continue;
-                this.cache.delete(key);
+                this._dropTile(key);
                 break;
             }
         }
     }
     _onDoc(ev) {
-        if (ev.kind === "reset") { this.cache.clear(); return; }
+        if (ev.kind === "reset") { this._clearTiles(); return; }
         if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame" || ev.kind === "mergeFrame" || ev.kind === "splitFrame") { this._onFrameEvent(ev); return; }
         if (!ev.obj) return;
         if (ev.kind === "remove") { this._removeObject(ev.id); return; }
@@ -649,24 +757,32 @@ export default class TileStore {
         const F = String(frame);
         for (const [key, tile] of this.cache) {
             if (String(tile.level) !== F) continue;
-            this.cache.delete(key); this._pins.delete(key); this._warm.delete(key);
+            this._dropTile(key); this._pins.delete(key); this._warm.delete(key);
         }
         if (this._rrMemo) this._rrMemo.delete(F);
         this._chainSeq.delete(F);
     }
     /** Whether a tile still stands: dropped in a drag's batch mode unless on screen, or when its frame is gone (RENDER-1). */
     _tileLive(key, tile) {
-        if (this._batch && !this._pins.has(key)) { this.cache.delete(key); return false; }
-        if (!this.lm.frame(tile.level)) { this.cache.delete(key); return false; }
+        if (this._batch && !this._pins.has(key)) { this._dropTile(key); return false; }
+        if (!this.lm.frame(tile.level)) { this._dropTile(key); return false; }
         return true;
     }
+    /** Native `id`'s pieces out of the tiles that hold them (the id → tiles index, not a scan of the cache). */
     _removeObject(id) {
-        for (const [key, tile] of this.cache) {
-            if (!this._tileLive(key, tile) || !tile.objs.length) continue;
-            let has = false;
-            for (const p of tile.objs) if (p.id === id) { has = true; break; }
-            if (has) tile.objs = tile.objs.filter((p) => p.id !== id);
+        const keys = this._idTiles.get(id);
+        if (!keys) return;
+        for (const key of [...keys]) {
+            const tile = this.cache.get(key);
+            if (!tile || !this._tileLive(key, tile)) continue;
+            const kept = [], gone = [];
+            for (const p of tile.objs) (p.id === id ? gone : kept).push(p);
+            keys.delete(key);
+            if (!gone.length) continue;
+            tile.objs = kept;
+            this._tileEv({ kind: "remove", key, tile, pieces: gone });
         }
+        if (!keys.size) this._idTiles.delete(id);
     }
     /**
      * A native `o` added at `H`, patched into every cached tile that `_bakeUp`/`_bakeDown` would put it
@@ -740,7 +856,7 @@ export default class TileStore {
         for (let i = r.i0; i <= r.i1; i++) {
             for (let j = r.j0; j <= r.j1; j++) {
                 const p = this.cache.get(P.id + "|up|" + i + "," + j);
-                if (!p || p.epoch !== this._epoch || p.seq !== seq) { this.cache.delete(key); return; }
+                if (!p || p.epoch !== this._epoch || p.seq !== seq) { this._dropTile(key); return; }
             }
         }
         const from = this._upPiecesOver(P.id, pr, o.id);
@@ -753,6 +869,7 @@ export default class TileStore {
         const rec = frame && frame.edge;
         if (!rec) return;
         const rect = this.lm.tileRect(F, tile.i, tile.j);
+        const n0 = tile.objs.length;
         const edges = [];
         for (const o of objs) {
             const tier = classifyUp(o, rec.s, rec.t, rect, this.cfg, this.live, null);
@@ -760,14 +877,16 @@ export default class TileStore {
             if (tier === "solid") tile.objs.push(this._solid(o, rec, rect));
             else edges.push(o);
         }
-        if (!edges.length) return;
-        deriveStep(edges, rec.s, rec.t, rect, F, {
-            cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
-            addrSeq: frame.addrSeq || 0,
-            parentCurved: (p) => p.origin === "native",
-            childCurved: () => false,
-        }, tile.objs);
-        flattenAll(tile.objs);
+        if (edges.length) {
+            deriveStep(edges, rec.s, rec.t, rect, F, {
+                cfg: this.cfg, width: this.lm.width, opacityGroups: this.opacityGroups, live: this.live,
+                addrSeq: frame.addrSeq || 0,
+                parentCurved: (p) => p.origin === "native",
+                childCurved: () => false,
+            }, tile.objs);
+            flattenAll(tile.objs);
+        }
+        this._appended(tile, n0);
     }
     _appendDown(tile, o, H) {
         const F = tile.level;
@@ -783,8 +902,10 @@ export default class TileStore {
             bAtF.bottom + lwF < rect.top || bAtF.top - lwF > rect.bottom) return;
         const d = this.lm.projectF(o, H, F);
         if (!d) return;
+        const n0 = tile.objs.length;
         this._downPieces(o, d, rect, tag, tile.objs);
         flattenAll(tile.objs);
+        this._appended(tile, n0);
     }
     // rect is {left,top,right,bottom}; b is a bbox {x0,y0,x1,y1}.
     _overlaps(rect, b, margin) {
@@ -806,7 +927,7 @@ export default class TileStore {
         let n = 0;
         for (const [key, tile] of this.cache) {
             if (keep.has(String(tile.level)) || this._pins.has(key) || this._warm.has(key)) continue;
-            this.cache.delete(key); n++;
+            this._dropTile(key); n++;
         }
         return n;
     }
@@ -820,7 +941,7 @@ export default class TileStore {
         for (const [key, tile] of this.cache) if (!this._pins.has(key)) evictable.push([key, tile.lru]);
         evictable.sort((a, b) => a[1] - b[1]);
         let n = this.cache.size - GLOBAL_CAP;
-        for (const [key] of evictable) { if (n-- <= 0) break; this.cache.delete(key); }
+        for (const [key] of evictable) { if (n-- <= 0) break; this._dropTile(key); }
         this._evictPerLevel();
     }
     _evictPerLevel() {
@@ -833,7 +954,7 @@ export default class TileStore {
             if (arr.length <= PER_LEVEL_CAP) continue;
             arr.sort((a, b) => a[1] - b[1]);
             let n = arr.length - PER_LEVEL_CAP;
-            for (const [key] of arr) { if (n-- <= 0) break; if (!this._pins.has(key)) this.cache.delete(key); }
+            for (const [key] of arr) { if (n-- <= 0) break; if (!this._pins.has(key)) this._dropTile(key); }
         }
     }
 

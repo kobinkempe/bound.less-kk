@@ -1,5 +1,5 @@
 /**
- * Adversarial RTL repro: CanvasEditor hudBundle + write-back + pick,
+ * Adversarial RTL repro: ScaleHud's hudBundle + write-back + pick (once CanvasEditor's),
  * with React 17 unbatched setStatus(zoom) interleaving (useKobinEngine style).
  *
  * Run: npm test -- --testPathPattern=canvasEditorSticky.rtl --watchAll=false --no-coverage --forceExit
@@ -15,7 +15,7 @@ import {
 
 const SCALE_DEF = { value: 1, unit: "cm", barPx: 120, zoomAt: 1 };
 
-/** Mirror CanvasEditor equality + A6 write-back updater. */
+/** Mirror ScaleHud's equality + A6 write-back updater. */
 function applyEditorWriteBack(s, next, sourceSession) {
     if (!s) return s;
     if (!shouldApplyScaleSessionWriteBack(s, next, { sourceSession })) {
@@ -40,7 +40,7 @@ function applyEditorWriteBack(s, next, sourceSession) {
     return next;
 }
 
-/** Pre-A6 CanvasEditor write-back (blind return next) — race fodder. */
+/** Pre-A6 write-back (blind return next) — race fodder. */
 function applyLegacyWriteBack(s, next) {
     if (!s) return s;
     const sameBand =
@@ -63,7 +63,7 @@ function applyLegacyWriteBack(s, next) {
 }
 
 /**
- * Minimal mirror of CanvasEditor.js scale HUD ownership.
+ * Minimal mirror of the scale HUD's ownership (`Components/editor/ScaleHud.js`).
  * `writeBackMode`: "a6" (current) | "legacy" (pre-A6 blind replace).
  */
 function ScaleHudMirror({ initialZoom = 1, writeBackMode = "a6" }) {

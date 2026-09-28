@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from "react"
 import { Link, useParams, useLocation, useHistory } from "react-router-dom";
 import {
     Home, Layers, Pen, Pencil, Eraser, Highlighter,
-    ChevronLeft, ChevronRight, X, Ruler, Hand, MousePointer2, Slash,
+    ChevronLeft, ChevronRight, X, Hand, MousePointer2, Slash,
     CircleOff, Undo2, Redo2, Palette, Save, MoreVertical,
 } from "lucide-react";
 import Button from "../Components/ui/Button";
@@ -18,12 +18,12 @@ import useUser from "../cloud/useUser";
 import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, isDevBuild } from "../cloud/canvasSync";
 import { CanvasSession, editorFromHook } from "../cloud/canvasSession";
 import { SyncStatus, SyncBanner, showsNotice, useNarrow, useBannerClearance } from "../Components/editor/SyncChip";
-import {
-    computeScale, formatScaleLabel, applyUnitPick, clearDisplayPrefs,
-    validateScaleDef, setScaleUnits, BAR_PX_TARGET, MIN_DRAG_PX,
-    shouldApplyScaleSessionWriteBack,
-} from "../engine/scaleBar";
-import ScaleUnitPicker, { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
+import { validateScaleDef, setScaleUnits, MIN_DRAG_PX } from "../engine/scaleBar";
+import { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
+import ScaleHud from "../Components/editor/ScaleHud";
+import DevStats from "../Components/editor/DevStats";
+import { LEVEL_STEPS, stretchBand, sigmaMinFor } from "../engine/raster/level";
+import { LEVERS } from "../engine/devLevers";
 import SciText from "../Components/ui/SciText";
 import ColorPickerPopover from "../Components/editor/ColorPickerPopover";
 import WidthOpacityPanel from "../Components/editor/WidthOpacityPanel";
@@ -78,6 +78,48 @@ const TOOL_SECTIONS = [
     },
 ];
 const TOOL_BY_ID = new Map(TOOL_SECTIONS.flatMap((s) => s.items).map((t) => [t.id, t]));
+
+/**
+ * The renderer levers (A3 §8; PLAN §1.2): the level step with the view's stretch band for this screen, the
+ * plate budget, the rest render's quiet and inline switch, the compose path. Stored per device through the
+ * hook (a URL parameter of the same name wins at load); until B-PYRAMID reads them they change no picture.
+ */
+function DevLevers({ engine, dbgBtn }) {
+    const lv = engine.levers;
+    const dpr = window.devicePixelRatio || 1;
+    const band = stretchBand(lv.levelStep, sigmaMinFor(window.innerWidth * dpr, window.innerHeight * dpr));
+    const num = (name, value, set) => {
+        const L = LEVERS[name];
+        return (
+            <input type="number" min={L.min} max={L.max} value={value} style={{ width: 52 }}
+                onChange={(e) => { const v = Number(e.target.value); if (Number.isInteger(v) && v >= L.min && v <= L.max) set(v); }} />
+        );
+    };
+    return (
+        <div style={{ marginTop: 6 }} title="Renderer levers (A3 §8): stored for this device; a URL parameter of the same name wins at load. They change no picture until the pyramid lands.">
+            <div>
+                <b>levels</b>{LEVEL_STEPS.map((step) => (
+                    <button key={step} {...dbgBtn(lv.levelStep === step)} onClick={() => engine.setLevelStep(step)}>{step === 1 ? "2×" : step === 2 ? "4×" : "8×"}</button>
+                ))}
+                <span> σ {band[0].toFixed(2)}–{band[1].toFixed(2)}</span>
+            </div>
+            <div>
+                <b>plates</b> {num("plateViews", lv.plateViews, (v) => engine.setPlateBudget({ views: v }))} views ≤ {num("plateCeilingMiB", lv.plateCeilingMiB, (v) => engine.setPlateBudget({ ceilingMiB: v }))} MiB
+            </div>
+            <div>
+                <b>rest</b> {num("restQuietMs", lv.restQuietMs, (v) => engine.setLevers({ restQuietMs: v }))} ms
+                {LEVERS.restInline.values.map((v) => (
+                    <button key={v} {...dbgBtn(lv.restInline === v)} onClick={() => engine.setLevers({ restInline: v })}>{v}</button>
+                ))}
+            </div>
+            <div>
+                <b>compose</b>{LEVERS.compose.values.map((v) => (
+                    <button key={v} {...dbgBtn(lv.compose === v)} onClick={() => engine.setLevers({ compose: v })}>{v}</button>
+                ))}
+            </div>
+        </div>
+    );
+}
 
 export default function CanvasEditor() {
     const { canvasId } = useParams();
@@ -183,8 +225,6 @@ export default function CanvasEditor() {
     const drawToolRefs = useRef({});
     const sizeAnchorRef = useRef(null);
     const fileAnchorRef = useRef(null);
-    const scaleHudRef = useRef(null);
-    const scaleLabelRef = useRef(null);
 
     const [toolsOpen, setToolsOpen] = useState(true);
     const [scenesOpen, setScenesOpen] = useState(false);
@@ -223,10 +263,9 @@ export default function CanvasEditor() {
     const [pendingBar, setPendingBar] = useState(null);
     const [scaleValue, setScaleValue] = useState("1");
     const [scaleUnit, setScaleUnit] = useState("in");
-    // Durable display session: sticky ladder (L8), user preferred range
-    // (L5/L12), incumbent unit (L2). Owned here; the engine never mutates it.
-    const [scaleSession, setScaleSession] = useState(null);
-    const [unitPickerOpen, setUnitPickerOpen] = useState(false);
+    // The display session (sticky ladder L8, preferred range L5/L12, incumbent unit L2) is <ScaleHud>'s;
+    // the scale dialog reads its ladder from here.
+    const [hudLadderId, setHudLadderId] = useState(null);
 
     useEffect(() => {
         const t = setTimeout(() => setHintDismissed(true), 15000);
@@ -249,11 +288,7 @@ export default function CanvasEditor() {
     useEffect(() => {
         if (!engine.engineReady) return;
         const def = validateScaleDef(engine.engineRef.current?.docMeta?.scaleDef);
-        if (def) {
-            setScaleDef(def);
-            // Fresh session from the anchor unit (L9 — ladder by priority).
-            setScaleSession(clearDisplayPrefs(null, def));
-        }
+        if (def) setScaleDef(def);   // <ScaleHud> starts a fresh session from its anchor unit (L9)
         const raw = engine.docMeta()?.name;
         setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
     }, [engine.engineReady, canvasId]);
@@ -412,10 +447,7 @@ export default function CanvasEditor() {
         const raw = E.docMeta && E.docMeta.name;
         setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
         const def = validateScaleDef(E.docMeta && E.docMeta.scaleDef);
-        if (JSON.stringify(def || null) !== JSON.stringify(scaleDefRef.current || null)) {
-            setScaleDef(def || null);
-            setScaleSession(def ? clearDisplayPrefs(null, def) : null);
-        }
+        if (JSON.stringify(def || null) !== JSON.stringify(scaleDefRef.current || null)) setScaleDef(def || null);
     };
     // The session starts once the document is restored and sign-in has resolved (SYNC-PLAN R2, R4).
     useEffect(() => {
@@ -498,66 +530,14 @@ export default function CanvasEditor() {
     const commitScaleDef = (def) => {
         const valid = validateScaleDef(def);
         if (!valid) return;
-        setScaleDef(valid);
-        // Redefining the scale resets all display preferences (L9).
-        setScaleSession(clearDisplayPrefs(null, valid));
+        setScaleDef(valid);   // a new definition resets the display preferences, in <ScaleHud> (L9)
         engine.patchDocMeta({ scaleDef: valid });
     };
 
     const clearScaleDef = () => {
         setScaleDef(null);
-        setScaleSession(null);
         engine.patchDocMeta({ scaleDef: null });
     };
-
-    const hudBundle = useMemo(() => {
-        if (!scaleDef || !scaleSession) return null;
-        // Absolute resolve at the target zoom on the sticky session (L1/L8).
-        // Persist returned session (userBand teardown I-02 + incumbent/lastReading).
-        const { reading, session: nextSession } = computeScale(
-            engine.status.effectiveZoom,
-            scaleDef,
-            scaleSession,
-        );
-        if (!reading) return null;
-        return { reading, nextSession, sourceSession: scaleSession };
-    }, [scaleDef, scaleSession, engine.status.effectiveZoom]);
-
-    // Write back computeScale session so clearUserBandIfExited sticks (ZS-01 / UP3).
-    // A6: skip stale unbanded next when live s already holds a fresher band.
-    useEffect(() => {
-        if (!hudBundle?.nextSession) return;
-        const next = hudBundle.nextSession;
-        const sourceSession = hudBundle.sourceSession;
-        setScaleSession((s) => {
-            if (!s) return s;
-            if (!shouldApplyScaleSessionWriteBack(s, next, { sourceSession })) {
-                return s;
-            }
-            const sameBand =
-                (!s.userBand && !next.userBand) ||
-                (s.userBand &&
-                    next.userBand &&
-                    s.userBand.unit === next.userBand.unit &&
-                    s.userBand.logLo === next.userBand.logLo &&
-                    s.userBand.logHi === next.userBand.logHi);
-            if (
-                s.ladderId === next.ladderId &&
-                s.incumbentUnit === next.incumbentUnit &&
-                sameBand &&
-                s.lastReading?.unit === next.lastReading?.unit &&
-                s.lastReading?.value === next.lastReading?.value
-            ) {
-                return s;
-            }
-            return next;
-        });
-    }, [hudBundle]);
-
-    const hud = hudBundle?.reading ?? null;
-    const scaleLabel = hud
-        ? formatScaleLabel(hud)
-        : zoomLabel(engine.status.effectiveZoom);
 
     const startRename = () => {
         setNameDraft(canvasTitle);
@@ -975,6 +955,8 @@ export default function CanvasEditor() {
                                     title="Copy a canvas from the REAL cloud collection into this dev build as a new canvas. The real copy is only read; this build writes dev-canvases (SYNC-PLAN R7).">Copy real</button>
                             )}
                         </div>
+                        {engine.levers && <DevLevers engine={engine} dbgBtn={dbgBtn} />}
+                        <DevStats engineRef={engine.engineRef} />
                     </div>
                 )}
             </div>
@@ -1098,62 +1080,15 @@ export default function CanvasEditor() {
                 />
             ))}
 
-            <div className="bl-editor-overlay bl-editor-bottom-right bl-scale-controls">
-                {scaleDef && (
-                    <Button variant="ghost" size="sm" className="bl-text-muted" onClick={clearScaleDef} disabled={readOnly}>Clear</Button>
-                )}
-                <Button variant="outline" size="sm" className="bl-shadow-panel bl-flex bl-gap-2"
-                    onClick={() => { setPendingBar(null); setDefineMode(true); }} title="Define scale by dragging" disabled={readOnly}>
-                    <Ruler size={14} /> Set scale
-                </Button>
-                <div className="bl-scale-hud" ref={scaleHudRef}>
-                    <div className="bl-scale-bar" style={{ width: hud ? hud.barPx : BAR_PX_TARGET }} />
-                    {scaleDef ? (
-                        <button
-                            ref={scaleLabelRef}
-                            type="button"
-                            className="bl-text-xs bl-scale-label bl-scale-label-btn"
-                            onClick={() => setUnitPickerOpen((v) => !v)}
-                            title="Change unit"
-                        >
-                            <SciText text={scaleLabel} />
-                        </button>
-                    ) : (
-                        <span className="bl-text-xs bl-scale-label"><SciText text={scaleLabel} /></span>
-                    )}
-                </div>
-            </div>
-
-            {scaleDef && hud && (
-                <ScaleUnitPicker
-                    open={unitPickerOpen}
-                    onOpenChange={setUnitPickerOpen}
-                    anchorRef={scaleHudRef}
-                    currentUnit={hud.unit}
-                    ladderId={scaleSession?.ladderId ?? hud.ladderId}
-                    mpp={hud.metersPerPx}
-                    session={scaleSession}
-                    onPickUnit={(unit) => {
-                        // L5–L7 / L12: preferred picks switch ladders; other
-                        // picks install a user preferred range — no pins.
-                        // Functional update so a pending write-back cannot
-                        // supply a stale pre-pick session to applyUnitPick.
-                        const mpp = hud.metersPerPx;
-                        setScaleSession((s) => {
-                            if (!s || !(mpp > 0)) return s;
-                            const { session: next, reading } = applyUnitPick(
-                                unit,
-                                mpp,
-                                s,
-                            );
-                            return reading
-                                ? { ...next, lastReading: reading }
-                                : next;
-                        });
-                        setUnitPickerOpen(false);
-                    }}
-                />
-            )}
+            <ScaleHud
+                engineRef={engine.engineRef}
+                engineReady={engine.engineReady}
+                scaleDef={scaleDef}
+                readOnly={readOnly}
+                onClear={clearScaleDef}
+                onSetScale={() => { setPendingBar(null); setDefineMode(true); }}
+                onLadderId={setHudLadderId}
+            />
 
             {!hintDismissed && (
                 <div className="bl-hint">Scroll or pinch to zoom — open Scenes to jump to a drawing</div>
@@ -1226,7 +1161,7 @@ export default function CanvasEditor() {
                 setValue={setScaleValue}
                 unit={scaleUnit}
                 setUnit={setScaleUnit}
-                ladderId={scaleSession?.ladderId ?? null}
+                ladderId={hudLadderId}
                 onSave={() => {
                     const parsed = parseFloat(scaleValue);
                     if (!pendingBar || isNaN(parsed) || parsed <= 0) return;
@@ -1234,7 +1169,7 @@ export default function CanvasEditor() {
                         value: parsed,
                         unit: scaleUnit,
                         barPx: pendingBar.px,
-                        zoomAt: engine.status.effectiveZoom,
+                        zoomAt: engine.engineRef.current ? engine.engineRef.current.cam.effectiveZoom() : engine.status.effectiveZoom,
                     });
                     setPendingBar(null);
                     showToast("Scale set");

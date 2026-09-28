@@ -1,12 +1,12 @@
 /**
- * CanvasEditor React integration — session write-back + pick (no preference math).
+ * The scale HUD's React integration (`ScaleHud.js`) — session write-back + pick (no preference math).
  * Simulates useMemo(computeScale) → useEffect(write-back) → onPickUnit(applyUnitPick).
  */
 
 import { computeScale, applyUnitPick, clearDisplayPrefs } from "./index";
 import { shouldApplyScaleSessionWriteBack } from "./session";
 
-/** Mirror CanvasEditor write-back updater. */
+/** Mirror ScaleHud's write-back updater. */
 function applyWriteBack(live, next, sourceSession) {
     if (!live) return live;
     if (!shouldApplyScaleSessionWriteBack(live, next, { sourceSession })) {
@@ -96,7 +96,7 @@ describe("CanvasEditor React path (userBand stickiness)", () => {
             bundle.sourceSession,
         );
 
-        // Picker closure captures this session + hud mpp (like CanvasEditor render)
+        // Picker closure captures this session + hud mpp (like ScaleHud's render)
         const closedSession = scaleSession;
         const closedMpp = bundle.reading.metersPerPx;
 

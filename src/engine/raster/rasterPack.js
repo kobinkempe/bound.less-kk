@@ -802,7 +802,7 @@ function prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset) {
     const last = FAMS.get(key);
     for (const f of order) {
         const g = last && last.get(f.rid);
-        if (g && sameFamily(g, f)) { famTake(f, g); packStats.famReused++; } else famFill(f, cfg, offset);
+        if (g && sameFamily(g, f)) { famTake(f, g, offset); packStats.famReused++; } else famFill(f, cfg, offset);
     }
     FAMS.delete(key);
     FAMS.set(key, fams);
@@ -825,8 +825,11 @@ function sameFamily(g, f) {
     return true;
 }
 
-/** `f` filled from `g` (`sameFamily`): its records copied with this list's indices and residuals. */
-function famTake(f, g) {
+/**
+ * `f` filled from `g` (`sameFamily`): its records copied with this list's indices and residuals, the
+ * pack's `offset` added as `famFill` adds it (without it a reused family drew one offset away, F132).
+ */
+function famTake(f, g, offset) {
     for (let n = 0; n < f.items.length; n++) {
         const m = f.items[n], b = g.items[n];
         m.e = b.e; m.res = m.o.res || null; m.z = b.z; m.editId = b.editId; m.erase = b.erase;
@@ -836,9 +839,12 @@ function famTake(f, g) {
     for (const d of g.all) {
         while (f.items[n].o !== d.o) n++;
         const m = f.items[n];
-        f.all.push({ o: d.o, e: d.e, fade: d.fade, box: d.box, res: m.res, idx: m.idx });
+        f.all.push({ o: d.o, e: d.e, fade: d.fade, box: d.box, res: withOffset(m.res, offset), idx: m.idx });
     }
 }
+
+/** An item's residual with the pack's `offset` added (frame units); the residual itself when there is none. */
+const withOffset = (own, offset) => (offset ? [(own ? own[0] : 0) + offset[0], (own ? own[1] : 0) + offset[1]] : own);
 
 /** A family's items with their entries and boxes; its union rule and sign are taken lazily, on the first strip that draws it. */
 function famFill(f, cfg, offset) {
@@ -857,8 +863,7 @@ function famFill(f, cfg, offset) {
             logOnce("a render-list coordinate past the bound", "item id " + m.o.id + " reaches " + e.maxAbs.toExponential(2)
                 + " frame units, over §4.6's " + COORD_BOUND.toExponential(1) + "; the plate stays float64-exact to ~1.5e-8 px below it");
         }
-        const own = m.res;
-        const res = offset ? [(own ? own[0] : 0) + offset[0], (own ? own[1] : 0) + offset[1]] : own;
+        const res = withOffset(m.res, offset);
         f.all.push({ o: m.o, e, fade: m.fade, box: boxWithRes(e.box, res), res, idx: m.idx });
     }
 }

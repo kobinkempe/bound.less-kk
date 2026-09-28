@@ -38,8 +38,11 @@ import Document from "./Document";
 import LevelMap from "./LevelMap";
 import Renderer from "./Renderer";
 import TileStore from "./TileStore";
+import Stage from "./Stage";
+import { createPlacementModel } from "./placementModel";
 import RasterRenderer, { LADDER_DQ, PREVIEW_QUANTA } from "./raster/RasterRenderer";
-import PlateStore from "./raster/PlateStore";
+import PlateStore, { isPhoneBudget } from "./raster/PlateStore";
+import { pictureStats } from "./raster/PictureLayer";
 import { bboxOf } from "./geometry/derive";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
@@ -53,6 +56,7 @@ import { erasePipeline } from "./erasePipeline";
 import { selection, SELECT_DRAG_PX } from "./selection";
 import { files } from "./files";
 import { sceneOps } from "./sceneOps";
+import { leverDefaults, cleanLevers } from "./devLevers";
 import { initFrameGc, noteFrameEvent, noteCameraFrame, collectFrames, sweepFrames } from "./frameGc";
 
 // Eraser strokes paint in the canvas background color — visually "erased"
@@ -117,6 +121,12 @@ const DEFAULTS = {
     fatWidthPx: 4000, lineTolPx: 0.25,
     // lineModeLevel is GONE: curvature is per-origin now (natives spline; derived
     // pieces are pre-flattened polylines). Kept absent on purpose.
+    // Input frames (A3 §5): "raf" moves the camera per event and steps the picture once an animation
+    // frame (the page's engine); "sync" steps per call, as the suites and the one-off engines expect.
+    frames: "sync",
+    // The Dev levers (A3 §8, `devLevers.js`), a desktop's values; a phone's replace them at construction.
+    // Stored only until B-PYRAMID's pyramid and store read them (PLAN §1.2).
+    ...leverDefaults(false),
 };
 
 export default class KobinEngine {
@@ -133,9 +143,14 @@ export default class KobinEngine {
      *        passes it and `?svg` is the gate to the SVG renderer. Construction-time: the renderer
      *        owns a canvas, a plate cache and a worker pool, so a live swap would be a second
      *        teardown path nothing tests.
+     * @param {"raf"|"sync"} [opts.frames] "raf": camera and drag input step the picture once an
+     *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
+     * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
+     *        this device's stored ones), over this device's defaults
      */
-    constructor(container, { width, height, onStatus, raster = false, scenes = true } = {}) {
-        this.cfg = { ...DEFAULTS };
+    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null } = {}) {
+        this.cfg = { ...DEFAULTS, ...leverDefaults(isPhoneBudget()), ...cleanLevers(levers) };
+        if (frames === "raf" || frames === "sync") this.cfg.frames = frames;
         this.onStatus = onStatus || (() => {});
         this.width = width || window.innerWidth;
         this.height = height || window.innerHeight;
@@ -168,6 +183,8 @@ export default class KobinEngine {
             onCross: () => { /* re-render happens after the settle in the caller */ },
         });
         this.store = new TileStore(this.lm, this.doc, this.cfg);
+        // The scene (A2 §2): after the tile store, so its events see tiles already patched.
+        this.stage = new Stage({ doc: this.doc, lm: this.lm, store: this.store, model: createPlacementModel({ doc: this.doc, lm: this.lm, store: this.store }) });
         this.raster = !!raster;
         /** The plate cache, on the raster path only: the ENGINE owns its lifetime, the §5.4 drain and the footprint. */
         this.plates = null;
@@ -329,6 +346,8 @@ export default class KobinEngine {
             if (ids.length !== this.selection.ids.length || ev.id === this.selection.id) this._setSelection(ids, frames);
         });
 
+        // "raf" frames: an arrival's compose waits for the frame (`PictureLayer._flush`, A3 §5).
+        if (this.cfg.frames === "raf" && this.renderer.layer) this.renderer.layer.deferCompose = () => { if (!this._destroyed) this._pend().arrived = true; };
         this._render();
     }
 
@@ -376,6 +395,18 @@ export default class KobinEngine {
         if (this.trace) this.perfLog.length = 0;   // start the trace clean
     }
     setRetainScenes(b) { this.retainScenes = !!b; this.renderer.setRetainScenes(this.retainScenes); this._render(); }
+    /**
+     * The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into `cfg`, anything else ignored.
+     * Stored only: until B-PYRAMID reads them (PLAN §1.2) no plate, job or picture changes with them.
+     */
+    setLevers(patch) { Object.assign(this.cfg, cleanLevers(patch)); }
+    /** The level step S, one of `LEVEL_STEPS` (the Dev panel's 1·2·3 toggle). Returns the step in force. */
+    setLevelStep(s) { this.setLevers({ levelStep: s }); return this.cfg.levelStep; }
+    /** The plate cache's budget: `views` screens (1–8) under `ceilingMiB` (64–512). Returns the pair in force. */
+    setPlateBudget({ views, ceilingMiB } = {}) {
+        this.setLevers({ plateViews: views, plateCeilingMiB: ceilingMiB });
+        return { views: this.cfg.plateViews, ceilingMiB: this.cfg.plateCeilingMiB };
+    }
     setScaleDef(def) {
         this.docMeta.scaleDef = def ? validateScaleDef(def) : null;
     }
@@ -439,11 +470,13 @@ export default class KobinEngine {
         this._destroyed = true;
         if (this._bakeTimer != null) { clearTimeout(this._bakeTimer); this._bakeTimer = null; }
         if (this._ladderTimer != null) { clearTimeout(this._ladderTimer); this._ladderTimer = null; }
+        if (this._frCancel) { this._frCancel(); this._frCancel = null; }
+        this._fr = null;
         this.frameMeter.stop();
         this.longFrames.stop();
         this.eventLatency.stop();
         if (this._sceneClient) this._sceneClient.destroy();
-        this.store.destroy(); this.renderer.destroy();
+        this.stage.destroy(); this.store.destroy(); this.renderer.destroy();
         // After the renderer: its own `destroy` reports every job still in flight so `endJob`
         // runs for each, and those calls reach this store (§10 stage 5b item 14).
         if (this.plates) this.plates.destroy();
@@ -992,6 +1025,7 @@ export default class KobinEngine {
         if (ras) ras.beginRender();
         const tList = perfNow();
         this._lastList = this._buildList();
+        this.stage.sync(this.cam.frame, this._listWin(), Infinity);   // S1: kept beside the list, read by no renderer yet
         if (ras) ras.noteList(perfNow() - tList);
         this._drainPlates();
         this.renderer.render(this._lastList, this.cam.frame);
@@ -1025,6 +1059,51 @@ export default class KobinEngine {
         return !p || r.i0 !== p.i0 || r.i1 !== p.i1 || r.j0 !== p.j0 || r.j1 !== p.j1;
     }
 
+    // ---- the input frame (A3 §5) ----
+    /**
+     * The step the next animation frame takes ("raf" frames): asked for at the first event and filled by
+     * every event until it runs. The camera moves at each event, so hit tests and the float arithmetic
+     * are what they were; only the consequences wait for the frame.
+     */
+    _pend() {
+        if (!this._fr) {
+            this._fr = { pan: false, zoom: false, crossed: false, drag: null, svg: false, arrived: false };
+            const run = () => { this._frCancel = null; this._frame(); };
+            if (typeof requestAnimationFrame === "function") {
+                const id = requestAnimationFrame(run);
+                this._frCancel = () => cancelAnimationFrame(id);
+            } else {
+                const id = setTimeout(run, 16);
+                this._frCancel = () => clearTimeout(id);
+            }
+        }
+        return this._fr;
+    }
+    /** Take the pending step now, if there is one: a press or a release, the suites, the harness. */
+    flush() {
+        if (this._frCancel) { this._frCancel(); this._frCancel = null; }
+        this._frame();
+    }
+    /**
+     * One animation frame's step, once: the drag's at the last pointer (it recomputes the move from the
+     * drag's start, M-4, and renders or takes the camera-only step itself), then the camera's — a zoom's
+     * consequences when the frame zoomed, a pan's when it only panned; else the live stroke's SVG update;
+     * else one compose for the plates that arrived.
+     */
+    _frame() {
+        const fr = this._fr;
+        this._fr = null;
+        if (!fr || this._destroyed) return;
+        const t0 = perfNow();
+        let stepped = false;
+        if (fr.drag && this._dragSel && this.selection) { this._dragSelection(fr.drag[0], fr.drag[1]); stepped = true; }
+        if (fr.zoom) { this._zoomStep(fr.crossed, t0); stepped = true; }
+        else if (fr.pan) { this._panStep(fr.crossed, t0); stepped = true; }
+        if (stepped) return;
+        if (fr.svg) this.renderer.update();
+        if (fr.arrived && this.renderer.layer) { this.renderer.layer.compose(); pictureStats.arrivalComposes++; }
+    }
+
     // ---- pan / zoom ----
     panBy(dx, dy) {
         if (this._destroyed) return;
@@ -1032,6 +1111,11 @@ export default class KobinEngine {
         this._lastCamMove = t0;
         this.frameMeter.poke();
         const crossed = this.cam.panBy(dx, dy);
+        if (this.cfg.frames === "raf") { const fr = this._pend(); fr.pan = true; fr.crossed = fr.crossed || crossed; return; }
+        this._panStep(crossed, t0);
+    }
+    /** A pan's consequences: once a call, or once a frame in "raf". */
+    _panStep(crossed, t0) {
         // needsWindowChop: the view has left the inner half of the scene's
         // window, so the pieces chopped to it must be rebuilt on a fresh one
         // before its edge could come on screen (F40). A pan into another cell renders: the list
@@ -1052,6 +1136,11 @@ export default class KobinEngine {
         this._lastCamMove = t0;          // `_camBusy` — keep bake slices off this frame
         this.frameMeter.poke();
         const crossed = this.cam.zoomFactorAt(sx, sy, factor);
+        if (this.cfg.frames === "raf") { const fr = this._pend(); fr.zoom = true; fr.crossed = fr.crossed || crossed; return; }
+        this._zoomStep(crossed, t0);
+    }
+    /** A zoom's consequences: once a call, or once a frame in "raf". */
+    _zoomStep(crossed, t0) {
         // needsFatFlip: lazy-pending fat strokes approaching the gate must flip
         // to their outline representation BEFORE raw stroking becomes unsafe.
         // needsFadeFlip: a zoom can move a piece across the fully-present line,
@@ -1344,6 +1433,7 @@ export default class KobinEngine {
         finally { const ms = perfNow() - t0; this._perf("ptrUp", t0, false, { tool: this.tool }); this._noteFast("ptrUp", ms); }
     }
     _pointerDown(sx, sy, ctrl = false) {
+        if (this._fr) this.flush();   // a press hit-tests the picture the last move left, in its frame
         // A PRESS WHILE A STROKE IS STILL OPEN means the last pointerup never
         // arrived — the button was released over another window after an
         // alt-tab, the OS swallowed the end of a touch. Until 2026-09-05 the
@@ -1452,7 +1542,10 @@ export default class KobinEngine {
                 this._beginSelectDrag(P, sx, sy);
                 return;
             }
-            if (this._dragSel && this.selection) this._dragSelection(sx, sy);
+            if (this._dragSel && this.selection) {
+                if (this.cfg.frames === "raf") this._pend().drag = [sx, sy];   // the frame's step reads the last pointer
+                else this._dragSelection(sx, sy);
+            }
             return;
         }
         if (this._drawing) {
@@ -1476,7 +1569,8 @@ export default class KobinEngine {
                 o._pen.addSample(p);
             }
             this.renderer.setLiveArcs(o._pen.gaps);
-            this.renderer.update();
+            if (this.cfg.frames === "raf") this._pend().svg = true;   // every sample is in the pen; the SVG waits for the frame
+            else this.renderer.update();
         }
     }
     // Attach a live arc chain to a stroke about to be drawn. EVERY stroke gets
@@ -1491,6 +1585,7 @@ export default class KobinEngine {
         o._pen.addSample(o.pts[0]);
     }
     _pointerUp() {
+        if (this._fr) this.flush();   // a drop, a tap or a pen-up after the last move's step
         if (this._selPress) {
             const P = this._selPress; this._selPress = null;
             if (!P.moved) { this._selectTap(P); return; }
@@ -1625,13 +1720,23 @@ export default class KobinEngine {
 
     // ---- status + ported BUG invariants ----
     _emit() {
+        const zoom = this.cam.effectiveZoom();
         this.onStatus({
-            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: this.cam.effectiveZoom(),
+            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: zoom,
             nearCross: this.cam.inScale > this.cfg.enter * 0.8, objects: this._lastList.length,
             lines: false, // per-origin curvature now; no global "line mode" level
             selection: this._selectionStatus(),
             canUndo: this.doc.canUndo(), canRedo: this.doc.canRedo(),
         });
+        if (this._zoomSubs && zoom !== this._zoomSeen) { this._zoomSeen = zoom; for (const cb of this._zoomSubs) cb(zoom); }
+    }
+    /**
+     * `cb(effectiveZoom)` at every status emit that finds the zoom changed — once a frame in "raf" — so the
+     * scale HUD follows every zoom without re-rendering the page (A3 §5, R25 W1). Returns the unsubscribe.
+     */
+    onZoom(cb) {
+        (this._zoomSubs || (this._zoomSubs = new Set())).add(cb);
+        return () => { this._zoomSubs.delete(cb); };
     }
     _effectiveZoom() { return this.cam.effectiveZoom(); }
     _levelPointToScreen(level, x, y) { return this.cam.levelPointToScreen(level, x, y); }

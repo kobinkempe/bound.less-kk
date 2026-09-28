@@ -507,7 +507,7 @@ export class OpLog {
                 case "rekey": {
                     const rec = marks.get(e.mark);
                     for (const r of e.rekeys) { const cur = doc.getById(r.id); if (cur) Object.assign(cur.obj, r.after); }
-                    doc.keysChanged();
+                    doc.keysChanged(e.rekeys.map((r) => r.id));
                     if (rec) rec.op.baked.push({ rekey: e.rekeys, _seq: seq });
                     if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;
                     break;
@@ -590,7 +590,7 @@ export class OpLog {
                 }
                 case "attr": {
                     const cur = doc.getById(e.id);
-                    if (cur && !stale(seq, [cur.level])) { Object.assign(cur.obj, e.set); doc.keysChanged(); }
+                    if (cur && !stale(seq, [cur.level])) { Object.assign(cur.obj, e.set); doc.keysChanged([e.id]); }
                     break;
                 }
                 case "forget": break;                              // the lattice is the header's

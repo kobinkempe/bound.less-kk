@@ -259,3 +259,84 @@ shape landing; A1 Q1 re-home at the drop; A1 Q2 the op repair; A3 Q2 the bounded
 freshness-first lookup with the patch rule.
 **Questions asked:** to Kobin (non-blocking): "moved into" membership; the same group after a re-parenting
 (A1 Q2); an undone older erase under a newer mark (A2-Q9).
+
+## 2026-09-26 00:55 UTC — B-SCENE (builder) — the Stage, freshness by G, the default flip (A2 §6.2 S1–S3) — start
+**Proposal.** *Approach:* S1 first, no behaviour change. `placementModel.js` is A1 §6's four functions over
+today's calls (`nativesIn` = `doc.at`, `placement` = `_rerouteGroups`' own `place` rule on `objShift`/`residual`,
+`displaced` = `TileStore._rerouteGroups`, `frameFootprint` = the cell ± REACH rule of `_cellFootIn`), plus
+`toStored`/`fromStored` over the `*Obj` functions, so nothing else reads `below`. `Stage.js` keeps a chunked
+list sorted by `(zKey, id, tile i, tile j, dir, seq)` — within one native the order `listFor` gives — with
+`byId`/`bySrc`/`byPiece`/`byHome`, fed by `TileStore.onTile` (every write to `cache` and `tile.objs` reports)
+and by its own document subscription after TileStore's. Handlers never bake: a tile they cannot read is
+listed missing and read at the next `sync`; events raised inside `sync` are queued and applied at its end.
+Reroute groups are re-placed per named native at the end of each commit, and re-diffed against `displaced`
+on a frame event or a lattice change. The engine calls `stage.sync(frame, _listWin(), Infinity)` in
+`_render` after `_buildList` (S1's only engine lines). Tests: `stage.equiv` (5×40, probe 60×80) on the
+SVG engine, `stage.placed` (BigInt reference), and the no-read-mutates property. S2: `PlateStore` keyed with
+G per plate, `track`/`untrack`/`dirtySince`/`dirtyRects` in the Stage, footprints from the events, the
+family rule measured, `hold`/`release`, the pack's source behind `cfg.scene`; the wire and the engine's
+drain/hold deletions wait for B-FOUNDATION's end entry. S3 as the brief lists.
+*Decisions (confidence):* item getters read z/editId/erase from the live native (0.8); tile hook + id index
+in TileStore (0.85); reroute re-placed per native, diffed on frame events (0.7); `read(F, rect, budgetMs,
+{pin})` with `Infinity` unbounded and `0` cache-only (0.75); the Stage lives in both renderer modes (0.8);
+hard drops refuse their in-flight jobs by a flag on the in-flight record, not an epoch (0.8); the job's G
+is a header scalar on the wire (0.85).
+*Questions (recommendation):* Q1 "no read changes the document": `listFor`/`content` of a cold or shifted
+frame settles and mints today (`Document.at`, `objShift`) — **assert it strictly for the Stage's reads,
+a hit test and a lasso after a sync; count and report the cold-read mutations until C1 makes them 0.**
+Q2 A2's rule 1 caches a stale result where nothing is cached (today it is discarded: paper) — **follow A2
+(stale before paper), except a job a hard drop refused.** Q3 with the Stage as the pack source the pen-up
+band is no longer packed (pending until the shape), so the held live path must go on `plate.G ≥ Gs`, not
+on `cellFresh` — **do that in S2 (A2 §3.3's last row), replacing `_plateShows`.** Q4 `frameFootprint`
+of a frame or an old address → `{frame: parent, rect}` in the parent's units (a root: everywhere) —
+**recommend.** Q5 `keysChanged` emits `rekey` outside `_emit`'s `offRev` bump (one bump there rebuilds
+the whole reroute memo: 166 ms on the Magnum Opus) — **recommend.**
+**Working on:** S1. Files: new `src/engine/Stage.js`, `src/engine/placementModel.js`, tests
+`src/engine/stage.*.test.js`/`.probe.js`; `TileStore.js` (hook, id index, `read`), `Document.js` (event
+fields, `rekey`), `frameGc.js` (the Stage told), and in `KobinEngine.js` only the constructor and `_render`
+lines (re-read before each edit).
+**Measured:** nothing yet.
+**Decisions made:** as the proposal.
+**Questions asked:** Q1–Q5 above; continuing past them.
+
+## 2026-09-26 01:18 UTC — B-FOUNDATION (builder) — checkpoint 1: the clip box and `level.js` green
+**Working on:** deliverables 1 and 2 done; starting 3 (input coalescing + `<ScaleHud>`). Files so far:
+`raster/rasterCore.js` (clip box), `rasterJob.js` (`job.clips`, `copyPlate(rgba, clip)`, `pastePatch`, result `clips`,
+`resultBytes`), `worker/rasterWorker.js` (renders and serialises each plate's clip), `rasterPack.js` (F132, below),
+new `__testkit__/rasterLists.js`, `raster/rasterCore.clip.test.js`, `raster/level.js`, `raster/level.crossmap.test.js`.
+B-SCENE is in `KobinEngine.js` (constructor/`destroy`/`_render`); my edits there stay in the frame loop and the
+entry points, re-read before each edit.
+**Measured:** (1) with no clip the core is byte-identical to 4e09269's: 24 whole plates (4 configurations × 6
+seeded 50-item lists) hash to goldens taken from that core (SHA-1, computed from a copy of it, `goldens-sha.json`).
+Inside the clip `===` the whole plate and outside untouched in 144 random clips + 36 edge clips + the crafted
+cull/prune/mark cases: 0 bytes differ (Q1's band-start ulp never showed). The merge through `runJob` + `job.clips`
++ `pastePatch` (typed-array copy) equals the new whole plate in every trial (≥ 6 non-vacuous per configuration,
+remove/add/move/recolour, opaque, backdrop cull on/off, transparent). `rasterCore.clip.test.js` 18/18 in 23 s
+(jest is ~4× slower than node on the core: 40–220 ms a plate). All 28 raster suites 608/608; `chordMath`,
+`useKobinEngine.raster` 9/9; typecheck 0; eslint clean on the touched files. Bundles after `build:worker`: erase
+`a1fafca3d543d5a447fff295498d274a` (unchanged), raster `e865ee425ff99f220b34dbc2d571f008`, scene
+`dce304b81ac598a67b8aa15c2daa2d93` (unchanged). **Break-checks** (unimported copy of the app under
+`scratchpad/bf/bc`, `breakcheck.py`; red of 18): paper over the clip 7; un-premultiply over the clip 3; rows above
+not deposited 8; rows below not walked 9; the resolve's sum from ROWMIN 12; the mask's 4; the family prune 5; its
+2 px growth 1; the cull's candidate over the clip 1; its fill test over the clip 1; the candidate deposited over
+the clip's rows 6; family rows ∩ clip 6; the covered family's rows 1; a bad clip throws 1; the clip reset 13;
+runJob renders the clip 1; serialises its rectangle 5; the result carries the clips 5; validateJob 1;
+resultBytes 1; F132 6. **Zero red, by nature:** the early return of an edge outside the clip's rows, the arc prune
+by the clip's rows and the mask written inside the clip only are cost rules, and timed against copies without
+them (`costrules.py`, node, medians of 7, three plates × three clips) none moves the time beyond noise; the walk
+of x from the edge's own start (A3's bit-exactness by construction) against an analytic jump to the clip's top:
+0 bytes differ on those plates too, so no test here can see it — kept because it is exact by construction.
+(2) `level.crossmap.test.js` 8/8: 2,802 pairs of ≤ 3 crossings on a 400-frame random lattice (a subtree
+re-addressed half way), `mapCell` = the exact BigInt affine in all; `LevelMap.mapRectF`'s floats equal it to the
+bit in 2,739 and round in 63 — every one an index past 2^53 (BigInt), none elsewhere; 198 coarse refusals; the
+round trip; step 6's refusals where the affine is half a plate off; step 7 after `readdress`.
+**Found and fixed: F132** — `rasterPack.famTake` (a family reused from an earlier list with the same prepass key)
+dropped the pack's `offset` from the items' residuals while keeping it in their boxes, so a Scenes picture
+re-rendered after an edit (`snapshotView`, which packs with an offset) drew its unchanged families one offset
+away, off the plate. One helper (`withOffset`) now serves `famFill` and `famTake`; a test in the clip suite.
+**Decisions made:** the clip as module state reset in a `finally` (A3's form); union bands start at the clip's
+rows as A3 measured (Q1 stands: 0 bytes in every clip here); `pastePatch` beside `copyPlate` as the one jsdom
+merge; `level.js` takes the lattice and S explicitly, `{ level, i, j }` with BigInt only past 2^53, no BigInt
+literals (CRA 4's webpack and the es2019 worker bundles reject `1n`); not added to `npm run typecheck` (Q5 open).
+**Questions asked:** Q1–Q5 of the start entry stand; new: Q6 the clip suite runs 23 s in the quick suite — keep,
+or move the random part to a `.slow` twin? Recommend keep (four suites already run 20–70 s).
