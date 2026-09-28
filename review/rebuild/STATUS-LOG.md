@@ -1161,3 +1161,38 @@ clip.slow goldens after the mask changes); B-PYRAMID-2 in P2 (the never-older fu
 **Measured:** load 0.12 at the resume.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-28 23:53 UTC — B-ERASE — resumed (after the reboot)
+
+**Working on:** the end of E5. The tree is as I left it (2ab1a19): break-checks done (every break red; the
+five that were 0 got tests: the rule's clauses, the landing's one commit watched per Stage commit, a cede's
+lineage, a descent's pieces taking the live target's lineage, the lookahead's lock, slots per family).
+RV5 is green (the drag step's batch is skipped while the Stage holds the move: a batch ends in a commit).
+**Measured (the clip goldens, attribution):** the random lists' marks are unlanded raw strokes (no
+`targets`), which the rule masks with nothing (A2 §4.1: packs skip an unlanded mark), so 8 of 24 plates
+moved by up to 255. Given `targets` (every native below, the old semantics as data), 3 plates still moved
+by 255: a **defect** — slots were shared by an item-level test while the core masks a family whole by all
+its items' bits; fixed (conflicts per family), with a two-piece-family pixel test that was red before.
+What remains: 1–2 levels (byte masks) in the opaque configs, larger RGB steps at low alpha on transparent
+paper (to check premultiplied), 9 bytes (≤ 2) just outside my estimate of the marks' boxes.
+**Decisions made:** none new. **Questions asked:** none new.
+WHERE I AM: finish the attribution, give the generator's marks `targets`, regenerate the goldens, then
+the clip suites, test:erase, the erase-adjacent quick suites, typecheck, lint, bundles, end entry, report.
+
+## 2026-09-28 23:54 UTC — B-PYRAMID-2 (builder) — resumed after the session-limit stop (P2 mid-way)
+**Working on:** P2, from the tree as snapshot 2ab1a19. Done before the stop, not yet logged: the pen-up group opens at the
+Stage commit where the shape lands (`RasterRenderer._pyrBuild`'s `stage.onCommit` hook), so no frame's patch step can
+publish the stroke's plates while the path is up; `PicturePyramid._markHeld` classes a stale draw under an open pen-up
+group's rectangle "held" (the path shows the change), uncharged by the integrals; the prefetch key carries the Stage's
+generation, so an idle after a change refreshes the stale coarser levels a zoom's stand-in needs. Tests in
+`raster.pyramid.test.js`: the call order (never both, never neither), the rectangle equal to a whole render, the held
+class through the workers, the prefetch refresh after a change, and the older fuzz (seeded draw/undo/redo/erase/zoom/pan/
+crossings), whose rule is PLAN §1.2's: an older draw only where no exact source within N levels is cached (brute force).
+**Measured:** before the stop: 9/10 of the suite green; the fuzz red on jest's 5 s default (5,549 ms), green at 3.6 s once.
+Traces on the copy: older draws came from a zoom out of rest over a stale ℓv (fixed by the prefetch key), from a pen-up
+group's wait (now "held"), and from a crossing onto a stale parent plate with nothing fresh cached (step (f), allowed).
+**Decisions made:** the fuzz asserts step (f)'s rule, not "no older draw ever": with the gated pool a gesture can outrun
+the idle refresh, and the plan's last resort is then the stale plate (PLAN §1.2). olderMs = 0 stays the harness's target.
+**Questions asked:** none. The orchestrator's answers of 20:30 received (`_renderPending` at P6; RV5 and the goldens B-ERASE's).
+WHERE I AM: rerun `raster.pyramid` with the fuzz's 60 s timeout; then P2's break-checks (the commit hook, `_markHeld`, the
+prefetch key) and the P2 checkpoint entry.
