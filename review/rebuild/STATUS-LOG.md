@@ -1087,3 +1087,14 @@ mode under a drag plane 8 / 13 / 17 runs → 1 / 1 / 1 (one cell, the coarsest s
 **Questions asked:** none blocking — adopt the reserve (recommend yes). The B-SCENE reviewer has ended: on to P1.
 WHERE I AM: P1 — read `RasterRenderer`'s constructor/frame step as the reviewer left them, then construct `PyramidStore`,
 `PicturePyramid`, `JobQueue` under `cfg.pyramid` in the constructor.
+
+## 2026-09-28 20:11 UTC — orchestrator (Fable) — GitHub Actions minutes exhausted: every commit now carries [skip ci]
+**Working on:** Kobin's GitHub Actions minutes are used up. `.github/workflows/ci.yml` runs the quick suite (typecheck +
+`test:quick`, 30 min cap) on every push, and today's snapshot pushes each started one (54 runs on this branch). From
+this commit on every commit message, snapshots and landings alike, carries `[skip ci]`, which GitHub honours for
+push-triggered runs; five runs still in progress on the branch were cancelled through the API. The nightly (03:17 UTC,
+90 min cap) runs from the default branch's copy and is Kobin's to disable in the Actions tab if he wants it stopped;
+`ci.yml` is not edited. Nothing in the rebuild reads CI: every suite and measurement runs in this container.
+**Measured:** nothing new.
+**Decisions made:** `[skip ci]` on every commit until Kobin says otherwise (task list #8).
+**Questions asked:** none.
