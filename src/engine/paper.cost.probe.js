@@ -119,7 +119,7 @@ describe("paper costs on the Magnum Opus", () => {
         timeIt(E.renderer, "_frameStep", acc); timeIt(E.renderer, "_renderSelOverlay", acc); timeIt(E, "_emit", acc);
         E.renderer.setSelectionAnts(() => { const t = now(); try { return E._selectionAnts(); } finally { acc.ants = (acc.ants || 0) + now() - t; } });
         timeIt(E, "_selEdges", acc); timeIt(E, "_selDecide", acc);
-        timeIt(E, "_flushErasesFor", acc); timeIt(E, "_settleSelectionErases", acc); timeIt(E, "_beginHold", acc); timeIt(E, "_selectionMembers", acc);
+        timeIt(E, "_tapBarrier", acc); timeIt(E, "_dragBarrier", acc); timeIt(E, "_beginHold", acc); timeIt(E, "_selectionMembers", acc);
         timeIt(E.store, "setBatch", acc);
         const s0 = { ...E.plates.s }, d0 = E.stage.stats.dirtied;
         E.pointerDown(cx, cy);
@@ -131,7 +131,7 @@ describe("paper costs on the Magnum Opus", () => {
             rows.push([+(now() - t).toFixed(1), +acc._buildList.toFixed(1), +acc.sync.toFixed(1), +acc.render.toFixed(1),
                 +acc.syncCameraOnly.toFixed(1), +acc._frameStep.toFixed(1), +acc._renderSelOverlay.toFixed(1), +acc.setOffsetsById.toFixed(1), +acc._displaceMember.toFixed(1), +acc._emit.toFixed(1),
                 +(acc.ants || 0).toFixed(1), +acc._selEdges.toFixed(1), +acc._selDecide.toFixed(1),
-                +acc._flushErasesFor.toFixed(1), +acc._settleSelectionErases.toFixed(1), +acc._beginHold.toFixed(1), +acc._selectionMembers.toFixed(1)]);
+                +acc._tapBarrier.toFixed(1), +acc._dragBarrier.toFixed(1), +acc._beginHold.toFixed(1), +acc._selectionMembers.toFixed(1)]);
         }
         E.pointerUp();
         const s1 = E.plates.s;

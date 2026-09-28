@@ -1046,3 +1046,21 @@ copy must be of the tree after B-ERASE).
 **Measured:** the reviewer's quick suite 2,158 pass, 12 skipped, 5 fail (B-PYRAMID-2's in-progress suites), load 1.35 → 5.06.
 **Decisions made:** PLAN §5.7 items 1–5.
 **Questions asked:** none.
+
+## 2026-09-28 19:55 UTC — B-ERASE (builder) — checkpoint: E1–E4 built, the new rows' suites green; break-checks next
+**Working on:** new suites: `raster/raster.eraseRule.test.js` (row 3 a–d, 20 tests), `select.eraseBarrier.test.js` (row 7,
+8), `erase.rule.test.js` (A2 §5.1–5.3, the pick, the landing's op on top, cut/dust dirt, lenient load, kobin-1 and kobin-2
+derivation, the three §4.10 cases live vs replayed, parallel = serial for 3 seeds; 15). Found by them and fixed: the serial
+order keyed by each id's z at arrival (a removed id's live lookup reordered the parallel bake — seeds 5, 8 red before).
+The EraseChip (`src/Components/editor/EraseChip.js`) beside the title's save state; `status.erase` in the hook's default.
+PLAN §5.7 item 1: `deleteSelection`, the drag step's writes and the store's `log.replay` each in one `stage.batch`.
+**Measured:** row 3 (b), plates kept through the bake vs fresh: fills 0 bytes at every step (seeds 5/17/29, K4); strokes
+with arcs, worst 3–6/255, all inside cut objects' boxes (seeds 11/23/37/59); nothing outside. §5.7 batch (node, 200 tracked
+cells, Stage alone): delete 5,000 natives 530 → 57 ms, its undo 1,043 → 68 ms, 3 drag steps × 2,000 writes 735 → 76 ms.
+Engine-level delete of 5,000 selected natives in jsdom: 73.7 s at 1cac470, 69.7–77.6 s now — not the Stage's; unattributed.
+Bundles (`build:worker`): erase `3dc3c6f9…` (380,879 B), raster `03cb4428…`, scene `dce304b8…` unchanged. typecheck 0; lint 0
+errors, 6 warnings (baseline).
+**Decisions made:** as in the 19:32 entry; the dust test needed a shape target (a fill's promotion is a change of its own).
+**Questions asked:** none new (Q5, Q6 stand).
+WHERE I AM: break-checks on a copy under `scratchpad/b-erase/bc` (the rule's clauses, the landing batch, inheritance, the
+classifier, dust, pruning, the lock, the reorder buffer, the z key, the barrier's flush, the pick), then docs, then test:erase.

@@ -109,7 +109,9 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   that a frame's picture *is* its parent's level.
 - **The image budget**: a compose draws at most `COMPOSE_IMAGES` (30) distinct images directly; past it
   the plan is drawn once into a surface and blitted scaled. The cliff past ~33 scaled images is real in
-  headless Chromium too (A3 E6: 0.1 → 26 ms), so the harness gates it.
+  headless Chromium too (A3 E6: 0.1 → 26 ms), so the harness gates it. Own-grid plates (1:1 in the
+  surface) are never refused; the scaled ones — stand-ins, children, and at rest the level plan's plates —
+  are at most `COMPOSE_IMAGES` − the plane's images (§5.6 M1).
 - **The rest render**: at the first still animation frame the visible cells at the exact Z, **inline**
   when `0.73 µs·chords + 34 ns·box-pixels + 0.15 ms·non-empty cells ≤ 8 ms` (constants calibrated
   online from `rasterPerf`), else in the workers after 100 ms more of stillness; shown when complete;
@@ -132,10 +134,11 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   slice; a cell whose tiles are not all in the scene is planned from stand-ins, never rendered. The
   ladder, the prebake, the preview, the carry, the hold, the pending quantum, the settle machine,
   `fallbackCover`, sync-as-a-mode and quantum-string job identity are deleted (A3 §4.6).
-- **Cache**: LRU by bytes; pinned = the drawn set plus the plane (≤ one view + 40 plates by
-  construction, H1 closed); protected = ℓv's ring, the rest set, ℓv − 1, ℓv − 2, the frame just left,
-  the far levels; default budget 3 views (120 MiB) desktop and 2 views (70 MiB) phone under a
-  256 / 96 MiB ceiling; views and ceiling on the Dev panel; levers persist in localStorage with a URL
+- **Cache**: LRU by bytes; pinned = the drawn set plus the plane (≤ own-grid records + 30 stand-ins + the
+  plane cap by construction, H1 closed: 110 plates on Kobin's desktop, 99 on a 390×844@3 phone, §5.6 M2);
+  protected = ℓv's ring, the rest set, ℓv − 1, ℓv − 2, the frame just left, the far levels; default budget
+  3 views (120 MiB) desktop and 2 views phone under a 256 / 96 MiB ceiling, never under the pinned bound
+  (the floor; the ceiling rises to it: 89 MiB on a 1079×1969 phone, 99 on 390×844@3); views and ceiling on the Dev panel; levers persist in localStorage with a URL
   override, never in the canvas record.
 - **Input** is coalesced in the engine: events move the camera at once and request a frame; one
   `requestAnimationFrame` step renders, plans, posts, triggers the rest render and emits; `cfg.frames =

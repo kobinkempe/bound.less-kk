@@ -212,7 +212,7 @@ describe("row 3 (c) an object moved under a mark after its registration draws as
         return { E, T, Y };
     };
     for (const landed of [true, false]) {
-        test(landed ? "dragged after the landing" : "the drag begun while the mark was unlanded: the press lands it first", () => {
+        test(`${landed ? "dragged after the landing" : "the drag begun while the mark was unlanded: the press lands it first"}`, () => {
             const { E, Y } = setup(landed);
             const cutIds = new Set();
             E.doc.subscribeOps((ev) => { if (ev.kind === "bake" && ev.step.removed) cutIds.add(ev.step.removed.obj.id); });

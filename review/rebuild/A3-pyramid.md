@@ -47,7 +47,9 @@ stretch, `Z / Z(ℓv)`. **G** is the scene's generation (PLAN §1.1, A2's design
    moving; jobs aimed at where the camera will be (the velocity rule); cancellation by purpose generation.
 9. **Budget**: bytes = views × `viewPlates(σmin)` MiB — 3 views (120 MiB) desktop, 2 (70 MiB) phone, under a
    256 / 96 MiB ceiling; the drawn set and the plane are pinned, the view level, rest set and near coarser
-   levels are protected; pinned ≤ one view + the plane by construction (H1 closed).
+   levels are protected; pinned ≤ one view + the plane by construction (H1 closed). *Corrected by the
+   B-PYRAMID-1 review (PLAN §5.6 M2), built in B-PYRAMID-2 P0:* pinned ≤ own-grid records + 30 stand-ins + the
+   plane cap, and the budget never goes under that sum (110 MiB desktop, 89 / 99 MiB on the two phones).
 10. **Input** is coalesced in the engine: events move the camera at once, the render runs once per animation
     frame; the scale HUD gets its own subscription so the editor page stops re-rendering per wheel event (W1).
 11. **MovePlane** keeps five layers, merging, coarsening, the quick level, the stopgap and the pre-aim at rest,
@@ -223,8 +225,10 @@ whole budget and later cells fell to paper while a coarser plate that would have
 mode: the rest grid at an arbitrary Z never aligns with a level grid, so the compose draws the level plan under the
 rest cells that have no rest plate, then every rest cell that has one over it — exact 1:1; stale, the patch rule
 (e) or a fresh level cover of the cell, else the stale plate. Every pixel still ends with one source. (3) The plan
-takes at most one view of distinct records (`viewPlates(σmin·2^−h)`): that is the construction behind §4.5's
-"pinned ≤ one view + the plane" on screens where 30 images exceed one view.
+took at most one view of distinct records; the B-PYRAMID-1 review showed that cap (and counting own plates against
+the stand-ins) put paper or an older picture on screen while a fresh source was cached (PLAN §5.6 M1, M2). Since
+B-PYRAMID-2 P0 the plan draws every own-grid record and at most `COMPOSE_IMAGES` − the plane's images stand-ins, which
+is the construction behind §4.5's corrected pinned bound.
 
 ### 1.5 Direct scaled draws versus the surface, against the image cliff
 
@@ -243,8 +247,9 @@ Two paths, one plan:
 - **Surface**: otherwise the plan is drawn once into the view surface (the layer canvas's successor, alpha,
   at the view level's grid, 1:1 for own plates) whenever the plan changes, and blitted once per frame scaled
   by σ. Its recompose draws the plan's images; the recompose is where the cliff would be paid, so a
-  recompose also keeps its **scaled** images (stand-ins) ≤ 30 − own plates and moves any excess cells to
-  coarser sources (fewer images each). Own plates 1:1 into the surface are the mild case (6 ms per 33 in E6).
+  recompose also keeps its **scaled** images (stand-ins) ≤ 30 − the plane's images and moves any excess cells to
+  coarser sources (fewer images each). Own plates 1:1 into the surface are the mild case (6 ms per 33 in E6), so
+  they are counted apart (corrected from "30 − own plates" by PLAN §5.6 M1).
 
 At rest the rest set is drawn 1:1; above 30 cells (the 2560×1440@2 screen's 84) it too goes through the
 surface at σ = 1. The children rule (c) is what makes the budget bite: `2^S × 2^S` images a cell, so fresh
@@ -256,9 +261,11 @@ today. R12's alternative — the surface as a DOM canvas scaled by a CSS transfo
 per-frame scaling with no main-thread blit — is the measured experiment for Kobin's Chrome (headless has no
 compositor cost to compare, §9.4).
 
-*Built (2026-09-28):* the rule is taken literally — a plan whose own plates number 30 or more (the 84-cell
-2560×1440@2 rest set) draws no scaled stand-in, so a missing cell there shows its stale plate or paper. Whether that
-shows paper in a real gesture is the harness's to measure.
+*Built (2026-09-28), corrected in B-PYRAMID-2 P0:* B-PYRAMID-1 took the rule literally ("≤ 30 − own"), so a plan
+with 30 own plates or more drew no stand-in and showed paper beside a cached coarser plate (the review's four
+constructed screens, now in `PicturePyramid.plan.test.js`). The cap is now `COMPOSE_IMAGES` − the plane's images for
+scaled images only. At rest the level plan under the cells the rest set lacks is drawn scaled onto the rest grid,
+so its plates count as stand-ins — except when Z is the level's own zoom, where they are 1:1 and own.
 
 ### 1.6 The cross-frame mapping
 
@@ -752,6 +759,12 @@ else the view level's sources and patches) and the plane's (`MOVE_PLANE_PLATES` 
 level's plates under a complete rest set are *not* drawn, so they are not pinned. Hence
 **pinned ≤ max(view level, rest set) + plane ≤ 40 + 40 = 80 ≤ 120** on the desktop and 35 + 24 = 59 ≤ 70 on the
 phone — H1 (pins over the budget on HiDPI, `overCapPinned`) cannot recur by construction.
+
+*Corrected (PLAN §5.6 M2, built in B-PYRAMID-2 P0):* the drawn set also holds up to 30 stand-ins beside the own-grid
+records, so **pinned ≤ own-grid records (≤ `max(viewPlates(σmin·2^−h), viewPlates(1))`) + 30 + the plane cap**
+(`PyramidStore.pinnedBound`): 110 on Kobin's desktop, 89 on the 1079×1969 phone, 99 on a 390×844@3 phone, 147 on
+2560×1440@2. The budget's floor is that sum and the ceiling is raised to it, so the phone's default is 89 / 99 MiB,
+not 70. Measured on the 390×844@3 screen (400 seeded jsdom screens, a full plane pinned): pinned high-water 70.
 
 **Protected (evicted last; last-evicted first in this list)**: the view level ℓv's plates in the ring; the
 rest set; ℓv − 1 and ℓv − 2 of the current frame (together a third of a view: the "base" PP §10.13 kept, now a

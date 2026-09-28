@@ -71,6 +71,47 @@ describe("A2 §5: Kobin's semantics, through the fields", () => {
         expect(E.doc.getById(Y.id)).not.toBeNull();
     });
 
+    test("a cut on a pending pair dirties the target's box inside the mark's box, and the dust it dropped wherever it lies (PLAN §5.3 A2-Q2)", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        // a body with a hairline tail to the right: the cut at x 410..430 leaves the tail's far part as dust (0.1 wide)
+        const T = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(40,40,200)", opacity: 1,
+            polys: [[[300, 270], [400, 270], [400, 299.95], [560, 299.95], [560, 300.05], [400, 300.05], [400, 330], [300, 330]]] }, "0");
+        E.doc.fillToShapeById(T.id);                                           // a shape, as ink is (a fill's promotion is a change of its own)
+        E._render();
+        eraseGesture(E, [[420, 200], [420, 400]], 10);
+        const M = E._eraseStrokes()[0].obj;
+        expect(M.targets).toEqual([T.id]);
+        const G = E.stage.generation;
+        E._bakeNext();
+        expect(E.doc.getById(T.id)).toBeNull();
+        const rects = E.stage.dirtyRects("0", G);
+        const covers = (x, y) => rects.some((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+        expect(covers(420, 300)).toBe(true);                                   // the band under the mark
+        expect(covers(500, 300)).toBe(true);                                   // the dust, outside the mark's box
+        expect(covers(350, 300)).toBe(false);                                  // the rest of the body: its pixels did not change
+        expect(E.stage.stats.neutral).toBeGreaterThan(0);
+    });
+
+    test("malformed fields are dropped on load and the objects kept; the lineage is derived again from the marks", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const T = fill(E, 300, 250, 500, 350);
+        E._render();
+        eraseGesture(E, [[400, 200], [400, 400]], 20);
+        const M = E._eraseStrokes()[0].obj;
+        const d = E.serializeDrawing();
+        const h = d.natives["0"].find((o) => o.id === T.id), m = d.natives["0"].find((o) => o.id === M.id);
+        h.targetOf = ["x", 2]; h.handledBy = [M.id, M.id]; m.targets = "garbage";
+        const F = mkEngine(800, 600);
+        F._scheduleBake = () => {};
+        F.loadDrawing(d);
+        const o = F.doc.getById(T.id).obj, FM = F.doc.getById(M.id).obj;
+        expect(FM.targets).toEqual([T.id]);                                    // registered again, by the scan under its z
+        expect(o.targetOf).toEqual([M.id]);                                    // derived from it
+        expect(o.handledBy).toEqual([M.id]);                                   // an id list, deduplicated
+    });
+
     test("5.2 a stroke drawn over a pending mark is above it, no target, never cut", () => {
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
@@ -224,7 +265,7 @@ describe("A2 §4.10: undo, redo and a replay after a reload agree", () => {
         },
     };
     for (const [name, build] of Object.entries(cases)) {
-        test(name, () => {
+        test(`${name}`, () => {
             const E = mkEngine(800, 600);
             E._scheduleBake = () => {};
             const log = new OpLog(E);

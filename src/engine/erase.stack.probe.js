@@ -37,13 +37,10 @@ function build(n) {
     return { E, Erec, tDraw, pieces };
 }
 function step(E, Erec) {
-    const t = E._nextEraseTarget(Erec);
-    if (!t) return null;
+    if (!E._headOf(Erec)) return null;
     const t0 = now();
-    E._bakeOne(Erec, t, { sync: true });
-    const dt = now() - t0;
-    E._lowerMark(Erec, t);
-    return dt;
+    E._bakeNext();
+    return now() - t0;
 }
 
 describe("a ring through a stack of huge strokes: timing", () => {

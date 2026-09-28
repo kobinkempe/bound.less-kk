@@ -710,8 +710,10 @@ class Selection {
             if (!sameBelow(put.table, st.below)) { offsets.push([id, put.table]); st.below = put.table; moved = true; }
             st.dx = tx; st.dy = ty;              // for the journal: the snapped displacement, camera units
         }
-        for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
-        for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
+        this.stage.batch(() => {   // one commit a step (PLAN §5.7); B-DRAG removes the per-step writes
+            for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
+            for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
+        });
         if (this.selection.frames.length) {
             if (!d.frameStart) this._dragFramesStart(d, camDepth);
             if (d.frameStart.size && this._dragFrames(d, camDepth, tx, ty)) moved = true;
@@ -900,27 +902,30 @@ class Selection {
         const s = this.selection; if (!s) return false;
         const records = [];
         const seen = new Set();
-        // The individually selected ids and their families, object by object — NOT through
-        // `_selectionMembers`, whose bridge would expand a selected frame to its natives.
-        for (const id of s.ids) {
-            const hit = this.doc.getById(id);
-            if (!hit) continue;
-            for (const m of this.doc.editGroup(this.doc.editKey(hit.obj))) {
-                if (seen.has(m.obj.id)) continue;
-                seen.add(m.obj.id);
-                const rec = this.doc.removeById(m.obj.id);
-                if (rec) records.push(rec);
-            }
-        }
-        // A selected frame goes as CONTAINERS: each frame's list detached by reference,
-        // O(frames) and no per-object work (SUBTREE-O1-PLAN §2.3).
         const frames = s.frames || [];
         const frameRecords = [];
-        for (const f of frames) {
-            if (this._underFrames(f, frames.filter((x) => x !== f))) continue;   // an ancestor of it is going anyway
-            const recs = this.doc.removeFrameSubtree(f);
-            if (recs) frameRecords.push(...recs);
-        }
+        // One commit for the whole delete: a commit an event cost 487–558 ms for 5,000 natives (PLAN §5.7).
+        this.stage.batch(() => {
+            // The individually selected ids and their families, object by object — NOT through
+            // `_selectionMembers`, whose bridge would expand a selected frame to its natives.
+            for (const id of s.ids) {
+                const hit = this.doc.getById(id);
+                if (!hit) continue;
+                for (const m of this.doc.editGroup(this.doc.editKey(hit.obj))) {
+                    if (seen.has(m.obj.id)) continue;
+                    seen.add(m.obj.id);
+                    const rec = this.doc.removeById(m.obj.id);
+                    if (rec) records.push(rec);
+                }
+            }
+            // A selected frame goes as CONTAINERS: each frame's list detached by reference,
+            // O(frames) and no per-object work (SUBTREE-O1-PLAN §2.3).
+            for (const f of frames) {
+                if (this._underFrames(f, frames.filter((x) => x !== f))) continue;   // an ancestor of it is going anyway
+                const recs = this.doc.removeFrameSubtree(f);
+                if (recs) frameRecords.push(...recs);
+            }
+        });
         if (!records.length && !frameRecords.length) return false;
         // One gesture, one op: objects only, frames only, or both as one `deleteMany`.
         if (!frameRecords.length) this.doc.pushUndo({ op: "eraseMany", records });

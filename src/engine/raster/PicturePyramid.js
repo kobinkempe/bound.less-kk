@@ -60,19 +60,23 @@ const hasOffscreen = () => typeof OffscreenCanvas !== "undefined" && typeof Imag
  * at rest the level plan's own-level plates are drawn scaled onto the rest grid, so `base` takes them as stand-ins.
  */
 class PlanBudget {
-    constructor(scaledCap, levelScaled = false) { this.scaledCap = scaledCap; this.levelScaled = levelScaled; this.own = new Set(); this.scaled = new Set(); }
+    constructor(scaledCap, levelScaled = false) {
+        this.scaledCap = scaledCap; this.levelScaled = levelScaled; this.own = new Set(); this.scaled = new Set(); this.refused = false;
+    }
     keep(r) { this.own.add(r); }
     /** A level plate of the view's own level (or its mapped twin): own-grid, or a stand-in at rest. */
     base(r) { if (this.levelScaled) return this.take([r]); this.own.add(r); return true; }
     take(recs) {
         let add = 0;
         for (const r of recs) if (!this.own.has(r) && !this.scaled.has(r)) add++;
-        if (this.scaled.size + add > this.scaledCap) return false;
+        if (this.scaled.size + add > this.scaledCap) { this.refused = true; return false; }
         for (const r of recs) if (!this.own.has(r)) this.scaled.add(r);
         return true;
     }
     room() { return this.scaledCap - this.scaled.size; }
-    get images() { return this.own.size + this.scaled.size; }
+    /** A trial copy: plan into it, then `adopt` it or drop it. */
+    fork() { const b = new PlanBudget(this.scaledCap, this.levelScaled); b.own = new Set(this.own); b.scaled = new Set(this.scaled); return b; }
+    adopt(b) { this.own = b.own; this.scaled = b.scaled; }
 }
 
 export default class PicturePyramid {
@@ -327,17 +331,28 @@ export default class PicturePyramid {
     }
 
     /**
-     * Level ℓ's cells of frame F, in two passes so the budget moves excess cells to coarser, shared sources (A3 §1.5):
-     * every cell's plan without children first, then (c) — all 2^S × 2^S children exact — as an upgrade of the cells
-     * not already sharp while the budget takes them: paper first, then older, then blurred, each nearest the attention point first.
+     * Level ℓ's cells of frame F, so the budget moves excess cells to coarser, shared sources (A3 §1.5): every cell's
+     * plan without children; if that refused a stand-in (the budget binds), each cell not drawn sharp from its own grid
+     * reserves its coarsest exact source first and the cells are planned again nearest the attention point first, so
+     * the far ones fall to the shared coarse plates, not paper. Then (c) — all 2^S × 2^S children exact — upgrades the
+     * cells not already sharp while the budget takes them: paper first, then older, then blurred, each nearest first.
      */
     _planCells(v, F, l, list, B) {
-        const cells = list.map(({ i, j }) => { const c = { i, j, draws: [] }; this._planCell(v, F, l, i, j, B, c.draws); return c; });
         const a = this._attn || [this.wDev / 2, this.hDev / 2];
         const gx = (a[0] - v.dx) / v.s + v.ox, gy = (a[1] - v.dy) / v.s + v.oy, f = PLATE_PX * (v.Zq / zOf(l, v.S));
+        const dist = (c) => ((c.i + 0.5) * f - gx) ** 2 + ((c.j + 0.5) * f - gy) ** 2;
+        const planAll = (L, b) => L.map(({ i, j }) => { const c = { i, j, draws: [] }; this._planCell(v, F, l, i, j, b, c.draws); return c; });
+        const T = B.fork();
+        let cells = planAll(list, T);
+        if (!T.refused) B.adopt(T);
+        else {
+            const near = list.slice().sort((p, q) => dist(p) - dist(q));
+            for (const c of near) { const r = this._coarsest(v, F, l, c.i, c.j, B); if (r) B.take([r]); }
+            cells = planAll(near, B);
+        }
         const need = (c) => (c.draws.some((d) => !d.rec) ? 0 : c.draws.some((d) => d.cls === "older") ? 1 : 2);
         const up = cells.filter((c) => !(c.draws.length === 1 && c.draws[0].cls === "sharp"))
-            .map((c) => ({ c, r: need(c), d: ((c.i + 0.5) * f - gx) ** 2 + ((c.j + 0.5) * f - gy) ** 2 })).sort((p, q) => p.r - q.r || p.d - q.d);
+            .map((c) => ({ c, r: need(c), d: dist(c) })).sort((p, q) => p.r - q.r || p.d - q.d);
         const n = 1 << v.S, Zk = zOf(l + 1, v.S);
         for (const { c } of up) {
             if (n * n > B.room()) break;
@@ -345,6 +360,24 @@ export default class PicturePyramid {
             if (kids && B.take(kids)) c.draws = kids.map((k) => draw(k, WHOLE, gBox(Zk, k.i, k.j, v.Zq), "sharp", true));
         }
         return cells;
+    }
+
+    /** The coarsest exact source within N levels of a cell not drawn sharp from its own grid (the most shared), or null. */
+    _coarsest(v, F, l, i, j, B) {
+        const st = this.store, S = v.S, N = Math.ceil(8 / S);
+        if (!B.levelScaled) {
+            const own = st.get(levelKey(F, l, S, i, j));
+            if ((own && st.exact(own)) || this._mapped(F, l, S, i, j)) return null;
+        }
+        let best = null;
+        for (let k = 1; k <= N; k++) {
+            const c = coarser(this.lm, S, F, l, i, j, k);
+            if (!c) break;
+            if (typeof c.i !== "number") continue;
+            const r = st.get(levelKey(c.frame, c.level, S, c.i, c.j));
+            if (r && st.exact(r) && this._sub(F, l, i, j, c, S)) best = r;
+        }
+        return best;
     }
 
     /** (c): all 2^S × 2^S children of the cell, one level finer, exact; or null. */

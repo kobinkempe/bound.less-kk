@@ -21,9 +21,9 @@ describe("stuck marks", () => {
         E.loadDrawing(raw); raw = null;
         E._scheduleBake = () => {};   // ticked by hand below
         const describeMarks = () => E._eraseStrokes().map((r) => {
-            const t = E._nextEraseTarget(r);
+            const t = E._headOf(r);
             return { id: r.obj.id, level: String(r.level).slice(-14), z: r.obj.z, type: r.obj.type,
-                done: (E._bakeDone.get(r.obj.id) || new Set()).size,
+                targets: (r.obj.targets || []).length,
                 next: t ? `${t.obj.id}@${String(t.level).slice(-14)} z=${t.obj.z != null ? t.obj.z : t.obj.id}` : null };
         });
         // PROFILE: the parts of one cut on the biggest targets under the oldest mark.
@@ -57,13 +57,13 @@ describe("stuck marks", () => {
             }
         }
         const marks0 = describeMarks();
-        const candidates = E._eraseStrokes().map((r) => ({ id: r.obj.id, under: E._candidatesUnder(r).list.length }));
+        const candidates = E._eraseStrokes().map((r) => ({ id: r.obj.id, under: (r.obj.targets || []).length }));
         const log = [];
         let ticks = 0, totalMs = 0;
         const seenTargets = new Map();
         const bakes = [];   // every single-object bake: ms, the target's size, the path taken
-        const origBake = E._bakeOne.bind(E);
-        E._bakeOne = (Erec, target, opts) => {
+        const origBake = E._dispatchPair.bind(E);
+        E._dispatchPair = (Erec, target, opts) => {
             const o = target.obj;
             const pieces = o.loops ? o.loops.reduce((n, L) => n + L.length, 0) : (o.pts ? o.pts.length : 0);
             const deeper = E.lm.depthOf(target.level) < E.lm.depthOf(Erec.level);
@@ -76,7 +76,7 @@ describe("stuck marks", () => {
         for (; ticks < maxTicks; ticks++) {
             const marks = E._eraseStrokes();
             if (!marks.length) break;
-            for (const r of marks) { const t = E._nextEraseTarget(r); if (t) { const k = r.obj.id + "->" + t.obj.id; seenTargets.set(k, (seenTargets.get(k) || 0) + 1); } }
+            for (const r of marks) { const t = E._headOf(r); if (t) { const k = r.obj.id + "->" + t.obj.id; seenTargets.set(k, (seenTargets.get(k) || 0) + 1); } }
             const t0 = Date.now();
             E._bakeTick();
             const ms = Date.now() - t0; totalMs += ms;

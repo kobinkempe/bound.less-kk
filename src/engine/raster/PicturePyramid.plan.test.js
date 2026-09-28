@@ -392,6 +392,19 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect(Math.max(...kid)).toBeLessThanOrEqual(Math.min(...not));
     });
 
+    test("a binding budget reserves the shared coarsest plate first: the far cells blur, none is paper", () => {
+        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: cells (0..3, 0..2), none cached
+        const v = t.pyr._v;
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) { t.put(levelCell(F, 3, S, i >> 1, j >> 1), 0); t.put(levelCell(F, 2, S, i >> 2, j >> 2), 0); }
+        planeOf(t, F, 16, COMPOSE_IMAGES - 3);                                 // three stand-ins for four ℓ 3 plates and one ℓ 2
+        const P0 = t.pyr.compose();
+        const lv = (c) => c.draws[0].rec && c.draws[0].rec.level;
+        expect([P0.scaled, paperCells(P0)]).toEqual([3, 0]);                  // cell order alone left two cells paper
+        expect(P0.cells.filter((c) => lv(c) === 3).length).toBeGreaterThanOrEqual(4);
+        expect(P0.cells.filter((c) => lv(c) === 2).length).toBeGreaterThan(0);
+    });
+
     test("children cover a cell with no other source before they sharpen a blurred one nearer the attention point", () => {
         const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
         t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: cells (0..3, 0..2)

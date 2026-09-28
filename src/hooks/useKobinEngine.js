@@ -88,6 +88,7 @@ const SNAPSHOT_MIN_BYTES = 64 * 1024;
 const DEFAULT_STATUS = {
     level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0,
     canUndo: false, canRedo: false,
+    erase: { marks: 0, finishing: false },   // pending marks; a gesture waiting on their cuts (the title's chip)
 };
 
 /** The page's status updates at most this often; the scale HUD follows the zoom on its own (`engine.onZoom`). */
@@ -544,7 +545,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             logBytes.clear(); snapBytes.clear(); markSeq.clear(); carried = [];
             for (const [fid, f] of Object.entries(res.frames)) snapBytes.set(fid, f.geo.byteLength);
             log.replaying = true;
-            try { log.replay(res.entries, frameSeq, frameIds); } finally { log.replaying = false; }
+            try { engine.stage.batch(() => log.replay(res.entries, frameSeq, frameIds)); } finally { log.replaying = false; }   // one commit (PLAN §5.7)
             engine._eraseLoaded();   // after the replay, so a mark from before `targets` registers once and is logged (A2 §4.9)
             noteEntries(res.entries, frameSeq);
             for (const mid of [...markSeq.keys()]) if (!engine.doc.getById(mid)) markSeq.delete(mid);

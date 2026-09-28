@@ -8,7 +8,7 @@
  *  (c) a frame selection's drag first finishes a mark homed under the frame (B4);
  *  (d) through the erase pool: a gesture is parked, visibly, until its cuts land; a new press cancels it.
  */
-import { useEngines, mkEngine, drawStroke, eraseGesture } from "./__testkit__/harness";
+import { useEngines, mkEngine, eraseGesture } from "./__testkit__/harness";
 import { lcg } from "./__testkit__/rasterLists";
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";

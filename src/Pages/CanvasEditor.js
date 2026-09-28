@@ -18,6 +18,7 @@ import useUser from "../cloud/useUser";
 import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, isDevBuild } from "../cloud/canvasSync";
 import { CanvasSession, editorFromHook } from "../cloud/canvasSession";
 import { SyncStatus, SyncBanner, showsNotice, useNarrow, useBannerClearance } from "../Components/editor/SyncChip";
+import { EraseChip } from "../Components/editor/EraseChip";
 import { validateScaleDef, setScaleUnits, MIN_DRAG_PX } from "../engine/scaleBar";
 import { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
 import ScaleHud from "../Components/editor/ScaleHud";
@@ -819,6 +820,7 @@ export default function CanvasEditor() {
                         </button>
                     )}
                     <SyncStatus sync={sync} signedIn={!!user} deviceName={deviceName} compact={narrow} />
+                    <EraseChip erase={engine.status.erase} compact={narrow} />
                 </div>
             </div>
 
