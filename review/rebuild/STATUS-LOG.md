@@ -1035,3 +1035,14 @@ B-PYRAMID-2's `PicturePyramid.plan`/`PyramidStore.property`, in progress), load 
 **Decisions made:** undo/redo batched here; `deleteSelection`, the no-plane drag step and replay are proposed (not my files).
 **Questions asked:** in the report.
 WHERE I AM: done.
+
+## 2026-09-28 19:42 UTC — orchestrator (Fable) — the B-SCENE review landed (159f228); two agents run
+**Working on:** the B-SCENE review's fixes committed with PLAN §5.7 (its report answered: the batching major's three
+remaining wrappers to B-ERASE now; the post-paint sampler to B-PYRAMID-2; row 5's survivors to B-MODEL-C1's lint list;
+`job.ids`/`_renderPending` to B-PYRAMID-2). Its measurements replace B-SCENE-2's: zoom-out paper 36.6 vs 49.8 ms
+post-paint (not 9,784 vs 821); erase bake 36.0 vs 34.8 s; undo exact 70 vs 69 ms. B-PYRAMID-2 told its P1 files are
+free. Running: B-ERASE (its new tests), B-PYRAMID-2 (P0). One slot free until B-ERASE reports (B-MODEL-C1's oracle
+copy must be of the tree after B-ERASE).
+**Measured:** the reviewer's quick suite 2,158 pass, 12 skipped, 5 fail (B-PYRAMID-2's in-progress suites), load 1.35 → 5.06.
+**Decisions made:** PLAN §5.7 items 1–5.
+**Questions asked:** none.
