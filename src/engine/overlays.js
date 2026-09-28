@@ -488,8 +488,8 @@ class Overlays {
      * back out, which is the second derivation §2.7 FC2 exists to forbid.
      *
      * WHERE THE GEOMETRY COMES FROM. The pieces the renderer is drawing —
-     * `_lastList`, the tile store's content for the active frame plus the
-     * frame's own natives — never the document's objects. That is a design
+     * the Stage's items (`stage.placed`), the tiles' pieces for the active
+     * frame plus the frame's own natives — never the document's objects. That is a design
      * rule (Kobin, 2026-09-03: "a core design principle is we never reference
      * the original object"), and it is also what makes the indicator sound at
      * depth: a level-0 shape seen seven levels down has radii the browser
