@@ -388,7 +388,7 @@ export default class Stage {
      * A plate stored, or a job begun, for this cell: from now every commit whose footprint meets `box`
      * (the cell in `frameId`'s units, grown by a device pixel) moves its `dirtySince`. `sinceG`, when
      * older than the current G, is the G the plate's picture was read at: the commits after it are
-     * looked up in the dirt log (a list packed before a change, `cfg.scene` off).
+     * looked up in the dirt log (a snapshot read before a change, A2 §3.3).
      */
     track(key, frameId, box, sinceG) {
         const F = String(frameId);

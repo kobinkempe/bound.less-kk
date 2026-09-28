@@ -763,22 +763,15 @@ class ErasePipeline {
         this._scheduleBake(0);
     }
     /**
-     * One render within ERASE_RENDER_MS for a bake's steps: a pending mark's cuts change no pixel
-     * until it is spent or passes a target it left whole (F90), and a render per landed cut or per
-     * slice was most of a bake's main thread on a big drawing (REVIEWER E-2). A spent mark renders now.
+     * One render within ERASE_RENDER_MS for a bake's steps: a render per landed cut or per slice was
+     * most of a bake's main thread on a big drawing (REVIEWER E-2). A spent mark renders now. On the
+     * raster path a cut under its mark has already staled only its band (PLAN §5.3 A2-Q2).
      */
     _renderSoon() {
         if (this._renderSoonTimer != null) return;
         this._renderSoonTimer = setTimeout(() => {
             this._renderSoonTimer = null;
-            if (this._destroyed) return;
-            // Only neutral events since the last render (cuts and steps under the mark, F90/F109): no pixel
-            // changed, so the list waits for the next render; a camera step makes one (`panBy`,
-            // `_eraseListStale`). ~50 renders
-            // a Magnum Opus bake at 120–220 ms each (TESTER 2026-09-24).
-            const st = this.stage.stats, at = this._evAtRender;
-            if (this.raster && at && st.events - at[0] === st.neutral - at[1]) { this._renderPending = true; this._eraseListStale = true; return; }
-            this._render();
+            if (!this._destroyed) this._render();
         }, ERASE_RENDER_MS);
     }
     /** The cut in the worker, run here now for a barrier that cannot wait for it; its late answer is ignored. */

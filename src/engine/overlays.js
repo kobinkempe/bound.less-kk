@@ -668,8 +668,8 @@ class Overlays {
      * `_selectionAnts` for the key.
      */
     _selDecide(s, table) {
-        // The scene's items are what is drawn; the decision is remade per render, as the render's list is.
-        const list = this._lastList || [];
+        // The scene's items are what is drawn; the decision is remade when the table's G moves.
+        const G = this.stage.generation;
         const items = this.stage.items();
         const F = this.cam.frame, sc = this.cam.inScale;
         const O = this.renderer._origin();
@@ -677,14 +677,14 @@ class Overlays {
         const c = this._selDec;
         // During a drag the decision made on its first event stands for the
         // whole drag (see `_selectionAnts`); otherwise it is still good while
-        // the same list, selection, document, frame and origin stand, the view
+        // the same G, selection, document, frame and origin stand, the view
         // is inside the retained window, and the zoom has not drifted past
         // SEL_REDECIDE_DRIFT from the scale it was decided at — between
         // decisions the ants ride a compositor transform, so the band and the
         // dashes are a little off their screen size until the next.
         const drag = this._dragSel || null;
         if (c && drag && c.drag === drag && c.sel === s && c.frame === F) return c;
-        if (c && !drag && !c.drag && c.list === list && c.sel === s && c.rev === this.doc.rev && c.frame === F && c.origin === O
+        if (c && !drag && !c.drag && c.G === G && c.sel === s && c.rev === this.doc.rev && c.frame === F && c.origin === O
             && sc / c.scale <= SEL_REDECIDE_DRIFT && c.scale / sc <= SEL_REDECIDE_DRIFT
             && vp.left >= c.win.left && vp.right <= c.win.right && vp.top >= c.win.top && vp.bottom <= c.win.bottom) return c;
 
@@ -814,10 +814,10 @@ class Overlays {
         }
 
         this._selDecSeq = (this._selDecSeq || 0) + 1;
-        this._selDec = { key: this._selDecSeq, list, sel: s, rev: this.doc.rev, frame: F, origin: O, win,
+        this._selDec = { key: this._selDecSeq, G, sel: s, rev: this.doc.rev, frame: F, origin: O, win,
             scale: sc, runs, marks, inkPx, pieces,
-            // The pointer the decided geometry belongs to: the drag's start when the drag builds no
-            // list (the plane, PAPER-PLAN §10 S4 — `_lastList` is the one from before the drag).
+            // The pointer the decided geometry belongs to: the drag's start when the plane draws the
+            // drag (PAPER-PLAN §10 S4: the Stage holds the table as it was when the drag began).
             drag, dragAt: drag ? (drag.listAt ? [drag.listAt[0], drag.listAt[1]] : drag.last ? [drag.last[0], drag.last[1]] : [drag.start[0], drag.start[1]]) : null };
         return this._selDec;
     }

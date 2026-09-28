@@ -118,9 +118,6 @@ const DEFAULTS = {
     // Input frames (A3 §5): "raf" moves the camera per event and steps the picture once an animation
     // frame (the page's engine); "sync" steps per call, as the suites and the one-off engines expect.
     frames: "sync",
-    // What plates are packed from (A2 §6.2): the Stage's items (true) or the render list, stamped
-    // with the G it was built at (false). `?scene=0|1` in the app.
-    scene: false,
     // The Dev levers (A3 §8, `devLevers.js`), a desktop's values; a phone's replace them at construction.
     // Stored only until B-PYRAMID's pyramid and store read them (PLAN §1.2).
     ...leverDefaults(false),
@@ -142,14 +139,12 @@ export default class KobinEngine {
      *        teardown path nothing tests.
      * @param {"raf"|"sync"} [opts.frames] "raf": camera and drag input step the picture once an
      *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
-     * @param {boolean|null} [opts.scene] `cfg.scene` over its default: plates packed from the Stage
      * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
      *        this device's stored ones), over this device's defaults
      */
-    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null, scene = null } = {}) {
+    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null } = {}) {
         this.cfg = { ...DEFAULTS, ...leverDefaults(isPhoneBudget()), ...cleanLevers(levers) };
         if (frames === "raf" || frames === "sync") this.cfg.frames = frames;
-        if (scene != null) this.cfg.scene = !!scene;
         this.onStatus = onStatus || (() => {});
         this.width = width || window.innerWidth;
         this.height = height || window.innerHeight;
@@ -204,12 +199,10 @@ export default class KobinEngine {
         if (this.raster) {
             this.plates = new PlateStore({ fresh: this.stage });
             this.renderer = new RasterRenderer(container, this.cam, this.cfg, {
-                width: this.width, height: this.height, store: this.plates, stage: this.stage, scene: this.cfg.scene,
+                width: this.width, height: this.height, store: this.plates, stage: this.stage,
                 frameSeq: () => ++this._frameSeq,
                 notePerf: (op, t0, extra) => this.notePerf(op, t0, extra),
             });
-            // A list packs a stroke between its pen-up and its shape landing; the Stage's items do not.
-            this.stage.packsPending = !this.cfg.scene;
             // A commit's hard drops (A2 §3.4): a frame whose id now means another place, another document.
             this.stage.onCommit((G, info) => {
                 if (info.reset) { this.plates.dropAll(false); this.renderer.dropCarry(); return; }
@@ -285,7 +278,6 @@ export default class KobinEngine {
             return !done || !whole || !whole.size ? done || null : { has: (x) => done.has(x) && !whole.has(x) };
         };
         this.renderer.onPlaneAimed = () => this._maybeLadder();
-        this.renderer.listForPlane = (frame, rect, budgetMs) => this.listFor(frame, rect, false, budgetMs);
         // A settle's carry takes natives across a cell edge (DESIGN.md §8); out of a selected frame they stay selected.
         this.doc.subscribeOps((ev) => { if (ev.kind === "settle" && ev.rec && ev.rec.carries && ev.rec.carries.length) this._followCarries(ev.frame, ev.rec.carries); });
         // Back from a hidden tab (the store released its plates): one render re-asks the view's
@@ -788,22 +780,18 @@ export default class KobinEngine {
         if (this._destroyed) return;
         const t0 = perfNow();
         this._renderPending = false;   // a deferred bake render is satisfied by any render (`_stepShapeBakes`)
-        this._eraseListStale = false;
-        this._evAtRender = [this.stage.stats.events, this.stage.stats.neutral];   // `_renderSoon`'s skip
-        // The camera changed frame: what it left may go (F94) — before the list, whose memos count frames.
+        // The camera changed frame: what it left may go (F94) — before the table, whose memos count frames.
         if (noteCameraFrame(this)) collectFrames(this, true);
-        // RASTER (§8.1): the list build is ENGINE work, so the frame's perf row opens HERE and
-        // `RasterRenderer.render` finds it open — `eng.list` is inside `mainMs`, and the ENGINE
-        // bucket is not read as cull + pack with its largest phase missing (D233, D241).
+        // RASTER (§8.1): the table's sync is ENGINE work, so the frame's perf row opens HERE and
+        // `RasterRenderer.render` finds it open — `eng.list` is inside `mainMs` (D233, D241).
         const ras = this.raster ? this.renderer : null;
         if (ras) ras.beginRender();
         const tList = perfNow();
-        // The list holds every commit up to G0 (a read that commits mid-build only makes it conservative).
-        const G0 = this.stage.generation;
-        this._lastList = this._buildList();
+        // The raster path packs the Stage's items and builds no list (A2 §6.2 S3); the SVG path draws `listFor`'s.
+        if (!ras) this._lastList = this._buildList();
         this.stage.sync(this.cam.frame, this._listWin(), Infinity);
-        if (ras) ras.noteList(perfNow() - tList);
-        this.renderer.render(this._lastList, this.cam.frame, G0);
+        if (ras) { this._lastList = this.stage.items(); ras.noteList(perfNow() - tList); }
+        this.renderer.render(this._lastList, this.cam.frame);
         this.renderer.update();
         this._emit();
         this._perf("render", t0, false, { n: this._lastList.length, fat: this.renderer._hasFat });
@@ -817,16 +805,26 @@ export default class KobinEngine {
     }
     // True if the visible tile set changed since the last full render.
     /**
-     * The window the camera's list reads. On the plates path it is grown by one plate of the
-     * coarsest quantum packed from that list (the preview's, and the plane's quick level): a plate
-     * reaching past the squares the list read was rastered without that ink and cached as fresh —
-     * a white band up to a plate wide (REVIEWER-4 P-1).
+     * The window the camera's table (and the SVG path's list) reads. On the plates path it is grown
+     * by one plate of the coarsest quantum packed from it (the preview's, and the plane's quick
+     * level): a plate reaching past the squares the table read would be rastered without that ink
+     * (REVIEWER-4 P-1); `covers` refuses it now, and this margin keeps it from being refused.
      */
     _listWin() {
         const win = this.cam.frameWindow(0);
         if (!this.raster || !this.renderer.listMargin) return win;
         const m = this.renderer.listMargin(this.cam.inScale);
         return { left: win.left - m, top: win.top - m, right: win.right + m, bottom: win.bottom + m };
+    }
+    /**
+     * The raster path's camera step (A2 §2.11): the table synced to the window — a window change
+     * reads and drops tiles, and nothing is rebuilt — then the renderer's step. A crossing renders.
+     */
+    _tableStep(crossed) {
+        if (crossed) { this._render(); return; }
+        this.stage.sync(this.cam.frame, this._listWin(), Infinity);
+        this._lastList = this.stage.items();
+        this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
     }
     _visibleChanged() {
         const r = this.lm.tileRange(this.cam.frame, this._listWin());
@@ -891,26 +889,29 @@ export default class KobinEngine {
     }
     /** A pan's consequences: once a call, or once a frame in "raf". */
     _panStep(crossed, t0) {
-        // needsWindowChop: the view has left the inner half of the scene's
-        // window, so the pieces chopped to it must be rebuilt on a fresh one
-        // before its edge could come on screen (F40). A pan into another cell renders: the list
-        // is in the old frame's units (REVIEWER-3 CAM-1); so does a list a bake left stale
-        // (`_eraseListStale`): a plate packed from it would miss the cuts.
-        if (crossed || this._eraseListStale || this._visibleChanged() || this.renderer.needsReorigin()
-            || this.renderer.needsWindowChop()) this._render();
+        // SVG: needsWindowChop — the view has left the inner half of the scene's window, so the
+        // pieces chopped to it must be rebuilt on a fresh one before its edge could come on screen
+        // (F40). A pan into another cell renders: the list is in the old frame's units (REVIEWER-3 CAM-1).
+        if (this.raster) this._tableStep(crossed);
+        else if (crossed || this._visibleChanged() || this.renderer.needsReorigin() || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf("pan", t0);
         this._noteFast("panStep", perfNow() - t0);
         this._maybeLadder();
     }
     zoomAt(sx, sy, deltaY) { this.zoomFactorAt(sx, sy, Math.pow(2, -deltaY / 1000)); }
-    pinchUpdate(mx, my, factor, dx, dy) { this.cam.panBy(dx, dy); this.zoomFactorAt(mx, my, factor); }
-    zoomFactorAt(sx, sy, factor) {
+    /** A pinch: its pan's cell change is the step's as much as the zoom's crossing is. */
+    pinchUpdate(mx, my, factor, dx, dy) {
+        if (this._destroyed) return;
+        this._zoomBy(mx, my, factor, this.cam.panBy(dx, dy));
+    }
+    zoomFactorAt(sx, sy, factor) { this._zoomBy(sx, sy, factor, false); }
+    _zoomBy(sx, sy, factor, crossedBefore) {
         if (this._destroyed) return;
         const t0 = perfNow();
         this._lastCamMove = t0;          // `_camBusy` — keep bake slices off this frame
         this.frameMeter.poke();
-        const crossed = this.cam.zoomFactorAt(sx, sy, factor);
+        const crossed = this.cam.zoomFactorAt(sx, sy, factor) || !!crossedBefore;
         if (this.cfg.frames === "raf") { const fr = this._pend(); fr.zoom = true; fr.crossed = fr.crossed || crossed; return; }
         this._zoomStep(crossed, t0);
     }
@@ -923,10 +924,9 @@ export default class KobinEngine {
         // needsWindowChop: a zoom in past the window's budget, or a zoom out
         // that has outgrown its inner half (F40).
         //
-        // §5.1's promotion table is these five predicates and nothing else: on the raster path
-        // `needsReorigin`, `needsWindowChop` and `needsFadeFlip` are false in the renderer
-        // (D193, D201) and the other two are unchanged, so both paths read one list here.
-        if (crossed || this._eraseListStale || this._visibleChanged() || this.renderer.needsFatFlip()
+        // These are the SVG path's promotions; the raster path's step is the table's (`_tableStep`).
+        if (this.raster) this._tableStep(crossed);
+        else if (crossed || this._visibleChanged() || this.renderer.needsFatFlip()
             || this.renderer.needsFadeFlip() || this.renderer.needsReorigin() || this.renderer.needsWindowChop()) this._render();
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
@@ -1057,13 +1057,14 @@ export default class KobinEngine {
             const tL = perfNow();
             const budget = this.ladderRungBudgetMs != null ? this.ladderRungBudgetMs : (this.plates.phone ? LADDER_RUNG_BUDGET_PHONE_MS : LADDER_RUNG_BUDGET_MS);
             this.store.warmReads = true;              // kept by `framesLeft` through the zoom (F83)
-            let list;
+            let snap;
             const slice = this.ladderSliceMs != null ? this.ladderSliceMs : (this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
-            try { list = this.listFor(aim.frame, this.renderer.plateCover(t, aim.win, LADDER_DQ), false, slice); } finally { this.store.warmReads = false; }
-            this._perf("ladder", tL, false, { frame: aim.frame, k, n: list ? list.length : -1, cross: step.cross });
+            try { snap = this.stage.snapshot(aim.frame, this.renderer.plateCover(t, aim.win, LADDER_DQ), slice); } finally { this.store.warmReads = false; }
+            const n = snap ? snap.items().length : -1;
+            this._perf("ladder", tL, false, { frame: aim.frame, k, n, cross: step.cross });
             // A cold rung is baked a slice at a time, one idle hop each (a whole one was 2.4–4.1 s at
             // depth 9); a rung that has not finished in LADDER_RUNG_TRIES hops ends this view's ladder.
-            if (!list) {
+            if (!snap) {
                 const tries = (this._ladderTries && this._ladderTries.key === key && this._ladderTries.k === k) ? this._ladderTries.n + 1 : 1;
                 this._ladderTries = { key, k, n: tries };
                 if (tries >= LADDER_RUNG_TRIES) { this._ladderCap = { key, k: k - 1 }; return 0; }
@@ -1073,8 +1074,8 @@ export default class KobinEngine {
             }
             if (perfNow() - tL > budget) this._ladderCap = { key, k };
             const tP = perfNow();
-            posted = this.renderer.ladderPlates(t, aim.win, list);
-            this._perf("ladderPost", tP, false, { k, n: list.length, posted });
+            posted = this.renderer.ladderPlates(t, aim.win, snap);
+            this._perf("ladderPost", tP, false, { k, n, posted });
         }
         if (k + 1 < rungs && !(this._ladderCap && this._ladderCap.key === key)) {
             this._ladderBusy = true;
@@ -1125,15 +1126,19 @@ export default class KobinEngine {
             if (!win) return;
             const tP = perfNow();
             this.store.warmReads = true;
-            let list;
-            try { list = this.listFor(t.id, this.raster && this.renderer.plateCover ? this.renderer.plateCover(t, win, PREVIEW_QUANTA) : win); } finally { this.store.warmReads = false; }
-            this._perf("prebake", tP, false, { frame: t.id, dir: t.dir, n: list.length });
+            // The raster path reads the target through the Stage (A2 §2.13); the SVG path warms its tiles through `listFor`.
+            let snap = null, n = 0;
+            try {
+                if (this.raster) { snap = this.stage.snapshot(t.id, this.renderer.plateCover(t, win, PREVIEW_QUANTA), Infinity); n = snap ? snap.items().length : 0; }
+                else n = this.listFor(t.id, win).length;
+            } finally { this.store.warmReads = false; }
+            this._perf("prebake", tP, false, { frame: t.id, dir: t.dir, n });
             // The plates are the renderer's half: the quantum, the range and the post are plate
             // facts, and `{ pin: "none" }` is what keeps them off the visible screen's pins.
-            if (this.raster && this.plates && this.renderer.prebakePlates) {
+            if (snap && this.plates) {
                 const tQ = perfNow();
-                this.renderer.prebakePlates(t, win, list);
-                this._perf("prebakePost", tQ, false, { n: list.length });
+                this.renderer.prebakePlates(t, win, snap);
+                this._perf("prebakePost", tQ, false, { n });
             }
         });
     }

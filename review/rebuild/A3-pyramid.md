@@ -452,6 +452,18 @@ price union items by rows.
 alone (`createImageBitmap(imageData, x0, y0, w, h)`), so a patch transfers `w·h·4` bytes, not 1 MiB.
 `npm run build:worker` after it.
 
+*Corrected by the review of B-FOUNDATION (2026-09-28):* the 960 of 960 above does not hold for union families.
+Stroke bands crossing a clip's top row differed inside the clip in 30 of 799 clips (79 bytes; one level on opaque
+paper, up to four on transparent paper after the un-premultiply), 4 of 120 through band splits and 1 of 960 on
+this section's own mixed lists. Two causes: the clip's top row reverses the load order of union edges that start
+above it, so two tied crossings (collinear edges of abutting rings, opposite directions) sort the other way and
+`emitRuns` ends and restarts a run at that x, a −w then +w into one float32 cell that does not cancel exactly;
+and the union edge stored x at its band's top, so a crossing's float depended on where the band began (25.6 % of
+crossings moved by an ulp). The fix, in `rasterCore.js`: every crossing at one x is applied before the winding is
+read, and each union edge keeps its own start (`x = x0 + (ys − y0)·dxdy`). With both, 0 of 799, 0 of 120 and 0 of
+960; it moved 21 bytes of 10 of the suite's 24 golden whole plates by one level. The test is
+`rasterCore.clip.test.js` (four seeds) and `rasterCore.clip.slow.test.js` (60 seeds).
+
 ### 3.2 Landing the patch in an immutable plate
 
 | option | how | memory | cost per patch | verdict |
