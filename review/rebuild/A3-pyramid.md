@@ -218,7 +218,7 @@ planned source's colour, and repeats it with a translucent family split across t
 
 *Corrected when B-PYRAMID-1 built it (2026-09-28), each forced by a red test:* (1) step (c) is planned as an
 upgrade — every cell is planned without children first, then the cells not already sharp take their 2^S × 2^S
-exact children nearest the attention point first while the budget has room; in cell order the children took the
+exact children — paper cells first, then older, then blurred (the review, 2026-09-28), each nearest the attention point first — while the budget has room; in cell order the children took the
 whole budget and later cells fell to paper while a coarser plate that would have served them was cached. (2) Rest
 mode: the rest grid at an arbitrary Z never aligns with a level grid, so the compose draws the level plan under the
 rest cells that have no rest plate, then every rest cell that has one over it — exact 1:1; stale, the patch rule

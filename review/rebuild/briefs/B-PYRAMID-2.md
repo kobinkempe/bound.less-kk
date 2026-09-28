@@ -68,10 +68,12 @@ mechanism runs beside the new one — except between P1 and P5 below, where the 
    the queue carry what is pending; `flushBakes` and the harness read the queue's report.
 3. **`job.ids` off the wire** once `stage.cover.test.js` reads the Stage (it does since 1cac470: check, then remove).
 4. **The harness prints the load average** (`uptime`'s three numbers) at the start and end of every run.
-5. **The zoom-out paper regression**: the B-SCENE reviewer measured paper 9,784 ms (Stage path) against 821 ms (list
-   path) on scenario 1 and is finding the cause (a `covers` refusal after crossings was the suspect); its finding is
-   in its status entries and PLAN §5.x. Take its fix as given, or, if the cause is in `PictureLayer`'s planning, note
-   that the pyramid's plan replaces it and measure that the number is gone (§6).
+5. **The zoom-out paper "regression" was the sampler** (PLAN §5.6 item 8): the harness's rAF-only sampler charges the
+   share read before the engine's frame across a whole long frame and spreads 2–9 s between runs of one tree; a
+   post-paint sampler gives 36.6 ms (the Stage landing) against 49.8 ms (the list path) on scenario 1, with no
+   `covers` or dirt refusals in seven runs. Fold the B-SCENE reviewer's post-paint sampler (`scratchpad/rv2/bcp.js`,
+   its `harness-paint.py` patch) into `browser-check.js` for the old path; the new path reports the pyramid's own
+   integrals; every number says which sampler produced it.
 6. **B-FOUNDATION's Q8**: today's drag compose reaches 33 images (the cliff). The compose's image count includes
    the plane's layers; when base + plane exceed `COMPOSE_IMAGES` the plan goes through the surface (A3 §6:
    `_planeBelow` keeps the base under the plane out of the count). Measured in scenario 4: max images ≤ 30, or
@@ -83,10 +85,17 @@ mechanism runs beside the new one — except between P1 and P5 below, where the 
   now, never older, blur limited to what changed — `olderMs` is 0 in every scenario, a non-zero value is a bug;
   4 five drag layers and the pre-render stay; 5 partial re-render first; 6 the SVG renderer only for
   comparison and export (B-PYRAMID-3 finishes that).
-- **The surface rule:** PLAN §5.5 Q3 — the literal rule leaves an 84-cell screen no stand-ins; the B-PYRAMID-1
-  review decides the rule with that constructed screen. Its decision is in PLAN §5.x when you start; if it is not
-  yet there, build with the literal rule behind one constant and change the constant when the answer lands.
-- **The one-view plan cap** stays (B-PYRAMID-1's pin bound), checked by that review against the phone screen.
+- **The surface rule and the pin bound are decided** (PLAN §5.6 items 1–3, from the B-PYRAMID-1 review): stand-ins
+  counted apart from own plates, `cap = COMPOSE_IMAGES − plane.images`, `_ownCount` gone, rest mode's scaled ℓv
+  plates counted as stand-ins (M1); the one-view record cap gone, pinned ≤ own-grid records
+  (≤ `max(viewPlates(σmin·2^−h), viewPlates(1))`) + 30 stand-ins + the plane cap, the budget floor that sum, the
+  phone's ceiling `max(96 MiB, the floor)` (M2, Q3). Stand-ins stay inside the surface (Q2). This is your P0.
+- **The plane's constants** `MOVE_PLANE_PLATES` / `MOVE_PLANE_PLATES_PHONE` move to `raster/level.js` beside
+  `VIEW_PLATES_MAX`, `MovePlane` re-exporting them until ported (PLAN §5.6 item 6) — P3's first edit.
+- **Two notes from that review** (PLAN §5.6 item 7): a stale rest cell's cover must also search the mapped frame
+  (after a crossing the frame just left holds the fresh picture; scenario 1's `olderMs` would show it); `_aim`'s
+  arrival estimate counts in-flight jobs although `pump` dispatches only to a free slot — settle it from the real
+  dispatch when you adopt the queue.
 - **The plane's identity** is A3 §6's: `F │ P<Zp> │ <tag> │ i,j` with G, Zp the rest Z when aimed at rest, the view
   level's Z otherwise; coarser plane levels `Zp / 2^k`, the quick level `Zp / 4`. D1: only the SEL runs are cut
   against the view grown by one view each way. H4: never both — SEL is drawn translated only where the start
@@ -111,9 +120,15 @@ mechanism runs beside the new one — except between P1 and P5 below, where the 
 ## 5. Order of work, with checkpoints
 
 Each checkpoint: a STATUS-LOG entry under 25 lines ending `WHERE I AM: <the next concrete edit>`; the orchestrator
-snapshot-commits the tree at P1, P3 and P5. If your context is past two thirds at P5, stop there with the entry
+snapshot-commits the tree at P0, P1, P3 and P5. If your context is past two thirds at P5, stop there with the entry
 and the report; a successor does P6 from the tree and the log.
 
+- **P0 — the plan's caps (PLAN §5.6 M1, M2).** In `PicturePyramid.js`/`PyramidStore.js`: the stand-in cap
+  `COMPOSE_IMAGES − plane.images` with own plates counted apart, `_ownCount` deleted, rest mode's scaled ℓv plates as
+  stand-ins; the one-view record cap deleted and `viewUnit` replaced by the pinned bound above; the floor and the
+  phone ceiling. The reviewer's four constructed screens (`scratchpad/rv/bc/src/engine/raster/PicturePyramid.review.test.js`,
+  read it first) move into `PicturePyramid.plan.test.js`; the three tests that pin the old caps are rewritten to the
+  new rules; each rule a break-check. The six pyramid suites green before P1.
 - **P1 — wired under the flag.** §2's constructor, `pack`, `measure`, `_takeResult`, the frame step, the prefetch
   at idle, `setSize`, the engine's extra frame, `onCommit`, `setLevers` → the store's budget. `?pyramid=1` draws
   the app through the pyramid; `?pyramid=0` is unchanged. The levers take effect live (A3 §8: a step change drops

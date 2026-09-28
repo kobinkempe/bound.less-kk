@@ -961,3 +961,15 @@ one tree is 2–9 s. Nothing for B-PYRAMID-2's budgeted read to fix here; the co
 **Questions asked:** none.
 WHERE I AM: harness scenarios 7 (erase) and 6 (undo) with stage stats (`batch3.sh`), then the suites for my edits, the
 batch-cost experiment (`rv2/exp-batch.cjs`), typecheck, lint, the quick suite, the end entry.
+
+## 2026-09-28 19:20 UTC — reviewer (B-PYRAMID-1 review) — end: two majors proposed, three minors fixed
+**Working on:** done. Edited: `raster/PyramidStore.js` (a hard drop refuses by job, so an overtaken job is refused too),
+`raster/PicturePyramid.js` (children upgrade paper → older → blur), their tests (+1 each), `prefetch.test.js` (frozen clock),
+A3 §1.4's dated note (the order). Constructed cases on the copy: `scratchpad/rv/bc/src/engine/raster/PicturePyramid.review.test.js`.
+**Measured:** six suites 52/52 (typecheck 0, lint 0 errors / 6 warnings). The four constructed screens: 4 red shipped, 4 green
+with `cap = 30 − plane` (3 old plan tests red: they pin the caps). Four softCanvas suites: 70/75 — raster.mask 4 red
+(`_flushErasesFor`/`_nextEraseTarget` not functions: B-ERASE mid-edit), raster.move L3 red since the 19:15 snapshot (green on my
+19:00 copy; the diff is in Stage.js, erasePipeline.js, selection.js, RasterRenderer.js — none of mine). prefetchPlan 0.09 ms a plan.
+**Decisions made:** majors M1 (own plates counted against the stand-in cap) and M2 (the one-view record cap) proposed, not applied.
+**Questions asked:** adopt M1+M2's fix; stand-ins on the ink canvas after the blit (measure first); the phone floor over its
+ceiling; MOVE_PLANE_PLATES to level.js. WHERE I AM: done.

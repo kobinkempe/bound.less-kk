@@ -489,3 +489,45 @@ by one pixel, the group commit's G rule and re-targeting, calibration fed by the
 job id, the queue caps, smoothing on) are accepted subject to the review; the one-view plan cap is
 checked there against a phone screen whose stand-ins come from two levels (least-sure item 4). Its
 open-items list (every line the shared files need) is B-PYRAMID-2's brief.
+
+### 5.6 To the B-PYRAMID-1 review (its report of 2026-09-28) and the B-SCENE review's zoom-out verdict
+
+The review found the plan's two caps wrong against decision 2 and PLAN §1.2's lookup order (paper or an older
+picture shown while a fresh source is cached), with four constructed screens as evidence (4 of 4 red on the
+shipped plan; 4 of 4 green with the fix), and fixed three minors (a hard drop now refuses by job, so a job a
+newer one overtook is refused too; children upgrade paper → older → blur, nearest first within each; the far
+prefetch test on a frozen clock). Its edits are committed with this section.
+
+1. **M1 adopted**: stand-ins are counted apart from own plates, `cap = COMPOSE_IMAGES − plane.images`;
+   `_ownCount` goes; in rest mode the level plan's ℓv plates are drawn scaled and count as stand-ins. The
+   measurement behind it: at 34 bitmaps a 1:1 draw costs about a quarter of a scaled one (A3 E6 6.3 vs 26.3 ms;
+   the review's E6b 6.6 vs 21.9 ms, headless), so the limit of 30 belongs to scaled images. This is the surface
+   rule §5.5 Q3 left to the review; A3 §1.5's "scaled ≤ 30 − own" is corrected.
+2. **M2 adopted**: the one-view record cap goes; the pinned bound counts what the plan draws — pinned ≤ own-grid
+   records (≤ `max(viewPlates(σmin·2^−h), viewPlates(1))`) + 30 stand-ins + the plane cap — and the budget floor
+   is that sum. A3 §4.5's "pinned ≤ 80" becomes this sum.
+3. **Both land in B-PYRAMID-2 as its first step** (its brief, §2 P0): the four constructed cases move into
+   `PicturePyramid.plan.test.js`, the three tests that pin the old caps are rewritten, each rule a break-check.
+4. **Q2 no change now**: stand-ins stay inside the surface. Whether they are cheaper on the ink canvas after the
+   blit is a compositor question headless cannot price (Kobin's tab: 4 scaled + 32 1:1 at 37 ms on one canvas);
+   it goes on the list for his Chrome at the end.
+5. **Q3 yes**: the phone's ceiling becomes `max(96 MiB, the floor)` so the lever range is never empty; the floor
+   is 99 MiB on a 390×844@3 phone. Pins are never evicted whatever the ceiling, so this changes a reported
+   number, not memory; `overCapPinned` stays the counter, and the phone's pinned high-water mark is measured by
+   B-PYRAMID-2 (a jsdom count at that screen; the harness's phone viewport if it has one).
+6. **Q4 yes**: `MOVE_PLANE_PLATES` and `MOVE_PLANE_PLATES_PHONE` move to `raster/level.js` beside
+   `VIEW_PLATES_MAX`, `MovePlane` re-exporting them until it is ported (B-PYRAMID-2 P3's first edit).
+7. **Notes carried to B-PYRAMID-2**: a stale rest cell's cover searches only its own frame's levels, so after a
+   crossing the frame just left can hold the fresh picture while the cell shows stale — scenario 1's `olderMs`
+   must be 0, so the cover extends to the mapped frame (A3 §1.4's step (b)) for rest cells too; `_aim`'s arrival
+   estimate adds the in-flight count although `pump` dispatches only to a free slot — settled from
+   `rasterWorkerClient`'s real dispatch; `raster.move` L3 (a held path released past `LIVE_HOLD_MS`) is red on the
+   tree since the 19:15 snapshot because the B-SCENE reviewer applied §5.4 Q2 (no limit on a pending path) — the
+   reviewer rewrites L3 to the new rule.
+8. **The B-SCENE review's zoom-out verdict** (its 19:17 entry): B-SCENE-2's 9,784 vs 821 ms was the harness's
+   rAF-only sampler, which charges the share read before the engine's frame across the whole long frame and
+   spreads 2–9 s between runs of one tree; a post-paint sampler on the same runs gives 36.6 ms (the landing)
+   against 49.8 ms (the list path); no `covers` or dirt refusal occurred in seven runs. Not a defect; nothing for
+   the budgeted read to fix. §5.4's ask 5 is closed. B-PYRAMID-2's harness step uses the post-paint sampler (the
+   reviewer's `rv2/bcp.js` patch, folded into `browser-check.js`) for the old path and the pyramid's own
+   integral for the new one, and says which produced each number.
