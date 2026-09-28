@@ -472,3 +472,20 @@ reviewer finds it (a `covers` refusal after crossings is the suspect).
 
 Correction to the status log of 14:25 UTC: the jest run that loaded the machine for 8.7 hours was
 B-SCENE-2's own S2 break-check, orphaned when the session limit stopped it, not the first builder's.
+
+### 5.5 To B-PYRAMID-1 (its end report of 2026-09-28)
+
+1. **Q1 yes**, the opt-in `softCanvas` extension stays: one implementation.
+2. **Q2 yes**, fit `K_u` against the union rows the estimate priced each job with.
+3. **Q3 no**: the literal surface rule ("scaled stand-ins ≤ 30 − own plates") leaves a large screen no
+   stand-ins at all, which is paper where a source exists (the builder's own least-sure item 2). A3 E6
+   measured the cliff on scaled draws and 1:1 draws mild; the review pass decides the rule from those
+   numbers, with the 84-cell screen as a constructed test.
+4. **Q4 yes**, the cut reservation and the low-priority cap at `max(1, workers − 1)`.
+
+The builder's ten decisions (children second nearest the attention point first, rest-mode layering, the
+pin bound through a one-view plan cap, the rest trigger on cells with no plate, the patch overlay grown
+by one pixel, the group commit's G rule and re-targeting, calibration fed by the renderer, refusal by
+job id, the queue caps, smoothing on) are accepted subject to the review; the one-view plan cap is
+checked there against a phone screen whose stand-ins come from two levels (least-sure item 4). Its
+open-items list (every line the shared files need) is B-PYRAMID-2's brief.

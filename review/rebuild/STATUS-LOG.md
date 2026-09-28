@@ -850,3 +850,15 @@ MovePlane's port publishes the plane shape and pins (move MOVE_PLANE_PLATES out 
 `isPhoneBudget`, `COMPOSE_IMAGES`, `STRIPS_PER_WORKER` are duplicated until the old files go.
 **Questions asked:** as in the start entry (softCanvas opt-in; K_u against the estimate's own U; the literal surface rule at ≥ 30 own
 plates), plus: keep `max(1, workers − 1)` for the cut reservation? Recommend yes. WHERE I AM: done.
+
+## 2026-09-28 17:30 UTC — orchestrator (Fable) — B-PYRAMID-1 landed (877ba07); its review launched
+**Working on:** B-PYRAMID-1's four modules and six suites committed; its review pass launched on the new
+files only (`opus-reviewer`), with the surface rule and the one-view plan cap as the two items to decide
+with constructed screens. Three agents run: the B-SCENE reviewer, B-ERASE, the B-PYRAMID-1 reviewer.
+B-PYRAMID-2 starts when the B-SCENE reviewer ends (they share the renderer's files) and takes the
+B-PYRAMID-1 report's open-items list as its brief, plus the B-SCENE reviewer's zoom-out finding.
+**Measured:** B-PYRAMID-1's own (jsdom): 10,000+ exactness checks, 100,000 sampled pixels equal to their
+planned source, the undo byte-equal inline and never older coarse-first, the GPU merge equal to
+`pastePatch` in 13 of 13; 95 break-checks, 95 red.
+**Decisions made:** PLAN §5.5.
+**Questions asked:** none.
