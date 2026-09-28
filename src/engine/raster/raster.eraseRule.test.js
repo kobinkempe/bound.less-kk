@@ -287,6 +287,23 @@ describe("row 3 (d) deterministic cases", () => {
         expect(look()).toEqual([PAPER, PAPER, BLUE]);
     });
 
+    test("a fill drawn over one pending mark and under a second shows over the first: the two marks do not share a slot (A2 §5.2)", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const T = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(30,30,200)", opacity: 1, polys: [[[200, 250], [600, 250], [600, 350], [200, 350]]] }, "0");
+        E._render();
+        eraseGesture(E, [[330, 200], [330, 400]], 40);                           // M1: x 290..370
+        const Y = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(200,30,30)", opacity: 1, polys: [[[300, 280], [500, 280], [500, 320], [300, 320]]] }, "0");
+        eraseGesture(E, [[470, 200], [470, 400]], 40);                           // M2: x 430..510, over T and Y
+        const [M1, M2] = E._eraseStrokes().map((m) => m.obj);
+        expect(M1.targets).toEqual([T.id]); expect(M2.targets).toEqual([T.id, Y.id]);
+        const px = pixels(job(E));
+        expect(at(px, 330, 300)).toEqual([200, 30, 30]);                         // Y over M1: shown
+        expect(at(px, 330, 265)).toEqual([255, 255, 255]);                       // T under M1: hidden
+        expect(at(px, 470, 300)).toEqual([255, 255, 255]);                       // both under M2: hidden
+        expect(at(px, 400, 300)).toEqual([200, 30, 30]);
+    });
+
     test("a refusal over ink shows the target's ink under the mark again; an inkless one dirties nothing (A2 §5.7)", () => {
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
