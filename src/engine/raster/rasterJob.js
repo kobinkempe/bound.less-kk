@@ -1,7 +1,8 @@
 /**
  * rasterJob.js — the wire between the main thread and a raster worker: the typed-array
  * layouts of RASTERISER-PLAN §3.3 (the job) and §3.4 (the result), the buffer pool the job's
- * arrays come from, and the staleness rule the epochs exist for (§5.4, D25).
+ * arrays come from, and the one generation `G` a job is packed at and its result carries
+ * (A2-scene.md §3.1: the plate store judges freshness by it).
  *
  * Everything crosses as typed arrays and every one of them is in the transfer list — an
  * ImageBitmap is serializable as well as transferable, so leaving one out silently copies
@@ -57,7 +58,7 @@ export const GUARD_NAMES = ["xsGrown", "unionSplits", "unionRefills", "fullClear
  * 4 integers a plate, [x0, y0, x1, y1] plate-local and half-open, the part of each plate to render
  * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole.
  */
-const JOB_ARRAYS = ["epochs", "plates", "paper", "meta", "attr", "rgb", "subs", "geom", "ids", "clips"];
+const JOB_ARRAYS = ["plates", "paper", "meta", "attr", "rgb", "subs", "geom", "ids", "clips"];
 
 const BYTES = (a) => (a ? a.byteLength : 0);
 
@@ -118,7 +119,7 @@ export function wireJob(job) {
     validateJob(job);
     const msg = {
         kind: "raster-job",
-        jobId: job.jobId, frameSeq: job.frameSeq, postedAt: job.postedAt,
+        jobId: job.jobId, frameSeq: job.frameSeq, postedAt: job.postedAt, G: job.G,
         q: job.q, Zq: job.Zq, plateW: job.plateW != null ? job.plateW : PLATE_PX,
         nItems: job.nItems,
     };
@@ -134,7 +135,7 @@ export function wireJob(job) {
 /** The job the worker reads, from the message it received. The arrays are the same bytes. */
 export function unwireJob(msg) {
     const job = {
-        jobId: msg.jobId, frameSeq: msg.frameSeq, postedAt: msg.postedAt,
+        jobId: msg.jobId, frameSeq: msg.frameSeq, postedAt: msg.postedAt, G: msg.G,
         q: msg.q, Zq: msg.Zq, plateW: msg.plateW, nItems: msg.nItems,
     };
     for (const k of JOB_ARRAYS) job[k] = msg[k];
@@ -156,9 +157,6 @@ export function validateJob(job) {
     if (job.rgb.length < n * RGB_BYTES) throw new Error("rasterJob: rgb is short");
     if (job.ids && job.ids.length < n) throw new Error("rasterJob: ids is short");
     if (job.plates.length % 2) throw new Error("rasterJob: plates is not [i, j, …]");
-    if (job.epochs && job.epochs.length * 2 !== job.plates.length) {
-        throw new Error("rasterJob: one epoch per plate (§5.4)");
-    }
     if (job.clips) {
         if (job.clips.length !== job.plates.length * 2) throw new Error("rasterJob: one clip, 4 numbers, per plate");
         for (let p = 0; p < job.clips.length; p += 4) {
@@ -201,17 +199,16 @@ export function validateJob(job) {
 export function wireResult(res) {
     const msg = {
         kind: "raster-result",
-        jobId: res.jobId, frameSeq: res.frameSeq,
-        plates: res.plates, epochs: res.epochs, clips: res.clips || null,
+        jobId: res.jobId, frameSeq: res.frameSeq, G: res.G,
+        plates: res.plates, clips: res.clips || null,
         bitmaps: res.bitmaps || null, pixels: res.pixels || null,
-        idOff: res.idOff, idSet: res.idSet,
         timings: res.timings, counts: res.counts, guards: res.guards,
         recycled: res.recycled || [],
         serialiseMs: res.serialiseMs || 0,
     };
     const transfer = [];
     const push = (x) => { if (x && transfer.indexOf(x) < 0) transfer.push(x); };
-    for (const k of ["plates", "epochs", "clips", "idOff", "idSet", "timings", "counts", "guards"]) {
+    for (const k of ["plates", "clips", "timings", "counts", "guards"]) {
         if (msg[k] && msg[k].buffer) push(msg[k].buffer);
     }
     if (msg.bitmaps) for (const b of msg.bitmaps) if (b) push(b);
@@ -223,30 +220,13 @@ export function wireResult(res) {
 /** The result the main thread reads. */
 export function unwireResult(msg) {
     return {
-        jobId: msg.jobId, frameSeq: msg.frameSeq,
-        plates: msg.plates, epochs: msg.epochs, clips: msg.clips || null,
+        jobId: msg.jobId, frameSeq: msg.frameSeq, G: msg.G,
+        plates: msg.plates, clips: msg.clips || null,
         bitmaps: msg.bitmaps, pixels: msg.pixels,
-        idOff: msg.idOff, idSet: msg.idSet,
         timings: msg.timings, counts: msg.counts, guards: msg.guards,
         recycled: msg.recycled || [],
         serialiseMs: msg.serialiseMs || 0,
     };
-}
-
-/**
- * Which plates of an arrived result are stale, by the epoch the store holds for each key now
- * (§5.4, D25): a plate posted before a document change and arrived after it must be discarded
- * and re-posted, because the event that should have dropped it has already been consumed.
- * `epochOf(i, j)` returns the store's current epoch for that plate.
- * @returns {{ stale: number[], why: string } | null}
- */
-export function resultStale(res, epochOf) {
-    const stale = [];
-    for (let p = 0; p * 2 < res.plates.length; p++) {
-        const i = res.plates[p * 2], j = res.plates[p * 2 + 1];
-        if (res.epochs[p] !== epochOf(i, j)) stale.push(p);
-    }
-    return stale.length ? { stale, why: "epoch" } : null;
 }
 
 /**
@@ -283,8 +263,7 @@ export function jobBytes(job) {
 
 /** The result's bytes, counting a plate's pixels at its clip's w·h·4 (PLATE_PX² × 4 whole) whichever path carried them. */
 export function resultBytes(res) {
-    let n = BYTES(res.idOff) + BYTES(res.idSet) + BYTES(res.timings) + BYTES(res.counts) + BYTES(res.guards)
-        + BYTES(res.plates) + BYTES(res.epochs) + BYTES(res.clips);
+    let n = BYTES(res.timings) + BYTES(res.counts) + BYTES(res.guards) + BYTES(res.plates) + BYTES(res.clips);
     const c = res.clips;
     const px = (p) => (c ? (c[p * 4 + 2] - c[p * 4]) * (c[p * 4 + 3] - c[p * 4 + 1]) * 4 : PLATE_PX * PLATE_PX * 4);
     if (res.pixels) res.pixels.forEach((p, k) => { if (p) n += p.byteLength != null ? p.byteLength : px(k); });

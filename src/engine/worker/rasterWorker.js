@@ -17,13 +17,12 @@
  *  - THE TIMINGS PARTITION THE WORKER'S TIME. Σ recvToStartMs + Σ startToFinishMs + serialiseMs
  *    is receipt-to-post, the tail after the last plate included, so the client's queueing
  *    subtraction cannot hide a phase in a gap.
- *  - AN EMPTY PLATE IS NEVER ALLOCATED (§3.4): its bitmap (or pixel block) is null and its id
- *    run is empty. The caller paints paper over that rectangle rather than leaving what was
- *    there — a null is "nothing is drawn here", never "keep the old plate" (§6.2). **Empty means
- *    no item survived the PRUNE**, which is a box test, not a count of painted pixels: a plate
- *    every item reaches and none paints still allocates. That is the safe direction — the id set
- *    stays a superset, so an invalidation drops too much rather than too little (D177). A clipped
- *    plate (`job.clips`, A3 §3.1) is its clip's rectangle alone, and its null is paper over the clip.
+ *  - AN EMPTY PLATE IS NEVER ALLOCATED (§3.4): its bitmap (or pixel block) is null. The caller
+ *    paints paper over that rectangle rather than leaving what was there — a null is "nothing is
+ *    drawn here", never "keep the old plate" (§6.2). **Empty means no item survived the PRUNE**,
+ *    a box test, not a count of painted pixels (D177). A clipped plate (`job.clips`, A3 §3.1) is
+ *    its clip's rectangle alone, and its null is paper over the clip. The result carries the
+ *    job's generation `G` back unchanged (A2 §3.1).
  *  - THE GUARDS ARE THE JOB'S, RESET WHEN IT IS TAKEN (§3.4). `nonFinite`, `fullClears`,
  *    `arcClamped` and `arcOverTurn` are the only evidence that a record was refused; a wire
  *    that drops them makes that invisible in the report as well as in the picture.
@@ -37,7 +36,7 @@ import {
     unwireJob, wireResult, copyPlate,
     TIMINGS_PER_PLATE, COUNTS_PER_PLATE, GUARDS_PER_JOB, GUARD_NAMES,
 } from "../raster/rasterJob";
-import { renderPlate, coreStats, drawnFlags, TW, TH } from "../raster/rasterCore";
+import { renderPlate, coreStats, TW, TH } from "../raster/rasterCore";
 
 /** The one plate of scratch this worker ever holds (§3.5): 1.05 MB, allocated once. */
 const RGBA = new Uint8ClampedArray(TW * TH * 4);
@@ -50,24 +49,6 @@ const CLOCK = typeof performance !== "undefined" ? performance : Date;
 /** Zero the core's counters: this job's guards are its own (§3.4). */
 function resetGuards() {
     for (const k of GUARD_NAMES) coreStats[k] = 0;
-}
-
-/**
- * The plate's painted-id set, built from the core's OWN prune flags (`drawnFlags`, D163): every
- * item that survived the prune, ascending and without repeats, which is what `PlateStore`
- * binary-searches (D84). Derived pieces of one object share an id, so the set is usually shorter
- * than `counts[itemsDrawn]`. Call it straight after `renderPlate` — the flags are that plate's.
- */
-function idsForPlate(job) {
-    const n = job.nItems | 0;
-    const drawn = drawnFlags();
-    const out = [];
-    for (let it = 0; it < n; it++) if (drawn[it]) out.push(job.ids[it]);
-    out.sort((u, v) => u - v);
-    let w = 0;
-    for (let k = 0; k < out.length; k++) if (k === 0 || out[k] !== out[k - 1]) out[w++] = out[k];
-    out.length = w;
-    return out;
 }
 
 /**
@@ -90,13 +71,11 @@ export async function runJob(msg, opts) {
     const nPlates = job.plates.length / 2;
     const timings = new Float64Array(TIMINGS_PER_PLATE * nPlates);
     const counts = new Uint32Array(COUNTS_PER_PLATE * nPlates);
-    const idOff = new Uint32Array(nPlates);
     const useBitmap = o.bitmaps != null
         ? !!o.bitmaps
         : (typeof createImageBitmap === "function" && typeof ImageData === "function");
     const bitmaps = useBitmap ? new Array(nPlates).fill(null) : null;
     const pixels = useBitmap ? null : new Array(nPlates).fill(null);
-    const ids = [];
     let serialiseMs = 0;
 
     for (let p = 0; p < nPlates; p++) {
@@ -109,11 +88,8 @@ export async function runJob(msg, opts) {
         const t1 = clock.now();
         timings[p * TIMINGS_PER_PLATE + 1] = t1 - t0;
 
-        idOff[p] = ids.length;
         const drawn = counts[p * COUNTS_PER_PLATE + 1];
         if (drawn > 0) {
-            const set = idsForPlate(job);
-            for (let k = 0; k < set.length; k++) ids.push(set[k]);
             // Serialised here and not after the loop: the next plate overwrites RGBA (§3.5).
             if (useBitmap) {
                 const img = new ImageData(RGBA, TW, TH);
@@ -132,14 +108,13 @@ export async function runJob(msg, opts) {
     for (const k of RECYCLE) if (job[k] && job[k].buffer) recycled.push(job[k]);
 
     const out = wireResult({
-        jobId: job.jobId, frameSeq: job.frameSeq,
-        plates: job.plates, epochs: job.epochs, clips: job.clips || null,
+        jobId: job.jobId, frameSeq: job.frameSeq, G: job.G,
+        plates: job.plates, clips: job.clips || null,
         bitmaps, pixels,
-        idOff, idSet: Int32Array.from(ids),
         timings, counts, guards,
         recycled, serialiseMs,
     });
-    // The tail — the guards, the id set and the transfer list — is serialisation too. Leaving it
+    // The tail — the guards and the transfer list — is serialisation too. Leaving it
     // out would leave a phase in no bucket, and the main thread's subtraction would report it as
     // queueing (§8.2). With it the three phases partition receipt-to-post; W2 asserts that.
     out.msg.serialiseMs = serialiseMs + (clock.now() - mark);

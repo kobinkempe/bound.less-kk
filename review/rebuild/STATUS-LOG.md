@@ -505,3 +505,12 @@ spine frame, so natives under it load undrawn) goes to B-MODEL-C1's brief as a f
 task; B-FOUNDATION's Q1 (keep A3's band start) is the reviewer's to decide; Q8 (the drag plane counted in
 the image budget) goes to B-PYRAMID's brief.
 **Questions asked:** none.
+
+## 2026-09-28 04:50 UTC — reviewer (B-FOUNDATION review) — start
+**Working on:** the review pass over B-FOUNDATION (0e90872..4e8ce80, its files only) against PLAN §3 rows 6 and 8, the frame
+loop's parity, the HUD, the levers, the harness and F132. Reading the committed diff (`git diff 0e90872 HEAD`), not the
+working tree: B-SCENE is mid-edit in `rasterCore.js`/`rasterJob.js`/`rasterWorker.js` (epochs → G). Files I may edit: the
+four new tests, `rasterCore.clip.test.js` (a union-band case), minors in B-FOUNDATION's own lines, each re-read first.
+**Measured:** nothing yet.
+**Decisions made:** none yet.
+**Questions asked:** none.

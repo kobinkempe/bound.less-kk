@@ -132,13 +132,6 @@ export const accumPrecision = () => (ACC instanceof Float32Array ? "f32" : "f64"
 export const readAcc = (x, y) => ACC[y * ACC_STRIDE + x];
 /** This row's touched-column range, [first, last]; last is never above TW − 1 (R14). */
 export const rowRange = (y) => [ROWMIN[y], ROWMAX[y]];
-/**
- * The prune flags the LAST `renderPlate` filled: `DRAWN[it]` is 1 where item `it`'s box reached
- * that plate. The worker builds the plate's painted-id set from them (§3.4, D84) so the prune
- * rule has one copy. The array is longer than the job's item count and is refilled by the next
- * `renderPlate`, so read it before that call and only below `nItems`.
- */
-export const drawnFlags = () => DRAWN;
 
 // ---------------------------------------------------------------------------
 // The deposit. font-rs's draw_line body: float64, the stride, and the touched range.

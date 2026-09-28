@@ -12,15 +12,15 @@
  *
  * Six things a reader needs in order not to break it:
  *  - THE PACK CALLBACK IS WHERE `PlateStore.beginJob` GOES. It is handed the strip's plates and
- *    the job id, and the job it returns carries the epochs that id was begun with (§3.3). A
- *    strip dropped before it is packed was never begun, and `onDrop` says so with `jobId` null.
+ *    the job id, and the job it returns carries the generation `G` it was packed at (A2 §3.1),
+ *    which its result brings back. A strip dropped before it is packed was never begun, and
+ *    `onDrop` says so with `jobId` null.
  *  - THE endJob CONTRACT (stage 4's handoff, §15.3 Q7): **the caller calls
  *    `PlateStore.endJob(jobId)` for every job id it ever sees, success or failure.** One rule
  *    with no exception, because `put()` already ends a key and a late `endJob` on a clean job
  *    returns 0. This file guarantees it can: every minted id goes to `pack(plates, jobId, pool)`
- *    first, every job that will not deliver plates fires `onDrop` carrying that id, a stale
- *    arrival fires `onDrop` (naming the stale plates) AND `onResult`, and `abandonInFlight`
- *    reports everything still in flight at a teardown. Without the last of those, a teardown
+ *    first, every job that will not deliver plates fires `onDrop` carrying that id, and
+ *    `abandonInFlight` reports everything still in flight at a teardown. Without the last of those, a teardown
  *    leaves those keys in `PlateStore.inflight` for ever, `want` returns them as in-flight
  *    rather than as misses, and the screen keeps a permanent hole with every suite green.
  *  - THE MAIN THREAD OWNS EVERY ABSOLUTE TIME (§8.2). The worker returns durations; `postedAt`
@@ -42,7 +42,7 @@
  *        equal, so both calls stand and both raster. "At most ONE call per `q` per frame" is
  *        **5b's** rule (§10 stage 5b); nothing here can tell a second call from the first.
  *      · **No drop recalls a job already DISPATCHED.** It arrives and is answered normally, and
- *        `abandonInFlight` or the epoch check of §5.4 is what deals with it.
+ *        `abandonInFlight` or the plate store's generation rule is what deals with it.
  *      · **A newer submit at another `q` does not drop a dead quantum's strips** — that is the
  *        per-`q` rule doing its work. The caller drops those itself, `dropQueued(why, deadQ)`
  *        with the dead `q` (§10 stage 5b); `stillWanted`, checked at dispatch, is the safety net
@@ -50,7 +50,7 @@
  */
 
 import {
-    wireJob, unwireResult, resultStale, jobBytes, resultBytes, BufferPool,
+    wireJob, unwireResult, jobBytes, resultBytes, BufferPool,
     GUARD_NAMES, COUNT_NAMES, GUARDS_PER_JOB, COUNTS_PER_PLATE, TIMINGS_PER_PLATE,
 } from "./rasterJob";
 import { runJob } from "../worker/rasterWorker";
@@ -88,7 +88,7 @@ const pool = new BufferPool(8 << 20);
 
 const stats = {
     jobs: 0, plates: 0, failed: 0,
-    dropsBefore: 0, dropsAfter: 0, staleOnArrival: 0,
+    dropsBefore: 0,
     bytesOut: 0, bytesIn: 0,
     workerMs: 0, poolReadyMs: 0,
     // §8.1's two main-thread transfer timers. `postMs` is the wire and the post; `recvMs` is the
@@ -336,7 +336,6 @@ function activeCount() {
  *   onResult(res, info)                     per job, on the main thread
  *   onDrop({ jobId, plates, why, before })  a strip dropped before dispatch, or a job that failed
  *   stillWanted(plates) -> boolean          optional: the store's own answer at dispatch time
- *   epochOf(i, j) -> epoch                  optional: the arrival check of §5.4, D25
  * @returns {number} the strips queued
  */
 export function submitPlates(req) {
@@ -581,7 +580,6 @@ function onMessage(slot, data) {
         queueingMs: wallMs - phases,
         postMs: rec.postMs, recvMs,
         bytesOut: rec.bytesOut, bytesIn: resultBytes(res),
-        stale: rec.req.epochOf ? resultStale(res, rec.req.epochOf) : null,
         inline: !slot && !transport,
     };
     stats.plates += nPlates;
@@ -590,29 +588,8 @@ function onMessage(slot, data) {
     stats.recvMs += recvMs;
     if (res.guards) for (let g = 0; g < GUARDS_PER_JOB; g++) guardTotals[g] += res.guards[g];
     if (res.counts) for (let c = 0; c < res.counts.length; c++) countTotals[c % COUNTS_PER_PLATE] += res.counts[c];
-    if (info.stale) {
-        stats.dropsAfter++;
-        stats.staleOnArrival += info.stale.stale.length;
-        // The drop names WHICH plates are behind; the rest of the job is still good, so
-        // `onResult` fires as well and the caller ends this id once (the header's contract).
-        if (rec.req.onDrop) {
-            rec.req.onDrop({
-                jobId: res.jobId, plates: rec.plates, stale: info.stale.stale,
-                why: info.stale.why, before: false,
-            });
-        }
-    }
     if (rec.req.onResult) rec.req.onResult(res, info);
     pump();
-}
-
-/**
- * Plate `p`'s painted ids out of a result (§3.4): `idOff` holds the run's start and the run ends
- * where the next one begins. One reader, so nobody reads a length as an offset (D36's lesson).
- */
-export function plateIds(res, p) {
-    const end = p + 1 < res.idOff.length ? res.idOff[p + 1] : res.idSet.length;
-    return res.idSet.subarray(res.idOff[p], end);
 }
 
 /**
@@ -621,7 +598,7 @@ export function plateIds(res, p) {
  * composes bitmaps only and counts anything else in `noBitmap`. Returns null where the scope has
  * no `createImageBitmap` (jsdom, and any browser where §6.2's transfer path was never an option);
  * the caller then puts `pixels`, which the store accepts. The record `put` wants is
- * `{ frameId, q, Zq, i, j, epoch, bitmap|pixels, ids }` and is 5b's to build — this file knows the
+ * `{ frameId, q, Zq, i, j, G, bitmap|pixels }` and is the renderer's to build — this file knows the
  * plate indices and the job, not the frame id.
  * @param {Uint8ClampedArray|null} px one plate's RGBA, PLATE_PX² × 4 (`res.pixels[p]`)
  * @returns {Promise<ImageBitmap|null>}
@@ -657,7 +634,7 @@ export function rasterWorkerReport() {
         workers: workers.length, wanted: rasterWorkerCount(), broken, respawns: stats.respawns, silent: stats.silent,
         queued: queue.length, inFlight: inFlight.size, heldSlots: held, liveRequests: current.size,
         jobs: stats.jobs, plates: stats.plates, failed: stats.failed,
-        dropsBefore: stats.dropsBefore, dropsAfter: stats.dropsAfter, staleOnArrival: stats.staleOnArrival,
+        dropsBefore: stats.dropsBefore,
         bytesOut: stats.bytesOut, bytesIn: stats.bytesIn,
         workerMs: stats.workerMs, poolReadyMs: stats.poolReadyMs,
         postMs: stats.postMs, recvMs: stats.recvMs, spawnedLate: stats.spawnedLate,
