@@ -14,6 +14,9 @@ import { rectLoop } from "./geometry/arcShape";
 import { addOffset } from "./geometry/offsets";
 import { plateKey, zqOf } from "./raster/plate";
 import { BASE, ENTER, EXIT, W } from "./frameLattice";
+import { mkEngine, useEngines } from "./__testkit__/harness";
+
+useEngines();
 
 const CFG = { enter: ENTER, base: BASE, exit: EXIT, scale: 1000, arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3,
     cullPx: 0.3, fadeLoPx: 0.15, fatWidthPx: 4000, lineTolPx: 0.25 };
@@ -120,5 +123,30 @@ describe("changesSince (A2 §2.4)", () => {
         const G1 = stage.generation;
         doc.setZById(b.id, -5);                               // paint order moved
         expect(stage.changesSince(G1).changed.map((c) => c.item.id)).toEqual([b.id]);
+    });
+});
+
+describe("bulk changes commit once (A2 §2.5)", () => {
+    test("the undo and the redo of a 40-object delete are one commit each", () => {
+        const E = mkEngine();
+        const ids = [];
+        for (let k = 0; k < 40; k++) {
+            const x = -300 + (k % 8) * 70, y = -200 + Math.floor(k / 8) * 70;
+            const o = { type: "fill", origin: "native", id: E.doc.allocId(), color: "#123", opacity: 1, polys: [[[x, y], [x + 50, y], [x + 50, y + 50], [x, y + 50]]] };
+            E.doc.add(o, "0");
+            ids.push(o.id);
+        }
+        E._render();
+        E._setSelection(ids, []);
+        E.deleteSelection();
+        expect(E.doc.getById(ids[0])).toBeFalsy();
+        let c0 = E.stage.stats.commits;
+        E.undo();                                               // red before: one commit a re-inserted object
+        expect(E.doc.getById(ids[0])).toBeTruthy();
+        expect(E.stage.stats.commits - c0).toBe(1);
+        c0 = E.stage.stats.commits;
+        E.redo();
+        expect(E.doc.getById(ids[0])).toBeFalsy();
+        expect(E.stage.stats.commits - c0).toBe(1);
     });
 });
