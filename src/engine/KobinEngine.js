@@ -181,13 +181,6 @@ export default class KobinEngine {
         this.stage = new Stage({
             doc: this.doc, lm: this.lm, store: this.store, cfg: this.cfg,
             model: createPlacementModel({ doc: this.doc, lm: this.lm, store: this.store }),
-            isNeutral: (ev) => this._neutralOf(ev),
-        });
-        // A spent mark's uncut set goes with it (the neutral tags' bookkeeping, until B-ERASE).
-        this.doc.subscribe((ev) => {
-            if (!this._uncut) return;
-            if (ev.kind === "reset") this._uncut.clear();
-            else if (ev.kind === "remove" && ev.obj && ev.obj.erase) this._uncut.delete(ev.id);
         });
         this.raster = !!raster;
         /** The plate cache, on the raster path only; the Stage is its freshness source (A2 §3.1). */
@@ -234,11 +227,11 @@ export default class KobinEngine {
         // Deferred area erase: committed eraser strokes bake into the ink
         // beneath them one object per idle slice (see "deferred erase baking").
         this._eraseCommits = new Map(); // eraser stroke id -> its eraseCommit undo op
-        this._bakeDone = new Map();     // eraser stroke id -> Set of object ids handled
         this._bakeTimer = null;
         this._bakeDelay = Infinity;
         this._bakeJobs = [];            // pen-up perimeter resolves, stepped in slices
         this._bakeQueued = new Set();   // ids already in _bakeJobs
+        this._initErase();              // the pending marks, their lineage, the reorder buffer (erasePipeline.js)
         this._lastList = []; this._lastRange = null;
         this.perfLog = [];
         this.perfLong = [];
@@ -268,15 +261,10 @@ export default class KobinEngine {
         this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], sceneIndex: null };
         this._initScenes(scenes);
         this.renderer.setSelectionAnts(() => this._selectionAnts());
-        this.renderer.setLasso(() => (this._lasso ? this._lasso.pts : null));
+        this.renderer.setLasso(() => { const L = this._lasso || this._lassoParked; return L ? L.pts : null; });   // a parked lasso stays drawn
         this.renderer.setDragState(() => this._dragState());
         this.renderer.setPlaneState(() => this._planeState());
         this.renderer.onPlaneLost = () => this._planeLost();
-        // What a pending mark no longer masks: what it has handled, less what is still whole (a cut in the worker, a refusal).
-        this.renderer.markDone = (id) => {
-            const done = this._bakeDone.get(id), whole = this._uncut && this._uncut.get(id);
-            return !done || !whole || !whole.size ? done || null : { has: (x) => done.has(x) && !whole.has(x) };
-        };
         this.renderer.onPlaneAimed = () => this._maybeLadder();
         // A settle's carry takes natives across a cell edge (DESIGN.md §8); out of a selected frame they stay selected.
         this.doc.subscribeOps((ev) => { if (ev.kind === "settle" && ev.rec && ev.rec.carries && ev.rec.carries.length) this._followCarries(ev.frame, ev.rec.carries); });
@@ -348,6 +336,7 @@ export default class KobinEngine {
     // — and, since the overlay is what the ants live on, nothing is left
     // animating behind a pen stroke.
     setTool(t) {
+        if (t !== this.tool) this._cancelBarrier();   // a parked gesture goes with its tool (A2 §4.11)
         if (t !== this.tool && t !== "select") this.deselect();
         this.tool = t;
     }
@@ -669,24 +658,6 @@ export default class KobinEngine {
         // The camera's own build is timed by `_render` and charged to `eng.list`.
         if (!forCamera) this._perf("listFor", t0, false, { frame: F, n: list.length, tiles: this.store.size() });
         return list;
-    }
-    /**
-     * The Stage's classifier (A2 §2.8, until B-ERASE): an erase step tagged neutral under its mark is
-     * that mark (its footprint inside the mark's box only, PLAN §5.3 A2-Q2) or `true` (no dirt); a
-     * mark's step that passes a target it left whole uncovers that ink and is not neutral.
-     */
-    _neutralOf(ev) {
-        let neutral = this._pictureNeutral || null;
-        const whole = neutral && ev.kind === "change" && ev.obj && ev.obj.erase && this._uncut ? this._uncut.get(ev.id) : null;
-        if (whole && whole.size) {
-            const zm = this._zOf(ev.obj);
-            for (const id of whole) {
-                const r = this.doc.getById(id);
-                if (!r) whole.delete(id);
-                else if (this._zOf(r.obj) > zm) { neutral = null; whole.delete(id); }
-            }
-        }
-        return neutral;
     }
     // ---- the drag's hold (A2 §2.7: the Stage holds the drag's events until its end) ----
     /** The hold, taken once at `_beginSelectDrag` when the plane draws the drag: the Stage holds its events. */
@@ -1222,6 +1193,9 @@ export default class KobinEngine {
     }
     _pointerDown(sx, sy, ctrl = false) {
         if (this._fr) this.flush();   // a press hit-tests the picture the last move left, in its frame
+        // A new press cancels a parked gesture; a mark still unlanded registers before the pick reads it (A2 §4.11, §4.12).
+        this._cancelBarrier(); this._pressWait = null;
+        if ((this.tool === "select" || this.tool === "erase") && !this.readOnly && this._marksUnlanded()) this.flushBakes();
         // A PRESS WHILE A STROKE IS STILL OPEN means the last pointerup never
         // arrived — the button was released over another window after an
         // alt-tab, the OS swallowed the end of a touch. Until 2026-09-05 the
@@ -1313,6 +1287,7 @@ export default class KobinEngine {
         if (this.tool === "erase") { if (this._erasing) this.eraseAt(sx, sy); return; }
         // "erasePartial" falls through: the eraser trail is this._drawing.
         if (this.tool === "select") {
+            if (this._pressWait) { this._pressWait.last = [sx, sy]; return; }   // a drag parked on its erase barrier: the finger, for its start
             if (this._lasso) {
                 const last = this._lasso.pts[this._lasso.pts.length - 1];
                 if (Math.abs(sx - last[0]) > 1 || Math.abs(sy - last[1]) > 1) {
@@ -1378,6 +1353,7 @@ export default class KobinEngine {
             const P = this._selPress; this._selPress = null;
             if (!P.moved) { this._selectTap(P); return; }
         }
+        if (this._pressWait) { this._pressWait.released = true; return; }   // a parked drag applies whole when its barrier ends
         if (this._lasso) {
             const L = this._lasso; this._lasso = null;
             if (L.moved && L.pts.length >= 3) this._applyLasso(L);
@@ -1490,8 +1466,8 @@ export default class KobinEngine {
     // ---- undo / redo / clear ----
     // A drag in progress is cancelled first: its start snapshots describe the document the undo
     // is about to change (B §1.2, defect 1).
-    undo() { if (this.readOnly) return false; if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.undo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
-    redo() { if (this.readOnly) return false; if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.redo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.undo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.doc.redo())) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
     /** Frame GC over every frame: the saver calls it once a restored store is in (F94). */
     sweepFrames() { return this.readOnly ? 0 : sweepFrames(this); }
     clear() {
@@ -1515,6 +1491,7 @@ export default class KobinEngine {
             lines: false, // per-origin curvature now; no global "line mode" level
             selection: this._selectionStatus(),
             canUndo: this.doc.canUndo(), canRedo: this.doc.canRedo(),
+            erase: this._eraseStatus(),     // pending marks, and a gesture finishing its erase (the editor's chip)
         });
         if (this._zoomSubs && zoom !== this._zoomSeen) { this._zoomSeen = zoom; for (const cb of this._zoomSubs) cb(zoom); }
     }

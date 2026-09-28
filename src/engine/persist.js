@@ -293,6 +293,8 @@ function decodeCrossings(cr) {
     return cr;
 }
 
+const ERASE_FIELDS = ["targets", "targetOf", "handledBy"];
+
 function decodeNatives(n) {
     if (n == null) return { 0: [] };
     if (typeof n !== "object" || Array.isArray(n)) throw new Error("bad natives: expected an object of frames");
@@ -322,6 +324,13 @@ function decodeNatives(n) {
                     && Number.isInteger(t[0]) && t[0] >= 0 && isFiniteNum(t[1]) && isFiniteNum(t[2]))) {
                     throw new Error(`bad object ${o.id}: below (offsets under the home) is malformed`);
                 }
+            }
+            // The erase rule's ids (A2 §4.9): kept leniently — anything but an array of positive
+            // integers is dropped and the object stays; ascending, no duplicates.
+            for (const f of ERASE_FIELDS) {
+                if (o[f] == null) continue;
+                if (Array.isArray(o[f]) && o[f].every((x) => Number.isInteger(x) && x > 0)) o[f] = [...new Set(o[f])].sort((a, b) => a - b);
+                else delete o[f];
             }
             // The object's tile-grid phase (bible D4/6.6) — two numbers inside
             // one frame, which is where a chop and therefore a freeze happens.

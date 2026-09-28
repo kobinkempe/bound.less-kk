@@ -341,17 +341,19 @@ function movesOf(E, sub) {
 function eraseOf(E, sub) {
     const marks = sub("erase.marks", () => E._eraseStrokes()) || [];
     const jobs = E._bakeJobs || [];
-    const inflight = E._cutInflight;
+    const flying = E._cuts ? [...E._cuts.values()].filter((c) => c.state === "flight") : [];
     return {
         pending: marks.length,
         marks: marks.slice(0, 50).map(({ obj, level }) => ({
             id: obj.id, level, z: obj.z != null ? obj.z : obj.id, bakePx: obj.bakePx,
-            done: E._bakeDone && E._bakeDone.get(obj.id) ? E._bakeDone.get(obj.id).size : 0,
+            targets: obj.targets ? obj.targets.length : null,
             committed: !!(E._eraseCommits && E._eraseCommits.get(obj.id)),
             box: boxOf(bboxOf(obj, E._drawing)),
         })),
         bakeJobs: { n: jobs.length, ids: jobs.slice(0, HEAD).map((j) => j.id) },
-        inflight: inflight ? { id: inflight.id, ageMs: Math.round(perfNow() - inflight.t0) } : null,
+        inflight: flying.length ? { n: flying.length, ids: flying.slice(0, HEAD).map((c) => c.id), ageMs: Math.round(perfNow() - Math.min(...flying.map((c) => c.t0))) } : null,
+        buffered: E._cuts ? E._cuts.size - flying.length : 0,
+        barrier: E._barrier ? { kind: E._barrier.kind, rounds: E._barrier.rounds, ms: Math.round(perfNow() - E._barrier.t0) } : null,
         heldMs: E._bakeHeldSince ? Math.round(perfNow() - E._bakeHeldSince) : 0,
         counters: {
             dustCulled: E._dustCulled || 0, boolSeals: E._boolFailures || 0, bakeRepairs: E._bakeRepairs || 0,

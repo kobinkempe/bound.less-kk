@@ -394,7 +394,7 @@ export class SceneClient {
         if (E._drawing || E._dragSel || E._lasso || E._destroyed) return true;
         if (E._panLast || (E._camBusy && E._camBusy())) return true;   // a pan or a zoom (SC-1)
         if (this.waitSince && now() - this.waitSince > MAX_WAIT_MS) return false;
-        if (E._cutInflight) return true;
+        if (E._eraseBusy && E._eraseBusy()) return true;
         if (E.raster) {
             try { const r = rasterWorkerReport(); if (r.queued || r.inFlight) return true; } catch (err) { /* diagnostics only */ }
         }

@@ -20,6 +20,7 @@ import { flattenCurve } from "./geometry/polyline";
 import { insideTester } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
 import { addOffset, sameBelow, snapDisplacement, cloneBelow, sameShift } from "./geometry/offsets";
+import { underMask } from "./eraseRule";
 
 // How close to a selected frame's mark a press counts as pressing the frame.
 const SEL_FRAME_HIT_PX = 8;
@@ -87,25 +88,27 @@ class Selection {
         // A press on a selected frame's mark drags the selection as a press on selected ink does.
         const frameHit = !hitSel && sel && sel.frames.length ? this._frameUnderPoint(P.sx, P.sy) : null;
         if ((hit == null && !frameHit) || P.ctrl || !sel) { startLasso(); return; }
-        if (frameHit) { /* the frame's mark: the selection stands */ }
-        else if (!hitSel) this.select(P.sx, P.sy);
-        else this._flushErasesFor(hit);
-        // The erase barrier has to cover EVERYTHING that is about to move, not
-        // just the piece under the finger. A mark is a native sitting at fixed
-        // coordinates; ink dragged out from under one that has not been applied
-        // yet takes its un-erased shape with it, and the mark stays behind and
-        // cuts whatever has arrived there instead. With several objects
-        // selected, or one object whose family has a re-homed piece at another
-        // level, the single-object flush left exactly that. It also left the
-        // white mark itself on screen, hanging over the object being dragged.
-        this._settleSelectionErases();
-        if (!this.selection) { startLasso(); return; }   // the flush took the object away
-        this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-        // A drag rewrites the same objects on every pointer event; tiles the
-        // camera cannot see are not worth patching that often.
-        this.store.setBatch(true);
-        this._beginHold();                   // PAPER-PLAN R3: the members' plate events wait for `_endMove`
-        this._dragSelection(sx, sy);
+        // The erase barriers first (A2 §4.11): the hit object's when it is not selected, then every
+        // pending pair among what is about to move — ink dragged out from under a mark would carry
+        // its masked shape with it, and a mark moved with its frame its mask off its targets. Parked
+        // while their cuts are in workers: the drag then starts from the press and jumps to the
+        // finger, or applies whole if the pointer was released meanwhile.
+        const press = this._pressWait = { last: null, released: false };
+        const start = () => {
+            if (this._pressWait !== press) return;             // a new press or a pinch cancelled it
+            this._pressWait = null;
+            if (!this.selection) { if (!press.last && !press.released) startLasso(); return; }   // the cuts took the object away
+            this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
+            // A drag rewrites the same objects on every pointer event; tiles the
+            // camera cannot see are not worth patching that often.
+            this.store.setBatch(true);
+            this._beginHold();                   // PAPER-PLAN R3: the members' plate events wait for `_endMove`
+            const at = press.last || [sx, sy];
+            this._dragSelection(at[0], at[1]);
+            if (press.released) this._pointerUp();
+        };
+        const members = () => this._dragBarrier(start);
+        if (!frameHit && !hitSel) this.select(P.sx, P.sy, members); else members();
     }
     /**
      * The second finger of a pinch has landed: forget the select gesture in
@@ -120,6 +123,7 @@ class Selection {
      */
     cancelSelectGesture(commitIfMoved = false) {
         this._selPress = null;
+        this._cancelBarrier(); this._pressWait = null;   // a parked select or drag goes with the gesture
         if (this._lasso) {
             this._lasso = null;
             this.renderer.refreshSelection();
@@ -564,7 +568,14 @@ class Selection {
     //             inside the current selection, which REMOVES instead
     _applyLasso(L) {
         const poly = L.pts.map(([x, y]) => this.cam.screenToFrame(x, y));
-        this._settleLassoErases(poly);       // erase barrier: the marks the loop meets bake out first
+        // The erase barrier first (A2 §4.11, H5): the loop judges the cut-outs, not what was under a mark.
+        const judge = () => {
+            if (this._lassoParked === L) { this._lassoParked = null; this._judgeLasso(L, poly); this.renderer.refreshSelection(); this._emit(); }
+            else this._judgeLasso(L, poly);
+        };
+        if (!this._lassoBarrier(poly, judge)) { this._lassoParked = L; this._barrier.lasso = true; }
+    }
+    _judgeLasso(L, poly) {
         const { ids: found, frames } = this._lassoFind(poly);
         if (!L.ctrl) {
             if (found.length || frames.length) this._setSelection(found, frames); else this.deselect();
@@ -589,21 +600,20 @@ class Selection {
     // ---- selection / edit (US-10) ----
     // Tap-select the topmost object under the point (same hit policy as the
     // object eraser). Selecting through a derived piece selects the NATIVE —
-    // edits apply at its home level and re-derive everywhere.
-    select(sx, sy) {
-        for (let guard = 0; guard < 8; guard++) {
-            const id = this._hitTest(sx, sy);
-            if (id == null) { this.deselect(); return null; }
-            // Erase barrier: anything still pending over this object bakes
-            // NOW — the flush may split it or delete it, so re-hit after.
-            if (this._flushErasesFor(id)) { this._render(); continue; }
-            const rec = this.doc.getById(id);
-            if (!rec) { this.deselect(); return null; }
-            this._setSelection([id]);
-            return id;
-        }
-        this.deselect();
-        return null;
+    // edits apply at its home level and re-derive everywhere. The erase barrier
+    // (A2 §4.11): what is pending over the object's family is cut first and the
+    // selection is its pieces — parked while the cuts are in workers; an object
+    // the cuts took whole is picked again. `after`: run once it is selected.
+    select(sx, sy, after = null, guard = 0) {
+        const id = this._hitTest(sx, sy);
+        if (id == null) { this.deselect(); if (after) after(); return null; }
+        const done = this._tapBarrier(id, (ids) => {
+            if (ids.length) this._setSelection(ids);
+            else if (guard < 8) { this._render(); this.select(sx, sy, after, guard + 1); return; }
+            else this.deselect();
+            if (after) after();
+        });
+        return done && this.selection ? this.selection.id : null;
     }
     deselect() {
         if (!this.selection) return;
@@ -971,6 +981,21 @@ class Selection {
      * REMOVES it, ctrl anywhere else ADDS, and the sign shown has to match.
      */
     hitTestAt(sx, sy) { return this._hitTest(sx, sy); }
+    /** The landed marks whose ink covers frame point `p0`, or null: a pick skips their masked targets there. */
+    _marksAt(items, p0) {
+        if (!this._marks || !this._marks.size) return null;
+        let out = null;
+        for (const it of items) {
+            if (!it.erase || it.pending || !it.nat || it.nat.targets === undefined) continue;
+            const { geom: g, off } = this.stage.placed(it);
+            const p = off[0] || off[1] ? [p0[0] - off[0], p0[1] - off[1]] : p0;
+            const b = bboxOf(g, this.store.live);
+            if (p[0] < b.x0 || p[0] > b.x1 || p[1] < b.y0 || p[1] > b.y1) continue;
+            const inside = g.type === "shape" ? this._shapeHit(g.loops, p, 0, g) : g.type === "fill" ? windingOfPoint(g.polys, p) !== 0 : false;
+            if (inside && !(out || (out = [])).includes(it.nat)) out.push(it.nat);
+        }
+        return out;
+    }
     // `slackPx`: how far past the ink a pick still counts, in screen pixels.
     // Six for every real pick; tests that ask "is this point INSIDE the ink"
     // (a hole a few pixels wide, seen from far above) pass 0.
@@ -979,6 +1004,7 @@ class Selection {
         const p0 = this.cam.screenToFrame(sx, sy);
         const items = this.stage.items();
         const slack = slackPx / this.cam.inScale;
+        const over = this._marksAt(items, p0);
         for (let i = items.length - 1; i >= 0; i--) { // topmost first
             // What the scene draws, and where: a piece shifted by its offset (F41) is hit where it is drawn.
             const { geom: o, off } = this.stage.placed(items[i]);
@@ -1016,10 +1042,11 @@ class Selection {
                 hit = distToPolyline(pts, p) <= o.lwFrame / 2 + slack;
             }
             if (!hit) continue;
-            // Pending eraser ink is invisible to picking — the click falls
-            // through to whatever it covers (select() then flushes its bake).
+            // Pending eraser ink is invisible to picking, and so is a target where its mark hides
+            // it: the click falls through to what shows there (A2 §4.12).
             const nat = this.doc.getById(o.id);
             if (nat && nat.obj.erase) continue;
+            if (over && nat && over.some((M) => underMask(nat.obj, M))) continue;
             if (only && !only(o.id)) continue;
             return o.id;
         }

@@ -77,7 +77,8 @@ export function setOcclusion(on) { OCCLUSION = !!on; }
 /** The cull's own counts (not a wire guard): families left unpainted under a cover, candidate covers that fell short. */
 export const occStats = { occluded: 0, coverMisses: 0 };
 let CORE_KEYS = null, CORE_SNAP = null;
-const MASKS = [];                               // a pending mark's coverage on this plate, by mask index
+const MASKS = [];                               // a pending mark's coverage on this plate, by slot: bytes, coverage × 255 (A2 §4.4)
+const INV255 = 1 / 255;
 let maskLive = 0;                               // the masks filled this plate
 
 /** Counters the perf record reads; a worker resets them per job and returns them as §3.4's `guards`. */
@@ -277,7 +278,7 @@ export function resolveFamily(out, r, g, b, alpha, y0, y1, maskBits = 0) {
             acc += ACC[base + x];
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
-            if (maskBits) c *= M ? 1 - M[row + x] : keepAt(maskBits, row + x);
+            if (maskBits) c *= M ? 1 - M[row + x] * INV255 : keepAt(maskBits, row + x);
             const a = c * alpha;
             if (a <= 0) continue;
             if (a >= 1) {                             // an opaque interior pixel: no read, no multiply
@@ -305,7 +306,7 @@ export function resolveFamily(out, r, g, b, alpha, y0, y1, maskBits = 0) {
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
             for (let x2 = xt; x2 < CX1; x2++, p += 4) {
-                const a = c * alpha * (M ? 1 - M[row + x2] : keepAt(maskBits, row + x2));
+                const a = c * alpha * (M ? 1 - M[row + x2] * INV255 : keepAt(maskBits, row + x2));
                 if (a <= 0) continue;
                 const inv = 1 - a;
                 out[p] = r * a + out[p] * inv;
@@ -412,17 +413,18 @@ function fillsPlate() {
 /** What several masks leave of pixel `i`: Π(1 − mask). */
 function keepAt(bits, i) {
     let keep = 1;
-    for (let k = 0; bits; k++, bits >>>= 1) if (bits & 1) keep *= 1 - MASKS[k][i];
+    for (let k = 0; bits; k++, bits >>>= 1) if (bits & 1) keep *= 1 - MASKS[k][i] * INV255;
     return keep;
 }
 
 /**
- * A pending mark's family resolved into mask `k` instead of onto the plate: its coverage, the max over its
- * items. The plane is a whole plate, written and read inside the clip only.
+ * A pending mark's family resolved into slot `k` instead of onto the plate: its coverage, the max over its
+ * items and over the marks sharing the slot, as bytes (under half an alpha step, A2 §4.4). The plane is a
+ * whole plate, written and read inside the clip only.
  */
 function resolveMask(k, y0, y1) {
     let M = MASKS[k];
-    if (!M) M = MASKS[k] = new Float32Array(TW * TH);
+    if (!M) M = MASKS[k] = new Uint8Array(TW * TH);
     if (!(maskLive & (1 << k))) { M.fill(0); maskLive |= 1 << k; }
     for (let y = y0; y < y1; y++) {
         const xa = ROWMIN[y];
@@ -436,13 +438,15 @@ function resolveMask(k, y0, y1) {
             acc += ACC[base + x];
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
-            if (c > M[row + x]) M[row + x] = c;
+            const v = (c * 255 + 0.5) | 0;
+            if (v > M[row + x]) M[row + x] = v;
         }
         if (xb >= CX1) continue;
         if (acc > TAIL_EPS || acc < -TAIL_EPS) {
             let c = acc < 0 ? -acc : acc;
             if (c > 1) c = 1;
-            for (let x2 = xb > CX0 ? xb : CX0; x2 < CX1; x2++) if (c > M[row + x2]) M[row + x2] = c;
+            const v = (c * 255 + 0.5) | 0;
+            for (let x2 = xb > CX0 ? xb : CX0; x2 < CX1; x2++) if (v > M[row + x2]) M[row + x2] = v;
         }
     }
 }

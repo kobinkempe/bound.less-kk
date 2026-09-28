@@ -862,3 +862,10 @@ planned source, the undo byte-equal inline and never older coarse-first, the GPU
 `pastePatch` in 13 of 13; 95 break-checks, 95 red.
 **Decisions made:** PLAN §5.5.
 **Questions asked:** none.
+
+## 2026-09-28 15:37 UTC (container clock) — reviewer (B-PYRAMID-1 review) — the four modules against PLAN §3 row 1 and A3 §1–§4 — start
+**Working on:** reading `raster/PyramidStore.js`, `PicturePyramid.js`, `jobQueue.js`, `prefetch.js`, their six suites,
+`__testkit__/fakeStage.js` and `softCanvas.js`'s opt-in; the two constructed cases (the 84-cell surface rule, the 390×844@3
+phone under the one-view cap). Files I may edit: those only. Not in the B-SCENE reviewer's or B-ERASE's files.
+**Measured:** nothing yet. **Decisions made:** none yet. **Questions asked:** none.
+WHERE I AM: baseline run of the six suites and the four other softCanvas suites.

@@ -35,6 +35,7 @@ class Files {
         this._mintNamedFrames(snap.natives);
         this._bakeJobs = []; this._bakeQueued.clear();
         this.doc.loadNatives(snap.natives); // reset event clears the tile cache
+        this._eraseLoaded();                // the marks' lineage, and a mark from before `targets` registered (A2 §4.9)
         // a snapshot carries no scenes: the index builds afresh at idle, not from the last document's
         this.docMeta = { ...this.docMeta, scenes: [], sceneIndex: null, sceneSeq: null };
         this.cam.set(snap.camera || { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
@@ -86,8 +87,9 @@ class Files {
         this.cam.set(d.camera);
         this.cam.settle();                  // a file may record an illegal zoom
         this._eraseCommits.clear();
-        this._bakeDone.clear();
-        this._cutInflight = null;   // a worker result for the old document is dropped on arrival
+        // The targets' lineage from the marks' `targets`; a mark from before them registers now, or
+        // after the caller's replay when it renders later (A2 §4.9, `_eraseLoaded`).
+        if (render) this._eraseLoaded(); else this._deriveTargetOf();
         this._scheduleBake(); // resume baking any eraser strokes the file carried
         // The saved scene list shows at once; the index restores from `sceneIndex` at idle (an
         // old file without one is built afresh, keeping the old scenes' ids and names by overlap).

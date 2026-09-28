@@ -38,12 +38,12 @@ export const FLAG_COVERS = 1;
 export const FLAG_ERASE = 2;
 export const FLAG_UNION = 4;
 /**
- * A pending eraser mark: it paints nothing and masks the ink it has not baked (Kobin, 2026-09-23).
- * Its `meta[7]` is its mask's index; every other item's `meta[7]` is the bits of the masks over it.
+ * A pending eraser mark: it paints nothing and masks the items the erase rule names (A2 §4.4).
+ * Its `meta[7]` is its mask slot; every other item's `meta[7]` is the bits of the slots over it.
  */
 export const FLAG_MASK = 8;
-/** Masks one job may carry; a mark past the last shares it. */
-export const MASKS_MAX = 8;
+/** Mask slots one job may carry, marks sharing a slot exactly where they can (`rasterPack.packJob`). */
+export const MASKS_MAX = 16;
 
 /** §8.2, §8.3: what one plate and one job report back. The names are the report's column heads. */
 export const TIMINGS_PER_PLATE = 7;

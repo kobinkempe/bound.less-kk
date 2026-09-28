@@ -50,7 +50,7 @@ export class F64Builder {
 // `Document.serializeNatives` writes, in its order, so the two forms agree field for
 // field. `geo` (kobin-1) puts the geometry right after `id`, where the JSON has it.
 const KNOWN = new Set(["type", "origin", "id", "loops", "polys", "pts", "lwFrame", "color", "opacity",
-    "covers", "w", "z", "editId", "attachRect", "tile", "below", "erase", "bakePx", "g",
+    "covers", "w", "z", "editId", "attachRect", "tile", "below", "erase", "bakePx", "targets", "targetOf", "handledBy", "g",
     "windows", "srcId", "paths"]);   // retired: the first two 2026-08-06, `paths` 2026-09-14; stripped on load
 export function objectHeader(o, geo = null) {
     const h = { type: o.type, origin: o.origin, id: o.id };
@@ -66,6 +66,10 @@ export function objectHeader(o, geo = null) {
     const below = encodeBelow(o.below);
     if (below) h.below = below;
     if (o.erase) { h.erase = true; if (o.bakePx != null) h.bakePx = o.bakePx; }
+    // The erase rule's data (A2 §4.9): a registered mark's targets (empty too: registered), a native's lineage.
+    if (o.targets) h.targets = o.targets.slice();
+    if (o.targetOf && o.targetOf.length) h.targetOf = o.targetOf.slice();
+    if (o.handledBy && o.handledBy.length) h.handledBy = o.handledBy.slice();
     if (o._extra) for (const k of o._extra) if (o[k] !== undefined && !(k in h)) h[k] = o[k];
     return h;
 }

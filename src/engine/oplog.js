@@ -86,6 +86,11 @@ export class OpLog {
         // Geometry changed under no op of its own: a `put` of the whole object, once per
         // tick, unless its `add` is still pending (that encodes the current state anyway).
         if (this.queued.has(ev.id)) return;
+        // A field set on its own (a mark's targets, a refusal's handledBy): an `attr` entry, not the geometry again (A2 §4.9).
+        if (ev.attrOnly && ev.attr) {
+            this.queue.push({ seq: this._next(), k: "attr", touches: [lvl(ev.level)], encoded: { op: { k: "attr", id: ev.id, set: ev.attr }, geo: EMPTY } });
+            return;
+        }
         const item = { seq: this._next(), k: "put", id: ev.id, index: null, touches: [] };
         this.queue.push(item); this.queued.set(ev.id, item);
     }
@@ -325,8 +330,8 @@ export class OpLog {
     /**
      * Apply stored entries onto the loaded document: an entry is skipped when the snapshots
      * already hold it (`snapshotRule`), and every apply is idempotent. Rebuilds the undo/redo
-     * stacks from the ops among them and re-registers pending erasers with the done sets their
-     * bake entries name. `entries` ascend by seq; `frameSeq` maps a frame id to the seq of its
+     * stacks from the ops among them, re-registers pending erasers' ops, and derives their
+     * targets' lineage (`_deriveTargetOf`). `entries` ascend by seq; `frameSeq` maps a frame id to the seq of its
      * stored snapshot; `listed` is the header's frameIds (without it, every frame counts as listed).
      */
     replay(entries, frameSeq = {}, listed = null) {
@@ -598,15 +603,10 @@ export class OpLog {
             }
         }
         doc._undo = undo.slice(-UNDO_CAP); doc._redo = redo;
-        // Pending erasers: the gesture's op and its done set, so the bake resumes.
-        E._eraseCommits.clear(); E._bakeDone.clear(); E._cutInflight = null;
-        for (const [strokeId, rec] of marks) {
-            if (!doc.getById(strokeId) || rec.op.op !== "eraseCommit") continue;
-            E._eraseCommits.set(strokeId, rec.op);
-            const done = new Set();
-            for (const st of rec.op.baked) { if (st.removed) done.add(st.removed.obj.id); for (const p of st.pieces || []) done.add(p.obj.id); }
-            E._bakeDone.set(strokeId, done);
-        }
+        // Pending erasers: the gesture's op, so the bake resumes; their targets' `targetOf` from `targets`.
+        E._eraseCommits.clear();
+        for (const [strokeId, rec] of marks) if (doc.getById(strokeId) && rec.op.op === "eraseCommit") E._eraseCommits.set(strokeId, rec.op);
+        E._deriveTargetOf();
         return { undo: doc._undo.length, redo: doc._redo.length, marks: E._eraseCommits.size };
     }
 }

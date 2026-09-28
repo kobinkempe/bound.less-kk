@@ -20,6 +20,7 @@
 import { perfNow } from "./now";
 import { drawnBox, ZERO } from "./placementModel";
 import { familyTraits } from "./raster/rasterPack";
+import { inLineage } from "./eraseRule";
 
 /** Items a chunk holds before it splits in two (A2 §2.2: 24–26 µs to replace one item by three at 45k items). */
 const CHUNK_MAX = 512;
@@ -35,6 +36,8 @@ const SYNC_ROUNDS = 3;
 const LANDED_MAX = 256;
 const DIRS = ["up", "down"];
 const EVERYWHERE = Object.freeze({ left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity });
+/** An erase step that changes no pixel (`_stepOf`). */
+const NO_DIRT = Object.freeze({ none: true });
 
 let uidSeq = 0;
 
@@ -62,6 +65,9 @@ export class Item {
     get z() { const n = this.nat; return n ? n.z : this.piece.z; }
     get editId() { const n = this.nat; return n ? n.editId : this.piece.editId; }
     get erase() { const n = this.nat; return n ? n.erase : this.piece.erase; }
+    get targets() { const n = this.nat; return n ? n.targets : this.piece.targets; }
+    get targetOf() { const n = this.nat; return n ? n.targetOf : this.piece.targetOf; }
+    get handledBy() { const n = this.nat; return n ? n.handledBy : this.piece.handledBy; }
     get fam() { const k = this.editId; return k != null ? k : this.id; }
     get res() { const o = this.off; return o[0] || o[1] ? o : undefined; }
     get clip() { return this.piece.clip; }
@@ -173,13 +179,9 @@ export default class Stage {
      * @param {object} deps.store the TileStore (the Stage subscribes after it, so it sees tiles patched)
      * @param {object} deps.model the PlacementModel (`createPlacementModel`)
      * @param {object} [deps.cfg] the engine cfg, for the pack's family traits
-     * @param {(ev:object)=>(object|boolean|null)} [deps.isNeutral] an erase step under its mark: the
-     *        mark (its step dirties the target's footprint inside the mark's box only, PLAN §5.3
-     *        A2-Q2), `true` (no dirt), or null
      */
-    constructor({ doc, lm, store, model, cfg = null, isNeutral = null }) {
+    constructor({ doc, lm, store, model, cfg = null }) {
         this.doc = doc; this.lm = lm; this.store = store; this.model = model; this.cfg = cfg;
-        this._isNeutral = isNeutral;
         /** Monotone; one bump a commit (A2 §2.4). */
         this.generation = 0;
         /** The camera frame the table is for, and the window it covers (the frame's units). */
@@ -215,7 +217,7 @@ export default class Stage {
         this._foot = [];              // this commit's footprint states
         this._batchFoot = new Map();  // native id -> { before, after } inside a batch
         this._info = { frames: new Set(), drop: [], reset: false };
-        this._events = 0;             // this commit's document events, and how many were erase steps under their mark
+        this._events = 0;             // this commit's document events, and how many were erase steps (`_stepOf`)
         this._neutralEvents = 0;
         this._quiet = 0;              // events applied without footprints (a hold's release)
         this._landing = [];           // pending natives whose shape landed in this commit
@@ -483,7 +485,7 @@ export default class Stage {
         this.stats.held += h.queue.length;
         this.batch(() => {
             this._quiet++;
-            try { for (const q of h.queue) this._applyDoc(q.ev, q.neutral); } finally { this._quiet--; }
+            try { for (const q of h.queue) this._applyDoc(q.ev, q.step); } finally { this._quiet--; }
             for (const s of h.start) this._foot.push(s);
             for (const id of h.ids) {
                 this._touched.add(id);
@@ -572,11 +574,29 @@ export default class Stage {
     // ---- events ----
 
     _onDoc(ev) {
-        const neutral = this._isNeutral ? this._isNeutral(ev) : null;
-        if (this._hold && ev.kind !== "reset" && this._held(ev)) { this._hold.queue.push({ ev, neutral }); return; }
-        if (this._sync) { this._queue.push({ ev, neutral }); this.stats.queued++; return; }
-        this._applyDoc(ev, neutral);
+        const step = this._stepOf(ev);
+        if (this._hold && ev.kind !== "reset" && this._held(ev)) { this._hold.queue.push({ ev, step }); return; }
+        if (this._sync) { this._queue.push({ ev, step }); this.stats.queued++; return; }
+        this._applyDoc(ev, step);
         if (!this._batch) this._commit();
+    }
+
+    /**
+     * An erase step's class, taken as its event arrives (A2 §4.5, PLAN §5.3 A2-Q2): the event names
+     * the mark whose bake it is (`by`) and the rule says whether that mark hid the object. A cut or a
+     * descent on an object of the mark's lineage dirties the object's box inside the mark's box, and
+     * its dust boxes whole; a refusal over ink the same; a graze or an inkless refusal nothing, and so
+     * a frame the mark covers whole, set aside inside its landing's box. Null: an ordinary event.
+     */
+    _stepOf(ev) {
+        if (ev.by == null) return null;
+        const rec = this.doc.getById(ev.by);
+        if (!rec || !rec.obj.erase) return null;
+        const M = rec.obj, k = ev.kind;
+        if (k === "removeFrame" || k === "addFrame") return NO_DIRT;
+        if (k === "change" && ev.attrOnly) return ev.inkless ? NO_DIRT : { clip: this._stateOf(M, rec.level), dust: null };
+        if ((k === "add" || k === "remove") && ev.obj && inLineage(ev.obj, M)) return { clip: this._stateOf(M, rec.level), dust: ev.dust || null };
+        return null;
     }
 
     _onTile(ev) {
@@ -591,15 +611,15 @@ export default class Stage {
         let n = 0;
         for (let k = 0; k < q.length; k++, n++) {
             const e = q[k];
-            if (e.tile) this._applyTile(e.tile); else this._applyDoc(e.ev, e.neutral);
+            if (e.tile) this._applyTile(e.tile); else this._applyDoc(e.ev, e.step);
         }
         q.length = 0;
         return n;
     }
 
-    _applyDoc(ev, neutral) {
+    _applyDoc(ev, step) {
         const k = ev.kind;
-        if (!this._quiet) this._footOf(ev, neutral);
+        if (!this._quiet) this._footOf(ev, step);
         if (k === "reset") { this._reset(); return; }
         if (ev.id != null) {
             if (k === "add" && ev.live && !ev.rehome) this._pending.add(ev.id);
@@ -677,20 +697,18 @@ export default class Stage {
         m.after = s;
     }
 
-    /** One event's footprint states, before and after (A2 §2.8's table). */
-    _footOf(ev, neutral) {
+    /** One event's footprint states, before and after (A2 §2.8's table); an erase step's per `_stepOf`. */
+    _footOf(ev, step) {
         const k = ev.kind;
         this._events++;
         if (k === "reset") { this._info.reset = true; return; }
-        if (neutral) { this.stats.neutral++; this._neutralEvents++; }
-        // An erase step under its mark: its footprint inside the mark's box only; its frames pass, its z step, nothing.
-        let clip = null;
-        if (neutral) {
-            const geomEv = k === "add" || k === "remove" || (k === "change" && !ev.offsetsOnly && !ev.attrOnly);
-            if (!geomEv || neutral === true || !neutral._home) return;
-            clip = this._stateOf(neutral, neutral._home);
-        }
+        if (step) { this.stats.neutral++; this._neutralEvents++; }
+        if (step === NO_DIRT) return;
+        const clip = step ? step.clip : null;
         const with_ = (s) => (clip ? { ...s, clip } : s);
+        if (step && step.dust && ev.obj) {
+            for (const d of step.dust) this._foot.push({ home: String(ev.level), below: ev.obj.below, rect: { left: d[0], top: d[1], right: d[2], bottom: d[3] } });
+        }
         if (k === "refile") {
             for (const a of [ev.from, ev.to]) { if (!a || a.parent == null) continue; const s = this._frameState(ev.frame, a); if (s) this._foot.push(s); }
             const X = String(ev.frame);
@@ -722,7 +740,7 @@ export default class Stage {
             if (ev.settle) return;
             const now = this._stateOf(o, ev.level);
             if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: ev.oldBelow }); this._after(ev.id, now); return; }
-            if (ev.attrOnly) { this._after(ev.id, now); return; }
+            if (ev.attrOnly) { this._after(ev.id, with_(now)); return; }
             if (ev.oldBbox) {
                 const b = ev.oldBbox, h = o.type === "fill" ? 0 : Math.max(ev.oldLw || 0, o.lwFrame || 0) / 2;
                 this._before(ev.id, with_({ ...now, rect: { left: b.x0 - h, top: b.y0 - h, right: b.x1 + h, bottom: b.y1 + h } }));

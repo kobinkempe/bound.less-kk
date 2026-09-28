@@ -29,7 +29,7 @@ describe("freshness by G for real document events (PLAN §3 row 1, the Stage's h
 });
 
 describe("the family rule (PLAN §5.1 Q15)", () => {
-    const setup = (isNeutral = null) => {
+    const setup = () => {
         const { default: Document } = require("./Document");
         const { default: LevelMap } = require("./LevelMap");
         const { default: TileStore } = require("./TileStore");
@@ -41,7 +41,7 @@ describe("the family rule (PLAN §5.1 Q15)", () => {
         const lm = new LevelMap(cfg, 800, 600);
         const doc = new Document(); doc.lm = lm; doc.frameFactor = (a, b) => lm.frameFactor(a, b);
         const store = new TileStore(lm, doc, cfg);
-        const stage = new Stage({ doc, lm, store, model: createPlacementModel({ doc, lm, store }), cfg, isNeutral });
+        const stage = new Stage({ doc, lm, store, model: createPlacementModel({ doc, lm, store }), cfg });
         const plates = new PlateStore({ fresh: stage, doc: null });
         stage.sync("0", { left: -4096, top: -4096, right: 4096, bottom: 4096 });
         const ring = (x0, y0, x1, y1, cw) => (cw ? [[x0, y0], [x0, y1], [x1, y1], [x1, y0]] : [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
@@ -69,17 +69,17 @@ describe("the family rule (PLAN §5.1 Q15)", () => {
         expect(stage.stats.familyFlips).toBe(1);
         expect(exact(far)).toBe(false);                              // red without the rule: the far sibling's plate kept
     });
-    test("an erase step under its mark is exempt", () => {
-        let neutral = false;
-        const mark = { id: 9999, _home: "0", type: "shape", loops: [] };
-        const { doc, stage, fill, plateAt, exact } = setup(() => (neutral ? mark : null));
+    test("an erase step under its mark is exempt (an add by the mark of an object in its lineage)", () => {
+        const { doc, stage, fill, plateAt, exact } = setup();
         doc.add(fill(0, 0, 400, 400), "0");
         doc.add(fill(2000, 2000, 2400, 2400), "0");
+        const mark = doc.add({ type: "fill", origin: "native", id: 9999, erase: true, targets: [], color: "rgb(255,255,255)", opacity: 1, polys: [[[300, 300], [500, 300], [500, 500], [300, 500]]] }, "0");
         stage.sync("0", stage.window);
         const far = plateAt(2100, 2100);
-        neutral = true;
-        doc.add(fill(350, 350, 450, 450, true), "0");
-        neutral = false;
+        const piece = fill(350, 350, 450, 450, true);
+        piece.z = 1; piece.targetOf = [mark.id]; piece.handledBy = [mark.id];
+        doc.add(piece, "0", { by: mark.id });
+        expect(stage.stats.neutral).toBe(1);
         expect(stage.stats.familyFlips).toBe(0);
         expect(exact(far)).toBe(true);
     });

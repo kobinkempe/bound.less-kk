@@ -1,24 +1,20 @@
 /**
- * The eraser, and the resumable baking behind it.
+ * The eraser: the whole-object eraser, the pen-up perimeter bake, and the erase bake — a mark (an
+ * erase native) cut out of the ink under it, in slices and in workers.
  *
- * An eraser stroke commits INSTANTLY as background-coloured ink: z-order alone
- * makes the picture correct everywhere, because it covers exactly what was
- * below it when drawn. Baking then folds that mark into each object beneath -
- * boolean-subtracting its resolved arc perimeter from theirs, in that object's
- * own home frame - ONE slice at a time, so the interface never stalls. Every
- * phase is resumable (F9), which is what makes an unbounded erase safe.
- *
- * When a cut lands DEEPER than an object's home frame it cannot be baked in at
- * all; the surviving ink re-homes instead (`_bakeRehome`), and the family that
- * results is tracked by contact across the shared tile edge - the moment that
- * contact becomes a single point, the family parts (F26).
+ * A mark records its targets when its shape lands (`_registerMark`, A2-scene.md §4.2). Until it is
+ * spent it masks exactly what the rule names (`eraseRule.underMask`: its targets and their pieces,
+ * less what it has handled), so anything moved under it later, drawn after it, or already baked
+ * shows (PLAN §0 decision 3). The bake cuts each pending pair (mark, target) — marks oldest first,
+ * targets top-down — dispatched ahead through the erase pool (`eraseWorkerClient.submit`) and
+ * applied strictly in that serial order through a reorder buffer, so a parallel bake leaves the
+ * inline bake's document, ids and log (A2 §4.7). The barriers bake a gesture's pending pairs
+ * before it selects, moves or judges anything (A2 §4.11).
  *
  * THE INVARIANT: an erase never removes more than the eraser swept.
- * `docs/erase-tile-window-design-bible.md` is the reasoning; the erase suites
- * are the enforcement.
+ * `docs/erase-tile-window-design-bible.md` is the reasoning; the erase suites are the enforcement.
  *
- * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
- * `KobinEngine.js` on 2026-08-31.
+ * Mixed into `KobinEngine.prototype` - see `mixin.js`.
  */
 import { perfNow } from "./now";
 import { ArcBakeJob, bakeArcPerimeter } from "./geometry/arcPerimeter";
@@ -42,9 +38,10 @@ import {
 import { polygonMissesRect } from "./geometry/lasso";
 import { flattenLoops, strokeLoops } from "./geometry/curveOutline";
 import { cutJob, dustBarFor } from "./eraseJob";
-import { runCutAsync, runDescentAsync } from "./eraseWorkerClient";
+import { submit, eraseFreeSlots } from "./eraseWorkerClient";
 import { descentJob } from "./eraseDescent";
 import { rectSpan, rectTol } from "./rectMath";
+import { zOf, withId, withoutId, underMask, inheritErase } from "./eraseRule";
 
 // The flatten tolerance of a mark judging whether it covers a frame whole, in the mark's frame's
 // units: a chord sits within it of its arc, so a frame box grown by it that misses every chord
@@ -53,6 +50,10 @@ const ERASE_FRAME_TOL = 1;
 
 const ERASE_SLICE_MS = 8;
 const ERASE_RENDER_MS = 100;   // a bake's steps render at most this often (`_renderSoon`)
+/** Pairs the lookahead looks at past the head in one dispatch (A2 §4.7). */
+const LOOKAHEAD_SCAN = 64;
+/** The reorder buffer's key for pair (mark, target). */
+const cutKey = (m, t) => m + "|" + t;
 
 // The camera counts as BUSY for this long after the last zoom. Reported
 // 2026-08-20 as "erase-then-zoom feels clunky": `_bakeTick` stood aside for
@@ -96,31 +97,94 @@ class ErasePipeline {
         return true;
     }
     // ---- deferred erase baking ----
-    // An eraser stroke commits instantly as background-colored ink; z-order
-    // alone makes the picture correct everywhere (it covers only what was
-    // below it when drawn). Baking then folds it into each object beneath —
-    // boolean-subtracting its painted footprint from theirs, in that object's
-    // home frame — ONE object per idle slice, so the UI never stalls. Baking
-    // only has to beat the next SELECTION of an affected object: select()
-    // flushes that one object's pending erasures synchronously first.
+    // An eraser stroke commits instantly as a mark: until it is spent it masks the targets it
+    // recorded when its shape landed, and the bake cuts it out of each of them, in its home frame,
+    // in slices and in workers, so the UI never stalls. A gesture that selects, moves or judges ink
+    // waits for the cuts under it first (the barriers).
     setEraserSize(px) { this._eraserPx = Math.min(200, Math.max(2, +px || 16)); }
     _zOf(o) { return o.z != null ? o.z : o.id; }
-    // Eraser gestures whose own perimeter has been resolved. An eraser that is
-    // still raw is not skipped, it is simply not READY: `_bakeTick` resolves
-    // perimeters before it touches erases, so it arrives here a tick later.
+    // ---- the pending marks and the lineage index (A2 §4.6) ----
+    /** The erase state, once, from the engine's constructor (after the scene subscribes). */
+    _initErase() {
+        this._marks = new Map();      // id -> every erase native added and not removed; live ones by `getById`
+        this._lineage = new Map();    // mark id -> Set of the natives with it in `targetOf`
+        this._order = new Map();      // mark id -> { list, pos, extra }: its lineage top-down (`_headOf`)
+        this._silent = new Map();     // mark id -> Set of targets its eraser's box misses: handled in memory only
+        this._proj = new Map();       // mark id -> its eraser's loops per (home, table) (`_projected`)
+        this._cuts = new Map();       // "mark|target" -> a job in flight or landed and waiting its turn (the reorder buffer)
+        this._descentOut = null;      // the one descent in flight: descents run one at a time
+        this._barrier = null;         // the parked gesture (`_eraseBarrier`)
+        this._follow = null;          // the ids a running barrier follows to their pieces
+        this._pressWait = null;       // a parked drag's pointer: its last point and whether it was released
+        this._lassoParked = null;     // a parked lasso's loop, still drawn
+        this._eraseGen = 0;           // bumped by a reset: a job from before it is dropped when it lands
+        this.doc.subscribe((ev) => this._onEraseEvent(ev));
+        this.doc.subscribeOps((ev) => this._onEraseStep(ev));
+        this._rebuildEraseIndex();
+    }
+    /** The marks set and the lineage index kept from the document's events; a frame set aside is read through `getById`. */
+    _onEraseEvent(ev) {
+        const k = ev.kind;
+        if (k === "reset") {
+            this._eraseGen++;
+            this._cuts.clear(); this._descentOut = null;
+            this._cancelBarrier();
+            this._rebuildEraseIndex();
+            return;
+        }
+        if (k === "addFrame") { this._order.clear(); return; }   // natives back by reference, no events of their own
+        if ((k !== "add" && k !== "remove") || !ev.obj || (k === "remove" && ev.rehome)) return;
+        const o = ev.obj;
+        if (o.erase) {
+            if (k === "add") { this._marks.set(o.id, o); this._order.delete(o.id); }
+            else { this._marks.delete(o.id); this._dropCuts(o.id); }
+            return;
+        }
+        if (o.targetOf) for (const m of o.targetOf) { if (k === "add") this._lineageAdd(m, o.id); else this._lineageDelete(m, o.id); }
+    }
+    /** A bake step replaces what a running barrier follows by its pieces (A2 §4.11 step 3). */
+    _onEraseStep(ev) {
+        const f = this._follow;
+        if (!f || ev.kind !== "bake" || !ev.step.removed || !f.has(ev.step.removed.obj.id)) return;
+        f.delete(ev.step.removed.obj.id);
+        for (const pc of ev.step.pieces) f.add(pc.obj.id);
+    }
+    _rebuildEraseIndex() {
+        this._marks.clear(); this._lineage.clear(); this._order.clear(); this._silent.clear(); this._proj.clear();
+        for (const k of this.doc.levels()) {
+            for (const o of this.doc.list(k)) {
+                if (o.erase) this._marks.set(o.id, o);
+                else if (o.targetOf) for (const m of o.targetOf) this._lineageAdd(m, o.id);
+            }
+        }
+    }
+    _lineageAdd(m, id) {
+        let s = this._lineage.get(m);
+        if (!s) this._lineage.set(m, (s = new Set()));
+        s.add(id);
+        const ord = this._order.get(m);
+        if (ord) ord.extra.add(id);
+    }
+    _lineageDelete(m, id) { const s = this._lineage.get(m); if (s) s.delete(id); }
+    /** The landed marks, oldest first, as `{obj, level}`: a read of the maintained set (A2 §4.6). */
     _eraseStrokes() {
         const out = [];
-        for (const k of this.doc.levels()) {
-            for (const o of this.doc.list(k)) if (o.erase && o.type === "shape") out.push({ obj: o, level: k });
+        for (const o of this._marks.values()) {
+            if (o.type !== "shape") continue;
+            const rec = this.doc.getById(o.id);
+            if (rec && rec.obj === o) out.push(rec);
         }
-        out.sort((a, b) => this._zOf(a.obj) - this._zOf(b.obj)); // oldest first
-        return out;
+        return out.sort((a, b) => (zOf(a.obj) - zOf(b.obj)) || (a.obj.id - b.obj.id));
+    }
+    /** A mark whose shape has not landed, other than the one being drawn: a reader of the mask resolves it first. */
+    _marksUnlanded() {
+        for (const o of this._marks.values()) if (o.type === "stroke" && o !== this._drawing && this.doc.getById(o.id)) return true;
+        return false;
     }
     /**
-     * TEST/BARRIER: every pending perimeter resolve, run to completion.
-     * The interactive path is `_bakeTick`, which slices; this is for tests and
-     * for the selection barrier, both of which need the document settled before
-     * they look at it.
+     * TEST/BARRIER: every pending perimeter resolved, run to completion, and every landed mark
+     * registered. The interactive path is `_bakeTick`, which slices; this is for tests and the
+     * barriers, which need the document settled before they look at it.
      */
     flushBakes() {
         let guard = 0;
@@ -130,17 +194,23 @@ class ErasePipeline {
             while (this._stepShapeBakes(Infinity)) { if (guard++ > 100000) return; }
             if (guard++ > 100000) return;
         }
+        this._registerLanded();
         if (this._renderPending) this._render();   // settled means painted, too
     }
-    // Resolve one stroke's perimeter right now, cancelling any queued job for
-    // it. Used where an erase has reached an object that has not baked yet.
+    // Resolve one stroke's perimeter right now, cancelling any queued job for it: an erase has
+    // reached an object that has not baked yet. A mark registers in the same commit (A2 §4.2).
     _forceBake(o) {
         if (o.type !== "stroke") return;
         const tol = o._tol > 0 ? o._tol : (this.cfg.arcTolerancePx * 0.5) / this.cfg.enter;
         const res = bakeArcPerimeter(o.pts, o.lwFrame, { tol, centre: o._pen ? o._pen.arcs() : undefined });
         this._bakeQueued.delete(o.id);
         this._bakeJobs = this._bakeJobs.filter((j) => j.id !== o.id);
-        this.doc.bakeShapeById(o.id, this._sealed(res, o.lwFrame), o.lwFrame);
+        const land = () => {
+            this.doc.bakeShapeById(o.id, this._sealed(res, o.lwFrame), o.lwFrame);
+            const rec = o.erase ? this.doc.getById(o.id) : null;
+            if (rec) this._registerMark(rec);
+        };
+        if (o.erase) this.stage.batch(land); else land();
     }
     /**
      * A perimeter is only a shape if it CLOSES.
@@ -173,11 +243,6 @@ class ErasePipeline {
         this._lastBakeRepair = st;
         return out;
     }
-    _doneSet(eid) {
-        let s = this._bakeDone.get(eid);
-        if (!s) { s = new Set(); this._bakeDone.set(eid, s); }
-        return s;
-    }
     _scheduleBake(delay = 400) {
         // One timer, and the SOONEST request wins. Shape bakes want to run
         // immediately and erase bakes want to wait; with a first-come-wins guard
@@ -192,7 +257,6 @@ class ErasePipeline {
             this._bakeTimer = null; this._bakeDelay = Infinity; this._bakeTick();
         }, delay);
     }
-
     // ---- shape baking (pen-up) ----
     // A drawn stroke is raw ink until its perimeter is resolved. The resolve is
     // a JOB with a cursor in it (geometry/arcPerimeter.js), stepped a few
@@ -258,7 +322,6 @@ class ErasePipeline {
         }
         return true;
     }
-
     // Any stroke still raw — after a load, an undo/redo, or a job dropped
     // because its object had gone — gets a job. Cheap, and it is the only thing
     // guaranteeing no stroke is left unresolved forever.
@@ -286,8 +349,16 @@ class ErasePipeline {
             if (!entry.job.step(left)) break;          // more slices needed
             this._bakeJobs.shift();
             this._bakeQueued.delete(entry.id);
-            this.doc.bakeShapeById(entry.id, this._sealed(entry.job.result, entry.w), entry.w);
-            if (this._promoteOversize(entry.id)) promoted = true;   // D9 / invariant 2
+            const loops = this._sealed(entry.job.result, entry.w);
+            let up = false;
+            const land = () => {
+                this.doc.bakeShapeById(entry.id, loops, entry.w);
+                up = this._promoteOversize(entry.id);                  // D9 / invariant 2
+                const m = rec.obj.erase ? this.doc.getById(entry.id) : null;
+                if (m) this._registerMark(m);                          // in the landing's commit (A2 §4.2)
+            };
+            if (rec.obj.erase) this.stage.batch(land); else land();
+            if (up) promoted = true;
             else if (this.raster && rec.level !== this.cam.frame) away = true;
             changed = true;
         }
@@ -329,118 +400,121 @@ class ErasePipeline {
             if (perfNow() - held < BAKE_STARVE_MS) { this._scheduleBake(CAM_IDLE_MS); return; }
         }
         this._bakeHeldSince = null;
-        // Resolve perimeters first: an eraser cannot be subtracted until it has
-        // one, and neither can the ink under it.
+        // Resolve perimeters first: a mark registers as its shape lands (A2 §4.2).
         if (!this._bakeJobs.length) this._ensureShapeBakes();
         if (this._stepShapeBakes()) { this._scheduleBake(0); return; }
         // A read-only tab shows the store the pen's holder bakes into (SYNC-PLAN R2): it waits for the pen.
         if (this.readOnly) { if (this._eraseStrokes().length) this._scheduleBake(500); return; }
-        if (this._cutInflight) return;   // a cut is in the worker; its result reschedules the tick
-        // Erase bakes take a TIME budget, like every other sliced job here, and
-        // come back on the next tick rather than after a fixed nap.
-        //
-        // This used to bake ONE object per tick and then sleep 80 ms. A gesture
-        // that crosses a crowded region touches a great many objects — 94 of
-        // them in one of Kobin's, from a single stroke — so the ink took nearly
-        // eight SECONDS to catch up with the gesture, with the white mark
-        // sitting over the drawing the whole time and the erase visibly "not
-        // baking". Same slice size as the perimeter bake, so a heavy erase costs
-        // what a heavy stroke costs: smooth, and roughly ten times sooner.
-        const t0 = perfNow();
-        let changed = false, more = false, baked = 0, pending = false, spent = false;
-        for (const Erec of this._eraseStrokes()) {
-            let guard = 0;
-            let target = this._nextEraseTarget(Erec);
-            while (target && guard++ < 10000) {
-                // Look before leaping. The budget used to be tested only AFTER
-                // an object was baked, so a slice sitting at 7.9 ms of its 8 ms
-                // would happily start another — and one object can cost far more
-                // than the whole budget (621 ms, measured on the report). Charge
-                // the next object at what the last one actually cost.
-                //
-                // `baked` is load-bearing: a single object that costs MORE than
-                // the whole budget must still run, or it is refused on every
-                // tick forever and the erase never finishes. Caught by BS-3 —
-                // the first draft of this guard deadlocked exactly that way.
-                if (baked > 0 && (perfNow() - t0) + (this._eraseItemMs || 0) > ERASE_SLICE_MS) { more = true; break; }
-                const it0 = perfNow();
-                const outcome = this._bakeOne(Erec, target);
-                if (outcome === "pending") { pending = true; break; }
-                if (outcome) changed = true;
-                this._eraseItemMs = perfNow() - it0;
-                baked++;
-                target = this._lowerMark(Erec, target);
-                changed = true;   // the mark's z may have moved
-                if (perfNow() - t0 >= ERASE_SLICE_MS) { more = true; break; }
-            }
-            if (more || pending) break;
-            // Every object beneath is handled — the white stroke has served
-            // its purpose; consume it silently (undo goes via its commit op).
-            this._noteSpent(Erec.obj);
-            this._keepDebugMark(Erec.obj);
-            this.doc.removeById(Erec.obj.id);
-            this._eraseCommits.delete(Erec.obj.id);
-            this._bakeDone.delete(Erec.obj.id);
-            changed = true; spent = true;
-            if (perfNow() - t0 >= ERASE_SLICE_MS) { more = true; break; }
-        }
+        this._registerLanded();
+        if (this._barrier) return;   // a parked gesture drives the cuts it waits on; its end resumes the tick
+        // A time budget, like every sliced job here: one pair a tick left a crowded erase eight seconds
+        // behind its gesture (94 objects under one of Kobin's strokes).
+        const { changed, spent, more } = this._bakeRun(perfNow() + ERASE_SLICE_MS);
         if (spent) this._render(); else if (changed) this._renderSoon();
-        if (!pending && (more || this._eraseStrokes().length)) this._scheduleBake(0);
+        if (more) this._scheduleBake(0);
+    }
+    // ---- registration (A2 §4.2) ----
+    /**
+     * A landed mark's targets, once: the frames its ink covers whole set aside as one step, then
+     * every reachable native under it below its z, in `targets` and in each target's `targetOf`.
+     * Nothing can have moved under the mark before this runs: every gesture that moves ink resolves
+     * pending perimeters first (the barriers' `flushBakes`), and the mark's op is on top of the undo
+     * stack until its shape lands (raster.eraseRule.test.js (c)). A mark from before `targets` (A2
+     * §4.9) registers by the same scan under its stepped z, less what its op's steps name — their
+     * pieces are its handled lineage. In the caller's commit: its mask reaches the plates with its shape.
+     */
+    _registerMark(Erec) {
+        const E = Erec.obj;
+        if (E.targets !== undefined || E.type !== "shape" || !E.loops) return false;
+        this.stage.batch(() => {
+            this._eraseFramesPass(Erec);
+            const op = this._opOf(E.id), named = new Set();
+            if (op) {
+                for (const st of op.baked || []) {
+                    if (st.removed) named.add(st.removed.obj.id);
+                    for (const pc of st.pieces || []) {
+                        const o = pc.obj;
+                        named.add(o.id);
+                        o.targetOf = withId(o.targetOf, E.id); o.handledBy = withId(o.handledBy, E.id);
+                        if (this.doc.getById(o.id)) this._lineageAdd(E.id, o.id);
+                    }
+                }
+            }
+            const ids = this._candidatesUnder(Erec, named);
+            for (const id of ids) {
+                const o = this.doc.getById(id).obj;
+                o.targetOf = withId(o.targetOf, E.id);
+                this._lineageAdd(E.id, id);
+            }
+            this.doc.setTargetsById(E.id, ids);
+        });
+        return true;
+    }
+    /** Every landed mark without `targets` registered now: one from before the field, a direct add, one back by a redo (A2 §4.9). */
+    _registerLanded() {
+        for (const o of [...this._marks.values()]) {
+            if (o.targets !== undefined || o.type !== "shape") continue;
+            const rec = this.doc.getById(o.id);
+            if (rec && rec.obj === o) this._registerMark(rec);
+        }
     }
     /**
-     * The objects still to be handled under mark E, TOP-DOWN BY Z (Kobin, 2026-09-08:
-     * the mark's z follows the bake down, so the picture and the move gate agree).
-     * From the spatial index, not a walk of the document: on the 12,849-object canvas
-     * the walk cost 0.6 ms an object, five minutes a mark and a second a pointer-up
-     * (erase.stuck.probe.js). Reachability is the only depth bar — the cut lives in
-     * the frame it was made in. A moved object (F41/F55) is indexed at its stored bits
-     * and drawn elsewhere, so every one reachable is a candidate and the per-object
-     * mapping in `_eraseMayTouch` decides. Rebuilt when the document changes (a bake
-     * mints pieces; another mark's cut replaces a candidate); each candidate is
-     * re-checked when its turn comes.
+     * After a load or a replay (A2 §4.9): every known mark's `targets` — live, or held by an op in
+     * the undo or redo stacks — back in its targets' `targetOf` (a union: idempotent), and the
+     * index rebuilt. A kobin-2 snapshot written before a registration lacks them; no entry carries them.
      */
-    _candidatesUnder(Erec) {
-        const E = Erec.obj, HE = Erec.level;
-        const zE = this._zOf(E);
-        let scan = E._zScan;
-        // Keyed on the document only: z only falls, and every candidate is re-checked against it (E-1).
-        if (scan && scan.rev === this.doc.rev) return scan;
-        this._scanBuilds = (this._scanBuilds || 0) + 1;
-        const done = this._doneSet(E.id);
-        const list = [];
-        const box = E.type === "shape" && E.loops ? loopsBBox(E.loops) : null;
-        if (box) {
-            const rectE = { left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 };
-            const seen = new Set();
-            const consider = (o, k) => {
-                if (o.erase || seen.has(o.id) || done.has(o.id)) return;
-                if (this._zOf(o) >= zE) return;
-                seen.add(o.id);
-                list.push({ id: o.id, z: this._zOf(o), level: k });
-            };
-            for (const k of this.doc.levels()) {
-                if (this.lm.frameFactor(k, HE) == null) continue;
-                const r = this.lm.mapRectF(rectE, HE, k);
-                if (r) for (const o of this.doc.queryRect(k, r)) consider(o, k);
-            }
-            // The mark's box is mapped once per home and table: objects moved together share both.
-            // Mapped per object, a first scan over 19,547 moved natives took 300 ms (TESTER-2, Magnum Opus).
-            const rectIn = new Map();
-            for (const id of this.doc._offsetIds) {
-                const rec = this.doc.getById(id);
-                if (!rec || rec.obj.erase || done.has(id) || this._zOf(rec.obj) >= zE || this.lm.frameFactor(rec.level, HE) == null) continue;
-                const key = rec.level + "|" + (encodeBelow(rec.obj.below) || []).join(";");
-                let r = rectIn.get(key);
-                if (r === undefined) { r = this._eraserRectInto(rectE, HE, rec.obj); rectIn.set(key, r); }
-                // A moved object far from the mark is done at once, not carried by every scan (E-1).
-                if (!r || !this._rectMayTouch(r, rec.obj)) { done.add(id); continue; }
-                consider(rec.obj, rec.level);
-            }
-            list.sort((a, b) => (b.z - a.z) || (b.id - a.id));
+    _deriveTargetOf() {
+        const marks = new Set(this._marks.values());
+        for (const op of this.doc._undo.concat(this.doc._redo)) if (op.strokeRec && op.strokeRec.obj) marks.add(op.strokeRec.obj);
+        for (const M of marks) {
+            if (!M.targets) continue;
+            for (const id of M.targets) { const o = this.doc._byId.get(id); if (o && !o.erase) o.targetOf = withId(o.targetOf, M.id); }
         }
-        scan = { rev: this.doc.rev, z: zE, list, pos: 0 };
-        E._zScan = scan;
-        return scan;
+        this._rebuildEraseIndex();
+    }
+    /** A document loaded and its log replayed: the lineage derived, and a mark from before `targets` registered — its `targets` logged once. */
+    _eraseLoaded() {
+        this._deriveTargetOf();
+        if (!this.readOnly) this._registerLanded();
+    }
+    /** Mark `id`'s gesture op, without minting one. */
+    _opOf(id) {
+        const op = this._eraseCommits.get(id);
+        if (op && op.op === "eraseCommit") return op;
+        const u = this.doc._undo;
+        for (let i = u.length - 1; i >= 0; i--) if (u[i].op === "eraseCommit" && u[i].strokeId === id) return u[i];
+        return null;
+    }
+    /**
+     * The registration's scan: every reachable native under mark E's box, below its z, whose box the
+     * eraser's box reaches (`_rectMayTouch`), less `exclude`; ascending ids. From the frames' indexes;
+     * a moved native (F41/F55) through its table, the box mapped once per (home, table) — mapped per
+     * object, 19,547 moved natives took 300 ms on the Magnum Opus (TESTER-2). Once per mark (EC-1).
+     */
+    _candidatesUnder(Erec, exclude = null) {
+        const E = Erec.obj, HE = Erec.level, zE = zOf(E);
+        this._scanBuilds = (this._scanBuilds || 0) + 1;
+        const box = loopsBBox(E.loops);
+        if (!box) return [];
+        const rectE = { left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 };
+        const out = new Set();
+        const keep = (o) => !o.erase && !out.has(o.id) && !(exclude && exclude.has(o.id)) && zOf(o) < zE;
+        for (const k of this.doc.levels()) {
+            if (this.lm.frameFactor(k, HE) == null) continue;
+            const r = this.lm.mapRectF(rectE, HE, k);
+            if (!r) continue;
+            for (const o of this.doc.queryRect(k, r)) if (o.below === undefined && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
+        }
+        const rectIn = new Map();
+        for (const id of this.doc.offsetIds()) {
+            const rec = this.doc.getById(id);
+            if (!rec || !keep(rec.obj) || this.lm.frameFactor(rec.level, HE) == null) continue;
+            const key = rec.level + "|" + (encodeBelow(rec.obj.below) || []).join(";");
+            let r = rectIn.get(key);
+            if (r === undefined) { r = this._eraserRectInto(rectE, HE, rec.obj); rectIn.set(key, r); }
+            if (r && this._rectMayTouch(r, rec.obj)) out.add(id);
+        }
+        return [...out].sort((a, b) => a - b);
     }
     /**
      * A frame the mark covers WHOLE goes as containers (SUBTREE-O1-PLAN §5; Kobin: an erase
@@ -449,13 +523,12 @@ class ErasePipeline {
      * tolerance, inside the mark's ink; and nothing under it drawn above the mark
      * (`Document.maxZUnder`: a native drawn since, or a piece a cut minted, keeps the frame on
      * the per-object path). One bake step holds the subtree's lists by reference, O(frames),
-     * no cut, one undo with the gesture. Runs once per mark before its first target; after a
-     * reload it runs again and finds the frames already gone. Returns how many went.
+     * no cut, one undo with the gesture. Runs once, at the mark's registration (A2 §4.2): its
+     * events carry `by`, inside the landing's dirt. Returns how many went.
      */
     _eraseFramesPass(Erec) {
         const E = Erec.obj, HE = Erec.level;
-        if (E._framesPassed || E.type !== "shape" || !E.loops) return 0;
-        E._framesPassed = true;
+        if (E.type !== "shape" || !E.loops) return 0;
         const zE = this._zOf(E);
         const box = loopsBBox(E.loops);
         if (!box) return 0;
@@ -490,77 +563,13 @@ class ErasePipeline {
         const op = this._eraseOp(E);
         const note = this.journal.find((j) => j.kind === "erase" && j.id === E.id);
         for (const F of covered) {
-            const recs = this.doc.removeFrameSubtree(F);
+            const recs = this.doc.removeFrameSubtree(F, { by: E.id });
             if (!recs) continue;                         // empty containers: nothing to take
             this.doc.recordBake(op, { frames: recs });
             if (note) note.cuts.push({ frame: F, mode: "frame", natives: recs.reduce((a, r) => a + r.natives.length, 0) });
             n++;
         }
         return n;
-    }
-    // The next object to bake under mark E: the highest still under it that the
-    // eraser's box reaches (`_eraseMayTouch`); the ones it misses are done. The frames
-    // the mark covers whole go first, as containers.
-    _nextEraseTarget(Erec) {
-        this._eraseFramesPass(Erec);
-        const E = Erec.obj, HE = Erec.level;
-        const done = this._doneSet(E.id);
-        const scan = this._candidatesUnder(Erec);
-        for (; scan.pos < scan.list.length; scan.pos++) {
-            const c = scan.list[scan.pos];
-            if (done.has(c.id)) continue;
-            const rec = this.doc.getById(c.id);
-            if (!rec || rec.obj.erase) continue;
-            const o = rec.obj;
-            if (this._zOf(o) >= this._zOf(E)) continue;
-            if (this.lm.frameFactor(rec.level, HE) == null) { done.add(o.id); continue; }
-            if (!this._eraseMayTouch(E, HE, o, rec.level)) { done.add(o.id); continue; }
-            return { obj: o, level: rec.level };
-        }
-        return null;
-    }
-    /**
-     * The mark's z steps below the target just handled (cut, refused or grazed), unless the next
-     * target shares its z, so the mark paints only over ink still to be cut and the move gate is the
-     * z order. Called by the tick and by `_flushErasesFor` for a target in the tick's order. Returns
-     * the next target.
-     */
-    _lowerMark(Erec, target) {
-        const E = Erec.obj, zo = this._zOf(target.obj);
-        const next = this._nextEraseTarget(Erec);
-        if (next && this._zOf(next.obj) >= zo) return next;
-        if (zo - 0.5 < this._zOf(E)) this._neutral(() => this._ownChange(E, () => this.doc.setZById(E.id, zo - 0.5)));
-        return next;
-    }
-    /**
-     * A change mark E makes itself (its cut, its z step) keeps its candidate scan current: the pieces
-     * a cut mints are already in its done set. Only when nothing else changed the document meanwhile.
-     */
-    _ownChange(E, fn) {
-        const scan = E._zScan, rev = this.doc.rev;
-        const out = fn();
-        if (scan && scan.rev === rev && E._zScan === scan) scan.rev = this.doc.rev;
-        return out;
-    }
-    /**
-     * Document events that change no pixel, tagged so the plate cache keeps its plates (F90): a cut
-     * or a descent the mark already hides (its white on `?svg`, its mask on the raster), and the
-     * mark's step down. The engine untags a step that passes a target the mark's `_uncutOf` set
-     * still holds whole; the spent mark's removal stales its plates once.
-     */
-    _neutral(fn, E = null) {
-        const was = this._pictureNeutral;
-        this._pictureNeutral = E || true;
-        try { return fn(); } finally { this._pictureNeutral = was; }
-    }
-    /** `fn` tagged neutral, as mark E's step (the Stage clips its footprint to E's box), only while E is above the target. */
-    _neutralUnder(E, o, fn) { return this._zOf(E) > this._zOf(o) ? this._neutral(fn, E) : fn(); }
-    /** The targets mark `markId` has handled and left whole with ink under it (refused, or a cut not landed): still masked by it. */
-    _uncutOf(markId) {
-        const m = this._uncut || (this._uncut = new Map());
-        let s = m.get(markId);
-        if (!s) m.set(markId, (s = new Set()));
-        return s;
     }
     // Proximity prefilter in the target's home frame. The subtract itself is the
     // arbiter and its no-op guard eats false hits, so this only has to be cheap
@@ -604,6 +613,16 @@ class ErasePipeline {
     _eraserRectInto(rect, HE, o) { return this.stage.placeNative(o, HE).toStored(rect); }
     /** The same, for the eraser's LOOPS. */
     _eraserLoopsInto(loops, HE, o) { return this.stage.placeNative(o, HE).toStored(loops); }
+    /** Mark E's loops in `o`'s stored coordinates, memoised per (home, table): targets moved together share it (A2 §4.7). */
+    _projected(E, HE, o) {
+        const tag = this.lm.addrEpoch + "|" + HE + "|" + (E._ver || 0);
+        let m = this._proj.get(E.id);
+        if (!m || m.tag !== tag) this._proj.set(E.id, (m = { tag, map: new Map() }));
+        const key = o._home + "|" + (encodeBelow(o.below) || []).join(";");
+        let loops = m.map.get(key);
+        if (loops === undefined) { loops = this._eraserLoopsInto(E.loops, HE, o); m.map.set(key, loops); }
+        return loops;
+    }
     // Resolve (or re-register) the gesture's undo op. Always call this BEFORE
     // touching the document: a bake that cannot record itself must not mutate
     // anything — unrecorded bakes were how duplicated, stacked geometry formed.
@@ -625,143 +644,244 @@ class ErasePipeline {
         }
         return op;
     }
-
+    // ---- the bake: pairs in the serial order, a reorder buffer (A2 §4.7) ----
+    /** Is (M, o) a pair the bake still owes — under M's mask, and not ruled out by the eraser's box? */
+    _pendingPair(M, o) {
+        if (!underMask(o, M)) return false;
+        const s = this._silent.get(M.id);
+        return !s || !s.has(o.id);
+    }
+    /** A pair the tighter box test rules out: handled in memory only — no pixel of it is under the mask; a reload re-derives it. */
+    _silentAdd(m, id) {
+        let s = this._silent.get(m);
+        if (!s) this._silent.set(m, (s = new Set()));
+        s.add(id);
+    }
+    /** Mark M's lineage in the serial order, top-down by (z, id), with a cursor past what is no longer pending. */
+    _orderOf(M) {
+        const at = (id) => { const o = this.doc._byId.get(id); return o ? zOf(o) : -Infinity; };
+        const cmp = (a, b) => (at(b) - at(a)) || (b - a);
+        let ord = this._order.get(M.id);
+        if (!ord) {
+            const s = this._lineage.get(M.id);
+            ord = { list: s ? [...s].sort(cmp) : [], pos: 0, extra: new Set() };
+            this._order.set(M.id, ord);
+        } else if (ord.extra.size) {
+            for (const id of ord.extra) {
+                if (ord.list.indexOf(id, ord.pos) >= 0) continue;
+                let lo = ord.pos, hi = ord.list.length;
+                while (lo < hi) { const mid = (lo + hi) >> 1; if (cmp(ord.list[mid], id) < 0) lo = mid + 1; else hi = mid; }
+                ord.list.splice(lo, 0, id);
+            }
+            ord.extra.clear();
+        }
+        return ord;
+    }
+    /** Mark E's first pending target in the serial order, `{obj, level}`, or null. */
+    _headOf(Erec) {
+        const M = Erec.obj, ord = this._orderOf(M);
+        for (; ord.pos < ord.list.length; ord.pos++) {
+            const rec = this.doc.getById(ord.list[ord.pos]);
+            if (rec && this._pendingPair(M, rec.obj)) return rec;
+        }
+        return null;
+    }
+    /** Mark E's pending targets in the serial order, from its head on. */
+    *_pendingOf(Erec) {
+        const M = Erec.obj, ord = this._orderOf(M);
+        for (let k = ord.pos; k < ord.list.length; k++) {
+            const rec = this.doc.getById(ord.list[k]);
+            if (rec && this._pendingPair(M, rec.obj)) yield rec;
+        }
+    }
+    /** The serial head: the oldest mark and its first pending target, `{Erec, rec}` — `rec` null when that mark has nothing left — or null. */
+    _serialHead() {
+        const Erec = this._eraseStrokes()[0];
+        return Erec ? { Erec, rec: this._headOf(Erec) } : null;
+    }
     /**
-     * Subtract eraser gesture E's shape from one object, silently (the document
-     * changes ride E's eraseCommit undo op, not ops of their own).
-     *
-     * BOTH operands are resolved arc perimeters now, so this is one exact
-     * boolean and nothing else. There is no polygonization, no flattening
-     * tolerance to pick, and no lattice — which is what every previous version
-     * of this function was really about. The old one had to choose a flatten
-     * fidelity for the eraser and then SCALE it by the magnification, because
-     * flattening a magnified cap at frame fidelity wanted 2e8 points and took
-     * 155 seconds for a single gesture. An arc has no such cost: it magnifies by
-     * changing one number.
+     * The bake's work until `deadline`: the serial head applied when its job has landed (run inline
+     * where there is no worker), a mark with nothing pending spent in its turn, then the lookahead
+     * dispatched. It stops at a head still in flight: results apply strictly in serial order, so ids,
+     * steps and the log are the inline bake's. `more`: work is left that waits on no worker.
      */
-    _bakeOne(Erec, target, { sync = false } = {}) {
+    _bakeRun(deadline) {
+        let changed = false, spent = false, stepped = 0, more = false, last = null;
+        for (let guard = 0; guard < 100000; guard++) {
+            const head = this._serialHead();
+            if (!head) break;
+            const { Erec, rec } = head;
+            if (!rec) { this._spendMark(Erec); changed = spent = true; continue; }
+            const key = cutKey(Erec.obj.id, rec.obj.id);
+            // A pair its own inline step left pending is set aside, not looped on.
+            if (key === last) { this._silentAdd(Erec.obj.id, rec.obj.id); last = null; continue; }
+            const c = this._cuts.get(key);
+            if (c && c.state === "flight") break;
+            if (c) { this._dropCut(c); if (this._applyLanded(Erec, rec, c)) changed = true; continue; }
+            // Look before leaping, at what the last pair cost; one pair a tick always runs, or a pair
+            // costing more than the budget is refused for ever (BS-3).
+            if (stepped > 0 && perfNow() + (this._eraseItemMs || 0) > deadline) { more = true; break; }
+            const t0 = perfNow();
+            const out = this._dispatchPair(Erec, rec);
+            if (out === "flight" || out === "wait") break;
+            last = key;
+            this._eraseItemMs = perfNow() - t0;
+            stepped++;
+            if (out === "applied") changed = true;
+            if (perfNow() >= deadline) { more = true; break; }
+        }
+        if (!more) this._lookahead();
+        return { changed, spent, more };
+    }
+    /** Dispatch ahead of the head in the serial order, up to the pool's free slots: a target pending under an earlier mark waits for that mark's pieces (the per-target lock). */
+    _lookahead() {
+        let free = eraseFreeSlots();
+        if (free <= 0) return;
+        const marks = this._eraseStrokes();
+        let scanned = 0;
+        for (let mi = 0; mi < marks.length; mi++) {
+            for (const rec of this._pendingOf(marks[mi])) {
+                if (++scanned > LOOKAHEAD_SCAN) return;
+                const id = rec.obj.id;
+                let busy = false;
+                for (const c of this._cuts.values()) if (c.id === id) { busy = true; break; }
+                if (busy) continue;
+                let locked = false;
+                for (let e = 0; e < mi && !locked; e++) locked = this._pendingPair(marks[e].obj, rec.obj);
+                if (locked) continue;
+                if (this._dispatchPair(marks[mi], rec, { ahead: true }) === "flight" && --free <= 0) return;
+            }
+        }
+    }
+    /** TEST: the serial head baked inline, or the oldest mark spent; false when nothing is pending. */
+    _bakeNext() {
+        this._registerLanded();
+        const head = this._serialHead();
+        if (!head) return false;
+        if (!head.rec) { this._spendMark(head.Erec); return true; }
+        const c = this._cuts.get(cutKey(head.Erec.obj.id, head.rec.obj.id));
+        if (c) this._dropCut(c);
+        this._dispatchPair(head.Erec, head.rec, { inline: true });
+        return true;
+    }
+    /**
+     * Bake pair (E, target): its job built, then sent to the pool — a promise landing in the reorder
+     * buffer — or, where there is no worker or `inline`, run and applied now. `ahead`: dispatch
+     * only. Returns "flight", "wait" (a descent is out: they run one at a time), "applied",
+     * "handled" (settled without a cut) or "none".
+     */
+    _dispatchPair(Erec, target, { ahead = false, barrier = false, inline = false } = {}) {
         const E = Erec.obj, HE = Erec.level;
-        const { obj: o, level: HO } = target;
-        if (!this.doc.getById(o.id)) return false;
-        // Left whole until a cut lands: the mark stepping past it then uncovers ink (F90).
-        this._uncutOf(E.id).add(o.id);
-        // Both operands have to be resolved. In the normal flow they always are
-        // — `_eraseStrokes` only hands over erasers that have a shape — but this
-        // is also called directly, and an unresolved operand would silently do
-        // nothing rather than fail.
-        if (E.type === "stroke") this._forceBake(E);
-        if (E.type !== "shape") return false;
-        if (o.type === "stroke") this._forceBake(o);   // an erase reached it first
-        if (o.type === "fill") this.doc.fillToShapeById(o.id);  // a pre-arc drawing
-        const done = this._doneSet(E.id);
-        done.add(o.id);   // whatever happens below, this object is not looked at again for E
-        if (o.type !== "shape") return this._rehomeBail(E, o, HO, "target is a " + o.type + " with no perimeter");
-        // Resolve the gesture's undo op BEFORE touching the document — a bake
-        // that cannot record itself must not mutate anything (unrecorded
-        // bakes were how duplicated, stacked geometry formed). After a reload
-        // the commit map is empty, so resumed baking re-registers a fresh op,
-        // which also makes a resumed erase undoable again.
-        const op = this._eraseOp(E);
-        // Attribute every cut to the gesture that made it.
-        const note = this.journal.find((j) => j.kind === "erase" && j.id === E.id);
-        const areaBefore = o.loops ? loopsArea(o.loops) : 0;
-        // A target homed SHALLOWER than the erase re-homes instead of cutting in
-        // place: the hole belongs at the level it was drawn at, where it is
-        // screen-sized, and the ceded tile is what carries it there.
-        //
-        // ...but only when the erase really is BELOW it. The frame tree branches
-        // — a second visit to a region far from the first mints a sibling — so
-        // "finer than" and "underneath" are different questions. Ceding needs an
-        // ancestor chain to cede along; between branches there is none, and
-        // `_bakeRehome` refuses those. It refused SILENTLY, after this method had
-        // already marked the object handled for this eraser, so the erase never
-        // came back to it: the gesture painted, the mark was consumed, and the
-        // ink was never cut. In Kobin's document 8 of its 12 frames had a blind
-        // spot like that — an erase made in `4~5` skipped every object homed at
-        // `2` and `3`. When there is no chain to cede along, cut in place.
+        const o0 = target.obj;
+        if (o0.type === "stroke") this._forceBake(o0);            // an erase reached it first
+        if (o0.type === "fill") this.doc.fillToShapeById(o0.id);  // a pre-arc drawing
+        const rec = this.doc.getById(o0.id);
+        if (!rec) return "none";
+        const o = rec.obj, HO = rec.level;
+        if (!this._eraseMayTouch(E, HE, o, HO)) { this._silentAdd(E.id, o.id); return "handled"; }
+        if (o.type !== "shape") return this._refuse(E, o, HO, "target is a " + o.type + " with no perimeter", false) || "handled";
+        const spec = this._jobFor(E, HE, o, HO);
+        if (!spec) { this._silentAdd(E.id, o.id); return "handled"; }
+        if (!inline) {
+            if (spec.kind === "descent" && this._descentOut) return ahead ? "none" : "wait";
+            const key = cutKey(E.id, o.id), ver = o._ver || 0;
+            const p = submit({ kind: spec.kind, prio: 3, barrier, job: spec.kind === "cut" ? spec.job : { world: spec.world, input: spec.input }, key: { mark: E.id, target: o.id, ver } });
+            if (p) {
+                const c = { key, markId: E.id, id: o.id, obj: o, ver, addr: this.lm.addrEpoch, gen: this._eraseGen, kind: spec.kind, spec, state: "flight", r: null, err: null, t0: perfNow() };
+                this._cuts.set(key, c);
+                if (spec.kind === "descent") this._descentOut = c;
+                p.then((r) => this._onLanded(c, r, null), (err) => this._onLanded(c, null, err));
+                return "flight";
+            }
+            if (ahead) return "none";
+        }
+        let r;
+        if (spec.kind === "descent") { const t0 = perfNow(); try { r = descentJob(spec.world, spec.input); } finally { this._perf("rehome", t0, false, { id: o.id }); } }
+        else r = cutJob(spec.job);
+        return this._applyPair(Erec, rec, spec.kind, r) ? "applied" : "handled";
+    }
+    /**
+     * Pair (E, o)'s job: a descent when the target is homed shallower along the mark's own chain —
+     * the hole belongs at the level the mark was drawn at, one crossing at a time (bible §2.1; ink
+     * homed in a ring neighbour's cell cedes down the mark's chain below it, REVIEWER-3 ERASE-4) —
+     * else a cut in the target's stored coordinates, the eraser brought there through its table
+     * (F41), which keeps every piece it does not cut bit for bit (F42). Null: the eraser maps to nothing.
+     */
+    _jobFor(E, HE, o, HO) {
         const desc = this.lm.framePath(HO, HE);
         const pureDescent = !!desc && !desc.up.length && desc.down.length > 0;
-        // Ink homed in a ring neighbour's cell reaches a descent there as a ring native: cede down
-        // the mark's own chain below that neighbour. Cut in place, two crossings under, the eraser
-        // is under the boolean's weld and grazes (REVIEWER-3 ERASE-4).
         const dHO = this.lm.depthOf(HO);
         const ringA = desc && desc.up.length ? desc.down.find((f) => this.lm.depthOf(f) === dHO) : null;
         const ring = !!ringA && !!this._cellOffset(HO, ringA) && desc.down.some((f) => this.lm.depthOf(f) > dHO);
-        if (this.lm.depthOf(HO) < this.lm.depthOf(HE) && (pureDescent || ring)) {
-            return this._bakeRehome(op, Erec, target, done, sync);
+        if (dHO < this.lm.depthOf(HE) && (pureDescent || ring)) {
+            return { kind: "descent", world: this._descentWorld(), input: { freezeR: this._boolOpts().freezeR, HE, target: { obj: o, level: HO }, E: { id: E.id, w: E.w, bakePx: E.bakePx, loops: E.loops } } };
         }
-        // The eraser in the coordinates the object is STORED in — through
-        // the object's own offsets when it has any (F41).
-        const EpLoops = this._eraserLoopsInto(E.loops, HE, o);
-        const Ep = EpLoops ? { loops: EpLoops } : null;
-        if (!Ep || !Ep.loops || !Ep.loops.length) return false;
-        // In the SUBJECT's own coordinates, as stored. This used to translate
-        // both operands onto the subject's centre, cut, and translate back —
-        // from the days when an object's coordinates could sit out at 1e13.
-        // Under the lattice a native lives within a frame or two of its own
-        // origin (invariant 2), so the boolean's bookkeeping, which is scaled
-        // off the coordinates it is handed, already sees small numbers. And the
-        // round trip cost something real: `(v - c) + c` is not `v`, so every
-        // vertex of the object — the ones nowhere near the eraser included —
-        // came back one rounding step from where it was, and four crossings
-        // down, where the render chain has magnified that step 2.8e14 times, the
-        // picture of an object had moved because it was nicked somewhere else
-        // (F42). The boolean keeps every piece it does not cut by reference, so
-        // cutting in place leaves the rest of the object bit for bit as it was.
-        // The geometry in one job (eraseJob.js), in the SUBJECT's own coordinates as
-        // stored: the boolean keeps every piece it does not cut by reference, so the
-        // rest of the object stays bit for bit where it was (F42). The document side is
-        // `_applyCut`, so a worker's result is applied the same way.
-        // Dust is what was invisible at the zoom the mark was drawn at (F66), in the
-        // subject's units: a quarter pixel there, through the frame factor.
-        const job = { subject: o.loops, clip: Ep.loops, w: o.w, dustBar: dustBarFor(E.bakePx, this.lm.frameFactor(HE, HO)), freezeR: this._boolOpts().freezeR, graze: "cut" };
-        if (!sync && !this._cutInflight) {
-            // Off the main thread where there is a worker (Kobin, 2026-09-08: per job;
-            // the document stays here). One cut in flight at a time; `_onCutResult`
-            // decides by identity and `_ver` whether the result still applies.
-            const p = runCutAsync(job);
-            if (p) {
-                const inflight = { id: o.id, ver: o._ver || 0, Erec, target, job, ctx: { op, note, areaBefore, done }, t0: perfNow() };
-                this._cutInflight = inflight;
-                p.then((r) => this._onCutResult(inflight, r, null), (err) => this._onCutResult(inflight, null, err));
-                return "pending";
-            }
-        }
-        const r = cutJob(job);
-        return this._ownChange(E, () => this._applyCut(Erec, target, r, { op, note, areaBefore, done }));
+        const clip = this._projected(E, HE, o);
+        if (!clip || !clip.length) return null;
+        // Dust is what was invisible at the mark's zoom (F66): a quarter pixel there, through the frame factor.
+        return { kind: "cut", job: { subject: o.loops, clip, w: o.w, dustBar: dustBarFor(E.bakePx, this.lm.frameFactor(HE, HO)), freezeR: this._boolOpts().freezeR, graze: "cut" } };
+    }
+    /** A worker's job has landed: into the reorder buffer, then the tick or the parked barrier applies it in its turn. */
+    _onLanded(c, r, err) {
+        if (this._destroyed) return;
+        if (this._descentOut === c) this._descentOut = null;
+        if (this._cuts.get(c.key) !== c) { this._cutStale = (this._cutStale || 0) + 1; if (this._barrier) this._barrierStep(); else this._scheduleBake(0); return; }
+        c.state = "landed"; c.r = r; c.err = err;
+        if (this._barrier) this._barrierStep(); else this._scheduleBake(0);
     }
     /**
-     * A worker's cut has landed. Dropped when stale: the mark gone, the target gone (a
-     * barrier or another mark took it — its results stand) or changed meanwhile
-     * (`_ver`: moved or edited; put back for the next tick). A worker failure runs the
-     * job inline. Then the mark steps down as the tick would have, and the tick goes on.
+     * A landed job applied in its turn, if still valid: the target live and unchanged (`_ver`: a
+     * move or a settle projected the eraser through another table), the pair still pending, the
+     * lattice not re-addressed, the document not reloaded. A failed worker's job runs here.
      */
-    _onCutResult(inflight, r, err) {
-        if (this._cutInflight !== inflight) return;   // a load or a reset superseded it
-        if (this._destroyed) return;                  // the editor closed: no apply, no next tick
-        this._cutInflight = null;
-        const { Erec, target, ctx, job } = inflight;
-        const cur = this.doc.getById(inflight.id);
-        const markAlive = !!this.doc.getById(Erec.obj.id);
-        const same = !!cur && cur.obj === target.obj;
-        const changedMeanwhile = same && (cur.obj._ver || 0) !== inflight.ver;
-        if (!markAlive || !same || changedMeanwhile) {
-            // Not done: a target moved meanwhile is baked again, and one whose mark an undo took is
-            // taken by the redo (erase.stack.test.js).
-            if (changedMeanwhile || !markAlive) ctx.done.delete(inflight.id);
-            this._cutStale = (this._cutStale || 0) + 1;
-            this._scheduleBake(0);
-            return;
-        }
-        const descent = inflight.kind === "descent";
-        if (err || !r) { this._cutFailures = (this._cutFailures || 0) + 1; r = descent ? descentJob(inflight.world, inflight.input) : cutJob(job); }
+    _applyLanded(Erec, rec, c) {
+        const valid = c.gen === this._eraseGen && rec.obj === c.obj && (rec.obj._ver || 0) === c.ver
+            && this.lm.addrEpoch === c.addr && this._pendingPair(Erec.obj, rec.obj);
+        if (!valid) { this._cutStale = (this._cutStale || 0) + 1; return false; }
+        let r = c.r;
+        if (c.err || !r) { this._cutFailures = (this._cutFailures || 0) + 1; r = c.kind === "descent" ? descentJob(c.spec.world, c.spec.input) : cutJob(c.spec.job); }
         const tA = perfNow();
-        try { this._ownChange(Erec.obj, () => (descent ? this._applyDescent(Erec, target, r, ctx) : this._applyCut(Erec, target, r, ctx))); }
-        finally { this._perf(descent ? "descentApply" : "cutApply", tA, true, { kind: descent ? (r.refused ? "refused" : "steps:" + r.steps.length) : r.kind, workerMs: Math.round(tA - inflight.t0) }); }
-        this._lowerMark(Erec, target);
-        this._renderSoon();
-        this._scheduleBake(0);
+        try { return this._applyPair(Erec, rec, c.kind, r); }
+        finally { this._perf(c.kind === "descent" ? "descentApply" : "cutApply", tA, true, { kind: c.kind === "descent" ? (r.refused ? "refused" : "steps:" + r.steps.length) : r.kind, workerMs: Math.round(tA - c.t0) }); }
     }
+    _applyPair(Erec, rec, kind, r) { return kind === "descent" ? this._applyDescent(Erec, rec, r) : this._applyCut(Erec, rec, r); }
+    _dropCut(c) {
+        if (this._cuts.get(c.key) === c) this._cuts.delete(c.key);
+        if (this._descentOut === c) this._descentOut = null;
+    }
+    /** Every job of mark `id` dropped (it left the document): their late answers are ignored. */
+    _dropCuts(id) { for (const c of [...this._cuts.values()]) if (c.markId === id) this._dropCut(c); }
+    /** A cut or a descent is in a worker. */
+    _eraseBusy() { for (const c of this._cuts.values()) if (c.state === "flight") return true; return false; }
+    /** Mark E's pairs all handled: it is removed (logged `spent`; its box re-rastered exactly) and its id pruned from its lineage (A2 §4.6). */
+    _spendMark(Erec) {
+        const E = Erec.obj;
+        this._noteSpent(E);
+        this._keepDebugMark(E);
+        this.doc.removeById(E.id);
+        this._eraseCommits.delete(E.id);
+        this._pruneMark(E.id);
+    }
+    /** A spent mark's id off the live natives of its lineage: it never comes back (its gesture undoes by its steps). */
+    _pruneMark(id) {
+        const s = this._lineage.get(id);
+        if (s) {
+            for (const x of s) {
+                const rec = this.doc.getById(x);
+                if (!rec) continue;
+                const o = rec.obj, t = withoutId(o.targetOf, id), h = withoutId(o.handledBy, id);
+                if (t && t.length) o.targetOf = t; else delete o.targetOf;
+                if (h && h.length) o.handledBy = h; else delete o.handledBy;
+            }
+        }
+        this._lineage.delete(id); this._order.delete(id); this._silent.delete(id); this._proj.delete(id);
+    }
+    /** Mark E's bake leaves `o` whole — a refusal: handled, its ink under the mark showing again unless `inkless` (A2 §5.7). */
+    _refuse(E, o, HO, why, inkless) {
+        this.doc.setHandledById(o.id, E.id, { inkless });
+        return this._rehomeBail(E, o, HO, why);
+    }
+    _noteOf(id) { return this.journal.find((j) => j.kind === "erase" && j.id === id); }
     /**
      * One render within ERASE_RENDER_MS for a bake's steps: a render per landed cut or per slice was
      * most of a bake's main thread on a big drawing (REVIEWER E-2). A spent mark renders now. On the
@@ -774,54 +894,43 @@ class ErasePipeline {
             if (!this._destroyed) this._render();
         }, ERASE_RENDER_MS);
     }
-    /** The cut in the worker, run here now for a barrier that cannot wait for it; its late answer is ignored. */
-    _settleInflight() {
-        const f = this._cutInflight;
-        if (!f) return false;
-        this._onCutResult(f, f.kind === "descent" ? descentJob(f.world, f.input) : cutJob(f.job), null);
-        return true;
-    }
     /**
-     * The document side of a cut: what `cutJob` decided, applied — the sealed-boolean
-     * and dust tallies, then the replacement or the removal, recorded on the gesture's
-     * op. Nothing here if the mark or the target went meanwhile (a stale result).
-     * Returns true when the document changed.
+     * The document side of a cut: `cutJob`'s answer applied — the sealed-boolean and dust tallies,
+     * then the replacement or the removal, `by` the mark (its pieces inherit the lineage with the
+     * mark handled, A2 §4.3), recorded on the gesture's op before anything changes. A graze handles
+     * the target: nothing of it lay under the mark (F109). Returns true when the document changed.
      */
-    _applyCut(Erec, target, r, { op, note, areaBefore, done }) {
+    _applyCut(Erec, target, r) {
         const E = Erec.obj;
         const { obj: o, level: HO } = target;
         if (!this.doc.getById(E.id) || !this.doc.getById(o.id)) return false;
         this._noteSeal({ stats: r.stats }, o);
         this._dustCulled = (this._dustCulled || 0) + (r.dust || 0);
-        if (r.kind === "grazed") { this._uncutOf(E.id).delete(o.id); return false; }   // nothing under the mark (F109)
-        let bakedStep;
+        if (r.kind === "grazed") { this.doc.setHandledById(o.id, E.id, { inkless: true }); return false; }
+        const op = this._eraseOp(E);
+        const note = this._noteOf(E.id);
+        const areaBefore = o.loops ? loopsArea(o.loops) : 0;
+        let step;
         if (r.kind === "cut") {
-            const regions = r.regions;
-            const wasKey = this.doc.editKey(o);
-            const inFamily = o.editId != null;
-            const cut = this._neutralUnder(E, o, () => this.doc.eraseReplaceById(o.id, regions));
+            const wasKey = this.doc.editKey(o), inFamily = o.editId != null;
+            const cut = this.doc.eraseReplaceById(o.id, r.regions, E.id, r.dustBoxes || null);
             if (!cut) return false;
-            this._uncutOf(E.id).delete(o.id);
             if (note) {
                 note.cuts.push({ target: o.id, level: HO, mode: "cut",
                     areaBefore: +areaBefore.toFixed(2),
                     into: cut.pieces.map((x) => ({ id: x.id, area: +loopsArea(x.loops).toFixed(2) })),
                     sealed: (r.stats && r.stats.sealed) || 0 });
             }
-            bakedStep = { removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) };
-            for (const pc of bakedStep.pieces) done.add(pc.obj.id); // results are already net of E
-            // A cut inside a multi-level family may or may not have parted the
-            // OBJECT — that is a question about the whole family, asked once,
-            // after the geometry has settled.
-            if (regions.length > 1 && inFamily) { this.doc.recordBake(op, bakedStep); this._resplitFamily(op, wasKey); return true; }
+            step = { removed: cut.removed, pieces: cut.pieces.map((obj) => ({ obj, level: cut.removed.level })) };
+            // Whether a cut inside a multi-level family parted the OBJECT is a question about the whole family, once the geometry settles.
+            if (r.regions.length > 1 && inFamily) { this.doc.recordBake(op, step); this._resplitFamily(op, wasKey); return true; }
         } else {
-            const rec = this._neutralUnder(E, o, () => this.doc.removeById(o.id)); // nothing survives
-            if (!rec) return false;
-            this._uncutOf(E.id).delete(o.id);
+            const removed = this.doc.removeById(o.id, { by: E.id });   // nothing survives
+            if (!removed) return false;
             if (note) note.cuts.push({ target: o.id, level: HO, mode: "removed", areaBefore: +areaBefore.toFixed(2) });
-            bakedStep = { removed: rec, pieces: [] };
+            step = { removed, pieces: [] };
         }
-        this.doc.recordBake(op, bakedStep); // op resolved above — every bake is recorded
+        this.doc.recordBake(op, step);
         return true;
     }
     /**
@@ -852,7 +961,6 @@ class ErasePipeline {
         if (o.type === "fill") return o.polys;
         return flattenLoops(strokeLoops(o, this.cfg, { curved: o.origin === "native", live: this.store.live }), tol);
     }
-
     /**
      * THE INK A CEDE HANDS DOWN: what the tile store holds for native `id` in
      * cache square (i, j) of frame `F` — the very pieces the renderer draws
@@ -1029,7 +1137,6 @@ class ErasePipeline {
         if (rekeys.length) { this.doc.keysChanged(rekeys.map((r) => r.id)); this.doc.recordBake(op, { rekey: rekeys }); }
         return true;
     }
-
     // Re-homing bake: cut the hole at the level the user drew it at, and get
     // there ONE CROSSING AT A TIME.
     //
@@ -1045,82 +1152,43 @@ class ErasePipeline {
     // which is 12.8 units in the parent whatever the depth, a ratio of 1/3000
     // forever. Each step also projects only its immediate parent, so no
     // transform is ever composed across more than one crossing.
-    _bakeRehome(op, Erec, target, done, sync) {
-        const tRH = perfNow();
-        try { return this._bakeRehomeInner(op, Erec, target, done, sync); }
-        finally { this._perf("rehome", tRH, false, { id: target && target.obj && target.obj.id }); }
-    }
     /** The descent's world: the engine's own frame math and derive parameters (eraseDescent.js). */
     _descentWorld() { return { lm: this.lm, cfg: this.cfg, width: this.lm.width, opacityGroups: this.store.opacityGroups }; }
     /**
-     * A target homed shallower than the erase is re-homed by the DESCENT — one job per
-     * family (Kobin, 2026-09-08; eraseDescent.js): the target is read, every cede is
-     * virtual, and nothing touches the document until the whole descent has succeeded,
-     * when `_applyDescent` swaps the family in. In the worker where there is one; inline
-     * for the barrier and where there is none. A refusal is recorded on the gesture's note.
+     * The document side of a descent: the family swapped for the new one. Each step's removal is the
+     * target or a piece this apply minted a step earlier; the new objects take real ids in the order
+     * the cedes minted them, so the result is the in-place descent's; every piece takes `targetOf` and
+     * `handledBy` from the LIVE target, with the mark handled (a registration may have landed while the
+     * job was out, A2 §4.3). Recorded newest-last on the op, so undo unwinds the chain from the bottom
+     * up; then the family is asked whether it is still one object. A refusal handles the target.
      */
-    _bakeRehomeInner(op, Erec, target, done, sync) {
-        const E = Erec.obj, HE = Erec.level;
-        const { obj: o, level: HO } = target;
-        if (o.type === "stroke") { this._forceBake(o); done.add(o.id); }
-        if (o.type === "fill") this.doc.fillToShapeById(o.id);
-        if (o.type !== "shape") return this._rehomeBail(E, o, HO, "target is a " + o.type);
-        const input = { freezeR: this._boolOpts().freezeR, HE, target: { obj: o, level: HO }, E: { id: E.id, w: E.w, bakePx: E.bakePx, loops: E.loops } };
-        const world = this._descentWorld();
-        if (!sync && !this._cutInflight) {
-            const p = runDescentAsync(world, input);
-            if (p) {
-                const inflight = { kind: "descent", id: o.id, ver: o._ver || 0, Erec, target, world, input, ctx: { op, done }, t0: perfNow() };
-                this._cutInflight = inflight;
-                p.then((r) => this._onCutResult(inflight, r, null), (err) => this._onCutResult(inflight, null, err));
-                return "pending";
-            }
-        }
-        return this._ownChange(Erec.obj, () => this._applyDescent(Erec, target, descentJob(world, input), { op, done }));
-    }
-    /**
-     * The document side of a descent: the family swapped for the new one. Every step's
-     * removal is a real object (the target) or one this apply minted a step earlier; the
-     * new objects take real ids in the order `Document.cedeTileById` gave them, so the
-     * result is the one the in-place descent produced. Recorded newest-last on the op, so
-     * undo unwinds the chain from the bottom up; then the family is asked whether it is
-     * still one object.
-     */
-    _applyDescent(Erec, target, r, { op, done }) {
+    _applyDescent(Erec, target, r) {
         const E = Erec.obj;
         const { obj: o, level: HO } = target;
         for (const sl of r.stats.seals) { this._boolFailures = (this._boolFailures || 0) + 1; this._lastBoolFailure = { ...sl }; }
         this._dustCulled = (this._dustCulled || 0) + (r.stats.dust || 0);
-        if (r.refused) {
-            // No ink of the target under the mark: the step past it changes no pixel (F109).
-            if (r.inkless) this._uncutOf(E.id).delete(o.id);
-            return this._rehomeBail(E, o, HO, r.refused);
-        }
+        if (r.refused) return this._refuse(E, o, HO, r.refused, !!r.inkless);
         const cur = this.doc.getById(o.id);
         if (!cur || cur.obj !== o || !this.doc.getById(E.id)) return false;
-        // The frames the job minted on its own lattice copy, here first (F67): a kid's
-        // home must exist before the store or the index can place it.
+        // The frames the job minted on its own lattice copy, here first (F67): a kid's home must exist before the store or the index can place it.
         if (r.minted && r.minted.length) this.lm.merge({ frames: r.minted });
-        // Every piece's frame is here now, or it would be homed where the lattice has no frame (F99, A1-3).
-        for (const st of r.steps) for (const sp of st.parents.concat(st.kids)) if (!this.lm.frame(sp.level)) return this._rehomeBail(E, o, HO, "a piece's frame is missing");
-        const idMap = new Map();   // the job's virtual ids -> the ids minted here
-        const real = (vid) => (vid < 0 ? idMap.get(vid) : vid);
-        const steps = [];
-        const apply = () => {
-            for (const st of r.steps) {
-                const removed = this.doc.removeById(real(st.removedId));
-                if (!removed) return false;   // cannot happen: ours, or the target checked above
-                const mint = (sp) => { const obj = { ...sp.obj, id: this.doc.allocId() }; this.doc.add(obj, sp.level); idMap.set(sp.vid, obj.id); return { obj, level: String(sp.level) }; };
-                const pieces = st.parents.map(mint).concat(st.kids.map(mint));
-                for (const pc of pieces) done.add(pc.obj.id);
-                steps.push({ removed, pieces });
-            }
-            return true;
-        };
-        if (!this._neutralUnder(E, o, apply)) return false;   // the pieces re-homed where they were: no pixel moves
+        for (const st of r.steps) for (const sp of st.parents.concat(st.kids)) if (!this.lm.frame(sp.level)) return this._refuse(E, o, HO, "a piece's frame is missing", false);
+        const op = this._eraseOp(E);
+        const lineage = { targetOf: o.targetOf, handledBy: o.handledBy };
+        const idMap = new Map(), real = (vid) => (vid < 0 ? idMap.get(vid) : vid), steps = [];
+        for (const st of r.steps) {
+            const removed = this.doc.removeById(real(st.removedId), { by: E.id, dust: st.dust || null });
+            if (!removed) break;   // cannot happen: ours, or the target checked above
+            const mint = (sp) => {
+                const obj = inheritErase({ ...sp.obj, id: this.doc.allocId() }, lineage, E.id);
+                this.doc.add(obj, sp.level, { by: E.id });
+                idMap.set(sp.vid, obj.id);
+                return { obj, level: String(sp.level) };
+            };
+            steps.push({ removed, pieces: st.parents.map(mint).concat(st.kids.map(mint)) });
+        }
         for (const st of steps) this.doc.recordBake(op, st);
-        this._uncutOf(E.id).delete(o.id);
-        const note = this.journal.find((j) => j.kind === "erase" && j.id === E.id);
+        const note = this._noteOf(E.id);
         if (note) {
             note.cuts.push({ target: o.id, level: HO, mode: "cede",
                 through: steps.map((st) => st.pieces.map((pc) => `${pc.level}#${pc.obj.id}`)) });
@@ -1166,173 +1234,171 @@ class ErasePipeline {
         this._rehomeWhy = null;
         return false;
     }
-    /**
-     * A mark is being consumed. If it never cut anything, say what it looked at.
-     *
-     * The done set IS the list of everything the gesture considered and
-     * dismissed, so recording it turns "the eraser did nothing" from a mystery
-     * into a list of objects with a reason beside each one.
-     */
+    /** A mark is spent: if it never cut anything, what it looked at — its targets — goes on its journal note. */
     _noteSpent(E) {
-        const note = this.journal.find((j) => j.kind === "erase" && j.id === E.id);
+        const note = this._noteOf(E.id);
         if (!note || (note.cuts && note.cuts.length)) return;
-        const done = this._bakeDone.get(E.id);
-        note.spent = {
-            considered: done ? [...done].slice(0, 24) : [],
-            nConsidered: done ? done.size : 0,
-            refused: (note.refused || []).length,
-            pending: this._eraseStrokes().length,
-        };
+        const t = E.targets || [];
+        note.spent = { considered: t.slice(0, 24), nConsidered: t.length, refused: (note.refused || []).length, pending: this._eraseStrokes().length };
     }
-    // Selection barrier: bake everything still pending over ONE object, now.
-    // Returns true if the object changed (caller re-renders and re-hits). The mark's
-    // own next target (or its cut in the worker) is baked in the tick's order, so the
-    // mark steps below it as the tick would; anything else is out of order and the
-    // mark stays where it is (DESIGN.md §7).
-    // `marks`: the settled `_eraseStrokes()` when the caller already holds them (`_settleSelectionErases`).
-    _flushErasesFor(id, marks = null) {
-        if (!marks) this.flushBakes();   // an eraser cannot be subtracted before it has a shape
-        const rec = this.doc.getById(id);
-        if (!rec || rec.obj.erase) return false;
-        for (const Erec of marks || this._eraseStrokes()) {
-            const E = Erec.obj;
-            if (marks && !this.doc.getById(E.id)) continue;           // spent since the caller took them
-            if (this._zOf(E) <= this._zOf(rec.obj)) continue;
-            // Done means handled OR in the worker; a cut in flight for this object is
-            // baked here anyway (Kobin: settle first) and its late result is dropped.
-            const inflight = this._cutInflight && this._cutInflight.id === id && this._cutInflight.Erec.obj === E;
-            if (!inflight && this._doneSet(E.id).has(id)) continue;
-            if (!this._eraseMayTouch(E, Erec.level, rec.obj, rec.level)) { this._doneSet(E.id).add(id); continue; }
-            // The mark's cut in the worker on another object lands first: stepping the mark below
-            // this one would pass that object uncut (erase.stack.test.js).
-            if (this._cutInflight && this._cutInflight.Erec.obj === E && !inflight) {
-                this._settleInflight();
-                const cur = this.doc.getById(id);
-                if (!cur || cur.obj !== rec.obj) return true;
+    // ---- the barriers (A2 §4.11) ----
+    /**
+     * Bake the pending pairs `pairsOf(b)` names, then run `then(followed, b)` — nothing is selected,
+     * moved or judged before its cuts land (PLAN §0 decision 3). Rounds: every named pair whose
+     * target is not pending under an earlier mark (the per-target lock), applied in serial order; the
+     * pieces still pending under another mark form the next round, so a target under k marks takes k
+     * rounds and no cap is needed. `follow`: ids replaced by their pieces as steps land. Where there
+     * is no worker the rounds run inline and `then` runs before this returns true; otherwise the
+     * gesture is parked (false) until its last round has applied — a new press, a tool change, an
+     * undo or a pinch cancels it (`_cancelBarrier`), and its cuts go on as the bake's.
+     */
+    _eraseBarrier(kind, pairsOf, then, follow = null) {
+        this._cancelBarrier();
+        const b = { kind, pairsOf, then, follow: new Set(follow || []), keys: new Set(), t0: perfNow(), rounds: 0, press: this._pressWait, lasso: false, prev: null };
+        if (!this._marks.size) { then([...b.follow].filter((id) => this.doc.getById(id)), b); return true; }
+        if (this._marksUnlanded()) this.flushBakes(); else this._registerLanded();
+        this._barrier = b; this._follow = b.follow;
+        if (this._barrierAdvance(b)) return true;
+        this._emit();
+        return false;
+    }
+    /** A job landed while a gesture is parked: its round goes on. */
+    _barrierStep() { const b = this._barrier; if (b) this._barrierAdvance(b); }
+    /** Rounds until one waits on a worker (false) or none is left and `then` has run (true). */
+    _barrierAdvance(b) {
+        for (let guard = 0; guard < 100000 && this._barrier === b; guard++) {
+            if (b.keys.size) {
+                const cs = [...b.keys].map((k) => this._cuts.get(k)).filter(Boolean);
+                if (cs.some((c) => c.state === "flight")) return false;
+                b.keys.clear();
+                const rank = new Map(this._eraseStrokes().map((m, i) => [m.obj.id, i]));
+                const zAt = (c) => zOf(c.obj);
+                cs.sort((p, q) => ((rank.get(p.markId) ?? 1e9) - (rank.get(q.markId) ?? 1e9)) || (zAt(q) - zAt(p)) || (q.id - p.id));
+                for (const c of cs) {
+                    this._dropCut(c);
+                    const M = this.doc.getById(c.markId), rec = this.doc.getById(c.id);
+                    if (M && rec && M.obj.erase) this._applyLanded(M, rec, c);
+                }
+                if (this._barrier !== b) return true;
             }
-            const next = this._nextEraseTarget(Erec);
-            const inOrder = !next || next.obj === rec.obj || this._zOf(next.obj) <= this._zOf(rec.obj);
-            const target = { obj: rec.obj, level: rec.level };
-            const changed = this._bakeOne(Erec, target, { sync: true });
-            if (inOrder) this._lowerMark(Erec, target);
-            if (changed) return true;
+            const round = this._barrierRound(b);
+            if (!round.length) { this._finishBarrier(b); return true; }
+            b.rounds++;
+            let parked = false;
+            const ran = new Set();
+            for (const { Erec, rec } of round) {
+                const key = cutKey(Erec.obj.id, rec.obj.id), c = this._cuts.get(key);
+                if (c) { b.keys.add(key); if (c.state === "flight") parked = true; continue; }
+                // A pair its own inline step left pending is set aside, not looped on.
+                if (b.prev && b.prev.has(key)) { this._silentAdd(Erec.obj.id, rec.obj.id); continue; }
+                const out = this._dispatchPair(Erec, rec, { barrier: true });
+                if (out === "flight") { b.keys.add(key); parked = true; } else if (out === "wait") parked = true; else ran.add(key);
+            }
+            b.prev = ran;
+            if (parked) return false;
         }
         return false;
     }
-    /**
-     * Erase barrier for a MOVE: settle every mark still pending over anything
-     * in the selection, then consume the marks that have nothing left to cut.
-     *
-     * A mark is a native at fixed coordinates. Ink dragged out from under one
-     * that has not been applied yet takes its un-erased shape with it, the mark
-     * stays behind and cuts whatever has arrived there since, and the white
-     * mark itself goes on painting over the drawing. The single-object flush
-     * that used to be here left all of that whenever the selection held more
-     * than the piece under the finger — several objects, or one object with a
-     * re-homed piece at another level.
-     *
-     * The selection is carried across the bakes by REPLACEMENT, not by id and
-     * not by `z`: a cut mints new natives, and `z` is inherited by every
-     * descendant forever, so a piece split off ten minutes ago shares it and
-     * would silently join the drag. Diffing the document around each bake names
-     * exactly the pieces that bake produced.
-     */
-    _settleSelectionErases() {
-        // One perimeter flush and one mark scan a round, not two full scans per selected id (REVIEWER
-        // A3-2: 1,000 ids took 7.7 s on the Magnum Opus with no mark pending).
-        this.flushBakes();
-        let marks = this._eraseStrokes();
-        if (!marks.length) return false;
-        // A selected frame is not expanded (its natives are not read): with any mark pending,
-        // every mark is baked out synchronously instead, which is rare and bounded by the marks.
-        const frames = this.selection ? this.selection.frames || [] : [];
-        if (frames.length) { this.flushErases(); marks = this._eraseStrokes(); }
-        const live = new Set(this._selectionMembers().map((m) => m.obj.id));
-        // The pieces a bake mints replace their source: followed by the document's own events.
-        const added = [], removed = [];
-        const unsub = this.doc.subscribe((ev) => {
-            if (ev.kind === "add" && ev.obj && !ev.obj.erase) added.push(ev.id);
-            else if (ev.kind === "remove" && !ev.rehome) removed.push(ev.id);
-        });
-        let replaced = false, changed = false;
-        try {
-            for (let guard = 0; guard < 200 && marks.length; guard++) {
-                added.length = 0; removed.length = 0;
-                let baked = false;
-                for (const id of [...live]) {
-                    if (this.doc.getById(id) && this._flushErasesFor(id, marks)) { baked = true; break; }
-                }
-                if (!baked) break;
-                for (const id of added) live.add(id);
-                for (const id of removed) live.delete(id);
-                replaced = true; changed = true;
-                marks = this._eraseStrokes();
-            }
-        } finally { unsub(); }
-        // A mark with no target left is spent. Left alone it would keep being
-        // PAINTED — white ink over whatever it covers — until the idle baker
-        // next ran, which during a drag is deferred behind the drag itself.
+    /** The barrier's next round: its pairs in serial order, each target with its earliest mark only. */
+    _barrierRound(b) {
+        const pairs = b.pairsOf(b);
+        const rank = new Map(this._eraseStrokes().map((m, i) => [m.obj.id, i]));
+        pairs.sort((p, q) => (rank.get(p.Erec.obj.id) - rank.get(q.Erec.obj.id)) || (zOf(q.rec.obj) - zOf(p.rec.obj)) || (q.rec.obj.id - p.rec.obj.id));
+        const seen = new Set(), out = [];
+        for (const p of pairs) if (!seen.has(p.rec.obj.id)) { seen.add(p.rec.obj.id); out.push(p); }
+        return out;
+    }
+    _finishBarrier(b) {
+        if (this._barrier !== b) return;
+        this._barrier = null; this._follow = null;
+        if (b.rounds) this._perf("eraseBarrier", b.t0, false, { kind: b.kind, rounds: b.rounds });
+        b.then([...b.follow].filter((id) => this.doc.getById(id)), b);
+        this._emit();
+        this._scheduleBake(0);
+    }
+    /** A parked gesture dropped (a new press, a tool change, an undo, a pinch, a load): its continuation never runs; its cuts go on as the bake's. */
+    _cancelBarrier() {
+        const b = this._barrier;
+        if (!b) return;
+        this._barrier = null; this._follow = null;
+        if (b.press && this._pressWait === b.press) this._pressWait = null;
+        if (b.lasso) { this._lassoParked = null; this.renderer.refreshSelection(); }
+        this._emit();
+        this._scheduleBake(0);
+    }
+    /** Every pending pair whose live target `pred({obj, level})` accepts, of the marks `markPred` accepts: `[{Erec, rec}]`. */
+    _pendingPairs(pred, markPred = null) {
+        const out = [];
         for (const Erec of this._eraseStrokes()) {
-            if (this._nextEraseTarget(Erec) || (this._cutInflight && this._cutInflight.Erec.obj === Erec.obj)) continue;
-            this._noteSpent(Erec.obj);
-            this._keepDebugMark(Erec.obj);
-            this.doc.removeById(Erec.obj.id);
-            this._eraseCommits.delete(Erec.obj.id);
-            this._bakeDone.delete(Erec.obj.id);
-            changed = true;
+            if (markPred && !markPred(Erec)) continue;
+            const s = this._lineage.get(Erec.obj.id);
+            if (!s) continue;
+            for (const id of s) {
+                const rec = this.doc.getById(id);
+                if (rec && this._pendingPair(Erec.obj, rec.obj) && pred(rec)) out.push({ Erec, rec });
+            }
         }
-        if (replaced) {
-            const ids = [...live].filter((id) => this.doc.getById(id));
-            if (ids.length || frames.length) this._setSelection(ids, frames); else this.deselect();
-        }
-        if (changed) this._render();
-        return changed;
+        return out;
+    }
+    /** The natives of the families of the ids a barrier follows. */
+    _familiesOf(ids) {
+        const out = new Set();
+        for (const x of ids) { const r = this.doc.getById(x); if (r) for (const m of this.doc.editGroup(this.doc.editKey(r.obj))) out.add(m.obj.id); }
+        return out;
+    }
+    /** A tap's barrier: the pending pairs of object `id` and its family; `then(ids)` gets its pieces (A2 §5.5). */
+    _tapBarrier(id, then) {
+        return this._eraseBarrier("tap", (b) => { const fam = this._familiesOf(b.follow); return this._pendingPairs((rec) => fam.has(rec.obj.id)); }, then, [id]);
     }
     /**
-     * Erase barrier for a LASSO (Kobin, 2026-09-23: a lasso over a stack still baking freezes
-     * until the bake is done, then selects the cut-outs): every pending mark whose box meets the
-     * loop's box in the camera's frame is baked out now, its targets anywhere, and consumed.
-     * Returns true when a mark was baked.
+     * A drag's barrier (B4): the pending pairs among the selection's members and under its frames,
+     * and every pending pair of a mark homed under a selected frame — a mark moved with its frame
+     * would carry its mask off its targets. The selection follows the cuts to the pieces; then `then(b)`.
      */
-    _settleLassoErases(poly) {
-        let any = false, raw = false;
-        for (const k of this.doc.levels()) for (const o of this.doc.list(k)) if (o.erase) { any = true; if (o.type !== "shape") raw = true; }
-        if (!any || !poly.length) return false;   // no mark: the lasso costs nothing more
-        if (raw) this.flushBakes();               // a mark has no box until it has a shape
-        const marks = this._eraseStrokes();
+    _dragBarrier(then) {
+        const sel = this.selection;
+        const frames = sel ? (sel.frames || []).slice() : [];
+        const under = (level) => frames.length > 0 && this._underFrames(level, frames);
+        const pairsOf = (b) => {
+            const fam = this._familiesOf(b.follow);
+            const out = this._pendingPairs((rec) => fam.has(rec.obj.id) || under(rec.level));
+            return frames.length ? out.concat(this._pendingPairs(() => true, (Erec) => under(Erec.level))) : out;
+        };
+        return this._eraseBarrier("drag", pairsOf, (ids, b) => {
+            if (b.rounds && this.selection) {
+                if (ids.length || frames.length) this._setSelection(ids, frames); else this.deselect();
+            }
+            then(b);
+        }, sel ? sel.ids : []);
+    }
+    /** A lasso's barrier (H5): every pending pair whose target's drawn box meets the loop's box, wherever its mark is. */
+    _lassoBarrier(poly, then) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (const [x, y] of poly) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-        const ids = new Set();
-        for (const Erec of marks) {
-            const b = Erec.obj.loops ? loopsBBox(Erec.obj.loops) : null;
-            const r = b ? this.lm.mapRectF({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 }, Erec.level, this.cam.frame) : null;
-            if (r && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1) ids.add(Erec.obj.id);
-        }
-        if (!ids.size) return false;
-        this.flushErases(ids);
-        return true;
+        const F = this.cam.frame;
+        const meets = (rec) => { const r = this.stage.placeNative(rec.obj, F).box(); return !!r && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1; };
+        return this._eraseBarrier("lasso", () => this._pendingPairs(meets), then);
+    }
+    /** The engine status's erase part: the pending marks, and whether a gesture waits on their cuts (the editor's chip). */
+    _eraseStatus() {
+        let marks = 0;
+        for (const o of this._marks.values()) if (this.doc.getById(o.id)) marks++;
+        return { marks, finishing: !!this._barrier };
     }
     /**
-     * Bake pending eraser strokes to completion now — every one, or the marks whose ids are in
-     * `only` — their cut in the worker first, since a mark with its last cut in flight looks spent.
-     * The tests' settle point and the barriers' (a lasso, a selected frame).
+     * Bake pending marks to completion now, inline — every one, or those whose ids are in `only`: the
+     * tests' settle point. A job in flight for a pair baked here is dropped when it lands.
      */
     flushErases(only = null) {
         this.flushBakes();
-        const f = this._cutInflight;
-        if (f && (!only || only.has(f.Erec.obj.id))) this._settleInflight();
-        let guard = 0;
-        while (guard++ < 10000) {
-            const strokes = only ? this._eraseStrokes().filter((r) => only.has(r.obj.id)) : this._eraseStrokes();
-            if (!strokes.length) break;
-            const Erec = strokes[0];
-            const target = this._nextEraseTarget(Erec);
-            if (target) { this._bakeOne(Erec, target, { sync: true }); continue; }
-            this._noteSpent(Erec.obj);
-            this._keepDebugMark(Erec.obj);
-            this.doc.removeById(Erec.obj.id);
-            this._eraseCommits.delete(Erec.obj.id);
-            this._bakeDone.delete(Erec.obj.id);
+        for (let guard = 0; guard < 100000; guard++) {
+            const Erec = this._eraseStrokes().find((m) => !only || only.has(m.obj.id));
+            if (!Erec) break;
+            const rec = this._headOf(Erec);
+            if (!rec) { this._spendMark(Erec); continue; }
+            const c = this._cuts.get(cutKey(Erec.obj.id, rec.obj.id));
+            if (c) this._dropCut(c);
+            this._dispatchPair(Erec, rec, { inline: true });
         }
         this._render();
     }

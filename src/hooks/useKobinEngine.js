@@ -531,6 +531,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         const restoreFrom = (res, camera = null) => {
             if (res.legacy) {
                 engine.loadDrawing(camera ? { ...res.legacy, camera } : res.legacy, { render: false });
+                engine._eraseLoaded();   // a mark from before `targets` registers, logged once (A2 §4.9)
                 hasBase = false; fullDirty = true;
                 return true;
             }
@@ -544,6 +545,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             for (const [fid, f] of Object.entries(res.frames)) snapBytes.set(fid, f.geo.byteLength);
             log.replaying = true;
             try { log.replay(res.entries, frameSeq, frameIds); } finally { log.replaying = false; }
+            engine._eraseLoaded();   // after the replay, so a mark from before `targets` registers once and is logged (A2 §4.9)
             noteEntries(res.entries, frameSeq);
             for (const mid of [...markSeq.keys()]) if (!engine.doc.getById(mid)) markSeq.delete(mid);
             engine._scheduleBake();   // a pending eraser resumes where its log left it

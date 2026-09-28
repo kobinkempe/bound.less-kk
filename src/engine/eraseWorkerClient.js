@@ -65,11 +65,14 @@ function spawn() {
         try { w = new Worker(workerUrl()); } catch (err) { broken = true; terminate(); return 0; }
         const slot = { w, rec: null };
         w.onmessage = (e) => onMessage(slot, (e && e.data) || {});
-        w.onerror = (e) => failPool(e, answered);
+        w.onerror = onWorkerError;
         workers.push(slot);
     }
     return workers.length;
 }
+
+/** Before any worker has answered, the script did not load: inline for the session; after, the pool is replaced (RW-1). */
+function onWorkerError(e) { failPool(e, answered); }
 
 function terminate() {
     for (const s of workers) { try { s.w.terminate(); } catch (err) { /* already gone */ } }
@@ -118,16 +121,7 @@ function unwire(rec, out) {
 
 function pump() {
     if (transport) {
-        while (queue.length && inTransport < transportSlots) {
-            const rec = takeHead();
-            const { msg, transfer } = wire(rec);
-            inTransport++;
-            const t = transport;
-            t(msg, transfer, rec.kind).then(
-                (out) => { if (t === transport) inTransport--; rec.resolve(unwire(rec, out)); pump(); },
-                (err) => { if (t === transport) inTransport--; stats.failed++; rec.reject(err); pump(); },
-            );
-        }
+        while (queue.length && inTransport < transportSlots) sendTransport(takeHead());
         return;
     }
     for (const slot of workers) {
@@ -140,6 +134,16 @@ function pump() {
         try { slot.w.postMessage({ id: rec.id, kind: rec.kind, job: posted.msg }, posted.transfer); } catch (err) { slot.rec = null; rec.reject(err); continue; }
         armWatchdog();
     }
+}
+
+function sendTransport(rec) {
+    const { msg, transfer } = wire(rec);
+    inTransport++;
+    const t = transport;
+    t(msg, transfer, rec.kind).then(
+        (out) => { if (t === transport) inTransport--; rec.resolve(unwire(rec, out)); pump(); },
+        (err) => { if (t === transport) inTransport--; stats.failed++; rec.reject(err); pump(); },
+    );
 }
 
 function onMessage(slot, data) {

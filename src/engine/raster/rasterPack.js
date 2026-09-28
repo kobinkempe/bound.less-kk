@@ -34,6 +34,7 @@ import {
 import { loopBBox, loopsBBox, loopArea } from "../geometry/arcShape";
 import { strokeStripNear, ringSignedArea, flattenCurve, controlsFor } from "../geometry/polyline";
 import { flattenLoops, cubicLoopsBBox } from "../geometry/curveOutline";
+import { underMask } from "../eraseRule";
 import { sagittaOf } from "../geometry/chordMath";
 
 /**
@@ -63,6 +64,7 @@ export const packStats = {
     bandsBuilt: 0, bandHits: 0, boxWalks: 0, rebuilt: 0,
     prepasses: 0, prepassHits: 0, famRefills: 0, famReused: 0,   // S3: the per-list half built, reused, a family refilled, a family taken from the last list
     masked: 0,                                      // items packed under a pending mark's mask
+    maskOverflow: 0,                                // marks past MASKS_MAX sharing a slot they over-hide in (A2 §4.4)
     memoBytes: 0, memoEntries: 0, evictions: 0, logs: 0,
 };
 
@@ -906,8 +908,6 @@ function famStale(f) {
  *             ids, every other job while that drag is live `omit`s them. Whole families by
  *             construction — `_selectionMembers` expands an id to its edit group and a lasso
  *             takes a family whole — so the union sign never differs between the two jobs.
- *   markDone  `(markId) => Set` of what a pending eraser mark has baked: those items are not
- *             under its mask; without it everything below a mark is (Kobin, 2026-09-23)
  *   offset    `[dx, dy]` in frame units, added to every item's `res` — the way a caller that
  *             wants an arbitrary rectangle on ONE plate moves the world instead of the grid
  *             (SCENES-PLAN S1). The core already applies `res` per item, nothing goes on the
@@ -916,7 +916,7 @@ function famStale(f) {
  * @returns {object} the job `rasterCore.renderPlate` and `rasterJob.wireJob` both read
  */
 export function packJob(list, opts) {
-    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, live = null, offset = null, only = null, omit = null, markDone = null } = opts;
+    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, live = null, offset = null, only = null, omit = null } = opts;
     const binner = new PlateBinner(plates, Zq);
 
     // 1 — the families, in the order the SVG renderer stacks them: (z, renderId) ascending,
@@ -967,22 +967,21 @@ export function packJob(list, opts) {
     const items = kept.filter((d) => !d.skip);
     if (!items.length) return emptyJob(opts, plates, paper, pool);
 
-    // Pending eraser marks paint nothing (Kobin, 2026-09-23): each is a mask over the ink below it
-    // that it has not baked — `markDone(id)` is its handled set — so a baked object shows over it.
-    const markOf = new Map();
+    // Pending eraser marks paint nothing: each masks the items the erase rule names where the boxes
+    // meet (`underMask`: its targets and their pieces not yet handled, A2 §4.4), so an object moved
+    // under it after its shape landed, drawn after it, or already baked shows (PLAN §0 decision 3).
+    const markOf = new Map(), marks = [];
     for (const d of items) {
         if (!d.o.erase) continue;
         let M = markOf.get(d.fam);
-        if (!M) {
-            markOf.set(d.fam, (M = { k: Math.min(markOf.size, MASKS_MAX - 1), z: d.fam.z, done: markDone ? markDone(d.o.id) : null, box: [Infinity, Infinity, -Infinity, -Infinity] }));
-        }
+        if (!M) { markOf.set(d.fam, (M = { i: marks.length, k: 0, o: d.o, box: [Infinity, Infinity, -Infinity, -Infinity] })); marks.push(M); }
         const b = d.g.box ? boxWithRes(d.g.box, d.res) : d.box;
         if (b[0] < M.box[0]) M.box[0] = b[0];
         if (b[1] < M.box[1]) M.box[1] = b[1];
         if (b[2] > M.box[2]) M.box[2] = b[2];
         if (b[3] > M.box[3]) M.box[3] = b[3];
     }
-    const marks = [...markOf.values()];
+    const maskedBy = marks.length ? maskSlots(items, marks) : null;
 
     const n = items.length;
     const meta = alloc(pool, Uint32Array, n * META_WORDS);
@@ -1014,11 +1013,7 @@ export function packJob(list, opts) {
         const box = d.g.box ? boxWithRes(d.g.box, d.res) : d.box;
         const M = o.erase ? markOf.get(f) : null;
         let bits = 0;
-        if (!M) {
-            for (const K of marks) {
-                if (f.z < K.z && !(K.done && K.done.has(o.id)) && box[0] <= K.box[2] && box[2] >= K.box[0] && box[1] <= K.box[3] && box[3] >= K.box[1]) bits |= 1 << K.k;
-            }
-        }
+        if (!M && maskedBy) { const under = maskedBy.get(d); if (under) for (const K of under) bits |= 1 << K.k; }
         meta[m + 6] = (o.covers ? FLAG_COVERS : 0) | (o.erase ? FLAG_ERASE : 0) | (isUnion ? FLAG_UNION : 0) | (M ? FLAG_MASK : 0);
         meta[m + 7] = M ? M.k : bits;
         if (isUnion) packStats.unionItems++;
@@ -1059,6 +1054,50 @@ export function packJob(list, opts) {
         paper: Uint8Array.from(paper),
         nItems: n, meta, attr, rgb, subs, geom, ids,
     };
+}
+
+/**
+ * The job's mask slots (A2 §4.4): each item's masking marks by the rule, and each mark's slot. Marks
+ * go in paint order to the first slot they share exactly — no item under both boxes with its bits
+ * different, so the shared plane (the max of their coverages) hides only what each would alone; an
+ * item under both reads 1 − max for (1 − a)(1 − b), which differ only where the two edges overlap.
+ * Past MASKS_MAX a mark joins the slot it over-hides the fewest items in (`maskOverflow`): never
+ * white ink, which would hide what the rule says shows. Returns item -> its masking marks.
+ */
+function maskSlots(items, marks) {
+    const m = marks.length, maskedBy = new Map(), conflict = new Float64Array(m * m);
+    for (const d of items) {
+        if (d.o.erase) continue;
+        const b = d.g.box ? boxWithRes(d.g.box, d.res) : d.box;
+        let under = null, hit = null;
+        for (const K of marks) {
+            if (b[0] > K.box[2] || b[2] < K.box[0] || b[1] > K.box[3] || b[3] < K.box[1]) continue;
+            (under || (under = [])).push(K);
+            if (underMask(d.o, K.o)) (hit || (hit = [])).push(K);
+        }
+        if (hit) maskedBy.set(d, hit);
+        if (!under || under.length < 2) continue;
+        for (let x = 0; x < under.length; x++) {
+            for (let y = x + 1; y < under.length; y++) {
+                const A = under[x], B = under[y];
+                if ((hit && hit.includes(A)) !== (hit && hit.includes(B))) { conflict[A.i * m + B.i]++; conflict[B.i * m + A.i]++; }
+            }
+        }
+    }
+    const slots = [];
+    for (const K of marks) {
+        let best = -1, cost = Infinity;
+        for (let s = 0; s < slots.length && cost > 0; s++) {
+            let c = 0;
+            for (const J of slots[s]) c += conflict[K.i * m + J.i];
+            if (c < cost) { cost = c; best = s; }
+        }
+        if (cost > 0 && slots.length < MASKS_MAX) { best = slots.length; slots.push([]); }
+        else if (cost > 0) packStats.maskOverflow++;
+        slots[best].push(K);
+        K.k = best;
+    }
+    return maskedBy;
 }
 
 function emptyJob(opts, plates, paper, pool) {

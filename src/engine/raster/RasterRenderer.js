@@ -241,8 +241,6 @@ export default class RasterRenderer extends Renderer {
         this._plane = new MovePlane();
         /** A test hook: no drag plane — every drag renders each step (the path a lost plane falls back to). */
         this.forcePerStepDrag = false;
-        /** The engine's `(markId) => Set` of what a pending eraser mark has handled: those ids are not masked by it. */
-        this.markDone = null;
         this._planeFn = null;
         this._landTimer = null;
         this._planeTimer = null;
@@ -591,7 +589,7 @@ export default class RasterRenderer extends Renderer {
         for (const L of sel) {
             const plates = new Int32Array(L.cells.length * 2);
             L.cells.forEach(([i, j], p) => { plates[2 * p] = i; plates[2 * p + 1] = j; });
-            const job = packJob(list, { plates, q: L.tag, Zq: lvl.pZq, dpr: this.layer.dpr, cfg: this.cfg, paper: [0, 0, 0, 0], only: L.ids, live: this._liveModel, markDone: this.markDone });
+            const job = packJob(list, { plates, q: L.tag, Zq: lvl.pZq, dpr: this.layer.dpr, cfg: this.cfg, paper: [0, 0, 0, 0], only: L.ids, live: this._liveModel });
             const bms = new Map();
             for (let p = 0; p < L.cells.length; p++) {
                 renderPlate(job, p, s.rgba, s.counts.subarray(0, COUNTS_PER_PLATE), s.timings.subarray(0, TIMINGS_PER_PLATE));
@@ -1141,7 +1139,7 @@ export default class RasterRenderer extends Renderer {
         const tp = perfNow();
         const job = packJob(list, {
             plates, q: view.q, Zq: view.Zq, dpr: view.dpr, cfg: this.cfg, paper: this._paperRgb,
-            live: this._liveModel, frameSeq: this.frameSeq, markDone: this.markDone,
+            live: this._liveModel, frameSeq: this.frameSeq,
         });
         this._add(SLOT.pack, perfNow() - tp);
         // `br.blit` is the compose CALL and not the paint (§8.1), so only the `ImageData` half of
@@ -1353,7 +1351,7 @@ export default class RasterRenderer extends Renderer {
         const job = packJob(list, {
             plates: strip, q: req.q, Zq: req.Zq, dpr: this.layer.dpr, cfg: this.cfg,
             paper: req.paper || this._paperRgb, G, jobId, frameSeq: req.frameSeq, pool,
-            live: this._liveModel, only: req.only, omit: req.omit || (req.only ? null : this._dragOmit), markDone: this.markDone,
+            live: this._liveModel, only: req.only, omit: req.omit || (req.only ? null : this._dragOmit),
         });
         const ms = perfNow() - t0;
         this._packMs += ms;              // subtracted from the submit bracket, so `xfer.out` is the wire alone
@@ -1639,7 +1637,7 @@ export default class RasterRenderer extends Renderer {
                     try {
                         return packJob(o.list, {
                             plates: strip, q, Zq: o.Zq, dpr: 1, cfg: this.cfg, paper: this._paperRgb,
-                            jobId, frameSeq: this.frameSeq, pool, offset: o.offset, markDone: this.markDone,
+                            jobId, frameSeq: this.frameSeq, pool, offset: o.offset,
                         });
                     } finally { this._add(SLOT.pack, perfNow() - t0); if (own) this._closeRow(); }
                 },
