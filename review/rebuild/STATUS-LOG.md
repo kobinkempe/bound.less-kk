@@ -354,3 +354,48 @@ for the Stage's reads with cold-read mutations counted; stale before paper excep
 `plate.G ≥ Gs` for the live hold in S2; `frameFootprint` as `{frame: parent, rect}`; `rekey` outside the
 `offRev` bump).
 **Questions asked:** none.
+
+## 2026-09-28 04:10 UTC — B-SCENE (builder) — resumed after the usage-limit stop (S1 near done)
+**Working on:** S1's remainder: `stage.placed.test.js` (row 5), the covering suites, typecheck and lint; then S2.
+S1 as it stands (snapshot 717cd85): `placementModel.js` (A1 §6's `nativesIn`/`placement`/`displaced` +
+`frameFootprint`, and `toStored`/`fromStored`/`footprint` over the `*Obj` functions); `TileStore.js` — `onTile`
+(bake/append/remove/drop/clear from every write to the cache or a tile's `objs`), the id → tile-keys index in place
+of `_removeObject`'s whole-cache scan, `peek`, `read(F, rect, budgetMs)`/`readTiles` (Infinity unbounded, 0 cache
+only, misses listed), `setCameraPins`, `tilesOf`; `Document.js` — `oldBelow` on every offsets-only change,
+`settle: true` on `_settleIfPending`/`unsettle`/`applySettle`, `carry: true` on their re-homes, `keysChanged(ids)`
+emitting `rekey` outside `_emit` (callers in `Document`, `erasePipeline._resplitFamily`, `oplog` replay);
+`Stage.js` (the chunked table, `byId`/`byKey`/`byPiece`/`byHome`, `Item` getters, G, commits and `batch`,
+`changesSince`, `pending`, `covers`, `snapshot`, `placed`/`placeNative`, reroute groups re-placed per native and
+re-diffed on frame events or a lattice change, events queued inside `sync`); `KobinEngine.js` — only the
+constructor, `destroy` and one line in `_render`; `frameGc.js` — the Stage told. Tests: `stage.equiv.test.js`
+(5 × 40), `stage.equiv.probe.js` (60 × 80), `__testkit__/stageFuzz.js`.
+**Measured (09-26, before the stop):** the fuzz, 200 seeds × 80 steps: 0 differences in 16,000 checks (266 needed a
+sync first: steps with no render); the lasso changed the document in 5 states (counted, Q1). 60 × 80 with the zoom
+kept near the ink: rerouted items in 470, tile pieces in 2,020, pending natives in 396, marks in 890 of 4,800
+checks. Faults put in on a scratch run: no `append` caught in 4 of 20 seeds, no `remove` 11/20, no per-native
+re-placement 20/20, no re-diff on frame events 4/20, a stale paint key 3/20. Suites: tile/Document/LevelMap/oplog/
+frame.gc/reroute.memo 126 pass; move/select/erase non-slow 261 pass (`move.twin` 387 s; 406 s on a HEAD copy).
+**Decisions made:** the orchestrator's answers to Q1–Q5 (all as recommended) are what S1/S2 build.
+**Questions asked:** none new. B-FOUNDATION's end entry is not in yet: `KobinEngine.js` (beyond my three spots),
+`rasterJob.js` and `rasterWorker.js` wait.
+
+## 2026-09-28 04:10 UTC — B-FOUNDATION (builder) — resumed after the usage-limit stop
+**Working on:** the tree is the orchestrator's snapshot 717cd85. Done before the stop: (1) the clip box and
+`job.clips` (checkpoint 1); (2) `level.js`; (3) input coalescing — `cfg.frames` "sync" by default, "raf" from the
+hook; in `KobinEngine.js` the functions changed are `panBy`, `zoomFactorAt` (their consequences split out verbatim
+as `_panStep` / `_zoomStep`), the drag's and the pen's branches of `_pointerMove`, a flush at the top of
+`_pointerDown` / `_pointerUp`, the new `_pend` / `_frame` / `flush` / `onZoom`, `_emit`'s zoom notification, the
+DEFAULTS fields, the constructor's option line and its last line, `destroy`'s timer line, the lever setters;
+`pinchUpdate` is unchanged (it reaches `zoomFactorAt`); `PictureLayer._flush` defers to the frame, `compose` counts
+`composeMs` / `maxImagesPerCompose`; `<ScaleHud>` owns the session, the picker and the write-back; the page's
+`onStatus` is a plain 100 ms throttle; the scale dialog reads the camera; `useKobinEngine.frames.test.js` 7/7;
+(4) the Dev levers — `engine/devLevers.js` (ranges, per-device defaults, one validator, localStorage + URL
+override), `setLevers` / `setLevelStep` / `setPlateBudget`, the panel's `DevLevers` and `<DevStats>`;
+`useKobinEngine.levers.test.js` 4/4; `src/hooks/`, `src/Pages/`, `scaleBar/` 24 suites 177/177 and the engine
+suites the brief names green (one `raster.engine` rule-2 timing test failed once beside six other suites and passed
+alone: 44/44). Left: (5) the harness — `synth-drawing.js` and `browser-check.js --dense/--scenario/--query` are
+written, not yet run; the baseline; the docs (DESIGN §9, `docs/ai/40-CALL-FLOW.txt`, the harness README); the
+re-check of the tree; the end entry and the report.
+**Measured:** nothing new yet.
+**Decisions made:** none new.
+**Questions asked:** none new; Q1–Q6 stand.
