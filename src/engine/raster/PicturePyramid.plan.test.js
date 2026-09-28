@@ -411,6 +411,90 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
     });
 });
 
+describe("PicturePyramid — stand-ins where a fresh source is cached (the B-PYRAMID-1 review's screens; PLAN §5.6 M1, M2)", () => {
+    const olderCells = (P0) => P0.cells.filter((c) => c.draws.some((d) => d.cls === "older")).length;
+
+    test("2560×1440@2, level mode after a pan: the exposed column takes the cached ℓv − 1, not paper", () => {
+        const t = setup(2560, 1440, S, 2), F = String(t.A);
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, 12, -1000, -700, 2560, 1440));                 // Z 24: ℓ 4 at σ 1.5 (σmin 2^½ here)
+        const v = t.pyr._v;
+        expect([v.level, v.s, viewUnit(t.pyr.wDev, t.pyr.hDev)]).toEqual([4, 1.5, 54]);
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) {
+            if (i > v.i0) t.put(levelCell(F, 4, S, i, j), 0);
+            t.put(levelCell(F, 3, S, i >> 1, j >> 1), 0);                      // the near prefetch
+        }
+        const P0 = t.pyr.compose();
+        expect((v.i1 - v.i0) * (v.j1 - v.j0 + 1)).toBeGreaterThanOrEqual(30);  // own plates alone fill the old cap
+        expect(paperCells(P0)).toBe(0);
+    });
+
+    test("2560×1440@2 at rest: 77 rest cells, the column the pan exposed shows the cached level plan, not paper", () => {
+        const t = setup(2560, 1440, S, 2), F = String(t.A), Z = 24 * 1.07, inS = Z / 2;
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, inS, -1000, -700, 2560, 1440));
+        t.pyr._rest = { frame: F, Z, shown: true, gen: 1 };
+        t.pyr.frameFor(cam(t.A, inS, -1001, -700, 2560, 1440));
+        const v = t.pyr._v, lz = zOf(v.level, S);
+        expect([v.mode, (v.i1 - v.i0 + 1) * (v.j1 - v.j0 + 1)]).toEqual(["rest", 77]);
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (i > v.i0) t.put(restCell(F, Z, i, j), 0);
+        const r = { i0: Math.floor(v.i0 * lz / Z) - 1, i1: Math.ceil((v.i1 + 1) * lz / Z) + 1, j0: Math.floor(v.j0 * lz / Z) - 1, j1: Math.ceil((v.j1 + 1) * lz / Z) + 1 };
+        for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) t.put(levelCell(F, v.level - 1, S, i >> 1, j >> 1), 0);
+        expect(paperCells(t.pyr.compose())).toBe(0);
+    });
+
+    test("390×844@3: a view of 35 plates, 29 own, six missing whose stand-ins come from ℓv − 1 and ℓv − 2", () => {
+        const t = setup(390, 844, S, 3), F = String(t.A), Z = 16 * 0.74;
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, Z / 3, -119, 0, 390, 844));
+        const v = t.pyr._v;
+        expect([v.level, viewUnit(t.pyr.wDev, t.pyr.hDev), (v.i1 - v.i0 + 1) * (v.j1 - v.j0 + 1)]).toEqual([4, 45, 35]);
+        const miss = [[v.i0, v.j0], [v.i0, v.j0 + 1], [v.i0 + 1, v.j0], [v.i1, v.j1], [v.i1, v.j1 - 1], [v.i1 - 1, v.j1]];
+        const isMiss = (i, j) => miss.some(([a, b]) => a === i && b === j);
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (!isMiss(i, j)) t.put(levelCell(F, 4, S, i, j), 0);
+        for (const [i, j] of miss.slice(0, 3)) t.put(levelCell(F, 3, S, i >> 1, j >> 1), 0);
+        for (const [i, j] of miss.slice(3)) t.put(levelCell(F, 2, S, i >> 2, j >> 2), 0);
+        expect(paperCells(t.pyr.compose())).toBe(0);
+    });
+
+    test("2256×1218 near σmin, every cell cached, a stroke undone over three cells: the fresh ℓv − 1 over the change, never older", () => {
+        const t = setup(2256, 1218), F = String(t.A);
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -329, -259, 2256, 1218));          // ℓ 4 at σ 0.72: 40 cells
+        const v = t.pyr._v;
+        expect((v.i1 - v.i0 + 1) * (v.j1 - v.j0 + 1)).toBe(40);
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) t.put(levelCell(F, 4, S, i, j), 0);
+        const x = (v.i0 + 2.3) * P / 16, y = (v.j0 + 2.5) * P / 16;
+        t.stage.commit({ [F]: [{ left: x, top: y, right: x + 40, bottom: y + 4 }] });   // 640 × 64 device px
+        const G = t.stage.generation;
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) t.put(levelCell(F, 3, S, i >> 1, j >> 1), G);
+        const P0 = t.pyr.compose();
+        expect(P0.cells.filter((c) => c.draws.length === 2).length).toBeGreaterThanOrEqual(2);
+        expect(olderCells(P0)).toBe(0);
+    });
+
+    test("at rest the level plan's plates are stand-ins, drawn scaled onto the rest grid; at a level's own zoom they are 1:1 and own", () => {
+        const W = 3000, H = 2000;                                              // σmin 1 on this screen
+        const bare = (Z) => {
+            const t = setup(W, H), F = String(t.A);
+            surfaceOn(t);
+            t.pyr.frameFor(cam(t.A, Z, -300, -300, W, H));
+            t.pyr._rest = { frame: F, Z, shown: true, gen: 1 };                // shown, no rest plate yet: every cell takes the level plan
+            t.pyr.frameFor(cam(t.A, Z, -301, -300, W, H));
+            const v = t.pyr._v;
+            for (let j = v.j0 - 1; j <= v.j1 + 1; j++) for (let i = v.i0 - 1; i <= v.i1 + 1; i++) t.put(levelCell(F, 3, S, i, j), 0);
+            return { v, P0: t.pyr.compose() };
+        };
+        const a = bare(8 * 1.025);                                             // ℓ 3 at σ 1.025: 35 level plates, scaled
+        expect([a.v.mode, a.v.level, a.P0.cells.length]).toEqual(["rest", 3, 35]);
+        expect(a.P0.scaled).toBe(COMPOSE_IMAGES);
+        expect(a.P0.own).toBe(0);
+        const b = bare(8);                                                     // Z = Z(ℓ 3): the same grid, 1:1
+        expect([b.v.mode, b.v.level, b.P0.cells.length]).toEqual(["rest", 3, 35]);
+        expect([b.P0.own, b.P0.scaled, paperCells(b.P0)]).toEqual([35, 0, 0]);
+    });
+});
+
 describe("PicturePyramid — the view, the requests, the plane, the integrals, the surface's life", () => {
     test("FC2's view: one object, rev moves only on a change, σ inside the band with its hysteresis, one affine", () => {
         const W = 1300, H = 900, t = setup(W, H);

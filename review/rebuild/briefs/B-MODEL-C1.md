@@ -131,8 +131,10 @@ rule's mechanism if it fits) forbidding `.below` outside `placementModel.js`, `D
 `geometry/offsets.js`, the legacy module, `__oracles__/` and the tests; today's readers outside those (`report.js`
 7, `Stage.js` 6, `sceneClient.js` 5, `selection.js` 4, `format2.js` 4, `erasePipeline.js` 4, `eraseDescent.js` 4,
 `KobinEngine.js` 4, `overlays.js` 3, `cede.js` 3, `persist.js` 2, `oplog.js` 2, `TileStore.js` 1, and
-`raster/PictureLayer.js` 3 until B-PYRAMID-2 deletes it) are routed through the model or allowed by a one-line
-comment naming why (serialisation and the oplog's decode are legitimate: they store the table, not read
+`raster/PictureLayer.js` 3 until B-PYRAMID-2 deletes it), and the B-SCENE review's row-5 survivors (PLAN §5.7 item 3:
+`sceneClient.js:312/349/351/359/514`, the erase contact and descent code at `overlays.js:454`, `erasePipeline.js:973`,
+`eraseDescent.js:195–204`, the memo keys at `erasePipeline.js:432`, `overlays.js:609`, `report.js:558`, and `listFor`'s
+stamping — line numbers as of 2026-09-28), are routed through the model or allowed by a one-line comment naming why (serialisation and the oplog's decode are legitimate: they store the table, not read
 placement). Lint 0 errors at the end.
 
 ## 6. Files

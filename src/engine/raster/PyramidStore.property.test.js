@@ -5,13 +5,14 @@
  * direct puts read at an older G, evictions, drops and releases, over 3 frames × 4 levels × 16 cells. After every
  * step: (a) no stored key's G decreased; (b) `exact(r)` ⇔ no commit after r.G has a footprint meeting r's box
  * (brute force over the log); (c) the plan never draws as exact a record a later change touched; (d) an arrival
- * older than the stored record is closed; (e) pinned ≤ one view + the plane cap.
+ * older than the stored record is closed; (e) the plan draws one own-grid record per cell and at most
+ * COMPOSE_IMAGES stand-ins, and pinned ≤ `pinnedBound` (PLAN §5.6 M2).
  */
 import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";
-import PyramidStore, { levelCell, planeCell, planeCap, PLATE_BYTES, RANK } from "./PyramidStore";
+import PyramidStore, { levelCell, planeCell, planeCap, pinnedBound, PLATE_BYTES, RANK } from "./PyramidStore";
 import PicturePyramid from "./PicturePyramid";
-import { zOf } from "./level";
+import { COMPOSE_IMAGES, zOf } from "./level";
 import { fakeStage, meets } from "../__testkit__/fakeStage";
 import { lcg } from "../__testkit__/rasterLists";
 
@@ -44,7 +45,7 @@ function run(seed, steps, fail) {
     const stage = fakeStage();
     const store = new PyramidStore({ fresh: stage, maxBytes: 24 * PLATE_BYTES, phone: false, doc: null });
     const pyr = new PicturePyramid(null, { store, stage, lm, cfg: { levelStep: S }, width: 1024, height: 768, dpr: 1, pixels: true });
-    const cap = pyr.viewUnit + planeCap(false);
+    const cap = pinnedBound(1024, 768, false);
     const jobs = [];
     let jobId = 0;
     const lastG = new Map();
@@ -97,7 +98,7 @@ function run(seed, steps, fail) {
                 counts.planDraws++;
                 if (later(d.rec)) fail(`seed ${seed} step ${step}: the plan draws ${d.rec.key}@${d.rec.G} as exact after a change met it`);
             }
-            if (Pn.keys.size > pyr.viewUnit) fail(`seed ${seed} step ${step}: the plan drew ${Pn.keys.size} records, over one view (${pyr.viewUnit})`);
+            if (Pn.own > 16 || Pn.scaled > COMPOSE_IMAGES) fail(`seed ${seed} step ${step}: the plan drew ${Pn.own} own records on 16 cells and ${Pn.scaled} stand-ins`);
         } else if (op < 0.96) {
             store.setBudget(ri(4, 40) * PLATE_BYTES);
         } else if (op < 0.98) {
@@ -135,7 +136,7 @@ function run(seed, steps, fail) {
         for (const k of [...lastG.keys()]) if (!now.has(k)) lastG.delete(k);
         const pinned = store.pinnedCount();
         if (pinned > counts.maxPinned) counts.maxPinned = pinned;
-        if (pinned > cap) fail(`seed ${seed} step ${step}: ${pinned} pinned, over one view + the plane cap (${cap})`);
+        if (pinned > cap) fail(`seed ${seed} step ${step}: ${pinned} pinned, over the pinned bound (${cap})`);
     }
     counts.evictions = store.s.evictions;
     return counts;
@@ -272,14 +273,18 @@ describe("PyramidStore — PLAN §3 row 1 (monotone G; exact iff no later change
         for (const [l, b] of bms) expect(b.closed).toBe(l !== 3);
     });
 
-    test("the budget: views × one view, under the ceiling, never under one view plus the plane cap", async () => {
-        const { budgetBytes, viewUnit } = await import("./PyramidStore");
+    test("the budget: views × one view, never under the pinned bound (the floor) nor over the ceiling, itself never under the floor", async () => {
+        const { budgetBytes, viewUnit, ownBound } = await import("./PyramidStore");
         const MiB = 1024 * 1024;
-        expect(viewUnit(2256, 1218)).toBe(40);                              // A3 §1.3: Kobin's desktop
-        expect(viewUnit(1079, 1969)).toBe(35);                              // the phone
+        expect([viewUnit(2256, 1218), ownBound(2256, 1218), pinnedBound(2256, 1218, false)]).toEqual([40, 40, 110]);   // Kobin's desktop: 40 + 30 + 40
+        expect([viewUnit(1079, 1969), ownBound(1079, 1969), pinnedBound(1079, 1969, true)]).toEqual([35, 35, 89]);     // A3's phone: 35 + 30 + 24
+        expect([viewUnit(1170, 2532), ownBound(1170, 2532), pinnedBound(1170, 2532, true)]).toEqual([45, 45, 99]);     // 390×844@3
+        expect([viewUnit(5120, 2880), ownBound(5120, 2880), pinnedBound(5120, 2880, false)]).toEqual([54, 77, 147]);   // 2560×1440@2: the rest set's 77
         expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 2256, 1218, false)).toBe(120 * MiB);
-        expect(budgetBytes({ plateViews: 2, plateCeilingMiB: 96 }, 1079, 1969, true)).toBe(70 * MiB);
-        expect(budgetBytes({ plateViews: 8, plateCeilingMiB: 64 }, 2256, 1218, false)).toBe(80 * MiB);   // floor: 40 + 40
-        expect(budgetBytes({ plateViews: 1, plateCeilingMiB: 512 }, 1079, 1969, true)).toBe(59 * MiB);   // floor: 35 + 24
+        expect(budgetBytes({ plateViews: 8, plateCeilingMiB: 64 }, 2256, 1218, false)).toBe(110 * MiB);   // the ceiling raised to the floor
+        expect(budgetBytes({ plateViews: 2, plateCeilingMiB: 96 }, 1079, 1969, true)).toBe(89 * MiB);     // two views under the floor
+        expect(budgetBytes({ plateViews: 4, plateCeilingMiB: 96 }, 1079, 1969, true)).toBe(96 * MiB);     // the ceiling
+        expect(budgetBytes({ plateViews: 2, plateCeilingMiB: 96 }, 1170, 2532, true)).toBe(99 * MiB);     // PLAN §5.6 Q3: max(96, 99)
+        expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 5120, 2880, false)).toBe(162 * MiB);
     });
 });

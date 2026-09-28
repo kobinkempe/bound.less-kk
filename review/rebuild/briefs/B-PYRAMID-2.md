@@ -169,8 +169,10 @@ and the report; a successor does P6 from the tree and the log.
   3,247 ms at 4e8ce80; the Stage path measured 9,784 ms in B-SCENE-2's pair — the reviewer's cause, §3.5);
   `olderMs` 0 in every scenario; scenario 4's max images ≤ 30 or the surface used (was 33); scenario 5's time to
   exact (was 425 ms) and that the path is released in the same task as the plates; scenario 6's time to exact
-  (was 97 ms) and the plates byte-equal to a whole render; scenario 7's bake time (was 31.0 s on the Stage path,
-  19.4 s on the list path — the partial re-render is the fix, PLAN §5.4 Q1); the round trip pixel-identical
+  (70 ms in the B-SCENE review's pair) and the plates byte-equal to a whole render; scenario 7's bake time (the
+  review's pair: 36.0 s on the Stage path against 34.8 s on the list path, 172 plates rastered, about one whole
+  plate re-rastered per cut step over 162 steps — the partial re-render's target is that per-step cost, PLAN §5.7);
+  the round trip pixel-identical
   (23,444 ink px drawn, 25,244 after); the long-frame histogram no worse than the old path's on the same tree.
 - **Suites:** the quick suite green but for failures you name with their cause; typecheck 0; lint 0 errors; the
   worker bundles rebuilt with their md5s in the entry.

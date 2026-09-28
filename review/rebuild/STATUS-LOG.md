@@ -1017,3 +1017,21 @@ not "all the target's pieces" (§5.5, row 7 (a)) — see Q5.
 selection to all the pieces of its members). Q6 the SVG renderer paints a pending mark as white ink at its own z,
 now over baked pieces and objects dragged under it (`?svg`, export) — rec.: B-PYRAMID-2's SVG demotion masks targets.
 WHERE I AM: writing raster.eraseRule.test.js (row 3 a–d), then select.eraseBarrier, erase.rule (A2 §5), parallel.
+
+## 2026-09-28 19:41 UTC — reviewer (B-SCENE review) — end
+**Working on:** done; nothing committed by me. Changed: `PlateStore` (`put`, `endJob`, `_refuse`, constructor), `RasterRenderer`
+(`_packable`, `_stillWanted`, `_releaseHeldLive`, `rasterStats`), `Stage._reconcile`, `KobinEngine.undo`/`redo`, `overlays.js`'s
+ants outline window, testkit `harness.mkEngine` (opts) and `stageFuzz.runStageFuzz` ({raster}); tests `raster.plates`,
+`raster.liveHold` LH-4, `raster.move` L3 (rewritten to §5.4 Q2), `stage.cover` (the watch reads the pack's list; C5 counts),
+`stage.hold` (changesSince, one-commit undo/redo), `stage.equiv` (3 raster seeds); DESIGN §10's and 40-CALL-FLOW's live-hold limit.
+**Measured:** scenario 7 (erase + zoom, worktrees, load 2.9 / 2.6): bake 36.0 s (1cac470) vs 34.8 s (list path, 9b1edbb);
+172 vs 127 plates rastered, 149 vs 73 composes; 162 erase steps, ~14 tracked cells dirtied a commit, ~1 plate re-rastered a
+step. Scenario 6: undo exact 70 vs 69 ms. Node: a 5,000-native delete 487–558 ms per-event vs 42–43 ms in one `stage.batch`
+(its undo 796–867 vs 58–61 ms); 3 drag steps × 2,000 offset writes 365–570 vs 60–110 ms. Probes (1cac470): equiv 60×80, 0
+diffs in 4,800 checks (lasso mutated 5 states); fresh 200×400, 0 in 715,314. Raster-engine fuzz 30×80: 0 diffs, 150 holds.
+Break-checks (unimported 1cac470 copy): each new test red without its fix (1 each); release re-read removed → 1/3 raster
+seeds red, 0/5 SVG seeds; a dropped tile piece → cover watch C2, C3 red. Quick suite 2,158 pass, 12 skipped, 5 fail (all in
+B-PYRAMID-2's `PicturePyramid.plan`/`PyramidStore.property`, in progress), load 1.35 → 5.06; typecheck 0; lint 0 errors.
+**Decisions made:** undo/redo batched here; `deleteSelection`, the no-plane drag step and replay are proposed (not my files).
+**Questions asked:** in the report.
+WHERE I AM: done.

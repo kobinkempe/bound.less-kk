@@ -531,3 +531,30 @@ prefetch test on a frozen clock). Its edits are committed with this section.
    the budgeted read to fix. §5.4's ask 5 is closed. B-PYRAMID-2's harness step uses the post-paint sampler (the
    reviewer's `rv2/bcp.js` patch, folded into `browser-check.js`) for the old path and the pyramid's own
    integral for the new one, and says which produced each number.
+
+### 5.7 To the B-SCENE review (its report of 2026-09-28)
+
+Read in full. Its fixes are committed with this section (a hard drop's refusal kept per job in `PlateStore`; no
+limit on a pending stroke's live path and the 15 s counted from the landing; refusals counted by reason in
+`rasterStats`; `changesSince` reporting re-keys and z re-sorts; the ants' window through `placeNative`; the cover
+test reading the pack's list; `undo`/`redo` in one `stage.batch`; three raster seeds in the equivalence fuzz).
+Its measurements replace B-SCENE-2's where they disagree: the zoom-out pair was the sampler (§5.6 item 8; the
+correction that 9b1edbb, not 18d5e2f, carries both paths); the erase bake is 36.0 s (Stage) against 34.8 s (list)
+with about one whole plate re-rastered per cut step, and undo to exact 70 against 69 ms — B-SCENE-2's 1.6× and
+97 vs 37 ms did not reproduce, so §5.4 Q1 stands on the per-step re-raster (the partial re-render's target), not
+on a ratio.
+
+1. **The batching major** — the three remaining per-event writers are wrapped in `stage.batch` by **B-ERASE now**
+   (it is in `selection.js` and the hook): `deleteSelection`'s removal loop, the no-plane drag step's
+   `setOffsetsById` loop (it goes with B-DRAG's no-writes rule; the wrapper is one line meanwhile) and
+   `log.replay`. The node numbers to beat: a 5,000-native delete 487–558 ms → 42–43 ms; its undo 796–867 → 58–61;
+   three drag steps × 2,000 writes 365–570 → 60–110.
+2. **The post-paint sampler replaces the harness's paper sampler**, with the load average on every run:
+   B-PYRAMID-2 (its brief §3.4–§3.5), on the old path; the pyramid's own integrals on the new one.
+3. **Row 5's survivors outside the reviewer's files** (`sceneClient.js`, the erase contact and descent code,
+   `overlays.js:454`, `erasePipeline.js:973`, `eraseDescent.js:195–204`, the memo keys, `listFor`'s stamping) are
+   B-MODEL-C1's lint list (its brief §5), routed through the model or allowed with a reason.
+4. **`job.ids` off the wire and `_renderPending`**: B-PYRAMID-2, as briefed.
+5. **Row 2** is proved on the SVG engine by the `listFor` comparison and on the raster engine by the three seeds
+   (30 × 80 steps, 0 differences, 150 holds); `listFor` itself is deleted with the SVG renderer's demotion
+   (B-PYRAMID-3), after which the row's test is the raster fuzz alone.
