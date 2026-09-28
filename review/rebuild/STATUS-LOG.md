@@ -1116,3 +1116,20 @@ those five on the copy after the run ends.
 **Docs:** DESIGN §7 says the descent's pieces take their lineage from the live target at apply.
 **Questions asked:** none new.
 WHERE I AM: waiting for the last three breaks, then the five re-runs, build:worker, the erase suites, test:erase.
+
+## 2026-09-28 20:25 UTC — B-PYRAMID-2 (builder) — P1 progress: the pyramid wired under `cfg.pyramid`, jsdom green
+**Working on:** P1. In `RasterRenderer.js` (a `_pyr*` section: build, step, motion, prefetch at idle, margin, pack with
+the covers filter, measure E/A/U/P, the pool face, result → `onResult`/`endJob`/`done`/`calibrate`, drop, the pen-up
+group commit; one-line branches in `_frameStep`, `_releaseHeldLive`, `listMargin`, `setSize`, `dropCarry`,
+`supportsDragPlane` false until P3, `destroy` clears the queue), `rasterWorkerClient.js` (`rasterPool`, `dispatch` returns
+whether it posted), `jobQueue.js` (`clear`), `rasterPerf.js` (MODES + level, rest), `KobinEngine.js` (`pyramid` opt →
+`cfg.pyramid`, `plates` = the renderer's store, `setLevers` live, the still frame in `_frame`, ladder and prebake off
+under the flag), `useKobinEngine.js` (`pyramidFromUrl`, `hrefWithPyramid`, `setPyramid`), `CanvasEditor.js` (the toggle).
+New suite `raster.pyramid.test.js` (7); the gate in `useKobinEngine.levers.test.js`; TEST-MAP rows.
+**Measured:** raster.pyramid 7/7 three runs (load 5.5); levers 5/5; typecheck 0; eslint 0 errors (1 old warning). Break-checks
+on the copy: 16 rules, each red (1–4 tests). raster + hooks dirs: 755/761 — red not mine: `raster.move` RV5 (commits
+come from `selection.js:713` `_dragSelection` → `Stage.batch` while the Stage holds the drag: B-ERASE's edit; traced on the
+copy), `rasterCore.clip.slow` 4 (whole-plate goldens differ: rasterCore/rasterPack changed, not by me), `raster.engine`
+red once in the combined run, green alone.
+**Decisions made:** the pen-up group commit done in P1 (`_pyrLive`), since `?pyramid=1` needs strokes to hand off.
+**Questions asked:** none. WHERE I AM: a headless check of `?pyramid=1` on a dev server (port 3010), then the P1 entry.

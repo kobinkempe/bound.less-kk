@@ -8,6 +8,7 @@ import { mkEngine, useEngines, drawStroke, eraseGesture, descend, ascend, drag, 
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
+import { inks } from "./__testkit__/ink";
 
 const later = (ms = 2) => new Promise((r) => setTimeout(r, ms));
 // The worker, in-process: the same job functions, a tick later, the lattice rebuilt from the message.
@@ -107,6 +108,24 @@ describe("the erase worker", () => {
         expect(E._cutStale).toBe(1);
         expect(E.doc.getById(A.id)).toBeNull();            // ceded after all, from where it moved to
         expect(E._eraseStrokes()).toHaveLength(0);
+    });
+
+    test("a mark that lands while a descent is in flight keeps its claim: the pieces take the live target's lineage (A2 §4.3)", async () => {
+        setEraseTransport(transport);
+        const E = mkEngine(800, 600);
+        drawStroke(E, [[100, 300], [700, 300]], 24);
+        descend(E, 2);
+        eraseGesture(E, [[400, 200], [400, 400]], 30);                     // M1: a descent
+        E._scheduleBake = () => {};
+        await later(150);
+        E._bakeTick();
+        expect(flying(E).map((c) => c.kind)).toEqual(["descent"]);
+        const ink = (x, y) => inks(painted(E), E.cam.screenToFrame(x, y));
+        expect(ink(500, 300)).toBe(true);
+        eraseGesture(E, [[500, 200], [500, 400]], 30);                     // M2 names the target whose descent is out
+        expect(await settle(E)).toBe(true);
+        expect(E._cutStale || 0).toBe(0);                                  // the descent's result was still valid
+        expect([ink(400, 300), ink(500, 300), ink(450, 300)]).toEqual([false, false, true]);
     });
 
     test("the lookahead holds a target back while an older mark is pending over it (the per-target lock): no job goes stale", async () => {

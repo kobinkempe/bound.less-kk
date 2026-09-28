@@ -122,11 +122,19 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(levels().every((r) => r.S === 2)).toBe(true);
         expect(R.pyramid.gens.view).toBeGreaterThan(gens.view);
         expect(R.pyramid.gens.prefetch).toBeGreaterThan(gens.prefetch);
+        const MiB = 1024 * 1024;
+        E.setPlateBudget({ views: 8, ceilingMiB: 512 });
+        expect(E.plates.maxBytes).toBe(budgetBytes(E.cfg, R.pyramid.wDev, R.pyramid.hDev, E.plates.phone));
+        expect(E.plates.maxBytes).toBeGreaterThan(R.pyramid.pinBound * MiB);
         const ev0 = E.plates.s.evictions;
         E.setPlateBudget({ views: 1, ceilingMiB: 64 });
-        expect(E.plates.maxBytes).toBe(budgetBytes(E.cfg, R.pyramid.wDev, R.pyramid.hDev, E.plates.phone));
-        expect(E.plates.maxBytes).toBe(R.pyramid.pinBound * 1024 * 1024);     // one view under the floor: the floor
+        expect(E.plates.maxBytes).toBe(R.pyramid.pinBound * MiB);           // one view under the floor: the floor
         expect(E.plates.s.evictions).toBeGreaterThanOrEqual(ev0);
+        E.setPlateBudget({ views: 3, ceilingMiB: 256 });
+        const b0 = E.plates.maxBytes;
+        E.resize(1600, 1200);                                           // the budget follows the screen (A3 §4.5)
+        expect(E.plates.maxBytes).toBe(budgetBytes(E.cfg, R.pyramid.wDev, R.pyramid.hDev, E.plates.phone));
+        expect(E.plates.maxBytes).toBeGreaterThan(b0);
     });
 
     test("a camera job keeps only the cells the table covers: the rest are refused at dispatch and asked for again", async () => {
@@ -151,6 +159,8 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(view()).toBeGreaterThan(0);                              // asked for again, and posted
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((c) => c === "sharp")).toBe(true);
+        const q = R.queue.report();
+        expect([q.done, q.drops.empty > 0]).toEqual([q.dispatched, true]);   // a refused strip is the queue's drop, never a `done`
     });
 
     test("a teardown dispatches nothing more: the queued strips are forgotten, the ones in flight ended", async () => {

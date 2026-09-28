@@ -6,7 +6,7 @@
 import React from "react";
 import { render, act } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
-import useKobinEngine from "./useKobinEngine";
+import useKobinEngine, { pyramidFromUrl, hrefWithPyramid } from "./useKobinEngine";
 import { _resetDbForTests } from "../storage/db";
 import { LEVERS, LEVERS_KEY, cleanLevers, leversFromUrl, readLevers, saveLevers, leverDefaults } from "../engine/devLevers";
 import { isPhoneBudget } from "../engine/raster/PlateStore";
@@ -57,6 +57,17 @@ describe("the levers' own rules", () => {
         const refusing = { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } };
         expect(readLevers({ href: "", storage: refusing })).toEqual({});
         expect(saveLevers({ levelStep: 2 }, refusing)).toBe(false);
+    });
+
+    test("the pyramid's gate (A3 §7.4): ?pyramid=1 on, anything else off, delimited at both ends; the toggle rewrites it", () => {
+        expect(pyramidFromUrl("http://x/#/canvas/a?pyramid=1")).toBe(true);
+        expect(pyramidFromUrl("http://x/?pyramid#/canvas/a")).toBe(true);
+        expect(pyramidFromUrl("http://x/#/canvas/a?pyramid=0")).toBe(false);
+        expect(pyramidFromUrl("http://x/#/canvas/a?pyramidX=1")).toBe(false);
+        expect(pyramidFromUrl("http://x/#/canvas/a")).toBe(false);
+        expect(hrefWithPyramid("http://x/#/canvas/a?dev&pyramid=0", true)).toBe("http://x/#/canvas/a?dev&pyramid=1");
+        expect(hrefWithPyramid("http://x/#/canvas/a", false)).toBe("http://x/#/canvas/a?pyramid=0");
+        expect(pyramidFromUrl(hrefWithPyramid("http://x/?levelStep=2", true))).toBe(true);
     });
 });
 

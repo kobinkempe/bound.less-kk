@@ -710,10 +710,12 @@ class Selection {
             if (!sameBelow(put.table, st.below)) { offsets.push([id, put.table]); st.below = put.table; moved = true; }
             st.dx = tx; st.dy = ty;              // for the journal: the snapped displacement, camera units
         }
-        this.stage.batch(() => {   // one commit a step (PLAN §5.7); B-DRAG removes the per-step writes
+        const write = () => {
             for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
             for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
-        });
+        };
+        // One commit a step (PLAN §5.7); none while the Stage holds the move, as a batch ends in a commit.
+        if (this.stage.holding) write(); else this.stage.batch(write);
         if (this.selection.frames.length) {
             if (!d.frameStart) this._dragFramesStart(d, camDepth);
             if (d.frameStart.size && this._dragFrames(d, camDepth, tx, ty)) moved = true;
