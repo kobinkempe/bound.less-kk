@@ -302,9 +302,15 @@ export default class PicturePyramid {
         const B = new PlanBudget(cap);
         const P = { v, draws: [], base: [], cells: [], budget: B, plane, keys: new Set(), images: 0 };
         if (v.mode === "rest") this._planRest(v, P, B); else this._planLevel(v, P, B);
-        for (const d of P.draws) if (d.rec) P.keys.add(d.rec.key);
-        P.images = B.images + plane.images;
-        P.own = B.own.size; P.scaled = B.scaled.size;
+        // What is drawn: own-grid records 1:1 (a destination as wide as its source), the rest scaled.
+        const own1 = new Set(), all = new Set();
+        for (const d of P.draws) {
+            if (!d.rec) continue;
+            P.keys.add(d.rec.key); all.add(d.rec);
+            if (d.x1 - d.x0 === d.sw && d.y1 - d.y0 === d.sh) own1.add(d.rec);
+        }
+        P.own = own1.size; P.scaled = all.size - own1.size;
+        P.images = all.size + plane.images;
         return P;
     }
 
@@ -322,19 +328,45 @@ export default class PicturePyramid {
     }
 
     _planLevel(v, P, B) {
-        const skip = P.plane.skip;
-        for (let j = v.j0; j <= v.j1; j++) {
-            for (let i = v.i0; i <= v.i1; i++) {
-                if (skip && skip.has(i + "," + j)) continue;
-                const cell = { i, j, draws: [] };
-                this._planCell(v, v.frameId, v.level, i, j, B, cell.draws);
-                P.cells.push(cell);
-                for (const d of cell.draws) P.draws.push(d);
-            }
-        }
+        const skip = P.plane.skip, list = [];
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (!skip || !skip.has(i + "," + j)) list.push({ i, j });
+        for (const cell of this._planCells(v, v.frameId, v.level, list, B)) { P.cells.push(cell); for (const d of cell.draws) P.draws.push(d); }
     }
 
-    /** §1.4's lookup for frame F's cell (i, j) at level ℓ, draws in the view's grid. */
+    /**
+     * Level ℓ's cells of frame F, in two passes so the budget moves excess cells to coarser, shared sources (A3 §1.5):
+     * every cell's plan without children first, then (c) — all 2^S × 2^S children exact — as an upgrade of the cells
+     * not already sharp, nearest the attention point first, while the budget takes them.
+     */
+    _planCells(v, F, l, list, B) {
+        const cells = list.map(({ i, j }) => { const c = { i, j, draws: [] }; this._planCell(v, F, l, i, j, B, c.draws); return c; });
+        const a = this._attn || [this.wDev / 2, this.hDev / 2];
+        const gx = (a[0] - v.dx) / v.s + v.ox, gy = (a[1] - v.dy) / v.s + v.oy, f = PLATE_PX * (v.Zq / zOf(l, v.S));
+        const up = cells.filter((c) => !(c.draws.length === 1 && c.draws[0].cls === "sharp"))
+            .map((c) => ({ c, d: ((c.i + 0.5) * f - gx) ** 2 + ((c.j + 0.5) * f - gy) ** 2 })).sort((p, q) => p.d - q.d);
+        const n = 1 << v.S, Zk = zOf(l + 1, v.S);
+        for (const { c } of up) {
+            if (n * n > B.room()) break;
+            const kids = this._kids(F, l, v.S, c.i, c.j);
+            if (kids && B.take(kids)) c.draws = kids.map((k) => draw(k, WHOLE, gBox(Zk, k.i, k.j, v.Zq), "sharp", true));
+        }
+        return cells;
+    }
+
+    /** (c): all 2^S × 2^S children of the cell, one level finer, exact; or null. */
+    _kids(F, l, S, i, j) {
+        const st = this.store, n = 1 << S, kids = [];
+        for (let b = 0; b < n; b++) {
+            for (let a = 0; a < n; a++) {
+                const k = st.get(levelKey(F, l + 1, S, i * n + a, j * n + b));
+                if (!k || !st.exact(k)) return null;
+                kids.push(k);
+            }
+        }
+        return kids;
+    }
+
+    /** §1.4's lookup for frame F's cell (i, j) at level ℓ, draws in the view's grid; (c) is `_planCells`'s upgrade. */
     _planCell(v, F, l, i, j, B, out) {
         const st = this.store, S = v.S, Zl = zOf(l, S), N = Math.ceil(8 / S);
         const dst = gBox(Zl, i, j, v.Zq);
@@ -342,22 +374,6 @@ export default class PicturePyramid {
         if (own && st.exact(own)) { B.keep(own); out.push(draw(own, WHOLE, dst, "sharp", true)); return; }        // (a)
         const m = this._mapped(F, l, S, i, j);
         if (m) { B.keep(m); out.push(draw(m, WHOLE, dst, "sharp", true)); return; }                               // (b)
-        const n = 1 << S;                                                                                           // (c)
-        if (n * n <= B.room()) {
-            const kids = [];
-            for (let b = 0; b < n && kids.length === b * n; b++) {
-                for (let a = 0; a < n; a++) {
-                    const k = st.get(levelKey(F, l + 1, S, i * n + a, j * n + b));
-                    if (!k || !st.exact(k)) break;
-                    kids.push(k);
-                }
-            }
-            if (kids.length === n * n && B.take(kids)) {
-                const Zk = zOf(l + 1, S);
-                for (const k of kids) out.push(draw(k, WHOLE, gBox(Zk, k.i, k.j, v.Zq), "sharp", true));
-                return;
-            }
-        }
         const cb = boxOf(Zl, i, j);
         for (let k = 1; k <= N; k++) {                                                                              // (d)
             const c = coarser(this.lm, S, F, l, i, j, k);
@@ -464,23 +480,14 @@ export default class PicturePyramid {
                 top.push(...cell.draws);
             }
         }
-        const Zl = zOf(v.level, S), seen = new Set();
+        const Zl = zOf(v.level, S), seen = new Set(), list = [];
         for (const cb of bare) {
             const box = inter(cb, this._win);
             if (!box) continue;
             const r = plateRange(box, Zl);
-            for (let j = r.j0; j <= r.j1; j++) {
-                for (let i = r.i0; i <= r.i1; i++) {
-                    const k = i + "," + j;
-                    if (seen.has(k)) continue;
-                    seen.add(k);
-                    const cell = { i, j, draws: [], base: true };
-                    this._planCell(v, F, v.level, i, j, B, cell.draws);
-                    P.cells.push(cell);
-                    for (const d of cell.draws) P.draws.push(d);
-                }
-            }
+            for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) if (!seen.has(i + "," + j)) { seen.add(i + "," + j); list.push({ i, j }); }
         }
+        for (const cell of this._planCells(v, F, v.level, list, B)) { cell.base = true; P.cells.push(cell); for (const d of cell.draws) P.draws.push(d); }
         for (const d of top) P.draws.push(d);
     }
 

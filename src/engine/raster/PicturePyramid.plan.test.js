@@ -8,9 +8,9 @@
  */
 import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";
-import PyramidStore, { levelCell, restCell, PLATE_BYTES } from "./PyramidStore";
-import PicturePyramid, { COMPOSE_IMAGES, PATCH_MAX } from "./PicturePyramid";
-import { zOf, levelKey, mapCell, coarser } from "./level";
+import PyramidStore, { levelCell, restCell, planeCell, PLATE_BYTES } from "./PyramidStore";
+import PicturePyramid, { COMPOSE_IMAGES, PATCH_MAX, SURFACE_IDLE_MS } from "./PicturePyramid";
+import { zOf, levelKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { fakeStage, meets } from "../__testkit__/fakeStage";
@@ -38,7 +38,8 @@ function setup(W, H) {
     const stage = fakeStage();
     const store = new PyramidStore({ fresh: stage, maxBytes: 4000 * PLATE_BYTES, phone: false, doc: null });
     const ctx = softCtx(W, H, P, { scaled: true });
-    const pyr = new PicturePyramid(null, { store, stage, lm, cfg: { levelStep: S }, width: W, height: H, dpr: 1, pixels: true, context: ctx });
+    const pyr = new PicturePyramid(null, { store, stage, lm, cfg: { levelStep: S }, width: W, height: H, dpr: 1, pixels: true, context: ctx,
+        setTimer: () => null, clearTimer: () => {} });
     const colour = new Map();
     const put = (c, G) => {
         const f = flat(), res = store.put({ ...c, G, pixels: f.px, bytes: PLATE_BYTES, jobId: null });
@@ -350,5 +351,161 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         }
         expect(n).toBeGreaterThan(20000);
         expect(inside[2]).toBeGreaterThan(200);                               // blended once: light blue, not the doubled 0.7
+    });
+
+    test("a refused scaled source moves the cell to a coarser, shared one: no paper while one is cached", () => {
+        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));
+        const v = t.pyr._v;
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) {
+            for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, 5, S, 2 * i + a, 2 * j + b), 0);
+            t.put(levelCell(F, 2, S, i >> 2, j >> 2), 0);
+        }
+        const P0 = t.pyr.compose();
+        expect(P0.cells.some((c) => c.draws.length === 4)).toBe(true);
+        expect(P0.cells.some((c) => c.draws.length === 1 && c.draws[0].rec && c.draws[0].rec.level === 2)).toBe(true);
+        expect(P0.draws.some((d) => !d.rec)).toBe(false);
+        expect(P0.keys.size).toBeLessThanOrEqual(t.pyr.viewUnit);
+    });
+});
+
+describe("PicturePyramid — the view, the requests, the plane, the integrals, the surface's life", () => {
+    test("FC2's view: one object, rev moves only on a change, σ inside the band with its hysteresis, one affine", () => {
+        const W = 1300, H = 900, t = setup(W, H);
+        const v = t.pyr.frameFor(cam(t.A, 5, -33.3, -71.7, W, H));
+        const rev = v.rev;
+        expect(t.pyr.frameFor(cam(t.A, 5, -33.3, -71.7, W, H))).toBe(v);
+        expect(v.rev).toBe(rev);
+        let Z = 5;
+        for (let n = 0; n < 60; n++) {
+            Z *= n < 30 ? 1.07 : 1 / 1.07;
+            const w = t.pyr.frameFor(cam(t.A, Z, -33.3 * n, -71.7, W, H));
+            expect(w).toBe(v);
+            expect(w.s).toBeGreaterThanOrEqual(SIGMA_MIN * 2 ** -LEVEL_HYST - 1e-12);
+            expect(w.s).toBeLessThan(SIGMA_MIN * 2 ** (1 + LEVEL_HYST));
+            expect(w.Zq).toBe(zOf(w.level, 1));
+            expect(w.k).toBeCloseTo(Z, 9);
+            expect(w.dx).toBe(Math.round(-33.3 * n + w.ox * w.s));
+            expect(w.tx).toBeCloseTo(w.dx - w.ox * w.s, 9);
+        }
+        expect(v.rev).toBeGreaterThan(rev + 5);
+        // A screen that would need more than 48 plates at 2^−½ draws at σmin 1 or 2^½.
+        const big = setup(5120, 2880);
+        expect(big.pyr.sigmaMin).toBe(2 ** 0.5);
+    });
+
+    test("the view's missing cells asked for once at priority 1, centre-out, with the view's generation", () => {
+        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
+        const asked = [];
+        t.pyr._onRequest = (jobs) => asked.push(...jobs);
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
+        t.put(levelCell(F, 4, S, 0, 0), 0);
+        t.pyr.frameFor(cam(t.A, 16, -1, 0, W, H));
+        expect(asked.length).toBe(1);
+        const j = asked[0];
+        expect([j.kind, j.prio, j.purpose, j.gen, j.level]).toEqual(["view", 1, "view", t.pyr.gens.view, 4]);
+        expect(j.cells.map((c) => c.key)).not.toContain(levelKey(F, 4, S, 0, 0));
+        expect(j.attention).toEqual([(512 + 1) / 1 * 1, 384].map((x, k) => (k === 0 ? x : x)));
+        t.pyr.frameFor(cam(t.A, 16, -2, 0, W, H));
+        expect(asked.length).toBe(1);                                          // asked already: not again
+        t.pyr.refresh();
+        t.pyr.frameFor(cam(t.A, 16, -3, 0, W, H));
+        expect(asked.length).toBe(2);
+        const g0 = t.pyr.gens.view;
+        t.pyr.frameFor(cam(t.A, 16 * 2.2, -3, 0, W, H));                        // a new level: a new generation, asked again
+        expect(t.pyr.gens.view).toBeGreaterThan(g0);
+        expect(asked[2].gen).toBe(t.pyr.gens.view);
+    });
+
+    test("a lever change of the step drops every level record of the old step and moves the purposes on", () => {
+        const W = 1024, H = 768, t = setup(W, H), F = String(t.A);
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
+        t.put(levelCell(F, 4, 1, 0, 0), 0);
+        t.put(restCell(F, 16, 0, 0), 0);
+        const g = { ...t.pyr.gens };
+        t.pyr.cfg.levelStep = 2;
+        const v = t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
+        expect([v.S, v.level]).toEqual([2, 2]);
+        expect([...t.store.records()].map((r) => r.kind)).toEqual(["rest"]);
+        expect(t.pyr.gens.view).toBeGreaterThan(g.view);
+        expect(t.pyr.gens.prefetch).toBeGreaterThan(g.prefetch);
+    });
+
+    test("the plane after the base: BELOW replaces the base cells under it, the selection translated, OVER in place; landing only where the base is stale", () => {
+        const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // ℓ 4 at σ 1: the plane at Zp 16 shares the grid
+        for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) t.put(levelCell(F, 4, S, i, j), 0);
+        const below = planeCell(F, 16, "b", 0, 0), sel = planeCell(F, 16, "s", 0, 0), over = planeCell(F, 16, "o", 1, 1);
+        for (const c of [below, sel, over]) t.put(c, 0);
+        const plane = { showing: true, state: "drag", partial: false, frameId: F, Zp: 16, off: [100, 40],
+            layers: [{ kind: "below", tag: "b", cells: [[0, 0]] }, { kind: "sel", tag: "s", cells: [[0, 0]] }, { kind: "over", tag: "o", cells: [[1, 1]] }] };
+        t.pyr.setPlane(plane);
+        const P0 = t.pyr.compose();
+        expect(P0.cells.find((c) => c.i === 0 && c.j === 0)).toBeUndefined();  // BELOW draws cell (0, 0) instead
+        expect(P0.images).toBe(3 + 3);
+        const col = (c) => t.colour.get(c.key);
+        expect(t.ctx.at(50, 20)).toEqual(col(below));                          // left of the moved selection: BELOW
+        expect(t.ctx.at(150, 60)).toEqual(col(sel));                           // the selection, 100 × 40 px on
+        expect(t.ctx.at(560, 550)).toEqual(col(over));                         // OVER in place, over the base
+        expect(t.ctx.at(560, 40)).toEqual(col(sel));                           // the selection over the base cell (1, 0)
+        plane.partial = true;                                                  // partial: the selection's layers alone
+        t.pyr.compose();
+        expect(t.ctx.at(50, 20)).toEqual(col(levelCell(F, 4, S, 0, 0)));
+        plane.partial = false;
+        plane.state = "land";                                                  // landing: the base's own plate where it is exact
+        t.stage.commit({ [F]: [{ left: 40, top: 40, right: 41, bottom: 41 }] });   // stales the base cell (1, 1) only
+        t.pyr.compose();
+        expect(t.ctx.at(50, 20)).toEqual(col(levelCell(F, 4, S, 0, 0)));
+        expect(t.ctx.at(560, 550)).toEqual(col(over));
+    });
+
+    test("paper, blur and older: each compose's share of the screen charged forward by the time it stayed up", () => {
+        const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
+        let now = 0;
+        t.pyr._now = () => now;
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // cells (0..1, 0..1), a quarter each
+        t.put(levelCell(F, 4, S, 0, 0), 0);                                    // (0, 0) sharp
+        t.put(levelCell(F, 4, S, 1, 0), 0);
+        t.stage.commit({ [F]: [{ left: 40, top: 4, right: 41, bottom: 5 }] }); // (1, 0) stale: older
+        t.put(levelCell(F, 3, S, 0, 0), t.stage.generation);                   // (0, 1) from the coarser: blur; (1, 1)... the patch
+        t.pyr.compose();                                                       // nothing charged yet
+        expect([t.pyr.s.paperMs, t.pyr.s.blurMs, t.pyr.s.olderMs]).toEqual([0, 0, 0]);
+        now = 100;
+        t.pyr.compose();
+        const s = t.pyr.s;
+        expect(s.paperMs).toBe(0);
+        expect(s.olderMs).toBe(0);
+        // (1, 0) takes the patch rule (a pixel of dirt), (0, 1) and (1, 1) the coarser plate whole.
+        const cells = t.pyr.lastPlan.cells.map((c) => c.draws.map((d) => d.cls).join("+"));
+        expect(cells.sort()).toEqual(["blur", "blur", "sharp", "sharp+blur"].sort());
+        const patch = t.pyr.lastPlan.draws.find((d) => d.cls === "blur" && d.x1 - d.x0 < 100);
+        const pa = (patch.x1 - patch.x0) * (patch.y1 - patch.y0);
+        expect(s.blurMs).toBeCloseTo(100 * (2 * 512 * 512 + pa) / (W * H), 6);
+        t.store.dropWhere(() => true);
+        now = 150;
+        t.pyr.compose();
+        now = 250;
+        t.pyr.compose();
+        expect(s.paperMs).toBeCloseTo(100, 6);                                 // all paper for 100 ms
+    });
+
+    test("the surface is freed after SURFACE_IDLE_MS unused", () => {
+        const W = 3000, H = 2000, t = setup(W, H), F = String(t.A);
+        const timers = [];
+        t.pyr._setTimer = (fn, ms) => { const x = { fn, ms, live: true }; timers.push(x); return x; };
+        t.pyr._clearTimer = (x) => { if (x) x.live = false; };
+        t.pyr._mk = () => ({ width: 1, height: 1, getContext: () => softCtx(8, 8, P, { scaled: true }) });
+        t.pyr.frameFor(cam(t.A, 8, -100, -100, W, H));
+        const v = t.pyr._v;
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) t.put(levelCell(F, v.level, S, i, j), 0);
+        t.pyr.compose();
+        expect(t.pyr.s.surfaceAllocs).toBe(1);
+        t.store.dropWhere((r) => r.i % 2 === 0);
+        t.pyr.compose();                                                       // under the budget: direct, the idle timer armed
+        const idle = timers.filter((x) => x.live && x.ms === SURFACE_IDLE_MS);
+        expect(idle.length).toBe(1);
+        idle[0].fn();
+        expect(t.pyr.s.surfaceFrees).toBe(1);
+        expect(t.pyr._surface).toBe(null);
     });
 });
