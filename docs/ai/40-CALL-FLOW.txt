@@ -9,8 +9,12 @@ MOUNT
 
   CanvasEditor
     useKobinEngine({ canvasId: id, onAutosave })
-      new KobinEngine(host, { width, height, onStatus, raster: rasterFromUrl(href) })
-                                           raster unless ?svg (or ?raster=0)
+      new KobinEngine(host, { width, height, onStatus, raster: rasterFromUrl(href),
+                              frames: "raf", levers: readLevers({ href, storage }) })
+                                           raster unless ?svg (or ?raster=0); "raf":
+                                           one step an animation frame (THE INPUT
+                                           FRAME below); the Dev levers, the URL's
+                                           over this device's localStorage
         new LevelMap(cfg, w, h)            frame "0" only
         new Document()                     one empty bucket
         new Camera(lm, cfg, hooks)         hooks: finalizeLiveStroke, holdFrame
@@ -49,7 +53,8 @@ DRAWING A STROKE   [HOT]
                                            the line tool re-seeds a fresh
                                            two-sample pen instead (S7)
         renderer.setLiveArcs(pen.gaps)     splices off the unstable tail only
-        renderer.update()
+        renderer.update()                  "raf": at the frame, once (every sample
+                                           still reaches the pen)
   pointerup
     engine.pointerUp()
       _pointerUp
@@ -181,7 +186,10 @@ SELECTING AND MOVING
     on paper:
       _lasso = { pts, ctrl }
   pointermove
-    _dragSelection(sx, sy)                  [HOT]
+    _dragSelection(sx, sy)                  [HOT] "raf": the pointer is recorded and the
+                                            frame runs this once, at the last one (it
+                                            recomputes from the drag's start, M-4); a
+                                            release takes the pending step first
       tx, ty = snapDisplacement((pointer - start) / cam.inScale)   camera units (F55)
       for each member of the selection's edit families:
         _displaceMember(from, baseBelow, camDepth, tx, ty)   once per (frame, table), memoised
@@ -274,7 +282,9 @@ RENDERING   [HOT]
         world.scale / translation           the origin folds in, in float64
         _renderTileDebug / _renderEraseDebug / _renderSelection / _renderSelOverlay
     renderer.update()                       two.update() -> the SVG
-    _emit()                                 onStatus -> React, throttled to 50 ms
+    _emit()                                 onStatus -> React, throttled to 100 ms;
+                                            onZoom listeners (the scale HUD) when the
+                                            zoom changed
 
   THE RASTER PATH's other jobs:
     _maybePrebake / _crossTarget            near a crossing: the target frame's
@@ -285,7 +295,24 @@ RENDERING   [HOT]
                                             a scene's thumbnail (snapshotJob, not
                                             _post); never touches the plate store
 
-  PAN AND ZOOM take the fast path when they can:
+  THE INPUT FRAME (A3 §5; cfg.frames "raf" for the page, "sync" for the suites and
+  the one-off engines):
+    a wheel, pinch or pan event: panBy / zoomFactorAt
+      cam.panBy / cam.zoomFactorAt          the camera moves NOW (hit tests, the floats)
+      _pend()                               the frame's step: pan / zoom / crossed, the
+                                            drag's last pointer, the pen's SVG update,
+                                            an arrival; one requestAnimationFrame
+    requestAnimationFrame -> _frame()       once, whatever came in:
+      the drag's step at the last pointer   (_dragSelection renders or camera-steps)
+      else _zoomStep / _panStep             the step below, once
+      else renderer.update()                a stroke's samples
+      else layer.compose()                  plates that arrived (PictureLayer._flush
+                                            calls deferCompose instead of composing)
+    flush()                                 the pending step now: a press or a
+                                            release first; the suites; the harness
+
+  PAN AND ZOOM take the fast path when they can (_panStep / _zoomStep: per call in
+  "sync", once a frame in "raf"):
     panBy / zoomFactorAt
       cam.panBy / cam.zoomFactorAt -> _settle (cross and/or shift)
       if crossed OR the visible tile set changed OR needsFatFlip
@@ -392,7 +419,8 @@ OPENING, THE PEN AND THE FOLLOW (.claude/SYNC-PLAN.md, cloud/canvasSession.js)
 
 THE SCALE BAR - a pure function of zoom, computed in React
 
-  CanvasEditor render
+  ScaleHud render                           engine.onZoom(setZoom): once a frame, a
+                                            zoom re-renders this leaf, not the editor
     computeScale(effectiveZoom, scaleDef, session)
       mppFromDef(scaleDef, zoom)            metres per pixel, on the log spine
       clearUserBandIfExited(session, mpp)

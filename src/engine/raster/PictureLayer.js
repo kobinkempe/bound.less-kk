@@ -1144,7 +1144,7 @@ export default class PictureLayer {
         if (!this.store) return false;
         const k = plateKey(v.frameId, v.q, i, j);
         const e = this.store.get(k);
-        return !!e && !e.dead && e.epoch === this.store.epochOf(k);
+        return !!e && !e.dead && this.store.isExact(e);
     }
 
     /**
@@ -1279,7 +1279,7 @@ export default class PictureLayer {
     uncoveredCells() { return this._uncovered; }
 
     /** Is this record's ink behind the document? The store owns the fact; this is one reader. */
-    _isStale(p) { return !!this.store && p.epoch !== this.store.epochOf(p.key); }
+    _isStale(p) { return !!this.store && !this.store.isExact(p); }
 
     /** Plates in the published range: what a full screen costs, and what a held view is judged against. */
     _rangeCount(v) {
@@ -1465,7 +1465,7 @@ export default class PictureLayer {
             if (!wanted) { pictureStats.staleUnwanted++; return st; }
             // the request these pixels belong to, which for a settled plate or an incoming
             // quantum's is NOT the published view
-            if (this._onRepost) this._addMiss(b, this._reqFor(rec), { key, i: rec.i, j: rec.j, epoch: this.store.epochOf(key) });
+            if (this._onRepost) this._addMiss(b, this._reqFor(rec), this._missOf(key, rec));
             return st;
         }
         if (st === "newer") {
@@ -1473,7 +1473,7 @@ export default class PictureLayer {
             pictureStats.staleNewer++;
             if (!wanted) return st;
             const req = this._reqFor(rec);
-            if (this._onRepost) this._addMiss(b, req, { key, i: rec.i, j: rec.j, epoch: this.store.epochOf(key) });
+            if (this._onRepost) this._addMiss(b, req, this._missOf(key, rec));
             if (req === this._v) { this._addHit(this.store.get(key)); this._layerDirty = true; b.compose = true; }
             return st;
         }
@@ -1503,6 +1503,9 @@ export default class PictureLayer {
         }
         return st;
     }
+
+    /** A re-post's miss: the key's epoch where the store keeps epochs (the job's G is the pack's). */
+    _missOf(key, rec) { return this.store.fresh ? { key, i: rec.i, j: rec.j } : { key, i: rec.i, j: rec.j, epoch: this.store.epochOf(key) }; }
 
     /** The batch's own re-post, then its one compose — at the engine's next frame when it set `deferCompose` ("raf" frames, A3 §5). */
     _flush(b) {
@@ -1555,7 +1558,7 @@ export default class PictureLayer {
     staleLog() { return this._stale; }
 
     _noteStale(key, rec, why) {
-        const e = { key, why, epoch: rec.epoch, q: rec.q, frameId: rec.frameId, when: "arrival", t: this._now() };
+        const e = { key, why, epoch: rec.epoch, G: rec.G, q: rec.q, frameId: rec.frameId, when: "arrival", t: this._now() };
         if (this._stale.length < STALE_LOG) this._stale.push(e);
         else this._stale[this._staleAt % STALE_LOG] = e;
         this._staleAt++;

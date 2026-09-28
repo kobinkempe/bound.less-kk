@@ -695,7 +695,16 @@ SVG: a short tail under the pen and frozen chunks of 128 anchors behind it, one 
 opacity (one path's whole `d` was rebuilt every event: 27 ms at 3,000 samples, D-1); the selection ants are painted on an overlay canvas (`OverlayLayer.js`, `antPaint.js`). A destroyed engine is inert — `_render`, the camera steps and the overlay return at once — because a remount builds the next engine in the same host and a late step would put the old selection's ants back over it (F101).
 `sceneOps.snapshotView` packs one plate of any frame and rect, off camera, for the Scenes
 panel's pictures. The engine's own `raster` option defaults to off, so the suites and the
-one-off engines are SVG.
+one-off engines are SVG. `renderPlate` takes a clip box (`job.clips` on the wire; the partial
+re-render's primitive, which nothing posts yet): rows are restricted to it and x is not folded at
+its edges, so every pixel inside it is the whole plate's byte and nothing outside it is written —
+measured on 180 seeded random clips and on a clip-and-paste merge per kind of change
+(`rasterCore.clip.test.js`, A3 §3.1).
+The page's engine takes input in animation frames (`cfg.frames` "raf"; the suites and the one-off
+engines keep "sync"): a wheel, pinch, pan or drag event moves the camera or records the pointer at
+once, and one `_frame()` a frame runs the render or the camera-only step, the drag's step at the
+last pointer, a stroke's SVG update and one compose for arrived plates; the scale HUD follows the
+zoom through `engine.onZoom`, so a zoom no longer re-renders the editor (A3 §5).
 
 Measured in Kobin's Chrome on 2026-09-22: the Magnum Opus (42,857 natives) loads in 1.4 s
 against the SVG renderer's 6.2 s, and the two agree on 20 views to 0.001–0.98 % of pixels,

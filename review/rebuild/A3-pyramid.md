@@ -993,6 +993,14 @@ lasso and a 40-step drag; (5) a translucent stroke's pen-up (live path held → 
 Ctrl+Z of it (time to exact; olderMs must stay 0); (7) an eraser stroke over the stack while zooming. Run with
 `?dev&pyramid=0` and `?dev&pyramid=1`, `?levelStep=1|2|3`.
 
+*Corrected when B-FOUNDATION built it (2026-09-28, `tools/harnesses/browser-check.js --dense`,
+`synth-drawing.js`):* `"1/1,0"` and `"1/-1,1"` are children of `"1"`, so two levels down, beside `"2"` — the
+table's row puts them at depth 1; the drawing keeps the ids. The snapshot must list the spine frames in its
+`crossings`: `LevelMap.ensureId` mints `"1/1,0"` under an existing `"1"` but returns null for a bare spine id
+(`"2"`), and those natives load undrawn. Scenario (3)'s 1,500 px do not fit a 1,280 px viewport as one pointer
+drag, so its steps go through `panBy` (what the pan tool calls). Scenario (7) draws the eraser and then zooms
+while its bake runs: a zoom under the pen ends the stroke (`Camera.zoomFactorAt` → `finalizeLiveStroke`).
+
 ### 9.4 What headless can and cannot say
 
 Script time, pixels, counts, the paper integrals and the image-cliff step are real in the container's Chromium

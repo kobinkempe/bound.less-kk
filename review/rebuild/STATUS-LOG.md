@@ -399,3 +399,93 @@ re-check of the tree; the end entry and the report.
 **Measured:** nothing new yet.
 **Decisions made:** none new.
 **Questions asked:** none new; Q1–Q6 stand.
+
+## 2026-09-28 04:45 UTC — B-SCENE (builder) — S1 done; S2's Stage, store and renderer halves in (the engine switch waits)
+**Working on:** S1 is done: `stage.placed.test.js` (row 5) added and green; the covering suites, typecheck and
+lint run (below). S2 so far, all outside `KobinEngine.js`/`rasterJob.js`/`rasterWorker.js`: `Stage.js` gains
+footprints from the events (A2 §2.8's table; an erase step under its mark dirties its footprint inside the mark's
+box only, PLAN §5.3 A2-Q2), `track`/`untrack`/`dirtySince`/`dirtyRects` with a global dirt log (a list older than
+a change is judged by it), batch unions per native (earliest before, latest after; past 256 per (home, table),
+then one box), frame footprints through `model.frameFootprint`, `onCommit(G, {frames, drop, reset})` for the
+plates a re-address or a reset removes, the family rule (Q15, below), `hold`/`release`, `touch`, `landedAt`.
+`PlateStore` takes a freshness source (`fresh`, the Stage): plates keyed with `G`, rule 1 in `put`, rule 2
+`isExact`, cells tracked from `beginJob`/`put` and untracked when neither stored nor in flight, hard drops refuse
+their in-flight jobs by a flag. `RasterRenderer` packs at a G (`_genOf`: the list's G, the scene's at pack time),
+refuses at dispatch a plate a newer change touched than its list saw and (scene on) one the table does not cover,
+and releases a pen-up path on `plate.G ≥ Gs` (Q3). `PictureLayer` reads exactness through the store; `packJob`
+carries `G`. Both rules live in the store and the renderer until the switch — the engine still builds a
+`PlateStore` without `fresh`, so the app and the suites run the epochs; the switch (the engine's constructor,
+the drain, `_footBelow`, the hold, `listFor`'s mark snapshot, and the wire's `G`) deletes the epoch half with
+their suites, after B-FOUNDATION's end entry. New tests: `stage.fresh.test.js` (6 seeds × 400 steps) with
+`__testkit__/stageFresh.js` and `stage.fresh.probe.js` (200 × 400). Files this entry: `Stage.js`,
+`raster/PlateStore.js`, `raster/RasterRenderer.js` (`render`, `syncCameraOnly`, `_packNow`, `_stillWanted`,
+`_takeResult`, `_endJob`, `_postNow`, `_postPlane`, `_farList`, `prebakePlates`, `_releaseHeldLive`,
+`_liveCellsComing`, new `_sceneList`/`_packList`/`_genOf`/`_packable`/`_noteShown`/`_shownFrom`/`_plateShowsG`),
+`raster/PictureLayer.js` (`cellFresh`, `_isStale`, `_take`'s misses, `_noteStale`, new `_missOf`),
+`raster/rasterPack.js` (new `familyTraits`, `G` on the job).
+**Measured:** row 5: 120 natives (4 seeds × 30), all in the table, 812 vertices, 61 rerouted items: worst
+placed vertex 9.4e-12 of the frame's units (1e-9 bound), `toStored` back 3.5e-12. Q15 (node, the pack and core as
+shipped, 40 constructed families, one plate): the routing flipped in 15; in all 15 the family's untouched pieces
+changed — median 462 px, max 771 px, up to 38/255 — so the family rule stays (a flip dirties the family's box).
+Row 1 (Stage half), 200 seeds × 400 steps: 0 violations in 715,314 plate checks (498,167 exact; 13,857, 1.9%,
+stale where the oracle saw no change: the conservative reach and family rules); 4,402 results refused by hard
+drops. Equivalence fuzz after the S2 rewrite: 60 × 80, 0 differences. Suites: raster 29 + stage 3 = 631/631;
+the S1 set (Document, LevelMap, oplog, tile.*, reroute.memo, frame.gc, erase.* non-slow, move.*, select.*,
+hooks) 57 suites, 473 pass, 4 skipped; typecheck 0; lint 0 errors (6 warnings, the baseline's).
+**Decisions made:** the oracle of row 1 takes each native's state at the commit's first sight and its end, and
+counts it only if they differ (a state that lived inside one commit is on no plate); window-change family flips
+dirty too (a pan that brings a family's pieces in can flip its routing, and plates on both sides must agree);
+the renderer's `_jobG` map carries a job's G to its arrival until the wire does (`rasterJob.js`, after
+B-FOUNDATION).
+**Questions asked:** none new.
+
+## 2026-09-28 04:45 UTC — B-FOUNDATION (builder) — done
+**Working on:** all five deliverables built, the docs corrected; nothing committed. Files since the resumed entry:
+`hooks/useKobinEngine.js` (the three lever setters through one `leverSetter`), `hooks/useKobinEngine.frames.test.js`
+(three zooming frames inside the throttle: the HUD hears each, the page renders once), `tools/harnesses/
+browser-check.js` and `synth-drawing.js` (run; fixed below), DESIGN §9 (two sentences), `docs/ai/10-STATUS.txt`,
+`30-CODE-MAP.txt`, `40-CALL-FLOW.txt`, the harness README, A3 §9.3 (a dated correction), TEST-MAP (four rows).
+In `KobinEngine.js` my functions only: `panBy`, `zoomFactorAt` (their consequences moved verbatim into `_panStep` /
+`_zoomStep`), `_pointerMove`'s drag and pen branches, a flush at the top of `_pointerDown` / `_pointerUp`, the new
+`_pend` / `_frame` / `flush` / `onZoom`, `_emit`, the lever setters, DEFAULTS, the constructor's option line and last
+line, `destroy`'s timer line. B-SCENE is in RasterRenderer/PlateStore/PictureLayer/rasterPack now; its mid-edit state
+turned six hook suites red for one run (`_noteShown` called before it existed); re-run alone they pass 42/42.
+**Measured:** typecheck 0; lint 0 errors, 6 warnings (the baseline's). Suites: `src/engine/raster/` + `chordMath`
+30/30 suites, 620 tests; hooks, Pages, scaleBar, `KobinEngine.*`, `select.*`, `move.*` 49 suites, 423 passed + 2
+skipped (with the six re-run); new: `rasterCore.clip` 18, `level.crossmap` 8, `useKobinEngine.frames` 7,
+`useKobinEngine.levers` 4. Bundles: erase `a1fafca3d543d5a447fff295498d274a`, raster `e865ee425ff99f220b34dbc2d571f008`,
+scene `dce304b81ac598a67b8aa15c2daa2d93`. Break-checks of deliverables 2–4 (`breakcheck2.py`, unimported copy; red of
+the suite): mapCell's S∤12 1/8, its coarse floor 2/8, the BigInt path 2/8, the down step's level 2/8, `coarser`'s step
+into the parent 1/8, `levelFor`'s hysteresis 1/8; a raf pan waits 1/7, a raf zoom 3/7, the frame carries a crossing
+1/7, the release flushes 1/7, the drag waits 1/7, the pen's SVG update waits 1/7, the arrival defers 1/7, `onZoom`
+1/7, the page takes raf 1/7, no zoom bypass in the throttle 1/7; the URL wins 2/4, a lever is validated 1/4, a change
+is stored 1/4. The round-trip harness under "raf": 25,244 ink px before and after, same hash; the HUD's label
+followed the zoom (1/27.86× on the screenshot).
+**The harness baseline — today's code** (`browser-check.js --dense`, seed 1, headless Chromium 141 SwiftShader,
+1280×800 @1, 3 workers, `?dev`; 3,414 objects: "0" 1,814, "1" 1,000, "2" 400, "1/1,0" 100, "1/-1,1" 100; setup a page
+49–72 s: `flushBakes` 39–45 s, the loaded mark's bake 5–19 s; one run each):
+| scenario | gesture | paper ms (max share) | frames > 50 ms | long (worst ms) | composes: n, ms, max images | plates posted |
+|---|---|---|---|---|---|---|
+| 1 zoom-out, 90 × +250 meant at 25 ms, "2" → "0" | 43.8 s | 3,247 (75 %) | 129 of 275 | 120 (563) | 158, 223, 29 | 861 |
+| 1 back in | 29.0 s | 0 | 126 of 223 | 99 (938) | 105, 165, 29 | 720 |
+| 2 slow zoom, 40 × +250 at 120 ms, "1" → "0" | 13.5 s | 1,449 (63 %) | 23 of 332 | 27 (2,459) | 56, 31, 13 | 59 |
+| 3 pan, 60 × (25, 8) at 16 ms (`panBy`) | 2.3 s | 28 (8 %) | 7 of 99 | 12 (614) | 68, 9.5, 12 | 19 |
+| 4 lasso (840 × 560 px ellipse, 45 selected) | 2.5 s | 0 | 5 of 103 | 5 (762) | 1 | 55 |
+| 4 drag, 40 steps at 16 ms | 4.4 s | 0 | 9 of 114 | 10 (2,385) | 46, 12.1, **33** | 66 |
+| 5 translucent pen-up | 10.6 s | 0 | 7 of 231 | 21 (2,072) | 52, 5.8 | 18 |
+| 6 Ctrl+Z of it | 0.4 s | 0 | 1 of 43 | 1 (309) | 3, 0.3, 8 | 2 |
+| 7 eraser across the stack, then 30 zoom ticks while it bakes | 18.6 s | 0 | 50 of 259 | 54 (848) | 61, 56, 22 | 260 |
+Pen-up: the live path released 5 ms after pen-up (a sync view), no stale plate after 9.26 s; undo exact after 44 ms;
+the eraser's mark spent 16.9 s after pen-up, its 30 ticks (meant 0.75 s) took 8.1 s, 54 of 96 plates stale after.
+Today's layer carries no `paperMs`/`blurMs`/`olderMs` (paper from the sampler; blur and older n/a) and the pool no
+per-priority job counts. The drag's compose drew 33 images, at the cliff (A3 E6).
+**Decisions made:** harness: a fresh page a scenario; gestures wait for the pen (`readOnly`); scenario 3 through
+`panBy` (1,500 px do not fit a 1,280 px drag); scenario 7 zooms after pen-up (a zoom under the pen ends the stroke)
+and waits for `_eraseCommits` to empty; the synthetic snapshot lists the spine in its `crossings`; the most images per
+gesture from an in-page wrap of `layer.compose` beside the shipped high-water counters. Found: `LevelMap.ensureId`
+returns null for a bare spine id ("2") on a lattice without it, so natives under it load undrawn (F67's "a load mints
+any frame its natives name" is not true there) — suggested as its own task, not fixed (the lattice is B-MODEL's).
+**Questions asked:** Q1 union band start (keep A3's; 0 bytes everywhere measured); Q2 `pinchUpdate` ignores its
+pan's crossing, as today (keep; flag); Q5 `level.js` into typecheck (later, with a structural lattice type); Q6 the
+clip suite's 23 s (keep); Q7 the `ensureId` spine gap (a small task before B-MODEL); Q8 today's drag compose
+reaches 33 images — B-PYRAMID's image budget should count the plane with the base.

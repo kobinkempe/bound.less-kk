@@ -29,6 +29,19 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-26/28 - THE RENDERER REBUILD'S FOUNDATION (review/rebuild/PLAN.md, B-FOUNDATION).
+    rasterCore.renderPlate takes a clip box (job.clips on the wire): inside it the
+    whole plate's bytes, outside it nothing written, and with no clip the plates
+    of before, byte for byte (rasterCore.clip.test.js). raster/level.js holds the
+    pyramid's level arithmetic and the integer map of a plate between frames
+    (level.crossmap.test.js); nothing imports it yet. The page's engine takes
+    input in animation frames (cfg.frames "raf"; the suites stay "sync"), the
+    scale HUD is its own component on engine.onZoom, and the Dev panel carries
+    the renderer levers (stored per device, a URL parameter wins) and DevStats;
+    until B-PYRAMID the levers change no picture. The browser harness gained
+    --dense and A3's seven scenarios. F132 found and fixed: a Scenes picture
+    re-rendered after an edit drew its unchanged ink off the plate.
+
 2026-09-23 - ZOOM-OUT, F90 AND THE DRAG PLANE (PAPER-PLAN §10.14). In
     Kobin's tab: a 90-tick fast zoom-out took 42.6-46.2 s because every compose
     drew 34-48 stand-ins and Chrome's canvas pays ~100 ms a frame past 33

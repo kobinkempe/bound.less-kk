@@ -608,7 +608,7 @@ class Overlays {
                 if (!b) continue;
                 const key = m.obj.below ? JSON.stringify(m.obj.below) : "";
                 const bx = e.boxes.get(key);
-                if (!bx) { e.boxes.set(key, { below: m.obj.below, box: { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } }); continue; }
+                if (!bx) { e.boxes.set(key, { nat: m.obj, box: { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } }); continue; }
                 if (b.x0 < bx.box.x0) bx.box.x0 = b.x0;
                 if (b.y0 < bx.box.y0) bx.box.y0 = b.y0;
                 if (b.x1 > bx.box.x1) bx.box.x1 = b.x1;
@@ -623,22 +623,22 @@ class Overlays {
             let e = byLevel.get(f);
             if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(f, e); }
             e.frame = true;
-            e.boxes.set("frame:" + f, { below: null, box: { x0: -HALF_W, y0: -HALF_W, x1: HALF_W, y1: HALF_W } });
+            e.boxes.set("frame:" + f, { nat: null, box: { x0: -HALF_W, y0: -HALF_W, x1: HALF_W, y1: HALF_W } });
         }
         const table = { byLevel, ids, levelOf, cross, frames, count: seen.size + frames.size };
         this._selTableCache = { sel: s, rev: this.doc.rev, table };
         return table;
     }
     /**
-     * Where a frame's selected members are DRAWN, in F's units: each box through its
-     * members' displacement table (F68 — the frame's mark sat on the stored bits, a
-     * cell away from moved ink, and jumped there once the ink was too small for ants).
+     * Where a frame's selected members are DRAWN, in F's units: each box through a member of its
+     * table group (`placeNative`, F68 — the frame's mark sat on the stored bits, a cell away from
+     * moved ink, and jumped there once the ink was too small for ants); a selected frame's cell as is.
      */
     _selFrameRect(info, L, F) {
         let out = null;
-        for (const { below, box } of info.boxes.values()) {
+        for (const { nat, box } of info.boxes.values()) {
             const R = { left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 };
-            const r = below ? this.lm.mapRectObj(R, L, F, below, L) : this.lm.mapRectF(R, L, F);
+            const r = nat ? this.stage.placeNative(nat, F).fromStored(R) : this.lm.mapRectF(R, L, F);
             if (!r) continue;
             out = out ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) } : r;
         }
@@ -668,7 +668,9 @@ class Overlays {
      * `_selectionAnts` for the key.
      */
     _selDecide(s, table) {
+        // The scene's items are what is drawn; the decision is remade per render, as the render's list is.
         const list = this._lastList || [];
+        const items = this.stage.items();
         const F = this.cam.frame, sc = this.cam.inScale;
         const O = this.renderer._origin();
         const vp = this.cam.frameWindow(0);
@@ -737,17 +739,17 @@ class Overlays {
         const traced = new Set();
         const small = [];
         const shownFrames = new Set();           // selected frames with a run or a dot from a piece
-        for (const piece of list) {
-            const own = table.ids.has(piece.id);
-            const fr = own ? null : frameOf(piece.id);
+        for (const item of items) {
+            const own = table.ids.has(item.id);
+            const fr = own ? null : frameOf(item.id);
             if (!own && !fr) continue;
-            if (own && marked.has(table.levelOf.get(piece.id)) && !table.cross.has(piece.id)) continue;
+            if (own && marked.has(table.levelOf.get(item.id)) && !table.cross.has(item.id)) continue;
             if (fr && marked.has(fr)) continue;
+            // The ants show what is DRAWN: the scene's geometry, shifted by its offset (F41).
+            const { geom: piece, off } = this.stage.placed(item);
             let loops = this._selPieceLoops(piece);
             if (!loops || !loops.length) continue;
-            // The ants show what is DRAWN, and a piece with a residual (F41) is
-            // drawn shifted by it.
-            if (piece.res) loops = translateLoops(loops, piece.res[0], piece.res[1]);
+            if (off[0] || off[1]) loops = translateLoops(loops, off[0], off[1]);
             const bounds = loopsBounds(loops);
             // Every selected piece takes part in the edge scan: where the ink
             // leaves the screen is a fact about the ink.
@@ -765,7 +767,7 @@ class Overlays {
             const sizePx = bounds ? Math.min(bounds.x1 - bounds.x0, bounds.y1 - bounds.y0) * sc : Infinity;
             inkPx = Math.min(inkPx, thickPx, sizePx);
 
-            const rects = this._selSeamRects(piece, table, F, seamCache);
+            const rects = this._selSeamRects(piece, off, table, F, seamCache);
             for (const loop of loops) {
                 for (const seamRun of loopRuns(loop, rects)) {
                     for (const run of clipRunToRect(seamRun, keep)) {
@@ -792,7 +794,7 @@ class Overlays {
             if (traced.has(id) || table.cross.has(id) || marked.has(table.levelOf.get(id))) continue;   // a family's kid shows through its family
             const rec = this.doc.getById(id);
             if (!rec) continue;
-            const r = this._rectInActive(rec.obj, rec.level);
+            const r = this._rectInActive(rec.obj);
             if (!r || r.right < win.left || r.left > win.right || r.bottom < win.top || r.top > win.bottom) continue;
             if (Math.max(r.right - r.left, r.bottom - r.top) * sc >= SEL_OBJECT_DOT_PX) continue;
             small.push(r);
@@ -850,11 +852,11 @@ class Overlays {
      * piece lying along any of them is a seam and gets no ants, which is
      * "no ants on the tile edge" and the F37 join rule in one test.
      */
-    _selSeamRects(piece, table, F, cache) {
+    _selSeamRects(piece, off, table, F, cache) {
         const key = piece.id;
-        // Everything here is where the ink is DRAWN: a piece with a residual
-        // (F41) has its clip and its family's windows shifted by it too.
-        const shift = (r) => (piece.res ? { left: r.left + piece.res[0], right: r.right + piece.res[0], top: r.top + piece.res[1], bottom: r.bottom + piece.res[1] } : r);
+        // Everything here is where the ink is DRAWN: a piece with an offset
+        // (F41) has its clip shifted by it too.
+        const shift = (r) => (off[0] || off[1] ? { left: r.left + off[0], right: r.right + off[0], top: r.top + off[1], bottom: r.bottom + off[1] } : r);
         const own = () => clipRect(shift(asLTRB(piece.clip)));
         let rects = cache.get(key);
         if (rects) {
@@ -868,12 +870,11 @@ class Overlays {
                 const R = m.obj.attachRect;
                 if (!R) continue;
                 const Rl = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
-                // Where the MEMBER is drawn: its own table (`mapRectObj`, remainder included, F55), or
-                // none. The traced piece's residual is not the member's: a kid ceded three levels
-                // below a move carries no table, and shifted by its parent's half-frame residual its
-                // window missed the hole's edge, which drew a square of ants inside the ink (F125).
-                const mapped = m.obj.below ? this.lm.mapRectObj(Rl, m.level, F, m.obj.below, m.level)
-                    : (String(m.level) === String(F) ? Rl : this.lm.mapRectF(Rl, m.level, F));
+                // Where the MEMBER is drawn (`placeNative`, its own table, F55). The traced piece's offset
+                // is not the member's: a kid ceded three levels below a move carries no table, and
+                // shifted by its parent's half-frame offset its window missed the hole's edge, which
+                // drew a square of ants inside the ink (F125).
+                const mapped = this.stage.placeNative(m.obj, F).fromStored(Rl);
                 if (mapped) rects.push(clipRect(mapped));
             }
         }
@@ -932,7 +933,7 @@ class Overlays {
         // Through the object's own picture (F41): with no offsets this is the
         // camera's `levelPointToScreen`.
         const toScreen = (p) => {
-            const q = this._objPointInActive(obj, L, p);
+            const q = this._objPointInActive(obj, p);
             return q ? [q[0] * this.cam.inScale + this.cam.inPanX, q[1] * this.cam.inScale + this.cam.inPanY] : null;
         };
         let run = null, kind = false;

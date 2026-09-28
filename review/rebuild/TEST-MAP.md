@@ -15,6 +15,8 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 | `raster.fz.test.js`, `raster.deep.test.js`, `raster.seam.test.js` | 925 | recorded geometry, piece reach, seams between plates | KEEP | — |
 | `raster.occlusion.test.js` | 110 | the occlusion cull | KEEP | extended by the `FLAG_COVERS` and sampled-row tests when §3.7's items land |
 | `raster.familyUlp.test.js` | 165 | PLAN §3 row 4 | KEEP | — |
+| `rasterCore.clip.test.js` | 400 | PLAN §3's partial re-render row: a clipped plate `===` the whole inside, untouched outside; the merge through `job.clips`; today's whole plates by golden (B-FOUNDATION, 2026-09-26) | KEEP | — |
+| `level.crossmap.test.js` | 273 | PLAN §3's crossing-map row (A3 §1.6's seven steps) and the rest of `level.js` (B-FOUNDATION) | KEEP | — |
 | `raster.mask.test.js` | 153 | the mark masks only the ink it has not baked; the plane with a mark; what counts as baked | REPLACE | PLAN §3 row 3: the pure rule (targets at pen-up, `handledBy`), incl. the drag-across case |
 | `raster.markSnap.test.js` | 148 | F121 per-list done snapshots | DELETE with `noteListMarks` | row 3 |
 | `raster.bake.test.js` | 212 | F90 a bake step under its mark stales no plate (neutral events) | DELETE with the neutral tags | row 3's equivalence (a cut under its mark re-renders its rectangle to the same pixels) |
@@ -54,5 +56,7 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 | `tile.patch.test.js`, `tile.reroute.test.js`, `reroute.memo.test.js` | 323 | TileStore patches and the reroute memo | KEEP; the memo's suite PORTs if the scene absorbs it | — |
 | `frame.gc.test.js` | 311 | frame GC | KEEP; DECIDE with A1 | — |
 | `src/hooks/useKobinEngine.raster.test.js` | 161 | the raster gate and mount | PORT | — |
+| `src/hooks/useKobinEngine.frames.test.js` | 212 | input coalescing: one compose, emit and page `setStatus` for ten wheel events a frame, the camera to the bit; the drag, the pen, arrivals (B-FOUNDATION) | KEEP | — |
+| `src/hooks/useKobinEngine.levers.test.js` | 111 | the Dev levers: the URL over localStorage, never the canvas record (B-FOUNDATION) | KEEP | — |
 
 Totals: about 5,600 lines deleted with their mechanisms, about 7,000 ported, the rest kept.

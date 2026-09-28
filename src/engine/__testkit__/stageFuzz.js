@@ -89,7 +89,7 @@ export function pureReads(E, rnd, others) {
     const s0 = docState(E);
     const items = S.items();
     for (const it of items) S.placed(it);
-    for (const _ of S.itemsTopDown()) { /* walk */ }
+    for (const it of S.itemsTopDown()) S.placed(it);
     S.covers(F, win);
     S.changesSince(S.generation - 1);
     let n = 0;

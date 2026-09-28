@@ -2,8 +2,8 @@
  * synth-drawing.js — the dense synthetic drawing of A3 §9.3, deterministic from a seed: a `dev-0` snapshot
  * (`files.js` `loadSnapshot`) for the browser harness's `--dense` runs. Records are `format2.objectHeader`'s
  * shapes: strokes `{type, origin, id, pts, lwFrame, color, opacity}`, fills `{… polys}`, a pending eraser
- * `{… erase: true, bakePx}`. Frame ids are minted by `LevelMap.ensureId` at load: "0", "1", "2" are the
- * spine; "1/1,0" and "1/-1,1" are off-spine children of "1" (two levels down, beside "2").
+ * `{… erase: true, bakePx}`. "0", "1", "2" are the spine, listed in the snapshot's lattice; "1/1,0" and
+ * "1/-1,1" are off-spine children of "1" (two levels down, beside "2"), minted by `LevelMap.ensureId` at load.
  *
  *   const { synth } = require("./synth-drawing");  synth({ seed: 1, w: 1280, h: 800 })
  *
@@ -85,11 +85,13 @@ function synth({ seed = 1, w = 1280, h = 800 } = {}) {
         lwFrame: 40, pts: [[-420, 150], [-360, 185], [-300, 205], [-240, 220], [-180, 250]] });
 
     const count = (f) => (natives[f] || []).length;
+    // The spine is listed: `ensureId` mints "1/1,0" under an existing "1" but not a bare spine id ("2").
+    const spine = (d) => ({ id: String(d), parent: d ? String(d - 1) : null, depth: d, i: 0, j: 0 });
     return {
         v: "dev-0",
         camera: { frame: "0", activeLevel: 0, inScale: 1, inPanX: w / 2, inPanY: h / 2 },
         natives,
-        crossings: {},
+        crossings: { __lattice: 1, frames: [spine(0), spine(1), spine(2)] },
         stats: { objects: id - 1, frames: Object.fromEntries(Object.keys(natives).map((f) => [f, count(f)])), stack, eraser: eraser.id },
     };
 }

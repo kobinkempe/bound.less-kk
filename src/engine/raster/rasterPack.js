@@ -899,6 +899,7 @@ function famStale(f) {
  *   cfg       the engine cfg (enter, cullPx, fadeLoPx, arcTolerancePx)
  *   paper     [r, g, b]
  *   epochs    Int32Array, one per plate (§5.4); defaults to zeros
+ *   G         the scene's generation the list was read at (A2 §3.1): every plate of the job carries it
  *   jobId, frameSeq, postedAt
  *   pool      a `BufferPool`, or null to allocate fresh
  *   live      the object the SVG overlay is drawing (skipped, as `Renderer.js:566` does)
@@ -1052,6 +1053,7 @@ export function packJob(list, opts) {
         jobId: opts.jobId != null ? opts.jobId : 0,
         frameSeq: opts.frameSeq != null ? opts.frameSeq : 0,
         postedAt: opts.postedAt != null ? opts.postedAt : 0,
+        G: opts.G != null ? opts.G : 0,
         // Every array in the job is the packer's OWN copy: `wireJob` transfers them, which
         // detaches the buffer, and a job that aliased the caller's plate list would leave the
         // store holding a zero-length array after the first post.
@@ -1068,6 +1070,7 @@ function emptyJob(opts, plates, paper, pool) {
         jobId: opts.jobId != null ? opts.jobId : 0,
         frameSeq: opts.frameSeq != null ? opts.frameSeq : 0,
         postedAt: opts.postedAt != null ? opts.postedAt : 0,
+        G: opts.G != null ? opts.G : 0,
         epochs: opts.epochs ? Int32Array.from(opts.epochs) : new Int32Array(plates.length / 2),
         q: opts.q || 0, Zq: opts.Zq, plateW: PLATE_PX,
         plates: Int32Array.from(plates),
@@ -1177,6 +1180,26 @@ function unionSignOf(all, f, q, Zq, cfg) {
             + "where two of them overlap the ink cancels to a hole, which no declared sign repairs (§4.2)");
     }
     return sum > 0 ? 1 : -1;
+}
+
+/**
+ * A family's union routing, union sign, colour and alpha as `packJob` decides them, over `items` (the
+ * family's items in paint order, render-list shaped): what a change of membership can flip for every
+ * item of the family (PLAN §5.1 Q15). Null for a family holding a stroke, whose band's winding is
+ * decided per zoom quantum.
+ */
+export function familyTraits(items, cfg) {
+    const all = [];
+    for (const o of items) {
+        const e = entryFor(o, cfg);
+        if (e.bands) return null;
+        if (!e.bad) all.push({ o, e, res: o.res || null });
+    }
+    if (!all.length) return { union: false, sign: 0, colour: "", alpha: 0 };
+    const f = { union: familyUnion(all) };
+    const sign = unionSignOf(all, f, 0, 1, cfg);
+    const first = all[0].o;
+    return { union: f.union, sign, colour: String(first.color), alpha: first.opacity == null ? 1 : first.opacity };
 }
 
 /**

@@ -118,6 +118,9 @@ function boxOf(i0, i1, j0, j1, Zq, pad) {
 /** One plate's box, grown by EDGE_PAD_PX: `boxOf`'s one-cell call. */
 function rectOf(p) { return boxOf(p.i, p.i, p.j, p.j, p.Zq, EDGE_PAD_PX); }
 
+/** A plate with no usable Zq meets every footprint (`meets(null, …)`'s rule, for a tracked cell). */
+const EVERYWHERE_BOX = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+
 /** Coarsest first, then by plate index, so a cover set is drawn bottom-up and deterministically. */
 
 /** Touching counts as meeting, as `TileStore._onFrameEvent` does: invalidation is conservative. */
@@ -137,6 +140,12 @@ export default class PlateStore {
      *        picture layer can drop its own canvas on the same event (§6.6)
      */
     constructor(opts = {}) {
+        /**
+         * The freshness source (the engine's Stage, A2 §3.1): with it a plate carries the `G` its job was
+         * packed at and is exact iff `G >= fresh.dirtySince(key)`; the cells stored or in flight are
+         * tracked there. Without it, the per-key epochs of D25 (the engine's drain), until the switch.
+         */
+        this.fresh = opts.fresh || null;
         this.maxBytes = opts.maxBytes != null ? opts.maxBytes : defaultCacheBytes(opts.env);
         this.phone = this.maxBytes === PHONE_CACHE_BYTES;
         this.cache = new Map();      // key -> entry
@@ -254,7 +263,7 @@ export default class PlateStore {
                     this.s.staleHits++;                 // and on, so the re-post goes out (R1)
                 }
                 if (this.inflight.has(key)) { inFlight++; continue; }
-                misses.push({ key, i, j, epoch: this.epochOf(key) });
+                misses.push(this.fresh ? { key, i, j } : { key, i, j, epoch: this.epochOf(key) });
             }
         }
         if (add) {
@@ -402,6 +411,7 @@ export default class PlateStore {
      * @returns {"cached"|"stale"|"newer"}
      */
     put(rec) {
+        if (this.fresh) return this._putG(rec);
         const key = rec.key || plateKey(rec.frameId, rec.q, rec.i, rec.j);
         this._endKey(key, rec.jobId);
         this.s.puts++;
@@ -442,6 +452,66 @@ export default class PlateStore {
         return newer ? "newer" : "cached";
     }
 
+    /**
+     * `put` by generation (A2 §3.1, PLAN §3 row 1). Rule 1: a result replaces the stored plate iff there
+     * is none or its `G` is newer — a newer result that is itself behind still replaces older stale
+     * pixels (F106) and is re-posted; at equal G the pixels are equal and the stored plate stays. A
+     * result of a job a hard drop refused (`dropFrames`, `dropQuantum`, `dropAll`, `abandonQuantum`)
+     * is discarded. Rule 2 is `isExact`.
+     *
+     * @returns {"cached"|"stale"|"newer"}
+     */
+    _putG(rec) {
+        const key = rec.key || plateKey(rec.frameId, rec.q, rec.i, rec.j);
+        const f = this.inflight.get(key);
+        const refused = !!f && f.refused && (rec.jobId == null || f.jobId === rec.jobId);
+        this._endKey(key, rec.jobId);
+        this.s.puts++;
+        if (rec.bitmap && typeof rec.bitmap.close === "function") this.s.bitmapsOpen++;
+        const cur = this.cache.get(key);
+        if (refused || rec.G == null || (cur && !cur.dead && !(rec.G > cur.G))) {
+            if (rec.G == null) this.s.noEpoch++;
+            closeOf(rec, this.s);
+            this._untrackIfIdle(key);
+            if (!refused && cur && !cur.dead && this.isExact(cur)) return "cached";
+            this.s.stalePuts++;
+            return "stale";
+        }
+        const inBase = this._base.has(key), inLadder = this._ladder.has(key);
+        if (cur) { if (!this.isExact(cur)) this.s.staleReplaced++; this._remove(key, true); this.s.replaced++; }
+        const bytes = rec.bytes != null ? rec.bytes : PLATE_BYTES;
+        const entry = {
+            key, frameId: rec.frameId, q: rec.q, Zq: rec.Zq, i: rec.i, j: rec.j,
+            bitmap: rec.bitmap || null, pixels: rec.pixels || null,
+            bytes, G: rec.G, lru: ++this._clock,
+        };
+        const box = rectOf(entry);
+        if (!box) this.s.noZq++;
+        this.cache.set(key, entry);
+        this.fresh.track(key, entry.frameId, box || EVERYWHERE_BOX, rec.G);
+        if (inBase) this._base.add(key);
+        if (inLadder) this._ladder.add(key);
+        this.bytes += bytes;
+        const exact = this.isExact(entry);
+        if (!exact) this.s.staleNewer++;
+        this._evict();
+        return exact ? "cached" : "newer";
+    }
+
+    /** Rule 2 (A2 §3.1): the plate reflects every commit that could change its pixels. */
+    isExact(e) {
+        if (!this.fresh) return e.epoch === this.epochOf(e.key);
+        return e.G >= this.fresh.dirtySince(e.key);
+    }
+
+    /** A key neither stored nor in flight leaves the freshness source's tracked set. */
+    _untrackIfIdle(key) {
+        if (this.fresh && !this.cache.has(key) && !this.inflight.has(key)) this.fresh.untrack(key);
+    }
+
+    /** A hard drop's jobs still in flight deliver nothing for their keys. */
+    _refuse(f) { f.refused = true; }
+
     // ---- the invalidation epoch and the in-flight map (D25, §8.4 rule 4) ----
 
     /** The epoch a job must carry for this key; 0 for a key nothing has ever dropped. */
@@ -453,15 +523,21 @@ export default class PlateStore {
      * Record a strip as in flight and return its epochs, in the job's own plate order
      * (§3.3's `epochs`). `plates` is `want`'s miss list, or any `[{ key, i, j }]`.
      */
-    beginJob(jobId, view, plates) {
-        const out = new Int32Array(plates.length);
+    beginJob(jobId, view, plates, G) {
+        const out = this.fresh ? null : new Int32Array(plates.length);
         const keys = [];
         for (let n = 0; n < plates.length; n++) {
             const p = plates[n];
             const key = p.key || plateKey(view.frameId, view.q, p.i, p.j);
+            keys.push(key);
+            if (this.fresh) {
+                const f = { jobId, key, frameId: view.frameId, q: view.q, Zq: view.Zq, i: p.i, j: p.j, G, refused: false };
+                this.inflight.set(key, f);
+                this.fresh.track(key, view.frameId, rectOf(f) || EVERYWHERE_BOX, G);
+                continue;
+            }
             const epoch = this.epochOf(key);
             out[n] = epoch;
-            keys.push(key);
             this.inflight.set(key, { jobId, key, frameId: view.frameId, q: view.q, Zq: view.Zq, i: p.i, j: p.j, epoch });
         }
         this.jobs.set(jobId, keys);
@@ -474,14 +550,14 @@ export default class PlateStore {
         if (!keys) return 0;
         this.jobs.delete(jobId);
         let n = 0;
-        for (const key of keys) { const f = this.inflight.get(key); if (f && f.jobId === jobId) { this.inflight.delete(key); n++; } }
+        for (const key of keys) { const f = this.inflight.get(key); if (f && f.jobId === jobId) { this.inflight.delete(key); n++; this._untrackIfIdle(key); } }
         return n;
     }
 
     /** Plates in flight whose epoch is already behind: the work §8.4 rule 4 drops before dispatch. */
     staleInFlight() {
         let n = 0;
-        for (const f of this.inflight.values()) if (f.epoch !== this.epochOf(f.key)) n++;
+        for (const f of this.inflight.values()) if (this.fresh ? f.G < this.fresh.dirtySince(f.key) : f.epoch !== this.epochOf(f.key)) n++;
         return n;
     }
 
@@ -574,7 +650,9 @@ export default class PlateStore {
             this._pins.delete(e.key); this._held.delete(e.key); bumped.add(e.key); n++;
         }
         for (const f of [...this.inflight.values()]) {
-            if (String(f.q) !== qs || bumped.has(f.key)) continue;
+            if (String(f.q) !== qs) continue;
+            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
+            if (bumped.has(f.key)) continue;
             this._bump(f.key); bumped.add(f.key); n++;
         }
         this.s.dropsByQ += n;
@@ -601,7 +679,8 @@ export default class PlateStore {
             if (String(f.q) !== qs) continue;
             // the pin of a key nothing ever cached is the half `dropQuantum` cannot reach either
             this._pins.delete(f.key); this._held.delete(f.key);
-            this._bump(f.key); n++;
+            if (this.fresh) this._refuse(f); else this._bump(f.key);
+            n++;
         }
         this.s.abandons++;
         return n;
@@ -623,7 +702,11 @@ export default class PlateStore {
             if (!this._plane.has(e.key) && !this._base.has(e.key)) this._remove(e.key);
             this._bump(e.key); bumped.add(e.key); n++;
         }
-        for (const f of [...this.inflight.values()]) { if (bumped.has(f.key)) continue; this._bump(f.key); bumped.add(f.key); n++; }
+        for (const f of [...this.inflight.values()]) {
+            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
+            if (bumped.has(f.key)) continue;
+            this._bump(f.key); bumped.add(f.key); n++;
+        }
         this._pins = new Set();
         this._held.clear();
         this.s.dropsAll++;
@@ -647,7 +730,9 @@ export default class PlateStore {
             this._pins.delete(e.key); this._held.delete(e.key); bumped.add(e.key); n++;
         }
         for (const f of [...this.inflight.values()]) {
-            if (bumped.has(f.key) || !pred(f.frameId)) continue;
+            if (!pred(f.frameId)) continue;
+            if (this.fresh) { this._refuse(f); if (!bumped.has(f.key)) n++; continue; }
+            if (bumped.has(f.key)) continue;
             this._bump(f.key); n++;
         }
         this.s.dropsFrames += n;
@@ -712,7 +797,7 @@ export default class PlateStore {
             plates: this.cache.size, plateBytes: this.bytes, maxBytes: this.maxBytes,
             phone: this.phone, pinned: this._pins.size, pinnedAdded: this._held.size, base: this._base.size,
             inFlight: this.inflight.size, staleInFlight: this.staleInFlight(),
-            epochKeys: this.epochs.size,
+            epochKeys: this.epochs.size, trackedKeys: this.fresh ? this.fresh.stats.tracked : 0,
             // `plateBytes` no longer falls when the document changes (R1), so a reader of a phone
             // report needs to see how much of the cap is spent on ink the document has left.
             ...this._staleBytes(),
@@ -769,7 +854,7 @@ export default class PlateStore {
      * entries between composes, and `drawImage` on a closed `ImageBitmap` throws in Chrome; the
      * drawable test refuses a dead entry (PAPER-PLAN §7.1, A's risk 1).
      */
-    _remove(key) {
+    _remove(key, replacing = false) {
         const e = this.cache.get(key);
         if (!e) return false;
         this.cache.delete(key);
@@ -778,6 +863,7 @@ export default class PlateStore {
         this.bytes -= e.bytes;
         e.dead = true;
         closeOf(e, this.s);
+        if (!replacing) this._untrackIfIdle(key);
         return true;
     }
 
@@ -792,7 +878,7 @@ export default class PlateStore {
     }
 
     /** Is this record's ink behind the document? Derived from the epoch map, never flagged (D25). */
-    _isStale(e) { return e.epoch !== this.epochOf(e.key); }
+    _isStale(e) { return !this.isExact(e); }
 
     /** Stale records and the bytes they hold: §6.6's cap is now partly spent on old ink. */
     _staleBytes() {
@@ -803,6 +889,7 @@ export default class PlateStore {
 
     /** Bump a key's epoch — including a key that is not cached, which is the whole point (D25). */
     _bump(key) {
+        if (this.fresh) return;
         this.epochs.set(key, this.epochOf(key) + 1);
         this.s.epochBumps++;
         if (this.epochs.size > EPOCH_MAX) this._pruneEpochs();

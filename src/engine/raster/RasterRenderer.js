@@ -173,6 +173,15 @@ export default class RasterRenderer extends Renderer {
         super(container, camera, cfg, opts);
         this.host = container || null;
         this.store = opts.store || null;
+        /**
+         * The scene (the engine's Stage, A2 §3): a job is packed at its generation, and with `scene` on
+         * the packs read its table instead of the render list. The plate store's freshness source is it.
+         */
+        this.stage = opts.stage || null;
+        this.scene = !!opts.scene && !!this.stage;
+        this._jobG = new Map();          // jobId -> the G it was packed at, read back at arrival
+        this._listG = new WeakMap();     // a list packs read -> the G it was read at
+        this._sceneArr = null; this._sceneArrG = -1;
         this.perf = opts.perf || rasterPerf;
         this._nextSeq = opts.frameSeq || null;
         this._drain = opts.drain || null;
@@ -514,6 +523,7 @@ export default class RasterRenderer extends Renderer {
             const list = r && this.listForPlane ? this.listForPlane(pl.frameId, r, FAR_LIST_BUDGET_MS) : null;
             if (list === null && r && this.listForPlane && tries < FAR_LIST_TRIES) { this._farList(pl, lvl, tries + 1); return; }
             lvl.list = list || null;
+            if (list && this.stage) this._listG.set(list, this.stage.generation);
             lvl.listPending = false;
             if (!lvl.list) planeStats.farListFallbacks++;
             this._postPlane(pl);
@@ -532,7 +542,7 @@ export default class RasterRenderer extends Renderer {
             for (const [i, j] of r.cells) {
                 // Fresh or in flight: nothing to ask, and no `want` (it evicts) — this runs every drag step.
                 const k = plateKey(r.frameId, r.q, i, j), e = this.store.get(k);
-                if ((e && !e.dead && e.epoch === this.store.epochOf(k)) || this.store.inflight.has(k)) continue;
+                if ((e && !e.dead && this.store.isExact(e)) || this.store.inflight.has(k)) continue;
                 one.i0 = one.i1 = i; one.j0 = one.j1 = j;
                 for (const m of this.store.want(one, { pin: "none" }).misses) misses.push(m);
             }
@@ -820,8 +830,20 @@ export default class RasterRenderer extends Renderer {
                 if (now - h.at < LIVE_HOLD_MAX_MS && this._liveCellsComing(v, h)) { h.until = now + 250; rasterStats.liveExtends++; }
                 else { done = true; rasterStats.liveTimeouts++; }
             }
-            if (!done && list && !list.some((o) => o.id === h.id)) done = true;
-            if (!done) {
+            const byG = !!this.store && !!this.store.fresh;
+            if (!done && byG && this.stage && !this.stage.itemsOf(h.id).length) done = true;   // an undo, a cancel
+            else if (!done && !byG && list && !list.some((o) => o.id === h.id)) done = true;
+            if (!done && byG) {
+                const r = plateRange(h.box, v.Zq);
+                const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
+                // Released when every cell's plate paints the stroke; a translucent path meanwhile is
+                // clipped to the cells whose plate does not yet (over one that does its alpha doubles, F123).
+                const need = [];
+                for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!this._plateShowsG(v, i, j, h)) need.push(i, j);
+                done = need.length === 0;
+                if (done) rasterStats.liveHandoffs++;
+                else if (h.translucent) this._clipHeld(h, v, need, (i1 - i0 + 1) * (j1 - j0 + 1));
+            } else if (!done) {
                 const r = plateRange(h.box, v.Zq);
                 const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
                 // Released when every cell is fresh; clipped to the cells whose plate does not paint the stroke
@@ -898,11 +920,17 @@ export default class RasterRenderer extends Renderer {
         const r = plateRange(h.box, v.Zq), queued = rasterWorkerReport().queued > 0;
         const i0 = Math.max(r.i0, v.i0), i1 = Math.min(r.i1, v.i1), j0 = Math.max(r.j0, v.j0), j1 = Math.min(r.j1, v.j1);
         let coming = 0;
+        const byG = !!this.store.fresh, Gs = byG ? this._shownFrom(h) : null;
         for (let j = j0; j <= j1; j++) {
             for (let i = i0; i <= i1; i++) {
-                if (this.layer.cellFresh(v, i, j)) continue;
                 const k = plateKey(v.frameId, v.q, i, j), f = this.store.inflight.get(k);
-                if (f ? f.epoch !== this.store.epochOf(k) : !queued) return false;
+                if (byG) {
+                    if (this._plateShowsG(v, i, j, h)) continue;
+                    if (f ? Gs == null || f.G < Gs : !queued) return false;
+                } else {
+                    if (this.layer.cellFresh(v, i, j)) continue;
+                    if (f ? f.epoch !== this.store.epochOf(k) : !queued) return false;
+                }
                 coming++;
             }
         }
@@ -997,7 +1025,9 @@ export default class RasterRenderer extends Renderer {
     render(list, frame) {
         if (!this._rowOpen) this._beginFrame("render");
         this._activateLevel(frame);
-        this._lastList = list || [];
+        this._lastList = this.scene ? this._sceneList() : (list || []);
+        if (this.stage && !this.scene) this._listG.set(this._lastList, this.stage.generation);
+        this._noteShown(this._lastList);
         this._noteFatPending(this._lastList);
         const view = this._frameStep(this._lastList);
         this.syncWorld(view);                          // step 7, plus the SVG world transform
@@ -1017,6 +1047,7 @@ export default class RasterRenderer extends Renderer {
     syncCameraOnly() {
         if (this._drain) this._drain();
         this._beginFrame("camera");
+        if (this.scene) this._lastList = this._sceneList();
         const view = this._frameStep(this._lastList);
         super.syncCameraOnly(view);
         this._endFrame();
@@ -1254,10 +1285,11 @@ export default class RasterRenderer extends Renderer {
         // strip was the top band and the centre arrived last. Sorted before `epoch0` is filled.
         if (n > 1 && src.i1 != null && (src.mode === "preview" || src.mode === "quantum")) sortCentreOut(misses, src);
         const plates = new Int32Array(n * 2);
-        const epoch0 = new Int32Array(n);
+        const fresh = !!this.store.fresh;
+        const epoch0 = fresh ? null : new Int32Array(n);
         for (let k = 0; k < n; k++) {
             plates[k * 2] = misses[k].i; plates[k * 2 + 1] = misses[k].j;
-            epoch0[k] = misses[k].epoch;
+            if (!fresh) epoch0[k] = misses[k].epoch;
         }
         const req = {
             frameSeq: this.frameSeq, q: src.q, Zq: src.Zq, frameId: src.frameId,
@@ -1276,7 +1308,7 @@ export default class RasterRenderer extends Renderer {
             onResult: (res, info) => this._onResult(req, res, info),
             onDrop: (d) => this._onDrop(req, d),
             stillWanted: (strip) => this._stillWanted(req, strip),
-            epochOf: (i, j) => this.store.epochOf(plateKey(req.frameId, req.q, i, j)),
+            epochOf: fresh ? null : (i, j) => this.store.epochOf(plateKey(req.frameId, req.q, i, j)),
         };
         // §8.4 rule 3's queued-at is stamped BEFORE the dispatch (stage 6's hand-off H5): a free
         // worker takes a strip inside `submitPlates`, so a stamp after it reads posted-at before
@@ -1328,16 +1360,78 @@ export default class RasterRenderer extends Renderer {
         };
     }
 
+    /** The scene's items packs paint — a stroke pending its shape is skipped (PLAN §1.5) — one array per generation. */
+    _sceneList() {
+        const G = this.stage.generation;
+        if (this._sceneArrG !== G) {
+            const out = [];
+            for (const it of this.stage.items()) if (!it.pending) out.push(it);
+            this._sceneArr = out; this._sceneArrG = G;
+            this._listG.set(out, G);
+        }
+        return this._sceneArr;
+    }
+
+    /** What a request packs from: its own list (off camera, the plane's levels), else the camera's. */
+    _packList(req) { return req.list || (this.scene ? this._sceneList() : this._lastList); }
+
+    /** The G a job packed from `list` carries: the G that list was read at (A2 §3.1). */
+    _genOf(req, list) {
+        if (req.G != null) return req.G;
+        const g = this._listG.get(list);
+        return g != null ? g : (this.stage ? this.stage.generation : 0);
+    }
+
+    /**
+     * Dispatch's half of freshness: a list read before a change under a plate cannot make it exact
+     * (its next render's list will), and a camera plate is packed only where the scene's table holds
+     * every tile under it (F119, A2 §2.12).
+     */
+    _packable(req, strip) {
+        const list = this._packList(req), G = this._genOf(req, list), u = PLATE_PX / req.Zq;
+        for (let p = 0; p * 2 < strip.length; p++) {
+            const i = strip[p * 2], j = strip[p * 2 + 1];
+            if (G < this.store.fresh.dirtySince(plateKey(req.frameId, req.q, i, j))) { rasterStats.refusedAtDispatch++; return false; }
+            if (this.scene && !req.list && !this.stage.covers(req.frameId, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u })) {
+                rasterStats.refusedAtDispatch++;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The list path: a held pen-up path's `Gs` is the G of the first list that holds its stroke. */
+    _noteShown(list) {
+        if (this.scene || !this._liveHeld.length || !this.stage) return;
+        const G = this._listG.get(list);
+        for (const h of this._liveHeld) if (h.Gs == null && list.some((o) => o.id === h.id)) h.Gs = G;
+    }
+
+    /** The G from which a plate paints stroke `h.id` (A2 §3.3): its shape's landing, or the list's (`_noteShown`). */
+    _shownFrom(h) {
+        if (h.Gs == null && this.scene) h.Gs = this.stage.landedAt(h.id);
+        return h.Gs;
+    }
+
+    /** Does the view's plate at a cell paint held stroke `h` — a plate at or past the G it is shown from? */
+    _plateShowsG(v, i, j, h) {
+        const Gs = this._shownFrom(h);
+        const e = this.store.get(plateKey(v.frameId, v.q, i, j));
+        return Gs != null && !!e && !e.dead && e.G >= Gs;
+    }
+
     _packNow(req, strip, jobId, pool) {
         const n = strip.length / 2;
         const objs = new Array(n);
         for (let p = 0; p < n; p++) objs[p] = { i: strip[p * 2], j: strip[p * 2 + 1] };
-        const epochs = this.store.beginJob(jobId, req, objs);
+        const list = this._packList(req);
+        const G = this.store.fresh ? this._genOf(req, list) : undefined;
+        const epochs = this.store.beginJob(jobId, req, objs, G);
+        if (G !== undefined) this._jobG.set(jobId, G);
         const t0 = perfNow();
-        const list = req.list || this._lastList;
         const job = packJob(list, {
             plates: strip, q: req.q, Zq: req.Zq, dpr: this.layer.dpr, cfg: this.cfg,
-            paper: req.paper || this._paperRgb, epochs, jobId, frameSeq: req.frameSeq, pool,
+            paper: req.paper || this._paperRgb, epochs, G, jobId, frameSeq: req.frameSeq, pool,
             live: this._liveModel, only: req.only, omit: req.omit || (req.only ? null : this._dragOmit), ...this._marksOf(list),
         });
         const ms = perfNow() - t0;
@@ -1364,6 +1458,7 @@ export default class RasterRenderer extends Renderer {
                 || q === String(st.prevQ) || (q === "e" && st.settlePending);
             if (!alive) { rasterStats.refusedAtDispatch++; return false; }
         }
+        if (this.store.fresh) return this._packable(req, strip);
         for (let p = 0; p * 2 < strip.length; p++) {
             const i = strip[p * 2], j = strip[p * 2 + 1];
             let at = -1;
@@ -1413,11 +1508,13 @@ export default class RasterRenderer extends Renderer {
             const px = res.pixels ? res.pixels[p] : null;
             const bm = res.bitmaps ? res.bitmaps[p] : null;
             if (px) needsWait = true;
+            const fresh = !!this.store && !!this.store.fresh;
             recs.push({
                 key: plateKey(req.frameId, req.q, i, j),
                 frameId: req.frameId, q: req.q, Zq: req.Zq, i, j,
-                epoch: res.epochs ? res.epochs[p] : null,
-                bitmap: bm, pixels: px, ids: plateIds(res, p), jobId: res.jobId,
+                G: fresh ? this._jobG.get(res.jobId) : undefined,
+                epoch: !fresh && res.epochs ? res.epochs[p] : null,
+                bitmap: bm, pixels: px, ids: fresh ? null : plateIds(res, p), jobId: res.jobId,
                 // An empty plate carries neither, and it is paper: charging it 1 MB would price
                 // a blank screen at the whole cache (§6.6).
                 bytes: bm || px ? PLATE_PX * PLATE_PX * 4 : 0,
@@ -1494,6 +1591,7 @@ export default class RasterRenderer extends Renderer {
 
     _endJob(jobId) {
         if (jobId == null || !this.store) return 0;
+        this._jobG.delete(jobId);
         rasterStats.jobsEnded++;
         return this.store.endJob(jobId);
     }
@@ -1530,6 +1628,7 @@ export default class RasterRenderer extends Renderer {
      */
     prebakePlates(t, win, list, dq = PREVIEW_QUANTA, mode = "prebake") {
         if (!this.store || !t || !win || !list || !list.length) return 0;
+        if (this.stage && !this._listG.has(list)) this._listG.set(list, this.stage.generation);
         const q = quantumFor(t.inScale, this.layer.dpr).q - dq;
         const Zq = zqOf(q);
         const r = plateRange(win, Zq);

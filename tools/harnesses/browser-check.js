@@ -13,7 +13,8 @@
  * 1 zoomout (90 ticks of +250 at 25 ms from depth 2 to 0, and back), 2 slowzoom (40 ticks at 120 ms),
  * 3 pan (60 steps of (25, 8) at 16 ms), 4 drag (a lasso and a 40-step drag), 5 penup (a translucent
  * stroke, pen-up to the live path's release), 6 undo (Ctrl+Z of it, to exact), 7 erase (an eraser across the
- * stack while zooming) — each in a fresh page, each printing its deltas as one JSON line: paper (PAPER-PLAN
+ * stack, then a zoom while its bake runs: a zoom under the pen ends the stroke) — each in a fresh page, each
+ * printing its deltas as one JSON line: paper (PAPER-PLAN
  * §9: each rAF's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
  * `olderMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
  * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`).
@@ -87,6 +88,9 @@ async function newPage(browser) {
     const q = QUERY ? "&" + QUERY.replace(/^[?&]/, "") : "";
     await page.goto(`${BASE}/#/canvas/new?dev${q}`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => !!window.__kobinEngine && !!document.querySelector("canvas.bl-ink"), null, { timeout: 60000 });
+    // The editor is read-only until its session holds the pen (SYNC-PLAN R2); a press would pan until then.
+    const pen = await page.waitForFunction(() => !window.__kobinEngine.readOnly, null, { timeout: 30000 }).then(() => true, () => false);
+    if (!pen) say("warning", { readOnly: true, note: "the session never gave this page the pen; gestures pan" });
     return { ctx, page, errors, consoleErrors };
 }
 
@@ -262,7 +266,8 @@ async function densePage(browser) {
         E.loadSnapshot(s);
         const b = performance.now();
         E.flushBakes();
-        return { loadMs: Math.round(b - a), bakeMs: Math.round(performance.now() - b), frames: E.lm.frames.size };
+        const unframed = Object.keys(s.natives).filter((k) => !E.lm.frame(k));   // natives the lattice cannot draw
+        return { loadMs: Math.round(b - a), bakeMs: Math.round(performance.now() - b), frames: E.lm.frames.size, unframed };
     }, snap);
     // The stack's mark resumes its bake on load: waited for (deadline 60 s) so no scenario times it.
     const tm = Date.now();
@@ -313,14 +318,12 @@ const SCENARIOS = {
     },
     pan: async (page) => {
         await page.evaluate(placeCamera, { frame: "0", inScale: 1 });
-        await page.evaluate(() => { window.__kobinEngine.deselect(); window.__kobinEngine.setTool("pan"); });
+        await page.evaluate(() => window.__kobinEngine.deselect());
         await settle(page);
+        // 1,500 px do not fit the viewport as one drag: the steps go through `panBy`, which the pan tool calls.
         return [await measure(page, "3 pan", async () => {
-            await page.mouse.move(CX - 700, CY - 200);
-            await page.mouse.down();
             const t0 = Date.now();
-            for (let k = 1; k <= 60; k++) { await page.mouse.move(CX - 700 + 25 * k, CY - 200 + 8 * k); await sleep(16); }
-            await page.mouse.up();
+            for (let k = 1; k <= 60; k++) { await page.evaluate(() => window.__kobinEngine.panBy(25, 8)); await sleep(16); }
             return { stepsMs: Date.now() - t0 };
         })];
     },
@@ -329,7 +332,7 @@ const SCENARIOS = {
         await page.evaluate(() => { window.__kobinEngine.deselect(); window.__kobinEngine.setTool("select"); });
         await settle(page);
         const lasso = [];
-        for (let k = 0; k <= 48; k++) { const a = (k / 48) * Math.PI * 2; lasso.push([CX + 170 * Math.cos(a), CY + 120 * Math.sin(a)]); }
+        for (let k = 0; k <= 64; k++) { const a = (k / 64) * Math.PI * 2; lasso.push([CX + 420 * Math.cos(a), CY + 280 * Math.sin(a)]); }
         const sel = await measure(page, "4 lasso", async () => {
             await page.mouse.move(lasso[0][0], lasso[0][1]); await page.mouse.down();
             for (const p of lasso.slice(1)) { await page.mouse.move(p[0], p[1]); await sleep(8); }
@@ -371,17 +374,20 @@ const SCENARIOS = {
         await page.evaluate(placeCamera, { frame: "0", inScale: 1, x: -300, y: 200 });
         await page.evaluate(() => { const E = window.__kobinEngine; E.deselect(); E.setTool("erasePartial"); });
         await settle(page);
-        return [await measure(page, "7 erase while zooming", async () => {
+        return [await measure(page, "7 erase, zooming while it bakes", async () => {
             await page.mouse.move(CX - 150, CY - 40); await page.mouse.down();
-            for (let k = 1; k <= 40; k++) {
-                await page.mouse.move(CX - 150 + 7.5 * k, CY - 40 + 2 * k); await sleep(16);
-                if (k % 4 === 0) await page.mouse.wheel(0, -60);
-            }
+            for (let k = 1; k <= 40; k++) { await page.mouse.move(CX - 150 + 7.5 * k, CY - 40 + 2 * k); await sleep(16); }
             await page.mouse.up();
             const t0 = Date.now();
+            const ticksMs = await wheel(page, 30, -120, 25);
+            // Pending until spent: the commit made at pen-up goes when the mark has baked all it covers.
             let left = 1;
-            while (Date.now() - t0 < 60000) { left = await page.evaluate(() => window.__kobinEngine._eraseStrokes().length); if (!left) break; await sleep(100); }
-            return { eraseBakeMs: left ? -1 : Date.now() - t0 };
+            while (Date.now() - t0 < 60000) {
+                left = await page.evaluate(() => { const E = window.__kobinEngine; return E._eraseCommits.size + E._eraseStrokes().length; });
+                if (!left) break;
+                await sleep(100);
+            }
+            return { ticksMs, eraseBakeMs: left ? -1 : Date.now() - t0 };
         })];
     },
 };

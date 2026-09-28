@@ -84,6 +84,19 @@ describe("the page's engine through the hook", () => {
             expect(camOf(E)).toEqual(camOf(S));
             for (let k = 0; k < 4; k++) expect(Object.is(camOf(E)[k], camOf(S)[k])).toBe(true);
             expect(E.cam.inScale).not.toBe(1);
+
+            // Three zooming frames inside the throttle: the scale HUD hears each, the page renders once, later.
+            const renders1 = renders;
+            for (let f = 0; f < 3; f++) {
+                act(() => {                                               // one act a frame: React renders each
+                    host.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, clientX: 300, clientY: 200, bubbles: true, cancelable: true }));
+                    frames.run();
+                });
+            }
+            expect(zooms).toBe(4);
+            expect(renders - renders1).toBe(1);                           // the first; no zoom bypass after it
+            await act(async () => { await new Promise((r) => setTimeout(r, 150)); });
+            expect(renders - renders1).toBe(2);                           // and the throttle's trailing one
         } finally {
             if (view) act(() => view.unmount());
             frames.restore();

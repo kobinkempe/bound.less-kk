@@ -61,10 +61,14 @@ src/Pages/CanvasEditor.js   THE PRODUCT. Tool rail, scenes panel, scale HUD and
                                                 2026-09-22); opens on the stored
                                                 scenes and cached pictures, then
                                                 refreshes after it has painted.
-                              hudBundle         computeScale on the sticky scale
-                                                session, with a write-back guard
-                                                so a stale unbanded result cannot
-                                                wipe a fresher user pick.
+                              the scale HUD     <ScaleHud> (Components/editor), on
+                                                its own engine.onZoom subscription;
+                                                the scale dialog reads the camera's
+                                                zoom when it saves (2026-09-26).
+                              the dev panel     the renderer levers (DevLevers:
+                                                level step, plate budget, rest,
+                                                compose) and <DevStats> on its own
+                                                500 ms timer (A3 §8).
 src/Pages/NotFoundPage.js   404.
 
                             CanvasV2 (/#/v2) and the three labs (/#/bakelab,
@@ -78,9 +82,12 @@ HOOK
 src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
                             engine, wires pointer/wheel/pinch/keyboard input,
                             owns every tool and style piece of state, throttles
-                            the status stream to 50 ms (flushing zoom changes
-                            immediately so the scale HUD cannot skip a rung),
-                            and owns the autosave loop: a dirty-frame set fed
+                            the status stream to 100 ms (the scale HUD follows
+                            the zoom through engine.onZoom, once a frame),
+                            builds the page's engine with frames "raf" and the
+                            Dev levers (the URL's over this device's
+                            localStorage: engine/devLevers.js), and owns the
+                            autosave loop: a dirty-frame set fed
                             by document events, a 1.5 s debounce with an 8 s
                             ceiling, an incremental IndexedDB write, a flush on
                             hide/pagehide/unmount, and a header-only write for a
@@ -122,8 +129,17 @@ src/Components/editor/
                             here, Taking/Handing over…, You have the pen
                             (4 s). showsNotice keeps the pen's moves out of the
                             notice banner (SYNC-PLAN R9, 2026-09-23 design)
+    DevStats                the dev panel's counters (level and stretch, paper,
+                            plates, composes and their most images, long
+                            frames, the frame histogram) on a 500 ms timer of
+                            its own, so it never re-renders the editor
     SaveDrawingDialog       first-save naming; re-seeds from the live title
     ScaleDragBar            the set-scale drag visualisation
+    ScaleHud                the scale controls (Clear, Set scale, the bar and its
+                            label) and the unit picker; owns the display session
+                            and computeScale's write-back guard, and follows the
+                            zoom through engine.onZoom, so a zoom re-renders this
+                            leaf, not the editor (A3 §5, R25 W1)
     ScaleUnitPicker         the unit popover and the set-scale grid. Chips until
                             the rung passes a size limit, then a full-name table.
     WidthOpacityPanel       width, and opacity when there is one
@@ -292,8 +308,16 @@ rasterPack.js       The render list into a job: bands for fat strokes (memo keye
                     drag, the pack-time offset snapshotView uses.
 rasterCore.js       The rasteriser: float64 edges, centre-free arc flattening to
                     1/16 device px, one nonzero union per family, transparent
-                    plates for the drag. Imports chordMath and nothing else.
-rasterJob.js        The job and result wire formats.
+                    plates for the drag, and a clip box (renderPlate's `clip`:
+                    rows restricted, x unfolded, byte-identical to the whole
+                    plate inside it; A3 §3.1). Imports chordMath and nothing else.
+rasterJob.js        The job and result wire formats; `job.clips` (a clipped
+                    plate comes back as its rectangle), copyPlate/pastePatch.
+level.js            The picture pyramid's level arithmetic (A3 §1.2, §1.6):
+                    levelFor and the stretch band, viewPlates/sigmaMinFor, the
+                    level/rest/plane keys, mapCell (a plate between frames by
+                    integer digits) and coarser. Nothing imports it yet
+                    (B-PYRAMID, review/rebuild/PLAN.md).
 rasterWorkerClient.js  The worker pool (min(4, cores-1), ?rasterWorkers=N), the
                     priority queue and the strips.
 MovePlane.js        The drag plane's state (not a canvas): its z layers at its own
@@ -337,7 +361,13 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                     What actually lives here:
                       input          pointerDown/Move/Up [HOT], each timed at the
                                      boundary because that is where every scrap
-                                     of user-driven main-thread work happens
+                                     of user-driven main-thread work happens.
+                                     With cfg.frames "raf" (the page's engine)
+                                     panBy / zoomFactorAt / a drag's move / a
+                                     pen sample's SVG update move the camera or
+                                     record the pointer and ask for ONE step an
+                                     animation frame (_pend, _frame, flush;
+                                     A3 §5); "sync", the default, steps per call
                       drawing        _startPen attaches a BiarcPen; _pointerUp
                                      queues the perimeter bake
                       baking         _bakeTick, the one timer. Resolves stroke
@@ -574,6 +604,10 @@ frameLattice.js     The address arithmetic. Pure integers and powers of two.
                     are the object-grid arithmetic (range HALF-OPEN), touching
                     the cache's closed read. objTileRect/objTileRange remain
                     as wrappers over it (objTilesRect deleted 2026-09-23, unused).
+devLevers.js        The Dev panel's renderer levers (A3 §8): ranges, per-device
+                    defaults, one validator, and their persistence given a URL
+                    and a storage (localStorage per device, the URL wins; never
+                    the canvas record). The engine's cfg holds the values.
 scaleBar.js         A one-line facade re-exporting scaleBar/index.
                     (KobinEngineV0.js moved to __oracles__/ - see below.)
 
@@ -798,7 +832,10 @@ src/engine/__testkit__/   harness.js (engine construction, gestures, camera
                           legacyFixture.js (converts recorded pre-lattice
                           snapshots so their coverage survives; TEST-ONLY, the
                           product converts nothing), scaleBar.js (the scale-bar
-                          fixtures and assertions, was scaleBar/testSupport.js).
+                          fixtures and assertions, was scaleBar/testSupport.js),
+                          rasterLists.js (seeded random render lists for the
+                          rasteriser's property tests: fills, arc circles,
+                          stroke bands, families, pending marks).
                           Not collected by jest.
 
 TESTS BY SUBJECT - 107 fast suites (1,649 tests, 2026-09-22) and the slow ones

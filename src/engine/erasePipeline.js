@@ -431,7 +431,7 @@ class ErasePipeline {
                 if (!rec || rec.obj.erase || done.has(id) || this._zOf(rec.obj) >= zE || this.lm.frameFactor(rec.level, HE) == null) continue;
                 const key = rec.level + "|" + (encodeBelow(rec.obj.below) || []).join(";");
                 let r = rectIn.get(key);
-                if (r === undefined) { r = this._eraserRectInto(rectE, HE, rec.obj, rec.level); rectIn.set(key, r); }
+                if (r === undefined) { r = this._eraserRectInto(rectE, HE, rec.obj); rectIn.set(key, r); }
                 // A moved object far from the mark is done at once, not carried by every scan (E-1).
                 if (!r || !this._rectMayTouch(r, rec.obj)) { done.add(id); continue; }
                 consider(rec.obj, rec.level);
@@ -581,7 +581,7 @@ class ErasePipeline {
         }
         if (!E._eraseBox) return false;
         const eb = E._eraseBox;
-        const r = this._eraserRectInto({ left: eb.x0, top: eb.y0, right: eb.x1, bottom: eb.y1 }, HE, o, HO);
+        const r = this._eraserRectInto({ left: eb.x0, top: eb.y0, right: eb.x1, bottom: eb.y1 }, HE, o);
         return !!r && this._rectMayTouch(r, o);
     }
     /** Whether the eraser's rect `r`, in `o`'s stored coordinates, meets its box — a shape's, loop by loop. */
@@ -597,20 +597,13 @@ class ErasePipeline {
         return false;
     }
     /**
-     * An eraser's rect, drawn in frame `HE`, in the coordinates object `o` is
-     * STORED in at its home `HO`. With no table that is `mapRectF`, bit for
-     * bit. A moved object (F41/F55) is drawn where its table says; the eraser
-     * comes back the same way — the remainder off, then the exact chain from
-     * the frame the picture was read from (`LevelMap.mapRectObj`).
+     * An eraser's rect, drawn in frame `HE`, in the coordinates object `o` is STORED in (its home):
+     * the scene's `placeNative` (A2 §2.6) — for a moved object (F41/F55) the remainder off, then the
+     * exact chain from the frame its picture is read from; with no table the chain alone, bit for bit.
      */
-    _eraserRectInto(rect, HE, o, HO) {
-        if (!o.below) return this.lm.mapRectF(rect, HE, HO);
-        return this.lm.mapRectObj(rect, HE, HO, o.below, HO, true);
-    }
+    _eraserRectInto(rect, HE, o) { return this.stage.placeNative(o, HE).toStored(rect); }
     /** The same, for the eraser's LOOPS. */
-    _eraserLoopsInto(loops, HE, o, HO) {
-        return this.lm.projectLoopsObj(loops, HE, HO, o.below, HO, true);
-    }
+    _eraserLoopsInto(loops, HE, o) { return this.stage.placeNative(o, HE).toStored(loops); }
     // Resolve (or re-register) the gesture's undo op. Always call this BEFORE
     // touching the document: a bake that cannot record itself must not mutate
     // anything — unrecorded bakes were how duplicated, stacked geometry formed.
@@ -699,7 +692,7 @@ class ErasePipeline {
         }
         // The eraser in the coordinates the object is STORED in — through
         // the object's own offsets when it has any (F41).
-        const EpLoops = this._eraserLoopsInto(E.loops, HE, o, HO);
+        const EpLoops = this._eraserLoopsInto(E.loops, HE, o);
         const Ep = EpLoops ? { loops: EpLoops } : null;
         if (!Ep || !Ep.loops || !Ep.loops.length) return false;
         // In the SUBJECT's own coordinates, as stored. This used to translate

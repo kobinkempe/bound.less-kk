@@ -797,6 +797,15 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
 
     const pickPen = (type) => { setPenType(type); setTool("pen"); };
     const E = () => engineRef.current;
+    // The Dev levers (A3 §8): a change goes into the engine and is stored for this device, never in the
+    // canvas record; a URL override still wins at the next load.
+    const leverSetter = (apply, patchOf) => (v) => {
+        const eng = E();
+        if (!eng) return;
+        apply(eng, v);
+        saveLevers(patchOf(v), leverStorage());
+        setLeverState(leversOf(eng));
+    };
 
     // DEV: the Report button (?dev panel). `hooks/reportSend.js` builds it from
     // `engine/report.js` (instruments, history, the drawing on and around the
@@ -957,32 +966,12 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         saveDrawing,
         loadDrawingFile,
         exportSvg,
+        levers,
+        setLevers: leverSetter((eng, patch) => eng.setLevers(patch), (patch) => patch),
+        setLevelStep: leverSetter((eng, step) => eng.setLevelStep(step), (step) => ({ levelStep: step })),
+        setPlateBudget: leverSetter((eng, b) => eng.setPlateBudget(b), (b) => ({ plateViews: b && b.views, plateCeilingMiB: b && b.ceilingMiB })),
         // The dev panel's renderer control: the flag is construction-time, so flipping it rewrites
         // the `?svg` gate and reloads.
-        // The Dev levers (A3 §8): into the engine, stored for this device (never in the canvas record);
-        // a URL override still wins at the next load.
-        levers,
-        setLevers: (patch) => {
-            const eng = E();
-            if (!eng) return;
-            eng.setLevers(patch);
-            saveLevers(patch, leverStorage());
-            setLeverState(leversOf(eng));
-        },
-        setLevelStep: (step) => {
-            const eng = E();
-            if (!eng) return;
-            eng.setLevelStep(step);
-            saveLevers({ levelStep: step }, leverStorage());
-            setLeverState(leversOf(eng));
-        },
-        setPlateBudget: (budget) => {
-            const eng = E();
-            if (!eng) return;
-            eng.setPlateBudget(budget);
-            saveLevers({ plateViews: budget && budget.views, plateCeilingMiB: budget && budget.ceilingMiB }, leverStorage());
-            setLeverState(leversOf(eng));
-        },
         raster: rasterFromUrl(typeof window !== "undefined" ? window.location.href : ""),
         setRaster: (on) => {
             if (typeof window === "undefined") return;

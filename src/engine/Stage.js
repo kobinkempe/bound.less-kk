@@ -1,28 +1,40 @@
 /**
  * Stage.js — the scene (A2-scene.md §2–§3, PLAN §1.1): the camera frame's items in paint order,
- * kept from the document's and the tile cache's own events so it is never behind the document,
- * and the generation G every commit bumps. It owns no camera and no plates: the engine hands it
- * the camera's frame and window (`sync`).
+ * kept from the document's and the tile cache's own events so it is never behind the document;
+ * the generation G every commit bumps; and the freshness of every plate cell the plate store holds
+ * or has in flight (`track`, `dirtySince`). It owns no camera and no plates: the engine hands it
+ * the camera's frame and window (`sync`), the plate store registers its cells.
  *
- * Three facts a reader needs not to break it:
+ * Four facts a reader needs not to break it:
  *   - a handler never bakes a tile: a tile the table needs and the cache does not hold current is
  *     listed missing and read at the next `sync`; `covers` says which rectangles are complete;
  *   - events raised inside `sync` (a bake settles a frame, `Document.at` merges shadows) are
  *     queued and applied at its end, and every handler is idempotent against the document as it
  *     is — a piece is in the table once, keyed by its object;
+ *   - dirt is the changed native's drawn footprint before and after, taken from the event itself
+ *     (`oldBbox`, `oldBelow`, the removed object) and mapped into every frame with tracked cells:
+ *     a plate is exact iff `plate.G >= dirtySince(key)` (A2 §3.1, PLAN §3 row 1);
  *   - membership and placement come from the `PlacementModel` (placementModel.js) and nothing
  *     else: never `o.below`, a frame's shift or the lattice's `*Obj` functions.
  */
 import { perfNow } from "./now";
 import { drawnBox, ZERO } from "./placementModel";
+import { familyTraits } from "./raster/rasterPack";
 
 /** Items a chunk holds before it splits in two (A2 §2.2: 24–26 µs to replace one item by three at 45k items). */
 const CHUNK_MAX = 512;
 /** `changesSince`'s reach: deltas kept before the log is cut (A2 §2.4). */
 const LOG_MAX = 4096;
+/** `dirtyRects`' reach: commits whose footprints are kept (A2 §3.4). */
+const DIRT_LOG_MAX = 2048;
+/** Past this many rectangles in one frame a commit's footprint is one union box (today's MOVE_RECTS_MAX rule). */
+const RECTS_MAX = 256;
 /** `sync`'s rounds of reading what an event dropped while it read (TileStore `_bakeSettled`'s three). */
 const SYNC_ROUNDS = 3;
+/** `landedAt` answers for the most recent shape landings only. */
+const LANDED_MAX = 256;
 const DIRS = ["up", "down"];
+const EVERYWHERE = Object.freeze({ left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity });
 
 let uidSeq = 0;
 
@@ -42,6 +54,7 @@ export class Item {
         this.grp = null;     // the reroute group it was read for, or null
         this.off = ZERO;     // [dx, dy] paint adds: `placement(nat, F).rem`
         this.zk = 0; this.si = 0; this.sj = 0; this.sd = 0; this.seq = 0;
+        this.fk = 0;         // the family key it is filed under
         this.uid = ++uidSeq;
         this.live = false;   // in the table
     }
@@ -147,6 +160,11 @@ class ChunkList {
 const sameOff = (a, b) => a === b || (a[0] === b[0] && a[1] === b[1]);
 const shifted = (r, off) => (off[0] || off[1]
     ? { left: r.left - off[0], top: r.top - off[1], right: r.right - off[0], bottom: r.bottom - off[1] } : r);
+/** Touching counts as meeting: invalidation is conservative (the plate store's own rule). */
+const meets = (a, b) => !(b.right < a.left || b.left > a.right || b.bottom < a.top || b.top > a.bottom);
+const unionOf = (a, b) => (a ? { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) } : { ...b });
+const sameTraits = (a, b) => !!a && !!b && a.union === b.union && a.sign === b.sign && a.colour === b.colour && a.alpha === b.alpha;
+const belowKey = (b) => (b ? b.map((e) => (e ? e[0] + "," + e[1] : "")).join(";") : "");
 
 export default class Stage {
     /**
@@ -154,23 +172,34 @@ export default class Stage {
      * @param {object} deps.doc the Document @param {object} deps.lm the LevelMap
      * @param {object} deps.store the TileStore (the Stage subscribes after it, so it sees tiles patched)
      * @param {object} deps.model the PlacementModel (`createPlacementModel`)
+     * @param {object} [deps.cfg] the engine cfg, for the pack's family traits
+     * @param {(ev:object)=>(object|boolean|null)} [deps.isNeutral] an erase step under its mark: the
+     *        mark (its step dirties the target's footprint inside the mark's box only, PLAN §5.3
+     *        A2-Q2), `true` (no dirt), or null
      */
-    constructor({ doc, lm, store, model }) {
-        this.doc = doc; this.lm = lm; this.store = store; this.model = model;
+    constructor({ doc, lm, store, model, cfg = null, isNeutral = null }) {
+        this.doc = doc; this.lm = lm; this.store = store; this.model = model; this.cfg = cfg;
+        this._isNeutral = isNeutral;
         /** Monotone; one bump a commit (A2 §2.4). */
         this.generation = 0;
         /** The camera frame the table is for, and the window it covers (the frame's units). */
         this.frame = null;
         this.window = null;
+        /**
+         * Whether packs paint a stroke between its pen-up and its shape landing (the list path,
+         * `cfg.scene` off): then its `finalize` dirties its band's footprint. The Stage's own packs skip it.
+         */
+        this.packsPending = false;
         this._list = new ChunkList();
         this._byId = new Map();       // native id -> Set<Item>
         this._byKey = new Map();      // tile key -> Set<Item>
         this._byPiece = new Map();    // piece -> Item
         this._byHome = new Map();     // home frame -> Set<native id> of the natives with items
         this._homeOf = new Map();     // native id -> the home `_byHome` files it under
+        this._byFam = new Map();      // family key -> Set<Item>
         this._own = new Map();        // native id -> its own item (homed in the camera's frame)
         this._itemOf = new WeakMap(); // piece -> the Item it last was: one object a piece, so the pack's memo hits
-        this._keys = new Map();       // watched tile key -> { key, frame, i, j, dir, tile, win, groups, next }
+        this._keys = new Map();       // watched tile key -> { key, frame, i, j, d, tile, win, groups, next }
         this._winKeys = new Set();
         this._groups = new Map();     // group key -> { gk, F0, rem, ids, keys }
         this._gOf = new Map();        // native id -> its group key
@@ -182,16 +211,34 @@ export default class Stage {
         // The commit in progress.
         this._touched = new Set();
         this._wide = false;
-        this._dirty = false;          // the table changed since the last commit
         this._batch = 0;
         this._sync = 0;
         this._queue = [];
         this._commitFns = new Set();
+        this._foot = [];              // this commit's footprint states
+        this._batchFoot = new Map();  // native id -> { before, after } inside a batch
+        this._info = { frames: new Set(), drop: [], reset: false };
+        this._events = 0;             // this commit's document events, and how many were erase steps under their mark
+        this._neutralEvents = 0;
+        this._quiet = 0;              // events applied without footprints (a hold's release)
+        this._landing = [];           // pending natives whose shape landed in this commit
+        this._landed = new Map();     // native id -> the G its shape landed at
+        // Freshness (A2 §2.5, §3.1): the cells the plate store holds or has in flight.
+        this._cells = new Map();      // key -> { key, frame, box, dirty }
+        this._cellsByFrame = new Map();
+        this._dirtLog = [];           // { G, states }, oldest first
+        this._dirtFloor = 0;          // the log holds every commit after this G
+        // The family rule (PLAN §5.1 Q15).
+        this._famTraits = new Map();  // family key -> the traits plates were packed with
+        this._famBefore = new Map();  // family key -> { traits, box } before this commit touched it
+        // The drag's hold (A2 §2.7).
+        this._hold = null;
         // `changesSince` (A2 §2.4).
         this._log = [];
         this._logFloor = 0;
         this._logCur = null;
-        this.stats = { commits: 0, rebuilds: 0, syncs: 0, reads: 0, missed: 0, queued: 0, items: 0, rerouteDiffs: 0 };
+        this.stats = { commits: 0, rebuilds: 0, syncs: 0, reads: 0, missed: 0, queued: 0, items: 0, rerouteDiffs: 0,
+            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0 };
         this._unsubDoc = doc.subscribe((ev) => this._onDoc(ev));
         this._unsubTile = store.onTile((ev) => this._onTile(ev));
     }
@@ -235,7 +282,11 @@ export default class Stage {
         return true;
     }
 
-    /** After each commit, with the commit's generation. Returns the unsubscribe. */
+    /**
+     * After each commit: `fn(G, info)`, `info.frames` the frames whose tracked cells it dirtied,
+     * `info.drop` predicates over frame ids whose plates must go (their id now means another place),
+     * `info.reset` every plate must go (another document). Returns the unsubscribe.
+     */
     onCommit(fn) { this._commitFns.add(fn); return () => this._commitFns.delete(fn); }
 
     /**
@@ -254,10 +305,14 @@ export default class Stage {
         return { added: [...added], removed: [...removed], changed: [...changed].map(([item, prev]) => ({ item, off: prev.off })) };
     }
 
+    /** The G at which native `id`'s shape landed (a plate at or past it paints the shape), or undefined. */
+    landedAt(id) { return this._landed.get(id); }
+
     /**
      * A read-only table for another frame or rectangle, built as a rebuild builds the live one and
      * stamped with the G it was read at; null when a tile was not read inside the budget (the tiles
-     * read stay cached, so the next try goes further).
+     * read stay cached, so the next try goes further). `fresh()`: no commit since has a footprint
+     * meeting its rectangle.
      */
     snapshot(frameId, rect, budgetMs = Infinity) {
         const cf = this.lm.frameFor(frameId);
@@ -326,8 +381,140 @@ export default class Stage {
             covers(fid, r) {
                 return String(fid) === F && r.left >= rect.left && r.right <= rect.right && r.top >= rect.top && r.bottom <= rect.bottom;
             },
-            fresh() { return stage.generation === G; },
+            fresh() { return stage._dirtIn(F, G, rect) === 0; },
         };
+    }
+
+    // ---- freshness (A2 §2.5, §3.1–§3.3) ----
+
+    /**
+     * A plate stored, or a job begun, for this cell: from now every commit whose footprint meets `box`
+     * (the cell in `frameId`'s units, grown by a device pixel) moves its `dirtySince`. `sinceG`, when
+     * older than the current G, is the G the plate's picture was read at: the commits after it are
+     * looked up in the dirt log (a list packed before a change, `cfg.scene` off).
+     */
+    track(key, frameId, box, sinceG) {
+        const F = String(frameId);
+        let c = this._cells.get(key);
+        if (!c) {
+            c = { key, frame: F, box, dirty: 0 };
+            this._cells.set(key, c);
+            let s = this._cellsByFrame.get(F);
+            if (!s) this._cellsByFrame.set(F, (s = new Set()));
+            s.add(c);
+            this.stats.tracked = this._cells.size;
+        }
+        if (sinceG != null && sinceG < this.generation) {
+            const d = this._dirtIn(F, sinceG, box);
+            if (d > c.dirty) c.dirty = d;
+        }
+    }
+
+    /** The cell is neither stored nor in flight any more. */
+    untrack(key) {
+        const c = this._cells.get(key);
+        if (!c) return;
+        this._cells.delete(key);
+        const s = this._cellsByFrame.get(c.frame);
+        if (s && s.delete(c) && !s.size) this._cellsByFrame.delete(c.frame);
+        this.stats.tracked = this._cells.size;
+    }
+
+    /** The largest G of a commit since `track(key)` whose footprint met the cell; 0 if none. */
+    dirtySince(key) { const c = this._cells.get(key); return c ? c.dirty : 0; }
+
+    /**
+     * The footprints, in `frameId`'s units, of the commits after `sinceG`: what a partial re-render
+     * clips to. Null when the log no longer reaches `sinceG` (re-render the whole cell).
+     */
+    dirtyRects(frameId, sinceG) {
+        if (sinceG < this._dirtFloor) return null;
+        const F = String(frameId), out = [];
+        for (const e of this._dirtLog) if (e.G > sinceG) for (const r of this._rectsIn(e.states, F)) out.push(r);
+        return out;
+    }
+
+    /** The newest commit after `sinceG` whose footprint meets `box` in frame F: its G, 0 if none, the current G if the log does not reach. */
+    _dirtIn(F, sinceG, box) {
+        if (sinceG < this._dirtFloor) return this.generation;
+        let g = 0;
+        for (const e of this._dirtLog) {
+            if (e.G <= sinceG || e.G <= g) continue;
+            for (const r of this._rectsIn(e.states, F)) if (meets(r, box)) { g = e.G; break; }
+        }
+        return g;
+    }
+
+    /** Native `id` changed what it draws with no document event (the idle fitter's outline): its footprint is dirt. */
+    touch(id) {
+        const rec = this.doc.getById(id);
+        if (!rec) return;
+        this._after(id, this._stateOf(rec.obj, rec.level));
+        this._events++;
+        if (!this._batch && !this._sync) this._commit();
+    }
+
+    // ---- the drag's hold (A2 §2.7, B-SCENE's phase) ----
+
+    /**
+     * A drag begins: events about the selection's natives and natives under its frames are held —
+     * the table keeps the picture the drag plane was aimed from, and they dirty nothing — until
+     * `release`, which applies them and commits once, dirtying where the selection started and
+     * where it ends.
+     */
+    hold({ ids, frames = [] }) {
+        if (this._hold) this.release();
+        const h = { ids: new Set(ids), frames: frames.map(String), start: [], queue: [] };
+        for (const id of h.ids) {
+            const rec = this.doc.getById(id);
+            if (rec) h.start.push(this._stateOf(rec.obj, rec.level));
+        }
+        for (const f of h.frames) { const s = this._frameState(f, null); if (s) h.start.push(s); }
+        this._hold = h;
+        return h.ids.size + h.frames.length;
+    }
+
+    /** Whether a drag's hold stands. */
+    get holding() { return !!this._hold; }
+
+    /** The hold's end (a drop, a cancel, a delete, a lost plane): one commit, start ∪ end. */
+    release() {
+        const h = this._hold;
+        if (!h) return 0;
+        this._hold = null;
+        this.stats.held += h.queue.length;
+        this.batch(() => {
+            this._quiet++;
+            try { for (const q of h.queue) this._applyDoc(q.ev, q.neutral); } finally { this._quiet--; }
+            for (const s of h.start) this._foot.push(s);
+            for (const id of h.ids) {
+                this._touched.add(id);
+                const rec = this.doc.getById(id);
+                if (rec) this._foot.push(this._stateOf(rec.obj, rec.level));
+                // The held pieces are the drag's start; the tiles hold its end.
+                for (const it of this.itemsOf(id)) if (it.key !== "own") this._removeItem(it);
+                const tiles = this.store.tilesOf(id);
+                if (tiles) for (const key of tiles) if (this._keys.has(key)) this._touched.add("k:" + key);
+            }
+            for (const f of h.frames) {
+                const s = this._frameState(f, null);
+                if (s) this._foot.push(s);
+                this._info.drop.push((G) => this.lm.frame(f) != null && this.lm.isUnder(f, G));
+            }
+            this._events++;
+        });
+        return h.queue.length;
+    }
+
+    /** An event the hold answers for: a held native's, or one about a frame under a held frame. */
+    _held(ev) {
+        const h = this._hold;
+        if (ev.id != null && h.ids.has(ev.id)) return true;
+        if (!h.frames.length) return false;
+        const at = ev.kind === "refile" ? ev.frame : ev.level;
+        if (at == null) return false;
+        for (const root of h.frames) if (String(at) === root || this.lm.isUnder(root, String(at))) return true;
+        return false;
     }
 
     // ---- the camera's table ----
@@ -365,14 +552,20 @@ export default class Stage {
         try { return fn(); } finally { if (--this._batch === 0 && !this._sync) this._commit(); }
     }
 
-    /** Frame GC forgot a frame (A2 §2.8): its tiles went with events; the reroute is re-diffed at the next commit. */
-    forgetFrame() { this._wide = true; }
+    /** Frame GC forgot a frame (A2 §2.8): its tracked cells go; its tiles went with events; the reroute is re-diffed at the next commit. */
+    forgetFrame(id) {
+        const s = this._cellsByFrame.get(String(id));
+        if (s) for (const c of [...s]) this.untrack(c.key);
+        this._wide = true;
+    }
 
     // ---- events ----
 
     _onDoc(ev) {
-        if (this._sync) { this._queue.push(ev); this.stats.queued++; return; }
-        this._applyDoc(ev);
+        const neutral = this._isNeutral ? this._isNeutral(ev) : null;
+        if (this._hold && ev.kind !== "reset" && this._held(ev)) { this._hold.queue.push({ ev, neutral }); return; }
+        if (this._sync) { this._queue.push({ ev, neutral }); this.stats.queued++; return; }
+        this._applyDoc(ev, neutral);
         if (!this._batch) this._commit();
     }
 
@@ -388,19 +581,20 @@ export default class Stage {
         let n = 0;
         for (let k = 0; k < q.length; k++, n++) {
             const e = q[k];
-            if (e.tile) this._applyTile(e.tile); else this._applyDoc(e);
+            if (e.tile) this._applyTile(e.tile); else this._applyDoc(e.ev, e.neutral);
         }
         q.length = 0;
         return n;
     }
 
-    _applyDoc(ev) {
+    _applyDoc(ev, neutral) {
         const k = ev.kind;
+        if (!this._quiet) this._footOf(ev, neutral);
         if (k === "reset") { this._reset(); return; }
         if (ev.id != null) {
             if (k === "add" && ev.live && !ev.rehome) this._pending.add(ev.id);
-            else if (k === "remove" && !ev.rehome) this._pending.delete(ev.id);
-            else if (k === "change" && !ev.offsetsOnly && !ev.attrOnly && ev.obj && ev.obj.type !== "stroke") this._pending.delete(ev.id);
+            else if (k === "remove" && !ev.rehome) { this._pending.delete(ev.id); this._landed.delete(ev.id); }
+            else if (k === "change" && !ev.offsetsOnly && !ev.attrOnly && ev.obj && ev.obj.type !== "stroke" && this._pending.delete(ev.id)) this._landing.push(ev.id);
         }
         if (this.frame == null) return;
         if (k === "refile" || k === "removeFrame" || k === "addFrame") {
@@ -438,23 +632,161 @@ export default class Stage {
             return;
         }
         if (ks.tile !== ev.tile) return;
+        const h = this._hold;
         if (ev.kind === "remove") {
-            for (const p of ev.pieces) { const it = this._byPiece.get(p); if (it) this._removeItem(it); }
+            for (const p of ev.pieces) { if (h && h.ids.has(p.id)) continue; const it = this._byPiece.get(p); if (it) this._removeItem(it); }
         } else if (ev.kind === "append") {
-            for (const p of ev.pieces) this._place(ks, p, ks.next++);
+            for (const p of ev.pieces) { const seq = ks.next++; if (!(h && h.ids.has(p.id))) this._place(ks, p, seq); }
         }
+    }
+
+    // ---- footprints (A2 §2.5, §2.8) ----
+
+    /** A native's state as a footprint: its home, its table, its drawn box in its home's units. */
+    _stateOf(o, home, rect = null) {
+        return { home: String(home), below: o.below, rect: rect || drawnBox(o, this.store.live) };
+    }
+
+    /** A frame's reach at an address (or its own, `addr` null), and optionally everything under `under`. */
+    _frameState(f, addr, under = null) {
+        const fp = this.model.frameFootprint(addr || f);
+        return fp ? { kind: "frame", fp, under } : (under != null ? { kind: "frame", fp: null, under } : null);
+    }
+
+    _before(id, s) {
+        if (!this._batch) { this._foot.push(s); return; }
+        let m = this._batchFoot.get(id);
+        if (!m) this._batchFoot.set(id, (m = { before: null, after: null }));
+        if (!m.before) m.before = s;
+    }
+
+    _after(id, s) {
+        if (!this._batch) { this._foot.push(s); return; }
+        let m = this._batchFoot.get(id);
+        if (!m) this._batchFoot.set(id, (m = { before: null, after: null }));
+        m.after = s;
+    }
+
+    /** One event's footprint states, before and after (A2 §2.8's table). */
+    _footOf(ev, neutral) {
+        const k = ev.kind;
+        this._events++;
+        if (k === "reset") { this._info.reset = true; return; }
+        if (neutral) { this.stats.neutral++; this._neutralEvents++; }
+        // An erase step under its mark: its footprint inside the mark's box only; its frames pass, its z step, nothing.
+        let clip = null;
+        if (neutral) {
+            const geomEv = k === "add" || k === "remove" || (k === "change" && !ev.offsetsOnly && !ev.attrOnly);
+            if (!geomEv || neutral === true || !neutral._home) return;
+            clip = this._stateOf(neutral, neutral._home);
+        }
+        const with_ = (s) => (clip ? { ...s, clip } : s);
+        if (k === "refile") {
+            for (const a of [ev.from, ev.to]) { if (!a || a.parent == null) continue; const s = this._frameState(ev.frame, a); if (s) this._foot.push(s); }
+            const X = String(ev.frame);
+            this._info.drop.push((G) => this.lm.isUnder(X, G));
+            return;
+        }
+        if (k === "removeFrame" || k === "addFrame") {
+            if (!ev.count) return;
+            const s = this._frameState(String(ev.frame), null, String(ev.frame));
+            if (s) this._foot.push(s);
+            return;
+        }
+        if (k === "mergeFrame") { const M = String(ev.frame); this._info.drop.push((G) => String(G) === M); return; }
+        if (k === "splitFrame") return;
+        if (k === "rekey") {
+            for (const id of ev.ids || []) { const rec = this.doc.getById(id); if (rec) this._after(id, this._stateOf(rec.obj, rec.level)); }
+            return;
+        }
+        const o = ev.obj;
+        if (!o || ev.id == null) return;
+        const pending = this._pending.has(ev.id);
+        if (k === "add") {
+            if ((ev.live && !ev.rehome) || ev.carry) return;
+            if (pending && !this.packsPending) return;
+            this._after(ev.id, with_(this._stateOf(o, ev.level)));
+        } else if (k === "finalize") {
+            if (this.packsPending) this._after(ev.id, this._stateOf(o, ev.level));
+        } else if (k === "remove") {
+            if (ev.carry || (pending && !this.packsPending)) return;
+            this._before(ev.id, with_(this._stateOf(o, ev.level)));
+        } else if (k === "change") {
+            if (ev.settle) return;
+            const now = this._stateOf(o, ev.level);
+            if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: ev.oldBelow }); this._after(ev.id, now); return; }
+            if (ev.attrOnly) { this._after(ev.id, now); return; }
+            if (ev.oldBbox) {
+                const b = ev.oldBbox, h = o.type === "fill" ? 0 : Math.max(ev.oldLw || 0, o.lwFrame || 0) / 2;
+                this._before(ev.id, with_({ ...now, rect: { left: b.x0 - h, top: b.y0 - h, right: b.x1 + h, bottom: b.y1 + h } }));
+            }
+            this._after(ev.id, with_(now));
+        }
+    }
+
+    /** Past RECTS_MAX states, one union state per (home, table): natives moved together map as one box. */
+    _grouped(states) {
+        if (states.length <= RECTS_MAX) return states;
+        const out = [], groups = new Map();
+        for (const s of states) {
+            if (s.kind === "frame" || s.clip) { out.push(s); continue; }
+            const k = s.home + "|" + belowKey(s.below);
+            const g = groups.get(k);
+            if (!g) groups.set(k, { home: s.home, below: s.below, rect: { ...s.rect } });
+            else g.rect = unionOf(g.rect, s.rect);
+        }
+        for (const g of groups.values()) out.push(g);
+        return out;
+    }
+
+    /** A commit's footprint states in frame G's units; past RECTS_MAX rectangles, their one union box. */
+    _rectsIn(states, G) {
+        const out = [];
+        for (const s of states) { const r = this._mapState(s, G); if (r) out.push(r); }
+        if (out.length <= RECTS_MAX) return out;
+        let u = null;
+        for (const r of out) u = unionOf(u, r);
+        return [u];
+    }
+
+    _mapState(s, G) {
+        if (s.kind === "frame") {
+            if (s.under != null && this.lm.frame(s.under) && this.lm.isUnder(s.under, G)) return EVERYWHERE;
+            return s.fp ? this.model.footprint({ home: s.fp.frame, below: undefined, rect: s.fp.rect }, G) : null;
+        }
+        const r = this.model.footprint(s, G);
+        if (!r || !s.clip) return r;
+        const c = this.model.footprint(s.clip, G);
+        if (!c || !meets(r, c)) return null;
+        return { left: Math.max(r.left, c.left), top: Math.max(r.top, c.top), right: Math.min(r.right, c.right), bottom: Math.min(r.bottom, c.bottom) };
     }
 
     // ---- commits ----
 
-    /** The end of one commit: what it named placed again, then G bumped and the commit's listeners told. */
+    /** The end of one commit: what it named placed again, the family rule, its dirt, then G and the listeners. */
     _commit() {
         this._settle();
-        this.generation++;
+        const G = this.generation + 1;
+        this._families();
+        const states = this._foot;
+        for (const m of this._batchFoot.values()) { if (m.before) states.push(m.before); if (m.after) states.push(m.after); }
+        const info = this._info;
+        if (states.length) this._dirt(G, states, info.frames);
+        this._foot = [];
+        this._batchFoot.clear();
+        this._info = { frames: new Set(), drop: [], reset: false };
+        this._events = this._neutralEvents = 0;
+        this.generation = G;
+        for (const id of this._landing) {
+            this._landed.set(id, G);
+            if (this._landed.size > LANDED_MAX) this._landed.delete(this._landed.keys().next().value);
+        }
+        this._landing.length = 0;
+        if (info.reset) { this._cells.clear(); this._cellsByFrame.clear(); this._famTraits.clear(); this.stats.tracked = 0; }
         this.stats.commits++;
         this.stats.items = this._list.size;
         this._closeLog();
-        for (const fn of this._commitFns) fn(this.generation);
+        for (const fn of this._commitFns) fn(G, info);
     }
 
     /** The named natives placed again and, after a frame event or a lattice change, the reroute re-diffed. */
@@ -468,8 +800,82 @@ export default class Stage {
         this._touched.clear();
         const d = this.doc.hasOffsets() || this._gOf.size ? this.model.displaced(this.frame) : null;
         const refresh = new Set();
-        for (const id of ids) this._reconcile(id, d, refresh);
+        for (const id of ids) {
+            if (typeof id === "string" && id.startsWith("k:")) refresh.add(id.slice(2));
+            else this._reconcile(id, d, refresh);
+        }
         for (const key of refresh) this._refreshKey(key);
+    }
+
+    /** Set `dirtySince` on every tracked cell the commit's footprints meet, and log them. */
+    _dirt(G, states, frames) {
+        states = this._grouped(states);
+        this._dirtLog.push({ G, states });
+        while (this._dirtLog.length > DIRT_LOG_MAX) this._dirtFloor = this._dirtLog.shift().G;
+        for (const [F, cells] of this._cellsByFrame) {
+            const rects = this._rectsIn(states, F);
+            if (!rects.length) continue;
+            for (const c of cells) {
+                for (const r of rects) {
+                    if (!meets(r, c.box)) continue;
+                    if (c.dirty < G) { c.dirty = G; this.stats.dirtied++; }
+                    frames.add(F);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * PLAN §5.1 Q15: a family whose items changed and whose union routing, sign, colour or alpha the
+     * change flipped repaints every item — its whole box is dirt (measured: 462 px median, 771 max,
+     * up to 38/255, on the untouched pieces of a flipped family). A stroke family counts as flipped
+     * whenever its items change; an erase step under its mark is exempt (its mask hides the family).
+     */
+    _families() {
+        const before = this._famBefore;
+        if (!before.size) return;
+        this._famBefore = new Map();
+        if (!this._cells.size) { this._famTraits.clear(); return; }
+        for (const [fk, b] of before) {
+            const s = this._byFam.get(fk), n = s ? s.size : 0;
+            if (n < 2) this._famTraits.delete(fk);
+            if (n === 0 || b.n === 0 || n + b.n < 3) continue;       // gone, new, or one item either side
+            const t = this._traitsOf(s);
+            if (n >= 2) this._famTraits.set(fk, t);
+            if (this._events && this._events === this._neutralEvents) continue;
+            const was = b.n >= 2 ? b.traits : this._traitsOf([b.single]);
+            if (t && was && sameTraits(t, was)) continue;
+            this.stats.familyFlips++;
+            let box = b.box;
+            for (const it of s) box = unionOf(box, this._itemBox(it));
+            if (box) this._foot.push({ home: this.frame, below: undefined, rect: box });
+        }
+    }
+
+    /** The family's traits as the pack decides them, over its items in paint order; null for a stroke family. */
+    _traitsOf(items) {
+        return this.cfg ? familyTraits([...items].sort(cmp), this.cfg) : null;
+    }
+
+    _itemBox(it) {
+        const b = it.box, o = it.off;
+        return { left: b.left + o[0], top: b.top + o[1], right: b.right + o[0], bottom: b.bottom + o[1] };
+    }
+
+    /**
+     * The first time a commit touches a family: its traits and box as they were, for `_families`. A
+     * family of one item keeps that item instead (routing needs two; its traits are taken only if the
+     * family grows).
+     */
+    _famTouch(fk) {
+        if (this._famBefore.has(fk) || !this._cells.size || this._fillTo) return;
+        const s = this._byFam.get(fk), n = s ? s.size : 0;
+        const single = n === 1 ? s.values().next().value : null;
+        let box = null;
+        if (n >= 2) for (const it of s) box = unionOf(box, this._itemBox(it));
+        const traits = n >= 2 ? (this._famTraits.has(fk) ? this._famTraits.get(fk) : this._traitsOf(s)) : undefined;
+        this._famBefore.set(fk, { traits, single, box: single ? this._itemBox(single) : box, n });
     }
 
     // ---- building ----
@@ -477,8 +883,10 @@ export default class Stage {
     _reset() {
         this._need = true;
         this._pending.clear();
+        this._landed.clear();
         this._touched.clear();
         this._wide = false;
+        if (this._hold) this._hold = null;
         this._clearTable();
         this._logFloor = this.generation + 1;
         this._log.length = 0;
@@ -488,6 +896,7 @@ export default class Stage {
         for (const it of this._list.toArray()) it.live = false;
         this._list.clear();
         this._byId.clear(); this._byKey.clear(); this._byPiece.clear(); this._byHome.clear(); this._homeOf.clear();
+        this._byFam.clear(); this._famTraits.clear(); this._famBefore.clear();
         this._own.clear(); this._keys.clear(); this._winKeys.clear(); this._groups.clear(); this._gOf.clear();
         this._missing.clear();
     }
@@ -519,7 +928,8 @@ export default class Stage {
         const keep = [], seen = new Set();
         for (const it of batch) if (it.live && !seen.has(it)) { seen.add(it); keep.push(it); }
         this._list.fill(keep);
-        this._markDirty();
+        // The families as the plates packed from here will see them.
+        if (this._cells.size) for (const [fk, s] of this._byFam) this._famTraits.set(fk, this._traitsOf(s));
     }
 
     /** A window change: tiles that left go, tiles that entered are read (A2 §2.12). */
@@ -600,9 +1010,10 @@ export default class Stage {
 
     /**
      * One native, placed again against the document as it is: its own item, its reroute group, its
-     * offset and its paint key. The tiles whose items must follow are added to `refresh`.
+     * offset, its paint key and its family. The tiles whose items must follow are added to `refresh`.
      */
     _reconcile(id, d, refresh) {
+        if (this._hold && this._hold.ids.has(id)) return;
         const rec = this.doc.getById(id);
         const nat = rec ? rec.obj : null;
         // Its own item: a native homed in the camera's frame is drawn live.
@@ -638,15 +1049,17 @@ export default class Stage {
             const tiles = this.store.tilesOf(id);
             if (tiles) for (const key of tiles) if (this._winKeys.has(key)) refresh.add(key);
         }
-        // Its offset and its paint key, on every item it has.
+        // Its offset, its paint key and its family, on every item it has.
         const items = this._byId.get(id);
         if (!items || !items.size) return;
         const off = nat ? this._offOf(nat) : ZERO;
         const zk = nat ? (nat.z != null ? nat.z : nat.id) : null;
+        const fk = nat ? (nat.editId != null ? nat.editId : nat.id) : null;
         for (const it of [...items]) {
             const want = it.grp != null ? this._groups.get(it.grp) : null;
             const o = want ? want.rem : off;
-            if (zk != null && zk !== it.zk) { this._list.remove(it); it.zk = zk; if (!sameOff(o, it.off)) this._setOff(it, o); this._list.insert(it); this._markDirty(); continue; }
+            if (fk != null && fk !== it.fk) { this._unfile(it); it.fk = fk; this._file(it); }
+            if (zk != null && zk !== it.zk) { this._list.remove(it); it.zk = zk; if (!sameOff(o, it.off)) this._setOff(it, o); this._list.insert(it); continue; }
             if (!sameOff(o, it.off)) this._setOff(it, o);
         }
     }
@@ -706,23 +1119,28 @@ export default class Stage {
         this._missing.delete(ks.key);
     }
 
-    /** A tile read or re-baked: its items are the tile's pieces, in its order. */
+    /** A tile read or re-baked: its items are the tile's pieces, in its order (a held native's stay as they were). */
     _install(ks, tile) {
-        this._dropKeyItems(ks.key);
+        const h = this._hold;
+        const s = this._byKey.get(ks.key);
+        if (s) for (const it of [...s]) if (!(h && h.ids.has(it.id))) this._removeItem(it);
         this._missing.delete(ks.key);
         ks.tile = tile;
         ks.next = tile.objs.length;
         const objs = tile.objs;
-        for (let k = 0; k < objs.length; k++) this._place(ks, objs[k], k);
+        for (let k = 0; k < objs.length; k++) if (!(h && h.ids.has(objs[k].id))) this._place(ks, objs[k], k);
     }
 
     /** The key's items against its tile's pieces and the roles they have now; only differences move. */
     _refreshKey(key) {
         const ks = this._keys.get(key);
         if (!ks || !ks.tile) return;
+        const h = this._hold;
         const objs = ks.tile.objs, want = new Set();
         for (let k = 0; k < objs.length; k++) {
-            const p = objs[k], role = this._roleOf(ks, p);
+            const p = objs[k];
+            if (h && h.ids.has(p.id)) continue;
+            const role = this._roleOf(ks, p);
             if (role === undefined) continue;
             want.add(p);
             const it = this._byPiece.get(p);
@@ -731,7 +1149,7 @@ export default class Stage {
             this._place(ks, p, k);
         }
         const have = this._byKey.get(key);
-        if (have) for (const it of [...have]) if (!want.has(it.piece)) this._removeItem(it);
+        if (have) for (const it of [...have]) if (!want.has(it.piece) && !(h && h.ids.has(it.id))) this._removeItem(it);
     }
 
     /** Which role a piece of this key is drawn in: null a window piece, a group key, or undefined (not drawn). */
@@ -790,13 +1208,28 @@ export default class Stage {
     }
 
     _setOff(it, off) {
+        this._famTouch(it.fk);
         this._logChange(it);
         it.off = off;
-        this._markDirty();
+    }
+
+    _file(it) {
+        let f = this._byFam.get(it.fk);
+        if (!f) this._byFam.set(it.fk, (f = new Set()));
+        f.add(it);
+    }
+
+    _unfile(it) {
+        this._famTouch(it.fk);
+        const f = this._byFam.get(it.fk);
+        if (f && f.delete(it) && !f.size) this._byFam.delete(it.fk);
     }
 
     _addItem(it) {
         it.live = true;
+        it.fk = it.fam;
+        this._famTouch(it.fk);
+        this._file(it);
         this._byPiece.set(it.piece, it);
         let s = this._byId.get(it.id);
         if (!s) this._byId.set(it.id, (s = new Set()));
@@ -815,13 +1248,13 @@ export default class Stage {
         }
         if (this._fillTo) this._fillTo.push(it);
         else { this._list.insert(it); this._logAdd(it); }
-        this._markDirty();
     }
 
     _removeItem(it) {
         if (!it.live) return;
         it.live = false;
         if (!this._fillTo) this._list.remove(it);
+        this._unfile(it);
         this._byPiece.delete(it.piece);
         const s = this._byId.get(it.id);
         if (s) {
@@ -837,10 +1270,7 @@ export default class Stage {
         if (it.key === "own") { if (this._own.get(it.id) === it) this._own.delete(it.id); }
         else { const k = this._byKey.get(it.key); if (k && k.delete(it) && !k.size) this._byKey.delete(it.key); }
         this._logRemove(it);
-        this._markDirty();
     }
-
-    _markDirty() { this._dirty = true; }
 
     // ---- the delta log ----
 
@@ -854,7 +1284,6 @@ export default class Stage {
     _closeLog() {
         const c = this._logCur;
         this._logCur = null;
-        this._dirty = false;
         if (!c) return;
         c.G = this.generation;
         this._log.push(c);

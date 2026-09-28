@@ -280,31 +280,16 @@ class Selection {
         for (const k of this.doc.levels()) {
             for (const o of this.doc.at(k)) {
                 if (o.erase) continue;
-                const rect = this._rectInActive(o, k);
+                const rect = this._rectInActive(o);
                 if (rect) out.push({ o, level: k, rect });
             }
         }
         return out;
     }
-    // One native's bbox, in the ACTIVE frame's units. Hop by hop through
-    // `mapRectF` rather than through a composed factor: going DOWN to the active
-    // frame a composed jump cancels catastrophically, which is the whole reason
-    // the chain exists (bible section 4.1).
-    _rectInActive(o, level) {
-        const b = bboxOf(o, this.store.live);
-        const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
-        const rect = { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m };
-        if (!o.below) return this.lm.mapRectF(rect, level, this.cam.frame);
-        // An object with a displacement table (F41/F55) is drawn where its
-        // picture is; `mapRectObj` answers exactly that.
-        return this.lm.mapRectObj(rect, level, this.cam.frame, o.below, level);
-    }
-    /** A point of native `o` (homed at `level`), in the active frame's units, where its picture is. */
-    _objPointInActive(o, level, p) {
-        const F = this.cam.frame;
-        if (!o.below) return level === F ? p : this.lm.mapPointF(p, level, F);
-        return this.lm.mapPointObj(p, level, F, o.below, level);
-    }
+    /** One native's drawn box in the ACTIVE frame's units, where its picture is (the scene's `placeNative`, A2 §2.6). */
+    _rectInActive(o) { return this.stage.placeNative(o, this.cam.frame).box(); }
+    /** A point of native `o`, in the active frame's units, where its picture is. */
+    _objPointInActive(o, p) { return this.stage.placeNative(o, this.cam.frame).fromStored(p); }
 
     /**
      * EVERYTHING THE LASSO ENCLOSES, FOUND BY WALKING THE FRAME TREE (bible 6.4).
@@ -370,7 +355,7 @@ class Selection {
             for (const o of this.doc.queryRect(id, { left: (box.left - tx) / s, top: (box.top - ty) / s,
                 right: (box.right - tx) / s, bottom: (box.bottom - ty) / s })) {
                 if (o.erase) continue;
-                const r = this._rectInActive(o, id);
+                const r = this._rectInActive(o);
                 if (!r) continue;
                 if (rectInsidePolygon(poly, r)) { found.push(o.id); continue; }
                 // The box failed. A box is a generous stand-in for the ink: a
@@ -486,7 +471,7 @@ class Selection {
                 const rec = this.doc.getById(id);
                 if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
                 if (frames.length && this._underFrames(rec.level, frames)) continue;   // its frame is already one entry
-                const r = this._rectInActive(rec.obj, rec.level);
+                const r = this._rectInActive(rec.obj);
                 if (!r) continue;
                 if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
                 if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
@@ -506,7 +491,7 @@ class Selection {
         if (f == null) return false;
         const pxPerUnit = this.cam.inScale * f;
         if (!(pxPerUnit > 0)) return false;
-        const toActive = (p) => this._objPointInActive(o, level, p);
+        const toActive = (p) => this._objPointInActive(o, p);
         // BEFORE FLATTENING ANYTHING: the points the object already has. A
         // shape's arc endpoints, a fill's vertices, a stroke's samples — a
         // few hundred of them, mapped and asked one by one. Any of them
@@ -640,18 +625,18 @@ class Selection {
             if (rec) keys.add(this.doc.editKey(rec.obj));
         }
         let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-        for (const o of this._lastList) {
-            const rec = this.doc.getById(o.id);
+        for (const item of this.stage.items()) {
+            const rec = this.doc.getById(item.id);
             if (!rec || !keys.has(this.doc.editKey(rec.obj))) continue;
+            const { geom: o, off } = this.stage.placed(item);   // drawn shifted by its offset (F41)
             const b = bboxOf(o, this.store.live);
             const m = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
-            const rx = o.res ? o.res[0] : 0, ry = o.res ? o.res[1] : 0;   // drawn shifted by its residual (F41)
-            left = Math.min(left, b.x0 - m + rx); top = Math.min(top, b.y0 - m + ry);
-            right = Math.max(right, b.x1 + m + rx); bottom = Math.max(bottom, b.y1 + m + ry);
+            left = Math.min(left, b.x0 - m + off[0]); top = Math.min(top, b.y0 - m + off[1]);
+            right = Math.max(right, b.x1 + m + off[0]); bottom = Math.max(bottom, b.y1 + m + off[1]);
         }
         if (left !== Infinity) return { level: this.cam.frame, rect: { left, top, right, bottom } };
         // Not drawn (culled from the list): where its picture is, through its table (F68).
-        const r = this._rectInActive(s.obj, s.level);
+        const r = this._rectInActive(s.obj);
         if (r) return { level: this.cam.frame, rect: r };
         const b = bboxOf(s.obj, this.store.live);
         const m = s.obj.type === "fill" ? 0 : (s.obj.lwFrame || 0) / 2;
@@ -991,12 +976,12 @@ class Selection {
     // `only(id)`: when given, the topmost hit it accepts (a pick among the selection).
     _hitTest(sx, sy, slackPx = 6, only = null) {
         const p0 = this.cam.screenToFrame(sx, sy);
-        const list = this._lastList;
+        const items = this.stage.items();
         const slack = slackPx / this.cam.inScale;
-        for (let i = list.length - 1; i >= 0; i--) { // topmost first
-            const o = list[i];
-            // A piece drawn shifted by its residual (F41) is hit where it is drawn.
-            const p = o.res ? [p0[0] - o.res[0], p0[1] - o.res[1]] : p0;
+        for (let i = items.length - 1; i >= 0; i--) { // topmost first
+            // What the scene draws, and where: a piece shifted by its offset (F41) is hit where it is drawn.
+            const { geom: o, off } = this.stage.placed(items[i]);
+            const p = off[0] || off[1] ? [p0[0] - off[0], p0[1] - off[1]] : p0;
             let hit = false;
             if (o.type === "shape") {
                 // Bounding box first. A resolved perimeter answers "inside"

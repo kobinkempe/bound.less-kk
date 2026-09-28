@@ -428,7 +428,7 @@ describe("selection indicator (engine)", () => {
         const L = (A, B) => ({ line: true, A, B });
         const loop = [L([20, 100], [0, 60]), L([0, 60], [30, 0]), L([30, 0], [100, 0]), L([100, 0], [100, 100]), L([100, 100], [20, 100])];
         const piece = { id: 987654, type: "shape", loops: [loop], clip };
-        const rects = E._selSeamRects(piece, E._selTable({ ids: [] }), E.cam.frame, new Map());
+        const rects = E._selSeamRects(piece, [0, 0], E._selTable({ ids: [] }), E.cam.frame, new Map());
         expect(rects.length).toBe(1);
         const runs = loopRuns(loop, rects);
         expect(runs.length).toBe(1);
