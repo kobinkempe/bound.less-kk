@@ -18,6 +18,7 @@ class FakeWorker {
 }
 const job = () => ({ subject: [], clip: [], w: 1, freezeR: 1, graze: "cut" });
 const cores = (n) => Object.defineProperty(navigator, "hardwareConcurrency", { value: n, configurable: true });
+const noteWhen = (p, order, name) => p.then(() => { order.push(name); });
 
 beforeEach(() => { made = []; global.Worker = FakeWorker; resetEraseWorkerClient(); setRasterWorkerCount(null); });
 afterEach(() => { delete global.Worker; resetEraseWorkerClient(); setRasterWorkerCount(null); cores(4); });
@@ -32,9 +33,9 @@ test("the pool's size: max(1, min(3, cores − 1 − rasterWorkers))", () => {
 test("a barrier's job goes first, then by priority, then in order", async () => {
     cores(4);                                                           // one worker
     const order = [];
-    const p1 = submit({ kind: "cut", prio: 3, job: job() }).then(() => order.push("tick-1"));
-    const p2 = submit({ kind: "cut", prio: 3, job: job() }).then(() => order.push("tick-2"));
-    const p3 = submit({ kind: "cut", prio: 3, barrier: true, job: job() }).then(() => order.push("barrier"));
+    const p1 = noteWhen(submit({ kind: "cut", prio: 3, job: job() }), order, "tick-1");
+    const p2 = noteWhen(submit({ kind: "cut", prio: 3, job: job() }), order, "tick-2");
+    const p3 = noteWhen(submit({ kind: "cut", prio: 3, barrier: true, job: job() }), order, "barrier");
     expect(made.length).toBe(1);
     const w = made[0];
     expect(eraseFreeSlots()).toBe(0);

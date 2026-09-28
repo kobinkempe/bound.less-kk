@@ -736,6 +736,7 @@ export default class RasterRenderer extends Renderer {
         // Every job still in flight is reported so `endJob` runs for it; the store's keys would
         // otherwise stay in flight for ever and `want` would return them as in-flight rather
         // than as misses — a permanent hole with every suite green (rasterWorkerClient's header).
+        if (this.queue) this.queue.clear();
         this._abandon("destroy");
         dropQueued("destroy");
         this._destroyed = true;

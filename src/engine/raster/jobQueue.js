@@ -133,6 +133,9 @@ export default class JobQueue {
         return true;
     }
 
+    /** A teardown: every queued strip forgotten, none dispatched; what is in flight still answers `done`. */
+    clear() { const n = this.queue.length; this.queue.length = 0; return n; }
+
     /** A failed strip back at the head of its priority, its priority kept (H7). */
     requeue(id) {
         const st = this.inFlight.get(id);
