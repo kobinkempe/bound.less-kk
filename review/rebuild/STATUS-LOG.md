@@ -1968,3 +1968,16 @@ Running: the B-PYRAMID reviewer, B-PYRAMID-3. One slot free; B-DRAG (with C2) wa
 200 seeds, 55,896 items; the deployed reader refusing a version-3 file; pure reads 2,192 over 180 states.
 **Decisions made:** PLAN §5.14 items 1–4.
 **Questions asked:** none.
+
+## 2026-09-29 12:19 UTC — B-PYRAMID-3 (builder) — the SVG renderer's demotion — start
+**Working on:** the brief `briefs/B-PYRAMID-3.md`, items 1–3 now (SvgLayer, LiveStrokeLayer, the shared overlay
+module, `Renderer` reading the Stage; the SVG mask rule and the export barrier; the retention). Item 4 waits for the
+B-PYRAMID reviewer's end entry. Files I am in: `src/engine/Renderer.js`, new `SvgLayer.js`/`LiveStrokeLayer.js`/the
+overlay module, `src/hooks/useKobinEngine.js` (gate, export), `src/storage/thumbnails.js`, `sceneOps.js`'s export
+path, the `Renderer.*` suites, TEST-MAP's rows. Shared, re-read before each small edit: `KobinEngine.js`,
+`erasePipeline.js`; `Stage.js` read only. Not `RasterRenderer.js` or the raster modules until item 4.
+Ports 3020–3029; scratch `scratchpad/bp3/`.
+**Measured:** nothing yet.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: reading the brief's list (DESIGN §9/§7, PLAN §0/§1.5/§3/§5.7/§5.8/§5.14, A3 §3.6/§7, TEST-MAP, the code).
