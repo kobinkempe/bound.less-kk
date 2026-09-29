@@ -240,7 +240,7 @@ describe("rehomeManyById ends where one rehomeById per id ends (row 11)", () => 
     });
 });
 
-describe("a frame's shift settles into its natives at the first read (subtree O(1), 2026-09-14)", () => {
+describe("a frame's shift is placement, composed on read (A1 C1)", () => {
     const mkMap = () => {
         const M = new LevelMap({ base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 }, 800, 600);
         M.ensureSpine(2);
@@ -248,67 +248,59 @@ describe("a frame's shift settles into its natives at the first read (subtree O(
     };
     const mkDoc = () => { const d = new Document(); d.lm = mkMap(); return d; };
     const table = (o) => encodeBelow(o.below) || null;
-    // The expectation, computed from a recorded table: exactly one addOffset at k=0.
+    const picture = (d, o) => encodeBelow(d.tableOf(o)) || null;
+    // The expectation, from a recorded table: the shift added at k = 0 (below half a frame, no carry to tell apart).
     const shifted = (enc, dx, dy) => encodeBelow(addOffset(decodeBelow(enc), 0, dx, dy).below) || null;
 
-    test("settles once; every table takes exactly the shift, and count() does not settle", () => {
+    test("a read writes nothing: each picture table is its own with the shift, and the shift stays", () => {
         const d = mkDoc();
         const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
         const b = mkStroke(d, "1", [[20, 0], [30, 5]]);
         const c = mkStroke(d, "1", [[40, 0], [50, 5]]);
         d.setOffsetsById(b.id, [[100, 200]]);
         const before = [a, b, c].map(table);
-        d.lm.frame("1").shift = [12288, -4096];
-        const owner = {};
-        d.noteFrameOwner("1", owner);
+        expect(d.setFrameShift("1", [12288, -4096])).toBe(true);
+        const rev = d.rev, vers = [a, b, c].map((o) => o._ver);
         expect(d.count("1")).toBe(3);
-        expect(d.lm.frame("1").shift).toEqual([12288, -4096]);
         const arr = d.at("1");
-        expect(d.lm.frame("1").shift).toBe(null);
-        expect(arr.map(table)).toEqual(before.map((e) => shifted(e, 12288, -4096)));
-        // The record on the owning entry: the shift, every native's result table, no carries.
-        expect([owner.settled.dx, owner.settled.dy]).toEqual([12288, -4096]);
-        expect(owner.settled.tables.map((t) => t[0])).toEqual([a.id, b.id, c.id]);
-        expect(owner.settled.tables.map((t) => encodeBelow(t[1]) || null)).toEqual(arr.map(table));
-        expect(owner.settled.carries).toEqual([]);
-        const vers = arr.map((o) => o._ver), tables = arr.map(table);
-        d.at("1");
+        expect(d.list("1")).toBe(arr);
+        expect(d.rev).toBe(rev);
+        expect(d.lm.frame("1").shift).toEqual([12288, -4096]);
+        expect(arr.map(table)).toEqual(before);
         expect(arr.map((o) => o._ver)).toEqual(vers);
-        expect(arr.map(table)).toEqual(tables);
+        expect(arr.map((o) => picture(d, o))).toEqual(before.map((e) => shifted(e, 12288, -4096)));
+        expect(d.hasOffsets()).toBe(true);
+        expect([...d.displacedNatives()].map(([o]) => o.id).sort((p, q) => p - q)).toEqual([a.id, b.id, c.id]);
     });
 
-    test("a carry re-homes the native to the neighbour cell", () => {
+    test("a picture past half a frame stays home: its carry is the reader's (objShift), never a re-home", () => {
         const d = mkDoc();
         const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
         d.setOffsetsById(a.id, [[HALF_W - 100, 0]]);
-        d.lm.frame("1").shift = [200, 0];
-        const owner = {};
-        d.noteFrameOwner("1", owner);
+        d.setFrameShift("1", [200, 0]);
         d.at("1");
-        expect(a._home).toBe(d.lm.neighbour("1", 1, 0).id);
-        expect(table(a)).toEqual([[0, HALF_W - 100 + 200 - W, 0]]);
-        expect(owner.settled.carries).toEqual([[a.id, a._home]]);
-        // unsettle is the exact inverse, and brings the carried native home by id
-        d.unsettle("1", owner.settled);
         expect(a._home).toBe("1");
         expect(table(a)).toEqual([[0, HALF_W - 100, 0]]);
-        d.unsettle("1", owner.settled);                        // idempotent: from the record, not the current table
-        expect(a._home).toBe("1");
-        expect(table(a)).toEqual([[0, HALF_W - 100, 0]]);
+        expect(picture(d, a)).toEqual([[0, HALF_W + 100, 0]]);          // no carry: the composition may reach a frame
+        const s = d.lm.objShift(d.tableOf(a), "1", "1");
+        expect(s.F0).toBe(d.lm.neighbour("1", -1, 0).id);             // read from the cell it came from
+        expect(s.rem).toEqual([HALF_W + 100 - W, 0]);
     });
 
-    test("a write settles the frame first, and the newcomer owes nothing", () => {
+    test("fresh ink in a shifted frame takes −shift, so the shift does not move it; nothing else is written", () => {
         const d = mkDoc();
         const a = mkStroke(d, "1", [[0, 0], [10, 5]]);
         const b = mkStroke(d, "1", [[20, 0], [30, 5]]);
-        d.lm.frame("1").shift = [512, 0];
-        const n = mkStroke(d, "1", [[60, 0], [70, 5]]);      // a plain add settles before it lands
-        expect(d.lm.frame("1").shift).toBe(null);
-        expect([a, b, n].map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]], null]);
+        d.setFrameShift("1", [512, 0]);
+        const n = { type: "stroke", origin: "native", id: d.allocId(), pts: [[60, 0], [70, 5]], lwFrame: 2, color: "#123456", opacity: 1 };
+        d.add(n, "1", { fresh: true });
+        expect(d.lm.frame("1").shift).toEqual([512, 0]);
+        expect([a, b, n].map(table)).toEqual([null, null, [[0, -512, 0]]]);
+        expect([a, b, n].map((o) => picture(d, o))).toEqual([[[0, 512, 0]], [[0, 512, 0]], null]);
         const vers = [a, b].map((o) => o._ver);
         d.rehomeById(n.id, "2"); d.rehomeById(n.id, "1");
         expect([a, b].map((o) => o._ver)).toEqual(vers);
-        expect([a, b, n].map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]], null]);
+        expect([a, b, n].map(table)).toEqual([null, null, [[0, -512, 0]]]);
     });
 
     test("a Document with no lattice behaves exactly as before", () => {
@@ -317,7 +309,7 @@ describe("a frame's shift settles into its natives at the first read (subtree O(
         d2.setOffsetsById(a.id, [[100, 200]]);
         expect(d2.at("1")).toBe(d2.nativesByLevel["1"]);
         expect(table(a)).toEqual([[0, 100, 200]]);
-        expect(d2._frameOwner.size).toBe(0);
+        expect(encodeBelow(d2.tableOf(a))).toEqual([[0, 100, 200]]);
     });
 });
 
@@ -369,18 +361,19 @@ describe("a frame subtree is removed and restored as containers (subtree O(1), 2
         expect(d.queryRect("1/5,5", { left: -100, top: -100, right: 100, bottom: 100 })).toEqual([kid]);
     });
 
-    test("a pending shift waits out the removal and settles at the first read after it", () => {
+    test("a frame's shift waits out the removal and draws its natives again after it", () => {
         const d = mkDoc();
         const a = mkStroke(d, "1/5,5", [[0, 0], [10, 5]]);
         const b = mkStroke(d, "1/5,5", [[20, 0], [30, 5]]);
-        d.lm.frame("1/5,5").shift = [512, 0];
+        d.setFrameShift("1/5,5", [512, 0]);
         const recs = d.removeFrameSubtree("1/5,5");
-        expect(d.at("1/5,5")).toEqual([]);                  // detached: nothing to settle
+        expect(d.at("1/5,5")).toEqual([]);
         expect(d.lm.frame("1/5,5").shift).toEqual([512, 0]);
         expect([a, b].map(table)).toEqual([null, null]);
         d.insertFrameSubtree(recs);
         const arr = d.at("1/5,5");
-        expect(d.lm.frame("1/5,5").shift).toBe(null);
-        expect(arr.map(table)).toEqual([[[0, 512, 0]], [[0, 512, 0]]]);
+        expect(d.lm.frame("1/5,5").shift).toEqual([512, 0]);
+        expect(arr.map(table)).toEqual([null, null]);
+        expect(arr.map((o) => encodeBelow(d.tableOf(o)) || null)).toEqual([[[0, 512, 0]], [[0, 512, 0]]]);
     });
 });

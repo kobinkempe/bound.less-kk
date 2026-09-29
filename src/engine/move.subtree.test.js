@@ -63,17 +63,15 @@ describe("two subtree moves undone and redone with their frame unread (REVIEWER-
     test("mv1 the second redo keeps the first's pending shift: the natives end where they were", () => {
         const { E, R } = fixture(20);
         const move = (dx, dy) => { E._setSelection([], [R.id]); dragDirect(E, press(E, R.id), dx, dy); E.pointerUp(); };
-        move(40, 0);                                              // A: its drop's render settles R
-        move(0, 25);                                              // B: shiftBefore null
-        settleAll(E);
-        const want = bytes(E), at = addrOf(E, R.id);
+        move(40, 0);                                              // A
+        move(0, 25);                                              // B: its shiftBefore A's shiftAfter
+        const want = state(E), at = addrOf(E, R.id);
         E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400 + 3e6, inPanY: 300 });   // far away: nothing reads R
         E.undo(); E.undo(); E.redo();
-        expect(E.lm.frame(R.id).shift).toBeTruthy();              // the fixture: A's shift pending, unread
+        expect(E.lm.frame(R.id).shift).toBeTruthy();              // A's shift, on the frame
         E.redo();
-        settleAll(E);
         expect(addrOf(E, R.id)).toEqual(at);
-        expect(bytes(E) === want).toBe(true);                     // red: A's shift overwritten by B's
+        expect(state(E) === want).toBe(true);                     // red: A's shift overwritten by B's
     });
 });
 
@@ -134,8 +132,7 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         dragDirect(E, press(E, R.id), 40, 0); E.pointerUp();
         const after = { bytes: bytes(E), state: state(E), R: addrOf(E, R.id), K: addrOf(E, K.id) };
         expect(after.bytes).toBe(start.bytes);                  // no native written: the shift is the frame's (A1 C1)
-        expect(after.state).not.toBe(start.bytes + JSON.stringify(E.lm.serialize()) + "x");
-        expect(E.lm.frame(K.id).shift).toBeTruthy();
+        expect(E.lm.frame(R.id).shift).toBeTruthy();
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start.bytes);
         expect([addrOf(E, R.id), addrOf(E, K.id), addrOf(E, L.id)]).toEqual([start.R, start.K, start.L]);
@@ -156,10 +153,10 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         E.doc.at(R.id); E.doc.at(K.id); E._render();
         expect(E.doc.rev).toBe(rev);
         expect(E.doc.getById(ids.R[0]).level).toBe(R.id);
-        expect(E.doc.tableOf(E.doc.getById(ids.K[0]).obj)).toBeTruthy();     // K's natives are drawn by its shift
+        expect(E.doc.tableOf(E.doc.getById(ids.R[0]).obj)).toBeTruthy();     // R's natives are drawn by its shift
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start);
-        expect(E.doc.tableOf(E.doc.getById(ids.K[0]).obj)).toBeUndefined();
+        expect(E.doc.tableOf(E.doc.getById(ids.R[0]).obj)).toBeUndefined();
     });
     test("t6 a loose object and a frame move in one op", () => {
         const { E, R } = fixture();

@@ -1,13 +1,13 @@
 /**
  * SUBTREE-O1-PLAN §2.2: a frame's shift stays within ±W/2 — the whole cells of a subtree drag's
  * rest (and of a shift the frame already carried) go into its address, as `addOffset` carries a
- * native's table. Unbounded, a drag of 0.9 of a cell left a shift of 0.9 W: the frame's first read
- * then carried every native it holds to the next cell (O(its natives), on one pointer event), and a
- * kid whose own digit carried was torn off under a container while its parent stayed behind.
+ * native's table. Unbounded, a drag of 0.9 of a cell left a shift of 0.9 W, and a kid whose own
+ * digit carried was torn off under a container while its parent stayed behind. The shift stays on
+ * the frame, composed on read (A1 C1): no read writes a native.
  */
 import { useEngines, mkEngine } from "./__testkit__/harness";
 import { rectLoop } from "./geometry/arcShape";
-import { encodeBelow } from "./geometry/offsets";
+import { encodeBelow, addOffset } from "./geometry/offsets";
 import { W } from "./frameLattice";
 
 const rects = (E, frame, n, seed, tiny = false) => {
@@ -48,13 +48,19 @@ const dragDirect = (E, p, dx, dy) => {
     E.store.setBatch(true);
     E._dragSelection(p[0] + dx, p[1] + dy);
 };
-const settleAll = (E) => { for (const k of [...E.lm.frames.keys()]) E.doc.at(k); };
+const state = (E) => bytes(E) + JSON.stringify(E.lm.serialize());
+// A native's picture carried to a canonical home, as the old settle would have left it: the chain and the table.
+const canon = (E, id) => {
+    const rec = E.doc.getById(id), r = addOffset(E.doc.tableOf(rec.obj, rec.level), 0, 0, 0);
+    const home = r.cellX || r.cellY ? E.lm.neighbour(rec.level, r.cellX, r.cellY).id : rec.level;
+    return [chainOf(E, home, 1), encodeBelow(r.below) || null];
+};
 const inHalf = (s) => !s || (Math.abs(s[0]) <= W / 2 && Math.abs(s[1]) <= W / 2);
 
 describe("a frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2)", () => {
     useEngines();
 
-    test("N1 0.9 of a cell: the frame moves a cell and keeps -0.1 W; its first read carries nothing", () => {
+    test("N1 0.9 of a cell: the frame moves a cell and keeps -0.1 W; a read writes nothing", () => {
         const { E, R, K } = fixture();
         E._setSelection([], [R.id]);
         dragDirect(E, press(E, R.id), 29, 0);                  // 29 units = 0.906 of R's cell (32)
@@ -63,8 +69,10 @@ describe("a frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2)", ()
         expect(inHalf(st.shiftAfter)).toBe(true);               // red: 29 · 4096 = 118,784 > 65,536
         expect(st.shiftAfter).toEqual([(29 - 32) * 4096, 0]);
         expect(addrOf(E, R.id)).toEqual({ parent: "1", i: 6, j: 5 });
-        E.doc.at(R.id);                                         // the first read settles the shift
-        expect(st.settled && st.settled.carries.length).toBe(0);   // red: all 300 carried, on one read
+        const rev = E.doc.rev;
+        E.doc.at(R.id); E._render();                            // reads: nothing settles or carries (A1 C1)
+        expect(E.doc.rev).toBe(rev);
+        expect(E.doc.count(R.id)).toBe(300);
         expect(E.lm.frame(K.id).parent).toBe(R.id);             // red: K torn off under the container at (6, 5)
     });
 
@@ -76,12 +84,7 @@ describe("a frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2)", ()
             dragDirect(A.E, p, dx, dx / 2); A.E.pointerUp();
             B.E._setSelection(B.all);
             dragDirect(B.E, p, dx, dx / 2); B.E.pointerUp();
-            settleAll(A.E);
-            for (const id of A.all) {
-                const a = A.E.doc.getById(id), b = B.E.doc.getById(id);
-                expect(chainOf(A.E, a.level, 1)).toEqual(chainOf(B.E, b.level, 1));
-                expect(encodeBelow(a.obj.below) || null).toEqual(encodeBelow(b.obj.below) || null);
-            }
+            for (const id of A.all) expect(canon(A.E, id)).toEqual(canon(B.E, id));
             for (const f of A.E.lm.frames.values()) expect(inHalf(f.shift)).toBe(true);
         }
     });
@@ -116,14 +119,13 @@ describe("a frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2)", ()
         const s = E.lm.frame(R.id).shift;
         expect(inHalf(s)).toBe(true);                           // red: 22 · 4096 = 90,112
         expect(addrOf(E, R.id).i).toBe(mid.R.i + 1);
-        E.doc.at(R.id); E.doc.at(K.id);
-        const after = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id) };
+        const after = { state: state(E), R: addrOf(E, R.id), K: addrOf(E, K.id) };
         E.undo(); E.undo();
         expect(bytes(E)).toBe(start.bytes);
         expect([addrOf(E, R.id), addrOf(E, K.id), addrOf(E, L.id)]).toEqual([start.R, start.K, start.L]);
+        expect(E.lm.frame(R.id).shift).toBeNull();
         E.redo(); E.redo();
-        E.doc.at(R.id); E.doc.at(K.id);
-        expect(bytes(E)).toBe(after.bytes);
+        expect(state(E)).toBe(after.state);
         expect([addrOf(E, R.id), addrOf(E, K.id)]).toEqual([after.R, after.K]);
     });
 });
