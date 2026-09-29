@@ -360,7 +360,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         expect(await drain(E, g)).toBe(0);
         drawStroke(E, [[160, 120], [420, 380]], 16);                   // ink under the next stroke, so its cells are stale
         expect(await drain(E, g)).toBe(0);
-        R.pyramid.cfg.patchInlineMs = 0;                               // every patch to the workers
+        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 0;  // every patch to the workers, the group's too
         const older = () => R.pyramid.s.olderPatchMs + R.pyramid.s.olderOtherMs, older0 = older();
         drawStroke(E, [[150, 150], [300, 260], [450, 200]], 13, null, { raw: true });
         const held = R._liveHeld[0];
@@ -373,7 +373,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         expect(await drain(E, g)).toBe(0);
         expect(R._liveHeld.length).toBe(0);
         expect(older()).toBe(older0);
-        delete R.pyramid.cfg.patchInlineMs;
+        delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
 
     test("undo and redo reach the pyramid as Stage dirt: the frame's patch step re-renders the rectangle inline, equal to a whole render", async () => {
@@ -427,12 +427,12 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             const lp = R.pyramid.lastPatch;
             expect([op, lp.inline, lp.budget]).toEqual([op, true, 16]);
             expect(R.pyramid.s.patchInline).toBe(n0 + 1);
-            // Whole cells, the same estimate reads past the cap: the clip is what makes it small.
+            // Over whole cells the chords alone are past the bake's 6 ms (0.73 µs each): the clip is what makes it small.
             const [a, b] = [F(60, 490), F(120, 530)];
             const recs = cellsUnder(R.pyramid.lastPlan, { left: a[0], top: a[1], right: b[0], bottom: b[1] }).flatMap((c) => c.draws.map((d) => d.rec));
             expect(recs.length).toBeGreaterThan(0);
             const whole = R._pyrMeasure({ kind: "patch", Z: recs[0].Z, cells: recs.map((r) => ({ i: r.i, j: r.j })), clips: null });
-            expect(whole.E).toBeGreaterThan(20000);
+            expect(whole.E * 0.73e-3).toBeGreaterThan(6);
             expect(lp.est.E).toBeLessThan(whole.E / 4);
             expect(lp.T).toBeLessThan(6);
             for (const rec of recs) {

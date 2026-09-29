@@ -8,8 +8,10 @@
  *   - One worker is kept for cuts while any are pending: other jobs hold at most `workers − 1` slots, and prefetch
  *     and thumbnails the same (at least one slot, so a one-worker pool is never starved). A cut (`kind: "cut"`, a
  *     descent too; `eraseWorkerClient.js`) is one strip with no cells, queued as pushed; a barrier's first.
- *   - While the camera moves, a frame packs at most PACK_MS_PER_FRAME (the pack runs in `pool.submit`, on this
- *     thread, 14–45 ms a job on a dense drawing, PP §10.14); the rest waits for the next frame.
+ *   - A frame packs at most PACK_MS_PER_FRAME while the camera moves, and a task at most that while it is still (the
+ *     pack runs in `pool.submit`, on this thread: 14–45 ms a job on a dense drawing mid-zoom, PP §10.14, and 171–480
+ *     ms a prefetch strip at rest, P6); the strip that crosses it is the last, the rest wait for the next frame, or
+ *     for the next task, which the queue asks for (`defer`), so input runs between two strips.
  *   - Pure: a pool `{ size(), free(), submit(strip) }` (`rasterWorkerClient.rasterPool` behind the renderer's face), a
  *     clock, the store's `wants(key)`. The caller calls `done(id, ms)` for every strip `submit` took.
  */
@@ -25,7 +27,7 @@ export const PRIO = Object.freeze({ rest: 0, patch: 0, view: 1, plane: 2, cut: 3
  * plate of that screen was 15–20× the median and no strip rule splits a plate.
  */
 export const STRIPS_PER_WORKER = 2;
-/** Pack milliseconds one animation frame may spend while the camera moves (A3 §4.4). */
+/** Pack milliseconds one animation frame may spend while the camera moves, and one task while it is still (A3 §4.4). */
 export const PACK_MS_PER_FRAME = 4;
 /** The mean job ms before any job has come back. */
 const JOB_MS0 = 30;
@@ -37,8 +39,9 @@ export default class JobQueue {
      * @param {()=>number} [o.clock] ms @param {{wants:(key:string)=>boolean}} [o.store] the plate store
      * @param {object} [o.gens] live purpose generations (`PicturePyramid.gens`): a strip older than its purpose's is dropped
      * @param {(strip:object, why:string)=>void} [o.onDrop] a strip dropped before dispatch
+     * @param {(fn:()=>void)=>void} [o.defer] runs `fn` in a later task (the budget's task at rest)
      */
-    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null } = {}) {
+    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null, defer = (fn) => setTimeout(fn, 0) } = {}) {
         this.pool = pool;
         this.clock = clock;
         this.store = store;
@@ -48,7 +51,9 @@ export default class JobQueue {
         this.inFlight = new Map();     // id -> strip
         this._seq = 0;
         this._id = 0;
-        this._packMs = 0;              // this frame's pack time
+        this._packMs = 0;              // this frame's pack time, or this task's at rest
+        this._defer = defer;
+        this._task = false;            // at rest: a later task is asked for, which starts the budget again
         this.motion = null;            // { moving, view, vel: { px: [x, y] /ms, zoom: log2 Z /ms }, attention }
         this.jobMs = JOB_MS0;
         this.s = { pushed: 0, strips: 0, dispatched: 0, deferred: 0, reaimed: 0, skippedCells: 0, offscreenCells: 0, done: 0,
@@ -113,7 +118,10 @@ export default class JobQueue {
         for (;;) {
             if (this.pool.free() <= 0) return n;
             const moving = this.motion && this.motion.moving;
-            if (moving && this._packMs >= PACK_MS_PER_FRAME) { if (this.queue.length) this.s.deferred++; return n; }
+            if (this._packMs >= PACK_MS_PER_FRAME) {
+                if (this.queue.length) { this.s.deferred++; if (!moving) this._nextTask(); }
+                return n;
+            }
             const k = this._best();
             if (k < 0) return n;
             const st = this.queue.splice(k, 1)[0];
@@ -124,6 +132,7 @@ export default class JobQueue {
             this.inFlight.set(st.id, st);
             const ok = this.pool.submit(st);
             this._packMs += this.clock() - t0;
+            if (!moving) this._nextTask();
             if (ok === false) { this.inFlight.delete(st.id); this._drop(st, "empty"); continue; }
             this.s.dispatched++; this.s.byPrio[st.prio]++;
             n++;
@@ -143,6 +152,13 @@ export default class JobQueue {
         if (t >= 0 && isFinite(t)) this.jobMs += 0.2 * (t - this.jobMs);
         this.s.done++;
         return true;
+    }
+
+    /** At rest the pack budget is a task's: a later task starts it again and pumps what waits. */
+    _nextTask() {
+        if (this._task) return;
+        this._task = true;
+        this._defer(() => { this._task = false; this._packMs = 0; if (this.queue.length) this.pump(); });
     }
 
     /** A teardown: every queued strip forgotten, none dispatched; what is in flight still answers `done`. */

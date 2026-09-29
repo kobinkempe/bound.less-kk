@@ -1,6 +1,6 @@
 /**
  * jobQueue.test.js — the queue of A3 §4.1 and §4.4 over a fake pool and clock: priorities (and that a job must
- * carry one), one worker kept for cuts, the low-priority cap, the pack budget per frame while moving, centre-out
+ * carry one), one worker kept for cuts, the low-priority cap, the pack budget per frame while moving and per task at rest, centre-out
  * dealing into strips, the velocity rule (off-screen cells skipped, a level the camera leaves re-aimed),
  * cancellation by purpose generation, dedupe against the store, and a failed strip keeping its priority.
  */
@@ -9,15 +9,15 @@ import { levelCell } from "./PyramidStore";
 
 function rig(W = 4, packMs = 0) {
     const clock = { t: 0 };
-    const sent = [];
+    const sent = [], tasks = [];
     let q = null;
     const pool = {
         size: () => W,
         free: () => W - q.inFlight.size,
         submit: (st) => { sent.push(st); clock.t += packMs; return true; },
     };
-    q = new JobQueue({ pool, clock: () => clock.t, gens: {} });
-    return { q, sent, clock, finish: (st) => q.done(st.id, 10) };
+    q = new JobQueue({ pool, clock: () => clock.t, gens: {}, defer: (fn) => tasks.push(fn) });
+    return { q, sent, clock, tasks, finish: (st) => q.done(st.id, 10) };
 }
 const job = (kind, prio, n = 1, o = {}) => ({
     kind, prio, frame: "F", level: 3, S: 1, Z: 8, purpose: kind, gen: 1, attention: null,
@@ -49,20 +49,42 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         expect(r.sent.map((s) => s.kind)).toEqual(["prefetch", "prefetch", "prefetch", "view"]);
     });
 
-    test("while moving a frame packs at most PACK_MS_PER_FRAME; the rest waits for the next frame; at rest only the pool limits", () => {
-        const { q, sent } = rig(16, 1.5);
+    test("a frame packs at most PACK_MS_PER_FRAME while moving, a task at most that while still; the strip that crosses it is the last, the rest wait for the next frame or task", () => {
+        const { q, sent, tasks } = rig(16, 1.5);
         q.setMotion({ moving: true });
         q.push([job("view", 1, 32)]);
         q.frame(); q.pump();
         expect(sent.length).toBe(Math.ceil(PACK_MS_PER_FRAME / 1.5));
         q.pump();
         expect(sent.length).toBe(3);
+        expect(tasks.length).toBe(0);                                    // moving: the next frame's step pumps
         q.frame(); q.pump();
         expect(sent.length).toBe(6);
         q.setMotion({ moving: false });
-        q.pump();
-        expect(sent.length).toBe(16);
+        q.frame(); q.pump();                                            // still: one task's budget
+        expect(sent.length).toBe(9);
+        expect(tasks.length).toBe(1);
+        tasks.shift()();                                                // the next task starts the budget again
+        expect(sent.length).toBe(12);
+        while (tasks.length) tasks.shift()();
+        expect(sent.length).toBe(16);                                   // then only the pool limits
         expect(q.s.deferred).toBeGreaterThan(0);
+    });
+
+    test("still, a strip whose pack alone passes the budget ends its task: 171–480 ms strips are one a task, not one a free worker (P6's undo trace)", () => {
+        const { q, sent, tasks } = rig(4, 200);
+        q.push([job("prefetch", PRIO.prefetch, 2), job("view", PRIO.view, 2)]);
+        q.pump();
+        expect(sent.map((st) => st.kind)).toEqual(["view"]);
+        expect(tasks.length).toBe(1);
+        tasks.shift()();
+        expect(sent.map((st) => st.kind)).toEqual(["view", "view"]);
+        tasks.shift()();
+        tasks.shift()();
+        expect(sent.map((st) => st.kind)).toEqual(["view", "view", "prefetch", "prefetch"]);
+        expect(tasks.length).toBe(1);                                   // a task's budget, even with nothing left to send
+        tasks.shift()();
+        expect(tasks.length).toBe(0);
     });
 
     test("cells sorted from the attention point and dealt round-robin into workers × STRIPS_PER_WORKER strips", () => {
@@ -142,12 +164,15 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         d.clock.t = 100;
         d.q.done(d.sent[0].id);
         expect(d.q.jobMs).toBeCloseTo(30 + 0.2 * (100 - 30), 9);
+        const nextTask = () => { while (d.tasks.length) d.tasks.shift()(); };   // at rest each pump is a task's
+        nextTask();
         d.q.push([job("view", 1, 1)]);
         d.q.pump();
         d.clock.t = 5000;
         expect(d.q.done(d.sent[1].id, false)).toBe(true);
         expect([d.q.jobMs, d.q.inFlight.size]).toEqual([30 + 0.2 * 70, 0]);
         // A cut is one strip with no cells, never dropped at dispatch, and its time is no sample (the plates' estimate).
+        nextTask();
         d.q.push([{ kind: "cut", prio: PRIO.cut, cells: [] }]);
         d.q.pump();
         expect(d.sent[2].kind).toBe("cut");

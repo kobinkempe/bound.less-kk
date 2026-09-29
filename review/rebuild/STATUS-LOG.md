@@ -2035,3 +2035,23 @@ Typecheck 0; lint 0 errors (6 warnings); worker bundles' md5 unchanged.
 **Decisions made:** the live group leaves `world` when empty (an eager empty `<g>` measured 34 px on the first pair).
 **Questions asked:** none.
 WHERE I AM: the quick suite running on the frozen after copy; next, item 2's mask rule in `Renderer.render`.
+
+## 2026-09-29 15:50 UTC — reviewer (B-PYRAMID review) — checkpoint: items 1, 2, 4 built
+**Working on:** the three fixes, each red first (4 of 4 new tests red on the tree, 2 of 2 for item 2), then green.
+Item 1: a zoom keeps the rest set's records as the stand-in at their own Z (`_standIn`; `_standInCell` tried at its
+resolution's rank among the coarser levels, over a stale own plate's dirt by rule (e) or the cell's on-screen part,
+counted as scaled; pinned while drawn, OFF_PATH after; the next zoom's set replaces it, a frame change/resize/dpr
+removes it; back at its Z bit for bit it is the rest set again). Item 4: the patch estimate's E is each item's
+chords × its rows' share inside the clips (`itemChordsAt`, rasterPack), budget `patchUserMs` 16 for an undo/redo
+(`noteUserEdit`, one line in KobinEngine's undo/redo) or a pen-up's group, 6 ms for the bake's. Item 2: at rest a task
+packs within PACK_MS_PER_FRAME, the strip that crosses it ends the task, `defer` (setTimeout 0) starts the next.
+**Measured (jsdom):** the never-older fuzz 121 → 113–176 plans (timing-dependent), older plans 79 → 24–87, and every
+(f′) left is a cell with nothing fresh at any level whose tiles are unread after a crossing (the step reads the cache
+alone, the idle read waits for the quiet) or whose view job is in flight: `{unread, coming, other: 0}` asserted.
+raster.pyramid 33/33, PicturePyramid.* 41/41, jobQueue 9/9, move 33, engine 29, worker 22, snapshot 11, store 16,
+prefetch 6, translucent 6, phone 4, liveHold 3 — green (load 2–3, B-PYRAMID-3's quick suite beside). A first whole-dir
+run hung one jest worker at 98 % CPU for 32 min (killed; the files one by one all finish): being traced.
+**Decisions made:** tests that force "every patch to the workers" set `patchUserMs` 0 too; the late result of the kept
+set is stored (a stand-in plate), `PicturePyramid.patch`'s case rewritten to that.
+**Questions asked:** none yet (the (f′) cause goes to the report as a design question).
+WHERE I AM: the raster/erase/stage suites in the background; then break-checks of 1, 2, 4 on `r-pyr/bc`; the harness.

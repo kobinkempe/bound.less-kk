@@ -31,6 +31,9 @@ import { strokeLoops } from "./geometry/curveOutline";
 import { loopsBBox } from "./geometry/arcShape";
 import { pushGapAnchors, pushShapeAnchors, pushRingAnchors, mkPath } from "./raster/svgAnchors";
 import { rectTol } from "./rectMath";
+import { underMask } from "./eraseRule";
+import { drawnBox } from "./placementModel";
+import { EXIT } from "./frameLattice";
 import SvgLayer from "./raster/SvgLayer";
 import LiveStrokeLayer from "./raster/LiveStrokeLayer";
 import { SvgOverlays, buildSelOverlay, dropSelOverlay, renderSelAnts, renderSelChevrons, mkSelLayer, ensureSelStyle } from "./raster/svgOverlay";
@@ -228,6 +231,20 @@ const THIN_TARGET_UNITS = 0.25;
 const THIN_COORD_MAX = 4194304;
 
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+let maskUid = 0;
+/** The landed pending marks among `list`: id -> their items (a mark whose `targets` are recorded, DESIGN.md §7). */
+function landedMarks(list) {
+    const m = new Map();
+    for (const o of list) {
+        if (!o.erase || o.targets === undefined) continue;
+        let a = m.get(o.id);
+        if (!a) m.set(o.id, a = []);
+        a.push(o);
+    }
+    return m;
+}
+
 export default class Renderer {
     constructor(container, camera, cfg, opts = {}) {
         this.cam = camera; this.cfg = cfg;
@@ -299,8 +316,17 @@ export default class Renderer {
                                     // gate on screen (fit cost moves off pen-up and
                                     // onto idle/approach) — dev-toggleable
         this._pendingFatLw = 0;     // widest fat-gated stroke still rendering raw
+        // The pending marks' masks (`_setMask`): each landed mark's shape once in the `<defs>`, a `<mask>` per
+        // masked group; a group's `mask` attribute is set once Two.js has made its element (`_applyMasks`).
+        this._markDefs = new Map();  // mark id -> { sig, S, el, id }
+        this._maskDirty = new Set(); // entries whose `mask` attribute is behind
+        this._maskSeq = 0;
+        this._uid = ++maskUid;
+        this._onRender = () => this._applyMasks();
+        this.two.bind("render", this._onRender);
     }
     destroy() {
+        this.two.unbind("render", this._onRender);
         this._dropSelOverlay();
         this.live.destroy();
         this.svg.destroy();
@@ -377,6 +403,9 @@ export default class Renderer {
         this._chopMemo = new Map();  // one verdict per piece: the sig asks, then the build
         this._pendingFatLw = 0; // recounted below
         this._fitSpentMs = 0;   // per-render outline-fitting budget
+        // A pending mark whose shape has landed is drawn as nothing: its targets are masked (`_setMask`). A mark still
+        // unlanded is ink at its z until it lands, as the raster path shows its live path.
+        const marks = landedMarks(list);
         const byId = new Map();
         for (const o of list) {
             // THE STROKE UNDER THE PEN IS ALREADY ON SCREEN as `_live`, and it
@@ -387,7 +416,7 @@ export default class Renderer {
             // drawn so far at 0.70 instead of 0.45 until pen-up (measured
             // 2026-09-05, two paths for one stroke). The live path is the
             // stroke's only picture until `endLive`.
-            if (this._isLive(o)) continue;
+            if (this._isLive(o) || marks.has(o.id)) continue;
             // A sub-pixel down-piece that is ACTUALLY faded goes in its own
             // group: applying its fade to the shared family group would fade the
             // coarse parent with it. Once fully present it rejoins the family,
@@ -419,7 +448,7 @@ export default class Renderer {
             const rep = pieces[0];
             const family = rep.editId != null && id === rep.editId;
             const existing = this._groups.get(id);
-            if (existing && existing.sig === sig) { existing.pieces = pieces; this._applyOpacity(existing, rep); continue; }
+            if (existing && existing.sig === sig) { existing.pieces = pieces; this._applyOpacity(existing, rep); this._setMask(existing, marks); continue; }
             rebuilt++;
             let entry = existing;
             if (!entry) {
@@ -434,14 +463,17 @@ export default class Renderer {
             this._buildPieces(entry.group, pieces);
             Renderer._applyThinScale(entry);
             this._applyOpacity(entry, rep);
+            this._setMask(entry, marks);
         }
         for (const [id, entry] of this._groups) {
             if (byId.has(id)) continue;
             if (entry.group.parent) entry.group.parent.remove(entry.group);
+            this._dropMask(entry, true);
             this._groups.delete(id);
             const k = this._order.indexOf(id);
             if (k >= 0) this._order.splice(k, 1);
         }
+        for (const [id, d] of this._markDefs) if (!marks.has(id)) { if (d.el.parentNode) d.el.parentNode.removeChild(d.el); this._markDefs.delete(id); }
         this._chopMemo = null;
         this.syncWorld();
         this._lastRebuilds = rebuilt;
@@ -527,7 +559,7 @@ export default class Renderer {
         if (!sc || this.live.root) return;
         if (this._driftPx(sc) <= REORIGIN_PX) return;
         sc.origin = this._viewCenter();
-        for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
+        for (const entry of sc.groups.values()) { if (entry.group.parent) entry.group.parent.remove(entry.group); this._dropMask(entry, true); }
         sc.groups.clear();
         sc.order.length = 0;
     }
@@ -664,7 +696,7 @@ export default class Renderer {
             .sort((a, b) => a[1].seq - b[1].seq);
         while ((this._scenes.size > CAP || inactive > ANCHOR_BUDGET) && victims.length) {
             const [k, sc] = victims.shift();
-            for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
+            for (const entry of sc.groups.values()) { if (entry.group.parent) entry.group.parent.remove(entry.group); this._dropMask(entry, true); }
             if (sc.root.parent) sc.root.parent.remove(sc.root);
             this._scenes.delete(k);
             inactive -= sc.anchors || 0;
@@ -685,6 +717,128 @@ export default class Renderer {
         if (lo === root.children.length) root.add(group);
         else root.children.splice(lo, 0, group); // one reorder pass per update
     }
+
+    /**
+     * A pending mark hides its targets by the raster pack's rule (`eraseRule.underMask`, DESIGN.md §7; PLAN §5.8
+     * item 2): a group with any member under a landed mark's mask gets an SVG `<mask>` — white over the group's box,
+     * the marks' shapes black — so an object dragged under the mark, a stroke drawn over it and a piece it has cut
+     * all show. A family is masked whole, as the raster core masks it. The mask is in the group's own units: its
+     * transform is the thin rescale's 1/S, so a mark drawn at S_m is scaled by S/S_m (powers of two: exact).
+     */
+    _setMask(entry, marks) {
+        let ids = null;
+        if (marks.size) {
+            for (const o of entry.pieces) {
+                const t = o.targetOf;
+                if (!t || !t.length) continue;
+                for (const m of t) {
+                    const M = marks.get(m);
+                    if (M && underMask(o, M[0]) && !(ids && ids.includes(m))) (ids || (ids = [])).push(m);
+                }
+            }
+        }
+        const box = ids && this._maskBox(entry);
+        if (!box) { this._dropMask(entry, false); return; }
+        ids.sort((a, b) => a - b);
+        const S = entry.thinScale || 1;
+        const defs = ids.map((m) => this._markDef(m, marks.get(m)));
+        const key = defs.map((d) => d.id + ":" + d.sig).join(",") + "|" + S + "|" + box.join(",");
+        if (entry.mask && entry.mask.key === key) return;
+        const el = entry.mask ? entry.mask.el : this._defsEl().appendChild(document.createElementNS(SVG_NS, "mask"));
+        if (!entry.mask) el.setAttribute("id", "bl-mask-" + this._uid + "-" + (++this._maskSeq));
+        while (el.firstChild) el.removeChild(el.firstChild);
+        const [x, y, w, h] = box.map(String);
+        el.setAttribute("maskUnits", "userSpaceOnUse");
+        el.setAttribute("x", x); el.setAttribute("y", y); el.setAttribute("width", w); el.setAttribute("height", h);
+        const bg = document.createElementNS(SVG_NS, "rect");
+        bg.setAttribute("x", x); bg.setAttribute("y", y); bg.setAttribute("width", w); bg.setAttribute("height", h);
+        bg.setAttribute("fill", "#fff");
+        el.appendChild(bg);
+        for (const d of defs) {
+            const u = document.createElementNS(SVG_NS, "use");
+            u.setAttribute("href", "#" + d.id);
+            u.setAttribute("fill", "#000"); u.setAttribute("stroke", "#000");
+            if (S !== d.S) u.setAttribute("transform", "scale(" + (S / d.S) + ")");
+            el.appendChild(u);
+        }
+        entry.mask = { key, el, id: el.getAttribute("id"), marks: ids };
+        this._maskDirty.add(entry);
+    }
+    /** The group's mask gone (`gone`: the group itself went, so no attribute is left to clear). */
+    _dropMask(entry, gone) {
+        if (!entry.mask) return;
+        if (entry.mask.el.parentNode) entry.mask.el.parentNode.removeChild(entry.mask.el);
+        entry.mask = null;
+        if (gone) this._maskDirty.delete(entry); else this._maskDirty.add(entry);
+    }
+    /** After each Two.js render: the `mask` attribute onto each changed group's element, once it has one. */
+    _applyMasks() {
+        for (const entry of this._maskDirty) {
+            const el = entry.group._renderer && entry.group._renderer.elem;
+            if (!el) continue;
+            if (entry.mask) el.setAttribute("mask", "url(#" + entry.mask.id + ")");
+            else el.removeAttribute("mask");
+            this._maskDirty.delete(entry);
+        }
+    }
+    /**
+     * Mark `id`'s shape in the `<defs>`, built from its items by the ink's own path (`_buildPieces`, the thin
+     * rescale): a fill takes the `<use>`'s black, a stroke keeps its width. Rebuilt when its pieces' signatures move.
+     */
+    _markDef(id, items) {
+        const sig = items.map((o) => this._sig(o)).join("|");
+        let d = this._markDefs.get(id);
+        if (d && d.sig === sig) return d;
+        if (!d) {
+            const el = this._defsEl().appendChild(document.createElementNS(SVG_NS, "g"));
+            d = { sig: null, S: 1, el, id: "bl-mark-" + this._uid + "-" + id };
+            el.setAttribute("id", d.id);
+            this._markDefs.set(id, d);
+        }
+        const g = new Two.Group(), tmp = { group: g };
+        this._buildPieces(g, items);
+        Renderer._applyThinScale(tmp);
+        while (d.el.firstChild) d.el.removeChild(d.el.firstChild);
+        for (const p of g.children) {
+            if (p.automatic) p.plot();
+            const q = document.createElementNS(SVG_NS, "path");
+            q.setAttribute("d", Two.SVGRenderer.Utils.toString(p.vertices, p.closed));
+            const filled = p.fill && p.fill !== "transparent" && p.fill !== "none";
+            const stroked = p.stroke && p.stroke !== "transparent" && p.stroke !== "none" && p.linewidth > 0;
+            if (!filled) q.setAttribute("fill", "none");
+            if (stroked) {
+                q.setAttribute("stroke-width", String(p.linewidth));
+                q.setAttribute("stroke-linecap", p.cap); q.setAttribute("stroke-linejoin", p.join);
+            } else q.setAttribute("stroke", "none");
+            d.el.appendChild(q);
+        }
+        d.sig = sig; d.S = tmp.thinScale || 1;
+        return d;
+    }
+    /**
+     * The group's box in its own units, `[x, y, w, h]`: its pieces' drawn boxes where they are drawn, padded by two
+     * pixels at the frame's coarsest zoom (the edges' antialiasing at any zoom before the next render), inside the
+     * scene's window, whose change renders (float32 stays in budget, DESIGN.md §9); null when empty.
+     */
+    _maskBox(entry) {
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        for (const o of entry.pieces) {
+            const q = drawnBox(o.piece || o, this.live.model), res = o.res;
+            const dx = res ? res[0] : 0, dy = res ? res[1] : 0;
+            if (q.left + dx < l) l = q.left + dx;
+            if (q.top + dy < t) t = q.top + dy;
+            if (q.right + dx > r) r = q.right + dx;
+            if (q.bottom + dy > b) b = q.bottom + dy;
+        }
+        const pad = 2 / (this.cfg && this.cfg.exit > 0 ? this.cfg.exit : EXIT);
+        l -= pad; t -= pad; r += pad; b += pad;
+        const sc = this._scenes.get(this._level), w = sc && sc.chop && sc.chop.rect;
+        if (w) { l = Math.max(l, w.left); t = Math.max(t, w.top); r = Math.min(r, w.right); b = Math.min(b, w.bottom); }
+        if (!(r > l && b > t)) return null;
+        const O = this._origin(), S = entry.thinScale || 1;
+        return [(l - O.x) * S, (t - O.y) * S, (r - l) * S, (b - t) * S];
+    }
+    _defsEl() { return this.two.renderer.defs; }
 
     /**
      * ERASE DEBUG palette. One colour per REAL shape, so a logical object made
@@ -1219,7 +1373,7 @@ export default class Renderer {
     }
     clear() {
         for (const sc of this._scenes.values()) {
-            for (const entry of sc.groups.values()) if (entry.group.parent) entry.group.parent.remove(entry.group);
+            for (const entry of sc.groups.values()) { if (entry.group.parent) entry.group.parent.remove(entry.group); this._dropMask(entry, true); }
             if (sc.root.parent) sc.root.parent.remove(sc.root);
         }
         this._scenes.clear();

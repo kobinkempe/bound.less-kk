@@ -1,7 +1,7 @@
 /**
  * Offscreen scene thumbnails — an engine render of each scene's frame,
- * rasterized to a small JPEG data URL. Browser-only (Image/canvas); nothing
- * in the jsdom test suite imports this module.
+ * rasterized to a small JPEG data URL. The rasterising is browser-only
+ * (Image/canvas); `withSvgEngine` runs in jsdom (`thumbnails.test.js`).
  *
  * Thumbs are cached by the scene's content hash: renderThumbs() only
  * re-renders scenes whose hash differs from what's stored.
@@ -52,7 +52,9 @@ function rasterize(svgEl) {
  * and the raster path draws the ink into a canvas no serialiser can see — so this engine is the
  * SVG one whatever the tab's own renderer is, written out because a picture that silently went
  * blank would look like a document that had lost its ink. The document is loaded, so the copy's
- * camera is the file's: an export at the live camera serialises the live view.
+ * camera is the file's: an export at the live camera serialises the live view. The erase barrier
+ * runs first (`flushErases`): every pending mark is baked in the copy, so no pending mark reaches
+ * a picture (PLAN §5.8 item 2).
  */
 export async function withSvgEngine(doc, w, h, fn) {
     const host = document.createElement("div");
@@ -63,6 +65,7 @@ export async function withSvgEngine(doc, w, h, fn) {
         engine = new KobinEngine(host, { width: w, height: h, raster: false, scenes: false });
         engine.setLazyOutlines(false); // render final representations now
         engine.loadDrawing(JSON.parse(JSON.stringify(doc)));
+        engine.flushErases();
         return await fn(engine, host);
     } finally {
         try { if (engine) engine.destroy(); } catch (err) { /* ignore */ }

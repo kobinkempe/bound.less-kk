@@ -866,13 +866,11 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
     const exportSvg = async () => {
         const eng = E();
         if (!eng) return;
-        // §5.7: in raster mode the ink is on the canvas and this host's `<svg>` holds only the
-        // live stroke and the selection, so it is serialised from a ONE-OFF SVG engine at the
-        // same document and camera (`withSvgEngine`, the thumbnails' own helper) — seconds on a
-        // big drawing, once, on a click. Fork 4's export from the render list replaces this.
-        const svg = eng.raster
-            ? await withSvgEngine(eng.serializeDrawing(), eng.width, eng.height, (svgEngine, host) => host.querySelector("svg"))
-            : hostRef.current?.querySelector("svg");
+        // Serialised from a ONE-OFF SVG engine at the same document and camera (`withSvgEngine`, the
+        // thumbnails' own helper), whichever renderer this tab runs: it bakes every pending mark
+        // first, so no mark reaches the file (PLAN §5.8 item 2), and the tab's own document is left
+        // as it is. Seconds on a big drawing, once, on a click.
+        const svg = await withSvgEngine(eng.serializeDrawing(), eng.width, eng.height, (svgEngine, host) => host.querySelector("svg"));
         if (!svg) return;
         const clone = svg.cloneNode(true);
         clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
