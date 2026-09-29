@@ -436,6 +436,13 @@ view falls to the level plan in the same frame, so a discard never shows paper.
 Kept: `visibleChords` (the estimate's E), `_syncScratch` and `_addCorePhases` (inline timing into
 `rasterPerf`'s sync slots, `rasOnMain`, `rasterPerf.js:149`).
 
+*Built (2026-09-29, B-PYRAMID-2b P6):* `_addCorePhases` had gone with the old path; its job is
+`rasterPerf.noteCore`, called with the inline executor's own clip/edges/union/accum sums (`onSample`), which
+flags the row `rasOnMain`, and `eng.view` excludes those phases (a light inline rest frame: 4.39 ms = buckets
+4.27, core 1.48, + 0.12). The rest after its quiet had waited for the next input: `onRequest` pushed without a
+pump and a still camera has no step and no arrival; a request outside a step is now pumped in a microtask, its
+dispatch in a row of kind `settle` (§4.6's "`KINDS`' settle row becomes the rest's").
+
 ---
 
 ## 3. Partial re-render
@@ -714,8 +721,10 @@ slice (30 on a phone) an idle callback, and steps the renderer after each slice 
 prefetch's cells over tiles not in the table are not asked for (drawn from stand-ins). The pack refuses a cell whose
 tiles left after it was asked (the inline executor too: it lands only the packed cells) and `unask`s it; a pen-up
 group's refused cell is asked again inside the group once covered, the path staying up meanwhile. A waiting plane's idle
-re-aim asks for its cells once covered. Not done: the window grown for D1's SEL cells
-past four view cells (a 2560-px or phone screen): those are never covered, so never asked.
+re-aim asks for its cells once covered. *Built (2026-09-29, P6):* while a selection is on the plane's path the
+margin is at least one view (`RasterRenderer.listMargin`), so D1's SEL cells past four view cells (a 2560-px or
+phone screen) are read, covered and asked (the test puts a square's edge between four cells and a view on a
+2560×1440@2 screen; without the growth it is never covered).
 
 ### 4.3 Prefetch: what, how far, how much
 
@@ -838,6 +847,11 @@ levels far from ℓv; then LRU. A hidden tab releases after 5 min (desktop) / at
 What stays: the plate grid, the store's LRU/pins/byte cap/`close()` discipline (`_remove` is the only closer,
 `PlateStore.js:772-782`), `dropFrames` for a frame whose meaning changed, the visibility release, the pool's
 spawn/respawn/watchdog/inline fallback (RW-1), the buffer pool, `snapshotJob`, `rasterPerf`.
+
+*Built (2026-09-29, B-PYRAMID-2b P6):* the list is deleted, with `PictureLayer.js`, `PlateStore.js`, the
+`?pyramid` gate, `_renderPending`, the interim erase pool and `worker/eraseWorker.js` (the cuts run in the raster
+workers through the queue, `PRIO.cut`); its suites are ported or deleted per TEST-MAP. `snapshotJob` reads its
+table at idle a budget at a time and posts through the queue at `PRIO.thumb`.
 
 ---
 
@@ -1064,7 +1078,10 @@ and the panel read one set.
 PP §9/§10.11 defines paper as **each frame's uncovered share of the screen × how long that frame stayed on
 screen, charged forward**. The new layer keeps three integrals, updated at each compose:
 `paperMs += shareUncovered × (now − lastCompose)`, `blurMs` the same for cells drawn from another level or a
-patch (the price of "blurrier now"), `olderMs` for cells drawn stale (step (f): should be ~0). `report()`
+patch (the price of "blurrier now"), `olderMs` for cells drawn stale (step (f): should be ~0; *built 2026-09-29,
+P6:* split by cause into `olderPatchMs`, a stale own plate while its worker patch is asked or in flight — §3.4's
+case — and `olderOtherMs`, everything else, which must be 0: the never-older fuzz still reaches step (f′) after a
+zoom from rest, 88–91 plans and 98–104 ms, 5 plans and 3.7 ms without a rest set). `report()`
 carries them cumulatively; the harness reads `E.renderer.layer.report()` before and after each scripted
 gesture and prints the deltas. For today's code, which has no integral, the harness runs an in-page rAF sampler
 over `layer.uncoveredCells()` (`PictureLayer.js:1268`) and the cell count of `_rFull`, integrating forward —
