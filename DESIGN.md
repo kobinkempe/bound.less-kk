@@ -772,9 +772,11 @@ What keeps paper off the screen is the plan's order above: a stale plate is show
 replacement that lands still behind but newer than the stale pixels takes their place (F106), and a missing cell is
 drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
 much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`,
-`olderPatchMs` and `olderOtherMs`. The last is 0 but for the plan's last resort: a stale coarser stand-in for a cell
-with nothing fresh cached at any level while its own plate is on its way — after a crossing, its tiles not yet read
-(the step reads the cache alone) or its view job in flight (the B-PYRAMID review's jsdom fuzz; its design question). A desktop tab releases its plates only after five minutes
+`olderPatchMs` and `olderOtherMs`. The last is not yet 0 (the B-PYRAMID review, headless): a stale drawn plate whose
+patch is not yet asked — a commit stales it at once, the patch step runs at the next render or camera step, and a
+bake renders at most every 100 ms (scenario 7: 1.3–1.4 s a run) — and the plan's last resort, a stale coarser stand-in
+for a cell with nothing fresh cached at any level while its own plate is on its way (after a crossing, its tiles not
+yet read or its view job in flight). A desktop tab releases its plates only after five minutes
 hidden (a phone at once). A drag draws the selection from plates made when it was selected, split by z so the
 drag keeps its true depth: the ink below the selection, the selected runs on transparent plates (moved with the
 pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers the smallest
