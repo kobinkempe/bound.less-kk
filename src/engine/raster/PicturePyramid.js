@@ -13,6 +13,8 @@
  *     images stand-ins (scaled: another level, children, and at rest the level plan's plates), PLAN §5.6 M1.
  *     Past COMPOSE_IMAGES distinct images it composes through the surface. Hence the store's pinned bound (M2).
  *   - Stillness is seen only on a frame: the caller runs one more `frameFor` after the camera stops.
+ *   - A zoom keeps the rest set's records at their own Z as a stand-in source (decision 2: fresh at Z_rest beats a
+ *     stale level plate); any other discard, or the next zoom's, removes them (A3 §2.4).
  *   - It posts nothing: requests leave through `onRequest(jobs)` and results come back through `onResult`
  *     (the renderer is the one poster, FC3). `pack(job)`, `measure(job)` and the calibration samples are the renderer's.
  */
@@ -127,6 +129,7 @@ export default class PicturePyramid {
         this.gens = { view: 1, rest: 1, patch: 1, prefetch: 1 };
         this._asked = new Map();       // key -> the G a job for it was requested at
         this._rest = null;             // { frame, Z, shown, gen }
+        this._standIn = null;          // { frame, Z }: the rest set a zoom left, drawn as a stand-in at its own Z
         this._restTimer = null;
         this._heavyAt = 0;             // D272's backstop: an inline rest that ran over marks this estimate heavy
         this._groups = new Map();      // id -> { id, need, held, at, onCommit, purpose }
@@ -153,7 +156,7 @@ export default class PicturePyramid {
             composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0,
             composeMs: 0, composeMsMax: 0, maxImagesPerCompose: 0, lastImages: 0,
             paperMs: 0, blurMs: 0, olderPatchMs: 0, olderOtherMs: 0,
-            restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0,
+            restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0, standInCells: 0,
             patchInline: 0, patchCoarse: 0, patchWorker: 0, patchMs: 0, merges: 0, mergeMisses: 0,
             groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0,
         };
@@ -234,6 +237,7 @@ export default class PicturePyramid {
         const still = !c0.sized && c0.frame === F && c0.inScale === cam.inScale && c0.panX === cam.inPanX && c0.panY === cam.inPanY;
         c0.sized = false; c0.frame = F; c0.inScale = cam.inScale; c0.panX = cam.inPanX; c0.panY = cam.inPanY;
         if (this._rest && (this._rest.frame !== F || this._rest.Z !== Z)) this._discardRest(this._rest.frame !== F ? "frame" : "zoom");
+        else if (this._standIn && this._standIn.frame !== F) this._discardRest("frame");
         const prev = this._lvFrame === F ? this._lv : null;
         const lv = levelFor(Z, S, prev, this.sigmaMin);
         if (lv !== this._lv || F !== this._lvFrame) { this.gens.view++; this._asked.clear(); }
@@ -423,7 +427,10 @@ export default class PicturePyramid {
         const m = this._mapped(F, l, S, i, j);
         if (m && B.base(m)) { out.push(draw(m, WHOLE, dst, "sharp", true)); return; }                            // (b)
         const cb = boxOf(Zl, i, j);
+        // The rest set a zoom left: exact at its own Z, tried before the first coarser level it is finer than.
+        let restTried = !(this._standIn && this._standIn.frame === F);
         for (let k = 1; k <= N; k++) {                                                                              // (d)
+            if (!restTried && this._standIn.Z > zOf(l - k, S)) { restTried = true; if (this._standInCell(v, F, own, cb, dst, Zl, B, out)) return; }
             const c = coarser(this.lm, S, F, l, i, j, k);
             if (!c) break;
             if (typeof c.i !== "number") continue;
@@ -442,6 +449,7 @@ export default class PicturePyramid {
             out.push(draw(r, sub, dst, "blur", true));
             return;
         }
+        if (!restTried && this._standInCell(v, F, own, cb, dst, Zl, B, out)) return;
         if (own && B.base(own)) { out.push(this._older(own, dst)); return; }                                        // (f)
         for (let k = 1; k <= N; k++) {
             const c = coarser(this.lm, S, F, l, i, j, k);
@@ -463,6 +471,36 @@ export default class PicturePyramid {
         d.own = true;
         d.wait = (g != null && g >= st.fresh.dirtySince(own.key)) || st.inFlightExact(own.key);
         return d;
+    }
+
+    /**
+     * The kept rest set as a cell's source, only where its plates are exact: over a stale own plate's dirty rectangles
+     * (the patch rule, e), else over the whole cell; scaled, so its plates count against the stand-in cap.
+     */
+    _standInCell(v, F, own, cb, dst, Zl, B, out) {
+        const cls = this._standIn.Z >= Zl ? "sharp" : "blur";
+        let c = null;
+        if (own) {
+            const D = this._dirtyIn(F, own, cellBox(own), cb);
+            c = D && D.area <= (cb.right - cb.left) * (cb.bottom - cb.top) * PATCH_MAX ? this._restCover(F, D.bbox) : null;
+            if (c && B.take(c.recs) && B.base(own)) {
+                out.push(draw(own, WHOLE, dst, "sharp", false, true));
+                for (const d of c.draws(v.Zq, cls)) out.push(d);
+                this.s.standInCells++;
+                return true;
+            }
+        }
+        c = this._restCover(F, cb);
+        if (!c || !B.take(c.recs)) return false;
+        for (const d of c.draws(v.Zq, cls)) out.push(d);
+        this.s.standInCells++;
+        return true;
+    }
+
+    /** The kept rest set's plates over `rect` (frame units), every one exact: `_coverOf`'s answer, or null. */
+    _restCover(F, rect) {
+        const st = this.store, Z = this._standIn.Z;
+        return this._coverOf(Z, rect, (i, j) => { const r = st.get(restKey(F, Z, i, j)); return r && st.exact(r) ? r : null; });
     }
 
     /** (b): the same picture from another frame's level, exact. */
@@ -551,27 +589,32 @@ export default class PicturePyramid {
         for (const d of top) P.draws.push(d);
     }
 
-    /** Frame F's level-ℓ plates over `rect` (frame units), each exact or (b)'s exact mapped cell: `{ recs, draws(Zq) }` clipped to `rect`, or null. */
+    /** Frame F's level-ℓ plates over `rect` (frame units), each exact or (b)'s exact mapped cell: `_coverOf`'s answer, or null. */
     _cover(F, l, S, rect) {
-        const st = this.store, Zl = zOf(l, S), r = plateRange(rect, Zl), recs = [], at = [];
+        const st = this.store;
+        // After a crossing the frame just left may hold the fresh picture: (b)'s mapped cell (PLAN §5.6 item 7).
+        return this._coverOf(zOf(l, S), rect, (i, j) => { const own = st.get(levelKey(F, l, S, i, j)); return own && st.exact(own) ? own : this._mapped(F, l, S, i, j); });
+    }
+
+    /** The grid-Zg records `get(i, j)` gives over `rect` (frame units), all present: `{ recs, draws(Zq, cls) }` clipped to `rect`, or null. */
+    _coverOf(Zg, rect, get) {
+        const r = plateRange(rect, Zg), recs = [], at = [];
         if ((r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1) > COMPOSE_IMAGES) return null;
         for (let j = r.j0; j <= r.j1; j++) {
             for (let i = r.i0; i <= r.i1; i++) {
-                // After a crossing the frame just left may hold the fresh picture: (b)'s mapped cell (PLAN §5.6 item 7).
-                const own = st.get(levelKey(F, l, S, i, j));
-                const c = own && st.exact(own) ? own : this._mapped(F, l, S, i, j);
+                const c = get(i, j);
                 if (!c) return null;
                 recs.push(c); at.push(i, j);
             }
         }
         return {
             recs,
-            draws: (Zq) => {
+            draws: (Zq, cls = "blur") => {
                 const out = [];
                 for (let k = 0; k < recs.length; k++) {
-                    const i = at[2 * k], j = at[2 * k + 1], I = inter(boxOf(Zl, i, j), rect);
+                    const i = at[2 * k], j = at[2 * k + 1], I = inter(boxOf(Zg, i, j), rect);
                     if (!I) continue;
-                    out.push(draw(recs[k], [I.left * Zl - i * PLATE_PX, I.top * Zl - j * PLATE_PX, (I.right - I.left) * Zl, (I.bottom - I.top) * Zl], gRect(I, Zq), "blur", true));
+                    out.push(draw(recs[k], [I.left * Zg - i * PLATE_PX, I.top * Zg - j * PLATE_PX, (I.right - I.left) * Zg, (I.bottom - I.top) * Zg], gRect(I, Zq), cls, true));
                 }
                 return out;
             },
@@ -797,9 +840,17 @@ export default class PicturePyramid {
 
     /** The first still frame: the visible rest cells inline when the estimate fits, else in the workers after the quiet. */
     _onStill() {
-        const v = this._v;
+        const v = this._v, K = this._standIn;
+        // Back at the kept set's own Z, bit for bit: its records are the rest set again, shown once it lacks nothing.
+        const back = !this._rest && !!K && K.frame === v.frameId && K.Z === v.Z;
+        if (back) { this._standIn = null; this._rest = { frame: v.frameId, Z: v.Z, shown: false, gen: ++this.gens.rest }; }
         const want = this._restWant(v.frameId, v.Z);
-        if (!want.length) return false;
+        if (!want.length) {
+            if (!back) return false;
+            this._rest.shown = true;
+            this._publishView(v);
+            return true;
+        }
         if (!this._rest) this._rest = { frame: v.frameId, Z: v.Z, shown: false, gen: ++this.gens.rest };
         const job = this._job("rest", 0, { frame: v.frameId, Z: v.Z, cells: want, purpose: "rest", gen: this._rest.gen });
         const T = this.estimate(job);
@@ -886,16 +937,23 @@ export default class PicturePyramid {
         if (this._restTimer != null) { this._clearTimer(this._restTimer); this._restTimer = null; }
     }
 
-    /** A zoom, a frame change, a resize or a dpr change: the rest records go at once (not staled), their jobs are dropped by generation. */
+    /**
+     * A zoom, a frame change, a resize or a dpr change ends the rest set; its queued jobs are dropped by generation. A
+     * zoom keeps its records as the stand-in (`_standInCell`), in place of the one an earlier zoom kept; anything else
+     * removes them all at once (not staled: they are wrong at another frame or grid, and removing closes their bitmaps).
+     */
     _discardRest(why) {
         if (this._restTimer != null) { this._clearTimer(this._restTimer); this._restTimer = null; }
-        if (!this._rest) return;
-        this.store.dropWhere((r) => r.kind === "rest");
-        for (const g of [...this._groups.values()]) if (g.purpose === "rest") this._dropGroup(g.id);
-        this._rest = null;
-        this.gens.rest++;
-        this.s.restDiscards++;
-        this._lastDiscard = why;
+        const R = this._rest;
+        if (R) {
+            for (const g of [...this._groups.values()]) if (g.purpose === "rest") this._dropGroup(g.id);
+            this._rest = null;
+            this.gens.rest++;
+            this.s.restDiscards++;
+            this._lastDiscard = why;
+        }
+        const K = this._standIn = why === "zoom" && R ? { frame: R.frame, Z: R.Z } : null;
+        this.store.dropWhere((r) => r.kind === "rest" && !(K && r.frame === K.frame && r.Z === K.Z));
     }
 
     // ---- the estimate (A3 §2.2, §3.3) ----
@@ -1008,7 +1066,8 @@ export default class PicturePyramid {
      * @returns {string} what happened
      */
     onResult(rec) {
-        if (rec.kind === "rest" && (!this._rest || rec.frame !== this._rest.frame || rec.Z !== this._rest.Z)) {
+        const ofSet = (R) => !!R && rec.frame === R.frame && rec.Z === R.Z;
+        if (rec.kind === "rest" && !ofSet(this._rest) && !ofSet(this._standIn)) {
             this.s.discarded++;
             this.store.discard(rec);
             return "discarded";
@@ -1359,6 +1418,7 @@ export default class PicturePyramid {
     onStoreRelease() {
         this._freeSurface();
         this._rest = null;
+        this._standIn = null;
         this._asked.clear();
     }
 
@@ -1366,7 +1426,8 @@ export default class PicturePyramid {
         const v = this._v;
         return {
             mode: v.mode, level: v.level, S: v.S, s: v.s, Z: v.Z, sigmaMin: this.sigmaMin, pinBound: this.pinBound,
-            rest: this._rest ? { Z: this._rest.Z, shown: this._rest.shown } : null, groups: this._groups.size,
+            rest: this._rest ? { Z: this._rest.Z, shown: this._rest.shown } : null, standIn: this._standIn ? { Z: this._standIn.Z } : null,
+            groups: this._groups.size,
             est: { ...this._k }, surfaceLive: !!this._surface, imagesMax10s: this._images.reduce((m, x, k) => (k % 2 ? Math.max(m, x) : m), 0), ...this.s,
         };
     }
