@@ -1690,3 +1690,20 @@ the pre-C1 page twice (Chromium "Target crashed"), not compared. Typecheck 0; es
 **Decisions made:** none new.
 **Questions asked:** none.
 WHERE I AM: M4 — the docs (DESIGN §8/§13, docs/ai, PLAN §1.7 and §3 row 8, TEST-MAP, A1 notes, OPEN-FLAGS), then the quick suite.
+
+## 2026-09-29 06:56 UTC — B-PYRAMID-2b (builder) — item 4 progress: the suites ported so far
+**Working on:** item 4. Deleted `raster.nopaper`, `raster.picture` (F106 → `raster.pyramid`, the monotone-G rule at
+the compose; F101 → `raster.pyramid`: a destroyed renderer is inert — `render`/`syncCameraOnly` guard added, a late
+answer lands nothing), `raster.plates` (L2/L3/L7/L8 → new `PyramidStore.test.js`). Ported: `raster.worker` (a
+`JobQueue` over `rasterPool`: dealing, drops by purpose generation and by G through the real store, the priorities
+and the cuts' reservation through the pool; the per-`q` rules W20/W21 gone), `raster.move` (the soft context in its
+nine-argument form; the settle, compose-unit, carry, hold, clip tests gone), `raster.engine` (rule 2 on the pyramid's
+frame; FC; the E series on level plates).
+**Found by the ports, fixed:** rest mode drew the view's own plates under a dragged plane's BELOW (V9b: `_planRest`
+ignored `plane.skip`); the pyramid's dispatch had no `xfer.out` and no queued-at (`noteSubmit` had no caller since P1,
+so every arrival's wall partition was `noQueuedAt`), and `eng.view` counted an inline render's packs twice — now
+`JobQueue` stamps `pushedAt`, `_pyrSubmit` notes it and buckets the post, `_frameStep` subtracts nested packs.
+**Measured:** rule 2 on the pyramid (jsdom, load ~2): light 2.44 ms = buckets 2.19 + residual 0.25 (bar 1.0), dense
+8.32 = 8.01 + 0.31; raster.worker 22/22, raster.move 33/33, raster.engine 28/28, raster.pyramid 27/27, store 7/7.
+**Questions asked:** none.
+WHERE I AM: the rest of item 4 — raster.phone/snapshot/translucent/overlay/liveHold, the hook suites, stage.cover's `markDone`, raster.perf's rows.
