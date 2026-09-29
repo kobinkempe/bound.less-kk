@@ -46,8 +46,15 @@ import { bboxOf } from "../geometry/derive";
 export const ARC_TOL = 1 / 16;
 /** §4.6's bound on a render-list coordinate, in frame units: 2W + 48 with `res` on top. */
 export const COORD_BOUND = 2.6e5;
-/** §3.7's budget for everything memoised here — boxes, packed rings, stroke bands. */
-const DEFAULT_BUDGET = 10 << 20;
+/**
+ * §3.7's budget for everything memoised here — boxes, packed rings, stroke bands. A pack's prepass reads every item of
+ * its list, so a camera table whose entries outgrow the memo rebuilds them all at every commit: the synthetic stack's
+ * table (~2,860 items, ~20 MiB of entries) under a bake with a selection up took 47 s (the list path) and 91 s (the
+ * pyramid) at 10 MiB, 5.6 s and 7.0 s at 64 (B-PYRAMID-2 P5, PLAN §5.9 item 2). A phone takes half.
+ */
+export const PACK_BUDGET = 64 << 20;
+export const PACK_BUDGET_PHONE = 32 << 20;
+const DEFAULT_BUDGET = PACK_BUDGET;
 
 /**
  * What the packer counted this session. `nonFinite` and `overBound` are the two that mean the

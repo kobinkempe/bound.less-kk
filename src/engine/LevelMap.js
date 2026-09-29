@@ -596,26 +596,29 @@ export default class LevelMap {
     }
     /**
      * The frame an id names, re-minted when the lattice lacks it (F67; F99: natives under a `#2`
-     * twin's child were never drawn). Ids are "<spine depth>/i,j[#n]/…": below the deepest prefix
-     * that exists, each missing frame is added with its EXACT id in its birth cell, or as a shadow
-     * of the cell's resident (merged at the next read). Null, with nothing minted, for an id no
-     * frame can have.
+     * twin's child were never drawn). Ids are "<spine depth>[#n]/i,j[#n]/…": the spine frame first
+     * (a bare "2" on a lattice without it was null, so its natives loaded undrawn), then below the
+     * deepest prefix that exists each missing frame is added with its EXACT id in its birth cell, or
+     * as a shadow of the cell's resident (merged at the next read). Null, with nothing minted, for
+     * an id no frame can have.
      */
     ensureId(id) {
         const hit = this.frames.get(id);
         if (hit) return hit;
         const segs = String(id).split("/");
-        const depth = Number(segs[0]);
-        if (!Number.isInteger(depth) || segs[0] !== String(depth)) return null;
+        const top = /^(-?\d+)(#\d+)?$/.exec(segs[0]);
+        const depth = top ? Number(top[1]) : NaN;
+        if (!Number.isInteger(depth) || top[1] !== String(depth)) return null;
         const cells = [];
         for (let n = 1; n < segs.length; n++) {
             const m = /^(-?\d+),(-?\d+)(#\d+)?$/.exec(segs[n]);
             if (!m || !inDigit(+m[1]) || !inDigit(+m[2])) return null;
             cells.push({ i: +m[1], j: +m[2] });
         }
+        if (!this.frames.has(segs[0]) && !this._ensureSpineId(segs[0], depth)) return null;
+        if (segs.length === 1) return this.frames.get(id) || null;
         let k = segs.length - 1;
         while (k > 1 && !this.frames.has(segs.slice(0, k).join("/"))) k--;
-        if (k === 1 && !this.frames.has(segs[0])) this.ensureSpine(depth);
         let cur = this.frames.get(segs.slice(0, k).join("/"));
         for (let n = k; n < segs.length && cur; n++) {
             const exact = segs.slice(0, n + 1).join("/"), { i, j } = cells[n - 1];
@@ -629,6 +632,21 @@ export default class LevelMap {
             cur = f;
         }
         return cur && cur.id === id ? cur : null;
+    }
+    /** A spine id ("2", or a moved spine frame's twin "2#3") minted in the spine cell: itself, or the resident's shadow. */
+    _ensureSpineId(sid, depth) {
+        this.ensureSpine(depth);
+        let f = this.frames.get(sid);
+        if (f) return f;
+        const resident = this.frames.get(this.spineAt(depth));
+        const p = resident && resident.parent != null ? this.frames.get(resident.parent) : null;
+        if (!p) return null;
+        f = this._addFrame(sid, p.id, { i: 0, j: 0 }, depth);
+        p._kids.set(cellKey(0, 0), resident.id);
+        f.shadowOf = resident.id;
+        (resident._shadows || (resident._shadows = new Set())).add(f.id);
+        this._rebuildSpine();
+        return f;
     }
     /**
      * `neighbour`, but it never mints. Returns null when that cell has never

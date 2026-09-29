@@ -18,6 +18,11 @@ would not remove a bug; it would remove the ability to notice one.
 | `cede.js` | rectangle ceding, against which the tile-window cut is checked | `geometry/derive.test.js`, `geometry/seams.test.js` |
 | `erase.js` | the pre-bake eraser footprint | `erase.contract.slow.test.js` |
 | `coverageOracle.js` | the rasteriser's coverage: exact-winding by 16 sub-scanlines a pixel row, plus the shoelace area. It is exact for any winding and any overlap, which signed-area accumulation is not, so it is what says whether `raster/rasterCore.js` painted the right fraction of each pixel | `raster/raster.oracle.test.js` |
+| `model-v1/` | the document model before A1's C1 (a frame's shift settled into its natives at the first read, carried across cell edges, followed by the selection): the whole engine closure frozen at 5e9b1dd (see below) | `model.equivalence.probe.js`, `select.stands.probe.js`, `hooks/store.model.test.js`, `model-v1/modelV1.test.js` |
+
+## `model-v1/` — the model C1 replaced
+
+A frozen copy of the engine as it was at commit 5e9b1dd (2026-09-29, B-MODEL-C1's launch): `Document`, `LevelMap`, `TileStore`, `selection`, `oplog` and every module that reads the settle or that C1 edits — `KobinEngine` and its mixins (`erasePipeline`, `overlays`, `files`, `sceneOps`), `Stage`, `placementModel`, `geometry/offsets` (as `offsets.js`), `eraseDescent`, `cede`, `eraseWorkerClient`, `frameGc`, `persist`, `format2`, `sceneClient` — plus the SVG `Renderer`, so B-PYRAMID-3's demotion cannot reach it. Only the import lines were rewritten: copies import copies, the four raster modules `KobinEngine` names go to `rasterShim.js` (the oracle runs the SVG path; its raster classes refuse construction), and everything C1 does not change (geometry, `frameLattice`, `Camera`, `eraseRule`, `eraseJob`, the raster helpers the copies call) is imported from the live tree. It is the settling model: a subtree move leaves a shift on the frame and the first `Document.at` settles it into the natives' tables, carrying across cell edges (`modelV1.test.js` pins that). It is what the tile and selection fuzzes compare the composed model against (PLAN §3 rows 7 and 9, A1 §5). Construct it as the engine: `new (require("./model-v1/KobinEngine").default)(host, opts)`.
 
 ## The rule
 

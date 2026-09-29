@@ -837,7 +837,18 @@ describe("the packer (§3.3, §4.2, §5.2)", () => {
         expect(pack.packStats.boxWalks).toBe(walks + 1);
         pack.itemBox(items[1], CFG);                           // the untouched neighbour went
         expect(pack.packStats.boxWalks).toBe(walks + 2);
-        pack.setPackBudget(10 << 20);
+        pack.setPackBudget(pack.PACK_BUDGET);
+    });
+
+    test("the memo is keyed by the geometry: two wrappers of one piece (a Stage item and a snapshot's) share its entry", () => {
+        pack.clearPackCaches();
+        pack.resetPackStats();
+        const p = shapeItem(7, [rect(0, 0, 50, 50)]);
+        const wrap = () => ({ piece: p, id: p.id, type: p.type, get loops() { return p.loops; }, get _ver() { return p._ver; }, get _outline() { return p._outline; } });
+        const a = pack.itemBox(wrap(), CFG);
+        const walks = pack.packStats.boxWalks;
+        expect(pack.itemBox(wrap(), CFG)).toBe(a);                 // red before: one build a wrapper
+        expect(pack.packStats.boxWalks).toBe(walks);
     });
 });
 

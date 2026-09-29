@@ -37,7 +37,7 @@ import Renderer from "../Renderer";
 import { perfNow } from "../now";
 import PictureLayer from "./PictureLayer";
 import { PLATE_PX, PREVIEW_QUANTA, plateKey, plateOriginPx, plateRange, quantumFor, zqOf } from "./plate";
-import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox, outsideWin } from "./rasterPack";
+import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
 import { renderPlate, coreStats, TW, TH } from "./rasterCore";
 import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
 import { antStats, selAntScale } from "./antPaint";
@@ -231,6 +231,10 @@ export default class RasterRenderer extends Renderer {
         // FC1 as corrected (D190): the release is the STORE's event and not a renderer walk.
         if (this.store) this.store.onRelease = (reason) => this._onStoreRelease(reason);
         if (this.store) this.store.onShow = () => { if (this.onShown) this.onShown(); };
+        if (this.store && this.store.phone) setPackBudget(PACK_BUDGET_PHONE);   // the pack memo: half on a phone
+        // The scene's last commit: the plane's pre-aim and the prefetch wait for its quiet (a bake commits every few frames).
+        this._commitAt = -Infinity;
+        this._commitOff = this.stage && this.stage.onCommit ? this.stage.onCommit(() => { this._commitAt = perfNow(); }) : null;
 
         /**
          * FC6: the overlay origin, ONE object with ONE writer (`addLive`). `_selDecide` caches
@@ -653,8 +657,9 @@ export default class RasterRenderer extends Renderer {
         const key = v.frameId + "|" + v.q + "|" + v.Zq + "|" + v.rev;
         if (key !== this._planeViewKey) { this._planeViewKey = key; this._planeViewAt = perfNow(); }
         const here = pl.tags.length > 0 && pl.frameId === v.frameId && pl.q === v.q && pl.Zq === v.Zq;
-        // A settle about to publish its exact view would re-aim the plane a second time: wait for it.
-        const settling = () => !this.pyramid && (this.layer.settleComing() || this.layer.holding());   // the old path's hold and settle
+        // A settle about to publish its exact view would re-aim the plane a second time: wait for it. A bake's commits
+        // re-aimed it at every cut step (1.0 s of a 8.3 s profile, PLAN §5.9 item 2): the scene's quiet too.
+        const settling = () => (!this.pyramid && (this.layer.settleComing() || this.layer.holding())) || perfNow() - this._commitAt < PLANE_QUIET_MS;
         const holding = !this.pyramid && this.layer.holding();
         const quiet = perfNow() - this._planeViewAt >= PLANE_QUIET_MS && !settling();
         // At this zoom its plates stay (a pan only adds cells); a zoom's hold pins its own set, so the plane's go.
@@ -740,6 +745,7 @@ export default class RasterRenderer extends Renderer {
         // than as misses — a permanent hole with every suite green (rasterWorkerClient's header).
         if (this.queue) this.queue.clear();
         if (this._pyrOff) { this._pyrOff(); this._pyrOff = null; }
+        if (this._commitOff) { this._commitOff(); this._commitOff = null; }
         if (this._pyrPrefetchTimer != null) { clearTimeout(this._pyrPrefetchTimer); this._pyrPrefetchTimer = null; }
         this._abandon("destroy");
         dropQueued("destroy");
@@ -1552,12 +1558,8 @@ export default class RasterRenderer extends Renderer {
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
         // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
-        // while the path is still up (A3 §3.6). The commit's time is the prefetch's quiet.
-        this._pyrCommitAt = -Infinity;
-        this._pyrOff = this.stage.onCommit(() => {
-            this._pyrCommitAt = perfNow();
-            if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view);
-        });
+        // while the path is still up (A3 §3.6).
+        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view); });
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
@@ -1614,7 +1616,7 @@ export default class RasterRenderer extends Renderer {
         // At idle means the scene too: a bake commits every few frames, and a plan a commit re-rendered the coarser
         // levels each step (P5). The plan waits for the rest's quiet after the last commit.
         const quiet = this.cfg.prefetchQuietMs != null ? this.cfg.prefetchQuietMs : EST_DEFAULTS.restQuietMs;
-        const since = perfNow() - this._pyrCommitAt;
+        const since = perfNow() - this._commitAt;
         if (since < quiet) {
             if (this._pyrPrefetchTimer == null) {
                 this._pyrPrefetchTimer = setTimeout(() => {

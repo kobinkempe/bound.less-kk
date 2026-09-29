@@ -1434,3 +1434,25 @@ Files I am in (brief §6): `Document.js`, `LevelMap.js`, `TileStore.js`, `placem
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: M0 — copying the five model files and their changing imports into `__oracles__/model-v1/`.
+
+## 2026-09-29 02:14 UTC — B-MODEL-C1 (builder) — M0 checkpoint: the frozen oracle, the spine gap
+**Working on:** M0 done. `src/engine/__oracles__/model-v1/` = the engine closure at 5e9b1ddb (21 files, 15.9k lines, only
+import lines rewritten; `README.md` there and a paragraph + row in `__oracles__/README.md`): the five model files plus
+every module that reads the settle or that C1 edits (KobinEngine and its mixins, Stage, placementModel, offsets,
+eraseDescent, cede, eraseWorkerClient, frameGc, persist, format2, sceneClient/sceneOps) and the SVG `Renderer`
+(B-PYRAMID-3's to reshape); raster symbols through `rasterShim.js` (SVG path only), geometry/frameLattice/Camera/eraseRule
+live. `modelV1.test.js`: no production file imports `__oracles__`; the oracle settles a subtree move at the first read.
+Spine gap: `LevelMap.ensureId` + `_ensureSpineId` mint a bare spine id ("2") and a twin spine id ("2#3", as the
+resident's shadow); `lattice.ensureId.test.js` EI-7, EI-8 (a dev-0 snapshot naming "2" on a fresh lattice, camera at "1":
+drawn through "1"'s down tiles after the load).
+**Measured:** suites 9/9 (modelV1 2, ensureId 7); lint 0 on the oracle dir. Break-checks (bm1/bc copy): spine mint 2/7,
+twin parse 1/7, taken cell → shadow 1/7, a production import of the oracle 1/2; baseline 0/9.
+File format (A1 §5 versions): persist validates a natives key by `FRAME_ID` only, never against `crossings`, so a
+kobin-1 v1/v2 file can carry natives under a spine id its lattice lacks; the app never writes one (serialize lists every
+frame; GC never forgets a frame with natives). The deployed build loads such a file with those natives undrawn and
+writes them back unchanged (`serializeNatives` walks `nativesByLevel`); this build draws them. No version change.
+**Decisions made:** the oracle is the whole engine closure, not the five files alone: the settle's glue lives in
+KobinEngine (subscription, `_flushCarried`), selection and Stage, and a live driver over a frozen model would not be
+today's engine. The tile fuzz compares pictures through each engine's own model.
+**Questions asked:** none.
+WHERE I AM: M1 — `placementModel` composition + `objShift`/`residual` carry + reroute by home, beside the settle.

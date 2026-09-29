@@ -4,6 +4,8 @@
  * never drawn, so their parents showed rectangular holes near the Earth's city).
  */
 import LevelMap from "./LevelMap";
+import { useEngines, mkEngine } from "./__testkit__/harness";
+import { rectLoop } from "./geometry/arcShape";
 
 jest.setTimeout(30000);
 
@@ -46,5 +48,37 @@ describe("EI — ensureId", () => {
         let f = lm.frame("0/3,4#2/5,6"), hops = 0;
         while (f && f.parent != null && hops++ < 10) f = lm.frame(f.parent);
         expect(f && f.id).toBe("0");                               // its chain reaches the root
+    });
+    test("EI-7 a bare spine id is minted with its spine; a moved spine frame's twin comes back as the resident's shadow", () => {
+        const lm = new LevelMap();
+        const f = lm.ensureId("2");
+        expect(f && f.id).toBe("2");
+        expect(lm.spineAt(2)).toBe("2");
+        expect([f.parent, f.cell.i, f.cell.j]).toEqual(["1", 0, 0]);
+        const t = lm.ensureId("2#3/4,5");
+        expect(t && t.id).toBe("2#3/4,5");
+        expect(lm.frame("2#3").shadowOf).toBe("2");
+        expect(lm.spineAt(2)).toBe("2");                            // the resident keeps the spine
+        expect(lm.ensureId("2#x")).toBeNull();
+    });
+});
+
+describe("EI — a load mints the spine frame its natives name (F67)", () => {
+    useEngines();
+    test("EI-8 a dev-0 snapshot whose natives name \"2\" on a fresh lattice draws them after the load", () => {
+        const A = mkEngine(800, 600);
+        A.lm.ensureSpine(2);
+        const o = { type: "shape", origin: "native", id: A.doc.allocId(), loops: rectLoop({ left: -30000, top: -20000, right: 30000, bottom: 20000 }),
+            color: "#123", opacity: 1, w: 8 };
+        A.doc.add(o, "2");
+        const snap = A.snapshot();
+        snap.crossings = { __lattice: 1, frames: [{ id: "0", parent: null, i: 0, j: 0, depth: 0 }] };
+        snap.camera = { activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 };   // the camera mints "1", never "2"
+        const B = mkEngine(800, 600);
+        expect(B.loadSnapshot(snap)).toBe(true);
+        expect(B.lm.frame("2")).toBeTruthy();
+        expect(B.lm.spineAt(2)).toBe("2");
+        B._render();
+        expect(B._objs().some((p) => p.id === o.id)).toBe(true);                // seen from "1" through its down tiles
     });
 });
