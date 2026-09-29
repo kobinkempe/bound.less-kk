@@ -6,7 +6,6 @@
  */
 import KobinEngine from "../KobinEngine";
 import { TILE } from "../frameLattice";
-import { drawStroke } from "../__testkit__/harness";
 import { resetRasterWorkerClient, setRasterWorkerCount, setRasterTransport, rasterWorkerReport } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
 
@@ -15,17 +14,19 @@ function mkEngine() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: 800, height: 600, raster: true });
-    const c = E.renderer.cfg;                              // no prefetch but the test's own
-    c.restInline = "never"; c.restQuietMs = 1e9; c.prefetchQuietMs = 1e9;
+    const c = E.renderer.cfg;                              // no prefetch but the test's own; the idle table read as shipped
+    c.restInline = "never"; c.prefetchQuietMs = 1e9;
     engines.push({ E, host });
     return E;
 }
-async function flush(rounds = 16) {
+/** Until the pool is idle and nothing of the view's or a pen-up group's is queued, in flight or held (the prefetch waits). */
+async function flush(E, rounds = 400) {
     for (let k = 0; k < rounds; k++) {
-        await new Promise((r) => setTimeout(r, 0));
-        const rep = rasterWorkerReport();
-        if (!rep.inFlight && !rep.queued) return;
+        await new Promise((r) => setTimeout(r, 5));        // past the idle table read's quiet, which covers a group's cells
+        const rep = rasterWorkerReport(), q = E.renderer.queue.report();
+        if (!rep.inFlight && !rep.queued && [0, 1, 2, 3].every((p) => !q.queued[p] && !q.inFlight[p]) && !E.renderer.live.held.length) return true;
     }
+    return false;
 }
 beforeEach(() => {
     resetRasterWorkerClient(); setRasterWorkerCount(1);
@@ -36,12 +37,19 @@ afterEach(() => {
     setRasterTransport(null);
     resetRasterWorkerClient();
 });
-const ink = (E) => { drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18); drawStroke(E, [[200, 420], [560, 460]], 9); };
+/** Ink added to the document directly: no pen-up group ahead of the prefetch (it waits for every higher priority). */
+const ink = (E) => {
+    for (const [x, y, c] of [[120, 120, "rgb(200,30,30)"], [420, 300, "rgb(30,30,200)"]]) {
+        E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: c, opacity: 1,
+            polys: [[[x, y], [x + 160, y], [x + 160, y + 120], [x, y + 120]]] }, "0");
+    }
+};
 
 test("W-1 a prefetch plan reads warm and the camera does not; the flag is down after the plan", async () => {
     const E = mkEngine(), R = E.renderer, T = E.store;
     ink(E);
-    E._render(); await flush();
+    E._render();
+    expect(await flush(E)).toBe(true);                     // the pen-ups' groups committed: the prefetch has nothing ahead of it
     expect(T._warm.size).toBe(0);                          // the camera's own reads mark nothing
     const seen = [];
     const snap = E.stage.snapshot.bind(E.stage), sync = E.stage.sync.bind(E.stage);

@@ -2268,3 +2268,21 @@ and 4 translucent cases green without it).
 **Decisions made:** keep the merge hand-over (`mergeFrame` handler) until C3: merges still happen at the drop.
 **Questions asked:** none yet.
 WHERE I AM: rewriting the red tests to C2 (mid-drag: document unchanged, `placed` at +δ; after the drop: the old asserts).
+
+## 2026-09-29 20:59 UTC — B-PYRAMID-3 (builder) — checkpoint: the held path across a crossing; the break-checks
+**Working on:** the coordinator's addition, built: at a frame change `_frameStep` first carries every held path into the
+new frame (`_liveCross` → `LiveStrokeLayer.cross`: the root scaled by R^Δdepth, its drawn-at origin and box mapped, the
+origin re-chosen at the view centre, a waiting group's rectangle moved by `PicturePyramid.moveGroup` before the
+retarget reads it); `_pyrLive` asks the document, not the table, whether a stroke is gone or pending (a crossing's table
+is read at idle, so the stroke was missing from it and its path came down). Tests LH-5 (out) and LH-6 (in).
+**Measured (jsdom, break-checks on unimported copies):** LH-1..6 5/5 → green; carry removed 2 red, re-anchor removed 2 red,
+table-as-truth back 2 red; warm off 1 red (W-1), `framesLeft` cold 1 (W-2), a key outliving its tile 1 (W-3), warm as a
+pin 1 (W-3); release a task later 3 red (`raster.pyramid` never-both and the plane's landing); a per-frame origin 1 (FC6);
+the layer adopting every origin 1 (LS-3); FC1's list short 2 (FC1, the overlay's list).
+**Found (not mine, pre-existing on c7fed1a, jsdom):** (a) the queue's velocity rule re-aims a view strip without a floor:
+fast zoom-out steps (1–3 ms apart) sent levels −14…−21 while the view was at −4/−5, and one such plate took 5–99 s
+and 1.5–8 GB inline (the 25-min "stuck suite"); (b) a pen-up group whose strips are dropped as "exact" because the
+cells are in flight for another job waits the whole LIVE_HOLD_MS: two strokes back to back, the second path up 3,070 ms.
+**Questions asked:** (a) and (b) to B-PYRAMID-4 (clamp the re-aimed level at `ownFloor`; a dropped group strip re-asked or
+resolved) — or filed as flags by me? Recommendation: I file both in OPEN-FLAGS now, B-PYRAMID-4 fixes.
+WHERE I AM: the round trips on frozen copies (c7fed1a against it with item 4), then item 5's docs, the quick suite.
