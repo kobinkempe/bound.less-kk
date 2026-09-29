@@ -21,12 +21,15 @@ import LevelMap from "./LevelMap";
 import { R as CROSS_RATIO, W as FRAME_W, childTilePhase } from "./frameLattice";
 import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf } from "./geometry/derive";
 import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop } from "./geometry/arcShape";
-import { shiftDown } from "./geometry/offsets";
+import { shiftDown, pictureTable, composeShift } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
 import { cede } from "./cede";
 
 const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
+const frameShift = (lm, id) => { const f = lm.frame(String(id)); return f ? f.shift : null; };
+/** The own table of a kid homed in `F` drawn with picture table `T`: `T` less F's shift (A1 C1); null for none. */
+const ownIn = (lm, T, F) => { const s = frameShift(lm, F); return (s ? composeShift(T, [-s[0], -s[1]]) : T) || null; };
 
 /** The objects a descent reads and mints, apart from the document. */
 export class VirtualDoc {
@@ -160,16 +163,18 @@ export function descentJob(world, input) {
             let only = false;
             const c0rec = vdoc.getById(cid0);
             const c0 = c0rec && c0rec.obj;
-            const shift = c0 && c0.below ? lm.objShift(c0.below, c0rec.level, F) : null;
-            if (c0 && c0.below && !shift) { why = "the picture's frame cannot be found in " + F; unread = true; continue; }
+            // Its picture table: its own with its frame's shift (A1 C1), in this lattice (the worker's copy carries shifts).
+            const T0 = c0 ? pictureTable(c0, frameShift(lm, c0rec.level)) : undefined;
+            const shift = T0 ? lm.objShift(T0, c0rec.level, F) : null;
+            if (T0 && !shift) { why = "the picture's frame cannot be found in " + F; unread = true; continue; }
             const F0 = shift ? shift.F0 : F;
             const rem = shift ? shift.rem : [0, 0];
             const kdep = c0rec ? lm.depthOf(F) - lm.depthOf(c0rec.level) : 1;
-            const kidBelow = c0 && c0.below ? shiftDown(c0.below, kdep) : undefined;
+            const kidT = T0 ? shiftDown(T0, kdep) : undefined;   // a kid's picture table, less its frame's shift at the cede
             let need = { left: eraseAtF.left - rem[0], right: eraseAtF.right - rem[0],
                 top: eraseAtF.top - rem[1], bottom: eraseAtF.bottom - rem[1] };
             if (next && next.centre) {
-                const n0 = shift ? lm.objShift(c0.below, c0rec.level, next.id) : null;
+                const n0 = shift ? lm.objShift(T0, c0rec.level, next.id) : null;
                 const nc = n0 && n0.F0 !== next.id ? lm.mapPointF([0, 0], n0.F0, F0) : [next.centre.x, next.centre.y];
                 const h = FRAME_W / CROSS_RATIO / 2;   // half a cell, in F's units
                 if (nc) {
@@ -232,7 +237,7 @@ export function descentJob(world, input) {
                         : [0, 0]);
                     const step = cede(vdoc, cid, Fn, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
-                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, kidBelow, boolOpts,
+                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownIn(lm, kidT, Fn), boolOpts,
                         dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id);
                     if (!step) { why = "cedeTileById refused"; continue; }
                     const spec = (p) => ({ vid: p.obj.id, level: p.level, obj: p.obj });

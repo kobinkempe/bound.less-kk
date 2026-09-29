@@ -45,7 +45,7 @@ import {
     repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, composeShift } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, composeShift, pictureTable, ownTableOf } from "./geometry/offsets";
 import { unsettle } from "./legacy/modelV1";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
@@ -296,7 +296,7 @@ export default class Document {
      */
     tableOf(o, home = o._home) {
         const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
-        return composeShift(o.below, f ? f.shift : null);
+        return pictureTable(o, f ? f.shift : null);
     }
     /**
      * Every live native drawn away from its stored bits, as `[obj, home, table]` (its picture table):
@@ -321,7 +321,9 @@ export default class Document {
     /** Does native `o` carry a table of its own (not only its frame's shift)? */
     hasOwnTable(o) { return this._offsetIds.has(o.id); }
     /** A copy of native `o`'s own table, as an undo entry records it (undefined when it has none). */
-    ownTable(o) { return cloneBelow(o.below); }
+    ownTable(o) { return ownTableOf(o); }
+    /** The own table of native `o` promoted from `from` to its parent `to`: its picture table one level down there (A1 C1). */
+    promotedTable(o, from, to) { return this.ownFor(shiftUp(this.tableOf(o, from)), to); }
     /** Does frame `k` carry a shift (its natives are drawn displaced by it)? */
     _shifted(k) { const f = this.lm && k != null ? this.lm.frame(String(k)) : null; return !!(f && f.shift); }
     /** The ids that do. */
@@ -1085,6 +1087,9 @@ export default class Document {
     }
     /** CEDE A TILE (bible §2.1): `cede.js`, with this document as the receiver. */
     cedeTileById(id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by = null) {
+        const src = this._byId.get(id);
+        // The kid's own table: its source's picture table one level down, less its frame's shift (A1 C1).
+        if (kidBelow === undefined && src) kidBelow = this.ownFor(shiftDown(this.tableOf(src), 1), level) || null;
         return cede(this, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by);
     }
     /**

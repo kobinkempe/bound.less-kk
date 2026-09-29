@@ -394,9 +394,10 @@ class ErasePipeline {
             // The cell's own origin sits at `centre` in the parent, so the
             // promoted coordinates are p/R + centre.
             const moved = Document.translateGeometry(g, f.centre.x, f.centre.y);
+            const table = this.doc.promotedTable(rec.obj, rec.level, pid);   // its old frame's shift one level down (A1 C1)
             const lw = rec.obj.lwFrame, w = rec.obj.w;
             this.doc.rehomeById(id, pid);
-            this.doc.setGeometryById(id, moved);
+            this.doc.setGeometryById(id, { ...moved, below: table });
             const cur = this.doc.getById(id);
             if (cur) {
                 if (lw != null) cur.obj.lwFrame = lw / CROSS_RATIO;
@@ -572,9 +573,10 @@ class ErasePipeline {
     }
     /**
      * The registration's scan: every reachable native under mark E's box, below its z, whose box the
-     * eraser's box reaches (`_rectMayTouch`), less `exclude`; ascending ids. From the frames' indexes;
-     * a moved native (F41/F55) through its table, the box mapped once per (home, table) — mapped per
-     * object, 19,547 moved natives took 300 ms on the Magnum Opus (TESTER-2). Once per mark (EC-1).
+     * eraser's box reaches (`_rectMayTouch`), less `exclude`; ascending ids. From the frames' indexes
+     * for a native drawn at its stored bits; a displaced one (F41/F55, a shifted frame's, A1 C1)
+     * through its picture table, the box mapped once per (home, table) — mapped per object, 19,547
+     * moved natives took 300 ms on the Magnum Opus (TESTER-2). Once per mark (EC-1).
      */
     _candidatesUnder(Erec, exclude = null) {
         const E = Erec.obj, HE = Erec.level, zE = zOf(E);
@@ -588,16 +590,15 @@ class ErasePipeline {
             if (this.lm.frameFactor(k, HE) == null) continue;
             const r = this.lm.mapRectF(rectE, HE, k);
             if (!r) continue;
-            for (const o of this.doc.queryRect(k, r)) if (o.below === undefined && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
+            for (const o of this.doc.queryRect(k, r)) if (!this.doc.tableOf(o, k) && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
         }
         const rectIn = new Map();
-        for (const id of this.doc.offsetIds()) {
-            const rec = this.doc.getById(id);
-            if (!rec || !keep(rec.obj) || this.lm.frameFactor(rec.level, HE) == null) continue;
-            const key = rec.level + "|" + (encodeBelow(rec.obj.below) || []).join(";");
+        for (const [o, home, T] of this.doc.displacedNatives()) {
+            if (!keep(o) || this.lm.frameFactor(home, HE) == null) continue;
+            const key = home + "|" + (encodeBelow(T) || []).join(";");
             let r = rectIn.get(key);
-            if (r === undefined) { r = this._eraserRectInto(rectE, HE, rec.obj); rectIn.set(key, r); }
-            if (r && this._rectMayTouch(r, rec.obj)) out.add(id);
+            if (r === undefined) { r = this._eraserRectInto(rectE, HE, o); rectIn.set(key, r); }
+            if (r && this._rectMayTouch(r, o)) out.add(o.id);
         }
         return [...out].sort((a, b) => a - b);
     }
@@ -698,12 +699,12 @@ class ErasePipeline {
     _eraserRectInto(rect, HE, o) { return this.stage.placeNative(o, HE).toStored(rect); }
     /** The same, for the eraser's LOOPS. */
     _eraserLoopsInto(loops, HE, o) { return this.stage.placeNative(o, HE).toStored(loops); }
-    /** Mark E's loops in `o`'s stored coordinates, memoised per (home, table): targets moved together share it (A2 §4.7). */
+    /** Mark E's loops in `o`'s stored coordinates, memoised per (home, picture table): targets moved together share it (A2 §4.7). */
     _projected(E, HE, o) {
         const tag = this.lm.addrEpoch + "|" + HE + "|" + (E._ver || 0);
         let m = this._proj.get(E.id);
         if (!m || m.tag !== tag) this._proj.set(E.id, (m = { tag, map: new Map() }));
-        const key = o._home + "|" + (encodeBelow(o.below) || []).join(";");
+        const key = o._home + "|" + (encodeBelow(this.doc.tableOf(o)) || []).join(";");
         let loops = m.map.get(key);
         if (loops === undefined) { loops = this._eraserLoopsInto(E.loops, HE, o); m.map.set(key, loops); }
         return loops;
@@ -1172,7 +1173,8 @@ class ErasePipeline {
                 // piece for the square), so it maps to the parent's stored
                 // coordinates through the parent's UNMOVED frame at the kid's
                 // level (F55) — the exact chain, no remainder involved.
-                const upF0 = up.obj.below ? this.lm.objShift(up.obj.below, up.level, kid.level) : null;
+                const upT = this.doc.tableOf(up.obj, up.level);
+                const upF0 = upT ? this.lm.objShift(upT, up.level, kid.level) : null;
                 const Rp = upF0 ? this.lm.mapRectF(Rk, upF0.F0, up.level) : this.lm.mapRectF(Rk, kid.level, up.level);
                 if (!Rp) continue;
                 const at = Math.max(rectTol(R) / rectSpan(R), rectTol(Rp) / rectSpan(Rp));

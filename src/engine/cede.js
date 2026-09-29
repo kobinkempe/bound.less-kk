@@ -3,8 +3,9 @@
  * descent's virtual document (R25 D4, PLAN §5.3). The parent's hole `holeInParent` is cut
  * exactly, in the parent's own coordinates (a round trip through a local origin moved every
  * vertex an ulp, F42); what was inside becomes kids at `level`; the remnants and the kids stay
- * in one edit family, sharing one tile grid (D4) and the parent's offsets (F41: the kid's table
- * is the parent's from `level` down, `kidBelow` when the caller has it from `objShift`, F55).
+ * in one edit family, sharing one tile grid (D4). The remnants keep the parent's own table; a
+ * kid's, `kidBelow`, is the caller's: the parent's picture table from `level` down less the kid
+ * frame's shift (F41, F55, A1 C1).
  *
  * `doc` is the receiver: `getById`, `removeById(id, opts)`, `add(obj, level, opts)`, `allocId`,
  * `editKey`, and `fillToShapeById` where a fill can be promoted. `by` is the mark whose bake this
@@ -13,7 +14,7 @@
  * coordinates, ride the parent's removal (A2 §4.5).
  */
 import { subtractShape, rectLoop, shapeComponents, dropDust } from "./geometry/arcShape";
-import { cloneBelow, shiftDown } from "./geometry/offsets";
+import { cloneBelow, ownTableOf } from "./geometry/offsets";
 import { inheritErase } from "./eraseRule";
 import { dustBoxes } from "./eraseJob";
 
@@ -43,8 +44,7 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
         inheritErase(obj, src, by);
         return { obj: doc.add(obj, lvl, { by }), level: String(lvl) };
     };
-    const parents = keep.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, cloneBelow(src.below)));
-    const below1 = kidBelow !== undefined ? cloneBelow(kidBelow) : shiftDown(src.below, 1);
-    const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(below1)));
+    const parents = keep.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, ownTableOf(src)));
+    const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(kidBelow)));
     return { removed, parents, kids, pieces: parents.concat(kids), dust };
 }

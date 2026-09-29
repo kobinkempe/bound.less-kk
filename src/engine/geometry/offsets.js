@@ -219,6 +219,12 @@ export function homeTranslation(below) {
     return r ? [r.carry[0] * W + r.rem[0], r.carry[1] * W + r.rem[1]] : null;
 }
 
+/** Native `o`'s picture table given its home frame's shift: `composeShift` of its own (A1 C1). */
+export function pictureTable(o, shift) { return composeShift(o.below, shift); }
+
+/** A copy of native `o`'s own table, as a piece cut from it or an undo entry keeps it (undefined when none). */
+export function ownTableOf(o) { return cloneBelow(o.below); }
+
 /**
  * A native's PICTURE table (A1 C1): its own table with its home frame's shift added at k = 0, without
  * a carry, so the sum may reach a frame and a half. `below` itself when the frame has no shift.

@@ -259,7 +259,7 @@ class Overlays {
                     // where its picture is; the view, in its units, is the
                     // view brought back through those offsets.
                     let vrO = vr;
-                    if (o.below) vrO = this.stage.placeNative(o, F).toStored(win) || vr;
+                    if (this.doc.tableOf(o)) vrO = this.stage.placeNative(o, F).toStored(win) || vr;
                     rings = this._outlineInView(o, vrO, tol);
                     if (rk) C.rings.set(rk, rings);
                 }
@@ -451,7 +451,8 @@ class Overlays {
                     // parent's stored coordinates through the parent's unmoved
                     // frame at the kid's level (F55), the same way the family
                     // check in `_familyComponents` does.
-                    const upF0 = up.obj.below ? this.lm.objShift(up.obj.below, up.level, kid.level) : null;
+                    const upT = this.doc.tableOf(up.obj, up.level);
+                    const upF0 = upT ? this.lm.objShift(upT, up.level, kid.level) : null;
                     const Rp = upF0 ? this.lm.mapRectF(Rk, upF0.F0, up.level) : this.lm.mapRectF(Rk, kid.level, up.level);
                     if (!Rp) continue;
                     const at = Math.max(rectTol(R) / rectSpan(R), rectTol(Rp) / rectSpan(Rp));
