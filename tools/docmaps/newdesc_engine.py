@@ -501,32 +501,23 @@ add("eds.unwireDescentResult", "unwireDescentResult(m)",
     "A descent result back from a message, every step object's loops wrapped as Loops.",
     ["-"], "§10")
 
-# ---- src/engine/eraseWorkerClient.js ----
-add("ewc.setEraseTransport", "setEraseTransport(t)",
-    "Tests only: stands a promise-returning transport in for the worker, to run the asynchronous path in jsdom.",
-    ["`t(msg, transfer, kind)` resolves to the result message; null restores the worker path. `erase.worker.test.js` uses it."],
-    "§10")
-add("ewc.workerUrl", "workerUrl()",
-    "The worker script's URL: `/erase-worker.js` under the app's PUBLIC_URL.",
+# ---- src/engine/eraseWorkerClient.js ---- (rewritten 2026-09-29, B-PYRAMID-2b P6: the cuts in the shared pool)
+add("ewc.cutQueue", "cutQueue()",
+    "A `JobQueue` over the raster pool for cuts alone: the SVG path's (the raster renderer's queue carries plates and cuts together).",
+    ["-"], "§7")
+add("ewc.cutSlots", "cutSlots(queue)",
+    "How many more cuts the bake's lookahead may send: the pool's size less the cuts queued or out; 0 when the pool is broken.",
+    ["-"], "§7")
+add("ewc.submit", "submit(queue, {kind, barrier, job})",
+    "One cut or descent as a `JobQueue` job of kind \"cut\" at `PRIO.cut`, posted to a raster worker (`runCut`): a promise of its result, or null when the pool is broken (the pipeline runs the job inline).",
+    ["While any cut is pending the queue keeps one worker for cuts. A barrier's jobs go first. A job a worker error lost goes back to the head of its priority once (`requeue`); the one the watchdog found silent, a second loss, or a job that threw rejects with `err.why`, and the pipeline refuses the pair over ink — never inline, where the same job would stall the page (PLAN §5.9 item 1)."],
+    "§7")
+add("ewc.resetEraseWorkerClient", "resetEraseWorkerClient()",
+    "Tests only: the counters back to zero.",
     ["-"], "")
-add("ewc.getWorker", "getWorker()",
-    "The one erase worker, created on first use; null for the rest of the session once there is none.",
-    ["No `Worker` global, a constructor that throws, or an error event outside a job marks it broken. An error event rejects every waiting job (each then runs inline, `_onCutResult`) and terminates the worker. Replies are matched to their promise by id."],
-    "§10")
-add("ewc.runCutAsync", "runCutAsync(job)",
-    "Sends one cut to the worker: a promise of the result with regions as Loops, or null where there is no worker.",
-    ["The job's loops are copied for the message, so the caller's stay its own. On null the pipeline runs `cutJob` inline, which jsdom always does."],
-    "§10")
-add("ewc.runDescentAsync", "runDescentAsync(world, input)",
-    "Sends one descent to the worker: a promise of its steps, or null where there is no worker.",
-    ["-"], "§10")
-add("ewc.post", "post(kind, msg, transfer, unwire)",
-    "Posts one job, `cut` or `descent`, and returns a promise of its unwired result.",
-    ["The test transport first, else the worker; null when there is neither. Each message carries a fresh id; a `postMessage` that throws rejects at once."],
-    "§10")
 add("ewc.eraseWorkerStats", "eraseWorkerStats()",
-    "For the report: jobs posted to the worker, jobs waiting, whether it is broken, whether a test transport stands in.",
-    ["-"], "§15")
+    "For the report: cuts posted, run inline, landed, requeued and lost.",
+    ["-"], "§14")
 
 
 # What each file NEW to the pages is for (the file's article heading on the Code Map).
@@ -534,16 +525,17 @@ ROLE = {
     "src/engine/eraseJob.js":
         "The geometry of one erase cut as a job: the boolean, the removal measured locally, the graze rule "
         "and the dust cull, with no document in reach, so the same function runs on the main thread and in "
-        "the erase worker. It also moves a job and its result between threads as transferable buffers.",
+        "a raster worker (`runCut`). It also moves a job and its result between threads as transferable buffers.",
     "src/engine/eraseDescent.js":
         "The rehome descent as one job per family: every cede down to the erase level runs on a virtual "
         "document, each square's ink derived exactly as the tile store derives it, and nothing reaches the "
-        "document until the whole descent has succeeded. Runs on the main thread, or in the erase worker on "
+        "document until the whole descent has succeeded. Runs on the main thread, or in a raster worker on "
         "a copy of the lattice.",
     "src/engine/eraseWorkerClient.js":
-        "The main thread's side of the erase worker (`public/erase-worker.js`): posts cut and descent jobs "
-        "and hands back promises of their results, or null where there is no worker, in which case the "
-        "pipeline runs the same job inline, as jsdom always does.",
+        "The cuts in the shared worker pool (B-PYRAMID-2b, 2026-09-29): a cut or a descent is a `JobQueue` "
+        "job at `PRIO.cut` posted to a raster worker, with one worker kept for cuts while any is pending; "
+        "a promise of its result, or null when the pool is broken, in which case the pipeline runs the "
+        "same job inline, as jsdom always does.",
 }
 
 

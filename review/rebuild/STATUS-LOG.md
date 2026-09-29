@@ -1856,3 +1856,19 @@ Model suites: 40 files 446 passed before; model.compose/pureRead/store.model/rer
 **Decisions made:** class B by place, not a named exception (the pictures are of places; ids differ by design).
 **Questions asked:** none.
 WHERE I AM: item 2 — the two dev servers (5e9b1dd worktree :3030, tree :3031) and `bm1/scenes34.js`.
+
+## 2026-09-29 11:26 UTC — B-PYRAMID-2b (builder) — item 3 checkpoint and item 5 (docs) done; item 6 running
+**Working on:** item 6's harness batch on a frozen tree (15b3738 from `git archive`, :3012). Item 3(c), the undo's 299
+ms, measured in headless Chromium (the harness now reads exact only after the undo's commit and a compose after it;
+its first poll had read the pre-undo picture, 11 ms): committed 315–399 ms after the key, exact 439–580 ms. The patch
+never runs inline in the dense scene: T 34.1–40.6 ms against `patchInlineMs` 6 (2 cells, E at the 20,001-chord
+cap, A 666,316 box px), no coarser level fits; the rest is the main thread — arrivals packing prefetch strips at
+171–212 ms `eng.pack` each, the undo's own keydown 291 ms of script, 387–806 ms timer/IDB tasks ahead of it.
+Item 5: DESIGN §7/§9/§15, docs/ai 10-/20-/30-/40-, PLAN §1.2's as-built note, A3's dated notes (§2.5, §4.2, §4.6,
+§9.1), TEST-MAP, OPEN-FLAGS' pyramid notes on F101/F106/F119/F120/F121/F122 (F79 waits for the harness's compose
+numbers; F65 open), `newdesc_engine.py`'s erase client, C1's two items (the saver's drain gone, `rasterPack`'s line).
+**Measured so far (run 1, load 1.89 → 5.1 from 11:23: another agent's two dev servers and a Chromium harness):**
+1 zoom-out paper 150 ms (P5's pyramid 4.1), blur 112, older 0/0; 1 back paper 188, blur 3,268; 2 slow paper 5.2,
+blur 34; 3 pan 0/0/0, 16 long frames (contended).
+**Questions asked:** none (the orchestrator's rest-set answer goes to openItems; not built).
+WHERE I AM: item 6 — both runs and levelStep 2/3, then scenario 1 on P5's tree for an A/B of the paper number.
