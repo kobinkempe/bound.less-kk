@@ -20,6 +20,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS} seeds × $
     const st = { items: 0, exact: 0, carried: 0, carriedExact: 0, carriedUlp: 0, maxUlp: 0 };
     const fails = [], opCount = {}, cov = { checks: 0, frames: 0 };
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
+        st.tainted = new Set();                                  // native ids start again with each seed
         runPairFuzz(seed, STEPS, (O, N, step, op) => {
             opCount[op] = (opCount[op] || 0) + 1;
             cov.checks++;
@@ -31,6 +32,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS} seeds × $
             return true;
         });
     }
+    delete st.tainted;
     log("MODEL-EQUIV " + JSON.stringify({ seeds: [FIRST, FIRST + SEEDS - 1], steps: STEPS, ...cov, ...st, ops: opCount }));
     expect(fails).toEqual([]);
 });

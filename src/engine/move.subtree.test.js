@@ -191,7 +191,6 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         E._render();
         return { E, A, A1, B, B1, ids };
     };
-    const drop = (E, A, dx) => { E._setSelection([], [A.id]); dragDirect(E, press(E, A.id), dx, 0); E.pointerUp(); };
     test("t8 the mover shadows the resident during the drag, merges at the drop, and undo splits it back", () => {
         const { E, A, A1, B, B1, ids } = build();
         const start = bytes(E);

@@ -977,7 +977,6 @@ function bundleSizes() {
     let analyze = [];
     for (const w of [
         { name: "raster", entry: "src/engine/worker/rasterWorker.js", shipped: "public/raster-worker.js" },
-        { name: "erase", entry: "src/engine/worker/eraseWorker.js", shipped: "public/erase-worker.js" },
     ]) {
         const plainFile = path.join(dir, w.name + "-plain.js");
         const plain = build(w.entry, plainFile, false);

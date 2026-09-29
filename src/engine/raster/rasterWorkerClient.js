@@ -53,7 +53,7 @@ import {
     wireJob, unwireResult, jobBytes, resultBytes, BufferPool,
     GUARD_NAMES, COUNT_NAMES, GUARDS_PER_JOB, COUNTS_PER_PLATE, TIMINGS_PER_PLATE,
 } from "./rasterJob";
-import { runJob } from "../worker/rasterWorker";
+import { runJob, runCut } from "../worker/rasterWorker";
 import { PLATE_PX } from "./plate";
 
 /** §6.6's one rule for the worker count, and the ceiling that makes a strip half a worker's share. */
@@ -98,6 +98,7 @@ const stats = {
     // (§8.5); a late spawn works but costs the first render the bundle's load. Non-zero says so.
     spawnedLate: 0,
     respawns: 0, silent: 0,         // RW-1: pools replaced, and how many of those for a silent job
+    cuts: 0, cutMs: 0,              // cuts and descents posted (PLAN §1.6), and their post-to-answer time
 };
 
 /** §8.5: the seven `guards` per job and the eight `counts` per plate, totalled over the session. */
@@ -257,16 +258,17 @@ function onWorkerError(e) { failPool(e, answered); }
 
 /**
  * Every strip in flight reported and re-queued, the pool terminated; a new pool when `respawn`
- * and respawns are left, else the inline path for the session.
+ * and respawns are left, else the inline path for the session. `silent`: the record the watchdog
+ * found silent — its `onRequeue` hears "watchdog", every other record's "worker".
  */
-function failPool(e, respawn) {
+function failPool(e, respawn, silent = null) {
     const stranded = [...inFlight.values()];
     inFlight.clear();
     terminateWorkers();                  // the strips are reported and re-queued below, not abandoned
     for (const f of stranded) {
         stats.failed++;
         // A `JobQueue` strip (the pyramid's) goes back to the head of its priority there (H7), not into this queue.
-        if (f.req.onRequeue) { f.req.onRequeue(f.jobId); continue; }
+        if (f.req.onRequeue) { f.req.onRequeue(f.jobId, f === silent ? "watchdog" : "worker"); continue; }
         if (f.req.onDrop) f.req.onDrop({ jobId: f.jobId, plates: f.plates, why: "worker", before: false });
     }
     for (const f of stranded) if (!f.req.onRequeue) queue.push({ req: f.req, plates: f.plates });
@@ -293,7 +295,7 @@ function checkWatchdog() {
         if (!rec.slot || t - rec.postedAt < WATCHDOG_MS) continue;
         if (!rec.suspect) { rec.suspect = t; continue; }
         stats.silent++;
-        failPool(null, true);
+        failPool(null, true, rec);
         return;
     }
     for (const rec of inFlight.values()) if (rec.slot) { armWatchdog(); return; }
@@ -473,6 +475,7 @@ function freeSlot() {
 
 /** Pack and post one entry into `slot`. False when the pack declined or threw (`onDrop` has fired with the id). */
 function dispatch(entry, slot) {
+    if (entry.req.cut) return dispatchCut(entry, slot);
     const jobId = ++seq;
     let job;
     try {
@@ -526,6 +529,56 @@ function dispatch(entry, slot) {
     return true;
 }
 
+/**
+ * A cut or a descent (`req.cut`, PLAN §1.6) posted into `slot`: `req.wire()` gives its message, `req.onResult(out)`
+ * gets the worker's wired answer. A transport is called `(msg, transfer, kind)`; with no worker (a broken pool) the
+ * worker's own `runCut` runs on this thread a turn later.
+ */
+function dispatchCut(entry, slot) {
+    const jobId = ++seq, r = entry.req;
+    let w;
+    try { w = r.wire(); } catch (err) {
+        stats.failed++;
+        r.onDrop({ jobId, plates: null, why: "pack", before: true });
+        return false;
+    }
+    const rec = { req: r, plates: null, postedAt: now(), slot, jobId, bytesOut: 0, postMs: 0 };
+    inFlight.set(jobId, rec);
+    stats.cuts++;
+    if (slot) slot.jobId = jobId;
+    const answer = (out) => onCutMessage(slot, { kind: "cut-result", jobId, ok: true, out });
+    if (transport) {
+        transport(w.msg, w.transfer, r.cut).then(answer, (err) => onFailed(jobId, err, slot));
+        return true;
+    }
+    if (slot) {
+        try { slot.w.postMessage({ kind: "cut-job", cut: r.cut, jobId, job: w.msg }, w.transfer); armWatchdog(); } catch (err) { onFailed(jobId, err, slot); }
+        return true;
+    }
+    Promise.resolve().then(() => runCut(r.cut, w.msg)).then((out) => answer(out.msg), (err) => onFailed(jobId, err, null));
+    return true;
+}
+
+/** A cut's answer: its record ended and its `onResult` called, or a job that threw in the worker failed (`onDrop`). */
+function onCutMessage(slot, data) {
+    if (slot) answered = true;
+    const rec = inFlight.get(data.jobId);
+    if (!rec) { if (releaseAbandoned(slot)) pump(); return; }
+    if (!data.ok) { onFailed(data.jobId, new Error(data.err || "cut failed"), slot); return; }
+    inFlight.delete(data.jobId);
+    if (rec.slot) rec.slot.jobId = null;
+    stats.cutMs += now() - rec.postedAt;
+    rec.req.onResult(data.out);
+    pump();
+}
+
+/** The pool is broken: no transport, and no worker — the script did not load, or the pool failed past its respawns. */
+export function poolBroken() {
+    if (transport) return false;
+    if (!broken) spawnPool(true);
+    return broken || !workers.length;
+}
+
 /** Free slots now: idle workers, a transport's spare capacity, or the one inline slot when nothing is in flight. */
 function freeSlots() {
     if (transport) return Math.max(0, rasterWorkerCount() - inFlight.size - heldNoSlot);
@@ -565,6 +618,7 @@ function onFailed(jobId, err, slot) {
 }
 
 function onMessage(slot, data) {
+    if (data.kind === "cut-result") { onCutMessage(slot, data); return; }
     const arrivedAt = now();                           // the main thread's own clock, first (§8.2)
     if (slot) answered = true;
     if (data.kind === "raster-error") {
@@ -656,7 +710,7 @@ export function rasterWorkerReport() {
         mode: transport ? "transport" : workers.length ? "workers" : "inline",
         workers: workers.length, wanted: rasterWorkerCount(), broken, respawns: stats.respawns, silent: stats.silent,
         queued: queue.length, inFlight: inFlight.size, heldSlots: held, liveRequests: current.size,
-        jobs: stats.jobs, plates: stats.plates, failed: stats.failed,
+        jobs: stats.jobs, plates: stats.plates, failed: stats.failed, cuts: stats.cuts, cutMs: stats.cutMs,
         dropsBefore: stats.dropsBefore,
         bytesOut: stats.bytesOut, bytesIn: stats.bytesIn,
         workerMs: stats.workerMs, poolReadyMs: stats.poolReadyMs,

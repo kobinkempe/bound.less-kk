@@ -7,7 +7,7 @@
  * timing on 100 and 1,000 objects is `erase.stack.probe.js`.
  */
 import { mkEngine, useEngines, eraseGesture, topAtAll } from "./__testkit__/harness";
-import { setEraseTransport } from "./eraseWorkerClient";
+import { setRasterTransport, setRasterWorkerCount } from "./raster/rasterWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { intersectShape, loopsArea, loopsBBox } from "./geometry/arcShape";
 import { underMask } from "./eraseRule";
@@ -113,7 +113,8 @@ function dragFrom(E, at, k, step = 10) {
 
 describe("a ring erased through a stack, while it bakes", () => {
     useEngines();
-    afterEach(() => setEraseTransport(null));
+    beforeEach(() => setRasterWorkerCount(3));   // cuts share the raster pool: three slots, as the erase pool had
+    afterEach(() => { setRasterTransport(null); setRasterWorkerCount(null); });
 
     test("a lasso drawn while the ring bakes waits for the bake, then selects every cut-out", () => {
         const { E, Erec, want } = stack(10);
@@ -178,7 +179,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("undo and redo while a cut is in the worker: the redo resumes that cut", async () => {
-        setEraseTransport(worker());
+        setRasterTransport(worker());
         const { E, want } = stack(8);
         E._bakeTick();
         expect(E._eraseBusy()).toBe(true);
@@ -190,7 +191,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("a drag begun while a mark's last cut is in the worker does not spend the mark before the cut lands", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const { E, want } = stack(1);
         E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#c03030", opacity: 1,
             polys: [[[20, 20], [60, 20], [60, 60], [20, 60]]] }, E.cam.frame);   // drawn after the mark, away from it
@@ -203,7 +204,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("a select of the mark's next object while the current one's cut is in the worker, then undo and redo: nothing lost", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const { E, objs, want } = stack(6);
         E._bakeTick();
         const A = objs[5], B = objs[4];
@@ -218,7 +219,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("a select of the mark's next object while the current one's cut is in the worker, then a drag of that one: it is cut before it moves", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const { E, objs, want } = stack(6);
         E._bakeTick();
         const A = objs[5], B = objs[4];
@@ -246,7 +247,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("flushErases with a cut in the worker bakes that cut too", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const { E, want } = stack(3);
         E._bakeTick();
         expect(E._eraseBusy()).toBe(true);
@@ -257,7 +258,7 @@ describe("a ring erased through a stack, while it bakes", () => {
     });
 
     test("a session through the worker: drags, a move undone and redone, a select of the baker's target — nothing lost or cut twice", async () => {
-        setEraseTransport(worker());
+        setRasterTransport(worker());
         const { E, want } = stack(12);
         for (let i = 0; i < 4; i++) { E._bakeTick(); await later(6); }
         dragFrom(E, C, 15, -20); E.deselect();

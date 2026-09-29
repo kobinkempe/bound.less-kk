@@ -1,8 +1,10 @@
 /* eslint-env worker */
 /* eslint-disable no-restricted-globals */
 /**
- * rasterWorker.js — one strip of plates per message (bundled to public/raster-worker.js by
- * `npm run build:worker`). The job arrives as RASTERISER-PLAN §3.3's transferred typed arrays,
+ * rasterWorker.js — one strip of plates, or one cut, per message (bundled to public/raster-worker.js
+ * by `npm run build:worker`; plates and cuts share the pool, PLAN §1.6). A cut (`kind: "cut-job"`) runs
+ * `cutJob` or `descentJob`, the functions the main thread would run (`runCut`), and answers
+ * `kind: "cut-result"`. A strip's job arrives as RASTERISER-PLAN §3.3's transferred typed arrays,
  * `rasterCore.renderPlate` draws each plate into the one RGBA scratch, and the pixels, the
  * per-plate timings and counts, the job's seven guard words and the job's own buffers go back
  * as §3.4's result. Nothing here knows about a document, a camera or a canvas.
@@ -37,6 +39,8 @@ import {
     TIMINGS_PER_PLATE, COUNTS_PER_PLATE, GUARDS_PER_JOB, GUARD_NAMES,
 } from "../raster/rasterJob";
 import { renderPlate, coreStats, TW, TH } from "../raster/rasterCore";
+import { cutJob, unwireJob as unwireCut, wireResult as wireCutResult } from "../eraseJob";
+import { descentJob, unwireDescent, wireDescentResult } from "../eraseDescent";
 
 /** The one plate of scratch this worker ever holds (§3.5): 1.05 MB, allocated once. */
 const RGBA = new Uint8ClampedArray(TW * TH * 4);
@@ -121,11 +125,30 @@ export async function runJob(msg, opts) {
     return out;
 }
 
+/**
+ * One cut or descent (`kind` "cut" | "descent"), its wired job in and its wired result out — the inline
+ * path (a broken pool) runs this same function on the main thread.
+ * @returns {{ msg: object, transfer: any[] }}
+ */
+export function runCut(kind, job) {
+    if (kind === "descent") { const { world, input } = unwireDescent(job); return wireDescentResult(descentJob(world, input)); }
+    return wireCutResult(cutJob(unwireCut(job)));
+}
+
 // The entry itself. A dedicated worker has no `window`; the main thread and jsdom do, and
 // assigning `self.onmessage` there would take over the page's own message handler.
 if (typeof window === "undefined" && typeof self !== "undefined" && typeof self.postMessage === "function") {
     self.onmessage = (e) => {
         const msg = (e && e.data) || {};
+        if (msg.kind === "cut-job") {
+            let out;
+            try { out = runCut(msg.cut, msg.job); } catch (err) {
+                self.postMessage({ kind: "cut-result", jobId: msg.jobId, ok: false, err: String((err && err.message) || err) });
+                return;
+            }
+            self.postMessage({ kind: "cut-result", jobId: msg.jobId, ok: true, out: out.msg }, out.transfer);
+            return;
+        }
         const receivedAt = CLOCK.now();
         Promise.resolve()
             .then(() => runJob(msg, { receivedAt }))

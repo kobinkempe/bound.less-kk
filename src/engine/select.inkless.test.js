@@ -249,11 +249,13 @@ describe("a selection stands for ink", () => {
             const ss = E._setSelection.bind(E);
             E._setSelection = (...x) => { calls++; return ss(...x); };
             const rev = E.doc.rev;
+            const unclosed0 = raster ? rasterPerf.report().meta.unclosed : 0;
             E._render();
             expect(E.doc.rev).toBe(rev);
             expect(E.doc.getById(a.id).level).toBe(kid.id);
             expect(calls).toBe(0);
             expect(E._isSelected(a.id)).toBe(true);
+            if (raster) expect(rasterPerf.report().meta.unclosed).toBe(unclosed0);   // no camera row left open by the render
         });
     }
 

@@ -6,7 +6,8 @@
  * exact or in flight exact; a view strip is aimed at where the camera will be when it lands (the velocity rule).
  *
  *   - One worker is kept for cuts while any are pending: other jobs hold at most `workers − 1` slots, and prefetch
- *     and thumbnails the same (at least one slot, so a one-worker pool is never starved).
+ *     and thumbnails the same (at least one slot, so a one-worker pool is never starved). A cut (`kind: "cut"`, a
+ *     descent too; `eraseWorkerClient.js`) is one strip with no cells, queued as pushed; a barrier's first.
  *   - While the camera moves, a frame packs at most PACK_MS_PER_FRAME (the pack runs in `pool.submit`, on this
  *     thread, 14–45 ms a job on a dense drawing, PP §10.14); the rest waits for the next frame.
  *   - Pure: a pool `{ size(), free(), submit(strip) }`, a clock, the store's `wants(key)`; `rasterWorkerClient.js`
@@ -67,6 +68,7 @@ export default class JobQueue {
      * `workers × STRIPS_PER_WORKER` strips; clips travel with their cells. A strip is the job with fewer cells.
      */
     strips(job) {
+        if (job.kind === "cut") return [job];
         const n0 = job.cells.length;
         if (!n0) return [];
         const order = job.cells.map((c, k) => k);
@@ -132,7 +134,7 @@ export default class JobQueue {
         const st = this.inFlight.get(id);
         if (!st) return false;
         this.inFlight.delete(id);
-        const t = ms === false ? NaN : ms != null ? ms : this.clock() - st.sentAt;
+        const t = ms === false || st.kind === "cut" ? NaN : ms != null ? ms : this.clock() - st.sentAt;   // plates are the estimate's
         if (t >= 0 && isFinite(t)) this.jobMs += 0.2 * (t - this.jobMs);
         this.s.done++;
         return true;
@@ -153,7 +155,15 @@ export default class JobQueue {
 
     // ---- the rules ----
 
-    /** The strip to run next: the lowest prio, the oldest within it; a cut's reserved worker and the low-prio cap respected. */
+    /** Strips of this kind queued or in flight. */
+    pending(kind) {
+        let n = 0;
+        for (const st of this.queue) if (st.kind === kind) n++;
+        for (const st of this.inFlight.values()) if (st.kind === kind) n++;
+        return n;
+    }
+
+    /** The strip to run next: the lowest prio, a barrier's then the oldest within it; a cut's reserved worker and the low-prio cap respected. */
     _best() {
         const W = Math.max(1, this.pool.size()), cap = Math.max(1, W - 1);
         let cuts = 0, other = 0, low = 0;
@@ -165,13 +175,14 @@ export default class JobQueue {
             if (st.kind !== "cut" && cutsPending && other >= cap) continue;
             if (st.prio >= PRIO.prefetch && low >= cap) continue;
             const b = best >= 0 ? this.queue[best] : null;
-            if (!b || st.prio < b.prio || (st.prio === b.prio && st.seq < b.seq)) best = k;
+            if (!b || st.prio < b.prio || (st.prio === b.prio && (!!st.barrier !== !!b.barrier ? !!st.barrier : st.seq < b.seq))) best = k;
         }
         return best;
     }
 
     /** At dispatch: drop a strip whose purpose moved on; drop its exact or in-flight cells; aim a view strip at the camera's arrival. */
     _admit(st) {
+        if (st.kind === "cut") return true;
         const pk = st.purpose ? String(st.purpose).split(":")[0] : null;
         const g = pk != null ? this.gens[pk] : undefined;
         if (st.gen != null && g != null && st.gen < g) { this._drop(st, "gen"); return false; }

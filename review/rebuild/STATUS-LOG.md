@@ -1585,3 +1585,24 @@ parts), `useKobinEngine.js` (gate, levers), `DevStats.js`, `CanvasEditor.js` (th
 **Measured:** nothing yet. Load 0.75 at start; B-MODEL-C1's servers on :3030/:3031; nothing on :3011.
 **Questions asked:** none.
 WHERE I AM: item 1 — read `eraseWorkerClient.js`, `erasePipeline.js`'s dispatch and `jobQueue.js`'s cut kind.
+
+## 2026-09-29 05:47 UTC — B-PYRAMID-2b (builder) — item 1 checkpoint: the cuts through the `JobQueue`
+**Working on:** item 1 done. A cut or descent is one `kind: "cut"` strip at `PRIO.cut` (no cells, a barrier's first
+within the priority, no arrival sample) in the renderer's queue (`erasePipeline._cutQ`; the SVG path gets
+`cutQueue()`'s), posted to a raster worker (`rasterWorker.runCut`, `cut-job`/`cut-result`); the interim pool, its
+workers and `worker/eraseWorker.js` are gone (`build:worker` builds two bundles; CLAUDE.md's line fixed). Lost jobs
+(PLAN §5.9 item 1): a worker's error → `requeue` once; the job the watchdog found silent (`failPool(…, silent)`), a
+second loss or a throw in the worker → rejected with `why` → `_refuseLost` (`_refuse`, journal "worker: <why>",
+`report().erase.counters.cutRefused`); `submit` is null only when `poolBroken()` (then inline, as before).
+Suites ported: `erase.worker/stack/rule` to `setRasterTransport` (3 slots), `erase.parallel` (fake raster workers;
+the serial engine refuses the parallel one's lost pairs in its turn), `eraseWorkerClient.test.js` rewritten (7).
+**Measured:** 60-seed fuzz green (19 s, load 1.1): 43 worker deaths, 21 silent jobs, 55 respawns, 100 requeues, 16
+refusals, 23 inline after a break (3 seeds ended broken), 83 descent jobs, 1,122 answers; erase.worker/stack/rule 45/45;
+eraseWorkerClient 7/7; jobQueue 8/8; typecheck 0; eslint 0 on the files. `raster-worker.js` 48 → 431 KB (the erase
+geometry). Break-checks on the copy (`bp2b/bc`), 14 rules, each red: the reservation 2, cut strips dealt 8, cut
+dropped at admit 8, cut sampled 1, barrier order 1, watchdog job requeued 2, no requeue 3, requeue for ever 1, silent
+not named 2 / not passed 2, a lost job rerun inline 1, inline with the pool up 15, never inline 1, a throw requeued 1.
+**Decisions made:** a throw inside the worker is a refusal (rerun inline it would throw again or stall); the other
+jobs in flight when the watchdog replaces the pool are requeued (lost to the replacement, not silent).
+**Questions asked:** none.
+WHERE I AM: item 2 — the gate: `KobinEngine`'s `pyramid` option and `cfg.pyramid` branches, then RasterRenderer's old path.

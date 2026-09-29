@@ -1745,8 +1745,9 @@ export default class RasterRenderer extends Renderer {
         return { E, A, U, P };
     }
 
-    /** The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused. */
+    /** The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused; a cut posts its own entry. */
     _pyrSubmit(st, pool) {
+        if (st.entry) return pool.submit(st.entry);
         const plates = new Int32Array(st.cells.length * 2);
         for (let k = 0; k < st.cells.length; k++) { plates[k * 2] = st.cells[k].i; plates[k * 2 + 1] = st.cells[k].j; }
         return pool.submit({

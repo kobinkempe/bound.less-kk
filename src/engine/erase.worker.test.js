@@ -1,11 +1,11 @@
 /**
- * The erase pool's path, driven through a stand-in transport (jsdom has no Worker): the tick
+ * The cuts' path through the shared pool (PLAN §1.6), driven through a stand-in transport (jsdom has no Worker): the tick
  * dispatches the serial head and its lookahead, the results land later and are applied in the
  * serial order exactly as the synchronous path would have; a result for a target that moved
  * meanwhile is dropped and the target baked again; a barrier waits for a cut in flight.
  */
 import { mkEngine, useEngines, drawStroke, eraseGesture, descend, ascend, drag, painted } from "./__testkit__/harness";
-import { setEraseTransport } from "./eraseWorkerClient";
+import { setRasterTransport, setRasterWorkerCount } from "./raster/rasterWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
 import { inks } from "./__testkit__/ink";
@@ -36,13 +36,14 @@ const scene = (E) => {
 
 describe("the erase worker", () => {
     useEngines();
-    afterEach(() => setEraseTransport(null));
+    beforeEach(() => setRasterWorkerCount(3));   // cuts share the raster pool: three slots, as the erase pool had
+    afterEach(() => { setRasterTransport(null); setRasterWorkerCount(null); });
 
     test("cuts through the worker land as the synchronous path's, bit for bit", async () => {
         const S = mkEngine(800, 600);
         scene(S);
         S.flushErases();
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         scene(E);
         E._bakeTick();
@@ -54,7 +55,7 @@ describe("the erase worker", () => {
     });
 
     test("a target that moved while its cut was in flight is baked again, where it is now", async () => {
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         const { A } = scene(E);
         E._bakeTick();
@@ -81,7 +82,7 @@ describe("the erase worker", () => {
         const S = mkEngine(800, 600);
         deep(S);
         S.flushErases();
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         deep(E);
         await later(150);                            // the tick stays out of a moving camera's way
@@ -94,7 +95,7 @@ describe("the erase worker", () => {
     });
 
     test("a descent whose target moved while in flight is dropped and done again", async () => {
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         const A = drawStroke(E, [[100, 300], [700, 300]], 24);
         descend(E, 2);
@@ -111,7 +112,7 @@ describe("the erase worker", () => {
     });
 
     test("a mark that lands while a descent is in flight keeps its claim: the pieces take the live target's lineage (A2 §4.3)", async () => {
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         drawStroke(E, [[100, 300], [700, 300]], 24);
         descend(E, 2);
@@ -141,7 +142,7 @@ describe("the erase worker", () => {
         const S = mkEngine(800, 600);
         two(S);
         S.flushErases();
-        setEraseTransport(transport, { slots: 3 });
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         two(E);
         await later(150);
@@ -153,7 +154,7 @@ describe("the erase worker", () => {
     });
 
     test("a barrier on a target whose cut is in a worker waits for that cut and applies it: nothing cut twice", async () => {
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         scene(E);
         E._bakeTick();
@@ -192,7 +193,7 @@ describe("the erase worker", () => {
         expect(kidsS.length).toBeGreaterThan(0);
         const kidLevel = kidsS[0].level;
         expect(kidLevel).not.toBe(S.cam.frame);            // the carry: homed a cell over from the camera's frame
-        setEraseTransport(transport);
+        setRasterTransport(transport);
         const E = mkEngine(800, 600);
         movedBelow(E);
         expect(E.lm.frame(kidLevel)).toBeUndefined();      // nothing here has minted it

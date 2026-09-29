@@ -147,6 +147,13 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         d.clock.t = 5000;
         expect(d.q.done(d.sent[1].id, false)).toBe(true);
         expect([d.q.jobMs, d.q.inFlight.size]).toEqual([30 + 0.2 * 70, 0]);
+        // A cut is one strip with no cells, never dropped at dispatch, and its time is no sample (the plates' estimate).
+        d.q.push([{ kind: "cut", prio: PRIO.cut, cells: [] }]);
+        d.q.pump();
+        expect(d.sent[2].kind).toBe("cut");
+        d.clock.t = 9000;
+        d.q.done(d.sent[2].id);
+        expect(d.q.jobMs).toBe(30 + 0.2 * 70);
     });
 
     test("cancellation by purpose generation and dedupe against the store, at dispatch", () => {

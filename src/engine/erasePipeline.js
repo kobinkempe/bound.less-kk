@@ -6,7 +6,7 @@
  * spent it masks exactly what the rule names (`eraseRule.underMask`: its targets and their pieces,
  * less what it has handled), so anything moved under it later, drawn after it, or already baked
  * shows (PLAN §0 decision 3). The bake cuts each pending pair (mark, target) — marks oldest first,
- * targets top-down — dispatched ahead through the erase pool (`eraseWorkerClient.submit`) and
+ * targets top-down — dispatched ahead through the shared pool's queue (`eraseWorkerClient.submit`) and
  * applied strictly in that serial order through a reorder buffer, so a parallel bake leaves the
  * inline bake's document, ids and log (A2 §4.7). The barriers bake a gesture's pending pairs
  * before it selects, moves or judges anything (A2 §4.11).
@@ -38,7 +38,7 @@ import {
 import { polygonMissesRect } from "./geometry/lasso";
 import { flattenLoops, strokeLoops } from "./geometry/curveOutline";
 import { cutJob, dustBarFor } from "./eraseJob";
-import { submit, eraseFreeSlots } from "./eraseWorkerClient";
+import { submit, cutSlots, cutQueue } from "./eraseWorkerClient";
 import { descentJob } from "./eraseDescent";
 import { rectSpan, rectTol } from "./rectMath";
 import { zOf, has, withId, withoutId, underMask, inheritErase } from "./eraseRule";
@@ -824,7 +824,7 @@ class ErasePipeline {
     }
     /** Dispatch ahead of the head in the serial order, up to the pool's free slots: a target pending under an earlier mark waits for that mark's pieces (the per-target lock). */
     _lookahead() {
-        let free = eraseFreeSlots();
+        let free = cutSlots(this._cutQ());
         if (free <= 0) return;
         const marks = this._eraseStrokes();
         let scanned = 0;
@@ -877,7 +877,7 @@ class ErasePipeline {
         if (!inline) {
             if (spec.kind === "descent" && this._descentOut) return ahead ? "none" : "wait";
             const key = cutKey(E.id, o.id), ver = o._ver || 0;
-            const p = submit({ kind: spec.kind, prio: 3, barrier, job: spec.kind === "cut" ? spec.job : { world: spec.world, input: spec.input }, key: { mark: E.id, target: o.id, ver } });
+            const p = submit(this._cutQ(), { kind: spec.kind, barrier, job: spec.kind === "cut" ? spec.job : { world: spec.world, input: spec.input } });
             if (p) {
                 const c = { key, markId: E.id, id: o.id, obj: o, ver, addr: this.lm.addrEpoch, gen: this._eraseGen, kind: spec.kind, spec, state: "flight", r: null, err: null, t0: perfNow() };
                 this._cuts.set(key, c);
@@ -921,20 +921,29 @@ class ErasePipeline {
         c.state = "landed"; c.r = r; c.err = err;
         if (this._barrier) this._barrierStep(); else this._scheduleBake(0);
     }
+    /** The queue cuts go through: the renderer's, where plates and cuts share the pool (A3 §4.1), else the engine's own. */
+    _cutQ() { return this.renderer.queue || this._cutQueue || (this._cutQueue = cutQueue()); }
     /**
      * A landed job applied in its turn, if still valid: the target live and unchanged (`_ver`: a
      * move or a settle projected the eraser through another table), the pair still pending, the
-     * lattice not re-addressed, the document not reloaded. A failed worker's job runs here.
+     * lattice not re-addressed, the document not reloaded. A job the pool lost is refused here.
      */
     _applyLanded(Erec, rec, c) {
         const valid = c.gen === this._eraseGen && rec.obj === c.obj && (rec.obj._ver || 0) === c.ver
             && this.lm.addrEpoch === c.addr && this._pendingPair(Erec.obj, rec.obj);
         if (!valid) { this._cutStale = (this._cutStale || 0) + 1; return false; }
         let r = c.r;
-        if (c.err || !r) { this._cutFailures = (this._cutFailures || 0) + 1; r = c.kind === "descent" ? descentJob(c.spec.world, c.spec.input) : cutJob(c.spec.job); }
+        if (c.err || !r) return this._refuseLost(Erec, rec, c);
         const tA = perfNow();
         try { return this._applyPair(Erec, rec, c.kind, r); }
         finally { this._perf(c.kind === "descent" ? "descentApply" : "cutApply", tA, true, { kind: c.kind === "descent" ? (r.refused ? "refused" : "steps:" + r.steps.length) : r.kind, workerMs: Math.round(tA - c.t0) }); }
+    }
+    /** A job the pool lost (the watchdog, a second worker error, a throw in the worker): the pair refused over ink (PLAN §5.9 item 1). */
+    _refuseLost(Erec, rec, c) {
+        if (this._overBudget(Erec)) return false;
+        this._cutRefused = (this._cutRefused || 0) + 1;
+        this._refuse(Erec.obj, rec.obj, rec.level, "worker: " + ((c.err && c.err.why) || "lost"), false);
+        return true;
     }
     _applyPair(Erec, rec, kind, r) {
         if (this._overBudget(Erec)) return false;

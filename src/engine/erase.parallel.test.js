@@ -2,16 +2,18 @@
  * erase.parallel.test.js — A2 §4.7: the parallel bake leaves the serial bake's document, ids, steps
  * and log, under random op sequences: undo and redo mid-bake, a frame crossing with its descents, two
  * marks over one family, a tap and a drag parked on their barriers, new ink over a pending mark. The
- * parallel engine runs first through the interim pool (`eraseWorkerClient`) over fake workers that
- * answer out of order, die mid-cut (RW-1: the pool is replaced, the lost job runs inline in its turn)
- * or go silent until the watchdog replaces them; the serial engine then replays the same script
- * inline, brought to the parallel one's progress (pairs applied and marks spent) before each op, and
- * its document must equal the parallel one's after every op. `ERASE_FUZZ_SEEDS=n` runs n seeds.
+ * parallel engine runs first through the shared pool's queue (`eraseWorkerClient`, PLAN §1.6) over fake
+ * raster workers that answer out of order, die mid-cut (RW-1: the pool is replaced and the lost job
+ * requeued once; lost again it is refused) or go silent until the watchdog replaces them (the silent
+ * job refused over ink, PLAN §5.9 item 1); the serial engine then replays the same script inline,
+ * brought to the parallel one's progress (pairs applied or refused, marks spent) before each op, the
+ * parallel engine's refusals refused in its turn, and its document must equal the parallel one's after
+ * every op. `ERASE_FUZZ_SEEDS=n` runs n seeds.
  */
 import { useEngines, mkEngine, drawStroke, eraseGesture, click, descend, topView } from "./__testkit__/harness";
 import { OpLog } from "./oplog";
-import { resetEraseWorkerClient, eraseWorkerStats, _checkEraseWatchdogForTests } from "./eraseWorkerClient";
-import { setRasterWorkerCount, WATCHDOG_MS } from "./raster/rasterWorkerClient";
+import { resetEraseWorkerClient, eraseWorkerStats } from "./eraseWorkerClient";
+import { setRasterWorkerCount, WATCHDOG_MS, resetRasterWorkerClient, rasterWorkerReport, _checkWatchdogForTests } from "./raster/rasterWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
 import { lcg } from "./__testkit__/rasterLists";
@@ -29,27 +31,28 @@ const steps = (E) => E.doc._undo.concat(E.doc._redo).filter((op) => op.op === "e
     .map((op) => op.baked.map((st) => [st._seq, st._on, st.removed ? st.removed.obj.id : null, (st.pieces || []).map((p) => p.obj.id)]));
 const cores = (n) => Object.defineProperty(navigator, "hardwareConcurrency", { value: n, configurable: true });
 
-/** The fake erase workers: each job answered after a random delay, or its worker dies mid-cut, or goes silent. */
+/** The fake raster workers: each cut answered after a random delay, or its worker dies mid-cut, or goes silent. */
 function fakePool(rnd, { die = 0.04, silent = 0.02 } = {}) {
     const t = { made: 0, died: 0, silent: 0, answered: 0, descentJobs: 0 };
     let first = true;
     global.Worker = class {
         constructor(url) {
-            if (!String(url).includes("erase-worker")) throw new Error("no " + url + " in this test");
+            if (!String(url).includes("raster-worker")) throw new Error("no " + url + " in this test");
             t.made++; this.dead = false;
         }
         postMessage(m) {
+            if (m.kind !== "cut-job") throw new Error("a " + m.kind + " in this test");
             const fate = first ? 1 : rnd(), ms = 1 + Math.floor(rnd() * 9);
-            if (m.kind === "descent") t.descentJobs++;
+            if (m.cut === "descent") t.descentJobs++;
             first = false;
             if (fate < silent) { t.silent++; return; }                        // never answers: the watchdog's case
             setTimeout(() => {
                 if (this.dead) return;
                 if (fate < silent + die) { t.died++; this.onerror({ preventDefault() {} }); return; }
-                const out = m.kind === "descent" ? wireDescentResult(descentJob(...Object.values(unwireDescent(m.job))))
+                const out = m.cut === "descent" ? wireDescentResult(descentJob(...Object.values(unwireDescent(m.job))))
                     : wireResult(cutJob(unwireJob(m.job)));
                 t.answered++;
-                this.onmessage({ data: { id: m.id, ok: true, out: out.msg } });
+                this.onmessage({ data: { kind: "cut-result", jobId: m.jobId, ok: true, out: out.msg } });
             }, ms);
         }
         terminate() { this.dead = true; }
@@ -60,15 +63,27 @@ function fakePool(rnd, { die = 0.04, silent = 0.02 } = {}) {
 /** The pool's watchdog, run twice past WATCHDOG_MS on a mocked clock: a silent job's pool is replaced. */
 function watchdog() {
     const t0 = performance.now(), spy = jest.spyOn(performance, "now").mockImplementation(() => t0 + WATCHDOG_MS + 1);
-    try { _checkEraseWatchdogForTests(); _checkEraseWatchdogForTests(); } finally { spy.mockRestore(); }
+    try { _checkWatchdogForTests(); _checkWatchdogForTests(); } finally { spy.mockRestore(); }
 }
 
-/** Pairs applied and marks spent: the serial order's position. */
+/** Pairs applied or refused and marks spent: the serial order's position; `lost` the pairs a lost job refused. */
 function progress(E) {
-    const c = { n: 0 }, apply = E._applyPair.bind(E), spend = E._spendMark.bind(E);
+    const c = { n: 0, lost: [] }, apply = E._applyPair.bind(E), spend = E._spendMark.bind(E), refuse = E._refuseLost.bind(E);
     E._applyPair = (...a) => { c.n++; return apply(...a); };
     E._spendMark = (...a) => { c.n++; return spend(...a); };
+    E._refuseLost = (Erec, rec, cut) => { c.n++; c.lost.push(Erec.obj.id + "|" + rec.obj.id); return refuse(Erec, rec, cut); };
     return c;
+}
+
+/** The serial engine refuses, in its turn, each pair the parallel engine's pool lost. */
+function refuseLike(S, keys) {
+    const left = new Set(keys), apply = S._applyPair;
+    S._applyPair = (Erec, rec, kind, r) => {
+        const k = Erec.obj.id + "|" + rec.obj.id;
+        if (!left.delete(k)) return apply(Erec, rec, kind, r);
+        return S._refuseLost(Erec, rec, { err: { why: "serial" } });
+    };
+    return left;
 }
 
 /** A seeded world and script: ink at the root, two marks through one object first, then random ops. */
@@ -167,8 +182,8 @@ async function apply(E, op, par, t) {
 
 async function runSeed(seed) {
     const { world, ops } = script(seed), rnd = lcg(seed * 31 + 7);
-    // The parallel engine: three fake workers.
-    resetEraseWorkerClient(); cores(8); setRasterWorkerCount(4);
+    // The parallel engine: four fake workers.
+    resetEraseWorkerClient(); resetRasterWorkerClient(); cores(8); setRasterWorkerCount(4);
     const t = fakePool(rnd);
     const P = mkEngine(800, 600), PL = new OpLog(P), pn = progress(P);
     build(P, world);
@@ -181,12 +196,12 @@ async function runSeed(seed) {
         rec.push({ op, before, after: pn.n, state: state(P) });
     }
     expect(await until(() => { if (P._eraseStrokes().length && !P._barrier) P._bakeTickInner(); return !P._eraseStrokes().length && !P._eraseBusy(); }, t)).toBe(true);
-    const pool = eraseWorkerStats();
+    const pool = rasterWorkerReport(), cuts = eraseWorkerStats();
     const endP = { n: pn.n, state: state(P), steps: steps(P), log: PL.drain().entries.map((e) => [e.seq, JSON.stringify(e.op), e.touches]) };
     // The serial engine: no worker, everything inline, brought to the parallel one's position before each op.
     delete global.Worker;
-    resetEraseWorkerClient();
-    const S = mkEngine(800, 600), SL = new OpLog(S), sn = progress(S);
+    resetEraseWorkerClient(); resetRasterWorkerClient();
+    const S = mkEngine(800, 600), SL = new OpLog(S), sn = progress(S), unrefused = refuseLike(S, pn.lost);
     build(S, world);
     SL.drain();
     const sync = (n) => { for (let g = 0; g < 10000 && sn.n < n; g++) if (!S._bakeNext()) break; };
@@ -212,14 +227,18 @@ async function runSeed(seed) {
     expect(SL.drain().entries.map((e) => [e.seq, JSON.stringify(e.op), e.touches])).toEqual(endP.log);
     expect(P._eraseAborted).toEqual([]);
     expect(S._eraseAborted).toEqual([]);
+    expect([...unrefused]).toEqual([]);
+    expect(P._cutRefused || 0).toBe(pn.lost.length);
+    expect(cuts.lost).toBeGreaterThanOrEqual(pn.lost.length);   // a lost job whose target changed meanwhile is stale, not refused
     spy.mockRestore();
     return { ops: ops.length, applied: endP.n, flying: t.flying || 0, died: t.died, silent: t.silent, answered: t.answered, descentJobs: t.descentJobs, respawns: pool.respawns, broken: pool.broken,
+        requeued: cuts.requeued, refused: pn.lost.length, inline: cuts.inline,
         descents: ops.filter((o) => o.k === "descend").length, undos: ops.filter((o) => o.k === "undo").length };
 }
 
-afterEach(() => { delete global.Worker; resetEraseWorkerClient(); setRasterWorkerCount(null); cores(4); });
+afterEach(() => { delete global.Worker; resetEraseWorkerClient(); resetRasterWorkerClient(); setRasterWorkerCount(null); cores(4); });
 
-describe("parallel = serial under random op sequences, through the interim pool's failure modes", () => {
+describe("parallel = serial under random op sequences, through the shared pool's failure modes", () => {
     const n = +(process.env.ERASE_FUZZ_SEEDS || 0);
     const seeds = n ? Array.from({ length: n }, (_, k) => 1000 + k) : [3, 7, 12, 21, 34, 55, 1016, 1037];   // 1016, 1037: a barrier round's promotions
     const totals = [];

@@ -23,6 +23,16 @@ import { W } from "../frameLattice";
 const COLOURS = ["rgb(0,0,0)", "rgb(200,30,30)", "rgb(30,120,200)", "rgb(40,160,60)"];
 /** A frame's own square, one unit in from its edges: one cache tile a direction. */
 export const CELL = Object.freeze({ left: -W / 2 + 1, top: -W / 2 + 1, right: W / 2 - 1, bottom: W / 2 - 1 });
+// Above its home a native's remainder reaches 48 units (a composed table of 1.5 W at k0 = −1): the settling
+// model read the unshifted window there and so drew less at the square's edges (A1 C1 reroutes it).
+const EDGE_M = 64;
+const insideCell = (it) => {
+    const p = it.painted;
+    for (let i = 0; i + 1 < p.length; i += 2) {
+        if (!(p[i] > CELL.left + EDGE_M && p[i] < CELL.right - EDGE_M && p[i + 1] > CELL.top + EDGE_M && p[i + 1] < CELL.bottom - EDGE_M)) return false;
+    }
+    return true;
+};
 
 const KIND = {
     oracle: { Engine: OracleEngine, OpLog: OracleOpLog, encode: oEncodeObjects, decode: oDecodeObjects, gc: oCollectFrames },
@@ -53,7 +63,21 @@ export function numsOf(p) {
     return out;
 }
 
-/** The picture of frame V over `rect` as the engine's Stage reads it: native id -> its items `{type, nums, off}`. */
+/** A piece as painted: its geometry's points moved by `off` (radii and angles as they are). */
+export function paintedOf(p, off) {
+    const out = [], dx = off[0], dy = off[1];
+    const pushPt = (q) => { if (q) { out.push(q[0] + dx, q[1] + dy); } };
+    if (p.loops) {
+        for (const l of p.loops) {
+            for (const pc of l || []) { pushPt(pc.A); pushPt(pc.B); if (!pc.line) { pushPt(pc.C); out.push(pc.r, pc.a0, pc.sweep); } }
+        }
+    }
+    if (p.polys) for (const ring of p.polys) for (const q of ring) pushPt(q);
+    if (p.pts) for (const q of p.pts) pushPt(q);
+    return out;
+}
+
+/** The picture of frame V over `rect` as the engine's Stage reads it: native id -> its items `{type, nums, off, painted}`. */
 export function pictureAt(E, V, rect = CELL) {
     const snap = E.stage.snapshot(V, rect, Infinity);
     if (!snap) return null;
@@ -61,7 +85,8 @@ export function pictureAt(E, V, rect = CELL) {
     for (const it of snap.items()) {
         let a = out.get(it.id);
         if (!a) out.set(it.id, (a = []));
-        a.push({ type: it.piece.type, nums: numsOf(it.piece), off: [it.off[0], it.off[1]], own: it.key === "own" });
+        const off = [it.off[0], it.off[1]];
+        a.push({ type: it.piece.type, nums: numsOf(it.piece), off, painted: paintedOf(it.piece, off), own: it.key === "own" });
     }
     return out;
 }
@@ -73,11 +98,13 @@ function ulps(a, b) {
     const d = Math.abs(a - b) / ulp(Math.max(Math.abs(a), Math.abs(b)));
     return d > 8 ? Infinity : Math.ceil(d);
 }
-function worst(a, b) {
-    if (a.type !== b.type || a.nums.length !== b.nums.length) return Infinity;
-    if (a.off[0] !== b.off[0] || a.off[1] !== b.off[1]) return Infinity;
+/** Ulps between two items: their numbers and offsets (`painted` false), or their pictures as painted. */
+function worst(a, b, painted = false) {
+    const x = painted ? a.painted : a.nums, y = painted ? b.painted : b.nums;
+    if (a.type !== b.type || x.length !== y.length) return Infinity;
+    if (!painted && (a.off[0] !== b.off[0] || a.off[1] !== b.off[1])) return Infinity;
     let m = 0;
-    for (let i = 0; i < a.nums.length && m !== Infinity; i++) m = Math.max(m, ulps(a.nums[i], b.nums[i]));
+    for (let i = 0; i < x.length && m !== Infinity; i++) m = Math.max(m, ulps(x[i], y[i]));
     return m;
 }
 
@@ -102,25 +129,43 @@ export function framesToCompare(O, N) {
 /**
  * Compare the two pictures at frame V. A native homed in the same frame in both engines must be drawn
  * from bit-identical pieces and offsets; one the oracle carried to another frame is compared through
- * its picture: bit-identical at and below its home's depth, within `aboveUlps` above it (A1 E3).
+ * its picture: its pieces and offsets bit-identical at and below its home's depth, its painted points
+ * within `aboveUlps` above it (A1 E3). A native the oracle carried at an earlier check (`st.tainted`)
+ * whose picture then differs has left the oracle's frame for good — a later frame operation moves it
+ * in one engine and not the other, which is C1's point — and is counted (`st.diverged`), not failed.
  * Adds to `st` and returns the first difference, or null.
  */
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
     const a = pictureAt(O, V), b = pictureAt(N, V);
     if (!a || !b) return "no picture at " + V;
     const D = N.lm.depthOf(V);
+    const tainted = st.tainted || (st.tainted = new Set());
+    const carriedNow = [];
     for (const id of new Set([...a.keys(), ...b.keys()])) {
-        const ra = a.get(id) || [], rb = b.get(id) || [];
+        let ra = a.get(id) || [], rb = b.get(id) || [];
         const ho = O.doc.getById(id), hn = N.doc.getById(id);
+        // Above its home only what is painted clear of the square's edges is compared (EDGE_M).
+        if ((hn && D < N.lm.depthOf(hn.level)) || (ho && D < O.lm.depthOf(ho.level))) {
+            ra = ra.filter(insideCell); rb = rb.filter(insideCell);
+            if (!ra.length && !rb.length) continue;
+        }
         const same = !!ho && !!hn && String(ho.level) === String(hn.level);
-        if (ra.length !== rb.length) return "native " + id + " at " + V + ": oracle " + ra.length + " items, live " + rb.length + (same ? "" : " (carried)");
+        if (!same && ho && hn) carriedNow.push(id);
+        const diverged = () => { st.diverged = (st.diverged || 0) + 1; return null; };
+        if (ra.length !== rb.length) {
+            if (!same && tainted.has(id)) { diverged(); continue; }
+            return "native " + id + " at " + V + ": oracle " + ra.length + " items, live " + rb.length + (same ? "" : " (carried)");
+        }
         const above = hn ? D < N.lm.depthOf(hn.level) : false;
+        const painted = !same && above;
         const hf = hn ? N.lm.frame(String(hn.level)) : null;
         const shifted = !!(hf && hf.shift);
         const left = rb.slice();
+        let gone = false;
         for (const x of ra) {
             let best = -1, bw = Infinity;
-            for (let k = 0; k < left.length; k++) { const w = worst(x, left[k]); if (w < bw) { bw = w; best = k; if (w === 0) break; } }
+            for (let k = 0; k < left.length; k++) { const w = worst(x, left[k], painted); if (w < bw) { bw = w; best = k; if (w === 0) break; } }
+            if ((best < 0 || bw === Infinity || (!same && !above && bw !== 0) || (painted && bw > aboveUlps)) && !same && tainted.has(id)) { gone = true; break; }
             if (best < 0 || bw === Infinity) return "native " + id + " at " + V + ": an item has no match" + (same ? "" : " (carried)");
             left.splice(best, 1);
             st.items++;
@@ -139,7 +184,9 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
                 st.maxUlp = Math.max(st.maxUlp, bw);
             }
         }
+        if (gone) diverged();
     }
+    for (const id of carriedNow) tainted.add(id);
     return null;
 }
 

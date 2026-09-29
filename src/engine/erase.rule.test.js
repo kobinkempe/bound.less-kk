@@ -7,7 +7,7 @@
 import { useEngines, mkEngine, drawStroke, eraseGesture, descend, topView } from "./__testkit__/harness";
 import { OpLog } from "./oplog";
 import { encodeObjects, decodeObjects } from "./format2";
-import { setEraseTransport } from "./eraseWorkerClient";
+import { setRasterTransport, setRasterWorkerCount } from "./raster/rasterWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "./eraseDescent";
 import { underMask, inLineage } from "./eraseRule";
@@ -27,7 +27,8 @@ jest.mock("./eraseRule", () => {
 useEngines();
 jest.setTimeout(60000);
 afterEach(() => { mockWrongRule = false; });
-afterEach(() => setEraseTransport(null));
+beforeEach(() => setRasterWorkerCount(3));   // cuts share the raster pool: three slots, as the erase pool had
+afterEach(() => { setRasterTransport(null); setRasterWorkerCount(null); });
 
 const later = (ms = 2) => new Promise((r) => setTimeout(r, ms));
 const fill = (E, x0, y0, x1, y1, color = "rgb(40,40,200)") => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
@@ -487,7 +488,7 @@ describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", ()
         stack(E);
         wrongRule(E);
         const err = quiet();
-        setEraseTransport((msg, transfer, kind) => later(1).then(() => (kind === "descent"
+        setRasterTransport((msg, transfer, kind) => later(1).then(() => (kind === "descent"
             ? wireDescentResult(descentJob(...Object.values(unwireDescent(msg)))).msg
             : wireResult(cutJob(unwireJob(msg))).msg)));
         let k = 0;
@@ -537,7 +538,7 @@ describe("A2 §4.7: the parallel bake leaves the serial bake's document, ids, st
             build(P, seed);
             PL.drain();
             const rnd = lcg(seed * 7 + 1);
-            setEraseTransport((msg, transfer, kind) => later(1 + Math.floor(rnd() * 12)).then(() => (kind === "descent"
+            setRasterTransport((msg, transfer, kind) => later(1 + Math.floor(rnd() * 12)).then(() => (kind === "descent"
                 ? wireDescentResult(descentJob(...Object.values(unwireDescent(msg)))).msg
                 : wireResult(cutJob(unwireJob(msg))).msg)));
             let flying = 0;
