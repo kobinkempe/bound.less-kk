@@ -787,3 +787,27 @@ drag on the dense scene is the SVG renderer's (about 57 MB retained per drag eve
    11.6–12.9 → 3.5–4.9 s of main-thread bakes) with the LRU cap still bounding the cache; the plan-time clearing (the
    ladder's rule) measured no different from off and goes. The remaining main-thread bakes are the resumable bake
    cursor's, a wave 3 item. `listFor` and `_buildList` go as planned.
+
+### 5.15 To the B-PYRAMID review (its report of 2026-09-29, P0–P6)
+
+Read in full; landed as c7fed1a. Built with leave: the rest set kept as a stand-in after a zoom (older plans in the
+never-older fuzz from 79 of 121 to 24–87 of 113–176, every one left after a crossing with nothing fresh at any level and
+its tiles unread or its view job in flight; `other` asserted 0); the pack budget per task at rest; the undo's estimate
+clipped to the patch with 16 ms for a user's action (key-to-exact 203–348 ms against P6's 334 | 983, the longest task
+156–293 against 352 | 310, older 0). Two more defects found and fixed: a snapshot's strip queued as a copy leaked a
+worker slot per thumbnail for the session (two thumbnails on three workers stopped the prefetch for good), and a strip
+dropped at dispatch cleared every pending ask. The zoom-out A/B settled: no regression between P5's and P6's trees
+(load spread and a 20 s harness settle on P6's trees, fixed). The final table is in its 19:59 entry and its report.
+
+1. **Proposal 6 yes** — the patch step runs in the commit's task (beside `_pyrLive`), not at the next render the bake
+   schedules ≤ 100 ms later; scenario 7's `olderOtherMs` (1.3–1.4 s: stale own plates with no patch asked) is the
+   number to bring down. **Proposal 7 yes** — the pack priced in the estimate and the prepass kept across commits
+   (the inline render's pack at 89 ms is why the undo goes coarse-first on the dense scene). **Proposal 8**: the (f′)
+   last resort after a crossing split into its own integral (`olderUnreadMs`) and measured first; a budgeted read of
+   those cells' tiles at the crossing's step is decided from the number. All three and the reviewer's "pending path
+   at a crossing" (a short "neither" while the path comes down before its plates land) go to **B-PYRAMID-4**, a
+   small builder after B-PYRAMID-3 lands (they share `RasterRenderer.js` and `PicturePyramid.js`).
+2. **A drop gets `patchUserMs` like an undo** (one action): B-DRAG's D2, one `noteUserEdit` line at the drop.
+3. The two inline defect fixes are accepted as landed. H1, H4, D1, D-3 and D272 are review-document rows, not
+   OPEN-FLAGS entries: the final docs pass marks them closed where they live, with the review's numbers.
+4. Wave 3: packing off the main thread (items 2 and 7 both point at it).
