@@ -1,8 +1,8 @@
 /**
  * paper.cost.probe.js — PAPER-PLAN §10's main-thread costs on the real Magnum Opus (Sep 15 export),
- * at the saved camera: (A) the list build and its parts, (B) the zoom-out crossing's list build
- * with the ladder's warm-up before it, (C) a drag step with the drag plane, (D) the pack of one
- * view as one strip and as a strip a plate, (E) the ink under a plate-covering opaque fill.
+ * at the saved camera: (A) the list build and its parts, (C) a drag step with the drag plane, (D) the
+ * pack of one view as one strip and as a strip a plate, (E) the ink under a plate-covering opaque fill.
+ * (B, the zoom-out crossing after the ladder's warm-up, went with the ladder at P6.)
  *
  * A probe, not a suite (`*.probe.js` is excluded from test:quick / test:slow). Run:
  *   CI=true NODE_OPTIONS=--max-old-space-size=10240 npx react-scripts test --watchAll=false
@@ -77,35 +77,6 @@ describe("paper costs on the Magnum Opus", () => {
         log("A list builds " + JSON.stringify(rows));
         log("A offsetIds " + E.doc.offsetIds().size + ", rerouted at this frame " + moved + ", the group scan alone " + (now() - tg).toFixed(1) + " ms");
         expect(rows.length).toBe(4);
-    });
-
-    big("B — a zoom-out crossing: the list build at the parent, after the ladder's warm-up, with and without framesLeft's delete", () => {
-        for (const keepTiles of [false, true]) {
-            const E = mk(false);
-            E._buildList();
-            if (keepTiles) E.store.framesLeft = function framesLeftKeep() { this._pins = new Set(); return 0; };
-            const cross = E._ladderCrossings(1e9);
-            if (!cross.length) { log("B no crossing below the camera"); return; }
-            const f = cross[0];
-            const aim = E._zoomedOut(f);
-            const tW = now();
-            const warm = E.listFor(aim.frame, aim.win);
-            const warmMs = now() - tW;
-            const tiles0 = E.store.size();
-            // Zoom out about the centre to just past the crossing, as the wheel would.
-            const t = now();
-            let steps = 0;
-            while (E.cam.frame !== aim.frame && steps < 200) { E.cam.zoomFactorAt(W / 2, H / 2, 1 / 1.1892); steps++; }
-            const tb = now();
-            const list = E._buildList();
-            const buildMs = now() - tb;
-            const tb2 = now();
-            E._buildList();
-            log("B keepTiles=" + keepTiles + " factor " + f.toFixed(1) + " warm listFor " + warmMs.toFixed(0) + " ms (" + warm.length
-                + " pieces, tiles " + tiles0 + "); crossed in " + steps + " steps; the first list at the parent " + buildMs.toFixed(0)
-                + " ms (" + list.length + " pieces, tiles " + E.store.size() + "), a second " + (now() - tb2).toFixed(0) + " ms; cam " + (now() - t).toFixed(0));
-            E.destroy();
-        }
     });
 
     big("C — a drag step's main-thread cost on the raster engine (the drag plane on)", () => {

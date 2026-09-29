@@ -569,8 +569,8 @@ export default class KobinEngine {
     /**
      * The render list for `rect` in frame `frameKey` — tile pieces (up + down) plus that frame's
      * own natives, merged in id order (global z-order). `_buildList` is this call for the
-     * camera's own frame and window; the crossing prebake (PAPER-PLAN R4) and `snapshotView`
-     * (SCENES-PLAN S1) call it for a frame the camera is not at.
+     * camera's own frame and window; the suites call it for a frame the camera is not at (an
+     * off-camera picture reads the Stage's `snapshot` since the pyramid, A3 §4.2).
      *
      * Three facts a reader needs.
      *
@@ -582,7 +582,7 @@ export default class KobinEngine {
      * `forCamera` says this build is the camera's own, and it buys two things that are the
      * camera's and nothing else's: the tiles it reads are PINNED (an off-camera read goes
      * through `contentOffCamera`, which restores the visible pin set by value), and §5.4's
-     * old-address memo is seeded. A prebake or a snapshot running between a document event and
+     * old-address memo is seeded. An off-camera read running between a document event and
      * the next drain would seed that memo with the POST-event table, and the drain would then
      * compute the old address as the new one and leave a plate holding the object's old picture
      * undropped.

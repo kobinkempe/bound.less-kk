@@ -5041,6 +5041,8 @@ every bookmark and scene naming the mover breaks. A subtree-empty resident shoul
 
 ### F79 — OPEN, filed 2026-09-23 from the P1 build's own measurement in Kobin's Chrome. The stretched layer blit between quanta costs ~30 ms a compose smoothed (6.5 ms unsmoothed).
 
+**2026-09-29, the picture pyramid (B-PYRAMID-2b P6): the mechanism is deleted, the cost is not measured.** `PictureLayer`'s stretched layer blit went with the old path. The pyramid draws plates directly up to `COMPOSE_IMAGES` (30) and past it draws the plan once into a view-sized surface blitted scaled by σ, smoothed — the same kind of draw. In headless Chromium (tools/harnesses/browser-check.js, dense, run 1 at load 1.9–3.5) the drag scenario went through the surface (33 images, 69 composes, 102 ms of compose script, 1.5 ms a compose); the zoom-out drew directly (252 composes, 38.5 ms, 16 images at most). Headless cannot see the GPU cost of the blit (A3 §9.4): it stays OPEN for Kobin's Chrome.
+
 `PictureLayer.compose` between quanta composes the plates 1:1 into a layer canvas sized for the
 worst-case grid at `S_MIN` and then draws that whole layer into the ink canvas scaled by `s`
 (§6.2), with `imageSmoothingEnabled` on so the stretch does not alias. P1 timed that draw on

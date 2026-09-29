@@ -145,7 +145,7 @@ test("S1 a snapshot leaves the camera, the tile frame and the tile pins exactly 
 
 test("S1 BREAK-CHECK: with `content` in the snapshot's read, the visible pin set is replaced", async () => {
     // `content` adds each key it reads to `_pins` and then REPLACES the field with its own
-    // range. Off camera that unpins the whole visible screen, and the prebake's `_evict` can
+    // range. Off camera that unpins the whole visible screen, and an off-camera read's `_evict` can
     // then take the tiles the user is looking at.
     const E = mkEngine();
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);

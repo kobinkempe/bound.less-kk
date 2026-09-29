@@ -1872,3 +1872,21 @@ numbers; F65 open), `newdesc_engine.py`'s erase client, C1's two items (the save
 blur 34; 3 pan 0/0/0, 16 long frames (contended).
 **Questions asked:** none (the orchestrator's rest-set answer goes to openItems; not built).
 WHERE I AM: item 6 — both runs and levelStep 2/3, then scenario 1 on P5's tree for an A/B of the paper number.
+
+## 2026-09-29 11:48 UTC — reviewer (B-MODEL-C1 review) — items 2, 6, 8 (browser) checkpoint
+**Working on:** worktrees `r-model/before` (5e9b1dd, :3030) and `r-model/after` (1e608e3, :3031), Node 14, headless
+Chromium 141; both servers stopped now. Scripts `r-model/ants.js`, `svgdrag.js`; `bm1/scenes34.js` for the round trip.
+**Measured (load 2.3–6):** item 2 — after the lasso and the drag of scenario 4 both trees select 44 ids + frame "1"
+(1,000 natives), every one of the 1,044 natives' items identical (pieces and offsets), the ants' 45 runs the same set in
+the same order; the only model difference is where the drag's rest lives (pre-C1: 1,000 tables, frame shift null; C1:
+frame "1" shift [−65536, −32768], no tables). With reduced motion (the crawl frozen at phase 0) the two trees' screenshots
+with the ants differ by 0 px; with motion the phase read at the shot was 4 and 7, and one tree's page shot 150 ms apart
+differs by 54,503 px against 50,321 between the trees. The ants' difference is the crawl clock: not C1's, nothing for
+B-DRAG. Item 8 — scenarios 3 and 4 round trip, raster path: pan 0 px of 1,023,405 ink; drag ink-only 0 px of 1,012,067
+(41,727 with the ants, the clock). Item 6 — `?svg` scenario 4 crashes the tab at drag event 3–4 on BOTH trees (heap
+2.8 GB at load with 77.5 MB of path data; ~700 MB more an event). At a tenth of the natives it runs: forced GC, the SVG
+path retains ~57 MB a drag event on both trees (272→2,531 MB pre-C1, 298→2,573 MB C1; raster 102→161 MB), and the
+post-drag ink of the two trees' SVG paths differs by 0 px. Pre-existing, the SVG renderer's.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: item 3 — `model.pureRead.test.js`: the reads C1's list may miss.

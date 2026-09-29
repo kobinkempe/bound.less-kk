@@ -13,7 +13,6 @@ function mkE(raster) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: 800, height: 600, raster });
-    if (raster) E.renderer.layer.syncBudget = 0;
     hosts.push({ E, host });
     return E;
 }

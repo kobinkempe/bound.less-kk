@@ -20,7 +20,6 @@ function mkE(w = 800, h = 600, raster = false) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: w, height: h, raster });
-    if (raster) { E.renderer.layer.syncBudget = 0; E.renderer.layer._sync = false; }
     E.cam.inPanX = w / 2; E.cam.inPanY = h / 2;          // frame 0's origin at the screen's centre
     hosts.push({ E, host });
     return E;
