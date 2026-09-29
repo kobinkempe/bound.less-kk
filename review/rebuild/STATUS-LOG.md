@@ -1907,3 +1907,16 @@ typecheck 0; eslint 0 errors (7 warnings, none in my files); `build:worker` md5 
 B; scene dce304b8…). Nothing measured in Kobin's Chrome.
 **Questions asked:** in the report (olderOther in scenario 7 and the fuzz; the zoom-out paper; packs at rest).
 WHERE I AM: ended — report handed back.
+
+## 2026-09-29 12:12 UTC — orchestrator (Fable) — B-PYRAMID-2b landed (ac9a7e1); the B-PYRAMID review launched; PLAN §5.13
+**Working on:** P6's report answered in PLAN §5.13; the review of the whole B-PYRAMID build launched (`opus-reviewer`,
+`briefs/R-PYRAMID.md`) with leave to build three bounded fixes — the rest set kept as a stand-in after a zoom (the
+never-older invariant: `olderOtherMs` must reach 0), a per-task pack budget at rest (packs of 171–480 ms on the main
+thread while still), the undo's inline estimate clipped to the patch and a 16 ms budget for a user-initiated patch —
+plus the zoom-out paper bisect (P5's tree 0–4.6 ms, P6's 37–150), rows 1/8/10 at the renderer level, the pen-up rule,
+the plane, the queue's small items, the budget, the deletion grep, the docs, the final harness table on a quiet
+machine. Running: the C1 reviewer (item 3 of 10; four stale ladder comments in its files sent to it), the B-PYRAMID
+reviewer. One slot free; B-PYRAMID-3 waits for the B-PYRAMID review, B-DRAG for both reviews.
+**Measured:** P6's: the quick suite 2,118 pass, 0 fail on the pyramid-only tree; the harness runs in the 12:08 entry.
+**Decisions made:** PLAN §5.13 items 1–6.
+**Questions asked:** none.
