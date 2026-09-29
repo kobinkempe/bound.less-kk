@@ -216,7 +216,7 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect(re[0].cells.every((c) => c.kind === "level" && c.level === t.pyr._v.level)).toBe(true);
         expect(seen).toEqual([]);
         const late = { ...job.cells[1], G: t.stage.generation, pixels: new Uint8ClampedArray(512 * 512 * 4), bytes: PLATE_BYTES, jobId: 3 };
-        expect(t.pyr.onResult(late)).toBe("discarded");                     // a rest result of the discarded set
+        expect(t.pyr.onResult(late)).toBe("cached");                        // a rest result of the zoomed-from set: a stand-in (A3 §2.4)
         const packed = t.pack(re[0]);
         re[0].cells.forEach((c, p) => {
             const out = new Uint8ClampedArray(P * P * 4);

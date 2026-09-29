@@ -475,14 +475,16 @@ export default class PicturePyramid {
 
     /**
      * The kept rest set as a cell's source, only where its plates are exact: over a stale own plate's dirty rectangles
-     * (the patch rule, e), else over the whole cell; scaled, so its plates count against the stand-in cap.
+     * (the patch rule, e), else over the cell — the part on screen, which is all the rest set was rendered for; scaled,
+     * so its plates count against the stand-in cap.
      */
     _standInCell(v, F, own, cb, dst, Zl, B, out) {
-        const cls = this._standIn.Z >= Zl ? "sharp" : "blur";
+        const cls = this._standIn.Z >= Zl ? "sharp" : "blur", win = this._win;
         let c = null;
         if (own) {
             const D = this._dirtyIn(F, own, cellBox(own), cb);
-            c = D && D.area <= (cb.right - cb.left) * (cb.bottom - cb.top) * PATCH_MAX ? this._restCover(F, D.bbox) : null;
+            const Dv = D && D.area <= (cb.right - cb.left) * (cb.bottom - cb.top) * PATCH_MAX ? (win && inter(D.bbox, win)) || D.bbox : null;
+            c = Dv ? this._restCover(F, Dv) : null;
             if (c && B.take(c.recs) && B.base(own)) {
                 out.push(draw(own, WHOLE, dst, "sharp", false, true));
                 for (const d of c.draws(v.Zq, cls)) out.push(d);
@@ -490,7 +492,7 @@ export default class PicturePyramid {
                 return true;
             }
         }
-        c = this._restCover(F, cb);
+        c = this._restCover(F, (win && inter(cb, win)) || cb);
         if (!c || !B.take(c.recs)) return false;
         for (const d of c.draws(v.Zq, cls)) out.push(d);
         this.s.standInCells++;
