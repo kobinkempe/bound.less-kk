@@ -2158,3 +2158,11 @@ The harness now counts older cells by cause (ownWait/ownOther/unread/coming/othe
 **Decisions made:** scenario 7 measured again, before (15b3738) and after the fix (a2240e4 on :3014), in `batch2.sh`.
 **Questions asked:** none yet.
 WHERE I AM: batch2 (scenario 7 ×2 each side, 1 ×2, 6 ×1); then break-checks 1f/8d/8e, typecheck, lint, bundles, report.
+
+## 2026-09-29 19:52 UTC — orchestrator (Fable) — resumed after the seventh session-limit stop
+**Working on:** the container rebooted; the tree as the two agents left it snapshot-committed as 91b191a. Both resumed
+from their transcripts: the B-PYRAMID reviewer at its last items (the prefetch-reads bucket test, three break-checks,
+typecheck, lint, the bundles, the report), B-PYRAMID-3 on its trial copy (item 4 lands after the reviewer's end entry).
+**Measured:** load 0.05 at the resume.
+**Decisions made:** none new.
+**Questions asked:** none.
