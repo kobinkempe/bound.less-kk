@@ -1445,7 +1445,7 @@ export default class KobinEngine {
                             // it is the number F25 watched climb to 7.3e18.
                             reach: b ? +Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1)).toPrecision(6) : null,
                             // The offsets below its home after the drag (F41).
-                            below: rec ? encodeBelow(rec.obj.below) : undefined };
+                            below: rec ? encodeBelow(this.doc.ownTable(rec.obj)) : undefined };
                     }),
                     // Members the drag could not move, and why (F35).
                     skipped: d.skipped && d.skipped.length ? d.skipped.slice(0, 12) : undefined,

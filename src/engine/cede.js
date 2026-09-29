@@ -35,11 +35,10 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
     const mk = (loops, lvl, attach, tile, below) => {
         const obj = {
             type: "shape", origin: src.origin, id: doc.allocId(), z, loops,
-            color: src.color, opacity: src.opacity, editId: editKey,
+            color: src.color, opacity: src.opacity, editId: editKey, ...(below ? { below } : {}),
         };
         if (src.w > 0) obj.w = src.w;
         if (attach) obj.attachRect = { ...attach };
-        if (below) obj.below = below;
         if (tile) obj.tile = [tile[0], tile[1]];
         inheritErase(obj, src, by);
         return { obj: doc.add(obj, lvl, { by }), level: String(lvl) };

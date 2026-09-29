@@ -81,7 +81,6 @@ export class Item {
     get w() { return this.piece.w; }
     get tile() { return this.piece.tile; }
     get attachRect() { return this.piece.attachRect; }
-    get below() { return this.piece.below; }
     get _home() { return this.piece._home; }
     get _ver() { return this.piece._ver; }
     get _outline() { return this.piece._outline; }
