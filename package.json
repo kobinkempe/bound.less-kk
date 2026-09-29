@@ -128,6 +128,22 @@
             }
           ]
         }
+      ],
+      "no-restricted-syntax": [
+        "error",
+        "WithStatement",
+        {
+          "selector": "MemberExpression[property.name='below']",
+          "message": "A native's table is the model's (DESIGN.md §8, A1 C1): read placement through placementModel.js or Document (tableOf, ownTable, displacedNatives); a line that stores or decodes the table says why with `// eslint-disable-next-line no-restricted-syntax -- <why>`."
+        },
+        {
+          "selector": "MemberExpression[computed=true][property.value='below']",
+          "message": "A native's table is the model's (DESIGN.md §8, A1 C1): read placement through placementModel.js or Document (tableOf, ownTable, displacedNatives); a line that stores or decodes the table says why with `// eslint-disable-next-line no-restricted-syntax -- <why>`."
+        },
+        {
+          "selector": "ObjectPattern > Property[key.name='below']",
+          "message": "A native's table is the model's (DESIGN.md §8, A1 C1): read placement through placementModel.js or Document (tableOf, ownTable, displacedNatives); a line that stores or decodes the table says why with `// eslint-disable-next-line no-restricted-syntax -- <why>`."
+        }
       ]
     },
     "overrides": [
@@ -141,7 +157,27 @@
         "rules": {
           "react-hooks/rules-of-hooks": "off",
           "jest/no-conditional-expect": "off",
-          "import/no-restricted-paths": "off"
+          "import/no-restricted-paths": "off",
+          "no-restricted-syntax": [
+            "error",
+            "WithStatement"
+          ]
+        }
+      },
+      {
+        "files": [
+          "src/engine/placementModel.js",
+          "src/engine/Document.js",
+          "src/engine/LevelMap.js",
+          "src/engine/geometry/offsets.js",
+          "src/engine/legacy/**",
+          "src/engine/raster/PictureLayer.js"
+        ],
+        "rules": {
+          "no-restricted-syntax": [
+            "error",
+            "WithStatement"
+          ]
         }
       }
     ]
