@@ -54,7 +54,7 @@ test("M-1 a landed mark is not ink; its target is masked by its shape, and an ob
     E.renderer.update();
     expect(E.doc.getById(id)).toBeNull();
     for (const e of R._groups.values()) expect(e.mask || null).toBeNull();
-    expect(defsOf(R).querySelectorAll("mask, #" + "bl-mark-" + R._uid + "-" + id).length).toBe(0);
+    expect(defsOf(R).querySelectorAll("mask, #bl-mark-" + R._uid + "-" + id).length).toBe(0);
     for (const e of R._groups.values()) expect(e.group._renderer.elem.getAttribute("mask")).toBeNull();
 });
 
