@@ -814,8 +814,8 @@ class Selection {
             if (!n) return { why: "no neighbour cell for the carry" };
             frame = n.id;
         }
-        const { below: table } = r;
-        return { frame, table };
+        // eslint-disable-next-line no-restricted-syntax -- addOffset's result: the member's new own table, not a read of one
+        return { frame, table: r.below };
     }
     /** The cell an object's bbox centre sits in, as the re-home that would put it there, or null when it is in its own cell. */
     _homeShift(id) {

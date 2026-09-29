@@ -192,9 +192,11 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
 
 /**
  * One seeded run over the two engines: `steps` operations, `check(O, N, step, op)` after each
- * (after both rendered). Returns `{ ops, O, N }`. Engines replaced by a reload are destroyed.
+ * (after both rendered). Returns `{ ops }`. Engines replaced by a reload are destroyed. `extra(ctx)`
+ * returns more `[name, weight, fn]` operations; `ctx` gives `both`, `ri`, `pick`, `rnd`, `inkPoints`,
+ * `w`, `h` and the current engines as `O()` and `N()`.
  */
-export function runPairFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
+export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null } = {}) {
     const all = [];
     const rnd = lcg(seed * 7919 + 101);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
@@ -354,6 +356,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
         ["reload2", 0.5, () => { O = reloadStore(O); N = reloadStore(N); }],
         ["gc", 0.5, () => { both((E) => { E.sweepFrames(); KIND[E._fuzzKind].gc(E); E._render(); }); }],
     ];
+    if (extra) table.push(...extra({ both, ri, pick, rnd, inkPoints, w, h, O: () => O, N: () => N }));
     const total = table.reduce((s, t) => s + t[1], 0);
     const ops = [];
     try {

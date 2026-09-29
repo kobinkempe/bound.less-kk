@@ -59,7 +59,7 @@ const EDGE_STRIP_CSS = ANT_LOOK.W + 1;
 
 const SIDES = ["left", "right", "top", "bottom"];
 
-/** §6.1's backing store, the rule `PictureLayer` uses, so the two canvases are the same size. */
+/** §6.1's backing store, the rule the pyramid's canvas uses, so the two canvases are the same size. */
 function snapPx(x) { return Math.round(x); }
 
 /** A canvas from the document, when the caller injects no factory. */
@@ -489,7 +489,7 @@ export default class OverlayLayer {
      * @param {object|null} dec `_selectionAnts`' object in raster form — `{key, runs, marks,
      *        edges, inkPx, off}` with the runs' pieces in FRAME units (§10 stage 5d's one
      *        additive fork in `overlays.js`)
-     * @param {object} view `PictureLayer.view()` — FC2's published mapping, read and not derived
+     * @param {object} view the pyramid's published view (`PicturePyramid.frameFor`) — FC2's mapping, read and not derived
      * @param {number[]} [shift] the CSS-px translation from the camera's screen to the published
      *        view's, for the edge spans alone (`_paintEdges`)
      */

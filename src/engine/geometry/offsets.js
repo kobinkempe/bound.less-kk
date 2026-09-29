@@ -219,6 +219,9 @@ export function homeTranslation(below) {
     return r ? [r.carry[0] * W + r.rem[0], r.carry[1] * W + r.rem[1]] : null;
 }
 
+/** Native `o`'s own table's translation at its home (k = 0), without its frame's shift; null when it has none. */
+export function ownTranslation(o) { return homeTranslation(o.below); }
+
 /** Native `o`'s picture table given its home frame's shift: `composeShift` of its own (A1 C1). */
 export function pictureTable(o, shift) { return composeShift(o.below, shift); }
 

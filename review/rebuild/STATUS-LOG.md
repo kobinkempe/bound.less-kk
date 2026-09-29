@@ -1630,3 +1630,26 @@ bundles rebuilt, md5s unchanged (raster 2cd48b67…, scene dce304b8…). My dev 
 **Questions asked:** R3 lives in `raster/` (B-PYRAMID-2b's): port it to a visited cell holding ink, so the drop merges and
 the guard (a merge keeps the plates) still bites — recommend B-PYRAMID-2b in P6, or I do it with leave.
 WHERE I AM: M3 — `persist.js` writes version 3 when the lattice has a shift (written); next the `.below` lint, the store test.
+
+## 2026-09-29 06:19 UTC — B-MODEL-C1 (builder) — M3 progress: the gate, the lint, the §3 suites
+**Working on:** R3 noted as deleted by P6 (orchestrator's answer). `persist.js` VERSION 3, written only when the lattice
+has a non-zero shift (`latticeHasShift`); `persist.slow` pins ported. The `.below` lint (`no-restricted-syntax` in
+package.json's eslintConfig: `.below`, `["below"]` and `{ below }` destructuring; overrides for placementModel, Document,
+LevelMap, offsets, legacy/, PictureLayer until P6 deletes it, tests/testkit/oracles): 30 hits routed or allowed — Stage's
+footprint state field renamed `table` (`model.table(o, home)`, `model.tableBefore(ev)`), TileStore/report via
+`hasOwnTable`/`tableOf`, sceneClient via `offsets.ownTranslation`; codec/replay/validation lines (format2 3, oplog 2,
+persist 1, report 2, selection's `addOffset` result 1) allowed with a reason. New suites: `model.compose.test.js` 7/7,
+`model.pureRead.test.js` 1/1, `legacy/modelV1.test.js` 2/2, `hooks/store.model.test.js` 3/3 on a copy only (the tree's hook
+calls `engine.setPreBake`, which P6 has deleted from the engine: every hook test red until P6 lands its hook edit).
+**Measured:** store: oracle-written store (entries move, moveFrames, settle, moveFrames, mergeFrame, move, moveFrames,
+settle, moveFrames; header pending shifts on 2 frames) loads, undoes 6 and redoes 6 to the oracle's pictures: 101
+frame pictures, 323 items, 313 same-home bit-identical, 10 carried bit-identical, 0 diverged; re-saved as version 3.
+Shift-free file byte-identical to the oracle's (modifiedAt set equal). Pure reads: 6 seeds × 30 = 180 states, 806 Stage
+reads, 134 hits, 44 lassos, rev/offRev/epoch/natives/lattice unchanged, 5 empty frames minted by `displaced` (the named
+exception). `select.stands.probe.js` 12 × 40: 480 checks, 135 selections (210 natives, 36 frames) equal to the oracle's,
+13 drags kept their ink, 2 inkless frames both models keep after an undo (pre-C1 behaviour, counted). Bug found and fixed
+(`model.compose`'s landing promotion): `setGeometryById` taking a table away emitted a table-less event, so `offRev`
+stayed and the reroute memo kept the old placement (off −8,−4 at "0"); the event now carries `oldBelow`. Load 3.1.
+**Decisions made:** the lint also catches `o["below"]` and `{ below }` destructuring (one evasion found: selection's).
+**Questions asked:** none.
+WHERE I AM: M3 — break-checks on the copy, then the checkpoint entry.

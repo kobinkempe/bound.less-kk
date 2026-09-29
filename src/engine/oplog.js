@@ -350,6 +350,7 @@ export class OpLog {
         const rewind = (obj, id) => {
             const r = rewound.get(id);
             if (!r || doc.getById(id)) return obj;
+            // eslint-disable-next-line no-restricted-syntax -- the replay puts back the own table it logged
             if ("below" in r) { if (r.below) obj.below = r.below; else delete obj.below; }
             return obj;
         };
@@ -613,6 +614,7 @@ function geomLive(g) {
     if (n.loops) out.loops = n.loops; if (n.polys) out.polys = n.polys; if (n.pts) out.pts = n.pts;
     if ("attachRect" in g) out.attachRect = g.attachRect;
     if ("tile" in g) out.tile = g.tile;
+    // eslint-disable-next-line no-restricted-syntax -- the log decodes a move's own table as it was stored
     if ("below" in g) out.below = n.below;
     return out;
 }

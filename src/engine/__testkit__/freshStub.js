@@ -1,5 +1,5 @@
 /**
- * A freshness source for suites with no document (the four calls `PlateStore` makes of the Stage,
+ * A freshness source for suites with no document (the four calls `PyramidStore` makes of the Stage,
  * A2 §3.4): `dirty(pred)` is one commit whose footprint meets every tracked cell `pred` names (every
  * one when it is omitted), so a plate stored or in flight at an older G is no longer exact.
  */

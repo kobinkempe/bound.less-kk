@@ -1,8 +1,9 @@
 /**
  * stageFresh.js — the freshness fuzz of PLAN §3 row 1's Stage half (A2-scene.md §6.4), shared by
  * `stage.fresh.test.js` and `stage.fresh.probe.js`: a Document, LevelMap, TileStore, Stage and the
- * G-keyed PlateStore driven by seeded document changes, dispatches, out-of-order arrivals and
- * evictions, against an oracle that recomputes what each change touched from states it took itself.
+ * pyramid's store (`PyramidStore`, G-keyed level plates) driven by seeded document changes, dispatches,
+ * out-of-order arrivals and evictions, against an oracle that recomputes what each change touched from
+ * states it took itself.
  *
  * NOT collected by jest (the directory is `__testkit__`); nothing in the app imports it.
  */
@@ -10,17 +11,16 @@ import Document from "../Document";
 import LevelMap from "../LevelMap";
 import TileStore from "../TileStore";
 import Stage from "../Stage";
-import PlateStore from "../raster/PlateStore";
+import PyramidStore, { levelCell, cellBox } from "../raster/PyramidStore";
 import { createPlacementModel } from "../placementModel";
 import { rectLoop } from "../geometry/arcShape";
 import { bboxOf } from "../geometry/derive";
 import { snapDisplacement } from "../geometry/offsets";
-import { plateKey, zqOf, PLATE_PX } from "../raster/plate";
 import { BASE, ENTER, EXIT, W } from "../frameLattice";
 
 const CFG = { enter: ENTER, base: BASE, exit: EXIT, scale: 1000, arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3,
     cullPx: 0.3, fadeLoPx: 0.15, fatWidthPx: 4000, lineTolPx: 0.25 };
-const QS = [-16, -8, 0, 8];                       // four plate levels: Zq 1/16 … 4
+const LS = [-4, -2, 0, 2];                        // four plate levels at S = 1: Z 1/16 … 4
 
 function lcg(seed) {
     let s = (seed >>> 0) & 0x7fffffff;
@@ -39,9 +39,9 @@ export function runFresh(seed, steps, fail) {
     doc.frameFactor = (a, b) => lm.frameFactor(a, b);
     const store = new TileStore(lm, doc, CFG);
     const stage = new Stage({ doc, lm, store, model: createPlacementModel({ doc, lm, store }), cfg: CFG });
-    const plates = new PlateStore({ fresh: stage, maxBytes: 24, doc: null });
+    const plates = new PyramidStore({ fresh: stage, maxBytes: 24, doc: null });
     // What the engine wires: a commit's plates to remove (a re-addressed frame's, another document's).
-    stage.onCommit((G, info) => { if (info.reset) plates.dropAll(false); for (const p of info.drop) plates.dropFrames(p); });
+    stage.onCommit((G, info) => { if (info.reset) plates.dropAll(); for (const p of info.drop) plates.dropFrames(p); });
     // The frames: the root, two children, a grandchild under the first (the one a re-address moves).
     lm.ensureSpine(0);
     const A = lm.cellChild("0", 3, -2).id, B = lm.cellChild("0", -5, 4).id, C = lm.cellChild(A, 100, 60).id;
@@ -122,10 +122,6 @@ export function runFresh(seed, steps, fail) {
     let jobSeq = 0;
     const history = new Map();                    // key -> the G of every plate it ever stored
     const counts = { commits: 0, dispatches: 0, arrivals: 0, stored: 0, checks: 0, exactChecked: 0, overDirty: 0, evictions: 0, refused: 0 };
-    const cellBox = (F, q, i, j) => {
-        const u = PLATE_PX / zqOf(q), p = 1 / zqOf(q);
-        return { left: i * u - p, top: j * u - p, right: (i + 1) * u + p, bottom: (j + 1) * u + p };
-    };
     for (let step = 0; step < steps; step++) {
         const r = rnd();
         if (r < 0.35) {
@@ -136,7 +132,7 @@ export function runFresh(seed, steps, fail) {
             if (stage.generation !== G0) { oracle.push({ G: stage.generation, rects: touchedBy(seen) }); counts.commits++; }
             if (lm.frame(C) && stage.frame) stage.sync(stage.frame, stage.window);
         } else if (r < 0.65) {
-            const F = pick(WATCH), q = pick(QS), u = PLATE_PX / zqOf(q);
+            const F = pick(WATCH), l = pick(LS), u = 512 / 2 ** l;
             // A cell near some ink, or anywhere in the frame.
             let i = ri(-3, 3), j = ri(-3, 3);
             if (ids.length && rnd() < 0.7) {
@@ -144,18 +140,18 @@ export function runFresh(seed, steps, fail) {
                 const b = rec ? lm.mapRectObj((() => { const bb = bboxOf(rec.obj, null); return { left: bb.x0, top: bb.y0, right: bb.x1, bottom: bb.y1 }; })(), rec.level, F, rec.obj.below, rec.level, false) : null;
                 if (b && isFinite(b.left) && Math.abs(b.left / u) < 1e6) { i = Math.floor(b.left / u); j = Math.floor(b.top / u); }
             }
-            const key = plateKey(F, q, i, j);
-            if (plates.inflight.has(key)) continue;
+            const c = levelCell(F, l, 1, i, j);
+            if (plates.inflight.has(c.key)) continue;
             const jobId = ++jobSeq, G = stage.generation;
-            plates.beginJob(jobId, { frameId: F, q, Zq: zqOf(q) }, [{ i, j }], G);
-            queue.push({ jobId, key, F, q, i, j, G });
+            plates.beginJob(jobId, [c], G);
+            queue.push({ jobId, key: c.key, c, G });
             counts.dispatches++;
         } else if (r < 0.9 && queue.length) {
             const job = queue.splice(Math.floor(rnd() * queue.length), 1)[0];
             const cur = plates.get(job.key);
             const curG = cur ? cur.G : null;
             const refused = plates.inflight.get(job.key) && plates.inflight.get(job.key).refused;
-            const st = plates.put({ key: job.key, frameId: job.F, q: job.q, Zq: zqOf(job.q), i: job.i, j: job.j, G: job.G, jobId: job.jobId, bytes: 1 });
+            const st = plates.put({ ...job.c, G: job.G, jobId: job.jobId, bytes: 1 });
             plates.endJob(job.jobId);
             counts.arrivals++;
             if (refused) counts.refused++;
@@ -171,10 +167,10 @@ export function runFresh(seed, steps, fail) {
             }
         } else {
             // An eviction: a plate dropped by the byte cap (evict everything past a small budget).
-            const before = plates.size();
+            const before = plates.cache.size;
             plates.maxBytes = ri(4, 24);
             plates._evict();
-            counts.evictions += before - plates.size();
+            counts.evictions += before - plates.cache.size;
             plates.maxBytes = 24;
         }
         // (a) monotone, per key, over what it stored.
@@ -182,14 +178,14 @@ export function runFresh(seed, steps, fail) {
         // (b) a plate a later change touched is never exact.
         for (const e of plates.cache.values()) {
             counts.checks++;
-            const box = cellBox(e.frameId, e.q, e.i, e.j);
+            const box = cellBox(e);
             let touched = false;
             for (const c of oracle) {
                 if (c.G <= e.G) continue;
-                const rs = c.rects.get(String(e.frameId));
+                const rs = c.rects.get(String(e.frame));
                 if (rs && rs.some((x) => meets(x, box))) { touched = true; break; }
             }
-            const exact = plates.isExact(e);
+            const exact = plates.exact(e);
             if (exact) counts.exactChecked++;
             if (touched && exact) fail("step " + step + ": plate " + e.key + " at G " + e.G + " is exact but a later change touched it (dirtySince " + stage.dirtySince(e.key) + ")");
             if (!touched && !exact) counts.overDirty++;

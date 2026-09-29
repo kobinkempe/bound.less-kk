@@ -70,10 +70,10 @@ function summarise(rep, { file = null, bytes = null } = {}) {
     // The engine's own store first: the perf ring is a module singleton, attached to the last renderer built.
     const pic = ras.perf && ras.perf.picture, pl = ras.plates || (ras.perf && ras.perf.plates), rr = ras.renderer;
     if (pic) {
-        L.push(row("paper", `uncovered now ${int(ras.layer && ras.layer.uncoveredCells)} cells · paper composes ${int(pic.paperComposes)} (max ${int(pic.paperCellsMax)} cells) · fallback blits ${int(pic.fallbackBlits)} (max r ${sci(pic.fallbackMaxR)}) · cross-frame ${int(pic.crossFrameBlits)} · holds ${int(pic.holds)} (shrinks ${int(pic.holdShrinks)}) · previews ${int(pic.previews)}/${int(pic.previewHits)} hits · mode ${pic.mode} q ${pic.q}`));
+        L.push(row("paper", `the pyramid's integrals (ms): paper ${int(pic.paperMs)} · blur ${int(pic.blurMs)} · older ${int(pic.olderPatchMs)} waiting for a patch, ${int(pic.olderOtherMs)} other · ${int(pic.composes)} composes, max ${int(pic.maxImagesPerCompose)} images · level ℓ${pic.level} at S ${pic.S}, σ ${pic.s}`));
     } else if (ras.renderer === "svg") L.push(row("paper", `SVG renderer: ${int(ras.groups)} groups`));
     if (pl) L.push(row("plates", `${int(pl.plates)} plates ${mb(pl.plateBytes)} of ${mb(pl.maxBytes)} · stale ${mb(pl.staleBytes)} · pinned ${int(pl.pinned)} · in flight ${int(pl.inFlight)} · evictions ${int(pl.evictions)}`));
-    if (rr) L.push(row("raster", `${int(rr.frames)} renders + ${int(rr.cameraFrames)} camera frames · posts ${int(rr.posts)} (${int(rr.postedPlates)} plates) · stale arrivals ${int(rr.staleArrivals)} · ladder ${int(rr.ladderPosts)} posts/${int(rr.ladderPlates)} plates · plane ${rr.plane || "-"} · live holds ${int(rr.liveHolds)}`));
+    if (rr) L.push(row("raster", `${int(rr.frames)} renders + ${int(rr.cameraFrames)} camera frames · jobs by priority ${rr.queue ? rr.queue.byPrio.join("/") : "-"} · refused at the pack ${int(rr.refusedCover)} · plane ${rr.plane || "-"} · live holds ${int(rr.liveHolds)}, handoffs ${int(rr.liveHandoffs)}`));
     const ins = rep.instruments || {};
     const fm = ins.frameMeter;
     if (fm) L.push(row("frames", `${int(fm.frames)} sampled, mean ${fm.meanMs} ms · ${Object.entries(fm.hist || {}).map(([k, n]) => `${k}:${n}`).join(" ")} · worst ${(fm.worst || []).slice(0, 3).map((w) => `${w.ms} ms @${hhmmss(w.t)}`).join(", ") || "-"}`));

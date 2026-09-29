@@ -8,11 +8,10 @@ import Document from "./Document";
 import LevelMap from "./LevelMap";
 import TileStore from "./TileStore";
 import Stage from "./Stage";
-import PlateStore from "./raster/PlateStore";
+import PyramidStore, { levelCell } from "./raster/PyramidStore";
 import { createPlacementModel } from "./placementModel";
 import { rectLoop } from "./geometry/arcShape";
 import { addOffset } from "./geometry/offsets";
-import { plateKey, zqOf } from "./raster/plate";
 import { BASE, ENTER, EXIT, W } from "./frameLattice";
 import { mkEngine, useEngines } from "./__testkit__/harness";
 
@@ -28,7 +27,7 @@ function world() {
     doc.frameFactor = (a, b) => lm.frameFactor(a, b);
     const store = new TileStore(lm, doc, CFG);
     const stage = new Stage({ doc, lm, store, model: createPlacementModel({ doc, lm, store }), cfg: CFG });
-    const plates = new PlateStore({ fresh: stage, doc: null });
+    const plates = new PyramidStore({ fresh: stage, doc: null });
     stage.onCommit((G, info) => { for (const p of info.drop) plates.dropFrames(p); });
     lm.ensureSpine(1);
     stage.sync("0", { left: -W, top: -W, right: W, bottom: W });
@@ -37,16 +36,16 @@ function world() {
         doc.add(o, "0");
         return o;
     };
-    // A stored plate over a rect of frame 0 (q 0: 512 units a plate), exact at the current G.
+    // A stored plate over a rect of frame 0 (level 0: 512 units a plate), exact at the current G.
     let job = 0;
     const plateAt = (x, y) => {
-        const i = Math.floor(x / 512), j = Math.floor(y / 512), key = plateKey("0", 0, i, j), G = stage.generation;
-        plates.beginJob(++job, { frameId: "0", q: 0, Zq: zqOf(0) }, [{ i, j }], G);
-        plates.put({ key, frameId: "0", q: 0, Zq: zqOf(0), i, j, G, jobId: job, bytes: 1 });
+        const c = levelCell("0", 0, 1, Math.floor(x / 512), Math.floor(y / 512)), G = stage.generation;
+        plates.beginJob(++job, [c], G);
+        plates.put({ ...c, G, jobId: job, bytes: 1 });
         plates.endJob(job);
-        return key;
+        return c.key;
     };
-    const exact = (key) => plates.isExact(plates.get(key));
+    const exact = (key) => plates.exact(plates.get(key));
     return { lm, doc, store, stage, plates, shape, plateAt, exact };
 }
 
@@ -86,9 +85,9 @@ describe("the Stage's hold (A2 §2.7)", () => {
         const kid = { type: "shape", origin: "native", id: doc.allocId(), color: "#123", opacity: 1, w: 3, loops: rectLoop({ left: 0, top: 0, right: 900, bottom: 900 }) };
         doc.add(kid, F.id);
         stage.sync("0", stage.window);
-        const inF = plateKey(F.id, 0, 0, 0);
-        plates.beginJob(99, { frameId: F.id, q: 0, Zq: zqOf(0) }, [{ i: 0, j: 0 }], stage.generation);
-        plates.put({ key: inF, frameId: F.id, q: 0, Zq: zqOf(0), i: 0, j: 0, G: stage.generation, jobId: 99, bytes: 1 });
+        const cF = levelCell(F.id, 0, 1, 0, 0), inF = cF.key;
+        plates.beginJob(99, [cF], stage.generation);
+        plates.put({ ...cF, G: stage.generation, jobId: 99, bytes: 1 });
         plates.endJob(99);
         const oldCell = plateAt(7 * 32, 7 * 32);
         stage.hold({ ids: [], frames: [F.id] });
@@ -101,7 +100,7 @@ describe("the Stage's hold (A2 §2.7)", () => {
         stage.release();
         expect(stage.generation).toBe(G0 + 1);
         expect(plates.get(inF)).toBeUndefined();                     // its id now means another place
-        expect(plates.isExact(plates.get(oldCell))).toBe(false);     // the subtree left from there
+        expect(plates.exact(plates.get(oldCell))).toBe(false);       // the subtree left from there
     });
 
     test("a reset during a hold ends it", () => {

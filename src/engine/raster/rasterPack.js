@@ -26,7 +26,7 @@
  *     family — a fat stroke's solid-tier quad against its own bands, OPEN-FLAGS F76 (D106).
  */
 
-import { PLATE_PX, QUANTA_PER_OCTAVE } from "./plate";
+import { PLATE_PX } from "./plate";
 import {
     META_WORDS, ATTR_DOUBLES, RGB_BYTES, KIND_LOOPS, KIND_RINGS,
     FLAG_COVERS, FLAG_ERASE, FLAG_UNION, FLAG_MASK, MASKS_MAX,
@@ -37,6 +37,9 @@ import { flattenLoops, cubicLoopsBBox } from "../geometry/curveOutline";
 import { underMask } from "../eraseRule";
 import { sagittaOf } from "../geometry/chordMath";
 import { bboxOf } from "../geometry/derive";
+
+/** A band and a chord count are memoised per quarter octave of their zoom (`bandFor`, `itemChords`). */
+const MEMO_STEPS_PER_OCTAVE = 4;
 
 /**
  * The arc flattening tolerance, in device px — the same 1/16 as `rasterCore.ARC_TOL` (§4.4).
@@ -497,10 +500,10 @@ function arcChords(ax, ay, bx, by, sweep, tol) {
     return Math.pow(2, Math.min(d, 24));
 }
 
-/** One item's chords at zoom `Z`, memoised on the pack entry per zoom quantum. */
+/** One item's chords at zoom `Z`, memoised on the pack entry per quarter octave. */
 function itemChords(item, Z, cfg, e) {
     if (e.bad) return 0;
-    const qz = Math.round(Math.log2(Z) * QUANTA_PER_OCTAVE);
+    const qz = Math.round(Math.log2(Z) * MEMO_STEPS_PER_OCTAVE);
     if (e.chordQ === qz) return e.chordN;
     let n = 0;
     if (e.bands) {
@@ -523,16 +526,12 @@ function itemChords(item, Z, cfg, e) {
 }
 
 /**
- * The visible chord estimate handed to `PictureLayer.frameFor(cam, chords)` (§6.5, §15.3 Q9):
- * Σ over the items the viewport touches of the chords they would be flattened into **at the
- * EXACT zoom `Z`**, because the sync path rasters at `Z` and that is the cost being predicted.
+ * The visible chord estimate — the E of the pyramid's inline estimate (A3 §2.2): Σ over the items the window
+ * touches of the chords they would be flattened into **at the zoom `Z`** the job renders at.
  *
- * It EXITS EARLY at `cap`, returning `cap + 1`, because the answer is only ever compared with a
- * budget: §8.6 row 4's screen is 77,317 pieces, and walking all of them every camera step is
- * 8–15 ms against a 4 ms budget, while the exit makes a dense screen O(a few dozen items) and
- * leaves the full walk to the small screens that are the sync case. The caller's `cap` must be
- * strictly above the layer's own `2 × SYNC_CHORD_BUDGET` or the hysteresis reads the exit value
- * as "still light" (`PictureLayer._syncSwitch`: `n <= 2 × budget` keeps the sync path).
+ * It EXITS EARLY at `cap`, returning `cap + 1`, because the answer is only ever compared with a budget: §8.6
+ * row 4's screen is 77,317 pieces, and walking all of them is 8–15 ms, while the exit makes a dense screen
+ * O(a few dozen items).
  *
  * @param {object[]} list the render list
  * @param {{left:number,top:number,right:number,bottom:number}} win the viewport in frame units
@@ -565,18 +564,12 @@ export function visibleChords(list, win, Z, cfg, cap, live = null) {
 // ---------------------------------------------------------------------------
 
 /**
- * A stroke's fillable rings at one zoom quantum, flat, memoised on `(item, zoom quantum of Zq)`.
+ * A stroke's fillable rings at one zoom, flat, memoised on `(item, quarter octave of Zq)`.
  *
- * **The key is derived from `Zq` and never from `q`** (F77, fixed 2026-09-22): the geometry is
- * flattened at `ARC_TOL / Zq`, and `"s"` (every sync frame) and `"e"` (every settle) carry the
- * camera's exact zoom under one constant `q`, so a memo keyed on `q` returned a band flattened
- * at whatever zoom came first — 1.0 device px of chord error at a 4× sync zoom, against Kobin's
- * quarter-pixel bar. `itemChords` already keys its own memo this way (`:455`).
- *
- * A COARSER request reuses a cached FINER band (`key` below the cached one): a finer flattening
- * is a superset of chords and is inside the tolerance at every coarser zoom, so the preview at
- * `q − 8` pays no band building (PAPER-PLAN §7.2). The reverse is never done — that is the error
- * above.
+ * **The key is derived from `Zq`** (F77): the geometry is flattened at `ARC_TOL / Zq`, so a memo keyed on anything
+ * else returns a band flattened at whatever zoom came first (1.0 device px of chord error at 4×, against Kobin's
+ * quarter-pixel bar). A COARSER request reuses a cached FINER band: a finer flattening is inside the tolerance at
+ * every coarser zoom. The reverse is never done.
  *
  * A fitted stroke uses its own `_outline` — the single definition of "how a stroke becomes an
  * outline", which the eraser's footprint goes through too — flattened at the plate tolerance.
@@ -594,7 +587,7 @@ export function bandFor(item, q, Zq, cfg) {
     const e = entryFor(item, cfg);
     if (e.bad) return null;
     if (!e.bands) return null;
-    const key = Math.round(Math.log2(Zq) * QUANTA_PER_OCTAVE);
+    const key = Math.round(Math.log2(Zq) * MEMO_STEPS_PER_OCTAVE);
     const had = e.bands.get(key);
     if (had) { packStats.bandHits++; return had; }
     for (const [k, band] of e.bands) {

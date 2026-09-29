@@ -15,22 +15,21 @@
  * (`overCap`). Layers are named by their members, so a re-cut that changes a run is a new layer. A
  * QUICK level, PLANE_QUICK_OCTAVES coarser again and inside the same cap, is asked for first: it is
  * drawn until the plane's own level is whole. Until either is, the
- * selection's own layers are drawn alone where they are in (the ink also shows where it was), and a
- * small selection's are rastered on the spot (`RasterRenderer._planeStopgap`).
+ * selection's own layers are drawn alone where BELOW covers their start (H4), and a small selection's
+ * are rendered on the spot (`RasterRenderer._pyrStopgap`).
  *
  * Where each layer is needed: SEL at the selection's own cells, OVER at its families' cells, BELOW
  * at the union of all of them. The layers are cut on `rasterPack.paintFamilies`, the pack's own
  * family order, from the list the selection was made in: the drag does not rebuild the list. The
- * plates live in the store, pinned (`setPlanePins`): under their own tags as quanta on the old path, under
- * `planeKey(F, Zp, tag, i, j)` on the pyramid's (A3 §6), where a SEL run also reaches a view past the screen (D1).
+ * plates live in the store, pinned (`setPlanePins`), keyed `planeKey(F, Zp, tag, i, j)` at the plane's own zoom Zp
+ * (the view's grid Z, `/ 2^k` coarser; A3 §6); a level is whole only when every plate is exact, and a SEL run is cut
+ * against the view grown by one view each way (D1). The pin caps are `level.js`'s `MOVE_PLANE_PLATES(_PHONE)`.
  */
 
-import { PLATE_PX, PREVIEW_QUANTA, QUANTA_PER_OCTAVE, plateKey, zqOf } from "./plate";
+import { PLATE_PX } from "./plate";
 import { paintFamilies } from "./rasterPack";
-import { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, planeKey } from "./level";
+import { planeKey } from "./level";
 
-/** The plane's pin caps live in `level.js` beside the pyramid's other bounds; re-exported for the old path's callers. */
-export { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE };
 /** Layers a plane may split the picture into (below, sel, between, sel, above); past it runs are merged. */
 export const MOVE_PLANE_LAYERS = 5;
 /** Octaves a plane may be cut coarser than the view to fit its cap. */
@@ -41,7 +40,7 @@ export const PLANE_QUICK_OCTAVES = 2;
 const PLANE_QUICK_MIN = 4;
 /**
  * A level drawn magnified (coarser than the view) draws scaled images: past 33 of those a frame
- * costs ~100 ms in Chrome (PictureLayer.COMPOSE_IMAGES), so such a level stays under this.
+ * costs ~100 ms in Chrome (`level.js`'s COMPOSE_IMAGES), so such a level stays under this.
  */
 const PLANE_SCALED_MAX = 16;
 /**
@@ -81,13 +80,7 @@ function rangeOf(cells) {
 }
 
 export default class MovePlane {
-    /**
-     * @param {{pyramid?: boolean}} [o] the picture pyramid's plane (A3 §6): plates keyed `planeKey` at the plane's
-     *        own zoom Zp (the view's grid Z, `/ 2^k` coarser), whole only when exact, and the SEL runs cut against
-     *        the view grown by one view each way (D1). Without it, the old path's quantum keys.
-     */
-    constructor(o = {}) {
-        this.pyramid = !!o.pyramid;
+    constructor() {
         this.stats = planeStats;      // the layer counts into it without importing this module
         this.gen = 0;                 // bumped by every reset: the caller frees the old plates when it moves
         this._reset();
@@ -98,12 +91,11 @@ export default class MovePlane {
         this.ids = null;          // the selection's ids in that list
         this.list = null;
         this.vr = "";             // the view's plate range the layers were cut over
-        this.frameId = null; this.q = null; this.Zq = 1;   // the VIEW the plane was cut for
-        this.main = null;         // the plane's own level: { k, pq, pZq, layers, keys, tags, r, selR, below: Set of "i,j" }
+        this.frameId = null; this.Zq = 1;   // the VIEW the plane was cut for: its frame and grid zoom
+        this.main = null;         // the plane's own level: { k, pZq, layers, keys, tags, r, selR, below: Set of "i,j" }
         this.quick = null;        // the quick level, coarser, or null
         this.cur = null;          // the level drawn this compose
         this.partial = false;     // `cur` drawn by its selected layers alone (not whole yet)
-        this.stop = null;         // a stopgap: { pZq, layers } of selected layers rastered on the main thread
         this.layers = [];         // the main level's layers: [{ kind: "below"|"sel"|"over", tag, cells, ids?, omit? }]
         this.selIds = null;       // every selected id the layers carry: what other packs omit during the drag
         this.max = 0;
@@ -134,12 +126,11 @@ export default class MovePlane {
      */
     aim(st, list, view, cfg, max, dpr = 1, live = null) {
         if (this.state === "drag" || this.state === "land") return true;
-        // Zq as well as q: a settled view is q "e" at whatever exact zoom the camera stopped at.
-        const same = st && this.sel === st.key && this.frameId === view.frameId && this.q === view.q && this.Zq === view.Zq;
+        const same = st && this.sel === st.key && this.frameId === view.frameId && this.Zq === view.Zq;
         if (!same) {
             this._reset();
             if (!st || !st.ids || !st.ids.size) return false;
-            this.sel = st.key; this.frameId = view.frameId; this.q = view.q; this.Zq = view.Zq;
+            this.sel = st.key; this.frameId = view.frameId; this.Zq = view.Zq;
             planeStats.builds++;
         }
         const vr = view.i0 + "," + view.i1 + "," + view.j0 + "," + view.j1;
@@ -152,13 +143,13 @@ export default class MovePlane {
 
     /** The runs: the pack's families in paint order, cut into selected and unselected ones on screen. */
     _cut(list, ids, view, cfg, max, dpr, live) {
-        this.main = null; this.quick = null; this.cur = null; this.stop = null; this.ready = false; this.partial = false;
+        this.main = null; this.quick = null; this.cur = null; this.ready = false; this.partial = false;
         this.layers = []; this.keys = []; this.tags = []; this.r = null; this.selR = null; this.selIds = null; this.refused = true;
         const s = view.Zq / PLATE_PX;
-        // D1 (pyramid): a selected family counts when it touches the view grown by one view each way.
-        const gw = this.pyramid ? view.i1 - view.i0 + 1 : 0, gh = this.pyramid ? view.j1 - view.j0 + 1 : 0;
+        // D1: a selected family counts when it touches the view grown by one view each way.
+        const gw = view.i1 - view.i0 + 1, gh = view.j1 - view.j0 + 1;
         const runs = [];
-        for (const f of paintFamilies(list, view.q, view.Zq, dpr, cfg, live)) {
+        for (const f of paintFamilies(list, 0, view.Zq, dpr, cfg, live)) {
             if (f.all.length && f.all.every((d) => d.o.erase)) continue;   // a pending mark paints nothing: every layer's pack masks with it
             const sel = f.all.some((d) => ids.has(d.o.id)), w = sel ? gw : 0, h = sel ? gh : 0;
             let on = false;
@@ -212,14 +203,9 @@ export default class MovePlane {
 
     /** The layers at `k` octaves coarser than the view: cells, tags and keys; `plates` is their count. */
     _level(runs, view, k) {
-        let pq = view.q, pZq = view.Zq;
-        if (this.pyramid) { pq = k; pZq = view.Zq / 2 ** k; }        // A3 §6: Zp / 2^k, the plane's own levels
-        else if (k) {
-            const q0 = typeof view.q === "number" ? view.q : Math.floor(Math.log2(view.Zq) * QUANTA_PER_OCTAVE + 1e-9);
-            pq = q0 - k * QUANTA_PER_OCTAVE; pZq = zqOf(pq);
-        }
+        const pZq = view.Zq / 2 ** k;                                  // A3 §6: Zp / 2^k, the plane's own levels
         const f = pZq / view.Zq, s = pZq / PLATE_PX;
-        const gw = this.pyramid ? view.i1 - view.i0 + 1 : 0, gh = this.pyramid ? view.j1 - view.j0 + 1 : 0;
+        const gw = view.i1 - view.i0 + 1, gh = view.j1 - view.j0 + 1;
         const rangeAt = (w, h) => ({
             i0: Math.floor((view.i0 - w) * f), i1: Math.floor((view.i1 + 1 + w) * f - 1e-9),
             j0: Math.floor((view.j0 - h) * f), j1: Math.floor((view.j1 + 1 + h) * f - 1e-9),
@@ -239,7 +225,7 @@ export default class MovePlane {
         const below = new Set(), omit = new Set(), per = [];
         for (const r of runs) {
             const c = cellsOf(r.boxes, onView);
-            per.push(r.sel && this.pyramid ? cellsOf(r.boxes, grown) : c);
+            per.push(r.sel ? cellsOf(r.boxes, grown) : c);
             for (const x of c) below.add(x);
             for (const id of r.ids) omit.add(id);
         }
@@ -249,23 +235,23 @@ export default class MovePlane {
         let plates = 0;
         layers.forEach((L, n) => {
             // Named by what the layer holds: a re-cut that changes a run's members is a new layer, not the old plates.
-            L.tag = "z" + n + "_" + pq + "_" + idsHash(L.kind === "below" ? L.omit : L.ids);
+            L.tag = "z" + n + "_" + k + "_" + idsHash(L.kind === "below" ? L.omit : L.ids);
             tags.push(L.tag);
             plates += L.cells.length;
             for (const [i, j] of L.cells) keys.push(this._key(L.tag, pZq, i, j));
         });
         const selCells = [].concat(...layers.filter((L) => L.kind === "sel").map((L) => L.cells));
-        return { k, pq, pZq, layers, tags, keys, plates, r: rangeOf(layers[0].cells), selR: rangeOf(selCells), below };
+        return { k, pZq, layers, tags, keys, plates, r: rangeOf(layers[0].cells), selR: rangeOf(selCells), below };
     }
 
     /**
-     * The levels whose plates overhang the camera's list: it reads one plate of the preview's
-     * quantum past the view (P-1), and a level more octaves coarse reaches further, so packed from
-     * it the plates held paper where ink is (REVIEWER-4 P-2). Each gets its own list over `coverOf`,
-     * built at idle (`listPending` until then; `requests` leaves the level out meanwhile).
+     * The levels whose plates overhang the camera's table: it reads four view cells past the screen (A3 §4.2), and a
+     * plate `k` octaves coarser spans 2^k of them, so past k = 2 one packed from the table would hold paper where ink is
+     * (REVIEWER-4 P-2). Each gets its own table over `coverOf`, read at idle (`listPending` until then; `requests`
+     * leaves the level out meanwhile).
      */
     farLevels() {
-        return [this.quick, this.main].filter((lvl) => lvl && lvl.list === undefined && !lvl.listPending && lvl.k * QUANTA_PER_OCTAVE > PREVIEW_QUANTA);
+        return [this.quick, this.main].filter((lvl) => lvl && lvl.list === undefined && !lvl.listPending && lvl.k > 2);
     }
     /** The rect, in frame units, a level's plates cover. */
     coverOf(lvl) {
@@ -273,31 +259,31 @@ export default class MovePlane {
         return r ? { left: r.i0 * u, top: r.j0 * u, right: (r.i1 + 1) * u, bottom: (r.j1 + 1) * u } : null;
     }
 
-    /** One store request per layer, the quick level's first (`want`'s fields plus what the pack needs); null when refused. */
-    requests(list) {
+    /** One request per layer, the quick level's first: its cells and what the pack needs (a far level's own table); null when refused. */
+    requests() {
         if (this.refused || !this.main || this.state === "land") return null;
         const out = [];
         for (const lvl of [this.quick, this.main]) {
             if (!lvl || lvl.listPending) continue;
             for (const L of lvl.layers) {
-                const base = { frameId: this.frameId, Zq: lvl.pZq, q: L.tag, list: lvl.list || list, G: lvl.list ? lvl.G : null, offCam: true, prio: 2, mode: "plane", cells: L.cells };
+                const base = { frameId: this.frameId, Zq: lvl.pZq, tag: L.tag, list: lvl.list || null, G: lvl.list ? lvl.G : null, cells: L.cells };
                 out.push(L.kind === "below" ? { ...base, omit: L.omit } : { ...base, only: L.ids, paper: [0, 0, 0, 0] });
             }
         }
         return out;
     }
 
-    /** A plane plate's store key: `planeKey` at the level's Zp on the pyramid, the tag as the quantum on the old path. */
-    _key(tag, pZq, i, j) { return this.pyramid ? planeKey(this.frameId, pZq, tag, i, j) : plateKey(this.frameId, tag, i, j); }
+    /** A plane plate's store key: `planeKey` at the level's Zp (A3 §6). */
+    _key(tag, pZq, i, j) { return planeKey(this.frameId, pZq, tag, i, j); }
 
-    /** Is every plate of a level (its selected layers only, with `selOnly`) cached — and on the pyramid, exact (A3 §6)? */
+    /** Is every plate of a level (its selected layers only, with `selOnly`) cached and exact (A3 §6)? */
     _whole(lvl, store, selOnly = false) {
         if (!lvl) return false;
         for (const L of lvl.layers) {
             if (selOnly && L.kind !== "sel") continue;
             for (const [i, j] of L.cells) {
                 const e = store.get(this._key(L.tag, lvl.pZq, i, j));
-                if (!e || e.dead || (this.pyramid && !store.exact(e))) return false;
+                if (!e || e.dead || !store.exact(e)) return false;
             }
         }
         return true;

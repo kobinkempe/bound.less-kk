@@ -338,9 +338,10 @@ export default class Document {
         this.rev++;
         // An event about an object with no table (added, edited, re-homed, its z) outside a shifted
         // frame leaves every picture table and every displaced native's home as it was; anything
-        // else may not (a shifted frame's natives are displaced by the frame, A1 C1).
-        if (!(ev && ev.obj && !ev.offsetsOnly && ev.obj.below === undefined && !this._offsetIds.has(ev.id)
-            && !this._shifted(ev.level) && !this._shifted(ev.rehome))) {
+        // else may not (a shifted frame's natives are displaced by the frame, A1 C1). `oldBelow` on
+        // a geometry change: the edit took its table away (`setGeometryById`).
+        if (!(ev && ev.obj && !ev.offsetsOnly && ev.oldBelow === undefined && ev.obj.below === undefined
+            && !this._offsetIds.has(ev.id) && !this._shifted(ev.level) && !this._shifted(ev.rehome))) {
             this.offRev++;
             if (ev && ev.obj && ev.id != null) {
                 this._offLog.push(this.offRev, ev.id);
@@ -760,8 +761,9 @@ export default class Document {
         // The offsets below the home are geometry too (F41): a snapshot carries
         // them, a drag writes them, undo restores them. Only a snapshot that
         // KNOWS about them (has the key) may change them.
+        const had = o.below;
         if ("below" in geom) { o.below = cloneBelow(geom.below); this._noteBelow(o); }
-        this._afterEdit(o, rec.level, oldBbox, o.lwFrame);
+        this._afterEdit(o, rec.level, oldBbox, o.lwFrame, had !== undefined && o.below === undefined ? had : undefined);
         return rec;
     }
     /**
@@ -1153,11 +1155,11 @@ export default class Document {
         if (o.type === "fill") { for (const poly of o.polys) scan(poly); } else scan(o.pts);
         return { x0, y0, x1, y1 };
     }
-    _afterEdit(o, level, oldBbox, oldLw) {
+    _afterEdit(o, level, oldBbox, oldLw, oldBelow = undefined) {
         delete o._bbox; delete o._dispFlat; delete o._flat; delete o._outline; // geometry caches are stale
         o._ver = (o._ver || 0) + 1; // anything keyed on this object's state is stale too
         if (!this._pending.has(o)) { this._idx(level).remove(o); this._idx(level).add(o); }
-        this._emit({ kind: "change", id: o.id, level, obj: o, oldBbox, oldLw });
+        this._emit({ kind: "change", id: o.id, level, obj: o, oldBbox, oldLw, ...(oldBelow !== undefined ? { oldBelow } : {}) });
     }
 
     // Spatial query: indexed objects intersecting rect (lw-inflated bboxes),

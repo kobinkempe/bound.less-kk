@@ -63,8 +63,10 @@ export function objectHeader(o, geo = null) {
     if (o.editId != null) h.editId = o.editId;
     if (o.attachRect) h.attachRect = { ...o.attachRect };
     if (o.tile && (o.tile[0] || o.tile[1])) h.tile = [o.tile[0], o.tile[1]];
+    /* eslint-disable no-restricted-syntax -- the codec stores the own table as it is */
     const below = encodeBelow(o.below);
     if (below) h.below = below;
+    /* eslint-enable no-restricted-syntax */
     if (o.erase) { h.erase = true; if (o.bakePx != null) h.bakePx = o.bakePx; }
     // The erase rule's data (A2 §4.9): a registered mark's targets (empty too: registered), a native's lineage.
     if (o.targets) h.targets = o.targets.slice();
@@ -188,6 +190,7 @@ const geomSlot = (b, geom) => {
     const out = { type, g: pushGeometry(b, { type, loops: geom.loops, polys: geom.polys, pts: geom.pts }) };
     if ("attachRect" in geom) out.attachRect = geom.attachRect ? { ...geom.attachRect } : null;
     if ("tile" in geom) out.tile = geom.tile ? [geom.tile[0], geom.tile[1]] : null;
+    // eslint-disable-next-line no-restricted-syntax -- the codec stores a move's own table as it is
     if ("below" in geom) out.below = encodeBelow(geom.below) || null;
     return out;
 };
@@ -196,6 +199,7 @@ const readGeomSlot = (s, geo) => {
     const out = readGeometry(s, geo);
     if ("attachRect" in s) out.attachRect = s.attachRect;
     if ("tile" in s) out.tile = s.tile;
+    // eslint-disable-next-line no-restricted-syntax -- the codec decodes a move's own table as it was stored
     if ("below" in s) out.below = s.below;
     return out;
 };

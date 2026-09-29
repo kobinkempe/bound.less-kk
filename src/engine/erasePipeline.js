@@ -278,7 +278,8 @@ class ErasePipeline {
             if (guard++ > 100000) return;
         }
         this._registerLanded();
-        if (this._renderPending) this._render();   // settled means painted, too
+        // Settled means painted, too: the SVG path's list is the last render's (the raster path stepped at each landing).
+        if (!this.raster && this._renderedG !== this.stage.generation) this._render();
     }
     // Resolve one stroke's perimeter right now, cancelling any queued job for it: an erase has
     // reached an object that has not baked yet. A mark registers in the same commit (A2 §4.2).
@@ -446,19 +447,13 @@ class ErasePipeline {
             else if (this.raster && rec.level !== this.cam.frame) away = true;
             changed = true;
         }
-        // The resolved perimeter is the curve already on screen, so it waits for the next render
-        // (two renders a pen-up were 185 s of a 203 s jsdom session at 1,000 strokes); `_render`
-        // clears the flag and `flushBakes` honours it. The plates hold the raw band until they are
-        // re-rastered: a stroke homed in the camera's frame is its own list item, so a camera step
-        // re-posts them; one homed elsewhere is a projected copy the old list still holds raw, and
-        // plates re-rastered from it stay fresh through later renders — a render re-derives it
-        // (OPEN-FLAGS F92). A promotion (D9) renders at once: the object changed frames.
+        // The resolved perimeter is the curve already on screen: on the SVG path it waits for the next render (two
+        // renders a pen-up were 185 s of a 203 s jsdom session at 1,000 strokes; `flushBakes` renders if the list is
+        // behind). On the raster path the landing is the Stage's dirt, and a camera step hands it to the pyramid. One
+        // homed elsewhere is a projected copy: a render re-derives it (OPEN-FLAGS F92). A promotion (D9) renders at once.
         if (changed) {
             if (promoted || away) this._render();
-            else {
-                this._renderPending = true;
-                if (this.raster) { this._syncStep(); this.renderer.update(); }
-            }
+            else if (this.raster) { this._syncStep(); this.renderer.update(); }
         }
         return this._bakeJobs.length > 0;
     }

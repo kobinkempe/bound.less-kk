@@ -100,8 +100,11 @@ export function createPlacementModel({ doc, lm, store }) {
             return { rev: m.key, groups: m.groups, groupOf: (id) => m.gk.get(id) };
         },
 
-        /** Native `o`'s picture table (its own with its home frame's shift), for a footprint state. */
-        table(below, home) { return doc.tableOf({ below }, home); },
+        /** Native `o`'s picture table at `home` (its own with the home frame's shift), for a footprint state. */
+        table(o, home) { return doc.tableOf(o, home); },
+
+        /** The picture table an `offsetsOnly` change event's native had before it (its old own table, `oldBelow`). */
+        tableBefore(ev) { return doc.tableOf({ below: ev.oldBelow }, ev.level); },
 
         /**
          * The rectangle every native under a frame lies in — its cell grown by REACH (invariant 2),
@@ -142,12 +145,12 @@ export function createPlacementModel({ doc, lm, store }) {
         },
 
         /**
-         * A native's drawn rectangle at a given state — `{home, below, rect}`, `below` its picture table
-         * then (`table`), `rect` in the home's units — as seen from frame G: the footprint a change
-         * dirties (A2 §2.5), before or after.
+         * A native's drawn rectangle at a given state — `{home, table, rect}`, `table` its picture table
+         * then (`table`, `tableBefore`), `rect` in the home's units — as seen from frame G: the footprint a
+         * change dirties (A2 §2.5), before or after.
          */
         footprint(state, G) {
-            return lm.mapRectObj(state.rect, state.home, String(G), state.below, state.home, false);
+            return lm.mapRectObj(state.rect, state.home, String(G), state.table, state.home, false);
         },
     };
     function mapObj(x, from, to, below, home, toHome) {

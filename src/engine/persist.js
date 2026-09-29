@@ -330,8 +330,10 @@ function decodeNatives(n) {
             // level itself since F55 — the offset two finite numbers.
             // Geometry, like the tile phase: garbage here would silently move
             // the object's picture at every level.
-            if (o.below != null) {
-                if (!Array.isArray(o.below) || !o.below.every((t) => Array.isArray(t) && t.length === 3
+            // eslint-disable-next-line no-restricted-syntax -- the decoder validates the stored table
+            const table = o.below;
+            if (table != null) {
+                if (!Array.isArray(table) || !table.every((t) => Array.isArray(t) && t.length === 3
                     && Number.isInteger(t[0]) && t[0] >= 0 && isFiniteNum(t[1]) && isFiniteNum(t[2]))) {
                     throw new Error(`bad object ${o.id}: below (offsets under the home) is malformed`);
                 }

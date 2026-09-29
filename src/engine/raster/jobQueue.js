@@ -10,8 +10,8 @@
  *     descent too; `eraseWorkerClient.js`) is one strip with no cells, queued as pushed; a barrier's first.
  *   - While the camera moves, a frame packs at most PACK_MS_PER_FRAME (the pack runs in `pool.submit`, on this
  *     thread, 14–45 ms a job on a dense drawing, PP §10.14); the rest waits for the next frame.
- *   - Pure: a pool `{ size(), free(), submit(strip) }`, a clock, the store's `wants(key)`; `rasterWorkerClient.js`
- *     adopts it (B-PYRAMID-2). The caller calls `done(id, ms)` for every strip `submit` took.
+ *   - Pure: a pool `{ size(), free(), submit(strip) }` (`rasterWorkerClient.rasterPool` behind the renderer's face), a
+ *     clock, the store's `wants(key)`. The caller calls `done(id, ms)` for every strip `submit` took.
  */
 import { PLATE_PX } from "./plate";
 import { levelFor, zOf } from "./level";
@@ -19,7 +19,11 @@ import { levelCell } from "./PyramidStore";
 
 /** The priority of each kind of job (A3 §4.1). A job carries its own; this is the table the callers read. */
 export const PRIO = Object.freeze({ rest: 0, patch: 0, view: 1, plane: 2, cut: 3, prefetch: 4, thumb: 5 });
-/** Strips a worker: a strip is half a worker's share, so a free worker has one to take (RASTERISER-PLAN §3.6). */
+/**
+ * Strips a worker: a strip is half a worker's share, so a free worker has one to take (RASTERISER-PLAN §3.6). Raising it
+ * is not the lever for imbalance: one plate a strip read 1.35–1.62 against 1.44–1.54 (§8.6 measurement 11), since one
+ * plate of that screen was 15–20× the median and no strip rule splits a plate.
+ */
 export const STRIPS_PER_WORKER = 2;
 /** Pack milliseconds one animation frame may spend while the camera moves (A3 §4.4). */
 export const PACK_MS_PER_FRAME = 4;

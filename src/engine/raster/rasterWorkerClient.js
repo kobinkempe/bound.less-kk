@@ -1,52 +1,24 @@
 /**
- * rasterWorkerClient.js — the worker pool, the one strip queue, and the inline fallback.
- * RASTERISER-PLAN §3.6 (the strips and the buffer pool), §8.2 (the queueing subtraction) and
- * §8.4 rule 4 (a stale strip is dropped BEFORE it is packed, not after it is rastered).
+ * rasterWorkerClient.js — the worker pool and the inline fallback, behind `rasterPool` (`{size, free, submit}`): the
+ * face `jobQueue.js` dispatches through, one strip or one cut at a time (A3 §4.4, PLAN §1.6). RASTERISER-PLAN §3.6
+ * (the buffer pool) and §8.2 (the queueing subtraction). Packing is the caller's, at dispatch — a strip superseded
+ * while it waited costs no packing at all (357–598 ms for a screen, §8.6 measurement 4).
  *
- * The shape of one render (§5.1 steps 4–6): the caller hands `submitPlates` the plates its
- * `PlateStore.want` missed; this file cuts them into strips of `ceil(plates / (workers × 2))`,
- * and a worker that finishes pulls the next strip — one queue, so a dense column and three
- * empty ones cannot leave one worker with the whole screen. Packing is the CALLER's, called
- * here at dispatch and not at submit, so a strip superseded while it waited costs no packing
- * at all — 357–598 ms for a screen, §8.6 measurement 4.
- *
- * Six things a reader needs in order not to break it:
- *  - THE PACK CALLBACK IS WHERE `PlateStore.beginJob` GOES. It is handed the strip's plates and
- *    the job id, and the job it returns carries the generation `G` it was packed at (A2 §3.1),
- *    which its result brings back. A strip dropped before it is packed was never begun, and
- *    `onDrop` says so with `jobId` null.
- *  - THE endJob CONTRACT (stage 4's handoff, §15.3 Q7): **the caller calls
- *    `PlateStore.endJob(jobId)` for every job id it ever sees, success or failure.** One rule
- *    with no exception, because `put()` already ends a key and a late `endJob` on a clean job
- *    returns 0. This file guarantees it can: every minted id goes to `pack(plates, jobId, pool)`
- *    first, every job that will not deliver plates fires `onDrop` carrying that id, and
- *    `abandonInFlight` reports everything still in flight at a teardown. Without the last of those, a teardown
- *    leaves those keys in `PlateStore.inflight` for ever, `want` returns them as in-flight
- *    rather than as misses, and the screen keeps a permanent hole with every suite green.
- *  - THE MAIN THREAD OWNS EVERY ABSOLUTE TIME (§8.2). The worker returns durations; `postedAt`
- *    and `arrivedAt` are taken here and `queueingMs` is the subtraction.
- *  - THE JOB'S BUFFERS COME BACK IN `recycled` AND GO TO THE POOL (§3.6). A three-octave zoom
- *    re-packs the screen twelve times; without the pool that is 55.93 MB allocated and detached
- *    inside one gesture (§8.6 measurement 6).
- *  - `onerror` BEFORE ANY WORKER HAS ANSWERED MARKS THE POOL BROKEN FOR THE SESSION, as the
- *    erase client does (`eraseWorkerClient.js:44-54`): the script did not load, so every later
- *    strip takes the inline path. After one has answered, an error or a job silent past
- *    `WATCHDOG_MS` replaces the pool, `MAX_RESPAWNS` times, before going inline (RW-1).
- *  - **ONE LIVE `frameSeq` PER `q`, AND A DROP TOUCHES THE QUEUE ONLY** (§8.4 rule 4, D182).
- *    `submitPlates` drops the queued strips of an OLDER `frameSeq` **at the same `q`**, and `pump`
- *    re-checks each waiting strip against the newest `frameSeq` for its own `q` (`why: "frame"`
- *    and `"stale"`, `jobId` null — never packed, never begun). Requests at different `q` are live
- *    together, because one frame's misses belong to two quanta whenever 5a holds the old quantum
- *    while the new one fills (§6.3). Three things that rule does NOT do:
- *      · **A second call at the same `q` in the same frame drops nothing.** The two frames are
- *        equal, so both calls stand and both raster. "At most ONE call per `q` per frame" is
- *        **5b's** rule (§10 stage 5b); nothing here can tell a second call from the first.
- *      · **No drop recalls a job already DISPATCHED.** It arrives and is answered normally, and
- *        `abandonInFlight` or the plate store's generation rule is what deals with it.
- *      · **A newer submit at another `q` does not drop a dead quantum's strips** — that is the
- *        per-`q` rule doing its work. The caller drops those itself, `dropQueued(why, deadQ)`
- *        with the dead `q` (§10 stage 5b); `stillWanted`, checked at dispatch, is the safety net
- *        and costs a pull and no pack.
+ * Five things a reader needs in order not to break it:
+ *  - THE PACK CALLBACK IS WHERE `beginJob` GOES. It is handed the strip's plates and the job id, and the job it returns
+ *    carries the generation `G` it was packed at (A2 §3.1), which its result brings back. A strip whose pack declines
+ *    fires `onDrop` with `before: true`.
+ *  - THE endJob CONTRACT (§15.3 Q7): **the caller ends every job id it ever sees, success or failure.** Every minted id
+ *    goes to `pack(plates, jobId, pool)` first, every job that will not deliver fires `onDrop` or `onRequeue` with it,
+ *    and `abandonInFlight` reports everything still in flight at a teardown; without that last, a teardown leaves those
+ *    keys in flight for ever and the screen keeps a permanent hole with every suite green.
+ *  - THE MAIN THREAD OWNS EVERY ABSOLUTE TIME (§8.2). The worker returns durations; `postedAt` and `arrivedAt` are taken
+ *    here and `queueingMs` is the subtraction.
+ *  - THE JOB'S BUFFERS COME BACK IN `recycled` AND GO TO THE POOL (§3.6): a three-octave zoom re-packs the screen twelve
+ *    times, 55.93 MB allocated and detached inside one gesture without it (§8.6 measurement 6).
+ *  - `onerror` BEFORE ANY WORKER HAS ANSWERED MARKS THE POOL BROKEN FOR THE SESSION: the script did not load, so every
+ *    later job takes the inline path. After one has answered, an error or a job silent past `WATCHDOG_MS` replaces the
+ *    pool, `MAX_RESPAWNS` times, before going inline (RW-1); what was in flight goes back through `onRequeue`.
  */
 
 import {
@@ -73,17 +45,11 @@ let transport = null;        // (msg, transfer) => Promise<resultMsg>; tests onl
 let countOverride = null;
 let seq = 0;                 // job ids, monotonic per session (§3.3)
 
-const queue = [];            // { req, plates, id } — strips waiting for a free worker
 const inFlight = new Map();  // jobId -> { req, plates, postedAt, slot, bytesOut }
 // Abandoned jobs with no slot object to mark — the inline path and a transport. The COUNT is
 // their hold: `freeSlot` adds it to `inFlight.size`, so the one RGBA scratch of §3.5 is not
 // handed a second job while the first is still drawing into it (D175).
 let heldNoSlot = 0;
-// `q` -> the newest `frameSeq` submitted at that quantum. A MAP and not one pair, because a frame
-// holds misses at two quanta while 5a's view is held at the old one (§6.3, D182); a key with
-// nothing queued and nothing in flight is forgotten in `dropStale`, so a session's zoom quanta
-// cannot accumulate here.
-const current = new Map();
 const pool = new BufferPool(8 << 20);
 
 const stats = {
@@ -206,8 +172,8 @@ export function destroyRasterPool() {
 const ABANDONED = -1;
 
 /**
- * Report every job in flight as dropped, carrying its id. The caller owes
- * `PlateStore.endJob(jobId)` on each; a re-render asks for whatever of those plates it still
+ * Report every job in flight as dropped, carrying its id. The caller owes the store's
+ * `endJob(jobId)` on each; a re-render asks for whatever of those plates it still
  * wants. A job whose result arrives after this is ignored — `onMessage` finds no record — so a
  * job id is still reported exactly once.
  *
@@ -246,36 +212,27 @@ function releaseAbandoned(slot) {
     return true;
 }
 
-/**
- * The script did not load (a 404, a CSP) or a worker threw outside a job. Every strip in flight
- * goes back on the queue — its plates are this file's own copy, so it is re-packed rather than
- * resumed — and every later strip takes the inline path (`eraseWorkerClient.js:44-54`).
- *
- * Each stranded strip is reported dropped AND re-queued: the re-pack mints a new job id, so the
- * caller owes `PlateStore.endJob` on the old one or those keys stay in flight for ever.
- */
+/** A worker threw outside a job, or the script did not load (a 404, a CSP): `failPool`. */
 function onWorkerError(e) { failPool(e, answered); }
 
 /**
- * Every strip in flight reported and re-queued, the pool terminated; a new pool when `respawn`
- * and respawns are left, else the inline path for the session. `silent`: the record the watchdog
- * found silent — its `onRequeue` hears "watchdog", every other record's "worker".
+ * Every job in flight handed back (`onRequeue`: the queue's strip goes to the head of its priority, H7; the re-pack
+ * mints a new id, so the caller ends the old one), the pool terminated; a new pool when `respawn` and respawns are
+ * left, else the inline path for the session. `silent`: the record the watchdog found silent — its `onRequeue` hears
+ * "watchdog", every other record's "worker".
  */
 function failPool(e, respawn, silent = null) {
     const stranded = [...inFlight.values()];
     inFlight.clear();
-    terminateWorkers();                  // the strips are reported and re-queued below, not abandoned
+    terminateWorkers();
     for (const f of stranded) {
         stats.failed++;
-        // A `JobQueue` strip (the pyramid's) goes back to the head of its priority there (H7), not into this queue.
-        if (f.req.onRequeue) { f.req.onRequeue(f.jobId, f === silent ? "watchdog" : "worker"); continue; }
-        if (f.req.onDrop) f.req.onDrop({ jobId: f.jobId, plates: f.plates, why: "worker", before: false });
+        if (f.req.onRequeue) f.req.onRequeue(f.jobId, f === silent ? "watchdog" : "worker");
+        else if (f.req.onDrop) f.req.onDrop({ jobId: f.jobId, plates: f.plates, why: "worker", before: false });
     }
-    for (const f of stranded) if (!f.req.onRequeue) queue.push({ req: f.req, plates: f.plates });
     if (respawn && respawns < MAX_RESPAWNS) { respawns++; stats.respawns++; spawnPool(false); }
     else broken = true;
     if (e && e.preventDefault) e.preventDefault();
-    pump();
 }
 
 /** While a worker holds a job, a check every half `WATCHDOG_MS`. */
@@ -304,21 +261,6 @@ function checkWatchdog() {
 export function _checkWatchdogForTests() { if (watchdog != null) { clearTimeout(watchdog); watchdog = null; } checkWatchdog(); }
 
 /**
- * Strips a worker, so a strip is a fraction of a worker's share and a free worker has one to
- * steal (§3.6). **Raising it is NOT the lever if the imbalance ratio misses its bar**: measured
- * over ten runs of §8.6 measurement 11 (15 plates, 4 workers) the ratio is 1.44–1.54 against a
- * bar of 1.5, and one plate a strip — the same lever at its limit — reads 1.35–1.62 and packs
- * more. One plate of that screen is 15–20× the median and no strip rule can split a plate.
- */
-export const STRIPS_PER_WORKER = 2;
-
-/** How many plates one strip holds: `ceil(plates / (workers × STRIPS_PER_WORKER))` (§3.6). */
-export function stripSizeFor(nPlates, workerCount) {
-    const n = workerCount != null ? workerCount : activeCount();
-    return Math.max(1, Math.ceil(nPlates / Math.max(1, n * STRIPS_PER_WORKER)));
-}
-
-/**
  * The workers actually available: the pool's, or the one inline slot. A spawn from here is LATE
  * — the first render pays the bundle's load — so it is counted and stays visible in the report
  * rather than being refused (§8.5, §15.3 Q10).
@@ -327,134 +269,6 @@ function activeCount() {
     if (transport) return rasterWorkerCount();
     spawnPool(true);
     return workers.length || 1;
-}
-
-/**
- * One render's missing plates (§5.1 step 6). Strips from an older frame are dropped where they
- * stand: a newer render asks for whatever of them it still wants.
- *
- * @param {object} req
- *   frameSeq, q, Zq   the render this belongs to (§8.4 rules 1 and 4)
- *   plates            Int32Array|number[] [i, j, …] — the misses, in the order to draw them
- *   pack(plates, jobId, pool) -> job|null   the caller packs (and calls `PlateStore.beginJob`)
- *   onResult(res, info)                     per job, on the main thread
- *   onDrop({ jobId, plates, why, before })  a strip dropped before dispatch, or a job that failed
- *   stillWanted(plates) -> boolean          optional: the store's own answer at dispatch time
- * @returns {number} the strips queued
- */
-export function submitPlates(req) {
-    const plates = req.plates instanceof Int32Array ? req.plates : Int32Array.from(req.plates || []);
-    dropStale(req.frameSeq, req.q);
-    current.set(req.q, req.frameSeq);
-    const per = stripSizeFor(plates.length / 2) * 2;
-    let n = 0;
-    for (let at = 0; at < plates.length; at += per) {
-        queue.push({ req, plates: plates.slice(at, at + per), prio: req.prio != null ? req.prio : 1 });
-        n++;
-    }
-    pump();
-    return n;
-}
-
-/**
- * Everything queued for an older frame **at this `q`**, dropped with why and when (§8.4 rule 4).
- * A strip at another `q` stays: its own request is still the newest there, which is what lets 5b
- * post the view's misses and the held quantum's in the same frame (D182). Only the QUEUE is
- * touched — a dispatched job is never recalled (the header's sixth rule).
- */
-function dropStale(frameSeq, q) {
-    for (let k = queue.length - 1; k >= 0; k--) {
-        const e = queue[k];
-        if (e.req.q !== q || e.req.frameSeq === frameSeq) continue;
-        queue.splice(k, 1);
-        stats.dropsBefore++;
-        if (e.req.onDrop) e.req.onDrop({ jobId: null, plates: e.plates, why: "frame", before: true });
-    }
-    pruneCurrent();
-}
-
-/**
- * Forget every `q` with nothing queued and nothing in flight, so `current` holds one entry per
- * live request (`liveRequests`) rather than a session's zoom quanta, and `pump`'s check never
- * meets a `q` whose newest frame was forgotten. A `q` whose only strips are IN FLIGHT stays: a
- * worker error re-queues those strips, and `pump` would then read their `q` as stale.
- * Called from the two DROP paths, `dropStale` and `dropQueued`; `submitPlates` re-adds its own `q`
- * after. `pump`'s own stale drop does NOT prune, so a `q` whose last strip is dropped at the pull
- * stays counted until the next of those two calls — which is what `liveRequests` documents.
- */
-function pruneCurrent() {
-    const live = new Set();
-    for (const e of queue) live.add(e.req.q);
-    for (const f of inFlight.values()) live.add(f.req.q);
-    for (const k of [...current.keys()]) if (!live.has(k)) current.delete(k);
-}
-
-/**
- * Drop the waiting strips of one `q`, or every waiting strip where `q` is omitted — a settle, a
- * quantum change, a teardown. **At a quantum change 5b passes the DEAD `q`** (§10 stage 5b): a
- * bare call also empties the newest quantum's strips and the settle's at `"e"`, which is the drop
- * D182 exists to stop. Only the QUEUE is touched — a dispatched job still arrives and is answered.
- * @param {string} [why] the reason carried to `onDrop`
- * @param {number|string} [q] that quantum's strips only; null or omitted means every strip
- * @returns {number} how many strips were dropped
- */
-export function dropQueued(why, q) {
-    let n = 0;
-    for (let k = queue.length - 1; k >= 0; k--) {
-        const e = queue[k];
-        if (q != null && e.req.q !== q) continue;
-        queue.splice(k, 1);
-        stats.dropsBefore++;
-        n++;
-        if (e.req.onDrop) e.req.onDrop({ jobId: null, plates: e.plates, why: why || "dropped", before: true });
-    }
-    pruneCurrent();
-    return n;
-}
-
-/** Hand strips to free workers while there are both. One job per worker (§8.4 rule 4). */
-function pump() {
-    for (;;) {
-        if (!queue.length) return;
-        const slot = freeSlot();
-        if (slot === undefined) return;
-        const k = bestIndex();
-        if (k < 0) return;
-        const e = queue.splice(k, 1)[0];
-        if (current.get(e.req.q) !== e.req.frameSeq
-            || (e.req.stillWanted && !e.req.stillWanted(e.plates))) {
-            stats.dropsBefore++;
-            if (e.req.onDrop) e.req.onDrop({ jobId: null, plates: e.plates, why: "stale", before: true });
-            continue;
-        }
-        dispatch(e, slot);
-    }
-}
-
-/** Requests of this `prio` or lower are speculative (the prebake, a snapshot) and may hold at most `workers − 1` slots. */
-const LOW_PRIO = 3;
-
-/**
- * The strip to run next (PAPER-PLAN §7.4): the lowest `prio`, and within one `prio` the oldest —
- * the FIFO a bare shift was. A preview re-queued by `dropStale` on every gesture frame is the newest
- * of `prio` 0, so it dispatches the moment a worker frees; without this it sat behind the previous
- * step's strips for the whole zoom-out it exists for. Speculative strips are skipped while their
- * kind holds `workers − 1` slots. The queue is a few screenfuls of strips; this runs once a dispatch.
- * @returns {number} the queue index, or -1 where nothing may run now
- */
-function bestIndex() {
-    let low = 0;
-    for (const r of inFlight.values()) if ((r.req.prio != null ? r.req.prio : 1) >= LOW_PRIO) low++;
-    const lowCap = Math.max(1, rasterWorkerCount() - 1);
-    let best = -1, bestPrio = Infinity;
-    for (let k = 0; k < queue.length; k++) {
-        const p = queue[k].prio;
-        if (p >= bestPrio) continue;
-        if (p >= LOW_PRIO && low >= lowCap) continue;
-        best = k; bestPrio = p;
-        if (p === 0) break;
-    }
-    return best;
 }
 
 /**
@@ -563,13 +377,12 @@ function dispatchCut(entry, slot) {
 function onCutMessage(slot, data) {
     if (slot) answered = true;
     const rec = inFlight.get(data.jobId);
-    if (!rec) { if (releaseAbandoned(slot)) pump(); return; }
+    if (!rec) { releaseAbandoned(slot); return; }
     if (!data.ok) { onFailed(data.jobId, new Error(data.err || "cut failed"), slot); return; }
     inFlight.delete(data.jobId);
     if (rec.slot) rec.slot.jobId = null;
     stats.cutMs += now() - rec.postedAt;
     rec.req.onResult(data.out);
-    pump();
 }
 
 /** The pool is broken: no transport, and no worker — the script did not load, or the pool failed past its respawns. */
@@ -590,7 +403,7 @@ function freeSlots() {
 /**
  * The pool as `jobQueue.js` sees it (the picture pyramid's path, A3 §4.4): its size, its free slots, and a
  * submit that dispatches one `{ req: { pack, onResult, onDrop, prio }, plates }` at once — false when no slot
- * is free or the pack declined. The queue above (`submitPlates`) is the old path's.
+ * is free or the pack declined.
  */
 export const rasterPool = Object.freeze({
     size: () => activeCount(),
@@ -605,7 +418,7 @@ function onFailed(jobId, err, slot) {
     // this thread) stopped, and that answer is what releases the hold (D175); anything else here
     // is a job already failed over, which holds nothing.
     if (!rec) {
-        if (releaseAbandoned(slot || null)) pump();
+        releaseAbandoned(slot || null);
         return;
     }
     inFlight.delete(jobId);
@@ -614,7 +427,6 @@ function onFailed(jobId, err, slot) {
     if (rec.req.onDrop) {
         rec.req.onDrop({ jobId, plates: rec.plates, why: String((err && err.message) || err || "failed"), before: false });
     }
-    pump();
 }
 
 function onMessage(slot, data) {
@@ -632,7 +444,7 @@ function onMessage(slot, data) {
     // already holding the NEXT job. An ABANDONED slot is the one exception: nobody freed it,
     // because this answer is the proof that worker stopped drawing into its scratch (§3.5).
     if (!rec) {
-        if (releaseAbandoned(slot)) pump();
+        releaseAbandoned(slot);
         return;
     }
     inFlight.delete(res.jobId);
@@ -666,17 +478,11 @@ function onMessage(slot, data) {
     if (res.guards) for (let g = 0; g < GUARDS_PER_JOB; g++) guardTotals[g] += res.guards[g];
     if (res.counts) for (let c = 0; c < res.counts.length; c++) countTotals[c % COUNTS_PER_PLATE] += res.counts[c];
     if (rec.req.onResult) rec.req.onResult(res, info);
-    pump();
 }
 
 /**
- * One plate's RGBA as an `ImageBitmap`, which is the form `PictureLayer` composes — 5a's hand-off
- * (§15.3): a raw-pixel result becomes a bitmap HERE, before `PlateStore.put`, because the layer
- * composes bitmaps only and counts anything else in `noBitmap`. Returns null where the scope has
- * no `createImageBitmap` (jsdom, and any browser where §6.2's transfer path was never an option);
- * the caller then puts `pixels`, which the store accepts. The record `put` wants is
- * `{ frameId, q, Zq, i, j, G, bitmap|pixels }` and is the renderer's to build — this file knows the
- * plate indices and the job, not the frame id.
+ * One plate's RGBA as an `ImageBitmap`, the form the pyramid composes cheapest: a raw-pixel result becomes a bitmap
+ * before it is stored. Null where the scope has no `createImageBitmap` (jsdom); the caller then keeps the pixels.
  * @param {Uint8ClampedArray|null} px one plate's RGBA, PLATE_PX² × 4 (`res.pixels[p]`)
  * @returns {Promise<ImageBitmap|null>}
  */
@@ -693,15 +499,8 @@ export async function plateBitmap(px) {
  *
  * `heldSlots` is the capacity an abandoned job is still holding (D175): a worker slot marked
  * `ABANDONED`, or one of `heldNoSlot` where there is no slot object. An orphan that never answers
- * holds its share for the session, and without this field that reads as `inFlight: 0` with
- * `queued` climbing — a pool drawing with three workers, indistinguishable from a slow packer.
- *
- * `liveRequests` is how many quanta `current` still holds a newest `frameSeq` for (D182), so a
- * frame holding the old quantum while the new one fills reads 2 and a session's zoom quanta piling
- * up in the map would read as a number that only climbs. **Exactly when it falls**: `current` is
- * pruned at each `submitPlates` and each `dropQueued`, of every `q` with nothing queued and
- * nothing in flight — never when a job merely arrives, so a `q` whose last job has just been
- * answered is still counted until the next of those two calls.
+ * holds its share for the session, and without this field that reads as `inFlight: 0` with the
+ * queue's strips climbing — a pool drawing with three workers, indistinguishable from a slow packer.
  */
 export function rasterWorkerReport() {
     let held = heldNoSlot;
@@ -709,7 +508,7 @@ export function rasterWorkerReport() {
     return {
         mode: transport ? "transport" : workers.length ? "workers" : "inline",
         workers: workers.length, wanted: rasterWorkerCount(), broken, respawns: stats.respawns, silent: stats.silent,
-        queued: queue.length, inFlight: inFlight.size, heldSlots: held, liveRequests: current.size,
+        inFlight: inFlight.size, heldSlots: held,
         jobs: stats.jobs, plates: stats.plates, failed: stats.failed, cuts: stats.cuts, cutMs: stats.cutMs,
         dropsBefore: stats.dropsBefore,
         bytesOut: stats.bytesOut, bytesIn: stats.bytesIn,
@@ -722,12 +521,11 @@ export function rasterWorkerReport() {
 }
 
 /**
- * The suite's reset: counters, queue, pool and the broken flag. Does not spawn, and does NOT
- * report what is in flight — there is no caller left to report to between two tests. A live
- * teardown is `destroyRasterPool`, which does.
+ * The suite's reset: counters, the pool and the broken flag. Does not spawn, and does NOT report
+ * what is in flight — there is no caller left to report to between two tests. A live teardown is
+ * `destroyRasterPool`, which does.
  */
 export function resetRasterWorkerClient() {
-    queue.length = 0;
     inFlight.clear();
     heldNoSlot = 0;
     terminateWorkers();
@@ -735,7 +533,6 @@ export function resetRasterWorkerClient() {
     answered = false; respawns = 0;
     if (watchdog != null) { clearTimeout(watchdog); watchdog = null; }
     seq = 0;
-    current.clear();
     countOverride = null;
     pool.clear();
     pool.takes = 0; pool.hits = 0; pool.allocBytes = 0;

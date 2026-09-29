@@ -15,8 +15,7 @@
  */
 import { encodeObjects, decodeObjects, packChunk, unpackChunk, CHUNK_FRAME } from "./format2";
 import { bboxOf } from "./geometry/derive";
-import { encodeBelow, hasOffsets, shiftAt } from "./geometry/offsets";
-import { W } from "./frameLattice";
+import { encodeBelow, homeTranslation } from "./geometry/offsets";
 import { perfNow } from "./now";
 import * as rasterPerf from "./raster/rasterPerf";
 import { eraseWorkerStats } from "./eraseWorkerClient";
@@ -100,8 +99,10 @@ function nativeBrief(o) {
     if (o.z != null && o.z !== o.id) out.z = o.z;
     if (o.editId != null) out.editId = o.editId;
     if (o.erase) out.erase = true;
+    /* eslint-disable no-restricted-syntax -- the report records the stored table as stored */
     const below = encodeBelow(o.below);
     if (below) out.below = below;
+    /* eslint-enable no-restricted-syntax */
     return out;
 }
 const boxOf = (b) => (b ? [r3(b.x0), r3(b.y0), r3(b.x1), r3(b.y1)] : null);
@@ -197,7 +198,7 @@ function metaOf(E, opts) {
             visibility: typeof document !== "undefined" ? document.visibilityState : null,
         },
         engine: {
-            tool: E.tool, trace: !!E.trace, preBake: !!E.preBake, retainScenes: !!E.retainScenes,
+            tool: E.tool, trace: !!E.trace, retainScenes: !!E.retainScenes,
             opacityGroups: !!E.opacityGroups, drawing: !!E._drawing, erasing: !!E._erasing,
             lasso: !!E._lasso, dragging: !!E._dragSel,
         },
@@ -257,10 +258,9 @@ function rasterOf(E, sub) {
         // This engine's own store: the perf ring above is a module singleton, attached to the last renderer built.
         plates: sub("raster.plates", () => (E.plates && E.plates.report ? E.plates.report() : null)),
         renderer: sub("raster.renderer", () => (R.report ? R.report() : null)),
-        layer: sub("raster.layer", () => ({ status: { ...R.layer.status() }, uncoveredCells: R.layer.uncoveredCells() })),
+        layer: sub("raster.layer", () => R.layer.report()),
         plane: sub("raster.plane", () => (R._plane && R._plane.stats ? { ...R._plane.stats } : null)),
         overlay: sub("raster.overlay", () => (R._overlay && R._overlay.report ? brief(R._overlay.report()) : null)),
-        ladder: { built: E._ladderAt != null, busy: !!E._ladderBusy, steps: (E._ladderSteps || []).length },
         stage: sub("raster.stage", () => ({ G: E.stage.generation, ...E.stage.stats })),
     };
 }
@@ -329,6 +329,7 @@ function movesOf(E, sub) {
         selection: s ? { n: s.ids.length, ids: s.ids.slice(0, 50), frames: (s.frames || []).slice(0, 50), id: s.id, editId: s.editId, level: s.level } : null,
         members: s ? sub("moves.members", () => E._selectionMembers().slice(0, 50).map((m) => ({
             id: m.obj.id, level: m.level, type: m.obj.type, z: m.obj.z != null ? m.obj.z : m.obj.id,
+            // eslint-disable-next-line no-restricted-syntax -- the report records the stored table as stored
             editId: m.obj.editId, below: encodeBelow(m.obj.below) || null, box: boxOf(bboxOf(m.obj, E._drawing)),
         }))) : null,
         drag: d ? { start: d.start, last: d.last || null, moved: !!d.moved, members: d.moves ? d.moves.size : 0, frames: d.frames ? d.frames.size : 0 } : null,
@@ -416,7 +417,7 @@ async function familiesOf(E, ex, run) {
     const out = [];
     for (const { key, group } of fams) {
         await run("families.components", () => {
-            const moved = group.some((m) => hasOffsets(m.obj.below));
+            const moved = group.some((m) => E.doc.hasOwnTable(m.obj));
             let components = null;
             if (!moved) {
                 const fc = E._familyComponents(key);
@@ -445,8 +446,8 @@ function headlineOf(rep) {
         renderer: rep.meta ? rep.meta.renderer : null,
         camera: { frame: cam.frame, depth: cam.depth, inScale: r3(cam.inScale), zoom: r3(cam.effectiveZoom) },
         natives: c.natives, pieces: c.pieces, frames: c.frames, lattice: cam.latticeFrames, moved: c.moved, listed: c.listed,
-        paper: pic ? { uncoveredNow: ras.layer ? ras.layer.uncoveredCells : null, paperComposes: pic.paperComposes, paperCellsMax: pic.paperCellsMax,
-            fallbackBlits: pic.fallbackBlits, holds: pic.holds, previews: pic.previews } : null,
+        paper: pic ? { paperMs: pic.paperMs, blurMs: pic.blurMs, olderPatchMs: pic.olderPatchMs, olderOtherMs: pic.olderOtherMs,
+            composes: pic.composes, maxImages: pic.maxImagesPerCompose } : null,
         worstLongFrameMs: worst ? worst.ms : null,
         heapMB: rep.memory && rep.memory.heap ? rep.memory.heap.usedMB : null,
         pendingMarks: rep.erase ? rep.erase.pending : null,
@@ -465,8 +466,8 @@ function headlineOf(rep) {
  * its size in px there; what the render list draws on screen comes first, then the selection,
  * then the rest of the render list (the tile window), then the rest within `zoomOut`, each by
  * that size, largest first, while it fits. A native with a displacement table (or in
- * a frame with a pending shift) is judged where its picture is, from `shiftAt(below, 0)` in
- * its home's units. The lattice goes whole, so `loadReport` maps every frame as the engine did.
+ * a shifted frame) is judged where its picture is, from its picture table's translation
+ * (`Document.tableOf`, A1 C1) in its home's units. The lattice goes whole, so `loadReport` maps every frame as the engine did.
  */
 export async function buildExtract(E, opts = {}, run = null) {
     const go = run || (async (name, fn) => fn());
@@ -557,13 +558,14 @@ function scorer(E, zoomOut, minPx) {
         seen.add(o.id);
         const b = bboxOf(o, E._drawing);
         const half = o.type === "stroke" ? (o.lwFrame || 0) / 2 : 0;
+        // Drawn where its picture table puts it: its own table with its frame's shift (A1 C1).
         let dx = 0, dy = 0;
-        if (hasOffsets(o.below)) {
-            let d = shiftMemo.get(o.below);
-            if (!d) { const sh = shiftAt(o.below, 0); d = [sh.carry[0] * W + sh.rem[0], sh.carry[1] * W + sh.rem[1]]; shiftMemo.set(o.below, d); }
+        const T = doc.tableOf(o, G);
+        if (T) {
+            let d = shiftMemo.get(T);
+            if (!d) { d = homeTranslation(T) || [0, 0]; shiftMemo.set(T, d); }
             dx = d[0]; dy = d[1];
         }
-        if (fshift) { dx += fshift[0]; dy += fshift[1]; }
         const X0 = (b.x0 - half + dx) * k + t[0], X1 = (b.x1 + half + dx) * k + t[0];
         const Y0 = (b.y0 - half + dy) * k + t[1], Y1 = (b.y1 + half + dy) * k + t[1];
         const size = Math.max(X1 - X0, Y1 - Y0) * s;

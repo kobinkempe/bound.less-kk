@@ -378,7 +378,7 @@ export default class TileStore {
             const shared = new Map();                      // a shifted frame's table -> its one placement
             for (const [o, home, T] of this.doc.displacedNatives()) {
                 let sh = shared.get(T);
-                if (sh === undefined) { sh = this.lm.objShift(T, home, F); if (!o.below) shared.set(T, sh); }
+                if (sh === undefined) { sh = this.lm.objShift(T, home, F); if (!this.doc.hasOwnTable(o)) shared.set(T, sh); }
                 put(out, o.id, home, sh);
             }
         }

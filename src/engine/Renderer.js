@@ -650,8 +650,8 @@ export default class Renderer {
     }
     // RASTERISER-PLAN §2.5 seam 1, corrected: the overlay tail lives HERE and
     // not in `render()`, and it takes the view rather than the list (D200).
-    // `RasterRenderer.render` and `.syncCameraOnly` call it with the object
-    // `PictureLayer.view()` returned, so the ink, the SVG world group and
+    // `RasterRenderer.render` and `.syncCameraOnly` call it with the view the
+    // pyramid published (`PicturePyramid.frameFor`), so the ink, the SVG world group and
     // `bl-sel-edges` take one mapping (FC2).
     _renderOverlays(view) {
         this._renderTileDebug();

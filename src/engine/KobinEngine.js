@@ -40,9 +40,8 @@ import Renderer from "./Renderer";
 import TileStore from "./TileStore";
 import Stage from "./Stage";
 import { createPlacementModel } from "./placementModel";
-import RasterRenderer, { LADDER_DQ, PREVIEW_QUANTA } from "./raster/RasterRenderer";
-import PlateStore, { isPhoneBudget } from "./raster/PlateStore";
-import { pictureStats } from "./raster/PictureLayer";
+import RasterRenderer from "./raster/RasterRenderer";
+import { isPhoneBudget } from "./raster/PyramidStore";
 import { EST_DEFAULTS } from "./raster/PicturePyramid";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
@@ -62,30 +61,15 @@ import { initFrameGc, noteFrameEvent, noteCameraFrame, collectFrames, sweepFrame
 // Eraser strokes paint in the canvas background color — visually "erased"
 // the instant they're drawn, before any geometry work happens.
 const ERASE_COLOR = "#ffffff";
-// PAPER-PLAN R5b / §10 S6 / §10.18, the zoom-out ladder: the screens zoomed out 4× … 4,194,304×
-// (LADDER_NEAR rungs, 22 octaves) about the centre, rastered coarse once the camera has been still,
-// one rung an idle callback, drawn only as stand-ins; 2–6 plates a rung (LADDER_MARGIN at
-// RasterRenderer.LADDER_DQ). The far rungs (every 6 octaves to 2^52) run only with `ladderFar`:
-// in Kobin's tab at the nucleus each was one unsliced 10–17 s list build, rebuilt whenever the full
-// plate cap evicted it (report 2026-09-24T04-06-17). A phone builds LADDER_PHONE_RUNGS.
-const LADDER_FACTORS = [4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 2 ** 28, 2 ** 34, 2 ** 40, 2 ** 46, 2 ** 52];
-const LADDER_NEAR = 11;
-const LADDER_PHONE_RUNGS = 3;
-const LADDER_QUIET_MS = 300;
-const LADDER_MARGIN = 2.5;
-const LADDER_REPORT_WAIT_MS = 500;
-const LADDER_RUNG_BUDGET_MS = 250;
-const LADDER_RUNG_BUDGET_PHONE_MS = 120;
-// A rung's read is sliced this finely at idle: a 250 ms slice was a 0.3 s stall six times over
-// after a zoom-out on the Magnum Opus (TESTER-3). A slice ends at the next tile past it.
-const LADDER_SLICE_MS = 50;
-const LADDER_SLICE_PHONE_MS = 30;
-const LADDER_RUNG_TRIES = 120;
+// The camera's idle table read (A3 §4.2) is sliced this finely: a 250 ms slice was a 0.3 s stall six
+// times over after a zoom-out on the Magnum Opus (TESTER-3). A slice ends at the next tile past it.
+const READ_SLICE_MS = 50;
+const READ_SLICE_PHONE_MS = 30;
 // perfLog entries at least this long also go to perfLong (the last PERF_LONG_CAP), which a report carries.
 const PERF_LONG_MS = 200;
 const PERF_LONG_CAP = 100;
-/** The ladder's idle hop, with no forced timeout: a rung is one unsliced list build (up to 17 s at depth 9). */
-const ladderIdle = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn) : setTimeout(fn, 30));
+/** An idle hop with no forced timeout. */
+const idleHop = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn) : setTimeout(fn, 30));
 
 const DEFAULTS = {
     // The lattice constants (bible section 0). Every one is a power of two, so
@@ -120,7 +104,6 @@ const DEFAULTS = {
     // frame (the page's engine); "sync" steps per call, as the suites and the one-off engines expect.
     frames: "sync",
     // The Dev levers (A3 §8, `devLevers.js`), a desktop's values; a phone's replace them at construction.
-    // Stored only until B-PYRAMID's pyramid and store read them (PLAN §1.2).
     ...leverDefaults(false),
 };
 
@@ -142,13 +125,10 @@ export default class KobinEngine {
      *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
      * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
      *        this device's stored ones), over this device's defaults
-     * @param {boolean} [opts.pyramid] the raster path draws through the picture pyramid (`?pyramid=1`, A3 §7.4);
-     *        off, the old plates path, until the comparison is done and that path is deleted
      */
-    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null, pyramid = false } = {}) {
+    constructor(container, { width, height, onStatus, raster = false, scenes = true, frames = null, levers = null } = {}) {
         this.cfg = { ...DEFAULTS, ...leverDefaults(isPhoneBudget()), ...cleanLevers(levers) };
         if (frames === "raf" || frames === "sync") this.cfg.frames = frames;
-        this.cfg.pyramid = !!pyramid;
         this.onStatus = onStatus || (() => {});
         this.width = width || window.innerWidth;
         this.height = height || window.innerHeight;
@@ -187,24 +167,23 @@ export default class KobinEngine {
             model: createPlacementModel({ doc: this.doc, lm: this.lm, store: this.store }),
         });
         this.raster = !!raster;
-        /** The plate cache, on the raster path only; the Stage is its freshness source (A2 §3.1). */
+        /** The plate cache (the renderer's `PyramidStore`), on the raster path only; the Stage is its freshness source (A2 §3.1). */
         this.plates = null;
         /** §8.4 rule 1's join. One writer — the renderer bumps it through the injected function, once a CAMERA step. */
         this._frameSeq = 0;
         /** A live drag the plane draws: its members and frame roots, whose events the Stage holds (A2 §2.7). */
         this._holdMove = null;
         if (this.raster) {
-            this.plates = this.cfg.pyramid ? null : new PlateStore({ fresh: this.stage });
             this.renderer = new RasterRenderer(container, this.cam, this.cfg, {
-                width: this.width, height: this.height, store: this.plates, stage: this.stage,
+                width: this.width, height: this.height, stage: this.stage,
                 frameSeq: () => ++this._frameSeq,
                 notePerf: (op, t0, extra) => this.notePerf(op, t0, extra),
             });
-            // On the pyramid's path the renderer builds its store (it is sized by the screen); the engine owns its lifetime.
-            if (this.cfg.pyramid) this.plates = this.renderer.store;
+            // The renderer builds the store (it is sized by the screen); the engine owns its lifetime.
+            this.plates = this.renderer.store;
             // A commit's hard drops (A2 §3.4): a frame whose id now means another place, another document.
             this.stage.onCommit((G, info) => {
-                if (info.reset) { this.plates.dropAll(false); this.renderer.dropCarry(); return; }
+                if (info.reset) { this.plates.dropAll(); return; }
                 for (const pred of info.drop) this.plates.dropFrames(pred);
             });
         } else {
@@ -223,7 +202,6 @@ export default class KobinEngine {
         // default, and the passive instruments (frame meter, long frames) stay
         // on always because they cost nothing until something is slow.
         this.trace = false;
-        this.preBake = true;       // define + bake the next level's tiles EARLY (near a crossing, in idle)
         this.lazyOutlines = true;  // fat strokes stay raw until they approach the gate (fit in idle/on approach)
         this.retainScenes = true;  // keep each level's SVG subtree so a flip swaps it in instead of rebuilding
         this._idleFitScheduled = false;
@@ -271,10 +249,8 @@ export default class KobinEngine {
         this.renderer.setDragState(() => this._dragState());
         this.renderer.setPlaneState(() => this._planeState());
         this.renderer.onPlaneLost = () => this._planeLost();
-        this.renderer.onPlaneAimed = () => this._maybeLadder();
-        // Back from a hidden tab (the store released its plates): one render re-asks the view's
-        // plates over the carried picture, and the ladder is rebuilt at the next quiet (§10.13).
-        this.renderer.onShown = () => { if (this._destroyed) return; this._ladderAt = null; this._render(); };
+        // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
+        this.renderer.onShown = () => { if (!this._destroyed) this._render(); };
         // The hold is on only where the renderer draws the dragged ink itself (the drag plane,
         // PAPER-PLAN R3, §10 S4); without it every step re-rasters its plates as before.
         this._moveHoldOn = !!this.renderer.supportsDragPlane;
@@ -314,7 +290,7 @@ export default class KobinEngine {
             if (ids.length !== this.selection.ids.length || ev.id === this.selection.id) this._setSelection(ids, frames);
         });
 
-        // "raf" frames: an arrival's compose waits for the frame (`PictureLayer._flush`, A3 §5).
+        // "raf" frames: an arrival's compose waits for the frame (the pyramid's `deferCompose`, A3 §5).
         if (this.cfg.frames === "raf" && this.renderer.layer) this.renderer.layer.deferCompose = () => { if (!this._destroyed) this._pend().arrived = true; };
         this._render();
     }
@@ -357,7 +333,6 @@ export default class KobinEngine {
     }
     // DEV: outline every built path in red. Dev panel only.
     setDebug(b) { this.debug = !!b; this.renderer.setDebug(this.debug); this._render(); }
-    setPreBake(b) { this.preBake = !!b; }
     /** Dev panel: log every operation, not just the ones past the floor. */
     setTrace(b) {
         this.trace = !!b;
@@ -366,11 +341,11 @@ export default class KobinEngine {
     setRetainScenes(b) { this.retainScenes = !!b; this.renderer.setRetainScenes(this.retainScenes); this._render(); }
     /**
      * The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into `cfg`, anything else ignored. On the
-     * pyramid's path they take effect now: the budget in one eviction pass, a step change at this render's view.
+     * raster path they take effect now: the budget in one eviction pass, a step change at this render's view.
      */
     setLevers(patch) {
         Object.assign(this.cfg, cleanLevers(patch));
-        if (this.cfg.pyramid && this.renderer.onLevers && !this._destroyed) { this.renderer.onLevers(); this._render(); }
+        if (this.raster && !this._destroyed) { this.renderer.onLevers(); this._render(); }
     }
     /** The level step S, one of `LEVEL_STEPS` (the Dev panel's 1·2·3 toggle). Returns the step in force. */
     setLevelStep(s) { this.setLevers({ levelStep: s }); return this.cfg.levelStep; }
@@ -441,7 +416,6 @@ export default class KobinEngine {
     destroy() {
         this._destroyed = true;
         if (this._bakeTimer != null) { clearTimeout(this._bakeTimer); this._bakeTimer = null; }
-        if (this._ladderTimer != null) { clearTimeout(this._ladderTimer); this._ladderTimer = null; }
         if (this._readTimer != null) { clearTimeout(this._readTimer); this._readTimer = null; }
         if (this._frCancel) { this._frCancel(); this._frCancel = null; }
         this._fr = null;
@@ -744,13 +718,12 @@ export default class KobinEngine {
         const h = this._holdMove; this._holdMove = null;
         return h ? this.stage.release() : 0;
     }
-    /** @param {number} [readMs] the table's read budget: a camera step's is `_camReadMs()` */
+    /** @param {number} [readMs] the table's read budget: a document render reads everything, a camera step's reads 0 (A3 §4.2) */
     _render(readMs = Infinity) {
         // A destroyed engine is inert: a late step would rebuild lists and plates in the host the
         // next engine shares (OPEN-FLAGS F101).
         if (this._destroyed) return;
         const t0 = perfNow();
-        this._renderPending = false;   // a deferred bake render is satisfied by any render (`_stepShapeBakes`)
         // The camera changed frame: what it left may go (F94) — before the table, whose memos count frames.
         if (noteCameraFrame(this)) collectFrames(this, true);
         // RASTER (§8.1): the table's sync is ENGINE work, so the frame's perf row opens HERE and
@@ -770,6 +743,7 @@ export default class KobinEngine {
             ras.noteList(perfNow() - tList);
         }
         this.renderer.render(this._lastList, this.cam.frame);
+        this._renderedG = this.stage.generation;   // what this render drew (`flushBakes` reads it)
         this.renderer.update();
         this._emit();
         this._perf("render", t0, false, { n: this._lastList.length, fat: this.renderer._hasFat });
@@ -778,14 +752,12 @@ export default class KobinEngine {
         // camera — and a meter that only woke for zoom and pan would sleep
         // straight through it.
         this.frameMeter.poke();
-        this._maybeLadder();
     }
     // True if the visible tile set changed since the last full render.
     /**
-     * The window the camera's table (and the SVG path's list) reads. On the plates path it is grown
-     * by one plate of the coarsest quantum packed from it (the preview's, and the plane's quick
-     * level): a plate reaching past the squares the table read would be rastered without that ink
-     * (REVIEWER-4 P-1); `covers` refuses it now, and this margin keeps it from being refused.
+     * The window the camera's table (and the SVG path's list) reads. On the raster path it is grown by the renderer's
+     * margin (`listMargin`: four view cells, the near prefetch's ℓv − 1): a plate reaching past the squares the table
+     * read would be rendered without that ink (REVIEWER-4 P-1); `covers` refuses it, and the margin keeps it asked.
      */
     _listWin() {
         const win = this.cam.frameWindow(0);
@@ -798,41 +770,36 @@ export default class KobinEngine {
      * reads and drops tiles, and nothing is rebuilt — then the renderer's step. A crossing renders.
      */
     _tableStep(crossed) {
-        if (crossed) { this._render(this._camReadMs()); return; }
+        if (crossed) { this._render(0); return; }
         this._syncStep(); this.renderer.update(); this._emit();
     }
     /** A step without a render: on the raster path the table is synced first (a tile an event dropped is read again). */
     _syncStep() {
         if (this.raster) {
-            const readMs = this._camReadMs();
-            this.stage.sync(this.cam.frame, this._listWin(), readMs);
-            if (readMs !== Infinity) this._readIdle();
+            this.stage.sync(this.cam.frame, this._listWin(), 0);   // the cache alone (A3 §4.2): `_readIdle` reads the rest
+            this._readIdle();
             this._lastList = this.stage.items();
         }
         this.renderer.syncCameraOnly();
     }
     /**
-     * A camera step's table read (A3 §4.2): on the pyramid's path the cache alone — a tile not read is absent this
-     * frame, its cells drawn from stand-ins and never packed (`covers`); `_readIdle` reads it. Elsewhere everything.
-     */
-    _camReadMs() { return this.cfg.pyramid ? 0 : Infinity; }
-    /**
-     * The tiles a camera step left unread, read once the camera has been still for the rest's quiet (a bake is not
-     * recalled, as a posted job is not: A3 §2.1), a slice at a time at idle (LADDER_SLICE_MS, 30 on a phone; a slice
-     * ends at the next tile past it). Each slice steps the renderer, whose plan asks for the cells now covered (an
-     * empty tile covers without a commit).
+     * The tiles a camera step left unread (a camera step reads the cache alone: a tile not read is absent that frame,
+     * its cells drawn from stand-ins and never packed, `covers`), read once the camera has been still for the rest's
+     * quiet (a bake is not recalled, as a posted job is not: A3 §2.1), a slice at a time at idle (READ_SLICE_MS, 30
+     * on a phone; a slice ends at the next tile past it). Each slice steps the renderer, whose plan asks for the cells
+     * now covered (an empty tile covers without a commit).
      */
     _readIdle() {
         if (this._readTimer != null || this._destroyed || !this.raster) return;
         if (this.stage.covers(this.cam.frame, this._listWin())) return;
         const quiet = this.cfg.restQuietMs != null ? this.cfg.restQuietMs : EST_DEFAULTS.restQuietMs;
         const wait = Math.max(0, (this._lastCamMove || 0) + quiet - perfNow());
-        this._readTimer = setTimeout(() => ladderIdle(() => {
+        this._readTimer = setTimeout(() => idleHop(() => {
             this._readTimer = null;
             if (this._destroyed) return;
             if (perfNow() - (this._lastCamMove || 0) < quiet) { this._readIdle(); return; }   // it moved: the quiet again
             const G0 = this.stage.generation, t0 = perfNow();
-            this.stage.sync(this.cam.frame, this._listWin(), this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
+            this.stage.sync(this.cam.frame, this._listWin(), this.plates.phone ? READ_SLICE_PHONE_MS : READ_SLICE_MS);
             this._perf("tileRead", t0, false, { G: this.stage.generation - G0 });
             this._lastList = this.stage.items();
             this.renderer.syncCameraOnly();
@@ -886,13 +853,13 @@ export default class KobinEngine {
         if (fr.zoom) { this._zoomStep(fr.crossed, t0); stepped = true; }
         else if (fr.pan) { this._panStep(fr.crossed, t0); stepped = true; }
         if (stepped) {
-            // Stillness is seen only on a frame (A3 §2.1): the pyramid gets one more after a camera step.
-            if (this.cfg.pyramid && (fr.zoom || fr.pan)) this._pend().still = true;
+            // Stillness is seen only on a frame (A3 §2.1): the raster path gets one more after a camera step.
+            if (this.raster && (fr.zoom || fr.pan)) this._pend().still = true;
             return;
         }
         if (fr.svg) this.renderer.update();
         if (fr.still && this.raster) this.renderer.syncCameraOnly();
-        else if (fr.arrived && this.renderer.layer) { this.renderer.layer.compose(); pictureStats.arrivalComposes++; }
+        else if (fr.arrived && this.renderer.layer) this.renderer.layer.compose();
     }
 
     // ---- pan / zoom ----
@@ -915,7 +882,6 @@ export default class KobinEngine {
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf("pan", t0);
         this._noteFast("panStep", perfNow() - t0);
-        this._maybeLadder();
     }
     zoomAt(sx, sy, deltaY) { this.zoomFactorAt(sx, sy, Math.pow(2, -deltaY / 1000)); }
     /** A pinch: its pan's cell change is the step's as much as the zoom's crossing is. */
@@ -949,218 +915,9 @@ export default class KobinEngine {
         else { this.renderer.syncCameraOnly(); this.renderer.update(); this._emit(); }
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
         this._noteFast(crossed ? "crossStep" : "zoomStep", perfNow() - t0);
-        this._maybePrebake();
-        this._maybeLadder();
         // prefit outlines when strokes approach the gate or a new level activates
         if (crossed || this.renderer.hasPendingNearFat()) this._queueIdleFits();
     }
-    /**
-     * The frame the camera would land in if the crossing it is approaching came now, and the
-     * in-frame scale it would land at (PAPER-PLAN §7.4, C §2.1). Null when no crossing is
-     * within about one quantum, when the lattice holds no such frame, and — going down — at
-     * the root, because `Camera._crossDown` reaches `ensureParentEdge`, which GROWS a root,
-     * and a speculative prebake must never mint a frame. It mints nothing itself except under
-     * the `preBake` dev toggle, where the upward branch defines the child early on purpose.
-     *
-     * The predicates are `enter * 0.8` and its exact mirror `exit * 1.25`; one quantum is
-     * 2^(1/4) = 1.189, so both are 1.16 quanta out. The post-crossing scale is `_crossUp`'s
-     * `inScale * base / s` and `_crossDown`'s `(s / base) * inScale`, read off the same `edge`
-     * record they use — a second copy of the crossing is what F45 cost.
-     *
-     * @returns {{id: string, dir: "up"|"down", inScale: number}|null}
-     */
-    _crossTarget() {
-        const cam = this.cam, base = this.cfg.base;
-        if (cam.inScale > this.cfg.enter * 0.8) {
-            // Find (or, if the dev toggle allows, define early) the child FRAME this upward
-            // approach will cross into. A FIRST entry is prebakeable under `preBake` because
-            // the child's crossing record is "first defined, forever": any frame captured on
-            // the way up is as valid as the one at the crossing moment.
-            let child = this.lm.findChild(cam.frame, cam.inScale, cam.inPanX, cam.inPanY);
-            if (!child && this.preBake) child = this.lm.ensureChild(cam.frame, cam.inScale, cam.inPanX, cam.inPanY);
-            if (!child || !child.edge) return null;
-            return { id: child.id, dir: "up", inScale: cam.inScale * base / child.edge.s };
-        }
-        if (cam.inScale < this.cfg.exit * 1.25) {
-            const f = this.lm.frame(cam.frame);
-            if (!f || f.parent == null || !f.edge) return null;
-            return { id: f.parent, dir: "down", inScale: (f.edge.s / base) * cam.inScale };
-        }
-        return null;
-    }
-
-    // Idle pre-bake: nearing a crossing, warm the target frame's tiles during idle time so the
-    // crossing lands on a hot cache, and — on the raster path — raster its PREVIEW plates
-    // (PAPER-PLAN R4). Fire-and-forget; the bake is idempotent.
-    //
-    // The read goes through `listFor`, so it takes `contentOffCamera`'s pin discipline: the
-    // visible tiles stay pinned and the prebaked ones stay evictable. The hand-restore this
-    // replaced saved the pin SET BY REFERENCE, which `content` mutates in place before
-    // replacing the field, so it put back a set holding the prebaked frame's keys (C §2.3).
-    /**
-     * PAPER-PLAN R5b: (re)start the quiet timer; when it runs out the ladder is built at idle.
-     * Every camera step and render restarts it, so nothing is built during a gesture.
-     */
-    _maybeLadder() {
-        if (!this.raster || !this.plates || !this.renderer.ladderPlates || this._destroyed || this.cfg.pyramid) return;   // the prefetch's far levels instead
-        if (this._ladderTimer != null) clearTimeout(this._ladderTimer);
-        this._ladderTimer = setTimeout(() => {
-            this._ladderTimer = null;
-            ladderIdle(() => { if (!this._destroyed) this._buildLadder(); });
-        }, LADDER_QUIET_MS);
-    }
-    /**
-     * The ladder's rungs, each `listFor` off camera (which bakes the parent level's tiles before
-     * any crossing reaches them) and posted at low priority, unpinned. Skipped mid-gesture and
-     * when the camera is where the last ladder was built. Returns the strips queued.
-     */
-    _buildLadder() {
-        if (this._drawing || this._dragSel || this._lasso) return 0;
-        if (perfNow() - (this._lastCamMove || 0) < LADDER_QUIET_MS) { this._maybeLadder(); return 0; }
-        const key = this._ladderKey();
-        // Built here already, unless a pinned drag plane has since evicted rungs: rebuilt once a view.
-        const ev = this.plates.s.ladderEvictions;
-        if (key === this._ladderAt && (ev === this._ladderEv || key === this._ladderRebuilt)) return 0;
-        if (key === this._ladderAt) this._ladderRebuilt = key;
-        this._ladderAt = key;
-        this._ladderEv = ev;
-        this.store.clearWarm();
-        // The rungs, then the view just past each crossing the rungs span, LAST: that one tile is
-        // what a zoom-out crossing bakes on the main thread (1,199 ms cold against 101 warm on
-        // the Magnum Opus), and last is what keeps it inside TileStore's per-level cap.
-        const n = this.plates.phone ? LADDER_PHONE_RUNGS : (this.ladderFar ? LADDER_FACTORS.length : LADDER_NEAR);
-        const steps = LADDER_FACTORS.slice(0, n).map((factor) => ({ factor, cross: false }));
-        for (const factor of this._ladderCrossings(LADDER_FACTORS[Math.min(n, LADDER_NEAR) - 1])) steps.push({ factor, cross: true });
-        this._ladderSteps = steps;
-        return this._ladderRung(0, key);
-    }
-    /**
-     * The zoom-out factors, from the camera, just past each level crossing inside `maxFactor`:
-     * `_crossDown`'s arithmetic, as `_zoomedOut` walks it. Stops at a root.
-     */
-    _ladderCrossings(maxFactor) {
-        const out = [], base = this.cfg.base, exit = this.cfg.exit;
-        let f = this.lm.frame(this.cam.frame), s = this.cam.inScale, total = 1;
-        while (f && f.parent != null && f.edge) {
-            total *= s / exit;                         // zoom-out, from the last step, to this frame's exit
-            if (total * 1.02 > maxFactor) break;
-            out.push(total * 1.02);                    // just past it: the camera is in the parent
-            s = (f.edge.s / base) * exit;              // the parent's inScale at the crossing
-            f = this.lm.frame(f.parent);
-        }
-        return out;
-    }
-    _ladderKey() { const c = this.cam; return c.frame + "|" + c.inScale + "|" + c.inPanX + "|" + c.inPanY + "|" + this.width + "x" + this.height; }
-    /** One rung, then the next at the next idle callback — a list build is 100–200 ms on a dense drawing. Stops when the camera moves. */
-    _ladderRung(k, key) {
-        const steps = this._ladderSteps || [];
-        const rungs = steps.length;
-        this._ladderBusy = false;
-        if (this._destroyed || k >= rungs || key !== this._ladderKey() || this._drawing || this._dragSel || this._lasso) return 0;
-        if (this._ladderCap && this._ladderCap.key === key && k > this._ladderCap.k) return 0;   // past this view's over-budget rung
-        if (this._reportBusy) {                       // a report yields ~230 times; a rung in each gap froze it
-            this._ladderBusy = true;
-            setTimeout(() => this._ladderRung(k, key), LADDER_REPORT_WAIT_MS);
-            return 0;
-        }
-        const step = steps[k];
-        const aim = this._zoomedOut(step.factor);
-        if (!aim) return 0;
-        const t = { id: aim.frame, inScale: aim.inScale, first: k === 0 };
-        let posted = 0;
-        // A rung's list is built only when a plate is missing — after a small pan they are mostly
-        // cached, and a list build is 100–300 ms of main thread on the Magnum Opus. A crossing
-        // step always builds its list: warming the tiles is its whole point.
-        if (this.renderer.ladderMisses(t, aim.win) > 0 || step.cross) {
-            const tL = perfNow();
-            const budget = this.ladderRungBudgetMs != null ? this.ladderRungBudgetMs : (this.plates.phone ? LADDER_RUNG_BUDGET_PHONE_MS : LADDER_RUNG_BUDGET_MS);
-            this.store.warmReads = true;              // kept by `framesLeft` through the zoom (F83)
-            let snap;
-            const slice = this.ladderSliceMs != null ? this.ladderSliceMs : (this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
-            try { snap = this.stage.snapshot(aim.frame, this.renderer.plateCover(t, aim.win, LADDER_DQ), slice); } finally { this.store.warmReads = false; }
-            const n = snap ? snap.items().length : -1;
-            this._perf("ladder", tL, false, { frame: aim.frame, k, n, cross: step.cross });
-            // A cold rung is baked a slice at a time, one idle hop each (a whole one was 2.4–4.1 s at
-            // depth 9); a rung that has not finished in LADDER_RUNG_TRIES hops ends this view's ladder.
-            if (!snap) {
-                const tries = (this._ladderTries && this._ladderTries.key === key && this._ladderTries.k === k) ? this._ladderTries.n + 1 : 1;
-                this._ladderTries = { key, k, n: tries };
-                if (tries >= LADDER_RUNG_TRIES) { this._ladderCap = { key, k: k - 1 }; return 0; }
-                this._ladderBusy = true;
-                ladderIdle(() => this._ladderRung(k, key));
-                return 0;
-            }
-            if (perfNow() - tL > budget) this._ladderCap = { key, k };
-            const tP = perfNow();
-            posted = this.renderer.ladderPlates(t, aim.win, snap);
-            this._perf("ladderPost", tP, false, { k, n, posted });
-        }
-        if (k + 1 < rungs && !(this._ladderCap && this._ladderCap.key === key)) {
-            this._ladderBusy = true;
-            ladderIdle(() => this._ladderRung(k + 1, key));
-        }
-        return posted;
-    }
-    /**
-     * The view zoomed out `factor`× about the screen centre, computed rather than simulated: the
-     * centre is the zoom's fixed point, mapped through each crossing `_crossDown` would make, at
-     * `_crossDown`'s scale. No `Camera` runs, so nothing can mint a frame — a throwaway one did,
-     * shifting sideways into an unvisited cell when the centre sat on a cell edge. Null where the
-     * zoom would cross below a root.
-     */
-    _zoomedOut(factor) {
-        const base = this.cfg.base, exit = this.cfg.exit;
-        let f = this.lm.frame(this.cam.frame);
-        if (!f) return null;
-        const W2 = this.width / 2, H2 = this.height / 2;
-        let s = this.cam.inScale;
-        let p = [(W2 - this.cam.inPanX) / s, (H2 - this.cam.inPanY) / s];
-        s /= factor;
-        while (s < exit) {
-            if (f.parent == null || !f.edge) return null;
-            const q = this.lm.mapPointF(p, f.id, f.parent);
-            if (!q) return null;
-            s = (f.edge.s / base) * s;
-            p = q;
-            f = this.lm.frame(f.parent);
-            if (!f) return null;
-        }
-        const hw = (W2 / s) * LADDER_MARGIN, hh = (H2 / s) * LADDER_MARGIN;
-        return { frame: f.id, inScale: s, win: { left: p[0] - hw, top: p[1] - hh, right: p[0] + hw, bottom: p[1] + hh } };
-    }
-    _maybePrebake() {
-        if (this._prebakeQueued || this.cfg.pyramid) return;   // the prefetch's crossing target instead
-        const aim = this._crossTarget();
-        if (!aim) return;
-        this._prebakeQueued = true;
-        const idle = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn) => setTimeout(fn, 30);
-        idle(() => {
-            this._prebakeQueued = false;
-            if (this._destroyed) return;
-            // Re-read at idle time: the approach may have ended, or turned into another cell's.
-            const t = this._crossTarget();
-            if (!t || t.id !== aim.id || !this.lm.frame(t.id)) return;
-            const win = this.lm.mapRectF(this.cam.frameWindow(0), this.cam.frame, t.id);
-            if (!win) return;
-            const tP = perfNow();
-            this.store.warmReads = true;
-            // The raster path reads the target through the Stage (A2 §2.13); the SVG path warms its tiles through `listFor`.
-            let snap = null, n = 0;
-            try {
-                if (this.raster) { snap = this.stage.snapshot(t.id, this.renderer.plateCover(t, win, PREVIEW_QUANTA), Infinity); n = snap ? snap.items().length : 0; }
-                else n = this.listFor(t.id, win).length;
-            } finally { this.store.warmReads = false; }
-            this._perf("prebake", tP, false, { frame: t.id, dir: t.dir, n });
-            // The plates are the renderer's half: the quantum, the range and the post are plate
-            // facts, and `{ pin: "none" }` is what keeps them off the visible screen's pins.
-            if (snap && this.plates) {
-                const tQ = perfNow();
-                this.renderer.prebakePlates(t, win, snap);
-                this._perf("prebakePost", tQ, false, { n });
-            }
-        });
-    }
-
     // Idle outline pre-fitting (lazy mode): fat-gated strokes render raw until
     // needed; fit their curve outlines in idle slices (~8 ms) so the eventual
     // representation flip — and the next crossing's bake — never stalls a

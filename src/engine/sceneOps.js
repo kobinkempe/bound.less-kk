@@ -53,22 +53,17 @@ class SceneOps {
         return true;
     }
     /**
-     * A picture of `rect` in frame `frame`, at a camera that is never set (SCENES-PLAN S1; the
-     * crossing prebake of PAPER-PLAN R4 shares the Stage's snapshot underneath, A2 §2.13).
+     * A picture of `rect` in frame `frame`, at a camera that is never set (SCENES-PLAN S1): one plate through the
+     * renderer's queue at the thumbnails' priority, its table read off camera at idle a budget at a time
+     * (`RasterRenderer.snapshotJob`, A2 §2.13, A3 §4.1).
      *
-     * The scale is `jumpTo`'s own — `fitView(rect, w, h)` — so a thumbnail frames a scene
-     * exactly as jumping to it would. It differs from `jumpTo` in three ways, all deliberate:
-     * the camera is not touched, `cam._maybeCross()` is NOT called (a crossing would change the
-     * frame the caller asked for), and the plate grid is not moved to the rect — the WORLD is,
-     * through `packJob`'s pack-time `offset`, so the rect lands on one plate and one job of one
-     * plate answers the whole request.
+     * The scale is `jumpTo`'s own — `fitView(rect, w, h)` — so a thumbnail frames a scene exactly as jumping to it
+     * would. It differs from `jumpTo` in three ways, all deliberate: the camera is not touched, `cam._maybeCross()` is
+     * NOT called (a crossing would change the frame the caller asked for), and the plate grid is not moved to the
+     * rect — the WORLD is, through `packJob`'s pack-time `offset`, so the rect lands on one plate.
      *
      * The picture occupies the TOP-LEFT `w × h` device pixels of the returned plate; the caller
      * crops it with a 1:1 `drawImage`.
-     *
-     * A frame the camera has never visited pays its tile bake inside this call, synchronously,
-     * and on a busy frame that is seconds (F59). There is no idle warm-up yet — the caller's
-     * own scheduling is what keeps it off a click until one lands.
      *
      * @param {object} req
      * @param {string|number} req.frame a frame id or a legacy depth int
@@ -78,8 +73,8 @@ class SceneOps {
      * @param {AbortSignal} [req.signal] the panel closing; a job already dispatched still
      *        completes, its result is dropped, and the promise rejects with "aborted"
      * @returns {Promise<ImageBitmap|{pixels:Uint8ClampedArray,width:number,height:number}|null>}
-     *        null off the raster path, for an unreachable frame or an unfittable rect, and for
-     *        an empty plate; the raw record where the scope has no `createImageBitmap` (jsdom)
+     *        null off the raster path, for an unreachable frame or an unfittable rect, for a table the idle reads
+     *        could not finish, and for an empty plate; the raw record where the scope has no `createImageBitmap` (jsdom)
      */
     snapshotView(req) {
         const { frame, rect, signal } = req || {};
@@ -100,9 +95,7 @@ class SceneOps {
             left: -offset[0], top: -offset[1],
             right: w / Zq - offset[0], bottom: h / Zq - offset[1],
         };
-        const snap = this.stage.snapshot(f.id, win, Infinity);
-        if (!snap) return Promise.resolve(null);
-        return this.renderer.snapshotJob({ list: snap.items(), frameId: f.id, Zq, offset, signal });
+        return this.renderer.snapshotJob({ frameId: f.id, win, Zq, offset, signal });
     }
     /**
      * The scene list, brought up to date: inline, now (a first index of a loaded drawing included);

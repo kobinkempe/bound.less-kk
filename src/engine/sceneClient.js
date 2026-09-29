@@ -10,13 +10,13 @@
  */
 import { SceneIndex, CHUNK, MAX_CHUNKS, REACH } from "./sceneIndex";
 import { segmentTerm, loopsBBox } from "./geometry/arcShape";
-import { homeTranslation } from "./geometry/offsets";
+import { ownTranslation } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { openSceneWorker } from "./sceneWorkerClient";
 import { rasterWorkerReport } from "./raster/rasterWorkerClient";
 
 // An item carries its OWN table's translation: the index adds its frame's shift itself (`sceneIndex`, `+ f.sx`).
-const ownT = (o) => homeTranslation(o.below);
+const ownT = ownTranslation;
 
 const SLICE_MS = 8;
 const MAX_WAIT_MS = 3000;

@@ -56,7 +56,7 @@ const TIMER_DEFS = [
     // plate-cache lookup at 1.35–1.96 ms of a 5.2–6.6 ms cold frame, inside rule 2's residual.
     // `RasterRenderer` brackets all three (D244).
     ["eng.view", "ENGINE", "main"],       // camera → view: frameFor and the layer's publish
-    ["eng.lookup", "ENGINE", "main"],     // PlateStore.want: the hit set for the frame
+    ["eng.lookup", "ENGINE", "main"],     // the old store's lookup: no writer since the pyramid (D19 keeps the slot)
     ["eng.clip", "ENGINE", "worker"],     // the per-piece and per-subtree prune (§8.1's note)
     ["eng.local", "ENGINE", "worker"],    // STRUCTURAL ZERO: fused into the edge loop (§8.2, D43)
     ["ras.edges", "RASTERISER", "worker"],
@@ -271,7 +271,7 @@ function mkDropRec() {
 
 /**
  * @param {object} s
- *   layer, store          the two shipped `report()` objects (`PictureLayer`, `PlateStore`)
+ *   layer, store          the two shipped `report()` objects (`PicturePyramid`, `PyramidStore`)
  *   workerReport, pack, core, ants   the other four scalar sources — this module imports
  *                         nothing, so they come in here rather than being reached for
  *   notePerf(op, t0, extra)   the engine's own log, for the three ops of §8.5
@@ -561,7 +561,6 @@ export function noteCompose(ms, plates, blits) {
     I[base + C.plateBlits] += blits | 0;
     // On an ARRIVAL row the plates composed are the ones that just arrived, which
     // `platesArrived` already counts; a cache hit is a plate the render found (§8.4 rule 5).
-    // A sync frame passes 0 for the same reason: it caches nothing (`rasterStats.syncPlates`).
     if (I[base + C.kind] !== K_ARRIVAL) {
         I[base + C.hits] += plates | 0;
         I[base + C.platesWanted] += plates | 0;

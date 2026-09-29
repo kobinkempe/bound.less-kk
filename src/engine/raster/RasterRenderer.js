@@ -1,144 +1,64 @@
 /**
- * RasterRenderer.js — the `Renderer` subclass that draws the ink into plates instead of into
- * SVG (RASTERISER-PLAN §5.1, §5.4's caller half, §5.6, §6.5, §2.7 FC1–FC6).
+ * RasterRenderer.js — the `Renderer` subclass that draws the ink through the picture pyramid (A3; PLAN §1.2) instead
+ * of into SVG: the pyramid (`PicturePyramid`, the layer) plans and composes, its store (`PyramidStore`) caches, the
+ * queue (`JobQueue`) orders typed jobs over the worker pool (`rasterWorkerClient`), and this module packs, measures,
+ * posts and lands for them (FC3). The SVG overlay keeps the live stroke, the lasso and the chevrons.
  *
- * It owns the render path and nothing else: the layer computes the mapping and composes
- * (`PictureLayer`), the store caches (`PlateStore`), the client queues and posts
- * (`rasterWorkerClient`), and `KobinEngine` owns the store's lifetime, the Stage and the flag.
- * **This module is the only poster**: it calls `beginJob`/`endJob` for every job the client mints,
- * and the layer never posts one (§15.3 Q3).
+ * Three things a reader needs in order not to break it:
  *
- * Five things a reader needs in order not to break it:
+ *   - **A job carries the G it is packed at** (A2 §3.1): the Stage's generation at dispatch, or its own table's (an
+ *     off-camera snapshot's); `beginJob` tracks its cells from then and the result brings G back to the store.
+ *   - **Every job id the pool mints is ended** (`_endJob`, landed or dropped), or its keys stay in flight for ever.
+ *   - **Pen-up** (PLAN §1.5, A3 §3.6): a finished stroke's live path stays up while its stroke is pending and comes
+ *     down in the task whose compose publishes the plates under it (`_pyrLive`, the pyramid's group commit).
  *
- *   - **A job carries the G it is packed at** (A2 §3.1): `_packNow` reads it when the client pulls
- *     the strip — the Stage's generation, or the G the list it packs was read at — `beginJob`
- *     tracks its cells from then, and the result brings it back to `put`.
- *   - **Every job is packed and keyed from the OBJECT the callback handed it** — `layer.view()`
- *     for its own wants, `settleRequest()` or `quantumRequest()` for the layer's — and the three
- *     fields it needs are COPIED at that moment, because those request objects are mutated in
- *     place and a strip packed a turn later would read a quantum that has since moved (D158–D160).
- *   - **One arriving job is ONE compose**: the result callback builds every record and hands
- *     them to `layer.onPlateBatch(recs)`. A loop over `onPlate` is a full-canvas paper fill and a
- *     blit per plate, per plate (D173).
- *   - **A dead quantum's queued strips are dropped with the DEAD `q`** — `dropQueued(why, deadQ)`
- *     — never the bare form, which empties the newest quantum's strips and the settle's with it
- *     (D185). What says a quantum died is `layer.status()`, read once a camera step.
- *   - **In sync mode nothing is cached.** The screen is rastered on this thread at the exact
- *     zoom into the layer canvas, which is idle there (`s` = 1), and handed to `compose` as one
- *     entry; `onPlate` is never called with it, because a record keyed `"s"` is refused (§6.5).
- *
- * Nothing here is measured in jsdom: `getContext` returns null in this tree, so the suite drives
- * an injected recording context and asserts call sequences and computed numbers. What the
- * picture looks like is stage 7's, in Kobin's Chrome (§9.4).
+ * jsdom has no 2D context: the suites inject one and a canvas factory. What the picture looks like is the harness's
+ * (headless) and Kobin's Chrome's.
  */
 
 import Two from "two.js";
 import Renderer from "../Renderer";
 import { perfNow } from "../now";
-import PictureLayer from "./PictureLayer";
-import { PLATE_PX, PREVIEW_QUANTA, plateKey, plateOriginPx, plateRange, quantumFor, zqOf } from "./plate";
+import { PLATE_PX } from "./plate";
 import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
-import { renderPlate, coreStats, TW, TH } from "./rasterCore";
-import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
+import { coreStats } from "./rasterCore";
 import { antStats, selAntScale } from "./antPaint";
 import OverlayLayer from "./OverlayLayer";
-import MovePlane, { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, MOVE_HOLD_MS, planeStats } from "./MovePlane";
+import MovePlane, { MOVE_HOLD_MS, planeStats } from "./MovePlane";
 import * as rasterPerf from "./rasterPerf";
-import {
-    submitPlates, dropQueued, abandonInFlight, ensureRasterPool, destroyRasterPool,
-    plateBitmap, stripSizeFor, rasterWorkerReport, rasterPool,
-} from "./rasterWorkerClient";
+import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool } from "./rasterWorkerClient";
 import PyramidStore, { planeCell } from "./PyramidStore";
-import PicturePyramid, { sampleOf, EST_DEFAULTS } from "./PicturePyramid";
+import PicturePyramid, { sampleOf, EST_DEFAULTS, LIVE_HOLD_MS } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
 import { prefetchPlan, farKeysOf } from "./prefetch";
-import { LEVEL_STEP, levelFor, zOf } from "./level";
+import { LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
 
-/** The preview's quantum offset, re-exported for the renderer's callers (P3's tests import it here). */
-export { PREVIEW_QUANTA };
-/** PAPER-PLAN R5b, §10 S6: a ladder rung is rastered this many quanta under its own zoom (4–6 plates a rung on a desktop at the engine's 2.5-screen window). */
-export const LADDER_DQ = 12;
-/** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-raster it every quantum. */
+/** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-render it every step. */
 const PLANE_QUIET_MS = 150;
-/** A rung asking for more plates than this is refused: its window was not the screen's. */
-const LADDER_MAX_PLATES = 24;
-/**
- * PAPER-PLAN §10 S5 (P5): a finished stroke's live path stays up until the plates under it are
- * fresh — they hold it then — or the view leaves its frame; this is only the safety limit, counted
- * in `liveTimeouts`. At 500 ms a busy main thread (1.3 s post-to-arrival, §9) made the stroke vanish
- * until its plates landed (review minor 6).
- */
-export const LIVE_HOLD_MS = 3000;
-/** The longest a held path waits, from its shape's landing, while the plates under it are in flight (none while it is pending). */
-const LIVE_HOLD_MAX_MS = 15000;
-let liveClipSeq = 0;
-/** The stopgap's bounds: a selection this small, over this few plates, is rastered on the main thread. */
+/** The stopgap's bounds: a selection this small, over this few plates, is rendered on the main thread. */
 const STOPGAP_OBJECTS = 500;
 const STOPGAP_PLATES = 8;
-/** A far plane level's list (F122) is read 40 ms at a time at idle, 40 reads at most, then the camera's list. */
-const FAR_LIST_BUDGET_MS = 40;
-const FAR_LIST_TRIES = 40;
-const planeIdle = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 1000 }) : setTimeout(fn, 30));
-
-/**
- * The cap `visibleChords` exits at. It must be strictly above the layer's own
- * `2 × SYNC_CHORD_BUDGET`, or the hysteresis reads the exit value as "still light"
- * (`PictureLayer._syncSwitch` keeps the sync path while `n <= 2 × budget`).
- */
-const CHORD_CAP = (budget) => 2 * budget + 1;
+/** An off-camera table (a far plane level, a snapshot) is read 40 ms at a time at idle, 40 reads at most (F122). */
+const IDLE_READ_MS = 40;
+const IDLE_READ_TRIES = 40;
+const idle = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 1000 }) : setTimeout(fn, 30));
 /** The pyramid's estimate counts chords only this far: 20,000 × 0.73 µs is past any inline budget (A3 §2.2). */
 const MEASURE_CHORD_CAP = 20000;
 
 /**
- * Quarter-octave steps below the live quantum that a PREVIEW is rastered at (PAPER-PLAN §7.4,
- * C §1.5). Eight is the knee and the argument is arithmetic: `plateRange`'s `floor(P/512) + 1 or
- * + 2` floors the count at 4 below it, so `q − 12` buys no plates and costs 8× the blur, while
- * `q − 4` doubles the plate count for 2× less. The crossing prebake asks at the target frame's
- * `q − PREVIEW_QUANTA`; P2's `PictureLayer._prev` must ask at the same offset, from here.
+ * §8.1's slot names this module writes, the vocabulary it shares with `rasterPerf`; `_add` turns a name into that
+ * module's numeric slot, so a recording test double can take the names instead. `list` is timed by the ENGINE around
+ * its table sync and handed to `noteList`.
  */
+export const SLOT = { list: "eng.list", pack: "eng.pack", view: "eng.view", tail: "ovl.tail" };
 
-/**
- * §8.1's slot names, the vocabulary this module and `rasterPerf` share; `_add` turns a name into
- * that module's numeric slot, so a recording test double can take the names instead.
- *
- * **Twelve are written here.** Seven on every frame — `cull`, `pack`, `view`, `lookup`, `tail`,
- * `xferOut` and `blit` — four on the SYNC path alone, where §8.1's "worker (or main, in sync
- * mode)" applies (`clip`, `edges`, `union` and `accum`, summed out of the per-plate `timings`
- * `renderPlate` fills), and `list`, which the ENGINE times around `_buildList` and hands to
- * `noteList` — the row is open before that call (§8.1, §15.3 Stage 5b Q2).
- *
- * The other two are named so a reader of a report knows where their cost already is, not that it
- * is free: the settle's timer task has a row of its own (`_post`, D266) whose work is `pack` and
- * `xferOut`, and `band` is built inside `packJob`, so it is counted in `pack`. `bitmap` is
- * written through `perf.noteBitmap`, not through `_add`.
- */
-export const SLOT = {
-    list: "eng.list", settle: "eng.settle", cull: "eng.cull", band: "eng.band", pack: "eng.pack",
-    view: "eng.view", lookup: "eng.lookup", tail: "ovl.tail",
-    clip: "eng.clip", edges: "ras.edges", union: "ras.union", accum: "ras.accum",
-    xferOut: "xfer.out", bitmap: "br.bitmap", blit: "br.blit",
-};
-
-/** This module's own counters, beside `pictureStats` and `packStats`; scalars only (F58). */
+/** This module's own counters, beside the pyramid's and the store's reports and `packStats`; scalars only (F58). */
 export const rasterStats = {
-    frames: 0, cameraFrames: 0, posts: 0, postedPlates: 0, strips: 0,
-    // A second `submitPlates` at one `q` inside one TASK — a frame step, or an arrival and its
-    // re-post: §10 item 15's rule, counted rather than refused, because nothing on the render
-    // path throws (D187's principle).
-    dupPostQ: 0,
-    jobsEnded: 0, dropsHandled: 0, staleArrivals: 0, refusedAtDispatch: 0,
-    // Strips refused at dispatch, by reason (PLAN §5.4 Q3): a snapshot older than the cell's dirt, the
-    // table not covering a camera plate (and that strip's uncovered plates, left to stand-ins), a dead quantum.
-    refusedDirt: 0, refusedCover: 0, refusedCoverPlates: 0, refusedDead: 0,
-    quantumDrops: 0, settleDrops: 0,
-    syncFrames: 0, syncPlates: 0, syncNoImageData: 0, syncBytes: 0,
+    frames: 0, cameraFrames: 0, jobsEnded: 0, dropsHandled: 0,
+    // Cells refused at the pack (A3 §4.2): the table no longer covers them; they are asked for again once it does.
+    refusedCover: 0, refusedCoverPlates: 0,
     batches: 0, batchPlates: 0, bitmapWaits: 0,
-    // R4 and S1, both off camera. Whether a prebaked plate is ever USED is the reader that says
-    // if R4 earns its keep, and it belongs to the request that asks for it (P2's preview).
-    prebakePosts: 0, prebakePlates: 0,
-    liveHolds: 0, liveHandoffs: 0, liveTimeouts: 0, liveHoldMsMax: 0, liveExtends: 0,   // S5: the pen-up handoff
-    liveClips: 0,                                                                        // D-2: translucent paths clipped to stale cells
-    ladderPosts: 0, ladderPlates: 0, ladderRefused: 0,   // PAPER-PLAN R5b
+    liveHolds: 0, liveHandoffs: 0, liveHoldMsMax: 0,   // the pen-up handoff (A3 §3.6)
     snapshots: 0, snapshotPlates: 0, snapshotAborts: 0, snapshotFails: 0, snapshotOverBound: 0,
 };
 
@@ -146,42 +66,27 @@ export function resetRasterStats() {
     for (const k of Object.keys(rasterStats)) rasterStats[k] = 0;
 }
 
-/** `want`'s misses by squared plate distance from the request's range centre, in place. */
-function sortCentreOut(misses, r) {
-    const ci = (r.i0 + r.i1) / 2, cj = (r.j0 + r.j1) / 2;
-    misses.sort((a, b) => ((a.i - ci) ** 2 + (a.j - cj) ** 2) - ((b.i - ci) ** 2 + (b.j - cj) ** 2));
-}
-
 export default class RasterRenderer extends Renderer {
     /**
      * @param {Element} container the editor host, shared with the Two.js `<svg>` (FC1)
-     * @param {object} camera the engine's `Camera` — **the same object the engine later hands
-     *        `frameFor`**, because the settle's publish and the quantum switch map the INJECTED
-     *        one off the rAF cycle (FC3, D192)
+     * @param {object} camera the engine's `Camera`, the object the engine hands `frameFor` (FC3)
      * @param {object} cfg the engine cfg
-     * @param {object} [opts]
+     * @param {object} opts
+     * @param {object} opts.stage the engine's `Stage`: packs read its items at its generation; the store's freshness source
      * @param {number} [opts.width] CSS px @param {number} [opts.height] CSS px
-     * @param {object} [opts.store] the `PlateStore`; the ENGINE constructs it, with the Stage as its
-     *        freshness source, and owns its lifetime and `destroy`
-     * @param {object} [opts.stage] the engine's `Stage`: plates are packed from its items at its
-     *        generation. Without one (the suites' renderer) `render`'s list is packed at the store's G
-     * @param {object} [opts.layer] a `PictureLayer` to use instead of building one (the suite's)
-     * @param {number} [opts.dpr] devicePixelRatio override, for the suite
+     * @param {number} [opts.dpr] devicePixelRatio override, for the suites
      * @param {string} [opts.paper] the paper colour, which must agree with the host's CSS
      * @param {() => number} [opts.frameSeq] the engine's own counter, bumped per camera step
-     * @param {object} [opts.perf] a recorder with `rasterPerf`'s own names, for the suite; the
-     *        shipped default is `rasterPerf` itself
+     * @param {object} [opts.perf] a recorder with `rasterPerf`'s own names, for the suites
      * @param {Function} [opts.notePerf] the engine's perf-log hook, handed to `perf.attach`
-     * @param {object} [opts.layerOpts] the layer's own knobs — `syncBudget`, the settle's timer
-     *        and clock — spread into the `PictureLayer` this builds
-     * @param {(w:number,h:number)=>object} [opts.makeCanvas] a canvas factory, for the suite
+     * @param {object} [opts.pool] a pool face `{size, free, submit}` in place of the worker client's, for the suites
+     * @param {(w:number,h:number)=>object} [opts.makeCanvas] a canvas factory, and `opts.context`, for the suites
      */
     constructor(container, camera, cfg, opts = {}) {
         super(container, camera, cfg, opts);
         this.host = container || null;
-        this.store = opts.store || null;
         /** The scene (the engine's Stage, A2 §3): packs read its items at its generation; it is the store's freshness source. */
-        this.stage = opts.stage || null;
+        this.stage = opts.stage;
         this._sceneArr = null; this._sceneSrc = null; this._sceneArrG = -1;
         this.perf = opts.perf || rasterPerf;
         this._nextSeq = opts.frameSeq || null;
@@ -194,11 +99,8 @@ export default class RasterRenderer extends Renderer {
         this.paper = opts.paper || "#ffffff";
         this._paperRgb = parseColour(this.paper);
 
-        // FC1: the stack is an explicit z-index — 0 ink, 1 the Two.js `<svg>`, 2 the overlay
-        // canvas (5d), 3 `bl-sel-edges` — never the append order, because the constructor above
-        // appended the `<svg>` before this line could run and `_buildSelOverlay` appends its two
-        // layers lazily on the first decision. A static element ignores z-index, so the `<svg>`
-        // is positioned here as well.
+        // FC1: the stack is an explicit z-index — 0 ink, 1 the Two.js `<svg>`, 2 the overlay canvas, 3 `bl-sel-edges` —
+        // never the append order: the constructor above appended the `<svg>` first.
         const svg = this.two.renderer && this.two.renderer.domElement;
         if (svg && svg.style) {
             svg.style.position = "absolute";
@@ -208,67 +110,44 @@ export default class RasterRenderer extends Renderer {
 
         const dpr = opts.dpr > 0 ? opts.dpr
             : (typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
-        /** The picture pyramid's path (`cfg.pyramid`, A3 §7.4, §10.1): its store, the pyramid as the layer, the queue. */
-        this.pyramid = null; this.queue = null;
-        if (cfg && cfg.pyramid && this.stage) this._pyrBuild(container, dpr, opts);
-        else this.layer = opts.layer || new PictureLayer(container, camera, {
-            store: this.store, width: this.width, height: this.height, dpr, paper: this.paper,
-            makeCanvas: opts.makeCanvas,
-            // `layerOpts` is the layer's own knobs — `syncBudget` (stage 7 tunes it), the
-            // settle's timer and clock. The two callbacks come after it: this module is the
-            // only poster, and a caller that replaced them would be a second one (§15.3 Q3).
-            ...(opts.layerOpts || null),
-            onPlates: (req, misses) => this._post(req, misses, "plates"),
-            onRepost: (req, misses) => this._post(req, misses, "repost"),
-        });
-        /**
-         * FC1's ONE list of screen-space layers: `setSize`, `destroy` and the store's release
-         * walk it, so 5d appends `this._overlay` rather than shipping a second copy of each.
-         */
+        /** The store, the pyramid (the layer) and the queue (A3 §1, §4). */
+        this.store = null; this.pyramid = null; this.queue = null;
+        this._pyrBuild(container, dpr, opts);
+        /** FC1's ONE list of screen-space layers: `setSize`, `destroy` and the store's release walk it. */
         this._layers = [this.layer];
-        /** FC1, FC8: 5d's `OverlayLayer` goes here, at z-index 2. Null until then. */
+        /** FC1, FC8: the ants' `OverlayLayer`, at z-index 2; null until the first selection. */
         this._overlay = null;
-        // FC1 as corrected (D190): the release is the STORE's event and not a renderer walk.
-        if (this.store) this.store.onRelease = (reason) => this._onStoreRelease(reason);
-        if (this.store) this.store.onShow = () => { if (this.onShown) this.onShown(); };
-        if (this.store && this.store.phone) setPackBudget(PACK_BUDGET_PHONE);   // the pack memo: half on a phone
+        this.store.onRelease = (reason) => this._onStoreRelease(reason);
+        this.store.onShow = () => { if (this.onShown) this.onShown(); };
+        if (this.store.phone) setPackBudget(PACK_BUDGET_PHONE);   // the pack memo: half on a phone
         // The scene's last commit: the plane's pre-aim and the prefetch wait for its quiet (a bake commits every few frames).
         this._commitAt = -Infinity;
-        this._commitOff = this.stage && this.stage.onCommit ? this.stage.onCommit(() => { this._commitAt = perfNow(); }) : null;
+        this._commitOff = this.stage.onCommit(() => { this._commitAt = perfNow(); });
 
         /**
-         * FC6: the overlay origin, ONE object with ONE writer (`addLive`). `_selDecide` caches
-         * its decision on `c.origin === O` by identity, so a fresh literal per call turns a
-         * 26–47 ms decision into a per-frame cost with every suite green.
+         * FC6: the overlay origin, ONE object with ONE writer (`addLive`). `_selDecide` caches its decision on
+         * `c.origin === O` by identity, so a fresh literal per call turns a 26–47 ms decision into a per-frame cost.
          */
         this._ovOrigin = { x: 0, y: 0 };
         /** §2.5 seam 3: one persistent scene, so the live stroke has a parent and retention never runs. */
         this._ovScene = null;
 
-        // The render path's own state. Nothing here is allocated per frame (FC5).
         this._lastList = [];
         this._view = null;
-        this._qWas = null; this._pendWas = ""; this._prevWas = ""; this._settleWas = false;
-        this._postQ = [];              // the `q`s posted inside THIS task — a frame step or an arrival (item 15)
-        this._snapSeq = 0;             // `snapshotJob`'s per-call `q` (S1): "t3" is one snapshot's alone
-        this._packMs = 0;              // the pack's own ms inside one `submitPlates`, for `xfer.out`
-        this._postMs = 0;              // the posts nested inside `frameFor`, subtracted from `eng.view`
-        this._sync = { rgba: null, counts: null, timings: null, hit: null, coreMs: 0 };
-        /** PAPER-PLAN §10 S4: the selection's drag plane; the engine's state is pulled (`setPlaneState`). A3 §6's keys on the pyramid. */
-        this._plane = new MovePlane({ pyramid: !!this.pyramid });
+        this._snapSeq = 0;             // `snapshotJob`'s per-call key (S1): one snapshot's cell alone
+        /** The selection's drag plane (A3 §6); the engine's state is pulled (`setPlaneState`). */
+        this._plane = new MovePlane();
         /** A test hook: no drag plane — every drag renders each step (the path a lost plane falls back to). */
         this.forcePerStepDrag = false;
         this._planeFn = null;
         this._landTimer = null;
         this._planeTimer = null;
         this._planeViewKey = ""; this._planeViewAt = 0;
-        /** S5: finished strokes' live paths waiting for their plates — `{ path, id, frameId, box, at, until, translucent }`. */
+        /** Finished strokes' live paths waiting for their plates — `{ path, id, frameId, box, at, until, group }`. */
         this._liveHeld = [];
         this._liveTimer = null;
 
-        // SEVEN sources, not three (stage 6's H1, D210): with the four scalar ones missing,
-        // `report().pack`, `.core`, `.ants` and `.worker` all ship null and §10 stage 6's items
-        // 3 and 4 are unmet. They are passed here because `rasterPerf` imports nothing itself.
+        // SEVEN sources (stage 6's H1, D210): `rasterPerf` imports nothing itself.
         this.perf.attach({
             layer: this.layer, store: this.store, workerReport: rasterWorkerReport,
             pack: packStats, core: coreStats, ants: antStats,
@@ -419,7 +298,7 @@ export default class RasterRenderer extends Renderer {
         super.setSize(w, h);
         const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : this.layer.dpr;
         for (const l of this._layers) if (l) l.setSize(w, h, dpr);
-        if (this.pyramid) this.store.setBudget(this.pyramid.budgetBytes());   // the budget follows the screen (A3 §4.5)
+        this.store.setBudget(this.pyramid.budgetBytes());   // the budget follows the screen (A3 §4.5)
         this._armDpr(dpr);
     }
 
@@ -461,7 +340,7 @@ export default class RasterRenderer extends Renderer {
         return reason;
     }
 
-    // ---- the drag plane (PAPER-PLAN §10 S4) ----
+    // ---- the drag plane (PAPER-PLAN §10 S4, A3 §6) ----
 
     /** The engine reads this once, at construction: the drag's plate events are held only where the renderer draws the dragged ink itself. */
     get supportsDragPlane() { return true; }
@@ -470,28 +349,27 @@ export default class RasterRenderer extends Renderer {
     setPlaneState(fn) { this._planeFn = fn; }
 
     /**
-     * At a drag's start: aim the plane at the selection and post what it lacks. False when the
-     * view is not in plates, or the selection's footprint is past the cap — that drag then
-     * re-rasters each step as before (the engine takes no hold).
+     * At a drag's start: aim the plane at the selection and post what it lacks. False when there is no view yet,
+     * or the selection's footprint is past the cap — that drag then renders each step (the engine takes no hold).
      */
     planeAccepts() {
         const v = this._view;
         // A drag begun while the last drop still lands: that plane draws the old list's move and is
         // done — end it and aim from the list the drop rendered (review major 1).
         if (this._plane.showing) this._endPlane();
-        const ok = !!this.store && this._planeViewOk(v) && this._aimPlane(v);
+        const ok = this._planeViewOk(v) && this._aimPlane(v);
         this._noPlaneDrag = !ok;           // a refused drag renders a step: no plane is aimed under it
         return ok;
     }
 
-    /** The views a plane works in: plates, and a settled view (q "e" at the exact zoom). */
-    _planeViewOk(v) { return !!v && (v.mode === "plates" || v.mode === "settle" || v.mode === "level" || v.mode === "rest"); }
+    /** The views a plane works in: the level plan's and the rest render's (every published view). */
+    _planeViewOk(v) { return !!v && (v.mode === "level" || v.mode === "rest"); }
 
     /** May a drag step skip the list build? Only while the plane draws the move. */
     dragLight() { return this._planeViewOk(this._view) && this._plane.layers.length > 0 && this._plane.state !== "land"; }
 
     /** Plates a plane may pin here (a test lowers it). */
-    get planeCap() { return this._planeCap != null ? this._planeCap : (this.store && this.store.phone ? MOVE_PLANE_PLATES_PHONE : MOVE_PLANE_PLATES); }
+    get planeCap() { return this._planeCap != null ? this._planeCap : (this.store.phone ? MOVE_PLANE_PLATES_PHONE : MOVE_PLANE_PLATES); }
 
     /** Keep the plane aimed at the current selection and view; returns whether it is accepted. */
     _aimPlane(v) {
@@ -504,23 +382,19 @@ export default class RasterRenderer extends Renderer {
         if (gone.length) this._dropPlaneTags(gone);
         this.store.setPlanePins(ok ? pl.keys : null);
         if (!ok) return false;
-        for (const lvl of pl.farLevels()) this._farList(pl, lvl, 0);
-        if (this._postPlane(pl) && this.onPlaneAimed) this.onPlaneAimed();   // its pins may push the ladder out
+        for (const lvl of pl.farLevels()) this._farList(pl, lvl);
+        this._postPlane(pl);
         return true;
     }
 
     /**
-     * A far plane level's own items (F122): the Stage's snapshot of its rectangle, read at idle a budget
-     * at a time (built in the aim it was a 0.2–0.6 s frame after every select and every drop, TESTER-3).
-     * The level is posted when its snapshot is in, packed at the snapshot's G; a re-cut level is forgotten.
+     * A far plane level's own items (F122): the Stage's snapshot of its rectangle, read at idle a budget at a time
+     * (`_readIdle`; in the aim it was a 0.2–0.6 s frame after every select and every drop, TESTER-3). The level is
+     * posted when its snapshot is in, packed at the snapshot's G; a re-cut level is forgotten.
      */
-    _farList(pl, lvl, tries) {
+    _farList(pl, lvl) {
         lvl.listPending = true;
-        planeIdle(() => {
-            if (this._destroyed || (pl.quick !== lvl && pl.main !== lvl)) return;
-            const r = pl.coverOf(lvl);
-            const snap = r && this.stage ? this.stage.snapshot(pl.frameId, r, FAR_LIST_BUDGET_MS) : null;
-            if (snap === null && r && this.stage && tries < FAR_LIST_TRIES) { this._farList(pl, lvl, tries + 1); return; }
+        this._readIdle(pl.frameId, () => pl.coverOf(lvl), () => this._destroyed || (pl.quick !== lvl && pl.main !== lvl), (snap) => {
             lvl.list = snap ? snap.items() : null;
             lvl.G = snap ? snap.generation : null;
             lvl.listPending = false;
@@ -529,33 +403,19 @@ export default class RasterRenderer extends Renderer {
         });
     }
 
-    /** What the plane's layers lack, one post a layer (their cells are a list, not a range). */
-    _postPlane(pl) {
-        if (this.pyramid) return this._pyrPostPlane(pl);
-        // A level without its own snapshot packs the live table at the pack's G (A2 §3.3), not the list it was aimed from.
-        const reqs = pl.requests(this.stage ? null : pl.list);
-        if (!reqs) return 0;
-        let n = 0;
-        const one = this._planeCell || (this._planeCell = { frameId: null, q: null, Zq: 1, i0: 0, i1: 0, j0: 0, j1: 0 });
-        for (const r of reqs) {
-            const misses = [];
-            one.frameId = r.frameId; one.q = r.q; one.Zq = r.Zq;
-            for (const [i, j] of r.cells) {
-                // Fresh or in flight: nothing to ask, and no `want` (it evicts) — this runs every drag step.
-                const k = plateKey(r.frameId, r.q, i, j), e = this.store.get(k);
-                if ((e && !e.dead && this.store.isExact(e)) || this.store.inflight.has(k)) continue;
-                one.i0 = one.i1 = i; one.j0 = one.j1 = j;
-                for (const m of this.store.want(one, { pin: "none" }).misses) misses.push(m);
-            }
-            if (misses.length) { planeStats.requests++; n += this._post(r, misses, "plane"); }
-        }
-        return n;
-    }
-
-    /** A plane's plates, out of the store and the queue: they carry no zoom any other request reads. */
-    _dropPlaneTags(tags) {
-        if (this.pyramid) { this._pyrDropPlane(tags); return; }
-        for (const q of tags) { if (!q) continue; dropQueued("plane", q); this.store.dropQuantum(q); }
+    /**
+     * An off-camera table read at idle, IDLE_READ_MS at a time (a read past its budget keeps the tiles it baked), up to
+     * IDLE_READ_TRIES: `done(table)`, or `done(null)` when the rectangle is gone or the reads ran out; nothing once
+     * `stale()` is true.
+     */
+    _readIdle(frameId, rectOf, stale, done, tries = 0) {
+        idle(() => {
+            if (stale()) return;
+            const r = rectOf();
+            const snap = r ? this.stage.snapshot(frameId, r, IDLE_READ_MS) : null;
+            if (snap === null && r && tries < IDLE_READ_TRIES) { this._readIdle(frameId, rectOf, stale, done, tries + 1); return; }
+            done(snap);
+        });
     }
 
     /** Every camera step: follow the drag, close a landing, or keep the plane ready for the next drag. */
@@ -563,33 +423,31 @@ export default class RasterRenderer extends Renderer {
         const pl = this._plane;
         const d = this._dragStateFn ? this._dragStateFn() : null;
         if (d && d.drag && pl.state !== "land") {
-            // A plane that can no longer draw this drag — the camera left its frame, a release or the
-            // sync path ended it — hands the drag back to a render a step (review major 2).
+            // A plane that can no longer draw this drag — the camera left its frame, or a release ended it —
+            // hands the drag back to a render a step (review major 2).
             if (!pl.layers.length || pl.frameId !== v.frameId || !this._planeViewOk(v)) this._losePlane();
             else {
                 const s = d.drag.start, l = d.drag.last || s;
                 pl.dragTo(l[0] - s[0], l[1] - s[1], this.layer.dpr);
-                this._postPlane(pl);           // a plane plate a non-held event staled mid-drag, from the start list
+                this._postPlane(pl);           // a plane plate a change staled mid-drag
             }
         } else if (pl.state === "land") {
             if (this._planeLanded(v)) this._endPlane();
         } else if (!d) this._planeIdle();
         // A level is drawn whole (the main one, else the quick one), else its selected layers alone
-        // over the plates that still hold the ink where it was, else a stopgap rastered here.
+        // over the plates that still hold the ink where it was (H4), else a stopgap rendered here.
         let lvl = pl.showing ? pl.pick(this.store) : null;
-        if (this.pyramid && pl.state === "drag" && (!lvl || pl.partial) && this._pyrStopgap(pl)) lvl = pl.pick(this.store);
-        else if (!this.pyramid && pl.state === "drag" && !lvl && !pl.stop) this._planeStopgap(pl);
+        if (pl.state === "drag" && (!lvl || pl.partial) && this._pyrStopgap(pl)) lvl = pl.pick(this.store);
         const whole = !!lvl && !pl.partial;
         if (pl.state === "drag") {
-            if (!lvl && !pl.stop) planeStats.notReady++;
+            if (!lvl) planeStats.notReady++;
             else if (!whole) planeStats.partialSteps++;
             else if (lvl === pl.quick) planeStats.quickSteps++;
         }
         // While the plane draws the move, every other pack leaves the selection out: a plate re-rastered
         // mid-drag (a cut landing, a crossing's render) would bake it at its moved place (review minor 4).
         this._dragOmit = whole && pl.state === "drag" ? pl.selIds : null;
-        if (this.pyramid) this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
-        else this.layer.setPlane(lvl || (pl.showing && pl.stop) ? pl : null);
+        this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
     }
 
     /** The plane is lost under a live drag: the engine releases the hold once and the drag renders each step. */
@@ -602,25 +460,23 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * Nothing dragged: keep the plane ready for the next drag, aimed at the view once the camera has
-     * held it PLANE_QUIET_MS — a settle's publish is such a view and arrives with no camera step, so
-     * arrivals call this too. A plane aimed at a view the camera has left is freed at once.
+     * Nothing dragged: keep the plane ready for the next drag, aimed at the view once the camera has held it
+     * PLANE_QUIET_MS — arrivals call this too. A plane aimed at a view the camera has left is freed at once.
      */
     _planeIdle() {
         const pl = this._plane, v = this._view;
-        if (!this.store || !v || pl.showing || this._noPlaneDrag || this.forcePerStepDrag || (this._dragStateFn && this._dragStateFn())) return;
+        if (!v || pl.showing || this._noPlaneDrag || this.forcePerStepDrag || (this._dragStateFn && this._dragStateFn())) return;
         // Quiet is the published view unchanged — a pan too: re-cutting the layers each pan step
         // posted 938 plates over a 60-step pan in Kobin's Chrome (a selection under a full-screen fill).
-        const key = v.frameId + "|" + v.q + "|" + v.Zq + "|" + v.rev;
+        const key = v.frameId + "|" + v.Zq + "|" + v.rev;
         if (key !== this._planeViewKey) { this._planeViewKey = key; this._planeViewAt = perfNow(); }
-        const here = pl.tags.length > 0 && pl.frameId === v.frameId && pl.q === v.q && pl.Zq === v.Zq;
-        // A settle about to publish its exact view would re-aim the plane a second time: wait for it. A bake's commits
-        // re-aimed it at every cut step (1.0 s of a 8.3 s profile, PLAN §5.9 item 2): the scene's quiet too.
-        const settling = () => (!this.pyramid && (this.layer.settleComing() || this.layer.holding())) || perfNow() - this._commitAt < PLANE_QUIET_MS;
-        const holding = !this.pyramid && this.layer.holding();
+        const here = pl.tags.length > 0 && pl.frameId === v.frameId && pl.Zq === v.Zq;
+        // A bake's commits re-aimed a waiting plane at every cut step (1.0 s of a 8.3 s profile, PLAN §5.9 item 2): the
+        // scene's quiet too.
+        const settling = () => perfNow() - this._commitAt < PLANE_QUIET_MS;
         const quiet = perfNow() - this._planeViewAt >= PLANE_QUIET_MS && !settling();
-        // At this zoom its plates stay (a pan only adds cells); a zoom's hold pins its own set, so the plane's go.
-        if (!quiet && pl.tags.length && (!here || holding)) this._endPlane();
+        // At this zoom its plates stay (a pan only adds cells); another zoom's plane goes.
+        if (!quiet && pl.tags.length && !here) this._endPlane();
         // Aimed in a task of its own even when quiet, after the next frame is painted: inside a select it
         // was 0.29–0.41 s of a 1.2 s release-to-first-frame on a 29k-object lasso, and a 0 ms timer still
         // ran before the paint (TESTER-3, Chrome). On time, the view still the one this was armed for.
@@ -629,7 +485,7 @@ export default class RasterRenderer extends Renderer {
                 this._planeTimer = null;
                 const w = this._view;
                 if (this._destroyed || !w || this._plane.showing || this._noPlaneDrag || (this._dragStateFn && this._dragStateFn())) return;
-                if (w.frameId + "|" + w.q + "|" + w.Zq + "|" + w.rev === key && !settling()) this._aimPlane(w);
+                if (w.frameId + "|" + w.Zq + "|" + w.rev === key && !settling()) this._aimPlane(w);
                 else this._planeIdle();
             };
             if (!quiet) this._planeTimer = setTimeout(fire, PLANE_QUIET_MS);
@@ -638,10 +494,10 @@ export default class RasterRenderer extends Renderer {
         }
     }
 
-    /** A landing is over when every cell it covers holds a fresh plate again, the camera left its quantum, or MOVE_HOLD_MS passed. */
+    /** A landing is over when every cell it covers holds an exact source again (`cellFresh`), the view's grid changed, or MOVE_HOLD_MS passed. */
     _planeLanded(v) {
         const pl = this._plane;
-        if (!this._planeViewOk(v) || v.frameId !== pl.frameId || v.q !== pl.q || v.Zq !== pl.Zq) return true;
+        if (!this._planeViewOk(v) || v.frameId !== pl.frameId || v.Zq !== pl.Zq) return true;
         if (perfNow() > pl.landUntil) { planeStats.landTimeouts++; return true; }
         const c = pl.landCells(v);
         if (!c) return true;
@@ -657,9 +513,10 @@ export default class RasterRenderer extends Renderer {
             if (ms > planeStats.landMsMax) planeStats.landMsMax = ms;
         }
         if (this._landTimer != null) { clearTimeout(this._landTimer); this._landTimer = null; }
-        if (this.store) { this._dropPlaneTags(pl.tags); this.store.setPlanePins(null); }
+        this._dropPlaneTags(pl.tags);
+        this.store.setPlanePins(null);
         pl._reset();
-        if (this.layer) this.layer.setPlane(null);
+        this.pyramid.setPlane(null);
     }
 
     /**
@@ -681,36 +538,24 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * §10 item 19's lever: every job in flight is REPORTED, so `endJob` frees the store's keys
-     * and `want` reads them as misses again. It frees no capacity — each abandoned job holds its
-     * worker's slot until its own answer arrives, and `rasterWorkerReport().heldSlots` is how
-     * many (D175).
-     *
-     * It is **not** on the render path, and that is a decision rather than an omission: at a
-     * quantum change `PictureLayer._endHold` already calls `dropQuantum(pend.q)`, which refuses
-     * every straggler on arrival — and freeing the keys there would have the next `want` re-post
-     * plates the camera has just left. Teardown is the one
-     * place where nothing will ever arrive to end them.
-     *
+     * Teardown's lever: every job in flight REPORTED, so `endJob` frees the store's keys. It frees no capacity — an
+     * abandoned job holds its worker's slot until its own answer arrives (`rasterWorkerReport().heldSlots`, D175).
      * @returns {number} jobs abandoned
      */
     _abandon(why) { return abandonInFlight(why); }
 
     destroy() {
-        // Every job still in flight is reported so `endJob` runs for it; the store's keys would
-        // otherwise stay in flight for ever and `want` would return them as in-flight rather
-        // than as misses — a permanent hole with every suite green (rasterWorkerClient's header).
-        if (this.queue) this.queue.clear();
+        // Every job still in flight is reported so `endJob` runs for it: the store's keys would
+        // otherwise stay in flight for ever — a permanent hole with every suite green.
+        this.queue.clear();
         if (this._pyrOff) { this._pyrOff(); this._pyrOff = null; }
         if (this._commitOff) { this._commitOff(); this._commitOff = null; }
         if (this._pyrPrefetchTimer != null) { clearTimeout(this._pyrPrefetchTimer); this._pyrPrefetchTimer = null; }
         this._abandon("destroy");
-        dropQueued("destroy");
         this._destroyed = true;
         if (this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
         if (this._landTimer != null) { clearTimeout(this._landTimer); this._landTimer = null; }
         if (this._planeTimer != null) { clearTimeout(this._planeTimer); this._planeTimer = null; }
-        for (const h of this._liveHeld) if (h.clip) h.clip.remove();
         this._liveHeld.length = 0;
         destroyRasterPool();
         this._dropDpr();
@@ -719,7 +564,6 @@ export default class RasterRenderer extends Renderer {
         for (const l of this._layers) if (l && l.destroy) l.destroy();
         this._layers.length = 0;
         this._overlay = null;
-        this._sync.rgba = null; this._sync.counts = null; this._sync.timings = null;
         super.destroy();
     }
 
@@ -730,33 +574,25 @@ export default class RasterRenderer extends Renderer {
     /** §7.2: the window chop is gone from the raster path. */
     needsWindowChop() { return false; }
     /**
-     * §5.1's table says "kept, overridden to compare quantised fades". It is **false** instead,
-     * and the argument is D201: the packer re-derives family membership on every pack
-     * (`rasterPack.packJob`), and a QUANTISED fade cannot change inside a quantum — so a
-     * promotion could only ever fire on a quantum change, where every plate is re-posted and
-     * re-packed anyway. Inherited it reads `this._groups`, which is empty on this path, so it
-     * would be false for the wrong reason.
+     * False (D201): the packer re-derives family membership and each fade at the plate's own Z on every pack, so there
+     * is nothing to promote; inherited, it would read `this._groups`, which is empty here.
      */
     needsFadeFlip() { return false; }
 
     /**
-     * The pen-up handoff (PAPER-PLAN §10 S5): the live MODEL goes now, so every pack from here on
-     * paints the stroke, and the live PATH stays until the plates under it are fresh (`LIVE_HOLD_MS`
-     * at most). Held whatever the view's mode: the pen-up's render may leave the sync path, and a
-     * path dropped then showed the stroke nowhere until its plates landed (F120); a frame that stays
-     * sync releases it at once (`_releaseHeldLive`).
+     * Pen-up (PLAN §1.5, A3 §3.6): the live MODEL goes now, and the live PATH stays until the group commit under its
+     * box publishes the plates that paint it (`_pyrLive`) — whatever the view (F120).
      */
     endLive() {
         const path = this._liveRoot, o = this._liveModel, v = this._view;   // the tail and its frozen chunks
-        if (path && path.parent && o && o.pts && o.pts.length && this.store && v) {
+        if (path && path.parent && o && o.pts && o.pts.length && v) {
             let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
             for (const p of o.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
             const h = (o.lwFrame || 0) / 2, now = perfNow(), og = this._origin();
             this._liveHeld.push({
                 path, id: o.id, frameId: this.cam.frame, at: now, until: now + LIVE_HOLD_MS,
                 box: { left: x0 - h, top: y0 - h, right: x1 + h, bottom: y1 + h },
-                translucent: o.opacity != null && o.opacity < 1,
-                og: { x: og.x, y: og.y }, clip: null, clipKey: null,
+                og: { x: og.x, y: og.y },
             });
             rasterStats.liveHolds++;
             this._live = null; this._liveRoot = null; this._liveModel = null;
@@ -774,7 +610,7 @@ export default class RasterRenderer extends Renderer {
         this._liveTimer = setTimeout(() => {
             this._liveTimer = null;
             if (this._destroyed) return;
-            if (this._releaseHeldLive(this._view)) this.update();
+            if (this._pyrLive(this._view)) this.update();
             this._armLiveTimer();
         }, Math.max(0, until - perfNow()) + 20);
     }
@@ -858,80 +694,29 @@ export default class RasterRenderer extends Renderer {
     noteList(ms) { this._add(SLOT.list, ms); }
 
     /**
-     * Steps 1–7 of §5.1: the Stage's items (A2 §3; `list` only for a renderer without one). A change is
-     * already the Stage's dirt, applied when it committed (A2 §2.5).
+     * A full frame: the Stage's items (A2 §3; the engine's `list` is the SVG path's), the step, the SVG world. A change
+     * is already the Stage's dirt, applied when it committed (A2 §2.5).
      */
     render(list, frame) {
         if (!this._rowOpen) this._beginFrame("render");
         this._activateLevel(frame);
-        this._lastList = this.stage ? this._sceneList() : (list || []);
+        this._lastList = this._sceneList();
         this._noteFatPending(this._lastList);
-        const view = this._frameStep(this._lastList);
+        const view = this._frameStep();
         this.syncWorld(view);                          // step 7, plus the SVG world transform
         this._hasFat = this._lastList.some((o) => o.type === "stroke" && o.lwFrame * this.cam.inScale > this._gatePx() * 0.5);
         this._endFrame();
         return false;                                  // nothing to reorder: there are no ink groups
     }
 
-    /**
-     * §5.1's other half, and the common one: steps 1, 3, 4, 5 and 6 and nothing else — no list
-     * build, no overlay rebuild. `super.syncCameraOnly(view)` is the SVG overlay's own transform.
-     */
+    /** A camera step: no overlay rebuild; `super.syncCameraOnly(view)` is the SVG overlay's own transform. */
     syncCameraOnly() {
         this._beginFrame("camera");
-        if (this.stage) {
-            const list = this._sceneList();
-            if (list !== this._lastList) { this._lastList = list; this._noteFatPending(list); }
-        }
-        const view = this._frameStep(this._lastList);
+        const list = this._sceneList();
+        if (list !== this._lastList) { this._lastList = list; this._noteFatPending(list); }
+        const view = this._frameStep();
         super.syncCameraOnly(view);
         this._endFrame();
-    }
-
-    /**
-     * One camera step: the mapping, the dead quantum's drop, the plates, the compose and the
-     * posts. Returns the published view, which is the object `_renderOverlays` is handed (FC2).
-     */
-    _frameStep(list) {
-        if (this.pyramid) return this._pyrStep();
-        const layer = this.layer;
-        this._postQ.length = 0;
-        const t0 = perfNow();
-        const chords = this.store ? visibleChords(list, this.cam.frameWindow(0), this.cam.inScale * layer.dpr,
-            this.cfg, CHORD_CAP(layer.syncBudget), this._liveModel) : 0;
-        this._add(SLOT.cull, perfNow() - t0);
-        // `frameFor` may post the incoming quantum's misses through `onPlates`, and it add-pins
-        // them; the renderer's own "replace" want must come after or it discards those pins
-        // every frame (§10 item 29, D178).
-        // `frameFor` can POST inside itself (the settle's and the incoming quantum's misses go
-        // out through `onPlates`), and a post is already timed in `eng.pack` and `xfer.out`, so
-        // its cost is subtracted here or §8.4 rule 2's sum exceeds the task it is measured in.
-        this._postMs = 0;
-        const tv = perfNow();
-        const view = layer.frameFor(this.cam, chords);
-        this._add(SLOT.view, perfNow() - tv - this._postMs);   // camera → view (D237's first phase)
-        this._view = view;
-        this.perf.noteView(view);
-        this._dropDead(view);
-        if (view.mode === "sync") {
-            if (this._dragStateFn && this._dragStateFn()) this._losePlane();
-            else if (this._plane.state !== "idle" || this._plane.tags.length) this._endPlane();
-            this._renderSync(list, view);
-            this._releaseHeldLive(view);                   // the sync raster holds the stroke: nothing to wait for
-            layer.noteSyncCost(this._sync.coreMs);         // D272: the switch reads the core's measure, not the estimate
-            return view;
-        }
-        if (!this.store) return view;
-        const tw = perfNow();
-        const got = this.store.want(view);             // steps 3 and 4: the published range
-        this._add(SLOT.lookup, perfNow() - tw);        // the hit set (D237's second phase)
-        this._planeStep(view);
-        const t1 = perfNow();
-        layer.compose(got.hits);                       // step 5
-        this.perf.noteCompose(perfNow() - t1, got.hits.length, 1);
-        this._releaseHeldLive(view);
-        if (got.misses.length) this._post(view, got.misses, "view");   // step 6
-        return view;
     }
 
     /** The idle fitter's input: the widest lazily-unfitted fat stroke on screen (`needsFatFlip`). */
@@ -950,7 +735,7 @@ export default class RasterRenderer extends Renderer {
 
     _endFrame() { this._rowOpen = false; this._closeRow(); }
 
-    /** Every row this module opens goes through these two, so `_post` can tell whether one is live. */
+    /** Every row this module opens goes through these two, so a pack outside a frame can tell whether one is live. */
     _openRow(seq, kind, backMs = 0) { this._rowLive = true; this.perf.beginFrame(seq, kind, backMs); }
     _closeRow() { this._rowLive = false; this.perf.endFrame(); }
 
@@ -1007,13 +792,13 @@ export default class RasterRenderer extends Renderer {
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
-    onLevers() { if (this.pyramid) this.store.setBudget(this.pyramid.budgetBytes()); }
+    onLevers() { this.store.setBudget(this.pyramid.budgetBytes()); }
 
     /**
      * One camera step on the pyramid: the view (and in it the rest render, the patches and the view's requests),
      * the queue's frame, the compose, the pen-up groups, and the prefetch once the camera is still.
      */
-    _pyrStep() {
+    _frameStep() {
         const pyr = this.pyramid, q = this.queue;
         const tv = perfNow();
         const view = pyr.frameFor(this.cam);
@@ -1274,14 +1059,14 @@ export default class RasterRenderer extends Renderer {
     }
 
     /** What the plane's layers lack, as typed jobs at priority 2 (A3 §4.1) under the plane's purpose generation. */
-    _pyrPostPlane(pl) {
-        const reqs = pl.requests(null);
+    _postPlane(pl) {
+        const reqs = pl.requests();
         if (!reqs) return 0;
         const jobs = [];
         for (const r of reqs) {
             const cells = [];
             for (const [i, j] of r.cells) {
-                const c = planeCell(r.frameId, r.Zq, r.q, i, j), g0 = this._pyrPlaneAsked.get(c.key);
+                const c = planeCell(r.frameId, r.Zq, r.tag, i, j), g0 = this._pyrPlaneAsked.get(c.key);
                 if ((g0 == null || g0 < this.store.fresh.dirtySince(c.key)) && this.store.wants(c.key) && (r.list || this.pyramid.covered(c))) {
                     cells.push(c); this._pyrPlaneAsked.set(c.key, this.stage.generation);
                 }
@@ -1301,7 +1086,7 @@ export default class RasterRenderer extends Renderer {
     }
 
     /** A plane's layers gone: their records out of the store, their queued strips out by generation. */
-    _pyrDropPlane(tags) {
+    _dropPlaneTags(tags) {
         const t = new Set(tags.filter(Boolean));
         this._pyrPlaneAsked.clear();
         if (!t.size) return;
@@ -1393,95 +1178,86 @@ export default class RasterRenderer extends Renderer {
     // ---- off camera: the snapshot (S1) ----
 
     /**
-     * SCENES-PLAN S1. ONE plate of an arbitrary `(frame, rect)`, posted as an ordinary worker
-     * job and answered straight to the caller — the Scenes panel's thumbnails and, through the
-     * same call, anything else that wants a picture the camera is not at.
-     *
-     * It touches `PlateStore` NOWHERE: no `beginJob`, no `put`, no cache entry.
-     * Its `q` is a per-call string that carries no zoom of its own, so a cached plate under it
-     * would come back as a hit at a zoom it was never rastered at — §6.5's rule for `"s"`. The
-     * per-call number matters for a second reason: `submitPlates` drops every queued strip at
-     * the SAME `q` from an older frame, so thirty snapshots sharing one key would drop each
-     * other's work.
-     *
-     * The rect lands on the plate's own origin because the WORLD is moved, not the grid:
-     * `packJob`'s `offset` is folded into each item's `res` at pack time, which the core already
-     * applies per item. One plate, and the crop is a 1:1 `drawImage`.
+     * SCENES-PLAN S1. ONE plate of an arbitrary `(frame, rect)`, answered straight to the caller — the Scenes panel's
+     * thumbnails — through the queue at `PRIO.thumb` (A3 §4.1) and never stored (its zoom is `fitView`'s, no level's).
+     * The table is read at idle, a budget at a time (`_readIdle`; D5: never unbudgeted). The rect lands on the plate's
+     * own origin because the WORLD is moved: `packJob`'s `offset` is folded into each item at pack time.
      *
      * @param {object} o
-     * @param {object[]} o.list the items to draw (`stage.snapshot(frame, rect)`'s)
-     * @param {string|number} o.frameId the frame, for the job's own key
-     * @param {number} o.Zq device px per frame unit — `fitView`'s exact scale, not a quantum
+     * @param {string|number} o.frameId the frame
+     * @param {{left:number, top:number, right:number, bottom:number}} o.win the rect the plate covers, in its units
+     * @param {number} o.Zq device px per frame unit — `fitView`'s exact scale
      * @param {[number, number]} o.offset the pack-time translation, in FRAME units
      * @param {AbortSignal} [o.signal] the panel closing
-     * @returns {Promise<ImageBitmap|{pixels:Uint8ClampedArray,width:number,height:number}|null>}
-     *          null for an empty plate (nothing to draw); the raw record where the scope has no
-     *          `createImageBitmap` (jsdom)
+     * @returns {Promise<ImageBitmap|{pixels:Uint8ClampedArray,width:number,height:number}|null>} null for an empty plate
+     *          or a table the reads could not finish; the raw record where the scope has no `createImageBitmap` (jsdom)
      */
     snapshotJob(o) {
-        const q = "t" + (++this._snapSeq);
         rasterStats.snapshots++;
-        // §4.6's bound, checked on the translation itself: the offset is added to every
-        // coordinate at pack time, so one at or past the bound guarantees the breach
-        // `packStats.overBound` would only log per item, after the work was done.
+        // §4.6's bound, on the translation itself: the offset is added to every coordinate at pack time.
         if (!(Math.abs(o.offset[0]) < COORD_BOUND && Math.abs(o.offset[1]) < COORD_BOUND)) {
             rasterStats.snapshotOverBound++;
             return Promise.reject(new Error("over the coordinate bound"));
         }
         return new Promise((resolve, reject) => {
-            const aborted = () => !!(o.signal && o.signal.aborted);
             let settled = false;
             const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-            const fail = (why) => { if (!settled) { settled = true; reject(new Error(why)); } };
-            const req = {
-                frameSeq: this.frameSeq, q, Zq: o.Zq, frameId: o.frameId, mode: "snap", prio: 4,
-                why: "snapshot", plates: Int32Array.of(0, 0),
-                pack: (strip, jobId, pool) => {
-                    if (aborted()) return null;                 // → onDrop("empty"), and the reject
-                    // A dispatch outside a camera frame has no row, and an `_add` without one is
-                    // an orphan note in nobody's report — `_pack`'s own rule (D268).
-                    const own = !this._rowLive;
-                    if (own) this._openRow(this.frameSeq, "arrival");
-                    const t0 = perfNow();
-                    try {
-                        return packJob(o.list, {
-                            plates: strip, q, Zq: o.Zq, dpr: 1, cfg: this.cfg, paper: this._paperRgb,
-                            jobId, frameSeq: this.frameSeq, pool, offset: o.offset,
-                        });
-                    } finally { this._add(SLOT.pack, perfNow() - t0); if (own) this._closeRow(); }
-                },
-                onResult: (res) => {
-                    const px = res.pixels ? res.pixels[0] : null;
-                    const bm = res.bitmaps ? res.bitmaps[0] : null;
-                    if (aborted()) {
-                        rasterStats.snapshotAborts++;
-                        if (bm && bm.close) bm.close();
-                        return fail("aborted");
-                    }
-                    rasterStats.snapshotPlates++;
-                    if (bm) return done(bm);
-                    if (!px) return done(null);                 // an empty plate: nothing drawn
-                    return plateBitmap(px).then(
-                        (b) => done(b || { pixels: px, width: PLATE_PX, height: PLATE_PX }),
-                        () => done({ pixels: px, width: PLATE_PX, height: PLATE_PX }),
-                    );
-                },
-                onDrop: () => {
-                    if (aborted()) { rasterStats.snapshotAborts++; return fail("aborted"); }
-                    rasterStats.snapshotFails++;
-                    fail("dropped");
-                },
+            const fail = (why) => {
+                if (settled) return;
+                settled = true;
+                if (why === "aborted") rasterStats.snapshotAborts++; else rasterStats.snapshotFails++;
+                reject(new Error(why));
             };
-            if (o.signal && o.signal.addEventListener) {
-                o.signal.addEventListener("abort", () => { dropQueued("abort", q); }, { once: true });
-            }
-            submitPlates(req);
+            if (o.signal && o.signal.aborted) { fail("aborted"); return; }
+            if (o.signal && o.signal.addEventListener) o.signal.addEventListener("abort", () => fail("aborted"), { once: true });
+            this._readIdle(o.frameId, () => o.win, () => this._destroyed || settled, (snap) => {
+                if (!snap) { done(null); return; }
+                const q = this.queue, list = this._tableList(snap);
+                const st = { kind: "thumb", prio: PRIO.thumb, cells: [{ key: "t" + (++this._snapSeq), i: 0, j: 0 }] };
+                const ended = (d) => { if (d && !d.before) q.done(st.id, false); };
+                st.entry = {
+                    req: {
+                        prio: PRIO.thumb,
+                        // A dispatch outside a camera frame opens its own row: an `_add` without one is nobody's (D268).
+                        pack: (plates, jobId, pool) => {
+                            if (settled) return null;                   // aborted while queued: dropped at dispatch
+                            const own = !this._rowLive;
+                            if (own) this._openRow(this.frameSeq, "arrival");
+                            const t0 = perfNow();
+                            try {
+                                return packJob(list, {
+                                    plates, Zq: o.Zq, dpr: 1, cfg: this.cfg, paper: this._paperRgb, G: snap.generation,
+                                    jobId, frameSeq: this.frameSeq, pool, offset: o.offset,
+                                });
+                            } finally { this._add(SLOT.pack, perfNow() - t0); if (own) this._closeRow(); }
+                        },
+                        onResult: (res) => {
+                            q.done(st.id);
+                            q.pump();
+                            const px = res.pixels ? res.pixels[0] : null, bm = res.bitmaps ? res.bitmaps[0] : null;
+                            if (settled) { if (bm && bm.close) bm.close(); return; }
+                            rasterStats.snapshotPlates++;
+                            if (bm) { done(bm); return; }
+                            if (!px) { done(null); return; }            // an empty plate: nothing drawn
+                            plateBitmap(px).then(
+                                (b) => done(b || { pixels: px, width: PLATE_PX, height: PLATE_PX }),
+                                () => done({ pixels: px, width: PLATE_PX, height: PLATE_PX }),
+                            );
+                        },
+                        onDrop: (d) => { ended(d); fail("dropped"); },
+                        onRequeue: () => { if (q.requeue(st.id)) Promise.resolve().then(() => q.pump()); },
+                    },
+                    plates: Int32Array.of(0, 0),
+                };
+                q.push([st]);
+                q.pump();
+            });
         });
     }
 
     // ---- the report (§8.5) ----
 
-    /** Flat scalars beside `PictureLayer.report()` and `PlateStore.report()` (F58). */
+    /** Flat scalars beside the pyramid's and the store's reports (F58). */
     report() {
         return {
             frameSeq: this.frameSeq,
@@ -1489,7 +1265,7 @@ export default class RasterRenderer extends Renderer {
             plane: this._plane.state, planeCells: this._plane.cellCount(),
             ...rasterStats,
             packed: packStats.packed, culled: packStats.culled,
-            queue: this.queue ? this.queue.report() : null,
+            queue: this.queue.report(),
         };
     }
 }

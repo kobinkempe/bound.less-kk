@@ -167,7 +167,7 @@ const shifted = (r, off) => (off[0] || off[1]
 const meets = (a, b) => !(b.right < a.left || b.left > a.right || b.bottom < a.top || b.top > a.bottom);
 const unionOf = (a, b) => (a ? { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) } : { ...b });
 const sameTraits = (a, b) => !!a && !!b && a.union === b.union && a.sign === b.sign && a.colour === b.colour && a.alpha === b.alpha;
-const belowKey = (b) => (b ? b.map((e) => (e ? e[0] + "," + e[1] : "")).join(";") : "");
+const tableKey = (b) => (b ? b.map((e) => (e ? e[0] + "," + e[1] : "")).join(";") : "");
 
 export default class Stage {
     /**
@@ -665,7 +665,7 @@ export default class Stage {
 
     /** A native's state as a footprint: its home, its picture table (`model.table`), its drawn box in its home's units. */
     _stateOf(o, home, rect = null) {
-        return { home: String(home), below: this.model.table(o.below, home), rect: rect || drawnBox(o, this.store.live) };
+        return { home: String(home), table: this.model.table(o, home), rect: rect || drawnBox(o, this.store.live) };
     }
 
     /** A frame's reach at an address (or its own, `addr` null), and optionally everything under `under`. */
@@ -698,7 +698,7 @@ export default class Stage {
         const clip = step ? step.clip : null;
         const with_ = (s) => (clip ? { ...s, clip } : s);
         if (step && step.dust && ev.obj) {
-            for (const d of step.dust) this._foot.push({ home: String(ev.level), below: this.model.table(ev.obj.below, ev.level), rect: { left: d[0], top: d[1], right: d[2], bottom: d[3] } });
+            for (const d of step.dust) this._foot.push({ home: String(ev.level), table: this.model.table(ev.obj, ev.level), rect: { left: d[0], top: d[1], right: d[2], bottom: d[3] } });
         }
         if (k === "refile") {
             for (const a of [ev.from, ev.to]) { if (!a || a.parent == null) continue; const s = this._frameState(ev.frame, a); if (s) this._foot.push(s); }
@@ -729,7 +729,7 @@ export default class Stage {
             this._before(ev.id, with_(this._stateOf(o, ev.level)));
         } else if (k === "change") {
             const now = this._stateOf(o, ev.level);
-            if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: this.model.table(ev.oldBelow, ev.level) }); this._after(ev.id, now); return; }
+            if (ev.offsetsOnly) { this._before(ev.id, { ...now, table: this.model.tableBefore(ev) }); this._after(ev.id, now); return; }
             if (ev.attrOnly) { this._after(ev.id, with_(now)); return; }
             if (ev.oldBbox) {
                 const b = ev.oldBbox, h = o.type === "fill" ? 0 : Math.max(ev.oldLw || 0, o.lwFrame || 0) / 2;
@@ -745,9 +745,9 @@ export default class Stage {
         const out = [], groups = new Map();
         for (const s of states) {
             if (s.kind === "frame" || s.clip) { out.push(s); continue; }
-            const k = s.home + "|" + belowKey(s.below);
+            const k = s.home + "|" + tableKey(s.table);
             const g = groups.get(k);
-            if (!g) groups.set(k, { home: s.home, below: s.below, rect: { ...s.rect } });
+            if (!g) groups.set(k, { home: s.home, table: s.table, rect: { ...s.rect } });
             else g.rect = unionOf(g.rect, s.rect);
         }
         for (const g of groups.values()) out.push(g);
@@ -767,7 +767,7 @@ export default class Stage {
     _mapState(s, G) {
         if (s.kind === "frame") {
             if (s.under != null && this.lm.frame(s.under) && this.lm.isUnder(s.under, G)) return EVERYWHERE;
-            return s.fp ? this.model.footprint({ home: s.fp.frame, below: undefined, rect: s.fp.rect }, G) : null;
+            return s.fp ? this.model.footprint({ home: s.fp.frame, table: undefined, rect: s.fp.rect }, G) : null;
         }
         const r = this.model.footprint(s, G);
         if (!r || !s.clip) return r;
@@ -864,7 +864,7 @@ export default class Stage {
             this.stats.familyFlips++;
             let box = b.box;
             for (const it of s) box = unionOf(box, this._itemBox(it));
-            if (box) this._foot.push({ home: this.frame, below: undefined, rect: box });
+            if (box) this._foot.push({ home: this.frame, table: undefined, rect: box });
         }
     }
 

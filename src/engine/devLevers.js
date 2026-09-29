@@ -18,7 +18,7 @@ export const LEVERS = Object.freeze({
 /** The localStorage key this device's levers live under. */
 export const LEVERS_KEY = "bl.devLevers";
 
-/** The levers' defaults for a desktop, or a phone (`PlateStore.isPhoneBudget`). */
+/** The levers' defaults for a desktop, or a phone (`PyramidStore.isPhoneBudget`). */
 export function leverDefaults(phone = false) {
     const out = {};
     for (const [name, L] of Object.entries(LEVERS)) out[name] = phone ? L.phone : L.desktop;
