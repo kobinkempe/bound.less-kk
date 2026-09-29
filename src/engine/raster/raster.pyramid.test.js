@@ -461,9 +461,20 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         expect(pl.quick).not.toBeNull();
         expect(pl.quick.pZq).toBe(pl.main.pZq / 4);
         expect(pl.quick.keys.every((k) => k.includes("|P" + pl.main.pZq / 4 + "|"))).toBe(true);
-        // Another selection while the first plane's strips wait: its layers go, their strips dropped by generation.
+        expect(await drain(E, g)).toBe(0);
+        expect(pl.checkReady(E.plates)).toBe(true);
+        // A change past the view (in no run) inside a D1 SEL plate stales it and changes no layer: re-cut, the plane is
+        // not whole until that plate is exact again.
+        const tags0 = pl.tags.join(",");
+        E.doc.add(fillAt(E, -520, 100, "rgb(30,200,30)", 500), "0");   // left of the view's cells, over two SEL plates of each level
+        E._render();
+        await quiet();
+        expect(pl.tags.join(",")).toBe(tags0);
+        expect(pl.checkReady(E.plates)).toBe(false);
+        // Another selection while that plate's strip waits: the layers go, their queued strips by generation, a late one
+        // discarded on arrival.
         const oldTags = pl.tags.slice();
-        expect(R.queue.report().queued[2] + g.parked.length).toBeGreaterThan(1);
+        expect(g.parked.length).toBeGreaterThan(0);
         const pb = E.cam.levelPointToScreen("0", 360, 260);
         E.pointerDown(pb[0], pb[1]); E.pointerUp();
         expect(E.selection.ids).toEqual([b.id]);
@@ -472,14 +483,6 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         expect(await drain(E, g)).toBe(0);
         expect(R.queue.report().drops.gen).toBeGreaterThan(0);
         expect([...E.plates.records()].filter((r) => r.kind === "plane" && oldTags.includes(r.tag)).map((r) => r.key)).toEqual([]);
-        expect(pl.checkReady(E.plates)).toBe(true);
-        // A change off screen inside a BELOW plate stales it without changing a run: re-cut, the plane is not whole
-        // until that plate is exact again.
-        E.doc.add(fillAt(E, 720, 100, "rgb(30,200,30)", 40), "0");
-        E._render();
-        await quiet();
-        expect(pl.checkReady(E.plates)).toBe(false);
-        expect(await drain(E, g)).toBe(0);
         expect(pl.checkReady(E.plates)).toBe(true);
     });
 

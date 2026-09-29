@@ -1545,7 +1545,7 @@ export default class RasterRenderer extends Renderer {
         const base = opts.pool || rasterPool;
         const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
         pyr.gens.plane = 1;                              // the drag plane's purpose: bumped when its layers go
-        this._pyrPlaneAsked = new Set();
+        this._pyrPlaneAsked = new Map();                 // plane key -> the G it was asked at
         this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => { pyr.refresh(); this._pyrPlaneAsked.clear(); } });
         this.layer = pyr;
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
@@ -1795,8 +1795,8 @@ export default class RasterRenderer extends Renderer {
         for (const r of reqs) {
             const cells = [];
             for (const [i, j] of r.cells) {
-                const c = planeCell(r.frameId, r.Zq, r.q, i, j);
-                if (!this._pyrPlaneAsked.has(c.key) && this.store.wants(c.key)) { cells.push(c); this._pyrPlaneAsked.add(c.key); }
+                const c = planeCell(r.frameId, r.Zq, r.q, i, j), g0 = this._pyrPlaneAsked.get(c.key);
+                if ((g0 == null || g0 < this.store.fresh.dirtySince(c.key)) && this.store.wants(c.key)) { cells.push(c); this._pyrPlaneAsked.set(c.key, this.stage.generation); }
             }
             if (!cells.length) continue;
             jobs.push({

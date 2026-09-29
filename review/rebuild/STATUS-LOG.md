@@ -1241,3 +1241,18 @@ test:erase 303 passed, 1 skipped, 400.7 s (load 2.38 → 1.26); test:slow 502 pa
 **Decisions made:** RV5 by wrapping only the unheld path (`Stage.batch` untouched); the testkit's marks
 landed rather than the rule special-cased. **Questions asked:** none new; Q5, Q6 stand.
 WHERE I AM: done; report handed back.
+
+## 2026-09-29 00:21 UTC — orchestrator (Fable) — B-ERASE landed (5e84d43); its review launched; B-PYRAMID-2 at P3
+**Working on:** B-ERASE's report read and answered in PLAN §5.8 (SM-5 kept for the tap's re-pick; the SVG renderer's
+white-ink mark to B-PYRAMID-3 with the export barrier; a termination bound for the bake, added by the reviewer; the interim
+erase pool until B-PYRAMID-2 P6; the ~70 s engine-level delete profiled by the reviewer, else wave 3's helper). The
+review launched (`opus-reviewer`, brief `briefs/R-ERASE.md`): row 3 (a–d) with Kobin's drag-across case in headless
+Chromium, the barriers' feel, the bound, per-family slots and the fringe, the parallel = serial fuzz, old files, undo under
+a newer mark, costs, the deletion list, docs. My own check of the landing: `eraseRule.js` is the pure rule as A2 §4
+states it (landed, not erase, z below, targeted and not handled), `_stepOf` clips a step's dirt to the mark's box plus
+its dust, the drag-across case has a jsdom test in two suites. Running: B-PYRAMID-2 (P3), the B-ERASE reviewer.
+B-MODEL-C1 launches when the review ends (its files overlap).
+**Measured:** B-ERASE's: test:quick 2,216 pass (3 reds in flight elsewhere), test:erase 303, test:slow 502; row 3 (b)
+fills 0 bytes, strokes 3–6/255 on cut outlines; batching 530 → 57 ms (delete 5,000), 1,043 → 68 (undo), 735 → 76 (drag).
+**Decisions made:** PLAN §5.8 items 1–8.
+**Questions asked:** none.
