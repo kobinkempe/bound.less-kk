@@ -754,3 +754,24 @@ things are open and go to the review of the whole B-PYRAMID build (`briefs/R-PYR
    ladder comments at lines 82, 217–225, 335 and `reroute.memo.test.js:46` — the C1 reviewer's files, sent to it).
 6. **Wave 3**: `raster-worker.js` at 431 KB parsed by each of four workers (the erase geometry moved in with the cut
    kind); packing off the main thread; `tools/docmaps/newdesc_raster1–4` for the pyramid's modules.
+
+### 5.14 To the B-MODEL-C1 review (its report of 2026-09-29)
+
+Read in full; its fixes are committed as 930365c. The one major, found by running the tile fuzz past C1's 20 seeds and
+fixed on the orchestrator's instruction, predates C1: `TileStore.forgetFrame` dropped only the forgotten frame's own
+reroute memo, so another view's memo could keep a key a later mint restored and a moved object's ink went missing
+from that view (6 of 8,000 live renders; the oracle has the same fault). The fuzz now matches frames and homes by
+place and compares the whole square: 200 seeds, 55,896 items, every one bit-identical or within one ulp where the
+old model carried it. The ants' difference after a drag was the crawl clock, not C1's; the `?svg` crash under a
+drag on the dense scene is the SVG renderer's (about 57 MB retained per drag event, both trees).
+
+1. **`warmReads`, `_warm`, `clearWarm` and `listFor`'s off-camera branch** have no production caller since P6:
+   B-PYRAMID-3 measures the prefetch's tile reads on the crossing scenario with the warm on and off (F83's reason
+   for keeping it) and deletes them with `listFor` if the numbers do not need them (§5.7 item 5).
+2. **The Stage's `_home` read** (`Stage.js:1261`, forbidden by A1 §6) becomes `placementModel.homeOf` in B-DRAG,
+   which rewrites the Stage's drag paths; the box united with its shifted copy, written three times (`reachBox`,
+   `frameFootprint`, `overlays._selTable`), becomes one helper there too; `_endMove`'s merge without an op record on
+   a non-drop exit (a cancel) is B-DRAG's to pin with a test (C2: membership changes only at the action's end).
+3. **The SVG path's retention** (57 MB per drag event; the tab crashes on the dense scene at the third event) is
+   filed as a renderer flag by B-PYRAMID-3 (grep OPEN-FLAGS first) and fixed or bounded in the demotion.
+4. **`eraseDescent.ownIn` and `Document.ownFor`** become one helper when C4 moves cedes into private frames.
