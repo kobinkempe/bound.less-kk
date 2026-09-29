@@ -1472,3 +1472,13 @@ at 64 MiB, 6 s (the list path 15 s at 10). raster + hooks 791/791; typecheck 0; 
 **Decisions made:** the memo budget raised (a memory policy: my question in the report, with the phone's half).
 **Questions asked:** the memo budget (64/32 MiB) — kept or another number.
 WHERE I AM: the harness pairs when the load is under 2 (pyramid=0 then 1, twice), then scenarios 1–2 at levelStep 2/3.
+
+## 2026-09-29 04:52 UTC — orchestrator (Fable) — resumed after the fourth session-limit stop
+**Working on:** no reboot this time: the tree was already clean at aa90202, B-PYRAMID-2's dev server on :3011 survived
+and its first harness pair had completed (`bp2/p5/pair1-p0.out`, `pair1-p1.out`, 02:48). Both agents resumed from
+their transcripts: B-PYRAMID-2 (the second pair and the level-step runs on the quiet machine, then the P5 entry and
+its report — a successor does P6 if its context is past two thirds), B-MODEL-C1 (M1 from the TileStore reroute
+section).
+**Measured:** load 0.17 at the resume.
+**Decisions made:** none new.
+**Questions asked:** none.
