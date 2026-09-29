@@ -2,12 +2,13 @@
  * LiveStrokeLayer.hold.test.js — F120 (REVIEWER-4 D-5) on the composed layer (A3 §7.2): the live path is held at pen-up
  * (`LiveStrokeLayer.hold`) until the plates under it are fresh. Pending its shape it stays, with no limit (PLAN §5.4
  * Q2); once the shape has landed, one group commit publishes the drawn cells under its box and `release`s the path in
- * the same task (A3 §3.6). F131: a held path stays put when the next pen-down re-chooses the origin. `raster.liveHold`
- * until B-PYRAMID-3.
+ * the same task (A3 §3.6). F131: a held path stays put when the next pen-down re-chooses the origin, and a crossing
+ * carries it into the new frame (LH-5, LH-6: never neither). `raster.liveHold` until B-PYRAMID-3.
  */
 import KobinEngine from "../KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
 import { rasterStats } from "./RasterRenderer";
+import { ascend, descend } from "../__testkit__/harness";
 
 const engines = [];
 function mkEngine() {
@@ -46,16 +47,6 @@ async function handedOff(E) {
 }
 
 describe("F120 the live path at a pen-up", () => {
-    /** The drawn cells under a held path's box that are not exact, counted at each handoff. */
-    function watchHandoffs(E) {
-        const R = E.renderer, seen = [], down = R._pyrTakeDown.bind(R);
-        R._pyrTakeDown = (h, handoff) => {
-            if (handoff) { const u = R.pyramid._under(h.box); seen.push(u.stale.length + u.missing.length); }
-            return down(h, handoff);
-        };
-        return seen;
-    }
-
     test("LH-1 the path is held until its rectangle is fresh: pending its shape it stays, then its group takes it down", async () => {
         const E = mkEngine();
         fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
@@ -122,3 +113,48 @@ test("LH-3 the next pen-down after a pan and a zoom leaves the held stroke where
         E.pointerUp();
     } finally { setRasterTransport(null); }
 });
+
+// PLAN §1.5's never-neither across a crossing (the B-PYRAMID review): a zoom that crossed a frame between pen-up and
+// the shape's landing took the held path down, and the stroke was on no plate until its shape landed in the new frame.
+describe("a crossing between pen-up and the landing", () => {
+    /** Where the held path's first anchor is drawn, in CSS px, through the root's scale and the world's transform. */
+    const at = (R, h) => {
+        const tail = h.root.children[0], v = tail.vertices[0], w = R.svg.world, s = typeof h.root.scale === "number" ? h.root.scale : 1;
+        const lx = h.root.translation.x + s * (tail.translation.x + v.x), ly = h.root.translation.y + s * (tail.translation.y + v.y);
+        return [w.translation.x + w.scale * lx, w.translation.y + w.scale * ly];
+    };
+    for (const [name, cross] of [["LH-5 out", (E) => ascend(E, -1, 200, 300)], ["LH-6 in", (E) => descend(E, 1, 200, 300)]]) {
+        test(`${name}: the held path is carried into the new frame where its stroke is drawn, and its group releases it`, async () => {
+            const E = mkEngine(), R = E.renderer;
+            fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
+            E._render(); await flush();
+            E._scheduleBake = () => {};                         // the shape lands when the test steps it
+            const seen = watchHandoffs(E), hand0 = rasterStats.liveHandoffs;
+            stroke(E);
+            const h = R.live.held[0], F0 = E.cam.frame, p = E.doc.getById(h.id).obj.pts[0];
+            cross(E);
+            expect(E.cam.frame).not.toBe(F0);
+            await flush();
+            expect(R.live.held.includes(h)).toBe(true);         // red before: taken down at the crossing, the stroke nowhere
+            expect(String(h.frameId)).toBe(String(E.cam.frame));
+            const [x, y] = at(R, h), [tx, ty] = E.cam.levelPointToScreen(F0, p[0], p[1]);
+            expect(Math.abs(x - tx)).toBeLessThan(0.5);          // where its stroke is drawn in the new frame (F131's rule)
+            expect(Math.abs(y - ty)).toBeLessThan(0.5);
+            while (E._stepShapeBakes(1000));                    // the shape lands; its group asks the new frame's cells
+            await handedOff(E);
+            expect(R.live.held.length).toBe(0);
+            expect(rasterStats.liveHandoffs).toBe(hand0 + 1);   // released by its group commit, not taken down
+            expect(seen).toEqual([0]);                          // at the handoff every drawn cell under its box was exact
+        });
+    }
+});
+
+/** The drawn cells under a held path's box that are not exact, counted at each handoff. */
+function watchHandoffs(E) {
+    const R = E.renderer, seen = [], down = R._pyrTakeDown.bind(R);
+    R._pyrTakeDown = (h, handoff) => {
+        if (handoff) { const u = R.pyramid._under(h.box); seen.push(u.stale.length + u.missing.length); }
+        return down(h, handoff);
+    };
+    return seen;
+}

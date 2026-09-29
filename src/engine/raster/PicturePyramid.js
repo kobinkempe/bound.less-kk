@@ -1265,6 +1265,12 @@ export default class PicturePyramid {
         return id;
     }
 
+    /** A crossing carried a pen-up group's rectangle into the view's new frame (`RasterRenderer._liveCross`). */
+    moveGroup(id, rect) {
+        const g = this._groups.get(id);
+        if (g && g.purpose === "live") g.rect = rect;
+    }
+
     /** The view's own drawn cells meeting `rect` that are not exact: `{ stale: records, missing: descriptors }`. */
     _under(rect) {
         const v = this._v, st = this.store;

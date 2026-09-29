@@ -35,6 +35,7 @@ import PicturePyramid, { sampleOf, EST_DEFAULTS, LIVE_HOLD_MS } from "./PictureP
 import JobQueue, { PRIO } from "./jobQueue";
 import { prefetchPlan, farKeysOf } from "./prefetch";
 import { LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
+import { R } from "../frameLattice";
 
 /** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-render it every step. */
 const PLANE_QUIET_MS = 150;
@@ -809,6 +810,7 @@ export default class RasterRenderer {
     _frameStep() {
         const pyr = this.pyramid, q = this.queue;
         const tv = perfNow(), p0 = this._packMs, c0 = this._coreMs;
+        this._liveCross(this.cam.frame);               // before the retarget, which reads a group's rectangle
         const view = pyr.frameFor(this.cam);
         // An inline render's packs are `eng.pack`'s and its core phases the row's own (`_noteCore`).
         this._add(SLOT.view, perfNow() - tv - (this._packMs - p0) - (this._coreMs - c0));
@@ -1208,8 +1210,9 @@ export default class RasterRenderer {
     /**
      * The pen-up rule (PLAN §1.5, A3 §3.6): a held path stays while its stroke is pending — no limit (PLAN §5.4 Q2);
      * once its shape has landed, one group commit publishes the drawn cells under its box and takes the path down
-     * in the same task. An undo or a cancel (the stroke left the table) or the camera leaving its frame takes it down
-     * now; a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage commit and every step.
+     * in the same task. An undo or a cancel (the stroke left the table) takes it down now; a crossing carries it
+     * (`_liveCross`); a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage commit
+     * and every step.
      */
     _pyrLive(v) {
         const held = this.live.held;
@@ -1220,7 +1223,7 @@ export default class RasterRenderer {
             const h = held[k];
             if (h.group) { if (now > h.until) late = true; continue; }
             const items = this.stage.itemsOf(h.id);
-            if (!items.length || String(h.frameId) !== String(v.frameId)) { this._pyrTakeDown(h, false); n++; continue; }
+            if (!items.length) { this._pyrTakeDown(h, false); n++; continue; }
             if (items.some((it) => it.pending)) { h.until = now + 250; continue; }
             h.group = "live:" + h.id;
             h.until = now + LIVE_HOLD_MS + 20;
@@ -1228,6 +1231,27 @@ export default class RasterRenderer {
         }
         if (late) this.pyramid.compose();
         return n;
+    }
+
+    /**
+     * A crossing (the camera's frame changed) with held paths: each is carried into the new frame — its root scaled by
+     * R^Δdepth and moved (`LiveStrokeLayer.cross`), its box and frame mapped, a waiting group's rectangle with it — so
+     * it stays where its stroke is drawn until its group commits (PLAN §1.5: never neither). One with no map comes down.
+     */
+    _liveCross(F) {
+        const L = this.live;
+        if (!L.held.some((h) => String(h.frameId) !== String(F))) return;
+        const lm = this.stage.lm;
+        const lost = L.cross((h) => {
+            if (String(h.frameId) === String(F)) return { s: 1, og: h.og };
+            const box = lm.mapRectF(h.box, h.frameId, F), og = lm.mapPointF([h.og.x, h.og.y], h.frameId, F);
+            const d0 = lm.depthOf(h.frameId), d1 = lm.depthOf(F);
+            if (!box || !og || d0 == null || d1 == null) return null;
+            h.box = box; h.frameId = F;
+            if (h.group) this.pyramid.moveGroup(h.group, box);
+            return { s: Math.pow(R, d1 - d0), og: { x: og[0], y: og[1] } };
+        }, viewCenter(this.cam));
+        for (const h of lost) this._pyrTakeDown(h, false);
     }
 
     /** One held path taken down (`handoff`: its plates published in this task); false when it was already gone. */

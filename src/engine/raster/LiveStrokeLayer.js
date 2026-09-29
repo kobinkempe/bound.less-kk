@@ -127,6 +127,26 @@ export default class LiveStrokeLayer {
         return true;
     }
 
+    /**
+     * The view crossed into another frame: each held root is carried into it — `map(h)` gives `{ s, og }`, the scale
+     * from the root's frame to the new one and its drawn-at origin in the new frame's units, or null for none (those
+     * entries are returned for the owner to release) — and the origin moves to `origin`, re-anchoring every held root
+     * (F131 across a frame). A stroke still open keeps the origin its anchors are relative to.
+     */
+    cross(map, origin) {
+        const lost = [];
+        for (const h of this.held) {
+            const m = map(h);
+            if (!m) { lost.push(h); continue; }
+            h.root.scale = (typeof h.root.scale === "number" ? h.root.scale : 1) * m.s;
+            h.og = m.og;
+        }
+        if (!this.root && (origin.x !== this.origin.x || origin.y !== this.origin.y)) this.origin = origin;
+        const O = this.origin;
+        for (const h of this.held) if (!lost.includes(h)) h.root.translation.set(h.og.x - O.x, h.og.y - O.y);
+        return lost;
+    }
+
     /** The stroke under the pen taken down, never held: a cancelled stroke, and a pen-up whose ink is drawn at once. */
     cancel() {
         if (this.root && this.root.parent) this.root.parent.remove(this.root);
