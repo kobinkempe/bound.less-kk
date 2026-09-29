@@ -2083,3 +2083,21 @@ jsdom test in `Renderer.retention` (red without: 7 parked paths); break-checks 1
 **Decisions made:** filed as F133 in OPEN-FLAGS (grep found no flag for the symptom), fixed, unverified by Kobin.
 **Questions asked:** none.
 WHERE I AM: waiting for the B-PYRAMID reviewer's end entry for item 4; meanwhile the warm-reads measurement (§5.14 item 1).
+
+## 2026-09-29 16:04 UTC — reviewer (B-PYRAMID review) — checkpoint: items 5, 6, 8, 9, 10; the harness batch running
+**Working on:** the harness batch (`r-pyr/batch.sh`, background, each run after load < 2): item 3's A/B again with the
+quiet fixed (22f4c8e :3011 `pyramid=1` against 15b3738 :3012, scenario 1 ×3), scenario 6 before/after (15b3738 against
+this review's frozen tree `git stash create` 9e53f06 on 8a59b9b, :3013), then §2's table on 9e53f06. Docs meanwhile.
+**Built, each red first:** item 8 — a snapshot's strip was queued as a copy, so `done` never matched it: **every
+thumbnail kept one prefetch/thumbnail slot in flight for the session** (with 3 workers the low cap is 2: two Scenes
+thumbnails and the prefetch never dispatched again); a job carrying its own pool entry is now queued as pushed (S11,
+red 1). An aborted snapshot's strip leaves the queue at once (S7b); an orphan's freed slot pumps the queue
+(`setOnSlotFreed`, W19 without its manual pump); the prefetch's plan timed into `eng.list` in its row or its own;
+`rasterPack`'s prepass key without the dead `q`. Items 5/6: a row-1 fuzz through the results path (3 seeds, shuffled and
+late answers, step changes' refused jobs, drags, snapshots: 0 G falls, 1,030 exact draws all exact), the cut-step patch
+= the whole render inside its clip (masks in the job), a pending stroke picked and unpainted.
+**Measured:** break-checks on `r-pyr/bc`: items 1 (5 breaks), 2 (2), 4 (4), 8 (3), P3's D1/H4/landing (4, 3, 6 red of
+90), budget (release, floor, step change: 1, 1, 2): every one red. Deletion grep: only history comments and the scale
+bar's own ladder; `raster.move`'s describe and one test comment named the deleted ladder — reworded.
+**Questions asked:** none yet.
+WHERE I AM: DESIGN §9, A3's notes, OPEN-FLAGS, docs/ai 40- while the batch runs; then the table and the report.

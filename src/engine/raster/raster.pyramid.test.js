@@ -316,6 +316,12 @@ function wholeRender(E, rec) {
     return out;
 }
 const diffBytes = (a, b) => { let n = 0; for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) n++; return n; };
+/** A plate of the renderer's paper, as a whole render of nothing is. */
+function paper(E) {
+    const out = new Uint8ClampedArray(512 * 512 * 4), [r, g, b] = E.renderer._paperRgb;
+    for (let k = 0; k < out.length; k += 4) { out[k] = r; out[k + 1] = g; out[k + 2] = b; out[k + 3] = 255; }
+    return out;
+}
 
 describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)", () => {
     test("pen-up: no compose shows both the held path and the stroke's plates, or neither; the path goes in the task that publishes them", async () => {
@@ -394,8 +400,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         for (const rec of recs) expect([rec.key, E.plates.exact(rec), rec.G <= G0 || diffBytes(rec.pixels, wholeRender(E, rec)) === 0]).toEqual([rec.key, true, true]);
         E.setTool("select");
         E.pointerDown(300, 260); E.pointerUp();
-        expect(E.selection && E.selection.ids).toEqual([o.id]);
-        expect(E.stage._pending.has(o.id)).toBe(true);
+        expect(E.selection && E.selection.ids).toEqual([o.id]);   // (the press lands its shape: the move needs it)
     });
 
     test("undo and redo reach the pyramid as Stage dirt: the frame's patch step re-renders the rectangle inline, equal to a whole render", async () => {
@@ -530,7 +535,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
 });
 
 describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID review)", () => {
-    test("a stored plate's G never falls and every draw the plan calls exact is exact: out-of-order and late answers, a re-aim, a step change's refused jobs, a drag's plane plates, snapshots", async () => {
+    test("a stored plate's G never falls and every draw the plan calls exact is exact: out-of-order and late answers, zooms with strips queued, a step change's refused jobs, a drag's plane plates, snapshots", async () => {
         const parked = [];
         setRasterTransport((msg) => new Promise((resolve) => parked.push({ msg, resolve })));
         /** Answer a random share of what is parked, in random order; the rest stays parked, to land after later ops. */
@@ -571,7 +576,7 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
                 if (op < 0.3) drawStroke(E, [pt(), pt(), pt()], 6 + rnd() * 24);
                 else if (op < 0.4) E.undo();
                 else if (op < 0.45) E.redo();
-                else if (op < 0.6) { E.zoomAt(400, 300, (rnd() - 0.5) * 900); E.zoomAt(380, 280, (rnd() - 0.5) * 900); }   // a strip queued mid-gesture is re-aimed
+                else if (op < 0.6) { E.zoomAt(400, 300, (rnd() - 0.5) * 900); E.zoomAt(380, 280, (rnd() - 0.5) * 900); }   // strips queued mid-gesture (the re-aim: jobQueue's own test)
                 else if (op < 0.68) { R.pyramid.cfg.levelStep = R.pyramid.cfg.levelStep === 2 ? 1 : 2; R.syncCameraOnly(); }   // the old step's jobs refused
                 else if (op < 0.8) { const a = pt(); drag(E, a, [a[0] + 60 * (rnd() - 0.5), a[1] + 60 * (rnd() - 0.5)], 4); E.setTool("pen"); }
                 else if (op < 0.88) { E.snapshotView({ frame: E.cam.frame, rect: { x: 40, y: 40, w: 300, h: 200 } }).then(() => { seen.snapshots++; }, () => {}); }
@@ -591,7 +596,7 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
         expect(seen.refused).toBeGreaterThan(0);                        // late answers of refused jobs reached the store
     }, 120000);
 
-    test("rows 8/10 at the bake's cut steps: every patch through its clip, the pending mark's byte masks in the job, equals a whole render", async () => {
+    test("rows 8/10 at the bake's cut steps: every patch through its clip, the pending mark's byte masks in the job, is the whole render's bytes inside the clip", async () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;   // no transport: the inline pool, cuts and plates alike
         E._scheduleBake = () => {};                                      // the steps are this test's
         const fill = (x, y, w, h, color, opacity = 1) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity,
@@ -600,34 +605,34 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
         drawStroke(E, [[150, 380], [420, 300], [650, 360]], 22, "#183");
         E._render();
         for (let k = 0; k < 20; k++) await settle(E, 1);
-        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 1e9;   // every patch inline, so each is compared here
+        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 1e9;   // every patch inline, so each is compared as it lands
+        let patches = 0, masked = 0;
+        const take = R.pyramid._take.bind(R.pyramid);
+        R.pyramid._take = (rec) => {
+            if (rec.clip && rec.patch instanceof Uint8ClampedArray) {
+                patches++;
+                if (E.stage.items().some((it) => it.erase)) masked++;
+                const whole = wholeRender(E, rec), [x0, y0, x1, y1] = rec.clip, w = x1 - x0;
+                let n = 0;
+                for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 4; c++) if (rec.patch[((y - y0) * w + (x - x0)) * 4 + c] !== whole[(y * 512 + x) * 4 + c]) n++;
+                expect([rec.key, rec.clip.join(","), n]).toEqual([rec.key, rec.clip.join(","), 0]);
+            }
+            return take(rec);
+        };
         eraseGesture(E, [[300, 130], [340, 430]], 36);
         eraseGesture(E, [[180, 200], [600, 230]], 24);
-        let steps = 0, clipped = 0, compared = 0;
-        const check = (why) => {
-            for (const c of R.pyramid.lastPlan.cells) {
-                for (const d of c.draws) {
-                    const rec = d.rec;
-                    if (!rec || !E.plates.exact(rec)) continue;
-                    compared++;
-                    expect([why, rec.key, diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([why, rec.key, 0]);
-                }
-            }
-        };
-        const merges0 = R.pyramid.s.merges;
+        let steps = 0;
         for (let guard = 0; guard < 400; guard++) {
-            R.syncCameraOnly();                                          // the step's patch step runs inline
+            R.syncCameraOnly();                                          // the step's patch step, inline
             for (let k = 0; k < 4; k++) await tick();
-            R.syncCameraOnly();
-            check("step " + steps);
             if (!E._bakeNext()) break;
             steps++;
         }
-        clipped = R.pyramid.s.merges - merges0;
+        R.syncCameraOnly();
         expect(E._eraseStrokes()).toHaveLength(0);
         expect(steps).toBeGreaterThan(1);
-        expect(clipped).toBeGreaterThan(0);                              // patches landed through their clips
-        expect(compared).toBeGreaterThan(steps);
+        expect(patches).toBeGreaterThan(steps);                          // clipped patches, at the marks' landings and the cut steps
+        expect(masked).toBeGreaterThan(0);                               // some with a pending mark's masks in the job
         delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     }, 60000);
 });
