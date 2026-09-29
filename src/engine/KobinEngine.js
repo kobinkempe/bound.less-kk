@@ -1425,13 +1425,13 @@ export default class KobinEngine {
                     st.base = Document.snapGeometry(rec.obj);
                     const n = this._normalizeHome(id);
                     st.after = Document.snapGeometry(rec.obj);
-                    st.to = n.level; st.dx += n.dx; st.dy += n.dy;
+                    st.to = n.level; st.dx += n.dx; st.dy += n.dy; st.own = n.own;
                 }
                 // One entry per member: the frames and the tables either side (DESIGN.md §8).
                 const moves = [...d.moves].map(([id, v]) => {
                     const m = { id, dx: v.dx, dy: v.dy, from: v.from, to: v.to };
                     if (v.base) { m.base = v.base; m.after = v.after; }
-                    m.belowBefore = v.baseBelow; m.belowAfter = cloneBelow(v.below);
+                    m.belowBefore = v.baseBelow; m.belowAfter = cloneBelow(v.own);
                     return m;
                 });
                 // The frames the drag moved as frames: the same entry objects the drag settled into

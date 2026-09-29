@@ -320,6 +320,8 @@ export default class Document {
     }
     /** Does native `o` carry a table of its own (not only its frame's shift)? */
     hasOwnTable(o) { return this._offsetIds.has(o.id); }
+    /** A copy of native `o`'s own table, as an undo entry records it (undefined when it has none). */
+    ownTable(o) { return cloneBelow(o.below); }
     /** Does frame `k` carry a shift (its natives are drawn displaced by it)? */
     _shifted(k) { const f = this.lm && k != null ? this.lm.frame(String(k)) : null; return !!(f && f.shift); }
     /** The ids that do. */
