@@ -255,6 +255,17 @@ function quiet() {
     return !E._fr && (!W || (W.queued === 0 && W.inFlight === 0)) && (!S || S.inFlight === 0) && (!Q || (sum(Q.queued) === 0 && sum(Q.inFlight) === 0));
 }
 
+/** Runs in the page: what keeps the renderer from quiet — a pending frame, the pool's, the store's and the queue's counts. */
+function quietWhy() {
+    const E = window.__kobinEngine;
+    let W = null;
+    try { W = E.renderer && E.renderer.perf ? E.renderer.perf.report().worker : null; } catch (err) { W = null; }
+    const S = E.plates && E.plates.report ? E.plates.report() : null;
+    const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
+    return { frame: !!E._fr, pool: W ? [W.queued, W.inFlight] : null, store: S ? S.inFlight : null,
+        queued: Q ? Q.queued : null, inFlight: Q ? Q.inFlight : null };
+}
+
 /** Runs in the page: put frame F's point (x, y) at the screen's centre at `inScale`, and draw it. */
 function placeCamera({ frame, inScale, x = 0, y = 0 }) {
     const E = window.__kobinEngine;
@@ -265,13 +276,17 @@ function placeCamera({ frame, inScale, x = 0, y = 0 }) {
     return { frame: E.cam.frame, inScale: E.cam.inScale };
 }
 
+/** What the last settle that ran out found not quiet (`quietWhy`), printed as `settleWhy` beside its -1. */
+let lastWhy = null;
 async function settle(page, { minMs = 600, maxMs = 20000 } = {}) {
     const t0 = Date.now();
+    lastWhy = null;
     await sleep(minMs);
     while (Date.now() - t0 < maxMs) {
         if (await page.evaluate(quiet)) return Date.now() - t0;
         await sleep(100);
     }
+    lastWhy = await page.evaluate(quietWhy);
     return -1;
 }
 
@@ -349,7 +364,7 @@ async function densePage(browser) {
     }
     await page.evaluate(installProbes);
     const settled = await settle(page);
-    return { ...pg, setup: { ms: Date.now() - t0, objects: stats.objects, perFrame: stats.frames, ...load, markBakeMs: marks ? -1 : Date.now() - tm, settledMs: settled } };
+    return { ...pg, setup: { ms: Date.now() - t0, objects: stats.objects, perFrame: stats.frames, ...load, markBakeMs: marks ? -1 : Date.now() - tm, settledMs: settled, settleWhy: lastWhy } };
 }
 
 async function measure(page, name, gesture, extra = {}) {
@@ -360,7 +375,7 @@ async function measure(page, name, gesture, extra = {}) {
     const gestureMs = Date.now() - t0;
     const settleMs = await settle(page);
     const b = await page.evaluate(probeRead);
-    return { scenario: name, gestureMs, settleMs, ...out, ...delta(a, b), ...extra };
+    return { scenario: name, gestureMs, settleMs, settleWhy: settleMs < 0 ? lastWhy : undefined, ...out, ...delta(a, b), ...extra };
 }
 
 async function wheel(page, n, dy, gapMs) {
