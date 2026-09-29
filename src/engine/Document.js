@@ -45,7 +45,8 @@ import {
     repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset, sameShift, composeShift } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, composeShift } from "./geometry/offsets";
+import { unsettle } from "./legacy/modelV1";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
 import { cede } from "./cede";
@@ -261,12 +262,8 @@ export default class Document {
         // anything in this drawing have one?" in O(1) on every bake, and walk
         // only those few objects when it does.
         this._offsetIds = new Set();
-        // The lattice, attached by the engine; a frame's pending shift is read from it.
+        // The lattice, attached by the engine; a frame's shift (its natives' placement, A1 C1) is read from it.
         this.lm = null;
-        // frame id -> the move-op entry that last placed the frame; a settle or a merge of
-        // that frame is recorded on it for undo (DESIGN.md §8).
-        this._frameOwner = new Map();
-        this.holdMerges = false;           // a drag in progress: shadows are not merged under it
         // Frames whose list and index a subtree removal has set aside. Their natives stay
         // in `_byId` by reference, and `getById` answers null while the frame is here.
         this._detached = new Set();
@@ -414,59 +411,16 @@ export default class Document {
         delete this._index[k];
         return true;
     }
-    /** A frame's natives. Shadows are merged in and a pending shift (a subtree move) settled first. */
-    at(level) {
-        const k = String(level);
-        const f = this.lm ? this.lm.frame(k) : null;
-        if (f && f._shadows && f._shadows.size && !this.holdMerges) this._mergeShadows(f);
-        const arr = this.nativesByLevel[k];
-        if (!arr) return [];
-        if (f && f.shift) this._settleIfPending(k, arr);
-        return arr;
-    }
-    /** The frame's native count, without settling — for scans that only need a count. */
+    /** A frame's natives: `list` under its older name, kept for its callers. */
+    at(level) { return this.list(level); }
+    /** The frame's native count. */
     count(level) { const arr = this.nativesByLevel[level]; return arr ? arr.length : 0; }
     /**
-     * A frame's list as stored, for scans that need identity or flags only (a mark, a family
-     * key, a type): no shadow merged, no shift settled, so a walk over every frame does no
-     * per-native work on frames nobody has looked at (DESIGN.md §8). Never for positions.
+     * A frame's natives as stored. No read merges, settles or mints (A1 C1): where they are drawn is
+     * their tables with the frame's shift composed (`tableOf`), never written into them.
      */
-    list(level) { return this.nativesByLevel[level] || []; }
-    // The frame's shift is the k=0 table entry every native of the frame owes (DESIGN.md §8,
-    // the subtree move). Applied once, exactly as `_displaceMember` applies a rest — a carry
-    // re-homes the native to the neighbour cell. The record `{ dx, dy, tables: [[id, table
-    // after]], carries: [[id, frame]] }` goes on the owning move entry for undo and to the op
-    // log; its result tables make a replay idempotent.
-    _settleIfPending(level, arr) {
-        if (!this.lm) return;
-        const k = String(level);
-        const f = this.lm.frame(k);
-        if (!f || !f.shift) return;
-        const [dx, dy] = f.shift;
-        f.shift = null;                          // cleared first: a re-home below re-enters here
-        this._shiftKey = null;
-        const list = arr || this.nativesByLevel[k] || [];
-        if (!list.length) return;
-        const tables = [], carried = [];
-        for (const o of list) {
-            const oldBelow = o.below;
-            const r = addOffset(o.below, 0, dx, dy);
-            o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
-            tables.push([o.id, r.below || null]);
-            if (r.cellX || r.cellY) carried.push([o, r.cellX, r.cellY]);
-            this._emit({ kind: "change", id: o.id, level: k, obj: o, offsetsOnly: true, oldBelow, settle: true });
-        }
-        const carries = [];
-        for (const [o, cx, cy] of carried) {
-            const n = this.lm.neighbour(k, cx, cy);
-            if (n) { this.rehomeById(o.id, n.id, { carry: true }); carries.push([o.id, n.id]); }
-        }
-        const rec = { dx, dy, tables, carries };
-        const owner = this._frameOwner.get(k) || null;
-        if (owner) owner.settled = rec;
-        this._notifyOps({ kind: "settle", frame: k, rec, owner });
-    }
-    /** Set a frame's pending shift (the k=0 entry its natives owe, DESIGN.md §8); a zero shift clears. */
+    list(level) { return this.nativesByLevel[String(level)] || []; }
+    /** Set a frame's shift, the k = 0 displacement its natives are drawn with (DESIGN.md §8, A1 C1); a zero shift clears. */
     setFrameShift(frameId, shift) {
         const f = this.lm && this.lm.frame(String(frameId));
         if (!f) return false;
@@ -474,74 +428,73 @@ export default class Document {
         this._shiftKey = null;
         return true;
     }
-    /** The move-op entry that last placed `frameId` (null to forget): a settle or merge of the frame is recorded on it. */
-    noteFrameOwner(frameId, entry) {
-        const k = String(frameId);
-        if (entry) this._frameOwner.set(k, entry); else this._frameOwner.delete(k);
+    /**
+     * The own table a native homed in `home` carries to be drawn with picture table `T`: `T` less the
+     * frame's shift (A1 C1). New ink in a shifted frame takes −shift, so the shift does not move it.
+     */
+    ownFor(T, home) {
+        const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
+        return f && f.shift ? composeShift(T, [-f.shift[0], -f.shift[1]]) : cloneBelow(T);
     }
     /**
-     * The inverse of a recorded settle, from its result tables (so it is idempotent); a native
-     * the settle carried to a neighbour comes home by id. Outside an undo (a cancelled drag) the
-     * restored tables go to the op log as a settle of their own.
+     * Merge every shadow into the resident of its cell (SUBTREE-O1-PLAN §2.5) at the end of the user
+     * action that made them — a drop, an undo, a redo, a load — never at a read (A1 C1); a merge's kids
+     * can shadow in turn, so it repeats until none is left. `op`: the action's `moveFrames` op, whose
+     * entry for the shadow (or the resident) records each merge for `unmerge`.
      */
-    unsettle(frameId, settled) {
-        const k = String(frameId);
-        const tables = [], back = [];
-        for (const [id, after] of settled.tables) {
-            const o = this._byId.get(id);
-            if (!o) continue;
-            const oldBelow = o.below;
-            const r = addOffset(after, 0, -settled.dx, -settled.dy);
-            o.below = r.below; this._noteBelow(o); o._ver = (o._ver || 0) + 1;
-            tables.push([id, r.below || null]);
-            this._emit({ kind: "change", id, level: o._home, obj: o, offsetsOnly: true, oldBelow, settle: true });
-            if (o._home !== k) back.push(id);
+    mergePending(op = null) {
+        if (!this.lm) return 0;
+        let n = 0;
+        for (let pass = 0; pass < 16; pass++) {
+            const res = [];
+            for (const f of this.lm.frames.values()) if (f._shadows && f._shadows.size && !this._detached.has(f.id)) res.push(f);
+            let merged = 0;
+            for (const E of res) merged += this._mergeShadows(E, op);
+            n += merged;
+            if (!merged) break;
         }
-        for (const id of back) this.rehomeById(id, k, { carry: true });
-        if (!this._inUndo && tables.length) {
-            this._notifyOps({ kind: "settle", frame: k, rec: { dx: -settled.dx, dy: -settled.dy, tables, carries: back.map((id) => [id, k]) }, owner: null });
-        }
-    }
-    /** A replayed settle: the result tables and homes it recorded, set as they are (idempotent). */
-    applySettle(frameId, rec) {
-        const homes = new Map(rec.carries || []);
-        for (const [id, after] of rec.tables) {
-            const o = this._byId.get(id);
-            if (!o) continue;
-            const to = homes.get(id);
-            if (to != null && o._home !== String(to)) this.rehomeById(id, to, { carry: true });
-            this.setOffsetsById(id, after || undefined, { settle: true });
-        }
+        return n;
     }
     /**
-     * Merge the shadows of resident `E` into it (SUBTREE-O1-PLAN §2.5): each shadow's pending
-     * shift settled, its natives appended to E's list (home E, indexed), its kids re-parented by
-     * `LevelMap.adoptShadow`, the shadow gone. O(the shadow's natives), paid at the first read of
-     * E. The record goes on the entry that moved the shadow, for `unmerge`, and to the op log.
+     * Merge the shadows of resident `E` into it: each shadow's natives appended to E's list (home E,
+     * indexed) with the difference of the two frames' shifts folded into their own tables, so their
+     * pictures stay; its kids re-parented by `LevelMap.adoptShadow`; the shadow gone. O(the shadow's
+     * natives). The record (tables before and after) goes on `op`'s entry, for `unmerge`, and to the log.
      */
-    _mergeShadows(E) {
+    _mergeShadows(E, op) {
+        let n = 0;
         for (const mid of [...E._shadows]) {
             const M = this.lm.frame(mid);
             if (!M || this._detached.has(mid)) continue;   // set aside by a delete: it waits
-            this._settleIfPending(mid);
-            this._settleIfPending(E.id);
+            const d = [(M.shift ? M.shift[0] : 0) - (E.shift ? E.shift[0] : 0), (M.shift ? M.shift[1] : 0) - (E.shift ? E.shift[1] : 0)];
             const src = this.nativesByLevel[mid] || [];
-            const ids = src.map((o) => o.id);
+            const ids = src.map((o) => o.id), tables = [];
             if (src.length) {
                 this._reuseDetached(E.id);
                 const dst = this.nativesByLevel[E.id] || (this.nativesByLevel[E.id] = []);
-                for (const o of src) { dst.push(o); this._keyOut(mid, o); this._keyIn(E.id, o); o._home = E.id; if (!this._pending.has(o)) this._idx(E.id).add(o); o._ver = (o._ver || 0) + 1; }
+                for (const o of src) {
+                    dst.push(o); this._keyOut(mid, o); this._keyIn(E.id, o); o._home = E.id;
+                    if (!this._pending.has(o)) this._idx(E.id).add(o);
+                    o._ver = (o._ver || 0) + 1;
+                    if (d[0] || d[1]) {
+                        const before = cloneBelow(o.below);
+                        o.below = composeShift(o.below, d);
+                        this._noteBelow(o);
+                        tables.push([o.id, before || null, cloneBelow(o.below) || null]);
+                    }
+                }
             }
             delete this.nativesByLevel[mid]; delete this._index[mid];
             const rec = this.lm.adoptShadow(M, E);
             rec.ids = ids;
-            // The move that made the pair: the shadow's, or the resident's when an empty cell yielded to it.
-            const owner = this._frameOwner.get(mid) || this._frameOwner.get(E.id) || null;
-            this._frameOwner.delete(mid);
-            if (owner) (owner.merged || (owner.merged = [])).push(rec);
+            if (tables.length) rec.tables = tables;
+            const entry = op && op.frames ? (op.frames.find((e) => e.id === mid) || op.frames.find((e) => e.id === E.id)) : null;
+            if (entry) (entry.merged || (entry.merged = [])).push(rec);
             this._emit({ kind: "mergeFrame", frame: mid, into: E.id, at: { parent: E.parent, i: E.cell.i, j: E.cell.j }, ids, kids: rec.kids.map((kd) => kd.id) });
-            this._notifyOps({ kind: "mergeFrame", rec, owner });
+            this._notifyOps({ kind: "mergeFrame", rec, of: op && op._seq != null ? op._seq : null });
+            n++;
         }
+        return n;
     }
     _setKeyedAside(k) {
         const set = this._keyedIn.get(k);
@@ -597,9 +550,10 @@ export default class Document {
         this._detached.delete(k);
         this._reused.add(k);
     }
-    /** A replayed merge or split: the record's natives into the list they belong in, from wherever a snapshot left them (idempotent). */
-    mergeReplay(rec) { this.rehomeManyById(rec.ids, rec.into); this._forgetIfEmpty(rec.id); }
-    unmergeReplay(rec) { this.rehomeManyById(rec.ids, rec.id); this._forgetIfEmpty(rec.into); }
+    /** A replayed merge or split: the record's natives into the list they belong in, their tables as recorded (idempotent). */
+    mergeReplay(rec) { this.rehomeManyById(rec.ids, rec.into); this._setTables(rec.tables, 2); this._forgetIfEmpty(rec.id); }
+    unmergeReplay(rec) { this.rehomeManyById(rec.ids, rec.id); this._setTables(rec.tables, 1); this._forgetIfEmpty(rec.into); }
+    _setTables(tables, which) { for (const t of tables || []) if (this.getById(t[0])) this.setOffsetsById(t[0], t[which] || undefined); }
     /** The inverse of one `_mergeShadows` record: the frame back as a shadow, its natives back in its own list. */
     unmerge(rec) {
         const M = this.lm.unadoptShadow(rec);
@@ -617,6 +571,7 @@ export default class Document {
                 o._home = M.id; o._ver = (o._ver || 0) + 1;
             }
         }
+        for (const [id, before] of rec.tables || []) { const o = this._byId.get(id); if (o) { o.below = cloneBelow(before); this._noteBelow(o); } }
         this._forgetIfEmpty(rec.into);
         this._emit({ kind: "splitFrame", frame: M.id, from: rec.into, at: { parent: M.parent, i: M.cell.i, j: M.cell.j }, ids: rec.ids, kids: rec.kids.map((kd) => kd.id) });
         return M;
@@ -634,12 +589,12 @@ export default class Document {
     /** Every frame holding a native with a family key. */
     keyedFrames() { return this._keyedIn.keys(); }
 
-    // Add a newly drawn object as a native of `level`. `live` = still growing
-    // (a stroke between pointerDown and pointerUp): kept out of the spatial
-    // index until finalize().
-    add(o, level, { live = false, by = null } = {}) {
+    // Add an object as a native of `level`. `live` = still growing (a stroke between pointerDown and
+    // pointerUp): kept out of the spatial index until finalize(). `fresh`: ink placed where it was drawn
+    // in this frame, so it takes −shift in its own k = 0 entry and the frame's shift does not move it (A1 C1).
+    add(o, level, { live = false, by = null, fresh = false } = {}) {
         const k = String(level);
-        this._settleIfPending(k);   // the newcomer does not owe the frame's shift
+        if (fresh) { const b = this.ownFor(o.below, k); if (b) o.below = b; else delete o.below; }
         this._reuseDetached(k);
         flattenLoops(o);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
@@ -702,7 +657,6 @@ export default class Document {
     removeById(id, { by = null, dust = null } = {}) {
         const obj = this._byId.get(id);
         if (!obj) return null;
-        this._settleIfPending(obj._home);   // a carry can re-home it, so read the home after
         const Ls = obj._home;
         const arr = this.nativesByLevel[Ls];
         const i = arr ? arr.indexOf(obj) : -1;
@@ -723,7 +677,6 @@ export default class Document {
     // affects the array; z-order is by id, which the object kept.
     insertAt(obj, level, index) {
         const k = String(level);
-        this._settleIfPending(k);
         this._reuseDetached(k);
         flattenLoops(obj);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
@@ -943,11 +896,8 @@ export default class Document {
      * Emits remove + add so the tile cache invalidates both where the object was
      * and where it now is.
      */
-    rehomeById(id, toLevel, { carry = false } = {}) {
+    rehomeById(id, toLevel) {
         const k = String(toLevel);
-        const o0 = this._byId.get(id);
-        if (o0) this._settleIfPending(o0._home);   // a carry can re-home it, so take the record after
-        this._settleIfPending(k);
         const rec = this.getById(id);
         if (!rec || rec.level === k) return rec;
         const o = rec.obj;
@@ -963,9 +913,7 @@ export default class Document {
         // dragged, most of all — must not read it as the object going away, or
         // a drag drops every member the moment it re-homes and the rest of the
         // gesture moves only what happened to stay put.
-        const out = { kind: "remove", id, level: rec.level, obj: o, rehome: k };
-        if (carry) out.carry = true;
-        this._emit(out);
+        this._emit({ kind: "remove", id, level: rec.level, obj: o, rehome: k });
         this._reuseDetached(k);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
@@ -973,9 +921,7 @@ export default class Document {
         this._keyIn(k, o);
         if (!wasPending) this._idx(k).add(o);
         o._ver = (o._ver || 0) + 1;
-        const back = { kind: "add", id, level: k, obj: o, live: wasPending, rehome: rec.level };
-        if (carry) back.carry = true;
-        this._emit(back);
+        this._emit({ kind: "add", id, level: k, obj: o, live: wasPending, rehome: rec.level });
         return { obj: o, level: k };
     }
 
@@ -988,11 +934,6 @@ export default class Document {
      */
     rehomeManyById(ids, toLevel) {
         const k = String(toLevel);
-        // Every frame this touches settles BEFORE the groups are formed: a settle's carry
-        // re-homes natives, and a group holding an object its frame no longer lists would
-        // compact the wrong array.
-        this._settleIfPending(k);
-        for (const id of ids) { const o = this._byId.get(id); if (o) this._settleIfPending(o._home); }
         const groups = new Map();                       // source frame -> [obj], in `ids` order
         for (const id of ids) {
             const rec = this.getById(id);
@@ -1285,7 +1226,7 @@ export default class Document {
             this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o);
         }
         this._detachedLists.delete(k);
-        this._detached.delete(k); this._reused.delete(k); this._frameOwner.delete(k);
+        this._detached.delete(k); this._reused.delete(k);
         this._keyedIn.delete(k); this._detachedKeyed.delete(k);
         return true;
     }
@@ -1300,16 +1241,20 @@ export default class Document {
         const op = this._undo.pop();
         if (!op) return false;
         this._inUndo = true;
-        try { this._redo.push(this._carrySeq(op, this._invert(op))); } finally { this._inUndo = false; }
+        let inv;
+        try { inv = this._carrySeq(op, this._invert(op)); this._redo.push(inv); } finally { this._inUndo = false; }
         this._notifyOps({ kind: "undo", op });
+        this.mergePending(inv);
         return true;
     }
     redo() {
         const op = this._redo.pop();
         if (!op) return false;
         this._inUndo = true;
-        try { this._undo.push(this._carrySeq(op, this._invert(op))); } finally { this._inUndo = false; }
+        let inv;
+        try { inv = this._carrySeq(op, this._invert(op)); this._undo.push(inv); } finally { this._inUndo = false; }
         this._notifyOps({ kind: "redo", op });
+        this.mergePending(inv);
         return true;
     }
     // The log's seq rides an op's inverse (F71): a redo of an inverse without it read as
@@ -1357,28 +1302,23 @@ export default class Document {
             // A deleted frame subtree, held as whole lists (SUBTREE-O1-PLAN §2.3): undo and redo
             // are the same records re-attached and re-detached by reference, O(frames).
             case "moveFrames": {
-                // Frames first: a merge since the move is split back, a settle since subtracted by its
-                // record, then the start address and shift come back; the per-object moves follow
-                // (DESIGN.md §8). The inverse's entries own a later settle or merge.
+                // Frames first: a merge since the move is split back, then the start address and shift
+                // come back, the shift being its natives' placement (A1 C1); the per-object moves follow
+                // (DESIGN.md §8). An op from a store written before C1 subtracts its settle (legacy).
                 for (const e of op.frames) {
-                    // A shift pending that is not this op's (an earlier move redone, its frame unread since)
-                    // settles first, on its own op's entry; overwritten, it was lost (REVIEWER-3 MOVE-1).
-                    const pf = this.lm.frame(e.id);
-                    if (pf && pf.shift && !sameShift(pf.shift, e.shiftAfter)) this._settleIfPending(e.id);
                     if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) this.unmerge(e.merged[i]); e.merged = null; }
-                    if (e.settled) { this.unsettle(e.id, e.settled); e.settled = null; }
+                    if (e.settled) { unsettle(this, e.id, e.settled); delete e.settled; }
                 }
                 const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift } : null]; }));
                 this.lm.readdressMany(op.frames.map((e) => ({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j })),
                     { empty: (id) => this.count(id) === 0 });
                 const inv = {
                     op: "moveFrames",
-                    frames: op.frames.map((e) => ({ ...e, from: e.to, to: e.from, shiftBefore: e.shiftAfter, shiftAfter: e.shiftBefore, settled: null, merged: null })),
+                    frames: op.frames.map((e) => ({ ...e, from: e.to, to: e.from, shiftBefore: e.shiftAfter, shiftAfter: e.shiftBefore, merged: null })),
                     moves: (op.moves || []).map((m) => this._invertMove(m)),
                 };
                 for (const e of inv.frames) {
                     this.setFrameShift(e.id, e.shiftAfter);
-                    this.noteFrameOwner(e.id, e);
                     const w = was.get(e.id), f = this.lm.frame(e.id);
                     if (w && f) this.noteRefile(e.id, w, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift });
                 }
@@ -1528,8 +1468,6 @@ export default class Document {
         this._pending = new Set();
         this._byId = new Map();
         this._offsetIds = new Set();
-        this._frameOwner = new Map();
-        this.holdMerges = false;
         this._detached = new Set();
         this._detachedLists = new Map();
         this._reused = new Set();
