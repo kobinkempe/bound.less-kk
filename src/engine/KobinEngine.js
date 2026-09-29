@@ -43,6 +43,7 @@ import { createPlacementModel } from "./placementModel";
 import RasterRenderer, { LADDER_DQ, PREVIEW_QUANTA } from "./raster/RasterRenderer";
 import PlateStore, { isPhoneBudget } from "./raster/PlateStore";
 import { pictureStats } from "./raster/PictureLayer";
+import { EST_DEFAULTS } from "./raster/PicturePyramid";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
 import { residual, encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
@@ -443,6 +444,7 @@ export default class KobinEngine {
         this._destroyed = true;
         if (this._bakeTimer != null) { clearTimeout(this._bakeTimer); this._bakeTimer = null; }
         if (this._ladderTimer != null) { clearTimeout(this._ladderTimer); this._ladderTimer = null; }
+        if (this._readTimer != null) { clearTimeout(this._readTimer); this._readTimer = null; }
         if (this._frCancel) { this._frCancel(); this._frCancel = null; }
         this._fr = null;
         this.frameMeter.stop();
@@ -753,7 +755,8 @@ export default class KobinEngine {
         const h = this._holdMove; this._holdMove = null;
         return h ? this.stage.release() : 0;
     }
-    _render() {
+    /** @param {number} [readMs] the table's read budget: a camera step's is `_camReadMs()` */
+    _render(readMs = Infinity) {
         // A destroyed engine is inert: a late step would rebuild lists and plates in the host the
         // next engine shares (OPEN-FLAGS F101).
         if (this._destroyed) return;
@@ -768,7 +771,8 @@ export default class KobinEngine {
         const tList = perfNow();
         // The raster path packs the Stage's items and builds no list (A2 §6.2 S3); the SVG path draws `listFor`'s.
         if (!ras) this._lastList = this._buildList();
-        this.stage.sync(this.cam.frame, this._listWin(), Infinity);
+        this.stage.sync(this.cam.frame, this._listWin(), readMs);
+        if (readMs !== Infinity) this._readIdle();
         if (ras) {
             // A change of frame: the tiles of frames the camera left go, after the read pinned the new view's (F83).
             const F = this.cam.frame;
@@ -806,13 +810,46 @@ export default class KobinEngine {
      * reads and drops tiles, and nothing is rebuilt — then the renderer's step. A crossing renders.
      */
     _tableStep(crossed) {
-        if (crossed) { this._render(); return; }
+        if (crossed) { this._render(this._camReadMs()); return; }
         this._syncStep(); this.renderer.update(); this._emit();
     }
     /** A step without a render: on the raster path the table is synced first (a tile an event dropped is read again). */
     _syncStep() {
-        if (this.raster) { this.stage.sync(this.cam.frame, this._listWin(), Infinity); this._lastList = this.stage.items(); }
+        if (this.raster) {
+            const readMs = this._camReadMs();
+            this.stage.sync(this.cam.frame, this._listWin(), readMs);
+            if (readMs !== Infinity) this._readIdle();
+            this._lastList = this.stage.items();
+        }
         this.renderer.syncCameraOnly();
+    }
+    /**
+     * A camera step's table read (A3 §4.2): on the pyramid's path the cache alone — a tile not read is absent this
+     * frame, its cells drawn from stand-ins and never packed (`covers`); `_readIdle` reads it. Elsewhere everything.
+     */
+    _camReadMs() { return this.cfg.pyramid ? 0 : Infinity; }
+    /**
+     * The tiles a camera step left unread, read once the camera has been still for the rest's quiet (a bake is not
+     * recalled, as a posted job is not: A3 §2.1), a slice at a time at idle (LADDER_SLICE_MS, 30 on a phone; a slice
+     * ends at the next tile past it). A slice that changed the table steps the renderer, whose plan asks for the cells
+     * now covered.
+     */
+    _readIdle() {
+        if (this._readTimer != null || this._destroyed || !this.raster) return;
+        if (this.stage.covers(this.cam.frame, this._listWin())) return;
+        const quiet = this.cfg.restQuietMs != null ? this.cfg.restQuietMs : EST_DEFAULTS.restQuietMs;
+        const wait = Math.max(0, (this._lastCamMove || 0) + quiet - perfNow());
+        this._readTimer = setTimeout(() => ladderIdle(() => {
+            this._readTimer = null;
+            if (this._destroyed) return;
+            if (perfNow() - (this._lastCamMove || 0) < quiet) { this._readIdle(); return; }   // it moved: the quiet again
+            const win = this._listWin(), G0 = this.stage.generation;
+            const t0 = perfNow();
+            this.stage.sync(this.cam.frame, win, this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
+            this._perf("tileRead", t0, false, { G: this.stage.generation - G0 });
+            if (this.stage.generation !== G0) { this._lastList = this.stage.items(); this.renderer.syncCameraOnly(); }
+            this._readIdle();
+        }), wait);
     }
     _visibleChanged() {
         const r = this.lm.tileRange(this.cam.frame, this._listWin());

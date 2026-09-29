@@ -6,9 +6,10 @@
  * crossing target near a crossing; the ring at ℓv only at rest. Nothing while a report is sending.
  *
  *   - Budget-gated: at most the plates the cache can hold beside what is pinned and already protected.
- *   - The near levels pack from the live table (they are inside the camera's window, A3 §4.2); the far levels and
- *     the crossing target read off camera through `stage.snapshot` within `cfg.prefetchReadMs`, and a job carries
- *     its table. A read past its budget is skipped this time; its tiles stay cached for the next.
+ *   - The near levels pack from the live table, the cells it covers only (A3 §4.2: the camera's window, read at
+ *     idle); the far levels and the crossing target read off camera through `stage.snapshot` within
+ *     `cfg.prefetchReadMs`, and a job carries its table. A read past its budget is skipped this time; its tiles stay
+ *     cached for the next.
  *   - Pure but for those reads: it posts nothing and changes no record; `farKeysOf(jobs)` is what the store protects.
  */
 import { PLATE_PX, plateRange } from "./plate";
@@ -44,8 +45,9 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     const jobs = [];
     const take = (frame, l, rect, purpose, table, extra = null) => {
         if (room <= 0) return;
-        const r = plateRange(rect, zOf(l, S)), cells = [];
-        const keep = (i, j) => { const c = levelCell(frame, l, S, i, j); if (store.wants(c.key)) cells.push(c); };
+        const r = plateRange(rect, zOf(l, S)), u = PLATE_PX / zOf(l, S), cells = [];
+        const covered = (i, j) => table || !stage.covers || stage.covers(frame, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u });
+        const keep = (i, j) => { const c = levelCell(frame, l, S, i, j); if (store.wants(c.key) && covered(i, j)) cells.push(c); };
         for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) if (!extra || !extra(i, j)) keep(i, j);
         if (!cells.length) return;
         const Z = zOf(l, S);

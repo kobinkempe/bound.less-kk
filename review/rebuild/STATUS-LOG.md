@@ -1309,3 +1309,20 @@ log's put/bake order differed from the inline bake (seeds 1016, 1037 red before)
 every later arrival pending under the mark (another mark's piece, an undo's source, a frame back).
 **Questions asked:** none yet (a watchdog-lost job runs inline on the main thread: to report).
 WHERE I AM: item 4 (the fringe of a half-handled family, core bytes), then items 6, 7, 9, then the browser items.
+
+## 2026-09-29 01:01 UTC — B-PYRAMID-2 (builder) — P4 progress: the queue's failure path, the arrival estimate, the budgeted read
+**Working on:** P4. Done: `failPool` hands a queue strip back (`onRequeue` → `_pyrRequeue`: its id ended, `requeue`, a pump);
+`_aim`'s arrival = the view's age + the mean dispatch-to-landing time (in-flight strips no longer counted; a failure is no
+sample, `done(id, false)`); `job.ids` off the wire (the packer keeps them for the suites; the worker never had a use).
+The camera's read (A3 §4.2): under `cfg.pyramid` a camera step syncs with budget 0 (a document render still reads all);
+`_readIdle` reads the missed tiles after the rest's quiet, a `LADDER_SLICE_MS` slice an idle callback, and steps the
+renderer when the table changed; the plan asks for no cell the table does not cover (`covered`: view, rest, patch, plane,
+near prefetch), the pack refuses one that left since and `unask`s it; the inline executor lands only what was packed.
+**Found:** P3's quick-level test raced a fixed 200 ms wait against the plane's 150 ms quiet under load (red on the pristine
+tree, so four of P3's break-checks were red for that reason): it now waits for the aim; re-run, 13 of 14 P3 breaks red on
+their own tests, and the 14th (a dropped layer's late plate stored) 0 red because the store already refuses it (`dropWhere`
+marks its job) — the renderer's second discard is deleted. `raster.eraseRule`'s "family half handled" test is red on the
+tree (the B-ERASE reviewer's, in progress; not touched).
+**Measured:** raster.pyramid 19/19, PicturePyramid ×3, jobQueue 8/8, prefetch, raster.job/worker/clip 69/69; typecheck 0;
+eslint 0 errors. Break-checks for P4a (9 rules) each red on its test.
+WHERE I AM: P4 break-checks for the read/cover rules, the raster + hooks suites, then the P4 checkpoint entry.

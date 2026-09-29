@@ -21,6 +21,7 @@ import { PLATE_PX } from "./plate";
 import { FLAG_MASK } from "./rasterJob";
 import { loopsBBox, flattenShape, normalizeLoops, shapeFromRings, subtractShape } from "../geometry/arcShape";
 import { underMask } from "../eraseRule";
+import { Loop } from "../geometry/loop";
 
 useEngines();
 jest.setTimeout(120000);
@@ -420,12 +421,13 @@ describe("row 3 (d) deterministic cases", () => {
         // Core bytes: piece P = A − band, handled by M; B still masked by M; P and B one family, which the core
         // masks whole by the OR of its items' bits. The rule's picture: P in its own family, unmasked.
         const cfg = mkEngine(800, 600).cfg;
+        const loops = (ls) => ls.map((l) => (l instanceof Loop ? l : Loop.from(l)));      // as the document stores them
         const ring = (pts) => normalizeLoops(shapeFromRings([pts]));
         const band = ring([[150, 253], [650, 309], [650, 327], [150, 271]]);
         const P = { type: "shape", origin: "native", id: 3, z: 1, editId: 2, color: "rgb(20,20,20)", opacity: 1,
-            loops: subtractShape(ring([[200, 250], [400, 250], [400, 330], [200, 330]]), band).loops, targetOf: [10], handledBy: [10] };
-        const B = { type: "shape", origin: "native", id: 2, editId: 2, color: "rgb(20,20,20)", opacity: 1, loops: ring([[400, 250], [600, 250], [600, 330], [400, 330]]), targetOf: [10] };
-        const M = { type: "shape", origin: "native", id: 10, erase: true, color: "#ffffff", opacity: 1, loops: band, targets: [1, 2] };
+            loops: loops(subtractShape(ring([[200, 250], [400, 250], [400, 330], [200, 330]]), band).loops), targetOf: [10], handledBy: [10] };
+        const B = { type: "shape", origin: "native", id: 2, editId: 2, color: "rgb(20,20,20)", opacity: 1, loops: loops(ring([[400, 250], [600, 250], [600, 330], [400, 330]])), targetOf: [10] };
+        const M = { type: "shape", origin: "native", id: 10, erase: true, color: "#ffffff", opacity: 1, loops: loops(band), targets: [1, 2] };
         const render = (list) => { clearPackCaches(); return pixels(packJob(list, { plates: Int32Array.from(PLATES.flat()), q: 0, Zq: 1, dpr: 1, cfg, paper: [255, 255, 255] })); };
         const rings = flattenShape(band, 0.02);
         const near = (x, y) => {

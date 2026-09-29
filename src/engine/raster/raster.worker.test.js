@@ -339,11 +339,11 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
             // own buffers going back to the main thread's pool (§3.6)
             for (const px of msg.pixels) if (px) expect(transfer).toContain(px.buffer);
             expect(msg.pixels.filter(Boolean).length).toBe(2);
-            expect(msg.recycled.length).toBe(6);                   // geom, meta, attr, subs, rgb, ids
+            expect(msg.recycled.length).toBe(5);                   // geom, meta, attr, subs, rgb (the ids never cross)
             for (const r of msg.recycled) expect(transfer).toContain(r.buffer);
             // and nothing else and nothing missing: the four small arrays of §3.4 (plates,
-            // timings, counts, guards), a buffer a painted plate, and the job's own six going back
-            expect(transfer.length).toBe(4 + 2 + 6);
+            // timings, counts, guards), a buffer a painted plate, and the job's own five going back
+            expect(transfer.length).toBe(4 + 2 + 5);
 
             // the `receivedAt` stamp is the WORKER's own clock and a duration comes out of it: an
             // epoch stamp (`Date.now`) would make this hugely negative, and it cannot exceed the

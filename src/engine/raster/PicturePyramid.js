@@ -838,8 +838,20 @@ export default class PicturePyramid {
         if (this._groupOf.has(c.key)) return false;
         if (!this.store.wants(c.key)) return false;
         const g = this._asked.get(c.key);
-        return !(g != null && g >= this.store.fresh.dirtySince(c.key));
+        return !(g != null && g >= this.store.fresh.dirtySince(c.key)) && this.covered(c);
     }
+
+    /**
+     * Whether the camera's table holds every tile under a camera-frame cell (A3 §4.2): one it does not is drawn from
+     * stand-ins and never asked for, until the idle read brings its tiles in (a commit, and the next step asks).
+     */
+    covered(c) {
+        const st = this.stage;
+        return !st || !st.covers || String(c.frame) !== String(this._v.frameId) || st.covers(c.frame, boxOf(c.Z, c.i, c.j));
+    }
+
+    /** Cells the pack refused (their tiles left the table after they were asked for): asked for again once covered. */
+    unask(cells) { for (const c of cells) this._asked.delete(c.key); }
 
     _onMove() {
         if (this._restTimer != null) { this._clearTimer(this._restTimer); this._restTimer = null; }
@@ -893,13 +905,16 @@ export default class PicturePyramid {
      */
     _renderInline(job) {
         const packed = this._pack ? this._pack(job) : null;
+        if (this._pack && !packed) return [];            // every cell refused: none is rendered from a table lacking its tiles
         const G = packed && packed.G != null ? packed.G : (this.stage ? this.stage.generation : 0);
         const out = [];
         if (!this._scratch) this._scratch = new Uint8ClampedArray(PLATE_PX * PLATE_PX * 4);
         const sc = this._scratch, counts = this._counts, tm = this._timings;
         const sum = { edges: 0, edgesMs: 0, px: 0, accumMs: 0, unionMs: 0, unionRows: job.est && job.est.U ? job.est.U : 0 };
-        for (let p = 0; p < job.cells.length; p++) {
-            const c = job.cells[p], clip = job.clips && !isWhole(job.clips[p]) ? job.clips[p] : null;
+        // The pack may keep fewer cells than the job asked (the table's cover): plate p is `packedCells[p]`.
+        const cells = job.packedCells || job.cells, clips = job.packedCells ? job.packedClips : job.clips;
+        for (let p = 0; p < cells.length; p++) {
+            const c = cells[p], clip = clips && !isWhole(clips[p]) ? clips[p] : null;
             const rec = { ...c, G, jobId: null, bitmap: null, pixels: null, bytes: 0 };
             if (packed && packed.nItems > 0) {
                 counts.fill(0); tm.fill(0);
@@ -1032,7 +1047,7 @@ export default class PicturePyramid {
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
                 const r = st.get(v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
-                if (!r || st.exact(r) || this._groupOf.has(r.key)) continue;
+                if (!r || st.exact(r) || this._groupOf.has(r.key) || !this.covered(r)) continue;
                 const g = this._asked.get(r.key);
                 if (g != null && g >= st.fresh.dirtySince(r.key)) continue;
                 cells.push(r);

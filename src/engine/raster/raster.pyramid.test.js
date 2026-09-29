@@ -151,7 +151,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(E.plates.maxBytes).toBeGreaterThan(b0);
     });
 
-    test("a camera job keeps only the cells the table covers: the rest are refused at dispatch and asked for again", async () => {
+    test("a cell the camera's table does not cover is drawn from stand-ins and never asked for; once covered it is asked for and lands", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
@@ -165,16 +165,76 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         E.zoomAt(400, 300, -1500);                                      // a new view level: its cells are missing
         await settle(E, 2);
         expect(R._view.level).toBeGreaterThan(l0);
-        expect(rasterStats.refusedCover).toBeGreaterThan(0);
-        const view = () => { const r = R.queue.report(); return r.inFlight[1] + r.queued[1]; };
-        expect(view()).toBe(0);
+        const asked = () => { const r = R.queue.report(); return r.inFlight[0] + r.queued[0] + r.inFlight[1] + r.queued[1]; };
+        expect([asked(), rasterStats.refusedCover, rasterStats.refusedCoverPlates]).toEqual([0, 0, 0]);   // planned, never dispatched
+        expect(planCls(R).some((c) => c !== "sharp")).toBe(true);
         refuse = false;
         await settle(E, 2);
-        expect(view()).toBeGreaterThan(0);                              // asked for again, and posted
+        expect(asked()).toBeGreaterThan(0);                             // covered: asked for, and posted
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((c) => c === "sharp")).toBe(true);
-        const q = R.queue.report();
-        expect([q.done, q.drops.empty > 0]).toEqual([q.dispatched, true]);   // a refused strip is the queue's drop, never a `done`
+        expect([rasterStats.refusedCover, R.queue.report().done]).toEqual([0, R.queue.report().dispatched]);
+    });
+
+    test("a cell whose tiles left the table after it was asked for is refused at the pack and asked for again once covered", async () => {
+        const g = gate();
+        setRasterWorkerCount(1);
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        R.pyramid.cfg.restInline = "never";
+        R._pyrPrefetch = () => {};
+        stroke(E);
+        await settle(E, 1);
+        expect(await drain(E, g)).toBe(0);
+        E.zoomAt(400, 300, -1500);
+        await settle(E, 1);
+        const waiting = R.queue.queue.find((st) => st.kind === "view" && st.cells.length > 1);
+        expect(waiting).toBeTruthy();                                   // a view strip behind the one worker's
+        const c = waiting.cells[0], u = 512 / c.Z;
+        const covers = E.stage.covers.bind(E.stage);
+        let refuse = true;
+        E.stage.covers = (f, r) => !(refuse && Math.abs(r.left - c.i * u) < 1e-9 && Math.abs(r.top - c.j * u) < 1e-9) && covers(f, r);
+        await g.run();                                                  // the first lands; the waiting strip packs without cell c
+        await settle(E, 1);
+        expect([rasterStats.refusedCoverPlates, rasterStats.refusedCover]).toEqual([1, 0]);
+        expect(await drain(E, g)).toBe(0);
+        expect(E.plates.get(c.key)).toBeFalsy();                        // not drawn from a table lacking its tiles
+        refuse = false;
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        expect(E.plates.exact(E.plates.get(c.key))).toBe(true);         // asked for again (red before: asked once, for ever)
+    });
+
+    test("the camera's read (A3 §4.2): a step reads the cache alone, its missing tiles are read at idle after the quiet, and only then are their cells asked for", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        const budgets = [], sync = E.stage.sync.bind(E.stage);
+        E.stage.sync = (f, w, b) => { budgets.push(b); return sync(f, w, b); };
+        E._render();
+        expect(budgets).toEqual([Infinity]);                            // a document render reads everything
+        budgets.length = 0;
+        for (let k = 0; k < 3; k++) E.zoomAt(400, 300, -3000);          // into a child frame none of whose tiles were read
+        const F = E.cam.frame;
+        expect(F).not.toBe("0");
+        expect(budgets.length > 0 && budgets.every((b) => b === 0)).toBe(true);
+        expect(E.stage.covers(F, E._listWin())).toBe(false);
+        await settle(E, 1);
+        const box = (x) => ({ left: x.i * 512 / x.Z, top: x.j * 512 / x.Z, right: (x.i + 1) * 512 / x.Z, bottom: (x.j + 1) * 512 / x.Z });
+        const cellsAsked = () => [...R.queue.queue, ...R.queue.inFlight.values()].flatMap((st) => st.cells).filter((x) => x.frame === F);
+        expect(cellsAsked().every((x) => E.stage.covers(F, box(x)))).toBe(true);
+        for (let t = 0; t < 3000 && !E.stage.covers(E.cam.frame, E._listWin()); t += 10) await new Promise((r) => setTimeout(r, 10));
+        expect(E.stage.covers(E.cam.frame, E._listWin())).toBe(true);    // read at idle, a slice at a time
+        expect(budgets.some((b) => b > 0 && b !== Infinity)).toBe(true);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        expect(planCls(R).every((x) => x === "sharp")).toBe(true);
+        expect([rasterStats.refusedCover, rasterStats.refusedCoverPlates]).toEqual([0, 0]);
+        const O = mkEngine(800, 600, { raster: true }), ob = [], os = O.stage.sync.bind(O.stage);   // the old path reads everything
+        O.stage.sync = (f, w, b) => { ob.push(b); return os(f, w, b); };
+        O.zoomAt(400, 300, -3000);
+        expect(ob.length > 0 && ob.every((b) => b === Infinity)).toBe(true);
     });
 
     test("a teardown dispatches nothing more: the queued strips are forgotten, the ones in flight ended", async () => {

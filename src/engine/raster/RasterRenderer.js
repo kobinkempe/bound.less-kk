@@ -1629,22 +1629,28 @@ export default class RasterRenderer extends Renderer {
 
     /**
      * A typed job packed (A2 §3.1): from its own table (the prefetch's off-camera snapshot) at that table's G, else
-     * from the Stage at its G. A worker job keeps only the cells the camera's table covers (A3 §4.2: the others are
-     * drawn from stand-ins and asked for again); `beginJob` tracks them from here. `jobId` null: the inline executor's.
+     * from the Stage at its G, keeping only the cells the camera's table covers (A3 §4.2: the plan asks for no others;
+     * one whose tiles left since is refused here and asked for again once covered). `beginJob` tracks them from here.
+     * `jobId` null: the inline executor's.
      */
     _pyrPack(job, jobId, bufPool) {
         const tab = job.table || null;
         const list = tab ? this._tableList(tab) : this._sceneList();
         const G = tab ? tab.generation : this.stage.generation;
         let cells = job.cells, clips = job.clips || null;
-        if (!tab && jobId != null) {
-            const keep = [];
+        if (!tab) {
+            const keep = [], refused = [];
             for (let k = 0; k < cells.length; k++) {
                 const c = cells[k], u = PLATE_PX / c.Z;
                 if (this.stage.covers(c.frame, { left: c.i * u, top: c.j * u, right: (c.i + 1) * u, bottom: (c.j + 1) * u })) keep.push(k);
-                else rasterStats.refusedCoverPlates++;
+                else refused.push(c);
             }
-            if (keep.length < cells.length) { cells = keep.map((k) => cells[k]); if (clips) clips = keep.map((k) => clips[k]); }
+            if (refused.length) {
+                rasterStats.refusedCoverPlates += refused.length;
+                this.pyramid.unask(refused);
+                for (const c of refused) this._pyrPlaneAsked.delete(c.key);
+                cells = keep.map((k) => cells[k]); if (clips) clips = keep.map((k) => clips[k]);
+            }
             if (!cells.length) { rasterStats.refusedCover++; return null; }
         }
         const plates = new Int32Array(cells.length * 2);
@@ -1802,7 +1808,9 @@ export default class RasterRenderer extends Renderer {
             const cells = [];
             for (const [i, j] of r.cells) {
                 const c = planeCell(r.frameId, r.Zq, r.q, i, j), g0 = this._pyrPlaneAsked.get(c.key);
-                if ((g0 == null || g0 < this.store.fresh.dirtySince(c.key)) && this.store.wants(c.key)) { cells.push(c); this._pyrPlaneAsked.set(c.key, this.stage.generation); }
+                if ((g0 == null || g0 < this.store.fresh.dirtySince(c.key)) && this.store.wants(c.key) && (r.list || this.pyramid.covered(c))) {
+                    cells.push(c); this._pyrPlaneAsked.set(c.key, this.stage.generation);
+                }
             }
             if (!cells.length) continue;
             jobs.push({
