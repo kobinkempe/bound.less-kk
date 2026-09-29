@@ -1989,3 +1989,29 @@ reviewer (early in its reading), B-PYRAMID-3 (item 1). The C1 reviewer had ended
 **Measured:** load 0.05 at the resume.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-29 14:54 UTC — reviewer (B-PYRAMID review) — resumed after the reboot (items 1, 3, 4)
+**Working on:** the reading was done before the stop (my transcript survived); in the tree: the red-before tests of item 1
+(`PicturePyramid.rest.test.js`: the rest set kept as a stand-in after a zoom, three cases) and item 4
+(`raster.pyramid.test.js`: the undo over dense cells inline), not yet run; the code for both is written in
+`r-pyr/e1_standin.py`, `e4_undo.py`, `e4b_undo.py`, not applied. The harness: `settleWhy` beside a -1 settle, and
+its quiet predicate fixed — `rasterWorkerReport()` has had no `queued` since P6, so on P6's trees every settle ran its
+full 20 s (`settledMs` -1, the setup's `markBakeMs` 23 s = a 3.4 s bake + the 20 s timeout).
+**Measured (item 3, before the stop; archives of 22f4c8e :3011 `pyramid=1` and 15b3738 :3012, headless Chromium, the
+harness at HEAD before the quiet fix, scenario 1, interleaved, load 0.8–2.6):** zoom-out paper P5 61.7 | 36.5 | 92.1 ms,
+P6 20.9 | 6.2 | 23.1; zoom back P5 1,070 | 814 | 138, P6 223 | 141 | 0. No regression reproduced: P6 lower on all six.
+**Decisions made:** item 3 re-run once with the quiet fix before calling it noise; no bisect of a regression not seen.
+**Questions asked:** none.
+WHERE I AM: run items 1 and 4's new tests red on the tree, apply `e1_standin.py`, then `e4_undo.py` + `e4b_undo.py`.
+
+## 2026-09-29 14:55 UTC — B-PYRAMID-3 (builder) — resumed after the session-limit stop
+**Working on:** item 1 from the reading: no source file of mine was edited before the stop (cbca128's diff against my
+start holds only my start entry), `scratchpad/bp3/` is empty. Files I am in, as at the start: `Renderer.js`, new
+`raster/SvgLayer.js`, `raster/LiveStrokeLayer.js`, `raster/svgAnchors.js`, `raster/svgOverlay.js` (the shared overlays),
+the hook's gate/export, `thumbnails.js`, `sceneOps.js`'s export path, the `Renderer.*` suites; shared, re-read before
+each small edit: `KobinEngine.js`, `erasePipeline.js`. Not `RasterRenderer.js` or the raster modules until item 4.
+**Measured:** load 0.16 at the resume.
+**Decisions made:** item 1 keeps the names `RasterRenderer` inherits working (thin forwards in `Renderer`) until item 4
+deletes them with the inheritance; the anchor helpers move to one module both the ink path and the live layer import.
+**Questions asked:** none.
+WHERE I AM: writing `raster/svgAnchors.js`, `SvgLayer.js`, `LiveStrokeLayer.js`, `svgOverlay.js`; then `Renderer` on them.
