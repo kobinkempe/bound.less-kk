@@ -96,6 +96,7 @@ export default class RasterRenderer extends Renderer {
         this._rowOpen = false;
         /** True while any row this module opened is open, whatever its kind (`_openRow`). */
         this._rowLive = false;
+        this._pumpQueued = false;                       // a microtask pump is pending (`_pumpSoon`)
         this.paper = opts.paper || "#ffffff";
         this._paperRgb = parseColour(this.paper);
 
@@ -761,6 +762,16 @@ export default class RasterRenderer extends Renderer {
         return this._sceneArr;
     }
 
+    /**
+     * A request made outside a camera step — the rest's quiet, a commit's group — is dispatched in a microtask: nothing
+     * else pumps while the camera is still and nothing is in flight. A step pumps its own (`_frameStep`).
+     */
+    _pumpSoon() {
+        if (this._pumpQueued) return;
+        this._pumpQueued = true;
+        Promise.resolve().then(() => { this._pumpQueued = false; if (!this._destroyed) this.queue.pump(); });
+    }
+
     /** A job id ended in the store: for every id a strip was begun with, landed or not. */
     _endJob(jobId) {
         if (jobId == null) return 0;
@@ -776,7 +787,7 @@ export default class RasterRenderer extends Renderer {
         const pyr = this.pyramid = new PicturePyramid(container, {
             store, stage: this.stage, lm: this.stage.lm, cfg: this.cfg, width: this.width, height: this.height, dpr,
             paper: this.paper, makeCanvas: opts.makeCanvas, context: opts.context,
-            onRequest: (jobs) => this.queue.push(jobs),
+            onRequest: (jobs) => { this.queue.push(jobs); this._pumpSoon(); },
             pack: (job) => this._pyrPack(job, null, null),
             measure: (job) => this._pyrMeasure(job),
             onSample: (s) => pyr.calibrate(s),
@@ -980,10 +991,17 @@ export default class RasterRenderer extends Renderer {
     /**
      * The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused; a cut posts its own
      * entry. The strip's queued-at goes to `rasterPerf` (an arrival's wall starts there); the post less the pack is
-     * `xfer.out` (§8.4 rule 2: every phase of the frame in a bucket).
+     * `xfer.out` (§8.4 rule 2: every phase of the frame in a bucket). A dispatch outside a step or an arrival — the
+     * rest's quiet, a microtask pump — opens a row of kind `settle`, the rest's (A3 §4.6; D266).
      */
     _pyrSubmit(st, pool) {
         if (st.entry) return pool.submit(st.entry);
+        const own = !this._rowLive;
+        if (own) this._openRow(this.frameSeq, "settle");
+        try { return this._pyrPost(st, pool); } finally { if (own) this._closeRow(); }
+    }
+
+    _pyrPost(st, pool) {
         const plates = new Int32Array(st.cells.length * 2);
         for (let k = 0; k < st.cells.length; k++) { plates[k * 2] = st.cells[k].i; plates[k * 2 + 1] = st.cells[k].j; }
         this.perf.noteSubmit({ frameSeq: this.frameSeq }, st.cells.length, 1, st.pushedAt);

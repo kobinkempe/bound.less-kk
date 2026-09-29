@@ -1770,3 +1770,18 @@ equal; a 20-event drag of 300 natives from 1 settle and 300–600 table writes p
 pixel-identical on ink; the quick suite 2,076 pass with 23 reds all in B-PYRAMID-2b's in-flight ports.
 **Decisions made:** PLAN §5.12 items 1–6.
 **Questions asked:** none.
+
+## 2026-09-29 10:16 UTC — reviewer (B-MODEL-C1 review) — R-MODEL-C1 items 1–10 — start
+**Working on:** the review of C1 (2fa7a26, tree 320ad1e) per `briefs/R-MODEL-C1.md`: the fuzz's two relaxations
+(item 1), the ants' dash phase after a lasso and drag (item 2), pure reads (3), the composition's cases (4), the
+version gate and the legacy module (5), the SVG drag (6), the Stage and the lint (7), counters on the final tree (8),
+the settle-named tests (9), the docs (10). Files I may edit (brief §3): `Document.js`, `LevelMap.js`, `TileStore.js`,
+`placementModel.js`, `geometry/offsets.js`, `oplog.js`, `persist.js`, `format2.js`, `files.js`, `frameGc.js`,
+`sceneClient.js`, `report.js`, `overlays.js` (the box only), `selection.js` (box and `.below` reads only), `legacy/`,
+`__testkit__/modelFuzz.js`, the model suites and probes, `hooks/store.subtree.test.js`, `sceneIndex.test.js`,
+`package.json`'s eslintConfig, DESIGN §8/§13, A1 §14, OPEN-FLAGS' C1 notes. Not B-PYRAMID-2b's files; `KobinEngine.js`,
+`Stage.js`, `erasePipeline.js` re-read before any edit. Dev servers on 3030–3039 only; scratch `scratchpad/r-model/`.
+**Measured:** nothing yet (load 0.26 at start).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: reading the brief's list (DESIGN §8/§13, A1 §4.4/§14, the code).
