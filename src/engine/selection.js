@@ -755,8 +755,8 @@ class Selection {
             const addrChanged = to.parent !== w.parent || to.i !== w.i || to.j !== w.j;
             const shiftChanged = !sameShift(f.shift, e.shiftAfter);
             // A shift alone moves the frame's picture too: the caches drop its footprint as for a re-address.
-            if (addrChanged || shiftChanged) this.doc.noteRefile(t.id, w, { ...to, shift: shiftChanged ? e.shiftAfter : f.shift });
             if (shiftChanged) this.doc.setFrameShift(t.id, e.shiftAfter);
+            if (addrChanged || shiftChanged) this.doc.noteRefile(t.id, w, { ...to, shift: f.shift });
             e.to = to;
             if (addrChanged || shiftChanged) moved = true;
         }

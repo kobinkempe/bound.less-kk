@@ -268,6 +268,25 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
                 drag(E, p, dx, dy, 2);
             });
         }],
+        ["deepDrag", 2, () => {
+            // A native homed under the camera moved on its own: its rest enters its home-level table, up
+            // to half a frame, which a later subtree drag's shift can carry past the cell edge.
+            const cands = [];
+            for (const k of O.doc.levels()) {
+                if (!(O.lm.depthOf(k) > O.cam.activeLevel) || !N.lm.frame(k)) continue;
+                for (const o of O.doc.list(k)) if (!o.erase && N.doc.getById(o.id)) cands.push(o.id);
+            }
+            if (!cands.length) return;
+            cands.sort((a, b) => a - b);
+            const id = pick(cands), dx = ri(-300, 300), dy = ri(-200, 200);
+            both((E) => {
+                E._setSelection([id]);
+                E._dragSel = { start: [w / 2, h / 2], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
+                E.store.setBatch(true);
+                E._dragSelection(w / 2 + dx, h / 2 + dy);
+                E.pointerUp();
+            });
+        }],
         ["delete", 1, () => { both((E) => { if (E.selection) E.deleteSelection(); }); }],
         ["undo", 3, () => { const k = ri(1, 4); both((E) => { for (let i = 0; i < k; i++) E.undo(); E.flushBakes(); }); }],
         ["redo", 2, () => { const k = ri(1, 3); both((E) => { for (let i = 0; i < k; i++) E.redo(); E.flushBakes(); }); }],
