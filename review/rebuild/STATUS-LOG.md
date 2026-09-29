@@ -2015,3 +2015,23 @@ each small edit: `KobinEngine.js`, `erasePipeline.js`. Not `RasterRenderer.js` o
 deletes them with the inheritance; the anchor helpers move to one module both the ink path and the live layer import.
 **Questions asked:** none.
 WHERE I AM: writing `raster/svgAnchors.js`, `SvgLayer.js`, `LiveStrokeLayer.js`, `svgOverlay.js`; then `Renderer` on them.
+
+## 2026-09-29 15:27 UTC — B-PYRAMID-3 (builder) — item 1 checkpoint: SvgLayer, LiveStrokeLayer, the shared overlays, Renderer on the Stage
+**Working on:** built: `raster/svgAnchors.js` (the anchor helpers, moved), `raster/SvgLayer.js` (the Two.js instance),
+`raster/LiveStrokeLayer.js` (begin/arcs/hold/release/cancel; its group is in `world` only while it holds a path),
+`raster/svgOverlay.js` (lasso, tile/erase debug as `SvgOverlays`; the indicator's layers, style, chevrons, SVG ants);
+`Renderer` composes them; the engine's `_render` draws `stage.items()` on both paths (`framesLeft` and `_lastRange`
+moved out of `_buildList`, which has no production caller now: deleted with `listFor` at item 4). `RasterRenderer`
+untouched: `Renderer` keeps `_live*` accessors, `_mkSelLayer`/`_renderSelChevrons`/`_ensureSelStyle` forwards and the
+drag seams for it until item 4. Tests: `Renderer.liveChunk` → `raster/LiveStrokeLayer.test.js` (LS-1..5); four suites
+moved to the new names; `KobinEngine.edit` reads the item's geometry (`stage.placed(o).geom`).
+**Measured (headless Chromium, load 2.7–4.4; frozen copies: cbca128 :3020, cbca128 + my files :3021):** `?svg` round
+trip (`scratchpad/bp3/svgtrip.js`: 3 strokes, a translucent live stroke mid-gesture, 40 ticks out and back, a lasso,
+its ants, a drag, an erase, its bake): after vs before 0 differing px in all 9 states; two runs of one tree differ by up
+to 59,959 px (127→126 on translucent ink) or 16 UI-edge px, so each pair was compared against a second run. Raster
+round trip (the harness): canvas ink hash identical at all 4 states, screenshots 23 UI-edge px apart (run noise).
+jsdom: 13 suites 344 pass; `raster.pyramid` 2 fail on a copy without my change too (the reviewer's in-flight tests).
+Typecheck 0; lint 0 errors (6 warnings); worker bundles' md5 unchanged.
+**Decisions made:** the live group leaves `world` when empty (an eager empty `<g>` measured 34 px on the first pair).
+**Questions asked:** none.
+WHERE I AM: the quick suite running on the frozen after copy; next, item 2's mask rule in `Renderer.render`.
