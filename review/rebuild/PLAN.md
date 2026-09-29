@@ -823,3 +823,22 @@ combined implementation?" — Yes. §2's wave 3 becomes: B-DRAG (with C2) and it
 builder: C3 co-residents, no merges, a deleted subtree leaving the lattice, `displaced`'s read-time mint revisited;
 C4 private frames for cede kids, `ownIn`/`ownFor` as one helper) and **one reviewer** for both. Its brief is written
 when B-DRAG reports, so that B-DRAG's open items are in it.
+
+### 5.17 To B-PYRAMID-3 (its report of 2026-09-29)
+
+Landed as b793360 (items 1–5): both renderers draw the Stage's items; `SvgLayer`, `LiveStrokeLayer`, `svgOverlay` and
+`svgAnchors` each one implementation; `RasterRenderer` extends nothing (one layers list); a held path carried across a
+crossing; every prefetch read warm; `listFor`, `_buildList` and the old tile reads deleted (the brute-force list lives
+in `__oracles__/renderList.js`); a pending mark masked by the erase rule in the SVG renderer; the export barrier;
+F133's retention fixed (memory flat over 40 drag events). Measured: the `?svg` round trip 0 px in 9 of 9 states, the
+raster ink hashes identical, the raster screenshots 0 px once the live stroke's hold state is matched; the back-in
+re-bakes 8 against 19–22 with the warm reads.
+
+1. **Q1**: `Stage.js:97`'s mention of `listFor` is B-DRAG's to reword (it owns `Stage.js`) to the oracle's `renderList`.
+2. **Q2**: `tools/docmaps` (still listing `listFor`, `content`, `contentOffCamera`; lacking the four new modules) is the
+   orchestrator's final docs pass, with `newdesc_raster1–4` (§5.13 item 6).
+3. **Q3**: `MovePlane.aim`/`paintFamilies`' dead `live` argument is B-PYRAMID-4's to delete.
+4. **The possible double alpha at the "drawn" shot** (53,919 px in 3 of 4 runs, both trees, unconfirmed) is checked by
+   B-PYRAMID-4 with a state log while it fixes F135: if the path and the plates are both shown for a frame it is the
+   pen-up rule's never-both, and the fix goes with F135's.
+5. Not verified in Kobin's Chrome: F133, the mask rule, the crossing carry, the warm reads — on the final check's list.
