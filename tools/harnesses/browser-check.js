@@ -227,6 +227,7 @@ function probeRead() {
         posts: R ? { posts: R.posts, postedPlates: R.postedPlates, liveHandoffs: R.liveHandoffs, liveTimeouts: R.liveTimeouts, syncFrames: R.syncFrames } : null,
         cam: { frame: E.cam.frame, inScale: E.cam.inScale, level: E.cam.activeLevel },
         mode: L ? L.mode : "svg",
+        natives: (() => { let n = 0; for (const lv of E.doc.levels()) n += E.doc.list(lv).length; return n; })(),   // a lost document shows here
     };
 }
 
@@ -293,7 +294,7 @@ function delta(a, b) {
         plates: b.plates, jobs: b.jobs && a.jobs ? { jobs: b.jobs.jobs - a.jobs.jobs, plates: b.jobs.plates - a.jobs.plates, queued: b.jobs.queued, inFlight: b.jobs.inFlight, mode: b.jobs.mode, workers: b.jobs.workers } : null,
         posts: b.posts && a.posts ? { posts: b.posts.posts - a.posts.posts, postedPlates: b.posts.postedPlates - a.posts.postedPlates,
             liveHandoffs: b.posts.liveHandoffs - a.posts.liveHandoffs, liveTimeouts: b.posts.liveTimeouts - a.posts.liveTimeouts, syncFrames: b.posts.syncFrames - a.posts.syncFrames } : null,
-        cam: b.cam, mode: b.mode,
+        cam: b.cam, mode: b.mode, natives: b.natives,
     };
 }
 
@@ -305,14 +306,24 @@ async function densePage(browser) {
     const snap = synth({ seed: SEED, w: VIEW.width, h: VIEW.height });
     const stats = snap.stats;
     delete snap.stats;
-    const load = await page.evaluate((s) => {
-        const E = window.__kobinEngine, a = performance.now();
-        E.loadSnapshot(s);
-        const b = performance.now();
-        E.flushBakes();
-        const unframed = Object.keys(s.natives).filter((k) => !E.lm.frame(k));   // natives the lattice cannot draw
-        return { loadMs: Math.round(b - a), bakeMs: Math.round(performance.now() - b), frames: E.lm.frames.size, unframed };
-    }, snap);
+    // The new canvas's own store load can land after ours and empty the document (the B-ERASE review's finding): loaded
+    // again, a few times, until the document holds the drawing; its natives are printed with the setup.
+    const natives = () => page.evaluate(() => { const E = window.__kobinEngine; let n = 0; for (const L of E.doc.levels()) n += E.doc.list(L).length; return n; });
+    let load = null, tries = 0;
+    for (; tries < 5; tries++) {
+        load = await page.evaluate((s) => {
+            const E = window.__kobinEngine, a = performance.now();
+            E.loadSnapshot(s);
+            const b = performance.now();
+            E.flushBakes();
+            const unframed = Object.keys(s.natives).filter((k) => !E.lm.frame(k));   // natives the lattice cannot draw
+            return { loadMs: Math.round(b - a), bakeMs: Math.round(performance.now() - b), frames: E.lm.frames.size, unframed };
+        }, snap);
+        await sleep(1500);
+        if (await natives() >= stats.objects * 0.9) break;
+    }
+    load.natives = await natives();
+    load.loadTries = tries + 1;
     // The stack's mark resumes its bake on load: waited for (deadline 60 s) so no scenario times it.
     const tm = Date.now();
     let marks = -1;

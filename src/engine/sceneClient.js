@@ -10,10 +10,13 @@
  */
 import { SceneIndex, CHUNK, MAX_CHUNKS, REACH } from "./sceneIndex";
 import { segmentTerm, loopsBBox } from "./geometry/arcShape";
-import { residual } from "./geometry/offsets";
+import { homeTranslation } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { openSceneWorker } from "./sceneWorkerClient";
 import { rasterWorkerReport } from "./raster/rasterWorkerClient";
+
+// An item carries its OWN table's translation: the index adds its frame's shift itself (`sceneIndex`, `+ f.sx`).
+const ownT = (o) => homeTranslation(o.below);
 
 const SLICE_MS = 8;
 const MAX_WAIT_MS = 3000;
@@ -309,7 +312,7 @@ export class SceneClient {
         const boxes = [];
         const raw = eg.raw;
         for (let i = 0; i < raw.length; i += 5) {
-            const r = this.lm.mapRectObj({ left: raw[i], top: raw[i + 1], right: raw[i + 2], bottom: raw[i + 3] }, mark.level, HO, host.obj.below, HO, true);
+            const r = this.lm.mapRectObj({ left: raw[i], top: raw[i + 1], right: raw[i + 2], bottom: raw[i + 3] }, mark.level, HO, this.doc.tableOf(host.obj, HO), HO, true);
             if (!r || r.left - box.x1 > reach || box.x0 - r.right > reach || r.top - box.y1 > reach || box.y0 - r.bottom > reach) continue;
             boxes.push(r.left, r.top, r.right, r.bottom, raw[i + 4] * f);
         }
@@ -346,9 +349,9 @@ export class SceneClient {
                 if (to && to.depth === fp.depth) fp.home = String(h.level);
             }
             if (!fp.off && (!h || String(h.level) !== fp.home)) {
-                const t0 = h ? residual(h.obj.below, 0) : null;
+                const t0 = h ? ownT(h.obj) : null;
                 const heir = this.doc.editGroup(fp.key).find((r) => String(r.level) === fp.home && !r.obj.erase
-                    && String(residual(r.obj.below, 0)) === String(t0 || fp.t || null));
+                    && String(ownT(r.obj)) === String(t0 || fp.t || null));
                 if (heir) { fp.host = heir.obj.id; h = heir; } else h = null;
             }
             if (!h || !fp.boxes.length) {
@@ -356,7 +359,7 @@ export class SceneClient {
                 if (!fp.off && !h) this.foot.delete(fp.id);
                 continue;
             }
-            const t = residual(h.obj.below, 0);
+            const t = ownT(h.obj);
             fp.t = t ? [t[0], t[1]] : null;
             const tx = t ? t[0] : 0, ty = t ? t[1] : 0;
             if (!fp.raw) fp.raw = Float64Array.from(fp.boxes);
@@ -511,7 +514,7 @@ export class SceneClient {
                 if (s !== undefined) { st.items.push({ id, gone: true }); this.sent.delete(id); this.recFree.push(s); }
                 this.hints.delete(id);
             } else {
-                const t = residual(o.below, 0);
+                const t = ownT(o);
                 const tx = t ? t[0] : 0, ty = t ? t[1] : 0, home = o._home, ho = this._homeIx(home);
                 const w = g ? g.w : this.recW[s];
                 if (fresh || this.recW[s] !== w || this.recHO[s] !== ho || this.recTX[s] !== tx || this.recTY[s] !== ty) {

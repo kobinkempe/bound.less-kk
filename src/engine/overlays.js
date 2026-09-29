@@ -606,7 +606,8 @@ class Overlays {
                 if (spans) { cross.add(m.obj.id); continue; }
                 const b = bboxOf(m.obj, this.store.live);
                 if (!b) continue;
-                const key = m.obj.below ? JSON.stringify(m.obj.below) : "";
+                const T = this.doc.tableOf(m.obj, m.level);
+                const key = T ? JSON.stringify(T) : "";
                 const bx = e.boxes.get(key);
                 if (!bx) { e.boxes.set(key, { nat: m.obj, box: { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } }); continue; }
                 if (b.x0 < bx.box.x0) bx.box.x0 = b.x0;
@@ -615,15 +616,18 @@ class Overlays {
                 if (b.y1 > bx.box.y1) bx.box.y1 = b.y1;
             }
         }
-        // A selected frame: one box, its own cell in its own units; its natives are never read.
+        // A selected frame: one box, its own cell in its own units united with that cell moved by its
+        // shift, where its own natives are drawn (A1 C1); its natives are never read.
         const frames = new Set();
         for (const f of s.frames || []) {
-            if (!this.lm.frame(f)) continue;
+            const fr = this.lm.frame(f);
+            if (!fr) continue;
             frames.add(f);
             let e = byLevel.get(f);
             if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(f, e); }
             e.frame = true;
-            e.boxes.set("frame:" + f, { nat: null, box: { x0: -HALF_W, y0: -HALF_W, x1: HALF_W, y1: HALF_W } });
+            const sx = fr.shift ? fr.shift[0] : 0, sy = fr.shift ? fr.shift[1] : 0;
+            e.boxes.set("frame:" + f, { nat: null, box: { x0: -HALF_W + Math.min(0, sx), y0: -HALF_W + Math.min(0, sy), x1: HALF_W + Math.max(0, sx), y1: HALF_W + Math.max(0, sy) } });
         }
         const table = { byLevel, ids, levelOf, cross, frames, count: seen.size + frames.size };
         this._selTableCache = { sel: s, rev: this.doc.rev, table };

@@ -672,9 +672,9 @@ export default class Stage {
 
     // ---- footprints (A2 §2.5, §2.8) ----
 
-    /** A native's state as a footprint: its home, its table, its drawn box in its home's units. */
+    /** A native's state as a footprint: its home, its picture table (`model.table`), its drawn box in its home's units. */
     _stateOf(o, home, rect = null) {
-        return { home: String(home), below: o.below, rect: rect || drawnBox(o, this.store.live) };
+        return { home: String(home), below: this.model.table(o.below, home), rect: rect || drawnBox(o, this.store.live) };
     }
 
     /** A frame's reach at an address (or its own, `addr` null), and optionally everything under `under`. */
@@ -707,7 +707,7 @@ export default class Stage {
         const clip = step ? step.clip : null;
         const with_ = (s) => (clip ? { ...s, clip } : s);
         if (step && step.dust && ev.obj) {
-            for (const d of step.dust) this._foot.push({ home: String(ev.level), below: ev.obj.below, rect: { left: d[0], top: d[1], right: d[2], bottom: d[3] } });
+            for (const d of step.dust) this._foot.push({ home: String(ev.level), below: this.model.table(ev.obj.below, ev.level), rect: { left: d[0], top: d[1], right: d[2], bottom: d[3] } });
         }
         if (k === "refile") {
             for (const a of [ev.from, ev.to]) { if (!a || a.parent == null) continue; const s = this._frameState(ev.frame, a); if (s) this._foot.push(s); }
@@ -739,7 +739,7 @@ export default class Stage {
         } else if (k === "change") {
             if (ev.settle) return;
             const now = this._stateOf(o, ev.level);
-            if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: ev.oldBelow }); this._after(ev.id, now); return; }
+            if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: this.model.table(ev.oldBelow, ev.level) }); this._after(ev.id, now); return; }
             if (ev.attrOnly) { this._after(ev.id, with_(now)); return; }
             if (ev.oldBbox) {
                 const b = ev.oldBbox, h = o.type === "fill" ? 0 : Math.max(ev.oldLw || 0, o.lwFrame || 0) / 2;
@@ -1041,9 +1041,9 @@ export default class Stage {
         if (this._hold && this._hold.ids.has(id)) return;
         const rec = this.doc.getById(id);
         const nat = rec ? rec.obj : null;
-        // Its own item: a native homed in the camera's frame is drawn live.
+        // Its own item: a native the model draws live in the camera's frame (A1 C1: its home, or where its picture carried).
         const own = this._own.get(id);
-        if (nat && rec.level === this.frame) {
+        if (nat && this.model.drawnLive(nat, this.frame)) {
             if (!own || own.piece !== nat) { if (own) this._removeItem(own); this._setOwn(nat); }
         } else if (own) this._removeItem(own);
         // Its group.

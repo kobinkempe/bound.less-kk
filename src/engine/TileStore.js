@@ -293,18 +293,14 @@ export default class TileStore {
     /** A new ladder is being read: the last one's warm tiles go back to the ordinary rules. */
     clearWarm() { this._warm.clear(); }
     /**
-     * THE TILES ARE IN UNMOVED SPACE; A MOVED OBJECT IS READ FROM WHERE ITS
-     * PICTURE IS (F55, geometry/offsets.js). Every tile in this cache is a pure
-     * function of stored bits and the object's own grid, and a move touches
-     * neither — so a drag invalidates nothing here at all. What a move changes
-     * is WHICH tiles hold the pieces drawn in frame F: for an object with a
-     * displacement table, F's own tiles hold its unmoved picture, which is not
-     * what is drawn, and the pieces that are drawn sit in the tiles of the
-     * frame its cell digits point back to (`LevelMap.objShift`), over the
-     * window shifted back by the remainder, and are painted translated by that
-     * remainder (`piece.res`, stamped in `KobinEngine._buildList`). Above the
-     * object's home the shift is sub-cell and F's own down pieces are right as
-     * they are, drawn by the residual, as F41 always did.
+     * THE TILES ARE IN UNMOVED SPACE; A MOVED OBJECT IS READ FROM WHERE ITS PICTURE IS (F55, A1 C1).
+     * Every tile is a pure function of stored bits and the object's own grid, and a move touches
+     * neither. What a move changes is WHICH tiles hold the pieces drawn in frame F: a native whose
+     * picture table (`Document.tableOf`: its own table with its frame's shift) is not zero is read
+     * from the tiles of the frame its whole frames point back to (`LevelMap.objShift`), over the
+     * window shifted back by the remainder, and painted translated by it — above its home too, where
+     * the remainder can reach a cell. A group whose F0 is its members' home draws them live
+     * (`placementModel.nativesIn`): none of their pieces are read.
      */
     _reroute(F, win, out, pins) {
         const { moved, groups } = this._rerouteGroups(F);
@@ -329,14 +325,15 @@ export default class TileStore {
     }
 
     /**
-     * The moved objects GROUPED by the frame and remainder their pieces are read from at F, so
-     * each tile is scanned once a group and not once an object. Memoised on F, the document's
-     * `offRev` (its tables and their homes; `rev` re-walked 19.7k tables every render, E-3), the
-     * lattice's `addrEpoch` and its frame count — everything `objShift` reads: the
-     * walk over every object with a table was 70 of a 113–140 ms list build on the Magnum Opus
-     * (16,889 tables, jsdom, PAPER-PLAN §10). A key that moved during the walk is not kept. One
-     * entry a frame, the last four: the ladder and the crossing prebake read other frames between
-     * two camera renders, and one entry made the camera pay the whole scan again (review minor 7).
+     * Every native drawn away from its stored bits as seen from F, GROUPED by the frame and remainder
+     * its pieces are read from (`{F0, rem, ids}`), so each tile is scanned once a group: the natives
+     * with a table of their own, one placement each, and a shifted frame's natives without one, one
+     * placement for the frame (membership by home). A native of F itself whose picture has not left F
+     * is drawn live and in no group. Memoised on F, the document's `offRev` (tables, shifts, homes in
+     * shifted frames), the lattice's `addrEpoch` and its frame count: the walk over every object with
+     * a table was 70 of a 113–140 ms list build on the Magnum Opus (16,889 tables, PAPER-PLAN §10). A
+     * key that moved during the walk is not kept. One entry a frame, the last four: the ladder and the
+     * crossing prebake read other frames between two camera renders (review minor 7).
      */
     _rerouteGroups(F) {
         const memo = this._rrMemo || (this._rrMemo = new Map());
@@ -345,64 +342,51 @@ export default class TileStore {
         const key = () => F + "|" + this.doc.offRev + "|" + lat();
         const k0 = key();
         if (m && m.key === k0) { this._rrHits = (this._rrHits || 0) + 1; return m; }
-        const D = this._depth(F);
-        const place = (out, id) => {
-            const rec = this.doc.getById(id);
-            if (!rec || rec.level === F) return;            // its own frame: a native, rendered live
-            if (D < this._depth(rec.level)) return;         // above the home: the residual draws it
-            const s = this.lm.objShift(rec.obj.below, rec.level, F);
-            if (!s) return;
+        // `live`: natives of another frame whose picture carried into F, drawn live here (F0 is their home).
+        const put = (out, id, home, s) => {
+            if (!s || (home === F && s.F0 === F)) return;
             out.moved.add(id);
+            if (s.F0 === home) out.live.add(id);
             const k = s.F0 + "|" + s.rem[0] + "|" + s.rem[1];
             let g = out.groups.get(k);
             if (!g) out.groups.set(k, (g = { F0: s.F0, rem: s.rem, ids: new Set() }));
             g.ids.add(id);
             out.gk.set(id, k);
         };
+        const unput = (out, id) => {
+            const k = out.gk.get(id);
+            if (k === undefined) return;
+            const g = out.groups.get(k);
+            g.ids.delete(id);
+            if (!g.ids.size) out.groups.delete(k);
+            out.moved.delete(id); out.gk.delete(id); out.live.delete(id);
+        };
+        const place = (out, id) => {
+            const rec = this.doc.getById(id);
+            if (!rec) return;
+            const T = this.doc.tableOf(rec.obj, rec.level);
+            if (T) put(out, id, rec.level, this.lm.objShift(T, rec.level, F));
+        };
         // The lattice as it was: only the objects whose tables or homes moved since are placed again.
         const since = m && m.lat === lat() ? this.doc.offTouchedSince(m.rev) : null;
         let out;
         if (since && since.size < this.doc.offsetIds().size / 2) {
             out = m;
-            for (const id of since) {
-                const k = out.gk.get(id);
-                if (k !== undefined) {
-                    const g = out.groups.get(k);
-                    g.ids.delete(id);
-                    if (!g.ids.size) out.groups.delete(k);
-                    out.moved.delete(id); out.gk.delete(id);
-                }
-                if (this.doc.offsetIds().has(id)) place(out, id);
-            }
+            for (const id of since) { unput(out, id); place(out, id); }
             this._rrPatches = (this._rrPatches || 0) + 1;
         } else {
-            out = { moved: new Set(), groups: new Map(), gk: new Map() };
-            for (const id of this.doc.offsetIds()) place(out, id);
+            out = { moved: new Set(), groups: new Map(), gk: new Map(), live: new Set() };
+            const shared = new Map();                      // a shifted frame's table -> its one placement
+            for (const [o, home, T] of this.doc.displacedNatives()) {
+                let sh = shared.get(T);
+                if (sh === undefined) { sh = this.lm.objShift(T, home, F); if (!o.below) shared.set(T, sh); }
+                put(out, o.id, home, sh);
+            }
         }
         out.key = k0; out.rev = this.doc.offRev; out.lat = lat();
         memo.delete(F);
         if (key() === k0) { memo.set(F, out); if (memo.size > 4) memo.delete(memo.keys().next().value); }
         return out;
-    }
-
-    // The active frame's own natives, which render live (curved) outside the tile
-    // cache. This is a plain read now, and that is the whole point of cutting the
-    // ceded tile out of the parent instead of recording a window over it.
-    //
-    // It used to re-derive: a parent that had ceded a window still held whole
-    // geometry, so its hole existed only as a rect and had to be subtracted per
-    // view, every render, by polygonizing the band and clipping it to the tile
-    // minus the window. Two defects came straight out of that. The result was
-    // cached against the view, and the fast zoom path skips `_render`, so an
-    // in-level zoom left the cache describing a window 15.8x13.1 px wide while
-    // the object on screen was 3018x1608 px — a stale picture until something
-    // forced a redraw. And when it did rebuild, it cost 232–386 ms per render
-    // with six to nine objects on screen. Neither can recur: a cut parent's
-    // stored rings ARE the rings to paint, at every view.
-    ownContent(F) {
-        const cf = this.lm.frameFor(F);
-        if (!cf) return [];
-        return this.doc.at(cf.id);
     }
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----

@@ -13,7 +13,8 @@
  * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
  * `KobinEngine.js` on 2026-08-31.
  */
-import { R as CROSS_RATIO, W as FRAME_W, REACH } from "./frameLattice";
+import { R as CROSS_RATIO, W as FRAME_W } from "./frameLattice";
+import { reachBox } from "./placementModel";
 import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
@@ -351,8 +352,7 @@ class Selection {
         // per-object rect still goes through `mapRectF` hop by hop.
         const visit = (id, s, tx, ty, skip) => {
             if (!inked.has(id)) return;                                       // nothing under it to select
-            const own = { left: -REACH * s + tx, top: -REACH * s + ty,
-                right: REACH * s + tx, bottom: REACH * s + ty };
+            const own = reachBox(this.lm.frame(id), s, tx, ty);
             if (own.right < box.left || own.left > box.right
                 || own.bottom < box.top || own.top > box.bottom) return;      // out of reach
             if (!noWhole.has(id) && rectInsidePolygon(poly, own)) { takeAll(id); return; }   // enclosed
@@ -380,10 +380,11 @@ class Selection {
             found.length = 0; frames.length = 0;
             if (this._ufMemo) this._ufMemo.delete(frames);   // refilled in place: `_underFrames`' memo keys on the array
             this._lassoWalk(visit);
-            this._lassoMoved(poly, box, ink, found, frames);
+            const away = this._lassoMoved(poly, box, ink, found, frames);
             const torn = frames.length ? this._tornUnder(frames, found) : null;
-            if (!torn || !torn.size) break;
-            for (const f of torn) noWhole.add(f);
+            if ((!torn || !torn.size) && !away.size) break;
+            for (const f of torn || []) noWhole.add(f);
+            for (const f of away) noWhole.add(f);
         }
         // A RE-HOMED FAMILY IS ONE OBJECT, and "fully bounded by the loop" is
         // asked of the whole of it: a loop around a ceded tile alone has not
@@ -461,27 +462,37 @@ class Selection {
         return torn;
     }
     /**
-     * A MOVED OBJECT OR A CEDED KID IS INDEXED AT ITS STORED BITS and drawn elsewhere
-     * (F41/F55), so the frames' indexes never see its picture — a loop around
-     * moved ink selected nothing (F69, Kobin's report 21-23-56). Every object with a
-     * table, judged where it is drawn.
+     * A MOVED NATIVE IS INDEXED AT ITS STORED BITS and drawn elsewhere (F41/F55, A1 C1), so the
+     * frames' indexes never see its picture — a loop around moved ink selected nothing (F69). Every
+     * displaced native judged where it is drawn. Under an enclosed frame the union box covers what its
+     * frame's shift displaces; one with a table of its own drawn outside the loop makes the frames
+     * from its home up to the enclosed one not whole (H6), returned for the next pass.
      */
     _lassoMoved(poly, box, ink, found, frames) {
-        if (this.doc.hasOffsets()) {
-            const have = new Set(found);
-            const F = this.cam.frame;
-            for (const id of this.doc.offsetIds()) {
-                if (have.has(id)) continue;
-                const rec = this.doc.getById(id);
-                if (!rec || rec.obj.erase || this.lm.frameFactor(rec.level, F) == null) continue;
-                if (frames.length && this._underFrames(rec.level, frames)) continue;   // its frame is already one entry
-                const r = this._rectInActive(rec.obj);
-                if (!r) continue;
-                if (rectInsidePolygon(poly, r)) { found.push(id); continue; }
-                if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
-                if (this._inkInsidePolygon(rec.obj, rec.level, ink)) found.push(id);
+        const away = new Set();
+        if (!this.doc.hasOffsets()) return away;
+        const have = new Set(found);
+        const F = this.cam.frame;
+        const inside = (o, home) => {
+            const r = this._rectInActive(o);
+            if (!r) return null;
+            if (rectInsidePolygon(poly, r)) return true;
+            if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) return false;
+            return this._inkInsidePolygon(o, home, ink);
+        };
+        for (const [o, home] of this.doc.displacedNatives()) {
+            if (have.has(o.id) || o.erase || this.lm.frameFactor(home, F) == null) continue;
+            if (frames.length && this._underFrames(home, frames)) {
+                if (!this.doc.hasOwnTable(o) || inside(o, home) !== false) continue;   // its frame is one entry
+                for (let f = this.lm.frame(home); f; f = f.parent != null ? this.lm.frame(f.parent) : null) {
+                    away.add(f.id);
+                    if (frames.includes(f.id)) break;
+                }
+                continue;
             }
+            if (inside(o, home)) found.push(o.id);
         }
+        return away;
     }
     /**
      * Is this object's INK wholly inside the loop? The outline is flattened at
@@ -768,7 +779,7 @@ class Selection {
             if (e.settled && !sameShift(e.shiftAfter, [e.settled.dx, e.settled.dy])) { this.doc.unsettle(e.id, e.settled); e.settled = null; }
             apply.push(t);
         }
-        const was = new Map(apply.map((t) => { const f = this.lm.frame(t.id); return [t.id, { parent: f.parent, i: f.cell.i, j: f.cell.j }]; }));
+        const was = new Map(apply.map((t) => { const f = this.lm.frame(t.id); return [t.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift }]; }));
         const r = this.lm.readdressMany(apply, { empty: (id) => this.doc.count(id) === 0 });
         let moved = false;
         for (const t of apply) {
@@ -779,7 +790,7 @@ class Selection {
             const addrChanged = to.parent !== w.parent || to.i !== w.i || to.j !== w.j;
             const shiftChanged = !e.settled && !sameShift(f.shift, e.shiftAfter);
             // A shift alone moves the frame's picture too: the caches drop its footprint as for a re-address.
-            if (addrChanged || shiftChanged) this.doc.noteRefile(t.id, w, to);
+            if (addrChanged || shiftChanged) this.doc.noteRefile(t.id, w, { ...to, shift: shiftChanged ? e.shiftAfter : f.shift });
             if (shiftChanged) this.doc.setFrameShift(t.id, e.shiftAfter);
             this.doc.noteFrameOwner(t.id, e);
             e.to = to;
@@ -796,11 +807,11 @@ class Selection {
             const f = this.lm.frame(e.id);
             if (!f) continue;
             if (f.parent === e.from.parent && f.cell.i === e.from.i && f.cell.j === e.from.j) continue;
-            was.set(e.id, { parent: f.parent, i: f.cell.i, j: f.cell.j });
+            was.set(e.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift });
             back.push({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j });
         }
         this.lm.readdressMany(back, { empty: (id) => this.doc.count(id) === 0 });
-        for (const t of back) { const f = this.lm.frame(t.id); this.doc.noteRefile(t.id, was.get(t.id), { parent: f.parent, i: f.cell.i, j: f.cell.j }); }
+        for (const t of back) { const f = this.lm.frame(t.id); this.doc.noteRefile(t.id, was.get(t.id), { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: d.frames.get(t.id).shiftBefore }); }
         for (const e of d.frames.values()) { this.doc.setFrameShift(e.id, e.shiftBefore); this.doc.noteFrameOwner(e.id, null); }
         this.doc.holdMerges = false;
     }

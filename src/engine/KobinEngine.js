@@ -46,7 +46,7 @@ import { pictureStats } from "./raster/PictureLayer";
 import { EST_DEFAULTS } from "./raster/PicturePyramid";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
-import { residual, encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
+import { encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
 import { strokeOutline } from "./geometry/clipperBoolean";
 import { validateScaleDef } from "./scaleBar";
 import { EventLatency, FrameMeter, GrowthLog, LongFrames } from "./instruments";
@@ -629,22 +629,16 @@ export default class KobinEngine {
         const F = cf.id;
         const derived = forCamera ? this.store.content(F, rect) : this.store.contentOffCamera(F, rect, budgetMs);
         if (!derived) return null;                   // off camera, past `budgetMs`: not built
-        const own = this.store.ownContent(F);
-        const list = derived.concat(own);
+        const model = this.stage.model;
+        const list = derived.concat(model.nativesIn(F));
         // Renderer grouping follows logical edit ownership for re-homed
         // boundary patches. That lets parent/patch overlap close AA seams while
         // applying transparent opacity only once to the family.
         //
-        // THE RESIDUAL (F41, geometry/offsets.js). A piece of an object that
-        // carries offsets at levels DEEPER than this one is drawn translated by
-        // their sum, scaled up to here — a translation this level's own
-        // coordinates cannot hold, applied at paint and never stored, so
-        // nothing deeper derives from it. Stamped on the piece as `res` so
-        // every reader of the render list — the renderer, the hit test, the
-        // selection indicator, the test oracles — sees the same picture.
+        // THE RESIDUAL (F41, A1 C1): every piece is painted translated by its native's remainder seen
+        // from F (`placementModel.placement`), never stored, so nothing derives from it; stamped as
+        // `res` so every reader of the list sees the same picture.
         const hasOff = this.doc.hasOffsets();
-        const d = this.lm.depthOf(F);
-        const D = d == null ? 0 : d;
         const resById = hasOff ? new Map() : null;
         for (const o of list) {
             const rec = this.doc.getById(o.id);
@@ -654,9 +648,9 @@ export default class KobinEngine {
             // is drawn after it).
             if (rec && rec.obj.erase && o !== rec.obj) { o.erase = true; if (rec.obj.z != null) o.z = rec.obj.z; }
             let res = null;
-            if (hasOff && rec && rec.obj.below) {
+            if (hasOff && rec) {
                 res = resById.get(o.id);
-                if (res === undefined) { res = residual(rec.obj.below, D - this.lm.depthOf(rec.level)); resById.set(o.id, res); }
+                if (res === undefined) { const pl = model.placement(rec.obj, F); res = pl && (pl.rem[0] || pl.rem[1]) ? pl.rem : null; resById.set(o.id, res); }
             }
             if (res) o.res = res; else if (o.res) delete o.res;
         }

@@ -45,7 +45,7 @@ import {
     repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset, sameShift } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, addOffset, sameShift, composeShift } from "./geometry/offsets";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
 import { cede } from "./cede";
@@ -280,8 +280,51 @@ export default class Document {
         if (hasOffsets(o.below)) this._offsetIds.add(o.id);
         else { if (o.below !== undefined) delete o.below; this._offsetIds.delete(o.id); }
     }
-    /** Does any native carry an offset below its home? */
-    hasOffsets() { return this._offsetIds.size > 0; }
+    /** Is any native drawn away from its stored bits: a table of its own, or a frame with a shift (A1 C1)? */
+    hasOffsets() {
+        if (this._offsetIds.size > 0) return true;
+        if (!this.lm) return false;
+        const key = this.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size;
+        if (this._shiftKey !== key) {
+            this._shiftKey = key;
+            this._anyShift = false;
+            for (const f of this.lm.frames.values()) if (f.shift && this.nativesByLevel[f.id]) { this._anyShift = true; break; }
+        }
+        return this._anyShift;
+    }
+    /**
+     * Native `o`'s picture table (A1 C1): its own table with its home frame's shift added at k = 0,
+     * no carry (`composeShift`). Every reader of where a native is drawn composes here; `home`
+     * defaults to its own.
+     */
+    tableOf(o, home = o._home) {
+        const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
+        return composeShift(o.below, f ? f.shift : null);
+    }
+    /**
+     * Every live native drawn away from its stored bits, as `[obj, home, table]` (its picture table):
+     * the ones with a table of their own, then each shifted frame's others, which share one table
+     * array per frame (a reader may key a placement on it).
+     */
+    *displacedNatives() {
+        for (const id of this._offsetIds) {
+            const rec = this.getById(id);
+            if (!rec) continue;
+            const T = this.tableOf(rec.obj, rec.level);
+            if (T) yield [rec.obj, rec.level, T];
+        }
+        if (!this.lm) return;
+        for (const f of this.lm.frames.values()) {
+            const list = f.shift && !this._detached.has(f.id) ? this.nativesByLevel[f.id] : null;
+            if (!list) continue;
+            const T = [f.shift];
+            for (const o of list) if (!this._offsetIds.has(o.id) && !o._gone) yield [o, f.id, T];
+        }
+    }
+    /** Does native `o` carry a table of its own (not only its frame's shift)? */
+    hasOwnTable(o) { return this._offsetIds.has(o.id); }
+    /** Does frame `k` carry a shift (its natives are drawn displaced by it)? */
+    _shifted(k) { const f = this.lm && k != null ? this.lm.frame(String(k)) : null; return !!(f && f.shift); }
     /** The ids that do. */
     offsetIds() { return this._offsetIds; }
 
@@ -292,9 +335,11 @@ export default class Document {
     _emit(ev) {
         if (!(ev && ev.offsetsOnly)) this._groups = null;
         this.rev++;
-        // An event about an object with no table (added, edited, re-homed, its z) leaves every
-        // table and every offset object's home as it was; anything else may not.
-        if (!(ev && ev.obj && !ev.offsetsOnly && ev.obj.below === undefined && !this._offsetIds.has(ev.id))) {
+        // An event about an object with no table (added, edited, re-homed, its z) outside a shifted
+        // frame leaves every picture table and every displaced native's home as it was; anything
+        // else may not (a shifted frame's natives are displaced by the frame, A1 C1).
+        if (!(ev && ev.obj && !ev.offsetsOnly && ev.obj.below === undefined && !this._offsetIds.has(ev.id)
+            && !this._shifted(ev.level) && !this._shifted(ev.rehome))) {
             this.offRev++;
             if (ev && ev.obj && ev.id != null) {
                 this._offLog.push(this.offRev, ev.id);
@@ -326,7 +371,10 @@ export default class Document {
     recordBake(op, step) { step._seq = ++this._stepSeq; op.baked.push(step); this._notifyOps({ kind: "bake", op, step }); }
     /** Ids a replayed entry brought in: the counter must stay above them. */
     noteId(id) { if (Number.isInteger(id) && id >= this._nextId) this._nextId = id + 1; }
-    /** A frame was re-addressed (a subtree move): `from`/`to` are { parent, i, j }. The tile cache listens. */
+    /**
+     * A frame was re-addressed or its shift changed (a subtree move): `from`/`to` are `{parent, i, j, shift}`,
+     * the shift being placement (A1 C1: its natives are drawn where it says). The tile cache and the Stage listen.
+     */
     noteRefile(frameId, from, to) { this._emit({ kind: "refile", frame: String(frameId), from, to }); }
     /**
      * Family keys (or other attributes) changed in place on these natives: the family index is
@@ -396,6 +444,7 @@ export default class Document {
         if (!f || !f.shift) return;
         const [dx, dy] = f.shift;
         f.shift = null;                          // cleared first: a re-home below re-enters here
+        this._shiftKey = null;
         const list = arr || this.nativesByLevel[k] || [];
         if (!list.length) return;
         const tables = [], carried = [];
@@ -422,6 +471,7 @@ export default class Document {
         const f = this.lm && this.lm.frame(String(frameId));
         if (!f) return false;
         f.shift = shift && (shift[0] || shift[1]) ? [shift[0], shift[1]] : null;
+        this._shiftKey = null;
         return true;
     }
     /** The move-op entry that last placed `frameId` (null to forget): a settle or merge of the frame is recorded on it. */
@@ -1318,7 +1368,7 @@ export default class Document {
                     if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) this.unmerge(e.merged[i]); e.merged = null; }
                     if (e.settled) { this.unsettle(e.id, e.settled); e.settled = null; }
                 }
-                const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j } : null]; }));
+                const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift } : null]; }));
                 this.lm.readdressMany(op.frames.map((e) => ({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j })),
                     { empty: (id) => this.count(id) === 0 });
                 const inv = {
@@ -1330,7 +1380,7 @@ export default class Document {
                     this.setFrameShift(e.id, e.shiftAfter);
                     this.noteFrameOwner(e.id, e);
                     const w = was.get(e.id), f = this.lm.frame(e.id);
-                    if (w && f) this._emit({ kind: "refile", frame: e.id, from: w, to: { parent: f.parent, i: f.cell.i, j: f.cell.j } });
+                    if (w && f) this.noteRefile(e.id, w, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift });
                 }
                 if (op.moves && op.moves.length) this._undoMove(op.moves);
                 return inv;

@@ -213,6 +213,12 @@ export function residual(below, k0) {
     return c[0] || c[1] || r[0] || r[1] ? { carry: [c[0], c[1]], rem: [r[0], r[1]] } : null;
 }
 
+/** A table's whole translation at the home depth in home units — its whole frames and remainder — or null. */
+export function homeTranslation(below) {
+    const r = residual(below, 0);
+    return r ? [r.carry[0] * W + r.rem[0], r.carry[1] * W + r.rem[1]] : null;
+}
+
 /**
  * A native's PICTURE table (A1 C1): its own table with its home frame's shift added at k = 0, without
  * a carry, so the sum may reach a frame and a half. `below` itself when the frame has no shift.

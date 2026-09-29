@@ -173,8 +173,8 @@ test("S3 the residual depth is the TARGET frame's, never the camera's", () => {
     expect(E.cam.activeLevel).toBe(1);
 
     const home = E.lm.depthOf(rec.level);
-    const wantTarget = residual(rec.obj.below, 0 - home);   // frame "0"'s own depth
-    const wantCamera = residual(rec.obj.below, E.cam.activeLevel - home);
+    const wantTarget = (residual(rec.obj.below, 0 - home) || {}).rem;   // frame "0"'s own depth
+    const wantCamera = (residual(rec.obj.below, E.cam.activeLevel - home) || {}).rem;
     // The test is not vacuous only if the two differ.
     expect(JSON.stringify(wantTarget)).not.toEqual(JSON.stringify(wantCamera));
 

@@ -21,12 +21,12 @@ import { ArcBakeJob, bakeArcPerimeter } from "./geometry/arcPerimeter";
 import {
     R as CROSS_RATIO,
     W as FRAME_W,
-    REACH,
 } from "./frameLattice";
 import Document from "./Document";
 import { Groups, arcsTouch, contactArcs } from "./geometry/connect";
 import { bboxOf, freezeR } from "./geometry/derive";
 import { encodeBelow } from "./geometry/offsets";
+import { reachBox } from "./placementModel";
 import {
     flattenShape,
     insideShape,
@@ -626,7 +626,7 @@ class ErasePipeline {
         // frame's box +-REACH in its units brought into HE's; a covered frame is taken and
         // not descended into, one blocked by z is, its kids judged on their own.
         const visit = (id, s, tx, ty, skip) => {
-            const own = { left: -REACH * s + tx - tol, top: -REACH * s + ty - tol, right: REACH * s + tx + tol, bottom: REACH * s + ty + tol };
+            const own = reachBox(this.lm.frame(id), s, tx, ty, tol);
             if (own.right < box.x0 || own.left > box.x1 || own.bottom < box.y0 || own.top > box.y1) return;
             if (id !== HE && inside(own) && this.doc.maxZUnder(id) < zE) { covered.push(id); return; }
             for (const c of this.lm.childrenOf(id)) {

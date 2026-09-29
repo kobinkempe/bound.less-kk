@@ -60,13 +60,13 @@ describe("paper costs on the Magnum Opus", () => {
     big("A — the list build at the saved camera, and its parts", () => {
         const E = mk(false);
         const acc = {};
-        timeIt(E.store, "content", acc); timeIt(E.store, "_reroute", acc); timeIt(E.store, "ownContent", acc);
+        timeIt(E.store, "content", acc); timeIt(E.store, "_reroute", acc); timeIt(E.stage.model, "nativesIn", acc);
         const rows = [];
         for (let k = 0; k < 4; k++) {
             for (const key of Object.keys(acc)) acc[key] = 0;
             const t = now();
             const list = E._buildList();
-            rows.push({ k, ms: +(now() - t).toFixed(1), n: list.length, content: +acc.content.toFixed(1), reroute: +acc._reroute.toFixed(1), own: +acc.ownContent.toFixed(1) });
+            rows.push({ k, ms: +(now() - t).toFixed(1), n: list.length, content: +acc.content.toFixed(1), reroute: +acc._reroute.toFixed(1), own: +acc.nativesIn.toFixed(1) });
         }
         const tg = now();
         const moved = groupScan(E, E.cam.frame);

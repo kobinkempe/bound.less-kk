@@ -29,6 +29,7 @@
 import LevelMap from "../LevelMap";
 import Document from "../Document";
 import TileStore from "../TileStore";
+import { createPlacementModel } from "../placementModel";
 import { seamPad, deriveStep } from "./derive";
 import { cedeRect } from "../__oracles__/cede";
 import { inks, inkers, samples, seamOverlapX } from "../__testkit__/ink";
@@ -225,7 +226,7 @@ describe("S-1 — every tile-piece path overlaps its neighbour by at least the s
     });
 
     // An object at its OWN frame has no seams at all, and since 2026-08-06 that
-    // is true without qualification: `ownContent` hands back the natives
+    // is true without qualification: `nativesIn` hands back the natives
     // themselves. It used to have one exception — a parent that had ceded a
     // window kept whole geometry, so its hole existed only as a rect and had to
     // be re-cut per view, per render. Both of that path's defects were view
@@ -246,8 +247,9 @@ describe("S-1 — every tile-piece path overlaps its neighbour by at least the s
         // Two wildly different views: the whole band, and a sliver at the hole.
         // Same answer, by identity — nothing is derived, so nothing can be stale
         // and nothing can be seamed.
-        expect(ts.ownContent("0", { left: X - 600, top: -50, right: X + 600, bottom: 50 })).toEqual([o]);
-        expect(ts.ownContent("0", { left: X - 481, top: -2, right: X - 478, bottom: 2 })[0]).toBe(o);
+        const model = createPlacementModel({ doc: d, lm: M, store: ts });
+        expect(model.nativesIn("0")).toEqual([o]);
+        expect(model.nativesIn("0")[0]).toBe(o);
         // ...and the hole is really in the geometry, not in a rect beside it.
         expect(inks([o], [X - 479.5, 0], o.id)).toBe(false);
         expect(inks([o], [X - 470, 0], o.id)).toBe(true);
