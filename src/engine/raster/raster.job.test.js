@@ -840,6 +840,19 @@ describe("the packer (§3.3, §4.2, §5.2)", () => {
         pack.setPackBudget(pack.PACK_BUDGET);
     });
 
+    test("a dense table's entries survive from one prepass to the next at PACK_BUDGET (at 10 MiB each prepass rebuilt them all)", () => {
+        pack.clearPackCaches();
+        pack.resetPackStats();
+        pack.setPackBudget(pack.PACK_BUDGET);
+        const ring = (cx, cy, n) => Array.from({ length: n }, (_, k) => [cx + 20 * Math.cos((2 * Math.PI * k) / n), cy + 20 * Math.sin((2 * Math.PI * k) / n)]);
+        const items = Array.from({ length: 3000 }, (_, k) => shapeItem(k + 1, [ring((k % 60) * 8, Math.floor(k / 60) * 8, 180)]));
+        packOne(items.slice());                                        // the first list: every entry built
+        const walks = pack.packStats.boxWalks;
+        expect(pack.packMemoBytes()).toBeGreaterThan(10 << 20);         // the table outgrows the old budget
+        packOne(items.slice());                                        // a new list (a commit): the same items
+        expect(pack.packStats.boxWalks).toBe(walks);                    // red at 10 MiB: 3,000 rebuilt
+    });
+
     test("the memo is keyed by the geometry: two wrappers of one piece (a Stage item and a snapshot's) share its entry", () => {
         pack.clearPackCaches();
         pack.resetPackStats();
