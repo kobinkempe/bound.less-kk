@@ -2177,7 +2177,7 @@ un-awaited `rejects`), and the raster/erase/stage suites hit their 25-min deadli
 **Questions asked:** none.
 WHERE I AM: fix S7b's lint error, find the stuck suite file (per-file runs with a deadline), then the end entry and report.
 
-## 2026-09-29 19:55 UTC — B-PYRAMID-3 (builder) — resumed after the reboot: item 4 on the trial copy
+## 2026-09-29 19:53 UTC — B-PYRAMID-3 (builder) — resumed after the reboot: item 4 on the trial copy
 **Working on:** item 4 stays on the trial copy (`scratchpad/bp3/i4b`, a tar of the live tree at 16:51 with the
 reviewer's `_pyrUnask` fix in it) until the reviewer's end entry. Built there by five scripts (`bp3/apply4.sh`):
 `RasterRenderer` composing FC1's four layers in one `_layers` list (the SVG layer and a z-3 slot for `bl-sel-edges`
