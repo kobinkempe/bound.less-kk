@@ -89,10 +89,13 @@ export function framesToCompare(O, N) {
     if (both(F)) out.push(F);
     const p = N.lm.parentOf(F);
     if (both(p)) out.push(String(p));
-    const ring = N.lm.peekRing(F).map((f) => f.id).filter(both).sort();
-    if (ring.length) out.push(ring[0]);
-    const kids = N.lm.childrenOf(F).filter((f) => f && both(f.id)).sort((a, b) => (N.doc.count(b.id) - N.doc.count(a.id)) || (a.id < b.id ? -1 : 1));
-    if (kids.length) out.push(kids[0].id);
+    // A neighbour and a child with the most under them, so the comparison reads ink when there is some.
+    const weight = (f) => { let n = 0; N.lm.walk(f.id, (g) => { n += N.doc.count(g.id) + 1; }); return n; };
+    const best = (fs) => fs.filter((f) => f && both(f.id)).map((f) => [weight(f), f.id]).sort((a, b) => (b[0] - a[0]) || (a[1] < b[1] ? -1 : 1));
+    const ring = best(N.lm.peekRing(F));
+    if (ring.length) out.push(ring[0][1]);
+    const kids = best(N.lm.childrenOf(F));
+    if (kids.length) out.push(kids[0][1]);
     return out;
 }
 
@@ -209,6 +212,20 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
         ["stroke", 6, () => {
             const op = rnd() < 0.2 ? 0.5 : 1, pts = strokePts(), wd = ri(3, 40), col = pick(COLOURS);
             both((E) => { E.setOpacity(op); drawStroke(E, pts, wd, col); });
+        }],
+        ["descendDraw", 3, () => {
+            // Ink a level or two under the camera, then back up: content in the camera's kids to drag and view.
+            const L = O.activeLevel, to = Math.min(4, L + ri(1, 2)), ink = inkPoints();
+            const p = ink.length && rnd() < 0.6 ? pick(ink) : [ri(100, w - 100), ri(100, h - 100)];
+            const strokes = [];
+            for (let k = ri(1, 3); k > 0; k--) strokes.push([strokePts(), ri(3, 40), pick(COLOURS)]);
+            both((E) => {
+                const cam = E.cam.state();
+                descend(E, to, p[0], p[1]);
+                for (const [pts, wd, col] of strokes) drawStroke(E, pts, wd, col);
+                E.cam.set(cam);
+                E._render();
+            });
         }],
         ["erase", 3, () => {
             const pts = strokePts(), size = ri(6, 40), flush = rnd() < 0.6;
