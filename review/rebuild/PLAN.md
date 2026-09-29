@@ -160,7 +160,9 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   for the next input) and packed in a row of kind `settle`; the inline executor's core time is the row's
   (`rasterPerf.noteCore`). The undo of one stroke in the dense scene is never inline: its patch estimate is
   34–41 ms against the 6 ms budget (2 cells, E at the 20,001-chord cap, A 666 k box pixels), and no coarser
-  level fits.
+  level fits. *Reviewed (the B-PYRAMID review, 2026-09-29):* the rest records stay after a zoom as the stand-in
+  (A3 §2.4's dated note); a patch's E is its items' rows' share inside the clips and a user's patch (undo, redo,
+  pen-up's group) has 16 ms (A3 §3.3's); at rest the pack budget is a task's (A3 §4.4's).
 
 ### 1.3 Erasing: the mask as document state, cuts in parallel (decision 3; A2 §4; §3.5; R25 §4.9, §10.2, §12.2)
 
@@ -775,3 +777,8 @@ drag on the dense scene is the SVG renderer's (about 57 MB retained per drag eve
 3. **The SVG path's retention** (57 MB per drag event; the tab crashes on the dense scene at the third event) is
    filed as a renderer flag by B-PYRAMID-3 (grep OPEN-FLAGS first) and fixed or bounded in the demotion.
 4. **`eraseDescent.ownIn` and `Document.ownFor`** become one helper when C4 moves cedes into private frames.
+5. **Amendment to item 1 (B-PYRAMID-3's measurement, 16:09)**: the warm reads stay and every prefetch snapshot read
+   is wired as warm — on the dense drawing's zoom-out and back, the back-in re-bakes halve (19–22 → 9–10 tiles,
+   11.6–12.9 → 3.5–4.9 s of main-thread bakes) with the LRU cap still bounding the cache; the plan-time clearing (the
+   ladder's rule) measured no different from off and goes. The remaining main-thread bakes are the resumable bake
+   cursor's, a wave 3 item. `listFor` and `_buildList` go as planned.
