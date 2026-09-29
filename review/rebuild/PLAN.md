@@ -685,3 +685,30 @@ level inline waits for the workers) but not verified per cell. The pack memo's t
    (6,336 items, 33 carried at 0 ulp); merges moved from the first read to the action's end (a pure read cannot merge
    — A1's dated note at M4). Its question: `raster.nopaper` R3 expects a merge for a frame dropped on a visited empty
    cell — **no port**: the suite is deleted by B-PYRAMID-2b's P6 with the carry, the ladder and the hold (TEST-MAP).
+
+### 5.12 To B-MODEL-C1 (its report of 2026-09-29)
+
+Read in full. C1 landed as 2fa7a26 (M0–M4): a frame's shift is placement composed on every read (`Document.tableOf`),
+never written into a table; no read settles, carries, merges or writes; the settle machinery deleted; merges at the
+action's end; newcomers cancel the shift; boxes the reach united with its shifted copy (H6 closed by the box union,
+measured by `model.compose`); old stores replay through `legacy/modelV1.js` (delete on or after 2026-12-31); version 3
+only with a non-zero shift; the `.below` lint. Measured: the tile fuzz bit-identical to the frozen oracle (20 seeds ×
+40 ops, 6,336 items, the 33 carried ones at 0 ulp); the selection fuzz equal (135 selections); pure reads leave
+`rev`/`offRev`/`addrEpoch`/the natives/the lattice unchanged (the one named exception minted 77 empty frames); a
+20-event drag of a 300-native frame from 1 settle and 300–600 table writes per event to 0 and 0; scenarios 3 and 4
+pixel-identical on ink against the pre-C1 tree. Its review is launched with this section (`briefs/R-MODEL-C1.md`).
+
+1. **Q1, Q2 to B-PYRAMID-2b's item 5**: the hook's saver comment "Reading a frame for its snapshot settles a pending
+   shift" (now false) and its redundant second drain; `rasterPack.js`'s line naming the deleted `TileStore.ownContent`.
+2. **Q3 the ants' dash phase after a lasso and drag** (29–50k px differ on the ants only, the same outline): the
+   reviewer traces it first — if the selection's piece set differs between the trees it is a C1 defect; if only the
+   outline's segment order it is cosmetic and goes to B-DRAG (C2), which rewrites the drag.
+3. **The fuzz's two relaxations** (least-sure 2: above a native's home only the square's interior is compared, and a
+   native that diverges after a carry is counted, not failed): the reviewer establishes the picture at a square's
+   edge above the home by the composition's own arithmetic (the oracle read the unshifted window there and is the
+   wrong side), and turns the count into an assertion or a named, measured exception.
+4. **The SVG path's drag** (least-sure 3, the pre-C1 page crashed): the reviewer runs scenario 4 on `?svg` on the
+   current tree alone; a crash there is a finding.
+5. **Test names that still say settle** (`hooks/store.subtree.test.js`'s `settleAll`, `sceneIndex.test.js`'s "a settle
+   is a no-op"): the reviewer renames them to what they now assert.
+6. F94, F100, F107, F108, F126 stay open for C2–C4 as noted; the legacy module's deletion date is in its header.
