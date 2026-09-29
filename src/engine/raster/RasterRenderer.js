@@ -1590,7 +1590,7 @@ export default class RasterRenderer extends Renderer {
         const vel = moving ? { px: [(v.tx - m.tx) / dt, (v.ty - m.ty) / dt], zoom: Math.log2(v.k / m.k) / dt } : { px: [0, 0], zoom: 0 };
         m.t = t; m.k = v.k; m.tx = v.tx; m.ty = v.ty; m.frame = v.frameId; m.moving = moving;
         return {
-            moving, vel, attention: null,
+            moving, vel, attention: null, at: t,
             view: { frameId: v.frameId, level: v.level, S: v.S, Z: v.Z, k: v.k, tx: v.tx, ty: v.ty, wDev: pyr.wDev, hDev: pyr.hDev, sigmaMin: pyr.sigmaMin },
         };
     }
@@ -1715,9 +1715,18 @@ export default class RasterRenderer extends Renderer {
         const plates = new Int32Array(st.cells.length * 2);
         for (let k = 0; k < st.cells.length; k++) { plates[k * 2] = st.cells[k].i; plates[k * 2 + 1] = st.cells[k].j; }
         return pool.submit({
-            req: { prio: st.prio, pack: (_, jobId, bufPool) => this._pyrPack(st, jobId, bufPool), onResult: (res, info) => this._pyrResult(st, res, info), onDrop: (d) => this._pyrDrop(st, d) },
+            req: {
+                prio: st.prio, pack: (_, jobId, bufPool) => this._pyrPack(st, jobId, bufPool), onResult: (res, info) => this._pyrResult(st, res, info),
+                onDrop: (d) => this._pyrDrop(st, d), onRequeue: (jobId) => this._pyrRequeue(st, jobId),
+            },
             plates,
         });
+    }
+
+    /** The pool failed under a strip (a worker's error or silence, RW-1): its id ended, the strip back at the head of its priority (H7). */
+    _pyrRequeue(st, jobId) {
+        this._endJob(jobId);
+        if (this.queue.requeue(st.id)) Promise.resolve().then(() => { if (!this._destroyed) this.queue.pump(); });
     }
 
     /**
@@ -1759,7 +1768,7 @@ export default class RasterRenderer extends Renderer {
         }
         rasterStats.batches++; rasterStats.batchPlates += recs.length;
         this._endJob(res.jobId);
-        this.queue.done(st.id, info ? info.wallMs : null);
+        this.queue.done(st.id);                         // dispatch to landing: the velocity rule's arrival estimate
         this.pyramid.calibrate(sampleOf(res, st.est && st.est.U));
         this.queue.pump();
         // The plane composes on its own plates' arrival, and a landing ends on the last fresh plate under it.
@@ -1859,7 +1868,7 @@ export default class RasterRenderer extends Renderer {
         this.perf.noteDrop(st, d);
         if (d && d.jobId != null) this._endJob(d.jobId);
         if (!d || d.before) return;                 // inside the queue's own pump: it counts the refusal itself
-        this.queue.done(st.id);
+        this.queue.done(st.id, false);              // a failure: no arrival sample
         this.pyramid.refresh();
         if (!this._destroyed) this.queue.pump();
     }

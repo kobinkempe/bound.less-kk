@@ -1291,3 +1291,21 @@ the G asked at). A drop whose re-render fits inline lands in its own task (the d
 **Questions asked:** none. Q8's measurement is P5's (scenario 4).
 WHERE I AM: P4 — `rasterWorkerClient`: `failPool` requeues the queue's strips (`requeue`), and `_aim`'s arrival estimate
 from the real dispatch; then the camera's budgeted read (§3.1) and `job.ids` off the wire (§3.3).
+
+## 2026-09-29 00:50 UTC — reviewer (B-ERASE review) — checkpoint: the bound, the oracle through undo, the fuzz
+**Working on:** items 3, 1a, 1b (node), 5 done in code and suites; in `erasePipeline.js`, `report.js`, `useKobinEngine.js`
+(erase status only), `erase.rule.test.js`, `raster/raster.eraseRule.test.js`, new `erase.parallel.test.js`.
+**Measured:** baseline before edits: the erase-adjacent quick suites 46 files, 416 pass, 1 red (sceneClient, load 6.2,
+green alone 33/33); the rest of test:quick 1,914 pass, raster.pyramid red (B-PYRAMID-2's). The bound: a wrong rule
+(`handledBy` ignored) now aborts within 2 × supply + 8 steps in flushErases, the tick through a pool and an inline tap
+barrier; the correct rule's steps ≤ its supply (ratio ≤ 1) through undo/redo mid-bake. Row 3 (a) through undo/redo and a
+crossing: 6 seeds green. Row 3 (b) two clauses, 7 seeds (node): off both clauses 0 px; on cut outlines ≤ 9/255; within 1.5
+px of a mark edge up to 36/255 (seed 71: a graze splits two marks' shared slot, 1 − max(a,b) → (1 − a)(1 − b) where their
+edges overlap, with no dirt — inside the envelope, cleared at the next dirt or the spend). Fuzz, 60 seeds: 858 ops, 1,447
+pairs/spends, ≤ 3 in flight, 42 worker deaths, 20 silent jobs (watchdog), 52 respawns, 4 seeds inline past the respawns,
+47 crossings, 75 undos: document equal after every op; found and fixed: a barrier round promoted fills at dispatch, so the
+log's put/bake order differed from the inline bake (seeds 1016, 1037 red before).
+**Decisions made:** the budget counts `_applyPair` and a non-shape refusal; supply = pending lineage at the first step plus
+every later arrival pending under the mark (another mark's piece, an undo's source, a frame back).
+**Questions asked:** none yet (a watchdog-lost job runs inline on the main thread: to report).
+WHERE I AM: item 4 (the fringe of a half-handled family, core bytes), then items 6, 7, 9, then the browser items.

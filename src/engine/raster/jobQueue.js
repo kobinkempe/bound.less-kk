@@ -94,8 +94,9 @@ export default class JobQueue {
     frame() { this._packMs = 0; }
 
     /**
-     * The camera's motion for the velocity rule and the admission: `{ moving, view: { frameId, level, S, Z, k, tx, ty,
-     * wDev, hDev, sigmaMin }, vel: { px: [vx, vy] device px/ms, zoom: log2 Z per ms }, attention: [x, y] device px }`.
+     * The camera's motion for the velocity rule and the admission: `{ moving, at, view: { frameId, level, S, Z, k, tx,
+     * ty, wDev, hDev, sigmaMin }, vel: { px: [vx, vy] device px/ms, zoom: log2 Z per ms }, attention: [x, y] device px }`,
+     * `at` the clock's time of `view`.
      */
     setMotion(m) { this.motion = m || null; }
 
@@ -112,22 +113,26 @@ export default class JobQueue {
             if (!this._admit(st)) continue;
             const t0 = this.clock();
             st.id = ++this._id;
+            st.sentAt = t0;
             this.inFlight.set(st.id, st);
             const ok = this.pool.submit(st);
             this._packMs += this.clock() - t0;
             if (ok === false) { this.inFlight.delete(st.id); this._drop(st, "empty"); continue; }
-            st.sentAt = this.clock();
             this.s.dispatched++;
             n++;
         }
     }
 
-    /** A strip `submit` took has come back (or failed): its slot is free, its time feeds the arrival estimate. */
-    done(id, ms = null) {
+    /**
+     * A strip `submit` took has landed or failed: its slot is free. A landing's time feeds the arrival estimate — by
+     * default from its dispatch (its pack, the post, the worker, the landing); `ms === false` is a failure, no sample.
+     * @param {number} id @param {number|false} [ms]
+     */
+    done(id, ms) {
         const st = this.inFlight.get(id);
         if (!st) return false;
         this.inFlight.delete(id);
-        const t = ms != null ? ms : this.clock() - st.sentAt;
+        const t = ms === false ? NaN : ms != null ? ms : this.clock() - st.sentAt;
         if (t >= 0 && isFinite(t)) this.jobMs += 0.2 * (t - this.jobMs);
         this.s.done++;
         return true;
@@ -188,17 +193,16 @@ export default class JobQueue {
     }
 
     /**
-     * The velocity rule (A3 §4.4): the camera predicted at the strip's arrival — in-flight strips per worker ahead of
-     * it, plus its own mean time — from the last frames' pan and zoom velocity about the attention point. Cells off the
-     * predicted screen are skipped; a level the camera will have left is re-aimed at the one it is heading to — its
-     * cells under the strip's and on the predicted screen, so a jump of many levels (a descend doubles a step) stays
-     * one screenful.
+     * The velocity rule (A3 §4.4): the camera predicted at the strip's arrival — the time since the motion's view
+     * plus the mean dispatch-to-landing time (`pump` dispatches only to a free slot, so nothing waits ahead of it) —
+     * from the last frames' pan and zoom velocity about the attention point. Cells off the predicted screen are
+     * skipped; a level the camera will have left is re-aimed at the one it is heading to — its cells under the
+     * strip's and on the predicted screen, so a jump of many levels (a descend doubles a step) stays one screenful.
      */
     _aim(st) {
         const m = this.motion, v = m.view;
         if (st.frame == null || String(st.frame) !== String(v.frameId) || st.level == null) return;
-        const W = Math.max(1, this.pool.size());
-        const eta = (this.inFlight.size / W) * this.jobMs + this.jobMs;
+        const eta = (m.at != null ? Math.max(0, this.clock() - m.at) : 0) + this.jobMs;
         const vel = m.vel || { px: [0, 0], zoom: 0 };
         const f = 2 ** ((vel.zoom || 0) * eta);
         const a = m.attention || [v.wDev / 2, v.hDev / 2];

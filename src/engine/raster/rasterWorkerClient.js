@@ -265,9 +265,11 @@ function failPool(e, respawn) {
     terminateWorkers();                  // the strips are reported and re-queued below, not abandoned
     for (const f of stranded) {
         stats.failed++;
+        // A `JobQueue` strip (the pyramid's) goes back to the head of its priority there (H7), not into this queue.
+        if (f.req.onRequeue) { f.req.onRequeue(f.jobId); continue; }
         if (f.req.onDrop) f.req.onDrop({ jobId: f.jobId, plates: f.plates, why: "worker", before: false });
     }
-    for (const f of stranded) queue.push({ req: f.req, plates: f.plates });
+    for (const f of stranded) if (!f.req.onRequeue) queue.push({ req: f.req, plates: f.plates });
     if (respawn && respawns < MAX_RESPAWNS) { respawns++; stats.respawns++; spawnPool(false); }
     else broken = true;
     if (e && e.preventDefault) e.preventDefault();

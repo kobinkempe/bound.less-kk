@@ -103,7 +103,7 @@ const SNAPSHOT_MIN_BYTES = 64 * 1024;
 const DEFAULT_STATUS = {
     level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0,
     canUndo: false, canRedo: false,
-    erase: { marks: 0, finishing: false },   // pending marks; a gesture waiting on their cuts (the title's chip)
+    erase: { marks: 0, finishing: false, aborted: 0 },   // pending marks; a gesture waiting on their cuts (the title's chip); bakes aborted past their budget
 };
 
 /** The page's status updates at most this often; the scale HUD follows the zoom on its own (`engine.onZoom`). */

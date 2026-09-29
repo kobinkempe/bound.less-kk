@@ -19,8 +19,9 @@ import { packJob, clearPackCaches } from "./rasterPack";
 import * as core from "./rasterCore";
 import { PLATE_PX } from "./plate";
 import { FLAG_MASK } from "./rasterJob";
-import { loopsBBox } from "../geometry/arcShape";
+import { loopsBBox, flattenShape } from "../geometry/arcShape";
 import { underMask } from "../eraseRule";
+import { topView } from "../__testkit__/harness";
 
 useEngines();
 jest.setTimeout(120000);
@@ -30,12 +31,22 @@ const PLATES = [[0, 0], [1, 0], [0, 1], [1, 1]];
 const zOf = (o) => (o.z != null ? o.z : o.id);
 
 /** The Stage's items packed for `plates`: `drop` leaves items out (the marks, to draw "no mark"), `only` a selection's job. */
-function job(E, { drop = null, only = null } = {}) {
+function job(E, { drop = null, only = null, plates = PLATES, q = 0 } = {}) {
     E._render();
     let items = E.stage.items().filter((it) => !it.pending);
     if (drop) items = items.filter((it) => !drop(it));
     clearPackCaches();
-    return packJob(items, { plates: Int32Array.from(PLATES.flat()), q: 0, Zq: 1, dpr: 1, cfg: E.cfg, paper: [255, 255, 255], only });
+    return packJob(items, { plates: Int32Array.from(plates.flat()), q, Zq: 2 ** q, dpr: 1, cfg: E.cfg, paper: [255, 255, 255], only });
+}
+/** The plates covering the camera's view, at the zoom step nearest its scale: a job as the renderer would pack it in any frame. */
+function viewJob(E) {
+    const q = Math.round(Math.log2(E.cam.inScale)), Zq = 2 ** q;
+    const [x0, y0] = E.cam.screenToFrame(0, 0), [x1, y1] = E.cam.screenToFrame(E.lm.width, E.lm.height);
+    const plates = [];
+    for (let i = Math.floor((x0 * Zq) / PLATE_PX); i <= Math.floor((x1 * Zq) / PLATE_PX); i++) {
+        for (let j = Math.floor((y0 * Zq) / PLATE_PX); j <= Math.floor((y1 * Zq) / PLATE_PX); j++) plates.push([i, j]);
+    }
+    return job(E, { plates, q });
 }
 function pixels(j) {
     return PLATES.map((_, k) => { const out = new Uint8ClampedArray(N); core.renderPlate(j, k, out); return out; });
@@ -84,6 +95,28 @@ function oracle(E) {
         if (ev.kind !== "bake" || !ev.step.removed) return;
         const M = ev.op.strokeId, rid = ev.step.removed.obj.id;
         for (const [K, s] of pend) if (s.delete(rid) && K !== M) for (const pc of ev.step.pieces) s.add(pc.obj.id);
+    });
+    return pend;
+}
+/**
+ * The oracle of (a) through undo and redo: an id's memberships in the marks' pending sets are kept as
+ * they were when it left the document and given back when it returns (an undo or a redo re-inserts
+ * the same object); a step maps its removed id's memberships to its pieces, except the cutting
+ * mark's. A mark's set outlives its removal, so a redone mark resumes from it.
+ */
+function oracleThroughUndo(E) {
+    const pend = new Map(), was = new Map();
+    const inSets = (id) => { const out = []; for (const [K, s] of pend) if (s.has(id)) out.push(K); return out; };
+    E.doc.subscribe((ev) => {
+        if (ev.kind === "change" && ev.attrOnly && ev.attr && ev.attr.targets) pend.set(ev.id, new Set(ev.attr.targets));
+        else if (ev.kind === "change" && ev.attrOnly && ev.attr && ev.attr.handledBy && ev.by != null) { const s = pend.get(ev.by); if (s) s.delete(ev.id); }
+        else if (ev.kind === "remove" && ev.obj && !ev.obj.erase && !ev.rehome) { was.set(ev.id, inSets(ev.id)); for (const s of pend.values()) s.delete(ev.id); }
+        else if (ev.kind === "add" && ev.obj && !ev.obj.erase && !ev.rehome && was.has(ev.id)) for (const K of was.get(ev.id)) pend.get(K).add(ev.id);
+    });
+    E.doc.subscribeOps((ev) => {
+        if (ev.kind !== "bake" || !ev.step.removed) return;
+        const M = ev.op.strokeId;
+        for (const K of was.get(ev.step.removed.obj.id) || []) if (K !== M) for (const pc of ev.step.pieces) pend.get(K).add(pc.obj.id);
     });
     return pend;
 }
@@ -164,6 +197,48 @@ describe("row 3 (a) the pack's mask bits are the op history's, at every step of 
     }
 });
 
+describe("row 3 (a) through undo and redo mid-bake, and seen from a deeper frame", () => {
+    for (const seed of [11, 23, 37, 43, 59, 61]) {
+        test("seed " + seed, () => {
+            const { E, marks } = scene(seed);
+            const pend = oracleThroughUndo(E);
+            for (const M of marks) pend.set(M.id, new Set(M.targets));
+            let masked = 0, checks = 0, deep = 0;
+            const check = (j = job(E)) => { masked += checkBits(E, j, pend).masked; checks++; };
+            check(); E._bakeNext(); check(); E._bakeNext(); check();
+            expect(E.undo()).toBe(true); check();                              // the newest mark's gesture, mid-bake
+            E._bakeNext(); check();
+            expect(E.redo()).toBe(true); check();
+            E.undo(); E.undo(); check(); E._bakeNext(); check(); E.redo(); E.redo(); check();
+            // A crossing: zoom in about a pixel the marks hide, so the deeper frame's job holds a mark and its target as tile items.
+            let spot = null;
+            if (E._eraseStrokes().length) {
+                const a = pixels(job(E)), b = pixels(job(E, { drop: (it) => it.erase }));
+                let most = 0;                                                   // the most hidden pixel: inside both inks, not on an edge
+                PLATES.forEach(([i, jj], k) => {
+                    for (let o = 0; o < N; o += 4) {
+                        const d = Math.abs(a[k][o] - b[k][o]) + Math.abs(a[k][o + 1] - b[k][o + 1]) + Math.abs(a[k][o + 2] - b[k][o + 2]);
+                        if (d > most) { most = d; spot = [i * PLATE_PX + ((o >> 2) % PLATE_PX) + 0.5, jj * PLATE_PX + ((o >> 2) / PLATE_PX | 0) + 0.5]; }
+                    }
+                });
+            }
+            if (spot) {
+                for (let i = 0; i < 3; i++) E.zoomFactorAt(spot[0], spot[1], 16);
+                expect(E.cam.frame).not.toBe("0");
+                const j = viewJob(E);
+                for (let k = 0; k < j.nItems; k++) if (j.meta[k * 8 + 7]) deep++;
+                check(j); E._bakeNext(); check(viewJob(E));
+                topView(E);
+            }
+            for (let guard = 0; guard < 400; guard++) { check(); if (!E._bakeNext()) break; }
+            expect(E._eraseStrokes()).toHaveLength(0);
+            expect(masked).toBeGreaterThan(0);
+            expect(checks).toBeGreaterThan(10);
+            if (spot) expect(deep).toBeGreaterThan(0);                          // the deeper frame's job masked something
+        });
+    }
+});
+
 describe("row 3 (b) plates kept through a bake, re-rendered where the scene's dirt says, are the fresh raster", () => {
     const run = (seed, fillsOnly) => {
         const { E } = scene(seed, { fillsOnly });
@@ -186,6 +261,54 @@ describe("row 3 (b) plates kept through a bake, re-rendered where the scene's di
         expect(E._eraseStrokes()).toHaveLength(0);
         return { worst, steps };
     };
+    /** Distance from (x, y) to the nearest edge of the rings `rings`. */
+    const edgeDist = (rings, x, y) => {
+        let best = Infinity;
+        for (const r of rings) {
+            for (let k = 0; k < r.length; k++) {
+                const [ax, ay] = r[k], [bx, by] = r[(k + 1) % r.length], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+                const t = L > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0;
+                const d = Math.hypot(ax + t * dx - x, ay + t * dy - y);
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    };
+    test("the envelope's two clauses, measured: within 1.5 px of a mark's edge, and on a cut outline by at most 16/255", () => {
+        const out = [];
+        for (const seed of [11, 23, 37, 67, 59, 71, 83]) {
+            const { E, marks } = scene(seed);
+            const markRings = marks.flatMap((M) => flattenShape(M.loops, 0.02));
+            const cutRings = [];
+            E.doc.subscribeOps((ev) => { if (ev.kind === "bake") for (const pc of ev.step.pieces || []) if (pc.obj.loops && pc.obj.below === undefined) cutRings.push(...flattenShape(pc.obj.loops, 0.02)); });
+            let kept = pixels(job(E)), G = E.stage.generation;
+            const tally = { nearMark: 0, nearMarkMax: 0, onCut: 0, onCutMax: 0, other: 0, otherMax: 0 };
+            for (let guard = 0; guard < 400; guard++) {
+                const more = E._bakeNext();
+                const j = job(E);
+                patch(kept, j, E.stage.dirtyRects("0", G));
+                G = E.stage.generation;
+                const fresh = pixels(j);
+                PLATES.forEach(([i, jj], k) => {
+                    const p = kept[k], q = fresh[k];
+                    for (let o = 0; o < N; o += 4) {
+                        const d = Math.max(Math.abs(p[o] - q[o]), Math.abs(p[o + 1] - q[o + 1]), Math.abs(p[o + 2] - q[o + 2]));
+                        if (!d) continue;
+                        const x = i * PLATE_PX + ((o >> 2) % PLATE_PX) + 0.5, y = jj * PLATE_PX + ((o >> 2) / PLATE_PX | 0) + 0.5;
+                        // a pixel's centre within 1.5 px of the edge, plus half its diagonal: the pixel meets the band
+                        if (edgeDist(markRings, x, y) <= 1.5 + Math.SQRT1_2) { tally.nearMark++; tally.nearMarkMax = Math.max(tally.nearMarkMax, d); }
+                        else if (edgeDist(cutRings, x, y) <= Math.SQRT1_2 + 1) { tally.onCut++; tally.onCutMax = Math.max(tally.onCutMax, d); }
+                        else { tally.other++; tally.otherMax = Math.max(tally.otherMax, d); }
+                    }
+                });
+                if (!more) break;
+            }
+            out.push({ seed, ...tally });
+            expect(tally.other).toBe(0);                                         // nothing differs off both clauses
+            expect(tally.onCutMax).toBeLessThanOrEqual(16);
+        }
+        if (process.env.ENVELOPE_LOG) console.log("ENVELOPE " + JSON.stringify(out));
+    });
     test("K4 axis-aligned fills: 0 differing bytes at every step", () => {
         for (const seed of [5, 17, 29]) expect(run(seed, true).worst).toBe(0);
     });

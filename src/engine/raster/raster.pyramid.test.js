@@ -360,7 +360,11 @@ function freshSourceFor(E, P, c) {
     return null;
 }
 
-const quiet = () => new Promise((r) => setTimeout(r, 200));
+/** Until the plane's idle aim has run — the render arms its timer, the timer fires — at most 3 s (a fixed wait raced it under load). */
+async function planeQuiet(R) {
+    for (let t = 0; t < 3000 && (R._planeTimer != null || !R._plane.tags.length); t += 10) await new Promise((r) => setTimeout(r, 10));
+    await tick();
+}
 const fillAt = (E, x, y, color, s = 120) => ({
     type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
     polys: [[[x, y], [x + s, y], [x + s, y + s], [x, y + s]]],
@@ -377,7 +381,7 @@ async function planeScene(E, g, ax = 100) {
     E.pointerDown(p[0], p[1]); E.pointerUp();
     expect(E.selection && E.selection.ids).toEqual([a.id]);
     E._render();
-    await quiet();
+    await planeQuiet(E.renderer);
     expect(await drain(E, g)).toBe(0);
     return { a, p };
 }
@@ -458,7 +462,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         E.pointerDown(pa[0], pa[1]); E.pointerUp();
         expect(E.selection.ids).toEqual([a.id]);
         E._render();
-        await quiet();
+        await planeQuiet(R);
         const pl = R._plane;
         expect([R._view.mode, pl.main.pZq]).toEqual(["rest", R._view.Z]);   // aimed at rest: Zp is the rest Z
         expect(pl.quick).not.toBeNull();
@@ -471,7 +475,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         const tags0 = pl.tags.join(",");
         E.doc.add(fillAt(E, -520, 100, "rgb(30,200,30)", 500), "0");   // left of the view's cells, over two SEL plates of each level
         E._render();
-        await quiet();
+        await planeQuiet(R);
         expect(pl.tags.join(",")).toBe(tags0);
         expect(pl.checkReady(E.plates)).toBe(false);
         // Another selection while that plate's strip waits: the layers go, their queued strips by generation, a late one
@@ -482,7 +486,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         E.pointerDown(pb[0], pb[1]); E.pointerUp();
         expect(E.selection.ids).toEqual([b.id]);
         E._render();
-        await quiet();
+        await planeQuiet(R);
         expect(await drain(E, g)).toBe(0);
         expect(R.queue.report().drops.gen).toBeGreaterThan(0);
         expect([...E.plates.records()].filter((r) => r.kind === "plane" && oldTags.includes(r.tag)).map((r) => r.key)).toEqual([]);
@@ -497,5 +501,61 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         const sel = pl.main.layers.find((L) => L.kind === "sel"), below = pl.main.layers.find((L) => L.kind === "below");
         expect(sel.cells.some(([i]) => i < Math.floor(v.i0 * f))).toBe(true);
         expect(below.cells.every(([i, j]) => i >= Math.floor(v.i0 * f) && i <= Math.floor((v.i1 + 1) * f - 1e-9) && j >= Math.floor(v.j0 * f))).toBe(true);
+    });
+});
+
+describe("the queue adopted (B-PYRAMID-2 P4)", () => {
+    test("a worker's failure puts its strip back at the head of its priority; it lands on the new pool, every job id ended (H7)", async () => {
+        const made = [];                                                         // the raster workers (the scene's and the cuts' apart)
+        global.Worker = class {
+            constructor(url) { this.url = url; this.posted = []; if (String(url).includes("raster-worker")) made.push(this); }
+            postMessage(msg) { this.posted.push(msg); }
+            terminate() { this.dead = true; }
+        };
+        const answer = async (w, k) => { w.onmessage({ data: (await runJob(w.posted[k])).msg }); await settle(E, 1); };
+        let E = null;
+        try {
+            setRasterWorkerCount(1);
+            E = mkEngine(800, 600, { raster: true, pyramid: true });
+            const R = E.renderer;
+            stroke(E);
+            await settle(E, 2);
+            expect(made.length).toBe(1);
+            await answer(made[0], 0);                                            // it answers: the script loads
+            expect(made[0].posted.length).toBe(2);
+            const lost = made[0].posted[1];
+            const st = [...R.queue.inFlight.values()][0];
+            made[0].onerror({ preventDefault() {} });                          // a worker's error with a strip in flight
+            expect([made[0].dead, made.length]).toEqual([true, 2]);             // the pool replaced (RW-1)
+            expect([R.queue.inFlight.size, R.queue.queue[0] === st, st.seq < 0]).toEqual([0, true, true]);
+            await tick();
+            expect(made[1].posted.length).toBe(1);                              // re-packed onto the new pool first, its prio kept
+            expect([Array.from(made[1].posted[0].plates), made[1].posted[0].jobId > lost.jobId]).toEqual([Array.from(lost.plates), true]);
+            for (let k = 0; k < 100; k++) {
+                const w = made[made.length - 1], n = w.answered || 0;
+                const r = R.queue.report();
+                if (n >= w.posted.length && !r.queued.some((x) => x) && !r.inFlight.some((x) => x)) break;
+                if (n < w.posted.length) { w.answered = n + 1; await answer(w, n); } else await settle(E, 1);
+            }
+            expect(planCls(R).every((c) => c === "sharp")).toBe(true);
+            const q = R.queue.report();
+            expect(q.done).toBe(q.dispatched - 1);                              // the lost dispatch never lands
+            expect(rasterStats.jobsEnded).toBe(q.dispatched);                   // but its job id was ended
+            expect(E.plates.report().inFlight).toBe(0);
+        } finally {
+            delete global.Worker;
+        }
+    });
+
+    test("a strip the worker fails is ended and asked again, and is no sample of the arrival estimate", async () => {
+        setRasterTransport(() => Promise.reject(new Error("raster failed")));
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        R.queue.jobMs = 1000;
+        stroke(E);
+        await settle(E, 3);
+        const q = R.queue.report();
+        expect(rasterStats.dropsHandled).toBeGreaterThan(0);
+        expect([q.done, q.inFlight.reduce((a, b) => a + b, 0), q.jobMs]).toEqual([q.dispatched, 0, 1000]);
+        expect(E.plates.report().inFlight).toBe(0);
     });
 });

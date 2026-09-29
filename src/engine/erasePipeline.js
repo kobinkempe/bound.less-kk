@@ -41,7 +41,7 @@ import { cutJob, dustBarFor } from "./eraseJob";
 import { submit, eraseFreeSlots } from "./eraseWorkerClient";
 import { descentJob } from "./eraseDescent";
 import { rectSpan, rectTol } from "./rectMath";
-import { zOf, withId, withoutId, underMask, inheritErase } from "./eraseRule";
+import { zOf, has, withId, withoutId, underMask, inheritErase } from "./eraseRule";
 
 // The flatten tolerance of a mark judging whether it covers a frame whole, in the mark's frame's
 // units: a chord sits within it of its arc, so a frame box grown by it that misses every chord
@@ -54,6 +54,14 @@ const ERASE_RENDER_MS = 100;   // a bake's steps render at most this often (`_re
 const LOOKAHEAD_SCAN = 64;
 /** The reorder buffer's key for pair (mark, target). */
 const cutKey = (m, t) => m + "|" + t;
+/**
+ * A mark's step budget (PLAN §5.8 item 3): each id pending under it costs one step, a step left
+ * pending is tried once more, so a bake past 2 × its supply + 8 is a wrong rule; the mark is aborted.
+ */
+const STEP_BUDGET_PER_ID = 2;
+const STEP_BUDGET_MIN = 8;
+/** Aborted marks kept for `report()`. */
+const ABORTS_KEPT = 12;
 
 // The camera counts as BUSY for this long after the last zoom. Reported
 // 2026-08-20 as "erase-then-zoom feels clunky": `_bakeTick` stood aside for
@@ -118,6 +126,8 @@ class ErasePipeline {
         this._pressWait = null;       // a parked drag's pointer: its last point and whether it was released
         this._lassoParked = null;     // a parked lasso's loop, still drawn
         this._eraseGen = 0;           // bumped by a reset: a job from before it is dropped when it lands
+        this._budget = new Map();     // mark id -> { n: steps taken, supply: ids pending under it } (`_overBudget`)
+        this._eraseAborted = [];      // marks whose bake passed its budget, newest last (`report()`)
         this.doc.subscribe((ev) => this._onEraseEvent(ev));
         this.doc.subscribeOps((ev) => this._onEraseStep(ev));
         this._rebuildEraseIndex();
@@ -127,25 +137,67 @@ class ErasePipeline {
         const k = ev.kind;
         if (k === "reset") {
             this._eraseGen++;
-            this._cuts.clear(); this._descentOut = null;
+            this._cuts.clear(); this._descentOut = null; this._budget.clear();
             this._cancelBarrier();
             this._rebuildEraseIndex();
             return;
         }
         if (k === "addFrame") {                    // natives back by reference, no events of their own
             this._order.clear();
-            if (!this._eraseReplaying) for (const o of this.doc.list(ev.frame)) if (o.targetOf || o.handledBy) this._pruneDead(o);
+            if (!this._eraseReplaying) for (const o of this.doc.list(ev.frame)) if (o.targetOf || o.handledBy) { this._pruneDead(o); this._supplyAdd(o, null); }
             return;
         }
         if ((k !== "add" && k !== "remove") || !ev.obj || (k === "remove" && ev.rehome)) return;
         const o = ev.obj;
         if (o.erase) {
             if (k === "add") { this._marks.set(o.id, o); this._order.delete(o.id); }
-            else { this._marks.delete(o.id); this._dropCuts(o.id); }
+            else { this._marks.delete(o.id); this._dropCuts(o.id); this._budget.delete(o.id); }
             return;
         }
         if (k === "add" && !this._eraseReplaying && (o.targetOf || o.handledBy)) this._pruneDead(o);
         if (o.targetOf) for (const m of o.targetOf) { if (k === "add") this._lineageAdd(m, o.id); else this._lineageDelete(m, o.id); }
+        if (k === "add" && o.targetOf && !ev.rehome) this._supplyAdd(o, ev.by);
+    }
+    /** `o` arrived pending under marks other than `by` (another mark's piece, a source an undo returned): their budgets grow. */
+    _supplyAdd(o, by) {
+        if (!o.targetOf || !this._budget.size) return;
+        for (const m of o.targetOf) {
+            const b = this._budget.get(m);
+            if (b && m !== by && !has(o.handledBy, m)) b.supply++;
+        }
+    }
+    /** Mark M's budget, taken at its first step from what is pending under it then. */
+    _stepBudget(M) {
+        let b = this._budget.get(M.id);
+        if (!b) {
+            let supply = 0;
+            const s = this._lineage.get(M.id);
+            if (s) for (const id of s) { const rec = this.doc.getById(id); if (rec && underMask(rec.obj, M)) supply++; }
+            this._budget.set(M.id, (b = { n: 0, supply }));
+        }
+        return b;
+    }
+    /**
+     * One step of mark E's bake counted. Past its budget the bake is not converging (a wrong rule: a
+     * mark cutting its own pieces never empties): the mark is aborted — reported, noted on its
+     * journal entry, spent with the cuts it made — and true returned, so no loop can hang the page.
+     */
+    _overBudget(Erec) {
+        const E = Erec.obj, b = this._stepBudget(E), limit = STEP_BUDGET_PER_ID * b.supply + STEP_BUDGET_MIN;
+        if (++b.n <= limit) return false;
+        let left = 0;
+        const s = this._lineage.get(E.id);
+        if (s) for (const id of s) { const rec = this.doc.getById(id); if (rec && underMask(rec.obj, E)) left++; }
+        const entry = { mark: E.id, steps: b.n - 1, supply: b.supply, limit, left };
+        this._eraseAborted.push(entry);
+        if (this._eraseAborted.length > ABORTS_KEPT) this._eraseAborted.shift();
+        const note = this._noteOf(E.id);
+        if (note) note.aborted = entry;
+        // eslint-disable-next-line no-console
+        console.error("erase: mark " + E.id + " passed its step budget (" + limit + " steps for " + b.supply + " pending ids, " + left + " still pending); aborted and spent");
+        this._spendMark(Erec);
+        this._emit();
+        return true;
     }
     /**
      * Whether mark `id` can mask anything again: in the document (set aside with a frame too), or
@@ -808,6 +860,7 @@ class ErasePipeline {
     _dispatchPair(Erec, target, { ahead = false, barrier = false, inline = false } = {}) {
         const E = Erec.obj, HE = Erec.level;
         const o0 = target.obj;
+        if (!this.doc.getById(E.id)) return "none";                // spent or aborted while its round was out
         // A lookahead changes nothing in the document: a target still to resolve waits for its turn.
         if (ahead && (E.type !== "shape" || o0.type !== "shape")) return "none";
         if (E.type === "stroke") this._forceBake(E);              // called on a mark not yet landed: it lands and registers
@@ -817,7 +870,7 @@ class ErasePipeline {
         if (!rec) return "none";
         const o = rec.obj, HO = rec.level;
         if (!this._eraseMayTouch(E, HE, o, HO)) { this._silentAdd(E.id, o.id); return "handled"; }
-        if (o.type !== "shape") return this._refuse(E, o, HO, "target is a " + o.type + " with no perimeter", false) || "handled";
+        if (o.type !== "shape") return this._overBudget(Erec) ? "none" : this._refuse(E, o, HO, "target is a " + o.type + " with no perimeter", false) || "handled";
         const spec = this._jobFor(E, HE, o, HO);
         if (!spec) { this._silentAdd(E.id, o.id); return "handled"; }
         if (!inline) {
@@ -882,7 +935,10 @@ class ErasePipeline {
         try { return this._applyPair(Erec, rec, c.kind, r); }
         finally { this._perf(c.kind === "descent" ? "descentApply" : "cutApply", tA, true, { kind: c.kind === "descent" ? (r.refused ? "refused" : "steps:" + r.steps.length) : r.kind, workerMs: Math.round(tA - c.t0) }); }
     }
-    _applyPair(Erec, rec, kind, r) { return kind === "descent" ? this._applyDescent(Erec, rec, r) : this._applyCut(Erec, rec, r); }
+    _applyPair(Erec, rec, kind, r) {
+        if (this._overBudget(Erec)) return false;
+        return kind === "descent" ? this._applyDescent(Erec, rec, r) : this._applyCut(Erec, rec, r);
+    }
     _dropCut(c) {
         if (this._cuts.get(c.key) === c) this._cuts.delete(c.key);
         if (this._descentOut === c) this._descentOut = null;
@@ -912,7 +968,7 @@ class ErasePipeline {
                 if (h && h.length) o.handledBy = h; else delete o.handledBy;
             }
         }
-        this._lineage.delete(id); this._order.delete(id); this._silent.delete(id); this._proj.delete(id);
+        this._lineage.delete(id); this._order.delete(id); this._silent.delete(id); this._proj.delete(id); this._budget.delete(id);
     }
     /** Mark E's bake leaves `o` whole — a refusal: handled, its ink under the mark showing again unless `inkless` (A2 §5.7). */
     _refuse(E, o, HO, why, inkless) {
@@ -1324,6 +1380,9 @@ class ErasePipeline {
             const round = this._barrierRound(b);
             if (!round.length) { this._finishBarrier(b); return true; }
             b.rounds++;
+            // The round's fills become shapes before any pair is dispatched: inline, a pair applies before
+            // the next is promoted, so the log's `put`s and `bake`s would read in another order in workers.
+            for (const { rec } of round) if (rec.obj.type === "fill") this.doc.fillToShapeById(rec.obj.id);
             let parked = false;
             const ran = new Set();
             for (const { Erec, rec } of round) {
@@ -1430,9 +1489,9 @@ class ErasePipeline {
     /** The engine status's erase part: the pending marks, and whether a gesture waits on their cuts (the editor's chip). */
     _eraseStatus() {
         let marks = 0;
-        if (!this._marks) return { marks, finishing: false };   // an emit from the constructor, before `_initErase`
+        if (!this._marks) return { marks, finishing: false, aborted: 0 };   // an emit from the constructor, before `_initErase`
         for (const o of this._marks.values()) if (this.doc.getById(o.id)) marks++;
-        return { marks, finishing: !!this._barrier };
+        return { marks, finishing: !!this._barrier, aborted: this._eraseAborted.length };
     }
     /**
      * Bake pending marks to completion now, inline — every one, or those whose ids are in `only`: the

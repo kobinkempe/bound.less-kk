@@ -358,6 +358,7 @@ function eraseOf(E, sub) {
         counters: {
             dustCulled: E._dustCulled || 0, boolSeals: E._boolFailures || 0, bakeRepairs: E._bakeRepairs || 0,
             cutFailures: E._cutFailures || 0, cutStale: E._cutStale || 0,
+            aborted: (E._eraseAborted || []).slice(),   // marks whose bake passed its step budget (PLAN §5.8 item 3)
             lastSeal: brief(E._lastBoolFailure || null), lastBakeRepair: brief(E._lastBakeRepair || null),
             rehomeWhy: brief(E._rehomeWhy || null),
         },

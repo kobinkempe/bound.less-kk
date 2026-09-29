@@ -114,6 +114,40 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         expect(d.sent[0].cells.length).toBeLessThanOrEqual(6);             // one screenful at the new level, not 2^40 children
     });
 
+    test("the arrival estimate: the strip's own dispatch-to-landing time plus the time since the view, never the strips in flight", () => {
+        const view = { frameId: "F", level: 3, S: 1, Z: 8, k: 8, tx: 0, ty: 0, wDev: 1024, hDev: 512, sigmaMin: 2 ** -0.5 };
+        const moving = (at) => ({ moving: true, at, view, vel: { px: [-8, 0], zoom: 0 } });   // 8 px/ms left
+        const viewCells = (sent) => sent.filter((s) => s.kind === "view").flatMap((s) => s.cells.map((c) => c.i));
+        // Three strips in flight of four slots: the fourth dispatches now, so it lands in 100 ms (800 px), not 175.
+        const a = rig(4);
+        a.q.jobMs = 100;
+        a.q.setMotion(moving(0));
+        a.q.push([job("rest", 0, 3)]);
+        a.q.pump();
+        a.q.push([job("view", 1, 3)]);
+        a.q.pump();
+        expect(viewCells(a.sent)).toEqual([1]);                             // cell 1 (512–1024) still on screen at 800 px
+        // The view is 50 ms old at dispatch: 150 ms of motion (1,200 px) by arrival.
+        const b = rig(4), c = rig(4);
+        b.q.jobMs = 100; c.q.jobMs = 100;
+        b.q.setMotion(moving(0)); c.q.setMotion(moving(-50));
+        b.q.push([job("view", 1, 3)]); c.q.push([job("view", 1, 3)]);
+        b.q.pump(); c.q.pump();
+        expect([viewCells(b.sent), viewCells(c.sent)]).toEqual([[1, 2], [2]]);
+        // The sample runs from dispatch (the pack included) to the landing; a failure is no sample.
+        const d = rig(1, 5);
+        d.q.push([job("view", 1, 1)]);
+        d.q.pump();
+        d.clock.t = 100;
+        d.q.done(d.sent[0].id);
+        expect(d.q.jobMs).toBeCloseTo(30 + 0.2 * (100 - 30), 9);
+        d.q.push([job("view", 1, 1)]);
+        d.q.pump();
+        d.clock.t = 5000;
+        expect(d.q.done(d.sent[1].id, false)).toBe(true);
+        expect([d.q.jobMs, d.q.inFlight.size]).toEqual([30 + 0.2 * 70, 0]);
+    });
+
     test("cancellation by purpose generation and dedupe against the store, at dispatch", () => {
         const { q, sent } = rig(4);
         const gens = { view: 5 };

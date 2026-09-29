@@ -14,6 +14,7 @@ import { underMask, inLineage } from "./eraseRule";
 import Document from "./Document";
 import { shapeFromRings, normalizeLoops } from "./geometry/arcShape";
 import { lcg } from "./__testkit__/rasterLists";
+import { buildReport } from "./report";
 
 useEngines();
 jest.setTimeout(60000);
@@ -321,6 +322,86 @@ describe("A2 §4.10: undo, redo and a replay after a reload agree", () => {
             expect(JSON.stringify(b) === JSON.stringify(a)).toBe(true);
         });
     }
+});
+
+describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", () => {
+    const stack = (E) => {
+        E._scheduleBake = () => {};
+        fill(E, 200, 200, 600, 260); fill(E, 220, 300, 580, 360, "rgb(200,60,40)"); fill(E, 260, 380, 540, 440, "rgb(40,160,60)");
+        E._render();
+        eraseGesture(E, [[300, 150], [320, 480]], 20);
+        eraseGesture(E, [[480, 150], [460, 480]], 24);
+        eraseGesture(E, [[180, 330], [620, 330]], 16);                     // over the first two marks' pieces
+    };
+    /** The mark's steps against what it was given, read as each mark is spent. */
+    const ratios = (E) => {
+        const out = [], spend = E._spendMark.bind(E);
+        E._spendMark = (Erec) => { const b = E._budget.get(Erec.obj.id); if (b) out.push(b.n / Math.max(1, b.supply)); spend(Erec); };
+        return out;
+    };
+    /** A deliberately wrong rule on the instance: `handledBy` ignored, so a mark's own pieces are pending under it. */
+    const wrongRule = (E) => { E._pendingPair = (M, o) => inLineage(o, M); };
+    const quiet = () => jest.spyOn(console, "error").mockImplementation(() => {});
+
+    test("the correct rule never reaches the budget: each pending id costs one step, through undo and redo mid-bake", () => {
+        const E = mkEngine(800, 600);
+        stack(E);
+        const seen = ratios(E);
+        E._bakeNext(); E._bakeNext();
+        E.undo(); E.redo();                                                     // the newest mark's gesture, mid-bake
+        E._bakeNext();
+        E.undo(); E.undo(); E.redo(); E.redo();
+        settle(E);
+        expect(E._eraseStrokes()).toHaveLength(0);
+        expect(E._eraseAborted).toEqual([]);
+        expect(seen.length).toBeGreaterThan(2);
+        expect(Math.max(...seen)).toBeLessThanOrEqual(1);
+    });
+
+    test("a wrong rule fails loudly within the budget instead of hanging: flushErases", async () => {
+        const E = mkEngine(800, 600);
+        stack(E);
+        wrongRule(E);
+        const err = quiet();
+        E.flushErases();
+        expect(E._eraseStrokes()).toHaveLength(0);
+        expect(E._eraseAborted.length).toBeGreaterThan(0);
+        for (const a of E._eraseAborted) expect(a.steps).toBeLessThanOrEqual(a.limit);
+        expect(err).toHaveBeenCalled();
+        expect(E._eraseStatus().aborted).toBe(E._eraseAborted.length);
+        const rep = await buildReport(E);
+        expect(rep.erase.counters.aborted.map((a) => a.mark)).toEqual(E._eraseAborted.map((a) => a.mark));
+        err.mockRestore();
+    });
+
+    test("a wrong rule fails loudly within the budget: the tick, through a pool of three", async () => {
+        const E = mkEngine(800, 600);
+        stack(E);
+        wrongRule(E);
+        const err = quiet();
+        setEraseTransport((msg, transfer, kind) => later(1).then(() => (kind === "descent"
+            ? wireDescentResult(descentJob(...Object.values(unwireDescent(msg)))).msg
+            : wireResult(cutJob(unwireJob(msg))).msg)));
+        let k = 0;
+        for (; k < 3000 && (E._eraseStrokes().length || E._eraseBusy()); k++) { E._bakeTickInner(); await later(2); }
+        expect(k).toBeLessThan(3000);
+        expect(E._eraseStrokes()).toHaveLength(0);
+        expect(E._eraseAborted.length).toBeGreaterThan(0);
+        err.mockRestore();
+    });
+
+    test("a wrong rule fails loudly within the budget: an inline barrier with no worker completes the tap", () => {
+        const E = mkEngine(800, 600);
+        stack(E);
+        wrongRule(E);
+        const err = quiet();
+        E.setTool("select");
+        const id = E.select(250, 230);                                          // on the first fill, pending under no mark there
+        expect(E._barrier).toBeNull();
+        expect(E._eraseAborted.length).toBeGreaterThan(0);
+        expect(id == null || E.doc.getById(id) != null).toBe(true);
+        err.mockRestore();
+    });
 });
 
 describe("A2 §4.7: the parallel bake leaves the serial bake's document, ids, steps and log", () => {
