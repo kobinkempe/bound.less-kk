@@ -1508,3 +1508,25 @@ reads `doc.at` (settle and merge beside, as briefed). Model-adjacent suites: 556
 **Questions asked:** none yet (one coming at the checkpoint: `displaced` still mints a reroute source frame, A1 row 19,
 against the brief's "no mint on read").
 WHERE I AM: M1 — writing `model.equivalence.probe.js` (oracle vs live, pictures per native at four frames per op).
+
+## 2026-09-29 05:04 UTC — B-MODEL-C1 (builder) — M1 checkpoint: the composition, beside the settle
+**Working on:** M1 done (the edits of the 04:54 entry) plus the tile fuzz: `__testkit__/modelFuzz.js` (one seeded op
+sequence — stroke, a descent to ink a kid, erase at depth, tap and lasso drags, subtree drag, delete, undo, redo, zoom,
+pan, kobin-1 and op-log reloads, GC — drawn from the oracle's picture and replayed on both engines; `lcg` now exported
+from `stageFuzz.js`) and `model.equivalence.probe.js` (after every op, `Stage.snapshot` over the whole cell of the camera
+frame, its parent, the heaviest ring neighbour and kid; native for native: bit for bit when homed alike, through the
+picture when the oracle carried it, ≤ 1 ulp above its home).
+**Measured:** fuzz 20 seeds × 40 steps (seeds 1–20): 800 checks, 1,793 frames, 6,705 items (3,752 tile pieces, 1,366 with
+an offset) all bit-identical, 0 carried (both engines settle at M1), 44 subtree drags, 83 tap drags, 81 descents; 18 s.
+Harness round trip, pre-C1 worktree (5e9b1dd, :3030) vs M1 worktree (761d428, :3031), headless Chromium, load 4.9–5.9:
+25,244 ink px before and after on both, same hash, all four screenshots byte-identical between the trees. Suites
+(model-adjacent 48 files): 566 tests green after porting `reroute.memo` (hits → the same memo object) and restoring
+`doc.at` in `nativesIn` for M1; `sceneClient.test` red once at load 3, 33/33 alone. typecheck 0; lint 0 errors.
+**Decisions made:** `residual` returns `{carry, rem}` (its callers take `.rem` or `homeTranslation`); the reroute's memo
+stays in TileStore (its memo tests stand) and the model reads it; `ownContent` deleted (`nativesIn` is the one "own"
+read); `_bakeTick` (timed) kept out of the fuzz, `flushErases` or a pending mark instead.
+**Questions asked:** (1) `displaced` still mints a picture's source frame F0 when the lattice lacks it (A1 §1.2 row 19
+"kept"); the brief says no mint on read. A peeking form needs tiles for a frame the lattice lacks. Recommend: keep it
+for C1, name it in PLAN §3 row 8 as the one exception (an empty frame, GC'd), the pure-read test asserting the rest.
+(2) The dense scenarios save no final-frame screenshot (brief §3 Counters wants one); a `--shot` flag would do it.
+WHERE I AM: M2 — `Document`: settle out of `at`/`add`/`remove*`/`insertAt`/`rehome*`, merges to the action's end.
