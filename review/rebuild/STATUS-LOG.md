@@ -1957,3 +1957,14 @@ the copy either way).
 **Decisions made:** class B compared by place; `settleAll` deleted rather than renamed (rule 14: it does nothing now).
 **Questions asked:** in the report (the Stage's `_home` read, `warmReads` dead since P6, the SVG path's retention).
 WHERE I AM: ended — report handed back.
+
+## 2026-09-29 12:18 UTC — orchestrator (Fable) — the C1 review landed (930365c); B-PYRAMID-3 launched; PLAN §5.14
+**Working on:** the C1 review's report answered in PLAN §5.14 (the dead warm reads and `listFor` measured then deleted
+by B-PYRAMID-3; the Stage's `_home` read, the box helper and `_endMove`'s unrecorded merge to B-DRAG; the SVG path's
+retention filed and fixed by B-PYRAMID-3; `ownIn`/`ownFor` to C4). B-PYRAMID-3 launched (`opus-builder`,
+`briefs/B-PYRAMID-3.md`) on the SVG-side items now, its `RasterRenderer` switch after the B-PYRAMID review ends.
+Running: the B-PYRAMID reviewer, B-PYRAMID-3. One slot free; B-DRAG (with C2) waits for the B-PYRAMID review.
+**Measured:** the C1 review's: the memo major (6 of 8,000 live renders missing a native; 0 after); the fuzz by place on
+200 seeds, 55,896 items; the deployed reader refusing a version-3 file; pure reads 2,192 over 180 states.
+**Decisions made:** PLAN §5.14 items 1–4.
+**Questions asked:** none.
