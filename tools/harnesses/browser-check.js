@@ -17,7 +17,15 @@
  * printing its deltas as one JSON line: paper (PAPER-PLAN
  * §9: each picture's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
  * `olderMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
- * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`).
+ * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`): `pyramid=1`
+ * draws through the picture pyramid, `pyramid=0` the old layer (B-PYRAMID-2 P5).
+ *
+ * Three paper samplers, each named in the output: `paperMs` is the layer's own integral where it keeps one (the
+ * pyramid's `paperMs`/`blurMs`/`olderMs`, charged forward at each compose) and the rAF sampler's otherwise;
+ * `paperSampledMs` is the rAF sampler (it reads before the engine's frame, so it charges a long frame's old share);
+ * `paintPaperMs` is the post-paint sampler (a timeout after each rAF: the picture that stayed on screen until the next
+ * paint; the B-SCENE review's, PLAN §5.6 item 8). The load average (`os.loadavg()`) is printed at the start and the
+ * end of every run: a contended run must be visible (PLAN §5.4).
  *
  * Needs a dev server (`npm start`, on Node 14: CRA 4 does not start on Node 17+) and Playwright
  * with a Chromium. In the Claude cloud container both are preinstalled (Playwright at
@@ -28,6 +36,7 @@
  * Output: one JSON object per state on stdout, screenshots under --out (default tools/.cache/browser-check).
  */
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { synth } = require("./synth-drawing");
 
@@ -156,7 +165,9 @@ function installProbes() {
     const E = window.__kobinEngine;
     const L = E.renderer && E.renderer.layer;
     const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0 };
+    // The paper share now: the old layer's uncovered cells, or the pyramid's last compose's paper share.
     const shareNow = () => {
+        if (L && L._share) return L._share.paper || 0;
         if (!L || !L._rFull || !L.uncoveredCells) return 0;
         const r = L._rFull, cells = (r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1);
         return cells > 0 ? Math.min(1, L.uncoveredCells() / cells) : 0;
@@ -169,13 +180,21 @@ function installProbes() {
     };
     const tick = (now) => { sample(Math.max(now, P.last)); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
+    // The post-paint sampler: each frame's rAF callbacks and paint have run when the timeout fires, so the share read
+    // is the picture that was on screen until the next paint.
+    const PP = window.__bfPaint = { paperMs: 0, share: 0, last: performance.now(), samples: 0 };
+    const pp = () => requestAnimationFrame(() => setTimeout(() => {
+        const now = performance.now();
+        PP.paperMs += PP.share * (now - PP.last); PP.share = shareNow(); PP.last = now; PP.samples++; pp();
+    }, 0));
+    pp();
     if (L && L.compose) {
         const compose = L.compose.bind(L);
         L.compose = (plates) => {
-            const n = compose(plates);
+            const r = compose(plates), n = r && typeof r === "object" ? r.images : r;   // the pyramid returns its plan
             P.composes++; if (n > P.maxImages) P.maxImages = n;
             sample(Math.max(performance.now(), P.last));
-            return n;
+            return r;
         };
     }
     return true;
@@ -190,12 +209,20 @@ function probeRead() {
     let W = null;
     try { W = E.renderer && E.renderer.perf ? E.renderer.perf.report().worker : null; } catch (err) { W = null; }
     const F = E.frameMeter.report(), LF = E.longFrames.report();
+    const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
+    const REF = ["refusedAtDispatch", "refusedDirt", "refusedCover", "refusedDead", "refusedCoverPlates", "refusedCollateral"];
     return {
         t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes,
+        paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
+        queue: Q ? { byPrio: Q.byPrio ? Q.byPrio.slice() : null, dispatched: Q.dispatched, done: Q.done, drops: Q.drops, reaimed: Q.reaimed, jobMs: Q.jobMs } : null,
+        ref: R ? Object.fromEntries(REF.map((k) => [k, R[k] || 0])) : null,
+        st: E.stage && E.stage.stats ? { ...E.stage.stats } : null,
+        surface: L && L.surface != null ? L.surface : null,
         layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderMs: L.olderMs } : null,
         composes: L ? L.composes : null, composeMs: L ? L.composeMs : null, arrivalComposes: L ? L.arrivalComposes : null,
         hist: F.hist, frames: F.frames, longCount: LF.count, longRecent: LF.recent,
         plates: S ? { plates: S.plates, mib: +(S.plateBytes / 1048576).toFixed(1), capMib: +(S.maxBytes / 1048576).toFixed(1), pinned: S.pinned, inFlight: S.inFlight, evictions: S.evictions, stale: S.stale } : null,
+        level: L && L.level != null ? { level: L.level, S: L.S, mode: L.mode, pinBound: L.pinBound } : null,
         jobs: W ? { queued: W.queued, inFlight: W.inFlight, jobs: W.jobs, plates: W.plates, mode: W.mode, workers: W.workers } : null,
         posts: R ? { posts: R.posts, postedPlates: R.postedPlates, liveHandoffs: R.liveHandoffs, liveTimeouts: R.liveTimeouts, syncFrames: R.syncFrames } : null,
         cam: { frame: E.cam.frame, inScale: E.cam.inScale, level: E.cam.activeLevel },
@@ -212,7 +239,9 @@ function quiet() {
     let W = null;
     try { W = E.renderer && E.renderer.perf ? E.renderer.perf.report().worker : null; } catch (err) { W = null; }
     const S = E.plates && E.plates.report ? E.plates.report() : null;
-    return !E._fr && (!W || (W.queued === 0 && W.inFlight === 0)) && (!S || S.inFlight === 0);
+    const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    return !E._fr && (!W || (W.queued === 0 && W.inFlight === 0)) && (!S || S.inFlight === 0) && (!Q || (sum(Q.queued) === 0 && sum(Q.inFlight) === 0));
 }
 
 /** Runs in the page: put frame F's point (x, y) at the screen's centre at `inScale`, and draw it. */
@@ -247,12 +276,20 @@ function delta(a, b) {
         olderMs: +(b.layerPaper.olderMs - a.layerPaper.olderMs).toFixed(1),
     } : null;
     const composes = b.composes != null ? b.composes - a.composes : null;
+    const byPrio = b.queue && a.queue && b.queue.byPrio && a.queue.byPrio ? b.queue.byPrio.map((n, k) => n - a.queue.byPrio[k]) : null;
+    const diff = (x, y) => (x && y ? Object.fromEntries(Object.keys(y).filter((k) => typeof y[k] === "number" && y[k] !== (x[k] || 0)).map((k) => [k, y[k] - (x[k] || 0)])) : null);
     return {
+        samplers: { paperMs: lp ? "layer" : "rAF", paperSampledMs: "rAF", paintPaperMs: "post-paint" },
         paperMs: lp ? lp.paperMs : +(b.paperMs - a.paperMs).toFixed(1), paperSampledMs: +(b.paperMs - a.paperMs).toFixed(1),
+        paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
         blurMs: lp ? lp.blurMs : null, olderMs: lp ? lp.olderMs : null, maxPaperShare: +b.maxShare.toFixed(3),
         frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0) })) },
         compose: { n: composes, ms: b.composeMs != null ? +(b.composeMs - a.composeMs).toFixed(1) : null,
-            msMean: composes ? +((b.composeMs - a.composeMs) / composes).toFixed(2) : null, maxImages: b.maxImages, arrivals: b.arrivalComposes - a.arrivalComposes },
+            msMean: composes ? +((b.composeMs - a.composeMs) / composes).toFixed(2) : null, maxImages: b.maxImages,
+            arrivals: b.arrivalComposes != null ? b.arrivalComposes - a.arrivalComposes : null, surface: b.surface != null ? b.surface - a.surface : null },
+        queue: b.queue && a.queue ? { byPrio, dispatched: b.queue.dispatched - a.queue.dispatched, done: b.queue.done - a.queue.done,
+            reaimed: b.queue.reaimed - a.queue.reaimed, drops: diff(a.queue.drops, b.queue.drops), jobMs: +b.queue.jobMs.toFixed(1) } : null,
+        refusals: diff(a.ref, b.ref), stageReads: diff(a.st, b.st), level: b.level,
         plates: b.plates, jobs: b.jobs && a.jobs ? { jobs: b.jobs.jobs - a.jobs.jobs, plates: b.jobs.plates - a.jobs.plates, queued: b.jobs.queued, inFlight: b.jobs.inFlight, mode: b.jobs.mode, workers: b.jobs.workers } : null,
         posts: b.posts && a.posts ? { posts: b.posts.posts - a.posts.posts, postedPlates: b.posts.postedPlates - a.posts.postedPlates,
             liveHandoffs: b.posts.liveHandoffs - a.posts.liveHandoffs, liveTimeouts: b.posts.liveTimeouts - a.posts.liveTimeouts, syncFrames: b.posts.syncFrames - a.posts.syncFrames } : null,
@@ -409,26 +446,42 @@ async function penUp(page) {
         for (let k = 1; k <= 40; k++) { await page.mouse.move(CX - 200 + 10 * k, CY + 60 + 40 * Math.sin(k / 6)); await sleep(16); }
         const tUp = Date.now();
         await page.mouse.up();
-        let held = true;
-        while (Date.now() - tUp < 10000) { held = await page.evaluate(() => (window.__kobinEngine.renderer._liveHeld || []).length > 0); if (!held) break; await sleep(16); }
-        return { liveReleaseMs: held ? -1 : Date.now() - tUp, exactMs: await untilExact(page, tUp) };
+        let held = true, exactAtRelease = null;
+        while (Date.now() - tUp < 10000) {
+            // The pyramid publishes the stroke's plates in the task that takes the path down (A3 §3.6): at the first
+            // read without the path, the picture is exact.
+            const st = await page.evaluate(() => {
+                const E = window.__kobinEngine, L = E.renderer.layer, h = (E.renderer._liveHeld || []).length > 0;
+                const sh = L && L._share ? L._share : null;
+                return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.older) };
+            });
+            held = st.h;
+            if (!held) { exactAtRelease = st.exact; break; }
+            await sleep(16);
+        }
+        return { liveReleaseMs: held ? -1 : Date.now() - tUp, exactAtRelease, exactMs: await untilExact(page, tUp) };
     });
 }
 
-/** From `t0` until the view draws no stale plate (today's layer), or −1 after 20 s. */
+/** From `t0` until the view draws only exact plates, or −1 after 20 s. */
 async function untilExact(page, t0 = Date.now()) {
     while (Date.now() - t0 < 20000) {
-        const stale = await page.evaluate(() => {
-            const L = window.__kobinEngine.renderer.layer;
-            if (!L || !L._hits) return 0;
-            let n = 0;
-            for (let k = 0; k < L._nHits; k++) if (L._isStale(L._hits[k])) n++;
-            return n;
-        });
-        if (!stale) return Date.now() - t0;
+        if (await page.evaluate(exactNow)) return Date.now() - t0;
         await sleep(16);
     }
     return -1;
+}
+
+/** Runs in the page: the pyramid's last compose charged no paper, blur or older share and drew nothing held; the old layer no stale hit. */
+function exactNow() {
+    const L = window.__kobinEngine.renderer.layer;
+    if (L && L._share && L.lastPlan) {
+        const s = L._share;
+        return !(s.paper || s.blur || s.older) && !L.lastPlan.cells.some((c) => c.draws.some((d) => d.cls === "held"));
+    }
+    if (!L || !L._hits) return true;
+    for (let k = 0; k < L._nHits; k++) if (L._isStale(L._hits[k])) return false;
+    return true;
 }
 
 async function dense(browser) {
@@ -447,14 +500,18 @@ async function dense(browser) {
     }
 }
 
+const load = (at) => say("load", { at, loadavg: os.loadavg().map((x) => +x.toFixed(2)), cpus: os.cpus().length, query: QUERY, t: new Date().toISOString() });
+
 async function main() {
     const { chromium } = loadPlaywright();
+    load("start");
     const browser = await chromium.launch({ executablePath: EXE, headless: !HEADED, args: ["--no-sandbox"] });
     try {
         if (DENSE) await dense(browser);
         else await roundTrip(browser);
     } finally {
         await browser.close();
+        load("end");
     }
 }
 

@@ -201,18 +201,18 @@ class ErasePipeline {
     }
     /**
      * Whether mark `id` can mask anything again: in the document (set aside with a frame too), or
-     * held by an undone gesture that a redo brings back. A spent mark never returns (its gesture
-     * undoes by its steps), nor does one whose redo branch a new op cleared.
+     * held by an undone gesture on the redo stack. A spent mark never returns (its gesture undoes by
+     * its steps), nor does one whose redo branch a new op cleared; an applied gesture's `strokeRec`
+     * outlives its redo and names nothing that can return.
      */
     _markAlive(id) {
         const o = this.doc._byId.get(id);
         if (o && o.erase && !o._gone) return true;
-        const u = this.doc._undo, r = this.doc._redo, h = this._held;
-        if (!h || h.u !== u || h.r !== r || h.ul !== u.length || h.rl !== r.length || h.ut !== u[u.length - 1] || h.rt !== r[r.length - 1]) {
+        const r = this.doc._redo, h = this._held;
+        if (!h || h.r !== r || h.rl !== r.length || h.rt !== r[r.length - 1]) {
             const set = new Set();
-            for (const op of u) if (op.strokeRec && op.strokeRec.obj) set.add(op.strokeRec.obj.id);
             for (const op of r) if (op.strokeRec && op.strokeRec.obj) set.add(op.strokeRec.obj.id);
-            this._held = { u, r, ul: u.length, rl: r.length, ut: u[u.length - 1], rt: r[r.length - 1], set };
+            this._held = { r, rl: r.length, rt: r[r.length - 1], set };
         }
         return this._held.set.has(id);
     }
@@ -224,8 +224,9 @@ class ErasePipeline {
         if (t !== o.targetOf) { if (t.length) o.targetOf = t; else delete o.targetOf; }
         if (h !== o.handledBy) { if (h.length) o.handledBy = h; else delete o.handledBy; }
     }
-    /** A bake step replaces what a running barrier follows by its pieces (A2 §4.11 step 3). */
+    /** A new op forks history: the marks its dropped redo branch held leave the live natives' fields. A bake step replaces what a running barrier follows by its pieces (A2 §4.11 step 3). */
     _onEraseStep(ev) {
+        if (ev.kind === "op") { for (const m of [...this._lineage.keys()]) if (!this._markAlive(m)) this._pruneMark(m); return; }
         const f = this._follow;
         if (!f || ev.kind !== "bake" || !ev.step.removed || !f.has(ev.step.removed.obj.id)) return;
         f.delete(ev.step.removed.obj.id);

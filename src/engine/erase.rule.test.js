@@ -4,7 +4,7 @@
  * kobin-2 store written before `targets`; undo, redo and a replay after a reload agreeing (§4.10); and
  * the parallel bake leaving the serial bake's ids, steps and log (§4.7).
  */
-import { useEngines, mkEngine, drawStroke, eraseGesture } from "./__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, eraseGesture, descend, topView } from "./__testkit__/harness";
 import { OpLog } from "./oplog";
 import { encodeObjects, decodeObjects } from "./format2";
 import { setEraseTransport } from "./eraseWorkerClient";
@@ -324,6 +324,63 @@ describe("A2 §4.10: undo, redo and a replay after a reload agree", () => {
     }
 });
 
+describe("undo under a newer mark (A2-Q9, R-ERASE item 7)", () => {
+    const names = (E, m) => live(E).filter((o) => (o.targetOf || []).includes(m) || (o.handledBy || []).includes(m)).map((o) => o.id);
+    const setup = () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const T = fill(E, 200, 250, 600, 350);
+        E._render();
+        eraseGesture(E, [[300, 200], [300, 400]], 20);                         // K, baked and spent
+        const K = E._eraseStrokes()[0].obj;
+        settle(E);
+        eraseGesture(E, [[250, 300], [550, 300]], 20);                         // M over K's pieces, pending
+        const M = E._eraseStrokes()[0].obj;
+        return { E, T, K, M };
+    };
+    test("undo takes the newer mark first, then the older erase; redo gives back the same drawing, and the newer mark re-cuts", () => {
+        const { E, T, K, M } = setup();
+        const pending = state(E);
+        expect(M.targets.length).toBeGreaterThan(0);
+        E.undo();                                                               // M: pending, removed whole
+        expect(E._eraseStrokes()).toHaveLength(0);
+        E.undo();                                                               // K: its source back whole
+        settle(E);
+        expect(E.doc.getById(T.id)).not.toBeNull();
+        expect(names(E, K.id)).toEqual([]);                                     // a spent mark named by nothing live
+        E.redo(); E.redo();
+        expect(state(E) === pending).toBe(true);                                // M pending over K's pieces again
+        settle(E);
+        const ref = setup();
+        settle(ref.E);
+        expect(state(E) === state(ref.E)).toBe(true);                           // as if never undone
+    });
+    test("drawing after the undos drops the redo branch: nothing live names its marks", () => {
+        const { E, M } = setup();
+        E.undo(); E.undo(); E.redo();                                           // K back; M still on the redo stack
+        expect(names(E, M.id).length).toBeGreaterThan(0);                       // K's pieces carry M: it can return
+        drawStroke(E, [[100, 100], [140, 120]], 6);                             // a new op: M can never return
+        expect(names(E, M.id)).toEqual([]);
+    });
+    test("a mark undone, redone and spent is not kept alive by its gesture's stale record", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        fill(E, 200, 250, 600, 290); fill(E, 200, 310, 600, 350, "rgb(200,60,40)");
+        E._render();
+        eraseGesture(E, [[400, 200], [400, 400]], 20);
+        const K = E._eraseStrokes()[0].obj;
+        E.undo(); E.redo();
+        E._bakeNext();                                                          // K cuts the upper target first
+        const piece = live(E).find((o) => (o.handledBy || []).includes(K.id));
+        E._setSelection([piece.id]); E.deleteSelection();                       // a piece out while K is pending
+        settle(E);                                                              // K spent
+        expect(E.doc.getById(K.id)).toBeNull();
+        E.undo();                                                               // the delete: the piece comes back
+        expect(E.doc.getById(piece.id)).not.toBeNull();
+        expect(names(E, K.id)).toEqual([]);
+    });
+});
+
 describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", () => {
     const stack = (E) => {
         E._scheduleBake = () => {};
@@ -356,6 +413,28 @@ describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", ()
         expect(E._eraseAborted).toEqual([]);
         expect(seen.length).toBeGreaterThan(2);
         expect(Math.max(...seen)).toBeLessThanOrEqual(1);
+    });
+
+    test("a frame set aside and returned under a pending mark grows its budget: twenty targets back, no false abort", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        fill(E, 380, 280, 420, 320);                                            // X, at the root
+        descend(E, 1, 400, 300);
+        const F = E.cam.frame, [cx, cy] = E.cam.screenToFrame(400, 300);
+        for (let k = 0; k < 20; k++) E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(40,40,200)", opacity: 1, polys: [[[cx - 300 + 30 * k, cy - 40], [cx - 280 + 30 * k, cy - 40], [cx - 280 + 30 * k, cy + 40], [cx - 300 + 30 * k, cy + 40]]] }, F);
+        E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), z: 1e9, color: "#000", opacity: 1, polys: [[[cx + 900, cy], [cx + 910, cy], [cx + 910, cy + 10], [cx + 900, cy + 10]]] }, F);   // drawn above any mark: M does not take F whole
+        topView(E);
+        eraseGesture(E, [[330, 300], [470, 300]], 30);                          // M over X and the whole of F's ink
+        const M = E._eraseStrokes()[0].obj;
+        expect(M.targets.length).toBe(21);
+        const aside = E.doc.removeFrameSubtree(F);                              // as another mark's frames pass would
+        E._bakeNext();                                                          // M's first step: its budget is taken with F away
+        E.doc.insertFrameSubtree(aside);                                        // that mark undone: F's twenty back, pending under M
+        const err = quiet();
+        E.flushErases();
+        expect(E._eraseAborted).toEqual([]);
+        expect(err).not.toHaveBeenCalled();
+        err.mockRestore();
     });
 
     test("a wrong rule fails loudly within the budget instead of hanging: flushErases", async () => {

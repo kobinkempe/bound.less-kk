@@ -1326,3 +1326,22 @@ tree (the B-ERASE reviewer's, in progress; not touched).
 **Measured:** raster.pyramid 19/19, PicturePyramid ×3, jobQueue 8/8, prefetch, raster.job/worker/clip 69/69; typecheck 0;
 eslint 0 errors. Break-checks for P4a (9 rules) each red on its test.
 WHERE I AM: P4 break-checks for the read/cover rules, the raster + hooks suites, then the P4 checkpoint entry.
+
+## 2026-09-29 01:16 UTC — reviewer (B-ERASE review) — progress: items 4, 6, 7 and 1d measured; the browser's feel running
+**Working on:** `erasePipeline.js` (`_markAlive` reads the redo stack only; a new op prunes the marks its dropped redo
+branch held), `erase.rule.test.js` (undo under a newer mark ×3, a frame back under a pending mark), `raster.eraseRule.test.js`
+(the fringe ×2), new `erase.oldStore.test.js` + `__testkit__/preErase.store.json` (22 KB, made by 1cac470's engine),
+`erase.worker`/`select.eraseBarrier` (status gains `aborted`). Dev server on :3020 (Node 14).
+**Measured:** item 1d, headless Chromium through the app (Y dragged across a held-pending mark): Y's pixel over the mark
+[30,60,200] at the drag's last steps and after the drop, T under the mark [255,255,255]; released, the bake ends in 697 ms,
+Y live with its 82 pieces (never cut), T replaced. 1b in the browser: kept plates vs a fresh page of the same document,
+after each step: 0 bytes, 0 bytes. Item 4: a family half handled — node core 424 px, max 59/255; browser 430 px, max
+59/255; all within 1.5 px of the mark's edge (c − c², a quarter of the contrast at most): inside row 3 (b)'s envelope.
+Item 6: the pre-B-ERASE store loads, registers both landed marks by the old rule (one attr entry each; a second sight
+changes nothing), the redone old mark registers once, the bake ends at the old engine's areas to the bit, every gesture
+undoes; the deployed reader (0732252) keeps `targets`/`targetOf`/`handledBy` through `_extra` in kobin-2 frames and in a
+kobin-1 file (version unchanged). Load 1.0–2.2 during these; 7.2 now (other agents).
+**Decisions made:** fixed as minors — a redone-and-spent mark was "alive" through its op's stale `strokeRec`; a dropped redo
+branch left its marks' ids on live natives (DESIGN §7 says never). Both red-before tests are in `erase.rule`.
+**Questions asked:** none yet.
+WHERE I AM: the feel run (item 2), then break-checks on `scratchpad/r-erase/bc` (bc.py), item 8, item 9 docs, item 11.

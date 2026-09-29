@@ -706,6 +706,17 @@ builds on", not yet written then). Its interface matches this section's needs �
 `covers`, `snapshot`, `hold`/`release`/`setDragDelta`, `changesSince`, `frame()` (A2 §2.11) — and the
 remaining differences are Q7 (a pending item from pen-up to its shape bake) and Q15 (family routing).
 
+*Wired (B-PYRAMID-2 P4, 2026-09-29):* under the pyramid a camera step (`_syncStep`, a crossing's render) syncs the table
+with budget 0; a document render still reads everything. `KobinEngine._readIdle` reads what the step missed once the
+camera has been still for the rest's quiet (100 ms: a bake is not recalled, as a posted job is not), one `LADDER_SLICE_MS`
+slice (30 on a phone) an idle callback, and steps the renderer after each slice (an empty tile covers without a commit).
+`PicturePyramid.covered(cell)` is the plan's test: the view's, the rest set's, the patch step's, the plane's and the near
+prefetch's cells over tiles not in the table are not asked for (drawn from stand-ins). The pack refuses a cell whose
+tiles left after it was asked (the inline executor too: it lands only the packed cells) and `unask`s it; a pen-up
+group's refused cell is asked again inside the group once covered, the path staying up meanwhile. A waiting plane's idle
+re-aim asks for its cells once covered. Not done: the window grown for D1's SEL cells
+past four view cells (a 2560-px or phone screen): those are never covered, so never asked.
+
 ### 4.3 Prefetch: what, how far, how much
 
 In priority order within class 4 (PLAN §1.2's order, costed):
@@ -767,6 +778,11 @@ one-worker pool is never starved by a bake; the velocity rule runs only while th
 *Corrected (B-PYRAMID-2 P2):* a re-aim takes the new level's cells under the strip's and on the predicted screen; it
 built all 2^d × 2^d children of every cell first, and a descend (2× a step, twenty octaves by arrival) threw an invalid
 array length (the P2 fuzz).
+
+*Corrected (B-PYRAMID-2 P4):* the arrival is the view's age plus the mean dispatch-to-landing time (the pack, the post, the
+worker, the landing, measured by the queue from its own dispatch; a failure is no sample): `pump` dispatches only to a
+free slot, so no queue position is ahead of the strip (PLAN §5.6 item 7). `failPool` hands a queue strip back through
+`onRequeue`: its id ended, the strip at the head of its priority (H7).
 
 ### 4.5 The cache budget
 

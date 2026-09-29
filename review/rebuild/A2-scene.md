@@ -1209,7 +1209,7 @@ T is pending under M. With nothing selected, a drag from ink is a lasso (`_begin
 | moment | what happens | screen |
 |---|---|---|
 | tap on T | the pick finds T where it is visible (outside M's coverage, §4.12); `select`'s barrier dispatches the pairs of T and its family; the selection is parked | T stays masked, nothing selected yet; after 150 ms the chip |
-| the cuts land | T's pieces become the selection — all of them, from the steps' own `removed → pieces` | the ants on the pieces; the chip goes |
+| the cuts land | the point is picked again: the selection is the piece under the finger (SM-5, RR-3/4; PLAN §5.8 item 1 — "all of T's pieces" was this section's first reading, corrected) | the ants on that piece; the chip goes |
 | press on a piece and drag | `_settleSelectionErases`'s pairs among the members: none left, so the drag starts at once | the pieces follow the finger |
 | — or, with another object already selected: press on T and drag | `select(T)`'s barrier, then the members' (none left); the drag is parked meanwhile | T does not move; then the pieces jump to the finger and follow it |
 | — released before the cuts landed | the move is applied whole, press → release, as one drag | the pieces land where the finger lifted |
@@ -1377,9 +1377,9 @@ groups, `placed`, `placeNative`, the hit test's inverse (`p − off`).
 
 **Row 7 — the selection stands for the same ink through cuts** (A1 owns settles and merges).
 `src/engine/select.eraseBarrier.test.js`. Random objects under random pending marks; (a) a tap on a
-pending target: after the barrier, `selection.ids` is exactly the set of the target's pieces — all
-descendants through every mark pending over it — and `_selectionMembers` covers them and nothing else;
-a drag moves exactly them; (b) a lasso over a region with pending targets: the selection equals
+pending target: after the barrier, the selection is the piece under the finger, picked again once
+every mark pending over the target's family has cut it (SM-5, PLAN §5.8 item 1), and a drag's barrier
+carries a selection to all the pieces of its members, which a drag then moves; (b) a lasso over a region with pending targets: the selection equals
 `_lassoFind` of the same loop over a clone of the document baked to completion first (the
 brute-force oracle), including a mark outside the loop's box trimming an object into it (H5); (c) a
 frame selection with a pending mark homed under it: the mark is finished before the frame moves (B4's

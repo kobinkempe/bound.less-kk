@@ -423,8 +423,7 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      and deleteScene went with scenes.js
                       the raster path _tableStep (the camera step:
                                      stage.sync, the renderer's step),
-                                     _neutralOf (the Stage's erase classifier
-                                     until B-ERASE), _beginHold / _endMove /
+                                     _beginHold / _endMove /
                                      _releaseMove (the drag's hold in the Stage
                                      and its one exit), _planeState, listFor (the
                                      SVG path's render list, and the probe's),
@@ -587,8 +586,9 @@ format2.js          kobin-2 (2026-09-08): objectHeader (the one whitelist, share
 oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     silent geometry changes as entries with results; drain() for
                     the saver; replay() onto a loaded document (idempotent,
-                    seq-gated per frame) rebuilding the undo/redo stacks and a
-                    pending eraser's done set; one object per id across the
+                    seq-gated per frame) rebuilding the undo/redo stacks (the
+                    marks' lineage is derived after it, A2 §4.9; refusals and
+                    registrations are `attr` entries); one object per id across the
                     records, the later state winning (F70). oplog.test.js.
                     Validates an object's `below` (F41, F55: depth 0 allowed).
                     Version 2 (F43) only when a shape holds a cut line (code 2

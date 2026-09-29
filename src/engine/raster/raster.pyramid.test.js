@@ -174,6 +174,15 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((c) => c === "sharp")).toBe(true);
         expect([rasterStats.refusedCover, R.queue.report().done]).toEqual([0, R.queue.report().dispatched]);
+        // A stale drawn cell over tiles not in the table is not patched from it: it waits for them.
+        refuse = true;
+        E.undo();
+        await settle(E, 2);
+        expect([rasterStats.refusedCover, rasterStats.refusedCoverPlates]).toEqual([0, 0]);
+        refuse = false;
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        expect(planCls(R).every((c) => c === "sharp")).toBe(true);
     });
 
     test("a cell whose tiles left the table after it was asked for is refused at the pack and asked for again once covered", async () => {
@@ -224,9 +233,15 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         const box = (x) => ({ left: x.i * 512 / x.Z, top: x.j * 512 / x.Z, right: (x.i + 1) * 512 / x.Z, bottom: (x.j + 1) * 512 / x.Z });
         const cellsAsked = () => [...R.queue.queue, ...R.queue.inFlight.values()].flatMap((st) => st.cells).filter((x) => x.frame === F);
         expect(cellsAsked().every((x) => E.stage.covers(F, box(x)))).toBe(true);
+        for (let t = 0; t < 300; t += 20) { E.panBy(1, 0); await new Promise((r) => setTimeout(r, 20)); }
+        expect(budgets.every((b) => b === 0)).toBe(true);                // nothing baked while the camera keeps moving
+        let steps = 0;
+        const step = R.syncCameraOnly.bind(R);
+        R.syncCameraOnly = () => { steps++; return step(); };
         for (let t = 0; t < 3000 && !E.stage.covers(E.cam.frame, E._listWin()); t += 10) await new Promise((r) => setTimeout(r, 10));
         expect(E.stage.covers(E.cam.frame, E._listWin())).toBe(true);    // read at idle, a slice at a time
         expect(budgets.some((b) => b > 0 && b !== Infinity)).toBe(true);
+        expect(steps).toBeGreaterThan(0);                                // a slice that changed the table stepped the renderer
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((x) => x === "sharp")).toBe(true);
@@ -553,6 +568,33 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         expect(pl.checkReady(E.plates)).toBe(true);
     });
 
+    test("a waiting plane asks for no cell the table does not cover; once covered its idle re-aim asks for them", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        R._pyrPrefetch = () => {};
+        await planeScene(E, g);
+        const pl = R._plane;
+        expect(pl.checkReady(E.plates)).toBe(true);
+        const covers = E.stage.covers.bind(E.stage);
+        let refuse = true;
+        E.stage.covers = (f, r) => (refuse ? false : covers(f, r));
+        const b = E.doc.add(fillAt(E, 500, 60, "rgb(30,160,30)"), "0");  // a new selection: new layers, none of them covered
+        E.setTool("select");
+        const pb = E.cam.levelPointToScreen("0", 540, 100);
+        E.pointerDown(pb[0], pb[1]); E.pointerUp();
+        expect(E.selection.ids).toEqual([b.id]);
+        E._render();
+        await planeQuiet(R);
+        const planeStrips = () => [...R.queue.queue, ...R.queue.inFlight.values()].filter((st) => st.kind === "plane").length;
+        expect([planeStrips(), rasterStats.refusedCoverPlates]).toEqual([0, 0]);
+        expect(pl.checkReady(E.plates)).toBe(false);
+        refuse = false;
+        for (let t = 0; t < 3000 && !(planeStrips() + g.parked.length); t += 10) { await settle(E, 1); await new Promise((r) => setTimeout(r, 10)); }
+        expect(planeStrips() + g.parked.length).toBeGreaterThan(0);
+        expect(await drain(E, g)).toBe(0);
+        expect(pl.checkReady(E.plates)).toBe(true);
+    });
+
     test("D1: a selection past the screen's edge is in its SEL layer to one view beyond; BELOW stays on the view", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
@@ -605,6 +647,64 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         } finally {
             delete global.Worker;
         }
+    });
+
+    test("pen-up over a cell whose tiles are not in the table: the other cells re-rendered and held, that one asked for inside the group once covered, the path up until then", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        R.pyramid.cfg.patchInlineMs = 1e9;                              // the group's re-render inline
+        const v = R._view, cellAt = (sx, sy) => [Math.floor(((sx - v.tx) / v.k) * v.Zq / 512), Math.floor(((sy - v.ty) / v.k) * v.Zq / 512)];
+        const [ci, cj] = cellAt(150, 300), [di, dj] = cellAt(650, 300);
+        expect(di).not.toBe(ci);                                        // the stroke crosses two cells
+        const u = 512 / v.Zq, covers = E.stage.covers.bind(E.stage);
+        let refuse = true;
+        E.stage.covers = (f, r) => !(refuse && Math.abs(r.left - ci * u) < 1e-9 && Math.abs(r.top - cj * u) < 1e-9) && covers(f, r);
+        const recAt = (i, j) => [...E.plates.records()].find((r) => r.frame === String(v.frameId) && r.Z === v.Zq && r.i === i && r.j === j);
+        const T = drawStroke(E, [[100, 300], [700, 300]], 12);
+        await settle(E, 2);
+        const G1 = E.stage.landedAt(T.id), grp = [...R.pyramid._groups.values()][0];
+        expect(G1).toBeGreaterThan(0);
+        expect(rasterStats.refusedCoverPlates).toBeGreaterThan(0);
+        expect([R._liveHeld.length, !!grp]).toEqual([1, true]);        // the path stays while its group waits
+        expect(grp.held.some((r) => r.i === di && r.j === dj)).toBe(true);
+        expect(grp.held.some((r) => r.i === ci && r.j === cj)).toBe(false);   // nothing from a table lacking its tiles
+        expect(recAt(ci, cj).G).toBeLessThan(G1);
+        refuse = false;
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        expect(R._liveHeld.length).toBe(0);                             // committed in one task with the path's release
+        for (const rec of [recAt(ci, cj), recAt(di, dj)]) {
+            expect([rec.key, rec.G >= G1, E.plates.exact(rec)]).toEqual([rec.key, true, true]);
+            expect([rec.key, diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([rec.key, 0]);
+        }
+        expect(R.pyramid.s.groupsTimedOut).toBe(0);
+    });
+
+    test("pen-up with none of its cells' tiles in the table: nothing is rendered from it, the path stays until they are covered", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        R.pyramid.cfg.patchInlineMs = 1e9;
+        const covers = E.stage.covers.bind(E.stage);
+        let refuse = true;
+        E.stage.covers = (f, r) => (refuse ? false : covers(f, r));
+        const T = drawStroke(E, [[300, 200], [360, 240]], 12);
+        await settle(E, 2);
+        const G1 = E.stage.landedAt(T.id), v = R._view;
+        expect(G1).toBeGreaterThan(0);
+        const fresh = [...E.plates.records()].filter((r) => r.frame === String(v.frameId) && r.Z === v.Zq && r.G >= G1);
+        expect(fresh.map((r) => r.key)).toEqual([]);                    // red before: an empty pack rendered as paper, exact
+        expect(R._liveHeld.length).toBe(1);
+        refuse = false;
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        expect(R._liveHeld.length).toBe(0);
+        expect(planCls(R).every((c) => c === "sharp")).toBe(true);
     });
 
     test("a strip the worker fails is ended and asked again, and is no sample of the arrival estimate", async () => {

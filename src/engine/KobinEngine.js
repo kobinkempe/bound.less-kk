@@ -831,8 +831,8 @@ export default class KobinEngine {
     /**
      * The tiles a camera step left unread, read once the camera has been still for the rest's quiet (a bake is not
      * recalled, as a posted job is not: A3 §2.1), a slice at a time at idle (LADDER_SLICE_MS, 30 on a phone; a slice
-     * ends at the next tile past it). A slice that changed the table steps the renderer, whose plan asks for the cells
-     * now covered.
+     * ends at the next tile past it). Each slice steps the renderer, whose plan asks for the cells now covered (an
+     * empty tile covers without a commit).
      */
     _readIdle() {
         if (this._readTimer != null || this._destroyed || !this.raster) return;
@@ -843,11 +843,11 @@ export default class KobinEngine {
             this._readTimer = null;
             if (this._destroyed) return;
             if (perfNow() - (this._lastCamMove || 0) < quiet) { this._readIdle(); return; }   // it moved: the quiet again
-            const win = this._listWin(), G0 = this.stage.generation;
-            const t0 = perfNow();
-            this.stage.sync(this.cam.frame, win, this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
+            const G0 = this.stage.generation, t0 = perfNow();
+            this.stage.sync(this.cam.frame, this._listWin(), this.plates.phone ? LADDER_SLICE_PHONE_MS : LADDER_SLICE_MS);
             this._perf("tileRead", t0, false, { G: this.stage.generation - G0 });
-            if (this.stage.generation !== G0) { this._lastList = this.stage.items(); this.renderer.syncCameraOnly(); }
+            this._lastList = this.stage.items();
+            this.renderer.syncCameraOnly();
             this._readIdle();
         }), wait);
     }

@@ -135,7 +135,7 @@ describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new 
         eraseGesture(E, [[270, 180], [270, 320]], 12);
         lasso(E, [[170, 170], [390, 170], [390, 400], [170, 400]]);
         expect(E.selection).toBeNull();                                          // nothing judged yet
-        expect(E._eraseStatus()).toEqual({ marks: 1, finishing: true });
+        expect(E._eraseStatus()).toEqual({ marks: 1, finishing: true, aborted: 0 });
         expect(E._lassoParked).not.toBeNull();                                  // the loop stays drawn
         for (let k = 0; k < 40 && E._barrier; k++) await later(5);
         expect(E._eraseStatus().finishing).toBe(false);

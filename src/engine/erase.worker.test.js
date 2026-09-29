@@ -160,7 +160,7 @@ describe("the erase worker", () => {
         const id = flying(E)[1].id;                  // a lookahead cut, not the head's
         let pieces = null;
         expect(E._tapBarrier(id, (ids) => { pieces = ids; })).toBe(false);   // parked: its cut is in the worker
-        expect(E._eraseStatus()).toEqual({ marks: 1, finishing: true });
+        expect(E._eraseStatus()).toEqual({ marks: 1, finishing: true, aborted: 0 });
         expect(E.doc.getById(id)).not.toBeNull();
         await later(6);                              // the three land; the barrier applies its own
         expect(E.doc.getById(id)).toBeNull();

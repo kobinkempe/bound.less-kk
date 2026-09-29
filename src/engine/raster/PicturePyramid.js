@@ -243,6 +243,7 @@ export default class PicturePyramid {
         this._checkGroups();
         if (still) { if (this._onStill()) this._map(F, Z, S, lv); } else this._onMove();
         if (v.rev !== rev0 && this._groups.size) this._retarget();
+        if (this._groups.size) this._reaskGroups();
         this._patchStep();
         this._requestView();
         return v;
@@ -850,8 +851,17 @@ export default class PicturePyramid {
         return !st || !st.covers || String(c.frame) !== String(this._v.frameId) || st.covers(c.frame, boxOf(c.Z, c.i, c.j));
     }
 
-    /** Cells the pack refused (their tiles left the table after they were asked for): asked for again once covered. */
-    unask(cells) { for (const c of cells) this._asked.delete(c.key); }
+    /**
+     * Cells the pack refused (their tiles not in the table when it ran): asked for again once covered — by the plan, or
+     * by their pen-up group (`_reaskGroups`), which keeps its path up meanwhile.
+     */
+    unask(cells) {
+        for (const c of cells) {
+            this._asked.delete(c.key);
+            const g = this._groups.get(this._groupOf.get(c.key));
+            if (g) (g.refused || (g.refused = new Map())).set(c.key, c);
+        }
+    }
 
     _onMove() {
         if (this._restTimer != null) { this._clearTimer(this._restTimer); this._restTimer = null; }
@@ -1215,6 +1225,22 @@ export default class PicturePyramid {
             for (const k of s1.map((x) => x.key).concat(m1.map((c) => c.key))) { g.need.add(k); this._groupOf.set(k, g.id); }
             if (!g.need.size) { this._commitGroup(g); continue; }
             this._askGroup(g, s1, m1);
+        }
+    }
+
+    /** A group's cells the pack refused, asked for again inside the group once the table covers them. */
+    _reaskGroups() {
+        for (const g of [...this._groups.values()]) {
+            if (!g.refused || !g.refused.size) continue;
+            const stale = [], missing = [];
+            for (const [k, c] of [...g.refused]) {
+                if (g.need.has(k) && !this.covered(c)) continue;
+                g.refused.delete(k);
+                if (!g.need.has(k)) continue;
+                const rec = this.store.get(k);
+                if (rec) stale.push(rec); else missing.push(c);
+            }
+            if (stale.length || missing.length) this._askGroup(g, stale, missing);
         }
     }
 

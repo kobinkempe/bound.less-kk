@@ -12,8 +12,8 @@
  * WHAT IT IS FOR. The saver appends the tick's entries to the store and rewrites a
  * frame's snapshot only when its entries have outgrown it, so a small edit is a small
  * write; on load the entries after each frame's snapshot are replayed onto it, the
- * undo/redo stacks come back from the same entries, and a pending eraser's done set
- * is the ids its bake entries name, so it picks up where it left off.
+ * undo/redo stacks come back from the same entries, and a pending mark resumes from
+ * its `targets` and its pieces' `handledBy`, carried in their headers (A2 §4.9).
  *
  * ORDER. Entries take their seq when the event happens, in event order; an `add`, a `mark`
  * and a `put` encode at drain time but keep the array index they had when the op landed; a
