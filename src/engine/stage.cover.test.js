@@ -1,19 +1,19 @@
 /**
  * stage.cover.test.js — every plate job holds every item overlapping the plate (A2 §2.12, the
  * TEST-MAP's replacement for `raster.listCover.test.js`). The camera's plates are packed from the
- * Stage's table only where `covers` says every tile under them is read; the ladder's, the crossing
- * prebake's and a drag plane's far levels from a snapshot of their plates' rectangle. Two checks: at
+ * Stage's table only where `covers` says every tile under them is read; the prefetch's coarser levels and a drag
+ * plane's far levels from a snapshot of their plates' rectangle (the picture pyramid, A3 §4.2). Two checks: at
  * the pack, the list it packs from against the items `listFor` finds over the plate (the brute-force read);
  * after it, every exact plate against the same plate rastered from a list read wide around it
  * (REVIEWER-4 P-1: past the read squares a plate was rastered as paper and cached fresh).
  */
 import KobinEngine from "./KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
-import { rasterStats } from "./raster/RasterRenderer";
 import { packJob } from "./raster/rasterPack";
 import { renderPlate, TW, TH } from "./raster/rasterCore";
 import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./raster/rasterJob";
-import { PLATE_PX, plateKey } from "./raster/plate";
+import { PLATE_PX } from "./raster/plate";
+import { levelKey, restKey } from "./raster/level";
 import { drawnBox } from "./placementModel";
 import { W } from "./frameLattice";
 
@@ -25,8 +25,10 @@ function mkEngine(w = 800, h = 600) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: w, height: h, raster: true, scenes: false });
-    E.renderer.layer.syncBudget = 0;
-    E.renderer.layer._sync = false;
+    // A step reads the table's cache alone; the rest of the window is read at idle once still for `restQuietMs` (0
+    // here), and the next step asks for the cells it covers. No prefetch unless a test asks.
+    const c = E.renderer.pyramid.cfg;
+    c.restInline = "never"; c.restQuietMs = 0; c.prefetchQuietMs = 1e9;
     engines.push({ E, host });
     return E;
 }
@@ -39,6 +41,14 @@ async function flush(rounds = 200) {
     }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Past the idle table read a camera step leaves (`_readIdle`), its step and their arrivals: at most a second. */
+async function settled(E) {
+    for (let k = 0; k < 100; k++) {
+        await flush();
+        if (E._readTimer == null && !holes(E).length) return;
+        await sleep(10);
+    }
+}
 const fill = (E, x, y, w, h, color, frame = "0") => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
     polys: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]] }, frame);
 
@@ -50,37 +60,37 @@ const plateRect = (Zq, i, j) => { const u = PLATE_PX / Zq; return { left: i * u,
  * misses, "plate:id". The pack's cull is the pixel check's (`badPlates`).
  */
 function watchJobs(E) {
-    const R = E.renderer, pack = R._packNow.bind(R), out = { jobs: 0, plates: 0, misses: [] };
-    R._packNow = (req, strip, jobId, pool) => {
-        const src = R._packList(req);
-        const job = pack(req, strip, jobId, pool);
-        if (!job || req.only || req.omit || typeof req.q !== "number") return job;
+    const R = E.renderer, pack = R._pyrPack.bind(R), out = { jobs: 0, plates: 0, misses: [] };
+    R._pyrPack = (job, jobId, pool) => {
+        const src = job.table ? R._tableList(job.table) : R._sceneList();
+        const packed = pack(job, jobId, pool);
+        if (!packed || job.kind === "plane") return packed;           // a plane layer packs its members alone, or all but them
         const ids = new Map();
         for (const it of src) ids.set(it.piece || it, it.res || null);
         out.jobs++;
-        for (let p = 0; p * 2 < strip.length; p++) {
-            const r = plateRect(req.Zq, strip[p * 2], strip[p * 2 + 1]), e = 1 / req.Zq;
+        for (const c of job.packedCells || job.cells) {
+            const r = plateRect(c.Z, c.i, c.j), e = 1 / c.Z;
             const inner = { left: r.left + e, top: r.top + e, right: r.right - e, bottom: r.bottom - e };
             out.plates++;
-            for (const o of E.listFor(req.frameId, r)) {
+            for (const o of E.listFor(c.frame, r)) {
                 if (E.stage._pending.has(o.id)) continue;                        // pending its shape: on no plate (PLAN §1.5)
                 const b = drawnBox(o), dx = o.res ? o.res[0] : 0, dy = o.res ? o.res[1] : 0;
                 if (b.right + dx < inner.left || b.left + dx > inner.right || b.bottom + dy < inner.top || b.top + dy > inner.bottom) continue;
                 const r2 = ids.get(o);
                 const same = r2 !== undefined && (r2 ? r2[0] : 0) === dx && (r2 ? r2[1] : 0) === dy;
-                if (!same) out.misses.push(req.q + "|" + strip[p * 2] + "," + strip[p * 2 + 1] + ":" + o.id);
+                if (!same) out.misses.push(c.key + ":" + o.id);
             }
         }
-        return job;
+        return packed;
     };
     return out;
 }
 
 /** The plate rastered from a list built four plates wide around it. */
-function refPixels(E, frameId, q, Zq, i, j) {
+function refPixels(E, frameId, Zq, i, j) {
     const u = PLATE_PX / Zq, pad = 4;
     const list = E.listFor(frameId, { left: (i - pad) * u, top: (j - pad) * u, right: (i + 1 + pad) * u, bottom: (j + 1 + pad) * u });
-    const job = packJob(list, { plates: Int32Array.of(i, j), q, Zq, dpr: E.renderer.layer.dpr, cfg: E.cfg, paper: [255, 255, 255],
+    const job = packJob(list, { plates: Int32Array.of(i, j), Zq, dpr: E.renderer.layer.dpr, cfg: E.cfg, paper: [255, 255, 255],
         live: E.renderer._liveModel });
     const rgba = new Uint8ClampedArray(TW * TH * 4);
     renderPlate(job, 0, rgba, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));
@@ -88,22 +98,24 @@ function refPixels(E, frameId, q, Zq, i, j) {
 }
 const WHITE = (() => { const a = new Uint8ClampedArray(TW * TH * 4); a.fill(255); return a; })();
 const diffPx = (a, b) => { let n = 0; for (let k = 0; k < a.length; k += 4) if (Math.abs(a[k] - b[k]) > 8 || Math.abs(a[k + 1] - b[k + 1]) > 8 || Math.abs(a[k + 2] - b[k + 2]) > 8) n++; return n; };
+/** A view cell's own key: the rest set's at rest, else the view level's. */
+const viewKey = (v, i, j) => (v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
 /** The view's cells with no exact plate: after a camera step and its arrivals, none (the table followed the window). */
 function holes(E) {
-    const v = E.renderer.layer.view(), out = [];
+    const v = E.renderer._view, out = [];
     for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) {
-        const e = E.plates.get(plateKey(v.frameId, v.q, i, j));
-        if (!e || e.dead || !E.plates.isExact(e)) out.push(i + "," + j);
+        const e = E.plates.get(viewKey(v, i, j));
+        if (!e || !E.plates.exact(e)) out.push(i + "," + j);
     }
     return out;
 }
-/** Every exact numeric-quantum plate in the store that differs from its reference by 64 px or more. */
+/** Every exact level or rest plate in the store (any level: the prefetch's too) that differs from its reference by 64 px or more. */
 function badPlates(E) {
     const out = [];
     for (const e of E.plates.cache.values()) {
-        if (e.dead || typeof e.q !== "number" || !E.plates.isExact(e)) continue;
+        if (e.kind === "plane" || !E.plates.exact(e)) continue;
         const px = e.pixels || (e.bitmap && e.bitmap.pixels) || null;
-        const d = diffPx(px || WHITE, refPixels(E, e.frameId, e.q, e.Zq, e.i, e.j));
+        const d = diffPx(px || WHITE, refPixels(E, e.frame, e.Z, e.i, e.j));
         if (d >= 64) out.push(e.key + ":" + d);
     }
     return out;
@@ -115,7 +127,7 @@ describe("every plate job holds every item overlapping the plate", () => {
         for (let k = 0; k < 40; k++) fill(E, -3000 + (k % 8) * 760, -1600 + Math.floor(k / 8) * 640, 420, 300, "rgb(" + (30 + 5 * k) + ",90,160)", "0");
         const seen = watchJobs(E);
         E._render(); await flush();
-        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await flush(); expect(holes(E)).toEqual([]); }
+        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await settled(E); if (holes(E).length) { const v = E.renderer._view, P = E.renderer.pyramid; console.log("DBGC1 k=" + k + " mode=" + v.mode + " holes=" + holes(E).join(" ") + " covers=" + E.stage.covers(E.cam.frame, E._listWin()) + " readTimer=" + E._readTimer + " rest=" + JSON.stringify(P._rest) + " restTimer=" + (P._restTimer != null) + " groups=" + P._groups.size + " q=" + JSON.stringify(E.renderer.queue.report().queued)); } expect(holes(E)).toEqual([]); }
         for (let k = 0; k < 6; k++) { E.zoomAt(400, 300, 300); await flush(); }
         expect(seen.jobs).toBeGreaterThan(5);
         expect(seen.plates).toBeGreaterThan(20);
@@ -134,19 +146,19 @@ describe("every plate job holds every item overlapping the plate", () => {
         E.cam.set({ frame: child, inScale: s, inPanX: -left * s, inPanY: -top * s });
         E._render(); await flush();
         expect(badPlates(E)).toEqual([]);                             // red with the list's window: 62,976 px of paper
-        E.panBy(-10, 0); await flush();
+        E.panBy(-10, 0); await settled(E);
         expect(holes(E)).toEqual([]);
         expect(badPlates(E)).toEqual([]);
         // Camera steps, no render and no cell change, until the view reaches square -1: its tiles are read by the step.
         const frame0 = E.cam.frame, rebuilds0 = E.stage.stats.rebuilds;
-        for (let k = 0; k < 6; k++) { E.panBy(750, 0); await flush(); expect(holes(E)).toEqual([]); }   // red at the sixth when the step does not sync
+        for (let k = 0; k < 6; k++) { E.panBy(750, 0); await settled(E); expect(holes(E)).toEqual([]); }   // red at the sixth when the step does not sync
         expect(E.cam.frame).toBe(frame0);
         expect(E.stage.stats.rebuilds).toBe(rebuilds0);               // a window change is not a rebuild (A2 §2.12)
         expect(badPlates(E)).toEqual([]);
         expect(seen.misses).toEqual([]);
     });
 
-    test("C5 a camera plate the table does not cover waits: refused at dispatch, packed once the table reads it (F119)", async () => {
+    test("C5 a camera plate the table does not cover waits: never packed from a table short of its tiles, packed once the table reads it (F119)", async () => {
         const E = mkEngine();
         fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");
         E._render(); await flush();
@@ -154,24 +166,23 @@ describe("every plate job holds every item overlapping the plate", () => {
         const s = 0.04, edgeX = W / 2 - 100;                         // two cache squares across the view
         E.cam.set({ frame: child, inScale: s, inPanX: -(edgeX - 800 / s) * s, inPanY: 300 });
         E._render(); await flush();
-        const v = E.renderer.layer.view();
+        const v = E.renderer._view;
         const far = plateRect(v.Zq, v.i1, v.j0);                      // the right edge's plate, in the second square
-        E.plates.dropAll(false);
+        E.plates.dropAll();
         const win = E._listWin();
         E.stage.sync(E.cam.frame, { ...win, right: win.left + 1 }, Infinity);   // the table reads the left square alone
         expect(E.stage.covers(v.frameId, far)).toBe(false);
-        const refused0 = rasterStats.refusedAtDispatch, cover0 = rasterStats.refusedCover, plates0 = rasterStats.refusedCoverPlates;
-        E.renderer.syncCameraOnly(); await flush();                  // posts the view with the table short
-        expect(rasterStats.refusedAtDispatch).toBeGreaterThan(refused0);
-        expect(rasterStats.refusedCover).toBeGreaterThan(cover0);     // counted by reason (PLAN §5.4 Q3)
-        expect(rasterStats.refusedCoverPlates).toBeGreaterThan(plates0);
-        expect(E.plates.get(plateKey(v.frameId, v.q, v.i1, v.j0))).toBeUndefined();   // red without the check: paper cached exact
-        E._render(); await flush();                                   // the table reads the window: packed
+        const seen = watchJobs(E);
+        E.renderer.syncCameraOnly(); await flush();                  // the view's step with the table short
+        expect(seen.plates).toBeGreaterThan(0);                       // the covered cells were packed
+        expect(E.plates.get(viewKey(E.renderer._view, v.i1, v.j0))).toBeUndefined();   // red without the check: paper cached exact
+        expect(seen.misses).toEqual([]);
+        E._render(); await settled(E);                                // the table reads the window: packed
         expect(holes(E)).toEqual([]);
         expect(badPlates(E)).toEqual([]);
     });
 
-    test("C3 a zoom-out ladder's rungs, read as snapshots, hold the ink their plates reach", async () => {
+    test("C3 the prefetch's coarser levels, read as snapshots, hold the ink their plates reach", async () => {
         const E = mkEngine();
         fill(E, -400, -400, 800, 800, "rgb(40,90,160)", "0");
         E._render(); await flush();
@@ -181,13 +192,16 @@ describe("every plate job holds every item overlapping the plate", () => {
         E._render(); await flush();
         const snaps = jest.spyOn(E.stage, "snapshot");
         const seen = watchJobs(E);
-        E._lastCamMove = -1e9; E._ladderAt = null;
-        E._buildLadder();
-        for (let k = 0; k < 60 && E._ladderBusy; k++) { await sleep(40); await flush(); }
+        const R = E.renderer;
+        R.pyramid.cfg.prefetchQuietMs = 0;
+        R._pyrPrefetchKey = null;
+        R._pyrPrefetch(R._view);                                      // the camera still: the plan, at idle
+        for (let k = 0; k < 60 && (R.queue.report().queued.some((n) => n) || R.queue.report().inFlight.some((n) => n)); k++) { await sleep(20); await flush(); }
         await flush();
         expect(snaps).toHaveBeenCalled();
+        expect(seen.jobs).toBeGreaterThan(0);
         expect(seen.misses).toEqual([]);
-        expect(badPlates(E)).toEqual([]);                             // red with the rung's window: the q-27 rung, 212,480 px
+        expect(badPlates(E)).toEqual([]);                             // red on the old ladder's rung window: the q-27 rung, 212,480 px
     });
 
     test("C4 a drag plane's level coarser than the table's margin reads a snapshot at idle and holds the ink its BELOW plates reach (P-2)", async () => {
@@ -220,11 +234,11 @@ describe("every plate job holds every item overlapping the plate", () => {
         for (const lvl of [pl.quick, pl.main]) {
             const L = lvl.layers[0], u = PLATE_PX / lvl.pZq;
             for (const [i, j] of L.cells) {
-                const e = E.plates.get(plateKey(pl.frameId, L.tag, i, j));
+                const e = E.plates.get(pl._key(L.tag, lvl.pZq, i, j));
                 const px = e && (e.pixels || (e.bitmap && e.bitmap.pixels));
                 if (!px) continue;
                 const list = E.listFor(pl.frameId, { left: (i - 2) * u, top: (j - 2) * u, right: (i + 3) * u, bottom: (j + 3) * u });
-                const job = packJob(list, { plates: Int32Array.of(i, j), q: L.tag, Zq: lvl.pZq, dpr: E.renderer.layer.dpr, cfg: E.cfg,
+                const job = packJob(list, { plates: Int32Array.of(i, j), Zq: lvl.pZq, dpr: E.renderer.layer.dpr, cfg: E.cfg,
                     paper: [255, 255, 255], omit: L.omit, live: E.renderer._liveModel });
                 const ref = new Uint8ClampedArray(TW * TH * 4);
                 renderPlate(job, 0, ref, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));

@@ -1737,3 +1737,23 @@ section, A1's dated notes, OPEN-FLAGS, `docs/ai/10-STATUS.txt`'s subtree-move li
 **Measured:** nothing new; load 0.12 at the resume.
 **Questions asked:** none.
 WHERE I AM: M4 — TEST-MAP's model section.
+
+## 2026-09-29 10:13 UTC — B-MODEL-C1 (builder) — M4 checkpoint and end: C1 built, the docs true
+**Working on:** done. Since the resume: TEST-MAP's section "The document model" (the new suites, the ports, what waits for
+C3/C4); A1 §14 "As built: C1" (merges at the action's end, `displaced`'s mint, the carry as built, the two staleness
+bugs, the oracle's promotion flaw, the fuzz's two comparison rules, counters, stores); OPEN-FLAGS notes on F78, F93,
+F94, F100, F107, F108, F110, F116, F126, F67 (F78/F110/F116: the mechanism gone, with the numbers; F93: half gone; F94,
+F100, F107, F108, F126: unchanged, for C2–C4; F67: the M0 `ensureId` fix); `docs/ai/10-STATUS.txt` a 2026-09-29 entry;
+the lint override for the deleted `PictureLayer.js` removed. Worktrees bm1/before and bm1/after removed.
+**Measured (final tree):** `model.equivalence.probe.js` seeds 1–20 × 40 ops: 800 checks, 1,717 frame views, 6,336 items
+(6,303 same-home + 33 carried) bit-identical, 0 ulp, 3,471 pieces. `select.stands.probe.js` 12 × 40: 480 checks, 135
+selections equal to the oracle's, 13 drags kept their ink. Quick suite at load 2.4–4.7, 715 s: 2,076 passed, 23 failed in
+9 suites, all B-PYRAMID-2b's item 4 in progress — raster.liveHold/phone/snapshot/translucent/overlay (`layer.view`,
+`_packNow` gone; G11's raster ants 20 px off the SVG's during a drag: `RasterRenderer`/`MovePlane` changed since my M2
+run, `overlays.js` not), stage.cover (`_packNow`), report RB-7 (`raster.layer`), KobinEngine.contract (deleted
+methods), useKobinEngine.frames (a duplicate `const S`, mid-edit). Every model suite green. Typecheck 0; eslint 0 errors.
+Worker bundles rebuilt, md5s unchanged (raster 2cd48b67…, scene dce304b8…).
+**Decisions made:** none new.
+**Questions asked:** in the report (the hook's false saver comment and `rasterPack.js`'s `ownContent` line are
+B-PYRAMID-2b's files; the ants' dash phase after a drag).
+WHERE I AM: ended — report handed back.

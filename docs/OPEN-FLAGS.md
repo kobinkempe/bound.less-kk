@@ -4256,6 +4256,12 @@ resplit.
 <a id="f67"></a>
 ### F67 — FIXED 2026-09-08. A descent baked in the worker took the whole object with it: its kids were homed in a frame only the worker's lattice copy had minted.
 
+**2026-09-29 (B-MODEL-C1 M0):** "a load mints any frame its natives name" missed a spine id: a bare
+depth ("2") on a lattice without it, or a moved spine frame's twin ("2#3"), came back null and its
+natives loaded undrawn. `LevelMap.ensureId` now mints it in its spine cell, as the resident's shadow
+when the cell is taken (`lattice.ensureId.test.js` EI-7, EI-8; on a copy without the mint 2 of its 7
+tests go red, without the twin parse 1, without the shadow 1).
+
 Kobin, an hour after E7 went live in his tab: "an eraser baked and took the whole object
 being erased with it" (report `20-48-33`). He had moved a 0.3-unit dot at level 0 by two
 thirds of a cell, then erased over it from `0/20,8` with a 4 px scribble. The descent was
@@ -4508,6 +4514,9 @@ F118's rewrite orders an erase gesture's bake steps by `_seq` and undoes them ne
 <a id="f126"></a>
 ### F126 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (lane lasso2, seed 2208). An undo merged the camera's frame away.
 
+**2026-09-29, A1 C1:** unchanged in substance: a shadow now merges when the undo that made it
+ends (not at a read), and the camera still follows it (`move.camMerge.test.js` green); merges go at C3.
+
 Four gestures: a dot at depth 0; zoom out two levels, ctrl-lasso frame "0" and drag it by (158, −77) (`moveFrames` re-addresses it); zoom back in — the camera re-enters the vacated spine cell and mints an empty twin "0#2", which becomes the camera's frame; undo. The undo puts "0" back into its cell, the twin (empty, childless) yields and becomes its shadow (`_take`), the undo's own render reads "0", `_mergeShadows` merges the twin into it and `adoptShadow` deletes the twin — and the camera stayed on the deleted frame. Measured (REVIEWER-3): the render list 0, a hit test on the dot null, pans and zooms did not recover it, and the next dot went into `nativesByLevel["0#2"]`, which no frame holds (lost or mis-homed at save). **Fixed**: the engine follows a merge of the camera's frame (`cam.frame = ev.into`; the two are one cell, settled, so the view's coordinates carry over) and draws once more after the read that merged it. Test `move.camMerge.test.js` (CM-1 the four gestures: the camera's frame exists, the view draws, a new stroke's home frame exists, red before; CM-2 a camera a level out stays in its own frame; break-checked).
 
 <a id="f125"></a>
@@ -4562,6 +4571,11 @@ An erase's undo reverses its bake steps and, being RESILIENT, puts a step's sour
 <a id="f116"></a>
 ### F116 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's subtree fuzz (seed 521). Two subtree moves undone and redone landed the cluster off.
 
+**2026-09-29, A1 C1 (B-MODEL-C1): the mechanism is gone.** The foreign-shift settle is deleted:
+a frame's shift is placement, set and restored with its address, never owed. Measured:
+`model.equivalence.probe.js`, 20 seeds × 40 ops (43 subtree drags, 75 undos, 43 redos among them):
+6,336 native items at 1,717 frame views bit-identical to the model before C1. Browser-unverified.
+
 A cluster drawn one level in, its frame lassoed and dragged (move A, a sub-cell rest pending as the frame's shift), read (A's shift settled into the tables), dragged again (move B: `shiftBefore` null); the camera zoomed away so nothing reads the frame; undo ×2, redo ×2. The redo of A left A's rest pending — nothing read the frame — and the redo of B, which assumes the frame's shift is its own `shiftBefore`, set B's shift over it: the tables ended 65,536 units (half a depth-plus-one cell) off in x. **Fixed**: the inversion of a `moveFrames` settles first any pending shift that is not the op's own; the settle is recorded on the frame's current owner (the earlier op's entry), whose own undo unsettles it by record. Test `move.subtree.test.js` mv1 (two moves, the camera 3e6 away, undo ×2, redo ×2: natives byte-equal and the frame's address as before). Break-check on an unimported copy: without the settle, red.
 
 <a id="f115"></a>
@@ -4592,6 +4606,14 @@ Measured by bisecting renders over 21 fuzz gestures (draw at depth 0, two erases
 <a id="f110"></a>
 ### F110 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz. After a reload, an undo of a subtree move put the moved frame's natives at the wrong table.
 
+**2026-09-29, A1 C1 (B-MODEL-C1): the mechanism is gone for new stores.** No settle entry is
+written, so none is coalesced; a store written before C1 replays its settle entries by result
+through `legacy/modelV1.js` (deletion date 2026-12-31). Measured: `hooks/store.model.test.js` — a
+store the frozen oracle wrote (pending shifts in its header, settle and merge entries, a
+`moveFrames` with `settled`) opened by the real hook to the oracle's pictures and through 6 undos
+and 6 redos: 101 frame pictures, 323 items, all equal (10 the oracle had carried, compared
+through their pictures). Browser-unverified.
+
 Six gestures: a stroke at depth −2; its frame lassoed from two levels out and dragged (moveFrames #8, a pending shift); #8 undone and redone (the shift pending again); the selection dragged again (#15, whose settle carries the stroke a cell over); save, reload, undo, undo — live, the stroke back at "−2" with no table; reloaded, with #8's table. The first settle after the redo is queued "of 8"; the second drag's own mid-drag settle of the same frame (its op not on a stack yet, `of` null) was coalesced into it — its `rec` replaced, `of` left at 8 — so replay hung #15's settle on #8's frame entry, and undoing #8 after the reload subtracted #15's shift. **Fixed**: `_onSettle` coalesces only a settle of the same frame and the same op; the drag's own settle rides its frame entry at drain. Test `oplog.test.js` "a redone move's settle is not merged into the next drag's": undo, undo, redo, redo after a reload agree with the live engine byte for byte (red before at the second undo). Break-check on an unimported copy: the old coalescing, 1 red.
 
 <a id="f109"></a>
@@ -4617,10 +4639,14 @@ Tests: `erase.neutral.test.js` (new, 5). An in-place graze in a ring's hole and 
 <a id="f108"></a>
 ### F108 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 reading the code and a jsdom repro. A lasso round a frame took a ceded kid whose family was outside the loop; a drag tore it out.
 
+**2026-09-29, A1 C1:** unchanged; C4 (private cede frames) replaces the torn-family pass.
+
 The lasso's frame walk takes an ENCLOSED frame as one entry and reads nothing under it (O(1) per frame, Kobin's subtree requirement). The per-object path has asked since 2026-09-03 that a keyed family be wholly inside ("a loop around a ceded tile alone ... must not take it"); the frame path never did. Repro (REVIEWER-3, measured): a 30-px stroke across the screen at depth 0, a 12-px eraser nick at depth 2, the camera back at depth 0 (inScale 16), a 20-px circle round the nick: selection `{ids: [], frames: ["0/13,9/-2048,1664"]}`, the kid (id 6) selected through its frame, and a drag from the frame mark moved it 100 px and ids 3 and 5 not at all — the patch torn out of its stroke, a rectangular hole where the nick was. A loop round the whole screen with the stroke running off it took the kids too, through `0/13,9`. **Fixed**: the Document keeps, per frame, the set of its natives with a family key (`keyedIn`; maintained where natives enter and leave lists: add, insertAt, removeById, the re-homes, shadow merges and unmerges, subtree set-asides and restores, a reset — a rekey is keyed to keyed, so the sets do not change). After the walk, `_tornUnder` reads only the keyed natives under each enclosed frame and asks each family the per-object question (every piece found, a pending mark, or under an enclosed frame); for a family that fails, the frames from that native up to the enclosed frame are read as straddling in a second walk, where the piece is found one by one and dropped with its family, and the rest of those frames' ink is found one by one. Unkeyed content keeps the O(1) path; the cost is O(keyed frames × depth) plus the family lookups (`editGroup`, which the per-object path already pays). Test `select.lassoFamilyFrame.test.js` (3): the small loop takes none of the family and the keyless stroke beside the nick; the whole-screen loop at inScale 16 takes none of it, and at inScale 1, where it encloses the stroke, all of it; a drag after the small loop moves every piece alike or none. LF-4 builds the case where the enclosed frame holds no ink of its own and the kid sits a frame below it. The bookkeeping is checked against a recount in `select.detachedFrame.test.js`. Break-checks on an unimported copy: without `_tornUnder` 4 red; marking only the kid's own frame, not the path up to the enclosed one, 1 red (LF-4).
 
 <a id="f107"></a>
 ### F107 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 in a jsdom repro. Ink drawn where a lassoed frame had been deleted could not be selected, lassoed or erased.
+
+**2026-09-29, A1 C1:** unchanged; the revival sets go when a deleted subtree leaves the lattice (C3).
 
 A delete of an enclosed frame sets its subtree's lists aside by reference (`removeFrameSubtree`, O(frames)) and marks each FRAME in `_detached`; `getById` answered null for any native homed in a detached frame. Nothing un-detached a frame, so anything placed there afterwards — a stroke drawn where the frame was (the camera frame is that frame again once you zoom back in), a drag member re-homed into its cell, a kid a descent cedes there — was listed and drawn but unreadable: a tap's hit test found it and `select` returned null, a whole-screen lasso selected nothing, an eraser over it (flushed) left it whole and consumed the mark. Its add was also dropped from the op log at drain (no record), so it was missing from the undo stack rebuilt after a reload. Second hazard: an undo of the delete REPLACED the frame's list with the record's, dropping anything added there meanwhile (a bake's pieces). **Fixed**: the first placement into a set-aside frame (`add`, `insertAt`, the re-homes, a shadow merge) flags that frame's set-aside natives `_gone` one by one — O(that list), only then — and the frame is live again; `getById` also answers null for `_gone`. An undo of the delete appends the record's natives to a list that holds new ink (un-flagged, indexed); a redo, given the record, sets only the record's natives aside and keeps the rest. Test `select.detachedFrame.test.js` (3): the new stroke reads, is tapped, lassoed and cut; undo ×2 brings the deleted (erased, so keyed) pieces back and takes the new stroke away, redo ×2 the other way, every listed native readable; a restore into a frame holding new ink keeps it and a set-aside of the record leaves it. Break-checks on an unimported copy: no reuse 2 red; no merge on restore 1 red; no partial set-aside 1 red. **The same day, a regression (REVIEWER-3 DOC-2)**: the record held the frame's list by reference, and an undo put that array back, so later ops changed or replaced it; after undo, undo, redo, redo of an add and the delete, the redo found the record's (now empty) array and set nothing aside — the deleted stroke stayed on screen. `detachFrame(frame, rec)` now refreshes the record to what it set aside, and a restore that merged records the ink placed while the frame was set aside (`kept`), which alone a redo leaves listed. Test DF-4; break-checks: no refresh 1 red, no `kept` 1 red.
 
@@ -4652,6 +4678,8 @@ Seen in Chrome on a scratch copy of the Magnum Opus: a lasso of the inner solar 
 <a id="f100"></a>
 ### F100 — FIXED 2026-09-24 (unverified by Kobin), found by the REVIEWER agent from Kobin's phone report 2026-09-24T04-25-10. A lasso missed a ceded family whose other pieces sat under an enclosed frame.
 
+**2026-09-29, A1 C1:** unchanged; a ceded family's pieces go to private frames at C4.
+
 Kobin: "the lasso select is missing objects." `_lassoFind` takes a re-homed family only when every piece is in the loop's id set (`editGroup(...).every(m => set.has(m.obj.id))`), but pieces homed under an ENCLOSED frame are taken as that frame, never as ids, so the family read as partly outside. On the report's drawing (21 natives) a loop round the whole screen returned 7, 10, 13 and the frames `-1/3,3` and `0`, dropping 60 (pieces 62, 63) and 66 (pieces 68, 69). Fixed: a piece counts as inside when its home is under a selected frame. The fix needs a second half: `_selectionMembers` now skips a family member homed under a selected frame, which the frame's own re-address moves — otherwise it moved twice (per object and with its frame), a path a ctrl-tap on 60 with `-1/3,3` selected already reached. `select.cededLasso.test.js` CL-1 (the lasso takes 60 and 66) and CL-2 (a drag moves 60, 62 and 63 by the same amount); break-checks on copies outside src/: without the lasso guard both fail, without the members guard CL-2 fails. 19 select/move/erase/GC suites, 270 tests, green.
 
 <a id="f99"></a>
@@ -4679,12 +4707,22 @@ Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth
 <a id="f94"></a>
 ### F94 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent (found replaying Kobin's report 08-16-23). A subtree drag mints empty frames on every pointer event.
 
+**2026-09-29, A1 C1:** unchanged — the per-event mints go at C2. C1 adds one read that may mint:
+`displaced` mints the empty frame a picture's pieces are read from (PLAN §3 row 8's exception),
+which frame GC collects like these (77 over `model.pureRead.test.js`'s 180 states).
+
 Each event of a drag of selected frames computes every moving frame's target chain from its start address (`LevelMap.moveSubtreeTargets`). A kid's chain carries a digit into its parent's level wherever the kid's own cell overflows (the same arithmetic as the per-object path, so registration is exact), so the kid's parent step is often not the cell its moving parent is headed for, and that step is minted (`cellChild`). The next event targets other cells; the earlier containers stay, empty. Measured in jsdom and in Chrome on the report's drawing (a lasso of the screen at inScale 2.9, a 40-step drag of 28.9 × 15.7 units): 86, 80 and 103 new frames, all but one empty; the lattice he sent held 473 depth-0 frames, 471 empty, in trails under -2/0,1 … -2/1,3. They cost a saved header, every `walk`, and — until F93 — a place in every lasso.
 
 **Fixed by frame GC, Kobin's rule** ("I would kind of prefer the frame to automatically delete when everything is deleted out of it … if there ever is a frame, it has stuff in it"), `engine/frameGc.js`. A frame with no natives, kids or shadows is forgotten (`LevelMap.forget`, `Document.forgetFrame`) unless the camera is in it or above it, left it within the last 4 frames (a crossing back composes through it), or an undo or redo op names it (`opFrames`; it goes when the op leaves history). Candidates are what a gesture minted or emptied and what dropped ops named; they are collected at a gesture's end (the drop, a cancel) and at a change of the camera's frame, never mid-gesture or while an erase job holds a lattice copy. A load adds none: `useKobinEngine` sweeps every frame once the restored store is in and settled (`engine.sweepFrames`). The op log records each collection (`forget`, skipped by replay: the header's lattice already lacks the frames), and a forgotten frame is unlisted, so F98's rule holds its entries. A moved frame's id is not minted again in the session. Measured: his phone drawing 495 → 8 frames (1.7 ms), a 40-step drag 8 → 38 during → 10 after the drop; the Magnum Opus export 968 → 46 (922 in 3.5 ms); undo, redo, a reload through the op log, and undo and redo after it exact. Tests `frame.gc.test.js` G1–G10 and `store.subtree.test.js`; break-checks on copies. The first build (live 17:12–17:37 MDT, with a sweep at the first gesture after a load) was switched off when the Earth damage was reported; the damage was F98, not this.
 
 <a id="f93"></a>
 ### F93 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. A zoomed-out lasso selected empty frames, and a drag of the selection left its ink unselected.
+
+**2026-09-29, A1 C1 (B-MODEL-C1):** one of the two ways ink left a selected frame is gone — no
+settle carries a native next door; a drag's rest still re-homes kids under the neighbour
+container until C2 (no writes during a drag). Measured: `select.stands.probe.js`, 12 seeds × 40
+ops, 480 checks: the selection's ink equal to the model before C1 every time, 13 drags kept the
+ink they were made with; 2 inkless frames both models keep after an undo empties them (not new).
 
 Kobin, 08:16: "I zoomed out on that same drawing and tried selecting everything with a lasso, and got some weird results. Not sure what was even happening." His selection held 4 ids and 50 frames; the lattice held 26 natives in 8 frames of 495. Replayed on his drawing (jsdom and Chrome, phone engine): the 50 frames were depth-0 cells under -2/0,2 with nothing in them (F94's trail), each drawn as a dot; a lasso of the whole screen at the drag's zoom took ids 28, 44 and 224 frames, 222 of them empty; and after the 40-step drag the drop's settles had carried the natives of the selected frames -1 and -2/0,1 into -2/1,0 … -2/1,2 — outside every selected frame — so the selection counted 2 of 24 natives and drew 220 dots on blank paper. Two more ways to lose ink were found building the fix: the drag's rest re-homes a selected frame's kid under the neighbour container (a digit carry), and the drop's own render settles such a kid before it is selected.
 
@@ -5003,6 +5041,12 @@ on camera rows in `plates` mode with `s ≠ 1`; the levers are listed in the row
 
 <a id="f78"></a>
 ### F78 — FIXED 2026-09-23, filed the same day from Kobin's report of 2026-09-22 ("I moved the Earth and it made the house objects disappear … undo … they re-appear"). Root-caused in jsdom by an analysis agent (`.claude/EARTH-MOVE-ANALYSIS.md`, probe `src/engine/earth.move.probe.js`, 11 tests, 329 s with the 64 MB drawing).
+
+**2026-09-29, A1 C1 (B-MODEL-C1): the mechanism is gone.** No read settles or carries: a frame's
+shift is placement, composed on read, and `TileStore._bakeSettled` went with the settle. Measured:
+`move.f78.test.js` 4/4 (the Earth drag's pictures, every native drawn); `model.pureRead.test.js`,
+180 fuzz states with an unread shift put on an inked frame, no read changed `rev`, `offRev`, the
+natives or the lattice (a settling `list` put back on a copy: red 1/1). Browser-unverified.
 
 The gesture was a lasso, not a tap: at the saved camera a frame one level deeper than the camera
 spans 48 frame units, about 3 screen px, so a loop over the Earth encloses whole deep frames

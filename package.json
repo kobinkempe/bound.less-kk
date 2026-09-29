@@ -170,8 +170,7 @@
           "src/engine/Document.js",
           "src/engine/LevelMap.js",
           "src/engine/geometry/offsets.js",
-          "src/engine/legacy/**",
-          "src/engine/raster/PictureLayer.js"
+          "src/engine/legacy/**"
         ],
         "rules": {
           "no-restricted-syntax": [

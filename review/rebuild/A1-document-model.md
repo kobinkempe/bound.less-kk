@@ -721,3 +721,47 @@ Scripts under the session scratchpad `a1/` (not in the repo): `run.cjs` sets the
   probe's per-frame counts, widths 20–900 px at in-frame zooms log-uniform in [1/32, 256]: 1.03 cells a
   native at its home (1,111 straddling), 44,128 entries in 1.6 MB; with every coarser level 308,537
   entries in 9.1 MB (31–39 bytes an entry, sets of numbers).
+
+---
+
+## 14. As built: C1 (B-MODEL-C1, 2026-09-29)
+
+Dated notes where building C1 changed or sharpened §4.4, §5 and §8. The oracle is the model before C1
+frozen whole at 5e9b1dd (`src/engine/__oracles__/model-v1/`); every number below is jsdom.
+
+- **Merges move to the end of the user action in C1, not at C3.** §4.4 keeps the merge at a read
+  until C3 deletes it, but C1's pure reads forbid that. A shadow now merges when the action that made
+  it ends — the drop, an undo, a redo, a load, a replay's end (`Document.mergePending(op)`) — and the
+  merge folds the difference of the two frames' shifts into the merged natives' own tables, so their
+  pictures stay; the tables before and after go on the op's record for `unmerge` and the log. A
+  shadow holding no natives, kids or shadows is not merged: it is frame GC's (F94; `move.subtree` t9).
+- **`displaced` still mints** the frame a picture's pieces are read from when the lattice lacks it
+  (§1.2 row 19, kept). PLAN §3 row 8 names it as the one lattice change a read may make: an empty
+  frame, GC'd. `model.pureRead.test.js` counted 77 such mints over 180 states with an unread shift put
+  on an inked frame; nothing else changed.
+- **The home-depth carry, as built**: `residual` returns `{carry, rem}`; `objShift`'s k0 = 0 branch reads
+  F0 = the neighbour the carry points back from, so E2's 0.75 W from the right neighbour is F0 = the
+  home, rem −0.25 W, the native drawn live there (`placementModel.nativesIn`'s `live` set). A picture
+  table is never carried: its k = 0 entry may reach 1.5 W.
+- **Two staleness bugs the fuzz and the compose suite found, fixed**: a drag set a frame's shift after
+  its refile event, so the reroute memo keyed on `offRev` kept the old groups (`setFrameShift` now bumps
+  `offRev` and runs before the refile); and a geometry edit that took a native's table away emitted an
+  event that looked table-less, so `offRev` stayed (a promoted newcomer drawn off by its old −shift at
+  the view above; the oracle has the same flaw, unreached). The event now carries `oldBelow`.
+- **The oracle drops a pending shift when it promotes an older native** of the shifted frame; its only
+  promotion was a landing stroke, which its `add` had settled first, so it never happened there. C1
+  composes the shift one level down for any native (`promotedTable`).
+- **§5 check 1's comparison, as run**: at and below a native's home its pieces and offsets to the bit;
+  above it its painted points within one ulp — measured 0 ulp for all 33 items the oracle carried
+  (20 seeds × 40 ops, 6,336 items). Two rules were needed: above the home only the square's interior
+  (64 units in) is compared, because the oracle read the unshifted window there and drew less at the
+  square's edges; and a native the oracle carried which a later frame operation then moves in one
+  engine only (C1's point) is counted, not failed — 0 in the run.
+- **Counters**: a 20-event subtree drag of a frame of 300 natives, a render each event: the oracle 1
+  settle and 300 then 600 table writes an event, C1 0 and 0. The harness's scenarios 3 and 4 against
+  the pre-C1 tree: the ink pixel-identical; with the selection shown, the ants' dashes differ in phase
+  along the same outline after the drag (the pieces under them are cut differently; not traced).
+- **Stores**: a store the oracle wrote opens to its pictures (its pending shifts read as placement, its
+  settle entries replayed by result through `legacy/modelV1.js`, deletion date 2026-12-31) and undoes
+  and redoes to them; version 3 is written only when the lattice carries a non-zero shift, and a
+  shift-free file is byte-identical to the oracle's.

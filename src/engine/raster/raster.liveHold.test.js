@@ -1,8 +1,8 @@
 /**
- * F120 (REVIEWER-4 D-5): the live path is held at pen-up whatever the view's mode. A light drawing
- * is on the sync path; when the pen-up's own render leaves it (a slow last sync frame), a path
- * dropped at `endLive` left the new stroke on screen nowhere until its plates landed. A pen-up that
- * stays sync releases the path in the same frame, the sync raster having drawn the stroke.
+ * F120 (REVIEWER-4 D-5): the live path is held at pen-up until the plates under it are fresh. On the picture
+ * pyramid (A3 §3.6, B-PYRAMID-2b's port): pending its shape it stays, with no limit (PLAN §5.4 Q2); once the shape
+ * has landed, one group commit publishes the drawn cells under its box and takes the path down in the same task.
+ * The sync path's own case (LH-2, a pen-up that stayed sync) went with the sync path (A3 §2.5).
  */
 import KobinEngine from "../KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
@@ -14,7 +14,6 @@ function mkEngine() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: 800, height: 600, raster: true, scenes: false });
-    E.renderer.layer.syncBudget = 5000;                // the shipped budget: a light drawing is sync
     engines.push({ E, host });
     return E;
 }
@@ -35,53 +34,51 @@ function stroke(E) {
     E.pointerUp();
 }
 
-describe("F120 the live path at a pen-up that leaves the sync path", () => {
-    test("LH-1 a slow last sync frame: the pen-up frame is plates, and the path is held until its plates land", async () => {
+describe("F120 the live path at a pen-up", () => {
+    /** The drawn cells under a held path's box that are not exact, counted at each handoff. */
+    function watchHandoffs(E) {
+        const R = E.renderer, seen = [], down = R._pyrTakeDown.bind(R);
+        R._pyrTakeDown = (h, handoff) => {
+            if (handoff) { const u = R.pyramid._under(h.box); seen.push(u.stale.length + u.missing.length); }
+            return down(h, handoff);
+        };
+        return seen;
+    }
+
+    test("LH-1 the path is held until its rectangle is fresh: pending its shape it stays, then its group takes it down", async () => {
         const E = mkEngine();
         fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
         E._render(); await flush();
-        expect(E.renderer.layer.view().mode).toBe("sync");
-        E.renderer.layer.noteSyncCost(20);
-        const hand0 = rasterStats.liveHandoffs;
+        const seen = watchHandoffs(E), hand0 = rasterStats.liveHandoffs;
         stroke(E);
-        expect(E.renderer.layer.view().mode).toBe("plates");
-        expect(E.renderer._liveHeld.length).toBe(1);        // red before: dropped, the stroke nowhere
+        expect(E.renderer._liveHeld.length).toBe(1);        // red on the old path: dropped at `endLive`, the stroke nowhere
         await flush();
         expect(E.renderer._liveHeld.length).toBe(1);        // pending its shape: on no plate yet (PLAN §1.5)
-        while (E._stepShapeBakes(1000));                    // the shape lands; its plates are posted
+        while (E._stepShapeBakes(1000));                    // the shape lands; its group asks for the cells under it
         await flush();
-        E.renderer._releaseHeldLive(E.renderer._view, null);
+        E.renderer._pyrLive(E.renderer._view);
+        await flush();
         expect(E.renderer._liveHeld.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
+        expect(seen).toEqual([0]);                          // at the handoff every drawn cell under its box was exact
     });
 
     test("LH-4 a stroke pending its shape keeps its path past every limit, and hands it to its plates", async () => {
         const E = mkEngine();
         fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
         E._render(); await flush();
-        E.renderer.layer.noteSyncCost(20);
-        const t0 = rasterStats.liveTimeouts, hand0 = rasterStats.liveHandoffs;
+        const hand0 = rasterStats.liveHandoffs;
         stroke(E);
         const h = E.renderer._liveHeld[0];
         h.at -= 60000; h.until = 0;                         // a minute past pen-up, the shape still pending
-        E.renderer._releaseHeldLive(E.renderer._view);
-        expect(E.renderer._liveHeld.length).toBe(1);        // red before: timed out at 15 s, the stroke nowhere
-        expect(rasterStats.liveTimeouts).toBe(t0);
-        while (E._stepShapeBakes(1000));                    // the shape lands; its plates are posted (L3 in
-        await flush();                                      // raster.move: the limit then runs from the landing)
-        E.renderer._releaseHeldLive(E.renderer._view);
+        E.renderer._pyrLive(E.renderer._view);
+        expect(E.renderer._liveHeld.length).toBe(1);        // red on the old path: timed out at 15 s, the stroke nowhere
+        while (E._stepShapeBakes(1000));                    // the shape lands; its plates are asked for
+        await flush();
+        E.renderer._pyrLive(E.renderer._view);
+        await flush();
         expect(E.renderer._liveHeld.length).toBe(0);
-        expect(rasterStats.liveTimeouts).toBe(t0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
-    });
-
-    test("LH-2 a pen-up that stays sync holds nothing past its own frame", async () => {
-        const E = mkEngine();
-        fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
-        E._render(); await flush();
-        stroke(E);
-        expect(E.renderer.layer.view().mode).toBe("sync");
-        expect(E.renderer._liveHeld.length).toBe(0);
     });
 });
 
@@ -91,7 +88,6 @@ describe("F120 the live path at a pen-up that leaves the sync path", () => {
 test("LH-3 the next pen-down after a pan and a zoom leaves the held stroke where it is drawn", async () => {
     const { setRasterTransport } = require("./rasterWorkerClient");
     const E = mkEngine();
-    E.renderer.layer.syncBudget = 0; E.renderer.layer._sync = false;   // the plates path: the stroke is held
     fill(E, 100, 200, "rgb(200,30,30)");
     E._render(); await flush();
     setRasterTransport(() => new Promise(() => {}));                  // its plates never land

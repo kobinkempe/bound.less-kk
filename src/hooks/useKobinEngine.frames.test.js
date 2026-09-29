@@ -10,10 +10,7 @@ import React from "react";
 import { render, act } from "@testing-library/react";
 import useKobinEngine from "./useKobinEngine";
 import KobinEngine from "../engine/KobinEngine";
-import PictureLayer, { pictureStats } from "../engine/raster/PictureLayer";
-import PlateStore from "../engine/raster/PlateStore";
-import Camera from "../engine/Camera";
-import { PLATE_PX } from "../engine/raster/plate";
+import { rasterStats } from "../engine/raster/RasterRenderer";
 
 /** A requestAnimationFrame the test steps: `run()` takes the callbacks queued so far, once. */
 function fakeFrames() {
@@ -62,18 +59,18 @@ describe("the page's engine through the hook", () => {
             E.onZoom(() => { zooms++; });
             await act(async () => { await new Promise((r) => setTimeout(r, 150)); });   // past the status throttle
             emits = 0; zooms = 0;
-            const composes0 = pictureStats.composes, renders0 = renders;
+            const PS = E.renderer.pyramid.s, composes0 = PS.composes, renders0 = renders;
 
             const host = view.container.firstChild;
             act(() => {
                 for (let k = 0; k < 10; k++) host.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, clientX: 300, clientY: 200, bubbles: true, cancelable: true }));
             });
-            expect(pictureStats.composes - composes0).toBe(0);            // nothing drawn per event
+            expect(PS.composes - composes0).toBe(0);            // nothing drawn per event
             expect(emits).toBe(0);
             expect(E._fr).not.toBe(null);                                  // one step waits for the frame
 
             act(() => { frames.run(); });
-            expect(pictureStats.composes - composes0).toBe(1);
+            expect(PS.composes - composes0).toBe(1);
             expect(emits).toBe(1);
             expect(zooms).toBe(1);
             await act(async () => { await new Promise((r) => setTimeout(r, 150)); });  // any trailing throttle timer
@@ -187,39 +184,41 @@ describe("the engine with \"raf\" frames and a stepped requestAnimationFrame", (
     test("an arrival asks the frame for its compose; two arrivals in a frame are one compose", () => {
         const R = mkEngine({ frames: "raf", raster: true });
         expect(typeof R.renderer.layer.deferCompose).toBe("function");
-        const c0 = pictureStats.composes, a0 = pictureStats.arrivalComposes;
+        const S = R.renderer.pyramid.s, c0 = S.composes;
         R.renderer.layer.deferCompose();
         R.renderer.layer.deferCompose();
-        expect(pictureStats.composes - c0).toBe(0);
+        expect(S.composes - c0).toBe(0);
+        expect(R._fr.arrived).toBe(true);
         frames.run();
-        expect(pictureStats.composes - c0).toBe(1);
-        expect(pictureStats.arrivalComposes - a0).toBe(1);
+        expect(S.composes - c0).toBe(1);                                   // the frame's one compose is the arrivals'
+        expect(R._fr).toBe(null);
         expect(mkEngine({ raster: true }).renderer.layer.deferCompose).toBeUndefined();   // "sync" composes on arrival
     });
 });
 
-describe("PictureLayer._flush under deferCompose", () => {
-    test("a batch that would compose calls deferCompose instead, and composes nothing itself", () => {
-        const lm = { width: 1504, height: 812, depthOf: () => 0, frame: () => true, ensureSpine: () => "0" };
-        const cam = new Camera(lm, {});
-        cam.inScale = 1; cam.inPanX = 0; cam.inPanY = 0;
-        const store = new PlateStore({ maxBytes: 64 * PLATE_PX * PLATE_PX * 4, doc: null });
-        const layer = new PictureLayer(document.createElement("div"), cam, {
-            store, width: 1504, height: 812, dpr: 1, onPlates: () => {}, onRepost: () => {}, now: () => 1000,
-            setTimer: () => 0, clearTimer: () => {},
-        });
-        const v = layer.frameFor(cam, null);
-        const misses = store.want({ frameId: v.frameId, q: v.q, Zq: v.Zq, i0: v.i0, i1: v.i1, j0: v.j0, j1: v.j1 }).misses;
+describe("a landing under deferCompose", () => {
+    /** Turns of the event loop until `done()`, at most `n`: the pool's inline executor answers a turn later. */
+    async function until(done, n = 50) { for (let k = 0; k < n && !done(); k++) await new Promise((r) => setTimeout(r, 0)); return done(); }
+    const fill = (id, x) => ({ id, type: "fill", origin: "native", color: "rgb(0,0,0)", opacity: 1,
+        polys: [[[x, 40], [x + 60, 40], [x + 60, 100], [x, 100]]] });
+
+    test("a strip's landing calls deferCompose instead of composing; without it, it composes", async () => {
+        const R = mkEngine({ raster: true }), E = R.renderer, S = E.pyramid.s;
+        E.pyramid.cfg.restInline = "never"; E.pyramid.cfg.patchInlineMs = 0;   // every cell and patch to the pool
         let deferred = 0;
-        layer.deferCompose = () => { deferred++; };
-        const c0 = pictureStats.composes;
-        const bm = () => ({ width: PLATE_PX, height: PLATE_PX, close() {} });
-        layer.onPlateBatch(misses.slice(0, 3).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), G: 0 })));
-        expect(deferred).toBe(1);
-        expect(pictureStats.composes - c0).toBe(0);
-        layer.deferCompose = null;
-        layer.onPlateBatch(misses.slice(3, 4).map((m) => ({ frameId: v.frameId, q: v.q, Zq: v.Zq, i: m.i, j: m.j, bitmap: bm(), G: 0 })));
-        expect(pictureStats.composes - c0).toBe(1);                       // without it, as before
-        layer.destroy();
+        E.layer.deferCompose = () => { deferred++; };
+        R.doc.add(fill(7, 40), "0");
+        R._render();
+        const c0 = S.composes, b0 = rasterStats.batches;
+        expect(await until(() => rasterStats.batches > b0)).toBe(true);
+        expect(deferred).toBeGreaterThan(0);
+        expect(S.composes - c0).toBe(0);                                 // the landing composed nothing itself
+        await until(() => false, 5);
+        E.layer.deferCompose = null;
+        R.doc.add(fill(8, 300), "0");
+        R._render();
+        const c1 = S.composes, b1 = rasterStats.batches;
+        expect(await until(() => rasterStats.batches > b1)).toBe(true);
+        expect(S.composes - c1).toBeGreaterThan(0);                      // without it, the landing composes
     });
 });

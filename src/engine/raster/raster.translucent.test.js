@@ -2,7 +2,7 @@
  * Translucent objects moved under, over and between others (Kobin, 2026-09-23: "ideally it would
  * show under the translucent object while you're moving it, but at least it should once you set
  * it down"). The picture z order and opacity define — flat colours source-over in z order on the
- * paper — against the real compose (`PictureLayer.compose` into `softCanvas`), pixel by pixel: at
+ * paper — against the real compose (`PicturePyramid.compose` into `softCanvas`), pixel by pixel: at
  * every step of a drag the plane draws, while it lands, once the plates are fresh, and on a drag
  * whose plane is refused (a render a step). What a real browser shows is measured in Chrome.
  */
@@ -17,10 +17,18 @@ function mkSoftEngine() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: 800, height: 600, raster: true });
-    E.renderer.layer.syncBudget = 0;                   // the plates path: the plane lives there
-    E.renderer.layer._sync = false;
+    E.renderer.pyramid.cfg.patchInlineMs = 0;          // a change's patch goes to the pool: the landing and the stale steps are seen
     const L = E.renderer.layer;
-    L._ctx = softCtx(L._canvas.width, L._canvas.height, PLATE_PX);
+    // The pyramid draws a level's plates at σ (nine-argument `drawImage`): sampled, and `magnified` counts a draw
+    // whose destination is not its source's size.
+    const soft = (w, h) => {
+        const c = softCtx(w, h, PLATE_PX, { scaled: true }), di = c.drawImage;
+        c.magnified = 0;
+        c.drawImage = (bm, ...a) => { if (a.length === 8 && (a[6] !== a[2] || a[7] !== a[3])) c.magnified++; return di.call(c, bm, ...a); };
+        return c;
+    };
+    L._ctx = soft(L._canvas.width, L._canvas.height);
+    L._mk = (w, h) => ({ width: w, height: h, getContext: () => soft(w, h) });
     const put = E.plates.put.bind(E.plates);
     E.plates.put = (rec) => { if (rec.pixels && !rec.bitmap) rec.bitmap = { pixels: rec.pixels }; return put(rec); };
     engines.push({ E, host });
@@ -93,7 +101,7 @@ function want(items, dx, x, y) {
 const edgy = (items, dx, x, y) => items.some((it) => nearEdge(x, y, it.sel ? [it.r[0] + dx, it.r[1], it.r[2], it.r[3]] : it.r));
 /** Every sample point along the path at displacement dx whose expected colour is well defined. */
 function check(E, items, dx, bad, tag) {
-    const ctx = E.renderer.layer._ctx, dpr = E.renderer.layer.view().dpr;
+    const ctx = E.renderer.layer._ctx, dpr = E.renderer._view.dpr;
     for (let x = 60; x <= 760; x += 17) {
         for (const y of [270, 300, 330]) {
             if (edgy(items, dx, x, y)) continue;
@@ -128,7 +136,7 @@ describe("translucent moves (Kobin 2026-09-23): the composed picture against z o
             await flush();
             E.renderer.layer.compose();
             check(E, items, 560, bad, "fresh");
-            expect(E.renderer.layer._ctx.scaled).toBe(0);
+            expect(E.renderer.layer._ctx.magnified).toBe(0);             // at the plane's own zoom: every draw 1:1
             expect(bad.slice(0, 12)).toEqual([]);
         });
     }

@@ -29,6 +29,16 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-29 - A FRAME'S SHIFT IS PLACEMENT (review/rebuild/A1-document-model.md §4.4 C1 and §14,
+    B-MODEL-C1). A subtree drag's rest stays on the frame and is composed with each
+    native's own table on every read (Document.tableOf, placementModel.js); no read
+    settles, merges or writes a table, new ink in a shifted frame takes -shift, and a
+    shadow merges at the end of the user action that made it. The model before it is
+    frozen as src/engine/__oracles__/model-v1/; the tile fuzz against it: 6,336 native
+    items bit-identical over 20 seeds x 40 ops. A file with a shift is version 3;
+    old stores' settle entries replay through src/engine/legacy/modelV1.js (deleted on
+    or after 2026-12-31). jsdom only; not seen by Kobin.
+
 2026-09-28 - THE ERASE RULE (review/rebuild/A2-scene.md §4, B-ERASE). A mark records its
     targets when its shape lands and masks exactly those (src/engine/eraseRule.js):
     ink moved under it later, drawn after it, or already baked shows; its z no longer

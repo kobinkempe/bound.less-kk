@@ -1,7 +1,8 @@
 /**
- * raster.snapshot.test.js — PAPER-PLAN §8's P3 row: the off-camera render list (`listFor`),
- * `snapshotView` (SCENES-PLAN S1) and the crossing prebake (PAPER-PLAN R4). The design is
- * §7.4; the file:line reasoning is `.claude/paper/C-preview-prebake-live.md` §2 and §3.
+ * raster.snapshot.test.js — PAPER-PLAN §8's P3 row: the off-camera render list (`listFor`) and
+ * `snapshotView` (SCENES-PLAN S1), budgeted through the pyramid (B-PYRAMID-2b): the table is read
+ * at idle a budget at a time (D5), and the one plate goes through the `JobQueue` at `PRIO.thumb`.
+ * The crossing prebake (R4) and the zoom-out ladder (R5b) went with the old picture path (A3 §4.6).
  *
  * Nothing here measures a picture: jsdom's `getContext` is null in this tree, so every claim is
  * about a list, a call, a cached key or a computed number. What a thumbnail LOOKS like is
@@ -13,7 +14,7 @@ import { fitView } from "../sceneOps";
 import { residual } from "../geometry/offsets";
 import { TILE } from "../frameLattice";
 import { rasterStats, resetRasterStats } from "./RasterRenderer";
-import { plateKey, plateRange, quantumFor, zqOf, PLATE_PX } from "./plate";
+import { PLATE_PX } from "./plate";
 import {
     setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient, rasterWorkerReport,
 } from "./rasterWorkerClient";
@@ -25,9 +26,8 @@ function mkEngine(w = 800, h = 600) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: w, height: h, raster: true });
-    // The PLATES path: §6.5's synchronous path composes and caches nothing, and every claim
-    // below reads the cache or the queue.
-    E.renderer.layer.syncBudget = 0;
+    const c = E.renderer.pyramid.cfg;                        // the camera's level plates only: no rest, no prefetch
+    c.restInline = "never"; c.restQuietMs = 1e9; c.prefetchQuietMs = 1e9;
     engines.push({ E, host });
     return E;
 }
@@ -42,6 +42,8 @@ async function flush(rounds = 16) {
     return rounds;
 }
 const paint = async (E) => { E._render(); return flush(); };
+/** Past the snapshot's idle read (`requestIdleCallback`, a 30 ms timeout in jsdom) and its dispatch. */
+async function until(done, n = 40) { for (let k = 0; k < n && !done(); k++) await new Promise((r) => setTimeout(r, 10)); return done(); }
 
 /** Every job message the client sends, copied before the worker reads it. */
 function mkTap() {
@@ -73,9 +75,6 @@ function mkGate() {
         },
     };
 }
-
-/** Run whatever `_maybePrebake` queued: jsdom has no `requestIdleCallback`, so it is a timeout. */
-const idle = () => new Promise((r) => setTimeout(r, 40));
 
 beforeEach(() => {
     resetRasterWorkerClient();
@@ -150,7 +149,7 @@ test("S1 BREAK-CHECK: with `content` in the snapshot's read, the visible pin set
     const read = E.store.read.bind(E.store);
     E.store.read = (F, rect, budget) => { E.store.content(F, rect); return read(F, rect, budget); };
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 1e5, y: 1e5, w: 400, h: 300 } });
-    expect([...E.store._pins].sort()).not.toEqual(pins0);
+    expect(await until(() => [...E.store._pins].sort().join() !== pins0.join())).toBe(true);   // at the idle read
     await flush();
     await p.catch(() => null);
 });
@@ -225,7 +224,6 @@ test("S5 one job of ONE plate, with the rect moved onto it by the pack-time offs
     expect(jobs.length).toBe(1);
     const job = jobs[0];
     expect(job.plates).toEqual([0, 0]);                     // ONE plate, at the grid origin
-    expect(String(job.q)).toMatch(/^t\d+$/);                // a per-call key, never a quantum
     expect(job.nItems).toBeGreaterThan(0);
 
     // The offset is `fitView`'s own pan divided by its scale, so the rect lands where `jumpTo`
@@ -257,8 +255,8 @@ test("S8 a snapshot never enters PlateStore: no put, no cache entry, no job id",
     const E = mkEngine();
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
     await paint(E);
-    const size0 = E.plates.size();
-    const puts0 = E.plates.report().puts;
+    const size0 = E.plates.cache.size;
+    const puts0 = E.plates.s.puts;
 
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 60, y: 60, w: 400, h: 300 } });
     await flush();
@@ -266,8 +264,8 @@ test("S8 a snapshot never enters PlateStore: no put, no cache entry, no job id",
 
     // Its `q` is a per-call string that carries no zoom; cached, it would come back as a hit at
     // a zoom it was never rastered at (§6.5's rule for `"s"`).
-    expect(E.plates.size()).toBe(size0);
-    expect(E.plates.report().puts).toBe(puts0);
+    expect(E.plates.cache.size).toBe(size0);
+    expect(E.plates.s.puts).toBe(puts0);
     expect(E.plates.jobs.size).toBe(0);
     expect(E.plates.inflight.size).toBe(0);
     expect(rasterStats.snapshotPlates).toBe(1);
@@ -280,10 +278,10 @@ test("S7 an aborted snapshot rejects, begins no store job and caches nothing", a
     E._render();
     while (await gate.release()) { /* the camera's own plates first */ }
 
-    const size0 = E.plates.size();
+    const size0 = E.plates.cache.size;
     const ac = new AbortController();
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 60, y: 60, w: 400, h: 300 }, signal: ac.signal });
-    expect(gate.length).toBe(1);                            // dispatched, parked in the transport
+    expect(await until(() => gate.length === 1)).toBe(true);   // read at idle, dispatched, parked in the transport
     ac.abort();
     await gate.release();                                   // it still completes; the result is dropped
 
@@ -291,7 +289,7 @@ test("S7 an aborted snapshot rejects, begins no store job and caches nothing", a
     expect(rasterStats.snapshotAborts).toBe(1);
     expect(E.plates.jobs.size).toBe(0);                     // `beginJob` was never called
     expect(E.plates.inflight.size).toBe(0);
-    expect(E.plates.size()).toBe(size0);
+    expect(E.plates.cache.size).toBe(size0);
 });
 
 test("S10 off the raster path snapshotView answers null, so the caller falls back", async () => {
@@ -324,133 +322,6 @@ test("S6 fitView is jumpTo's own arithmetic, for every rect that does not cross"
 });
 
 // ---------------------------------------------------------------------------
-// The crossing prebake (R4): the two predicates, the post-crossing quantum, and no minting
-// ---------------------------------------------------------------------------
-
-test("R4 the DOWNWARD aim fires at 1.25·exit, at the parent, and nowhere above it", () => {
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    descend(E, 1, 400, 300);                                // a real crossing, so a parent exists
-
-    E.cam.inScale = 1;
-    expect(E._crossTarget()).toBe(null);                    // no crossing is coming: nothing to aim at
-
-    // 1.25 is the exact mirror of the upward 0.8 (one quantum is 2^(1/4) = 1.189).
-    E.cam.inScale = E.cfg.exit * 1.26;
-    expect(E._crossTarget()).toBe(null);
-    E.cam.inScale = E.cfg.exit * 1.24;
-    const down = E._crossTarget();
-    expect(down).toBeTruthy();
-    expect(down.dir).toBe("down");
-    expect(down.id).toBe(E.lm.parentOf(E.cam.frame));
-    // `Camera._crossDown`'s own arithmetic: `(s / base) · inScale`, ×4096 for a lattice edge.
-    expect(down.inScale).toBeCloseTo((E.lm.frame(E.cam.frame).edge.s / E.cfg.base) * E.cam.inScale, 9);
-});
-
-test("R4 the UPWARD aim fires at 0.8·enter, and with preBake off it mints nothing", () => {
-    const E = mkEngine();
-    E.setPreBake(false);
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    const n0 = E.lm.frames.size;
-
-    E.cam.inScale = E.cfg.enter * 0.79;
-    expect(E._crossTarget()).toBe(null);
-    E.cam.inScale = E.cfg.enter * 0.81;
-    expect(E._crossTarget()).toBe(null);                    // the child does not exist, and this cannot make one
-    E._maybePrebake();
-    expect(E.lm.frames.size).toBe(n0);
-
-    // The dev toggle defines it early on purpose ("first defined, forever"); with the toggle
-    // back off the aim FINDS that child and the lattice does not grow again.
-    E.setPreBake(true);
-    const up = E._crossTarget();
-    expect(up.dir).toBe("up");
-    expect(E.lm.frames.size).toBe(n0 + 1);
-    E.setPreBake(false);
-    expect(E._crossTarget().id).toBe(up.id);
-    expect(E.lm.frames.size).toBe(n0 + 1);
-    // `Camera._crossUp`'s own arithmetic: `inScale · base / s`.
-    expect(up.inScale).toBeCloseTo(E.cam.inScale * E.cfg.base / E.lm.frame(up.id).edge.s, 9);
-});
-
-test("R4 at the ROOT the downward aim is null: the prebake never grows a root", () => {
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    expect(E.cam.frame).toBe("0");
-    expect(E.lm.parentOf("0")).toBe(null);
-    const n0 = E.lm.frames.size;
-    E.cam.inScale = E.cfg.exit * 1.1;
-    expect(E._crossTarget()).toBe(null);
-    E._maybePrebake();
-    expect(E.lm.frames.size).toBe(n0);
-    expect(E._prebakeQueued).toBeFalsy();                   // nothing was even queued
-});
-
-test("R4 a downward approach prebakes the PARENT's preview at q − 8 of the post-crossing quantum", async () => {
-    const jobs = mkTap();
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    await paint(E);
-    descend(E, 1, 400, 300);
-    await paint(E);
-    await idle();                                           // drain the prebake `descend`'s own zooms queued
-    await flush();
-    resetRasterStats();
-
-    E.cam.inScale = E.cfg.exit * 1.2;
-    const t = E._crossTarget();
-    expect(t && t.dir).toBe("down");
-    const q = quantumFor(t.inScale, E.renderer.layer.dpr).q - 8;
-    const win = E.lm.mapRectF(E.cam.frameWindow(0), E.cam.frame, t.id);
-    const range = plateRange(win, zqOf(q));
-    const n = (range.i1 - range.i0 + 1) * (range.j1 - range.j0 + 1);
-    expect(n).toBeGreaterThan(0);
-    expect(n).toBeLessThanOrEqual(6);                       // the preview, not the 20–24 of a full set
-
-    const cam0 = JSON.stringify(E.cam.state());
-    const pins0 = [...E.store._pins].sort();
-    jobs.length = 0;
-    E._maybePrebake();
-    await idle();
-    await flush();
-
-    expect(rasterStats.prebakePosts).toBe(1);
-    expect(rasterStats.prebakePlates).toBe(n);
-    // The job carries the TARGET frame's list, not the camera's: `_lastList` is in frame-1
-    // units, which at the parent's Zq lands wholly outside the plate and packs nothing.
-    expect(jobs.length).toBeGreaterThan(0);
-    expect(jobs.every((j) => String(j.q) === String(q))).toBe(true);
-    expect(jobs.reduce((s, j) => s + j.nItems, 0)).toBeGreaterThan(0);
-    // The plates are cached under the TARGET frame at the target's own quantum, so the first
-    // frame after the crossing composes from cache instead of from paper.
-    let cached = 0;
-    for (let i = range.i0; i <= range.i1; i++) {
-        for (let j = range.j0; j <= range.j1; j++) if (E.plates.get(plateKey(t.id, q, i, j))) cached++;
-    }
-    expect(cached).toBe(n);
-    // ...unpinned (D75's `{ pin: "none" }`), so a crossing that never comes costs one LRU
-    // generation and nothing else — and the camera is where it was.
-    for (let i = range.i0; i <= range.i1; i++) {
-        for (let j = range.j0; j <= range.j1; j++) expect(E.plates._pins.has(plateKey(t.id, q, i, j))).toBe(false);
-    }
-    expect(JSON.stringify(E.cam.state())).toBe(cam0);
-    expect([...E.store._pins].sort()).toEqual(pins0);
-});
-
-test("R4 no crossing in sight: the prebake posts nothing at all", async () => {
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    await paint(E);
-    const posts0 = rasterStats.posts;
-    E.cam.inScale = 1;
-    E._maybePrebake();
-    await idle();
-    await flush();
-    expect(rasterStats.prebakePosts).toBe(0);
-    expect(rasterStats.posts).toBe(posts0);
-});
-
-// ---------------------------------------------------------------------------
 // The measurement the P3 row asks for (printed, never asserted as a bar)
 // ---------------------------------------------------------------------------
 
@@ -470,70 +341,4 @@ test("MEASURE listFor against _buildList for the camera's own frame", () => {
     console.log("listFor vs _buildList: " + n + " objects, " + runs + " runs — _buildList "
         + (a / runs).toFixed(3) + " ms, listFor " + (b / runs).toFixed(3) + " ms");
     expect(n).toBeGreaterThan(0);
-});
-
-// ---------------------------------------------------------------------------
-// R5b — the zoom-out ladder (PAPER-PLAN §7.5): built while the camera is still
-// ---------------------------------------------------------------------------
-
-test("R5b a still camera posts the ladder: the parent level's plates and tiles, nothing minted, the camera untouched", async () => {
-    const jobs = mkTap();
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    await paint(E);
-    descend(E, 1, 400, 300);
-    await paint(E);
-    await idle();
-    await flush();
-    resetRasterStats();
-    const parent = E.lm.parentOf(E.cam.frame);
-    expect(parent).not.toBe(null);
-    E.store.cache.clear();                                  // so a parent tile can only come from the ladder
-    const n0 = E.lm.frames.size, cam0 = JSON.stringify(E.cam.state());
-    E._lastCamMove = -1e9;
-    E._ladderAt = null;
-    jobs.length = 0;
-    const strips = E._buildLadder();
-    for (let k = 0; k < 12 && E._ladderBusy; k++) { await idle(); }   // one rung an idle callback
-    await flush();
-    expect(strips).toBeGreaterThan(0);
-    expect(E._ladderBusy).toBe(false);
-    expect(rasterStats.ladderPosts).toBeGreaterThan(0);
-    expect(rasterStats.ladderRefused).toBe(0);
-    expect(E.lm.frames.size).toBe(n0);                      // a speculative build mints nothing
-    expect(JSON.stringify(E.cam.state())).toBe(cam0);       // and moves no camera
-    expect([...E.plates.cache.keys()].some((k) => k.startsWith(parent + "|"))).toBe(true);
-    expect([...E.store.cache.keys()].some((k) => k.startsWith(parent + "|"))).toBe(true);
-    expect(E._ladderSteps.some((st) => st.cross)).toBe(true);        // the crossing's own view is warmed, last
-    expect(E._ladderSteps[E._ladderSteps.length - 1].cross).toBe(true);
-    for (const k of E.plates.cache.keys()) if (k.startsWith(parent + "|")) expect(E.plates._pins.has(k)).toBe(false);
-    // the same camera again: nothing to post
-    resetRasterStats();
-    expect(E._buildLadder()).toBe(0);
-    expect(rasterStats.ladderPosts).toBe(0);
-});
-
-test("R5b at the root the ladder stops: zooming out past it would grow a root", () => {
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    expect(E.lm.parentOf(E.cam.frame)).toBe(null);
-    E.cam.inScale = E.cfg.exit * 2;                         // 4× out crosses below the root
-    E._render();
-    const n0 = E.lm.frames.size;
-    expect(E._zoomedOut(4)).toBe(null);
-    E._lastCamMove = -1e9;
-    E._ladderAt = null;
-    E._buildLadder();
-    expect(E.lm.frames.size).toBe(n0);
-    expect(rasterStats.ladderPosts).toBe(0);
-});
-
-test("R5b the ladder waits for the camera to be still, and re-arms", () => {
-    const E = mkEngine();
-    drawStroke(E, [[360, 260], [440, 340]], 12);
-    E._lastCamMove = performance.now();
-    E._ladderAt = null;
-    expect(E._buildLadder()).toBe(0);
-    expect(E._ladderTimer).not.toBe(null);
-    expect(rasterStats.ladderPosts).toBe(0);
 });

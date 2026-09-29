@@ -62,12 +62,33 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 | every other `erase.*` (cede, depth, retrace, severance, fidelity, matrix, layered, contract, composition, styles, fuzz, deepsever, moved, unresolved, dust, seams, farHang, seamBranch, curve.depth) | ~4,700 | the geometry of cuts and descents | KEEP | — |
 | `move.hold.test.js` | 164 | R3 the drag's hold of plate events | DELETE with `_holdMove` (no writes during a drag) | the held-items test in the scene suite — deleted 2026-09-28 (B-SCENE-2, S2); `stage.hold.test.js` and raster.move RV5 |
 | `move.startCost.test.js` | 66 | a drag's start costs a bounded number of scans | PORT | — — 2026-09-28: MS-1/MS-2 through `_dragBarrier` (B-ERASE) |
-| `move.below/deep/drag/registration/settle/subtree/twin/normalise/camMerge` | ~1,900 | the document model of moves | KEEP; DECIDE with A1 (the untangling changes settles and carries) | — |
-| `select.*` | ~1,460 | selection, lasso, families, detached frames | KEEP; DECIDE with A1 | — |
+| `move.below/deep/drag/registration/settle/subtree/twin/normalise/camMerge` | ~1,900 | the document model of moves | KEEP; DECIDE with A1 (the untangling changes settles and carries) | 2026-09-29 C1: see "The document model" below |
+| `select.*` | ~1,460 | selection, lasso, families, detached frames | KEEP; DECIDE with A1 | 2026-09-29 C1: `select.inkless` ported (below); the rest kept |
 | `tile.patch.test.js`, `tile.reroute.test.js`, `reroute.memo.test.js` | 323 | TileStore patches and the reroute memo | KEEP; the memo's suite PORTs if the scene absorbs it | — |
-| `frame.gc.test.js` | 311 | frame GC | KEEP; DECIDE with A1 | — |
+| `frame.gc.test.js` | 311 | frame GC | KEEP; DECIDE with A1 | 2026-09-29 C1: kept (a read-to-settle line gone) |
 | `src/hooks/useKobinEngine.raster.test.js` | 161 | the raster gate and mount | PORT | — |
 | `src/hooks/useKobinEngine.frames.test.js` | 212 | input coalescing: one compose, emit and page `setStatus` for ten wheel events a frame, the camera to the bit; the drag, the pen, arrivals (B-FOUNDATION) | KEEP | — |
 | `src/hooks/useKobinEngine.levers.test.js` | 123 | the Dev levers: the URL over localStorage, never the canvas record (B-FOUNDATION); the `?pyramid` gate read and rewritten (B-PYRAMID-2 P1, deleted with the gate at P6) | KEEP | — |
 
 Totals: about 5,600 lines deleted with their mechanisms, about 7,000 ported, the rest kept.
+
+## The document model (A1 C1: a frame's shift is placement, composed on read; B-MODEL-C1, 2026-09-29)
+
+The oracle is the model before C1, frozen whole at 5e9b1dd (`src/engine/__oracles__/model-v1/`, its README). Probes run
+with `--testMatch "**/<name>.probe.js"` and are not in the quick suite.
+
+| suite | lines | asserts | fate | replaced by |
+|---|---|---|---|---|
+| `model.equivalence.probe.js` (+ `__testkit__/modelFuzz.js`, 375) | 38 | PLAN §3 row 9: one seeded op sequence (15 kinds: draw, descend-draw, erase, tap/lasso/subtree/deep drags, delete, undo, redo, zoom, pan, both reloads, GC) on the oracle and the live engine; after every op four frames' pictures compared native for native, to the bit at and below a native's home, its painted points within one ulp above it; 20 seeds × 40 ops: 6,336 items, all bit-identical, 33 carried by the oracle | NEW (probe) | — |
+| `select.stands.probe.js` | 99 | row 7: the fuzz plus lassos, ctrl-taps and selection drags; the selection's ink equals the oracle's, a drag keeps the ink it was made with, no inkless frame the oracle's has ink for (12 × 40: 480 checks) | NEW (probe) | — |
+| `model.pureRead.test.js` | 83 | row 8: an unread shift put on an inked frame in view, then a render, `listFor`, `content`, `read`, the Stage's sync and snapshot at four frames, hit tests, a lasso leave `rev`, `offRev`, `addrEpoch`, the natives and the lattice as they were; new frames only `displaced`'s empty mints | NEW | — |
+| `model.compose.test.js` | 217 | the carry (0.75 W → drawn one cell over, −0.25 W, live there), a newcomer's −shift, a promoted native (any; a landing stroke against the oracle), per-object vs subtree registration by picture, the box union and H6's own-table case | NEW | — |
+| `hooks/store.model.test.js` | 247 | a store the oracle wrote (pending shifts in the header; move, moveFrames, settle, mergeFrame entries; a `moveFrames` with `settled`) opened by the real hook: the oracle's pictures loaded, through 6 undos and 6 redos; version 3 only with a shift, refused by the version-2 reader; a shift-free file byte-identical to the oracle's | NEW | — |
+| `legacy/modelV1.test.js` | 57 | only the op log and `Document`'s legacy undo import the legacy module; a settle replayed or undone twice is as once | NEW | — |
+| `__oracles__/model-v1/modelV1.test.js` | 61 | no production module imports `__oracles__`; the oracle still settles at the first read | NEW | — |
+| `lattice.ensureId.test.js` | 84 | EI-7, EI-8 added: a spine id minted in its cell, a twin spine id, a taken spine cell | KEEP | — |
+| `move.settle.test.js` → `move.f78.test.js` | 86 | F78's Earth drag: every native drawn, none moved by a read (the settle and `_bakeSettled` cases deleted with them) | PORTED | — |
+| `move.subtree`, `move.normalise`, `move.twin`, `Document`, `oplog`, `reroute.memo`, `geometry/seams`, `select.inkless`, `raster.snapshot`, `paper.cost.probe` | — | settle and carry assertions rewritten as placement assertions (the shift on the frame, no table written, pictures equal); `select.inkless` I9 kept as "a render writes nothing" | PORTED | — |
+| `format2.test.js`, `sceneClient.test.js` | — | a `settle` entry's codec kept for replay; a read between scene prep slices | KEEP (titles say legacy / read) | — |
+| `move.camMerge`, `move.twin`'s merges, `select.inkless` I4 | — | merges, now at the end of a user action | KEEP until C3 | — |
+| `lattice.coresident.test.js`, `erase.privateCede.test.js` (A1 §8) | — | co-residents; private cede frames | NOT YET: C3, C4 | — |

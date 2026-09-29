@@ -3,14 +3,16 @@
  * a translucent object under another dragged "really jumpy" (the drag plane refused by the phone's
  * plate cap), and a red line "chunky/corner-y right after I finish drawing it ... until I pan or
  * zoom" (a raw stroke banded through its samples, and the resolved perimeter never re-rastered).
+ * On the picture pyramid (B-PYRAMID-2b): the phone's budget and plane cap are the store's `phone`;
+ * the resolved perimeter is pen-up's rectangle (A3 §3), re-rendered as a render from scratch draws it.
  *
  * jsdom has no canvas: the plates' own bytes are read out of the store (the inline path's raw
  * `pixels`), as `raster.move.test.js` does. Paint on the phone is measured in Kobin's Chrome.
  */
 import KobinEngine from "../KobinEngine";
-import { PHONE_CACHE_BYTES } from "./PlateStore";
-import { planeStats, resetPlaneStats, MOVE_PLANE_PLATES_PHONE } from "./MovePlane";
-import { plateKey, PLATE_PX } from "./plate";
+import { planeStats, resetPlaneStats } from "./MovePlane";
+import { MOVE_PLANE_PLATES_PHONE, levelKey, restKey } from "./level";
+import { PLATE_PX } from "./plate";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
 import { flattenCurve } from "../geometry/polyline";
 import { itemBox } from "./rasterPack";
@@ -22,9 +24,7 @@ function mkEngine(w, h, { dpr = 1, phone = false } = {}) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: w, height: h, raster: true });
-    if (phone) { E.plates.maxBytes = PHONE_CACHE_BYTES; E.plates.phone = true; }
-    E.renderer.layer.syncBudget = 0;                   // the plates path
-    E.renderer.layer._sync = false;
+    if (phone) { E.plates.phone = true; E.plates.setBudget(E.renderer.pyramid.budgetBytes()); }
     engines.push({ E, host });
     return E;
 }
@@ -53,19 +53,21 @@ function screenFill(E, x0, y0, x1, y1, color, opacity = 1) {
     }, E.cam.frame);
 }
 
-/** The view plate of quantum `q` under a CSS screen point: its store entry, and the RGBA there (null: no plate, "empty": a paper plate). */
-function plateAt(E, q, sx, sy) {
-    const v = E.renderer.layer.view();
-    const X = Math.floor(sx * v.dpr - v.dx + v.ox), Y = Math.floor(sy * v.dpr - v.dy + v.oy);
+/** A view cell's own key: the rest set's at rest, else the view level's. */
+const viewKey = (v, i, j) => (v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
+/** The view's plate under a CSS screen point: its store entry, and the RGBA there (null: no plate, "empty": a paper plate). */
+function plateAt(E, sx, sy) {
+    const v = E.renderer._view;
+    const X = Math.floor((sx * v.dpr - v.dx) / v.s + v.ox), Y = Math.floor((sy * v.dpr - v.dy) / v.s + v.oy);
     const i = Math.floor(X / PLATE_PX), j = Math.floor(Y / PLATE_PX);
-    const key = plateKey(v.frameId, q, i, j), e = E.plates.get(key);
+    const key = viewKey(v, i, j), e = E.plates.get(key);
     if (!e) return { key, e: null, rgba: null };
     if (!e.pixels) return { key, e, rgba: "empty" };
     const o = ((Y - j * PLATE_PX) * PLATE_PX + (X - i * PLATE_PX)) * 4;
     return { key, e, rgba: Array.from(e.pixels.subarray(o, o + 4)) };
 }
 /** How much red ink covers a CSS screen point of the view's plates: 0 on paper, 1 under the pen (the plates are opaque; green is 20 in the ink, 255 in the paper). */
-const inkAt = (E, sx, sy) => { const r = plateAt(E, E.renderer.layer.view().q, sx, sy).rgba; return Array.isArray(r) ? (255 - r[1]) / 235 : 0; };
+const inkAt = (E, sx, sy) => { const r = plateAt(E, sx, sy).rgba; return Array.isArray(r) ? (255 - r[1]) / 235 : 0; };
 
 describe("the phone's drag plane (report 08-11-20: the beige object under the green one)", () => {
     test("P1 a selection under an overlying object takes the plane on a phone: the drag builds no list", async () => {
@@ -78,9 +80,10 @@ describe("the phone's drag plane (report 08-11-20: the beige object under the gr
         E.pointerDown(80, 150); E.pointerUp();
         expect(E.selection && E.selection.ids).toEqual([beige.id]);
         E._render();
-        await quiet();
-        await flush();
         const pl = E.renderer._plane;
+        await quiet();                                             // the pre-aim waits for the quiet and its idle read
+        for (let t = 0; t < 3000 && (E.renderer._planeTimer != null || !pl.tags.length); t += 10) await new Promise((r) => setTimeout(r, 10));
+        await flush();
         // The report's case: BELOW, the selection and what is over it — 16 plates, as the beige object's.
         expect(planeStats.coarse + planeStats.overCap).toBe(0);    // at its own zoom: red at the old cap of 12 (refused then)
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over"]);
@@ -139,40 +142,10 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         expect(out).toBe(0);                                              // red with the samples' box alone: the band culled where it bulges
     });
 
-    test("P4 a stroke homed deeper than the view: its resolve re-derives the projected copy, not re-rasters the raw one", async () => {
+    test("P3 pen-up's rectangle: the resolved shape reaches the plates without a pan or a zoom, as a render from scratch draws it", async () => {
         const E = mkEngine(800, 600);
-        E.cam.inPanX = 400; E.cam.inPanY = 300;
-        E.zoomFactorAt(400, 300, 1 / 30);                          // just above EXIT: the next zoom-out crosses
-        E._render(); await flush();
-        E._scheduleBake = () => {};                                // the resolve, run by hand below
-        E.setTool("pen"); E.setWidth(5); E.setColor("rgb(220,20,20)");
-        const pts = [];
-        for (let k = 0; k <= 8; k++) { const a = (k / 8) * Math.PI * 2; pts.push([400 + 250 * Math.cos(a), 300 + 250 * Math.sin(a)]); }
-        E.pointerDown(pts[0][0], pts[0][1]);
-        for (const p of pts.slice(1)) E.pointerMove(p[0], p[1]);
-        E.pointerUp();
-        const id = E.doc.list(E.cam.frame).slice(-1)[0].id, home = E.doc.getById(id).level;
-        E.zoomFactorAt(400, 300, 0.9);                              // across the crossing: the stroke is one level down
-        E._render(); await flush();
-        expect(E.cam.frame).not.toBe(home);
-        expect(E._lastList.filter((o) => o.id === id).map((o) => o.type)).toEqual(["stroke"]);   // the fixture: a projected raw copy
-        const view = () => { const v = E.renderer.layer.view(); return v.frameId + "|" + v.q + "|" + v.Zq; };
-        const ink = () => { const m = new Uint8Array(800 * 600); for (let y = 0; y < 600; y++) for (let x = 0; x < 800; x++) { const r = plateAt(E, E.renderer.layer.view().q, x + 0.5, y + 0.5).rgba; m[y * 800 + x] = Array.isArray(r) && r[1] < 160 ? 1 : 0; } return m; };
-        const settled = async () => { for (let k = 0; k < 10 && E.renderer.layer.view().mode !== "settle"; k++) { await quiet(); await flush(); } await flush(); };
-        while (E._stepShapeBakes(1000));
-        await flush(); await settled();
-        const at = view(), after = ink();
-        expect(E._lastList.filter((o) => o.id === id).map((o) => o.type)).not.toContain("stroke");   // red: the stale copy
-        E.plates.dropAll(); E._render(); await flush(); await settled();   // the picture from scratch
-        expect(view()).toBe(at);
-        const truth = ink();
-        let differ = 0;
-        for (let k = 0; k < truth.length; k++) if (truth[k] !== after[k]) differ++;
-        expect(differ).toBe(0);                                     // red: 11,846 pixels of the raw band kept on fresh plates
-    });
-
-    test("P3 the resolved perimeter reaches the plates without a pan or a zoom", async () => {
-        const E = mkEngine(800, 600);
+        const c = E.renderer.pyramid.cfg;
+        c.restInline = "never"; c.restQuietMs = 1e9;               // the level's plates throughout: one grid to compare
         E._render();
         await flush();
         const bake = E._scheduleBake;
@@ -185,19 +158,24 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         await flush();
         const id = E.doc.list(E.cam.frame).slice(-1)[0].id;
         expect(E.doc.getById(id).obj.type).toBe("stroke");
-        const before = plateAt(E, E.renderer.layer.view().q, 330, 240).e;
-        expect(!!(before && before.pixels)).toBe(false);          // pending its shape it is on no plate (PLAN §1.5)
+        expect(inkAt(E, 330, 240)).toBe(0);                        // pending its shape it is on no plate (PLAN §1.5)
         expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(true);   // the live path draws it
         E._scheduleBake = bake;
         while (E._stepShapeBakes(1000));                           // the resolve, as `_bakeTick` runs it: no render of its own
         expect(E.doc.getById(id).obj.type).toBe("shape");
-        const Gs = E.stage.landedAt(id);
-        expect(Gs).toBeGreaterThan(0);
         await flush();
-        const after = plateAt(E, E.renderer.layer.view().q, 330, 240);
-        expect(after.e && after.e.pixels).toBeTruthy();            // the shape, posted by the bake's camera step
-        expect(after.e.G).toBeGreaterThanOrEqual(Gs);
-        expect(E.renderer.layer.cellFresh(E.renderer.layer.view(), after.e.i, after.e.j)).toBe(true);
+        const ink = () => {
+            const m = new Uint8Array(800 * 600);
+            for (let y = 0; y < 600; y++) for (let x = 0; x < 800; x++) m[y * 800 + x] = inkAt(E, x + 0.5, y + 0.5) > 0.5 ? 1 : 0;
+            return m;
+        };
+        const after = ink();
+        expect(after[240 * 800 + 330]).toBe(1);                    // the shape, on the plates the resolve's rectangle re-rendered
         expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(false);   // and the live path went with it
+        E.plates.dropAll(); E._render(); await flush();            // the picture from scratch
+        const truth = ink();
+        let differ = 0;
+        for (let k = 0; k < truth.length; k++) if (truth[k] !== after[k]) differ++;
+        expect(differ).toBe(0);                                    // the old path's P4: 11,846 pixels of a raw band kept
     });
 });
