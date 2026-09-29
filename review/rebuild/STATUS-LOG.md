@@ -1406,3 +1406,16 @@ budget's delete on removal); the fringe of a half-handled family judged inside r
 **Questions asked:** the watchdog-lost job run inline (design question); the selection-during-bake slowness to
 B-PYRAMID-2; the sentence for Kobin on undo under a newer mark.
 WHERE I AM: done.
+
+## 2026-09-29 01:57 UTC — orchestrator (Fable) — the B-ERASE review landed (5e9b1dd); B-MODEL-C1 launched; PLAN §5.9
+**Working on:** the B-ERASE review's report answered in PLAN §5.9: its three majors assigned (the watchdog-lost job
+refused instead of run inline and the cuts into the shared queue → B-PYRAMID-2 P6; the selection-during-bake 8–9×
+slowdown → B-PYRAMID-2 P5/P6 with the profile; the delete's O(n²) selection overlay → B-DRAG/C2). B-MODEL-C1 launched
+(`opus-builder`, brief `briefs/B-MODEL-C1.md`; the frozen oracle copies the tree at its start). Running: B-PYRAMID-2 (P5,
+the harness pairs), B-MODEL-C1 (M0). One slot free; B-PYRAMID-3 waits for B-PYRAMID-2.
+**Measured:** the review's: Kobin's drag-across case in headless Chromium (the dragged object's colour over the pending
+mark, uncut at the landing); barriers: a tap parks and selects in 84–126 ms, a drag's start 418 ms, a lasso judged at
+378 ms; scenario 7's bake 19.8 / 18.4 s (the B-SCENE review's pair: 36.0 s); the fuzz 60 seeds, 42 worker deaths,
+documents equal after every op.
+**Decisions made:** PLAN §5.9 items 1–5.
+**Questions asked:** for Kobin, non-blocking: the reviewer's sentence on undo under a newer mark (§5.9 item 4).
