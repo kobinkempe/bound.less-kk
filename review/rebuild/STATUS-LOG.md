@@ -1419,3 +1419,18 @@ mark, uncut at the landing); barriers: a tap parks and selects in 84–126 ms, a
 documents equal after every op.
 **Decisions made:** PLAN §5.9 items 1–5.
 **Questions asked:** for Kobin, non-blocking: the reviewer's sentence on undo under a newer mark (§5.9 item 4).
+
+## 2026-09-29 01:58 UTC — B-MODEL-C1 (builder) — A1 C1: a frame's shift is placement, composed on read — start
+**Working on:** read the brief, both preambles, CLAUDE.md, DESIGN §2/§3/§8/§13, PLAN §0/§1.7/§3/§4/§5.2/§5.7–§5.9, A1
+§0/§1/§2/§4.1/§4.4/§5/§6/§8/§9/§13, `placementModel.js`, the end entries of B-FOUNDATION, B-SCENE-2, B-ERASE and the
+B-SCENE review. Launch commit 5e9b1ddb (the oracle's freeze point). M0 first: `__oracles__/model-v1/` (Document,
+LevelMap, TileStore, selection, oplog and the changed imports, self-contained), then the `ensureId` spine gap.
+Files I am in (brief §6): `Document.js`, `LevelMap.js`, `TileStore.js`, `placementModel.js`, `geometry/offsets.js`,
+`oplog.js`, `persist.js`, `format2.js`, `files.js`, `frameGc.js`, `sceneClient.js`, `report.js`, the named lines of
+`overlays.js`/`selection.js`/`erasePipeline.js`/`eraseDescent.js`/`cede.js`, `Stage.js` (settle handling only),
+`KobinEngine.js` (settle subscription, footprints only; shared with B-PYRAMID-2: re-read before each edit), new
+`legacy/modelV1.js`, `__oracles__/model-v1/`, new suites, `package.json`'s eslintConfig, the M4 docs.
+**Measured:** nothing yet (load 2.86 / 2.93 / 2.76 at start; B-PYRAMID-2 at P5 beside).
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: M0 — copying the five model files and their changing imports into `__oracles__/model-v1/`.
