@@ -137,7 +137,7 @@ export default class OverlayLayer {
         this._css = { dpr: this.dpr, ink: opts.ink || null };
         /** The last CSS transform written, and the only writer of the style string. */
         this._t = { s: 1, dx: 0, dy: 0 };
-        this._q = null; this._Zq = null; this._mode = null;
+        this._Zq = null; this._mode = null;
 
         this._phase = 0;
         this._timer = null; this._resume = null;
@@ -503,11 +503,11 @@ export default class OverlayLayer {
         const kt = selAntScale(dec.inkPx);
         this._readView(view, dec);
 
-        const moved = view.q !== this._q || view.Zq !== this._Zq || view.mode !== this._mode;
+        const moved = view.Zq !== this._Zq || view.mode !== this._mode;   // a level or a grid change (G3)
         const changed = dec.key !== this._key || kt !== this._kt;
         const repaint = moved || changed || this._planeDirty;
         this._key = dec.key; this._kt = kt;
-        this._q = view.q; this._Zq = view.Zq; this._mode = view.mode;
+        this._Zq = view.Zq; this._mode = view.mode;
 
         if (repaint) this._paint(this._phase, true);
         else this._applyTransform();

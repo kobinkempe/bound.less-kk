@@ -4,7 +4,6 @@
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/phone.bugs.probe.js"
  */
 import KobinEngine from "../KobinEngine";
-import { PHONE_CACHE_BYTES } from "./PlateStore";
 import { readReportFile, drawingPartsOf, REPORT_DIR } from "../__testkit__/reportReplay";
 import { loadReport } from "../report";
 import { resetRasterWorkerClient, setRasterWorkerCount, rasterWorkerReport } from "./rasterWorkerClient";
@@ -21,8 +20,7 @@ function mkPhone() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: W, height: H, raster: true });
-    E.plates.maxBytes = PHONE_CACHE_BYTES; E.plates.phone = true;
-    E.renderer.layer.syncBudget = 0; E.renderer.layer._sync = false;
+    E.plates.phone = true; E.plates.setBudget(E.renderer.pyramid.budgetBytes());   // the phone budget (A3 §4.5)
     return E;
 }
 async function flush(rounds = 40) {
@@ -168,7 +166,7 @@ describe("bug 1 — the beige object's drag", () => {
         log(`camera depth ${E.cam.activeLevel} frame ${E.cam.frame} inScale ${E.cam.inScale} pan ${E.cam.inPanX},${E.cam.inPanY}`);
         describeDoc(E);
         const v = E.renderer._view;
-        log(`view mode ${v.mode} q ${v.q} Zq ${v.Zq} range i ${v.i0}..${v.i1} j ${v.j0}..${v.j1} dpr ${v.dpr}`);
+        log(`view mode ${v.mode} level ${v.level} Zq ${v.Zq} range i ${v.i0}..${v.i1} j ${v.j0}..${v.j1} dpr ${v.dpr}`);
         log(`list ${E._lastList.map((o) => o.id + ":" + o.type + (o.res ? " res" : "")).join(", ")}`);
         for (const id of [39, 44]) {
             E._setSelection([id]);

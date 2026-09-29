@@ -11,7 +11,11 @@
 import KobinEngine from "./KobinEngine";
 import { packJob } from "./raster/rasterPack";
 import { renderPlate, TW, TH } from "./raster/rasterCore";
-import { quantumFor, zqOf, plateRange } from "./raster/plate";
+import { plateRange } from "./raster/plate";
+import { LEVEL_STEP, levelFor, zOf } from "./raster/level";
+
+/** The view level at a camera scale and its grid zoom (the pyramid's `levelFor`, A3 §1.2). */
+const levelAt = (inScale, dpr) => { const l = levelFor(inScale * dpr, LEVEL_STEP); return { q: l, Zq: zOf(l, LEVEL_STEP) }; };
 
 const fs = require("fs");
 const FILE = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
@@ -143,25 +147,25 @@ describe("paper costs on the Magnum Opus", () => {
     big("D — packing one screen at the camera's quantum: one strip vs per-plate strips", () => {
         const E = mk(false);
         const list = E._buildList();
-        const qf = quantumFor(E.cam.inScale, DPR);
+        const qf = levelAt(E.cam.inScale, DPR);
         const r = plateRange(E.cam.frameWindow(0), qf.Zq);
         const all = [];
         for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) all.push(i, j);
-        const opts = (plates) => ({ plates: Int32Array.from(plates), q: qf.q, Zq: zqOf(qf.q), dpr: DPR, cfg: E.cfg, paper: [255, 255, 255] });
+        const opts = (plates) => ({ plates: Int32Array.from(plates), Zq: qf.Zq, dpr: DPR, cfg: E.cfg, paper: [255, 255, 255] });
         packJob(list, opts(all));                          // the memo, cold
         let t = now(); packJob(list, opts(all)); const one = now() - t;
         t = now();
         for (let p = 0; p < all.length; p += 2) packJob(list, opts([all[p], all[p + 1]]));
         const per = now() - t;
-        log("D list " + list.length + " pieces, " + all.length / 2 + " plates at q " + qf.q + ": one strip " + one.toFixed(1)
+        log("D list " + list.length + " pieces, " + all.length / 2 + " plates at level " + qf.q + ": one strip " + one.toFixed(1)
             + " ms, one strip per plate " + per.toFixed(1) + " ms in all");
     });
 
     big("E — z-order occlusion: ink under an opaque plate-covering family, per plate of the view", () => {
         const E = mk(false);
         const list = E._buildList();
-        const qf = quantumFor(E.cam.inScale, DPR);
-        const Zq = zqOf(qf.q);
+        const qf = levelAt(E.cam.inScale, DPR);
+        const Zq = qf.Zq;
         const r = plateRange(E.cam.frameWindow(0), Zq);
         const out = new Uint8ClampedArray(TW * TH * 4);
         const rows = [];
@@ -200,7 +204,7 @@ describe("paper costs on the Magnum Opus", () => {
                 msVisible += msV;
             }
         }
-        log("E " + ((r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1)) + " plates at q " + qf.q + ": items " + items + ", under a covering fill " + hidden
+        log("E " + ((r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1)) + " plates at level " + qf.q + ": items " + items + ", under a covering fill " + hidden
             + "; families " + famsAll + ", hidden " + famsHidden + "; core " + msAll.toFixed(0) + " ms, without the hidden " + msVisible.toFixed(0)
             + " ms; plates with a cover [i, j, items, coverAt, ms, msVisible] " + JSON.stringify(rows.slice(0, 12)));
     });

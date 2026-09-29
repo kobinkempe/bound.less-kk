@@ -2,7 +2,7 @@
  * prefetch.test.js — the prefetch plan of A3 §4.3 on a small lattice (root "0", child A, grandchild B): the near
  * levels ℓv − 1 and ℓv − 2 over the screen and a cell of margin, from the live table; the far levels read through
  * snapshots in the view frame, then its parent and grandparent once coarser than the frame's own; the crossing
- * target by `_crossTarget`'s predicate; the ring at ℓv only at rest; nothing while a report sends; the budget gate.
+ * target within 1.25 × exit of a crossing; the ring at ℓv only at rest; nothing while a report sends; the budget gate.
  */
 import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";

@@ -90,7 +90,7 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
         take(frame, l, rect, "prefetch:far", table);
     }
 
-    // 3. The crossing target, by `_crossTarget`'s predicate: the parent's ℓv + 12/S − 1 over the screen and a screen of
+    // 3. The crossing target, within 1.25 × exit of a crossing: the parent's ℓv + 12/S − 1 over the screen and a screen of
     //    margin near the exit; the child's ℓv − 12/S + 1 at the focus near the entry. The equal picture is never fetched.
     const inScale = view.Z / view.dpr;
     const f = lm && lm.frame ? lm.frame(F) : null;

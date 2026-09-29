@@ -136,7 +136,6 @@ export function runStageFuzz(seed, steps, check, { w = 800, h = 600, raster = fa
     // The raster engine: plates packed from the Stage, the drag's hold, the table's camera step; no sync raster.
     const mkEngine = (a, b) => {
         const E = mkHarnessEngine(a, b, raster ? { raster: true, scenes: false } : null);
-        if (raster) { E.renderer.layer.syncBudget = 0; E.renderer.layer._sync = false; }
         return E;
     };
     const rnd = lcg(seed * 7919 + 17);

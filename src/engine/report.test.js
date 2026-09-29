@@ -153,7 +153,8 @@ describe("RB — the report's assembly", () => {
             expect(rep.raster.perf.picture).toBeTruthy();
             expect(rep.raster.perf.plates).toBeTruthy();
             expect(typeof rep.raster.renderer.frames).toBe("number");
-            expect(typeof rep.raster.layer.uncoveredCells).toBe("number");
+            expect(["level", "rest"]).toContain(rep.raster.layer.mode);          // the pyramid's view and integrals
+            expect(typeof rep.raster.layer.composes).toBe("number");
             expect(rep.raster.plane).toBeTruthy();
             expect(rep.headline.paper).toBeTruthy();
             expect(rep.build.errors).toEqual({});

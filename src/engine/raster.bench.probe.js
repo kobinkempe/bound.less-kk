@@ -18,8 +18,14 @@
 import * as core from "./raster/rasterCore";
 import * as pack from "./raster/rasterPack";
 import { jobBytes, BufferPool } from "./raster/rasterJob";
-import { stripSizeFor } from "./raster/rasterWorkerClient";
-import { quantumFor, plateRange } from "./raster/plate";
+import { STRIPS_PER_WORKER } from "./raster/jobQueue";
+import { plateRange } from "./raster/plate";
+import { LEVEL_STEP, levelFor, zOf } from "./raster/level";
+
+/** The view level at a camera scale and its grid zoom (the pyramid's `levelFor`, A3 §1.2). */
+const levelAt = (inScale, dpr) => { const l = levelFor(inScale * dpr, LEVEL_STEP); return { q: l, Zq: zOf(l, LEVEL_STEP) }; };
+/** Plates a strip when `n` workers share `nPlates` (the queue deals `n × STRIPS_PER_WORKER` strips, A3 §4.4). */
+const stripSizeFor = (nPlates, n) => Math.max(1, Math.ceil(nPlates / (n * STRIPS_PER_WORKER)));
 import { mkEngine, useEngines } from "./__testkit__/harness";
 import { strokeStripNear } from "./geometry/polyline";
 
@@ -353,7 +359,7 @@ describe("raster bench", () => {
         const screen = loadScreen();
         if (!screen) return;
         const { E, list, dpr, listMs } = screen;
-        const { q, Zq } = quantumFor(E.cam.inScale, dpr);
+        const { q, Zq } = levelAt(E.cam.inScale, dpr);
         const win = E.cam.frameWindow(0);
         const r = plateRange(win, Zq);
         const plates = [];
@@ -412,7 +418,7 @@ describe("raster bench", () => {
         const screen = loadScreen();
         if (!screen) return;
         const { E, list, dpr } = screen;
-        const q0 = quantumFor(E.cam.inScale, dpr).q;
+        const q0 = levelAt(E.cam.inScale, dpr).q;
         const win = E.cam.frameWindow(0);
         const rows = [];
         for (const pooled of [false, true]) {
@@ -477,7 +483,7 @@ describe("raster bench", () => {
         if (screen) {
             const { E, list, dpr } = screen;
             const strokes = list.filter((o) => o.type === "stroke");
-            const q0 = quantumFor(E.cam.inScale, dpr);
+            const q0 = levelAt(E.cam.inScale, dpr);
             pack.clearPackCaches();
             pack.resetPackStats();
             let t = now();
@@ -506,7 +512,7 @@ describe("raster bench", () => {
         const screen = loadScreen();
         if (!screen) return;
         const { E, list, dpr } = screen;
-        const { q, Zq } = quantumFor(E.cam.inScale, dpr);
+        const { q, Zq } = levelAt(E.cam.inScale, dpr);
         const r = plateRange(E.cam.frameWindow(0), Zq);
         const plates = [];
         for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) plates.push(i, j);

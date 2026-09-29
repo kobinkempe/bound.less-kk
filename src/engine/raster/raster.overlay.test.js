@@ -86,7 +86,7 @@ function mkLayer(opts = {}) {
 
 /** FC2's published view, the fields this layer reads. */
 function mkView(over = {}) {
-    const v = { rev: 1, mode: "plates", frameId: "0", q: 0, Zq: 1, Z: 1, s: 1,
+    const v = { rev: 1, mode: "level", frameId: "0", level: 0, S: 4, Zq: 1, Z: 1, s: 1,
         ox: 0, oy: 0, dx: 0, dy: 0, dpr: 1, cssW: CSS_W, cssH: CSS_H, k: 1, tx: 0, ty: 0 };
     return Object.assign(v, over);
 }
@@ -141,15 +141,15 @@ beforeEach(() => { resetAntStats(); imgMade = 0; });
 // ---------------------------------------------------------------------------
 
 describe("G1 — the ants are their own canvas", () => {
-    test("a crawl step calls no method on a PictureLayer stub and no method on the ink context", () => {
+    test("a crawl step calls no method on a PicturePyramid stub and no method on the ink context", () => {
         const { layer, ink, timers } = mkLayer();
-        // Every method `PictureLayer` exposes, as a spy. The layer is handed the VIEW object and
-        // never the layer, so none of them can be reached; this is what asserts it.
+        // Every method `PicturePyramid` exposes, as a spy. The layer is handed the VIEW object and
+        // never the pyramid, so none of them can be reached; this is what asserts it.
         const called = [];
         const stub = {};
-        for (const m of ["view", "frameFor", "compose", "status", "syncSurface", "settleRequest",
-            "quantumRequest", "onPlate", "onPlateBatch", "plateDestRect", "setSize",
-            "onStoreRelease", "destroy", "syncCameraOnly"]) {
+        for (const m of ["setSize", "frameFor", "plan", "cellFresh", "compose", "covered", "unask", "estimate",
+            "calibrate", "renderNow", "merge", "onResult", "patchPlan", "applyPatchPlan", "groupCommit",
+            "onStoreRelease", "report", "destroy"]) {
             stub[m] = (...a) => { called.push(m); return null; };
         }
         const view = mkView();
@@ -187,18 +187,18 @@ describe("G2 — the ants and the ink share one transform", () => {
     test("at s = 1.0905 and a snapped d, paint-time view ∘ CSS matrix is the published affine", () => {
         const { layer } = mkLayer();
         const Zq = 0.5946, ox = 512, oy = 256;
-        const at = (s, dx, dy) => mkView({ q: -3, Zq, Z: Zq * s, s, ox, oy, dx, dy,
+        const at = (s, dx, dy) => mkView({ level: -3, Zq, Z: Zq * s, s, ox, oy, dx, dy,
             k: Zq * s, tx: dx - ox * s, ty: dy - oy * s });
-        const a = at(1, 37, -12);                       // the quantum: the plane is painted here
+        const a = at(1, 37, -12);                       // the level's grid: the plane is painted here
         layer.show(mkDec(), a);
         const p0 = { k: layer._paintAt.k, tx: layer._paintAt.tx, ty: layer._paintAt.ty };
         expect(p0.k).toBe(a.k); expect(p0.tx).toBe(a.tx); expect(p0.ty).toBe(a.ty);
         expect(matrixOf(layer)).toEqual({ s: 1, dx: 0, dy: 0 });
 
-        const b = at(1.0905, 219, -87);                 // between quanta, `d` still whole px
+        const b = at(1.0905, 219, -87);                 // σ inside the level's band, `d` still whole px
         const before = layer.report().repaints;
         layer.show(mkDec(), b);
-        expect(layer.report().repaints).toBe(before);   // the same quantum: a transform, not a paint
+        expect(layer.report().repaints).toBe(before);   // the same level: a transform, not a paint
         const m = matrixOf(layer);
 
         // The composition, in device pixels: the canvas is device px shown at CSS size ÷ dpr, so
@@ -228,30 +228,32 @@ describe("G2 — the ants and the ink share one transform", () => {
     });
 });
 
-describe("G3 — a quantum change repaints and does not re-decide", () => {
+describe("G3 — a level change repaints and does not re-decide", () => {
     test("one repaint at the new k, the transform back to identity, the decision untouched", () => {
         const { layer } = mkLayer();
         const dec = mkDec();
         // the decision is a function of the engine's own cache; the layer must never call it
         let decides = 0;
         const decide = () => { decides++; return dec; };
-        layer.show(decide(), mkView({ q: 0, Zq: 1, k: 1, tx: 0, ty: 0 }));
+        layer.show(decide(), mkView({ level: 0, Zq: 1, k: 1, tx: 0, ty: 0 }));
         const r0 = layer.report().repaints;
-        layer.show(dec, mkView({ q: 1, Zq: 1.1892, k: 1.1892, tx: 11, ty: 3 }));
+        layer.show(dec, mkView({ level: 1, Zq: 1.1892, k: 1.1892, tx: 11, ty: 3 }));
         expect(layer.report().repaints).toBe(r0 + 1);
         expect(layer._paintAt.k).toBe(1.1892);
         expect(matrixOf(layer)).toEqual({ s: 1, dx: 0, dy: 0 });
         expect(decides).toBe(1);
     });
 
-    test("a step at the same quantum does not repaint, however far `s` drifts", () => {
+    test("a step at the same level does not repaint, however far `s` drifts; a switch to the rest grid repaints", () => {
         const { layer } = mkLayer();
         const dec = mkDec();
-        layer.show(dec, mkView({ q: 0, Zq: 1, k: 1 }));
+        layer.show(dec, mkView({ level: 0, Zq: 1, k: 1 }));
         const r0 = layer.report().repaints;
-        for (let i = 1; i <= 12; i++) layer.show(dec, mkView({ q: 0, Zq: 1, k: 1 + i / 100, tx: i, ty: -i }));
+        for (let i = 1; i <= 12; i++) layer.show(dec, mkView({ level: 0, Zq: 1, k: 1 + i / 100, tx: i, ty: -i }));
         expect(layer.report().repaints).toBe(r0);
         expect(layer.report().transforms).toBeGreaterThanOrEqual(12);
+        layer.show(dec, mkView({ mode: "rest", level: 0, Zq: 1.12, Z: 1.12, s: 1, k: 1.12, tx: 12, ty: -12 }));
+        expect(layer.report().repaints).toBe(r0 + 1);                // the rest grid at σ = 1: painted once there
     });
 });
 
@@ -711,7 +713,10 @@ const edgeLayerOf = (E) => E.renderer.host.querySelector(".bl-sel-edges");
  * the marks, the edges, `inkPx` and `off` equal. **The SVG engine's `O` is used for both sides**:
  * a renderer's origin is its own bookkeeping (the SVG path takes the active scene's, the raster
  * path `_ovOrigin`, and a crossing re-chooses one and not the other), while what is under test is
- * the geometry. That the raster geometry needs no origin at all is G12.
+ * the geometry. That the raster geometry needs no origin at all is G12. A drag the raster path holds
+ * on its plane decides on the pre-drag list, its `off` the whole travel (`selection.js`'s `listAt`); the
+ * SVG path decides at the drag's first step. Each is compared where it is painted: the pieces at
+ * `O − (off_ras − off_svg) / scale`.
  */
 function sameDecision(svgE, rasE) {
     expect(rasE.cam.inScale).toBe(svgE.cam.inScale);
@@ -724,7 +729,8 @@ function sameDecision(svgE, rasE) {
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     const O = svgE.renderer._origin(), sc = svgE.cam.inScale;
-    const d = (r) => runPathData({ pieces: r.pieces, closed: r.closed }, O.x, O.y, sc);
+    const held = rasE._dragSel && rasE._dragSel.listAt ? [(b.off[0] - a.off[0]) / sc, (b.off[1] - a.off[1]) / sc] : [0, 0];
+    const d = (r) => runPathData({ pieces: r.pieces, closed: r.closed }, O.x - held[0], O.y - held[1], sc);
     expect(b.runs.length).toBe(a.runs.length);
     expect(a.runs.length + a.marks.length).toBeGreaterThan(0);
     for (let i = 0; i < a.runs.length; i++) {
@@ -738,7 +744,7 @@ function sameDecision(svgE, rasE) {
     for (let i = 0; i < a.marks.length; i++) expect(d(b.marks[i])).toBe(a.marks[i].d);
     expect(b.edges).toEqual(a.edges);
     expect(b.inkPx).toBe(a.inkPx);
-    expect(b.off).toEqual(a.off);
+    if (!held[0] && !held[1]) expect(b.off).toEqual(a.off);
     return { a, b };
 }
 
@@ -1020,7 +1026,7 @@ describe("the renderer's override (§10 stage 5d, passes 4-6)", () => {
 
     test("the layer is handed the PUBLISHED view, never the camera (FC2)", () => {
         const { ras, ov } = selected();
-        const v = ras.renderer.layer.view();
+        const v = ras.renderer._view;
         expect(ov._paintAt.k).toBe(v.k);
         expect(ov._paintAt.tx).toBe(v.tx);
         expect(ov._paintAt.ty).toBe(v.ty);
@@ -1037,7 +1043,7 @@ describe("the renderer's override (§10 stage 5d, passes 4-6)", () => {
         // which is the up-to-half-a-device-pixel separation FC2 exists to remove.
         ras.cam.inPanX += 0.37; ras.cam.inPanY -= 0.21;
         ras.renderer.syncCameraOnly();
-        const v = ras.renderer.layer.view();
+        const v = ras.renderer._view;
         const shift = ras.renderer._edgeShift(v);
         expect(Math.abs(shift[0])).toBeGreaterThan(0);
         expect(Math.abs(shift[0])).toBeLessThanOrEqual(0.5 / v.dpr);

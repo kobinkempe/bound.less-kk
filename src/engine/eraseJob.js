@@ -1,6 +1,6 @@
 /**
- * eraseJob.js — the geometry of one cut, the same on the main thread and in the erase
- * worker (public/erase-worker.js, built from worker/eraseWorker.js): the boolean, the
+ * eraseJob.js — the geometry of one cut, the same on the main thread and in the raster
+ * worker (`runCut`, public/raster-worker.js, built from worker/rasterWorker.js): the boolean, the
  * removal measured LOCALLY (F46: subject ∩ eraser, never before − after), the graze rule,
  * the components and the dust cull. Imports geometry only; touches no document. The
  * result says what happened; for a cut it carries the surviving regions as Loops.

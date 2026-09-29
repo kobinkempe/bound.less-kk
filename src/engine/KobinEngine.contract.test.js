@@ -39,7 +39,7 @@ const METHODS = [
     "pointerDown", "pointerMove", "pointerUp", "cancelStroke", "zoomAt", "pinchUpdate", "resize",
     // tools
     "setTool", "setPenType", "setColor", "setWidth", "setOpacity", "setOpacityGroups",
-    "setEraserSize", "setLazyOutlines", "setPreBake", "setRetainScenes",
+    "setEraserSize", "setLazyOutlines", "setRetainScenes",
     // history + selection
     "undo", "redo", "clear", "deleteSelection", "deselect",
     // files
