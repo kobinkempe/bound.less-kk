@@ -18,8 +18,7 @@
  * and the prefetch's far set, which is all the eviction order reads.
  */
 import { PLATE_PX } from "./plate";
-import { COMPOSE_IMAGES, LEVEL_HYST, levelKey, planeKey, restKey, sigmaMinFor, viewPlates, zOf } from "./level";
-import { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE } from "./MovePlane";
+import { COMPOSE_IMAGES, LEVEL_HYST, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelKey, planeKey, restKey, sigmaMinFor, viewPlates, zOf } from "./level";
 
 /** Bytes one 512² RGBA plate costs, as a bitmap or as raw pixels: exactly 1 MiB. */
 export const PLATE_BYTES = PLATE_PX * PLATE_PX * 4;

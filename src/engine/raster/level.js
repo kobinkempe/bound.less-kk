@@ -27,6 +27,12 @@ export const VIEW_PLATES_MAX = 48;
  * past ~33 scaled images Chrome's 2D canvas flushes per image (A3 §1.5, E6; PLAN §5.6 M1).
  */
 export const COMPOSE_IMAGES = 30;
+/**
+ * Plates a drag plane may pin, its quick level included: 40 desktop, 24 phone (the same share of each cache; at 12 a
+ * phone's drag tore a plate at a time, Kobin's report 2026-09-23 08-11-20). Part of the store's pinned bound.
+ */
+export const MOVE_PLANE_PLATES = 40;
+export const MOVE_PLANE_PLATES_PHONE = 24;
 
 const CROSS_OCT = Math.log2(R);                       // 12: a crossing is 4096×
 const OFFSET_OCT = Math.log2(W) - Math.log2(PLATE_PX); // 8: a child cell's offset is its digit × 2^(8 + ℓS) plates

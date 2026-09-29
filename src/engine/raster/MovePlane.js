@@ -21,20 +21,18 @@
  * Where each layer is needed: SEL at the selection's own cells, OVER at its families' cells, BELOW
  * at the union of all of them. The layers are cut on `rasterPack.paintFamilies`, the pack's own
  * family order, from the list the selection was made in: the drag does not rebuild the list. The
- * plates live in the `PlateStore` under their own tags, pinned (`setPlanePins`).
+ * plates live in the store, pinned (`setPlanePins`): under their own tags as quanta on the old path, under
+ * `planeKey(F, Zp, tag, i, j)` on the pyramid's (A3 §6), where a SEL run also reaches a view past the screen (D1).
  */
 
 import { PLATE_PX, PREVIEW_QUANTA, QUANTA_PER_OCTAVE, plateKey, zqOf } from "./plate";
 import { paintFamilies } from "./rasterPack";
+import { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, planeKey } from "./level";
 
+/** The plane's pin caps live in `level.js` beside the pyramid's other bounds; re-exported for the old path's callers. */
+export { MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE };
 /** Layers a plane may split the picture into (below, sel, between, sel, above); past it runs are merged. */
 export const MOVE_PLANE_LAYERS = 5;
-/** Plates a plane may pin, its quick level included (an empty plate costs no bytes); past it the layers are coarser. */
-// The same share of each cache: 40 of the desktop's 96, 24 of the phone's 56. The rest holds the visible
-// set and the ladder, which a 64-plate plane pushed out (review minor 5). At 12 a phone refused an object
-// under one other (16 plates) and its drag tore a plate at a time (Kobin's report 2026-09-23 08-11-20).
-export const MOVE_PLANE_PLATES = 40;
-export const MOVE_PLANE_PLATES_PHONE = 24;
 /** Octaves a plane may be cut coarser than the view to fit its cap. */
 export const PLANE_COARSEN_MAX = 3;
 /** The quick level: this many octaves under the plane's own, asked for first (a sixteenth of the plates). */
@@ -83,7 +81,13 @@ function rangeOf(cells) {
 }
 
 export default class MovePlane {
-    constructor() {
+    /**
+     * @param {{pyramid?: boolean}} [o] the picture pyramid's plane (A3 §6): plates keyed `planeKey` at the plane's
+     *        own zoom Zp (the view's grid Z, `/ 2^k` coarser), whole only when exact, and the SEL runs cut against
+     *        the view grown by one view each way (D1). Without it, the old path's quantum keys.
+     */
+    constructor(o = {}) {
+        this.pyramid = !!o.pyramid;
         this.stats = planeStats;      // the layer counts into it without importing this module
         this.gen = 0;                 // bumped by every reset: the caller frees the old plates when it moves
         this._reset();
@@ -151,14 +155,16 @@ export default class MovePlane {
         this.main = null; this.quick = null; this.cur = null; this.stop = null; this.ready = false; this.partial = false;
         this.layers = []; this.keys = []; this.tags = []; this.r = null; this.selR = null; this.selIds = null; this.refused = true;
         const s = view.Zq / PLATE_PX;
+        // D1 (pyramid): a selected family counts when it touches the view grown by one view each way.
+        const gw = this.pyramid ? view.i1 - view.i0 + 1 : 0, gh = this.pyramid ? view.j1 - view.j0 + 1 : 0;
         const runs = [];
         for (const f of paintFamilies(list, view.q, view.Zq, dpr, cfg, live)) {
             if (f.all.length && f.all.every((d) => d.o.erase)) continue;   // a pending mark paints nothing: every layer's pack masks with it
-            let sel = false, on = false;
+            const sel = f.all.some((d) => ids.has(d.o.id)), w = sel ? gw : 0, h = sel ? gh : 0;
+            let on = false;
             for (const d of f.all) {
-                if (ids.has(d.o.id)) sel = true;
                 const b = d.box;
-                if (Math.floor(b[2] * s) >= view.i0 && Math.floor(b[0] * s) <= view.i1 && Math.floor(b[3] * s) >= view.j0 && Math.floor(b[1] * s) <= view.j1) on = true;
+                if (Math.floor(b[2] * s) >= view.i0 - w && Math.floor(b[0] * s) <= view.i1 + w && Math.floor(b[3] * s) >= view.j0 - h && Math.floor(b[1] * s) <= view.j1 + h) on = true;
             }
             if (!on) continue;                             // nothing on screen: it can neither cover nor be covered here
             let run = runs[runs.length - 1];
@@ -207,27 +213,33 @@ export default class MovePlane {
     /** The layers at `k` octaves coarser than the view: cells, tags and keys; `plates` is their count. */
     _level(runs, view, k) {
         let pq = view.q, pZq = view.Zq;
-        if (k) {
+        if (this.pyramid) { pq = k; pZq = view.Zq / 2 ** k; }        // A3 §6: Zp / 2^k, the plane's own levels
+        else if (k) {
             const q0 = typeof view.q === "number" ? view.q : Math.floor(Math.log2(view.Zq) * QUANTA_PER_OCTAVE + 1e-9);
             pq = q0 - k * QUANTA_PER_OCTAVE; pZq = zqOf(pq);
         }
         const f = pZq / view.Zq, s = pZq / PLATE_PX;
-        const vi0 = Math.floor(view.i0 * f), vi1 = Math.floor((view.i1 + 1) * f - 1e-9);
-        const vj0 = Math.floor(view.j0 * f), vj1 = Math.floor((view.j1 + 1) * f - 1e-9);
-        const cellsOf = (boxes) => {
+        const gw = this.pyramid ? view.i1 - view.i0 + 1 : 0, gh = this.pyramid ? view.j1 - view.j0 + 1 : 0;
+        const rangeAt = (w, h) => ({
+            i0: Math.floor((view.i0 - w) * f), i1: Math.floor((view.i1 + 1 + w) * f - 1e-9),
+            j0: Math.floor((view.j0 - h) * f), j1: Math.floor((view.j1 + 1 + h) * f - 1e-9),
+        });
+        const onView = rangeAt(0, 0), grown = rangeAt(gw, gh);
+        const cellsOf = (boxes, v) => {
             const out = new Set();
             for (const b of boxes) {
-                const i0 = Math.max(Math.floor(b[0] * s), vi0), i1 = Math.min(Math.floor(b[2] * s), vi1);
-                const j0 = Math.max(Math.floor(b[1] * s), vj0), j1 = Math.min(Math.floor(b[3] * s), vj1);
+                const i0 = Math.max(Math.floor(b[0] * s), v.i0), i1 = Math.min(Math.floor(b[2] * s), v.i1);
+                const j0 = Math.max(Math.floor(b[1] * s), v.j0), j1 = Math.min(Math.floor(b[3] * s), v.j1);
                 for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) out.add(i + "," + j);
             }
             return out;
         };
         const toList = (set) => [...set].map((c) => c.split(",").map(Number));
+        // BELOW is the union of the runs' cells on the view; a SEL run's own cells reach the grown view (D1).
         const below = new Set(), omit = new Set(), per = [];
         for (const r of runs) {
-            const c = cellsOf(r.boxes);
-            per.push(c);
+            const c = cellsOf(r.boxes, onView);
+            per.push(r.sel && this.pyramid ? cellsOf(r.boxes, grown) : c);
             for (const x of c) below.add(x);
             for (const id of r.ids) omit.add(id);
         }
@@ -240,7 +252,7 @@ export default class MovePlane {
             L.tag = "z" + n + "_" + pq + "_" + idsHash(L.kind === "below" ? L.omit : L.ids);
             tags.push(L.tag);
             plates += L.cells.length;
-            for (const [i, j] of L.cells) keys.push(plateKey(this.frameId, L.tag, i, j));
+            for (const [i, j] of L.cells) keys.push(this._key(L.tag, pZq, i, j));
         });
         const selCells = [].concat(...layers.filter((L) => L.kind === "sel").map((L) => L.cells));
         return { k, pq, pZq, layers, tags, keys, plates, r: rangeOf(layers[0].cells), selR: rangeOf(selCells), below };
@@ -275,12 +287,18 @@ export default class MovePlane {
         return out;
     }
 
-    /** Is every plate of a level (its selected layers only, with `selOnly`) cached? */
+    /** A plane plate's store key: `planeKey` at the level's Zp on the pyramid, the tag as the quantum on the old path. */
+    _key(tag, pZq, i, j) { return this.pyramid ? planeKey(this.frameId, pZq, tag, i, j) : plateKey(this.frameId, tag, i, j); }
+
+    /** Is every plate of a level (its selected layers only, with `selOnly`) cached — and on the pyramid, exact (A3 §6)? */
     _whole(lvl, store, selOnly = false) {
         if (!lvl) return false;
         for (const L of lvl.layers) {
             if (selOnly && L.kind !== "sel") continue;
-            for (const [i, j] of L.cells) { const e = store.get(plateKey(this.frameId, L.tag, i, j)); if (!e || e.dead) return false; }
+            for (const [i, j] of L.cells) {
+                const e = store.get(this._key(L.tag, lvl.pZq, i, j));
+                if (!e || e.dead || (this.pyramid && !store.exact(e))) return false;
+            }
         }
         return true;
     }

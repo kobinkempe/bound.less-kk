@@ -599,9 +599,16 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         expect(t.ctx.at(150, 60)).toEqual(col(sel));                           // the selection, 100 × 40 px on
         expect(t.ctx.at(560, 550)).toEqual(col(over));                         // OVER in place, over the base
         expect(t.ctx.at(560, 40)).toEqual(col(sel));                           // the selection over the base cell (1, 0)
-        plane.partial = true;                                                  // partial: the selection's layers alone
+        plane.partial = true;                                                  // partial, BELOW over the start footprint: H4 draws the move
         t.pyr.compose();
+        expect(t.ctx.at(50, 20)).toEqual(col(below));                         // where the selection was: BELOW, never it twice
+        expect(t.ctx.at(150, 60)).toEqual(col(sel));
+        t.store.dropWhere((r) => r.key === below.key);                         // BELOW not in: the selection stays in place, nothing moved
+        const P1 = t.pyr.compose();
+        expect([P1.plane.layers.length, P1.plane.images]).toEqual([0, 0]);
         expect(t.ctx.at(50, 20)).toEqual(col(levelCell(F, 4, S, 0, 0)));
+        expect(t.ctx.at(150, 60)).toEqual(col(levelCell(F, 4, S, 0, 0)));
+        t.put(below, 0);
         plane.partial = false;
         plane.state = "land";                                                  // landing: the base's own plate where it is exact
         t.stage.commit({ [F]: [{ left: 40, top: 40, right: 41, bottom: 41 }] });   // stales the base cell (1, 1) only

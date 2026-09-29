@@ -110,22 +110,20 @@ describe("ZO-3 — the eraser mark itself, before it bakes", () => {
     // Layers: z-order (behaviour 5) + erasing over multiple objects (10) +
     // performance (1, deferred baking).
     //
-    // The mark is real ink in the background colour, committed the instant the
-    // gesture ends and replaced by a hole later. While it is there it must cover
-    // everything below it and nothing drawn after it — otherwise the drawing
-    // visibly changes at the moment the bake happens, hundreds of milliseconds
-    // after the user let go.
+    // A pending mark paints nothing: from its landing until its bake it hides its
+    // targets and nothing drawn after it (A2 §4.1), so the drawing does not change
+    // when the bake happens, hundreds of milliseconds after the user let go.
     test("the mark covers what it erased and yields to what came next", () => {
         const E = mkEngine();
-        drawStroke(E, [[120, 300], [680, 300]], 120, BLUE);
+        const B = drawStroke(E, [[120, 300], [680, 300]], 120, BLUE);
         eraseGesture(E, [[400, 220], [400, 380]], 24);        // NOT flushed
         E._render();
         const mark = E.doc.at(E.cam.frame).find((o) => o.erase);
-        expect(mark).toBeTruthy();
-        expect(topAtAll(E, 400, 300).id).toBe(mark.id);       // above the blue
+        expect(mark.targets).toEqual([B.id]);
+        expect(topAtAll(E, 400, 300)).toBeNull();             // the blue hidden: paper
         drawStroke(E, [[380, 200], [380, 400]], 30, GREEN);   // drawn after the mark
-        expect(topAtAll(E, 380, 300).color).toBe(GREEN);      // ...but under this
-        expect(topAtAll(E, 420, 300).id).toBe(mark.id);       // still above the blue
+        expect(topAtAll(E, 380, 300).color).toBe(GREEN);      // ...shows over it
+        expect(topAtAll(E, 420, 300)).toBeNull();             // the blue still hidden
     });
     test.each([[0], [1], [2]])("depth %i: the picture does not jump when it bakes", (n) => {
         const E = mkEngine();

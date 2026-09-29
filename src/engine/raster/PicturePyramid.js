@@ -563,18 +563,33 @@ export default class PicturePyramid {
 
     // ---- the plane (A3 §6's paint order) ----
 
-    /** The plane's layers for this view: records to draw after the base, and the base cells BELOW replaces. */
+    /**
+     * The plane's layers for this view: records to draw after the base, and the base cells BELOW replaces. Partial
+     * (the SEL layers whole, the rest not): H4, never both — the selection is drawn moved only when BELOW covers its
+     * start footprint (with OVER there), which hides it where it was; else nothing is drawn and it stays in place.
+     */
     _planePlan(v) {
         const p = this._plane, st = this.store;
         const out = { images: 0, layers: [], skip: null };
         if (!p || !p.showing || String(p.frameId) !== v.frameId || !p.layers || !p.layers.length) return out;
+        const get = (L, i, j) => { const r = st.get(planeKey(p.frameId, p.Zp, L.tag, i, j)); return r && !r.dead ? r : null; };
+        let foot = null;
+        if (p.partial) {
+            foot = new Set();
+            for (const L of p.layers) if (L.kind === "sel") for (const [i, j] of L.cells) foot.add(i + "," + j);
+            for (const L of p.layers) {
+                if (L.kind === "sel") continue;
+                for (const [i, j] of L.cells) if (foot.has(i + "," + j) && !get(L, i, j)) return out;   // the selection stays in place
+            }
+            if (!p.layers.some((L) => L.kind === "below")) return out;
+        }
         const seen = new Set();
         for (const L of p.layers) {
-            if (p.partial && L.kind !== "sel") continue;
             const recs = [];
             for (const [i, j] of L.cells) {
-                const r = st.get(planeKey(p.frameId, p.Zp, L.tag, i, j));
-                if (!r || r.dead) continue;
+                if (foot && L.kind !== "sel" && !foot.has(i + "," + j)) continue;
+                const r = get(L, i, j);
+                if (!r) continue;
                 recs.push(r);
                 if (r.bitmap || r.pixels) seen.add(r);
             }
@@ -596,15 +611,15 @@ export default class PicturePyramid {
 
     /** The view cells a landing plane still covers: those whose own source is not exact yet. */
     _landClip(v) {
-        const st = this.store, out = [];
-        for (let j = v.j0; j <= v.j1; j++) {
-            for (let i = v.i0; i <= v.i1; i++) {
-                const r = st.get(v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
-                if (r && st.exact(r)) continue;
-                out.push(gBox(v.Zq, i, j, v.Zq));
-            }
-        }
+        const out = [];
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) if (!this.cellFresh(v, i, j)) out.push(gBox(v.Zq, i, j, v.Zq));
         return out;
+    }
+
+    /** Is view cell (i, j)'s own source exact? The landing's per-cell test (A3 §6: `landCells` × `exact`). */
+    cellFresh(v, i, j) {
+        const r = this.store.get(v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
+        return !!r && this.store.exact(r);
     }
 
     // ---- the compose (A3 §1.5, §9.1) ----
@@ -903,6 +918,13 @@ export default class PicturePyramid {
         this.lastSample = sum;
         if (this._onSample && (sum.edges || sum.px)) this._onSample(sum);
         return out;
+    }
+
+    /** A typed job rendered on this thread now and landed as any result (the drag plane's stopgap, A3 §6). Returns the records. */
+    renderNow(job) {
+        const recs = this._renderInline(job);
+        for (const r of recs) this.onResult(r);
+        return recs;
     }
 
     /** The one scratch `OffscreenCanvas` (+1 MiB in all, A3 §3.2). */

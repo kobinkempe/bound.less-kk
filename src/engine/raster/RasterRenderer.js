@@ -48,7 +48,7 @@ import {
     submitPlates, dropQueued, abandonInFlight, ensureRasterPool, destroyRasterPool,
     plateBitmap, stripSizeFor, rasterWorkerReport, rasterPool,
 } from "./rasterWorkerClient";
-import PyramidStore from "./PyramidStore";
+import PyramidStore, { planeCell } from "./PyramidStore";
 import PicturePyramid, { sampleOf } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
 import { prefetchPlan, farKeysOf } from "./prefetch";
@@ -250,8 +250,8 @@ export default class RasterRenderer extends Renderer {
         this._packMs = 0;              // the pack's own ms inside one `submitPlates`, for `xfer.out`
         this._postMs = 0;              // the posts nested inside `frameFor`, subtracted from `eng.view`
         this._sync = { rgba: null, counts: null, timings: null, hit: null, coreMs: 0 };
-        /** PAPER-PLAN §10 S4: the selection's drag plane; the engine's state is pulled (`setPlaneState`). */
-        this._plane = new MovePlane();
+        /** PAPER-PLAN §10 S4: the selection's drag plane; the engine's state is pulled (`setPlaneState`). A3 §6's keys on the pyramid. */
+        this._plane = new MovePlane({ pyramid: !!this.pyramid });
         /** A test hook: no drag plane — every drag renders each step (the path a lost plane falls back to). */
         this.forcePerStepDrag = false;
         this._planeFn = null;
@@ -462,11 +462,8 @@ export default class RasterRenderer extends Renderer {
     /** A different document is coming (a load, a reset): the last picture is no stand-in for it (§10.13). */
     dropCarry() { if (this.layer.dropCarry) this.layer.dropCarry(); }
 
-    /**
-     * The engine reads this once, at construction: the drag's plate events are held only where the renderer draws
-     * the dragged ink itself. Not yet on the pyramid's path (its plane is B-PYRAMID-2 P3): every step renders there.
-     */
-    get supportsDragPlane() { return !this.pyramid; }
+    /** The engine reads this once, at construction: the drag's plate events are held only where the renderer draws the dragged ink itself. */
+    get supportsDragPlane() { return true; }
 
     /** The engine's selection, as `{ key, ids }` of the current list or null; pulled each camera step. */
     setPlaneState(fn) { this._planeFn = fn; }
@@ -487,7 +484,7 @@ export default class RasterRenderer extends Renderer {
     }
 
     /** The views a plane works in: plates, and a settled view (q "e" at the exact zoom). */
-    _planeViewOk(v) { return !!v && (v.mode === "plates" || v.mode === "settle"); }
+    _planeViewOk(v) { return !!v && (v.mode === "plates" || v.mode === "settle" || v.mode === "level" || v.mode === "rest"); }
 
     /** May a drag step skip the list build? Only while the plane draws the move. */
     dragLight() { return this._planeViewOk(this._view) && this._plane.layers.length > 0 && this._plane.state !== "land"; }
@@ -533,6 +530,7 @@ export default class RasterRenderer extends Renderer {
 
     /** What the plane's layers lack, one post a layer (their cells are a list, not a range). */
     _postPlane(pl) {
+        if (this.pyramid) return this._pyrPostPlane(pl);
         // A level without its own snapshot packs the live table at the pack's G (A2 §3.3), not the list it was aimed from.
         const reqs = pl.requests(this.stage ? null : pl.list);
         if (!reqs) return 0;
@@ -555,6 +553,7 @@ export default class RasterRenderer extends Renderer {
 
     /** A plane's plates, out of the store and the queue: they carry no zoom any other request reads. */
     _dropPlaneTags(tags) {
+        if (this.pyramid) { this._pyrDropPlane(tags); return; }
         for (const q of tags) { if (!q) continue; dropQueued("plane", q); this.store.dropQuantum(q); }
     }
 
@@ -577,7 +576,8 @@ export default class RasterRenderer extends Renderer {
         // A level is drawn whole (the main one, else the quick one), else its selected layers alone
         // over the plates that still hold the ink where it was, else a stopgap rastered here.
         let lvl = pl.showing ? pl.pick(this.store) : null;
-        if (pl.state === "drag" && !lvl && !pl.stop) this._planeStopgap(pl);
+        if (this.pyramid && pl.state === "drag" && (!lvl || pl.partial) && this._pyrStopgap(pl)) lvl = pl.pick(this.store);
+        else if (!this.pyramid && pl.state === "drag" && !lvl && !pl.stop) this._planeStopgap(pl);
         const whole = !!lvl && !pl.partial;
         if (pl.state === "drag") {
             if (!lvl && !pl.stop) planeStats.notReady++;
@@ -587,7 +587,8 @@ export default class RasterRenderer extends Renderer {
         // While the plane draws the move, every other pack leaves the selection out: a plate re-rastered
         // mid-drag (a cut landing, a crossing's render) would bake it at its moved place (review minor 4).
         this._dragOmit = whole && pl.state === "drag" ? pl.selIds : null;
-        this.layer.setPlane(lvl || (pl.showing && pl.stop) ? pl : null);
+        if (this.pyramid) this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
+        else this.layer.setPlane(lvl || (pl.showing && pl.stop) ? pl : null);
     }
 
     /**
@@ -653,8 +654,9 @@ export default class RasterRenderer extends Renderer {
         if (key !== this._planeViewKey) { this._planeViewKey = key; this._planeViewAt = perfNow(); }
         const here = pl.tags.length > 0 && pl.frameId === v.frameId && pl.q === v.q && pl.Zq === v.Zq;
         // A settle about to publish its exact view would re-aim the plane a second time: wait for it.
-        const holding = this.layer.holding();
-        const quiet = perfNow() - this._planeViewAt >= PLANE_QUIET_MS && !this.layer.settleComing() && !holding;
+        const settling = () => !this.pyramid && (this.layer.settleComing() || this.layer.holding());   // the old path's hold and settle
+        const holding = !this.pyramid && this.layer.holding();
+        const quiet = perfNow() - this._planeViewAt >= PLANE_QUIET_MS && !settling();
         // At this zoom its plates stay (a pan only adds cells); a zoom's hold pins its own set, so the plane's go.
         if (!quiet && pl.tags.length && (!here || holding)) this._endPlane();
         // Aimed in a task of its own even when quiet, after the next frame is painted: inside a select it
@@ -665,7 +667,7 @@ export default class RasterRenderer extends Renderer {
                 this._planeTimer = null;
                 const w = this._view;
                 if (this._destroyed || !w || this._plane.showing || this._noPlaneDrag || (this._dragStateFn && this._dragStateFn())) return;
-                if (w.frameId + "|" + w.q + "|" + w.Zq + "|" + w.rev === key && !this.layer.settleComing() && !this.layer.holding()) this._aimPlane(w);
+                if (w.frameId + "|" + w.q + "|" + w.Zq + "|" + w.rev === key && !settling()) this._aimPlane(w);
                 else this._planeIdle();
             };
             if (!quiet) this._planeTimer = setTimeout(fire, PLANE_QUIET_MS);
@@ -1542,7 +1544,9 @@ export default class RasterRenderer extends Renderer {
         });
         const base = opts.pool || rasterPool;
         const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
-        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => pyr.refresh() });
+        pyr.gens.plane = 1;                              // the drag plane's purpose: bumped when its layers go
+        this._pyrPlaneAsked = new Set();
+        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => { pyr.refresh(); this._pyrPlaneAsked.clear(); } });
         this.layer = pyr;
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
@@ -1568,6 +1572,7 @@ export default class RasterRenderer extends Renderer {
         q.setMotion(this._pyrMotion(view));
         q.frame();
         q.pump();
+        this._planeStep(view);
         const t1 = perfNow();
         const P = pyr.compose();
         this.perf.noteCompose(perfNow() - t1, P.images, 1);
@@ -1646,9 +1651,11 @@ export default class RasterRenderer extends Renderer {
         for (let k = 0; k < cells.length; k++) { plates[k * 2] = cells[k].i; plates[k * 2 + 1] = cells[k].j; }
         if (jobId != null) this.store.beginJob(jobId, cells, G);
         const t0 = perfNow();
+        // A plane layer packs its own members (`only`, transparent) or everything but them (`omit`); any other pack leaves
+        // the selection out while the plane draws the move.
         const packed = packJob(list, {
-            plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: this._paperRgb, G, jobId, frameSeq: this.frameSeq,
-            pool: bufPool, live: this._liveModel,
+            plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: job.paper || this._paperRgb, G, jobId, frameSeq: this.frameSeq,
+            pool: bufPool, live: this._liveModel, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit),
         });
         if (clips) {
             const cl = new Int32Array(clips.length * 4);
@@ -1745,14 +1752,105 @@ export default class RasterRenderer extends Renderer {
 
     _pyrLand(st, recs, res, info) {
         if (this._destroyed) { this.store.endJob(res.jobId); return; }
-        for (const r of recs) this.pyramid.onResult(r);
+        const pl = this._plane;
+        for (const r of recs) {
+            if (r.kind === "plane" && !pl.tags.includes(r.tag)) this.store.discard(r);   // a layer the plane has since dropped
+            else this.pyramid.onResult(r);
+        }
         rasterStats.batches++; rasterStats.batchPlates += recs.length;
         this._endJob(res.jobId);
         this.queue.done(st.id, info ? info.wallMs : null);
         this.pyramid.calibrate(sampleOf(res, st.est && st.est.U));
         this.queue.pump();
+        // The plane composes on its own plates' arrival, and a landing ends on the last fresh plate under it.
+        if (pl.showing) {
+            if (pl.state === "land" && this._planeLanded(this._view)) this._endPlane();
+            else if (pl.state === "drag" && st.kind === "plane") {
+                const lvl = pl.pick(this.store);
+                this._dragOmit = lvl && !pl.partial ? pl.selIds : null;
+                this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
+            }
+        } else this._planeIdle();
         if (this.layer.deferCompose) this.layer.deferCompose(); else this.pyramid.compose();
         if (!this._pyrMot.moving) this._pyrPrefetch(this._view);
+    }
+
+    /** The plane as the pyramid draws it (A3 §6): its drawn level's Zp and layers; the state, the partial flag and the offset live. */
+    _pyrPlaneOf(pl, lvl) {
+        if (!this._pyrPlane) {
+            this._pyrPlane = {
+                get showing() { return pl.showing; }, get state() { return pl.state; }, get partial() { return pl.partial; },
+                get frameId() { return pl.frameId; }, get off() { return pl.off; }, Zp: 1, layers: null,
+            };
+        }
+        this._pyrPlane.Zp = lvl.pZq; this._pyrPlane.layers = lvl.layers;
+        return this._pyrPlane;
+    }
+
+    /** What the plane's layers lack, as typed jobs at priority 2 (A3 §4.1) under the plane's purpose generation. */
+    _pyrPostPlane(pl) {
+        const reqs = pl.requests(null);
+        if (!reqs) return 0;
+        const jobs = [];
+        for (const r of reqs) {
+            const cells = [];
+            for (const [i, j] of r.cells) {
+                const c = planeCell(r.frameId, r.Zq, r.q, i, j);
+                if (!this._pyrPlaneAsked.has(c.key) && this.store.wants(c.key)) { cells.push(c); this._pyrPlaneAsked.add(c.key); }
+            }
+            if (!cells.length) continue;
+            jobs.push({
+                kind: "plane", prio: PRIO.plane, frame: r.frameId, level: null, S: null, Z: r.Zq, cells, clips: null, purpose: "plane",
+                gen: this.pyramid.gens.plane, attention: null, group: null, table: r.list ? { items: () => r.list, generation: r.G } : null,
+                only: r.only || null, omit: r.omit || null, paper: r.paper || null,
+            });
+        }
+        if (!jobs.length) return 0;
+        planeStats.requests++;
+        this.queue.push(jobs);
+        this.queue.pump();
+        return jobs.length;
+    }
+
+    /** A plane's layers gone: their records out of the store, their queued strips out by generation. */
+    _pyrDropPlane(tags) {
+        const t = new Set(tags.filter(Boolean));
+        this._pyrPlaneAsked.clear();
+        if (!t.size) return;
+        this.store.dropWhere((r) => r.kind === "plane" && t.has(r.tag));
+        this.pyramid.gens.plane++;
+    }
+
+    /**
+     * No whole level at a drag step (A3 §6, H4): a small selection's SEL layers of the quick level (the main one's), with
+     * BELOW and OVER over its start footprint, rendered on this thread now and landed as plane plates. True when it ran.
+     */
+    _pyrStopgap(pl) {
+        const lvl = pl.quick || pl.main;
+        if (!lvl || !pl.selIds || !pl.selIds.size || pl.selIds.size > STOPGAP_OBJECTS) return false;
+        const foot = new Set();
+        for (const L of lvl.layers) if (L.kind === "sel") for (const [i, j] of L.cells) foot.add(i + "," + j);
+        const jobs = [];
+        let n = 0;
+        for (const L of lvl.layers) {
+            const cells = [];
+            for (const [i, j] of L.cells) {
+                if (L.kind !== "sel" && !foot.has(i + "," + j)) continue;
+                const c = planeCell(pl.frameId, lvl.pZq, L.tag, i, j), e = this.store.get(c.key);
+                if (!e || !this.store.exact(e)) cells.push(c);
+            }
+            if (!cells.length) continue;
+            n += cells.length;
+            jobs.push({ kind: "plane", frame: pl.frameId, Z: lvl.pZq, cells, clips: null, table: lvl.list ? { items: () => lvl.list, generation: lvl.G } : null,
+                only: L.kind === "below" ? null : L.ids, omit: L.kind === "below" ? L.omit : null, paper: L.kind === "below" ? null : [0, 0, 0, 0] });
+        }
+        if (!n || n > STOPGAP_PLATES) return false;
+        const t0 = perfNow();
+        for (const job of jobs) this.pyramid.renderNow(job);
+        const ms = perfNow() - t0;
+        planeStats.stopgaps++;
+        if (ms > planeStats.stopgapMsMax) planeStats.stopgapMsMax = ms;
+        return true;
     }
 
     /** A strip that will not land: its id ended, its slot freed, the view's cells asked for again at the next step. */

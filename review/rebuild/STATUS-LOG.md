@@ -1216,3 +1216,28 @@ estimate made inline-or-coarse vary run to run: one run went coarse-first, `shar
 **Questions asked:** none.
 WHERE I AM: P3 — move `MOVE_PLANE_PLATES`/`_PHONE` into `level.js` (MovePlane re-exporting), then read `MovePlane.js`
 and the renderer's plane section for the port.
+
+## 2026-09-29 00:17 UTC — B-ERASE — end (E1–E5 of A2 §6.2)
+
+**Working on:** done. RV5 green: the drag step's writes batch only while the Stage does not hold the move.
+The clip goldens regenerated after attribution, which found a defect (below), fixed. ZO-3 (a) ported.
+**Measured:** break-checks on the unimported copy, red/total: handledBy clause hang (the bake never empties);
+landed 1/17, z 1/17, a mark never masked 1/17; the landing's one commit 1/17; inheritance: eraseReplaceById
+9/51, cede 1/17, a descent's live lineage 1/18; classifier without `by` 3/44; dust 1/15; prune on re-entry
+4/40, at spend 7/55; barrier lock 1/71; lookahead lock 1/8; serial order 2/15; barriers resolve perimeters
+2/44; a press lands the mark 1/36; the pick 1/23; lookahead writes nothing 3/22; old-file named ids 1/21;
+attr entries 1/32; refusal handles 2/23; barrier spends 3/21; `_ver` 2/17; byte masks 1/28; slots exact
+2/23, per family 2/23; load derives targetOf 4/38; tap re-pick 3/37. Baselines 0/56, 0/57.
+Clip goldens: the lists' marks had no `targets` (unlanded: mask nothing; 8 plates, up to 255). Landed
+(`rasterLists.landMarks`), 3 plates still hid a family's ink above a mark: slots were judged per item while
+the core masks a family whole — now per family, with a two-piece-family test red before. Result: 8 of 24
+moved, 1,412 bytes, ≤ 2 levels opaque, ≤ 4 premultiplied on transparent paper, all under marks' ink.
+PLAN §5.7 (Stage, 200 tracked cells): delete 5,000 530 → 57 ms; its undo 1,043 → 68 ms; 3 drag steps ×
+2,000 writes 735 → 76 ms; store replay of 2,000 adds 157–166 → 44–89 ms (2,000 commits → 1).
+Suites: test:quick 2,216 passed, 3 red not mine (raster.pyramid ×2, in flight; LH-1, green alone twice);
+test:erase 303 passed, 1 skipped, 400.7 s (load 2.38 → 1.26); test:slow 502 passed, 6 skipped, 405.5 s
+(load 0.86 → 1.42). typecheck 0; lint 0 errors, 6 warnings (none mine). Bundles unchanged: erase
+3dc3c6f9…, raster 03cb4428…, scene dce304b8….
+**Decisions made:** RV5 by wrapping only the unheld path (`Stage.batch` untouched); the testkit's marks
+landed rather than the rule special-cased. **Questions asked:** none new; Q5, Q6 stand.
+WHERE I AM: done; report handed back.

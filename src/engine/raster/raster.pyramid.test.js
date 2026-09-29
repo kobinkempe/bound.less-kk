@@ -16,6 +16,7 @@ import { rasterStats, resetRasterStats } from "./RasterRenderer";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { lcg } from "../__testkit__/rasterLists";
+import { planeStats } from "./MovePlane";
 
 useEngines();
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -54,12 +55,12 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(on.plates).toBeInstanceOf(PyramidStore);
         expect(on.plates).toBe(on.renderer.store);
         expect(on.renderer.queue).not.toBeNull();
-        expect(on.renderer.supportsDragPlane).toBe(false);
+        expect([on.renderer.supportsDragPlane, on.renderer._plane.pyramid]).toEqual([true, true]);   // the plane on A3 §6's keys (P3)
         const off = mkEngine(800, 600, { raster: true });
         expect(off.renderer.pyramid).toBeNull();
         expect(off.renderer.layer).toBeInstanceOf(PictureLayer);
         expect(off.plates).toBeInstanceOf(PlateStore);
-        expect(off.renderer.supportsDragPlane).toBe(true);
+        expect([off.renderer.supportsDragPlane, off.renderer._plane.pyramid]).toEqual([true, false]);
     });
 
     test("a stroke lands in exact plates through the queue and the pool; every job id ended; the pen-up path handed off", async () => {
@@ -358,3 +359,137 @@ function freshSourceFor(E, P, c) {
     }
     return null;
 }
+
+const quiet = () => new Promise((r) => setTimeout(r, 200));
+const fillAt = (E, x, y, color, s = 120) => ({
+    type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
+    polys: [[[x, y], [x + s, y], [x + s, y + s], [x, y + s]]],
+});
+/** Two fills at rest, the first tap-selected and the plane aimed at the quiet view, its plates in. */
+async function planeScene(E, g, ax = 100) {
+    const a = E.doc.add(fillAt(E, ax, 200, "rgb(200,30,30)", ax < 0 ? 400 : 120), "0");
+    E.doc.add(fillAt(E, 300, 200, "rgb(30,30,200)"), "0");
+    E._render();
+    await settle(E, 2);
+    expect(await drain(E, g)).toBe(0);
+    E.setTool("select");
+    const p = E.cam.levelPointToScreen("0", ax < 0 ? 40 : 160, 260);
+    E.pointerDown(p[0], p[1]); E.pointerUp();
+    expect(E.selection && E.selection.ids).toEqual([a.id]);
+    E._render();
+    await quiet();
+    expect(await drain(E, g)).toBe(0);
+    return { a, p };
+}
+
+describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
+    test("identity at rest (Zp the rest Z), pins under the phone's cap, the move drawn from its layers (H4, the image budget), the landing ended by exact", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const { p } = await planeScene(E, g);
+        const pl = R._plane, v = R._view;
+        expect(v.mode).toBe("rest");
+        expect([pl.pyramid, pl.main.pZq]).toEqual([true, v.Z]);
+        expect(pl.main.keys.length).toBeGreaterThan(0);
+        expect(pl.main.keys.every((k) => k.startsWith(v.frameId + "|P" + v.Z + "|"))).toBe(true);
+        expect(E.plates.phone).toBe(true);                             // jsdom's screen reads as a phone's
+        expect(R.planeCap).toBe(24);
+        expect(E.plates.report().pinnedPlane).toBe(pl.keys.length);
+        expect(pl.keys.length).toBeLessThanOrEqual(R.planeCap);
+        const bad = [];
+        const compose = R.pyramid.compose.bind(R.pyramid);
+        R.pyramid.compose = () => {
+            const s0 = R.pyramid.s.surface, P = compose(), pp = P.plane;
+            if (P.images > 30 && R.pyramid.s.surface === s0) bad.push("images " + P.images + " drawn directly");
+            const sel = pp.layers.filter((x) => x.L.kind === "sel" && x.recs.length);
+            if (sel.length && R._plane.partial) {                      // H4: moved only over BELOW at the start footprint
+                const below = pp.layers.find((x) => x.L.kind === "below"), have = new Set((below ? below.recs : []).map((r) => r.i + "," + r.j));
+                for (const x of sel) for (const [i, j] of x.L.cells) if (!have.has(i + "," + j)) bad.push("SEL moved over its own start at " + i + "," + j);
+            }
+            return P;
+        };
+        E.pointerDown(p[0], p[1]);
+        for (let k = 1; k <= 10; k++) E.pointerMove(p[0] + k * 8, p[1] + k * 5);
+        expect(pl.state).toBe("drag");
+        expect(R.pyramid.lastPlan.plane.layers.some((x) => x.L.kind === "sel" && x.recs.length)).toBe(true);
+        const lands0 = planeStats.lands, lost0 = planeStats.lost;
+        E.pointerUp();                                                 // the drop lands the plane; the drop's render patches inline
+        expect([planeStats.lands - lands0, planeStats.lost - lost0]).toEqual([1, 0]);
+        expect(await drain(E, g)).toBe(0);
+        expect(pl.state).toBe("idle");                                 // ended: every cell it covered exact again
+        expect(planeStats.landTimeouts).toBe(0);
+        expect(bad).toEqual([]);
+    });
+
+    test("the landing per cell by exact: with the drop's patches at the workers the plane stays, drawn only where a cell is not exact, until they land", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const { p } = await planeScene(E, g);
+        const pl = R._plane;
+        E.pointerDown(p[0], p[1]);
+        for (let k = 1; k <= 10; k++) E.pointerMove(p[0] + k * 8, p[1] + k * 5);
+        R.pyramid.cfg.patchInlineMs = 0;                               // the drop's re-render goes to the workers
+        E.pointerUp();
+        expect(pl.state).toBe("land");
+        const v = R._view, c = pl.landCells(v);
+        let stale = 0;
+        for (let j = c.j0; j <= c.j1; j++) for (let i = c.i0; i <= c.i1; i++) if (!R.pyramid.cellFresh(v, i, j)) stale++;
+        expect(stale).toBeGreaterThan(0);                              // the plane waits on these cells (and is clipped to them)
+        expect(await drain(E, g)).toBe(0);
+        expect(pl.state).toBe("idle");
+        delete R.pyramid.cfg.patchInlineMs;
+    });
+
+    test("the quick level at Zp / 4; a plane is whole only when exact; a dropped layer's queued strips and late plates go", async () => {
+        const g = gate();
+        setRasterWorkerCount(1);
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        E.setPlateBudget({ views: 8, ceilingMiB: 512 });              // nothing evicted: a stored late plate would stay
+        E.zoomAt(400, 300, -380);                                      // rest at Z 2^0.38: no quantum ladder lands on Zp / 4
+        const a = E.doc.add(fillAt(E, -300, -200, "rgb(200,30,30)", 1000), "0");   // most of the screen and past it: 18 plates, a quick level
+        const b = E.doc.add(fillAt(E, 300, 200, "rgb(30,30,200)"), "0");
+        E._render();
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        E.setTool("select");
+        const pa = E.cam.levelPointToScreen("0", 100, 100);
+        E.pointerDown(pa[0], pa[1]); E.pointerUp();
+        expect(E.selection.ids).toEqual([a.id]);
+        E._render();
+        await quiet();
+        const pl = R._plane;
+        expect(pl.quick).not.toBeNull();
+        expect(pl.quick.pZq).toBe(pl.main.pZq / 4);
+        expect(pl.quick.keys.every((k) => k.includes("|P" + pl.main.pZq / 4 + "|"))).toBe(true);
+        // Another selection while the first plane's strips wait: its layers go, their strips dropped by generation.
+        const oldTags = pl.tags.slice();
+        expect(R.queue.report().queued[2] + g.parked.length).toBeGreaterThan(1);
+        const pb = E.cam.levelPointToScreen("0", 360, 260);
+        E.pointerDown(pb[0], pb[1]); E.pointerUp();
+        expect(E.selection.ids).toEqual([b.id]);
+        E._render();
+        await quiet();
+        expect(await drain(E, g)).toBe(0);
+        expect(R.queue.report().drops.gen).toBeGreaterThan(0);
+        expect([...E.plates.records()].filter((r) => r.kind === "plane" && oldTags.includes(r.tag)).map((r) => r.key)).toEqual([]);
+        expect(pl.checkReady(E.plates)).toBe(true);
+        // A change off screen inside a BELOW plate stales it without changing a run: re-cut, the plane is not whole
+        // until that plate is exact again.
+        E.doc.add(fillAt(E, 720, 100, "rgb(30,200,30)", 40), "0");
+        E._render();
+        await quiet();
+        expect(pl.checkReady(E.plates)).toBe(false);
+        expect(await drain(E, g)).toBe(0);
+        expect(pl.checkReady(E.plates)).toBe(true);
+    });
+
+    test("D1: a selection past the screen's edge is in its SEL layer to one view beyond; BELOW stays on the view", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        await planeScene(E, g, -300);                                  // 400 wide from x −300: most of it left of the screen
+        const pl = R._plane, v = R._view, f = pl.main.pZq / v.Zq;
+        const sel = pl.main.layers.find((L) => L.kind === "sel"), below = pl.main.layers.find((L) => L.kind === "below");
+        expect(sel.cells.some(([i]) => i < Math.floor(v.i0 * f))).toBe(true);
+        expect(below.cells.every(([i, j]) => i >= Math.floor(v.i0 * f) && i <= Math.floor((v.i1 + 1) * f - 1e-9) && j >= Math.floor(v.j0 * f))).toBe(true);
+    });
+});
