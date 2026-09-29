@@ -399,7 +399,7 @@ function pairNeedsUnion(ba, i, sa, bb, j, sb) {
 
 /**
  * The entry for an item, built once and memoised (§3.7), and rebuilt when the item is EDITED.
- * The render list carries the Document's own natives at the active frame (`TileStore.ownContent`),
+ * The render list carries the Document's own natives at the active frame (the model's `nativesIn`),
  * and `_afterEdit` mutates them in place and bumps `_ver` (`Document.js:1012-1017`), so an entry
  * keyed on the object alone would paint a re-rastered plate from the pre-edit numbers. A MOVE
  * must not rebuild — `_buildList` writes `o.res` with no `_ver` bump (F55) — which is why this

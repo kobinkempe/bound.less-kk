@@ -23,11 +23,13 @@ MOUNT
                                            after the tile store and to its onTile hook;
                                            every commit bumps G and dirties the tracked
                                            plate cells its footprints meet
-        raster:  new PlateStore({ fresh: stage })
-                 new RasterRenderer(container, cam, cfg, { store, stage, ... })
-                                           the ink canvas, the picture layer, the
-                                           overlay plane, the worker pool
-                 stage.onCommit -> plates.dropFrames(pred) / dropAll(false) on a reset
+        raster:  new RasterRenderer(container, cam, cfg, { stage, ... })
+                                           _pyrBuild: the PyramidStore (fresh: the
+                                           Stage), the PicturePyramid (the ink canvas,
+                                           the layer), the JobQueue over the worker
+                                           pool; the overlay plane on the first
+                                           selection
+                 stage.onCommit -> the pen-up groups (_pyrLive); a reset drops the store
         ?svg:    new Renderer(container, cam, cfg)  creates the Two.js scene
         renderer.setSelectionAnts / setLasso
         doc.subscribe(...)                 keeps the selection honest when the
@@ -98,10 +100,11 @@ THE BAKE TIMER - one timer for both kinds of bake
             _finishPhase hairlines, one canonical handedness, junction balance
           doc.bakeShapeById(id, _sealed(result), w)   stroke -> shape, in place
           _promoteOversize(id)              invariant 2 (D9)
-          NO RENDER (2026-09-07): the perimeter paints as the raw stroke did,
-            so `_renderPending` is set and whatever renders next paints it
-            (the next pen-up, a crossing, an undo, an erase bake); a
-            promotion renders at once; flushBakes renders if pending. This
+          NO RENDER (2026-09-07): the perimeter paints as the raw stroke did.
+            SVG: whatever renders next paints it; flushBakes renders if the
+            last render is behind the Stage's G. Raster: the landing is Stage
+            dirt, a camera step (_syncStep) hands it to the pyramid's patch
+            step and the pen-up group. A promotion renders at once. This
             halves the renders per pen-up - each walked every group.
         a mark's shape landing registers it in the same commit (see ERASING)
         _bakeRun(deadline)                  see ERASING
@@ -134,8 +137,9 @@ ERASING   [HOT at gesture time, deferred for the geometry]
         _projected(E, HE, o)                the eraser in the target's coordinates,
                                             memoised per (home, table)
         cutJob: the boolean on the SUBJECT, graze rule, dropDust + dustBoxes
-      submit({kind, prio: 3, barrier, job, key}) (eraseWorkerClient) -> a promise
-        into _cuts, or null (no worker): the job runs and applies inline
+      submit(queue, {kind, barrier, job}) (eraseWorkerClient) -> a JobQueue job of kind
+        "cut" at PRIO.cut on the raster pool -> a promise into _cuts, or null (the pool
+        broken, no worker): the job runs and applies inline
     _applyCut: doc.eraseReplaceById(id, regions, by, dust) (pieces inherit the
       lineage, handled by M), _resplitFamily if it split; a graze:
       doc.setHandledById(..., {inkless})
@@ -269,18 +273,23 @@ RENDERING   [HOT]
       model.nativesIn(frame)                the natives drawn live: doc.list less the carried out, plus the carried in
       sort by (z, id)                       global z-order
     renderer.render(null, frame)            RASTER (the default):
-      RasterRenderer.render: _activateLevel (the overlay scene), _frameStep(_sceneList())
-        (the Stage's items less the strokes pending their shape)
-        visibleChords -> layer.frameFor(cam, chords)   the view: plates, sync or held
-        sync:   _renderSync - the screen rastered on this thread
-        plates: store.want(view) -> hits + misses (a stale plate is both); _planeStep;
-                layer.compose(hits) - stale plates and fallbackCover's stand-ins
-                under them, then the layer blit; _post(misses) ->
-                rasterWorkerClient -> _stillWanted/_packable (a cell the table does not
-                cover waits) -> _packNow: beginJob tracks the cells, packJob at G ->
-                the worker (res.G = job.G) -> _onResult -> _deliver ->
-                layer.onPlateBatch -> put: rule 1 (newer G replaces), rule 2 (exact iff
-                G >= dirtySince) -> one compose per arriving job
+      RasterRenderer.render: _activateLevel (the overlay scene), _sceneList() (the Stage's items
+        less the strokes pending their shape), _frameStep:
+        pyramid.frameFor(cam)              the view (FC2): the level ℓv and σ, or the rest set when still;
+                                           _onStill (the rest render: inline if the estimate fits, else a
+                                           worker group after the quiet); _patchStep (inline, coarse-first
+                                           or the workers); _requestView (the missing cells, covered ones
+                                           only, priority 1) -> onRequest -> queue.push (+ a microtask pump)
+        queue.setMotion (the velocity, the attention point, `at`); queue.frame(); queue.pump() ->
+          _pyrSubmit -> _pyrPack (a cell the table does not cover refused and unasked; packJob at G;
+          store.beginJob) -> rasterPool -> the worker (res.G = job.G) -> _pyrResult -> _pyrLand ->
+          pyramid.onResult -> store.put: rule 1 (newer G replaces), rule 2 (exact iff G >= dirtySince)
+          (a group's results held aside until its last lands) -> one compose (deferCompose in "raf")
+        _planeStep                          the drag plane: follow the drag, land, or keep it aimed
+        pyramid.compose()                   the plan per cell (A3 §1.4) drawn: direct or the surface;
+                                            the integrals charged forward
+        _pyrLive                            the pen-up handoff: a group commit, the path down in its task
+        _pyrPrefetch (the camera still)     prefetchPlan at idle: near levels, far snapshots, the ring
       syncWorld(view)                       the SVG overlay's transform (live stroke)
     renderer.render(list, frame)            ?svg - the SVG renderer:
       _activateLevel(frame)                 swap in this level's SVG subtree
@@ -327,8 +336,8 @@ RENDERING   [HOT]
       the drag's step at the last pointer   (_dragSelection renders or camera-steps)
       else _zoomStep / _panStep             the step below, once
       else renderer.update()                a stroke's samples
-      else layer.compose()                  plates that arrived (PictureLayer._flush
-                                            calls deferCompose instead of composing)
+      else layer.compose()                  plates that arrived (_pyrLand calls
+                                            deferCompose instead of composing)
     flush()                                 the pending step now: a press or a
                                             release first; the suites; the harness
 

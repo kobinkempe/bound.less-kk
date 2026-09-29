@@ -211,6 +211,13 @@ function probeRead() {
     const F = E.frameMeter.report(), LF = E.longFrames.report();
     const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
     const REF = ["refusedCover", "refusedCoverPlates"];
+    // rasterPerf's rows over 100 ms, for the long frames' own attribution (kind, bucket, the largest timers).
+    let rows = null;
+    try {
+        const rp = E.renderer && E.renderer.perf && E.renderer.perf.report ? E.renderer.perf.report() : null;
+        rows = rp && rp.frames ? rp.frames.filter((r) => r.mainMs > 100).map((r) => ({ t: r.t, kind: r.kind, mode: r.mode, mainMs: Math.round(r.mainMs),
+            bucket: r.verdict ? r.verdict.bucket : null, top: Object.entries(r.timers).filter(([, v]) => v > 5).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, v]) => k + " " + Math.round(v)).join(", ") })) : null;
+    } catch (err) { rows = null; }
     return {
         t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes,
         paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
@@ -228,6 +235,7 @@ function probeRead() {
         patch: L ? { inline: L.patchInline, coarse: L.patchCoarse, worker: L.patchWorker, restInline: L.restInline, restWorker: L.restWorker,
             last: E.renderer.layer.lastPatch || null, est: L.est || null } : null,
         cam: { frame: E.cam.frame, inScale: E.cam.inScale, level: E.cam.activeLevel },
+        rows,
         mode: L ? L.mode : "svg",
         natives: (() => { let n = 0; for (const lv of E.doc.levels()) n += E.doc.list(lv).length; return n; })(),   // a lost document shows here
     };
@@ -301,6 +309,7 @@ function delta(a, b) {
         patch: b.patch && a.patch ? { inline: b.patch.inline - a.patch.inline, coarse: b.patch.coarse - a.patch.coarse, worker: b.patch.worker - a.patch.worker,
             restInline: b.patch.restInline - a.patch.restInline, restWorker: b.patch.restWorker - a.patch.restWorker, last: b.patch.last, est: b.patch.est } : null,
         cam: b.cam, mode: b.mode, natives: b.natives,
+        slowRows: b.rows ? b.rows.filter((r) => r.t >= a.t && r.t <= b.t).sort((x, y) => y.mainMs - x.mainMs).slice(0, 4).map(({ t, ...r }) => r) : null,
     };
 }
 

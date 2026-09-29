@@ -29,6 +29,18 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-29 - THE PICTURE PYRAMID IS THE ONLY RASTER PATH (review/rebuild/A3-pyramid.md; B-PYRAMID-2
+    P0-P5, B-PYRAMID-2b P6). The old picture path is deleted: PictureLayer, the quantum plates
+    of PlateStore, the sync path, the settle, the ladder, the crossing prebake, the carry, the
+    hold, the ?pyramid gate, _renderPending and the interim erase pool. Plates are the cells of
+    levels, of the rest set and of the drag plane (PicturePyramid, PyramidStore, jobQueue,
+    prefetch, level.js); the eraser's cuts run in the same worker pool through the JobQueue
+    (PRIO.cut, one worker kept for cuts; a watchdog-taken job refused over ink, never inline).
+    The pyramid's integrals split older by cause: olderPatchMs (a stale plate while its worker
+    patch is pending, A3 §3.4) and olderOtherMs (must be 0; a zoom from rest before the
+    prefetch's quiet still shows a stale coarser stand-in: the P6 review's open item).
+    Measured in headless Chromium through tools/harnesses/browser-check.js on a frozen tree;
+    not seen by Kobin.
 2026-09-29 - A FRAME'S SHIFT IS PLACEMENT (review/rebuild/A1-document-model.md §4.4 C1 and §14,
     B-MODEL-C1). A subtree drag's rest stays on the frame and is composed with each
     native's own table on every read (Document.tableOf, placementModel.js); no read

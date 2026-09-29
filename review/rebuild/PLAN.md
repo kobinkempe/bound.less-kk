@@ -148,6 +148,19 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   one worker reserved while any are pending > prefetch 4 > thumbnails 5); cells sorted by distance from
   the attention point and dealt round-robin across strips; a per-frame pack budget (4 ms) while
   moving; a job aimed at where the camera will be on arrival; cancellation by purpose generation.
+- *As built (B-PYRAMID-2b P6, 2026-09-29):* the old path is deleted and the pyramid is the only raster path;
+  the cuts run through the same `JobQueue` (§1.6). "Older" is counted by cause: `olderPatchMs` (a stale plate
+  while its worker patch is asked or in flight, A3 §3.4) and `olderOtherMs` (0 is the rule; the never-older
+  fuzz still reaches a stale coarser stand-in after a zoom from rest before the prefetch's quiet; the
+  orchestrator's answer — the rest records kept after a zoom as a stand-in source — goes to the P6 review).
+  The camera's table window grows to a view while
+  a selection is on the plane's path (D1); the attention point is the last pointer, wheel focus or pinch
+  centre; the prefetch holds while a report sends; a stale rest cell's cover takes the mapped frame's exact
+  cells; a request made outside a camera step is pumped in a microtask (the rest after its quiet had waited
+  for the next input) and packed in a row of kind `settle`; the inline executor's core time is the row's
+  (`rasterPerf.noteCore`). The undo of one stroke in the dense scene is never inline: its patch estimate is
+  34–41 ms against the 6 ms budget (2 cells, E at the 20,001-chord cap, A 666 k box pixels), and no coarser
+  level fits.
 
 ### 1.3 Erasing: the mask as document state, cuts in parallel (decision 3; A2 §4; §3.5; R25 §4.9, §10.2, §12.2)
 

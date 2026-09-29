@@ -349,18 +349,10 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             const snapshots = {};
             let env, frameIds;
             try {
-                // Reading a frame for its snapshot settles a pending shift (DESIGN.md §8): the settle's entry
-                // belongs to this write, beside the snapshot that already holds it. A frame listed without a
-                // stored snapshot is snapshotted too, so no listed frame's seq predates its content (F98).
-                for (let guard = 0; guard < 5; guard++) {
-                    for (const L of holding()) if (!(L in frameSeq)) want.add(L);
-                    for (const L of want) if (!(L in snapshots) && engine.nativesByLevel[L]) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
-                    if (!log.queue.length) break;
-                    const d2 = log.drain();
-                    noteEntries(d2.entries, frameSeq);
-                    entries.push(...d2.entries);
-                    for (const L of d2.forced) { forced.add(L); want.add(L); }
-                }
+                // A frame listed without a stored snapshot is snapshotted too, so no listed frame's seq predates its
+                // content (F98). A read writes nothing since C1 (DESIGN.md §8: a shift is composed on read): one pass.
+                for (const L of holding()) if (!(L in frameSeq)) want.add(L);
+                for (const L of want) if (!(L in snapshots) && engine.nativesByLevel[L]) snapshots[L] = { ...encodeObjects(engine.doc.at(L)), seq: log.seq };
                 frameIds = holding();
                 const listed = new Set(frameIds);
                 for (const L of Object.keys(snapshots)) if (!listed.has(L)) delete snapshots[L];

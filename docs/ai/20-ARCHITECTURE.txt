@@ -272,9 +272,13 @@ RENDERING
 
     Since 2026-09-22 the app draws with the RASTER renderer (src/engine/raster/;
     RasterRenderer extends Renderer): our own float64 coverage rasteriser in
-    Web Workers fills 512-device-px plates, which are cached by frame, zoom
-    quantum and cell and composed onto one canvas; a stale or coarser plate
-    stands in until a fresh one lands. What it packs is the SCENE (Stage.js,
+    Web Workers fills 512-device-px plates, the cells of a PICTURE PYRAMID
+    (levels Z = 2^(lS), the rest set at the camera's exact zoom once still,
+    the drag plane's layers; review/rebuild/A3-pyramid.md), composed onto one
+    canvas by one plan per screen cell: an exact plate, else the nearest fresh
+    stand-in (blurrier before older), a stale one only while its patch is on
+    its way. One JobQueue orders the plates' jobs and the eraser's cuts on the
+    one worker pool. What it packs is the SCENE (Stage.js,
     A2): the camera frame's items kept from the document's events, never
     behind it, and one generation G a commit. A change dirties the plate cells
     its drawn footprint meets; a job carries the G it was packed at; a plate
@@ -435,7 +439,8 @@ WHERE THE ENGINE LIVES, AFTER THE 2026-08-31 SPLIT
     KobinEngine.js was 3,506 lines. It was 855 after the split and is 1,409 on
     2026-09-22 (the raster path's plate drain, the drag's hold, listFor, the
     crossing prebake and the ladder came in; on 2026-09-28 the drain and the
-    footprint rules left for Stage.js, A2). It holds construction, the
+    footprint rules left for Stage.js, A2; on 2026-09-29 the prebake and the
+    ladder went with the old picture path, the pyramid's prefetch in their place). It holds construction, the
     compat accessors, the tool and style setters, the perf log, the render
     pipeline, pan and zoom, pointer input, and undo/redo - roughly the shape of
     a gesture, start to finish.

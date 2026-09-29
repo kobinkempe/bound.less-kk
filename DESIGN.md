@@ -362,10 +362,11 @@ envelope (R-ERASE, 2026-09-29).
 
 **The bake** (A2 §4.7). The pending marks are a set kept by events, and each mark's lineage (the live
 natives with it in `targetOf`) an index. The serial order is marks oldest first, each mark's targets
-top-down by (z, id) as they joined. Jobs are dispatched ahead in that order through the erase pool
-(`eraseWorkerClient.submit`: an interim pool of `max(1, min(3, cores − 1 − rasterWorkers))`
-workers until the raster pool's queue takes the cut kind; RW-1's respawn and watchdog; inline
-where there is no worker) and applied strictly in that order through a reorder buffer, so a
+top-down by (z, id) as they joined. Jobs are dispatched ahead in that order through the raster pool's
+`JobQueue` (`eraseWorkerClient.submit`, B-PYRAMID-2b 2026-09-29: `kind: "cut"` at `PRIO.cut` with one worker
+kept for cuts while any is pending; a job a worker error lost is requeued once; a job the watchdog took is
+refused over the ink — `setHandledById`, a journal reason, `report().erase.counters` — never run inline; inline
+only when the pool is broken or there is no worker) and applied strictly in that order through a reorder buffer, so a
 parallel bake leaves the inline bake's document, ids, steps and log (three seeds of shuffled
 arrivals, `erase.rule.test.js`). A target pending under an earlier mark is not dispatched for a
 later one; descents run one at a time; a landed job applies only if its target is unchanged
@@ -405,12 +406,11 @@ it emptied. `select.eraseBarrier.test.js`, `erase.stack.test.js`.
 
 **One cut is a job** (`eraseJob.js`): the boolean, the removal measured locally, the
 graze rule (in place, or the cede's), the components and the dust cull, on loops in
-and Loops out — the same function on the main thread and in the erase worker
-(`public/erase-worker.js`, esbuild's bundle of the geometry layer; `npm run
-build:worker`, run before start and build). The pipeline dispatches one cut at a
-time and applies the result on the main thread (`_applyCut`), in the serial order above;
-a worker failure runs the job inline; where there is no worker (jsdom, an old browser)
-the job runs inline, so every erase suite checks the same geometry. A result that lands
+and Loops out — the same function on the main thread and in the raster workers
+(`runCut` in `public/raster-worker.js`, esbuild's bundle; `npm run build:worker`, run before start and
+build). The pipeline applies each result on the main thread (`_applyCut`), in the serial order above;
+where there is no worker (jsdom, an old browser) or the pool is broken the job runs inline, so every
+erase suite checks the same geometry. A result that lands
 on a mark an undo took is dropped; its target stays pending and the redo cuts it (OPEN-FLAGS
 F88). **Undo and redo follow the bake steps across marks**: a barrier bakes out of the marks'
 stack order, and a history from before the rule (an older build's log) can hold an older mark's
@@ -702,21 +702,40 @@ squares of the screen, measured in **pixels** — a tile, a cell and a cache squ
 measured in frame units, and calling two of them one thing once froze an arc to two
 chords (F36). Our own float64 coverage rasteriser fills them (`rasterCore.js`: arcs
 flattened centre-free to 1/16 device px, a family filled as one nonzero union) in a pool
-of workers (`public/raster-worker.js`), from jobs `rasterPack.js` packs off the scene's items —
-the table is read over the window grown by one preview plate, and a plate is packed only where
-the table covers it (F119: a plate past the read squares was rastered as paper and cached fresh);
-off camera (the ladder, the crossing prebake, a plane's far level, a Scenes picture) from a
-snapshot of the target's rectangle, at the snapshot's G; a pool that fails after a worker has answered (an error, or a job silent past 30 s and
-still silent a check later) is replaced, three times, before the session rasters inline, and a
-script that never loaded goes inline at once (`rasterWorkerClient`, 2026-09-24 RW-1). A plate is painted family by family in z order from the TOPMOST family whose coverage
-fills the whole plate opaquely (the occlusion cull, Kobin 2026-09-23): at the Magnum Opus's
-nucleus ~40 whole-plate backdrops a plate were each resolved over all 262,144 pixels, 97 % of
-a 165–580 ms job; with the cull 6.3 families a plate and 10.8 ms; `PlateStore` caches them by frame, zoom quantum and cell (96 MiB on a desktop,
-56 MiB on a phone), and `PictureLayer` composes them onto one canvas, stretched between
-quanta. A light view is rastered on the main thread instead (the sync path, left for a
-frame over `SYNC_MAX_MS`, 8 ms, or past its chord budget; a pen-up band is priced by its pen's height
-too, a 337 px scribble having stayed sync for 20 s, F130). A scanline's crossings past 32 are
-merge-sorted (a wide band crosses one hundreds of times; the insertion sort was 4–16 s a plate).
+of workers (`public/raster-worker.js`; the erase cuts run in the same pool), from jobs `rasterPack.js` packs off the scene's items.
+The plates form the **picture pyramid** (`review/rebuild/A3-pyramid.md`; built by B-PYRAMID-2 and
+B-PYRAMID-2b, 2026-09-29): a plate is a cell of a **level**, zoom Z(ℓ) = 2^(ℓS) with S the `levelStep`
+lever (1, 2 or 3), of the **rest set** (the camera's exact Z once it is still) or of a drag **plane** layer
+(`level.js` keys them; no dpr and no quantum in a key). `PicturePyramid` is the layer: each camera step
+publishes one view — a level ℓv drawn stretched by σ inside a band [σmin, 2^S·σmin), or the rest set at σ = 1 —
+and plans every screen cell from one rule list (A3 §1.4): its own exact plate; the same picture from another
+frame's level (a crossing's frame just left); exact children; the finest exact coarser plate (blurrier); the patch
+rule (the stale plate sharp, the fresh coarser picture over the dirty rectangles only); the stale plate (older)
+only while its worker patch is pending (A3 §3.4, counted as `olderPatchMs`); a stale coarser one; paper. A compose
+draws at most `COMPOSE_IMAGES` 30 distinct images directly (Chrome's 2D canvas pays ~100 ms a frame past 33 with
+any scaled) and goes through one view-sized surface past it. `PyramidStore` holds the plates by key, LRU with
+the drawn set, the plane's pins and the rest set protected, in a budget of `plateViews` screens (3 on a desktop, 2
+on a phone) never under the pinned bound; a result lands iff its G is newer (rule 1), and a plate is exact iff
+its G ≥ its cell's `dirtySince` (rule 2). `jobQueue.js` cuts typed jobs into strips dealt round-robin from the
+**attention point** (the last pointer, wheel focus or pinch centre) and dispatches them by priority — rest and
+patches 0, the view 1, the plane 2, cuts 3 (one worker kept for cuts while any is pending), the prefetch 4,
+thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; while the camera
+moves it packs at most 4 ms a frame and skips cells the camera will have left by the strip's arrival (the
+velocity rule). The pack refuses a cell whose tiles the table does not cover (F119) and it is asked again once
+covered. A still camera renders the rest set inline when its estimate fits `restInlineMs` (8 ms; the estimate is
+calibrated from the core's own timings), else in the workers after `restQuietMs` (100 ms) as one group shown
+when all are in; a change patches the drawn cells inline when `patchInlineMs` (6 ms) fits, else the finest
+coarser level that fits is patched inline and drawn over the dirty rectangles while the full patches go to the
+workers. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser levels and a
+crossing's target through budgeted snapshots, and the ring at rest; nothing while a report sends. A pool that
+fails after a worker has answered (an error, or a job silent past 30 s and still silent a check later) is
+replaced, three times, before the session rasters inline (`rasterWorkerClient`, RW-1). A plate is painted
+family by family in z order from the TOPMOST family whose coverage fills the whole plate opaquely (the occlusion
+cull, Kobin 2026-09-23): at the Magnum Opus's nucleus ~40 whole-plate backdrops a plate were each resolved over
+all 262,144 pixels, 97 % of a 165–580 ms job; with the cull 6.3 families a plate and 10.8 ms. A scanline's
+crossings past 32 are merge-sorted (a wide band crosses one hundreds of times; the insertion sort was 4–16 s a
+plate). The old picture path — `PictureLayer`, the quantum plates, the sync path, the settle, the ladder, the
+crossing prebake, the carry and the hold — was deleted at P6 (B-PYRAMID-2b, 2026-09-29).
 
 **The scene and freshness** (`Stage.js`, `placementModel.js`; `review/rebuild/A2-scene.md` §2–§3).
 The Stage keeps the camera frame's items in paint order — its own natives, the visible tiles'
@@ -733,47 +752,33 @@ frame. A drag the plane draws is held in the Stage (`stage.hold`): its events wa
 is one commit that dirties where the selection started and where it ended. A stroke is pending
 from pen-down until its shape lands: packs skip it and the pick sees it.
 
-What keeps paper off the screen (`.claude/PAPER-PLAN.md`): a stale plate is shown until its
-replacement lands, and a replacement that lands still behind but newer than the stale pixels
-takes their place, so a stream of changes cannot keep a plate's oldest ink on screen (F106); a cached plate of another quantum, or of another
-frame through the frame-to-frame affine, stands in for a missing one
-(`PlateStore.fallbackCover`; a compose draws at most `COMPOSE_IMAGES` 30 images — Chrome's 2D canvas
-pays ~100 ms a frame past 33 distinct ones with any scaled — so stand-ins under the view's own
-plates are dropped and a greedy cover is kept first); a zoom-out asks first for a coarse preview eight quanta down,
-and a **ladder** of coarse plates for the zoomed-out screens is rastered while the camera
-is still (every 2 octaves to 22; the far rungs, every 6 to 52, are off behind `ladderFar`: each was one
-unsliced 10–17 s list build at depth 9 in Kobin's tab). A rung runs only at a true idle (no forced timeout), never
-while a report is sending, and is read 50 ms at a time (30 on a phone): a read that passes it stops
-at the next tile (a tile completes with its parent chain, 0.3–0.8 s a level on the Magnum Opus) and
-the rung continues at the next idle hop, its tiles kept (120 hops at most; 250 ms slices were 0.3 s
-stalls six in a row, TESTER-3); a rung whose last read still took over 250 ms (120 on a phone) ends
-that view's ladder; a desktop tab releases
-its plates only after five minutes hidden (a phone at once), so a glance away rebuilds nothing; a held picture shrinks no further than `S_MIN_HOLD` (0.5). A drag draws the
-selection from plates made when it was selected, split by z so the drag keeps its true depth:
-the ink below the selection, the selected runs on transparent plates (moved with the
-pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5
-layers the smallest run between two selected ones is drawn under them, over `MOVE_PLANE_PLATES`
-40 plates, 24 on a phone, the layers are cut coarser; a quick level two octaves coarser is drawn
-until the plane's own is whole (a level coarser than the table's margin reads a snapshot
-over its plates, at idle, F122), and before either the selection's own layers alone or, for a
-small selection, a stopgap rastered on the main thread: a drag always moves);
-at the drop each cell keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s
-safety limit); a pen-up keeps the live SVG path until the plates under the stroke paint it — a
-plate packed at or past the G its shape landed in (A2 §3.3; no limit while the shape is pending, PLAN
-§5.4 Q2; then `LIVE_HOLD_MS`, a 3 s safety limit, extended to 15 s from the landing while its plates come) —
-whatever the view's mode, the pen-up's render being free to leave the sync path (F120), and
-re-anchored when the next stroke moves the overlay origin (F131), a translucent one clipped meanwhile
-to the cells whose plate does not paint it yet (over its plated self the alpha would double; D-2).
+What keeps paper off the screen is the plan's order above: a stale plate is shown until its replacement lands, a
+replacement that lands still behind but newer than the stale pixels takes their place (F106), and a missing cell is
+drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
+much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`,
+`olderPatchMs` and `olderOtherMs` (the last must be 0; a zoom from rest before the prefetch's quiet still shows a
+stale coarser stand-in, the P6 review's open item). A desktop tab releases its plates only after five minutes
+hidden (a phone at once). A drag draws the selection from plates made when it was selected, split by z so the
+drag keeps its true depth: the ink below the selection, the selected runs on transparent plates (moved with the
+pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers the smallest
+run between two selected ones is drawn under them; over `MOVE_PLANE_PLATES` 40 plates, 24 on a phone, the layers
+are cut coarser; a quick level two octaves coarser is drawn until the plane's own is whole, a level coarser than
+the table's margin reading a snapshot over its plates at idle, F122; the selected runs reach one view past the
+screen and the camera's table is read that far while a selection is on the plane's path, D1; never the selection
+twice, H4; a small selection's stopgap rastered on the main thread: a drag always moves); at the drop each cell
+keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s safety limit). A pen-up keeps the live SVG path
+until one group commit publishes the drawn cells under its box, in the task that takes the path down (A3 §3.6;
+no limit while the stroke's shape is pending, PLAN §5.4 Q2; `LIVE_HOLD_MS` 3 s after), re-anchored when the next
+stroke moves the overlay origin (F131).
 The band is never packed: until its perimeter resolves a stroke is drawn by its live path alone,
 and the resolve's commit stales the plates under it, which the next camera step re-posts. A bake
 renders at most every 100 ms (`_renderSoon`); a cut on a pending pair dirties only its footprint
 inside the mark's box and its dust (§7, PLAN §5.3 A2-Q2), so plates the mark never reaches keep. The live stroke stays
 SVG: a short tail under the pen and frozen chunks of 128 anchors behind it, one group carrying the
 opacity (one path's whole `d` was rebuilt every event: 27 ms at 3,000 samples, D-1); the selection ants are painted on an overlay canvas (`OverlayLayer.js`, `antPaint.js`). A destroyed engine is inert — `_render`, the camera steps and the overlay return at once — because a remount builds the next engine in the same host and a late step would put the old selection's ants back over it (F101).
-`sceneOps.snapshotView` packs one plate of any frame and rect, off camera (a Stage snapshot), for
-the Scenes panel's pictures. The engine's own `raster` option defaults to off, so the suites and the
-one-off engines are SVG. `renderPlate` takes a clip box (`job.clips` on the wire; the partial
-re-render's primitive, which nothing posts yet): rows are restricted to it and x is not folded at
+`sceneOps.snapshotView` packs one plate of any frame and rect, off camera, for the Scenes panel's pictures:
+the Stage's snapshot of the rect read at idle a budget at a time (D5), the plate through the queue at `PRIO.thumb`. The engine's own `raster` option defaults to off, so the suites and the
+one-off engines are SVG. `renderPlate` takes a clip box (`job.clips` on the wire; the patches' primitive): rows are restricted to it and x is not folded at
 its edges, so every pixel inside it is the whole plate's byte and nothing outside it is written —
 measured on 180 seeded random clips and on a clip-and-paste merge per kind of change
 (`rasterCore.clip.test.js`, A3 §3.1).
@@ -1196,7 +1201,7 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 |---|---|
 | `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync on the raster path; `_buildList`, `listFor` on the SVG path), the drag's hold in the Stage and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
-| `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js`, `worker/eraseWorker.js` | one cut as a pure job; the descent as one job per family; the worker client (inline where there is none); the worker's entry, bundled to `public/erase-worker.js` |
+| `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js` | one cut as a pure job; the descent as one job per family; the cuts' queue on the raster pool (`PRIO.cut`; inline only when the pool is broken or there is no worker) |
 | `overlays.js` | the selection indicator and the erase debug view |
 | `selection.js` | selecting, hit-testing, dragging |
 | `sceneOps.js` | scenes: `refreshScenes` and `renameScene` through the scene client, `sceneZoom`, `jumpTo`/`fitView`, `snapshotView` |
@@ -1218,7 +1223,7 @@ way, and throws if two files claim the same name.
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache |
 | `Renderer.js` | the SVG renderer, and the base class of the raster one |
-| `raster/` | the raster renderer: `RasterRenderer`, `PictureLayer`, `PlateStore`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; `worker/rasterWorker.js` is bundled to `public/raster-worker.js` |
+| `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore`, `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
 | `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
 | `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |
 
