@@ -30,9 +30,11 @@ describe("the reroute grouping memo", () => {
     test("a second render at the same revision reuses the grouping and draws the same list", () => {
         const E = scene();
         expect(E.doc.offsetIds().size).toBeGreaterThan(0);
-        const a = sig(E), hits = E.store._rrHits || 0;
+        const a = sig(E), hits = E.store._rrHits || 0, m = E.store._rrMemo.get(E.cam.frame), patches = E.store._rrPatches || 0;
         E._render();
-        expect(E.store._rrHits).toBe(hits + 1);
+        expect(E.store._rrHits).toBeGreaterThan(hits);                   // read from the memo (the model asks it per native)
+        expect(E.store._rrMemo.get(E.cam.frame)).toBe(m);                 // the same grouping, not walked again
+        expect(E.store._rrPatches || 0).toBe(patches);
         expect(sig(E)).toBe(a);
     });
 

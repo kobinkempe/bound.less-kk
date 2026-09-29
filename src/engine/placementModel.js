@@ -51,7 +51,7 @@ export function createPlacementModel({ doc, lm, store }) {
          */
         nativesIn(F) {
             F = String(F);
-            const own = doc.list(F);
+            const own = doc.at(F);   // M1: the settle and the merge still run at this read; B-MODEL-C1 M2 makes it `list`
             const m = groupsAt(F);
             if (!m || !m.moved.size) return own;
             const out = own.filter((o) => !m.moved.has(o.id));
