@@ -1802,3 +1802,22 @@ sat in `eng.view` (ENGINE): A3 §2.5 keeps it in the core's slots with `rasOnMai
 0.120 (bar 1.0). raster/hooks/stage/erase set: 821/822 at load 1.6 (LH-1's wait, made robust), then green.
 **Questions asked:** none. C1's two items (the hook's saver comment, `rasterPack`'s `ownContent`) queued for item 5.
 WHERE I AM: item-4 break-checks running; then item 3 (read window, olderMs split, undo 299 ms, attention, busy, cover, `at`).
+
+## 2026-09-29 10:48 UTC — reviewer (B-MODEL-C1 review) — item 1 progress: the fuzz past seed 20
+**Working on:** item 1 on an unimported copy of HEAD (`scratchpad/r-model/bc`); no tree file edited yet.
+**Measured (jsdom, load ~1):** the shipped probe passes seeds 1–20 (6,336 items, as C1 said) but fails 9 of seeds
+1–200 (7,818 checks). Two classes. (A) 7 seeds: a view's reroute memo names a frame F0 that frame GC forgot — the
+memo key `F|offRev|addrEpoch|frames.size` collides when a GC's forget and a later mint leave `frames.size` equal, and
+`TileStore.forgetFrame` drops only the forgotten frame's own memo; the native's ink is missing from that view. In both
+engines (the oracle at seeds 42, 74; C1 at 22, 79, 85, 152, 187), so it predates C1. The LIVE Stage too: 6 missing
+natives in 8,000 camera-frame checks (seeds 23, 42, 66, 124, 187), the memo stale at 76. Fix tried on the copy: drop
+every memo entry with a group reading the forgotten frame — live Stage 0 of 8,000, stale memo 0; with the same line
+in the copy's oracle the shipped comparison fails only 2 seeds of 200. (B) seeds 50, 145: a frame with the same id
+sits at a different cell in the two lattices (the oracle zeroed the shift at its settle, so a later drag carried a
+different whole cell into the address); comparing "the same frame" there compares two places.
+Above the home over the FULL square (200 seeds): 21,392 oracle items all in C1's picture to the bit; C1's 36 extra
+items all from tiles the oracle's unshifted window does not reach, with the composition's rem (checked by arithmetic).
+Divergences (the tainted rule): 174 in 9 seeds of 200 (0 in 1–20).
+**Decisions made:** the memo fix is a major (ink missing in a view): reported with the patch, not applied (brief §4).
+**Questions asked:** none yet.
+WHERE I AM: characterising the 174 divergences, then writing the full-square rule into `modelFuzz.js`.

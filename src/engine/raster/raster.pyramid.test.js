@@ -360,7 +360,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         drawStroke(E, [[160, 120], [420, 380]], 16);                   // ink under the next stroke, so its cells are stale
         expect(await drain(E, g)).toBe(0);
         R.pyramid.cfg.patchInlineMs = 0;                               // every patch to the workers
-        const older0 = R.pyramid.s.olderMs;
+        const older = () => R.pyramid.s.olderPatchMs + R.pyramid.s.olderOtherMs, older0 = older();
         drawStroke(E, [[150, 150], [300, 260], [450, 200]], 13, null, { raw: true });
         const held = R._liveHeld[0];
         E.flushBakes();                                                // the shape lands: the group asks the workers
@@ -371,7 +371,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         expect(cls.filter((k) => k === "older")).toEqual([]);
         expect(await drain(E, g)).toBe(0);
         expect(R._liveHeld.length).toBe(0);
-        expect(R.pyramid.s.olderMs).toBe(older0);
+        expect(older()).toBe(older0);
         delete R.pyramid.cfg.patchInlineMs;
     });
 
@@ -403,7 +403,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
     });
 
     test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
-        const g = gate(), t = { plans: 0, older: 0, wrong: [] };
+        const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, wrong: [] };
         const watch = (E, seed) => {
             const compose = E.renderer.pyramid.compose.bind(E.renderer.pyramid);
             E.renderer.pyramid.compose = () => {
@@ -412,6 +412,9 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
                 for (const c of P.cells) {
                     if (!c.draws.some((d) => d.cls === "older")) continue;
                     t.older++;
+                    const od = c.draws.find((d) => d.cls === "older" && !d.wait);
+                    if (od && od.own) t.other++;                     // a stale own plate with no worker patch pending
+                    else if (od) t.standIn++;                        // (f'): a stale coarser stand-in for a missing cell
                     const src = freshSourceFor(E, P, c);
                     if (src && t.wrong.length < 5) t.wrong.push(`seed ${seed}: cell ${c.i},${c.j} drawn older while ${src} is exact`);
                 }
@@ -435,11 +438,18 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
                 await settle(E, 1);
                 await drain(E, g);
             }
+            t.otherMs += E.renderer.pyramid.s.olderOtherMs;
             E.destroy();
         }
         expect(t.plans).toBeGreaterThan(40);
         expect(t.wrong).toEqual([]);
-        expect(t.older).toBeLessThan(t.plans);                         // the fuzz reaches the last resort, rarely
+        // A stale own plate is drawn only while its worker patch is pending (A3 §3.4). A stale coarser stand-in for a
+        // missing cell — a zoom from rest before the prefetch's quiet: the patches kept the rest set fresh, not the
+        // level plates under it (§3.4 item 1) — is `olderOtherMs` too; counted here, not yet 0 (B-PYRAMID-2b's report).
+        expect(t.other).toBe(0);
+        // eslint-disable-next-line no-console
+        console.log("never-older fuzz: " + t.plans + " plans, " + t.older + " with an older cell, " + t.standIn + " of them a stale stand-in; olderOtherMs " + t.otherMs.toFixed(1));
+        expect(t.older).toBeGreaterThan(0);                            // the fuzz reaches the last resort
     }, 60000);
 });
 
@@ -838,3 +848,94 @@ describe("found by the P6 ports (B-PYRAMID-2b)", () => {
         expect(R._view.mode).toBe("rest");                          // the group in: the rest set shown
     });
 });
+
+describe("the pyramid's open items (B-PYRAMID-2b P6 item 3)", () => {
+    test("the attention point: the wheel focus and the pointer reach the plan and the queue; a view job's first strip starts nearest it", async () => {
+        gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, d = R.pyramid.dpr;
+        R.pyramid.cfg.restInline = "never";
+        E._render();
+        const pushed = [], push = R.queue.push.bind(R.queue);
+        R.queue.push = (jobs) => { pushed.push(...jobs); return push(jobs); };
+        E.zoomAt(700, 500, -1200);                                  // a zoom in about (700, 500): the next level, its cells asked
+        expect(R.pyramid._attn).toEqual([700 * d, 500 * d]);       // red before: null, the screen centre
+        expect(R.queue.motion.attention).toEqual([700 * d, 500 * d]);
+        const job = pushed.find((j) => j.kind === "view");
+        expect(job).toBeTruthy();
+        const a = job.attention, v = R._view, dist = (c) => Math.hypot((c.i + 0.5) * 512 - a[0], (c.j + 0.5) * 512 - a[1]);
+        expect(a[0]).toBeCloseTo(((700 * d - v.tx) / v.k) * job.Z, 6);   // (700, 500) in the job's grid, not the centre
+        expect(a[1]).toBeCloseTo(((500 * d - v.ty) / v.k) * job.Z, 6);
+        const first = R.queue.strips(job)[0].cells[0];               // the queue's own dealing of this job
+        expect(dist(first)).toBe(Math.min(...job.cells.map(dist)));
+        expect(dist(first)).toBeLessThan(Math.max(...job.cells.map(dist)));   // not every cell equidistant
+        E.pointerMove(120, 80);
+        expect(R.pyramid._attn).toEqual([120 * d, 80 * d]);         // the last pointer
+    });
+
+    test("a report sending: the prefetch plans nothing and keeps its key; once it is sent, the plan runs", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, c = R.pyramid.cfg;
+        c.restInline = "never"; c.restQuietMs = 1e9; c.prefetchQuietMs = 1e9;
+        stroke(E);
+        E._render();
+        expect(await drain(E, g)).toBe(0);                          // the view's work done: the prefetch may run
+        c.prefetchQuietMs = 0;
+        const pushed = [], push = R.queue.push.bind(R.queue);
+        R.queue.push = (jobs) => { pushed.push(...jobs); return push(jobs); };
+        E._reportBusy = true;
+        R._pyrPrefetch(R._view);
+        expect(pushed.length).toBe(0);                              // red before: the plan ran through the report
+        expect(R._pyrPrefetchKey).toBe(null);
+        E._reportBusy = false;
+        R._pyrPrefetch(R._view);
+        expect(pushed.length).toBeGreaterThan(0);
+        expect(pushed.every((j) => j.prio === 4)).toBe(true);        // PRIO.prefetch
+    });
+
+    test("the motion's `at` is its step's clock: a pan's velocity and a strip's arrival are aimed from the view's own time", async () => {
+        const g = gate();
+        const E = mkEngine(1024, 512, { raster: true }), R = E.renderer, c = R.pyramid.cfg;
+        c.restInline = "never"; c.restQuietMs = 1e9; c.prefetchQuietMs = 1e9;
+        E._render();
+        expect(await drain(E, g)).toBe(0);
+        E.panBy(-40, 0);
+        await new Promise((r) => setTimeout(r, 5));
+        const t1 = performance.now();
+        E.panBy(-40, 0);
+        const m = R.queue.motion, t2 = performance.now();
+        expect(m.moving).toBe(true);
+        expect(m.at).toBeGreaterThanOrEqual(t1);                    // red with no `at`: the queue aims from the dispatch alone
+        expect(m.at).toBeLessThanOrEqual(t2);
+        expect(m.vel.px[0]).toBeLessThan(0);                          // 40 px over the steps' own interval, leftwards
+        expect(m.view.tx).toBe(R._view.tx);
+    });
+
+    test("D1 on a 2560×1440@2 screen: a selection a view past the screen has its SEL cells covered, asked and exact", async () => {
+        const dpr0 = window.devicePixelRatio;
+        Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+        try {
+            const E = mkEngine(2560, 1440, { raster: true }), R = E.renderer, pl = R._plane;
+            expect(R.pyramid.dpr).toBe(2);
+            const id = E.doc.allocId();
+            E.doc.add({ type: "fill", origin: "native", id, color: "rgb(200,30,30)", opacity: 1,
+                polys: [[[100, 300], [5000, 300], [5000, 700], [100, 700]]] }, "0");          // to x 5000: a view past 2560
+            E._render();
+            E.setTool("select");
+            E._setSelection([id], []);
+            E._render();
+            const far = { left: 2560 + 1100, top: 300, right: 5000, bottom: 700 };           // past four view cells (1,024 units)
+            for (let t0 = Date.now(); Date.now() - t0 < 10000; ) {
+                await new Promise((r) => setTimeout(r, 20));
+                if (pl.layers.length && E.stage.covers(E.cam.frame, far) && pl._whole(pl.main, E.plates, true)) break;
+            }
+            expect(E.stage.covers(E.cam.frame, far)).toBe(true);                               // red before: never read, never asked
+            const sel = pl.main.layers.filter((L) => L.kind === "sel"), u = cellUnits(pl.main);
+            expect(sel.some((L) => L.cells.some(([i]) => i * u > far.left))).toBe(true);      // SEL cells a view past the screen
+            expect(pl._whole(pl.main, E.plates, true)).toBe(true);
+        } finally {
+            Object.defineProperty(window, "devicePixelRatio", { value: dpr0, configurable: true });
+        }
+    }, 20000);
+});
+/** A plane level's cell width in frame units. */
+function cellUnits(lvl) { return 512 / lvl.pZq; }

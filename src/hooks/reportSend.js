@@ -95,7 +95,7 @@ async function post(url, body, fetchFn) {
  * drawing after the report), `secrets`, `host` or `base` (the server's origin), `partBytes`,
  * `chunkBytes`, `fetch`, `onStage(label)`, `download` (false: never save a file on failure).
  * Returns what happened, with the timings of each stage. While it runs, `E._reportBusy` holds the
- * zoom-out ladder's rungs (KobinEngine._ladderRung), which ran in its yields and froze it.
+ * pyramid's prefetch (`prefetchPlan`'s `reportBusy`): its snapshot reads ran in the report's yields.
  */
 export async function sendDevReport(E, opts = {}) {
     if (E) E._reportBusy = true;

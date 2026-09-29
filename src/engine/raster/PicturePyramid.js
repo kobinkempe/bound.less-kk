@@ -145,13 +145,14 @@ export default class PicturePyramid {
             union: cfgOr(this.cfg, "patchUnionUs") / 1000, merge: cfgOr(this.cfg, "patchMergeMs"),
         };
         this._lastCompose = null;
-        this._share = { paper: 0, blur: 0, older: 0 };
+        this._share = { paper: 0, blur: 0, olderPatch: 0, olderOther: 0 };
         this._images = [];             // [t, images] of the last 10 s of composes (A3 §8's panel)
         this.lastPlan = null;
+        this.lastPatch = null;         // the last patch decision: cells, T against the budget, inline or coarse (`patchPlan`)
         this.s = {
             composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0,
             composeMs: 0, composeMsMax: 0, maxImagesPerCompose: 0, lastImages: 0,
-            paperMs: 0, blurMs: 0, olderMs: 0,
+            paperMs: 0, blurMs: 0, olderPatchMs: 0, olderOtherMs: 0,
             restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0,
             patchInline: 0, patchCoarse: 0, patchWorker: 0, patchMs: 0, merges: 0, mergeMisses: 0,
             groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0,
@@ -441,7 +442,7 @@ export default class PicturePyramid {
             out.push(draw(r, sub, dst, "blur", true));
             return;
         }
-        if (own && B.base(own)) { out.push(draw(own, WHOLE, dst, "older", false)); return; }                       // (f)
+        if (own && B.base(own)) { out.push(this._older(own, dst)); return; }                                        // (f)
         for (let k = 1; k <= N; k++) {
             const c = coarser(this.lm, S, F, l, i, j, k);
             if (!c) break;
@@ -451,6 +452,17 @@ export default class PicturePyramid {
             if (sub && B.take([r])) { out.push(draw(r, sub, dst, "older", false)); return; }
         }
         out.push(draw(null, WHOLE, dst, "paper", false));                                                           // (g)
+    }
+
+    /**
+     * A stale own plate drawn whole: `wait` when a worker patch that makes it exact is asked or in flight — A3 §3.4's one
+     * allowed case, no level patching it inline (`olderPatchMs`); anything else is `olderOtherMs`, which must stay 0.
+     */
+    _older(own, dst) {
+        const d = draw(own, WHOLE, dst, "older", false), g = this._asked.get(own.key), st = this.store;
+        d.own = true;
+        d.wait = (g != null && g >= st.fresh.dirtySince(own.key)) || st.inFlightExact(own.key);
+        return d;
     }
 
     /** (b): the same picture from another frame's level, exact. */
@@ -524,7 +536,7 @@ export default class PicturePyramid {
                     for (const d of cov.draws(v.Zq)) cell.draws.push(d);
                     done = true;
                 }
-                if (!done) { B.keep(own); cell.draws.push(draw(own, WHOLE, dst, "older", false)); }
+                if (!done) { B.keep(own); cell.draws.push(this._older(own, dst)); }
                 top.push(...cell.draws);
             }
         }
@@ -539,25 +551,27 @@ export default class PicturePyramid {
         for (const d of top) P.draws.push(d);
     }
 
-    /** Frame F's level-ℓ plates over `rect` (frame units), all present and exact: `{ recs, draws(Zq) }` clipped to `rect`, or null. */
+    /** Frame F's level-ℓ plates over `rect` (frame units), each exact or (b)'s exact mapped cell: `{ recs, draws(Zq) }` clipped to `rect`, or null. */
     _cover(F, l, S, rect) {
-        const st = this.store, Zl = zOf(l, S), r = plateRange(rect, Zl), recs = [];
+        const st = this.store, Zl = zOf(l, S), r = plateRange(rect, Zl), recs = [], at = [];
         if ((r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1) > COMPOSE_IMAGES) return null;
         for (let j = r.j0; j <= r.j1; j++) {
             for (let i = r.i0; i <= r.i1; i++) {
-                const c = st.get(levelKey(F, l, S, i, j));
-                if (!c || !st.exact(c)) return null;
-                recs.push(c);
+                // After a crossing the frame just left may hold the fresh picture: (b)'s mapped cell (PLAN §5.6 item 7).
+                const own = st.get(levelKey(F, l, S, i, j));
+                const c = own && st.exact(own) ? own : this._mapped(F, l, S, i, j);
+                if (!c) return null;
+                recs.push(c); at.push(i, j);
             }
         }
         return {
             recs,
             draws: (Zq) => {
                 const out = [];
-                for (const c of recs) {
-                    const I = inter(boxOf(Zl, c.i, c.j), rect);
+                for (let k = 0; k < recs.length; k++) {
+                    const i = at[2 * k], j = at[2 * k + 1], I = inter(boxOf(Zl, i, j), rect);
                     if (!I) continue;
-                    out.push(draw(c, [I.left * Zl - c.i * PLATE_PX, I.top * Zl - c.j * PLATE_PX, (I.right - I.left) * Zl, (I.bottom - I.top) * Zl], gRect(I, Zq), "blur", true));
+                    out.push(draw(recs[k], [I.left * Zl - i * PLATE_PX, I.top * Zl - j * PLATE_PX, (I.right - I.left) * Zl, (I.bottom - I.top) * Zl], gRect(I, Zq), "blur", true));
                 }
                 return out;
             },
@@ -742,16 +756,19 @@ export default class PicturePyramid {
 
     /**
      * §9.1's integrals, charged forward: the last compose's paper, blur and older shares of the screen × the time it
-     * stayed up; then this compose's shares. Blur is a coarser source or a patch; older a stale one; paper nothing.
+     * stayed up; then this compose's shares. Blur is a coarser source or a patch; older a stale one — `olderPatch` while
+     * its worker patch is pending (A3 §3.4), `olderOther` else; paper nothing.
      */
     _charge(P, v) {
         const t = this._now();
         if (this._lastCompose != null) {
             const dt = t - this._lastCompose;
-            this.s.paperMs += this._share.paper * dt; this.s.blurMs += this._share.blur * dt; this.s.olderMs += this._share.older * dt;
+            const sh = this._share;
+            this.s.paperMs += sh.paper * dt; this.s.blurMs += sh.blur * dt;
+            this.s.olderPatchMs += sh.olderPatch * dt; this.s.olderOtherMs += sh.olderOther * dt;
         }
         this._lastCompose = t;
-        const area = { paper: 0, blur: 0, older: 0 };
+        const area = { paper: 0, blur: 0, olderPatch: 0, olderOther: 0 };
         const W = this.wDev, H = this.hDev;
         const devArea = (d) => {
             const x0 = Math.max(0, (d.x0 - v.ox) * v.s + v.dx), y0 = Math.max(0, (d.y0 - v.oy) * v.s + v.dy);
@@ -769,11 +786,11 @@ export default class PicturePyramid {
             for (const d of c.draws) {
                 if (d.cls === "sharp") continue;
                 const a = devArea(d) - (c.base ? hidden(d) : 0);
-                if (a > 0) area[d.cls] += a;
+                if (a > 0) area[d.cls === "older" ? (d.wait ? "olderPatch" : "olderOther") : d.cls] += a;
             }
         }
         const scr = W * H;
-        this._share = { paper: area.paper / scr, blur: area.blur / scr, older: area.older / scr };
+        this._share = { paper: area.paper / scr, blur: area.blur / scr, olderPatch: area.olderPatch / scr, olderOther: area.olderOther / scr };
     }
 
     // ---- the rest render (A3 §2) ----
@@ -1100,6 +1117,8 @@ export default class PicturePyramid {
         if (cells[0].kind === "level") { job.level = cells[0].level; job.S = cells[0].S; }
         const T = this.estimate(job), budget = cfgOr(this.cfg, "patchInlineMs");
         const out = { items, job, T, inline: T <= budget, coarse: null };
+        // The last decision, for the report and the harness (the undo's path, PLAN §5.11 Q3).
+        this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, inline: out.inline, coarse: null, est: job.est || null };
         if (out.inline) return out;
         for (let k = 1; k <= N; k++) {
             const l = v.level - k;
@@ -1107,7 +1126,7 @@ export default class PicturePyramid {
             const cj = this._coarseJob(v.frameId, l, S, rects);
             if (!cj) continue;
             const Tc = this.estimate(cj);
-            if (Tc <= budget) { out.coarse = { level: l, job: cj, T: Tc }; break; }
+            if (Tc <= budget) { out.coarse = { level: l, job: cj, T: Tc }; this.lastPatch.coarse = { level: l, T: +Tc.toFixed(2) }; break; }
         }
         return out;
     }

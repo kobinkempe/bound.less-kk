@@ -16,12 +16,12 @@
  * stack, then a zoom while its bake runs: a zoom under the pen ends the stroke) — each in a fresh page, each
  * printing its deltas as one JSON line: paper (PAPER-PLAN
  * §9: each picture's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
- * `olderMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
- * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`): `pyramid=1`
- * draws through the picture pyramid, `pyramid=0` the old layer (B-PYRAMID-2 P5).
+ * `olderPatchMs` and `olderOtherMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
+ * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`), e.g. a lever
+ * (`levelStep=2`); the raster path is the picture pyramid (the old layer and its `?pyramid` gate went at P6).
  *
  * Three paper samplers, each named in the output: `paperMs` is the layer's own integral where it keeps one (the
- * pyramid's `paperMs`/`blurMs`/`olderMs`, charged forward at each compose) and the rAF sampler's otherwise;
+ * pyramid's `paperMs`/`blurMs`/`olderPatchMs`/`olderOtherMs`, charged forward at each compose) and the rAF sampler's otherwise;
  * `paperSampledMs` is the rAF sampler (it reads before the engine's frame, so it charges a long frame's old share);
  * `paintPaperMs` is the post-paint sampler (a timeout after each rAF: the picture that stayed on screen until the next
  * paint; the B-SCENE review's, PLAN §5.6 item 8). The load average (`os.loadavg()`) is printed at the start and the
@@ -210,7 +210,7 @@ function probeRead() {
     try { W = E.renderer && E.renderer.perf ? E.renderer.perf.report().worker : null; } catch (err) { W = null; }
     const F = E.frameMeter.report(), LF = E.longFrames.report();
     const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
-    const REF = ["refusedAtDispatch", "refusedDirt", "refusedCover", "refusedDead", "refusedCoverPlates", "refusedCollateral"];
+    const REF = ["refusedCover", "refusedCoverPlates"];
     return {
         t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes,
         paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
@@ -218,13 +218,15 @@ function probeRead() {
         ref: R ? Object.fromEntries(REF.map((k) => [k, R[k] || 0])) : null,
         st: E.stage && E.stage.stats ? { ...E.stage.stats } : null,
         surface: L && L.surface != null ? L.surface : null,
-        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderMs: L.olderMs } : null,
+        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderPatchMs: L.olderPatchMs, olderOtherMs: L.olderOtherMs } : null,
         composes: L ? L.composes : null, composeMs: L ? L.composeMs : null, arrivalComposes: L ? L.arrivalComposes : null,
         hist: F.hist, frames: F.frames, longCount: LF.count, longRecent: LF.recent,
         plates: S ? { plates: S.plates, mib: +(S.plateBytes / 1048576).toFixed(1), capMib: +(S.maxBytes / 1048576).toFixed(1), pinned: S.pinned, inFlight: S.inFlight, evictions: S.evictions, stale: S.stale } : null,
         level: L && L.level != null ? { level: L.level, S: L.S, mode: L.mode, pinBound: L.pinBound } : null,
         jobs: W ? { queued: W.queued, inFlight: W.inFlight, jobs: W.jobs, plates: W.plates, mode: W.mode, workers: W.workers } : null,
-        posts: R ? { posts: R.posts, postedPlates: R.postedPlates, liveHandoffs: R.liveHandoffs, liveTimeouts: R.liveTimeouts, syncFrames: R.syncFrames } : null,
+        posts: R ? { batches: R.batches, batchPlates: R.batchPlates, liveHandoffs: R.liveHandoffs } : null,
+        patch: L ? { inline: L.patchInline, coarse: L.patchCoarse, worker: L.patchWorker, restInline: L.restInline, restWorker: L.restWorker,
+            last: E.renderer.layer.lastPatch || null, est: L.est || null } : null,
         cam: { frame: E.cam.frame, inScale: E.cam.inScale, level: E.cam.activeLevel },
         mode: L ? L.mode : "svg",
         natives: (() => { let n = 0; for (const lv of E.doc.levels()) n += E.doc.list(lv).length; return n; })(),   // a lost document shows here
@@ -274,7 +276,8 @@ function delta(a, b) {
     const long = (b.longRecent || []).filter((r) => r.t >= a.t && r.t <= b.t).sort((x, y) => y.ms - x.ms);
     const lp = a.layerPaper && b.layerPaper ? {
         paperMs: +(b.layerPaper.paperMs - a.layerPaper.paperMs).toFixed(1), blurMs: +(b.layerPaper.blurMs - a.layerPaper.blurMs).toFixed(1),
-        olderMs: +(b.layerPaper.olderMs - a.layerPaper.olderMs).toFixed(1),
+        olderPatchMs: +(b.layerPaper.olderPatchMs - a.layerPaper.olderPatchMs).toFixed(1),
+        olderOtherMs: +(b.layerPaper.olderOtherMs - a.layerPaper.olderOtherMs).toFixed(1),
     } : null;
     const composes = b.composes != null ? b.composes - a.composes : null;
     const byPrio = b.queue && a.queue && b.queue.byPrio && a.queue.byPrio ? b.queue.byPrio.map((n, k) => n - a.queue.byPrio[k]) : null;
@@ -283,7 +286,7 @@ function delta(a, b) {
         samplers: { paperMs: lp ? "layer" : "rAF", paperSampledMs: "rAF", paintPaperMs: "post-paint" },
         paperMs: lp ? lp.paperMs : +(b.paperMs - a.paperMs).toFixed(1), paperSampledMs: +(b.paperMs - a.paperMs).toFixed(1),
         paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
-        blurMs: lp ? lp.blurMs : null, olderMs: lp ? lp.olderMs : null, maxPaperShare: +b.maxShare.toFixed(3),
+        blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, maxPaperShare: +b.maxShare.toFixed(3),
         frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0) })) },
         compose: { n: composes, ms: b.composeMs != null ? +(b.composeMs - a.composeMs).toFixed(1) : null,
             msMean: composes ? +((b.composeMs - a.composeMs) / composes).toFixed(2) : null, maxImages: b.maxImages,
@@ -292,8 +295,10 @@ function delta(a, b) {
             reaimed: b.queue.reaimed - a.queue.reaimed, drops: diff(a.queue.drops, b.queue.drops), jobMs: +b.queue.jobMs.toFixed(1) } : null,
         refusals: diff(a.ref, b.ref), stageReads: diff(a.st, b.st), level: b.level,
         plates: b.plates, jobs: b.jobs && a.jobs ? { jobs: b.jobs.jobs - a.jobs.jobs, plates: b.jobs.plates - a.jobs.plates, queued: b.jobs.queued, inFlight: b.jobs.inFlight, mode: b.jobs.mode, workers: b.jobs.workers } : null,
-        posts: b.posts && a.posts ? { posts: b.posts.posts - a.posts.posts, postedPlates: b.posts.postedPlates - a.posts.postedPlates,
-            liveHandoffs: b.posts.liveHandoffs - a.posts.liveHandoffs, liveTimeouts: b.posts.liveTimeouts - a.posts.liveTimeouts, syncFrames: b.posts.syncFrames - a.posts.syncFrames } : null,
+        posts: b.posts && a.posts ? { batches: b.posts.batches - a.posts.batches, batchPlates: b.posts.batchPlates - a.posts.batchPlates,
+            liveHandoffs: b.posts.liveHandoffs - a.posts.liveHandoffs } : null,
+        patch: b.patch && a.patch ? { inline: b.patch.inline - a.patch.inline, coarse: b.patch.coarse - a.patch.coarse, worker: b.patch.worker - a.patch.worker,
+            restInline: b.patch.restInline - a.patch.restInline, restWorker: b.patch.restWorker - a.patch.restWorker, last: b.patch.last, est: b.patch.est } : null,
         cam: b.cam, mode: b.mode, natives: b.natives,
     };
 }
@@ -464,7 +469,7 @@ async function penUp(page) {
             const st = await page.evaluate(() => {
                 const E = window.__kobinEngine, L = E.renderer.layer, h = (E.renderer._liveHeld || []).length > 0;
                 const sh = L && L._share ? L._share : null;
-                return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.older) };
+                return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.olderPatch || sh.olderOther) };
             });
             held = st.h;
             if (!held) { exactAtRelease = st.exact; break; }
@@ -483,16 +488,12 @@ async function untilExact(page, t0 = Date.now()) {
     return -1;
 }
 
-/** Runs in the page: the pyramid's last compose charged no paper, blur or older share and drew nothing held; the old layer no stale hit. */
+/** Runs in the page: the pyramid's last compose charged no paper, blur or older share and drew nothing held. */
 function exactNow() {
     const L = window.__kobinEngine.renderer.layer;
-    if (L && L._share && L.lastPlan) {
-        const s = L._share;
-        return !(s.paper || s.blur || s.older) && !L.lastPlan.cells.some((c) => c.draws.some((d) => d.cls === "held"));
-    }
-    if (!L || !L._hits) return true;
-    for (let k = 0; k < L._nHits; k++) if (L._isStale(L._hits[k])) return false;
-    return true;
+    if (!L || !L._share || !L.lastPlan) return true;              // the SVG renderer: nothing cached to be stale
+    const s = L._share;
+    return !(s.paper || s.blur || s.olderPatch || s.olderOther) && !L.lastPlan.cells.some((c) => c.draws.some((d) => d.cls === "held"));
 }
 
 async function dense(browser) {

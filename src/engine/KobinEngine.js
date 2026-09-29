@@ -248,6 +248,7 @@ export default class KobinEngine {
         this.renderer.setLasso(() => { const L = this._lasso || this._lassoParked; return L ? L.pts : null; });   // a parked lasso stays drawn
         this.renderer.setDragState(() => this._dragState());
         this.renderer.setPlaneState(() => this._planeState());
+        if (this.renderer.setBusy) this.renderer.setBusy(() => !!this._reportBusy);   // a report sending: no prefetch
         this.renderer.onPlaneLost = () => this._planeLost();
         // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
         this.renderer.onShown = () => { if (!this._destroyed) this._render(); };
@@ -895,6 +896,7 @@ export default class KobinEngine {
         const t0 = perfNow();
         this._lastCamMove = t0;          // `_camBusy` — keep bake slices off this frame
         this.frameMeter.poke();
+        if (this.renderer.noteAttention) this.renderer.noteAttention(sx, sy);   // the wheel focus or the pinch centre
         const crossed = this.cam.zoomFactorAt(sx, sy, factor) || !!crossedBefore;
         if (this.cfg.frames === "raf") { const fr = this._pend(); fr.zoom = true; fr.crossed = fr.crossed || crossed; return; }
         this._zoomStep(crossed, t0);
@@ -971,12 +973,14 @@ export default class KobinEngine {
     pointerDown(sx, sy, ctrl = false) {
         const t0 = perfNow();
         this.frameMeter.poke();
+        if (this.renderer.noteAttention) this.renderer.noteAttention(sx, sy);
         try { return this._pointerDown(sx, sy, ctrl); }
         finally { const ms = perfNow() - t0; this._perf("ptrDown", t0, false, { tool: this.tool }); this._noteFast("ptrDown", ms); }
     }
     pointerMove(sx, sy) {
         const t0 = perfNow();
         this.frameMeter.poke();
+        if (this.renderer.noteAttention) this.renderer.noteAttention(sx, sy);
         try { return this._pointerMove(sx, sy); }
         finally { const ms = perfNow() - t0; this._perf("ptrMove", t0, false, { tool: this.tool }); this._noteFast("ptrMove", ms); }
     }

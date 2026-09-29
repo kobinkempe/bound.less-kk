@@ -4,7 +4,7 @@
  * the stale cells through their clips. Inline, the plates and the screen equal the post-undo whole render byte for
  * byte. Coarse-first, wherever the post-undo whole render differs from the pre-undo picture the screen differs too
  * (the stroke shows nowhere), outside the change it is the sharp old plate, the full patches are asked for at
- * priority 0, and `olderMs` stays 0. The GPU merge (a software OffscreenCanvas) equals `pastePatch`.
+ * priority 0, and `olderPatchMs` and `olderOtherMs` stay 0. The GPU merge (a software OffscreenCanvas) equals `pastePatch`.
  */
 import PyramidStore, { PLATE_BYTES, restCell } from "./PyramidStore";
 import PicturePyramid from "./PicturePyramid";
@@ -92,7 +92,7 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
             expect(n).toBeGreaterThan(100000);
             t.clock.t += 100;
             t.pyr.compose();
-            expect([t.pyr.s.olderMs, t.pyr.s.blurMs]).toEqual([0, 0]);
+            expect([t.pyr.s.olderPatchMs, t.pyr.s.olderOtherMs, t.pyr.s.blurMs]).toEqual([0, 0, 0]);
             expect(t.posted.filter((j) => j.kind === "patch")).toEqual([]);
         }
     });
@@ -120,7 +120,7 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
             expect([seed, outside]).toEqual([seed, 0]);                   // nothing outside the change blurred
             t.clock.t += 100;
             t.pyr.compose();
-            expect(t.pyr.s.olderMs).toBe(0);
+            expect([t.pyr.s.olderPatchMs, t.pyr.s.olderOtherMs]).toEqual([0, 0]);
             expect(t.pyr.s.blurMs).toBeGreaterThan(0);
             // The full patches land: the plates are the post-undo whole render.
             const job = asked[0], packed = t.pack(job);

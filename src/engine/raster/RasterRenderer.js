@@ -98,6 +98,8 @@ export default class RasterRenderer extends Renderer {
         this._rowLive = false;
         this._pumpQueued = false;                       // a microtask pump is pending (`_pumpSoon`)
         this._coreMs = 0;                               // the inline executor's core phases, summed (`_noteCore`)
+        this._attn = null;                              // the attention point, device px (`noteAttention`); null: the screen centre
+        this._busyFn = null;                            // the engine's report-sending state (`setBusy`)
         this.paper = opts.paper || "#ffffff";
         this._paperRgb = parseColour(this.paper);
 
@@ -839,6 +841,16 @@ export default class RasterRenderer extends Renderer {
         return view;
     }
 
+    /** Whether the engine is busy with a report (`sendDevReport`): the prefetch plans nothing meanwhile (A3 §4.3). */
+    setBusy(fn) { this._busyFn = fn; }
+
+    /** The attention point (A3 §1.5, §4.4): the last pointer, wheel focus or pinch centre, in CSS px; the plan's and the queue's nearest-first. */
+    noteAttention(sx, sy) {
+        const d = this.pyramid.dpr;
+        this._attn = [sx * d, sy * d];
+        this.pyramid.setAttention(sx * d, sy * d);
+    }
+
     /** The queue's motion (A3 §4.4): moving iff the published affine changed since the last step, and its velocity. */
     _pyrMotion(v) {
         const m = this._pyrMot, t = perfNow(), pyr = this.pyramid;
@@ -848,7 +860,7 @@ export default class RasterRenderer extends Renderer {
         const vel = moving ? { px: [(v.tx - m.tx) / dt, (v.ty - m.ty) / dt], zoom: Math.log2(v.k / m.k) / dt } : { px: [0, 0], zoom: 0 };
         m.t = t; m.k = v.k; m.tx = v.tx; m.ty = v.ty; m.frame = v.frameId; m.moving = moving;
         return {
-            moving, vel, attention: null, at: t,
+            moving, vel, attention: this._attn, at: t,
             view: { frameId: v.frameId, level: v.level, S: v.S, Z: v.Z, k: v.k, tx: v.tx, ty: v.ty, wDev: pyr.wDev, hDev: pyr.hDev, sigmaMin: pyr.sigmaMin },
         };
     }
@@ -878,20 +890,27 @@ export default class RasterRenderer extends Renderer {
             return;
         }
         // A new plan supersedes the queued one: its strips drop at dispatch by generation (a bake's commits re-plan
-        // each step, and the queue grew by a plan a step without this).
+        // each step, and the queue grew by a plan a step without this). A report sending plans nothing and keeps the key.
         gens.prefetch++;
-        this._pyrPrefetchKey = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
-        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens });
+        const reportBusy = !!(this._busyFn && this._busyFn());
+        if (!reportBusy) this._pyrPrefetchKey = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
+        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn });
         if (!jobs.length) return;
         this.pyramid.setFar(farKeysOf(jobs));
         q.push(jobs);
         q.pump();
     }
 
-    /** The table window's margin: four view cells, so the near prefetch's ℓv − 1 packs from the camera's table (A3 §4.2). */
+    /**
+     * The table window's margin: four view cells, so the near prefetch's ℓv − 1 packs from the camera's table (A3 §4.2);
+     * while a selection is on the plane's path, at least one view: its SEL cells reach a view past the screen (A3 §6 D1),
+     * covered and asked (PLAN §5.11 Q2; four cells are under a view on a 2560-px or a phone screen).
+     */
     listMargin(inScale) {
         const pyr = this.pyramid, S = this._view ? this._view.S : LEVEL_STEP;
-        return 4 * PLATE_PX / zOf(levelFor(inScale * pyr.dpr, S, null, pyr.sigmaMin), S);
+        const m = 4 * PLATE_PX / zOf(levelFor(inScale * pyr.dpr, S, null, pyr.sigmaMin), S);
+        const aimed = this._plane.layers.length > 0 || (this._planeFn && this._planeFn());
+        return aimed ? Math.max(m, Math.max(this.width, this.height) / inScale) : m;
     }
 
     /** A table's items packs paint (a stroke pending its shape is skipped, PLAN §1.5). */

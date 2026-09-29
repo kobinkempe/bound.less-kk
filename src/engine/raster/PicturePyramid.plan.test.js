@@ -257,6 +257,33 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect(checked).toBeGreaterThan(40000);
     });
 
+    test("a stale rest cell's cover takes the frame just left: the parent's exact twins over it, never the stale plate (PLAN §5.6 item 7)", () => {
+        const W = 900, H = 700, t = setup(W, H), F = String(t.A), fa = t.lm.frame(t.A);
+        const l = 4, Z = zOf(l, S) * 1.1;
+        const c0 = cam(t.A, Z, -300, -200, W, H);
+        t.pyr.frameFor(c0);
+        t.pyr._rest = { frame: F, Z, shown: true, gen: 1 };
+        t.pyr.frameFor(cam(t.A, Z, c0.inPanX + 1, c0.inPanY, W, H));
+        const v = t.pyr._v;
+        expect(v.mode).toBe("rest");
+        const i = v.i0 + 1, j = v.j0 + 1, rc = restCell(F, Z, i, j);
+        t.put(rc, 0);
+        const box = { left: i * P / Z, top: j * P / Z, right: (i + 1) * P / Z, bottom: (j + 1) * P / Z };
+        t.stage.commit({ [F]: [{ left: box.left + 1, top: box.top + 1, right: box.right - 1, bottom: box.bottom - 1 }] });   // over PATCH_MAX: the whole cell
+        const G = t.stage.generation, Zl = zOf(l, S), off = 2 ** (8 + l * S), twins = [];
+        for (let lj = Math.floor(box.top * Zl / P); lj < Math.ceil(box.bottom * Zl / P); lj++) {
+            for (let li = Math.floor(box.left * Zl / P); li < Math.ceil(box.right * Zl / P); li++) {
+                const c = levelCell("0", l + 12 / S, S, li + fa.cell.i * off, lj + fa.cell.j * off);
+                t.put(c, G);                                                   // the root's twin, exact; the child's own level: none
+                twins.push(c.key);
+            }
+        }
+        const P0 = t.pyr.compose();
+        const cell = P0.cells.find((c) => c.rest && c.i === i && c.j === j);
+        expect(cell.draws.map((d) => d.cls)).not.toContain("older");           // red before: the stale rest plate, older
+        expect(cell.draws.every((d) => d.cls === "blur" && twins.includes(d.rec.key))).toBe(true);
+    });
+
     test("the patch rule (e): the fresh coarser picture inside the dirty rectangles only, the sharp stale plate elsewhere", () => {
         const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
         t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // ℓ 4, σ = 1: cells (0..1, 0..1)
@@ -627,12 +654,12 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         t.stage.commit({ [F]: [{ left: 40, top: 4, right: 41, bottom: 5 }] }); // (1, 0) stale: older
         t.put(levelCell(F, 3, S, 0, 0), t.stage.generation);                   // (0, 1) from the coarser: blur; (1, 1)... the patch
         t.pyr.compose();                                                       // nothing charged yet
-        expect([t.pyr.s.paperMs, t.pyr.s.blurMs, t.pyr.s.olderMs]).toEqual([0, 0, 0]);
+        expect([t.pyr.s.paperMs, t.pyr.s.blurMs, t.pyr.s.olderPatchMs, t.pyr.s.olderOtherMs]).toEqual([0, 0, 0, 0]);
         now = 100;
         t.pyr.compose();
         const s = t.pyr.s;
         expect(s.paperMs).toBe(0);
-        expect(s.olderMs).toBe(0);
+        expect([s.olderPatchMs, s.olderOtherMs]).toEqual([0, 0]);
         // (1, 0) takes the patch rule (a pixel of dirt), (0, 1) and (1, 1) the coarser plate whole.
         const cells = t.pyr.lastPlan.cells.map((c) => c.draws.map((d) => d.cls).join("+"));
         expect(cells.sort()).toEqual(["blur", "blur", "sharp", "sharp+blur"].sort());
@@ -645,6 +672,22 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         now = 250;
         t.pyr.compose();
         expect(s.paperMs).toBeCloseTo(100, 6);                                 // all paper for 100 ms
+    });
+
+    test("older by cause: a stale plate whose worker patch is pending is olderPatch (A3 §3.4), any other olderOther", () => {
+        const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
+        let now = 0;
+        t.pyr._now = () => now;
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // cells (0..1, 0..1), a quarter each
+        for (const [i, j] of [[0, 0], [1, 0], [0, 1], [1, 1]]) t.put(levelCell(F, 4, S, i, j), 0);
+        t.stage.commit({ [F]: [{ left: 40, top: 4, right: 41, bottom: 5 }, { left: 4, top: 40, right: 5, bottom: 41 }] });
+        t.pyr._asked.set(levelKey(F, 4, S, 1, 0), t.stage.generation);         // (1, 0): its worker patch asked; (0, 1): nothing
+        t.pyr.compose();
+        now = 100;
+        t.pyr.compose();
+        const q = 100 * 512 * 512 / (W * H);
+        expect(t.pyr.s.olderPatchMs).toBeCloseTo(q, 6);
+        expect(t.pyr.s.olderOtherMs).toBeCloseTo(q, 6);
     });
 
     test("the surface is freed after SURFACE_IDLE_MS unused", () => {
