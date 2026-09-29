@@ -159,3 +159,22 @@ describe("engine wires the active level into retention", () => {
         expect(E.renderer._scenes.size).toBe(1);
     });
 });
+
+// F133: Two.js renders nothing of a group at opacity 0, the removal of its old paths included, so a fully faded
+// group rebuilt at every drag step kept every generation (391,068 anchors after eight steps on the dense scene).
+describe("a hidden group is not rebuilt (F133)", () => {
+    const faded = (id, dx) => ({ type: "fill", origin: "tile", id, fadeTag: 10, color: "#123456", opacity: 1, res: [dx, 0],
+        polys: [[[0, 0], [8, 0], [8, 8], [0, 8]]] });
+    test("a faded piece moved every render parks no paths; the zoom that shows it renders it", () => {
+        const r = mkRenderer();
+        for (let k = 1; k <= 8; k++) { r.render([faded(1, k)], 0); r.update(); }
+        const e = r._groups.get(1);
+        expect(e.group.opacity).toBe(0);
+        expect([e.group.children.length, e.group.subtractions.length]).toEqual([0, 0]);   // red: 7 parked, one a render
+        expect(r.needsFadeFlip()).toBe(false);
+        r.cam.inScale = 20;                                                 // 10 · 20 / 300 = 0.67 px: fully present
+        expect(r.needsFadeFlip()).toBe(true);                               // the zoom step renders it
+        r.render([faded(1, 9)], 0); r.update();
+        expect([e.group.opacity, e.group.children.length, e.group.subtractions.length]).toEqual([1, 1, 0]);
+    });
+});

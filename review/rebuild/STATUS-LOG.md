@@ -2055,3 +2055,31 @@ run hung one jest worker at 98 % CPU for 32 min (killed; the files one by one al
 set is stored (a stand-in plate), `PicturePyramid.patch`'s case rewritten to that.
 **Questions asked:** none yet (the (f′) cause goes to the report as a design question).
 WHERE I AM: the raster/erase/stage suites in the background; then break-checks of 1, 2, 4 on `r-pyr/bc`; the harness.
+
+## 2026-09-29 15:54 UTC — B-PYRAMID-3 (builder) — item 2 checkpoint: the SVG mask rule and the export barrier
+**Working on:** `Renderer.render`: a landed pending mark (`targets` recorded) is drawn as nothing; a group with any member
+`eraseRule.underMask` under it gets an SVG `<mask>` (white over the group's drawn box inside the scene's window, the
+mark's shape black through a `<use>` of one `<defs>` copy per mark, scaled S/S_m for the thin rescale); the attribute is
+set after Two.js renders (`two.bind("render")`); an unlanded mark stays ink until it lands. `thumbnails.withSvgEngine`
+runs `flushErases()` after the load; the hook's export goes through it in both modes (the tab's document untouched).
+**Measured:** jsdom `Renderer.eraseMask` M-1..3 and `storage/thumbnails.test` X-1 (export with a pending mark === export
+after the bake, ids stripped): 4 pass. Break-checks on `scratchpad/bp3/bc` (unimported): mark drawn as ink 2 red; rule's
+`underMask` dropped 1 red; no unmask 1 red; barrier removed 1 red. Headless Chromium (load 3.6–5.1, `bp3/maskcheck.js`):
+a mark over a blue band and a green bar dragged under it — before, the bar's 4,000 px under the mark white; after, green,
+the band masked; the rest equal to before within 77 UI-edge px; against the raster path in the ink region 215–362 of
+72,000 px differ (≤ 38 levels), the same count after the bake: the mask's edge agrees with the raster's.
+**Decisions made:** the SVG-mode export via `withSvgEngine` too (one export path; no bake forced on the tab's document).
+**Questions asked:** none.
+WHERE I AM: item 3 (below).
+
+## 2026-09-29 15:54 UTC — B-PYRAMID-3 (builder) — item 3 checkpoint: the `?svg` retention, filed F133 and fixed
+**Measured (headless Chromium, forced GC each step, the C1 reviewer's `svgdrag.js`; load 1–4):** before, a tenth of the
+dense scene: 272 → 933 MB over 12 drag events (59 MB each). V8's sampling heap profiler (`bp3/svgalloc.js`): 309.5 MB
+live in Two.js `BindVertices`, 59.7 MB in `pushRingAnchors`/`pushLine` — 97 groups at opacity 0 holding 756 removed
+paths (391,068 anchors) in `subtractions`, which Two.js flushes only when it renders the group, and never renders one at
+opacity 0. Fix: a hidden group is not rebuilt (signature stale; `needsFadeFlip` promotes the zoom that shows it). After:
+213 → 257 MB over 12, flat at 265 MB from the 21st of 40; the whole scene 12 events flat at 1,861 MB (crashed before).
+jsdom test in `Renderer.retention` (red without: 7 parked paths); break-checks 1 red each (skip removed; promote removed).
+**Decisions made:** filed as F133 in OPEN-FLAGS (grep found no flag for the symptom), fixed, unverified by Kobin.
+**Questions asked:** none.
+WHERE I AM: waiting for the B-PYRAMID reviewer's end entry for item 4; meanwhile the warm-reads measurement (§5.14 item 1).
