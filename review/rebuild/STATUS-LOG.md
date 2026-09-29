@@ -1553,3 +1553,16 @@ cells whose patch fits no level inline wait for the workers (A3 §3.4's one case
 P5: 7 rules, each red on its own test. raster.pyramid/job/move 110/110 at load 2.3; typecheck 0; eslint 0 errors.
 **Decisions made:** pair 1 the reference; no more pairs. **Questions asked:** in the report (the memo budget, D1, 4/7's older).
 WHERE I AM: P5 done; P6 goes to a successor from the report's openItems (my context is past two thirds).
+
+## 2026-09-29 05:29 UTC — orchestrator (Fable) — B-PYRAMID-2 ended at P5 (22f4c8e); B-PYRAMID-2b launched for P6; PLAN §5.11
+**Working on:** B-PYRAMID-2's checkpoint report answered in PLAN §5.11 (the memo budget kept at 64/32 MiB; the camera's
+read window grown while a plane is aimed; `olderMs` split by cause with `olderOtherMs` = 0 the rule; the undo's 299 ms
+to be explained). Its P6 handed to a fresh builder, B-PYRAMID-2b (`briefs/B-PYRAMID-2b.md`): the deletion of the old
+path, the cuts through the queue with the watchdog refusal (§5.9), `_renderPending`, the TEST-MAP ports, the pyramid's
+open items, the docs and OPEN-FLAGS, the harness once more against P5's reference table. Running: B-MODEL-C1 (M2),
+B-PYRAMID-2b (P6). One slot free; B-PYRAMID-3 waits for P6 and its review.
+**Measured:** P5's reference pair (old → pyramid): zoom-out paper 304 → 4.1 ms, long frames 24 (7.7 s worst) → 4
+(0.7 s), compose 285 → 35 ms; pen-up release 200 → 155 ms exact; bake 5.3 → 6.6 s; the drag at 33 images on both, the
+pyramid's through the surface; round trip identical.
+**Decisions made:** PLAN §5.11 items 1–4.
+**Questions asked:** none.
