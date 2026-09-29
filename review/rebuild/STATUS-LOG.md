@@ -1707,3 +1707,12 @@ so every arrival's wall partition was `noQueuedAt`), and `eng.view` counted an i
 8.32 = 8.01 + 0.31; raster.worker 22/22, raster.move 33/33, raster.engine 28/28, raster.pyramid 27/27, store 7/7.
 **Questions asked:** none.
 WHERE I AM: the rest of item 4 — raster.phone/snapshot/translucent/overlay/liveHold, the hook suites, stage.cover's `markDone`, raster.perf's rows.
+
+## 2026-09-29 09:52 UTC — orchestrator (Fable) — resumed after the fifth session-limit stop
+**Working on:** the container rebooted again; the tree as the two agents left it snapshot-committed as e1050ef. Both
+resumed from their transcripts: B-PYRAMID-2b in item 4 (the F101/F106 ports into `raster.pyramid`, then the remaining
+raster suites, items 3, 5, 6), B-MODEL-C1 in M4 (the docs, OPEN-FLAGS, the quick suite, its report). Both told that
+their docs edits meet in DESIGN, `docs/ai/`, TEST-MAP and OPEN-FLAGS: own sections only, re-read first.
+**Measured:** load 0.23 at the resume.
+**Decisions made:** none new.
+**Questions asked:** none.
