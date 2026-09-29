@@ -2207,3 +2207,28 @@ Nothing in Kobin's Chrome.
 **Decisions made:** the snapshot identity and the unask fixed as item 8's minors (one line each, red first).
 **Questions asked:** in the report (scenario 7's commit window, the undo's pack cost, the (f′) last resort, the drop's budget).
 WHERE I AM: ended — report handed back; B-PYRAMID-3 may take `RasterRenderer.js` and the raster modules.
+
+## 2026-09-29 20:01 UTC — B-DRAG (builder) — no writes during a drag (C2) — start
+**Working on:** the brief's reading list (DESIGN §8/§10; PLAN §0 d4/d9, §1.4, §1.7, §3 rows 7–8, §5.2/5.7/5.9/5.12/5.14;
+A1 §1.4, §2, §4.4 C2, §4.6, §5 step 2, §6, §8, §14; A2 §2.7, §3; A3 §6; the C1 entries), then D1 (the hold carries
+the drag). Files I will be in: `KobinEngine.js` (the drag paths and the per-remove listener only; shared with
+B-PYRAMID-3, re-read before every edit, small edits), `selection.js`, `Document.js`, `LevelMap.js`, `Stage.js`
+(`hold`/`release`/`setDragDelta`, `_home`), `placementModel.js`, `overlays.js` (`_selTable`'s box), `oplog.js`/
+`format2.js` (the `move` op's snapshots), the move/select suites and probes, `__testkit__/modelFuzz.js`; last in D1,
+one edit in `RasterRenderer.js`/`rasterPack.js` (the pack rule for held items), re-read first (rule 17).
+**Measured:** tree at c7fed1a; load 3.0 at the start. Scratch `scratchpad/bdrag/`, ports 3040–3049.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading; next the code's drag paths (`_beginSelectDrag`, `_dragSelection`, `_endMove`, the drop).
+
+## 2026-09-29 20:01 UTC — orchestrator (Fable) — the B-PYRAMID review landed (c7fed1a); B-DRAG launched; PLAN §5.15
+**Working on:** the B-PYRAMID review's report answered in PLAN §5.15 (the patch step at the commit's task, the pack
+priced with its prepass kept across commits, and the (f′) integral to a small B-PYRAMID-4 after B-PYRAMID-3 lands; the
+drop's user budget to B-DRAG's D2; the pending path at a crossing to B-PYRAMID-3's item 4). B-PYRAMID-3 told its item 4
+may land (rebased onto the reviewer's final files, not copied over). B-DRAG launched (`opus-builder`, `briefs/B-DRAG.md`).
+Running: B-PYRAMID-3 (item 4), B-DRAG (D1). One slot free; B-PYRAMID-4 and the two reviewers follow.
+**Measured:** the review's table (its 19:59 entry): zoom-out paper 6–8.5 ms quiet; undo key-to-exact 203–348 ms, older 0;
+scenario 7 olderOther 1.3–1.4 s (stale own plates awaiting the next render — proposal 6); a snapshot's strip leaking a
+worker slot per thumbnail and a drop clearing every ask, both fixed.
+**Decisions made:** PLAN §5.15 items 1–4.
+**Questions asked:** none.
