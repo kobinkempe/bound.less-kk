@@ -287,7 +287,8 @@ function delta(a, b) {
         paperMs: lp ? lp.paperMs : +(b.paperMs - a.paperMs).toFixed(1), paperSampledMs: +(b.paperMs - a.paperMs).toFixed(1),
         paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
         blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, maxPaperShare: +b.maxShare.toFixed(3),
-        frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0) })) },
+        frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0),
+            top: r.scripts && r.scripts[0] ? (r.scripts[0].invoker || r.scripts[0].fn) + (r.scripts[0].fn ? " " + r.scripts[0].fn : "") : null })) },
         compose: { n: composes, ms: b.composeMs != null ? +(b.composeMs - a.composeMs).toFixed(1) : null,
             msMean: composes ? +((b.composeMs - a.composeMs) / composes).toFixed(2) : null, maxImages: b.maxImages,
             arrivals: b.arrivalComposes != null ? b.arrivalComposes - a.arrivalComposes : null, surface: b.surface != null ? b.surface - a.surface : null },
@@ -426,8 +427,19 @@ const SCENARIOS = {
     undo: async (page) => {
         await penUp(page);
         return [await measure(page, "6 undo", async () => {
+            // Exact is read only once the undo has committed and a compose has drawn after it: the picture before the
+            // undo is exact too, and reading it gave a first poll's 11 ms (B-PYRAMID-2b).
+            const at = await page.evaluate(() => ({ G: window.__kobinEngine.stage.generation, c: window.__kobinEngine.renderer.layer.s.composes }));
+            const t0 = Date.now();
             await page.keyboard.press("Control+z");
-            return { exactMs: await untilExact(page) };
+            let committedMs = -1;
+            while (Date.now() - t0 < 10000) {
+                if (await page.evaluate((G) => window.__kobinEngine.stage.generation > G, at.G)) { committedMs = Date.now() - t0; break; }
+                await sleep(4);
+            }
+            const c1 = await page.evaluate(() => window.__kobinEngine.renderer.layer.s.composes);
+            while (Date.now() - t0 < 10000 && await page.evaluate((c) => window.__kobinEngine.renderer.layer.s.composes <= c, c1)) await sleep(4);
+            return { committedMs, exactMs: await untilExact(page, t0) };
         })];
     },
     erase: async (page) => {

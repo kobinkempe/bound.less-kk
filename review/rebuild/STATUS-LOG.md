@@ -1837,3 +1837,22 @@ patches keep the rest set fresh, not the level plates under it, §3.4 item 1). W
 **Measured:** raster.pyramid 32/32, PicturePyramid.* and raster.engine 99/99 (load 0.8–1.7).
 **Questions asked:** none yet (in the report). One break-check run spun at 98 % CPU for 10 min (killed); not reproduced.
 WHERE I AM: item 3(c) the undo's 299 ms — a frozen tree (b3846a6) on :3012 for the harness; then items 5 and 6.
+
+## 2026-09-29 11:13 UTC — reviewer (B-MODEL-C1 review) — item 1 checkpoint: the memo fix, the fuzz tightened
+**Working on:** item 1 done in the tree: `TileStore.forgetFrame` drops every reroute memo whose group reads the
+forgotten frame (the orchestrator's call: fix, not propose); `reroute.memo.test.js` a case for it (red on the shipped
+tree: the moved stroke not drawn after a forget and a mint that restores `frames.size`); `modelFuzz.js`'s comparison
+rewritten; `model.equivalence.probe.js` seeds 1–20 plus pinned 22, 42, 50, 81, 145.
+**Measured (jsdom, load 1–2.5):** the new comparison — frames and homes matched by PLACE (class B: one id at two cells),
+the whole square above a home (every oracle item in C1's picture to the bit; each C1 item it lacks from a tile only the
+composition's shifted window reaches, painted with the composition's rem by arithmetic, and every such piece drawn), the
+oracle's stale memo dropped and read again (counted), a divergence failing unless a home moved since the carry. Seeds
+1–200 × 40 on the copy: PASS, 55,896 items (55,789 same-place bit-identical, 107 carried ≤ 1 ulp), 36 edge-only, 499
+oracle memo re-reads, 46 divergences (all seed 81, each after a home moved). Tree default (20 + 5 pinned): PASS, 8,071
+items, 46 diverged; the same probe on the shipped TileStore: red at seeds 2, 11, 22 (with both memos stale at once the old
+comparison saw two equal empty pictures). Break-checks on the copy: the pre-C1 skip of views above the home back → red at
+seeds 1, 2, 3…; `objShift` without the home-depth carry → red at seed 9 via the new divergence assertion.
+Model suites: 40 files 446 passed before; model.compose/pureRead/store.model/reroute.memo/legacy 21 of 21 after.
+**Decisions made:** class B by place, not a named exception (the pictures are of places; ids differ by design).
+**Questions asked:** none.
+WHERE I AM: item 2 — the two dev servers (5e9b1dd worktree :3030, tree :3031) and `bm1/scenes34.js`.
