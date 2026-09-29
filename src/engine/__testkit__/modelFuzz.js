@@ -145,8 +145,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600 } = {}) {
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
     const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
     let O = mk("oracle", w, h, all), N = mk("live", w, h, all);
-    const logs = new Map([[O, new OpLog(O)], [N, new OpLog(N)]]);
-    logs.set(O, new OracleOpLog(O));
+    const logs = new Map([[O, new OracleOpLog(O)], [N, new OpLog(N)]]);
     const stores = new Map();
     const both = (fn) => { fn(O); fn(N); };
     const inkPoints = () => {

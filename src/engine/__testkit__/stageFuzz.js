@@ -15,7 +15,7 @@ import { collectFrames } from "../frameGc";
 const COLOURS = ["rgb(0,0,0)", "rgb(200,30,30)", "rgb(30,120,200)", "rgb(40,160,60)"];
 
 /** A 31-bit LCG: the same numbers on every platform. */
-function lcg(seed) {
+export function lcg(seed) {
     let s = (seed >>> 0) & 0x7fffffff;
     return () => { s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff; return s / 0x7fffffff; };
 }
