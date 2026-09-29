@@ -1757,3 +1757,16 @@ Worker bundles rebuilt, md5s unchanged (raster 2cd48b67…, scene dce304b8…).
 **Questions asked:** in the report (the hook's false saver comment and `rasterPack.js`'s `ownContent` line are
 B-PYRAMID-2b's files; the ants' dash phase after a drag).
 WHERE I AM: ended — report handed back.
+
+## 2026-09-29 10:15 UTC — orchestrator (Fable) — B-MODEL-C1 landed (2fa7a26); its review launched; PLAN §5.12
+**Working on:** C1's report answered in PLAN §5.12 (the hook's false saver comment and `rasterPack`'s stale line to
+B-PYRAMID-2b's item 5; the ants' dash phase after a drag to the reviewer's trace, then B-DRAG if cosmetic; the fuzz's
+two relaxations tightened by the reviewer; the SVG path's drag re-run on the current tree; the settle-named tests
+renamed). The review launched (`opus-reviewer`, `briefs/R-MODEL-C1.md`). Running: B-PYRAMID-2b (P6 item 4), the C1
+reviewer. One slot free; B-DRAG waits for both P6's review and this one (MovePlane, selection, KobinEngine overlap);
+B-PYRAMID-3 waits for P6's review.
+**Measured:** C1's: the tile fuzz 6,336 items bit-identical (33 carried at 0 ulp); the selection fuzz 135 selections
+equal; a 20-event drag of 300 natives from 1 settle and 300–600 table writes per event to 0 and 0; scenarios 3 and 4
+pixel-identical on ink; the quick suite 2,076 pass with 23 reds all in B-PYRAMID-2b's in-flight ports.
+**Decisions made:** PLAN §5.12 items 1–6.
+**Questions asked:** none.
