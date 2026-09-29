@@ -18,22 +18,11 @@ import { collectFrames } from "../frameGc";
 import { collectFrames as oCollectFrames } from "../__oracles__/model-v1/frameGc";
 import { drawStroke, eraseGesture, descend, ascend } from "./harness";
 import { lcg } from "./stageFuzz";
-import { W } from "../frameLattice";
+import { W, R } from "../frameLattice";
 
 const COLOURS = ["rgb(0,0,0)", "rgb(200,30,30)", "rgb(30,120,200)", "rgb(40,160,60)"];
 /** A frame's own square, one unit in from its edges: one cache tile a direction. */
 export const CELL = Object.freeze({ left: -W / 2 + 1, top: -W / 2 + 1, right: W / 2 - 1, bottom: W / 2 - 1 });
-// Above its home a native's remainder reaches 48 units (a composed table of 1.5 W at k0 = −1): the settling
-// model read the unshifted window there and so drew less at the square's edges (A1 C1 reroutes it).
-const EDGE_M = 64;
-const insideCell = (it) => {
-    const p = it.painted;
-    for (let i = 0; i + 1 < p.length; i += 2) {
-        if (!(p[i] > CELL.left + EDGE_M && p[i] < CELL.right - EDGE_M && p[i + 1] > CELL.top + EDGE_M && p[i + 1] < CELL.bottom - EDGE_M)) return false;
-    }
-    return true;
-};
-
 const KIND = {
     oracle: { Engine: OracleEngine, OpLog: OracleOpLog, encode: oEncodeObjects, decode: oDecodeObjects, gc: oCollectFrames },
     live: { Engine: KobinEngine, OpLog, encode: encodeObjects, decode: decodeObjects, gc: collectFrames },
@@ -86,7 +75,7 @@ export function pictureAt(E, V, rect = CELL) {
         let a = out.get(it.id);
         if (!a) out.set(it.id, (a = []));
         const off = [it.off[0], it.off[1]];
-        a.push({ type: it.piece.type, nums: numsOf(it.piece), off, painted: paintedOf(it.piece, off), own: it.key === "own" });
+        a.push({ type: it.piece.type, nums: numsOf(it.piece), off, painted: paintedOf(it.piece, off), own: it.key === "own", si: it.si, sj: it.sj });
     }
     return out;
 }
@@ -108,10 +97,31 @@ function worst(a, b, painted = false) {
     return m;
 }
 
-/** The frames compared after an operation: the camera's, its parent, a ring neighbour and a child, each in both lattices. */
+/**
+ * A frame's place: its top frame's id and the cells down to it. One id can name two places in the two
+ * engines (the oracle zeroed a frame's shift at its settle, so a later drag carried another whole cell
+ * into the address), so frames and homes are matched by place.
+ */
+export function placeOf(E, id) {
+    const cells = [];
+    let f = id != null ? E.lm.frame(String(id)) : null;
+    while (f && f.parent != null) { cells.push(f.cell.i + "," + f.cell.j); f = E.lm.frame(String(f.parent)); }
+    return f ? [f.id, ...cells.reverse()].join("/") : null;
+}
+/** Engine E's resident frame at `place`, or null. */
+export function frameAtPlace(E, place) {
+    if (place == null) return null;
+    for (const f of E.lm.frames.values()) if (f.shadowOf == null && placeOf(E, f.id) === place) return f.id;
+    return null;
+}
+
+/** The frames compared after an operation, as N's ids: the camera's, its parent, a ring neighbour and a child, each with a resident at its place in O. */
 export function framesToCompare(O, N) {
     const F = String(N.cam.frame);
-    const both = (id) => id != null && O.lm.frame(String(id)) && N.lm.frame(String(id));
+    const both = (id) => {
+        const f = id != null ? N.lm.frame(String(id)) : null;
+        return !!f && f.shadowOf == null && frameAtPlace(O, placeOf(N, f.id)) != null;
+    };
     const out = [];
     if (both(F)) out.push(F);
     const p = N.lm.parentOf(F);
@@ -127,66 +137,109 @@ export function framesToCompare(O, N) {
 }
 
 /**
- * Compare the two pictures at frame V. A native homed in the same frame in both engines must be drawn
- * from bit-identical pieces and offsets; one the oracle carried to another frame is compared through
- * its picture: its pieces and offsets bit-identical at and below its home's depth, its painted points
- * within `aboveUlps` above it (A1 E3). A native the oracle carried at an earlier check (`st.tainted`)
- * whose picture then differs has left the oracle's frame for good — a later frame operation moves it
- * in one engine and not the other, which is C1's point — and is counted (`st.diverged`), not failed.
- * Adds to `st` and returns the first difference, or null.
+ * The composition's remainder at depth D above native `rec`'s home (A1 C1): its own table with its
+ * frame's shift added at k = 0, every entry scaled to D. Sub-cell there, so no carry; `shiftAt`'s sums
+ * in its order, so bit for bit.
+ */
+function remAbove(E, rec, D) {
+    const f = E.lm.frame(String(rec.level)), k0 = D - E.lm.depthOf(rec.level), below = rec.obj.below || [];
+    let rx = 0, ry = 0;
+    for (let k = 0; k < Math.max(1, below.length); k++) {
+        const e = below[k], sh = k === 0 && f && f.shift ? f.shift : null;
+        const ex = (e ? e[0] : 0) + (sh ? sh[0] : 0), ey = (e ? e[1] : 0) + (sh ? sh[1] : 0);
+        if (ex === 0 && ey === 0) continue;
+        const q = Math.pow(R, k0 - k);
+        rx += ex * q; ry += ey * q;
+    }
+    return [rx, ry];
+}
+const shiftedCell = (off) => ({ left: CELL.left - off[0], right: CELL.right - off[0], top: CELL.top - off[1], bottom: CELL.bottom - off[1] });
+const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it.sj <= r.j1;
+
+/**
+ * Compare the pictures of frame V of N and of the frame at V's place in O over the whole square. A
+ * native homed at the same place in both is drawn from bit-identical pieces and offsets; one the oracle
+ * carried to another place through its painted points, to the bit at and below its home's depth and
+ * within `aboveUlps` above it (A1 E3). Above a native's home the oracle read the unshifted window (its
+ * reroute skipped those views), so each of its items is in N's picture, and an item of N's it lacks must
+ * come from a tile that window does not reach, inside the window shifted back by the composition's
+ * remainder and painted with it (`remAbove`), and every such piece is drawn (counted `edgeOnly`). Two named exceptions, counted: the
+ * oracle's reroute memo naming a frame GC forgot is dropped and read again (`oracleMemo`, the memo defect
+ * `TileStore.forgetFrame` fixed after C1); and a native the oracle carried at an earlier check whose
+ * picture then differs (`diverged`) must have had a home moved in one engine since — C1 keeps a native in
+ * its frame — or the check fails. Adds to `st` and returns the first difference, or null.
  */
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
-    const a = pictureAt(O, V), b = pictureAt(N, V);
+    const VO = frameAtPlace(O, placeOf(N, V));
+    if (VO == null) return "no frame at " + V + "'s place in the first engine";
+    const memo = O.store._rrMemo && O.store._rrMemo.get(VO);
+    if (memo && [...memo.groups.values()].some((g) => !O.lm.frame(g.F0))) { O.store._rrMemo.delete(VO); st.oracleMemo = (st.oracleMemo || 0) + 1; }
+    const a = pictureAt(O, VO), b = pictureAt(N, V);
     if (!a || !b) return "no picture at " + V;
     const D = N.lm.depthOf(V);
-    const tainted = st.tainted || (st.tainted = new Set());
+    const unread = N.lm.tileRange(V, CELL);
+    const tainted = st.tainted || (st.tainted = new Map());
     const carriedNow = [];
     for (const id of new Set([...a.keys(), ...b.keys()])) {
-        let ra = a.get(id) || [], rb = b.get(id) || [];
+        const ra = a.get(id) || [], rb = b.get(id) || [];
         const ho = O.doc.getById(id), hn = N.doc.getById(id);
-        // Above its home only what is painted clear of the square's edges is compared (EDGE_M).
-        if ((hn && D < N.lm.depthOf(hn.level)) || (ho && D < O.lm.depthOf(ho.level))) {
-            ra = ra.filter(insideCell); rb = rb.filter(insideCell);
-            if (!ra.length && !rb.length) continue;
-        }
-        const same = !!ho && !!hn && String(ho.level) === String(hn.level);
-        if (!same && ho && hn) carriedNow.push(id);
-        const diverged = () => { st.diverged = (st.diverged || 0) + 1; return null; };
-        if (ra.length !== rb.length) {
-            if (!same && tainted.has(id)) { diverged(); continue; }
-            return "native " + id + " at " + V + ": oracle " + ra.length + " items, live " + rb.length + (same ? "" : " (carried)");
-        }
-        const above = hn ? D < N.lm.depthOf(hn.level) : false;
+        const po = ho ? placeOf(O, ho.level) : null, pn = hn ? placeOf(N, hn.level) : null;
+        const same = po != null && po === pn;
+        if (!same && po && pn) carriedNow.push([id, po, pn]);
+        const above = !!((hn && D < N.lm.depthOf(hn.level)) || (ho && D < O.lm.depthOf(ho.level)));
         const painted = !same && above;
+        const c = { items: 0, exact: 0, carried: 0, carriedExact: 0, carriedUlp: 0, maxUlp: 0, off: 0, shifted: 0, pieces: 0, edgeOnly: 0 };
         const hf = hn ? N.lm.frame(String(hn.level)) : null;
-        const shifted = !!(hf && hf.shift);
+        let diff = ra.length > rb.length || (ra.length < rb.length && !above)
+            ? "native " + id + " at " + V + ": oracle " + ra.length + " items, live " + rb.length + (same ? "" : " (carried)") : null;
         const left = rb.slice();
-        let gone = false;
         for (const x of ra) {
+            if (diff) break;
             let best = -1, bw = Infinity;
             for (let k = 0; k < left.length; k++) { const w = worst(x, left[k], painted); if (w < bw) { bw = w; best = k; if (w === 0) break; } }
-            if ((best < 0 || bw === Infinity || (!same && !above && bw !== 0) || (painted && bw > aboveUlps)) && !same && tainted.has(id)) { gone = true; break; }
-            if (best < 0 || bw === Infinity) return "native " + id + " at " + V + ": an item has no match" + (same ? "" : " (carried)");
+            if (best < 0 || bw === Infinity) { diff = "native " + id + " at " + V + ": an item has no match" + (same ? "" : " (carried)"); break; }
+            if (same && bw !== 0) { diff = "native " + id + " at " + V + ": " + bw + " ulp with the same home"; break; }
+            if (!same && !above && bw !== 0) { diff = "carried native " + id + " at " + V + " (at or below its home): " + bw + " ulp"; break; }
+            if (!same && bw > aboveUlps) { diff = "carried native " + id + " at " + V + " (above its home): " + bw + " ulp"; break; }
             left.splice(best, 1);
-            st.items++;
-            if (x.off[0] || x.off[1]) st.off = (st.off || 0) + 1;
-            if (shifted) st.shifted = (st.shifted || 0) + 1;
-            if (!x.own) st.pieces = (st.pieces || 0) + 1;
-            if (same) {
-                if (bw !== 0) return "native " + id + " at " + V + ": " + bw + " ulp with the same home";
-                st.exact++;
-            } else {
-                st.carried++;
-                if (bw === 0) st.carriedExact++;
-                else if (!above) return "carried native " + id + " at " + V + " (at or below its home): " + bw + " ulp";
-                else if (bw > aboveUlps) return "carried native " + id + " at " + V + " (above its home): " + bw + " ulp";
-                else st.carriedUlp++;
-                st.maxUlp = Math.max(st.maxUlp, bw);
-            }
+            c.items++;
+            if (x.off[0] || x.off[1]) c.off++;
+            if (hf && hf.shift) c.shifted++;
+            if (!x.own) c.pieces++;
+            if (same) c.exact++;
+            else { c.carried++; if (bw === 0) c.carriedExact++; else c.carriedUlp++; c.maxUlp = Math.max(c.maxUlp, bw); }
         }
-        if (gone) diverged();
+        for (const y of diff ? [] : left) {
+            const r = hn && above ? remAbove(N, hn, D) : null;
+            const ok = r && y.off[0] === r[0] && y.off[1] === r[1] && !inRange(unread, y) && inRange(N.lm.tileRange(V, shiftedCell(y.off)), y);
+            if (!ok) { diff = "native " + id + " at " + V + ": a live item the oracle's unshifted window does not explain"; break; }
+            c.edgeOnly++;
+        }
+        if (!diff && above && hn) {
+            // Every piece of the native in the tiles only the shifted window reaches is drawn: none missing.
+            const r = remAbove(N, hn, D), rr = N.lm.tileRange(V, shiftedCell(r)), seen = new Set();
+            let want = 0;
+            for (let i = rr.i0; i <= rr.i1; i++) {
+                for (let j = rr.j0; j <= rr.j1; j++) {
+                    if (inRange(unread, { si: i, sj: j })) continue;
+                    for (const dir of ["up", "down"]) {
+                        const t = N.store.peek(V + "|" + dir + "|" + i + "," + j);
+                        for (const q of t ? t.objs : []) if (q.id === id && !seen.has(q)) { seen.add(q); want++; }
+                    }
+                }
+            }
+            if (want !== c.edgeOnly) diff = "native " + id + " at " + V + ": " + want + " pieces only the shifted window reaches, " + c.edgeOnly + " drawn";
+        }
+        if (diff) {
+            const t = tainted.get(id);
+            if (!t) return diff;
+            if (t.o === po && t.n === pn) return diff + " (carried at an earlier check; neither home has moved since)";
+            st.diverged = (st.diverged || 0) + 1;
+            continue;
+        }
+        for (const k of Object.keys(c)) st[k] = k === "maxUlp" ? Math.max(st[k] || 0, c[k]) : (st[k] || 0) + c[k];
     }
-    for (const id of carriedNow) tainted.add(id);
+    for (const [id, po, pn] of carriedNow) if (!tainted.has(id)) tainted.set(id, { o: po, n: pn });
     return null;
 }
 
