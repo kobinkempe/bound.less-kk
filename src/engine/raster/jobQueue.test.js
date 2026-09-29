@@ -134,7 +134,7 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         d.q.setMotion({ moving: true, view, vel: { px: [0, 0], zoom: 0.2 } });
         d.q.push([{ ...job("view", 1, 2) }]);
         d.q.pump();
-        expect(d.sent[0].level).toBe(3 + AIM_LEVELS);                       // aimed two levels in, not twenty (F134)
+        expect(d.sent[0].level).toBe(3 + 2);                                 // aimed AIM_LEVELS in, not twenty (F134)
         expect(d.sent[0].cells.length).toBeGreaterThan(0);
         expect(d.sent[0].cells.length).toBeLessThanOrEqual(6);             // one screenful at the new level, not 2^40 children
     });
@@ -142,6 +142,7 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
     test("F134: a fast zoom-out's strips are re-aimed at most AIM_LEVELS past the view's level and never under the frame's floor", () => {
         // The flag's timings: zoom steps 1–3 ms apart halve Z each (−1 octave a ms) and an eta of 15–20 ms predicts 15–20
         // octaves out; strips pushed at the view's level −4 went to −14…−21 and one such plate took 5–102 s inline.
+        expect(AIM_LEVELS).toBe(2);                                          // A3 §4.4: one or two levels ahead
         for (const [S, level] of [[1, -4], [1, -5], [2, -3], [3, -1], [3, -2]]) {
             for (const eta of [15, 20]) {
                 const Z = zOf(level, S) * 1.2, view = { frameId: "F", level, S, Z, k: Z, tx: 0, ty: 0, wDev: 800, hDev: 600, sigmaMin: 2 ** -0.5 };
@@ -151,7 +152,7 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
                 r.q.push([job("view", 1, 2, { level, S, Z: zOf(level, S), cells: [levelCell("F", level, S, 0, 0), levelCell("F", level, S, 1, 0)] })]);
                 r.q.pump();
                 const st = r.sent[0];
-                expect([S, level, eta, st.level]).toEqual([S, level, eta, Math.max(ownFloor(S), level - AIM_LEVELS)]);
+                expect([S, level, eta, st.level]).toEqual([S, level, eta, Math.max(ownFloor(S), level - 2)]);
                 expect(st.Z).toBe(zOf(st.level, S));
                 expect(st.cells.length).toBeGreaterThan(0);
             }

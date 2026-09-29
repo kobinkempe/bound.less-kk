@@ -2,14 +2,13 @@
  * raster.commit.test.js — the pyramid in the task of a Stage commit (B-PYRAMID-4): a commit's patch step runs in the
  * task that made it — the next compose runs it, else a microtask — so no compose draws a plate the commit staled with
  * no patch asked (PLAN §5.15 item 1: scenario 7's `olderOtherMs` was stale own plates waiting for the bake's next render);
- * and a fast zoom-out's view strips are re-aimed at most AIM_LEVELS past the view and never under the frame's floor
+ * and a fast zoom-out's view strips are re-aimed at most AIM_LEVELS (2) past the view and never under the frame's floor
  * (F134: levels −14…−21 and 5–102 s a plate in jsdom).
  */
 import { useEngines, mkEngine, drawStroke } from "../__testkit__/harness";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
 import { resetRasterStats } from "./RasterRenderer";
-import { AIM_LEVELS } from "./jobQueue";
 import { ownFloor } from "./level";
 
 useEngines();
@@ -115,7 +114,7 @@ describe("F134: the velocity rule's re-aim is bounded", () => {
             await new Promise((r) => setTimeout(r, 2));
         }
         expect(sent.length).toBeGreaterThan(0);
-        expect(sent.filter((s) => s.level < Math.max(ownFloor(s.S), s.view - AIM_LEVELS))).toEqual([]);
+        expect(sent.filter((s) => s.level < Math.max(ownFloor(s.S), s.view - 2))).toEqual([]);      // AIM_LEVELS
         const t0 = Date.now();
         expect(await drain(E, g)).toBe(0);
         expect(Date.now() - t0).toBeLessThan(30000);
