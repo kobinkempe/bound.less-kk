@@ -800,7 +800,7 @@ let idSeq = 0;
 const idOf = (x) => { if (x == null) return 0; let v = IDS.get(x); if (!v) IDS.set(x, (v = ++idSeq)); return v; };
 
 function prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset) {
-    const key = q + "|" + Zq + "|" + dpr + "|" + idOf(cfg) + "|" + idOf(live) + "|" + idOf(only) + "|" + idOf(omit)
+    const key = Zq + "|" + dpr + "|" + idOf(cfg) + "|" + idOf(live) + "|" + idOf(only) + "|" + idOf(omit)
         + "|" + (offset ? offset[0] + "," + offset[1] : "");
     let m = PREPASS.get(list);
     if (!m) PREPASS.set(list, (m = new Map()));

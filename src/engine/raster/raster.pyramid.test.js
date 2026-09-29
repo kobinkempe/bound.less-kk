@@ -7,7 +7,7 @@
  * F101 (a destroyed engine puts nothing back) and F106 (a newer stale result replaces older stale pixels, the
  * monotone-G rule).
  */
-import { useEngines, mkEngine, drawStroke, erase, descend, ascend } from "../__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, erase, eraseGesture, descend, ascend, drag } from "../__testkit__/harness";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
 import PyramidStore, { budgetBytes } from "./PyramidStore";
@@ -376,6 +376,28 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
 
+    test("a stroke pending its shape: the pick sees it, no pack paints it and it dirties nothing (PLAN §1.5)", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
+        drawStroke(E, [[100, 420], [300, 480]], 12);                    // ink elsewhere, so the plates are not empty
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        const G0 = E.stage.generation;
+        const o = drawStroke(E, [[150, 150], [300, 260], [450, 200]], 13, null, { raw: true });
+        expect(E.stage._pending.has(o.id)).toBe(true);
+        expect(R._sceneList().some((it) => it.id === o.id)).toBe(false);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        const c0 = E.cam, box = { left: (150 - c0.inPanX) / c0.inScale, top: (150 - c0.inPanY) / c0.inScale, right: (450 - c0.inPanX) / c0.inScale, bottom: (260 - c0.inPanY) / c0.inScale };
+        const recs = cellsUnder(R.pyramid.lastPlan, box).flatMap((c) => c.draws.map((d) => d.rec)).filter(Boolean);
+        expect(recs.length).toBeGreaterThan(0);
+        for (const rec of recs) expect([rec.key, E.plates.exact(rec), rec.G <= G0 || diffBytes(rec.pixels, wholeRender(E, rec)) === 0]).toEqual([rec.key, true, true]);
+        E.setTool("select");
+        E.pointerDown(300, 260); E.pointerUp();
+        expect(E.selection && E.selection.ids).toEqual([o.id]);
+        expect(E.stage._pending.has(o.id)).toBe(true);
+    });
+
     test("undo and redo reach the pyramid as Stage dirt: the frame's patch step re-renders the rectangle inline, equal to a whole render", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
@@ -507,6 +529,109 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
     }, 60000);
 });
 
+describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID review)", () => {
+    test("a stored plate's G never falls and every draw the plan calls exact is exact: out-of-order and late answers, a re-aim, a step change's refused jobs, a drag's plane plates, snapshots", async () => {
+        const parked = [];
+        setRasterTransport((msg) => new Promise((resolve) => parked.push({ msg, resolve })));
+        /** Answer a random share of what is parked, in random order; the rest stays parked, to land after later ops. */
+        const answer = async (rnd, share) => {
+            const take = parked.filter(() => rnd() < share).sort(() => rnd() - 0.5);
+            for (const p of take) { parked.splice(parked.indexOf(p), 1); const out = await runJob(p.msg); p.resolve(out.msg); }
+            for (let n = 0; n < 6; n++) await tick();
+        };
+        const bad = [], seen = { refused: 0, reaimed: 0, planePuts: 0, snapshots: 0, exactDraws: 0, puts: 0 };
+        for (const seed of [5, 17, 29]) {
+            const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true }), R = E.renderer, st = E.plates;
+            const put = st.put.bind(st), patch = st.patch.bind(st);
+            st.put = (rec) => {
+                const cur = st.cache.get(rec.key), out = put(rec), nxt = st.cache.get(rec.key);
+                seen.puts++;
+                if (rec.kind === "plane" && nxt && nxt !== cur) seen.planePuts++;
+                if (cur && nxt && nxt !== cur && !(nxt.G > cur.G)) bad.push(`seed ${seed}: ${rec.key} replaced at G ${nxt.G} over ${cur.G}`);
+                return out;
+            };
+            st.patch = (key, o) => {
+                const cur = st.cache.get(key), G0 = cur ? cur.G : null, out = patch(key, o);
+                if (cur && st.cache.get(key).G < G0) bad.push(`seed ${seed}: ${key} patched down to ${st.cache.get(key).G} from ${G0}`);
+                return out;
+            };
+            const compose = R.pyramid.compose.bind(R.pyramid);
+            R.pyramid.compose = () => {
+                const P = compose();
+                for (const d of P.draws) {
+                    if (!d.rec) continue;
+                    if (d.rec.dead) bad.push(`seed ${seed}: a closed record drawn, ${d.rec.key}`);
+                    if (d.exact) { seen.exactDraws++; if (!st.exact(d.rec)) bad.push(`seed ${seed}: ${d.rec.key} drawn exact at G ${d.rec.G} under dirt ${st.fresh.dirtySince(d.rec.key)}`); }
+                }
+                return P;
+            };
+            const pt = () => [80 + rnd() * 640, 80 + rnd() * 440];
+            for (let step = 0; step < 18; step++) {
+                const op = rnd();
+                if (op < 0.3) drawStroke(E, [pt(), pt(), pt()], 6 + rnd() * 24);
+                else if (op < 0.4) E.undo();
+                else if (op < 0.45) E.redo();
+                else if (op < 0.6) { E.zoomAt(400, 300, (rnd() - 0.5) * 900); E.zoomAt(380, 280, (rnd() - 0.5) * 900); }   // a strip queued mid-gesture is re-aimed
+                else if (op < 0.68) { R.pyramid.cfg.levelStep = R.pyramid.cfg.levelStep === 2 ? 1 : 2; R.syncCameraOnly(); }   // the old step's jobs refused
+                else if (op < 0.8) { const a = pt(); drag(E, a, [a[0] + 60 * (rnd() - 0.5), a[1] + 60 * (rnd() - 0.5)], 4); E.setTool("pen"); }
+                else if (op < 0.88) { E.snapshotView({ frame: E.cam.frame, rect: { x: 40, y: 40, w: 300, h: 200 } }).then(() => { seen.snapshots++; }, () => {}); }
+                else E.panBy((rnd() - 0.5) * 200, (rnd() - 0.5) * 200);
+                await settle(E, 1);
+                await answer(rnd, 0.6);
+            }
+            for (let k = 0; k < 60 && parked.length + R.queue.report().queued.reduce((a, b) => a + b, 0); k++) { await answer(rnd, 1); await settle(E, 1); }
+            seen.refused += st.s.refused; seen.reaimed += R.queue.s.reaimed;
+            E.destroy();
+            parked.length = 0;
+        }
+        expect(bad.slice(0, 5)).toEqual([]);
+        // eslint-disable-next-line no-console
+        console.log("row 1 fuzz: " + JSON.stringify(seen));
+        expect(seen.exactDraws).toBeGreaterThan(100);
+        expect(seen.refused).toBeGreaterThan(0);                        // late answers of refused jobs reached the store
+    }, 120000);
+
+    test("rows 8/10 at the bake's cut steps: every patch through its clip, the pending mark's byte masks in the job, equals a whole render", async () => {
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;   // no transport: the inline pool, cuts and plates alike
+        E._scheduleBake = () => {};                                      // the steps are this test's
+        const fill = (x, y, w, h, color, opacity = 1) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity,
+            polys: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]] }, "0");
+        fill(140, 160, 420, 90, "rgb(30,90,200)"); fill(260, 120, 120, 300, "rgb(200,60,40)", 0.5);
+        drawStroke(E, [[150, 380], [420, 300], [650, 360]], 22, "#183");
+        E._render();
+        for (let k = 0; k < 20; k++) await settle(E, 1);
+        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 1e9;   // every patch inline, so each is compared here
+        eraseGesture(E, [[300, 130], [340, 430]], 36);
+        eraseGesture(E, [[180, 200], [600, 230]], 24);
+        let steps = 0, clipped = 0, compared = 0;
+        const check = (why) => {
+            for (const c of R.pyramid.lastPlan.cells) {
+                for (const d of c.draws) {
+                    const rec = d.rec;
+                    if (!rec || !E.plates.exact(rec)) continue;
+                    compared++;
+                    expect([why, rec.key, diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([why, rec.key, 0]);
+                }
+            }
+        };
+        const merges0 = R.pyramid.s.merges;
+        for (let guard = 0; guard < 400; guard++) {
+            R.syncCameraOnly();                                          // the step's patch step runs inline
+            for (let k = 0; k < 4; k++) await tick();
+            R.syncCameraOnly();
+            check("step " + steps);
+            if (!E._bakeNext()) break;
+            steps++;
+        }
+        clipped = R.pyramid.s.merges - merges0;
+        expect(E._eraseStrokes()).toHaveLength(0);
+        expect(steps).toBeGreaterThan(1);
+        expect(clipped).toBeGreaterThan(0);                              // patches landed through their clips
+        expect(compared).toBeGreaterThan(steps);
+        delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
+    }, 60000);
+});
+
 /**
  * An exact record within N = ⌈8/S⌉ levels at or above a plan cell's own zoom whose box covers the cell, in any frame
  * the lattice maps into the view's (brute force over the store, independent of the plan's lookup), or null.
@@ -622,7 +747,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         E.setPlateBudget({ views: 8, ceilingMiB: 512 });              // nothing evicted: a stored late plate would stay
         R._pyrPrefetch = () => {};                                     // the one worker holds only the plane's strips
         R.pyramid.cfg.restInlineMs = 1e9;                              // the still frame shows the rest set at once: a stable view
-        E.zoomAt(400, 300, -380);                                      // rest at Z 2^0.38: no quantum ladder lands on Zp / 4
+        E.zoomAt(400, 300, -380);                                      // rest at Z 2^0.38: no level's Z is Zp / 4
         const a = E.doc.add(fillAt(E, -300, -200, "rgb(200,30,30)", 1000), "0");   // most of the screen and past it: 18 plates, a quick level
         const b = E.doc.add(fillAt(E, 300, 200, "rgb(30,30,200)"), "0");
         E._render();

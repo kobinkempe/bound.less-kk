@@ -732,7 +732,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
 
 });
 
-describe("the drop of a selected frame, the ladder under a pinned plane, the landing's limit", () => {
+describe("the drop of a selected frame, the landing's limit", () => {
     test("F1 dropping a selected frame removes the moved subtree's plates only; the rest are kept", async () => {
         const E = mkEngine();
         const kid = E.lm.cellChild("0", 3, 2);

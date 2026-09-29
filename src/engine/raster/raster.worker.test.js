@@ -921,8 +921,8 @@ describe("the pool through the queue (§3.6, §8.4; A3 §4.4)", () => {
 
             // the orphan's own answer is the proof that worker stopped: the slot frees, the waiting
             // strip takes it, and the abandoned job's result is not delivered to the caller
+            client.setOnSlotFreed(() => Q.pump());                      // the renderer's hook: nothing else pumps now
             made[0].onmessage({ data: (await runJob(orphan)).msg });
-            Q.pump();                                                    // the queue's owner pumps (a frame, a landing)
             expect(await until(() => made[0].posted.length === 2)).toBe(true);
             expect(got.length).toBe(0);
             expect(queued()).toBe(0);

@@ -376,6 +376,7 @@ export default class Renderer {
     // forces the full render which then does the regrouping.
     needsFadeFlip() {
         for (const entry of this._groups.values()) {
+            if (entry.sig === null && this._groupOpacity(entry, entry.pieces[0]) > 0) return true;   // hidden and stale, about to show
             for (const o of entry.pieces) {
                 if (o.editId == null) continue;
                 if ((this._fade(o) >= 1) !== !!entry.family) return true;
@@ -449,17 +450,21 @@ export default class Renderer {
             const family = rep.editId != null && id === rep.editId;
             const existing = this._groups.get(id);
             if (existing && existing.sig === sig) { existing.pieces = pieces; this._applyOpacity(existing, rep); this._setMask(existing, marks); continue; }
-            rebuilt++;
             let entry = existing;
             if (!entry) {
                 entry = { group: new Two.Group(), sig: null, z: rep.z != null ? rep.z : id, pieces, fadeTag: rep.fadeTag, family };
                 this._groups.set(id, entry);
                 this._insertSorted(id);
                 reorder = true;
-            } else {
-                entry.group.remove(entry.group.children);
             }
-            entry.pieces = pieces; entry.sig = sig; entry.fadeTag = rep.fadeTag; entry.family = family;
+            entry.pieces = pieces; entry.fadeTag = rep.fadeTag; entry.family = family;
+            // Two.js renders nothing of a group at opacity 0, the removal of its old paths included, so a group rebuilt
+            // while hidden kept every generation (OPEN-FLAGS F133: 391,068 anchors after 8 drag steps). A hidden group
+            // keeps what it has, its signature stale, until the frame that shows it rebuilds it (`needsFadeFlip`).
+            if (this._groupOpacity(entry, rep) === 0) { entry.sig = null; this._applyOpacity(entry, rep); this._setMask(entry, marks); continue; }
+            rebuilt++;
+            if (existing) entry.group.remove(entry.group.children);
+            entry.sig = sig;
             this._buildPieces(entry.group, pieces);
             Renderer._applyThinScale(entry);
             this._applyOpacity(entry, rep);
@@ -883,11 +888,12 @@ export default class Renderer {
     }
     // Opacity: object opacity × fade alpha (down-pieces) × tint. In group mode the
     // opacity lives once on the group; pieces stay fully opaque inside.
-    _applyOpacity(entry, o) {
+    _applyOpacity(entry, o) { entry.group.opacity = this._groupOpacity(entry, o); }
+    _groupOpacity(entry, o) {
         // In erase-debug the opacity lives on each PATH (see `_opacityOf`), so
         // the group stays clear: two pieces of one object that overlap have to
         // read as darker, and a group-level alpha would hide exactly that.
-        if (this.eraseDebug) { entry.group.opacity = this._fade(o); return; }
+        if (this.eraseDebug) return this._fade(o);
         // A FAMILY group holds only pieces that are FULLY PRESENT — that is the
         // grouping rule up in render() — so it is painted at full presence, and
         // never at the fade of whichever member happens to sort first.
@@ -901,7 +907,7 @@ export default class Renderer {
         // window-filling parent with it: "the object that's fading covered the
         // entire window".
         const fade = entry.family ? 1 : this._fade(o);
-        entry.group.opacity = (o.opacity == null ? 1 : o.opacity) * fade;
+        return (o.opacity == null ? 1 : o.opacity) * fade;
     }
     // How present a down-piece is: 1 well above the cull, 0 below the fade
     // floor, ramping between. Not a tag but a NUMBER, because a piece carries

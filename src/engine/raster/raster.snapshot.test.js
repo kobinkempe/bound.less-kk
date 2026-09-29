@@ -297,6 +297,39 @@ test("S7 an aborted snapshot rejects, begins no store job and caches nothing", a
     expect(E.plates.cache.size).toBe(size0);
 });
 
+test("S7b a snapshot aborted while its strip waits in the queue leaves the queue at once, not at its dispatch", async () => {
+    const gate = mkGate();
+    const E = mkEngine();
+    drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
+    E._render();
+    expect(gate.length).toBe(1);                            // the one worker holds a camera plate
+    const thumbs = () => E.renderer.queue.report().queued[5];
+    const ac = new AbortController();
+    const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 60, y: 60, w: 400, h: 300 }, signal: ac.signal });
+    expect(await until(() => thumbs() === 1)).toBe(true);   // read at idle, queued behind the busy worker
+    const rejected = expect(p).rejects.toThrow("aborted");
+    ac.abort();
+    expect(thumbs()).toBe(0);
+    await rejected;
+    while (await gate.release()) { /* the camera's plates */ }
+    expect(rasterStats.snapshotPlates).toBe(0);
+    expect(E.plates.jobs.size).toBe(0);
+});
+
+test("S11 a snapshot that lands frees its queue slot: the next one dispatches (the low-priority cap is one on one worker)", async () => {
+    const E = mkEngine();
+    drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
+    await paint(E);
+    for (let n = 0; n < 2; n++) {
+        const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 40 + 20 * n, y: 40, w: 400, h: 300 } });
+        let done = false;
+        p.then(() => { done = true; }, () => { done = true; });
+        expect([n, await until(() => done, 100)]).toEqual([n, true]);
+        expect(E.renderer.queue.report().inFlight).toEqual([0, 0, 0, 0, 0, 0]);
+    }
+    expect(rasterStats.snapshotPlates).toBe(2);
+});
+
 test("S10 off the raster path snapshotView answers null, so the caller falls back", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

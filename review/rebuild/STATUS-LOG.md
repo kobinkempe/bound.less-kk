@@ -2036,7 +2036,7 @@ Typecheck 0; lint 0 errors (6 warnings); worker bundles' md5 unchanged.
 **Questions asked:** none.
 WHERE I AM: the quick suite running on the frozen after copy; next, item 2's mask rule in `Renderer.render`.
 
-## 2026-09-29 15:50 UTC — reviewer (B-PYRAMID review) — checkpoint: items 1, 2, 4 built
+## 2026-09-29 15:36 UTC — reviewer (B-PYRAMID review) — checkpoint: items 1, 2, 4 built
 **Working on:** the three fixes, each red first (4 of 4 new tests red on the tree, 2 of 2 for item 2), then green.
 Item 1: a zoom keeps the rest set's records as the stand-in at their own Z (`_standIn`; `_standInCell` tried at its
 resolution's rank among the coarser levels, over a stale own plate's dirt by rule (e) or the cell's on-screen part,

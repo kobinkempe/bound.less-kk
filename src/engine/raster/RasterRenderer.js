@@ -26,7 +26,7 @@ import { antStats, selAntScale } from "./antPaint";
 import OverlayLayer from "./OverlayLayer";
 import MovePlane, { MOVE_HOLD_MS, planeStats } from "./MovePlane";
 import * as rasterPerf from "./rasterPerf";
-import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool } from "./rasterWorkerClient";
+import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool, setOnSlotFreed } from "./rasterWorkerClient";
 import PyramidStore, { planeCell } from "./PyramidStore";
 import PicturePyramid, { sampleOf, EST_DEFAULTS, LIVE_HOLD_MS } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
@@ -807,6 +807,7 @@ export default class RasterRenderer extends Renderer {
         this._pyrPlaneAsked = new Map();                 // plane key -> the G it was asked at
         this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => { pyr.refresh(); this._pyrPlaneAsked.clear(); } });
         this.layer = pyr;
+        if (base === rasterPool) setOnSlotFreed(() => { if (!this._destroyed) this._pumpSoon(); });   // an orphan's answer frees a slot
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
         // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
@@ -897,7 +898,12 @@ export default class RasterRenderer extends Renderer {
         gens.prefetch++;
         const reportBusy = !!(this._busyFn && this._busyFn());
         if (!reportBusy) this._pyrPrefetchKey = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
-        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn });
+        // Its off-camera reads are tile reads (`eng.list`), in the step's row or a row of their own (§8.4 rule 2).
+        const own = !this._rowLive, t0 = perfNow();
+        if (own) this._openRow(this.frameSeq, "settle");
+        let jobs;
+        try { jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn }); }
+        finally { this._add(SLOT.list, perfNow() - t0); if (own) this._closeRow(); }
         if (!jobs.length) return;
         this.pyramid.setFar(farKeysOf(jobs));
         q.push(jobs);
@@ -1272,12 +1278,14 @@ export default class RasterRenderer extends Renderer {
                 if (why === "aborted") rasterStats.snapshotAborts++; else rasterStats.snapshotFails++;
                 reject(new Error(why));
             };
+            let st = null;
             if (o.signal && o.signal.aborted) { fail("aborted"); return; }
-            if (o.signal && o.signal.addEventListener) o.signal.addEventListener("abort", () => fail("aborted"), { once: true });
+            // Aborted while queued: out of the queue now, not at its dispatch.
+            if (o.signal && o.signal.addEventListener) o.signal.addEventListener("abort", () => { fail("aborted"); if (st) this.queue.remove(st); }, { once: true });
             this._readIdle(o.frameId, () => o.win, () => this._destroyed || settled, (snap) => {
                 if (!snap) { done(null); return; }
                 const q = this.queue, list = this._tableList(snap);
-                const st = { kind: "thumb", prio: PRIO.thumb, cells: [{ key: "t" + (++this._snapSeq), i: 0, j: 0 }] };
+                st = { kind: "thumb", prio: PRIO.thumb, cells: [{ key: "t" + (++this._snapSeq), i: 0, j: 0 }] };
                 const ended = (d) => { if (d && !d.before) q.done(st.id, false); };
                 st.entry = {
                     req: {

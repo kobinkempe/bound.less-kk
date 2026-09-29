@@ -7,7 +7,9 @@
  *
  *   - One worker is kept for cuts while any are pending: other jobs hold at most `workers − 1` slots, and prefetch
  *     and thumbnails the same (at least one slot, so a one-worker pool is never starved). A cut (`kind: "cut"`, a
- *     descent too; `eraseWorkerClient.js`) is one strip with no cells, queued as pushed; a barrier's first.
+ *     descent too; `eraseWorkerClient.js`) is one strip with no cells, queued as pushed; a barrier's first. A job that
+ *     carries its own pool entry (a cut, a snapshot's plate) is queued as the object pushed: `done`, `remove` and
+ *     `requeue` find it by that identity (a copy leaked a thumbnail's slot for the session).
  *   - A frame packs at most PACK_MS_PER_FRAME while the camera moves, and a task at most that while it is still (the
  *     pack runs in `pool.submit`, on this thread: 14–45 ms a job on a dense drawing mid-zoom, PP §10.14, and 171–480
  *     ms a prefetch strip at rest, P6); the strip that crosses it is the last, the rest wait for the next frame, or
@@ -78,7 +80,7 @@ export default class JobQueue {
      * `workers × STRIPS_PER_WORKER` strips; clips travel with their cells. A strip is the job with fewer cells.
      */
     strips(job) {
-        if (job.kind === "cut") return [job];
+        if (job.kind === "cut" || job.entry) return [job];   // it carries its own pool entry, whose closures name this object
         const n0 = job.cells.length;
         if (!n0) return [];
         const order = job.cells.map((c, k) => k);
@@ -159,6 +161,14 @@ export default class JobQueue {
         if (this._task) return;
         this._task = true;
         this._defer(() => { this._task = false; this._packMs = 0; if (this.queue.length) this.pump(); });
+    }
+
+    /** A queued strip taken out before dispatch (an aborted snapshot); false when it is not queued. */
+    remove(st) {
+        const k = this.queue.indexOf(st);
+        if (k < 0) return false;
+        this.queue.splice(k, 1);
+        return true;
     }
 
     /** A teardown: every queued strip forgotten, none dispatched; what is in flight still answers `done`. */

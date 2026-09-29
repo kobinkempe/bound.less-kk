@@ -50,6 +50,7 @@ const inFlight = new Map();  // jobId -> { req, plates, postedAt, slot, bytesOut
 // their hold: `freeSlot` adds it to `inFlight.size`, so the one RGBA scratch of §3.5 is not
 // handed a second job while the first is still drawing into it (D175).
 let heldNoSlot = 0;
+let onFreed = null;          // the queue's pump, for a slot an abandoned job's own answer frees (`releaseAbandoned`)
 const pool = new BufferPool(8 << 20);
 
 const stats = {
@@ -79,6 +80,11 @@ export function setRasterTransport(t) { transport = t || null; }
 
 /** The URL override of §6.6, and the suite's own hook. `null` restores the measured rule. */
 export function setRasterWorkerCount(n) { countOverride = n == null ? null : Math.max(1, n | 0); }
+
+/** Called when an abandoned job's answer frees its slot: nothing else reports that capacity, so the queue pumps here. */
+export function setOnSlotFreed(fn) { onFreed = fn || null; }
+/** A released hold pumps the queue in front. */
+const freed = (released) => { if (released && onFreed) onFreed(); };
 
 /**
  * `min(4, max(1, hardwareConcurrency − 1))` (§6.6), overridden by `?rasterWorkers=N` so stage 7
@@ -377,7 +383,7 @@ function dispatchCut(entry, slot) {
 function onCutMessage(slot, data) {
     if (slot) answered = true;
     const rec = inFlight.get(data.jobId);
-    if (!rec) { releaseAbandoned(slot); return; }
+    if (!rec) { freed(releaseAbandoned(slot)); return; }
     if (!data.ok) { onFailed(data.jobId, new Error(data.err || "cut failed"), slot); return; }
     inFlight.delete(data.jobId);
     if (rec.slot) rec.slot.jobId = null;
@@ -418,7 +424,7 @@ function onFailed(jobId, err, slot) {
     // this thread) stopped, and that answer is what releases the hold (D175); anything else here
     // is a job already failed over, which holds nothing.
     if (!rec) {
-        releaseAbandoned(slot || null);
+        freed(releaseAbandoned(slot || null));
         return;
     }
     inFlight.delete(jobId);
@@ -444,7 +450,7 @@ function onMessage(slot, data) {
     // already holding the NEXT job. An ABANDONED slot is the one exception: nobody freed it,
     // because this answer is the proof that worker stopped drawing into its scratch (§3.5).
     if (!rec) {
-        releaseAbandoned(slot);
+        freed(releaseAbandoned(slot));
         return;
     }
     inFlight.delete(res.jobId);
