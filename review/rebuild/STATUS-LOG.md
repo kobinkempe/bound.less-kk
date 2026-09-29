@@ -2166,3 +2166,29 @@ typecheck, lint, the bundles, the report), B-PYRAMID-3 on its trial copy (item 4
 **Measured:** load 0.05 at the resume.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-29 19:54 UTC — reviewer (B-PYRAMID review) — resumed after the reboot: the last checks
+**Working on:** everything was measured before the stop (batch2 complete: scenario 7 ×2 each side, 1 ×2, 6 ×1 on
+a2240e4; `r-pyr/final.log`): break-checks 1f, 8d, 8e red 1 each; typecheck 0; the bundles built (raster 430,605 B,
+b72e5be7…; scene dce304b8…). Two things left open by that run: lint's one error (mine: `raster.snapshot` S7b's
+un-awaited `rejects`), and the raster/erase/stage suites hit their 25-min deadline (exit 124) — a file is stuck.
+**Measured:** nothing new yet (load 0.16).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: fix S7b's lint error, find the stuck suite file (per-file runs with a deadline), then the end entry and report.
+
+## 2026-09-29 19:55 UTC — B-PYRAMID-3 (builder) — resumed after the reboot: item 4 on the trial copy
+**Working on:** item 4 stays on the trial copy (`scratchpad/bp3/i4b`, a tar of the live tree at 16:51 with the
+reviewer's `_pyrUnask` fix in it) until the reviewer's end entry. Built there by five scripts (`bp3/apply4.sh`):
+`RasterRenderer` composing FC1's four layers in one `_layers` list (the SVG layer and a z-3 slot for `bl-sel-edges`
+walked by `setSize`/`destroy`/the release), the suites ported (`raster.liveHold` → `LiveStrokeLayer.hold`, `live.held`,
+`_buildList` spies → `_render`, the chevrons via `svgOverlay`, D271 on a load, S2/MEASURE deleted with `listFor`,
+S1/S3/S9 on `Stage.snapshot`, the unit suites' `ts.content` → `__oracles__/renderList.tileContent(store, …)`), the
+pointers into the SVG indicator moved to `svgOverlay.js`, and `prefetch.warm.test.js` (W-1..3).
+**Measured (jsdom, the trial copy, before the reboot):** the 20 ported suites 344 tests, 1 fail (LH-1 in the parallel
+run; alone 3/3 pass, as before my change); lint 0 errors of mine. The quick suite on the copy hit its 25-min deadline
+(exit 124: `erase.follow` 1,444 s and `sync.tabs` failed) — the same stuck-file symptom the reviewer reports on its tree.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: re-running `erase.follow` and `sync.tabs` on the live tree and on the copy (load 0.1 now) to tell a stuck
+file from my change; then the break-checks (warm rule, release-in-task, one writer) on an unimported copy.
