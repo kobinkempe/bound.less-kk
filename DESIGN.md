@@ -351,8 +351,14 @@ mark's and the boxes of the dust it dropped; a refusal over ink, the target's bo
 (its ink under the mark shows again); a graze or an inkless refusal, nothing; a frame set aside at
 the landing, nothing past the landing's box; the landing and the spend, the mark's box. Measured
 (`raster.eraseRule.test.js` (b), plates kept through a bake against a fresh raster): 0 differing
-bytes for fills; strokes differ only on the outlines of cut arcs, flattened again from their new
-ends (3–6/255 measured, 16/255 the bound), inside the cut objects' boxes, until those cells next render.
+bytes for fills; strokes differ on the outlines of cut arcs, flattened again from their new ends
+(≤ 9/255 measured over seven seeds, 16/255 the bound), and within 1.5 px of a mark's edge, until those
+cells next render or the mark is spent. Two things reach the edge band without dirt of their own: a
+graze that splits two marks' shared slot turns a family's 1 − max(a, b) into (1 − a)(1 − b) where their
+edges overlap (36/255 measured), and a family half handled — a piece a mark has cut beside a piece it
+still masks — is masked whole, so the cut piece's fringe along the mark's edge loses c − c² of its
+coverage (59/255 for near-black ink, node and headless Chromium alike). Both are inside row 3 (b)'s
+envelope (R-ERASE, 2026-09-29).
 
 **The bake** (A2 §4.7). The pending marks are a set kept by events, and each mark's lineage (the live
 natives with it in `targetOf`) an index. The serial order is marks oldest first, each mark's targets
@@ -368,8 +374,18 @@ re-addressed and the pair still pending, else it is dispatched again; a pair its
 misses is handled in memory only (no pixel of it is under the mask). The lookahead writes nothing
 to the document. A mark with nothing pending is spent, logged `spent`, its box re-rastered, and its
 id pruned from its lineage; a live native never names a mark that cannot return (spent, or its redo
-branch gone): dropped as it re-enters by an undo and at a load, so the undo of a finished erase
-restores the document exactly. `erase.cost.test.js`: no scan during the bake.
+branch gone): dropped as it re-enters by an undo, when a new op drops the redo branch that held the
+mark, and at a load, so the undo of a finished erase restores the document exactly. `erase.cost.test.js`:
+no scan during the bake.
+
+**The bake terminates** (PLAN §5.8 item 3). Each id pending under a mark costs it one step, and a step
+its pair survives is tried once more, so a mark's steps past 2 × its supply + 8 — its supply being what
+was pending under it at its first step plus every id that arrives pending under it later (another mark's
+piece, a source an undo returns, a frame set aside and back) — can only be a wrong rule: the mark is
+aborted, spent with the cuts it made, and reported (`report().erase.counters.aborted`, `status.erase.aborted`,
+its journal note, a console error). Measured: with the `handledBy` clause ignored the bake ends within
+the budget on the tick through a pool, in `flushErases` and in an inline barrier; the correct rule's steps
+never exceed its supply (`erase.rule.test.js`).
 
 **The barriers stay, asynchronous** (A2 §4.11; Kobin: "if an object is baking, you can't even
 select it until it is baked"). A tap bakes the pending pairs of the hit object's family and then
@@ -377,8 +393,9 @@ picks the point again, so the selection is the piece under the finger (SM-5); a 
 those among the selection's members and under its frames, and every pair of a mark homed under a
 selected frame (B4); a lasso every pair whose target's drawn box meets the loop's box, wherever its
 mark is (H5), and judges the cut-outs. Each target is cut with the earliest mark it is pending under,
-round after round, in serial order, until none is left (no cap); the selection follows the steps to
-the pieces. Where the cuts are in workers the gesture is parked: a tap selects when they land, a drag
+round after round, in serial order, until none is left (no cap but the marks' step budgets); the selection
+follows the steps to the pieces. A round turns its fill targets into shapes before it dispatches any
+pair, so the log reads the same whether its cuts run inline or in workers. Where the cuts are in workers the gesture is parked: a tap selects when they land, a drag
 starts from the press and jumps to the finger or, released meanwhile, applies whole, a lasso's loop
 stays drawn; after 150 ms the title shows "Finishing the erase…" (`status.erase.finishing`,
 `EraseChip.js`); a new press, a tool change, an undo, a deselect or a pinch cancels it (its cuts go on

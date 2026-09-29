@@ -4,14 +4,16 @@
  * rendered (`rasterCore.renderPlate`) at one device pixel a frame unit.
  *  (a) at every step of a bake the pack's mask bits equal an oracle kept from the op history alone
  *      (targets at registration; a step maps what it removed to its pieces; a refusal or a graze
- *      hands a target to its mark), never from the fields under test;
+ *      hands a target to its mark), never from the fields under test — also through undo and redo
+ *      mid-bake (an object returns with its memberships) and seen from a deeper frame;
  *  (b) plates kept through the bake — re-rendered only where the scene's dirt says, as a partial
- *      re-render does (PLAN §5.3 A2-Q2) — equal a fresh raster except on the outlines of cut arcs,
- *      flattened again from their new ends (≤ 16/255, the arc tolerance), inside the cut objects'
- *      boxes; exactly for axis-aligned fills (K4);
+ *      re-render does (PLAN §5.3 A2-Q2) — equal a fresh raster except within 1.5 px of a mark's edge
+ *      (any difference) or on a cut arc's outline, flattened again from its new ends (≤ 16/255, the
+ *      arc tolerance), inside the cut objects' boxes; exactly for axis-aligned fills (K4);
  *  (c) an object dragged across a mark after its registration — or begun while it was unlanded —
  *      draws as with no mark at all at every step, and is never cut;
- *  (d) two marks over one object, the lower cutting first (A2 §5.6); a refusal over ink (§5.7).
+ *  (d) two marks over one object, the lower cutting first (A2 §5.6); a refusal over ink (§5.7); a
+ *      family half handled, masked whole along the handled piece's cut edge (inside (b)'s band).
  */
 import { useEngines, mkEngine, drawStroke, eraseGesture, topView } from "../__testkit__/harness";
 import { lcg } from "../__testkit__/rasterLists";
