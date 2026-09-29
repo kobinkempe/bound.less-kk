@@ -1256,3 +1256,18 @@ B-MODEL-C1 launches when the review ends (its files overlap).
 fills 0 bytes, strokes 3–6/255 on cut outlines; batching 530 → 57 ms (delete 5,000), 1,043 → 68 (undo), 735 → 76 (drag).
 **Decisions made:** PLAN §5.8 items 1–8.
 **Questions asked:** none.
+
+## 2026-09-29 00:22 UTC — reviewer (B-ERASE review) — R-ERASE items 1–11 — start
+**Working on:** the review of B-ERASE (5e84d43) on the tree at 31bdf3f, brief `briefs/R-ERASE.md`. Read: CLAUDE.md,
+the preamble, PLAN §0/§1.3/§3 row 3/§5.3/§5.7/§5.8, DESIGN §7, A2 §4–§6.4, B-ERASE's entries. Order: baseline erase
+suites, then item 3 (the bound) and item 9 (deletion grep) in code, items 1a/5 (oracle and fuzz, jsdom), item 4 and 1b
+(core bytes), items 6–7, then the browser items (1b/1d/2/4 in headless Chromium, dev server on :3020), item 8, docs.
+**Files I may edit:** `src/engine/{eraseRule,cede,erasePipeline,eraseJob,eraseDescent,eraseWorkerClient,Document,
+format2,persist,oplog,files,selection,frameGc,sceneClient,report}.js`, `raster/rasterPack.js` (mark block),
+`raster/rasterCore.js` (mask functions), `raster/rasterJob.js` (`MASKS_MAX`), `Stage.js` (`_stepOf`, Item getters),
+`KobinEngine.js` (`_initErase`, barrier sites, status), `EraseChip.js`, `useKobinEngine.js` (erase status), the erase
+suites and probes, `__testkit__/{harness,rasterLists,clipSuite}.js`, DESIGN §7/§13, A2 §5.5, OPEN-FLAGS F65.
+Not mine: B-PYRAMID-2's raster/renderer files; `KobinEngine.js`/`Stage.js` re-read before each small edit.
+**Measured:** nothing yet (load 0.54, 4 cores).
+**Decisions made:** none. **Questions asked:** none.
+WHERE I AM: baseline run of the erase suites, then reading `eraseRule.js`, `cede.js`, `erasePipeline.js` by sections.
