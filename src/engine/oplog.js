@@ -24,14 +24,14 @@
  * THE LATTICE IS THE HEADER'S (the subtree move, DESIGN.md §8). Every write carries
  * `lm.serialize()` with its entries, so the stored addresses, shifts and shadows are never
  * older than any stored entry: a replayed `moveFrames`, `mergeFrame` or their undo never
- * re-addresses, only rebuilds the op. The natives' tables are another matter — a frame's
- * shift settles into them at a later read, under no op — so a settle is its own entry,
- * carrying the RESULT table of every native it touched (idempotent, address-free), and a
- * snapshot is forced only where a native changed frames.
+ * re-addresses, only rebuilds the op. A frame's shift is its natives' placement and stays on
+ * the frame (A1 C1): no entry writes it into their tables. A `settle` entry is a store's from
+ * before C1, replayed by result through `legacy/modelV1.js`.
  */
 import { encodeEntry, decodeEntry } from "./format2";
 import { encodeBelow, decodeBelow } from "./geometry/offsets";
 import { nativeFromRecord, UNDO_CAP } from "./Document";
+import { applySettle, unsettle } from "./legacy/modelV1";
 
 const lvl = (v) => (v == null ? null : String(v));
 const EMPTY = new Float64Array(0);
@@ -94,45 +94,15 @@ export class OpLog {
         const item = { seq: this._next(), k: "put", id: ev.id, index: null, touches: [] };
         this.queue.push(item); this.queued.set(ev.id, item);
     }
-    // The seq of the move op whose frame entry `owner` is, when that op is on a stack (or among
-    // a replay's rebuilt ops); a settle mid-drag has none yet.
-    _ownerSeq(owner) {
-        if (!owner) return null;
-        for (const stack of [this.doc._undo, this.doc._redo]) {
-            for (const op of stack) if (op.op === "moveFrames" && op._seq != null && op.frames.includes(owner)) return op._seq;
-        }
-        if (this._replayOps) for (const r of this._replayOps.values()) if (r.op.op === "moveFrames" && r.op.frames.includes(owner)) return r.op._seq;
-        return null;
-    }
-    // A frame's shift settled into its natives' tables, or a cancelled drag's tables restored:
-    // an entry of the result tables, coalesced with a settle of the same frame and the same move
-    // op queued just before it (a drag unsettles and settles a visible frame every event; another
-    // op's settle merged in hung on the wrong op in replay, REVIEWER-3 SAVE-2). A carry changed
-    // homes, so both frames snapshot.
-    _onSettle(ev) {
-        const rec = ev.rec;
-        const of = this._ownerSeq(ev.owner);
-        const touches = [...new Set([lvl(ev.frame), ...rec.carries.map((c) => lvl(c[1]))])];
-        const last = this.queue[this.queue.length - 1];
-        if (last && last.k === "settle" && last.frame === lvl(ev.frame) && (last.of ?? null) === (of ?? null)) { last.rec = rec; last.touches = touches; }
-        else this.queue.push({ seq: this._next(), k: "settle", frame: lvl(ev.frame), of, rec, touches });
-        if (rec.carries.length) for (const L of touches) this.forced.add(L);
-    }
     // A shadow merged into its resident: the resident's snapshot now holds the natives (forced),
-    // the shadow's row goes with the write; the entry hangs the record on the move op for undo.
+    // the shadow's row goes with the write; `of` names the move op the merge is recorded on, for undo.
     _onMerge(ev) {
         const rec = ev.rec;
-        this.queue.push({ seq: this._next(), k: "mergeFrame", rec, of: this._ownerSeq(ev.owner), touches: [lvl(rec.id), lvl(rec.into)] });
+        this.queue.push({ seq: this._next(), k: "mergeFrame", rec, of: ev.of != null ? ev.of : null, touches: [lvl(rec.id), lvl(rec.into)] });
         this.forced.add(lvl(rec.into));
     }
     _onOp(ev) {
-        if (this.replaying) {
-            // A settle the replay itself triggers (the header's pending shift met a rehome) is new
-            // information, queued once the replayed seqs are known.
-            if (ev.kind === "settle") this._replaySettles.push(ev);
-            return;
-        }
-        if (ev.kind === "settle") { this._onSettle(ev); return; }
+        if (this.replaying) return;
         if (ev.kind === "mergeFrame") { this._onMerge(ev); return; }
         // Frames frame GC forgot: a record; the header's lattice already lacks them, so replay skips it.
         if (ev.kind === "forget") {
@@ -313,8 +283,6 @@ export class OpLog {
                     else if (p.op === "removeFrames" || p.op === "eraseFrames") frames.push(...frameRecs(p.records));
                 }
                 enc = encodeEntry({ k: "deleteMany", records, frames });
-            } else if (it.k === "settle") {
-                enc = { op: { k: "settle", frame: it.frame, of: it.of, ...settleFile(it.rec) }, geo: EMPTY };
             } else if (it.k === "mergeFrame") {
                 enc = { op: { k: "mergeFrame", of: it.of, rec: mergeFile(it.rec) }, geo: EMPTY };
             }
@@ -338,14 +306,15 @@ export class OpLog {
         const wasReplaying = this.replaying, eraseWas = this.E._eraseReplaying;
         this.replaying = true;
         this.E._eraseReplaying = true;   // the lineage is derived once the stacks are rebuilt, not per insert
-        this._replaySettles = [];
-        try { return this._replay(entries, frameSeq, listed); } finally {
+        let out;
+        try { out = this._replay(entries, frameSeq, listed); } finally {
             this.replaying = wasReplaying;
             this.E._eraseReplaying = eraseWas;
-            for (const ev of this._replaySettles) this._onSettle(ev);   // `_replayOps` still names the ops for `of`
-            this._replaySettles = [];
             this._replayOps = null;
         }
+        // A shadow the header holds merges now, the end of the load (A1 C1: never at a read); logged as new.
+        if (!wasReplaying) this.doc.mergePending();
+        return out;
     }
     _replay(entries, frameSeq, listed) {
         const doc = this.doc, E = this.E;
@@ -415,22 +384,21 @@ export class OpLog {
             }
         };
         // A subtree move's undo or redo. The lattice is the header's, so nothing is re-addressed:
-        // per frame, a merge is split and a settle subtracted where the frame's snapshot predates
-        // this entry (both from records, idempotent); the members undo as a move's.
+        // per frame, a merge is split where the frame's snapshot predates this entry (from its record,
+        // idempotent), a legacy settle subtracted; the members undo as a move's.
         const undoFrames = (op, seq) => {
             for (const f of op.frames) {
                 if (f.merged) for (let i = f.merged.length - 1; i >= 0; i--) { const m = f.merged[i]; if (!stale(seq, [m.id, m.into])) doc.unmergeReplay(m); }
-                if (f.settled && !stale(seq, [f.id, ...f.settled.carries.map((c) => c[1])])) doc.unsettle(f.id, f.settled);
+                if (f.settled && !stale(seq, [f.id, ...f.settled.carries.map((c) => c[1])])) unsettle(doc, f.id, f.settled);
             }
             const ml = [];
             for (const m of op.moves || []) { if (m.from != null) ml.push(m.from); if (m.to != null) ml.push(m.to); }
             if (ml.length && !stale(seq, ml)) doc._undoMove(op.moves);
             const inv = {
                 op: "moveFrames",
-                frames: op.frames.map((f) => ({ ...f, from: f.to, to: f.from, shiftBefore: f.shiftAfter, shiftAfter: f.shiftBefore, settled: null, merged: null })),
+                frames: op.frames.map((f) => { const g = { ...f, from: f.to, to: f.from, shiftBefore: f.shiftAfter, shiftAfter: f.shiftBefore, merged: null }; delete g.settled; return g; }),
                 moves: (op.moves || []).map((m) => doc._invertMove(m)),
             };
-            for (const f of inv.frames) doc.noteFrameOwner(f.id, f);
             return inv;
         };
         // A move's members, applied where their frames' snapshots predate the entry. Each pair is
@@ -531,20 +499,23 @@ export class OpLog {
                     break;
                 }
                 case "moveFrames": {
-                    // The addresses and shifts are the header's already; the op is rebuilt for undo
-                    // and its entries own their frames, so a later settle or merge lands on them.
+                    // The addresses and shifts are the header's already; the op is rebuilt for undo, a
+                    // later merge entry recorded on it. A `settled` record is a store's from before C1.
                     const { moves, levels } = applyMoves(e.moves || [], seq);
-                    const frames = e.frames.map((f) => ({ id: f.id, depth: f.depth, from: f.from, to: f.to, shiftBefore: f.shiftBefore, shiftAfter: f.shiftAfter,
-                        settled: settleLive(f.settled), merged: f.merged ? f.merged.map(mergeLive) : null }));
-                    for (const f of frames) doc.noteFrameOwner(f.id, f);
+                    const frames = e.frames.map((f) => {
+                        const out = { id: f.id, depth: f.depth, from: f.from, to: f.to, shiftBefore: f.shiftBefore, shiftAfter: f.shiftAfter, merged: f.merged ? f.merged.map(mergeLive) : null };
+                        if (f.settled) out.settled = settleLive(f.settled);
+                        return out;
+                    });
                     fresh(seq, { op: "moveFrames", frames, moves }, e, [...levels, ...(raw.touches || [])]);
                     break;
                 }
                 case "settle": {
+                    // A store's from before C1: its result tables, put back (legacy); recorded on its op for undo.
                     const s = settleLive(e);
                     const rec = e.of != null ? ops.get(e.of) : null;
                     if (rec && rec.op.op === "moveFrames") { const fe = rec.op.frames.find((f) => f.id === e.frame); if (fe) fe.settled = s; }
-                    if (!stale(seq, raw.touches || [e.frame])) doc.applySettle(e.frame, s);
+                    if (!stale(seq, raw.touches || [e.frame])) applySettle(doc, e.frame, s);
                     break;
                 }
                 case "mergeFrame": {
@@ -613,17 +584,26 @@ export class OpLog {
     }
 }
 
-// A settle record, to and from the file: `[[id, table], ...]` with the tables in `encodeBelow`'s form.
-const settleFile = (rec) => (rec ? { dx: rec.dx, dy: rec.dy, tables: rec.tables.map(([id, t]) => [id, encodeBelow(t) || null]), carries: rec.carries.map(([id, L]) => [id, lvl(L)]) } : null);
+// A settle record from a store written before C1, from the file: `[[id, table], ...]` in `encodeBelow`'s form.
 const settleLive = (s) => (s ? { dx: s.dx, dy: s.dy, tables: s.tables.map(([id, t]) => [id, decodeBelow(t)]), carries: (s.carries || []).map(([id, L]) => [id, L]) } : null);
-// A merge record is plain data both ways; copied so the op and the entry never share it.
-const mergeFile = (rec) => JSON.parse(JSON.stringify({ id: rec.id, into: rec.into, parent: rec.parent, i: rec.i, j: rec.j, depth: rec.depth, addrSeq: rec.addrSeq || 0,
+// A merge record, copied so the op and the entry never share it; `tables` (`[id, before, after]`, the
+// shifts' difference folded in) in `encodeBelow`'s form on file.
+const mergeCopy = (rec) => JSON.parse(JSON.stringify({ id: rec.id, into: rec.into, parent: rec.parent, i: rec.i, j: rec.j, depth: rec.depth, addrSeq: rec.addrSeq || 0,
     shift: rec.shift || null, shadows: rec.shadows || [], kids: rec.kids || [], ids: rec.ids || [] }));
-const mergeLive = mergeFile;
-// A frame entry in file form. A settle is inline (one mid-drag has no op to be an entry of); a
-// merge never is — it happens after the op is on the stack, so its own entry names the op.
+const mergeFile = (rec) => {
+    const out = mergeCopy(rec);
+    if (rec.tables) out.tables = rec.tables.map(([id, b, a]) => [id, encodeBelow(b) || null, encodeBelow(a) || null]);
+    return out;
+};
+const mergeLive = (rec) => {
+    const out = mergeCopy(rec);
+    if (rec.tables) out.tables = rec.tables.map(([id, b, a]) => [id, decodeBelow(b) || null, decodeBelow(a) || null]);
+    return out;
+};
+// A frame entry in file form. A merge is never inline: it happens after the op is on the stack, so
+// its own entry names the op.
 const frameFile = (e) => ({ id: lvl(e.id), depth: e.depth, from: e.from, to: e.to, shiftBefore: e.shiftBefore || null, shiftAfter: e.shiftAfter || null,
-    settled: settleFile(e.settled), merged: null });
+    merged: null });
 
 // A move's before/after geometry, as `setGeometryById` takes it: loops as pieces.
 function geomLive(g) {
