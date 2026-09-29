@@ -109,7 +109,9 @@ test("exportSvg in raster mode (the default) renders once through an SVG engine 
     } finally { act(() => view.unmount()); }
 });
 
-test("with `?svg` the same call serialises this host's own `<svg>` and builds no second engine", async () => {
+// PLAN §5.8 item 2: the export bakes every pending mark first, in its copy — so the SVG tab's export goes through
+// the one-off engine too, and never serialises its own `<svg>` (whose masks and marks are the pending state).
+test("with `?svg` the same call goes through the one-off SVG engine too, never this host's own `<svg>`", async () => {
     window.location.hash = "#/canvas/t?svg";
     const view = mount();
     try {
@@ -123,7 +125,7 @@ test("with `?svg` the same call serialises this host's own `<svg>` and builds no
         obs.disconnect();
         expect(api.saveError).toBe(null);
         expect(String(threw)).toMatch(/createObjectURL/);        // it reached the download, so it read the `<svg>`
-        expect(hostsSeen).toBe(0);
+        expect(hostsSeen).toBe(1);                                // red before: 0, the tab's own `<svg>` serialised
     } finally { act(() => view.unmount()); }
 });
 

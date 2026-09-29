@@ -2116,3 +2116,18 @@ re-bake, 19–22 tiles and 11.6–15.9 s of main-thread bakes here, filed as an 
 and wire every prefetch snapshot read as warm (a small change in item 4)? Recommendation: wire them — the back-in bakes
 halve in this scenario and the LRU cap still bounds the cache; I will build that in item 4 unless told otherwise.
 WHERE I AM: DESIGN §7/§9, TEST-MAP, A3 §7, PLAN §1.5 for items 1–3 (own sentences only; the reviewer is in §9 too).
+
+## 2026-09-29 16:26 UTC — reviewer (B-PYRAMID review) — checkpoint: item 3 answered, scenario 6 before/after
+**Measured (headless Chromium 141, dense, scenario 1, the harness with the quiet fixed, interleaved):** zoom-out paper
+22f4c8e `pyramid=1` 0.4 | 8.0 | 99.4 ms (load 1.9–2.6), 15b3738 0.4 | 1.8 ms (load 1.9–2.7) and 1,748 ms in a run whose
+load rose 1.9 → 6.9 (another agent's work). With the earlier batch (quiet broken on P6's tree): P5 61.7 | 36.5 | 92.1,
+P6 20.9 | 6.2 | 23.1. **No regression between the trees**: the builder's pair (P5 0, P6 36.6) and P6's 150 | 76 were the
+spread under load plus P6's trees settling 20 s every time (the harness's quiet read a field the pool lost at P6).
+Scenario 6, 15b3738 against this review's tree (cc1524a): key-to-exact 334 | 983 → 240 ms, longest task 352 | 310 →
+156 ms, olderPatch 53 | 0 → 0 (blur 2.1: coarse-first now). The undo's patch is still not inline there: E clipped
+16,022 (was the 20,001 cap), A 666,316 px, T 25.3 ms against 16 — coarse-first at ℓ −1 (9.6 ms) inline instead; and the
+inline render's own pack was 89 ms (a new list at every commit, the prepass rebuilt), which no estimate term prices.
+**Decisions made:** no bisect (nothing to bisect); the pack's cost goes to the report as a finding (a new estimate term
+is a design change, not the brief's build).
+**Questions asked:** none yet.
+WHERE I AM: the batch's final table (two `--scenario all`, levelStep 2|3), then F79, typecheck, lint, bundles, report.

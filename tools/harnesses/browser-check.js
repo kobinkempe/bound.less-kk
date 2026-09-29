@@ -225,7 +225,7 @@ function probeRead() {
         ref: R ? Object.fromEntries(REF.map((k) => [k, R[k] || 0])) : null,
         st: E.stage && E.stage.stats ? { ...E.stage.stats } : null,
         surface: L && L.surface != null ? L.surface : null,
-        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderPatchMs: L.olderPatchMs, olderOtherMs: L.olderOtherMs } : null,
+        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderPatchMs: L.olderPatchMs, olderOtherMs: L.olderOtherMs, standInCells: L.standInCells || 0 } : null,
         composes: L ? L.composes : null, composeMs: L ? L.composeMs : null, arrivalComposes: L ? L.arrivalComposes : null,
         hist: F.hist, frames: F.frames, longCount: LF.count, longRecent: LF.recent,
         plates: S ? { plates: S.plates, mib: +(S.plateBytes / 1048576).toFixed(1), capMib: +(S.maxBytes / 1048576).toFixed(1), pinned: S.pinned, inFlight: S.inFlight, evictions: S.evictions, stale: S.stale } : null,
@@ -302,6 +302,7 @@ function delta(a, b) {
         paperMs: +(b.layerPaper.paperMs - a.layerPaper.paperMs).toFixed(1), blurMs: +(b.layerPaper.blurMs - a.layerPaper.blurMs).toFixed(1),
         olderPatchMs: +(b.layerPaper.olderPatchMs - a.layerPaper.olderPatchMs).toFixed(1),
         olderOtherMs: +(b.layerPaper.olderOtherMs - a.layerPaper.olderOtherMs).toFixed(1),
+        standInCells: (b.layerPaper.standInCells || 0) - (a.layerPaper.standInCells || 0),
     } : null;
     const composes = b.composes != null ? b.composes - a.composes : null;
     const byPrio = b.queue && a.queue && b.queue.byPrio && a.queue.byPrio ? b.queue.byPrio.map((n, k) => n - a.queue.byPrio[k]) : null;
@@ -310,7 +311,7 @@ function delta(a, b) {
         samplers: { paperMs: lp ? "layer" : "rAF", paperSampledMs: "rAF", paintPaperMs: "post-paint" },
         paperMs: lp ? lp.paperMs : +(b.paperMs - a.paperMs).toFixed(1), paperSampledMs: +(b.paperMs - a.paperMs).toFixed(1),
         paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
-        blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, maxPaperShare: +b.maxShare.toFixed(3),
+        blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, standInCells: lp ? lp.standInCells : null, maxPaperShare: +b.maxShare.toFixed(3),
         frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0),
             top: r.scripts && r.scripts[0] ? (r.scripts[0].invoker || r.scripts[0].fn) + (r.scripts[0].fn ? " " + r.scripts[0].fn : "") : null })) },
         compose: { n: composes, ms: b.composeMs != null ? +(b.composeMs - a.composeMs).toFixed(1) : null,
