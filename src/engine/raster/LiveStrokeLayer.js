@@ -8,6 +8,8 @@
  * `overlays._selDecide` caches on the origin's identity). A root keeps the origin it was drawn at and is translated
  * by that less the current one, so a held path stays put when the next stroke moves the origin (F131). The owner
  * folds its world origin into `world`'s transform in float64; a stroke begun at that origin draws untranslated.
+ * The layer's group is in `world` only while it holds a path: an empty sibling group in the drawing's `<svg>` moved
+ * a translucent group's composite by one level in headless Chromium (127 → 126 over a 0.5-opacity stroke).
  */
 import Two from "two.js";
 import { pushGapAnchors } from "./svgAnchors";
@@ -21,8 +23,8 @@ export default class LiveStrokeLayer {
      * @param {object} plan the arc plan an arc is written by (`{enter, tol, segMax}`, `svgAnchors.pushArcPiece`)
      */
     constructor(parent, plan) {
+        this.parent = parent;
         this.group = new Two.Group();
-        parent.add(this.group);
         this.plan = plan;
         this.chunk = LIVE_CHUNK;
         this.origin = { x: 0, y: 0 };
@@ -45,6 +47,7 @@ export default class LiveStrokeLayer {
         root.opacity = o.opacity == null ? 1 : o.opacity;
         const tail = livePath(o.color, o.lwFrame, []);
         root.add(tail);
+        if (!this.group.parent) this.parent.add(this.group);
         this.group.add(root);
         this.root = root; this.tail = tail; this.model = o;
         this._stable = 0; this._gap = 0;
@@ -114,6 +117,7 @@ export default class LiveStrokeLayer {
         const h = this.held[k];
         if (h.root.parent) h.root.parent.remove(h.root);
         this.held.splice(k, 1);
+        this._detachIfEmpty();
         return true;
     }
 
@@ -121,14 +125,17 @@ export default class LiveStrokeLayer {
     cancel() {
         if (this.root && this.root.parent) this.root.parent.remove(this.root);
         this.root = null; this.tail = null; this.model = null;
+        this._detachIfEmpty();
     }
+
+    _detachIfEmpty() { if (!this.root && !this.held.length && this.group.parent) this.group.parent.remove(this.group); }
 
     /** Everything down, the group out of its parent. */
     destroy() {
         this.cancel();
         for (const h of this.held) if (h.root.parent) h.root.parent.remove(h.root);
         this.held.length = 0;
-        if (this.group.parent) this.group.parent.remove(this.group);
+        this._detachIfEmpty();
     }
 }
 

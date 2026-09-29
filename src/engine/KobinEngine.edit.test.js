@@ -491,7 +491,7 @@ describe("deferred area erase", () => {
         // not a per-view re-derivation of it. That is what makes the picture
         // impossible to get stale: there is no second copy to fall behind.
         const source = E.nativesByLevel[0][0];
-        expect(E._objs()).toContain(source);
+        expect(E._objs().map((o) => E.stage.placed(o).geom)).toContain(source);   // the Stage's item draws the native itself
         // Back in — the hole is still exactly where it was, at full fidelity.
         zoomToLevel1(E);
         E._render();
