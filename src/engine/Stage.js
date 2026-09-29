@@ -15,10 +15,13 @@
  *     (`oldBbox`, `oldBelow`, the removed object) and mapped into every frame with tracked cells:
  *     a plate is exact iff `plate.G >= dirtySince(key)` (A2 §3.1, PLAN §3 row 1);
  *   - membership and placement come from the `PlacementModel` (placementModel.js) and nothing
- *     else: never `o.below`, a frame's shift or the lattice's `*Obj` functions.
+ *     else: never `o.below`, a frame's shift or the lattice's `*Obj` functions;
+ *   - a drag writes nothing until its drop (A1 C2): `hold` and `setDragDelta` draw, hit and lasso
+ *     the held natives at their placement plus the pointer's delta.
  */
 import { perfNow } from "./now";
 import { drawnBox, ZERO } from "./placementModel";
+import { translateLoops } from "./geometry/arcShape";
 import { familyTraits } from "./raster/rasterPack";
 import { inLineage } from "./eraseRule";
 
@@ -67,7 +70,7 @@ export class Item {
     get targetOf() { const n = this.nat; return n ? n.targetOf : this.piece.targetOf; }
     get handledBy() { const n = this.nat; return n ? n.handledBy : this.piece.handledBy; }
     get fam() { const k = this.editId; return k != null ? k : this.id; }
-    get res() { const o = this.off; return o[0] || o[1] ? o : undefined; }
+    get res() { const o = this.stage._hold ? this.stage._paintOff(this) : this.off; return o[0] || o[1] ? o : undefined; }
     get clip() { return this.piece.clip; }
     get loops() { return this.piece.loops; }
     get polys() { return this.piece.polys; }
@@ -227,8 +230,10 @@ export default class Stage {
         // The family rule (PLAN §5.1 Q15).
         this._famTraits = new Map();  // family key -> the traits plates were packed with
         this._famBefore = new Map();  // family key -> { traits, box } before this commit touched it
-        // The drag's hold (A2 §2.7).
+        // The drag's hold (A2 §2.7) and its delta.
         this._hold = null;
+        this._atRest = 0;             // `atRest`: reads ignore the drag's delta
+        this._dragVer = 0;            // one per `setDragDelta`: the key of an item's cached paint offset
         // `changesSince` (A2 §2.4).
         this._log = [];
         this._logFloor = 0;
@@ -254,13 +259,25 @@ export default class Stage {
     *itemsTopDown() { const a = this._list.toArray(); for (let k = a.length - 1; k >= 0; k--) yield a[k]; }
     /** A native's items, in no order. */
     itemsOf(id) { const s = this._byId.get(id); return s ? [...s] : []; }
-    /** The geometry an item draws and the offset paint applies; an input at p reaches it at p − off. */
-    placed(item) { return { geom: item.piece, off: item.off }; }
+    /** The geometry an item draws and the offset it is drawn at (a held item's with the drag's delta); an input at p reaches it at p − off. */
+    placed(item) {
+        const h = this._hold;
+        return { geom: item.piece, off: h && h.d && !this._atRest ? this._drawnOff(item) : item.off };
+    }
     /**
      * Any native as seen from any frame (A2 §2.6): its drawn box there, and an input made there in
-     * its stored coordinates and back — a point `[x, y]`, a rect or loops.
+     * its stored coordinates and back — a point `[x, y]`, a rect or loops. A held native is where the
+     * drag draws it.
      */
-    placeNative(nat, frameId) { return new Placement(this, nat, String(frameId)); }
+    placeNative(nat, frameId) {
+        const F = String(frameId), h = this._hold;
+        return new Placement(this, nat, F, h && h.d && !this._atRest && this._heldNat(nat) ? this._deltaIn(F) : null);
+    }
+    /** `fn`'s reads with every native where it rests: the drag's delta ignored (the ants decide on the picture the drag began from). */
+    atRest(fn) {
+        this._atRest++;
+        try { return fn(); } finally { this._atRest--; }
+    }
 
     /** Whether every tile under `rect` (the frame's units) is read into the table. */
     covers(frameId, rect) {
@@ -451,17 +468,18 @@ export default class Stage {
         if (!this._batch && !this._sync) this._commit();
     }
 
-    // ---- the drag's hold (A2 §2.7, B-SCENE's phase) ----
+    // ---- the drag's hold (A2 §2.7; A1 C2: nothing is written until the drop) ----
 
     /**
-     * A drag begins: events about the selection's natives and natives under its frames are held —
-     * the table keeps the picture the drag plane was aimed from, and they dirty nothing — until
-     * `release`, which applies them and commits once, dirtying where the selection started and
-     * where it ends.
+     * A drag begins: the selection's natives and the natives under its frames are held. They are drawn,
+     * hit and lassoed at their placement plus the drag's delta (`setDragDelta`); the events about them
+     * — the drop's one write — are queued, not applied, until `release`, which applies them and commits
+     * once, dirtying where the selection started and where it ends.
      */
     hold({ ids, frames = [] }) {
         if (this._hold) this.release();
-        const h = { ids: new Set(ids), frames: frames.map(String), start: [], queue: [] };
+        const h = { ids: new Set(ids), frames: frames.map(String), start: [], queue: [],
+            d: null, dFrame: null, view: false, dVer: 0, dIn: new Map(), homes: new Map() };
         for (const id of h.ids) {
             const rec = this.doc.getById(id);
             if (rec) h.start.push(this._stateOf(rec.obj, rec.level));
@@ -474,13 +492,36 @@ export default class Stage {
     /** Whether a drag's hold stands. */
     get holding() { return !!this._hold; }
 
-    /** The hold's end (a drop, a cancel, a delete, a lost plane): one commit, start ∪ end. */
+    /**
+     * The drag's pointer delta `d`, `[dx, dy]` in `frame`'s units (the camera's): the held natives are
+     * drawn at their placement plus it. `viewDraws` false: the drag plane draws them, and nothing is
+     * committed; true (no plane, or it was lost): the view's plates draw them (`Item.res`), and a change
+     * commits, dirtying their boxes where they were drawn and where they are now.
+     */
+    setDragDelta(d, { frame = this.frame, viewDraws = false } = {}) {
+        const h = this._hold;
+        if (!h || frame == null) return;
+        const F = this.frame, was = h.view ? this._deltaIn(F) : null, wasView = h.view;
+        h.d = d && (d[0] || d[1]) ? [d[0], d[1]] : null;
+        h.dFrame = String(frame); h.view = !!viewDraws; h.dIn.clear(); h.dVer = ++this._dragVer;
+        if (!h.view && !wasView) return;
+        const now = h.view ? this._deltaIn(F) : null;
+        if (wasView && h.view && sameOff(was || ZERO, now || ZERO)) return;
+        for (const s of this._heldStates(was)) this._foot.push(s);
+        for (const s of this._heldStates(now)) this._foot.push(s);
+        this._events++;
+        if (!this._batch && !this._sync) this._commit();
+    }
+
+    /** The hold's end (a drop, a cancel, a delete): one commit — where it started, where it ends, and where the view drew it. */
     release() {
         const h = this._hold;
         if (!h) return 0;
+        const drawn = h.view && h.d ? this._heldStates(this._deltaIn(this.frame)) : [];
         this._hold = null;
         this.stats.held += h.queue.length;
         this.batch(() => {
+            for (const s of drawn) this._foot.push(s);
             this._quiet++;
             try { for (const q of h.queue) this._applyDoc(q.ev, q.step); } finally { this._quiet--; }
             for (const s of h.start) this._foot.push(s);
@@ -501,6 +542,81 @@ export default class Stage {
             this._events++;
         });
         return h.queue.length;
+    }
+
+    /** The drag's delta in frame F's units, or null. */
+    _deltaIn(F) {
+        const h = this._hold;
+        if (!h || !h.d || F == null) return null;
+        if (String(F) === h.dFrame) return h.d;
+        let v = h.dIn.get(String(F));
+        if (v === undefined) {
+            const a = this.lm.mapPointF([0, 0], h.dFrame, String(F)), b = this.lm.mapPointF(h.d, h.dFrame, String(F));
+            v = a && b ? [b[0] - a[0], b[1] - a[1]] : null;
+            h.dIn.set(String(F), v);
+        }
+        return v;
+    }
+
+    /** Whether frame `home` is a held frame or under one (memoised for the hold: the lattice stands still until the drop). */
+    _underHeld(home) {
+        const h = this._hold;
+        if (home == null || !h.frames.length) return false;
+        const k = String(home);
+        let v = h.homes.get(k);
+        if (v === undefined) {
+            v = false;
+            for (const root of h.frames) if (k === root || this.lm.isUnder(root, k)) { v = true; break; }
+            h.homes.set(k, v);
+        }
+        return v;
+    }
+
+    /** Whether a native is held: selected by id, or homed under a held frame. */
+    _heldNat(nat) {
+        const h = this._hold;
+        return !!nat && (h.ids.has(nat.id) || this._underHeld(this.model.homeOf(nat)));
+    }
+
+    /** Whether a table item is held (a snapshot's items are other frames' and never are). */
+    _heldItem(it) {
+        const h = this._hold;
+        return it.live && (h.ids.has(it.id) || this._underHeld(this._homeOf.get(it.id)));
+    }
+
+    /** An item's offset as drawn: a held item's with the drag's delta. */
+    _drawnOff(it) {
+        const d = this._heldItem(it) ? this._deltaIn(this.frame) : null;
+        return d ? [it.off[0] + d[0], it.off[1] + d[1]] : it.off;
+    }
+
+    /** The offset paint applies (`Item.res`): the drawn one while the view draws the hold, one array per delta. */
+    _paintOff(it) {
+        const h = this._hold;
+        if (!h.view || !h.d || !this._heldItem(it)) return it.off;
+        const c = it._drag;
+        if (c && c.ver === h.dVer && c.base === it.off) return c.off;
+        const off = this._drawnOff(it);
+        it._drag = { ver: h.dVer, base: it.off, off };
+        return off;
+    }
+
+    /** The held items' boxes in the camera frame, drawn at their offset plus `d` (null: at rest), as footprint states. */
+    _heldStates(d) {
+        const h = this._hold, F = this.frame, out = [];
+        if (!h || F == null) return out;
+        const dx = d ? d[0] : 0, dy = d ? d[1] : 0;
+        const add = (id) => {
+            const s = this._byId.get(id);
+            if (!s) return;
+            for (const it of s) {
+                const b = this._itemBox(it);
+                out.push({ home: F, table: undefined, rect: { left: b.left + dx, top: b.top + dy, right: b.right + dx, bottom: b.bottom + dy } });
+            }
+        };
+        for (const id of h.ids) add(id);
+        if (h.frames.length) for (const [home, ids] of this._byHome) if (this._underHeld(home)) for (const id of ids) if (!h.ids.has(id)) add(id);
+        return out;
     }
 
     /** An event the hold answers for: a held native's, or one about a frame under a held frame. */
@@ -1258,7 +1374,7 @@ export default class Stage {
             k.add(it);
         }
         if (s.size === 1) {
-            const home = it.nat ? it.nat._home : null;
+            const home = it.nat ? this.model.homeOf(it.nat) : null;
             this._homeOf.set(it.id, home);
             let h = this._byHome.get(home);
             if (!h) this._byHome.set(home, (h = new Set()));
@@ -1315,15 +1431,23 @@ export default class Stage {
     }
 }
 
-/** `placeNative`'s answer: one native, seen from one frame. */
+/** `placeNative`'s answer: one native, seen from one frame; `d` the drag's delta in F's units when the native is held. */
 class Placement {
-    constructor(stage, nat, F) { this.stage = stage; this.nat = nat; this.F = F; }
+    constructor(stage, nat, F, d = null) { this.stage = stage; this.nat = nat; this.F = F; this.d = d; }
     /** Its drawn box (bbox, and half its pen for a stroke) in F's units, where its picture is. */
-    box() { return this.stage.model.fromStored(this.nat, this.F, drawnBox(this.nat, this.stage.store.live)); }
+    box() { return shiftBy(this.stage.model.fromStored(this.nat, this.F, drawnBox(this.nat, this.stage.store.live)), this.d, 1); }
     /** An input made in F — a point, a rect or loops — in the native's stored coordinates. */
-    toStored(x) { return this.stage.model.toStored(this.nat, this.F, x); }
+    toStored(x) { return this.stage.model.toStored(this.nat, this.F, shiftBy(x, this.d, -1)); }
     /** The native's stored point, rect or loops as drawn in F. */
-    fromStored(x) { return this.stage.model.fromStored(this.nat, this.F, x); }
+    fromStored(x) { return shiftBy(this.stage.model.fromStored(this.nat, this.F, x), this.d, 1); }
+}
+
+/** A point, a rect or loops translated by `k`·d (x unchanged when there is no d). */
+function shiftBy(x, d, k) {
+    if (!x || !d) return x;
+    const dx = k * d[0], dy = k * d[1];
+    if (Array.isArray(x)) return typeof x[0] === "number" ? [x[0] + dx, x[1] + dy] : translateLoops(x, dx, dy);
+    return { left: x.left + dx, top: x.top + dy, right: x.right + dx, bottom: x.bottom + dy };
 }
 
 function zkOf(it) { const z = it.z; return z != null ? z : it.id; }

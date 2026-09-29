@@ -332,9 +332,8 @@ function movesOf(E, sub) {
             // eslint-disable-next-line no-restricted-syntax -- the report records the stored table as stored
             editId: m.obj.editId, below: encodeBelow(m.obj.below) || null, box: boxOf(bboxOf(m.obj, E._drawing)),
         }))) : null,
-        drag: d ? { start: d.start, last: d.last || null, moved: !!d.moved, members: d.moves ? d.moves.size : 0, frames: d.frames ? d.frames.size : 0 } : null,
-        hold: h ? { ids: h.ids.size, frames: h.frames, at: h.at } : null,
-        holdOn: !!E._moveHoldOn,
+        drag: d ? { start: d.start, last: d.last || null, moved: !!d.moved, delta: d.t || null, depth: d.depth != null ? d.depth : null } : null,
+        hold: h ? { ids: h.ids.size, frames: h.frames, at: h.at, plane: !!h.plane } : null,
         shifts, shadows, recent,
     };
 }

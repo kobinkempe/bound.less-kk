@@ -81,6 +81,9 @@ export function createPlacementModel({ doc, lm, store }) {
             return { F0: F, rem: r[0] || r[1] ? r : ZERO, rerouted: false };
         },
 
+        /** The frame native `o` is homed in: its address in the document, never its picture's. */
+        homeOf(o) { return o ? o._home : null; },
+
         /** Whether native `o` is drawn live in frame F (`nativesIn(F)` lists it). */
         drawnLive(o, F) {
             const rec = o ? doc.getById(o.id) : null;

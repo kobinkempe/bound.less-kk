@@ -554,13 +554,13 @@ class Overlays {
         // some path sets `tool` without going through there.
         if (!s || this.tool !== "select") return null;
         const d = this._dragSel;
-        // A drag keeps its first decision (below), so it needs no table: the table is keyed on the
-        // document's revision, which every drag step moves (PAPER-PLAN §10 S7).
+        // A drag keeps its first decision (below), so it needs no table (PAPER-PLAN §10 S7). It is made on
+        // the picture the drag began from (the Stage's reads at rest) and rides the pointer from the start.
         const kept = this._selDec;
         const held = d && kept && kept.drag === d && kept.sel === s && kept.frame === this.cam.frame;
         const table = held ? null : this._selTable(s);
         if (!held && !table.count) return null;
-        const dec = held ? kept : this._selDecide(s, table);
+        const dec = held ? kept : d ? this.stage.atRest(() => this._selDecide(s, table)) : this._selDecide(s, table);
         const sc = this.cam.inScale;
         const off = (d && dec.drag === d && d.last) ? [d.last[0] - dec.dragAt[0], d.last[1] - dec.dragAt[1]] : [0, 0];
         const edges = this._selEdges(dec, off);
@@ -821,9 +821,9 @@ class Overlays {
         this._selDecSeq = (this._selDecSeq || 0) + 1;
         this._selDec = { key: this._selDecSeq, G, sel: s, rev: this.doc.rev, frame: F, origin: O, win,
             scale: sc, runs, marks, inkPx, pieces,
-            // The pointer the decided geometry belongs to: the drag's start when the plane draws the
-            // drag (PAPER-PLAN §10 S4: the Stage holds the table as it was when the drag began).
-            drag, dragAt: drag ? (drag.listAt ? [drag.listAt[0], drag.listAt[1]] : drag.last ? [drag.last[0], drag.last[1]] : [drag.start[0], drag.start[1]]) : null };
+            // The pointer the decided geometry belongs to: the drag's start (it is decided at rest, and a
+            // drag writes nothing until its drop, A1 C2).
+            drag, dragAt: drag ? [drag.start[0], drag.start[1]] : null };
         return this._selDec;
     }
 

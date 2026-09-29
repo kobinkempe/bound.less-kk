@@ -6,21 +6,22 @@
  * is stored as several natives at different levels. A drag moves them as one
  * and records ONE undo op, in the object's own home-frame units.
  *
- * `_normalizeHome` is the enforcement of lattice invariant 2: an object homed
- * in a frame stays within its own cell plus one neighbour (REACH). A drag that
- * would carry it further re-homes it instead of letting the address drift.
+ * A drag writes nothing until its drop (A1 C2): the Stage draws the held
+ * members at the pointer's delta, and the drop re-homes by whole cells and
+ * sets tables once. No move rewrites a stored coordinate (DESIGN.md §8), so an
+ * object's stored bits stay within its cell plus REACH (invariant 2).
  *
  * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
  * `KobinEngine.js` on 2026-08-31.
  */
-import { R as CROSS_RATIO, W as FRAME_W } from "./frameLattice";
+import { R as CROSS_RATIO } from "./frameLattice";
 import { reachBox } from "./placementModel";
 import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
-import { insideTester } from "./geometry/arcShape";
+import { insideTester, loopsBBox } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
-import { addOffset, sameBelow, snapDisplacement, sameShift } from "./geometry/offsets";
+import { addOffset, sameBelow, snapDisplacement, sameShift, cloneBelow, encodeBelow } from "./geometry/offsets";
 import { underMask } from "./eraseRule";
 
 // How close to a selected frame's mark a press counts as pressing the frame.
@@ -99,11 +100,8 @@ class Selection {
             if (this._pressWait !== press) return;             // a new press or a pinch cancelled it
             this._pressWait = null;
             if (!this.selection) { if (!press.last && !press.released) startLasso(); return; }   // the cuts took the object away
-            this._dragSel = { start: [P.sx, P.sy], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-            // A drag rewrites the same objects on every pointer event; tiles the
-            // camera cannot see are not worth patching that often.
-            this.store.setBatch(true);
-            this._beginHold();                   // PAPER-PLAN R3: the members' plate events wait for `_endMove`
+            this._dragSel = { start: [P.sx, P.sy], moved: false };
+            this._beginHold();                   // the Stage draws the drag; nothing is written until the drop (A1 C2)
             const at = press.last || [sx, sy];
             this._dragSelection(at[0], at[1]);
             if (press.released) this._pointerUp();
@@ -133,16 +131,7 @@ class Selection {
         const d = this._dragSel;
         if (!d) return;
         if (d.moved && commitIfMoved) { this._pointerUp(); return; }
-        if (d.moved) {
-            // Back to the frame and the table the drag started from; a move touches nothing else (F55).
-            for (const [id, st] of d.moves) {
-                if (!this.doc.getById(id)) continue;
-                if (st.to !== st.from) this.doc.rehomeById(id, st.from);
-                this.doc.setOffsetsById(id, st.baseBelow);
-            }
-            if (d.frames && d.frames.size) this._restoreFrames(d);
-        }
-        this._endMove("cancel");
+        this._endMove("cancel");          // the drag wrote nothing: the document is as it was at the press
     }
 
     // ---- multi-selection (bible §5.3) ----
@@ -282,9 +271,9 @@ class Selection {
      *
      * WHAT MAKES THE PRUNE SOUND is invariant 2: an object never extends past
      * its frame's immediate neighbours, so everything a frame's subtree holds is
-     * inside its own cell grown by one — REACH below. D9's promotion and
-     * `_normalizeHome` are what keep that true; break either and this starts
-     * missing things rather than merely being slow.
+     * inside its own cell grown by one — REACH below. D9's promotion keeps that
+     * true, and no move rewrites a stored coordinate (DESIGN.md §8); break either
+     * and this starts missing things rather than merely being slow.
      *
      * The walk goes OUTWARD from the active frame, one hop at a time, because
      * that is the only direction in which the scale factor stays a number: from
@@ -631,12 +620,9 @@ class Selection {
         return { level: s.level, rect: { left: b.x0 - m, top: b.y0 - m, right: b.x1 + m, bottom: b.y1 + m } };
     }
     /**
-     * One drag step. The displacement, snapped to the camera level's grid (F55), is expanded per
-     * member into whole frames (a change of address) and a table entry at the camera's depth below
-     * the member's home; no stored coordinate is touched (DESIGN.md §8). Two facts: the arithmetic
-     * runs ONCE per (home frame, starting table) and every member of that frame takes the same
-     * answer, which is what registration rests on; and the step is recomputed from where the drag
-     * STARTED, so a slow drag and a fast one apply the same arithmetic to the same numbers (M-4).
+     * One drag step: the displacement from where the drag STARTED (M-4), snapped to the camera level's
+     * grid (F55), handed to the Stage as the held natives' delta. Nothing is written — no table, no
+     * address, no frame (A1 C2); the drop writes every member once (`_dropMove`).
      */
     _dragSelection(sx, sy) {
         const d = this._dragSel;
@@ -650,70 +636,91 @@ class Selection {
         // same move gives the same digits every time.
         const tx = snapDisplacement((sx - d.start[0]) / this.cam.inScale);
         const ty = snapDisplacement((sy - d.start[1]) / this.cam.inScale);
-        const camDepth = this.cam.activeLevel;
-        let moved = false;
-        // A member the drag could not move, and why. Nothing used to record
-        // these (F35): a selection that moves "together" with one member left
-        // behind is precisely the reported symptom, and the report carried no
-        // trace of the decision. Journaled with the move at pen-up.
-        const skip = (id, level, why) => { (d.skipped || (d.skipped = [])).push({ id, level, why }); };
+        d.t = [tx, ty]; d.depth = this.cam.activeLevel; d.frame = this.cam.frame;
+        d.moved = d.moved || tx !== 0 || ty !== 0;
+        const h = this._holdMove, plane = !!(h && h.plane);
+        this.stage.setDragDelta(d.t, { frame: d.frame, viewDraws: !plane });
+        // The plane draws the move (PAPER-PLAN §10 S4): no list is built per step — 120–240 ms each on the
+        // Magnum Opus. Without it the view's plates draw the held natives at the delta, a render a step.
+        if (plane && this.renderer.dragLight && this.renderer.dragLight()) {
+            this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
+        } else this._render();
+    }
+    /**
+     * The drop: the drag's one write (A1 C2), from where the drag started to the last step's displacement.
+     * The arithmetic runs ONCE per (home frame, picture table) and every member of that frame takes the
+     * same answer, which is what registration rests on (DESIGN.md §8): a per-object member is re-homed and
+     * its own table set by `_displaceMember` on its picture table — whole cells into the address, the rest
+     * into its own table less the target frame's shift; the selected frames are re-addressed once. The
+     * Stage's hold stands, so the table takes it all at the release. Returns the op pushed, or null.
+     */
+    _dropMove(d) {
+        if (!d.t) return null;
+        const [tx, ty] = d.t, camDepth = d.depth;
+        const moves = [], skipped = [];
         const seen = new Map();                          // (frame, table) -> the answer
         const rehomes = new Map();                       // target frame -> ids, in member order
-        const offsets = [];                              // [id, table] whose table changed
-        // The members once a drag: a step re-homes them, and every re-home rebuilt the family index
-        // over the whole document (36–80 ms a step on the Earth, REVIEWER A1-4).
-        if (!d.members) d.members = this._selectionMembers().map((m) => m.obj);
-        for (const o of d.members) {
-            const id = o.id;
-            if (this.doc._byId.get(id) !== o || o._gone) continue;       // gone meanwhile
-            let st = d.moves.get(id);
-            if (!st) {
-                // The own table is what the op records; the arithmetic runs on the picture table (A1 C1).
-                st = { from: o._home, to: o._home, dx: 0, dy: 0, baseBelow: this.doc.ownTable(o), baseT: this.doc.tableOf(o) };
-                st.own = st.baseBelow;
-                st.key = st.from + "|" + JSON.stringify(st.baseT || null);
-                d.moves.set(id, st);
-            }
-            const key = st.key;
+        const offsets = [];                              // [id, table] whose table changes
+        for (const m of this._selectionMembers()) {
+            const o = m.obj, from = m.level, T = this.doc.tableOf(o);
+            const key = from + "|" + JSON.stringify(T || null);
             let put = seen.get(key);
             if (!put) {
-                put = this._displaceMember(st.from, st.baseT, camDepth, tx, ty);
+                put = this._displaceMember(from, T, camDepth, tx, ty);
                 if (!put.why) put.own = this.doc.ownFor(put.table, put.frame);   // less the target frame's shift
                 seen.set(key, put);
             }
-            if (put.why) { skip(id, st.from, put.why); continue; }
-            if (put.frame !== st.to) {
+            // A member the drag could not move, and why (F35): journaled with the move.
+            if (put.why) { skipped.push({ id: o.id, level: from, why: put.why }); continue; }
+            const before = this.doc.ownTable(o), tableMoved = !sameBelow(put.own, before);
+            if (put.frame === from && !tableMoved) continue;
+            if (put.frame !== from) {
                 let ids = rehomes.get(put.frame);
                 if (!ids) rehomes.set(put.frame, ids = []);
-                ids.push(id); st.to = put.frame; moved = true;
+                ids.push(o.id);
             }
-            if (!sameBelow(put.own, st.own)) { offsets.push([id, put.own]); st.own = put.own; moved = true; }
-            st.dx = tx; st.dy = ty;              // for the journal: the snapped displacement, camera units
+            if (tableMoved) offsets.push([o.id, put.own]);
+            moves.push({ id: o.id, dx: tx, dy: ty, from, to: put.frame, belowBefore: before, belowAfter: cloneBelow(put.own) });
         }
-        const write = () => {
+        // Tiles the camera cannot see are dropped rather than patched for a bulk write (TileStore.setBatch).
+        this.store.setBatch(true);
+        try {
             for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
             for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
-        };
-        // One commit a step (PLAN §5.7); none while the Stage holds the move, as a batch ends in a commit.
-        if (this.stage.holding) write(); else this.stage.batch(write);
-        if (this.selection.frames.length) {
-            if (!d.frameStart) this._dragFramesStart(d, camDepth);
-            if (d.frameStart.size && this._dragFrames(d, camDepth, tx, ty)) moved = true;
-        }
-        d.moved = d.moved || moved;
-        // With the hold on, the drag plane draws the move (PAPER-PLAN §10 S4): no list is built per
-        // step — 120–240 ms each on the Magnum Opus — and the plates stay as they were until the drop.
-        if (this._holdMove && this.renderer.dragLight && this.renderer.dragLight()) {
-            if (!d.listAt) d.listAt = d.start;           // the list the ants decide on is the pre-drag one
-            // The table stays as the drag began (the Stage holds it); the drop's render reads what moved.
-            this.renderer.syncCameraOnly(); this.renderer.update(); this._emit();
-        } else { d.listAt = null; this._render(); }
+            d.frames = new Map();
+            if (this.selection.frames.length) {
+                this._dragFramesStart(d, camDepth);
+                if (d.frameStart.size) this._dragFrames(d, camDepth, tx, ty);
+            }
+        } finally { this.store.setBatch(false); }
+        // The frames it moved as frames: entry objects beside the per-object moves; a merge the drop makes is
+        // recorded on them (`Document.mergePending`).
+        const frames = [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
+            || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter)));
+        if (!moves.length && !frames.length) return null;
+        this._note({
+            kind: "move",
+            moves: moves.map((m) => {
+                const rec = this.doc.getById(m.id);
+                const b = rec && rec.obj.loops ? loopsBBox(rec.obj.loops) : null;
+                return { id: m.id, level: rec ? rec.level : null, from: m.from, to: m.to,
+                    dx: +m.dx.toPrecision(8), dy: +m.dy.toPrecision(8),
+                    // How far from its frame's origin the piece sits: bounded by the lattice (F25 watched it reach 7.3e18).
+                    reach: b ? +Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1)).toPrecision(6) : null,
+                    below: rec ? encodeBelow(this.doc.ownTable(rec.obj)) : undefined };
+            }),
+            skipped: skipped.length ? skipped.slice(0, 12) : undefined,
+            frames: frames.length || undefined,
+            frameShadowed: d.frameShadowed && d.frameShadowed.length ? d.frameShadowed.slice(0, 12) : undefined,
+        });
+        const op = frames.length ? { op: "moveFrames", frames, moves } : moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves };
+        this.doc.pushUndo(op);
+        return op;
     }
     /**
-     * The frames a drag moves AS FRAMES: each selected root's subtree within three levels of
-     * the camera (deeper frames follow their parent pointer), recorded once at its start
-     * address so every event computes the whole step from the start (DESIGN.md §8). An empty
-     * leaf container is left out: it has nothing to move and would only accrete.
+     * The frames a drop moves AS FRAMES: each selected root's subtree within three levels of the
+     * camera (deeper frames follow their parent pointer), at the addresses the drag started from
+     * (nothing moved meanwhile, A1 C2). An empty leaf container is left out: it has nothing to move.
      */
     _dragFramesStart(d, camDepth) {
         d.frameStart = new Map();
@@ -730,10 +737,10 @@ class Selection {
         }
     }
     /**
-     * One drag step for the frames: targets from the start state (the same arithmetic the
-     * per-object path uses, frame for frame), applied in one pass; a frame's shift is what it
-     * carried plus this step's rest, and it stays on the frame as its natives' placement (A1 C1):
-     * no native is read or written, O(frames).
+     * The drop for the frames: targets from the start state (the same arithmetic the per-object
+     * path uses, frame for frame), applied in one pass; a frame's shift is what it carried plus the
+     * drop's rest, and it stays on the frame as its natives' placement (A1 C1): no native is read or
+     * written, O(frames).
      */
     _dragFrames(d, camDepth, tx, ty) {
         const targets = this.lm.moveSubtreeTargets(null, camDepth, tx, ty, d.frameStart, (id) => { const e = d.frames.get(id); return e ? e.shiftBefore : null; });
@@ -762,24 +769,6 @@ class Selection {
         }
         for (const c of r.shadowed) (d.frameShadowed || (d.frameShadowed = [])).push(c);
         return moved;
-    }
-    /** A cancelled drag: the frames back to their start addresses and shifts, each change a refile (the shift is placement). */
-    _restoreFrames(d) {
-        const back = [], was = new Map();
-        for (const e of d.frames.values()) {
-            const f = this.lm.frame(e.id);
-            if (!f) continue;
-            const moved = f.parent !== e.from.parent || f.cell.i !== e.from.i || f.cell.j !== e.from.j;
-            if (!moved && sameShift(f.shift, e.shiftBefore)) continue;
-            was.set(e.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift });
-            if (moved) back.push({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j });
-        }
-        this.lm.readdressMany(back, { empty: (id) => this.doc.count(id) === 0 });
-        for (const [id, w] of was) {
-            const f = this.lm.frame(id), e = d.frames.get(id);
-            this.doc.setFrameShift(id, e.shiftBefore);
-            this.doc.noteRefile(id, w, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: e.shiftBefore });
-        }
     }
     /** The selected frame whose mark is under the screen point, or null. */
     _frameUnderPoint(sx, sy) {
@@ -816,39 +805,6 @@ class Selection {
         }
         // eslint-disable-next-line no-restricted-syntax -- addOffset's result: the member's new own table, not a read of one
         return { frame, table: r.below };
-    }
-    /** The cell an object's bbox centre sits in, as the re-home that would put it there, or null when it is in its own cell. */
-    _homeShift(id) {
-        const rec = this.doc.getById(id);
-        if (!rec) return null;
-        const b = bboxOf(rec.obj, this.store.live);
-        if (!b) return null;
-        const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-        const di = Math.round(cx / FRAME_W), dj = Math.round(cy / FRAME_W);
-        if (!di && !dj) return null;
-        const to = this.lm.neighbour(rec.level, di, dj);
-        if (!to || to.id === rec.level) return null;
-        return { level: to.id, dx: -di * FRAME_W, dy: -dj * FRAME_W };
-    }
-    /**
-     * Put an object back inside its own cell, if a move pushed it out.
-     *
-     * Invariant 2 wants an object within a cell of its frame. A drag at or above
-     * an object's own level puts the whole displacement into its coordinates, so
-     * enough of them walk it out of its cell; and a deep move leaves a remainder
-     * that can be almost a whole frame. Re-homing to the containing cell costs
-     * nothing in accuracy — neighbouring origins differ by exactly W, a power of
-     * two, so subtracting whole frames is exact.
-     */
-    _normalizeHome(id) {
-        const n = this._homeShift(id);
-        if (!n) return null;
-        const rec = this.doc.getById(id), T = this.doc.tableOf(rec.obj, rec.level);
-        this.doc.rehomeById(id, n.level);
-        this.doc.moveById(id, n.dx, n.dy);
-        n.own = this.doc.ownFor(T, n.level);        // its picture table, less the new frame's shift (A1 C1)
-        this.doc.setOffsetsById(id, n.own);
-        return n;
     }
     // Every native the selection covers: each selected id, plus the rest of its
     // logical edit family (a re-homed patch still moves with its source).

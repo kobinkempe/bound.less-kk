@@ -45,7 +45,6 @@ import { isPhoneBudget } from "./raster/PyramidStore";
 import { EST_DEFAULTS } from "./raster/PicturePyramid";
 import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/polyline";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
-import { encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
 import { strokeOutline } from "./geometry/clipperBoolean";
 import { strokeLoops } from "./geometry/curveOutline";
 import { validateScaleDef } from "./scaleBar";
@@ -172,7 +171,7 @@ export default class KobinEngine {
         this.plates = null;
         /** §8.4 rule 1's join. One writer — the renderer bumps it through the injected function, once a CAMERA step. */
         this._frameSeq = 0;
-        /** A live drag the plane draws: its members and frame roots, whose events the Stage holds (A2 §2.7). */
+        /** A live drag: its members and frame roots, which the Stage holds until the drop (A2 §2.7, A1 C2), and whether the plane draws it. */
         this._holdMove = null;
         if (this.raster) {
             this.renderer = new RasterRenderer(container, this.cam, this.cfg, {
@@ -242,7 +241,7 @@ export default class KobinEngine {
 
         // selection / edit state (US-10)
         this.selection = null;        // { id, level, obj } — obj is the LIVE native
-        this._dragSel = null;         // { start:[sx,sy], moves:Map, moved } during a select-drag
+        this._dragSel = null;         // { start:[sx,sy], last, t:[tx,ty], depth, frame, moved } during a select-drag
         this.docMeta = { name: null, createdAt: new Date().toISOString(), scaleDef: null, scenes: [], sceneIndex: null };
         this._initScenes(scenes);
         this.renderer.setSelectionAnts(() => this._selectionAnts());
@@ -254,9 +253,6 @@ export default class KobinEngine {
         this.renderer.onPlaneLost = () => this._planeLost();
         // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
         this.renderer.onShown = () => { if (!this._destroyed) this._render(); };
-        // The hold is on only where the renderer draws the dragged ink itself (the drag plane,
-        // PAPER-PLAN R3, §10 S4); without it every step re-rasters its plates as before.
-        this._moveHoldOn = !!this.renderer.supportsDragPlane;
         // The selected object can vanish under us (eraser, cut, undo, wipe, load).
         this.doc.subscribe((ev) => {
             if (!this.selection) return;
@@ -554,29 +550,32 @@ export default class KobinEngine {
         return out;
     }
 
-    // ---- the drag's hold (A2 §2.7: the Stage holds the drag's events until its end) ----
-    /** The hold, taken once at `_beginSelectDrag` when the plane draws the drag: the Stage holds its events. */
+    // ---- the drag's hold (A2 §2.7; A1 C2: a drag writes nothing until its drop) ----
+    /**
+     * The hold, taken once at `_beginSelectDrag`: the Stage draws the members and everything under the
+     * selected frames at the drag's delta and holds their events until the drop. `plane`: the renderer's
+     * drag plane draws them (aimed, and what it lacks posted, now); else the view's plates do.
+     */
     _beginHold() {
         this._holdMove = null;
-        if (!this._moveHoldOn || !this.raster || !this.selection) return;
-        // The plane is aimed (and what it lacks posted) now; a selection it refuses drags the old way.
-        if (this.renderer.planeAccepts && !this.renderer.planeAccepts()) return;
+        if (!this.selection) return;
         const ids = new Set();
         for (const rec of this._selectionMembers()) ids.add(rec.obj.id);
         const frames = (this.selection.frames || []).slice();
-        this._holdMove = { ids, frames, at: null };
+        const plane = !!(this.renderer.planeAccepts && this.renderer.planeAccepts());
+        this._holdMove = { ids, frames, at: null, plane };
         this.stage.hold({ ids, frames });
     }
     /**
-     * The renderer's plane can no longer draw the live drag (the camera left its frame, the sync path,
-     * a release): the hold is released once and the drag renders a step as before. The ants' decision
-     * made from here anchors at the pointer, not the start: the list now holds the move (review major 2).
+     * The renderer's plane can no longer draw the live drag (the camera left its frame, the sync path):
+     * the view's plates draw it from here, at the same delta (review major 2).
      */
     _planeLost() {
-        if (!this._holdMove) return 0;
-        const n = this._releaseMove();
-        if (this._dragSel) this._dragSel.listAt = null;
-        return n;
+        const h = this._holdMove, d = this._dragSel;
+        if (!h || !h.plane) return 0;
+        h.plane = false;
+        if (d && d.t) this.stage.setDragDelta(d.t, { frame: d.frame, viewDraws: true });
+        return 1;
     }
     /**
      * The drag plane's input (PAPER-PLAN §10 S4), pulled by the renderer each camera step: the
@@ -603,32 +602,38 @@ export default class KobinEngine {
         this._planeMemo = { sel: s, list, state };
         return state;
     }
-    /** What the renderer pulls each frame: null, or the live drag with its member set and the pointer it was first read at. */
+    /** What the renderer pulls each frame: null, or the live drag its plane draws, with its member set and the pointer it was first read at. */
     _dragState() {
         const d = this._dragSel, h = this._holdMove;
-        if (!d || !h) return null;
+        if (!d || !h || !h.plane) return null;
         if (!h.at) h.at = d.last ? [d.last[0], d.last[1]] : [d.start[0], d.start[1]];
         return { drag: d, ids: h.ids, frames: h.frames, at: h.at };
     }
     /**
-     * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo: the gesture and the
-     * tile batch cleared, the Stage's hold released as one commit, the renderer told, the shadows the
-     * drag made merged (on the drop's op), one render.
+     * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo. A drop is the drag's one
+     * write (`_dropMove`); with the hold's release and the merges its re-addresses made (recorded on its
+     * op) it is one commit, and its patch has a user's budget like an undo's (PLAN §5.15 item 2). Any
+     * other exit writes nothing: the document is as it was at the press. Then the renderer is told, one
+     * render, and the selection repaired from the op.
      */
     _endMove(why) {
         const d = this._dragSel;
-        this._dropHold(why);
-        this.doc.mergePending(why === "drop" && d && d.moved ? this.doc._undo[this.doc._undo.length - 1] : null);
+        let op = null;
+        this.stage.batch(() => {
+            if (why === "drop" && d && d.moved && this.selection) op = this._dropMove(d);
+            this._dropHold(why);
+            if (op) this.doc.mergePending(op);
+        });
+        if (op && this.renderer.noteUserEdit) this.renderer.noteUserEdit();
         this._render();
-        // What the drag moved out of every selected frame stays selected (DESIGN.md §10).
-        if (d && this.selection && why === "drop" && d.frames) this._reselect([], this._outsideSelection(d.frames.keys()));
-        collectFrames(this);      // the containers the gesture minted or emptied (F94)
+        // What the drop moved out of every selected frame stays selected (DESIGN.md §10).
+        if (op && op.frames && this.selection) this._reselect([], this._outsideSelection(op.frames.map((e) => e.id)));
+        collectFrames(this);      // the containers the drop minted or emptied (F94)
     }
-    /** `_endMove` without the render: for a document event (a reset, the last member removed under a bake) where a render would re-enter. */
+    /** The hold released and the renderer told, nothing written: `_endMove`'s core, alone for a document event (a reset) where a render would re-enter. */
     _dropHold(why) {
         const live = this._dragSel || this._holdMove;
         this._dragSel = null;
-        this.store.setBatch(false);
         const n = this._releaseMove();
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
     }
@@ -1082,61 +1087,8 @@ export default class KobinEngine {
             this._emit();
             return;
         }
-        if (this._dragSel) {
-            const d = this._dragSel;
-            // one undo op for the whole drag, in the object's home-frame units
-            if (d.moved && this.selection) {
-                // A move that walked an object out of its own cell is finished
-                // by re-homing it into the cell it now sits in, so invariant 2
-                // holds again before anything else looks at the document.
-                for (const [id, st] of d.moves) {
-                    if (!this._homeShift(id)) continue;
-                    // The one case a move touches coordinates: the member is walked back into its cell
-                    // by whole frames, so its entry keeps geometry snapshots either side.
-                    const rec = this.doc.getById(id);
-                    st.base = Document.snapGeometry(rec.obj);
-                    const n = this._normalizeHome(id);
-                    st.after = Document.snapGeometry(rec.obj);
-                    st.to = n.level; st.dx += n.dx; st.dy += n.dy; st.own = n.own;
-                }
-                // One entry per member: the frames and the tables either side (DESIGN.md §8).
-                const moves = [...d.moves].map(([id, v]) => {
-                    const m = { id, dx: v.dx, dy: v.dy, from: v.from, to: v.to };
-                    if (v.base) { m.base = v.base; m.after = v.after; }
-                    m.belowBefore = v.baseBelow; m.belowAfter = cloneBelow(v.own);
-                    return m;
-                });
-                // The frames the drag moved as frames: its entry objects, one op with the per-object
-                // moves; a merge the drop makes is recorded on them (`Document.mergePending`).
-                const frames = d.frames ? [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
-                    || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter))) : [];
-                this._note({
-                    kind: "move",
-                    moves: moves.map((m) => {
-                        const rec = this.doc.getById(m.id);
-                        const b = rec && rec.obj.loops ? loopsBBox(rec.obj.loops) : null;
-                        return { id: m.id, level: rec ? rec.level : null,
-                            from: m.from, to: m.to,
-                            dx: +m.dx.toPrecision(8), dy: +m.dy.toPrecision(8),
-                            // How far from its frame's origin the piece now sits.
-                            // Under the lattice this is bounded by construction —
-                            // it is the number F25 watched climb to 7.3e18.
-                            reach: b ? +Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1)).toPrecision(6) : null,
-                            // The offsets below its home after the drag (F41).
-                            below: rec ? encodeBelow(this.doc.ownTable(rec.obj)) : undefined };
-                    }),
-                    // Members the drag could not move, and why (F35).
-                    skipped: d.skipped && d.skipped.length ? d.skipped.slice(0, 12) : undefined,
-                    frames: frames.length || undefined,
-                    frameShadowed: d.frameShadowed && d.frameShadowed.length ? d.frameShadowed.slice(0, 12) : undefined,
-                });
-                if (frames.length) this.doc.pushUndo({ op: "moveFrames", frames, moves });
-                else this.doc.pushUndo(moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves });
-            }
-            // The one exit, after the op is on the stack so the merge its render triggers is
-            // recorded on it (B §5); its render also refreshes `_lastList` after a re-home.
-            this._endMove("drop");
-        }
+        // The drop: the drag's one write, its op and its commit (`_endMove`, A1 C2).
+        if (this._dragSel) this._endMove("drop");
         if (this._drawing) {
             const o = this._drawing; this._drawing = null;
             // Journal it now: `pts` is deleted the moment the perimeter resolves.

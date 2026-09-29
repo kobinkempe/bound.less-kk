@@ -1210,9 +1210,10 @@ export default class RasterRenderer {
     /**
      * The pen-up rule (PLAN §1.5, A3 §3.6): a held path stays while its stroke is pending — no limit (PLAN §5.4 Q2);
      * once its shape has landed, one group commit publishes the drawn cells under its box and takes the path down
-     * in the same task. An undo or a cancel (the stroke left the table) takes it down now; a crossing carries it
-     * (`_liveCross`); a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage commit
-     * and every step.
+     * in the same task. An undo or a cancel (the stroke left the document) takes it down now; a crossing carries it
+     * (`_liveCross`), and while the new frame's table lacks the stroke (its tiles are read at idle) the document says
+     * whether it is pending; a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage
+     * commit and every step.
      */
     _pyrLive(v) {
         const held = this.live.held;
@@ -1222,9 +1223,10 @@ export default class RasterRenderer {
         for (let k = held.length - 1; k >= 0; k--) {
             const h = held[k];
             if (h.group) { if (now > h.until) late = true; continue; }
+            const rec = this.stage.doc.getById(h.id);
+            if (!rec) { this._pyrTakeDown(h, false); n++; continue; }
             const items = this.stage.itemsOf(h.id);
-            if (!items.length) { this._pyrTakeDown(h, false); n++; continue; }
-            if (items.some((it) => it.pending)) { h.until = now + 250; continue; }
+            if (items.length ? items.some((it) => it.pending) : rec.obj.type === "stroke") { h.until = now + 250; continue; }
             h.group = "live:" + h.id;
             h.until = now + LIVE_HOLD_MS + 20;
             this.pyramid.groupCommit(h.group, h.box, () => { if (this._pyrTakeDown(h, true)) this.update(); });
