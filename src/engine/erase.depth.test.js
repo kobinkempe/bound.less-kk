@@ -184,7 +184,7 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         const shot = { ...E.cam.state() };
         const pieces = () => {
             E.store.bumpEpoch();                 // rebuild from the document, no cache
-            return tileContent(E, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
+            return tileContent(E.store, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
         };
         const was = pieces();
         expect(was.length).toBeGreaterThan(0);
@@ -256,7 +256,7 @@ describe("F43 — a cut anywhere on a line moves the line's picture nowhere else
         const shot = { ...E.cam.state() };
         const pieces = () => {
             E.store.bumpEpoch();
-            return tileContent(E, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
+            return tileContent(E.store, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
         };
         const was = pieces();
         expect(was.length).toBeGreaterThan(0);
@@ -295,7 +295,7 @@ describe("F43 — a cut anywhere on a line moves the line's picture nowhere else
         const shot = { ...E.cam.state() };
         const pieces = () => {
             E.store.bumpEpoch();
-            return tileContent(E, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
+            return tileContent(E.store, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
         };
         const was = pieces();
         expect(was.length).toBeGreaterThan(0);

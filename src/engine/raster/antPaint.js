@@ -17,10 +17,10 @@
  *     RETAINED UNITS. Two conversions, each in one place: `view.k` takes geometry to device px,
  *     where the dash intervals become points, and `css.dpr` takes the band and the cycle with
  *     it. Conflating them is how the design's first draft got the speck wrong.
- *  3. `kt` SCALES THE RUNS AND NEVER THE MARKS (`Renderer.js:1501`, `:1509`, `:1543` against
- *     `:1517`, `:1523`) — a speck is already the floor `kt` falls to, so scaling it twice
+ *  3. `kt` SCALES THE RUNS AND NEVER THE MARKS (`svgOverlay.renderSelAnts`, the runs against the
+ *     marks) — a speck is already the floor `kt` falls to, so scaling it twice
  *     shrinks it below its own band.
- *  4. THE PHASE IS A FRACTION OF EACH RUN'S OWN FITTED CYCLE. `_fitDash` writes
+ *  4. THE PHASE IS A FRACTION OF EACH RUN'S OWN FITTED CYCLE. `svgOverlay`'s `fitDash` writes
  *     `--ao = −(cycle·k)·2` and the keyframe animates from 0 to `--ao`, so the pattern travels
  *     TWO cycles in 0.8 s: a step is `cycle/8`, there are EIGHT distinct phases, and a global
  *     offset would make long-cycle runs crawl faster than short ones (N14).
@@ -46,7 +46,7 @@
  * new spelling). What bounds the work is the decision's cut to the retained window, and a
  * piece whose device box misses the plane is not stamped (N10).
  *
- * The look constants below are transcribed from `Renderer.js:349-378` rather than imported:
+ * The look constants below are transcribed from `svgOverlay.js` rather than imported:
  * that module is the DOM renderer, and this one is a leaf that a worker can take (N13 — it
  * imports `geometry/antRuns.js` and nothing else). If a constant changes there it must change
  * here; `raster.ants.test.js` transcribes them a third time so the comparison is never with
@@ -66,7 +66,7 @@ export const chordStep = (rPx) => Math.sqrt(rPx / 2);
 /** `SEL_INK` — `oklch(0.6 0.17 35)` in 8-bit sRGB, computed (209.5, 80.3, 48.5) and rounded. */
 export const SEL_INK_RGB = [210, 80, 48];
 
-// The indicator's look, in CSS pixels, from `Renderer.js:349-378`. A run's band and pattern are
+// The indicator's look, in CSS pixels, from `svgOverlay.js`. A run's band and pattern are
 // scaled by `kt`; a mark's are not (rule 3).
 const SEL_ANT_W = 2.5, SEL_ANT_ON = 7, SEL_ANT_OFF = 5.6;
 const SEL_FINE_W = 1.75, SEL_FINE_ON = 3.5, SEL_FINE_OFF = 2.8;
@@ -78,7 +78,7 @@ export const ANT_LOOK = {
     FINE_W: SEL_FINE_W, FINE_ON: SEL_FINE_ON, FINE_OFF: SEL_FINE_OFF,
 };
 
-/** The thin-mark shrink, `Renderer.js:378`. A mark never takes it. */
+/** The thin-mark shrink, `svgOverlay.selAntScale`. A mark never takes it. */
 export const selAntScale = (inkPx) => (inkPx == null || !isFinite(inkPx) ? 1
     : Math.max(SEL_THIN_MIN, Math.min(1, inkPx / SEL_THIN_REF)));
 
@@ -193,14 +193,14 @@ function noteRows(buf, y0, y1, x0, x1) {
  * The lit intervals of ONE run at one phase, in that run's own arc length (device px), written
  * into `out` as start/end pairs and clipped to [0, len].
  *
- * `_fitDash`'s arithmetic (`Renderer.js:1686-1712`): a run of at least one cycle carries
+ * `fitDash`'s arithmetic (`svgOverlay.js`): a run of at least one cycle carries
  * `n = max(1, round(len/cyc))` WHOLE cycles scaled by `k = len/(n·cyc)`, so no dash is a runt;
  * a run under one cycle is never fitted — it carries the pattern at full size and slides, which
  * is what keeps a zoomed-out selection moving. The phase offset is `phase/8` of THIS run's own
  * fitted cycle, so every run closes its cycle in the same 0.4 s (rule 4).
  *
  * @param {boolean} [fit=true] false for a MARK, whose pattern is never fitted
- *          (`Renderer.js:1523`) — it carries the full-size cycle and slides, which is the blink.
+ *          (`svgOverlay.renderSelAnts`) — it carries the full-size cycle and slides, which is the blink.
  * @returns {number} the pairs the run NEEDS. At most `out.length / 2` are written, so a caller
  *          handed a count above that grows its array and calls again (§2.7 FC5 — the returned
  *          array of the design's sketch allocates one per run per phase and fails N8).
@@ -727,7 +727,7 @@ export function paintPhase(buf, dec, view, phase, css) {
         const rh = SEL_ANT_W * kt * dpr / 2, ron = SEL_ANT_ON * kt * dpr, roff = SEL_ANT_OFF * kt * dpr;
         for (let i = 0; i < runs.length; i++) paintRun(buf, runs[i].pieces, runs[i].closed, rh, ron, roff, phase, k, tx, ty, ink, true);
         // The marks: `kt` never reaches them (rule 3), and a speck is NEVER fitted — its
-        // pattern slides across it whole, which is what makes it blink (`Renderer.js:1517`).
+        // pattern slides across it whole, which is what makes it blink (`svgOverlay.renderSelAnts`).
         const mh = SEL_FINE_W * dpr / 2, mon = SEL_FINE_ON * dpr, moff = SEL_FINE_OFF * dpr;
         for (let i = 0; i < marks.length; i++) paintRun(buf, marks[i].pieces, marks[i].closed, mh, mon, moff, phase, k, tx, ty, ink, false);
     } else if (dec) antStats.refused++;

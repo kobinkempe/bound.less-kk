@@ -64,7 +64,7 @@ describe("tiles of frames the camera has left", () => {
         const anc = new Set();
         for (let id = E.cam.frame; id != null; id = E.lm.parentOf(id)) anc.add(String(id));
         const off = [...E.store._pins].filter((k) => !anc.has(k.split("|")[0]));
-        expect(off.length).toBeGreaterThan(0);     // the precondition: `_reroute` read off the path
+        expect(off.length).toBeGreaterThan(0);     // the precondition: the table read off the path
         const tiles = off.map((k) => E.store.cache.get(k));
         E._tileFrame = null;                       // the next render is a change of frame
         E._render();

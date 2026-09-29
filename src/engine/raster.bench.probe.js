@@ -398,7 +398,7 @@ describe("raster bench", () => {
         console.log("\nM4  a real screen — " + screen.report + ", camera level " + E.cam.activeLevel
             + ", inScale " + f(E.cam.inScale, 4) + ", dpr " + dpr + ", screen " + screen.screen.w + "×" + screen.screen.h + " CSS px");
         console.log("  the render list is " + list.length + " items / " + piecesOf(list) + " pieces, built in "
-            + f(listMs, 0) + " ms (the SVG renderer is stubbed out, so this is `_buildList` alone);"
+            + f(listMs, 0) + " ms (the renderer is stubbed out, so this is the Stage's sync alone);"
             + " the screen is " + nPlates + " plates at quantum " + q + " (Zq " + f(Zq, 5) + ") in " + strips.length + " strips");
         table(rows.slice(0, 12));
         const msAll = drawMs;
@@ -896,7 +896,7 @@ function loadScreen() {
     E._scheduleBake = () => {};
     E.loadSnapshot(j.snapshot);
     const t = now();
-    const list = E._buildList();
+    E.stage.sync(E.cam.frame, E._listWin()); const list = E.stage.items();
     return { E, list, screen: scr, dpr: scr.dpr || 1, report: j.report, listMs: now() - t };
 }
 

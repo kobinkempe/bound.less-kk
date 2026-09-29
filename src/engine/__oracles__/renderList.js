@@ -13,12 +13,12 @@
  */
 
 /**
- * The tile pieces drawn over `rect` in frame `frameKey` — every tile of the rect, both directions, the moved natives'
- * pieces read back from where their picture is — without the frame's live natives (`TileStore.content` until
- * B-PYRAMID-3). `[]` for an unreachable frame.
+ * The pieces of `store`'s tiles over `rect` in frame `frameKey` — every tile of the rect, both directions, the moved
+ * natives' pieces read back from where their picture is — without the frame's live natives (`TileStore.content`
+ * until B-PYRAMID-3 item 4). `[]` for an unreachable frame.
  */
-export function tileContent(E, frameKey, rect) {
-    const store = E.store, lm = E.lm;
+export function tileContent(store, frameKey, rect) {
+    const lm = store.lm;
     const cf = lm.frameFor(frameKey);
     if (!cf) return [];
     const F = cf.id;
@@ -35,7 +35,7 @@ export function tileContent(E, frameKey, rect) {
                 }
             }
         }
-        if (E.doc.hasOffsets()) derived = reroute(store, lm, F, rect, derived);
+        if (store.doc.hasOffsets()) derived = reroute(store, lm, F, rect, derived);
     } finally {
         store._pins = pins; store._holdEvict = hold;
         store._evict();
@@ -49,7 +49,7 @@ export function renderList(E, frameKey, rect) {
     if (!cf) return [];
     const F = cf.id;
     const model = E.stage.model;
-    const list = tileContent(E, F, rect).concat(model.nativesIn(F));
+    const list = tileContent(E.store, F, rect).concat(model.nativesIn(F));
     const hasOff = E.doc.hasOffsets(), resById = new Map();
     for (const o of list) {
         const rec = E.doc.getById(o.id);

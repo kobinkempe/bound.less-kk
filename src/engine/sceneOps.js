@@ -47,7 +47,7 @@ class SceneOps {
         if (!fit) return false;
         this.cam.set({ frame: f.id, activeLevel: f.depth, ...fit });
         this.cam._maybeCross();
-        this.renderer.clear();
+        if (this.renderer.clear) this.renderer.clear();
         this._render();
         this._queueIdleFits();
         return true;

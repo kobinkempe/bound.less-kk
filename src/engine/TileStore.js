@@ -57,7 +57,6 @@ function flattenAll(objs) {
     return objs;
 }
 const PER_LEVEL_CAP = 64; // cached tiles per frame
-const OVER_BUDGET = { overBudget: true };   // thrown by a tile miss past `_deadline`
 const DOWN_MAX_SIZE = 5e5; // generous upper bound on a native's frame extent (px);
                            // used only to skip a frame whose content is guaranteed
                            // sub-cull at F.
@@ -67,9 +66,6 @@ export default class TileStore {
         this.lm = levelMap;
         this.doc = doc;
         this.cfg = cfg;
-        this._deadline = null;   // `contentOffCamera`'s budget (ms clock), the tiles its read has baked, the bake depth
-        this._readBakes = 0;
-        this._nest = 0;
         this.cullPx = cfg.cullPx != null ? cfg.cullPx : 0.3;       // below this at the frame's deepest zoom -> not baked plain
         this.fadeLoPx = cfg.fadeLoPx != null ? cfg.fadeLoPx : 0.15; // below this -> culled entirely; [fadeLo, cull) -> fade band
         this.opacityGroups = true;
@@ -78,9 +74,10 @@ export default class TileStore {
         this._clock = 0;
         this._epoch = 0;
         this._pins = new Set(); // keys protected from eviction during a bake/render
-        this._holdEvict = false; // `contentOffCamera` runs the eviction itself, once
-        // Tiles read off camera while `warmReads` is on: `framesLeft` keeps them across a change of the
-        // camera's frame (F83). No caller turns it on since P6 deleted the ladder and the prebake.
+        this._holdEvict = false; // a read (`readTiles`) runs the eviction itself, once
+        // Tiles read while `warmReads` is on — the prefetch's reads (`RasterRenderer._pyrPrefetch`): `framesLeft` keeps
+        // them across a change of the camera's frame (F83; PLAN §5.14 item 5); the LRU cap still evicts them, and a
+        // dropped tile leaves the set (`_dropTile`).
         this._warm = new Set();
         this.warmReads = false;
         this._chainSeq = new Map();       // frame -> chainSeq(frame), valid for one lattice addrEpoch
@@ -129,11 +126,12 @@ export default class TileStore {
         const tile = this.cache.get(key);
         if (!tile) return false;
         this.cache.delete(key);
+        this._warm.delete(key);
         this._unindexTile(key, tile);
         this._tileEv({ kind: "drop", key, tile });
         return true;
     }
-    _clearTiles() { this.cache.clear(); this._idTiles.clear(); this._tileEv({ kind: "clear" }); }
+    _clearTiles() { this.cache.clear(); this._warm.clear(); this._idTiles.clear(); this._tileEv({ kind: "clear" }); }
     /** Pieces pushed onto `tile.objs` from index `n0` on: indexed and reported. */
     _appended(tile, n0) {
         if (tile.objs.length <= n0) return;
@@ -187,64 +185,12 @@ export default class TileStore {
         return m;
     }
 
-    // ---- read path: everything to render at frame `F` inside `windowRect` ----
-    // `F` may be a frame id or a legacy depth int — normalize to the canonical
-    // frame id so tile keys and `frame()` lookups are exact.
-    content(F, windowRect) {
-        const cf = this.lm.frameFor(F);
-        if (!cf) return [];
-        F = cf.id;
-        let out = [];
-        const range = this.lm.tileRange(F, windowRect);
-        const nowVisible = new Set();
-        for (let i = range.i0; i <= range.i1; i++) {
-            for (let j = range.j0; j <= range.j1; j++) {
-                for (const dir of ["up", "down"]) {
-                    const key = F + "|" + dir + "|" + i + "," + j;
-                    nowVisible.add(key);
-                    this._pins.add(key);
-                    const tile = dir === "up" ? this._ensureUp(F, i, j) : this._ensureDown(F, i, j);
-                    for (const o of tile.objs) out.push(o);
-                }
-            }
-        }
-        if (this.doc.hasOffsets()) out = this._reroute(F, windowRect, out, nowVisible);
-        this._pins = nowVisible; // only currently-visible tiles are pinned
-        this._evict();
-        return out;
-    }
-    /**
-     * `content(F, rect)` for a frame the camera is NOT at (`listFor` with `forCamera` false). The
-     * visible pin set is saved BY VALUE and restored, so neither the read nor the bake it forces
-     * can unpin or evict the camera's own tiles: `content` mutates `_pins` in place (`_reroute`,
-     * `_ensureUp`) before replacing the field, so a saved reference would come back holding the
-     * read frame's keys. The tiles this bakes stay cached and evictable. The eviction is held for
-     * the read and run once here, with the camera's pins back: `content` evicts at its end with
-     * only its own range pinned, and PER_LEVEL_CAP is 64 tiles a frame (S9).
-     */
-    contentOffCamera(F, rect, budgetMs = 0) {
-        const pins = new Set(this._pins);
-        this._holdEvict = true;
-        // With a budget, the first tile missed past it ends the read with null (one tile, with its parent
-        // chain, at least); the tiles baked so far stay cached, so a later read goes further. A ladder rung
-        // was one 3.6 s task on the Magnum Opus; a chain is still 0.3–0.8 s a level there (REVIEWER-4).
-        this._deadline = budgetMs > 0 ? perfNow() + budgetMs : null;
-        this._readBakes = 0;
-        try {
-            const out = this.content(F, rect);
-            if (this.warmReads) for (const k of this._pins) this._warm.add(k);   // the read's own keys, reroute's included
-            return out;
-        } catch (e) {
-            if (e === OVER_BUDGET) { this.overBudget = (this.overBudget || 0) + 1; return null; }
-            throw e;
-        } finally { this._deadline = null; this._pins = pins; this._holdEvict = false; this._evict(); }
-    }
     /**
      * The tiles over `rect` in frame F, cached or baked while the budget lasts; a miss past it is
      * listed, never thrown (A3 §4.2, PLAN §5.1 Q12). `budgetMs`: Infinity reads everything, 0 the
      * cache alone, anything else bakes until the deadline and at least one tile (with its parent
-     * chain: a read stops between tiles, never inside a chain). The pins and the eviction are
-     * `contentOffCamera`'s: this read leaves both as they were (`setCameraPins` is the camera's).
+     * chain: a read stops between tiles, never inside a chain). It leaves the pins and the eviction as
+     * they were (`setCameraPins` is the camera's).
      *
      * @returns {{tiles: Array<[string, object]>, missing: string[], complete: boolean}}
      */
@@ -280,42 +226,8 @@ export default class TileStore {
         if (over && budgetMs > 0) this.overBudget = (this.overBudget || 0) + 1;   // a read its budget stopped
         return { tiles, missing, complete: !missing.length };
     }
-    /** The camera's pin set, replaced (what `content` does at its end), then the eviction it held. */
+    /** The camera's pin set, replaced, then the eviction a read holds (`readTiles`). */
     setCameraPins(keys) { this._pins = new Set(keys); this._evict(); }
-    /** A new ladder is being read: the last one's warm tiles go back to the ordinary rules. */
-    clearWarm() { this._warm.clear(); }
-    /**
-     * THE TILES ARE IN UNMOVED SPACE; A MOVED OBJECT IS READ FROM WHERE ITS PICTURE IS (F55, A1 C1).
-     * Every tile is a pure function of stored bits and the object's own grid, and a move touches
-     * neither. What a move changes is WHICH tiles hold the pieces drawn in frame F: a native whose
-     * picture table (`Document.tableOf`: its own table with its frame's shift) is not zero is read
-     * from the tiles of the frame its whole frames point back to (`LevelMap.objShift`), over the
-     * window shifted back by the remainder, and painted translated by it — above its home too, where
-     * the remainder can reach a cell. A group whose F0 is its members' home draws them live
-     * (`placementModel.nativesIn`): none of their pieces are read.
-     */
-    _reroute(F, win, out, pins) {
-        const { moved, groups } = this._rerouteGroups(F);
-        if (!moved.size) return out;
-        const kept = out.filter((p) => !moved.has(p.id));
-        for (const g of groups.values()) {
-            const w = { left: win.left - g.rem[0], right: win.right - g.rem[0], top: win.top - g.rem[1], bottom: win.bottom - g.rem[1] };
-            const range = this.lm.tileRange(g.F0, w);
-            for (let i = range.i0; i <= range.i1; i++) {
-                for (let j = range.j0; j <= range.j1; j++) {
-                    for (const dir of ["up", "down"]) {
-                        const key = g.F0 + "|" + dir + "|" + i + "," + j;
-                        pins.add(key);
-                        this._pins.add(key);
-                        const tile = dir === "up" ? this._ensureUp(g.F0, i, j) : this._ensureDown(g.F0, i, j);
-                        for (const p of tile.objs) if (g.ids.has(p.id)) kept.push(p);
-                    }
-                }
-            }
-        }
-        return kept;
-    }
-
     /**
      * Every native drawn away from its stored bits as seen from F, GROUPED by the frame and remainder
      * its pieces are read from (`{F0, rem, ids}`), so each tile is scanned once a group: the natives
@@ -390,14 +302,10 @@ export default class TileStore {
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
-        if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
         this._pins.add(key); // protect this tile (and its parents) during recursion
-        let objs;
-        this._nest++;   // a tile's parents are baked with it: a read stops between tiles, never inside a chain
-        try { objs = this._bakeUp(F, i, j); } finally { this._nest--; }
+        const objs = this._bakeUp(F, i, j);   // a tile's parents are baked with it
         const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
-        this._readBakes++;
         return tile;
     }
     _bakeUp(F, i, j) {
@@ -413,7 +321,7 @@ export default class TileStore {
         const parentObjs = this._upPiecesOver(parentId, pr, null);
         // No offsets enter here (F55). A tile is a pure function of stored bits
         // and the object's own grid; where a moved object's picture is read
-        // from is decided in `_reroute`, at render time, from its table.
+        // from is decided at read time, from its table (`_rerouteGroups`).
         for (const o of this.doc.list(parentId)) parentObjs.push(o);
         for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
@@ -533,11 +441,9 @@ export default class TileStore {
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
-        if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
         const objs = this._bakeDown(F, i, j);
         const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
-        this._readBakes++;
         return tile;
     }
     _bakeDown(F, i, j) {
@@ -721,7 +627,7 @@ export default class TileStore {
         const F = String(frame);
         for (const [key, tile] of this.cache) {
             if (String(tile.level) !== F) continue;
-            this._dropTile(key); this._pins.delete(key); this._warm.delete(key);
+            this._dropTile(key); this._pins.delete(key);
         }
         if (this._rrMemo) for (const [k, m] of this._rrMemo) if (k === F || [...m.groups.values()].some((g) => g.F0 === F)) this._rrMemo.delete(k);
         this._chainSeq.delete(F);
@@ -879,9 +785,9 @@ export default class TileStore {
 
     /**
      * The camera has moved to frame F: every cached tile goes except F's ancestors', the tiles the
-     * camera's own read of F has just pinned, and the tiles the ladder read ahead (`_warm`)
+     * camera's own read of F has just pinned, and the tiles the prefetch read ahead (`_warm`)
      * (WORKLIST memory step 3a). Called by the engine AFTER that read, so a moved object's tiles
-     * `_reroute` reads from another frame survive: deleting them re-baked them cold on the zoom
+     * the reroute reads from another frame survive: deleting them re-baked them cold on the zoom
      * that followed — 440 → 64 ms for the first list in jsdom, and a 929 ms reroute two ticks
      * before a crossing in Kobin's Chrome with the ladder's tiles not kept (OPEN-FLAGS F83).
      */

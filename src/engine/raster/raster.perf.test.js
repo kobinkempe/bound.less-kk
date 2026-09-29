@@ -856,11 +856,11 @@ describe("FC7 — the OVERLAY bucket and its reserved slots, before 5d exists", 
     });
 
     test("eng.list is inside mainMs, and the report says what else the row holds", () => {
-        // §15.3's Q2 end state: `KobinEngine._render` opens the row BEFORE `_buildList`, so the
+        // §15.3's Q2 end state: `KobinEngine._render` opens the row BEFORE the table's sync, so the
         // ENGINE bucket is not read as cull + pack with its largest phase missing (D233, D241).
         // What the row also holds and no slot names — the §5.4 drain — is said rather than hidden.
         const rep = rp.report();
-        expect(rep.notes.engRow).toMatch(/BEFORE _buildList/);
+        expect(rep.notes.engRow).toMatch(/BEFORE the table's sync/);
         expect(rep.notes.engRow).toMatch(/residualMain/);
         expect(rep.notes.engList).toBeUndefined();           // the interim note is gone, not amended
         expect(rep.slots.parts.main).toContain("eng.list");

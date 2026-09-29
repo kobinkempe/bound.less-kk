@@ -312,7 +312,7 @@ export default class KobinEngine {
         for (const key of this.store._tileKeys()) { const L = key.split("|")[0]; (out[L] = out[L] || { size: 0 }).size++; }
         return out;
     }
-    get _hasFat() { return this.renderer._hasFat; }
+    get _hasFat() { return !!this.renderer._hasFat; }
 
     // Selection belongs to the select tool. Leaving it drops the selection, so
     // the indicator cannot linger over a drawing you have gone back to editing
@@ -329,19 +329,19 @@ export default class KobinEngine {
     setOpacity(o) { this.opacity = o; }
     setOpacityGroups(b) {
         this.opacityGroups = !!b;
-        this.renderer.setOpacityGroups(this.opacityGroups);
+        if (this.renderer.setOpacityGroups) this.renderer.setOpacityGroups(this.opacityGroups);
         this.store.setOpacityGroups(this.opacityGroups); // bumps bake epoch -> tiles rebake
-        this.renderer.clear();                            // fill seam pad differs -> rebuild groups
+        if (this.renderer.clear) this.renderer.clear();   // fill seam pad differs -> rebuild groups
         this._render();
     }
     // DEV: outline every built path in red. Dev panel only.
-    setDebug(b) { this.debug = !!b; this.renderer.setDebug(this.debug); this._render(); }
+    setDebug(b) { this.debug = !!b; if (this.renderer.setDebug) this.renderer.setDebug(this.debug); this._render(); }
     /** Dev panel: log every operation, not just the ones past the floor. */
     setTrace(b) {
         this.trace = !!b;
         if (this.trace) this.perfLog.length = 0;   // start the trace clean
     }
-    setRetainScenes(b) { this.retainScenes = !!b; this.renderer.setRetainScenes(this.retainScenes); this._render(); }
+    setRetainScenes(b) { this.retainScenes = !!b; if (this.renderer.setRetainScenes) this.renderer.setRetainScenes(this.retainScenes); this._render(); }
     /**
      * The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into `cfg`, anything else ignored. On the
      * raster path they take effect now: the budget in one eviction pass, a step change at this render's view.
@@ -363,7 +363,7 @@ export default class KobinEngine {
 
     setLazyOutlines(b) {
         this.lazyOutlines = !!b;
-        this.renderer.setLazyOutlines(this.lazyOutlines);
+        if (this.renderer.setLazyOutlines) this.renderer.setLazyOutlines(this.lazyOutlines);
         this._render(); // representation choice may change for pending strokes
         if (this.lazyOutlines) this._queueIdleFits();
     }
@@ -554,90 +554,6 @@ export default class KobinEngine {
         return out;
     }
 
-    // ---- render pipeline ----
-    // The full render list at the active level: tile pieces (up + down) + the
-    // level's own live natives, merged in id order (global z-order).
-    _buildList() {
-        const win = this._listWin();
-        const F = this.cam.frame;
-        const list = this.listFor(F, win, true);
-        // A change of frame: the tiles of frames the camera has left go (memory step 3a), after
-        // the read, which pins what the new view uses (F83). Never in `listFor`: an off-camera
-        // build that ran it would throw away the camera's own tiles (C §2.3).
-        if (F !== this._tileFrame) { this.store.framesLeft(F); this._tileFrame = F; }
-        this._lastRange = this.lm.tileRange(F, win);
-        return list;
-    }
-    /**
-     * The render list for `rect` in frame `frameKey` — tile pieces (up + down) plus that frame's
-     * own natives, merged in id order (global z-order). `_buildList` is this call for the
-     * camera's own frame and window; the suites call it for a frame the camera is not at (an
-     * off-camera picture reads the Stage's `snapshot` since the pyramid, A3 §4.2).
-     *
-     * Three facts a reader needs.
-     *
-     * The residual's depth is `frameKey`'s, never `cam.activeLevel` — a wrong depth draws every
-     * moved object at the wrong offset, silently, and only in a picture nobody is looking at yet
-     * (F41, §5.4 rule 3). For the camera's own frame the two are the same number by construction
-     * (`Camera.activeLevel` is `depthOf(frame)`).
-     *
-     * `forCamera` says this build is the camera's own, and it buys two things that are the
-     * camera's and nothing else's: the tiles it reads are PINNED (an off-camera read goes
-     * through `contentOffCamera`, which restores the visible pin set by value), and §5.4's
-     * old-address memo is seeded. An off-camera read running between a document event and
-     * the next drain would seed that memo with the POST-event table, and the drain would then
-     * compute the old address as the new one and leave a plate holding the object's old picture
-     * undropped.
-     *
-     * A frame the camera has never visited pays its tile bake here, synchronously, and on a busy
-     * frame that is seconds (F59). The cost is on `perfLog` as `listFor`.
-     *
-     * @param {string|number} frameKey a frame id or a legacy depth int (`LevelMap.frameFor` normalises)
-     * @param {{left:number, top:number, right:number, bottom:number}} rect the window, in `frameKey`'s units
-     * @param {boolean} [forCamera=false] the camera's own build (pin the tiles, seed the memo)
-     * @returns {object[]} the render list, sorted by `(z ?? id, id)`; `[]` for an unreachable frame
-     */
-    listFor(frameKey, rect, forCamera = false, budgetMs = 0) {
-        const t0 = perfNow();
-        const cf = this.lm.frameFor(frameKey);
-        if (!cf) return [];
-        const F = cf.id;
-        const derived = forCamera ? this.store.content(F, rect) : this.store.contentOffCamera(F, rect, budgetMs);
-        if (!derived) return null;                   // off camera, past `budgetMs`: not built
-        const model = this.stage.model;
-        const list = derived.concat(model.nativesIn(F));
-        // Renderer grouping follows logical edit ownership for re-homed
-        // boundary patches. That lets parent/patch overlap close AA seams while
-        // applying transparent opacity only once to the family.
-        //
-        // THE RESIDUAL (F41, A1 C1): every piece is painted translated by its native's remainder seen
-        // from F (`placementModel.placement`), never stored, so nothing derives from it; stamped as
-        // `res` so every reader of the list sees the same picture.
-        const hasOff = this.doc.hasOffsets();
-        const resById = hasOff ? new Map() : null;
-        for (const o of list) {
-            const rec = this.doc.getById(o.id);
-            if (rec && rec.obj.editId != null) o.editId = rec.obj.editId;
-            // A pending mark's piece seen from another frame is its mask, at the mark's z now: a tile
-            // copy lost `erase` and kept the z it was derived at (REVIEWER E-5: white ink over what
-            // is drawn after it).
-            if (rec && rec.obj.erase && o !== rec.obj) { o.erase = true; if (rec.obj.z != null) o.z = rec.obj.z; }
-            let res = null;
-            if (hasOff && rec) {
-                res = resById.get(o.id);
-                if (res === undefined) { const pl = model.placement(rec.obj, F); res = pl && (pl.rem[0] || pl.rem[1]) ? pl.rem : null; resById.set(o.id, res); }
-            }
-            if (res) o.res = res; else if (o.res) delete o.res;
-        }
-        // z defaults to id (creation order); cut pieces carry their source's z
-        // so a stroke stays at its depth after a boolean erase splits it.
-        list.sort((a, b) => ((a.z != null ? a.z : a.id) - (b.z != null ? b.z : b.id)) || (a.id - b.id));
-        // C's risk 5: a cold frame's bake is seconds (F59), so an off-camera build that paid one
-        // shows up in the report rather than only in a stall. `_perf`'s 8 ms floor is the filter.
-        // The camera's own build is timed by `_render` and charged to `eng.list`.
-        if (!forCamera) this._perf("listFor", t0, false, { frame: F, n: list.length, tiles: this.store.size() });
-        return list;
-    }
     // ---- the drag's hold (A2 §2.7: the Stage holds the drag's events until its end) ----
     /** The hold, taken once at `_beginSelectDrag` when the plane draws the drag: the Stage holds its events. */
     _beginHold() {
@@ -1279,7 +1195,7 @@ export default class KobinEngine {
         this.doc.clear(capture(), capture, restore); // reset event clears the tile cache
         this.lm.reset();
         this.cam.set({ frame: "0", activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
-        this.renderer.clear();
+        if (this.renderer.clear) this.renderer.clear();
         this._render();
     }
 
@@ -1308,7 +1224,7 @@ export default class KobinEngine {
     _levelPointToScreen(level, x, y) { return this.cam.levelPointToScreen(level, x, y); }
     _objs() { return this._lastList; }
     // The fat-display invariant the ported BUG-02/05 tests assert.
-    _fatOnScreen(o) { return this.renderer._fatOnScreen(o); }
+    _fatOnScreen(o) { return !!this.renderer._fatOnScreen && this.renderer._fatOnScreen(o); }
     _frameWindow(margin) { return this.cam.frameWindow(margin); }
 
     _debugTileRects() {

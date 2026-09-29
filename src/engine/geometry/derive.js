@@ -508,7 +508,7 @@ export function solidQuad(o, rect, opts = {}) {
 // rounding was magnified 4096x per level below the move, so a move's
 // displacement no longer enters the chain at all — the tiles are unmoved
 // space, and where a moved object's picture is read from is decided at render
-// time from its table (TileStore._reroute, LevelMap.objShift).
+// time from its table (TileStore._rerouteGroups, LevelMap.objShift).
 //
 // BACKWARDS COMPATIBILITY, and the decision that has to be made before the
 // true 1.0 (Kobin, 2026-09-05). Every deep picture in every saved drawing is

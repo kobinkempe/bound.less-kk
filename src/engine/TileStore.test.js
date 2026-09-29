@@ -8,6 +8,7 @@
 import LevelMap from "./LevelMap";
 import Document from "./Document";
 import TileStore from "./TileStore";
+import { tileContent } from "./__oracles__/renderList";
 
 import { BASE, ENTER, EXIT, HALF_W, REACH, G } from "./frameLattice";
 import { projectedSizePx, bboxOf } from "./geometry/derive";
@@ -51,7 +52,7 @@ describe("magnify chain (upContent)", () => {
         const [ux, uy] = under(M, -2, 0);
         mkStroke(d, -2, [[ux - 20, uy], [ux, uy], [ux + 20, uy + 10]], 6);
         const ts = mkStore(M, d);
-        const pieces = ts.content(0, win()); // view from level 0 (2 levels finer)
+        const pieces = tileContent(ts, 0, win()); // view from level 0 (2 levels finer)
         const up = pieces.filter((o) => o.origin === "inherited");
         expect(up.length).toBeGreaterThan(0);
         // magnified ×3000² = 9e6, yet every piece is a bounded polygon — the whole
@@ -66,7 +67,7 @@ describe("magnify chain (upContent)", () => {
         const [ux, uy] = under(M, -1, 0);
         mkStroke(d, -1, [[ux, uy], [ux + 3, uy]], 120);
         const ts = mkStore(M, d);
-        const up = ts.content(0, win()).filter((o) => o.origin === "inherited");
+        const up = tileContent(ts, 0, win()).filter((o) => o.origin === "inherited");
         expect(up.some((o) => o.covers && o.polys[0].length === 4)).toBe(true);
     });
     test("chain terminates (no runaway) with content 7 levels down", () => {
@@ -75,7 +76,7 @@ describe("magnify chain (upContent)", () => {
         for (let l = -7; l <= -1; l++) mkStroke(d, l, [[0, 0], [5, 2], [10, -3]], 2 + Math.abs(l));
         const ts = mkStore(M, d);
         const t0 = Date.now();
-        const pieces = ts.content(0, win());
+        const pieces = tileContent(ts, 0, win());
         // "No runaway": a genuine chain explosion was SECONDS-to-minutes (the old
         // 167 s / 583 s Clipper blowups). This asserts termination, not perf —
         // solo it runs ~0.5 s; the wide bound just absorbs parallel-worker
@@ -89,7 +90,7 @@ describe("magnify chain (upContent)", () => {
         const d = new Document();
         mkStroke(d, 2, [[0, 0], [1, 1]], 1); // content only at the FINEST level
         const ts = mkStore(M, d);
-        const up = ts.content(0, win()).filter((o) => o.origin === "inherited");
+        const up = tileContent(ts, 0, win()).filter((o) => o.origin === "inherited");
         expect(up).toHaveLength(0);
     });
 });
@@ -102,7 +103,7 @@ describe("direct minify (downContent) + fade", () => {
         // (frame diag ~ 3e5) lands at a few px — visible, minified, thin.
         mkStroke(d, 1, [[-150000, 0], [150000, 0], [180000, 60000]], 9000);
         const ts = mkStore(M, d);
-        const down = ts.content(0, win()).filter((o) => o.origin === "derived");
+        const down = tileContent(ts, 0, win()).filter((o) => o.origin === "derived");
         expect(down.length).toBeGreaterThan(0);
         expect(down.every((o) => typeof o.fadeTag === "number")).toBe(true);
         // minified strokes are thin — never fat
@@ -114,7 +115,7 @@ describe("direct minify (downContent) + fade", () => {
         // 2+ levels finer is guaranteed sub-pixel: f=(1/3000)^2 -> ~1e-7, culled.
         mkStroke(d, 2, [[0, 0], [2, 0]], 1);
         const ts = mkStore(M, d);
-        const down = ts.content(0, win()).filter((o) => o.origin === "derived");
+        const down = tileContent(ts, 0, win()).filter((o) => o.origin === "derived");
         expect(down).toHaveLength(0);
     });
 });
@@ -127,7 +128,7 @@ describe("XOR-source invariant", () => {
         mkStroke(d, 0, [[0, 0], [10, 0]], 4);     // own -> live (not in tiles)
         mkStroke(d, 1, [[-30, 0], [30, 0]], 60);  // finer -> down
         const ts = mkStore(M, d);
-        const pieces = ts.content(0, win());
+        const pieces = tileContent(ts, 0, win());
         const byId = new Map();
         for (const o of pieces) {
             const set = byId.get(o.id) || new Set();
@@ -144,7 +145,7 @@ describe("bake-order determinism", () => {
         const d = new Document();
         for (let l = -3; l <= -1; l++) mkStroke(d, l, [[0, 0], [8, 3], [16, -4]], 3);
         const norm = (ts) => {
-            const p = ts.content(0, win()).map((o) => JSON.stringify([o.id, o.type, o.covers || false, o.polys ? o.polys.map((r) => r.length) : o.pts.length]));
+            const p = tileContent(ts, 0, win()).map((o) => JSON.stringify([o.id, o.type, o.covers || false, o.polys ? o.polys.map((r) => r.length) : o.pts.length]));
             return p.sort();
         };
         const a = mkStore(M, d); const A = norm(a);
@@ -165,14 +166,14 @@ describe("bidirectional invalidation", () => {
         const d = new Document();
         mkStroke(d, 1, [[-20, 0], [20, 0]], 40);
         const ts = mkStore(M, d);
-        ts.content(0, win());
+        tileContent(ts, 0, win());
         const before = ts.size();
         expect(before).toBeGreaterThan(0);
         mkStroke(d, 1, [[-20, 30], [20, 30]], 40); // new finer content overlapping the same coarse tile
         // the coarse down-tile covering the origin must have been invalidated
         const downKeys = ts._tileKeys().filter((k) => k.includes("|down|"));
         expect(downKeys.every((k) => ts.cache.get(k))).toBe(true); // survivors are valid
-        const rebaked = ts.content(0, win()).filter((o) => o.origin === "derived");
+        const rebaked = tileContent(ts, 0, win()).filter((o) => o.origin === "derived");
         expect(rebaked.some((o) => o.pts.some((p) => Math.abs(p[1]) > 0))).toBe(true); // new stroke present
     });
     test("ERASE removes ghost ink from a coarser tile (the new bug class)", () => {
@@ -181,10 +182,10 @@ describe("bidirectional invalidation", () => {
         const a = mkStroke(d, 1, [[-20, 0], [20, 0]], 40);
         const b = mkStroke(d, 1, [[-20, 40], [20, 40]], 40);
         const ts = mkStore(M, d);
-        const before = ts.content(0, win()).filter((o) => o.origin === "derived");
+        const before = tileContent(ts, 0, win()).filter((o) => o.origin === "derived");
         expect(before.some((o) => o.id === b.id)).toBe(true);
         d.removeById(b.id); // erase b at its home level
-        const after = ts.content(0, win()).filter((o) => o.origin === "derived");
+        const after = tileContent(ts, 0, win()).filter((o) => o.origin === "derived");
         expect(after.some((o) => o.id === b.id)).toBe(false); // gone from the coarse tile — no ghost
         expect(after.some((o) => o.id === a.id)).toBe(true);  // a still there
     });
@@ -193,14 +194,14 @@ describe("bidirectional invalidation", () => {
         const d = new Document();
         mkStroke(d, -1, [[0, 0], [10, 0]], 4);
         const ts = mkStore(M, d);
-        ts.content(0, win());
+        tileContent(ts, 0, win());
         const upBefore = ts._tileKeys().filter((k) => k.startsWith("0|up|")).sort();
         expect(upBefore.length).toBeGreaterThan(0);
         const o2 = mkStroke(d, -1, [[0, 5], [10, 5]], 4); // more coarse content at the direct parent
         // the cached child tiles SURVIVE (one added stroke must not nuke the
         // cache) and already carry the new object's pieces — no rebake needed
         expect(ts._tileKeys().filter((k) => k.startsWith("0|up|")).sort()).toEqual(upBefore);
-        const pieces = ts.content(0, win());
+        const pieces = tileContent(ts, 0, win());
         expect(pieces.some((p) => p.id === o2.id)).toBe(true);
     });
     test("a NEW stroke two levels above still invalidates chained up-tiles (fallback)", () => {
@@ -209,11 +210,11 @@ describe("bidirectional invalidation", () => {
         const [ux, uy] = under(M, -2, 0);
         mkStroke(d, -2, [[ux - 0.01, uy], [ux + 0.01, uy]], 0.004); // tiny at -2, spans the window x R^2
         const ts = mkStore(M, d);
-        ts.content(0, win()); // level-0 tiles chain through level -1
+        tileContent(ts, 0, win()); // level-0 tiles chain through level -1
         // grandparent content changed: chained tiles can't be appended (their
         // content flows through level -1 tiles) — the fallback invalidates them
         const o2 = mkStroke(d, -2, [[ux - 0.01, uy + 0.001], [ux + 0.01, uy + 0.001]], 0.004);
-        const pieces = ts.content(0, win());
+        const pieces = tileContent(ts, 0, win());
         expect(pieces.some((p) => p.id === o2.id)).toBe(true); // correct content either way
     });
     test("clear/reset nukes the whole cache", () => {
@@ -221,7 +222,7 @@ describe("bidirectional invalidation", () => {
         const d = new Document();
         mkStroke(d, 1, [[-20, 0], [20, 0]], 40);
         const ts = mkStore(M, d);
-        ts.content(0, win());
+        tileContent(ts, 0, win());
         expect(ts.size()).toBeGreaterThan(0);
         d.clear(null, () => null, () => {});
         expect(ts.size()).toBe(0);
@@ -234,7 +235,7 @@ describe("epoch / config", () => {
         const d = new Document();
         mkStroke(d, -1, [[0, 0], [10, 0]], 4);
         const ts = mkStore(M, d);
-        ts.content(0, win());
+        tileContent(ts, 0, win());
         expect(ts.size()).toBeGreaterThan(0);
         ts.setOpacityGroups(false);
         expect(ts.size()).toBe(0);

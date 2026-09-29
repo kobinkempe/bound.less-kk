@@ -32,14 +32,14 @@
  *     `paintPhase` at the same phase index (§15.3 Q3). They are screen-anchored and recomputed
  *     every camera step, so in the body plane they would slide off the edge with the transform.
  *
- * The look constants and `SEL_CRAWL_RESUME_MS` are transcribed from `Renderer.js:349-394` the way
+ * The look constants and `SEL_CRAWL_RESUME_MS` are transcribed from `svgOverlay.js` the way
  * `antPaint.js` transcribes the band's: that module is the DOM renderer and this one is a leaf.
  * If one changes there it must change here.
  */
 
 import { OverlayBuffer, paintPhase, ANT_PHASES, ANT_STEP_MS, ANT_LOOK, selAntScale } from "./antPaint";
 
-/** How long after the last camera step the crawl stays frozen (`Renderer.js:394`). */
+/** How long after the last camera step the crawl stays frozen (`svgOverlay.SEL_CRAWL_RESUME_MS`). */
 export const SEL_CRAWL_RESUME_MS = 150;
 
 /**
@@ -407,7 +407,7 @@ export default class OverlayLayer {
         return r;
     }
 
-    // ---- the crawl clock (§10, `Renderer.js:1500-1515`) ----
+    // ---- the crawl clock (§10, `svgOverlay.renderSelAnts`) ----
 
     _arm() {
         if (this._timer != null || !this._shown || this._reduced || !this._dec) return;
@@ -422,7 +422,7 @@ export default class OverlayLayer {
     /**
      * The crawl holds its phase while the camera moves and picks up `SEL_CRAWL_RESUME_MS` after
      * the last step. The timer is re-armed on EVERY `show()`, camera step or not, which is what
-     * `Renderer.js:1500-1515` does on every `syncWorld`.
+     * `svgOverlay.renderSelAnts` does on every `syncWorld`.
      */
     freeze() {
         this._frozen = true;

@@ -7,7 +7,7 @@
  * One composition (A1 C1): a native's picture table is its own table with its home frame's shift at
  * k = 0 (`Document.tableOf`); `LevelMap.objShift` turns it into the frame F0 its pieces are read from
  * and the remainder they are painted with, honouring a whole-frame carry at the home depth. The
- * grouping is `TileStore._rerouteGroups`' memo, so the Stage and the list read one answer. No read
+ * grouping is `TileStore._rerouteGroups`' memo, so the Stage and the oracle's list read one answer. No read
  * settles, merges or changes a table; `displaced` mints a frame its pieces are read from when the
  * lattice lacks it (`objShift`, A1 §1.2 row 19).
  */

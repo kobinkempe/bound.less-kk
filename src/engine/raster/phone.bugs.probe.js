@@ -213,12 +213,12 @@ describe("bug 1 — the beige object's drag", () => {
         E.setTool("select");
         E.pointerDown(at[0], at[1]); E.pointerUp();
         E._render(); await new Promise((r) => setTimeout(r, 200)); E._render(); await new Promise((r) => setTimeout(r, 200)); await flush();
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         const { rasterStats } = require("./RasterRenderer");
         const p0 = rasterStats.posts;
         E.pointerDown(at[0], at[1]);
         for (let k = 1; k <= 30; k++) E.pointerMove(at[0] + k * 2, at[1] + k);
-        log(`  drag of 39 (cap ${E.renderer.planeCap}): hold ${!!E._holdMove} plane ${E.renderer._plane.state} refused ${E.renderer._plane.refused} lists ${lists.mock.calls.length} posts ${rasterStats.posts - p0}`);
+        log(`  drag of 39 (cap ${E.renderer.planeCap}): hold ${!!E._holdMove} plane ${E.renderer._plane.state} refused ${E.renderer._plane.refused} renders ${lists.mock.calls.length} posts ${rasterStats.posts - p0}`);
         E.pointerUp();
         E.destroy();
     });

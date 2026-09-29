@@ -843,7 +843,7 @@ const NOTES = {
         + "headlined BROWSER; the others name their own top bucket.",
     engLocal: "a structural zero: the transform to plate pixels is fused into the edge loop, "
         + "so there is no phase to clock and its cost is inside ras.edges (§8.2, D43).",
-    engRow: "a render row is opened by KobinEngine._render BEFORE _buildList and closed at the "
+    engRow: "a render row is opened by KobinEngine._render BEFORE the table's sync and closed at the "
         + "end of RasterRenderer.render, so eng.list is inside mainMs. The §5.4 plate drain runs "
         + "inside the row as well and has no slot of its own: it reads in residualMain. The "
         + "engine's update() and emit() are outside the row (§8.1).",

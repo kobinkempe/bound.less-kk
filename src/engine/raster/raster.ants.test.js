@@ -4,8 +4,8 @@
  * The painter is a pure function over typed arrays, so every test here reads PIXELS or the
  * numbers the painter returns; none of it needs a DOM, a canvas or an engine.
  *
- * THE LOOK CONSTANTS AND `_fitDash`'S ARITHMETIC ARE TRANSCRIBED BELOW, NOT IMPORTED (D66's
- * rule): the module carries its own copy of `Renderer.js:349-378`, so importing that copy here
+ * THE LOOK CONSTANTS AND `fitDash`'S ARITHMETIC ARE TRANSCRIBED BELOW, NOT IMPORTED (D66's
+ * rule): the module carries its own copy of `svgOverlay.js`'s, so importing that copy here
  * would compare it with itself and hold whatever it holds. The numbers below were read from
  * `Renderer.js` on 2026-09-16 and the line numbers say where.
  */
@@ -23,7 +23,7 @@ const T_THIN_REF = 10, T_THIN_MIN = T_FINE_W / T_ANT_W;      // Renderer.js:374-
 const T_MIN_TRACE_PX = 0.5;                                   // overlays.js:59
 const tScale = (inkPx) => (inkPx == null || !isFinite(inkPx) ? 1
     : Math.max(T_THIN_MIN, Math.min(1, inkPx / T_THIN_REF)));
-/** `_fitDash`, Renderer.js:1686-1712: whole cycles onto a run, and a run under one is not fitted. */
+/** `svgOverlay`'s `fitDash` (`Renderer._fitDash` when read): whole cycles onto a run, and a run under one is not fitted. */
 function tFit(len, on, off) {
     const cyc = on + off;
     if (len < cyc) return { on, cyc, n: 0 };
@@ -678,7 +678,7 @@ describe("N14 — the crawl is today's crawl", () => {
         const fitA = tFit(lenA, on, off), fitB = tFit(lenB, on, off);
         expect(fitA.n).toBe(1); expect(fitB.n).toBe(2);
         expect(fitA.cyc / fitB.cyc).toBeCloseTo(1.886, 2);
-        /** `_fitDash`'s pattern at one phase, transcribed: starts at i·C + phase·C/8. */
+        /** `fitDash`'s pattern at one phase, transcribed: starts at i·C + phase·C/8. */
         const expected = (len, fit, ph) => {
             const p = (ph % ANT_PHASES) * fit.cyc / ANT_PHASES, list = [];
             for (let i = Math.floor(-p / fit.cyc); i * fit.cyc + p < len; i++) {

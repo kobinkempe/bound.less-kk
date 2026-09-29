@@ -1,8 +1,9 @@
 /**
- * F120 (REVIEWER-4 D-5): the live path is held at pen-up until the plates under it are fresh. On the picture
- * pyramid (A3 §3.6, B-PYRAMID-2b's port): pending its shape it stays, with no limit (PLAN §5.4 Q2); once the shape
- * has landed, one group commit publishes the drawn cells under its box and takes the path down in the same task.
- * The sync path's own case (LH-2, a pen-up that stayed sync) went with the sync path (A3 §2.5).
+ * LiveStrokeLayer.hold.test.js — F120 (REVIEWER-4 D-5) on the composed layer (A3 §7.2): the live path is held at pen-up
+ * (`LiveStrokeLayer.hold`) until the plates under it are fresh. Pending its shape it stays, with no limit (PLAN §5.4
+ * Q2); once the shape has landed, one group commit publishes the drawn cells under its box and `release`s the path in
+ * the same task (A3 §3.6). F131: a held path stays put when the next pen-down re-chooses the origin. `raster.liveHold`
+ * until B-PYRAMID-3.
  */
 import KobinEngine from "../KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
@@ -40,7 +41,7 @@ async function handedOff(E) {
         await flush();
         E.renderer._pyrLive(E.renderer._view);
         await flush();
-        if (!E.renderer._liveHeld.length) return;
+        if (!E.renderer.live.held.length) return;
     }
 }
 
@@ -61,12 +62,12 @@ describe("F120 the live path at a pen-up", () => {
         E._render(); await flush();
         const seen = watchHandoffs(E), hand0 = rasterStats.liveHandoffs;
         stroke(E);
-        expect(E.renderer._liveHeld.length).toBe(1);        // red on the old path: dropped at `endLive`, the stroke nowhere
+        expect(E.renderer.live.held.length).toBe(1);        // red on the old path: dropped at `endLive`, the stroke nowhere
         await flush();
-        expect(E.renderer._liveHeld.length).toBe(1);        // pending its shape: on no plate yet (PLAN §1.5)
+        expect(E.renderer.live.held.length).toBe(1);        // pending its shape: on no plate yet (PLAN §1.5)
         while (E._stepShapeBakes(1000));                    // the shape lands; its group asks for the cells under it
         await handedOff(E);
-        expect(E.renderer._liveHeld.length).toBe(0);
+        expect(E.renderer.live.held.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
         expect(seen).toEqual([0]);                          // at the handoff every drawn cell under its box was exact
     });
@@ -77,13 +78,13 @@ describe("F120 the live path at a pen-up", () => {
         E._render(); await flush();
         const hand0 = rasterStats.liveHandoffs;
         stroke(E);
-        const h = E.renderer._liveHeld[0];
+        const h = E.renderer.live.held[0];
         h.at -= 60000; h.until = 0;                         // a minute past pen-up, the shape still pending
         E.renderer._pyrLive(E.renderer._view);
-        expect(E.renderer._liveHeld.length).toBe(1);        // red on the old path: timed out at 15 s, the stroke nowhere
+        expect(E.renderer.live.held.length).toBe(1);        // red on the old path: timed out at 15 s, the stroke nowhere
         while (E._stepShapeBakes(1000));                    // the shape lands; its plates are asked for
         await handedOff(E);
-        expect(E.renderer._liveHeld.length).toBe(0);
+        expect(E.renderer.live.held.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
     });
 });
@@ -102,12 +103,12 @@ test("LH-3 the next pen-down after a pan and a zoom leaves the held stroke where
         E.pointerDown(200, 300);
         for (let k = 1; k <= 20; k++) E.pointerMove(200 + k * 10, 300 + (k % 5) * 4);
         E.pointerUp();
-        const R = E.renderer, h = R._liveHeld[0];
+        const R = E.renderer, h = R.live.held[0];
         expect(h).toBeTruthy();
         const A = E.doc.list(E.cam.frame).find((o) => o.type === "stroke" || o.type === "shape");
         const at = () => {
-            const tail = h.path.children[0], v = tail.vertices[0], w = R.world;
-            return [w.translation.x + w.scale * (h.path.translation.x + tail.translation.x + v.x), w.translation.y + w.scale * (h.path.translation.y + tail.translation.y + v.y)];
+            const tail = h.root.children[0], v = tail.vertices[0], w = R.svg.world;
+            return [w.translation.x + w.scale * (h.root.translation.x + tail.translation.x + v.x), w.translation.y + w.scale * (h.root.translation.y + tail.translation.y + v.y)];
         };
         const truth = () => E.cam.levelPointToScreen(E.cam.frame, A.pts ? A.pts[0][0] : 0, A.pts ? A.pts[0][1] : 0);
         E.cam.set({ ...E.cam.state(), inScale: E.cam.inScale * 0.5, inPanX: E.cam.inPanX + 300 });

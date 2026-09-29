@@ -203,10 +203,10 @@ describe("the pen-up handoff (PAPER-PLAN §10 S5; the group commit is raster.pyr
         const a = E.cam.levelPointToScreen("0", -100, 0);
         E.pointerDown(a[0], a[1]);
         for (let k = 1; k <= 5; k++) E.pointerMove(a[0] + k * 20, a[1]);
-        const path = E.renderer._liveRoot;                            // the live stroke: its tail and frozen chunks (D-1)
+        const path = E.renderer.live.root;                            // the live stroke: its tail and frozen chunks (D-1)
         E.cancelStroke();
         expect(path.parent).toBeFalsy();
-        expect(E.renderer._liveHeld.length).toBe(0);
+        expect(E.renderer.live.held.length).toBe(0);
     });
 });
 
@@ -239,7 +239,7 @@ describe("a drag step's own costs (PAPER-PLAN §10 S7)", () => {
 describe("the live trail under the pointer (Kobin 2026-09-22: erasers invisible until pen-up)", () => {
     /** Where the live path's last anchor lands in CSS px, through every group's transform up to Two's scene. */
     function liveAt(E) {
-        const p = E.renderer._live;
+        const p = E.renderer.live.tail;
         const v = p.vertices[p.vertices.length - 1];
         let x = v.x, y = v.y;
         for (let g = p; g; g = g.parent) {

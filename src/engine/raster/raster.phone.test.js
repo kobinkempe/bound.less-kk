@@ -89,7 +89,7 @@ describe("the phone's drag plane (report 08-11-20: the beige object under the gr
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over"]);
         expect(pl.keys.length).toBeGreaterThan(12);
         expect(pl.keys.length).toBeLessThanOrEqual(MOVE_PLANE_PLATES_PHONE);
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(80, 150);
         for (let k = 1; k <= 20; k++) E.pointerMove(80 + k * 4, 150 + k * 2);
         expect(E._holdMove).toBeTruthy();
@@ -159,7 +159,7 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         const id = E.doc.list(E.cam.frame).slice(-1)[0].id;
         expect(E.doc.getById(id).obj.type).toBe("stroke");
         expect(inkAt(E, 330, 240)).toBe(0);                        // pending its shape it is on no plate (PLAN §1.5)
-        expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(true);   // the live path draws it
+        expect(E.renderer.live.held.some((h) => h.id === id)).toBe(true);   // the live path draws it
         E._scheduleBake = bake;
         while (E._stepShapeBakes(1000));                           // the resolve, as `_bakeTick` runs it: no render of its own
         expect(E.doc.getById(id).obj.type).toBe("shape");
@@ -171,7 +171,7 @@ describe("a finished stroke on the plates (report 08-13-01: the red line)", () =
         };
         const after = ink();
         expect(after[240 * 800 + 330]).toBe(1);                    // the shape, on the plates the resolve's rectangle re-rendered
-        expect(E.renderer._liveHeld.some((h) => h.id === id)).toBe(false);   // and the live path went with it
+        expect(E.renderer.live.held.some((h) => h.id === id)).toBe(false);   // and the live path went with it
         E.plates.dropAll(); E._render(); await flush();            // the picture from scratch
         const truth = ink();
         let differ = 0;

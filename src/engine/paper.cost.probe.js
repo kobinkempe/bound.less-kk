@@ -1,6 +1,6 @@
 /**
  * paper.cost.probe.js — PAPER-PLAN §10's main-thread costs on the real Magnum Opus (Sep 15 export),
- * at the saved camera: (A) the list build and its parts, (C) a drag step with the drag plane, (D) the
+ * at the saved camera: (A) the off-camera table and its parts, (C) a drag step with the drag plane, (D) the
  * pack of one view as one strip and as a strip a plate, (E) the ink under a plate-covering opaque fill.
  * (B, the zoom-out crossing after the ladder's warm-up, went with the ladder at P6.)
  *
@@ -61,20 +61,21 @@ function groupScan(E, F) {
 describe("paper costs on the Magnum Opus", () => {
     const big = fs.existsSync(FILE) ? test : test.skip;
 
-    big("A — the list build at the saved camera, and its parts", () => {
+    big("A — the off-camera table at the saved camera, and its parts (the list build until B-PYRAMID-3)", () => {
         const E = mk(false);
         const acc = {};
-        timeIt(E.store, "content", acc); timeIt(E.store, "_reroute", acc); timeIt(E.stage.model, "nativesIn", acc);
+        timeIt(E.store, "read", acc); timeIt(E.stage.model, "nativesIn", acc);
         const rows = [];
+        const F = E.cam.frame, win = E.cam.frameWindow(0);
         for (let k = 0; k < 4; k++) {
             for (const key of Object.keys(acc)) acc[key] = 0;
             const t = now();
-            const list = E._buildList();
-            rows.push({ k, ms: +(now() - t).toFixed(1), n: list.length, content: +acc.content.toFixed(1), reroute: +acc._reroute.toFixed(1), own: +acc.nativesIn.toFixed(1) });
+            const table = E.stage.snapshot(F, win);
+            rows.push({ k, ms: +(now() - t).toFixed(1), n: table ? table.items().length : 0, read: +acc.read.toFixed(1), own: +acc.nativesIn.toFixed(1) });
         }
         const tg = now();
         const moved = groupScan(E, E.cam.frame);
-        log("A list builds " + JSON.stringify(rows));
+        log("A tables " + JSON.stringify(rows));
         log("A offsetIds " + E.doc.offsetIds().size + ", rerouted at this frame " + moved + ", the group scan alone " + (now() - tg).toFixed(1) + " ms");
         expect(rows.length).toBe(4);
     });
@@ -89,7 +90,7 @@ describe("paper costs on the Magnum Opus", () => {
         log("C tap selection ids=" + (sel ? sel.ids.length : 0) + " frames=" + (sel ? sel.frames.length : 0));
         if (!sel) return;
         const acc = {};
-        timeIt(E, "_buildList", acc); timeIt(E.stage, "sync", acc); timeIt(E.renderer, "render", acc);
+        timeIt(E, "_render", acc); timeIt(E.stage, "sync", acc); timeIt(E.renderer, "render", acc);
         timeIt(E.renderer, "syncCameraOnly", acc); timeIt(E.doc, "setOffsetsById", acc); timeIt(E, "_displaceMember", acc);
         timeIt(E.renderer, "_frameStep", acc); timeIt(E.renderer, "_renderSelOverlay", acc); timeIt(E, "_emit", acc);
         E.renderer.setSelectionAnts(() => { const t = now(); try { return E._selectionAnts(); } finally { acc.ants = (acc.ants || 0) + now() - t; } });
@@ -103,21 +104,21 @@ describe("paper costs on the Magnum Opus", () => {
             for (const key of Object.keys(acc)) acc[key] = 0;
             const t = now();
             E.pointerMove(cx + 10 + k * 6, cy + k * 3);
-            rows.push([+(now() - t).toFixed(1), +acc._buildList.toFixed(1), +acc.sync.toFixed(1), +acc.render.toFixed(1),
+            rows.push([+(now() - t).toFixed(1), +acc._render.toFixed(1), +acc.sync.toFixed(1), +acc.render.toFixed(1),
                 +acc.syncCameraOnly.toFixed(1), +acc._frameStep.toFixed(1), +acc._renderSelOverlay.toFixed(1), +acc.setOffsetsById.toFixed(1), +acc._displaceMember.toFixed(1), +acc._emit.toFixed(1),
                 +(acc.ants || 0).toFixed(1), +acc._selEdges.toFixed(1), +acc._selDecide.toFixed(1),
                 +acc._tapBarrier.toFixed(1), +acc._dragBarrier.toFixed(1), +acc._beginHold.toFixed(1), +acc._selectionMembers.toFixed(1)]);
         }
         E.pointerUp();
         const s1 = E.plates.s;
-        log("C per step [total, list, stage.sync, render, syncCameraOnly, frameStep, selOverlay, setOffsets, displace, emit, ants, selEdges, selDecide, flushErases, settleErases, beginHold, members] " + JSON.stringify(rows));
+        log("C per step [total, E._render, stage.sync, render, syncCameraOnly, frameStep, selOverlay, setOffsets, displace, emit, ants, selEdges, selDecide, flushErases, settleErases, beginHold, members] " + JSON.stringify(rows));
         log("C over 12 steps: cells dirtied " + (E.stage.stats.dirtied - d0) + " dropsAll " + (s1.dropsAll - s0.dropsAll)
             + " misses " + (s1.misses - s0.misses));
     });
 
     big("D — packing one screen at the camera's quantum: one strip vs per-plate strips", () => {
         const E = mk(false);
-        const list = E._buildList();
+        E.stage.sync(E.cam.frame, E.cam.frameWindow(0)); const list = E.stage.items();
         const qf = levelAt(E.cam.inScale, DPR);
         const r = plateRange(E.cam.frameWindow(0), qf.Zq);
         const all = [];
@@ -134,7 +135,7 @@ describe("paper costs on the Magnum Opus", () => {
 
     big("E — z-order occlusion: ink under an opaque plate-covering family, per plate of the view", () => {
         const E = mk(false);
-        const list = E._buildList();
+        E.stage.sync(E.cam.frame, E.cam.frameWindow(0)); const list = E.stage.items();
         const qf = levelAt(E.cam.inScale, DPR);
         const Zq = qf.Zq;
         const r = plateRange(E.cam.frameWindow(0), Zq);

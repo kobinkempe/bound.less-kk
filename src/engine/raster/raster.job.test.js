@@ -166,7 +166,7 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(Array.from(b1)).toEqual([100, 100, 300, 260]);
         expect(pack.packStats.boxWalks).toBe(1);
 
-        item.res = [1000, -40];                                // `_buildList` writes this with no _ver bump
+        item.res = [1000, -40];                                // a move changes this with no _ver bump
         const job = packOne([item], { plates: Int32Array.from([2, 0]) });
         expect(job.nItems).toBe(1);                            // the moved object is NOT culled out of its new plate
         expect(job.attr[0]).toBe(1100);
@@ -201,7 +201,7 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(packOne([item]).attr[2]).toBe(50);
         expect(pack.packStats.rebuilt).toBe(2);
 
-        // and a MOVE still does not rebuild: `_buildList` writes `res` with no `_ver` bump (F55)
+        // and a MOVE still does not rebuild: it changes `res` with no `_ver` bump (F55)
         item.res = [7, 9];
         expect(packOne([item]).attr[2]).toBe(57);
         expect(pack.packStats.rebuilt).toBe(2);
@@ -258,8 +258,8 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(b1.box[0]).toBeGreaterThanOrEqual(34);
         expect(b1.box[0]).toBeLessThan(34 + pack.ARC_TOL);
 
-        // what the idle fitter does on a crossing: `renderer.ensureOutline` → `strokeLoops`
-        // caches the outline on the object and bumps no `_ver` (`KobinEngine.js:588-596`,
+        // what the idle fitter does on a crossing: `strokeLoops` caches the outline on the
+        // object and bumps no `_ver` (`KobinEngine._queueIdleFits`,
         // `curveOutline.js:406`). §4.8 bands a fitted stroke from `_outline` instead, and for a
         // fat one the two are a miter corner apart, not a sub-pixel.
         item._outline = [[
@@ -281,7 +281,7 @@ describe("the job wire (§3.3, §3.4)", () => {
         const outside = (band, box) => [box[0] - band[0], box[1] - band[1], band[2] - box[2], band[3] - box[3]];
 
         // A decimated scribble corner at a 100-unit pen, fitted the way the idle fitter fits a
-        // DERIVED stroke (`KobinEngine.js:591` passes `curved` only for a native one). The miter
+        // DERIVED stroke (`KobinEngine._queueIdleFits` passes `curved` only for a native one). The miter
         // ribbon puts its vertex `half / max(0.5, dot)` from the centreline vertex — up to 2·half
         // (`polyline.js:364`), so the centreline box inflated by `half` loses the spike.
         const scribble = strokeItem(30, [[0, 0], [200, 0], [0, 6]], 100);

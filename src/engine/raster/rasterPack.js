@@ -6,12 +6,12 @@
  *
  * Four rules a reader has to hold on to:
  *   - the item box is memoised WITHOUT `res` and `res` is added at the point of use, because
- *     `_buildList` writes `o.res` with no `_ver` bump (F55) and a box memoised with it folded in
+ *     a move changes an item's `res` with no `_ver` bump (F55) and a box memoised with it folded in
  *     culls a moved object out of the plates it has just arrived in;
  *   - an EDIT does rebuild the entry, and so does a FIT: the render list carries the Document's
  *     own natives at the active frame and `_afterEdit` mutates them in place, bumping `_ver`
  *     (`Document.js:1012`), while the idle fitter sets `_outline` and bumps nothing
- *     (`KobinEngine.js:588-596`), so the entry's identity is all three (D96, D98);
+ *     (`KobinEngine._queueIdleFits`), so the entry's identity is all three (D96, D98);
  *   - the stroke band is built here, once per item per zoom quantum, never per plate: two plates
  *     that band the same stroke against their own rectangles disagree at the boundary (§4.8);
  *   - nothing here copies a coordinate for an item that does not touch the job's plates, which
@@ -402,11 +402,11 @@ function pairNeedsUnion(ba, i, sa, bb, j, sb) {
  * The render list carries the Document's own natives at the active frame (the model's `nativesIn`),
  * and `_afterEdit` mutates them in place and bumps `_ver` (`Document.js:1012-1017`), so an entry
  * keyed on the object alone would paint a re-rastered plate from the pre-edit numbers. A MOVE
- * must not rebuild — `_buildList` writes `o.res` with no `_ver` bump (F55) — which is why this
+ * must not rebuild — it changes the item's `res` with no `_ver` bump (F55) — which is why this
  * reads `_ver` and the geometry array and never a coordinate.
  * `_outline` is in the identity for the same reason and with no `_ver` bump behind it either:
  * `curveOutline.strokeLoops` caches it on the object (`curveOutline.js:406`) and the idle fitter
- * sets it on every crossing (`KobinEngine.js:588-596`), and §4.8 bands a fitted stroke from
+ * sets it on every crossing (`KobinEngine._queueIdleFits`), and §4.8 bands a fitted stroke from
  * `_outline` and an unfitted one with round joins — two different bands (D98).
  */
 export function entryFor(item, cfg) {
@@ -844,7 +844,7 @@ function sameFamily(g, f) {
         const a = f.items[n], b = g.items[n], o = a.o, e = b.e;
         if (o !== b.o || a.fade !== b.fade || o.z !== b.z || o.editId !== b.editId || !!o.erase !== b.erase) return false;
         if (!e || e.dropped || e.ver !== o._ver || e.src !== geomRef(o) || e.outline !== o._outline) return false;
-        const r = o.res || null, s = b.res;   // `listFor` makes new residual arrays every build: compared by value
+        const r = o.res || null, s = b.res;   // a re-placement makes a new array: compared by value
         if (r !== s && !(r && s && r[0] === s[0] && r[1] === s[1])) return false;
     }
     return true;

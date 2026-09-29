@@ -7,6 +7,7 @@
 import LevelMap from "./LevelMap";
 import Document from "./Document";
 import TileStore from "./TileStore";
+import { tileContent } from "./__oracles__/renderList";
 import { BASE, ENTER, EXIT, HALF_W } from "./frameLattice";
 import { rectLoop, normalizeLoops } from "./geometry/arcShape";
 import { circleLoop } from "./geometry/antRuns";
@@ -59,7 +60,7 @@ function expectCold(ts, M, d) {
     }
     return n;
 }
-const warm = (ts) => { for (const F of ["0", "-1", "-2", "-3"]) ts.content(F, win()); };
+const warm = (ts) => { for (const F of ["0", "-1", "-2", "-3"]) tileContent(ts, F, win()); };
 const upKeys = (ts, F) => ts._tileKeys().filter((k) => k.startsWith(F + "|up|")).sort();
 
 describe("TB-1 chained up tiles are patched, and equal a cold bake", () => {
@@ -76,7 +77,7 @@ describe("TB-1 chained up tiles are patched, and equal a cold bake", () => {
         const o = curve("-3", [c3[0] + 1e-4, c3[1]], 5e-4);
         box("-2", [c2[0] - 0.2, c2[1] + 0.1], 0.3, { opacity: 0.5 });
         expect(upKeys(ts, "0")).toEqual(before);   // kept, not dropped
-        expect(ts.content("0", win()).some((p) => p.id === o.id)).toBe(true);
+        expect(tileContent(ts, "0", win()).some((p) => p.id === o.id)).toBe(true);
         expect(expectCold(ts, M, d)).toBeGreaterThan(before.length);
     });
 
@@ -101,7 +102,7 @@ describe("TB-1 chained up tiles are patched, and equal a cold bake", () => {
         d.removeById(cut.pieces[0].id);
         d.removeById(bite.pieces[0].id);
         expectCold(ts, M, d);
-        expect(ts.content("0", win()).some((p) => p.id === back.id || p.id === bite.pieces[0].id)).toBe(false);
+        expect(tileContent(ts, "0", win()).some((p) => p.id === back.id || p.id === bite.pieces[0].id)).toBe(false);
     });
 
     test("TP-3 a native of a ring neighbour of the view's ancestor reaches the chained tiles", () => {
@@ -115,7 +116,7 @@ describe("TB-1 chained up tiles are patched, and equal a cold bake", () => {
         const before = upKeys(ts, "0");
         const o = box(N.id, cN, 0.4);
         expect(upKeys(ts, "0")).toEqual(before);
-        expect(ts.content("0", win()).some((p) => p.id === o.id)).toBe(true);
+        expect(tileContent(ts, "0", win()).some((p) => p.id === o.id)).toBe(true);
         expectCold(ts, M, d);
         d.eraseReplaceById(o.id, [rectLoop({ left: cN[0] - 0.4, right: cN[0] + 0.1, top: cN[1] - 0.24, bottom: cN[1] + 0.24 })]);
         expectCold(ts, M, d);
@@ -131,7 +132,7 @@ describe("TB-1 chained up tiles are patched, and equal a cold bake", () => {
         for (const k of upKeys(ts, "-1")) ts.cache.delete(k);
         const o = box("-3", [c3[0], c3[1] + 1e-4], 5e-4, { color: "#00ff00" });
         expect(upKeys(ts, "0")).toEqual([]);
-        expect(ts.content("0", win()).some((p) => p.id === o.id)).toBe(true);
+        expect(tileContent(ts, "0", win()).some((p) => p.id === o.id)).toBe(true);
         expectCold(ts, M, d);
     });
 

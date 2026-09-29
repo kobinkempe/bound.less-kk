@@ -244,7 +244,7 @@ describe("a frame holds something (frame GC, F94)", () => {
         expect(X).not.toBe("0");
         E._render();                                                   // X's tiles, read from "0" magnified
         expect([...E.store.cache.values()].some((t) => String(t.level) === X)).toBe(true);
-        // kept past the camera's leaving, as `_reroute`'s reads of a moved object's frame are
+        // kept past the camera's leaving, as the prefetch's warm reads are
         for (const [k, t] of E.store.cache) if (String(t.level) === X) E.store._warm.add(k);
         E.cam.set(shot); E._render();
         expect([...E.store.cache.values()].some((t) => String(t.level) === X)).toBe(true);

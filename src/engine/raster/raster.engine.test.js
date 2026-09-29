@@ -12,6 +12,7 @@
 import KobinEngine from "../KobinEngine";
 import Renderer from "../Renderer";
 import { resetRasterStats } from "./RasterRenderer";
+import { renderSelChevrons } from "./svgOverlay";
 import { packStats, resetPackStats, packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import * as rasterPerf from "./rasterPerf";
@@ -260,15 +261,17 @@ function mkRenderer() {
 
 test("FC1: the stack is z-index and not the append order, one layer list, `_overlay` null", () => {
     const { R, host } = mkRenderer();
-    const svg = R.two.renderer.domElement;
+    const svg = R.svg.element;
     const ink = host.querySelector("canvas.bl-ink") || R.layer._canvas;
     expect(String(ink.style.zIndex || "0")).toBe("0");
     expect(svg.style.zIndex).toBe("1");
-    expect(R._overlay).toBe(null);                          // 5d's slot, present and empty
-    expect(R._layers.length).toBe(1);
+    expect(R._overlay).toBe(null);                          // z 2's slot, present and empty
+    expect(R._layers.length).toBe(3);                       // the pyramid, the SVG layer, z 3's slot (A3 §7.2)
     expect(R._layers[0]).toBe(R.layer);
+    expect(R._layers[1]).toBe(R.svg);
+    expect(R._layers[2]).toBe(R._edgeSlot);
 
-    // `setSize` walks the ONE list and carries the dpr the base class has no room for.
+    // `setSize` walks the ONE list and carries the dpr.
     const sized = [];
     R._layers.push({ setSize: (w, h, d) => sized.push([w, h, d]), destroy: () => {} });
     R.setSize(640, 480);
@@ -284,21 +287,20 @@ test("FC1: the store's release drives the ONE list, and the layer canvas goes wi
     expect(seen).toEqual(["hidden"]);
 });
 
-test("FC2 and FC6: one view object reaches the overlays, the origin is stable, no reorigin", () => {
+test("FC2 and FC6: one view object reaches the overlays, the origin is stable, no promotions", () => {
     const { R, cam } = mkRenderer();
     const seen = [];
-    R._renderOverlays = (view) => seen.push(view);
+    R._renderSelOverlay = (view) => { seen.push(view); return null; };
+    const o1 = R._origin();
     R.render([], cam.frame);
     R.syncCameraOnly();
     expect(seen.length).toBe(2);
     expect(seen[0]).toBe(R._view);                          // the object, not a copy (FC2)
     expect(seen[1]).toBe(seen[0]);
 
-    const o1 = R._origin();
-    expect(R._origin()).toBe(o1);                           // stable identity: `_selDecide` caches on it
-    expect(R.needsReorigin()).toBe(false);
-    expect(R.needsWindowChop()).toBe(false);
-    expect(R.needsFadeFlip()).toBe(false);                  // D201
+    expect(R._origin()).toBe(o1);                           // a render and a camera step keep it: `begin` is its one writer (FC6)
+    // The promotions are the SVG renderer's (A3 §7.2): the raster step is the table's and never asks one (D201).
+    expect([R.needsReorigin, R.needsWindowChop, R.needsFadeFlip, R.needsFatFlip]).toEqual([undefined, undefined, undefined, undefined]);
     void cam;
 });
 
@@ -307,13 +309,13 @@ test("FC2: the SVG world transform takes `d` from the view and never from the ca
     R.render([], cam.frame);
     const v = R._view;
     const o = R._origin();
-    expect(R.world.scale).toBeCloseTo(v.k / v.dpr, 12);
-    expect(R.world.translation.x).toBeCloseTo((v.tx + o.x * v.k) / v.dpr, 12);
+    expect(R.svg.world.scale).toBeCloseTo(v.k / v.dpr, 12);
+    expect(R.svg.world.translation.x).toBeCloseTo((v.tx + o.x * v.k) / v.dpr, 12);
     // The camera's own pan is what FC2 replaces: they agree only when the snap is zero.
     cam.panBy(0.5, 0);
     R.syncCameraOnly();
     const v2 = R._view;
-    expect(R.world.translation.x).toBeCloseTo((v2.tx + o.x * v2.k) / v2.dpr, 12);
+    expect(R.svg.world.translation.x).toBeCloseTo((v2.tx + o.x * v2.k) / v2.dpr, 12);
 });
 
 // ---------------------------------------------------------------------------
@@ -793,9 +795,9 @@ test("E8 the ink is on the canvas in raster mode and in the `<svg>` without it (
     const E = mkEngine();
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
-    const svg = E.renderer.two.renderer.domElement;
+    const svg = E.renderer.svg.element;
     // What a serialiser would get: the raster path's `<svg>` holds no ink at all, which is why
-    // `thumbnails.js` builds its engine with `raster: false` and `exportSvg` refuses.
+    // `thumbnails.js` builds its engine with `raster: false` and the export goes through it.
     expect(svg.querySelectorAll("path").length).toBe(0);
     expect(E.plates.cache.size).toBeGreaterThan(0);
     expect(E.raster).toBe(true);
@@ -829,12 +831,12 @@ test("the fifth seam: the chevrons are ONE implementation, called from the SVG p
     const edges = [{ side: "left", from: 10, to: 90, chevron: true }, { side: "top", from: 10, to: 90 }];
     R.setSelectionAnts(() => ({ key: "k", inkPx: 10, runs: [], marks: [], edges, transform: { k: 1, tx: 0, ty: 0 } }));
     R.syncWorld();
-    expect(typeof R._renderSelChevrons).toBe("function");
+    expect(R._renderSelChevrons).toBeUndefined();           // `svgOverlay`'s, not a method of either renderer
     expect(R._selEls.arrowPool.length).toBe(1);             // one chevron, for the one edge that carries it
     const t = R._selEls.arrowPool[0].getAttribute("transform");
     expect(t).toMatch(/rotate\(180\)$/);
-    // ...and called directly it is the same pool, which is what makes 5d's call the same picture.
-    expect(R._renderSelChevrons(edges, 1, 400, 300)).toBe(1);
+    // ...and called directly it is the same pool, which is what makes the raster path's call the same picture.
+    expect(renderSelChevrons(R._selEls, edges, 1, 400, 300)).toBe(1);
     expect(R._selEls.arrowPool[0].getAttribute("transform")).toBe(t);
 });
 
@@ -869,26 +871,25 @@ test("attach hands rasterPerf SEVEN sources: pack, core, ants and worker are not
     expect(row.timers["eng.view"] || 0).toBeLessThanOrEqual(row.mainMs);
 });
 
-test("the live stroke is drawn after renderer.clear(): the overlay scene is re-attached (D271)", async () => {
-    // Every `loadDrawing` and scene jump calls `clear()`. Measured in Chrome by the testing
-    // round: after one, 30 pen moves put 0 pixels on screen and the overlay `<svg>` held no path
-    // until pen-up, on every saved drawing.
+test("the live stroke is drawn after a drawing loads: the live layer is composed and nothing clears it (D271)", async () => {
+    // D271: every `loadDrawing` and scene jump called `clear()`, which detached the inherited overlay scene; measured in
+    // Chrome by the testing round, 30 pen moves then put 0 pixels on screen until pen-up, on every saved drawing.
     const E = mkEngine();
     const R = E.renderer;
-    const svg = R.two.renderer.domElement;
+    const svg = R.svg.element;
     const livePaths = () => { R.update(); return svg.querySelectorAll("path").length; };
     E.setTool("pen");
     E.pointerDown(60, 60); E.pointerMove(120, 90); E.pointerMove(200, 140);
-    expect(R._ovScene.root.parent).toBe(R.world);
+    expect(R.live.group.parent).toBe(R.svg.world);
     expect(livePaths()).toBeGreaterThan(0);                 // a fresh engine draws the live stroke
     E.pointerUp();
     await paint(E);
 
-    R.clear();                                              // what loadDrawing and jumpTo do
+    expect(R.clear).toBeUndefined();                        // the raster renderer has nothing to clear
+    E.loadDrawing(E.serializeDrawing());                    // what a load and a scene jump do
     E._render();
     E.pointerDown(60, 160); E.pointerMove(120, 190); E.pointerMove(200, 240);
-    expect(R._scenes.get("_ov")).toBe(R._ovScene);          // one persistent scene, re-registered
-    expect(R._ovScene.root.parent).toBe(R.world);           // ...and back in the world
+    expect(R.live.group.parent).toBe(R.svg.world);
     expect(livePaths()).toBeGreaterThan(0);                 // so the second stroke is drawn too
     E.pointerUp();
     await paint(E);

@@ -1,8 +1,9 @@
 /**
- * RasterRenderer.js — the `Renderer` subclass that draws the ink through the picture pyramid (A3; PLAN §1.2) instead
- * of into SVG: the pyramid (`PicturePyramid`, the layer) plans and composes, its store (`PyramidStore`) caches, the
- * queue (`JobQueue`) orders typed jobs over the worker pool (`rasterWorkerClient`), and this module packs, measures,
- * posts and lands for them (FC3). The SVG overlay keeps the live stroke, the lasso and the chevrons.
+ * RasterRenderer.js — the renderer that draws the ink through the picture pyramid (A3; PLAN §1.2): the pyramid
+ * (`PicturePyramid`, the layer) plans and composes, its store (`PyramidStore`) caches, the queue (`JobQueue`) orders
+ * typed jobs over the worker pool (`rasterWorkerClient`), and this module packs, measures, posts and lands for them
+ * (FC3). It composes FC1's stack — the pyramid (z 0), `SvgLayer` (z 1: the live stroke, the lasso, the debug
+ * overlays), `OverlayLayer` (z 2: the ants), `bl-sel-edges` (z 3: the chevrons) — and extends nothing (A3 §7.2).
  *
  * Three things a reader needs in order not to break it:
  *
@@ -16,8 +17,10 @@
  * (headless) and Kobin's Chrome's.
  */
 
-import Two from "two.js";
-import Renderer from "../Renderer";
+import SvgLayer from "./SvgLayer";
+import LiveStrokeLayer, { viewCenter } from "./LiveStrokeLayer";
+import { SvgOverlays, mkSelLayer, dropSelOverlay, renderSelChevrons, ensureSelStyle } from "./svgOverlay";
+import { arcPlanOf } from "./svgAnchors";
 import { perfNow } from "../now";
 import { PLATE_PX } from "./plate";
 import { packJob, parseColour, visibleChords, itemChordsAt, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
@@ -66,7 +69,7 @@ export function resetRasterStats() {
     for (const k of Object.keys(rasterStats)) rasterStats[k] = 0;
 }
 
-export default class RasterRenderer extends Renderer {
+export default class RasterRenderer {
     /**
      * @param {Element} container the editor host, shared with the Two.js `<svg>` (FC1)
      * @param {object} camera the engine's `Camera`, the object the engine hands `frameFor` (FC3)
@@ -83,8 +86,22 @@ export default class RasterRenderer extends Renderer {
      * @param {(w:number,h:number)=>object} [opts.makeCanvas] a canvas factory, and `opts.context`, for the suites
      */
     constructor(container, camera, cfg, opts = {}) {
-        super(container, camera, cfg, opts);
+        this.cam = camera; this.cfg = cfg;
+        this.width = opts.width; this.height = opts.height;
         this.host = container || null;
+        /** FC1's z-index 1: the one Two.js instance, over the plates. */
+        this.svg = new SvgLayer(container, { width: this.width, height: this.height });
+        /**
+         * The stroke under the pen, and past pen-up until the group commit publishes its plates (A3 §3.6, §7.2).
+         * Its origin is `world`'s: ONE object with ONE writer, `begin` (FC6: `_selDecide` caches on its identity).
+         */
+        this.live = new LiveStrokeLayer(this.svg.world, arcPlanOf(cfg));
+        /** The lasso and the two debug overlays, the SVG renderer's own implementation. */
+        this.overlays = new SvgOverlays(this.svg, camera);
+        this._selAntsFn = null;        // () -> the indicator's decision | null (`setSelectionAnts`)
+        this._selOv = null; this._selEls = null;
+        this._dragStateFn = null;      // the engine's live drag (`setDragState`)
+        this._hasFat = false;          // the fat gate is the SVG renderer's (A3 §7.2)
         /** The scene (the engine's Stage, A2 §3): packs read its items at its generation; it is the store's freshness source. */
         this.stage = opts.stage;
         this._sceneArr = null; this._sceneSrc = null; this._sceneArrG = -1;
@@ -104,8 +121,8 @@ export default class RasterRenderer extends Renderer {
         this._paperRgb = parseColour(this.paper);
 
         // FC1: the stack is an explicit z-index — 0 ink, 1 the Two.js `<svg>`, 2 the overlay canvas, 3 `bl-sel-edges` —
-        // never the append order: the constructor above appended the `<svg>` first.
-        const svg = this.two.renderer && this.two.renderer.domElement;
+        // never the append order: the `<svg>` was appended first.
+        const svg = this.svg.element;
         if (svg && svg.style) {
             svg.style.position = "absolute";
             svg.style.left = "0"; svg.style.top = "0";
@@ -117,8 +134,13 @@ export default class RasterRenderer extends Renderer {
         /** The store, the pyramid (the layer) and the queue (A3 §1, §4). */
         this.store = null; this.pyramid = null; this.queue = null;
         this._pyrBuild(container, dpr, opts);
-        /** FC1's ONE list of screen-space layers: `setSize`, `destroy` and the store's release walk it. */
-        this._layers = [this.layer];
+        /**
+         * FC1's ONE list of screen-space layers, in z order: the pyramid (0), the SVG layer (1), the ants' `OverlayLayer`
+         * (2, from the first selection: `_makeOverlay`) and `bl-sel-edges` (3, the chevrons' `<svg>` while a selection
+         * shows). `setSize`, `destroy` and the store's release walk it (A3 §7.2).
+         */
+        this._edgeSlot = { setSize: (w, h) => this._sizeEdges(w, h), destroy: () => this._dropSelOverlay() };
+        this._layers = [this.layer, this.svg, this._edgeSlot];
         /** FC1, FC8: the ants' `OverlayLayer`, at z-index 2; null until the first selection. */
         this._overlay = null;
         this.store.onRelease = (reason) => this._onStoreRelease(reason);
@@ -128,13 +150,6 @@ export default class RasterRenderer extends Renderer {
         this._commitAt = -Infinity;
         this._commitOff = this.stage.onCommit(() => { this._commitAt = perfNow(); });
 
-        /**
-         * FC6: the overlay origin, ONE object with ONE writer (`addLive`). `_selDecide` caches its decision on
-         * `c.origin === O` by identity, so a fresh literal per call turns a 26–47 ms decision into a per-frame cost.
-         */
-        this._ovOrigin = { x: 0, y: 0 };
-        /** §2.5 seam 3: one persistent scene, so the live stroke has a parent and retention never runs. */
-        this._ovScene = null;
 
         this._lastList = [];
         this._view = null;
@@ -148,9 +163,7 @@ export default class RasterRenderer extends Renderer {
         this._landTimer = null;
         this._planeTimer = null;
         this._planeViewKey = ""; this._planeViewAt = 0;
-        /** Finished strokes' live paths waiting for their plates — `{ path, id, frameId, box, at, until, group }`. */
-        this._liveHeld = [];
-        this._liveTimer = null;
+        this._liveTimer = null;        // the held paths' one timer (`_armLiveTimer`)
 
         // SEVEN sources (stage 6's H1, D210): `rasterPerf` imports nothing itself.
         this.perf.attach({
@@ -166,14 +179,13 @@ export default class RasterRenderer extends Renderer {
 
     /**
      * G13: the raster path never creates `bl-sel-layer` — the retained ants are `OverlayLayer`'s
-     * canvas — so this builds `bl-sel-edges` ALONE through §2.5's sixth seam, for the chevrons,
+     * canvas — so this builds `bl-sel-edges` ALONE (`svgOverlay.mkSelLayer`), for the chevrons,
      * at z-index 3 above the ink (0), the Two.js `<svg>` (1) and the ant plane (2). `_selOv` and
-     * `_selEls` keep the base's shape, so `Renderer._dropSelOverlay` and `_renderSelChevrons`
-     * work unchanged.
+     * `_selEls` have the shape `svgOverlay`'s functions read (`renderSelChevrons`, `dropSelOverlay`).
      */
     _buildSelOverlay(svg) {
         const host = svg.parentNode || document.body;
-        const edgeLayer = this._mkSelLayer(svg, host, "bl-sel-edges");
+        const edgeLayer = mkSelLayer(svg, host, "bl-sel-edges");
         edgeLayer.style.zIndex = "3";
         const screen = document.createElementNS(edgeLayer.namespaceURI, "g");
         edgeLayer.appendChild(screen);
@@ -193,7 +205,7 @@ export default class RasterRenderer extends Renderer {
 
     /**
      * The indicator, on the raster path: the ants go into `OverlayLayer`'s own canvas and the
-     * only SVG left is the chevrons, drawn by §2.5's fifth seam (`Renderer._renderSelChevrons`)
+     * only SVG left is the chevrons, drawn by the SVG renderer's own `svgOverlay.renderSelChevrons`
      * rather than by a second copy of it. The decision itself is the engine's, unchanged (G11).
      *
      * The layer is handed the PUBLISHED view — never the camera (FC2) — and, for the screen-edge
@@ -204,7 +216,7 @@ export default class RasterRenderer extends Renderer {
     _renderSelOverlay(view) {
         // Destroyed: the next engine shares the host, and `_makeOverlay` would append to it (F101).
         if (this._destroyed) return null;
-        const svg = this.two.renderer && this.two.renderer.domElement;
+        const svg = this.svg.element;
         if (!svg || typeof document === "undefined") return null;
         const t0 = perfNow();
         const data = this._selAntsFn && this._selAntsFn();
@@ -213,32 +225,38 @@ export default class RasterRenderer extends Renderer {
         if (!data || !(runs.length || marks.length || edges.length)) { this._dropSelOverlay(); return null; }
         const v = view || this._view;
         if (!v) return null;                           // no published mapping yet: leave what is there
-        Renderer._ensureSelStyle();
+        ensureSelStyle();
         const els = this._selEls || this._buildSelOverlay(svg);
-        if (els.w !== this.width || els.h !== this.height) {
-            els.edgeLayer.setAttribute("width", String(this.width));
-            els.edgeLayer.setAttribute("height", String(this.height));
-            els.w = this.width; els.h = this.height;
-        }
+        this._sizeEdges(this.width, this.height);
         const ov = this._overlay || this._makeOverlay();
         ov.noteDecide(decideMs);
         ov.show(data, v, this._edgeShift(v));
-        this._renderSelChevrons(edges, selAntScale(data.inkPx), this.width, this.height);
+        renderSelChevrons(this._selEls, edges, selAntScale(data.inkPx), this.width, this.height);
         // Last in the host, so the chevrons paint over the ink and over the ant plane.
         const host = els.edgeLayer.parentNode;
         if (host && host.lastChild !== els.edgeLayer) host.appendChild(els.edgeLayer);
         return els;
     }
 
+    /** FC1's z 3 at the screen's size; nothing while no selection shows. */
+    _sizeEdges(w, h) {
+        const els = this._selEls;
+        if (!els || (els.w === w && els.h === h)) return;
+        els.edgeLayer.setAttribute("width", String(w));
+        els.edgeLayer.setAttribute("height", String(h));
+        els.w = w; els.h = h;
+    }
+
     /** The selection went away: the plane detaches and the clock stops, and the buffer is KEPT (FC1). */
     _dropSelOverlay() {
         if (this._overlay) this._overlay.hide();
-        return super._dropSelOverlay();
+        dropSelOverlay(this._selEls, this._selOv);
+        this._selOv = null; this._selEls = null;
     }
 
     /**
      * FC8's slot, built on the first decision and never at construction — a tool change must not
-     * cost the plane's 10.48 MiB (FC1). It joins `this._layers`, so `setSize`, the store's
+     * cost the plane's 10.48 MiB (FC1). It joins `this._layers` at z 2, so `setSize`, the store's
      * release walk and `destroy` reach it with no second copy of each.
      */
     _makeOverlay() {
@@ -246,7 +264,7 @@ export default class RasterRenderer extends Renderer {
             width: this.width, height: this.height, dpr: this.layer.dpr, perf: this.perf,
         });
         this._overlay = ov;
-        this._layers.push(ov);
+        this._layers.splice(this._layers.indexOf(this._edgeSlot), 0, ov);
         this._armReducedMotion();
         return ov;
     }
@@ -296,11 +314,11 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * `Renderer.setSize(w, h)` carries no dpr and both layers take `(cssW, cssH, dpr)`, so this
+     * The engine's `setSize(w, h)` carries no dpr and the layers take `(cssW, cssH, dpr)`, so this
      * is the one place that reads `devicePixelRatio` and §6.1's `matchMedia` change (D190).
      */
     setSize(w, h) {
-        super.setSize(w, h);
+        this.width = w; this.height = h;
         const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : this.layer.dpr;
         for (const l of this._layers) if (l) l.setSize(w, h, dpr);
         this.store.setBudget(this.pyramid.budgetBytes());   // the budget follows the screen (A3 §4.5)
@@ -345,6 +363,19 @@ export default class RasterRenderer extends Renderer {
         return reason;
     }
 
+    // ---- the engine's calls: the overlays and the state it hands over ----
+
+    setLasso(fn) { this.overlays.setLasso(fn); }
+    /** The lasso redrawn alone: a lasso drag calls this, not `syncWorld`. */
+    refreshSelection() { this.overlays.lasso(); this.update(); }
+    setTileDebug(v, fn) { this.overlays.setTileDebug(v, fn); }
+    setEraseDebug(v, fn) { this.overlays.setEraseDebug(v, fn); }
+    /** The indicator's decision (`overlays._selectionAnts`), pulled each camera step. */
+    setSelectionAnts(fn) { this._selAntsFn = fn; }
+    /** PAPER-PLAN R3: the engine's live drag, pulled here because this renderer draws the dragged ink itself. */
+    setDragState(fn) { this._dragStateFn = fn; }
+    update() { this.svg.update(); }
+
     // ---- the drag plane (PAPER-PLAN §10 S4, A3 §6) ----
 
     /** The engine reads this once, at construction: the drag's plate events are held only where the renderer draws the dragged ink itself. */
@@ -382,7 +413,7 @@ export default class RasterRenderer extends Renderer {
         if (this.forcePerStepDrag) { if (pl.tags.length) this._endPlane(); return false; }
         const gen = pl.gen, was = pl.tags.slice();
         const st = this._planeFn && this._planeViewOk(v) ? this._planeFn() : null;
-        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr, this._liveModel);
+        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr, this.live.model);
         const gone = was.filter((t) => pl.gen !== gen || !ok || !pl.tags.includes(t));   // a re-cut's renamed layers too
         if (gone.length) this._dropPlaneTags(gone);
         this.store.setPlanePins(ok ? pl.keys : null);
@@ -561,57 +592,37 @@ export default class RasterRenderer extends Renderer {
         if (this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
         if (this._landTimer != null) { clearTimeout(this._landTimer); this._landTimer = null; }
         if (this._planeTimer != null) { clearTimeout(this._planeTimer); this._planeTimer = null; }
-        this._liveHeld.length = 0;
         destroyRasterPool();
         this._dropDpr();
         this._dropReducedMotion();
         this.perf.detach();
-        for (const l of this._layers) if (l && l.destroy) l.destroy();
+        this.live.destroy();
+        for (const l of this._layers) if (l && l.destroy) l.destroy();   // z 3's slot drops the indicator
         this._layers.length = 0;
         this._overlay = null;
-        super.destroy();
     }
-
-    // ---- §5.1's promotion table ----
-
-    /** §7.1, FC6: the origin is chosen at pen-down and nowhere else, so this is always false. */
-    needsReorigin() { return false; }
-    /** §7.2: the window chop is gone from the raster path. */
-    needsWindowChop() { return false; }
-    /**
-     * False (D201): the packer re-derives family membership and each fade at the plate's own Z on every pack, so there
-     * is nothing to promote; inherited, it would read `this._groups`, which is empty here.
-     */
-    needsFadeFlip() { return false; }
 
     /**
      * Pen-up (PLAN §1.5, A3 §3.6): the live MODEL goes now, and the live PATH stays until the group commit under its
      * box publishes the plates that paint it (`_pyrLive`) — whatever the view (F120).
      */
     endLive() {
-        const path = this._liveRoot, o = this._liveModel, v = this._view;   // the tail and its frozen chunks
-        if (path && path.parent && o && o.pts && o.pts.length && v) {
-            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-            for (const p of o.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
-            const h = (o.lwFrame || 0) / 2, now = perfNow(), og = this._origin();
-            this._liveHeld.push({
-                path, id: o.id, frameId: this.cam.frame, at: now, until: now + LIVE_HOLD_MS,
-                box: { left: x0 - h, top: y0 - h, right: x1 + h, bottom: y1 + h },
-                og: { x: og.x, y: og.y },
-            });
-            rasterStats.liveHolds++;
-            this._live = null; this._liveRoot = null; this._liveModel = null;
-            this._armLiveTimer();
-            return;
-        }
-        super.endLive();
+        const L = this.live, o = L.model, v = this._view;
+        if (!L.root || !o || !o.pts || !o.pts.length || !v) { L.cancel(); return; }
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const p of o.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
+        const h = L.hold(), hw = (o.lwFrame || 0) / 2, now = perfNow();
+        h.frameId = this.cam.frame; h.at = now; h.until = now + LIVE_HOLD_MS;
+        h.box = { left: x0 - hw, top: y0 - hw, right: x1 + hw, bottom: y1 + hw };
+        rasterStats.liveHolds++;
+        this._armLiveTimer();
     }
 
     /** One timer for every held path: at the earliest limit, and re-armed while a path is still held. */
     _armLiveTimer() {
-        if (this._liveTimer != null || !this._liveHeld.length) return;
+        if (this._liveTimer != null || !this.live.held.length) return;
         let until = Infinity;
-        for (const h of this._liveHeld) if (h.until < until) until = h.until;
+        for (const h of this.live.held) if (h.until < until) until = h.until;
         this._liveTimer = setTimeout(() => {
             this._liveTimer = null;
             if (this._destroyed) return;
@@ -621,81 +632,62 @@ export default class RasterRenderer extends Renderer {
     }
 
     /**
-     * FC6: the one writer of the overlay origin, and a re-choice is a NEW object. The world group's
-     * translation folds the origin in (`_syncWorldTransform`), so a re-choice re-syncs it here: left
-     * to the next render, every live trail begun after a pan or a zoom was drawn off by the origin's
-     * move — off-screen — until pen-up (Kobin 2026-09-22, "erasers are not showing up until pen-up").
+     * Pen-down: the origin re-chosen at the view centre (`LiveStrokeLayer.begin`, the one writer), and the world
+     * transform re-synced at once when it moved — left to the next render, every live trail begun after a pan or a
+     * zoom was drawn off by the origin's move, off-screen, until pen-up (Kobin 2026-09-22). A held path is re-anchored
+     * by the move (F131).
      */
     addLive(o) {
-        const c = this._viewCenter();
-        if (c.x !== this._ovOrigin.x || c.y !== this._ovOrigin.y) {
-            this._ovOrigin = c;
-            this._syncWorldTransform(this._view);
-            // A held path's anchors are relative to the origin it was drawn at: re-anchored, it stays
-            // put; left, the next pen-down after a zoom moved the last stroke (F131, 28 px measured).
-            for (const h of this._liveHeld) h.path.translation.set(h.og.x - c.x, h.og.y - c.y);
-        }
-        return super.addLive(o);
+        const O = this.live.origin;
+        const tail = this.live.begin(o, viewCenter(this.cam));
+        if (this.live.origin !== O) this._syncWorldTransform(this._view);
+        return tail;
     }
+    setLiveArcs(gaps) { this.live.arcs(gaps); }
+    /** The world transform's origin: the live layer's (FC6; `overlays._selDecide` caches on its identity). */
+    _origin() { return this.live.origin; }
 
-    /**
-     * §2.5 seam 3: one persistent overlay scene for the live stroke, whatever the level. Scene
-     * retention exists to reuse SVG ink subtrees and there is no SVG ink here.
-     *
-     * `Renderer.clear()` — every `loadDrawing` and scene jump — detaches every root from the
-     * world, empties `_scenes` and detaches each group, but leaves `_ovScene` set; keyed on that
-     * field alone, the live stroke was built into an orphaned group Two never drew, on every
-     * loaded drawing (the testing round's first finding, D271). The key is `_scenes` and the
-     * root is re-attached, with its detached groups forgotten.
-     */
-    _activateLevel() {
-        let sc = this._scenes.get("_ov");
-        if (!sc) {
-            sc = this._ovScene || { root: new Two.Group(), groups: new Map(), order: [], seq: 0, origin: this._ovOrigin };
-            sc.groups.clear(); sc.order.length = 0;
-            this._ovScene = sc;
-            this._scenes.set("_ov", sc);
-            this.world.add(sc.root);
-        }
-        this._level = "_ov"; this._activeRoot = sc.root;
-        this._groups = sc.groups; this._order = sc.order;
-        return sc;
-    }
-
-    /** §2.5 seam 1's other half: the world group takes `d` from the view and never from the camera (FC2). */
+    /** The world group takes `d` from the view and never from the camera (FC2). */
     _syncWorldTransform(view) {
-        const v = view || this._view;
-        if (!v || !(v.dpr > 0)) { super._syncWorldTransform(); return; }
-        const o = this._origin();
-        // The composite maps a frame point to `p·k + tx` in DEVICE px; the SVG overlay is in CSS
-        // px, and its anchors are origin-relative, so the origin is folded back in here exactly
-        // as `Renderer._syncWorldTransform` folds it into the camera's own pan.
-        this.world.scale = v.k / v.dpr;
-        this.world.translation.x = (v.tx + o.x * v.k) / v.dpr;
-        this.world.translation.y = (v.ty + o.y * v.k) / v.dpr;
+        const v = view || this._view, o = this.live.origin, w = this.svg.world;
+        // The composite maps a frame point to `p·k + tx` in DEVICE px; the SVG layer is in CSS px and its anchors
+        // are origin-relative, so the origin is folded back in here, in float64 (DESIGN.md §9). No view yet: the
+        // camera's own mapping.
+        if (!v || !(v.dpr > 0)) {
+            w.scale = this.cam.inScale;
+            w.translation.x = this.cam.inPanX + this.cam.inScale * o.x;
+            w.translation.y = this.cam.inPanY + this.cam.inScale * o.y;
+            return;
+        }
+        w.scale = v.k / v.dpr;
+        w.translation.x = (v.tx + o.x * v.k) / v.dpr;
+        w.translation.y = (v.ty + o.y * v.k) / v.dpr;
     }
 
     /**
      * §8.1's `ovl.tail` (D237's third phase, §15.3's 2026-09-22 Q1): the SVG world transform
-     * and the overlay tail, which run on every raster frame and had no slot. Both paths reach
-     * the tail here — `render` calls this and `Renderer.syncCameraOnly` calls it too — so one
-     * bracket times both and neither double-counts.
+     * and the overlay tail — the lasso and the debug overlays, then the indicator — which run on every raster frame
+     * and had no slot. `render` and `syncCameraOnly` both reach the tail here, so one bracket times both.
      */
     syncWorld(view) {
         const t = perfNow();
-        try { return super.syncWorld(view); } finally { this._add(SLOT.tail, perfNow() - t); }
+        try {
+            this._syncWorldTransform(view);
+            this.overlays.render();
+            this._renderSelOverlay(view);
+        } finally { this._add(SLOT.tail, perfNow() - t); }
     }
 
     // ---- §5.1's render path ----
 
     /**
-     * §8.1's row for a full frame, opened by the ENGINE before `_buildList` so the list build is
+     * §8.1's row for a full frame, opened by the ENGINE before the table's sync, so the sync is
      * inside `mainMs` (§15.3 Stage 5b Q2). `render` finds it open and does not open a second one;
      * a caller that renders without this — every suite here — gets the row opened in `render`.
      */
     beginRender() { this._beginFrame("render"); this._rowOpen = true; }
 
-    /** The engine's own `_buildList`, timed by the engine, charged to §8.1's `eng.list`. */
+    /** The table's sync, timed by the engine, charged to §8.1's `eng.list`. */
     noteList(ms) { this._add(SLOT.list, ms); }
 
     /**
@@ -705,34 +697,23 @@ export default class RasterRenderer extends Renderer {
     render(list, frame) {
         if (this._destroyed) return false;             // inert once destroyed: the next engine shares the host (F101)
         if (!this._rowOpen) this._beginFrame("render");
-        this._activateLevel(frame);
         this._lastList = this._sceneList();
-        this._noteFatPending(this._lastList);
         const view = this._frameStep();
         this.syncWorld(view);                          // step 7, plus the SVG world transform
-        this._hasFat = this._lastList.some((o) => o.type === "stroke" && o.lwFrame * this.cam.inScale > this._gatePx() * 0.5);
         this._endFrame();
         return false;                                  // nothing to reorder: there are no ink groups
     }
 
-    /** A camera step: no overlay rebuild; `super.syncCameraOnly(view)` is the SVG overlay's own transform. */
+    /** A camera step: no overlay rebuild; the SVG layer's transform and the overlay tail. */
     syncCameraOnly() {
         if (this._destroyed) return;
         this._beginFrame("camera");
-        const list = this._sceneList();
-        if (list !== this._lastList) { this._lastList = list; this._noteFatPending(list); }
+        this._lastList = this._sceneList();
         const view = this._frameStep();
-        super.syncCameraOnly(view);
+        this.syncWorld(view);
         this._endFrame();
     }
 
-    /** The idle fitter's input: the widest lazily-unfitted fat stroke on screen (`needsFatFlip`). */
-    _noteFatPending(list) {
-        let w = 0;
-        for (const o of list) if (this._strokeMode(o) === "pending" && o.lwFrame > w) w = o.lwFrame;
-        this._pendingFatLw = w;
-        return w;
-    }
 
     _beginFrame(kind) {
         this.frameSeq = this._nextSeq ? this._nextSeq() : this.frameSeq + 1;
@@ -812,7 +793,7 @@ export default class RasterRenderer extends Renderer {
         this._pyrPrefetchKey = null;
         // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
         // while the path is still up (A3 §3.6).
-        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view); });
+        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this.live.held.length && this._view) this._pyrLive(this._view); });
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
@@ -901,9 +882,13 @@ export default class RasterRenderer extends Renderer {
         // Its off-camera reads are tile reads (`eng.list`), in the step's row or a row of their own (§8.4 rule 2).
         const own = !this._rowLive, t0 = perfNow();
         if (own) this._openRow(this.frameSeq, "settle");
+        // Its tile reads are warm: `framesLeft` keeps them across the crossings (F83, PLAN §5.14 item 5: the zoom back
+        // in baked 19–22 tiles without it, 9–10 with it); the LRU cap still bounds them.
+        const tiles = this.stage.store;
         let jobs;
+        tiles.warmReads = true;
         try { jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn }); }
-        finally { this._add(SLOT.list, perfNow() - t0); if (own) this._closeRow(); }
+        finally { tiles.warmReads = false; this._add(SLOT.list, perfNow() - t0); if (own) this._closeRow(); }
         if (!jobs.length) return;
         this.pyramid.setFar(farKeysOf(jobs));
         q.push(jobs);
@@ -969,7 +954,7 @@ export default class RasterRenderer extends Renderer {
         // the selection out while the plane draws the move.
         const packed = packJob(list, {
             plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: job.paper || this._paperRgb, G, jobId, frameSeq: this.frameSeq,
-            pool: bufPool, live: this._liveModel, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit),
+            pool: bufPool, live: this.live.model, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit),
         });
         if (clips) {
             const cl = new Int32Array(clips.length * 4);
@@ -1003,11 +988,11 @@ export default class RasterRenderer extends Renderer {
         }
         if (!win) return { E: 0, A: 0, U: 0, P: 0 };
         const clipped = !!job.clips;
-        let E = clipped ? 0 : visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this._liveModel);
+        let E = clipped ? 0 : visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this.live.model);
         const hit = new Uint8Array(n);
         let A = 0, U = 0;
         for (const o of list) {
-            if (o === this._liveModel || outsideWin(o, win, this._liveModel)) continue;
+            if (o === this.live.model || outsideWin(o, win, this.live.model)) continue;
             const b = itemBox(o, this.cfg);
             if (!b) continue;
             const r0 = o.res, x0 = b[0] + (r0 ? r0[0] : 0), y0 = b[1] + (r0 ? r0[1] : 0), x1 = b[2] + (r0 ? r0[0] : 0), y1 = b[3] + (r0 ? r0[1] : 0);
@@ -1227,7 +1212,7 @@ export default class RasterRenderer extends Renderer {
      * now; a group past LIVE_HOLD_MS commits what it has (the compose checks). Run at every Stage commit and every step.
      */
     _pyrLive(v) {
-        const held = this._liveHeld;
+        const held = this.live.held;
         if (!held.length || !v) return 0;
         const now = perfNow();
         let n = 0, late = false;
@@ -1247,14 +1232,11 @@ export default class RasterRenderer extends Renderer {
 
     /** One held path taken down (`handoff`: its plates published in this task); false when it was already gone. */
     _pyrTakeDown(h, handoff) {
-        const at = this._liveHeld.indexOf(h);
-        if (at < 0) return false;
-        if (h.path.parent) h.path.parent.remove(h.path);
+        if (!this.live.release(h.id)) return false;
         const ms = perfNow() - h.at;
         if (ms > rasterStats.liveHoldMsMax) rasterStats.liveHoldMsMax = ms;
         if (handoff) rasterStats.liveHandoffs++;
-        this._liveHeld.splice(at, 1);
-        if (!this._liveHeld.length && this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
+        if (!this.live.held.length && this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
         return true;
     }
 

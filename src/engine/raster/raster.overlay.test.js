@@ -16,6 +16,7 @@
 import OverlayLayer, { SEL_CRAWL_RESUME_MS, OVERLAY_UNCOVERED_MS } from "./OverlayLayer";
 import { antStats, resetAntStats, dashIntervals, ANT_PHASES, ANT_STEP_MS, ANT_LOOK, selAntScale } from "./antPaint";
 import KobinEngine from "../KobinEngine";
+import * as svgOverlay from "./svgOverlay";
 import { runPathData } from "../geometry/antRuns";
 import { resetRasterWorkerClient } from "./rasterWorkerClient";
 
@@ -712,7 +713,7 @@ const edgeLayerOf = (E) => E.renderer.host.querySelector(".bl-sel-edges");
  * SVG engine's own origin and scale, must be the SVG decision's own `d` strings — with `len`,
  * the marks, the edges, `inkPx` and `off` equal. **The SVG engine's `O` is used for both sides**:
  * a renderer's origin is its own bookkeeping (the SVG path takes the active scene's, the raster
- * path `_ovOrigin`, and a crossing re-chooses one and not the other), while what is under test is
+ * path the live layer's, and a crossing re-chooses one and not the other), while what is under test is
  * the geometry. That the raster geometry needs no origin at all is G12. A drag the raster path holds
  * on its plane decides on the pre-drag list, its `off` the whole travel (`selection.js`'s `listAt`); the
  * SVG path decides at the drag's first step. Each is compared where it is painted: the pieces at
@@ -914,7 +915,7 @@ describe("G11 — the decision is identical under both renderers", () => {
 });
 
 describe("G12 — the overlay origin is not read", () => {
-    test("`_ovOrigin` 1e9 away leaves the painted plane byte-identical", () => {
+    test("the live layer's origin 1e9 away leaves the painted plane byte-identical", () => {
         const ras = mkEngine(true);
         FIXTURES[0].run(ras);
         ras.renderer.syncCameraOnly();
@@ -925,7 +926,7 @@ describe("G12 — the overlay origin is not read", () => {
         const r0 = ov.report().repaints;
         // A NEW object, so `_selDecide`'s `c.origin === O` misses and the decision is made again
         // — at an origin a thousand kilometres away.
-        ras.renderer._ovOrigin = { x: 1e9, y: 1e9 };
+        ras.renderer.live.origin = { x: 1e9, y: 1e9 };
         ras.renderer.syncCameraOnly();
         expect(ov.report().repaints).toBe(r0 + 1);          // it really did decide and paint again
         expect(Uint8Array.from(ov.buf.data)).toEqual(before);
@@ -1060,9 +1061,11 @@ describe("the renderer's override (§10 stage 5d, passes 4-6)", () => {
 
     test("the overlay joins the ONE layer list: resize, release and teardown reach it", () => {
         const { ras, ov } = selected();
-        expect(ras.renderer._layers.includes(ov)).toBe(true);
+        const R = ras.renderer;
+        expect(R._layers).toEqual([R.layer, R.svg, ov, R._edgeSlot]);   // z order: 0, 1, 2, 3 (A3 §7.2)
         ras.renderer.setSize(640, 480);
         expect(ov.cssW).toBe(640);
+        expect(edgeLayerOf(ras).getAttribute("width")).toBe("640");       // z 3 by the same walk
         expect(ov.report().bytes).toBe(640 * 480 * 4);
         ras.renderer._onStoreRelease("hidden");
         expect(ov.buf).toBe(null);
@@ -1083,21 +1086,20 @@ describe("the renderer's override (§10 stage 5d, passes 4-6)", () => {
         expect(ov.buf.data).toBe(data);          // FC1: a tool change must not cost 10.48 MiB
     });
 
-    test("the chevrons are the fifth seam's own, called and not copied (§2.5)", () => {
+    test("the chevrons are `svgOverlay`'s, called and not copied (A3 §7.2)", () => {
         const { ras } = selected();
-        let seen = null;
-        const rasProto = Object.getPrototypeOf(ras.renderer);
-        const real = Object.getPrototypeOf(rasProto)._renderSelChevrons;
-        expect(typeof real).toBe("function");                   // `Renderer`'s, not a raster copy
-        expect(Object.prototype.hasOwnProperty.call(rasProto, "_renderSelChevrons")).toBe(false);
-        ras.renderer._renderSelChevrons = function (edges, kt, W, H) {
-            seen = { n: edges.length, kt, W, H };
-            return real.call(this, edges, kt, W, H);
-        };
-        ras.renderer.syncCameraOnly();
-        expect(seen.n).toBeGreaterThan(0);
-        expect(seen.kt).toBe(selAntScale(ras._selectionAnts().inkPx));
-        expect([seen.W, seen.H]).toEqual([ENG_W, ENG_H]);
+        const spy = jest.spyOn(svgOverlay, "renderSelChevrons");
+        try {
+            ras.renderer.syncCameraOnly();
+            expect(spy).toHaveBeenCalled();
+            const [els, edges, kt, W, H] = spy.mock.calls[spy.mock.calls.length - 1];
+            expect(els).toBe(ras.renderer._selEls);
+            expect(edges.length).toBeGreaterThan(0);
+            expect(kt).toBe(selAntScale(ras._selectionAnts().inkPx));
+            expect([W, H]).toEqual([ENG_W, ENG_H]);
+            const own = Object.getOwnPropertyNames(Object.getPrototypeOf(ras.renderer)).filter((k) => /Chevron/.test(k));
+            expect(own).toEqual([]);                                // no copy on the raster renderer
+        } finally { spy.mockRestore(); }
     });
 
     test("reduced motion: the renderer owns the listener and the layer stops the clock (§15.3 Q9)", () => {

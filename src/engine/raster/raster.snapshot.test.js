@@ -1,5 +1,5 @@
 /**
- * raster.snapshot.test.js — PAPER-PLAN §8's P3 row: the off-camera render list (`listFor`) and
+ * raster.snapshot.test.js — PAPER-PLAN §8's P3 row: the off-camera table (`Stage.snapshot`) and
  * `snapshotView` (SCENES-PLAN S1), budgeted through the pyramid (B-PYRAMID-2b): the table is read
  * at idle a budget at a time (D5), and the one plate goes through the `JobQueue` at `PRIO.thumb`.
  * The crossing prebake (R4) and the zoom-out ladder (R5b) went with the old picture path (A3 §4.6).
@@ -93,26 +93,6 @@ afterEach(() => {
 
 const ATTR_DOUBLES = 9;                                     // `rasterJob.js`'s stride, read for attr[4]/attr[5]
 
-// ---------------------------------------------------------------------------
-// `listFor` — the same list as `_buildList`, and none of the camera's side effects
-// ---------------------------------------------------------------------------
-
-test("S2 listFor equals _buildList for the camera's own frame and window", () => {
-    const E = mkEngine();
-    drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
-    drawStroke(E, [[200, 420], [560, 460]], 9);
-    E._render();
-
-    const a = E._buildList();
-    const b = E.listFor(E.cam.frame, E.cam.frameWindow(0));
-    expect(b.length).toBe(a.length);
-    expect(b.length).toBeGreaterThan(0);
-    expect(b.map((o) => o.id)).toEqual(a.map((o) => o.id));
-    expect(b.map((o) => (o.z != null ? o.z : null))).toEqual(a.map((o) => (o.z != null ? o.z : null)));
-    expect(b.map((o) => (o.editId != null ? o.editId : null))).toEqual(a.map((o) => (o.editId != null ? o.editId : null)));
-    expect(b.map((o) => JSON.stringify(o.res || null))).toEqual(a.map((o) => JSON.stringify(o.res || null)));
-});
-
 test("S1 a snapshot leaves the camera, the tile frame and the tile pins exactly as they were", async () => {
     const E = mkEngine();
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
@@ -143,16 +123,15 @@ test("S1 a snapshot leaves the camera, the tile frame and the tile pins exactly 
     for (const c of reads.mock.calls) expect(c[2] > 0 && Number.isFinite(c[2])).toBe(true);
 });
 
-test("S1 BREAK-CHECK: with `content` in the snapshot's read, the visible pin set is replaced", async () => {
-    // `content` adds each key it reads to `_pins` and then REPLACES the field with its own
-    // range. Off camera that unpins the whole visible screen, and an off-camera read's `_evict` can
-    // then take the tiles the user is looking at.
+test("S1 BREAK-CHECK: a read that replaces the camera's pins in the snapshot's read is seen", async () => {
+    // `TileStore.content` (deleted with `listFor`, B-PYRAMID-3) REPLACED `_pins` with its own range. Off camera that
+    // unpins the whole visible screen, and the next eviction can then take the tiles the user is looking at.
     const E = mkEngine();
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
     await paint(E);
     const pins0 = [...E.store._pins].sort();
     const read = E.store.read.bind(E.store);
-    E.store.read = (F, rect, budget) => { E.store.content(F, rect); return read(F, rect, budget); };
+    E.store.read = (F, rect, budget) => { const r = read(F, rect, budget); E.store.setCameraPins(r.tiles.map(([k]) => k)); return r; };
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 1e5, y: 1e5, w: 400, h: 300 } });
     expect(await until(() => [...E.store._pins].sort().join() !== pins0.join())).toBe(true);   // at the idle read
     await flush();
@@ -182,7 +161,7 @@ test("S3 the residual depth is the TARGET frame's, never the camera's", () => {
     // The test is not vacuous only if the two differ.
     expect(JSON.stringify(wantTarget)).not.toEqual(JSON.stringify(wantCamera));
 
-    const o = E.listFor("0", win).find((x) => x.id === id);
+    const o = E.stage.snapshot("0", win).items().find((x) => x.id === id);
     expect(o).toBeTruthy();
     expect(JSON.stringify(o.res || null)).toBe(JSON.stringify(wantTarget || null));
 });
@@ -196,15 +175,16 @@ test("S9 an off-camera read leaves the camera's own tiles cached, at the tile ca
     for (const k of camKeys) expect(E.store.cache.has(k)).toBe(true);
 
     // The Scenes panel's own pass, and a long approach to a crossing: one off-camera read after
-    // another, each baking tiles the camera is not looking at. `content` REPLACES `_pins` with
-    // its own range and evicts while those are the only pins, so without a guard the LRU takes
-    // the screen the user is on — GLOBAL_CAP globally, PER_LEVEL_CAP (64) within one frame,
-    // which is the sharp edge because a drawing's scenes are usually in the frame it is at.
+    // another, each baking tiles the camera is not looking at. A read that left its own range as
+    // the pins (`TileStore.content` did, until B-PYRAMID-3) would let the LRU take the screen the
+    // user is on — GLOBAL_CAP globally, PER_LEVEL_CAP (64) within one frame, which is the sharp
+    // edge because a drawing's scenes are usually in the frame it is at.
     const F = E.cam.frame;
     for (let n = 0; n < 24; n++) {
         const x = n * 4 * TILE;
-        E.store.contentOffCamera(F, { left: x, top: x, right: x + 3 * TILE, bottom: x + 3 * TILE });
+        expect(E.stage.snapshot(F, { left: x, top: x, right: x + 3 * TILE, bottom: x + 3 * TILE })).toBeTruthy();
     }
+    E.store._evict();                                        // the eviction a read holds, as the camera's next read runs it
     expect(E.store.cache.size).toBeGreaterThanOrEqual(64);   // the per-frame cap has had to run
     expect(camKeys.filter((k) => !E.store.cache.has(k))).toEqual([]);
 });
@@ -357,26 +337,4 @@ test("S6 fitView is jumpTo's own arithmetic, for every rect that does not cross"
     }
     expect(fitView({ x: 0, y: 0, w: 0, h: 0 }, 320, 240)).toBe(null);
     expect(fitView({ x: 0, y: 0, w: NaN, h: 10 }, 320, 240)).toBe(null);
-});
-
-// ---------------------------------------------------------------------------
-// The measurement the P3 row asks for (printed, never asserted as a bar)
-// ---------------------------------------------------------------------------
-
-test("MEASURE listFor against _buildList for the camera's own frame", () => {
-    const E = mkEngine();
-    for (let k = 0; k < 8; k++) drawStroke(E, [[60 + k * 20, 80], [700 - k * 30, 520], [120, 400 + k * 10]], 8 + k);
-    E._render();
-    const win = E.cam.frameWindow(0);
-    const F = E.cam.frame;
-    const runs = 20;
-    let a = 0, b = 0, n = 0;
-    for (let k = 0; k < runs; k++) {
-        let t = performance.now(); n = E._buildList().length; a += performance.now() - t;
-        t = performance.now(); E.listFor(F, win); b += performance.now() - t;
-    }
-    // eslint-disable-next-line no-console
-    console.log("listFor vs _buildList: " + n + " objects, " + runs + " runs — _buildList "
-        + (a / runs).toFixed(3) + " ms, listFor " + (b / runs).toFixed(3) + " ms");
-    expect(n).toBeGreaterThan(0);
 });

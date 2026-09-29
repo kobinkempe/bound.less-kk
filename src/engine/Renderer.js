@@ -36,7 +36,7 @@ import { drawnBox } from "./placementModel";
 import { EXIT } from "./frameLattice";
 import SvgLayer from "./raster/SvgLayer";
 import LiveStrokeLayer, { viewCenter } from "./raster/LiveStrokeLayer";
-import { SvgOverlays, buildSelOverlay, dropSelOverlay, renderSelAnts, renderSelChevrons, mkSelLayer, ensureSelStyle } from "./raster/svgOverlay";
+import { SvgOverlays, buildSelOverlay, dropSelOverlay, renderSelAnts, ensureSelStyle } from "./raster/svgOverlay";
 
 /**
  * HOW A PIECE REACHES THE BROWSER (F40, 2026-09-04). Two things decide what is
@@ -310,7 +310,6 @@ export default class Renderer {
         this._activateSeq = 0;      // recency counter for the scene LRU
         this._lastRebuilds = 0;     // groups (re)built in the last render()
         this._hasFat = false;
-        this._ovOrigin = null;      // §2.5 seam 2: the raster path's overlay origin (FC6); null here
         this.lazyOutlines = true;   // fat strokes render RAW until they approach the
                                     // gate on screen (fit cost moves off pen-up and
                                     // onto idle/approach) — dev-toggleable
@@ -408,7 +407,7 @@ export default class Renderer {
         const marks = landedMarks(list);
         const byId = new Map();
         for (const o of list) {
-            // THE STROKE UNDER THE PEN IS ALREADY ON SCREEN as `_live`, and it
+            // THE STROKE UNDER THE PEN IS ALREADY ON SCREEN as `this.live`'s, and it
             // is in the list too (it is a native of the frame). Building a
             // group for it as well painted it twice whenever a render landed
             // mid-stroke — Ctrl+Z, an idle outline fit queued by the previous
@@ -487,29 +486,16 @@ export default class Renderer {
 
     // Camera-only frame: no geometry rebuild. Sync the world transform, and
     // refresh opacity for faded groups (fade depends on inScale).
-    //
-    // `view` is the raster path's published composite (RASTERISER-PLAN §2.7
-    // FC2) and is undefined on the SVG path, which reads the camera as it
-    // always has.
-    syncCameraOnly(view) {
-        this.syncWorld(view);
+    syncCameraOnly() {
+        this.syncWorld();
         for (const entry of this._groups.values()) if (entry.fadeTag != null) this._applyOpacity(entry, entry.pieces[0]);
     }
-    syncWorld(view) {
-        this._syncWorldTransform(view);
-        this._renderOverlays(view);
-    }
-    // RASTERISER-PLAN §2.5 seam 1, corrected: the overlay tail lives HERE and
-    // not in `render()`, and it takes the view rather than the list (D200).
-    // `RasterRenderer.render` and `.syncCameraOnly` call it with the view the
-    // pyramid published (`PicturePyramid.frameFor`), so the ink, the SVG world group and
-    // `bl-sel-edges` take one mapping (FC2).
-    _renderOverlays(view) {
+    /** The world transform, then the overlay tail: the lasso and the debug overlays, then the indicator. */
+    syncWorld() {
+        this._syncWorldTransform();
         this.overlays.render();
-        this._renderSelOverlay(view);
+        this._renderSelOverlay();
     }
-    // §2.5 seam 1's other half: the world group's own transform, which
-    // `RasterRenderer` overrides to take the snapped `d` from the view.
     _syncWorldTransform() {
         // Fold the active scene's origin into the world transform IN FLOAT64
         // (screen = inScale·(p − O) + [inPan + inScale·O]): anchors are stored
@@ -525,13 +511,10 @@ export default class Renderer {
     }
 
     // ---- per-scene local origin (float32-safe path coordinates) ----
-    // §2.5 seam 2: `_ovOrigin` is the raster path's overlay origin (null in SVG
-    // mode) and it has ONE writer, in `RasterRenderer.addLive` (FC6). The object
-    // identity is load-bearing: `_selDecide` caches its decision on
-    // `c.origin === O` (`overlays.js:657`), so a fresh literal per call costs a
-    // 26–47 ms decision every frame with every suite green.
+    // The active scene's origin. Its identity is load-bearing: `_selDecide`
+    // caches its decision on `c.origin === O` (`overlays.js`), so a fresh
+    // literal per call costs a 26–47 ms decision every frame.
     _origin() {
-        if (this._ovOrigin) return this._ovOrigin;
         const sc = this._scenes.get(this._level);
         return (sc && sc.origin) || Renderer._ZERO;
     }
@@ -1282,21 +1265,8 @@ export default class Renderer {
     endLive() { this.live.cancel(); }
     /** List item `o` is the stroke under the pen: its only picture is the live path. */
     _isLive(o) { const m = this.live.model; return m !== null && (o === m || o.piece === m); }
-    // RasterRenderer's inherited live-stroke fields, until it composes the layer (B-PYRAMID-3 item 4).
-    get _live() { return this.live.tail; }
-    set _live(v) { this.live.tail = v; }
-    get _liveRoot() { return this.live.root; }
-    set _liveRoot(v) { this.live.root = v; }
-    get _liveModel() { return this.live.model; }
-    set _liveModel(v) { this.live.model = v; }
 
     setLasso(fn) { this.overlays.setLasso(fn); }
-    /** PAPER-PLAN R3: the engine's live drag, pulled by a renderer that draws the dragged ink itself (`supportsDragPlane`). */
-    setDragState(fn) { this._dragStateFn = fn; }
-    /** PAPER-PLAN §10 S4: the selection a drag plane is kept ready for; the SVG renderer has none. */
-    setPlaneState(fn) { this._planeFn = fn; }
-    /** A drag ended (`why`: drop, cancel, delete, deselect); `n` plates were dropped for it. The SVG renderer has nothing to do. */
-    endMove() {}
     /** The lasso redrawn alone: a lasso drag calls this, not `syncWorld`. */
     refreshSelection() { this.overlays.lasso(); this.update(); }
 
@@ -1325,7 +1295,7 @@ export default class Renderer {
      */
     setSelectionAnts(fn) { this._selAntsFn = fn; }
 
-    /** The selection indicator, drawn by `svgOverlay.renderSelAnts`; the raster path overrides this (its ants are a canvas). */
+    /** The selection indicator, drawn by `svgOverlay.renderSelAnts` (the raster renderer's ants are a canvas). */
     _renderSelOverlay() {
         const svg = this.svg.element;
         if (!svg || typeof document === "undefined") return;
@@ -1343,10 +1313,6 @@ export default class Renderer {
         this._selOv = null;
         this._selEls = null;
     }
-    // RasterRenderer's inherited indicator seams, until it composes (B-PYRAMID-3 item 4).
-    _renderSelChevrons(edges, kt, W, H) { return renderSelChevrons(this._selEls, edges, kt, W, H); }
-    _mkSelLayer(svg, host, cls) { return mkSelLayer(svg, host, cls); }
-    static _ensureSelStyle() { ensureSelStyle(); }
 
     setOpacityGroups(v) { this.opacityGroups = v; }
     setLazyOutlines(v) { this.lazyOutlines = !!v; }

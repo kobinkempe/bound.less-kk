@@ -189,7 +189,7 @@ describe("a selection stands for ink", () => {
         E._render(); await new Promise((r) => setTimeout(r, 200)); await flush();   // the plane is aimed once the view holds
         // 12 + 3/1024 px: the kid's digit carries it next door with a shift of 3/8 of a frame, which with
         // its native's own 0.31 puts the native's picture past half a frame; it stays in the kid (A1 C1).
-        const lists = jest.spyOn(E, "_buildList");
+        const lists = jest.spyOn(E, "_render");
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12 + 3 / 1024]) E.pointerMove(org[0] + dx, org[1]);
         expect(lists).not.toHaveBeenCalled();                     // the fixture: no step rendered

@@ -71,7 +71,7 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         expect(q.done).toBe(q.dispatched);
         expect(E.plates.report().inFlight).toBe(0);
         expect(rasterStats.jobsEnded).toBe(q.dispatched);
-        expect(R._liveHeld.length).toBe(0);
+        expect(R.live.held.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(1);
     });
 
@@ -331,13 +331,13 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             if (held) {
                 const Gs = E.stage.landedAt(held.id), under = cellsUnder(P, held.box);
                 const plates = Gs != null && under.length > 0 && under.every((c) => c.draws.every((d) => d.rec && d.rec.G >= Gs && E.plates.exact(d.rec)));
-                log.push({ path: R._liveHeld.includes(held), plates });
+                log.push({ path: R.live.held.includes(held), plates });
             }
             return P;
         };
         E.setOpacity(0.5);
         drawStroke(E, [[150, 150], [300, 260], [450, 200], [520, 330]], 13, null, { raw: true });
-        held = R._liveHeld[0];
+        held = R.live.held[0];
         expect(held && E.stage.itemsOf(held.id).some((it) => it.pending)).toBe(true);
         await settle(E, 2);                                            // pending: the path is the picture
         E.flushBakes();                                                // the shape lands in one commit
@@ -363,15 +363,15 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 0;  // every patch to the workers, the group's too
         const older = () => R.pyramid.s.olderPatchMs + R.pyramid.s.olderOtherMs, older0 = older();
         drawStroke(E, [[150, 150], [300, 260], [450, 200]], 13, null, { raw: true });
-        const held = R._liveHeld[0];
+        const held = R.live.held[0];
         E.flushBakes();                                                // the shape lands: the group asks the workers
         await settle(E, 2);                                            // and waits: the gate holds its jobs
-        expect(R._liveHeld.includes(held)).toBe(true);
+        expect(R.live.held.includes(held)).toBe(true);
         const cls = cellsUnder(R.pyramid.lastPlan, held.box).flatMap((c) => c.draws.map((d) => d.cls));
         expect(cls.filter((k) => k === "held").length).toBeGreaterThan(0);
         expect(cls.filter((k) => k === "older")).toEqual([]);
         expect(await drain(E, g)).toBe(0);
-        expect(R._liveHeld.length).toBe(0);
+        expect(R.live.held.length).toBe(0);
         expect(older()).toBe(older0);
         delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
@@ -907,14 +907,14 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         const G1 = E.stage.landedAt(T.id), grp = [...R.pyramid._groups.values()][0];
         expect(G1).toBeGreaterThan(0);
         expect(rasterStats.refusedCoverPlates).toBeGreaterThan(0);
-        expect([R._liveHeld.length, !!grp]).toEqual([1, true]);        // the path stays while its group waits
+        expect([R.live.held.length, !!grp]).toEqual([1, true]);        // the path stays while its group waits
         expect(grp.held.some((r) => r.i === di && r.j === dj)).toBe(true);
         expect(grp.held.some((r) => r.i === ci && r.j === cj)).toBe(false);   // nothing from a table lacking its tiles
         expect(recAt(ci, cj).G).toBeLessThan(G1);
         refuse = false;
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
-        expect(R._liveHeld.length).toBe(0);                             // committed in one task with the path's release
+        expect(R.live.held.length).toBe(0);                             // committed in one task with the path's release
         for (const rec of [recAt(ci, cj), recAt(di, dj)]) {
             expect([rec.key, rec.G >= G1, E.plates.exact(rec)]).toEqual([rec.key, true, true]);
             expect([rec.key, diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([rec.key, 0]);
@@ -938,11 +938,11 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         expect(G1).toBeGreaterThan(0);
         const fresh = [...E.plates.records()].filter((r) => r.frame === String(v.frameId) && r.Z === v.Zq && r.G >= G1);
         expect(fresh.map((r) => r.key)).toEqual([]);                    // red before: an empty pack rendered as paper, exact
-        expect(R._liveHeld.length).toBe(1);
+        expect(R.live.held.length).toBe(1);
         refuse = false;
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
-        expect(R._liveHeld.length).toBe(0);
+        expect(R.live.held.length).toBe(0);
         expect(planCls(R).every((c) => c === "sharp")).toBe(true);
     });
 
