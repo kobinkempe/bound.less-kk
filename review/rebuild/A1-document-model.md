@@ -738,7 +738,10 @@ frozen whole at 5e9b1dd (`src/engine/__oracles__/model-v1/`); every number below
 - **`displaced` still mints** the frame a picture's pieces are read from when the lattice lacks it
   (§1.2 row 19, kept). PLAN §3 row 8 names it as the one lattice change a read may make: an empty
   frame, GC'd. `model.pureRead.test.js` counted 77 such mints over 180 states with an unread shift put
-  on an inked frame; nothing else changed.
+  on an inked frame; nothing else changed. The review pinned it: each mint is a displaced group's
+  source frame or on its chain and goes at the next frame GC (82 over the same states with the
+  budgeted snapshot, the drag's pick, the erase frame pass and the scene index added, and `report()`
+  a case of its own); read by read over 600 states, only the Stage's first read of a view minted.
 - **The home-depth carry, as built**: `residual` returns `{carry, rem}`; `objShift`'s k0 = 0 branch reads
   F0 = the neighbour the carry points back from, so E2's 0.75 W from the right neighbour is F0 = the
   home, rem −0.25 W, the native drawn live there (`placementModel.nativesIn`'s `live` set). A picture
@@ -757,10 +760,21 @@ frozen whole at 5e9b1dd (`src/engine/__oracles__/model-v1/`); every number below
   (64 units in) is compared, because the oracle read the unshifted window there and drew less at the
   square's edges; and a native the oracle carried which a later frame operation then moves in one
   engine only (C1's point) is counted, not failed — 0 in the run.
+- **The comparison, as reviewed (R-MODEL-C1)**: frames and homes are matched by place, since one id can
+  sit at two cells (the oracle zeroed a shift at its settle, so a later drag carried another whole cell
+  into the address; seeds 50, 145). Above a home the whole square is compared: every oracle item is in
+  C1's picture to the bit, and each C1 item it lacks comes from a tile only the composition's shifted
+  window reaches, painted with the composition's remainder (checked by arithmetic), none missing. A
+  divergence of a carried native passes only when one of its homes moved since the carry (seed 81, 46
+  of them). Seeds 1–200 × 40: 55,896 items, 107 carried (≤ 1 ulp), 36 edge-only. Past seed 20 it found
+  a reroute memo naming a frame frame GC forgot, in both models (fixed in `TileStore.forgetFrame`;
+  while both memos were stale the old comparison saw two equal empty pictures).
 - **Counters**: a 20-event subtree drag of a frame of 300 natives, a render each event: the oracle 1
   settle and 300 then 600 table writes an event, C1 0 and 0. The harness's scenarios 3 and 4 against
   the pre-C1 tree: the ink pixel-identical; with the selection shown, the ants' dashes differ in phase
-  along the same outline after the drag (the pieces under them are cut differently; not traced).
+  along the same outline after the drag. Traced by the review: the selection, its 1,044 natives' items
+  and the ants' 45 runs are the same in both trees, in the same order; the phase is the crawl clock at
+  the screenshot (reduced motion: 0 px apart; one tree's page 150 ms later: 54,503 px).
 - **Stores**: a store the oracle wrote opens to its pictures (its pending shifts read as placement, its
   settle entries replayed by result through `legacy/modelV1.js`, deletion date 2026-12-31) and undoes
   and redoes to them; version 3 is written only when the lattice carries a non-zero shift, and a

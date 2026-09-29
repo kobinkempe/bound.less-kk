@@ -447,14 +447,14 @@ describe("focused: moves", () => {
         ix.apply({ frames: [{ ...fr, cx: 2600 }] });              // lands within reach of the top-level stroke
         expect(ix.scenes.size).toBe(1);
     });
-    test("a settle is a no-op: the frame shift moves into the tables and nothing changes", () => {
+    test("a frame's shift and the same displacement in each native's table index alike (a merge's fold, an old store's settle)", () => {
         const ix = fresh();
         const a = [stroke(0, 0, 300, 0, 1, "1"), stroke(0, 50, 300, 50, 1, "1")];
         ix.apply({ items: a });
-        // the pending shift is set (a subtree move remainder): the items move with it, whole
+        // the frame's shift (a subtree move's rest): the items move with it, whole
         const o1 = ix.apply({ frames: [{ ...F0[1], sx: 700, sy: 0 }] });
         const h1 = o1.scenes[0].hash, x1 = o1.scenes[0].rect.x;
-        // ...and settled: the shift cleared, each table takes it
+        // ...and folded into the tables: the shift cleared, each table takes it
         const o2 = ix.apply({ frames: [{ ...F0[1], sx: 0, sy: 0 }], items: a.map((r) => ({ id: r.id, home: "1", w: r.w, t: [700, 0] })) });
         expect(o2.scenes[0].hash).toBe(h1);
         expect(o2.scenes[0].rect.x).toBeCloseTo(x1, 9);

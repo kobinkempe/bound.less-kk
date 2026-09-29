@@ -1,8 +1,9 @@
 /**
  * The legacy module (PLAN §5.2 Q6): only the op log's replay (`oplog.js`) and `Document`'s undo of a
- * `moveFrames` op carrying a store's `settled` record import it; no other module does, so it goes
- * with its deletion date. Its two inverses are idempotent: a settle replayed twice, or undone twice,
- * leaves the tables and homes as once.
+ * `moveFrames` op carrying a store's `settled` record import it; no other module does, neither passes
+ * it on, and nothing beside it could, so it goes with its deletion date. An import is matched by the
+ * file it resolves to, so "./modelV1", "../legacy/modelV1.js" or a directory index all count. Its two
+ * inverses are idempotent: a settle replayed twice, or undone twice, leaves the tables and homes as once.
  */
 import fs from "fs";
 import path from "path";
@@ -23,14 +24,32 @@ function sources(dir, out = []) {
 }
 const isTestCode = (p) => /\.(test|probe)\.js$/.test(p) || /[\\/]__(oracles|testkit)__[\\/]/.test(p);
 const importsOf = (text) => [...text.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((m) => m[1]);
+const LEGACY = path.join(__dirname, "modelV1.js");
+/** The file a relative specifier names from `from`: as written, with ".js", or a directory's index. */
+function resolves(from, spec) {
+    if (!spec.startsWith(".")) return null;
+    const base = path.resolve(path.dirname(from), spec);
+    for (const c of [base, base + ".js", path.join(base, "index.js")]) if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
+    return null;
+}
 
-test("only the op log's replay and Document's legacy undo import it", () => {
-    const users = [];
+test("only the op log's replay and Document's legacy undo import it, and neither passes it on", () => {
+    const users = [], passes = [];
     for (const p of sources(SRC)) {
-        if (isTestCode(p) || p === path.join(__dirname, "modelV1.js")) continue;
-        if (importsOf(fs.readFileSync(p, "utf8")).some((s) => /legacy\/modelV1$/.test(s))) users.push(path.relative(SRC, p).split(path.sep).join("/"));
+        if (isTestCode(p) || p === LEGACY) continue;
+        const text = fs.readFileSync(p, "utf8");
+        if (!importsOf(text).some((s) => resolves(p, s) === LEGACY)) continue;
+        const rel = path.relative(SRC, p).split(path.sep).join("/");
+        users.push(rel);
+        // A re-export (`export … from`), or a name it imported exported again.
+        const names = [...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*modelV1(?:\.js)?["']/g)]
+            .flatMap((m) => m[1].split(",").map((x) => x.trim().split(/\s+as\s+/).pop()).filter(Boolean));
+        const exported = [...text.matchAll(/export\s*\{([^}]*)\}/g)].flatMap((m) => m[1].split(",").map((x) => x.trim().split(/\s+as\s+/)[0]));
+        if (/export\s*(\*|\{[^}]*\})\s*from\s*["'][^"']*modelV1(?:\.js)?["']/.test(text) || names.some((n) => exported.includes(n))) passes.push(rel);
     }
     expect(users.sort()).toEqual(["engine/Document.js", "engine/oplog.js"]);
+    expect(passes).toEqual([]);
+    expect(fs.readdirSync(__dirname).filter((f) => /\.js$/.test(f) && !isTestCode(f))).toEqual(["modelV1.js"]);   // nothing beside it
 });
 
 test("a settle replayed twice, and undone twice, is as once", () => {

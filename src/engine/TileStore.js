@@ -595,7 +595,7 @@ export default class TileStore {
             const reach = REACH * s * (1 + 1e-9);
             if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
             const f = this.lm.frame(id);
-            if (id !== F && f.depth >= Fd && this.doc.count(id)) out.push(id);   // a count must not settle a frame the extent test then skips
+            if (id !== F && f.depth >= Fd && this.doc.count(id)) out.push(id);
             for (const c of this.lm.childrenOf(id)) if (c.centre) visit(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
         };
         visit(F, 1, 0, 0);

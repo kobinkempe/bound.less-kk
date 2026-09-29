@@ -342,8 +342,8 @@ export default class LevelMap {
     }
     // A frame takes cell (i, j) of `p`. A free cell is taken; a resident that `empty` says holds
     // nothing and that has no kids becomes the newcomer's shadow; any other resident keeps the
-    // cell and the newcomer shadows it, merged into it at its first read
-    // (`Document._mergeShadows`). Returns `[shadow, resident]` when a shadow was made.
+    // cell and the newcomer shadows it, merged into it when the user action that made it ends
+    // (`Document.mergePending`). Returns `[shadow, resident]` when a shadow was made.
     _take(f, p, i, j, empty) {
         f.parent = p.id; f.cell = { i, j }; f.edge = cellEdge(i, j); f.centre = cellCentre(i, j);
         f.addrSeq = (f.addrSeq || 0) + 1; f._rec = undefined;
@@ -485,7 +485,7 @@ export default class LevelMap {
      * With `shiftOf(id)` (the frame's shift at the start, or null) the frame's shift — that
      * plus the rest — is kept within ±W/2: its whole cells join the frame's own digit before
      * the chain resolves (SUBTREE-O1-PLAN §2.2, `addOffset`'s carry), so a kid's chain meets
-     * the frame where it is and a settle carries only what a native's own table adds.
+     * the frame where it is and only a native whose own table adds to it is drawn past a cell edge.
      *
      * One entry per frame, `{ id, depth, parent, i, j, rest, shift }` or `{ id, why }`, in
      * DESCENDING depth order: `rest` is `displaceFrame`'s (non-zero at `atDepth` + 1 and + 2),
@@ -599,7 +599,7 @@ export default class LevelMap {
      * twin's child were never drawn). Ids are "<spine depth>[#n]/i,j[#n]/…": the spine frame first
      * (a bare "2" on a lattice without it was null, so its natives loaded undrawn), then below the
      * deepest prefix that exists each missing frame is added with its EXACT id in its birth cell, or
-     * as a shadow of the cell's resident (merged at the next read). Null, with nothing minted, for
+     * as a shadow of the cell's resident (merged at the load's end). Null, with nothing minted, for
      * an id no frame can have.
      */
     ensureId(id) {

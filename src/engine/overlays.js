@@ -652,7 +652,7 @@ class Overlays {
 
     /**
      * A selected frame's content where it is drawn, in F's units: the union of its subtree's index
-     * extents, each through its frame's pending shift. O(frames); no list is read (F103).
+     * extents, each through its frame's shift. O(frames); no list is read (F103).
      */
     _selFrameContent(f, F) {
         let out = null;

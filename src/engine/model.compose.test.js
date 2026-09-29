@@ -3,12 +3,13 @@
  * frame's shift at k = 0, composed on every read and written nowhere. Each case is checked against
  * the frozen settling model (`__oracles__/model-v1`, which wrote the same shift into the tables at the
  * first read) through the two pictures (`modelFuzz.comparePictures`: bit for bit at and below a
- * native's home). The cases of B-MODEL-C1's brief §3: the carry (0.75 W past the home: drawn one cell
- * over, remainder −0.25 W), the native drawn live where it is not homed, a newcomer cancelling the
- * shift, a promoted native, one registration for per-object and subtree drags, and the box union
+ * native's home). The cases of A1 §4.4 C1, bullet by bullet: the carry (0.75 W past the home: drawn one
+ * cell over, remainder −0.25 W), the native drawn live where it is not homed, newcomers cancelling the
+ * shift (a stroke, a ceded kid, a native promoted into a shifted frame), a promoted native, a cut piece
+ * keeping its source's own table, one registration for per-object and subtree drags, and the box union
  * (H6: a native with its own table under an enclosed frame is judged where it is drawn).
  */
-import { useEngines, mkEngine, drawStroke } from "./__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, erase } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
 import { pictureAt, comparePictures } from "./__testkit__/modelFuzz";
 import { rectLoop } from "./geometry/arcShape";
@@ -133,6 +134,62 @@ describe("the composition", () => {
         }
         const st = samePictures(O, E, ["1", "0", A]);
         expect(st.items).toBeGreaterThan(1);
+    });
+
+    test("a ceded kid in a shifted frame cancels the shift: the parent's bits drawn where they were", () => {
+        const [O, E] = pair();
+        const s = [40, -24];
+        let K;
+        for (const X of [O, E]) {
+            shape(X, "1", 80, 50, 30, 30);                                     // coarse ink over the whole of K's view
+            K = X.lm.cellChild("1", 3, 2).id;
+            X.cam.set({ activeLevel: 2, frame: K, inScale: 1, inPanX: 400, inPanY: 300 });
+            X._render();
+            drawStroke(X, [[300, 150], [400, 170], [500, 150]], 9, "rgb(30,120,200)");
+            X.doc.setFrameShift(K, s);                                           // a drop's rest, unread
+            X._render();
+            erase(X, [[100, 450], [400, 460], [700, 450]], 30);                // at K: the coarse native cedes K's tile
+        }
+        const kids = E.doc.list(K).filter((o) => o.editId != null && o.type !== "stroke" && !o.erase);
+        expect(kids.length).toBeGreaterThan(0);
+        for (const k of kids) expect(E.doc.ownTable(k)).toEqual([[-s[0], -s[1]]]);   // composed: no displacement
+        for (const k of kids) expect(hasOffsets(E.doc.tableOf(k))).toBe(false);
+        samePictures(O, E, [K, "1"]);
+    });
+
+    test("a native promoted into a shifted frame cancels that frame's shift: the picture stays", () => {
+        const E = mkEngine(800, 600);
+        E.lm.ensureSpine(4);
+        E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 });
+        const P = E.lm.cellChild("1", 3, 2).id, A = E.lm.cellChild(P, 1, -1).id;
+        const id = shape(E, A, -0.625 * W, -2000, 1.25 * W, 4000, [[0.0625 * W, 0]]);   // oversize, its own table
+        E.doc.setFrameShift(A, [0.25 * W, 0.125 * W]);
+        E.doc.setFrameShift(P, [-0.125 * W, 0.25 * W]);
+        const before = pictureAt(E, "1").get(id);
+        expect(E._promoteOversize(id)).toBe(true);
+        expect(E.doc.getById(id).level).toBe(P);
+        // Its picture one level down (0.3125 W, 0.125 W at k = 1), less P's shift at k = 0.
+        const t = E.doc.ownTable(E.doc.getById(id).obj);
+        expect([t.length, t[0], t[1]]).toEqual([2, [0.125 * W, -0.25 * W], [0.3125 * W, 0.125 * W]]);
+        expect(outline(pictureAt(E, "1").get(id))).toEqual(outline(before));
+    });
+
+    test("a cut piece keeps its source's own table, not the composed one: drawn where the source was", () => {
+        const [O, E] = pair();
+        let A, id;
+        for (const X of [O, E]) {
+            A = X.lm.cellChild("1", 3, 2).id;
+            id = shape(X, A, -200, -150, 400, 300, [[100, 0]]);                 // its own table
+            X.doc.setFrameShift(A, [50, 30]);                                    // and its frame's: drawn at +150, +30
+            X.cam.set({ activeLevel: 2, frame: A, inScale: 1, inPanX: 400, inPanY: 300 });
+            X._render();
+            erase(X, [[300, 330], [550, 335], [800, 330]], 24);                  // across the picture, at its home
+        }
+        expect(E.doc.getById(id)).toBeFalsy();                                   // replaced by its pieces
+        const pieces = E.doc.list(A).filter((o) => o.type === "shape" && !o.erase);
+        expect(pieces.length).toBeGreaterThan(1);
+        for (const o of pieces) expect(E.doc.ownTable(o)).toEqual([[100, 0]]);
+        samePictures(O, E, [A, "1"]);
     });
 
     test("per-object and subtree drags register the same: the same pictures, native for native (t2's case)", () => {

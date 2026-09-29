@@ -1890,3 +1890,20 @@ post-drag ink of the two trees' SVG paths differs by 0 px. Pre-existing, the SVG
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: item 3 — `model.pureRead.test.js`: the reads C1's list may miss.
+
+## 2026-09-29 12:08 UTC — B-PYRAMID-2b (builder) — P6 end: item 6's harness, the suite, the report
+**Working on:** done. Item 6 on a frozen tree (15b3738, `git archive`, :3012), `--dense --scenario all` twice and
+scenarios 1–2 at levelStep 2 and 3; load 1.9 → 5.1 in run 1 (another agent's two dev servers and a Chromium harness
+from 11:23), 2.9 → 1.9 in run 2, 1.3–2.1 after. P6 runs 1|2 beside P5's pyramid (pair 1): 1 out paper 150|76 (P5
+4.1; an A/B pair today: P5's tree 0, P6 36.6), blur 112|135 (49), long 5|7 worst 0.71|0.91 s (4, 0.7); 1 back paper
+188|138 (0; A/B: P5 147, P6 0), blur 3,268|4,292 (3,892); 2 slow paper 5.2|0, blur 34|17 (13), long 9|12 (9); 3 pan
+0 paper, long 16|1 (4); 4 lasso 45 selected; 4 drag olderPatch 856|951, olderOther 0|0 (older 595), 33 images;
+5 pen-up release 145|169 ms, exact 147|171 (155, 161); 6 undo, measured from the key to exact after the commit:
+committed 428|114, exact 554|215 (P5's 299 read differently); 7 erase bake 5.96|6.57 s (6.6), blur 804|657,
+olderPatch 679|1,074, **olderOther 869|853** (P5's older 1,701 unsplit). levelStep 2|3: 1 out paper 0|0, blur
+14|14, long 38|32 (41|41); back blur 3,308|4,090; 2 slow blur 23|29, long 46|49, older 0.
+**Measured:** quick suite 188/193 suites, 2,118 passed, 12 skipped, 0 failed, 5 m 15 s at load 1.5 → 4.2;
+typecheck 0; eslint 0 errors (7 warnings, none in my files); `build:worker` md5 unchanged (raster 2cd48b67…, 430,570
+B; scene dce304b8…). Nothing measured in Kobin's Chrome.
+**Questions asked:** in the report (olderOther in scenario 7 and the fuzz; the zoom-out paper; packs at rest).
+WHERE I AM: ended — report handed back.

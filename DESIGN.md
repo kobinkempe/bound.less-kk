@@ -651,8 +651,11 @@ restored store is swept once it is in (`engine.sweepFrames`). A forgotten frame 
 so the store no longer lists it and replay counts it as holding every entry (§13, F98); the
 next write's header lattice lacks it and the op log records it (`forget`); its tiles and
 plates go with it, since an unmoved frame's id can be minted again by a later read and its old
-tiles would be served without what changed meanwhile (F111). Undo and redo collect too. A
-moved frame's id is not minted again in the session. The rest moves kids across cell edges — a
+tiles would be served without what changed meanwhile (F111); so does every reroute grouping
+that reads its tiles — the grouping's key counts frames, so a mint after the forget restored the
+key and a moved native was not drawn in that view (2026-09-29, R-MODEL-C1: 6 of 8,000 fuzz
+renders, the model before C1 too). Undo and redo collect too. A moved frame's id is not minted
+again in the session. The rest moves kids across cell edges — a
 kid re-homed under the neighbour container — so what was selected stays selected by §10's rule; a
 native's picture crosses a cell edge without leaving its frame (A1 C1).
 
@@ -1026,7 +1029,10 @@ placement, composed on read (§8), where a version-2 build reads it as a debt to
 into their tables and the deployed build before 4c99a8a drops it. A drawing whose
 lattice carries a shift is written as version 3, and those builds refuse it with
 their "saved by a newer version" message; one without a shift is written exactly as
-before, byte for byte (`hooks/store.model.test.js`).
+before, byte for byte (`hooks/store.model.test.js`). Measured against the deployed reader
+(0732252's `persist.js`, 2026-09-29): a shifted file and a store header with a shift are refused
+("file v3, app reads up to v2"), a shift-free file is read; a store and a cloud copy reach the
+same check through `loadDrawing`.
 
 **Frame ids.** A frame's id is its birth chain, `0/i,j/…`; a cell a moved frame vacated
 mints a twin with `#n` on its segment, and every descendant carries that `#n` inside its

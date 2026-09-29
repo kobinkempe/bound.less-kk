@@ -21,13 +21,13 @@ import { jobBytes, BufferPool } from "./raster/rasterJob";
 import { STRIPS_PER_WORKER } from "./raster/jobQueue";
 import { plateRange } from "./raster/plate";
 import { LEVEL_STEP, levelFor, zOf } from "./raster/level";
+import { mkEngine, useEngines } from "./__testkit__/harness";
+import { strokeStripNear } from "./geometry/polyline";
 
 /** The view level at a camera scale and its grid zoom (the pyramid's `levelFor`, A3 §1.2). */
 const levelAt = (inScale, dpr) => { const l = levelFor(inScale * dpr, LEVEL_STEP); return { q: l, Zq: zOf(l, LEVEL_STEP) }; };
 /** Plates a strip when `n` workers share `nPlates` (the queue deals `n × STRIPS_PER_WORKER` strips, A3 §4.4). */
 const stripSizeFor = (nPlates, n) => Math.max(1, Math.ceil(nPlates / (n * STRIPS_PER_WORKER)));
-import { mkEngine, useEngines } from "./__testkit__/harness";
-import { strokeStripNear } from "./geometry/polyline";
 
 const fs = require("fs");
 const os = require("os");

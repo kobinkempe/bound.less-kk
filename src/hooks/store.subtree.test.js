@@ -75,12 +75,10 @@ function drop(e, fx, dx, dy) {
     });
 }
 const homeOf = (e, id) => e.doc.getById(id).level;
-const settleAll = (e) => { for (const k of [...e.lm.frames.keys()]) e.doc.at(k); };
 // A frame's address from the root down.
 const chain = (e, id) => { const out = []; for (let f = e.lm.frame(id); f; f = f.parent != null ? e.lm.frame(f.parent) : null) out.unshift([f.id, f.parent, f.cell.i, f.cell.j]); return out; };
 /** Every native as stored, by home, and the address chain of every frame that holds one. */
 function state(e) {
-    settleAll(e);
     const n = e.doc.serializeNatives();
     const homes = Object.keys(n).filter((k) => n[k].length).sort();
     return JSON.stringify({ natives: homes.map((k) => [k, n[k].slice().sort((a, b) => a.id - b.id)]), frames: homes.map((k) => chain(e, k)) });
@@ -96,7 +94,6 @@ async function dragThrice(fx) {
     expect(at[0]).not.toBe(at[1]);                              // the second drop left the first container...
     expect(E().doc.count(at[0])).toBe(0);                       // ...empty
     expect(at[2]).toBe(at[1]);                                  // the third stayed in the second's
-    act(() => settleAll(E()));
     await save();
     return at;
 }
@@ -160,7 +157,7 @@ describe("a multi-drop subtree drag survives the store (F98)", () => {
         expect(E().doc.count(at[0])).toBe(1);                   // an add, which forces no snapshot
         await save();
         expect((await loadCanvasStore("c1")).header.frameSeq[at[0]]).toBeGreaterThan(0);
-        act(() => { E().cam.set({ frame: "1", inScale: 1, inPanX: 400, inPanY: 300 }); settleAll(E()); });
+        act(() => { E().cam.set({ frame: "1", inScale: 1, inPanX: 400, inPanY: 300 }); });
         await save();
         const before = state(E());
         act(() => view.unmount());
@@ -186,7 +183,6 @@ describe("a multi-drop subtree drag survives the store (F98)", () => {
         expect(st.header.crossings.frames.some((f) => f.id === second)).toBe(false);
         expect(st.entries.some((en) => en.op.k !== "forget" && (en.touches || []).includes(second))).toBe(true);
         expect(st.entries.some((en) => en.op.k === "forget" && en.op.frames.includes(second))).toBe(true);   // the log's record
-        act(() => settleAll(E()));
         await save();
         const before = state(E());
         act(() => view.unmount());

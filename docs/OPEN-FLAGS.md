@@ -4582,7 +4582,8 @@ An erase's undo reverses its bake steps and, being RESILIENT, puts a step's sour
 **2026-09-29, A1 C1 (B-MODEL-C1): the mechanism is gone.** The foreign-shift settle is deleted:
 a frame's shift is placement, set and restored with its address, never owed. Measured:
 `model.equivalence.probe.js`, 20 seeds × 40 ops (43 subtree drags, 75 undos, 43 redos among them):
-6,336 native items at 1,717 frame views bit-identical to the model before C1. Browser-unverified.
+6,336 native items at 1,717 frame views bit-identical to the model before C1. The review's run,
+compared by place over the whole square: seeds 1–200 × 40, 55,896 items. Browser-unverified.
 
 A cluster drawn one level in, its frame lassoed and dragged (move A, a sub-cell rest pending as the frame's shift), read (A's shift settled into the tables), dragged again (move B: `shiftBefore` null); the camera zoomed away so nothing reads the frame; undo ×2, redo ×2. The redo of A left A's rest pending — nothing read the frame — and the redo of B, which assumes the frame's shift is its own `shiftBefore`, set B's shift over it: the tables ended 65,536 units (half a depth-plus-one cell) off in x. **Fixed**: the inversion of a `moveFrames` settles first any pending shift that is not the op's own; the settle is recorded on the frame's current owner (the earlier op's entry), whose own undo unsettles it by record. Test `move.subtree.test.js` mv1 (two moves, the camera 3e6 away, undo ×2, redo ×2: natives byte-equal and the frame's address as before). Break-check on an unimported copy: without the settle, red.
 
@@ -4608,6 +4609,15 @@ REVIEWER-3 ran the real `cloudPushCanvas2`/`cloudPullCanvas2` on the fake Firest
 
 <a id="f111"></a>
 ### F111 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's fuzz. After an undo at depth a moved object's ink vanished from the view.
+
+**2026-09-29, the C1 review (R-MODEL-C1): a second way, fixed.** The fix dropped the forgotten frame's
+own reroute memo only. A view whose grouping read its pieces from that frame kept its memo, keyed
+`F|offRev|addrEpoch|frames.size`; a mint after the forget restored the key, the memo was served, and
+the moved native was not drawn in that view (the source frame gone, nothing read). Measured in the
+model fuzz: the live Stage missed a native in 6 of 8,000 camera renders (seeds 23, 42, 66, 124, 187,
+the memo stale at 76), the picture comparison failed 7 of 200 seeds; the model before C1 does it too
+(seeds 42, 74). `TileStore.forgetFrame` now drops every memo with a group reading the frame: 0 of
+8,000; `reroute.memo.test.js` a case (red before). Browser-unverified.
 
 Measured by bisecting renders over 21 fuzz gestures (draw at depth 0, two erases at depth 1, a tap-drag of the family, more erases, zoom to depth 3, undo, undo): after the second undo the render list was EMPTY while a fresh engine at the same camera listed the object over the whole screen; the next eraser there "flooded" the screen with the ink that had been missing. The first undo's render minted F0 — the frame the moved piece's picture is read from (`_reroute` → `objShift`) — and cached its up tiles, kept past the camera by `_reroute`; the undo's frame GC (added the same day, G12) then forgot F0, empty and unnamed, but TileStore kept its tiles. The second undo re-inserted the piece; `_addObject` met F0's tile, found `isAncestor` false (F0 gone) and `_depth(F0)` falling back to 0, and neither patched nor dropped it; the next render minted F0 again under the same id (an unmoved frame's id is not retired), its chain sum matched, and the stale tile was served. **Fixed**: `collectFrames` calls `TileStore.forgetFrame` (its tiles, pins, warm keys, reroute memo and chain sum) and drops the forgotten frames' plates; `_addObject` and `_removeObject` also drop any tile whose frame is missing. Test `frame.gc.test.js` G13: a frame's tiles kept past the camera, the frame collected, ink added over its cell, the frame minted again — the ink is listed (red with both halves off).
 
@@ -4721,7 +4731,8 @@ Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth
 
 **2026-09-29, A1 C1:** unchanged — the per-event mints go at C2. C1 adds one read that may mint:
 `displaced` mints the empty frame a picture's pieces are read from (PLAN §3 row 8's exception),
-which frame GC collects like these (77 over `model.pureRead.test.js`'s 180 states).
+which frame GC collects like these (77 over `model.pureRead.test.js`'s 180 states; the review's 82,
+each a displaced group's source and gone at the next collection).
 
 Each event of a drag of selected frames computes every moving frame's target chain from its start address (`LevelMap.moveSubtreeTargets`). A kid's chain carries a digit into its parent's level wherever the kid's own cell overflows (the same arithmetic as the per-object path, so registration is exact), so the kid's parent step is often not the cell its moving parent is headed for, and that step is minted (`cellChild`). The next event targets other cells; the earlier containers stay, empty. Measured in jsdom and in Chrome on the report's drawing (a lasso of the screen at inScale 2.9, a 40-step drag of 28.9 × 15.7 units): 86, 80 and 103 new frames, all but one empty; the lattice he sent held 473 depth-0 frames, 471 empty, in trails under -2/0,1 … -2/1,3. They cost a saved header, every `walk`, and — until F93 — a place in every lasso.
 
