@@ -944,7 +944,8 @@ export default class PicturePyramid {
 
     /**
      * A zoom, a frame change, a resize or a dpr change ends the rest set; its queued jobs are dropped by generation. A
-     * zoom keeps its records as the stand-in (`_standInCell`), in place of the one an earlier zoom kept; anything else
+     * zoom keeps its records as the stand-in (`_standInCell`), in place of the one an earlier zoom kept — unless it was
+     * never shown (a worker set holds its results aside until all are in), when the earlier one stays; anything else
      * removes them all at once (not staled: they are wrong at another frame or grid, and removing closes their bitmaps).
      */
     _discardRest(why) {
@@ -957,7 +958,7 @@ export default class PicturePyramid {
             this.s.restDiscards++;
             this._lastDiscard = why;
         }
-        const K = this._standIn = why === "zoom" && R ? { frame: R.frame, Z: R.Z } : null;
+        const K = this._standIn = why !== "zoom" ? null : R && R.shown ? { frame: R.frame, Z: R.Z } : this._standIn;
         this.store.dropWhere((r) => r.kind === "rest" && !(K && r.frame === K.frame && r.Z === K.Z));
     }
 

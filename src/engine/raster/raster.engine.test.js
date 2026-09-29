@@ -182,6 +182,27 @@ test("§8.4 rule 2 on the pyramid: a frame that PACKS AND POSTS sums its main bu
     expect(resW).toBeLessThan(1e3);
 });
 
+test("§8.4 rule 2: the prefetch's off-camera reads inside a still camera step are its row's eng.list, not a residual (P6's 319 ms camera row)", async () => {
+    const gate = mkGate();
+    const perf = mkPerf();
+    const E = mkEngine(400, 300, perf), R = E.renderer;
+    R.pyramid.cfg.restInline = "never";
+    R.pyramid.cfg.patchInlineMs = 0;
+    packingRender(E, [fillItem(6, 30, 30, 100)]);
+    while (await gate.release());
+    E.cfg.prefetchQuietMs = 0;                                  // the plan in the step itself
+    const snap = E.stage.snapshot.bind(E.stage);
+    E.stage.snapshot = (...a) => { const t = performance.now(); while (performance.now() - t < 25); return snap(...a); };   // a slow tile read
+    R._pyrPrefetchKey = null;
+    const n0 = perf.rows.length;
+    R.syncCameraOnly();
+    const row = perf.rows.slice(n0).find((r) => r.kind === "camera");
+    expect(row.mainMs).toBeGreaterThan(25);
+    expect(row.slots["eng.list"]).toBeGreaterThanOrEqual(25);
+    expect(row.mainMs - sumMain(row)).toBeLessThanOrEqual(bar(row.mainMs));
+    while (await gate.release());
+});
+
 test("BREAK-CHECK: unbucketed work in the ARRIVAL task breaks the main half, and the wall half cannot see it", async () => {
     const gate = mkGate();
     const perf = mkPerf();

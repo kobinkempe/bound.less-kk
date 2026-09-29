@@ -422,6 +422,15 @@ staled — they are wrong at any other Z, and removing is what closes their bitm
 dropped by purpose generation (§4.4), and anything in flight is discarded on arrival (key mismatch). The
 view falls to the level plan in the same frame, so a discard never shows paper.
 
+*Changed (the B-PYRAMID review, 2026-09-29, PLAN §5.13 item 1):* a zoom no longer removes the records: they stay as a
+stand-in source at their own Z (`_standIn`), tried in the lookup where their resolution ranks among the coarser levels
+— over a stale own plate's dirty rectangles by rule (e), else over the cell's on-screen part (the set was rendered for
+the screen only) — counted as scaled stand-ins, pinned while drawn and OFF_PATH after, so a cell's own fresh plate ends
+them; the next zoom's set replaces them, a frame change, a resize or a dpr change removes them, and back at their Z bit
+for bit they are the rest set again. The never-older fuzz's older plans fell from 79 of 121 to 24–87 of 113–176 (it is
+timing-dependent), every one a cell with nothing fresh cached at any level whose tiles a crossing left unread or whose
+view job was in flight — the plan's last resort, now its only olderOther.
+
 ### 2.5 What it replaces
 
 | mechanism | where |
@@ -543,6 +552,13 @@ inline iff T_patch ≤ PATCH_INLINE_MS (6 ms, leaving the frame its compose)
 and fitted online from the pool's own `ras.union` timings and row counts, as §2.2's constants are; 0.3 ms a
 plate is the merge. An undo of one ordinary stroke is well
 under it (§3.5); a 1,000-object delete is not, and takes §3.4.
+
+*Changed (the B-PYRAMID review, 2026-09-29, PLAN §5.13 item 4):* E was every chord of each item meeting the clips, so on
+the dense drawing an undo read 34–41 ms (E at the 20,001 cap) and never went inline. E is now each item's chords × its
+rows' share inside the clips (a clipped render deposits only those rows, §3.1); A and U were already clipped. The
+budget is `patchUserMs` 16 ms (one frame) for a user's action — an undo or a redo (`noteUserEdit`), a pen-up's group —
+paid once, and 6 ms for the patches the bake issues at every step. jsdom: an undo over ten 1,500-point fills, E 1/4 of
+the whole cells' and T under 6 ms, inline, its plates equal to a whole render.
 
 ### 3.4 Coarse-first for large dirty regions
 
@@ -795,6 +811,12 @@ array length (the P2 fuzz).
 worker, the landing, measured by the queue from its own dispatch; a failure is no sample): `pump` dispatches only to a
 free slot, so no queue position is ahead of the strip (PLAN §5.6 item 7). `failPool` hands a queue strip back through
 `onRequeue`: its id ended, the strip at the head of its priority (H7).
+
+*Changed (the B-PYRAMID review, 2026-09-29):* at rest the pack budget is a task's: `pump` stops once the task has packed
+`PACK_MS_PER_FRAME` and a later task (`defer`, a timeout) starts the budget again, so the strip that crosses it ends the
+task (P6's undo trace: 171–480 ms prefetch packs, a free worker's each, in one task). A job that carries its own pool
+entry (a cut, a snapshot's plate) is queued as the object pushed: a snapshot's copy never matched its `done`, and every
+Scenes thumbnail held a low-priority slot for the session (two, on three workers, stopped the prefetch for good).
 
 ### 4.5 The cache budget
 

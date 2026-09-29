@@ -280,7 +280,9 @@ RENDERING   [HOT]
                                            worker group after the quiet); _patchStep (inline, coarse-first
                                            or the workers); _requestView (the missing cells, covered ones
                                            only, priority 1) -> onRequest -> queue.push (+ a microtask pump)
-        queue.setMotion (the velocity, the attention point, `at`); queue.frame(); queue.pump() ->
+        queue.setMotion (the velocity, the attention point, `at`); queue.frame(); queue.pump() (4 ms of packs a
+          frame while moving, a task while still: the rest in a later task; a cut or a snapshot's plate is one
+          strip queued as pushed, one worker kept for cuts while any is pending) ->
           _pyrSubmit -> _pyrPack (a cell the table does not cover refused and unasked; packJob at G;
           store.beginJob) -> rasterPool -> the worker (res.G = job.G) -> _pyrResult -> _pyrLand ->
           pyramid.onResult -> store.put: rule 1 (newer G replaces), rule 2 (exact iff G >= dirtySince)

@@ -2101,3 +2101,18 @@ late answers, step changes' refused jobs, drags, snapshots: 0 G falls, 1,030 exa
 bar's own ladder; `raster.move`'s describe and one test comment named the deleted ladder — reworded.
 **Questions asked:** none yet.
 WHERE I AM: DESIGN §9, A3's notes, OPEN-FLAGS, docs/ai 40- while the batch runs; then the table and the report.
+
+## 2026-09-29 16:09 UTC — B-PYRAMID-3 (builder) — waiting for item 4: the warm reads measured (PLAN §5.14 item 1)
+**Working on:** item 4's preparation (the reviewer's end entry not yet in); the docs of items 1–3 next.
+**Measured (headless Chromium, raster path, frozen copy :3022 = cbca128 + my files; `bp3/warmcheck.js`):** the dense
+drawing with scenario 4's lasso and drag (44 natives and frame "1" moved), the camera at depth 2, scenario 1's zoom-out
+(90 ticks) and back; tile bakes (`_bakeUp`/`_bakeDown`) counted in the page, two runs each. Warm off (production today:
+nothing sets `warmReads`): out 11, 10 bakes (5.9–6.0 s), back in 19, 22 (11.6–12.9 s). Every `stage.snapshot` read warm
+and never cleared (LRU-bounded): out 14, 10 (6.6–7.7 s), back in 9, 10 (3.5–4.9 s). Warm cleared at each prefetch plan
+(the ladder's rule): no difference from off (10/19, 10/22). Load 1.4–9 (the ms are loose; the counts are the result).
+**Decisions made:** none yet on the warm reads: the numbers need them only if they are wired to every prefetch read.
+**Questions asked:** the warm reads: delete them with `listFor` as dead code (production is "off" today; the back-in
+re-bake, 19–22 tiles and 11.6–15.9 s of main-thread bakes here, filed as an open item for the prefetch), or keep them
+and wire every prefetch snapshot read as warm (a small change in item 4)? Recommendation: wire them — the back-in bakes
+halve in this scenario and the LRU cap still bounds the cache; I will build that in item 4 unless told otherwise.
+WHERE I AM: DESIGN §7/§9, TEST-MAP, A3 §7, PLAN §1.5 for items 1–3 (own sentences only; the reviewer is in §9 too).

@@ -342,8 +342,12 @@ marks share exactly (the core masks a family whole, by all its items' bits, so n
 meets both marks' may hold one and not the other; past 16 the slot it over-hides least, counted as
 `maskOverflow`, never white ink), and the core multiplies the family's coverage by (1 − the slot's
 coverage), a byte plane. The pick skips a masked target where its mark's ink covers
-the point, so a press there takes what shows. The SVG renderer (`?svg`) still paints a pending mark
-as white ink at its z — over pieces already baked too, now the z no longer steps.
+the point, so a press there takes what shows. The SVG renderer (`?svg`) masks by the same rule (PLAN
+§5.8 item 2, B-PYRAMID-3): a landed mark is drawn as nothing, and the group of any member under its mask
+takes an SVG `<mask>` of the mark's shape (a family masked whole, as the core masks it), so an object
+dragged under the mark shows; a mark not yet landed is ink at its z until it lands. The SVG export and
+the `?svg` thumbnails bake every pending mark first (`thumbnails.withSvgEngine` runs `flushErases` in its
+copy), so no pending mark reaches a picture.
 
 **What an erase step dirties** (PLAN §5.3 A2-Q2; the scene classifies each event by the mark it
 names, `by`, and the rule): a cut or a descent on the mark's lineage, the target's box inside the
@@ -691,12 +695,16 @@ A1 C1 (2026-09-29) made the shift placement, composed on read and written nowher
 
 ## 9. Rendering
 
-The raster renderer draws the **scene** (`Stage.js`, below); the SVG renderer draws the
-render list (`KobinEngine._buildList`, through `listFor`), which the scene equals item for item
-(`stage.equiv`). **The raster renderer is the app's default since 2026-09-22** (Kobin);
+Both renderers draw the **scene** (`Stage.js`, below): the raster renderer packs its items into
+plates, the SVG renderer builds its Two.js groups from them (`stage.items()` at the Stage's
+generation, B-PYRAMID-3). **The raster renderer is the app's default since 2026-09-22** (Kobin);
 the SVG renderer is behind the `?svg` URL gate (`useKobinEngine.rasterFromUrl`), and
 a one-off SVG engine (`thumbnails.withSvgEngine`) makes the SVG export and the `?svg`
-thumbnails. The deployed build (2026-09-08) is SVG only.
+thumbnails, after the erase barrier (`flushErases`). The deployed build (2026-09-08) is SVG only.
+The Two.js instance is `raster/SvgLayer.js` (the camera's `world` group, the debug groups, the
+lasso's group), the stroke under the pen `raster/LiveStrokeLayer.js`, and the lasso, the debug
+overlays and the selection indicator's SVG `raster/svgOverlay.js`: one implementation each, which
+both renderers call (A3 §7).
 
 ### The raster renderer (`src/engine/raster/`)
 
@@ -809,10 +817,13 @@ Kobin's look is its stage 7.
 
 ### The SVG renderer (`?svg`)
 
-`Renderer` is the class that builds Two.js paths for the ink. One persistent `Two.Group` per
-object id, kept sorted by `(z, id)`; a per-frame diff rebuilds a group only when
-its piece *signature* changes; a camera-only frame touches nothing but the world
-transform and faded groups' opacity.
+`Renderer` is the class that builds Two.js paths for the ink (the anchors: `raster/svgAnchors.js`).
+One persistent `Two.Group` per object id, kept sorted by `(z, id)`; a per-frame diff rebuilds a group
+only when its piece *signature* changes; a camera-only frame touches nothing but the world
+transform and faded groups' opacity. A group whose opacity is 0 (a fully faded down-piece) is not
+rebuilt at all: Two.js never renders it, the removal of its old paths included, and a drag that moved
+one every event kept every generation (F133: 57 MB an event, a crash on the dense scene); its signature
+stays stale until the zoom that shows it, which `needsFadeFlip` promotes to a render.
 
 Five things in it are load-bearing and none is obvious:
 
@@ -1211,7 +1222,7 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 
 | file | |
 |---|---|
-| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync on the raster path; `_buildList`, `listFor` on the SVG path), the drag's hold in the Stage and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
+| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync; both renderers draw its items), the drag's hold in the Stage and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
 | `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js` | one cut as a pure job; the descent as one job per family; the cuts' queue on the raster pool (`PRIO.cut`; inline only when the pool is broken or there is no worker) |
 | `overlays.js` | the selection indicator and the erase debug view |
@@ -1234,8 +1245,8 @@ way, and throws if two files claim the same name.
 | `legacy/modelV1.js` | the inverses of the settling model, for stores and undo stacks written before A1 C1; deletion date 2026-12-31 |
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache |
-| `Renderer.js` | the SVG renderer, and the base class of the raster one |
-| `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore`, `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
+| `Renderer.js` | the SVG renderer (`?svg`, the export), and the base class of the raster one until B-PYRAMID-3's item 4 |
+| `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore`, `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; the SVG layer both renderers draw with: `SvgLayer`, `LiveStrokeLayer`, `svgOverlay`, `svgAnchors`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
 | `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
 | `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |
 

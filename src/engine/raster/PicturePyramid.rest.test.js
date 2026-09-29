@@ -198,6 +198,22 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
         expect(t.pyr.report().standIn).toBe(null);
     });
 
+    test("a zoom from a rest set never shown (its worker group still out) keeps the stand-in an earlier zoom left", () => {
+        const t = setup(), Z = 1.25;
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        const first = restKeys(t.store);
+        t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H));                  // the stand-in: Z's set
+        t.pyr.cfg.restInline = "never";
+        t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H));                  // still: a worker set, after the quiet
+        t.tick(EST_DEFAULTS.restQuietMs + 1);
+        expect(t.posted.filter((j) => j.kind === "rest").length).toBe(1);
+        expect(t.pyr.report().rest).toEqual({ Z: Z * 1.01, shown: false });
+        t.pyr.frameFor(cam("F", Z * 1.02, 0, 0, t.W, t.H));                  // zoomed before it was shown
+        expect(t.pyr.report().standIn).toEqual({ Z });
+        expect(restKeys(t.store)).toEqual(first);
+    });
+
     test("never older after a zoom from rest (decision 2): a cell with no level plate over a stale coarser one is drawn from the kept rest set, pinned while drawn, and no more once its own plate is fresh", () => {
         const t = setup(), Z = 1.25;
         t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
