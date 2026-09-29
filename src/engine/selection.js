@@ -196,23 +196,35 @@ class Selection {
         }
         return out;
     }
-    /** An undo or a redo: the natives it re-homes and the frames it re-addresses out of the selection stay selected. */
-    _keepingSelection(fn) {
-        if (!this.selection || !this.selection.frames.length) return fn();
-        this._moving = { ids: new Set(), frames: new Set() };
-        try { return fn(); } finally {
-            const m = this._moving;
-            this._moving = null;
-            if (this.selection && (m.ids.size || m.frames.size)) this._reselect([...m.ids], this._outsideSelection(m.frames));
+    /**
+     * What an action applying `op` can carry out of the selection, read before it runs (A1 C2: the selection is
+     * repaired from the op, never from events): the op's frames under a selected frame, and its per-object members
+     * listed or under one.
+     */
+    _opUnder(op) {
+        const s = this.selection;
+        if (!s || !op) return null;
+        const ids = [], frames = [];
+        for (const e of op.frames || []) if (this.lm.frame(e.id) && this._underFrames(e.id, s.frames)) frames.push(e.id);
+        for (const m of op.moves || (op.op === "move" ? [op] : [])) {
+            const rec = this.doc.getById(m.id);
+            if (rec && (s.ids.includes(m.id) || this._underFrames(rec.level, s.frames))) ids.push(m.id);
         }
+        return { ids, frames };
+    }
+    /** After a drop, an undo or a redo: `under` (`_opUnder`, read before it) repaired into the selection, quietly — the caller renders. */
+    _repairSelection(under) {
+        if (!this.selection) return;
+        this._reselect(under ? under.ids : [], under ? this._outsideSelection(under.frames) : [], true);
     }
     /**
-     * The selection keeps standing for the ink it stood for (DESIGN.md §10). A subtree drag's rest
-     * re-parents kids across cell edges, a merge or an undo re-homes natives (§8): a frame no selected
-     * frame holds any more joins as a frame, a native as an id (and leaves the ids when a selected
-     * frame holds it again), and a frame left with no ink leaves.
+     * The selection keeps standing for the ink it stood for (DESIGN.md §10). A drop's rest re-parents kids
+     * across cell edges, an undo re-homes natives (§8): a frame no selected frame holds any more joins as a
+     * frame, a native as an id (and leaves the ids when a selected frame holds it again), an id the action
+     * removed goes — its family's first member takes its place when nothing else is left — and a frame left
+     * with no ink leaves. `quiet`: nothing redrawn or emitted (the caller's render does both).
      */
-    _reselect(ids, torn) {
+    _reselect(ids, torn, quiet = false) {
         const s = this.selection;
         if (!s) return;
         const frames = s.frames.concat(torn);
@@ -226,8 +238,13 @@ class Selection {
         }
         const inked = this._inkedFrames();
         const keep = frames.filter((f) => inked.has(f));
-        if (!add.length && !back.size && keep.length === s.frames.length && keep.every((f, k) => f === s.frames[k])) return;
-        this._setSelection(s.ids.filter((id) => !back.has(id)).concat(add), keep);
+        const live = s.ids.filter((id) => !back.has(id) && this.doc.getById(id));
+        if (!add.length && !back.size && live.length === s.ids.length && keep.length === s.frames.length && keep.every((f, k) => f === s.frames[k])) return;
+        if (!live.length && !add.length && s.editId != null && s.ids.length && !this.doc.getById(s.id)) {
+            const family = this.doc.editGroup(s.editId);
+            if (family.length) live.push(family[0].obj.id);
+        }
+        this._setSelection(live.concat(add), keep, quiet);
     }
     // Every native, with its bbox in the ACTIVE frame's units. Nothing in the
     // engine uses this any more — `_lassoFind` walks the frame tree instead —
@@ -501,7 +518,7 @@ class Selection {
     // A selection is ids PLUS frames: a frame entry means that frame and its whole
     // subtree (§2.7). The primary member is the first live id, or the first frame
     // when the selection is frames only.
-    _setSelection(ids, frames = []) {
+    _setSelection(ids, frames = [], quiet = false) {
         const live = ids.filter((id) => this.doc.getById(id));
         const fr = [...new Set(frames)].filter((f) => this.lm.frame(f));
         if (!live.length && !fr.length) { this.deselect(); return null; }
@@ -510,6 +527,7 @@ class Selection {
             ids: live, frames: fr, id: rec ? rec.obj.id : null, editId: rec ? this.doc.editKey(rec.obj) : null,
             level: rec ? rec.level : fr[0], obj: rec ? rec.obj : null,
         };
+        if (quiet) return this.selection;
         this._syncStep(); this.renderer.update();
         this._emit();
         return this.selection;
@@ -827,13 +845,11 @@ class Selection {
         return out;
     }
     /**
-     * Delete what the selection stands for as ONE undoable action: its ids with their families and
-     * its frames as containers. Mid-drag, the frames the drag has moved out of its frames join it
-     * first; otherwise they would join only at the drop (F93).
+     * Delete what the selection stands for as ONE undoable action: its ids with their families and its frames
+     * as containers — as it stood at the press when a drag is live (a drag writes nothing until its drop, A1 C2).
+     * The selection is cleared once, after the removals' one commit (PLAN §5.9 item 3).
      */
     deleteSelection() {
-        const dr = this._dragSel;
-        if (dr && this.selection) this._reselect([], dr.frames ? this._outsideSelection(dr.frames.keys()) : []);
         const s = this.selection; if (!s) return false;
         const records = [];
         const seen = new Set();
@@ -866,7 +882,7 @@ class Selection {
         if (!frameRecords.length) this.doc.pushUndo({ op: "eraseMany", records });
         else if (!records.length) this.doc.pushUndo({ op: "removeFrames", records: frameRecords });
         else this.doc.pushUndo({ op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frameRecords }] });
-        if (this._dragSel || this._holdMove) this._endMove("delete");   // the members' removals were held
+        if (this._dragSel || this._holdMove) this._endMove("delete");   // the hold, holding the removals, released
         this.deselect();
         this._render();
         return true;

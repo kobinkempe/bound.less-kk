@@ -253,7 +253,8 @@ export default class KobinEngine {
         this.renderer.onPlaneLost = () => this._planeLost();
         // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
         this.renderer.onShown = () => { if (!this._destroyed) this._render(); };
-        // The selected object can vanish under us (eraser, cut, undo, wipe, load).
+        // A reset (a wipe, a load) drops the selection; a merge hands a selected frame's ink over. Everything else
+        // an action does to the selection is repaired from its op at its end (`_repairSelection`, A1 C2).
         this.doc.subscribe((ev) => {
             if (!this.selection) return;
             if (ev.kind === "reset") { this.selection = null; this._dropHold("reset"); return; }
@@ -265,28 +266,7 @@ export default class KobinEngine {
                 const inked = this._inkedFrames();
                 const frames = s.frames.filter((f) => f !== ev.frame).concat(ev.kids.filter((k) => inked.has(k) && !s.frames.includes(k)));
                 this._setSelection(s.ids.concat(ev.ids), frames);
-                return;
             }
-            // An undo or a redo moving ink out of (or back into) the selection's frames (`_keepingSelection`).
-            if (this._moving) {
-                const s = this.selection;
-                if (ev.kind === "remove" && ev.rehome != null && (s.ids.includes(ev.id) || this._underFrames(ev.level, s.frames))) this._moving.ids.add(ev.id);
-                if (ev.kind === "refile" && ev.from && this._underFrames(ev.from.parent, s.frames)) this._moving.frames.add(ev.frame);
-            }
-            if (ev.kind !== "remove") return;
-            if (ev.rehome) return;   // it changed frames, it did not go away
-            // Drop the member that went, and repair the primary if it was the
-            // one removed. A member whose logical family still has geometry
-            // (a re-homed patch) hands over to its sibling instead of vanishing.
-            const ids = this.selection.ids.filter((id) => this.doc.getById(id));
-            const frames = this.selection.frames || [];
-            if (ev.id === this.selection.id && !ids.length) {
-                const family = this.doc.editGroup(this.selection.editId);
-                if (family.length) { this._setSelection([family[0].obj.id], frames); return; }
-                if (frames.length) { this._setSelection([], frames); return; }
-            }
-            if (!ids.length && !frames.length) { this.selection = null; this._dropHold("removed"); return; }
-            if (ids.length !== this.selection.ids.length || ev.id === this.selection.id) this._setSelection(ids, frames);
         });
 
         // "raf" frames: an arrival's compose waits for the frame (the pyramid's `deferCompose`, A3 §5).
@@ -627,9 +607,9 @@ export default class KobinEngine {
         this._dragSel = null;
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
         if (op && this.renderer.noteUserEdit) this.renderer.noteUserEdit();
+        // What the drop moved out of every selected frame stays selected (DESIGN.md §10), before the one render.
+        if (op && op.frames && this.selection) this._repairSelection({ ids: [], frames: op.frames.map((e) => e.id) });
         this._render();
-        // What the drop moved out of every selected frame stays selected (DESIGN.md §10).
-        if (op && op.frames && this.selection) this._reselect([], this._outsideSelection(op.frames.map((e) => e.id)));
         collectFrames(this);      // the containers the drop minted or emptied (F94)
     }
     /** The hold released and the renderer told, nothing written: `_endMove`'s core, alone for a document event (a reset) where a render would re-enter. */
@@ -1137,8 +1117,22 @@ export default class KobinEngine {
     // A drag in progress is cancelled first: its start snapshots describe the document the undo
     // is about to change (B §1.2, defect 1).
     // An undo or a redo is one Stage commit (A2 §2.5): per event, a 5,000-object one cost 0.5–0.9 s in node.
-    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.undo()))) return false; this._scheduleBake(); if (this.renderer.noteUserEdit) this.renderer.noteUserEdit(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
-    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.redo()))) return false; this._scheduleBake(); if (this.renderer.noteUserEdit) this.renderer.noteUserEdit(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    undo() { return this._history(this.doc._undo, () => this.doc.undo()); }
+    redo() { return this._history(this.doc._redo, () => this.doc.redo()); }
+    /** An undo or a redo: one commit, the selection repaired from the op it applied (A1 C2), a user's patch budget, one render, the GC (a plate drop's mapping can mint a frame). */
+    _history(stack, step) {
+        if (this.readOnly) return false;
+        this._cancelBarrier();
+        if (this._dragSel) this.cancelSelectGesture(false);
+        const under = this._opUnder(stack[stack.length - 1]);
+        if (!this.stage.batch(step)) return false;
+        this._repairSelection(under);
+        this._scheduleBake();
+        if (this.renderer.noteUserEdit) this.renderer.noteUserEdit();
+        this._render();
+        collectFrames(this);
+        return true;
+    }
     /** Frame GC over every frame: the saver calls it once a restored store is in (F94). */
     sweepFrames() { return this.readOnly ? 0 : sweepFrames(this); }
     clear() {

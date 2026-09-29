@@ -2319,3 +2319,15 @@ typecheck 0.
 **Decisions made:** none new. F134/F135 filed as the coordinator said.
 **Questions asked:** none.
 WHERE I AM: the quick suite's result, then the end entry and the report.
+
+## 2026-09-29 21:27 UTC — B-PYRAMID-3 (builder) — items 1–5 — end
+**Working on:** done. Items 1–3 as checkpointed; item 4: `RasterRenderer` extends nothing (FC1's list of four), the
+live stroke's hold/release the layer's, a held path carried across a crossing, every prefetch read warm, `listFor`/
+`_buildList`/`TileStore.content`/`contentOffCamera` and the inheritance seams deleted; item 5: the docs.
+**Measured:** the quick suite on the live tree (item 4 + B-DRAG's D1 in flight): 190 of 192 files, 2,152 of 2,166
+tests (12 skipped); red: `eraseWorkerClient` reservation (green alone, load) and `raster.pyramid`'s plane landing
+("land" expected, "idle") — green on c7fed1a + item 4 alone (37/37), so B-DRAG's drop, not item 4. On the trial copy
+before B-DRAG: 191 files, 2,140/2,140. Lint 0 errors, typecheck 0, bundles unchanged. Nothing in Kobin's Chrome.
+**Decisions made:** as logged (FC1's z-3 slot; the document answers gone/pending; `_dropTile` forgets a warm key).
+**Questions asked:** in the report (F134/F135 went to B-PYRAMID-4's brief).
+WHERE I AM: ended — report handed back; `RasterRenderer.js` and the raster modules are free for B-DRAG and B-PYRAMID-4.
