@@ -104,6 +104,14 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         c.q.push([{ ...job("view", 1, 4) }]);
         c.q.pump();
         expect(c.sent.flatMap((s) => s.cells.map((x) => x.key)).sort()).toEqual([0, 1, 2, 3].map((i) => levelCell("F", 3, 1, i, 0).key).sort());
+        const d = rig(1);                                                    // a descend: twenty octaves in by arrival
+        d.q.jobMs = 100;
+        d.q.setMotion({ moving: true, view, vel: { px: [0, 0], zoom: 0.2 } });
+        d.q.push([{ ...job("view", 1, 2) }]);
+        d.q.pump();
+        expect(d.sent[0].level).toBe(23);
+        expect(d.sent[0].cells.length).toBeGreaterThan(0);
+        expect(d.sent[0].cells.length).toBeLessThanOrEqual(6);             // one screenful at the new level, not 2^40 children
     });
 
     test("cancellation by purpose generation and dedupe against the store, at dispatch", () => {

@@ -190,7 +190,9 @@ export default class JobQueue {
     /**
      * The velocity rule (A3 §4.4): the camera predicted at the strip's arrival — in-flight strips per worker ahead of
      * it, plus its own mean time — from the last frames' pan and zoom velocity about the attention point. Cells off the
-     * predicted screen are skipped; a level the camera will have left is re-aimed at the one it is heading to.
+     * predicted screen are skipped; a level the camera will have left is re-aimed at the one it is heading to — its
+     * cells under the strip's and on the predicted screen, so a jump of many levels (a descend doubles a step) stays
+     * one screenful.
      */
     _aim(st) {
         const m = this.motion, v = m.view;
@@ -206,14 +208,18 @@ export default class JobQueue {
         const l1 = levelFor(k1, v.S, v.level, v.sigmaMin);
         let cells = st.cells;
         if (l1 !== st.level) {
-            const d = (l1 - st.level) * v.S, seen = new Set(), next = [];
+            const Z1 = zOf(l1, v.S), s0 = PLATE_PX / st.Z, u = Z1 / PLATE_PX, seen = new Set(), next = [];
             for (const c of cells) {
-                const kids = d < 0 ? [[Math.floor(c.i / 2 ** -d), Math.floor(c.j / 2 ** -d)]] : childIdx(c.i, c.j, d);
-                for (const [i, j] of kids) {
-                    const key = i + "," + j;
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    next.push(levelCell(st.frame, l1, v.S, i, j));
+                const x0 = Math.max(c.i * s0, win.left), y0 = Math.max(c.j * s0, win.top);
+                const x1 = Math.min((c.i + 1) * s0, win.right), y1 = Math.min((c.j + 1) * s0, win.bottom);
+                if (!(x1 > x0 && y1 > y0)) continue;
+                for (let j = Math.floor(y0 * u); j < Math.ceil(y1 * u); j++) {
+                    for (let i = Math.floor(x0 * u); i < Math.ceil(x1 * u); i++) {
+                        const key = i + "," + j;
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        next.push(levelCell(st.frame, l1, v.S, i, j));
+                    }
                 }
             }
             cells = next;
@@ -238,11 +244,4 @@ export default class JobQueue {
         for (const st of this.inFlight.values()) flying[st.prio]++;
         return { queued, inFlight: flying, jobMs: this.jobMs, packMsFrame: this._packMs, ...this.s, drops: { ...this.s.drops } };
     }
-}
-
-/** The 2^d × 2^d children of cell (i, j), d octaves finer. */
-function childIdx(i, j, d) {
-    const n = 2 ** d, out = [];
-    for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) out.push([i * n + a, j * n + b]);
-    return out;
 }

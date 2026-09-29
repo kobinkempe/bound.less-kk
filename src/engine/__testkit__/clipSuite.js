@@ -24,13 +24,16 @@ export const PLATES = 6, ITEMS = 50, WALK = 12, CLIPS = 6, MERGE_ITEMS = 30;
  * together (2026-09-28). Against the core before (4e09269's, which the clip box left byte-identical) 10 of the 24
  * moved, 21 bytes by one level each: where two collinear edges of abutting rings cross a sub-scanline at one x,
  * a run used to end and restart there, and the −w, +w pair left a float32 residue in the running sum.
+ * Regenerated again for the byte masks (B-ERASE, 2026-09-28), the lists' marks landed with `targets`: 8 of 24
+ * moved, 1,412 bytes, ≤ 2 levels on opaque paper and ≤ 4 premultiplied on transparent paper (where a pixel of
+ * alpha under 5/255 stores its colour coarsely), all under a mark's ink.
  * Regenerate only for a deliberate change to the core's pixels.
  */
 export const GOLDEN = [
-    ["bd70f6cc7bd4d6d7", "158e6f86d66b26e2", "b6b196abc3df85c1", "79423cec19338a93", "35cd5d0a336d69e4", "eaf2f19c91fc3a8c"],
-    ["c76d3a947ed224de", "c663d67e7511637c", "64c35c7e9dbfaa93", "ea69730bc6b50e1d", "97d72238d01fe2c2", "c17b631a548ab73e"],
-    ["c53861649f4e4cc7", "3b6a3e1fc9bf0848", "e4c079e8bf6e1680", "2278090cadc92273", "1156a944aedfdc61", "85a234bbf82d73b6"],
-    ["05a667da1b424fbd", "e55a2b53a44453d6", "b162827fa5054ff9", "3822ba5cf1d36fba", "7c2c6ac9ead5c61a", "8969207eb1a4db87"],
+    ["bd70f6cc7bd4d6d7", "158e6f86d66b26e2", "b6b196abc3df85c1", "79423cec19338a93", "35cd5d0a336d69e4", "da128475c005f54d"],
+    ["c76d3a947ed224de", "c663d67e7511637c", "64c35c7e9dbfaa93", "d76d6b112c81db44", "10ca06e87d17fb5a", "c17b631a548ab73e"],
+    ["c53861649f4e4cc7", "3b6a3e1fc9bf0848", "e31314f9616e4b34", "4ce05213ff4e0d69", "808451234b0711f4", "85a234bbf82d73b6"],
+    ["05a667da1b424fbd", "e55a2b53a44453d6", "ef2670f596b33113", "b0d346e086563773", "7c2c6ac9ead5c61a", "8969207eb1a4db87"],
 ];
 
 /** Odd trials draw plate (1, −1), the list moved onto it by the packer's `offset`, so the plate origin is not 0. */

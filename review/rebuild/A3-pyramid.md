@@ -618,6 +618,12 @@ become the rectangle re-render test (TEST-MAP).
 job packed before it comes back without the stroke and would otherwise release the path over a plate that lacks it.
 The re-target of item 5 runs on every change of the view's drawn set.
 
+*Wired (B-PYRAMID-2, 2026-09-28/29):* the renderer opens the group at the Stage commit where the shape lands
+(`stage.onCommit`), not in the next frame: a frame's patch step would otherwise publish the stroke's plates while the
+path was still up, one compose showing both (a jsdom call-order test, red without it). While a group waits for the
+workers, a stale draw under its rectangle older than its stroke is class "held" — the path shows the change — and the
+integrals do not charge it as older. Headless round trip (3 strokes, `?pyramid=1`): 3 holds, 3 handoffs, 0 timeouts.
+
 ### 3.7 What a dirty rectangle must include (a requirement on A2)
 
 The patch rule is exact only if a change's rectangle bounds every pixel it changes. Three cases the item's
@@ -727,6 +733,10 @@ In priority order within class 4 (PLAN §1.2's order, costed):
 All three stop while a report is sending (`E._reportBusy`, `hooks/reportSend.js:101-102`), as the ladder does
 (`KobinEngine.js:1179-1183`).
 
+*Wired (B-PYRAMID-2):* the plan runs at idle (the camera still, nothing of priority < 4 queued or in flight) once per
+view revision **and Stage generation**: a change stales the cached coarser levels, and without the re-plan a zoom out of
+rest fell to the stale ℓv under the rest set, drawn older (the P2 fuzz's trace).
+
 ### 4.4 Admission, ordering, the velocity rule, cancellation
 
 - **Admission while moving**: packing is on the main thread at dispatch (`rasterWorkerClient.js:473-487`),
@@ -753,6 +763,10 @@ All three stop while a report is sending (`E._reportBusy`, `hooks/reportSend.js:
 
 *Built (2026-09-28):* the cut reservation and the prefetch and thumbnail cap are `max(1, workers − 1)`, so a
 one-worker pool is never starved by a bake; the velocity rule runs only while the camera moves.
+
+*Corrected (B-PYRAMID-2 P2):* a re-aim takes the new level's cells under the strip's and on the predicted screen; it
+built all 2^d × 2^d children of every cell first, and a descend (2× a step, twenty octaves by arrival) threw an invalid
+array length (the P2 fuzz).
 
 ### 4.5 The cache budget
 

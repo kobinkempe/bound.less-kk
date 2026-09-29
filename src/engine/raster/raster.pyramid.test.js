@@ -267,23 +267,52 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         delete R.pyramid.cfg.patchInlineMs;
     });
 
-    test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
+    test("undo and redo reach the pyramid as Stage dirt: the frame's patch step re-renders the rectangle inline, equal to a whole render", async () => {
         const g = gate();
-        let olderCells = 0, wrong = [], plans = 0;
-        for (const seed of [3, 11]) {
-            const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
-            const compose = R.pyramid.compose.bind(R.pyramid);
-            R.pyramid.compose = () => {
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        drawStroke(E, [[140, 140], [520, 420]], 18);
+        drawStroke(E, [[160, 420], [560, 160]], 18);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        R.pyramid.cfg.patchInlineMs = 1e9;                              // inline whatever the calibrated estimate says
+        const box = { left: 100, top: 100, right: 600, bottom: 460 }, c0 = E.cam;
+        const frameBox = { left: (box.left - c0.inPanX) / c0.inScale, top: (box.top - c0.inPanY) / c0.inScale, right: (box.right - c0.inPanX) / c0.inScale, bottom: (box.bottom - c0.inPanY) / c0.inScale };
+        for (const op of ["undo", "redo"]) {
+            const n0 = R.pyramid.s.patchInline;
+            E[op]();                                                    // renders: the frame's patch step runs inline
+            expect(R.pyramid.s.patchInline).toBeGreaterThan(n0);
+            const q = R.queue.report();                                 // no patch or view job to the workers (the prefetch may refresh)
+            expect([q.queued[0], q.queued[1], q.inFlight[0], q.inFlight[1]]).toEqual([0, 0, 0, 0]);
+            const recs = cellsUnder(R.pyramid.lastPlan, frameBox).flatMap((c) => c.draws.map((d) => d.rec));
+            expect(recs.length).toBeGreaterThan(0);
+            for (const rec of recs) {
+                expect([op, rec.key, E.plates.exact(rec)]).toEqual([op, rec.key, true]);
+                expect([op, rec.key, diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([op, rec.key, 0]);
+            }
+            expect(await drain(E, g)).toBe(0);
+        }
+        delete R.pyramid.cfg.patchInlineMs;
+    });
+
+    test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
+        const g = gate(), t = { plans: 0, older: 0, wrong: [] };
+        const watch = (E, seed) => {
+            const compose = E.renderer.pyramid.compose.bind(E.renderer.pyramid);
+            E.renderer.pyramid.compose = () => {
                 const P = compose();
-                plans++;
+                t.plans++;
                 for (const c of P.cells) {
                     if (!c.draws.some((d) => d.cls === "older")) continue;
-                    olderCells++;
+                    t.older++;
                     const src = freshSourceFor(E, P, c);
-                    if (src && wrong.length < 5) wrong.push(`seed ${seed}: cell ${c.i},${c.j} drawn older while ${src} is exact`);
+                    if (src && t.wrong.length < 5) t.wrong.push(`seed ${seed}: cell ${c.i},${c.j} drawn older while ${src} is exact`);
                 }
                 return P;
             };
+        };
+        for (const seed of [3, 11]) {
+            const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true, pyramid: true });
+            watch(E, seed);
             const pt = () => [60 + rnd() * 680, 60 + rnd() * 480];
             for (let step = 0; step < 14; step++) {
                 const op = rnd();
@@ -300,9 +329,9 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             }
             E.destroy();
         }
-        expect(plans).toBeGreaterThan(40);
-        expect(wrong).toEqual([]);
-        expect(olderCells).toBeLessThan(plans);                       // the fuzz reaches the last resort, rarely
+        expect(t.plans).toBeGreaterThan(40);
+        expect(t.wrong).toEqual([]);
+        expect(t.older).toBeLessThan(t.plans);                         // the fuzz reaches the last resort, rarely
     }, 60000);
 });
 

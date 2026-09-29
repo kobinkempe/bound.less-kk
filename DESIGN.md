@@ -338,9 +338,10 @@ over it, and a piece it has cut all show; a piece of a target another mark still
 by that one until it cuts it (two marks over one object, the lower cutting first: at no moment does
 the ink under the upper show). The mark's z never moves. The raster renderer draws a pending mark as
 nothing: the pack sets an item's mask bits from the rule where the boxes meet, in up to 16 slots that
-marks share exactly (no item under both boxes with different bits; past 16 the slot it over-hides
-least, counted as `maskOverflow`, never white ink), and the core multiplies the item's coverage by
-(1 − the slot's coverage), a byte plane. The pick skips a masked target where its mark's ink covers
+marks share exactly (the core masks a family whole, by all its items' bits, so no family whose box
+meets both marks' may hold one and not the other; past 16 the slot it over-hides least, counted as
+`maskOverflow`, never white ink), and the core multiplies the family's coverage by (1 − the slot's
+coverage), a byte plane. The pick skips a masked target where its mark's ink covers
 the point, so a press there takes what shows. The SVG renderer (`?svg`) still paints a pending mark
 as white ink at its z — over pieces already baked too, now the z no longer steps.
 

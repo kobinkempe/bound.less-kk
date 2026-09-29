@@ -1196,3 +1196,23 @@ the idle refresh, and the plan's last resort is then the stale plate (PLAN §1.2
 **Questions asked:** none. The orchestrator's answers of 20:30 received (`_renderPending` at P6; RV5 and the goldens B-ERASE's).
 WHERE I AM: rerun `raster.pyramid` with the fuzz's 60 s timeout; then P2's break-checks (the commit hook, `_markHeld`, the
 prefetch key) and the P2 checkpoint entry.
+
+## 2026-09-29 00:01 UTC — B-PYRAMID-2 (builder) — P2 checkpoint: the pen-up rule and the partial path
+**Working on:** P2 done but `_renderPending` (P6, as answered). `RasterRenderer`: the pen-up group opens at the Stage
+commit where the shape lands; the prefetch key carries the generation. `PicturePyramid`: `_markHeld` ("held" draws under a
+waiting pen-up group). `jobQueue._aim`: a re-aim takes the new level's cells under the strip and on the predicted screen
+(`childIdx` deleted). Tests: 4 in `raster.pyramid` (call order, the held class, undo/redo inline equal to a whole
+render, the older fuzz) and the prefetch refresh; the descend re-aim in `jobQueue.test.js`. A3 §3.6, §4.3, §4.4 notes;
+TEST-MAP rows.
+**Measured:** the fuzz (2 seeds × 14 ops, gated pool): 508 plans, 10 older cells, each with no exact source within N
+levels (brute force), 0 wrong. The call order: never both, never neither, the last compose `{path: false, plates: true}`;
+the plates under the rectangle byte-equal to a whole render (undo and redo too). Suites: the six pyramid suites +
+raster.pyramid + levers 74/74, load 1.9; raster.pyramid 11/11 twice. Break-checks on the copy: the commit hook 3 red,
+`_markHeld` 1, the prefetch key 1, no re-aim 1, no patch step 1; the re-aim's clip widened ×3 is 0 (masked by the
+queue's screen filter) — its evidence is the fuzz itself, red (RangeError) before the fix. Typecheck 0; eslint 0.
+**Decisions made:** the fuzz asserts PLAN §1.2's step (f) (older only with nothing fresh cached), since a gesture can
+outrun the idle refresh; `olderMs` = 0 stays the harness's target. The undo test pins `patchInlineMs` (the calibrated
+estimate made inline-or-coarse vary run to run: one run went coarse-first, `sharp:7+blur:8` under the stroke).
+**Questions asked:** none.
+WHERE I AM: P3 — move `MOVE_PLANE_PLATES`/`_PHONE` into `level.js` (MovePlane re-exporting), then read `MovePlane.js`
+and the renderer's plane section for the port.

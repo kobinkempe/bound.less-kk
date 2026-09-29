@@ -68,7 +68,23 @@ export function randomList(rnd, n, { cover = false, maxWalk = 30, firstId = 1 } 
         }
         list.push(o);
     }
-    return sortList(list);
+    return landMarks(sortList(list));
+}
+
+/**
+ * Each mark landed as the erase rule reads it (A2 §4.1): its `targets` every native below it, which
+ * name it in `targetOf` — what a mark masked before the rule was data; an unlanded one masks nothing.
+ */
+function landMarks(list) {
+    const zOf = (o) => (o.z != null ? o.z : o.id);
+    for (const M of list) {
+        if (!M.erase) continue;
+        M.targets = [];
+        for (const o of list) if (!o.erase && zOf(o) < zOf(M)) { M.targets.push(o.id); (o.targetOf || (o.targetOf = [])).push(M.id); }
+        M.targets.sort((a, b) => a - b);
+    }
+    for (const o of list) if (o.targetOf) o.targetOf.sort((a, b) => a - b);
+    return list;
 }
 
 /** Paint order: z (the id when unset), then id. */

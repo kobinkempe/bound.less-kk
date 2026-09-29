@@ -6,7 +6,8 @@
  * (`job.clips`) and pasted into the old pixels with the typed-array copy jsdom's store uses, equals the plate
  * rendered whole for the new list; and 60 seeds of union bands across a clip's edges. The quick part is
  * `rasterCore.clip.test.js`; what both share is `__testkit__/clipSuite.js`. Its goldens were regenerated on
- * 2026-09-28, when the union pass began applying tied crossings together: 10 of the 24 moved by one level (why: there).
+ * 2026-09-28, when the union pass began applying tied crossings together (10 of the 24 moved by one level), and
+ * again for the byte masks (8 moved, under marks' ink); why: there.
  */
 import { clearPackCaches, resetPackStats } from "./rasterPack";
 import * as core from "./rasterCore";

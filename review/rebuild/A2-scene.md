@@ -1133,10 +1133,12 @@ barrier (A2-Q7).
   marks it emptied. `deselect` also cancels a parked gesture.
 - **A landed mark without `targets`** — an old file, a test's direct add, an undone old mark redone —
   registers at first sight (the tick, `flushBakes`) by the §4.9 rule: one path.
-- **Slots**: two marks share when no item under both boxes has different bits; an item carrying both bits
-  reads 1 − max(a, b) for (1 − a)(1 − b), which differ only where the two marks' edges overlap. Past 16,
-  the slot the mark over-hides fewest items in (`maskOverflow`); the serial order already bakes the
-  oldest mark first, so no separate raise.
+- **Slots**: two marks share only when no family whose box meets both holds one and not the other among
+  its items' marks — the core masks a family whole, by the OR of its items' bits (judged per item first,
+  three of the clip suite's 24 plates hid a family's ink above one mark because a piece of it was under
+  another). A family carrying both bits reads 1 − max(a, b) for (1 − a)(1 − b), which differ only where
+  the two marks' edges overlap. Past 16, the slot the mark over-hides fewest families in
+  (`maskOverflow`); the serial order already bakes the oldest mark first, so no separate raise.
 - **Redo** re-applies steps with ordinary footprints (a step does not record its dust); only a live bake
   step carries `by`.
 - **The SVG renderer** still paints a pending mark as white ink at its z, now over baked pieces and
