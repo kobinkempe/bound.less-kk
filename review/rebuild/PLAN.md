@@ -725,3 +725,32 @@ pixel-identical on ink against the pre-C1 tree. Its review is launched with this
 5. **Test names that still say settle** (`hooks/store.subtree.test.js`'s `settleAll`, `sceneIndex.test.js`'s "a settle
    is a no-op"): the reviewer renames them to what they now assert.
 6. F94, F100, F107, F108, F126 stay open for C2–C4 as noted; the legacy module's deletion date is in its header.
+
+### 5.13 To B-PYRAMID-2b (its report of 2026-09-29, P6) — the B-PYRAMID review follows
+
+P6 landed as ac9a7e1: the old picture path deleted (the quick suite 2,118 pass, 0 fail on the pyramid-only tree), the
+cuts through the one queue with the watchdog refusal, six of the seven open pyramid items built, the undo's delay
+attributed (the patch's estimate 34–41 ms against a 6 ms budget with the chords at the 20,001 cap, no coarser level
+fitting, and the main thread packing prefetch strips at 171–480 ms each while still), the docs corrected. Three
+things are open and go to the review of the whole B-PYRAMID build (`briefs/R-PYRAMID.md`):
+
+1. **`olderOtherMs` is not 0** (scenario 7: 853–869 ms; the fuzz: 88–91 plans drawing a stale coarser stand-in with no
+   patch pending, 5 plans with no rest set). The rest set becomes a stand-in source after a zoom (§5.11's answer,
+   restated in the review brief) — the reviewer builds it, since it is the never-older invariant's fix and local to
+   the plan's lookup and the store's discard rule, asserts `olderOtherMs` = 0 in the fuzz, and finds the cause of the
+   five plans that remain without a rest set.
+2. **Packs on the main thread at rest** (171–480 ms per strip): a per-task pack budget at rest as while moving (the
+   4 ms per frame becomes a per-task budget with the rest of the strip in the next task) — the reviewer, bounded;
+   packing off the main thread is a wave 3 item (§2), not now.
+3. **The zoom-out's paper** (0–4.6 ms on P5's tree, 37–150 on P6's, same day): bisected between 22f4c8e and 15b3738
+   on a quiet machine, three runs each, by the reviewer; the cause fixed or named.
+4. **The undo never inline on dense cells**: the estimate's chords are capped at 20,001 so it cannot discriminate; the
+   reviewer re-derives the estimate's inputs clipped to the patch's cells and raises the inline budget for a
+   user-initiated patch (undo, redo, pen-up) to one frame's worth, 16 ms — a single action, not a per-frame cost — and
+   measures the undo's key-to-exact time against P6's 215–554 ms.
+5. **The small open items** to the reviewer: `rasterPack`'s dead `q` memo key; a released orphan worker slot that
+   pumps no queue; an aborted snapshot's strip left queued until dispatch; the prefetch's tile reads inside a camera
+   step unbucketed (a 319 ms camera row); the one stale comment naming `_maybePrebake` (`TileStore.js:222`, with the
+   ladder comments at lines 82, 217–225, 335 and `reroute.memo.test.js:46` — the C1 reviewer's files, sent to it).
+6. **Wave 3**: `raster-worker.js` at 431 KB parsed by each of four workers (the erase geometry moved in with the cut
+   kind); packing off the main thread; `tools/docmaps/newdesc_raster1–4` for the pyramid's modules.
