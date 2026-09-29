@@ -748,7 +748,8 @@ All three stop while a report is sending (`E._reportBusy`, `hooks/reportSend.js:
 view revision **and Stage generation**: a change stales the cached coarser levels, and without the re-plan a zoom out of
 rest fell to the stale ℓv under the rest set, drawn older (the P2 fuzz's trace). A new plan bumps the prefetch's generation, so the
 queued strips of the one it supersedes drop at dispatch (P5: a bake's commits re-planned each step and the queue held
-200 prefetch strips after 70 s).
+200 prefetch strips after 70 s). The plan also waits for the scene's quiet: 100 ms (the rest's) after the
+last commit, so a bake does not re-render the coarser levels at every cut step.
 
 ### 4.4 Admission, ordering, the velocity rule, cancellation
 
@@ -937,11 +938,15 @@ end once. That is `_holdMove` moved into the scene (A2).
 view's grid Z (the rest Z at rest, the level's Z in level mode) and `Zp / 2^k` coarser, the quick level `Zp / 4`; a
 level is whole only when every plate is exact; D1 grows the SEL runs by one view each way. The renderer posts its
 layers as typed jobs at priority 2 under a `plane` purpose generation (bumped when layers go; a dropped layer's late
-plate is discarded), pins its keys, hands the pyramid `{showing, state, partial, frameId, Zp, off, layers}`, and lands
+plate is refused by the store, whose `dropWhere` marked its job), pins its keys, hands the pyramid `{showing, state, partial, frameId, Zp, off, layers}`, and lands
 it per cell by `cellFresh` (own source exact). H4 is the pyramid's partial plan: the SEL layers move only when BELOW
 (and OVER) plates cover their start footprint, else nothing of the plane is drawn. The stopgap renders the SEL layers
 and BELOW/OVER over the footprint on this thread (`renderNow`). A drop whose re-render fits the inline budget lands in
 its own task (the drop's frame patches the cells, and the plane ends there). The old path's plane is unchanged.
+
+*Changed (B-PYRAMID-2 P5, both paths):* the pre-aim waits for the scene's quiet as for the view's (`PLANE_QUIET_MS` after
+the last commit): a bake's cut steps re-aimed a waiting plane each step (PLAN §5.9 item 2). A waiting plane asks only
+for the cells the camera's table covers; its idle re-aim asks for the rest once covered.
 
 ---
 

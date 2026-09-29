@@ -202,14 +202,28 @@ export function hasDigits(sh) {
 }
 
 /**
- * The translation the picture at depth `k0` carries, as paint applies it —
- * `shiftAt(...).rem`, null when zero. The whole-frame part is the object's
- * address at that level (`LevelMap.objShift`), not a translation of anything.
+ * The picture's translation at depth `k0`: `{ carry, rem }` — `shiftAt`'s whole home frames beside
+ * the sub-frame remainder paint applies — or null when both are zero. A composed table (A1 C1) can
+ * carry at the home depth: 0.75 W is one frame and −0.25 W, never −0.25 W alone. The frames are an
+ * address (`LevelMap.objShift`), not a translation of anything.
  */
 export function residual(below, k0) {
     if (!hasOffsets(below)) return null;
-    const r = shiftAt(below, k0).rem;
-    return r[0] !== 0 || r[1] !== 0 ? r : null;
+    const { carry: c, rem: r } = shiftAt(below, k0);
+    return c[0] || c[1] || r[0] || r[1] ? { carry: [c[0], c[1]], rem: [r[0], r[1]] } : null;
+}
+
+/**
+ * A native's PICTURE table (A1 C1): its own table with its home frame's shift added at k = 0, without
+ * a carry, so the sum may reach a frame and a half. `below` itself when the frame has no shift.
+ * Exact: both terms are multiples of 2^-10 under 2^18.
+ */
+export function composeShift(below, shift) {
+    if (!shift || (shift[0] === 0 && shift[1] === 0)) return below;
+    const out = cloneBelow(below) || [];
+    const e = out[0] || (out[0] = [0, 0]);
+    e[0] += shift[0]; e[1] += shift[1];
+    return tidy(out);
 }
 
 /**

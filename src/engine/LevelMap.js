@@ -943,15 +943,21 @@ export default class LevelMap {
      *
      * Neighbouring frames' coordinates differ by whole frames, so a piece of
      * F0's tile is a piece of F's picture with the same numbers. Above the home
-     * (k0 < 0) everything is sub-cell: F0 is F and only `rem` applies, which is
-     * the residual F41 always drew there. `sh` is the raw decomposition.
+     * (k0 < 0) everything is sub-cell: F0 is F and only `rem` applies. At the
+     * home depth a composed table (A1 C1) can carry whole frames: F0 is F's
+     * neighbour the carry points back to — the home itself when F is where the
+     * picture went. `sh` is the raw decomposition.
      */
     objShift(below, homeId, F) {
         const hd = this.depthOf(homeId), D = this.depthOf(F);
         if (hd == null || D == null) return null;
         const k0 = D - hd;
         const sh = shiftAt(below, k0);
-        if (k0 <= 0 || !hasDigits(sh)) return { F0: F, rem: sh.rem, sh };
+        if (k0 < 0 || !hasDigits(sh)) return { F0: F, rem: sh.rem, sh };
+        if (k0 === 0) {
+            const n = this.neighbour(F, -sh.carry[0], -sh.carry[1]);
+            return n ? { F0: n.id, rem: sh.rem, sh } : null;
+        }
         const A = this.pathFrameAt(F, hd);
         const chain = A != null ? this.chainFrom(A, F) : null;
         if (!chain || chain.length !== k0) return null;
@@ -973,7 +979,8 @@ export default class LevelMap {
         const D = this.depthOf(F0);
         if (D == null) return null;
         const k0 = D - hd;
-        if (k0 <= 0 || !hasDigits(sh)) return F0;
+        if (k0 < 0 || !hasDigits(sh)) return F0;
+        if (k0 === 0) { const n = this.neighbour(F0, sh.carry[0], sh.carry[1]); return n ? n.id : null; }
         const A0 = this.pathFrameAt(F0, hd);
         const chain = A0 != null ? this.chainFrom(A0, F0) : null;
         if (!chain || chain.length !== k0) return null;

@@ -636,6 +636,25 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         expect(pl.checkReady(E.plates)).toBe(true);
     });
 
+    test("the plane's pre-aim waits for the scene's quiet: a bake's commits do not re-aim it each step (PLAN §5.9 item 2)", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        R._pyrPrefetch = () => {};
+        const { a } = await planeScene(E, g);
+        let aims = 0;
+        const aim = R._aimPlane.bind(R);
+        R._aimPlane = (v) => { aims++; return aim(v); };
+        for (let k = 0; k < 12; k++) {                                   // a commit every 40 ms, as a bake's cut steps
+            E.stage.touch(a.id);
+            await settle(E, 1);
+            await new Promise((r) => setTimeout(r, 40));
+        }
+        expect(aims).toBe(0);                                           // red before: a re-aim a quiet view
+        for (let t = 0; t < 3000 && !aims; t += 10) { await settle(E, 1); await new Promise((r) => setTimeout(r, 10)); }
+        expect(aims).toBeGreaterThan(0);                                // once the scene is quiet
+        expect(await drain(E, g)).toBe(0);
+    });
+
     test("D1: a selection past the screen's edge is in its SEL layer to one view beyond; BELOW stays on the view", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
