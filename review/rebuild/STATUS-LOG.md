@@ -1271,3 +1271,23 @@ Not mine: B-PYRAMID-2's raster/renderer files; `KobinEngine.js`/`Stage.js` re-re
 **Measured:** nothing yet (load 0.54, 4 cores).
 **Decisions made:** none. **Questions asked:** none.
 WHERE I AM: baseline run of the erase suites, then reading `eraseRule.js`, `cede.js`, `erasePipeline.js` by sections.
+
+## 2026-09-29 00:27 UTC — B-PYRAMID-2 (builder) — P3 checkpoint: the MovePlane port
+**Working on:** P3 done. `level.js` holds `MOVE_PLANE_PLATES`/`_PHONE` (MovePlane re-exports; PyramidStore imports from
+level.js, no cycle). `MovePlane({pyramid})`: `planeKey` at Zp = the view's grid Z, `/ 2^k` coarser, quick `Zp / 4`;
+whole only when exact; D1 (SEL runs to one view past the screen). `RasterRenderer`: the plane on (`supportsDragPlane`
+true), `_planeStep` in the pyramid's step, plane jobs at priority 2 under a `plane` purpose generation, a dropped
+layer's late plate discarded, the stale-plate re-ask by generation, `_pyrPlaneOf`, `_pyrStopgap` (SEL + BELOW/OVER over
+the footprint via `PicturePyramid.renderNow`), the landing on arrivals; `_planeIdle` skips the old hold/settle.
+`PicturePyramid`: H4 in the partial plan, `cellFresh` (the landing's test, shared with `_landClip`), `renderNow`.
+Tests: 5 in `raster.pyramid` (15 in all), the plan suite's partial case rewritten to H4. A3 §6 note; TEST-MAP row.
+**Measured:** raster + hooks directories 779/779 (1 min 6 s, load 3.7); typecheck 0; eslint 0. Break-checks on the copy,
+14 plane rules, each red (1–2): the keys, Zp, D1, exact wholeness, H4, `cellFresh`, the asked map, the generation bump,
+the late-plate discard, the plane handed to the pyramid, the re-ask by generation. Found by those tests: the plane's
+asked set remembered a key for ever, so a plate staled under an unchanged layer was never asked again (fixed: a map of
+the G asked at). A drop whose re-render fits inline lands in its own task (the drop's frame patches the cells).
+**Decisions made:** the plane stays on the old path unchanged (every pyramid rule is under `MovePlane({pyramid})` or
+`this.pyramid`); the stopgap lands its plates in the store rather than a side table, so the plan draws them as any plate.
+**Questions asked:** none. Q8's measurement is P5's (scenario 4).
+WHERE I AM: P4 — `rasterWorkerClient`: `failPool` requeues the queue's strips (`requeue`), and `_aim`'s arrival estimate
+from the real dispatch; then the camera's budgeted read (§3.1) and `job.ids` off the wire (§3.3).

@@ -915,6 +915,16 @@ Wave 2 lands before B-DRAG (PLAN §2): until then the drag still writes per fram
 `release()` must keep today's semantics — held items' changes dirty nothing until the release dirties start ∪
 end once. That is `_holdMove` moved into the scene (A2).
 
+*Ported (B-PYRAMID-2 P3, under `?pyramid=1`):* `MovePlane({pyramid})` keys `planeKey(F, Zp, tag, i, j)` with Zp the
+view's grid Z (the rest Z at rest, the level's Z in level mode) and `Zp / 2^k` coarser, the quick level `Zp / 4`; a
+level is whole only when every plate is exact; D1 grows the SEL runs by one view each way. The renderer posts its
+layers as typed jobs at priority 2 under a `plane` purpose generation (bumped when layers go; a dropped layer's late
+plate is discarded), pins its keys, hands the pyramid `{showing, state, partial, frameId, Zp, off, layers}`, and lands
+it per cell by `cellFresh` (own source exact). H4 is the pyramid's partial plan: the SEL layers move only when BELOW
+(and OVER) plates cover their start footprint, else nothing of the plane is drawn. The stopgap renders the SEL layers
+and BELOW/OVER over the footprint on this thread (`renderNow`). A drop whose re-render fits the inline budget lands in
+its own task (the drop's frame patches the cells, and the plane ends there). The old path's plane is unchanged.
+
 ---
 
 ## 7. The SVG renderer's demotion

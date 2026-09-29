@@ -446,6 +446,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
         E.setPlateBudget({ views: 8, ceilingMiB: 512 });              // nothing evicted: a stored late plate would stay
         R._pyrPrefetch = () => {};                                     // the one worker holds only the plane's strips
+        R.pyramid.cfg.restInlineMs = 1e9;                              // the still frame shows the rest set at once: a stable view
         E.zoomAt(400, 300, -380);                                      // rest at Z 2^0.38: no quantum ladder lands on Zp / 4
         const a = E.doc.add(fillAt(E, -300, -200, "rgb(200,30,30)", 1000), "0");   // most of the screen and past it: 18 plates, a quick level
         const b = E.doc.add(fillAt(E, 300, 200, "rgb(30,30,200)"), "0");
@@ -459,6 +460,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         E._render();
         await quiet();
         const pl = R._plane;
+        expect([R._view.mode, pl.main.pZq]).toEqual(["rest", R._view.Z]);   // aimed at rest: Zp is the rest Z
         expect(pl.quick).not.toBeNull();
         expect(pl.quick.pZq).toBe(pl.main.pZq / 4);
         expect(pl.quick.keys.every((k) => k.includes("|P" + pl.main.pZq / 4 + "|"))).toBe(true);
