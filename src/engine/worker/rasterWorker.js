@@ -42,7 +42,7 @@ import { renderPlate, coreStats, TW, TH } from "../raster/rasterCore";
 const RGBA = new Uint8ClampedArray(TW * TH * 4);
 
 /** The job's own buffers, handed back for the main thread's pool (§3.6). */
-const RECYCLE = ["geom", "meta", "attr", "subs", "rgb", "ids"];
+const RECYCLE = ["geom", "meta", "attr", "subs", "rgb"];
 
 const CLOCK = typeof performance !== "undefined" ? performance : Date;
 

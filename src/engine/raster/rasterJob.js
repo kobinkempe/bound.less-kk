@@ -56,9 +56,10 @@ export const GUARD_NAMES = ["xsGrown", "unionSplits", "unionRefills", "fullClear
 /**
  * The fields of a job that cross as typed arrays, in the order they are wired. `clips` is optional:
  * 4 integers a plate, [x0, y0, x1, y1] plate-local and half-open, the part of each plate to render
- * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole.
+ * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole. The packer's
+ * `ids` stay on this thread: the core never reads them (PLAN §5.4).
  */
-const JOB_ARRAYS = ["plates", "paper", "meta", "attr", "rgb", "subs", "geom", "ids", "clips"];
+const JOB_ARRAYS = ["plates", "paper", "meta", "attr", "rgb", "subs", "geom", "clips"];
 
 const BYTES = (a) => (a ? a.byteLength : 0);
 

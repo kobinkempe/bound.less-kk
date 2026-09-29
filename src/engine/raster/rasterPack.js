@@ -989,7 +989,7 @@ export function packJob(list, opts) {
     const rgb = alloc(pool, Uint8Array, n * RGB_BYTES);
     const subs = alloc(pool, Uint32Array, nSubs);
     const geom = alloc(pool, Float64Array, nGeom);
-    const ids = alloc(pool, Int32Array, n);
+    const ids = new Int32Array(n);                   // this thread's (the suites'); not wired, so never the pool's
 
     let famIndex = -1, lastFam = null, gAt = 0, sAt = 0;
     for (let k = 0; k < n; k++) {
@@ -1125,7 +1125,7 @@ function emptyJob(opts, plates, paper, pool) {
         paper: Uint8Array.from(paper),
         nItems: 0,
         meta: alloc(pool, Uint32Array, 0), attr: alloc(pool, Float64Array, 0), rgb: alloc(pool, Uint8Array, 0),
-        subs: alloc(pool, Uint32Array, 0), geom: alloc(pool, Float64Array, 0), ids: alloc(pool, Int32Array, 0),
+        subs: alloc(pool, Uint32Array, 0), geom: alloc(pool, Float64Array, 0), ids: new Int32Array(0),
     };
 }
 

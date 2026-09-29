@@ -89,9 +89,11 @@ describe("the job wire (§3.3, §3.4)", () => {
         for (const k of ["meta", "attr", "rgb", "subs", "geom", "ids", "plates", "paper"]) before[k] = job[k].slice();
 
         const { msg, transfer } = wireJob(job);
-        expect(transfer.length).toBe(8);                       // one buffer per array, nothing shared
+        expect(transfer.length).toBe(7);                       // one buffer per array, nothing shared
+        expect(msg.ids).toBeUndefined();                       // the ids stay on this thread (PLAN §5.4)
+        expect(same(job.ids, before.ids)).toBe(true);
         const back = unwireJob(msg);
-        for (const k of Object.keys(before)) expect(same(back[k], before[k])).toBe(true);
+        for (const k of Object.keys(before)) if (k !== "ids") expect(same(back[k], before[k])).toBe(true);
         expect(back.G).toBe(41);
         expect(back.Zq).toBe(job.Zq);
         expect(back.nItems).toBe(job.nItems);

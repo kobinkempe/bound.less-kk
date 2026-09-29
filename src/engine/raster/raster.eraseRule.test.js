@@ -13,15 +13,14 @@
  *      draws as with no mark at all at every step, and is never cut;
  *  (d) two marks over one object, the lower cutting first (A2 §5.6); a refusal over ink (§5.7).
  */
-import { useEngines, mkEngine, drawStroke, eraseGesture } from "../__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, eraseGesture, topView } from "../__testkit__/harness";
 import { lcg } from "../__testkit__/rasterLists";
 import { packJob, clearPackCaches } from "./rasterPack";
 import * as core from "./rasterCore";
 import { PLATE_PX } from "./plate";
 import { FLAG_MASK } from "./rasterJob";
-import { loopsBBox, flattenShape } from "../geometry/arcShape";
+import { loopsBBox, flattenShape, normalizeLoops, shapeFromRings, subtractShape } from "../geometry/arcShape";
 import { underMask } from "../eraseRule";
-import { topView } from "../__testkit__/harness";
 
 useEngines();
 jest.setTimeout(120000);
@@ -391,6 +390,60 @@ describe("the scene reads the erase fields from the natives (was erase.markFrame
 });
 
 describe("row 3 (d) deterministic cases", () => {
+    test("a family half handled arises: a cede family under a second mark, its kid cut first while the parent waits", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        drawStroke(E, [[250, 300], [550, 300]], 24);
+        for (let i = 0; i < 3; i++) E.zoomFactorAt(400, 300, 16);                // one crossing down
+        eraseGesture(E, [[400, 260], [400, 340]], 20);
+        E.flushErases();                                                       // a descent: the parent with a hole, the kid in it, one family
+        const fam = (o) => E.doc.editKey(o), keyOf = new Map();
+        for (const L of E.doc.levels()) for (const o of E.doc.list(L)) keyOf.set(o.id, fam(o));
+        eraseGesture(E, [[330, 200], [470, 400]], 60);                          // over the kid and the parent around it
+        const M = E._eraseStrokes()[0].obj;
+        let half = 0;
+        for (let s = 0; s < 8 && E._eraseStrokes().length; s++) {
+            E._bakeNext();
+            const byKey = new Map();
+            for (const L of E.doc.levels()) for (const o of E.doc.list(L)) {
+                if (o.erase || !(o.targetOf || []).includes(M.id)) continue;
+                const k = fam(o), v = byKey.get(k) || { handled: 0, masked: 0 };
+                if (underMask(o, M)) v.masked++; else v.handled++;
+                byKey.set(k, v);
+            }
+            for (const v of byKey.values()) if (v.handled && v.masked) half++;
+        }
+        expect(half).toBeGreaterThan(0);                                       // a step with one family both handled and masked by M
+    });
+
+    test("a family half handled: its handled piece is masked along the cut edge's fringe by the mark's coverage, inside 1.5 px of the mark's edge", () => {
+        // Core bytes: piece P = A − band, handled by M; B still masked by M; P and B one family, which the core
+        // masks whole by the OR of its items' bits. The rule's picture: P in its own family, unmasked.
+        const cfg = mkEngine(800, 600).cfg;
+        const ring = (pts) => normalizeLoops(shapeFromRings([pts]));
+        const band = ring([[150, 253], [650, 309], [650, 327], [150, 271]]);
+        const P = { type: "shape", origin: "native", id: 3, z: 1, editId: 2, color: "rgb(20,20,20)", opacity: 1,
+            loops: subtractShape(ring([[200, 250], [400, 250], [400, 330], [200, 330]]), band).loops, targetOf: [10], handledBy: [10] };
+        const B = { type: "shape", origin: "native", id: 2, editId: 2, color: "rgb(20,20,20)", opacity: 1, loops: ring([[400, 250], [600, 250], [600, 330], [400, 330]]), targetOf: [10] };
+        const M = { type: "shape", origin: "native", id: 10, erase: true, color: "#ffffff", opacity: 1, loops: band, targets: [1, 2] };
+        const render = (list) => { clearPackCaches(); return pixels(packJob(list, { plates: Int32Array.from(PLATES.flat()), q: 0, Zq: 1, dpr: 1, cfg, paper: [255, 255, 255] })); };
+        const rings = flattenShape(band, 0.02);
+        const near = (x, y) => {
+            let best = Infinity;
+            for (const r of rings) for (let k = 0; k < r.length; k++) {
+                const [ax, ay] = r[k], [bx, by] = r[(k + 1) % r.length], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+                const t = L > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0;
+                best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y));
+            }
+            return best <= 1.5 + Math.SQRT1_2;
+        };
+        const d = diff(render([P, B, M]), render([{ ...P, editId: 3 }, B, M]), near);
+        if (process.env.ENVELOPE_LOG) console.log("FRINGE " + JSON.stringify(d));
+        expect(d.n).toBeGreaterThan(0);                                         // the fringe along P's cut edge, masked by B's bit
+        expect(d.outside).toBe(0);                                              // only within 1.5 px of the mark's edge
+        expect(d.max).toBeLessThanOrEqual(64);                                  // c − c² at most a quarter of the ink's contrast
+    });
+
     test("two marks over one object, the lower cutting first (A2 §5.6): its ink under the upper never shows", () => {
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
