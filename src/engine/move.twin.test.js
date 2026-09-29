@@ -2,8 +2,9 @@
  * OPEN-FLAGS F80's neighbour, Kobin 2026-09-22 on the Magnum Opus: a lasso moves a subtree
  * away, the camera crosses into the cells it vacated (which mints `#2` twins along the chain,
  * `LevelMap._childId`), then undo brings the movers back as the twins' shadows, merged into
- * the twins one level per read (`Document.at`). The picture at the camera must equal a fresh
- * bake at every step; his city frame's down tile stayed stale and the houses vanished.
+ * the twins at the undo's end, level after level (`Document.mergePending`, never at a read: A1
+ * C1). The picture at the camera must equal a fresh bake at every step; his city frame's down
+ * tile stayed stale and the houses vanished.
  */
 import KobinEngine from "./KobinEngine";
 
@@ -80,6 +81,7 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         expect(twin).toBe("0/3,2#2");
         const twinKid = crossInto(E, 5, 5);
         expect(twinKid).toBe("0/3,2#2/5,5");
+        const houses = E.doc.list(grand.id)[0].id;
         // Look at the twin with the vacated houses' cell in view: nothing there yet, and that
         // emptiness is now a cached down tile of the twin.
         lookAt(E, twin, 5, 5);
@@ -92,12 +94,13 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         E.store.bumpEpoch(); E._render();
         expect(seen).toEqual(drawnIds(E));                  // red when the stale tile survives the undo
         expect(drawnIds(E)).toEqual(docIds(E));             // the two kid natives and the houses, all drawn
-        expect(E.lm.frame(grand.id).parent).toBe(twin);     // the grandchild re-homed under the twin
+        expect(E.lm.frame(grand.id)).toBeUndefined();       // the grandchild merged into the twin's kid in its cell
+        expect(E.doc.getById(houses).level).toBe(twinKid);
         expect(E.doc.count(twin)).toBe(2);                  // the kid's natives merged into the twin
         expect(E.lm.frame(kid.id)).toBeUndefined();         // the mover's id is gone (F80's design item)
     });
 
-    test("a four-deep chain with the camera at the deepest twin: the merges cascade one level per read and the picture is still the fresh one", () => {
+    test("a four-deep chain with the camera at the deepest twin: the merges cascade at the undo's end and the picture is still the fresh one", () => {
         const E = mkE(raster);
         // Natives at every level of a four-deep chain under the kid; Kobin's Earth, continent,
         // city and houses.

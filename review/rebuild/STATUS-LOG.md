@@ -1530,3 +1530,26 @@ read); `_bakeTick` (timed) kept out of the fuzz, `flushErases` or a pending mark
 for C1, name it in PLAN §3 row 8 as the one exception (an empty frame, GC'd), the pure-read test asserting the rest.
 (2) The dense scenarios save no final-frame screenshot (brief §3 Counters wants one); a `--shot` flag would do it.
 WHERE I AM: M2 — `Document`: settle out of `at`/`add`/`remove*`/`insertAt`/`rehome*`, merges to the action's end.
+
+## 2026-09-29 05:27 UTC — B-PYRAMID-2 (builder) — P5 checkpoint: the harness both ways
+**Working on:** P5 done. `browser-check.js --dense --scenario all` (post-paint sampler, the load at each run's ends, the
+pyramid's own integrals, jobs by priority, `natives` a row) on ONE frozen tree (f55f7d8 from `git archive`, served on
+:3011: the shared tree's hot reloads swapped the page's engine mid-run on :3010 and emptied scenarios 3–7). Seed 1,
+1280×800@1, 3 workers. Three pairs back to back; **reference = pair 1** (the quietest: old 1.37→2.81, pyramid 2.81→2.42;
+pairs 2|3 began their pyramid half at 7.7|5.5, other agents' dev servers and suites). Old path: rAF sampler (post-paint
+in brackets); pyramid: its own `paperMs/blurMs/olderMs` (post-paint in brackets). Old → pyramid, reference (pairs 2|3):
+1 out: paper 304 (301) → 4.1 (3.6) [0|52 → 4.6|0], blur 49, older 0; >33 ms frames 61 → 9; long 24 (worst 7.7 s) → 4
+(0.7 s); compose 285 ms, 29 img → 35 ms, 16; jobs by prio [6,55,0,0,216,0]. 1 back: paper 0 → 0 [0|0 → 415|702], blur
+3,892; >33 72 → 19; long 15 (1.6 s) → 11 (1.2 s); 228 ms/29 → 36 ms/8. 2 slow: paper 0 → 0, blur 13, older 0; >33 64 → 24;
+long 27 (4.7 s) → 9 (1.2 s); 161 ms/29 → 57 ms/16. 3 pan: all 0; >33 10 → 6; long 4 → 4; 14 → 12 img. 4 lasso: 45 both.
+4 drag: 33 images both, the pyramid's through the surface (42 surface composes), older 595 [515|358] ms, long 5 → 22.
+5 pen-up: release 200 → 155 ms (exact at release), exact 203 → 161 [139|117 → 299|296]. 6 undo: exact 46 → 299 [57|59 →
+83|4]. 7 erase + 30 ticks: bake 5.3 → 6.6 s [8.6|5.8 → 6.6|7.1]; pyramid blur 872, older 1,701 [2,065|2,190].
+Plates: old 96/96 MiB, 8 pinned; pyramid 90/90, 8 pinned (33 with the plane). levelStep 2|3 (pyramid, one run each, load
+2.4|2.5): 1 out paper 0|0, blur 15|14, long 41|41; back blur 3,504|3,191; 2 slow blur 17|24, long 48|28, older 0.
+Round trip (plain mode): 25,244 ink px before and after, same hash, both paths.
+**Measured:** `olderMs` 0 in scenarios 1, 2, 3, 5, 6 on every run; non-zero in 4 (the drop) and 7 (the bake): stale
+cells whose patch fits no level inline wait for the workers (A3 §3.4's one case) — not verified per cell. Break-checks
+P5: 7 rules, each red on its own test. raster.pyramid/job/move 110/110 at load 2.3; typecheck 0; eslint 0 errors.
+**Decisions made:** pair 1 the reference; no more pairs. **Questions asked:** in the report (the memo budget, D1, 4/7's older).
+WHERE I AM: P5 done; P6 goes to a successor from the report's openItems (my context is past two thirds).

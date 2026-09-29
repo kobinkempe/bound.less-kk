@@ -322,7 +322,7 @@ describe("the op log and a subtree moved as frames", () => {
         if (la !== lb) throw new Error("lattice differs (reloaded ||| live) near: " + firstDiff(la, lb));
     };
     // The camera at depth 1; R a level below it, K two, L three; `size` 1 keeps R's natives
-    // under the cull at the camera's deepest zoom, so nothing reads (settles) R until asked.
+    // under the cull at the camera's deepest zoom, so no render reads R.
     const fixture = (size = 900) => {
         const E = mkEngine(800, 600);
         const log = new OpLog(E);
@@ -335,16 +335,15 @@ describe("the op log and a subtree moved as frames", () => {
         return { E, log, R, K, L, ids, snap: snapshot(E, log) };
     };
 
-    test("a move, its settle in the drag's render: one op after the reload, undo and redo exact", () => {
+    test("a move with its natives drawn: one op and no table entry, the shift in the header; undo and redo exact after the reload", () => {
         const { E, log, R, snap } = fixture();
-        moveFrame(E, R, 40);                                          // R's natives are visible: the drag's render settles them
+        moveFrame(E, R, 40);                                          // R's natives are visible: the drag's render reads them, writes nothing (A1 C1)
         const d = log.drain();
-        const kinds = d.entries.map((e) => e.op.k);
-        expect(kinds[kinds.length - 1]).toBe("moveFrames");
-        expect(kinds.filter((k) => k === "settle").length).toBe(1);   // coalesced: one settle for R, whatever the drag did
+        expect(d.entries.map((e) => e.op.k)).toEqual(["moveFrames"]);
         expect(d.forced).toEqual([]);                                 // no member changed frames: no snapshot forced
         const mf = d.entries[d.entries.length - 1];
-        expect(mf.op.frames.find((f) => f.id === R.id).settled.tables.length).toBe(120);
+        expect(mf.op.frames.find((f) => f.id === R.id).settled).toBeUndefined();
+        expect(E.lm.serialize().frames.find((f) => f.id === R.id).shift).toBeTruthy();
         expect(mf.geo.length).toBe(0);                                // no geometry in a frame move
         const { F, stats } = restore(snap, d.entries, E.lm.serialize());
         expect(stats.undo).toBe(1);
@@ -354,11 +353,11 @@ describe("the op log and a subtree moved as frames", () => {
         E.undo(); F.undo(); same(F, E);
     });
 
-    test("a redone move's settle is not merged into the next drag's: undo and redo after a reload agree (REVIEWER-3 SAVE-2)", () => {
+    test("a redone move and the next drag: undo and redo after a reload agree (REVIEWER-3 SAVE-2)", () => {
         const { E, log, R, snap } = fixture();
         moveFrame(E, R, 40);
-        E.undo(); E.redo();                                           // R's shift pending again
-        moveFrame(E, R, 40);                                          // its render settles the first op's shift, then its own
+        E.undo(); E.redo();                                           // R's shift back on the frame
+        moveFrame(E, R, 40);                                          // the next drag adds to it
         const d = log.drain();
         const { F } = restore(snap, d.entries, E.lm.serialize());
         same(F, E);
@@ -368,31 +367,26 @@ describe("the op log and a subtree moved as frames", () => {
         E.redo(); F.redo(); same(F, E);
     });
 
-    test("a settle after the drain is its own entry; a reload before it owes the shift, one after has it once", () => {
+    test("a frame's shift rides the header: no read writes an entry, and a reload at any point agrees", () => {
         const { E, log, R, K, snap } = fixture(1);                    // K's natives: 64 units, 0.001 px at the camera's deepest zoom, never read
         // 1/1024 unit more than a cell and a quarter: K, two levels down, takes a rest of its own.
         moveFrame(E, R, 40 + 1 / 1024);
         const d1 = log.drain();
-        expect(d1.entries.map((e) => e.op.k)).toEqual(["settle", "moveFrames"]);   // R's settle (the drag's render), then the op
+        expect(d1.entries.map((e) => e.op.k)).toEqual(["moveFrames"]);
         expect(E.lm.frame(K.id).shift).toEqual([16384, 0]);
-        const mfSeq = d1.entries[1].seq;
         const cr1 = E.lm.serialize();
-        // Reload before the settle: the header's pending shift is honoured at the first read.
         const { F: G } = restore(snap, d1.entries, cr1);
         expect(G.lm.frame(K.id).shift).toEqual([16384, 0]);
         same(G, E);
-        G.doc.at(K.id); E.doc.at(K.id);
+        G.doc.at(K.id); E.doc.at(K.id); E._render();
         expect(nat(G)).toBe(nat(E));
-        // The live settle is an entry; a reload after it applies the tables exactly once.
         const d2 = log.drain();
-        expect(d2.entries.map((e) => e.op.k)).toEqual(["settle"]);
-        expect(d2.entries[0].op).toMatchObject({ frame: K.id, of: mfSeq, dx: 16384, dy: 0 });
-        expect(d2.forced).toEqual([]);
+        expect(d2.entries).toEqual([]);                               // a read writes nothing (A1 C1)
         const { F } = restore(snap, [...d1.entries, ...d2.entries], E.lm.serialize());
         same(F, E);
         E.undo(); F.undo(); same(F, E);
         E.redo(); F.redo(); same(F, E);
-        // A reload after an undo whose settle is stale on one frame and not the other still agrees.
+        // A reload after an undo still agrees.
         E.undo();
         const d3 = log.drain();
         expect(d3.entries.filter((e) => e.op.k === "undo").length).toBe(2);
@@ -401,13 +395,11 @@ describe("the op log and a subtree moved as frames", () => {
         same(H, E);
         E.redo(); H.redo(); same(H, E);
         const d4 = log.drain();
-        // And from a snapshot taken after everything: every apply skipped, the stacks rebuilt.
-        // Reading K for its row settles it, and the saver drains again after its snapshots so that
-        // settle is written with them (useKobinEngine): here the second drain is d5.
+        // And from a snapshot taken after everything: every apply skipped, the stacks rebuilt. Reading K
+        // for its row writes nothing, so the saver's second drain is empty.
         const late = snapshot(E, log);
         const d5 = log.drain();
-        expect(d5.entries.map((e) => e.op.k)).toEqual(["settle"]);
-        expect(late.frameSeq[K.id]).toBeGreaterThanOrEqual(d5.entries[0].seq);   // the row already holds it: stale, attached to the op only
+        expect(d5.entries).toEqual([]);
         const { F: J, stats } = restore(late, [...d1.entries, ...d2.entries, ...d3.entries, ...d4.entries, ...d5.entries], E.lm.serialize());
         same(J, E);
         expect(stats.undo).toBe(1);

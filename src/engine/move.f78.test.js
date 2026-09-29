@@ -1,9 +1,10 @@
 /**
  * OPEN-FLAGS F78: a lasso over the Earth encloses a frame one level deeper than the camera
- * (48 frame units, ~3 screen px), the drag re-addresses it and leaves a shift, and the next
- * bake's `Document.at` settles that shift and carries the natives to the neighbour cell WHILE
- * the tile is being baked — so the tile was cached empty for the session and the houses vanished.
- * Kobin, 2026-09-22, on the Magnum Opus; the mechanism is `.claude/EARTH-MOVE-ANALYSIS.md`.
+ * (48 frame units, ~3 screen px), the drag re-addresses it and leaves a shift. Until A1 C1 the
+ * next bake's `Document.at` settled that shift and carried natives to the neighbour cell WHILE the
+ * tile was being baked, so the tile was cached empty and the houses vanished (Kobin, 2026-09-22,
+ * `.claude/EARTH-MOVE-ANALYSIS.md`). The shift now stays on the frame and no read moves a native;
+ * these are the picture's checks.
  */
 import KobinEngine from "./KobinEngine";
 
@@ -56,14 +57,13 @@ describe("F78 — a lasso-dragged child frame keeps its natives drawn", () => {
     test("SVG: after the drag the render list holds every native the document holds, and equals a fresh bake", () => {
         const E = mkE(false);
         lassoAndDrag(E);
-        expect(drawnIds(E)).toEqual(docIds(E));            // red with `_bakeSettled` baking once
+        expect(drawnIds(E)).toEqual(docIds(E));
         const drawn = drawnIds(E);
         E.store.bumpEpoch(); E._render();
         expect(drawnIds(E)).toEqual(drawn);                // the cached tile IS the fresh bake
-        expect(E.store._rebakes).toBeGreaterThan(0);       // the guard fired: the settle carried mid-bake
     });
 
-    test("SVG: a small rest with a table near the cell edge carries too, and is kept", () => {
+    test("SVG: a small rest with a table near the cell edge is drawn a cell over, and is kept", () => {
         const E = mkE(false);
         lassoAndDrag(E, { below: [[62000, 0]], drags: [12, 33] });
         expect(drawnIds(E)).toEqual(docIds(E));

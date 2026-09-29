@@ -5,10 +5,11 @@
  * minted — and the selection held 4 ids and 50 of those empty frames, each drawn as a dot on blank
  * paper. Replayed on his drawing, a lasso and a drag also lost the ink: the drop's settle carried
  * the selected frames' natives into the neighbour cells, and the selection kept the emptied frames.
+ * Since A1 C1 no settle or read moves a native: a frame's shift stays its placement.
  *
- * Three rules, each red on the code before them: the lasso never takes a frame with no native in
- * its subtree; a native a settle carries out of a selected frame stays selected; a merge hands the
- * selection only the kids that hold ink.
+ * The rules: the lasso never takes a frame with no native in its subtree; a native whose picture a
+ * frame's shift carries past the cell stays the frame's (selected once, never an id as well); a kid
+ * a drag's rest tears off stays selected; a merge hands the selection only the kids that hold ink.
  */
 import KobinEngine from "./KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
@@ -32,7 +33,7 @@ const fill = (E, ox, oy, s = S, below = null) => ({
     polys: [[[ox, oy], [ox + s, oy], [ox + s, oy + s], [ox, oy + s]]],
     ...(below ? { below } : null),
 });
-// A frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2), so what a settle carries is a
+// A frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2), so what crosses the cell edge is a
 // native whose OWN table adds past it: 62,000 units (0.47 of a frame) plus a 12 px drag's 0.375.
 const EDGE = [[62000, 0]];
 /** Natives in a frame's whole subtree, shadows included. */
@@ -76,7 +77,7 @@ describe("a selection stands for ink", () => {
         expect(E.selection).toBeNull();                              // red: three frames, three marks
     });
 
-    test("I3 natives a settle carries out of a selected frame stay selected, and the next drag takes them", () => {
+    test("I3 natives whose pictures a frame's shift carries past its cell stay the frame's, and the next drag takes them", () => {
         const E = mkE();
         const kid = E.lm.cellChild("0", 3, 2);
         const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
@@ -86,14 +87,14 @@ describe("a selection stands for ink", () => {
         loop(E, circleLoop(org[0], org[1], 110));
         expect(E.selection.frames).toEqual([kid.id]);             // the frame is taken whole
         // 12 px at inScale 1 = 0.375 of a cell: the frame keeps its cell and a shift of 0.375 W, which with
-        // each native's own 0.47 carries both into the next cell at the settle (move.settle.test.js, F78).
+        // each native's own 0.47 puts both pictures in the next cell; they stay home (A1 C1).
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
         E.pointerUp();
         E._render();
-        const homes = [a, b].map((o) => E.doc.getById(o.id).level);
-        expect(homes.every((h) => h !== kid.id && !E.lm.isUnder(kid.id, h))).toBe(true);   // the fixture: both carried
-        expect(E._isSelected(a.id) && E._isSelected(b.id)).toBe(true);                    // red: dropped from the selection
+        expect([a, b].map((o) => E.doc.getById(o.id).level)).toEqual([kid.id, kid.id]);
+        expect(E.selection.ids).toEqual([]);
+        expect(E._isSelected(a.id) && E._isSelected(b.id)).toBe(true);
         expect(E._selectionStatus().count).toBe(2);
         expect(inkless(E)).toEqual([]);
         // The next drag moves them with the pointer.
@@ -114,12 +115,10 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids.filter((id) => E._underFrames(E.doc.getById(id).level, E.selection.frames))).toEqual([]);
     });
 
-    test("I5 a carried native back under its selected frame is the frame's again, not an id as well", () => {
+    test("I5 a native whose picture crossed the cell edge is the frame's through undo and redo, never an id as well", () => {
         const E = mkE();
         const kid = E.lm.cellChild("0", 3, 2);
         const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
-        // Keeps the frame inked once `a` is carried out: far enough left in its parent that no step's rest
-        // re-homes it next door (at 12 px its digit is -1500 + 1536, inside the cell).
         const deep = E.lm.cellChild(kid.id, -1500, 5);
         E.doc.add(fill(E, 0, 0), deep.id);
         E._render();
@@ -130,16 +129,16 @@ describe("a selection stands for ink", () => {
         for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
         E.pointerUp();
         E._render();
-        expect(E.doc.getById(a.id).level).not.toBe(kid.id);       // the fixture: carried out
-        expect(E.selection.ids).toEqual([a.id]);
-        expect(E.selection.frames).toEqual([kid.id]);             // still inked by its kid
+        expect(E.doc.getById(a.id).level).toBe(kid.id);           // home: its picture a cell over (A1 C1)
+        expect(E.selection.ids).toEqual([]);
+        expect(E.selection.frames).toEqual([kid.id]);
         E.undo(); E._render();
-        expect(E.doc.getById(a.id).level).toBe(kid.id);           // home again, under the selected frame
         expect(E._isSelected(a.id)).toBe(true);
-        expect(E.selection.ids).toEqual([]);                      // red without the reconcile's way back: selected twice
-        E.redo(); E._render();                                     // carried out again, with no settle notice (an undo's own)
-        expect(E.doc.getById(a.id).level).not.toBe(kid.id);
+        expect(E.selection.ids).toEqual([]);
+        E.redo(); E._render();
+        expect(E.doc.getById(a.id).level).toBe(kid.id);
         expect(E._isSelected(a.id)).toBe(true);
+        expect(E.selection.ids).toEqual([]);
         expect(E._selectionStatus().count).toBe(2);
     });
 
@@ -176,7 +175,7 @@ describe("a selection stands for ink", () => {
         expect(E._selectionStatus().count).toBe(2);               // a re-nested frame is not counted twice
     });
 
-    test("I7 raster, the drag drawn by its plane: a torn-off kid's own settle at the drop keeps its native selected", async () => {
+    test("I7 raster, the drag drawn by its plane: a torn-off kid keeps its native selected at the drop", async () => {
         resetRasterWorkerClient(); setRasterWorkerCount(1);
         const flush = async () => { for (let k = 0; k < 40; k++) { await new Promise((r) => setTimeout(r, 0)); const rep = rasterWorkerReport(); if (!rep.inFlight && !rep.queued) return; } };
         const E = mkE(800, 600, true);
@@ -190,15 +189,16 @@ describe("a selection stands for ink", () => {
         expect(E.selection.frames).toEqual([kid.id]);
         E._render(); await new Promise((r) => setTimeout(r, 200)); await flush();   // the plane is aimed once the view holds
         // 12 + 3/1024 px: the kid's digit carries it next door with a shift of 3/8 of a frame, which with
-        // its native's own 0.31 carries the native past half a frame at the drop's settle.
+        // its native's own 0.31 puts the native's picture past half a frame; it stays in the kid (A1 C1).
         const lists = jest.spyOn(E, "_buildList");
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12 + 3 / 1024]) E.pointerMove(org[0] + dx, org[1]);
-        expect(lists).not.toHaveBeenCalled();                     // the fixture: no step rendered, so nothing settled yet
+        expect(lists).not.toHaveBeenCalled();                     // the fixture: no step rendered
         E.pointerUp();
         E._render();
-        expect(E.doc.getById(d.id).level).not.toBe(deep.id);      // the fixture: carried at the drop
-        expect(E._isSelected(d.id)).toBe(true);                   // red when the drop's own carries are not collected
+        expect(E.lm.frame(deep.id).parent).not.toBe(kid.id);      // the fixture: the kid torn off
+        expect(E.doc.getById(d.id).level).toBe(deep.id);
+        expect(E._isSelected(d.id)).toBe(true);
         expect(E._isSelected(a.id)).toBe(true);
         expect(E._selectionStatus().count).toBe(2);
         expect(inkless(E)).toEqual([]);
@@ -235,7 +235,7 @@ describe("a selection stands for ink", () => {
     });
 
     for (const raster of [false, true]) {
-        test("I9 " + (raster ? "raster" : "svg") + ": a settle inside a render changes the selection after the render, never inside its list build", () => {
+        test("I9 " + (raster ? "raster" : "svg") + ": a render of a frame whose shift carries its native's picture changes neither the native nor the selection", () => {
             const E = mkE(800, 600, raster);
             const kid = E.lm.cellChild("0", 3, 2);
             const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
@@ -243,22 +243,21 @@ describe("a selection stands for ink", () => {
             const org = E.cam.levelPointToScreen(kid.id, 0, 0);
             loop(E, circleLoop(org[0], org[1], 110));
             expect(E.selection.frames).toEqual([kid.id]);
-            E.doc.setFrameShift(kid.id, [0.7 * 131072, 0]);       // what a drag leaves on a frame nobody has read since
-            E.store.bumpEpoch();                                     // the next render bakes, and reads the frame
-            let building = false, inside = 0;
-            const bl = E._buildList.bind(E), ss = E._setSelection.bind(E);
-            E._buildList = (...x) => { building = true; try { return bl(...x); } finally { building = false; } };
-            E._setSelection = (...x) => { if (building) inside++; return ss(...x); };
-            const unclosed0 = raster ? rasterPerf.report().meta.unclosed : 0;
+            E.doc.setFrameShift(kid.id, [0.7 * 131072, 0]);       // what a drag leaves on a frame
+            E.store.bumpEpoch();
+            let calls = 0;
+            const ss = E._setSelection.bind(E);
+            E._setSelection = (...x) => { calls++; return ss(...x); };
+            const rev = E.doc.rev;
             E._render();
-            expect(E.doc.getById(a.id).level).not.toBe(kid.id);   // the fixture: carried by that render's settle
-            expect(inside).toBe(0);                                // red: `_setSelection` ran inside the list build
-            expect(E._isSelected(a.id)).toBe(true);                // and the carry is followed once the render is done
-            if (raster) expect(rasterPerf.report().meta.unclosed).toBe(unclosed0);   // red: a camera row opened inside the render's
+            expect(E.doc.rev).toBe(rev);
+            expect(E.doc.getById(a.id).level).toBe(kid.id);
+            expect(calls).toBe(0);
+            expect(E._isSelected(a.id)).toBe(true);
         });
     }
 
-    test("I10 a delete in the middle of a drag takes the ink the drag has moved out of the selected frames", () => {
+    test("I10 a delete in the middle of a drag takes the kid the drag has torn out of the selected frame", () => {
         const E = mkE();
         const kid = E.lm.cellChild("0", 3, 2);
         const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
@@ -269,7 +268,7 @@ describe("a selection stands for ink", () => {
         loop(E, circleLoop(org[0], org[1], 110));
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
-        expect(E.doc.getById(a.id).level).not.toBe(kid.id);       // the fixture: carried mid-drag...
+        expect(E.doc.getById(a.id).level).toBe(kid.id);           // the fixture: home (A1 C1)...
         expect(E.lm.frame(deep.id).parent).not.toBe(kid.id);      // ...and the kid torn off
         expect(E.deleteSelection()).toBe(true);
         expect(E.doc.getById(a.id)).toBeFalsy();                  // red: left behind
@@ -295,9 +294,8 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids).toEqual([]);
         E.pointerDown(org[0], org[1]);
         for (const dx of [10, 20, 32]) E.pointerMove(org[0] + dx, org[1]);   // one cell: onto the resident
-        E.pointerUp();
         expect(E.lm.frame(mover.id).shadowOf).toBe(resident.id);   // the fixture: it shadows the resident...
-        E.doc.at(resident.id);                                      // ...and merges at the first read of its list (DESIGN.md §8)
+        E.pointerUp();                                              // ...and merges at the drop (A1 C1)
         expect(E.lm.frame(mover.id)).toBeFalsy();
         expect(E.selection.frames).toContain(inked.id);
         expect(E.selection.frames).not.toContain(empty.id);        // red: the empty kid handed over
