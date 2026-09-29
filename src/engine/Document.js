@@ -470,6 +470,7 @@ export default class Document {
         for (const mid of [...E._shadows]) {
             const M = this.lm.frame(mid);
             if (!M || this._detached.has(mid)) continue;   // set aside by a delete: it waits
+            if (!this.count(mid) && !(M._kids && M._kids.size) && !(M._shadows && M._shadows.size)) continue;   // holds nothing: frame GC's (F94)
             const d = [(M.shift ? M.shift[0] : 0) - (E.shift ? E.shift[0] : 0), (M.shift ? M.shift[1] : 0) - (E.shift ? E.shift[1] : 0)];
             const src = this.nativesByLevel[mid] || [];
             const ids = src.map((o) => o.id), tables = [];

@@ -1,12 +1,12 @@
 /**
  * A selected frame moves as a frame (DESIGN.md §8, the subtree move, 2026-09-15): the
  * drag re-addresses the frames within three levels of the camera and leaves a shift for
- * their natives, never touching an object; the per-object path gives the same picture,
- * native for native; one op undoes the gesture, a settle since included.
+ * their natives, never touching an object; the shift stays on the frame, composed on read
+ * (A1 C1); the per-object path gives the same picture, native for native; one op undoes it.
  */
 import { useEngines, mkEngine, eraseGesture } from "./__testkit__/harness";
 import { rectLoop } from "./geometry/arcShape";
-import { encodeBelow } from "./geometry/offsets";
+import { encodeBelow, addOffset } from "./geometry/offsets";
 
 const rects = (E, frame, n, seed) => {
     const ids = [];
@@ -41,6 +41,14 @@ const bytes = (E) => {
     const n = E.doc.serializeNatives();
     return JSON.stringify(Object.keys(n).sort().map((k) => [k, n[k].slice().sort((a, b) => a.id - b.id)]));
 };
+// The natives and the lattice's addresses and shifts: under C1 a subtree move writes only the latter.
+const state = (E) => bytes(E) + JSON.stringify(E.lm.serialize());
+// A native's picture carried to a canonical home, as the old settle would have left it: the chain and the table.
+const canon = (E, id) => {
+    const rec = E.doc.getById(id), r = addOffset(E.doc.tableOf(rec.obj, rec.level), 0, 0, 0);
+    const home = r.cellX || r.cellY ? E.lm.neighbour(rec.level, r.cellX, r.cellY).id : rec.level;
+    return [chainOf(E, home, 1), encodeBelow(r.below) || null];
+};
 const press = (E, frameId) => E._levelPointToScreen(frameId, 0, 0);
 const spy = (obj, name) => { const orig = obj[name].bind(obj); let n = 0; obj[name] = (...a) => { n++; return orig(...a); }; return () => n; };
 // The same gesture without the pointer: the per-object path needs no hit on sub-pixel ink.
@@ -49,7 +57,6 @@ const dragDirect = (E, p, dx, dy) => {
     E.store.setBatch(true);
     E._dragSelection(p[0] + dx, p[1] + dy);
 };
-const settleAll = (E) => { for (const k of [...E.lm.frames.keys()]) E.doc.at(k); };
 
 describe("two subtree moves undone and redone with their frame unread (REVIEWER-3 MOVE-1)", () => {
     useEngines();
@@ -105,12 +112,7 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         dragDirect(A.E, p, 40, 0); A.E.pointerUp();
         B.E._setSelection(B.all);
         dragDirect(B.E, p, 40, 0); B.E.pointerUp();
-        settleAll(A.E);
-        for (const id of A.all) {
-            const a = A.E.doc.getById(id), b = B.E.doc.getById(id);
-            expect(chainOf(A.E, a.level, 1)).toEqual(chainOf(B.E, b.level, 1));
-            expect(encodeBelow(a.obj.below) || null).toEqual(encodeBelow(b.obj.below) || null);
-        }
+        for (const id of A.all) expect(canon(A.E, id)).toEqual(canon(B.E, id));
     });
     test("t3 a cancelled drag puts the frames and their natives back", () => {
         const { E, R, K, L } = fixture();
@@ -119,7 +121,7 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         const p = press(E, R.id);
         dragDirect(E, p, 40, 0);
         expect(addrOf(E, R.id)).not.toEqual(start.R);
-        E.doc.at(R.id);                                    // a settle during the drag, undone by the cancel
+        E.doc.at(R.id);                                    // a read during the drag writes nothing (A1 C1)
         E.cancelSelectGesture(false);
         expect(bytes(E)).toBe(start.bytes);
         expect([addrOf(E, R.id), addrOf(E, K.id), addrOf(E, L.id)]).toEqual([start.R, start.K, start.L]);
@@ -130,32 +132,34 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         const start = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id), L: addrOf(E, L.id) };
         E._setSelection([], [R.id]);
         dragDirect(E, press(E, R.id), 40, 0); E.pointerUp();
-        E.doc.at(R.id); E.doc.at(K.id);                          // the settled state, so bytes compare
-        const after = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id) };
-        expect(after.bytes).not.toBe(start.bytes);
+        const after = { bytes: bytes(E), state: state(E), R: addrOf(E, R.id), K: addrOf(E, K.id) };
+        expect(after.bytes).toBe(start.bytes);                  // no native written: the shift is the frame's (A1 C1)
+        expect(after.state).not.toBe(start.bytes + JSON.stringify(E.lm.serialize()) + "x");
+        expect(E.lm.frame(K.id).shift).toBeTruthy();
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start.bytes);
         expect([addrOf(E, R.id), addrOf(E, K.id), addrOf(E, L.id)]).toEqual([start.R, start.K, start.L]);
         expect(E.lm.frame(R.id).shift).toBeNull();
+        expect(E.lm.frame(K.id).shift).toBeNull();
         expect(E.redo()).toBe(true);
-        E.doc.at(R.id); E.doc.at(K.id);
         expect([addrOf(E, R.id), addrOf(E, K.id)]).toEqual([after.R, after.K]);
-        expect(bytes(E)).toBe(after.bytes);
+        expect(state(E)).toBe(after.state);
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start.bytes);
     });
-    test("t5 undo after a settle subtracts the settled tables", () => {
+    test("t5 a read after the drop writes nothing, and undo puts the shifts back", () => {
         const { E, R, K, ids } = fixture();
         const start = bytes(E);
         E._setSelection([], [R.id]);
         dragDirect(E, press(E, R.id), 40, 0); E.pointerUp();
-        E.doc.at(R.id); E.doc.at(K.id);
-        expect(encodeBelow(E.doc.getById(ids.R[0]).obj.below)).toBeTruthy();
-        const op = E.doc._undo[E.doc._undo.length - 1];
-        expect(op.frames.find((e) => e.id === R.id).settled.tables.length).toBe(300);
+        const rev = E.doc.rev;
+        E.doc.at(R.id); E.doc.at(K.id); E._render();
+        expect(E.doc.rev).toBe(rev);
+        expect(E.doc.getById(ids.R[0]).level).toBe(R.id);
+        expect(E.doc.tableOf(E.doc.getById(ids.K[0]).obj)).toBeTruthy();     // K's natives are drawn by its shift
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start);
-        expect(E.doc.getById(ids.R[0]).level).toBe(R.id);
+        expect(E.doc.tableOf(E.doc.getById(ids.K[0]).obj)).toBeUndefined();
     });
     test("t6 a loose object and a frame move in one op", () => {
         const { E, R } = fixture();
@@ -191,23 +195,21 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         return { E, A, A1, B, B1, ids };
     };
     const drop = (E, A, dx) => { E._setSelection([], [A.id]); dragDirect(E, press(E, A.id), dx, 0); E.pointerUp(); };
-    test("t8 the mover shadows the resident, keeps its natives, merges at the resident's first read, and undo splits it back", () => {
+    test("t8 the mover shadows the resident during the drag, merges at the drop, and undo splits it back", () => {
         const { E, A, A1, B, B1, ids } = build();
         const start = bytes(E);
-        drop(E, A, 64);
+        E._setSelection([], [A.id]);
+        dragDirect(E, press(E, A.id), 64, 0);
         expect(E.lm.frame(A.id).shadowOf).toBe(B.id);
         expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 12, j: 0 });
         expect(E.lm.findCellChild("1", 12, 0)).toBe(B);
         expect(E.doc.getById(ids.A[0]).level).toBe(A.id);
+        E.doc.at(B.id);                                    // a read merges nothing (A1 C1)
         expect(E.doc.count(A.id)).toBe(100);
-        expect(E.selection.frames).toEqual([A.id]);
-        expect(E._isSelected(ids.A[0])).toBe(true);
-        expect(E._selectionStatus().count).toBe(130);
+        E.pointerUp();
         const op = E.doc._undo[E.doc._undo.length - 1];
         expect(op.op).toBe("moveFrames");
-        expect(op.frames.find((e) => e.id === A.id).merged).toBeNull();
-        // The first read of B merges A into it: natives, kids, and the selection follows.
-        E.doc.at(B.id);
+        // The drop merged A into B: natives, kids, and the selection follows.
         expect(E.lm.frame(A.id)).toBeUndefined();
         expect(E.doc.getById(ids.A[0]).level).toBe(B.id);
         expect(E.doc.count(B.id)).toBe(200);
@@ -229,10 +231,8 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         expect(E.doc.count(A.id)).toBe(100);
         expect(E.doc.count(B.id)).toBe(100);
         expect(bytes(E)).toBe(start);
-        // Redo puts A on B's cell again; the redo's render reads B (its natives are above the
-        // cull at the camera's deepest zoom), so the merge comes straight back, on the same op.
+        // Redo puts A on B's cell again and merges it at its end, on the same op.
         expect(E.redo()).toBe(true);
-        E.doc.at(B.id);
         expect(E.lm.frame(A.id)).toBeUndefined();
         expect(E.doc.count(B.id)).toBe(200);
         expect(E.doc._undo[E.doc._undo.length - 1].frames.find((e) => e.id === A.id).merged.length).toBe(1);
