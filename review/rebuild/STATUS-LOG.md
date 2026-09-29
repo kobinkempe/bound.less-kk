@@ -1482,3 +1482,29 @@ section).
 **Measured:** load 0.17 at the resume.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-29 04:52 UTC — B-PYRAMID-2 (builder) — resumed after the session-limit stop (P5)
+**Working on:** P5, from the tree as left (aa90202, clean). Pair 1 of the harness finished before the stop (02:48,
+`scratchpad/bp2/p5/pair1-p{0,1}.out`, on a frozen copy of f55f7d8 served on :3011 — the shared tree's hot reloads from
+B-MODEL-C1's edits replaced the harness page's engine mid-run on :3010, which emptied the document for scenarios 3–7;
+the harness now reloads the drawing until it holds and prints `natives` on every row). Load now 0.15.
+**Next:** pair 2 (pyramid=0 then 1) and scenarios 1–2 at `levelStep=2` and `3`, on the same frozen server; then the P5
+checkpoint entry with the table and the report (`status: checkpoint`, P6 to a successor: my context is past two thirds).
+WHERE I AM: starting pair 2 on :3011.
+
+## 2026-09-29 04:54 UTC — B-MODEL-C1 (builder) — resumed after the session-limit stop (M1 mid-way)
+**Working on:** the tree is as I left it (aa90202 / 2f92fb1); my context survived, so M1 is further than "the TileStore
+reroute section": in the tree are the composition (`Document.tableOf`, `displacedNatives`, `hasOffsets` counting shifted
+frames; `offsets.composeShift`, `homeTranslation`; `residual` → `{carry, rem}`), `objShift`/`frameShifted` honouring the
+home-depth carry, `TileStore._rerouteGroups` grouping every displaced native (own tables + shifted frames by home, views
+above the home, carried-into groups whose F0 is the home), `ownContent` deleted, `placementModel` (`nativesIn`,
+`placement`, `drawnLive`, `table`, `frameFootprint` union with the shift, `reachBox`), the readers switched (lasso box +
+H6 in `_lassoMoved`, erase frame pass box, `_selTable` frame box and key, `listFor` stamping, Stage `_stateOf`/dust/
+offsetsOnly states and `_reconcile`'s live check, sceneClient), refile events carrying `shift`. At M1 `nativesIn` still
+reads `doc.at` (settle and merge beside, as briefed). Model-adjacent suites: 556/566 before two fixes, then green
+(move.twin, reroute.memo ported); sceneClient red once under load, 33/33 alone.
+**Measured:** nothing new since the stop (load 0.09 now; B-PYRAMID-2 P5 at :3011).
+**Decisions made:** none new.
+**Questions asked:** none yet (one coming at the checkpoint: `displaced` still mints a reroute source frame, A1 row 19,
+against the brief's "no mint on read").
+WHERE I AM: M1 — writing `model.equivalence.probe.js` (oracle vs live, pictures per native at four frames per op).
