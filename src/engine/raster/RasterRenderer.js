@@ -1762,10 +1762,7 @@ export default class RasterRenderer extends Renderer {
     _pyrLand(st, recs, res, info) {
         if (this._destroyed) { this.store.endJob(res.jobId); return; }
         const pl = this._plane;
-        for (const r of recs) {
-            if (r.kind === "plane" && !pl.tags.includes(r.tag)) this.store.discard(r);   // a layer the plane has since dropped
-            else this.pyramid.onResult(r);
-        }
+        for (const r of recs) this.pyramid.onResult(r);   // a dropped layer's late plate: the store refuses it (`dropWhere` marked its job)
         rasterStats.batches++; rasterStats.batchPlates += recs.length;
         this._endJob(res.jobId);
         this.queue.done(st.id);                         // dispatch to landing: the velocity rule's arrival estimate
