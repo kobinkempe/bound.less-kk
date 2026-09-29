@@ -811,3 +811,11 @@ dropped at dispatch cleared every pending ask. The zoom-out A/B settled: no regr
 3. The two inline defect fixes are accepted as landed. H1, H4, D1, D-3 and D272 are review-document rows, not
    OPEN-FLAGS entries: the final docs pass marks them closed where they live, with the review's numbers.
 4. Wave 3: packing off the main thread (items 2 and 7 both point at it).
+
+### 5.16 Kobin, 2026-09-29: C3 and C4 as one build
+
+"Can you have just one agent do both C3 and C4, instead of splitting it into two agents? And then one reviewer for the
+combined implementation?" — Yes. §2's wave 3 becomes: B-DRAG (with C2) and its review, then **B-MODEL-C34** (one
+builder: C3 co-residents, no merges, a deleted subtree leaving the lattice, `displaced`'s read-time mint revisited;
+C4 private frames for cede kids, `ownIn`/`ownFor` as one helper) and **one reviewer** for both. Its brief is written
+when B-DRAG reports, so that B-DRAG's open items are in it.
