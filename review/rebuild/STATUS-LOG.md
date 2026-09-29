@@ -2232,3 +2232,19 @@ scenario 7 olderOther 1.3–1.4 s (stale own plates awaiting the next render —
 worker slot per thumbnail and a drop clearing every ask, both fixed.
 **Decisions made:** PLAN §5.15 items 1–4.
 **Questions asked:** none.
+
+## 2026-09-29 20:10 UTC — B-PYRAMID-3 (builder) — item 4 checkpoint: RasterRenderer extends nothing (live tree)
+**Working on:** item 4 applied to the live tree (on c7fed1a, the reviewer's final files) by the checked scripts, not
+by copying trial files: `RasterRenderer` composes `[PicturePyramid, SvgLayer, OverlayLayer, bl-sel-edges' slot]` in one
+`_layers` list; `endLive` is `LiveStrokeLayer.hold()`, the group commit's callback `release(id)`; every prefetch read
+warm, `_dropTile` forgets a warm key, the plan-time clearing gone; `listFor`, `_buildList`, `TileStore.content`/
+`contentOffCamera`/`_reroute` and `Renderer`'s inheritance seams deleted; the suites ported (`raster.liveHold` →
+`raster/LiveStrokeLayer.hold.test.js`); `prefetch.warm.test.js` W-1..3 new.
+**Measured (jsdom):** the trial copy's quick suite 191 suites, 2,140 pass, 0 fail (12 skipped); the live tree after
+the apply: lint 0 errors (6 warnings, none mine), typecheck 0; raster + stage + Renderer suites 45 files, 629/629 —
+with LH-1 made deterministic (its bake timer stubbed: under load the shape landed inside the flush, red 3 of 3 runs at
+65 and 45 files before; green alone). `erase.follow`/`sync.tabs` green alone on both trees (the 25-min stall was load).
+**Decisions made:** FC1's list holds all four (the SVG layer and a z-3 slot that sizes and drops the chevrons' `<svg>`).
+**Questions asked:** none.
+WHERE I AM: the coordinator's addition — a held path carried across a crossing (re-anchored into the new frame, its
+group's rectangle with it), its jsdom test and break-check; then the item-4 break-checks and the round trips.

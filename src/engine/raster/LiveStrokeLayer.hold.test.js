@@ -61,6 +61,8 @@ describe("F120 the live path at a pen-up", () => {
         fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
         E._render(); await flush();
         const seen = watchHandoffs(E), hand0 = rasterStats.liveHandoffs;
+        // The shape lands when the test steps it: under load the bake's own timer landed it inside the flush below.
+        E._scheduleBake = () => {};
         stroke(E);
         expect(E.renderer.live.held.length).toBe(1);        // red on the old path: dropped at `endLive`, the stroke nowhere
         await flush();
