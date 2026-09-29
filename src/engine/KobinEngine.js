@@ -617,13 +617,15 @@ export default class KobinEngine {
      * render, and the selection repaired from the op.
      */
     _endMove(why) {
-        const d = this._dragSel;
-        let op = null;
+        const d = this._dragSel, live = d || this._holdMove;
+        let op = null, n = 0;
         this.stage.batch(() => {
             if (why === "drop" && d && d.moved && this.selection) op = this._dropMove(d);
-            this._dropHold(why);
+            n = this._releaseMove();
             if (op) this.doc.mergePending(op);
         });
+        this._dragSel = null;
+        if (live && this.renderer.endMove) this.renderer.endMove(why, n);
         if (op && this.renderer.noteUserEdit) this.renderer.noteUserEdit();
         this._render();
         // What the drop moved out of every selected frame stays selected (DESIGN.md §10).

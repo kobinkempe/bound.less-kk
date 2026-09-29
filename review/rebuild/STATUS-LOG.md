@@ -2248,3 +2248,23 @@ with LH-1 made deterministic (its bake timer stubbed: under load the shape lande
 **Questions asked:** none.
 WHERE I AM: the coordinator's addition — a held path carried across a crossing (re-anchored into the new frame, its
 group's rectangle with it), its jsdom test and break-check; then the item-4 break-checks and the round trips.
+
+## 2026-09-29 20:40 UTC — B-DRAG (builder) — D1 progress: the drag writes nothing, the drop writes once
+**Working on:** built in the live tree (mine: `Stage.js`, `placementModel.js` (`homeOf`), `KobinEngine.js` (the hold,
+`_endMove`, the pointer-up), `selection.js`, `overlays.js` (the ants' decision), `report.js`): `stage.setDragDelta(d,
+{frame, viewDraws})`; held natives drawn at placement + δ by `placed`/`placeNative` (hit tests, lasso) and, while the
+view draws them (no plane / plane lost), by `Item.res` (the raster pack and the SVG path both read it: no edit in
+`RasterRenderer`/`rasterPack` was needed so far); each δ change then commits dirt at the old and new δ. The hold is
+always taken (`plane` flag); `_planeLost` switches to the view drawing instead of releasing. `_dragSelection` writes
+nothing; `_dropMove` runs `_displaceMember` once per (home, picture table) and `_dragFrames` once, one op, inside one
+Stage batch with the release and `mergePending(op)`; `noteUserEdit` after it (PLAN §5.15 item 2). The ants decide at
+rest (`stage.atRest`) and ride the pointer from the drag's start (`listAt` gone). `_normalizeHome`/`_homeShift`/
+`_restoreFrames` deleted; a cancel writes nothing.
+**Measured (jsdom):** baselines on a frozen `git archive` of d206cd3: `select.stands` 12×40 480 checks, 135 selections;
+`model.equivalence` 25 seeds×40, 8,071 items, 0 ulp. After: 48 move/select/stage/raster files, 28 red, every one an
+assertion of a mid-drag write/shadow/mint, the pen-up normalise, or `pl.state === "land"` right after the drop (the
+drop's patch now fits `patchUserMs` and lands in its own task: confirmed by removing the line on a copy — M2, RV1, F3
+and 4 translucent cases green without it).
+**Decisions made:** keep the merge hand-over (`mergeFrame` handler) until C3: merges still happen at the drop.
+**Questions asked:** none yet.
+WHERE I AM: rewriting the red tests to C2 (mid-drag: document unchanged, `placed` at +δ; after the drop: the old asserts).

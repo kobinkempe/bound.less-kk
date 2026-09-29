@@ -638,6 +638,7 @@ class Selection {
         const ty = snapDisplacement((sy - d.start[1]) / this.cam.inScale);
         d.t = [tx, ty]; d.depth = this.cam.activeLevel; d.frame = this.cam.frame;
         d.moved = d.moved || tx !== 0 || ty !== 0;
+        if (!this._holdMove) this._beginHold();          // a drag always holds (a caller that set `_dragSel` itself too)
         const h = this._holdMove, plane = !!(h && h.plane);
         this.stage.setDragDelta(d.t, { frame: d.frame, viewDraws: !plane });
         // The plane draws the move (PAPER-PLAN §10 S4): no list is built per step — 120–240 ms each on the
