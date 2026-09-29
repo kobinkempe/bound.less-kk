@@ -1920,3 +1920,18 @@ reviewer. One slot free; B-PYRAMID-3 waits for the B-PYRAMID review, B-DRAG for 
 **Measured:** P6's: the quick suite 2,118 pass, 0 fail on the pyramid-only tree; the harness runs in the 12:08 entry.
 **Decisions made:** PLAN §5.13 items 1–6.
 **Questions asked:** none.
+
+## 2026-09-29 12:14 UTC — reviewer (B-PYRAMID review) — R-PYRAMID items 1–11 — start
+**Working on:** the review of B-PYRAMID-2 (P0–P5) and 2b (P6, ac9a7e1; tree fb395da) per `briefs/R-PYRAMID.md`. Leave to
+build §1 items 1 (the rest set as a stand-in), 2 (the pack budget at rest) and 4 (the undo inline), each red-before; the
+rest reported. Order: reading, then the jsdom and code items (1, 2, 4, 5, 6, 8, 9, 10), the bisect's archives (item 3),
+harness measurements only on a quiet machine (the C1 reviewer's end entry, or load under 2), the docs (11).
+Files I may edit (brief §3): `src/engine/raster/*` (PicturePyramid, PyramidStore, jobQueue, prefetch, MovePlane,
+rasterWorkerClient, rasterPack…), `RasterRenderer.js`, `eraseWorkerClient.js`, `sceneOps.js`, the hook's raster parts,
+`DevStats.js`, `tools/harnesses/browser-check.js`, the raster suites, DESIGN §7/§9/§15, `docs/ai/`, A3, OPEN-FLAGS'
+renderer flags. Shared, re-read before each small edit: `KobinEngine.js`, `Stage.js`, `erasePipeline.js`. Not the C1
+reviewer's model files. Ports 3010–3019; scratch `scratchpad/r-pyr/`.
+**Measured:** nothing yet (load 1.02 at start).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: reading the brief's list (DESIGN §9, PLAN §0/§1/§3/§5, A3, the builders' entries, the code).
