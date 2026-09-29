@@ -115,6 +115,8 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
         const same = !!ho && !!hn && String(ho.level) === String(hn.level);
         if (ra.length !== rb.length) return "native " + id + " at " + V + ": oracle " + ra.length + " items, live " + rb.length + (same ? "" : " (carried)");
         const above = hn ? D < N.lm.depthOf(hn.level) : false;
+        const hf = hn ? N.lm.frame(String(hn.level)) : null;
+        const shifted = !!(hf && hf.shift);
         const left = rb.slice();
         for (const x of ra) {
             let best = -1, bw = Infinity;
@@ -122,6 +124,9 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
             if (best < 0 || bw === Infinity) return "native " + id + " at " + V + ": an item has no match" + (same ? "" : " (carried)");
             left.splice(best, 1);
             st.items++;
+            if (x.off[0] || x.off[1]) st.off = (st.off || 0) + 1;
+            if (shifted) st.shifted = (st.shifted || 0) + 1;
+            if (!x.own) st.pieces = (st.pieces || 0) + 1;
             if (same) {
                 if (bw !== 0) return "native " + id + " at " + V + ": " + bw + " ulp with the same home";
                 st.exact++;
