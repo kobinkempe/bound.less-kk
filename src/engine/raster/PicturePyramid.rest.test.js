@@ -2,10 +2,11 @@
  * PicturePyramid.rest.test.js — the rest render (A3 §2): the trigger is the first still frame; the estimate
  * T = 0.73 µs·E + 34 ns·A + 0.15 ms·P decides inline or workers on §2.2's worked cases; the inline executor makes
  * the view exact in the frame it runs; the worker rest set is posted after the quiet as one priority-0 group and
- * shown when all of it is in; rest plates survive a pure pan and are discarded by a zoom, a frame change and a
- * resize; an inline rest that ran over budget sends the next like it to the workers (D272's backstop).
+ * shown when all of it is in; rest plates survive a pure pan and are discarded by a frame change and a resize; a zoom
+ * keeps them as a stand-in source at their own Z (decision 2), never older, until the next zoom's replace them; an
+ * inline rest that ran over budget sends the next like it to the workers (D272's backstop).
  */
-import PyramidStore, { PLATE_BYTES, restCell } from "./PyramidStore";
+import PyramidStore, { PLATE_BYTES, RANK, levelCell, restCell } from "./PyramidStore";
 import PicturePyramid, { EST_DEFAULTS } from "./PicturePyramid";
 import { packJob } from "./rasterPack";
 import { fakeStage } from "../__testkit__/fakeStage";
@@ -149,8 +150,8 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
         expect(t.pyr.compose().cells.some((c) => c.base)).toBe(false);
     });
 
-    test("a zoom, a frame change and a resize discard the rest set at once: removed, closed, the view falls to its level", () => {
-        for (const how of ["zoom", "frame", "resize"]) {
+    test("a frame change and a resize discard the rest set at once: removed, closed, the view falls to its level", () => {
+        for (const how of ["frame", "resize"]) {
             const t = setup();
             t.pyr.frameFor(cam("F", 1.25, 0, 0, t.W, t.H));
             t.pyr.frameFor(cam("F", 1.25, 0, 0, t.W, t.H));
@@ -159,8 +160,7 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
             const n = restKeys(t.store).length;
             expect(n).toBeGreaterThan(0);
             let v;
-            if (how === "zoom") v = t.pyr.frameFor(cam("F", 1.25 * 1.01, 0, 0, t.W, t.H));
-            else if (how === "frame") v = t.pyr.frameFor(cam("G", 1.25, 0, 0, t.W, t.H));
+            if (how === "frame") v = t.pyr.frameFor(cam("G", 1.25, 0, 0, t.W, t.H));
             else { t.pyr.setSize(t.W - 10, t.H, 1); v = t.pyr.frameFor(cam("F", 1.25, 0, 0, t.W - 10, t.H)); }
             expect([how, v.mode]).toEqual([how, "level"]);
             expect([how, restKeys(t.store)]).toEqual([how, []]);
@@ -171,6 +171,77 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
             expect(t.pyr.onResult({ ...restCell("F", 1.25, 0, 0), G: 0, bitmap: { close() { late = true; } }, jobId: 3 })).toBe("discarded");
             expect(late).toBe(true);
         }
+    });
+
+    test("a zoom ends the rest set and keeps its records as the stand-in; the next zoom's replace them, a frame change removes them", () => {
+        const t = setup(), Z = 1.25;
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        const first = restKeys(t.store);
+        expect(first.length).toBeGreaterThan(0);
+        expect(t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H)).mode).toBe("level");
+        expect(restKeys(t.store)).toEqual(first);
+        expect(t.pyr.report().standIn).toEqual({ Z });
+        expect(t.pyr.s.restDiscards).toBe(1);
+        // A late result of the kept set is a stand-in plate too; one of the removed sets' is closed.
+        const late = { ...restCell("F", Z, 0, 0), G: t.stage.generation, pixels: new Uint8ClampedArray(PLATE_BYTES), bytes: PLATE_BYTES, jobId: 9 };
+        expect(t.pyr.onResult(late)).not.toBe("discarded");
+        expect(t.pyr.onResult({ ...restCell("F", Z * 3, 0, 0), G: t.stage.generation, jobId: 10 })).toBe("discarded");
+        t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H));                  // still: a rest set at the new Z
+        const second = restKeys(t.store).filter((k) => !first.includes(k));
+        expect(second.length).toBeGreaterThan(0);
+        t.pyr.frameFor(cam("F", Z * 1.02, 0, 0, t.W, t.H));                  // its zoom: it is the stand-in, the first set goes
+        expect(restKeys(t.store)).toEqual(second);
+        expect(t.pyr.report().standIn).toEqual({ Z: Z * 1.01 });
+        t.pyr.frameFor(cam("G", Z * 1.02, 0, 0, t.W, t.H));                  // another frame: nothing of it is kept
+        expect(restKeys(t.store)).toEqual([]);
+        expect(t.pyr.report().standIn).toBe(null);
+    });
+
+    test("never older after a zoom from rest (decision 2): a cell with no level plate over a stale coarser one is drawn from the kept rest set, pinned while drawn, and no more once its own plate is fresh", () => {
+        const t = setup(), Z = 1.25;
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        const rest = restKeys(t.store);
+        // Level −1 under the whole view, then a change on screen: the patch step keeps the rest set exact, not level −1.
+        const coarse = { ...levelCell("F", -1, 1, 0, 0), G: t.stage.generation, pixels: new Uint8ClampedArray(PLATE_BYTES), bytes: PLATE_BYTES };
+        expect(t.store.put(coarse)).toBe("cached");
+        t.stage.commit({ F: [{ left: 100, top: 100, right: 180, bottom: 160 }] });
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        expect(rest.every((k) => t.store.exact(t.store.get(k)))).toBe(true);
+        expect(t.store.exact(t.store.get(coarse.key))).toBe(false);
+        // A zoom in by 1 %: level 0 holds no plate, level −1 is stale, the kept rest plates cover the screen.
+        const v = t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H));
+        expect(v.mode).toBe("level");
+        const P = t.pyr.compose();
+        expect(P.draws.filter((d) => d.cls === "older" || d.cls === "paper").map((d) => d.cls)).toEqual([]);
+        const fromRest = P.draws.filter((d) => d.rec && d.rec.kind === "rest");
+        expect(fromRest.length).toBeGreaterThan(0);
+        for (const d of fromRest) expect([d.cls, t.store.isPinned(d.rec.key)]).toEqual(["sharp", true]);   // Z 1.25 is finer than level 0's 1
+        t.clock.t += 100;
+        t.pyr.compose();
+        expect([t.pyr.s.olderOtherMs, t.pyr.s.olderPatchMs, t.pyr.s.paperMs, t.pyr.s.blurMs]).toEqual([0, 0, 0, 0]);
+        // The view's own cells land: the kept set is drawn no more, unpinned, evicted first among the exact records.
+        const job = t.posted.filter((j) => j.kind === "view").pop();
+        t.pyr.renderNow(job);
+        const P2 = t.pyr.compose();
+        expect(P2.draws.every((d) => d.rec && d.rec.kind === "level" && d.cls === "sharp")).toBe(true);
+        for (const k of rest) expect([t.store.isPinned(k), t.store.rankOf(t.store.get(k))]).toEqual([false, RANK.OFF_PATH]);
+    });
+
+    test("back at the kept set's own Z its records are the rest set again, shown with nothing rendered", () => {
+        const t = setup(), Z = 1.25;
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));
+        const rest = restKeys(t.store), inline0 = t.pyr.s.restInline;
+        t.pyr.frameFor(cam("F", Z * 1.01, 0, 0, t.W, t.H));
+        t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));                         // moving back
+        const v = t.pyr.frameFor(cam("F", Z, 0, 0, t.W, t.H));               // still, at Z bit for bit
+        expect([v.mode, v.Z]).toEqual(["rest", Z]);
+        expect(t.pyr.s.restInline).toBe(inline0);
+        expect(t.pyr.report().standIn).toBe(null);
+        expect(t.pyr.compose().draws.every((d) => d.rec && d.rec.kind === "rest" && d.cls === "sharp")).toBe(true);
+        expect(restKeys(t.store)).toEqual(rest);
     });
 
     test("D272's backstop: an inline rest that ran over budget sends the next like it to the workers", () => {

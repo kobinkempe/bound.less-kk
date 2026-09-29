@@ -403,6 +403,50 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         delete R.pyramid.cfg.patchInlineMs;
     });
 
+    test("the undo of a small stroke over dense cells is inline: the estimate clipped to the patch, one frame (16 ms) for a user's patch, 6 ms for a patch the bake issues (A3 §3.3)", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, c0 = E.cam;
+        R.pyramid.calibrate = () => ({});                              // the Chrome-derived constants, not this node's timings
+        const F = (sx, sy) => [(sx - c0.inPanX) / c0.inScale, (sy - c0.inPanY) / c0.inScale];
+        // Ten translucent fills across the screen, each top edge a 1,500-point wave: the cells' chords far past the cap.
+        for (let k = 0; k < 10; k++) {
+            const ring = [];
+            for (let n = 0; n <= 1500; n++) ring.push(F(20 + n * 0.5, 40 + k * 4 + 12 * Math.sin(n / 7)));
+            ring.push(F(770, 580), F(20, 580));
+            E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(" + 20 * k + ",90,160)", opacity: 0.4, polys: [ring] }, "0");
+        }
+        E._render();
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        drawStroke(E, [[70, 500], [95, 520], [110, 510]], 8, "#c00");
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        for (const op of ["undo", "redo"]) {
+            const n0 = R.pyramid.s.patchInline;
+            E[op]();
+            const lp = R.pyramid.lastPatch;
+            expect([op, lp.inline, lp.budget]).toEqual([op, true, 16]);
+            expect(R.pyramid.s.patchInline).toBe(n0 + 1);
+            // Whole cells, the same estimate reads past the cap: the clip is what makes it small.
+            const [a, b] = [F(60, 490), F(120, 530)];
+            const recs = cellsUnder(R.pyramid.lastPlan, { left: a[0], top: a[1], right: b[0], bottom: b[1] }).flatMap((c) => c.draws.map((d) => d.rec));
+            expect(recs.length).toBeGreaterThan(0);
+            const whole = R._pyrMeasure({ kind: "patch", Z: recs[0].Z, cells: recs.map((r) => ({ i: r.i, j: r.j })), clips: null });
+            expect(whole.E).toBeGreaterThan(20000);
+            expect(lp.est.E).toBeLessThan(whole.E / 4);
+            expect(lp.T).toBeLessThan(6);
+            for (const rec of recs) {
+                expect([op, rec.key, E.plates.exact(rec), diffBytes(rec.pixels, wholeRender(E, rec))]).toEqual([op, rec.key, true, 0]);
+            }
+            expect(await drain(E, g)).toBe(0);
+        }
+        // A change that is not the user's own action (here a fill the document gains): the bake's 6 ms.
+        E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#0a0", opacity: 1, polys: [[F(60, 490), F(120, 490), F(120, 530), F(60, 530)]] }, "0");
+        E._render();
+        expect(R.pyramid.lastPatch.budget).toBe(6);
+        expect(await drain(E, g)).toBe(0);
+    }, 60000);
+
     test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
         const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, wrong: [] };
         const watch = (E, seed) => {

@@ -252,7 +252,8 @@ function quiet() {
     const S = E.plates && E.plates.report ? E.plates.report() : null;
     const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
     const sum = (a) => a.reduce((x, y) => x + y, 0);
-    return !E._fr && (!W || (W.queued === 0 && W.inFlight === 0)) && (!S || S.inFlight === 0) && (!Q || (sum(Q.queued) === 0 && sum(Q.inFlight) === 0));
+    // The pool's own queue went to the JobQueue at P6: `W.queued` is absent there, so absent counts as none.
+    return !E._fr && (!W || (!(W.queued > 0) && !(W.inFlight > 0))) && (!S || S.inFlight === 0) && (!Q || (sum(Q.queued) === 0 && sum(Q.inFlight) === 0));
 }
 
 /** Runs in the page: what keeps the renderer from quiet — a pending frame, the pool's, the store's and the queue's counts. */
