@@ -2286,3 +2286,21 @@ cells are in flight for another job waits the whole LIVE_HOLD_MS: two strokes ba
 **Questions asked:** (a) and (b) to B-PYRAMID-4 (clamp the re-aimed level at `ownFloor`; a dropped group strip re-asked or
 resolved) — or filed as flags by me? Recommendation: I file both in OPEN-FLAGS now, B-PYRAMID-4 fixes.
 WHERE I AM: the round trips on frozen copies (c7fed1a against it with item 4), then item 5's docs, the quick suite.
+
+## 2026-09-29 21:12 UTC — B-DRAG (builder) — D1 progress: suites ported, the fuzzes green, a pre-existing drag defect found
+**Working on:** the red tests rewritten to C2 (mid-drag: document byte-equal, `placed`/`placeNative` at +δ; after
+the drop: the old assertions): `move.subtree` t1/t3/t8–t10, `move.normalise` N1, `move.below` MB-5 ×2, `gesture.robustness`
+F50–F52/F51, `frame.gc` G1/G8, `select.inkless` I4/I10, `raster.move` M2/RV1/RV2/F3/H1, `raster.translucent` (the drop's
+patch now fits `patchUserMs`: the tests set it to 0 to see the landing, as they set `patchInlineMs`), `raster.overlay` G11
+(the ants decide at rest in both renderers). New `move.drop.test.js` (12 tests). `modelFuzz.comparePictures`: a native
+the oracle normalised (its stored numbers differ) is compared by its drawn box through each model's placement.
+**Measured (jsdom):** `move.drop` 12/12 — per event 0 doc events, 0 re-homes, 0 settles, rev/offRev/addrEpoch/frames/undo
+unchanged over 40 events (per-object, frame, both). Census (A1 §1.4 fixture, seeds 12345/777/4242, 40 × 7 px, a render
+each): frames minted during the drag, pre-B-DRAG tree 211/145/239, now 0/0/0; left after GC 14/4/4 → 14/5/4 (oracle
+15/5/5). Found: on the pre-B-DRAG tree the same walk put 400 of 1,250 natives one cell (32 units) off the per-object
+picture (seed 777; the mover merged into a container its own trail minted); now 0 of 1,250 (test red on a copy of
+d206cd3, green here). `select.stands` 12×40: 480 checks, 135 selections (= baseline). `model.equivalence` 25 seeds × 40:
+1,000 checks, 8,049 items, 37 carried at 0 ulp, 16 normalised within 1.5e-8 home units.
+**Decisions made:** no edit to `RasterRenderer`/`rasterPack`: the pack rule is the Stage's `Item.res`.
+**Questions asked:** none.
+WHERE I AM: scenario 4 in headless Chromium (pre on :3040, this tree's archive on :3041), then D1's break-checks.

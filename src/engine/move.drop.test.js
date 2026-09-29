@@ -156,6 +156,31 @@ describe("D2 — the drop: one write, one op; mints at the drop are the final ch
         expect(out.some((c) => c.oracle.during > 20)).toBe(true);           // the fixture: the old drag minted a trail
     });
 
+    test("the same walk lands every native where the per-object path puts it (registration, `move.subtree` t2)", () => {
+        // Seed 777: the drag that wrote every event merged the mover into a container its own trail minted at
+        // the final cell, and 400 of 1,250 natives landed a cell (32 units) off the per-object picture.
+        for (const seed of [777, 12345, 99]) {
+            const boxes = (perObject) => {
+                const f = censusFixture(null, seed), { E, R, rnd } = f;
+                const all = [];
+                for (const k of E.doc.levels()) for (const o of E.doc.list(k)) all.push(o.id);
+                if (perObject) E._setSelection(all, []); else E._setSelection([], [R.id]);
+                const p = pressOn(E, R.id);
+                let x = p[0], y = p[1];
+                E._dragSel = { start: [p[0], p[1]], moved: false };
+                for (let s = 0; s < 40; s++) { x += (rnd() - 0.3) * 7; y += (rnd() - 0.4) * 7; E._dragSelection(x, y); E._render(); }
+                E.pointerUp();
+                const out = new Map();
+                for (const k of E.doc.levels()) for (const o of E.doc.list(k)) out.set(o.id, E.stage.placeNative(o, "1").box());
+                return out;
+            };
+            const a = boxes(false), b = boxes(true);
+            let off = 0;
+            for (const [id, r] of a) { const q = b.get(id); if (!q || ["left", "top", "right", "bottom"].some((k) => r[k] !== q[k])) off++; }
+            expect([seed, a.size, off]).toEqual([seed, 1250, 0]);          // red before B-DRAG: seed 777, 400 off by a cell
+        }
+    });
+
     test("the drop's write, the hold's release and its merges are one Stage commit", () => {
         const f = fixture();
         const { E } = f;
