@@ -20,6 +20,7 @@
 import { useEngines, mkEngine, drawStroke, painted } from "./__testkit__/harness";
 import { inks } from "./__testkit__/ink";
 import { snapDisplacement } from "./geometry/offsets";
+import { tileContent } from "./__oracles__/renderList";
 
 jest.setTimeout(300000);
 useEngines();
@@ -68,7 +69,7 @@ const ascendTo = (E, col, n, y) => {
 // The coarse object's pieces in the active frame's tiles over the view, as bits.
 const piecesOf = (E, id) => {
     const out = [];
-    for (const p of E.store.content(E.cam.frame, E.cam.frameWindow(0))) {
+    for (const p of tileContent(E, E.cam.frame, E.cam.frameWindow(0))) {
         if (p.id !== id) continue;
         out.push(p.type === "shape" ? geomOf(p) : JSON.stringify(p.polys));
     }

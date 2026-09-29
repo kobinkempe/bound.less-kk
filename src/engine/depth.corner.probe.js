@@ -31,6 +31,7 @@
 import { useEngines, mkEngine, drawStroke, eraseGesture, painted } from "./__testkit__/harness";
 import { inks } from "./__testkit__/ink";
 import { subtractShape, loopsArea, loopsBBox } from "./geometry/arcShape";
+import { tileContent } from "./__oracles__/renderList";
 
 jest.setTimeout(300000);
 useEngines();
@@ -115,7 +116,7 @@ describe("nick at moderate zoom", () => {
         const nickX = col + 300;
         const yN = edgeAtY(E, nickX, yHere - 200, yHere + 200) ?? scanEdge(E, nickX);
         expect(yN).not.toBeNull();
-        const inkPieces = E.store.content(E.cam.frame, E.cam.frameWindow(0)).filter((o) => o.id === 1 && o.loops);
+        const inkPieces = tileContent(E, E.cam.frame, E.cam.frameWindow(0)).filter((o) => o.id === 1 && o.loops);
         let rmax = 0, arcs = 0, lines = 0;
         for (const o of inkPieces) for (const l of o.loops) for (const p of l) { if (p.line) lines++; else { arcs++; rmax = Math.max(rmax, Math.abs(p.r)); } }
         E.setEraserSize(12);
@@ -158,7 +159,7 @@ describe("corner invalidation", () => {
         // (mapped up into that level), as sorted strings — the whole derivation chain, bit for bit.
         const ancestors = (Fdeep, fromDepth) => { const parts = Fdeep.split("/"); const out = []; for (let d = fromDepth; d < parts.length; d++) out.push(parts.slice(0, d + 1).join("/")); return out; };
         const strsOf = (c) => c.filter((o) => o.type === "shape" || o.type === "fill").map((o) => (o.loops ? loopStrs(o.loops).join("|") : JSON.stringify(o.polys))).sort();
-        const chainPieces = () => ancestors(F8, 3).map((Fk) => { const r = E.lm.mapRectF(win8, F8, Fk); return { Fk, strs: r ? strsOf(E.store.content(Fk, r)) : [] }; });
+        const chainPieces = () => ancestors(F8, 3).map((Fk) => { const r = E.lm.mapRectF(win8, F8, Fk); return { Fk, strs: r ? strsOf(tileContent(E, Fk, r)) : [] }; });
         const numsOf = (strs) => (strs.join("|").match(/-?\d+(\.\d+)?(e[-+]?\d+)?/g) || []).map(Number);
         const cmp = (a, b) => {
             if (a.strs.length !== b.strs.length) return { same: false, why: `pieces ${a.strs.length} vs ${b.strs.length}`, aStrs: a.strs, bStrs: b.strs };
@@ -193,7 +194,7 @@ describe("corner invalidation", () => {
             below: o.below || null, rect: o.attachRect || null, tile: o.tile || null, editId: o.editId ?? null,
         })));
         // eslint-disable-next-line no-console
-        console.log(JSON.stringify({ level3: { frame: E.cam.frame, inScale: E.cam.inScale, y3, yN, inkHere: arcSummary(E.store.content(E.cam.frame, E.cam.frameWindow(0))), doc: docSummary() } }));
+        console.log(JSON.stringify({ level3: { frame: E.cam.frame, inScale: E.cam.inScale, y3, yN, inkHere: arcSummary(tileContent(E, E.cam.frame, E.cam.frameWindow(0))), doc: docSummary() } }));
         if (yN != null) {
             E.setEraserSize(12);
             eraseGesture(E, [[nickX, yN - 30], [nickX, yN + 30]]);
@@ -201,7 +202,7 @@ describe("corner invalidation", () => {
             // ink for this square (the piece the renderer draws) minus the eraser's own perimeter.
             if (typeof E.flushBakes === "function") E.flushBakes();
             const eraser = E.doc.at(E.cam.frame).find((o) => o.erase && o.loops && o.loops.length);
-            const inkPieces = E.store.content(E.cam.frame, E.cam.frameWindow(0)).filter((o) => o.id === 1 && o.loops);
+            const inkPieces = tileContent(E, E.cam.frame, E.cam.frameWindow(0)).filter((o) => o.id === 1 && o.loops);
             if (eraser && inkPieces.length) {
                 const ink = [].concat(...inkPieces.map((o) => o.loops));
                 const res = subtractShape(ink, eraser.loops);

@@ -2131,3 +2131,16 @@ inline render's own pack was 89 ms (a new list at every commit, the prepass rebu
 is a design change, not the brief's build).
 **Questions asked:** none yet.
 WHERE I AM: the batch's final table (two `--scenario all`, levelStep 2|3), then F79, typecheck, lint, bundles, report.
+
+## 2026-09-29 16:32 UTC — B-PYRAMID-3 (builder) — waiting for item 4: the trial copy
+**Working on:** item 4 prepared on an unimported trial copy (a tar of the live tree at 16:15, not the live tree):
+`RasterRenderer` composing `[PicturePyramid z0, SvgLayer z1, OverlayLayer z2, bl-sel-edges z3]` with the shared
+`LiveStrokeLayer` (hold/release) and `svgOverlay`; every prefetch read warm (`warmReads` on around `prefetchPlan`),
+the plan-time clearing deleted; `Renderer`'s raster seams, `listFor`, `_buildList` and TileStore's list reads
+(`content`, `contentOffCamera`, `_reroute`, the over-budget throw) deleted; the engine guards the calls one renderer has.
+**Measured:** lint on the trial copy 0 errors. No suite run on it yet.
+**Decisions made:** none new. The live tree's `RasterRenderer.js` and raster modules stay untouched until the
+reviewer's end entry (last seen 16:26, still batching).
+**Questions asked:** none.
+WHERE I AM: the raster suites' ports on the trial copy (live fields → `live.held/root/tail`, `_buildList` spies →
+`_render`, the chevrons seam test → `svgOverlay.renderSelChevrons`), then the prefetch-warm test and its break-check.

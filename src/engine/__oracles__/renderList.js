@@ -12,8 +12,12 @@
  * Test-only: production never imports `__oracles__`.
  */
 
-/** The list for `rect` in frame `frameKey` (a frame id or a depth), or `[]` for an unreachable frame. */
-export function renderList(E, frameKey, rect) {
+/**
+ * The tile pieces drawn over `rect` in frame `frameKey` — every tile of the rect, both directions, the moved natives'
+ * pieces read back from where their picture is — without the frame's live natives (`TileStore.content` until
+ * B-PYRAMID-3). `[]` for an unreachable frame.
+ */
+export function tileContent(E, frameKey, rect) {
     const store = E.store, lm = E.lm;
     const cf = lm.frameFor(frameKey);
     if (!cf) return [];
@@ -36,8 +40,16 @@ export function renderList(E, frameKey, rect) {
         store._pins = pins; store._holdEvict = hold;
         store._evict();
     }
+    return derived;
+}
+
+/** The list for `rect` in frame `frameKey` (a frame id or a depth), or `[]` for an unreachable frame. */
+export function renderList(E, frameKey, rect) {
+    const cf = E.lm.frameFor(frameKey);
+    if (!cf) return [];
+    const F = cf.id;
     const model = E.stage.model;
-    const list = derived.concat(model.nativesIn(F));
+    const list = tileContent(E, F, rect).concat(model.nativesIn(F));
     const hasOff = E.doc.hasOffsets(), resById = new Map();
     for (const o of list) {
         const rec = E.doc.getById(o.id);
