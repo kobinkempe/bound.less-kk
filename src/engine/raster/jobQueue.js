@@ -62,7 +62,8 @@ export default class JobQueue {
         for (const job of jobs) {
             if (!Number.isInteger(job.prio) || job.prio < 0 || job.prio > 5) throw new Error("jobQueue: a job needs a priority 0–5, got " + job.prio);
             this.s.pushed++;
-            for (const st of this.strips(job)) { st.seq = ++this._seq; this.queue.push(st); this.s.strips++; }
+            const at = this.clock();
+            for (const st of this.strips(job)) { st.seq = ++this._seq; st.pushedAt = at; this.queue.push(st); this.s.strips++; }
         }
         return this;
     }

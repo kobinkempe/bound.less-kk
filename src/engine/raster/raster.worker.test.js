@@ -1,11 +1,11 @@
 /**
- * raster.worker.test.js — stage 3 of RASTERISER-PLAN §10: the worker entry, the pool and the one
- * strip queue. W1–W21, run through BOTH delivery paths — a transport stub standing in for the
- * pool, and the inline fallback jsdom always takes — because the acceptance is that they draw the
- * same pixels and report the same numbers. W18 and W19 came out of the stage's review: the
- * `self.onmessage` entry and its transfer list had no test at all, and an abandoned job's worker
- * was being handed a second job while it was still drawing the first (§3.5). W20 and W21 are the
- * per-`q` drop rules 5b builds on (D182): what a newer frame drops, and what only the caller can.
+ * raster.worker.test.js — stage 3 of RASTERISER-PLAN §10: the worker entry and the pool, driven the way the renderer
+ * drives it — through the `JobQueue` (A3 §4.4) — run through BOTH delivery paths, a transport stub standing in for the
+ * pool and the inline fallback jsdom always takes, because the acceptance is that they draw the same pixels and report
+ * the same numbers. W18 and W19 came out of the stage's review: the `self.onmessage` entry and its transfer list had
+ * no test at all, and an abandoned job's worker was being handed a second job while it was still drawing the first
+ * (§3.5). W8/W8b are the drops by purpose generation and by G, W9 the priorities and W9b the cuts' reservation
+ * through the real pool (B-PYRAMID-2b P6; the per-`q` drop rules went with the old queue).
  *
  * Three of these are the stage's own acceptance and are here rather than at stage 6, because they
  * constrain the wire format: X6 (the worker returns DURATIONS and the main thread owns every
@@ -21,8 +21,12 @@
 import * as core from "./rasterCore";
 import * as pack from "./rasterPack";
 import { wireJob, unwireResult, GUARD_NAMES, COUNT_NAMES, GUARDS_PER_JOB, TIMINGS_PER_PLATE, COUNTS_PER_PLATE } from "./rasterJob";
-import { runJob } from "../worker/rasterWorker";
+import { runJob, runCut } from "../worker/rasterWorker";
 import * as client from "./rasterWorkerClient";
+import JobQueue, { PRIO } from "./jobQueue";
+import PyramidStore, { levelCell } from "./PyramidStore";
+import { freshStub } from "../__testkit__/freshStub";
+import { submit as submitCut } from "../eraseWorkerClient";
 import { Loop } from "../geometry/loop";
 
 const TW = core.TW, TH = core.TH;
@@ -71,7 +75,47 @@ function twoPlateJob() {
 }
 const PLATE_X = (i) => i * TW;
 
+/**
+ * The renderer's path to the pool (`RasterRenderer._pyrSubmit`): a `JobQueue` over `client.rasterPool`. A request's
+ * plates (or `cells`) are one job, dealt into strips; each strip is packed at dispatch into one entry whose result,
+ * drop and hand-back answer the queue (a hand-back requeues the strip at the head of its priority, H7).
+ */
+let Q = null;
+function mkQueue(o = {}) {
+    Q = new JobQueue({
+        pool: { size: () => client.rasterPool.size(), free: () => client.rasterPool.free(), submit: (st) => client.rasterPool.submit(st.entry || entryOf(st)) },   // a cut posts its own entry
+        gens: o.gens || {}, store: o.store || null,
+    });
+    return Q;
+}
+function entryOf(st) {
+    const q = Q, r = st.req, plates = new Int32Array(st.cells.length * 2);
+    st.cells.forEach((c, k) => { plates[2 * k] = c.i; plates[2 * k + 1] = c.j; });
+    return {
+        plates,
+        req: {
+            prio: st.prio, pack: r.pack,
+            onResult: (res, info) => { q.done(st.id); if (r.onResult) r.onResult(res, info); q.pump(); },
+            onDrop: (d) => { if (!d.before) q.done(st.id, false); if (r.onDrop) r.onDrop(d); if (!d.before) q.pump(); },
+            onRequeue: (jobId, why) => { if (r.onRequeue) r.onRequeue({ jobId, why }); if (q.requeue(st.id)) Promise.resolve().then(() => q.pump()); },
+        },
+    };
+}
+/** One request into the queue (made on first use), pumped; returns the strips it was dealt into. */
+function submit(req) {
+    const q = Q || mkQueue();
+    const cells = req.cells ? req.cells : [];
+    if (!req.cells) for (let k = 0; k < req.plates.length; k += 2) cells.push({ key: "0|" + req.plates[k] + "," + req.plates[k + 1], i: req.plates[k], j: req.plates[k + 1] });
+    const n0 = q.report().strips;
+    q.push([{ kind: req.kind || "view", prio: req.prio != null ? req.prio : PRIO.view, frame: "0", level: 0, S: 1, Z: 1, cells, clips: null,
+        attention: null, purpose: req.purpose || null, gen: req.gen != null ? req.gen : null, req }]);
+    q.pump();
+    return q.report().strips - n0;
+}
+const queued = () => Q.report().queued.reduce((a, b) => a + b, 0);
+
 beforeEach(() => {
+    Q = null;
     pack.clearPackCaches();
     pack.resetPackStats();
     for (const k of Object.keys(core.coreStats)) core.coreStats[k] = 0;
@@ -105,8 +149,8 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
         // Inline is one worker, so two plates are two strips of one — and each carries its own
         // plate pair, which is how the caller knows what it was handed.
         const got = [];
-        const strips = client.submitPlates({
-            frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0, 1, 0]),
+        const strips = submit({
+            plates: Int32Array.from([0, 0, 1, 0]),
             pack: (plates) => packStrip([
                 shapeItem(1, [rect(40, 40, 400, 300)]),
                 fillItem(2, [rect(PLATE_X(1) + 60, 120, PLATE_X(1) + 380, 460)]),
@@ -199,8 +243,8 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
             return (await runJob(msg, { clock, receivedAt: clock.now() })).msg;
         });
         client.setRasterWorkerCount(1);
-        client.submitPlates({
-            frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+        submit({
+            plates: Int32Array.from([0, 0]),
             pack: (plates) => packStrip([shapeItem(1, [rect(40, 40, 400, 300)])], plates),
             onResult: (res, info) => seen.push(info),
         });
@@ -371,18 +415,10 @@ describe("the worker entry (§3.3, §3.4, §3.5)", () => {
     });
 });
 
-describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
-    test("W7 the strip size is ceil(plates / (workers × 2)), and one queue feeds every free worker", async () => {
-        expect(client.stripSizeFor(15, 4)).toBe(2);
-        expect(client.stripSizeFor(24, 4)).toBe(3);
-        expect(client.stripSizeFor(12, 2)).toBe(3);
-        expect(client.stripSizeFor(1, 4)).toBe(1);
-
-        // two "workers": one strip is slow, and the other slot takes the rest — which is the
-        // whole reason for one queue rather than a strip per worker (§3.6). The slow strip's
-        // 600 ms is an order of magnitude over the other three's serialised chain, which is what
-        // "last" is measured against: beside a full quick suite that chain finishes at 43.6–60.0 ms
-        // against the 60 ms this used to wait, and overtook it in 2 quick runs of 3.
+describe("the pool through the queue (§3.6, §8.4; A3 §4.4)", () => {
+    test("W7 a job's plates are dealt into workers × STRIPS_PER_WORKER strips, and one queue feeds every free worker", async () => {
+        // two "workers": one strip is slow, and the other slot takes the rest — the whole reason for one queue rather
+        // than a strip per worker (§3.6). The slow strip's 600 ms is an order of magnitude over the other three's chain.
         let live = 0, peak = 0;
         const order = [];
         client.setRasterWorkerCount(2);
@@ -396,74 +432,112 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         const plates = [];
         for (let i = 0; i < 12; i++) plates.push(i, 0);
         const done = [];
-        const strips = client.submitPlates({
-            frameSeq: 3, q: 0, Zq: 1, plates: Int32Array.from(plates),
+        const strips = submit({
+            plates: Int32Array.from(plates),
             pack: (p) => packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p),
             onResult: (res, info) => done.push(info),
         });
-        expect(strips).toBe(4);                                         // 12 plates, 2 workers → 3 a strip
+        expect(strips).toBe(4);                                         // 12 plates, 2 workers → 4 strips of 3
         expect(await until(() => done.length === 4, 2000)).toBe(true);  // polls, not ms: 600 ms needs ≈ 600
         expect(peak).toBe(2);                                           // in flight capped at one per worker
         expect(order[order.length - 1]).toBe(0);                        // the slow strip finished last
         expect(done.reduce((n, i) => n + i.plates.length / 2, 0)).toBe(12);
+        expect(done.map((i) => i.plates[0]).sort()).toEqual([0, 1, 2, 3]);   // dealt round-robin: each strip's first plate
     });
 
-    test("W8 a strip superseded while it waited is dropped BEFORE it is packed (§8.4 rule 4)", async () => {
+    test("W8 a strip whose purpose moved on is dropped BEFORE it is packed; one whose cells are exact costs no pack (A3 §4.4)", async () => {
         let packed = 0;
-        const drops = [];
         client.setRasterWorkerCount(1);
         client.setRasterTransport(async (msg) => { await flush(30); return (await runJob(msg)).msg; });
-        const mk = (frameSeq) => ({
-            frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0, 1, 0, 2, 0, 3, 0]),
+        const q = mkQueue({ gens: { view: 1 } });
+        const mk = () => ({
+            plates: Int32Array.from([0, 0, 1, 0]), purpose: "view", gen: 1,
             pack: (p, jobId) => { packed++; return packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId }); },
-            onDrop: (d) => drops.push(d),
-            onResult: () => {},
         });
-        expect(client.submitPlates(mk(1))).toBe(2);                     // 4 plates, 1 worker → 2 a strip
-        await flush(0);
+        expect(submit(mk())).toBe(2);                                   // 2 plates, 1 worker → 2 strips
         expect(packed).toBe(1);                                         // one dispatched, one waiting
-        client.submitPlates(mk(2));
-        expect(drops.length).toBe(1);
-        expect(drops[0].why).toBe("frame");
-        expect(drops[0].before).toBe(true);
-        expect(drops[0].jobId).toBe(null);                              // never packed, so never begun
-        expect(packed).toBe(1);
+        q.gens.view = 2;                                                // the view moved on
+        expect(await until(() => q.report().done === 1, 300)).toBe(true);
+        expect(packed).toBe(1);                                         // never packed, so never begun
+        expect(q.report().drops.gen).toBe(1);
 
-        // and the store's own answer at dispatch time: a strip it no longer wants costs no pack
-        const kept = [];
-        client.submitPlates({
-            frameSeq: 3, q: 0, Zq: 1, plates: Int32Array.from([9, 9]),
-            stillWanted: () => false,
-            pack: () => { packed++; return null; },
-            onDrop: (d) => kept.push(d),
-            onResult: () => {},
-        });
-        expect(await until(() => kept.length === 1, 300)).toBe(true);
-        expect(kept[0].why).toBe("stale");
-        expect(kept[0].before).toBe(true);
+        // and the store's own answer at dispatch time: a strip whose cells are exact costs no pack
+        const q2 = mkQueue({ store: { wants: () => false } });
+        submit({ plates: Int32Array.from([9, 9]), pack: () => { packed++; return null; } });
+        expect([packed, q2.report().drops.exact]).toEqual([1, 1]);
+    });
+
+    test("W8b drops by G through the real store: a cell exact in the store is not packed; dirtied, it is", async () => {
+        client.setRasterWorkerCount(1);
+        client.setRasterTransport(async (msg) => (await runJob(msg)).msg);
+        const fresh = freshStub(), store = new PyramidStore({ fresh, doc: null });
+        const c = levelCell("0", 0, 1, 0, 0);
+        store.put({ ...c, G: fresh.generation, pixels: new Uint8ClampedArray(4), bytes: 4, jobId: null });
+        mkQueue({ store });
+        let packed = 0;
+        const req = () => ({ cells: [c], pack: (p, jobId) => { packed++; return packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId }); } });
+        submit(req());
+        expect(packed).toBe(0);                                         // exact at G: dropped at dispatch
+        fresh.dirty();                                                  // a change meets it
+        submit(req());
+        expect(packed).toBe(1);
+        store.destroy();
+    });
+
+    test("W9 the priorities through the pool: once the first job lands, the queue runs rest, view, plane, cut, prefetch, thumbnail", async () => {
+        client.setRasterWorkerCount(1);
+        const order = [];
+        client.setRasterTransport(async (msg) => { await flush(5); return (await runJob(msg)).msg; });
+        const mk = (kind, prio, i) => ({ kind, prio, plates: Int32Array.from([i, 0]),
+            pack: (p, jobId) => { order.push(kind); return packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId }); } });
+        submit(mk("first", 1, 0));                                      // holds the one worker
+        for (const [kind, prio, i] of [["prefetch", 4, 1], ["thumb", 5, 2], ["plane", 2, 3], ["rest", 0, 4], ["view", 1, 5]]) submit(mk(kind, prio, i));
+        expect(await until(() => order.length === 6, 500)).toBe(true);
+        expect(order).toEqual(["first", "rest", "view", "plane", "prefetch", "thumb"]);
+    });
+
+    test("W9b the cuts' reservation through the pool: a cut takes the next free slot ahead of queued view strips (PLAN §1.6)", async () => {
+        client.setRasterWorkerCount(2);
+        const posted = [];
+        const answers = [];
+        client.setRasterTransport((msg, transfer, kind) => new Promise((resolve) => {
+            posted.push(kind || "plate");
+            answers.push(() => resolve(kind ? runCut(kind, msg).msg : runJob(msg).then((o) => o.msg)));
+        }));
+        const q = mkQueue();
+        const plates = [];
+        for (let i = 0; i < 6; i++) plates.push(i, 0);
+        submit({ plates: Int32Array.from(plates), pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId }) });
+        expect(posted).toEqual(["plate", "plate"]);                     // both workers busy, two strips wait
+        const cut = submitCut(q, { kind: "cut", job: { subject: [], clip: [], w: 1, freezeR: 1, graze: "cut" } });
+        answers.shift()();
+        expect(await until(() => posted.length === 3, 300)).toBe(true);
+        expect(posted[2]).toBe("cut");                                  // red without the reservation: a plate strip
+        answers.shift()(); answers.shift()();
+        await expect(cut).resolves.toMatchObject({ kind: "grazed" });
     });
 
     test("W10 the job's buffers come back and the pool fills them next time (§3.6)", async () => {
         const done = [];
-        const req = (frameSeq) => ({
-            frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+        const req = () => ({
+            plates: Int32Array.from([0, 0]),
             pack: (p, jobId, pool) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, pool }),
             onResult: (res, info) => done.push(info),
         });
-        client.submitPlates(req(1));
+        submit(req());
         expect(await until(() => done.length === 1)).toBe(true);
         const after = client.rasterWorkerReport();
         expect(after.pool.takes).toBeGreaterThan(0);
         expect(after.pool.bytes).toBeGreaterThan(0);                    // the worker gave them back
 
-        client.submitPlates(req(2));
+        submit(req());
         expect(await until(() => done.length === 2)).toBe(true);
         expect(client.rasterWorkerReport().pool.hits).toBeGreaterThan(0);
         expect(done[1].bytesOut).toBeGreaterThan(0);
         expect(done[1].bytesIn).toBeGreaterThan(done[1].bytesOut);      // a plate is 1.05 MB coming back
     });
 
-    test("W11 onerror marks the pool broken for the session, and the strip is finished inline", async () => {
+    test("W11 onerror before any answer marks the pool broken for the session, and the strip is handed back and finished inline", async () => {
         const made = [];
         global.Worker = class {
             constructor(url) { this.url = url; this.posted = []; made.push(this); }
@@ -476,11 +550,11 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             expect(made[0].url).toContain("/raster-worker.js");
             expect(client.rasterWorkerReport().mode).toBe("workers");
 
-            const drops = [], got = [];
-            client.submitPlates({
-                frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            const back = [], got = [];
+            submit({
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
-                onDrop: (d) => drops.push(d),
+                onRequeue: (b) => back.push(b),
                 onResult: (res) => got.push(res),
             });
             expect(made[0].posted.length).toBe(1);
@@ -489,9 +563,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             made[0].onerror({ preventDefault() {} });                   // the script did not load
             expect(client.rasterWorkerReport().broken).toBe(true);
             expect(made[0].dead).toBe(true);
-            expect(drops.length).toBe(1);
-            expect(drops[0].jobId).toBe(jobId);                         // endJob's own case (stage 4)
-            expect(drops[0].why).toBe("worker");
+            expect(back).toEqual([{ jobId, why: "worker" }]);           // endJob's own case: the old id is the caller's to end
 
             expect(await until(() => got.length === 1, 300)).toBe(true);
             expect(ink(got[0].pixels[0])).toBeGreaterThan(0);           // re-packed and drawn inline
@@ -513,29 +585,29 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             client.setRasterWorkerCount(1);
             expect(client.ensureRasterPool()).toBe(1);
             const got = [];
-            const req = (frameSeq) => ({
-                frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            const req = () => ({
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
                 onResult: (res) => got.push(res),
             });
-            client.submitPlates(req(1));
+            submit(req());
             made[0].onmessage({ data: (await runJob(made[0].posted[0])).msg });   // it answers: the script loads
             expect(await until(() => got.length === 1)).toBe(true);
             for (let k = 1; k <= client.MAX_RESPAWNS; k++) {
                 const w = made[made.length - 1];
-                client.submitPlates(req(k + 1));
+                submit(req());
                 w.onerror({ preventDefault() {} });
                 expect(w.dead).toBe(true);
                 expect(client.rasterWorkerReport().broken).toBe(false);          // red before: broken at the first
                 expect(client.rasterWorkerReport().respawns).toBe(k);
                 const w2 = made[made.length - 1];
                 expect(w2).not.toBe(w);
-                expect(w2.posted.length).toBe(1);                               // the strip, re-packed onto the new pool
+                expect(await until(() => w2.posted.length === 1)).toBe(true);    // the strip, re-packed onto the new pool
                 w2.onmessage({ data: (await runJob(w2.posted[0])).msg });
                 expect(await until(() => got.length === k + 1)).toBe(true);
             }
             const last = made[made.length - 1];
-            client.submitPlates(req(99));
+            submit(req());
             last.onerror({ preventDefault() {} });
             expect(client.rasterWorkerReport().broken).toBe(true);              // out of respawns
             expect(await until(() => got.length === client.MAX_RESPAWNS + 2, 300)).toBe(true);   // finished inline
@@ -545,7 +617,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         }
     });
 
-    test("W11c a job silent past WATCHDOG_MS is looked at once more, then its pool is replaced and the strip re-posted (RW-1)", () => {
+    test("W11c a job silent past WATCHDOG_MS is looked at once more, then its pool is replaced and the strip re-posted (RW-1)", async () => {
         const made = [];
         global.Worker = class {
             constructor(url) { this.url = url; this.posted = []; made.push(this); }
@@ -557,11 +629,11 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         try {
             client.setRasterWorkerCount(1);
             expect(client.ensureRasterPool()).toBe(1);
-            const drops = [];
-            client.submitPlates({
-                frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            const back = [];
+            submit({
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
-                onDrop: (d) => drops.push(d),
+                onRequeue: (b) => back.push(b.why),
             });
             expect(made[0].posted.length).toBe(1);
             t += client.WATCHDOG_MS - 1;
@@ -574,8 +646,8 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             client._checkWatchdogForTests();
             expect(made.length).toBe(2);                                         // red before: silent for ever
             expect(made[0].dead).toBe(true);
-            expect(made[1].posted.length).toBe(1);
-            expect(drops.map((d) => d.why)).toEqual(["worker"]);
+            expect(back).toEqual(["watchdog"]);                                  // a plate strip is re-posted whatever the reason
+            expect(await until(() => made[1].posted.length === 1)).toBe(true);
             const rep = client.rasterWorkerReport();
             expect(rep.silent).toBe(1);
             expect(rep.broken).toBe(false);
@@ -629,19 +701,19 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             return (await runJob(msg)).msg;
         });
         const mk = (frameSeq) => ({
-            frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            plates: Int32Array.from([0, 0]),
             pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
             onDrop: (d) => drops.push(d),
             onResult: (res) => got.push(res),
         });
-        client.submitPlates(mk(1));
+        submit(mk(1));
         expect(await until(() => drops.length === 1)).toBe(true);
         expect(drops[0].why).toBe("bad job");
         expect(drops[0].before).toBe(false);
         expect(client.rasterWorkerReport().failed).toBe(1);
         expect(client.rasterWorkerReport().inFlight).toBe(0);           // the slot is free again
 
-        client.submitPlates(mk(2));
+        submit(mk(2));
         expect(await until(() => got.length === 1)).toBe(true);
         expect(ink(got[0].pixels[0])).toBeGreaterThan(0);
     });
@@ -664,12 +736,12 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
 
         // 1 — a clean job: the id rides `onResult`
         client.setRasterTransport(ok);
-        client.submitPlates(base({ frameSeq: 1 }));
+        submit(base({ frameSeq: 1 }));
         expect(await until(() => seen.length === 1)).toBe(true);
         expect(seen[0].how).toBe("result");
 
         // 2 — `pack` throws after the id was minted: the store may already have begun it
-        client.submitPlates(base({
+        submit(base({
             frameSeq: 2,
             pack: (p, jobId) => { minted.push(jobId); throw new Error("pack blew up"); },
         }));
@@ -677,26 +749,26 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         expect(seen[1].how).toBe("drop:pack");
 
         // 3 — `pack` returns null: nothing on this strip to draw
-        client.submitPlates(base({ frameSeq: 3, pack: (p, jobId) => { minted.push(jobId); return null; } }));
+        submit(base({ frameSeq: 3, pack: (p, jobId) => { minted.push(jobId); return null; } }));
         expect(await until(() => seen.length === 3)).toBe(true);
         expect(seen[2].how).toBe("drop:empty");
 
         // 4 — the transport rejects
         client.setRasterTransport(async () => { throw new Error("transport gone"); });
-        client.submitPlates(base({ frameSeq: 4 }));
+        submit(base({ frameSeq: 4 }));
         expect(await until(() => seen.length === 4)).toBe(true);
         expect(seen[3].how).toBe("drop:transport gone");
 
         // 5 — the worker answers with an error for that job
         client.setRasterTransport(async (msg) => ({ kind: "raster-error", jobId: msg.jobId, err: "boom" }));
-        client.submitPlates(base({ frameSeq: 5 }));
+        submit(base({ frameSeq: 5 }));
         expect(await until(() => seen.length === 5)).toBe(true);
         expect(seen[4].how).toBe("drop:boom");
 
         // 6 — a late arrival is a result like any other, carrying the G it was packed at: the plate
         //     store judges it (A2 §3.1), the client does not
         client.setRasterTransport(async (msg) => { await flush(5); return ok(msg); });
-        client.submitPlates(base({
+        submit(base({
             frameSeq: 6,
             pack: (p, jobId) => { minted.push(jobId); return packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, G: 4 }); },
         }));
@@ -707,7 +779,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         // 7 — a teardown with a job in flight: without `abandonInFlight` this id is never reported
         //     and its plates are in flight in the store for the rest of the session
         client.setRasterTransport(() => new Promise(() => {}));          // never answers
-        client.submitPlates(base({ frameSeq: 7 }));
+        submit(base({ frameSeq: 7 }));
         await flush(0);
         expect(client.rasterWorkerReport().inFlight).toBe(1);
         client.destroyRasterPool();
@@ -725,7 +797,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         client.setRasterWorkerCount(1);
         client.setRasterTransport(async (msg) => (await runJob(msg)).msg);
         const req = (frameSeq, bad) => ({
-            frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            plates: Int32Array.from([0, 0]),
             pack: (p, jobId) => {
                 const job = packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId });
                 if (bad) job.geom[4] = NaN;          // a record the core refuses: `nonFinite` (§3.4)
@@ -733,9 +805,9 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             },
             onResult: (res, info) => infos.push(info),
         });
-        client.submitPlates(req(1, false));
+        submit(req(1, false));
         expect(await until(() => infos.length === 1)).toBe(true);
-        client.submitPlates(req(2, true));
+        submit(req(2, true));
         expect(await until(() => infos.length === 2)).toBe(true);
 
         const r = client.rasterWorkerReport();
@@ -795,8 +867,8 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
 
             client.resetRasterWorkerClient();
             client.setRasterWorkerCount(1);
-            client.submitPlates({                                        // nobody spawned it first
-                frameSeq: 1, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            submit({                                        // nobody spawned it first
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId }),
                 onResult: () => {},
             });
@@ -824,12 +896,12 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             expect(client.ensureRasterPool()).toBe(1);
             const drops = [], got = [];
             const req = (frameSeq) => ({
-                frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
                 onDrop: (d) => drops.push(d),
                 onResult: (res) => got.push(res),
             });
-            client.submitPlates(req(1));
+            submit(req(1));
             expect(made[0].posted.length).toBe(1);
             const orphan = made[0].posted[0];
 
@@ -841,18 +913,19 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             // that never answers draws this pool down to three workers for the session
             expect(client.rasterWorkerReport().heldSlots).toBe(1);
 
-            client.submitPlates(req(2));                                 // the next render, same pool
+            submit(req(2));                                 // the next render, same pool
             await flush(0);
             expect(made[0].posted.length).toBe(1);                       // NOT posted to twice
             expect(made.length).toBe(1);                                 // and no worker spawned around it
-            expect(client.rasterWorkerReport().queued).toBe(1);          // the strip waits instead
+            expect(queued()).toBe(1);          // the strip waits instead
 
             // the orphan's own answer is the proof that worker stopped: the slot frees, the waiting
             // strip takes it, and the abandoned job's result is not delivered to the caller
             made[0].onmessage({ data: (await runJob(orphan)).msg });
+            Q.pump();                                                    // the queue's owner pumps (a frame, a landing)
             expect(await until(() => made[0].posted.length === 2)).toBe(true);
             expect(got.length).toBe(0);
-            expect(client.rasterWorkerReport().queued).toBe(0);
+            expect(queued()).toBe(0);
             expect(client.rasterWorkerReport().heldSlots).toBe(0);       // the hold is given back
 
             made[0].onmessage({ data: (await runJob(made[0].posted[1])).msg });
@@ -871,7 +944,7 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
         client.resetRasterWorkerClient();
         const got2 = [], drops2 = [], minted = [];
         const req2 = (frameSeq) => ({
-            frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+            plates: Int32Array.from([0, 0]),
             pack: (p, jobId) => {
                 minted.push(jobId);
                 return packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId });
@@ -879,23 +952,23 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             onDrop: (d) => drops2.push(d),
             onResult: (res) => got2.push(res),
         });
-        client.submitPlates(req2(1));                                    // job A, on its microtask
+        submit(req2(1));                                    // job A, on its microtask
         expect(client.rasterWorkerReport().mode).toBe("inline");
         expect(client.rasterWorkerReport().inFlight).toBe(1);
         expect(client.abandonInFlight("quantum")).toBe(1);
         expect(client.rasterWorkerReport().heldSlots).toBe(1);
         expect(drops2[0].jobId).toBe(minted[0]);                         // the caller owes endJob on A
 
-        client.submitPlates(req2(2));                                    // job B, the next render
+        submit(req2(2));                                    // job B, the next render
         expect(client.rasterWorkerReport().inFlight).toBe(0);            // NOT dispatched into A
-        expect(client.rasterWorkerReport().queued).toBe(1);              // it waits, as a strip does
+        expect(queued()).toBe(1);              // it waits, as a strip does
         expect(minted.length).toBe(1);                                   // and is not even packed yet
 
-        expect(await until(() => got2.length === 1)).toBe(true);
+        expect(await until(() => { Q.pump(); return got2.length === 1; })).toBe(true);
         expect(minted.length).toBe(2);
         expect(got2[0].jobId).toBe(minted[1]);                           // A's result is not delivered
         expect(client.rasterWorkerReport().heldSlots).toBe(0);
-        expect(client.rasterWorkerReport().queued).toBe(0);
+        expect(queued()).toBe(0);
         expect(ink(got2[0].pixels[0])).toBeGreaterThan(0);
 
         // And the release through a FAILURE, which is what a real worker throw produces after a
@@ -913,203 +986,28 @@ describe("the pool, the queue and the drops (§3.6, §8.4)", () => {
             expect(client.ensureRasterPool()).toBe(1);
             const got3 = [];
             const req3 = (frameSeq) => ({
-                frameSeq, q: 0, Zq: 1, plates: Int32Array.from([0, 0]),
+                plates: Int32Array.from([0, 0]),
                 pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }),
                 onDrop: () => {},
                 onResult: (res) => got3.push(res),
             });
-            client.submitPlates(req3(1));
+            submit(req3(1));
             const orphan3 = made3[0].posted[0];
             expect(client.abandonInFlight("quantum")).toBe(1);
             expect(client.rasterWorkerReport().heldSlots).toBe(1);
 
-            client.submitPlates(req3(2));
+            submit(req3(2));
             await flush(0);
-            expect(client.rasterWorkerReport().queued).toBe(1);          // still waiting on the orphan
+            expect(queued()).toBe(1);          // still waiting on the orphan
             made3[0].onmessage({ data: { kind: "raster-error", jobId: orphan3.jobId, frameSeq: 1, err: "boom" } });
+            Q.pump();
             expect(await until(() => made3[0].posted.length === 2)).toBe(true);
             expect(client.rasterWorkerReport().heldSlots).toBe(0);       // the hold is given back
-            expect(client.rasterWorkerReport().queued).toBe(0);
+            expect(queued()).toBe(0);
             expect(got3.length).toBe(0);                                 // and the orphan delivers nothing
         } finally {
             delete global.Worker;
         }
     });
 
-    test("W20 two quanta are live at once, and a newer frame drops its OWN q's strips only (D182)", async () => {
-        // 5a holds the old quantum's plates while the new quantum fills (§6.3), so one frame's
-        // misses belong to two `q` and 5b posts a call for each. One `current` pair dropped the
-        // first call's queued strips at the second — and the settle's request is one-shot off a
-        // timer, so a strip dropped that way is a re-raster that silently never happens.
-        const drops = [], got = [];
-        let packed = 0, release = null;
-        const gate = new Promise((r) => { release = r; });
-        client.setRasterWorkerCount(1);
-        client.setRasterTransport(async (msg) => { await gate; return (await runJob(msg)).msg; });
-        const mk = (frameSeq, q, plates) => ({
-            frameSeq, q, Zq: 1, plates: Int32Array.from(plates),
-            pack: (p, jobId) => { packed++; return packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId, frameSeq }); },
-            onDrop: (d) => drops.push({ q, why: d.why, jobId: d.jobId }),
-            onResult: (res, info) => got.push({ q, frameSeq: info.frameSeq }),
-        });
-
-        expect(client.submitPlates(mk(7, -2, [0, 0, 1, 0, 2, 0, 3, 0]))).toBe(2);   // the view's misses
-        await flush(0);
-        expect(packed).toBe(1);                                          // one in flight, one waiting
-        expect(client.submitPlates(mk(7, -3, [4, 0]))).toBe(1);          // the held quantum's, same frame
-        expect(drops.length).toBe(0);                                    // neither call drops the other
-        expect(client.rasterWorkerReport().queued).toBe(2);
-        expect(client.rasterWorkerReport().liveRequests).toBe(2);
-
-        client.submitPlates(mk(8, -2, [0, 0, 1, 0, 2, 0, 3, 0]));        // the next frame, new quantum only
-        expect(drops.length).toBe(1);                                    // the stale -2 strip, and it alone
-        expect(drops[0].q).toBe(-2);
-        expect(drops[0].why).toBe("frame");
-        expect(drops[0].jobId).toBe(null);                               // never packed, so never begun
-        expect(client.rasterWorkerReport().queued).toBe(3);              // the held strip and frame 8's two
-
-        release();
-        expect(await until(() => got.length === 4, 600)).toBe(true);
-        // the job DISPATCHED for frame 7 is not recalled by frame 8 — it arrives and is answered
-        expect(got[0]).toEqual({ q: -2, frameSeq: 7 });
-        expect(got.filter((g) => g.q === -3).length).toBe(1);            // the held quantum's strip drew
-        expect(got.filter((g) => g.q === -2 && g.frameSeq === 8).length).toBe(2);
-        expect(drops.length).toBe(1);
-
-        // and a `q` nothing waits on and nothing is drawing is forgotten, so the map is the live
-        // requests and not the session's zoom quanta
-        client.submitPlates(mk(9, -1, [7, 0]));
-        expect(client.rasterWorkerReport().liveRequests).toBe(1);
-
-        // `pump`'s own re-check against the newest frame for that `q`, whose one reachable case is
-        // `onWorkerError` re-queueing a strip that was DISPATCHED for an older frame: the frame has
-        // moved on, so it is dropped rather than drawn inline (W11 is this path at the newest frame).
-        client.resetRasterWorkerClient();
-        client.setRasterTransport(null);
-        const made = [];
-        global.Worker = class {
-            constructor(url) { this.url = url; this.posted = []; made.push(this); }
-            postMessage(msg) { this.posted.push(msg); }
-            terminate() { this.dead = true; }
-        };
-        try {
-            client.setRasterWorkerCount(1);
-            expect(client.ensureRasterPool()).toBe(1);
-            const late = [];
-            const req = (frameSeq) => ({
-                frameSeq, q: -2, Zq: 1, plates: Int32Array.from([0, 0]),
-                pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, frameSeq }),
-                onDrop: (d) => late.push({ frameSeq, why: d.why }),
-                onResult: () => late.push({ frameSeq, why: "result" }),
-            });
-            client.submitPlates(req(1));                                 // dispatched into the worker
-            expect(made[0].posted.length).toBe(1);
-            client.submitPlates(req(2));                                 // the next frame, queued behind it
-            made[0].onerror({ preventDefault() {} });                    // the script did not load
-            expect(await until(() => late.some((l) => l.why === "result"), 400)).toBe(true);
-            expect(late.filter((l) => l.frameSeq === 2 && l.why === "result").length).toBe(1);
-            expect(late.filter((l) => l.frameSeq === 1 && l.why === "stale").length).toBe(1);
-            expect(late.filter((l) => l.frameSeq === 1 && l.why === "result").length).toBe(0);
-        } finally {
-            delete global.Worker;
-        }
-
-        // The prune's IN-FLIGHT branch: a `q` whose only strip is DISPATCHED is still a live
-        // request. Without it a submit at another `q` forgets that `q`, and the strip
-        // `onWorkerError` re-queues is then dropped `"stale"` although its frame is the newest
-        // one there — a screenful silently not drawn on the day the bundle 404s.
-        client.resetRasterWorkerClient();
-        const made2 = [];
-        global.Worker = class {
-            constructor(url) { this.url = url; this.posted = []; made2.push(this); }
-            postMessage(msg) { this.posted.push(msg); }
-            terminate() { this.dead = true; }
-        };
-        try {
-            client.setRasterWorkerCount(1);
-            expect(client.ensureRasterPool()).toBe(1);
-            const seen = [];
-            const req2 = (frameSeq, q) => ({
-                frameSeq, q, Zq: 1, plates: Int32Array.from([0, 0]),
-                pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId, frameSeq }),
-                onDrop: (d) => seen.push({ q, why: d.why }),
-                onResult: () => seen.push({ q, why: "result" }),
-            });
-            client.submitPlates(req2(3, -2));                            // dispatched; nothing queued at −2
-            expect(made2[0].posted.length).toBe(1);
-            expect(client.rasterWorkerReport().queued).toBe(0);
-            client.submitPlates(req2(3, -1));                            // another `q`: the prune runs here
-            expect(client.rasterWorkerReport().liveRequests).toBe(2);    // −2 is live IN FLIGHT
-            made2[0].onerror({ preventDefault() {} });                   // the script did not load
-            expect(await until(() => seen.filter((s) => s.why === "result").length === 2, 400)).toBe(true);
-            expect(seen.filter((s) => s.q === -2 && s.why === "result").length).toBe(1);
-            expect(seen.filter((s) => s.q === -2 && s.why === "stale").length).toBe(0);
-        } finally {
-            delete global.Worker;
-        }
-    });
-
-    test("W21 dropQueued(why, q) empties ONE quantum's queue and leaves the others (§10 stage 5b)", async () => {
-        // 5b's own lever at a quantum change: the view has left a `q` and its queued strips are
-        // nobody's, while the newest quantum's and the settle's at "e" are still wanted. A bare
-        // `dropQueued(why)` takes all three — the drop D182 exists to stop.
-        const drops = [], got = [];
-        let release = null;
-        const gate = new Promise((r) => { release = r; });
-        client.setRasterWorkerCount(1);
-        client.setRasterTransport(async (msg) => { await gate; return (await runJob(msg)).msg; });
-        const mk = (frameSeq, q, plates) => ({
-            frameSeq, q, Zq: 1, plates: Int32Array.from(plates),
-            pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 100, 100)])], p, { jobId, frameSeq }),
-            onDrop: (d) => drops.push({ q, why: d.why, jobId: d.jobId }),
-            onResult: () => got.push({ q }),
-        });
-
-        expect(client.submitPlates(mk(4, -3, [0, 0, 1, 0]))).toBe(2);    // the dying quantum: 1 posted, 1 queued
-        await flush(0);
-        expect(client.submitPlates(mk(4, -2, [2, 0, 3, 0]))).toBe(2);    // the quantum being entered
-        expect(client.submitPlates(mk(4, "e", [4, 0]))).toBe(1);         // the settle's own request
-        expect(client.rasterWorkerReport().queued).toBe(4);
-        expect(client.rasterWorkerReport().liveRequests).toBe(3);
-
-        expect(client.dropQueued("quantum", -3)).toBe(1);                // the dying quantum's strip, alone
-        expect(client.rasterWorkerReport().queued).toBe(3);
-        expect(drops.length).toBe(1);
-        expect(drops[0]).toEqual({ q: -3, why: "quantum", jobId: null });
-        // a DISPATCHED strip is not recalled, so its `q` is still a live request
-        expect(client.rasterWorkerReport().liveRequests).toBe(3);
-
-        release();
-        expect(await until(() => got.length === 4, 600)).toBe(true);
-        expect(got.filter((g) => g.q === -3).length).toBe(1);            // the one already in flight
-        expect(got.filter((g) => g.q === -2).length).toBe(2);
-        expect(got.filter((g) => g.q === "e").length).toBe(1);
-        expect(drops.length).toBe(1);
-
-        // `current` is pruned at a submit and at a `dropQueued`, and NOT when a job arrives: the
-        // three requests are still counted with everything answered, and the bare form clears them.
-        expect(client.rasterWorkerReport().liveRequests).toBe(3);
-        expect(client.dropQueued("teardown")).toBe(0);
-        expect(client.rasterWorkerReport().liveRequests).toBe(0);
-
-        // The BARE form — a teardown or a settle, never a quantum change — empties EVERY queue.
-        // The call above runs on a drained queue and proves only the prune, so the same three
-        // quanta are queued again behind a fresh gate: without `dropQueued`'s `q == null` branch
-        // this call drops nothing and every other assertion in the file stays green (B58).
-        let release2 = null;
-        const gate2 = new Promise((r) => { release2 = r; });
-        client.setRasterTransport(async (msg) => { await gate2; return (await runJob(msg)).msg; });
-        expect(client.submitPlates(mk(5, -3, [0, 0, 1, 0]))).toBe(2);    // 1 posted, 1 queued
-        await flush(0);
-        expect(client.submitPlates(mk(5, -2, [2, 0, 3, 0]))).toBe(2);
-        expect(client.submitPlates(mk(5, "e", [4, 0]))).toBe(1);
-        expect(client.rasterWorkerReport().queued).toBe(4);
-
-        expect(client.dropQueued("teardown")).toBe(4);                   // every q, not one
-        expect(client.rasterWorkerReport().queued).toBe(0);
-        expect(drops.filter((d) => d.why === "teardown").length).toBe(4);
-        expect(client.rasterWorkerReport().liveRequests).toBe(1);        // −3, whose strip is in flight
-        release2();
-        expect(await until(() => got.length === 5, 600)).toBe(true);     // the dispatched strip alone
-    });
 });

@@ -1,17 +1,17 @@
 /**
- * raster.pyramid.test.js — the picture pyramid wired into the engine under `cfg.pyramid` (A3 §10.1 step 6, §7.4, §8;
- * B-PYRAMID-2 P1): the gate builds the pyramid's store, the pyramid as the layer and the queue, and nothing of the old
- * path's; a drawn stroke lands in exact plates through the queue and the client's pool, every job id ended; the
- * still frame after a camera step renders the rest set; the prefetch waits for the view's jobs; the levers take
- * effect live; a camera job keeps only the cells the table covers; a teardown dispatches nothing more.
+ * raster.pyramid.test.js — the picture pyramid wired into the engine, the raster path's one picture (A3 §10.1 step 6,
+ * §8; B-PYRAMID-2 P1–P4): the engine builds the pyramid's store, the pyramid as the layer and the queue; a drawn stroke
+ * lands in exact plates through the queue and the client's pool, every job id ended; the still frame after a camera
+ * step renders the rest set; the prefetch waits for the view's jobs; the levers take effect live; a camera job keeps
+ * only the cells the table covers; a teardown dispatches nothing more. Ported from `raster.picture` (B-PYRAMID-2b):
+ * F101 (a destroyed engine puts nothing back) and F106 (a newer stale result replaces older stale pixels, the
+ * monotone-G rule).
  */
 import { useEngines, mkEngine, drawStroke, erase, descend, ascend } from "../__testkit__/harness";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
 import PyramidStore, { budgetBytes } from "./PyramidStore";
 import PicturePyramid from "./PicturePyramid";
-import PictureLayer from "./PictureLayer";
-import PlateStore from "./PlateStore";
 import { rasterStats, resetRasterStats } from "./RasterRenderer";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
@@ -47,25 +47,20 @@ const planCls = (R) => R.pyramid.lastPlan.cells.map((c) => c.draws.map((d) => d.
 beforeEach(() => { resetRasterWorkerClient(); setRasterWorkerCount(2); resetRasterStats(); });
 afterEach(() => { setRasterTransport(null); resetRasterWorkerClient(); });
 
-describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
-    test("the gate: pyramid on builds its store, the pyramid as the layer and the queue; off, the old layer and store", () => {
-        const on = mkEngine(800, 600, { raster: true, pyramid: true });
+describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
+    test("the raster engine builds the pyramid's store, the pyramid as the layer and the queue", () => {
+        const on = mkEngine(800, 600, { raster: true });
         expect(on.renderer.pyramid).toBeInstanceOf(PicturePyramid);
         expect(on.renderer.layer).toBe(on.renderer.pyramid);
         expect(on.plates).toBeInstanceOf(PyramidStore);
         expect(on.plates).toBe(on.renderer.store);
         expect(on.renderer.queue).not.toBeNull();
-        expect([on.renderer.supportsDragPlane, on.renderer._plane.pyramid]).toEqual([true, true]);   // the plane on A3 §6's keys (P3)
-        const off = mkEngine(800, 600, { raster: true });
-        expect(off.renderer.pyramid).toBeNull();
-        expect(off.renderer.layer).toBeInstanceOf(PictureLayer);
-        expect(off.plates).toBeInstanceOf(PlateStore);
-        expect([off.renderer.supportsDragPlane, off.renderer._plane.pyramid]).toEqual([true, false]);
+        expect(on.renderer.supportsDragPlane).toBe(true);
     });
 
     test("a stroke lands in exact plates through the queue and the pool; every job id ended; the pen-up path handed off", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -80,7 +75,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
     });
 
     test("the still frame: after a camera step the engine asks one more frame, and that frame renders the rest set", async () => {
-        const E = mkEngine(800, 600, { raster: true, pyramid: true, frames: "raf" }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true, frames: "raf" }), R = E.renderer;
         stroke(E);
         E.flush();
         E.zoomAt(400, 300, -250);
@@ -95,7 +90,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
 
     test("the prefetch waits until nothing of the view's or a patch's is queued or in flight, then runs once a view revision", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         R.cfg.prefetchQuietMs = 0;                                      // the scene's quiet is the next test's
         stroke(E);
@@ -126,7 +121,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
 
     test("the prefetch waits for the scene's quiet: commits every 20 ms plan nothing; the rest's quiet after the last, one plan", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -147,7 +142,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
     test("a new prefetch plan supersedes the queued one: the old plan's strips drop at dispatch by generation", async () => {
         const g = gate();
         setRasterWorkerCount(1);
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.cfg.prefetchQuietMs = 0;
         stroke(E);
         await settle(E, 2);
@@ -165,7 +160,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
     });
 
     test("the levers take effect live: a step change drops the old step's level records and moves the purposes; a budget change evicts once", async () => {
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         E.zoomAt(400, 300, -600);
         await settle(E, 3);
@@ -194,7 +189,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
 
     test("a cell the camera's table does not cover is drawn from stand-ins and never asked for; once covered it is asked for and lands", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         stroke(E);
         await settle(E, 1);
@@ -229,7 +224,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
     test("a cell whose tiles left the table after it was asked for is refused at the pack and asked for again once covered", async () => {
         const g = gate();
         setRasterWorkerCount(1);
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         R._pyrPrefetch = () => {};
         stroke(E);
@@ -256,7 +251,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
 
     test("the camera's read (A3 §4.2): a step reads the cache alone, its missing tiles are read at idle after the quiet, and only then are their cells asked for", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -287,16 +282,12 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((x) => x === "sharp")).toBe(true);
         expect([rasterStats.refusedCover, rasterStats.refusedCoverPlates]).toEqual([0, 0]);
-        const O = mkEngine(800, 600, { raster: true }), ob = [], os = O.stage.sync.bind(O.stage);   // the old path reads everything
-        O.stage.sync = (f, w, b) => { ob.push(b); return os(f, w, b); };
-        O.zoomAt(400, 300, -3000);
-        expect(ob.length > 0 && ob.every((b) => b === Infinity)).toBe(true);
     });
 
     test("a teardown dispatches nothing more: the queued strips are forgotten, the ones in flight ended", async () => {
         const g = gate();
         setRasterWorkerCount(1);
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         stroke(E);
         E.zoomAt(400, 300, -600);
@@ -328,7 +319,7 @@ const diffBytes = (a, b) => { let n = 0; for (let k = 0; k < a.length; k++) if (
 describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)", () => {
     test("pen-up: no compose shows both the held path and the stroke's plates, or neither; the path goes in the task that publishes them", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         await settle(E, 1);
         expect(await drain(E, g)).toBe(0);
         const log = [];
@@ -363,7 +354,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
 
     test("pen-up through the workers: while its group waits, the stale cells under the stroke are drawn held — the path shows the change — never older", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         await settle(E, 1);
         expect(await drain(E, g)).toBe(0);
         drawStroke(E, [[160, 120], [420, 380]], 16);                   // ink under the next stroke, so its cells are stale
@@ -386,7 +377,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
 
     test("undo and redo reach the pyramid as Stage dirt: the frame's patch step re-renders the rectangle inline, equal to a whole render", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         drawStroke(E, [[140, 140], [520, 420]], 18);
         drawStroke(E, [[160, 420], [560, 160]], 18);
         await settle(E, 2);
@@ -428,7 +419,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             };
         };
         for (const seed of [3, 11]) {
-            const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true, pyramid: true });
+            const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true });
             watch(E, seed);
             const pt = () => [60 + rnd() * 680, 60 + rnd() * 480];
             for (let step = 0; step < 14; step++) {
@@ -505,11 +496,11 @@ async function planeScene(E, g, ax = 100) {
 describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
     test("identity at rest (Zp the rest Z), pins under the phone's cap, the move drawn from its layers (H4, the image budget), the landing ended by exact", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         const { p } = await planeScene(E, g);
         const pl = R._plane, v = R._view;
         expect(v.mode).toBe("rest");
-        expect([pl.pyramid, pl.main.pZq]).toEqual([true, v.Z]);
+        expect(pl.main.pZq).toBe(v.Z);
         expect(pl.main.keys.length).toBeGreaterThan(0);
         expect(pl.main.keys.every((k) => k.startsWith(v.frameId + "|P" + v.Z + "|"))).toBe(true);
         expect(E.plates.phone).toBe(true);                             // jsdom's screen reads as a phone's
@@ -543,7 +534,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
 
     test("the landing per cell by exact: with the drop's patches at the workers the plane stays, drawn only where a cell is not exact, until they land", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         const { p } = await planeScene(E, g);
         const pl = R._plane;
         E.pointerDown(p[0], p[1]);
@@ -563,7 +554,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
     test("the quick level at Zp / 4; a plane is whole only when exact; a dropped layer's queued strips and late plates go", async () => {
         const g = gate();
         setRasterWorkerCount(1);
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         E.setPlateBudget({ views: 8, ceilingMiB: 512 });              // nothing evicted: a stored late plate would stay
         R._pyrPrefetch = () => {};                                     // the one worker holds only the plane's strips
         R.pyramid.cfg.restInlineMs = 1e9;                              // the still frame shows the rest set at once: a stable view
@@ -611,7 +602,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
 
     test("a waiting plane asks for no cell the table does not cover; once covered its idle re-aim asks for them", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R._pyrPrefetch = () => {};
         await planeScene(E, g);
         const pl = R._plane;
@@ -638,7 +629,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
 
     test("the plane's pre-aim waits for the scene's quiet: a bake's commits do not re-aim it each step (PLAN §5.9 item 2)", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R._pyrPrefetch = () => {};
         const { a } = await planeScene(E, g);
         let aims = 0;
@@ -657,7 +648,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
 
     test("D1: a selection past the screen's edge is in its SEL layer to one view beyond; BELOW stays on the view", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         await planeScene(E, g, -300);                                  // 400 wide from x −300: most of it left of the screen
         const pl = R._plane, v = R._view, f = pl.main.pZq / v.Zq;
         const sel = pl.main.layers.find((L) => L.kind === "sel"), below = pl.main.layers.find((L) => L.kind === "below");
@@ -678,7 +669,7 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         let E = null;
         try {
             setRasterWorkerCount(1);
-            E = mkEngine(800, 600, { raster: true, pyramid: true });
+            E = mkEngine(800, 600, { raster: true });
             const R = E.renderer;
             stroke(E);
             await settle(E, 2);
@@ -711,7 +702,7 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
 
     test("pen-up over a cell whose tiles are not in the table: the other cells re-rendered and held, that one asked for inside the group once covered, the path up until then", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -745,7 +736,7 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
 
     test("pen-up with none of its cells' tiles in the table: nothing is rendered from it, the path stays until they are covered", async () => {
         const g = gate();
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -769,7 +760,7 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
 
     test("a strip the worker fails is ended and asked again, and is no sample of the arrival estimate", async () => {
         setRasterTransport(() => Promise.reject(new Error("raster failed")));
-        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.queue.jobMs = 1000;
         stroke(E);
         await settle(E, 3);
@@ -777,5 +768,48 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         expect(rasterStats.dropsHandled).toBeGreaterThan(0);
         expect([q.done, q.inFlight.reduce((a, b) => a + b, 0), q.jobMs]).toEqual([q.dispatched, 0, 1000]);
         expect(E.plates.report().inFlight).toBe(0);
+    });
+});
+
+describe("ported from raster.picture (B-PYRAMID-2b P6)", () => {
+    test("F106, the monotone-G rule: a result newer than the stale plate cached replaces it and is drawn; an older one is closed", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
+        const A = stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        const rec = R.pyramid.lastPlan.cells.flatMap((c) => c.draws).map((d) => d.rec).find((r) => r && r.bytes && E.plates.exact(r));
+        expect(rec).toBeTruthy();
+        const G0 = rec.G;
+        E.stage.touch(A.id);                                         // a bake step lands under it …
+        const G1 = E.stage.generation;
+        E.stage.touch(A.id);                                         // … and another before the re-render arrives
+        expect(E.plates.exact(rec)).toBe(false);
+        const cell = { key: rec.key, frame: rec.frame, kind: rec.kind, level: rec.level, S: rec.S, Z: rec.Z, tag: rec.tag, i: rec.i, j: rec.j };
+        const px = () => new Uint8ClampedArray(512 * 512 * 4).fill(200);
+        expect(R.pyramid.onResult({ ...cell, G: G1, pixels: px(), bytes: 512 * 512 * 4, jobId: null })).toBe("newer");
+        const now = E.plates.get(rec.key);
+        expect([now.G, rec.dead, E.plates.exact(now)]).toEqual([G1, true, false]);   // the older stale pixels are gone; still behind
+        expect(R.pyramid.onResult({ ...cell, G: G0, pixels: px(), bytes: 512 * 512 * 4, jobId: null })).toBe("stale");
+        expect(E.plates.get(rec.key)).toBe(now);                     // an older arrival never lowers a record's G
+        R.pyramid.compose();
+        const drawn = R.pyramid.lastPlan.cells.flatMap((c) => c.draws).map((d) => d.rec);
+        expect(drawn).not.toContain(rec);
+    });
+
+    test("F101: a destroyed engine puts nothing back — late answers land nothing and later steps leave the host empty", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, host = R.host;
+        stroke(E);
+        await settle(E, 2);
+        expect(g.parked.length).toBeGreaterThan(0);
+        const puts = E.plates.s.puts;
+        E.destroy();
+        await g.run();                                               // the parked jobs answer after the teardown
+        E.zoomAt(400, 300, -300); E.panBy(10, 10); E.resize(700, 500); E._render();
+        R.syncCameraOnly();
+        await settle(E, 1);
+        expect(E.plates.s.puts).toBe(puts);
+        expect(host.querySelectorAll("canvas").length).toBe(0);
     });
 });

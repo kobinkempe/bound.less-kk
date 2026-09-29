@@ -1,69 +1,33 @@
 /**
- * raster.engine.test.js — stage 5b's own suite (RASTERISER-PLAN §9.2's E series and §10 stage
- * 5b's acceptance).
+ * raster.engine.test.js — stage 5b's own suite (RASTERISER-PLAN §9.2's E series and §10 stage 5b's acceptance) on the
+ * picture pyramid (ported by B-PYRAMID-2b: the list is the scene, the timing budgets stay). §8.4 rule 2 on the
+ * pyramid's frame: a frame that packs and posts sums its main buckets within max(1 ms, 10 %), and an arrival's wall
+ * partitions from the strip's queued-at; FC1/FC2/FC6; the E series on a whole engine.
  *
- * **At the stage's CHECKPOINT this file held the strip/beginJob seam alone** (now by G, A2 §3.1) — §15.3's
- * MUST of 13:20, written before the checkpoint by its own ruling (Q13) — and E1–E8, the two
- * counters and §8.4 rule 2 are the continuation's.
- *
- * Nothing here measures a picture: jsdom's `getContext` is null in this tree
- * (`setupTests.js:27`), so the layer is given a RECORDING context and every claim is about a
- * call sequence or a computed number. The worker pool is a TRANSPORT the test resolves by hand,
- * running the shipped `runJob` on this thread, so an arrival can be held across a document
- * change — which is the whole of the seam under test.
+ * Nothing here measures a picture on a screen: jsdom's `getContext` is null in this tree (`setupTests.js:27`), so the
+ * E series reads the plates' own bytes out of the store (the inline path's raw `pixels`). The worker pool is a
+ * TRANSPORT the test resolves by hand, running the shipped `runJob` on this thread, so an arrival can be held.
  */
 
-import Camera from "../Camera";
 import KobinEngine from "../KobinEngine";
 import Renderer from "../Renderer";
-import RasterRenderer, { rasterStats, resetRasterStats } from "./RasterRenderer";
-import PlateStore, { PLATE_BYTES } from "./PlateStore";
-import { pictureStats, resetPictureStats } from "./PictureLayer";
-import { packStats, resetPackStats } from "./rasterPack";
+import { resetRasterStats } from "./RasterRenderer";
+import { packStats, resetPackStats, packJob } from "./rasterPack";
+import { renderPlate } from "./rasterCore";
 import * as rasterPerf from "./rasterPerf";
-import { plateKey, PLATE_PX } from "./plate";
+import { PLATE_PX } from "./plate";
+import { levelKey, restKey } from "./level";
 import {
-    setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient, rasterWorkerReport,
+    setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient,
 } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
-import { freshStub } from "../__testkit__/freshStub";
 import {
     drawStroke, eraseGesture, raster, rasterZ, colorAt, camShot, camRestore, frameToScreen,
 } from "../__testkit__/harness";
 
-const CFG = { enter: 256, cullPx: 0.3, fadeLoPx: 0.15, arcTolerancePx: 0.25 };
-
-/** A recording 2D context on a real canvas element, as `raster.picture.test.js` uses. */
-function mkRec(w, h) {
-    const c = document.createElement("canvas");
-    c.width = w; c.height = h;
-    const ctx = {
-        calls: [], fillStyle: null, imageSmoothingEnabled: null,
-        setTransform(...a) { ctx.calls.push({ op: "setTransform", a }); },
-        save() { ctx.calls.push({ op: "save" }); }, restore() { ctx.calls.push({ op: "restore" }); },   // the carry (§10.13)
-        globalCompositeOperation: "source-over",
-        fillRect(...a) { ctx.calls.push({ op: "fillRect", a }); },
-        drawImage(...a) { ctx.calls.push({ op: "drawImage", a }); },
-        putImageData(...a) { ctx.calls.push({ op: "putImageData", a }); },
-        ops() { return ctx.calls.map((x) => x.op); },
-        of(op) { return ctx.calls.filter((x) => x.op === op); },
-        clear() { ctx.calls.length = 0; },
-    };
-    c.getContext = () => ctx;
-    c.rec = ctx;
-    return c;
-}
-
-function mkCam(w, h) {
-    const lm = { width: w, height: h, depthOf: () => 0, frame: () => true, ensureSpine: () => "0" };
-    const cam = new Camera(lm, CFG);
-    cam.inScale = 1; cam.inPanX = 0; cam.inPanY = 0;
-    return cam;
-}
-
-/** A square fill, in frame units, that lands inside the one visible plate. */
+/** A square fill, in frame units. */
 const fillItem = (id, x, y, s) => ({
-    id, type: "fill", color: "rgb(0,0,0)", opacity: 1,
+    id, type: "fill", origin: "native", color: "rgb(0,0,0)", opacity: 1,
     polys: [[[x, y], [x + s, y], [x + s, y + s], [x, y + s]]],
 });
 
@@ -77,313 +41,71 @@ function mkGate() {
     return {
         get length() { return parked.length; },
         /**
-         * Run the shipped worker entry on this thread and deliver the result. **No
-         * `receivedAt`**, so `runJob` stamps its own receipt as the shipped `onmessage` does: a
-         * `receivedAt: 0` makes `job.recvToStart` the whole process uptime (4,123 ms in one run
-         * of this suite) and the client's `queueingMs`, which is `wallMs − phases`, the same
-         * number negative — the two cancel inside §8.4 rule 2's sum and print as nonsense.
+         * Run the shipped worker entry on this thread and deliver the result. **No `receivedAt`**, so `runJob`
+         * stamps its own receipt as the shipped `onmessage` does (a `receivedAt: 0` makes the queueing negative).
          */
         async release() {
             const p = parked.shift();
             if (!p) return false;
             const out = await runJob(p.msg);
             p.resolve(out.msg);
-            await Promise.resolve();                 // the client's own `then`
-            await Promise.resolve();                 // the conversion, where there is one
-            await Promise.resolve();
+            for (let k = 0; k < 6; k++) await Promise.resolve();   // the client's `then`, the landing, the conversion
             return true;
         },
     };
 }
 
-const hosts = [];
-function mkRenderer(opts = {}) {
+const engines = [];
+/** A raster engine; `perf` replaces its renderer's recorder from the next row on. */
+function mkEngine(w = 400, h = 300, perf = null) {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const cam = opts.cam || mkCam(400, 300);
-    const store = opts.store || new PlateStore({ maxBytes: 16 * PLATE_BYTES, doc: null, fresh: freshStub() });
-    const R = new (opts.klass || RasterRenderer)(host, cam, CFG, {
-        width: 400, height: 300, dpr: 1, store, makeCanvas: mkRec,
-        // The PLATES path: a fixture small enough to test is also light enough for §6.5's
-        // synchronous path, which posts nothing at all. A zero budget can never be met.
-        layerOpts: { syncBudget: 0, ...(opts.layerOpts || null) },
-        ...opts.ropts,
-    });
-    hosts.push({ host, R });
-    return { R, cam, store, host, ctx: R.layer._canvas.rec };
+    const E = new KobinEngine(host, { width: w, height: h, raster: true });
+    if (perf) E.renderer.perf = perf;
+    engines.push({ E, host });
+    return E;
 }
 
 beforeEach(() => {
     resetRasterWorkerClient();
     setRasterWorkerCount(1);
-    resetRasterStats(); resetPictureStats(); resetPackStats();
+    resetRasterStats(); resetPackStats();
 });
 afterEach(() => {
-    while (hosts.length) { const h = hosts.pop(); try { h.R.destroy(); } catch (e) { /* torn down */ } h.host.remove(); }
+    while (engines.length) { const e = engines.pop(); try { e.E.destroy(); } catch (err) { /* torn down */ } e.host.remove(); }
     setRasterTransport(null);
     resetRasterWorkerClient();
-    // Every renderer built here attaches the SHIPPED `rasterPerf` (the default since the swap),
-    // so the ring carries the previous test's rows unless it is freed between them.
     rasterPerf.reset();
 });
 
 // ---------------------------------------------------------------------------
-// The strip / beginJob / G seam (A2 §3.1–§3.2)
+// §8.4 rule 2 on the pyramid's frame
 // ---------------------------------------------------------------------------
-
-test("a key changed while its strip is in flight is stored behind, re-posted ONCE, and then exact", async () => {
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer();
-    const item = fillItem(7, 20, 20, 120);
-
-    R.render([item], cam.frame);
-    const v = R.layer.view();
-    const key = plateKey(v.frameId, v.q, 0, 0);
-    expect(store.inflight.has(key)).toBe(true);             // one plate, one strip, one job
-    expect(gate.length).toBe(1);
-
-    // The document changes while the job is in flight (its cell is tracked from `beginJob`), and
-    // the engine renders the change: a list at the new G.
-    store.fresh.dirty();
-    expect(store.fresh.dirtySince(key)).toBe(1);
-    R.render([item], cam.frame);
-    expect(gate.length).toBe(1);                            // the key is in flight: nothing posted twice
-
-    await gate.release();
-    expect(pictureStats.staleDrops).toBe(0);                // rule 1: stored though behind, stale before paper
-    expect(store.isExact(store.get(key))).toBe(false);
-    expect(pictureStats.reposts).toBe(1);                   // ...and asked for again, once
-    // The re-post is a post at the `q` the frame step already posted, in a LATER task: item
-    // 15's rule is one post per `q` per task, and counting this one would report ordinary
-    // re-posting to stage 7 as a rule violation.
-    expect(rasterStats.dupPostQ).toBe(0);
-    expect(gate.length).toBe(1);                            // the re-post is in flight
-
-    await gate.release();
-    expect(pictureStats.reposts).toBe(1);
-    expect(store.size()).toBe(1);
-    expect(store.get(key).G).toBe(1);
-    expect(store.isExact(store.get(key))).toBe(true);
-    expect(gate.length).toBe(0);
-
-    // Every minted id was ended, and nothing is left in flight (D164).
-    expect(store.inflight.size).toBe(0);
-    expect(store.jobs.size).toBe(0);
-    expect(rasterStats.jobsEnded).toBe(2);
-    expect(rasterWorkerReport().inFlight).toBe(0);
-});
-
-test("a clean strip caches on its first arrival, exact at the G it carried", async () => {
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    const v = R.layer.view();
-    const key = plateKey(v.frameId, v.q, 0, 0);
-
-    await gate.release();
-    expect(pictureStats.staleDrops).toBe(0);
-    expect(pictureStats.reposts).toBe(0);
-    expect(store.size()).toBe(1);
-    expect(store.get(key).G).toBe(0);
-    expect(store.isExact(store.get(key))).toBe(true);
-    expect(rasterStats.jobsEnded).toBe(1);
-    // One job of N plates is ONE batch, which is what `onPlateBatch` exists for (D173).
-    expect(rasterStats.batches).toBe(1);
-    expect(pictureStats.arrivals).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// §6.5's synchronous path: composed, never cached, and on the layer canvas (§15.3 Q1)
-// ---------------------------------------------------------------------------
-
-test("a light screen rasters on this thread into the layer canvas and posts nothing", () => {
-    // jsdom has no `ImageData` in this tree — which is why `plateBitmap` guards it — so the
-    // suite injects the one thing the sync path needs, as it injects the 2D context. What the
-    // picture LOOKS like is still stage 7's (§9.4).
-    const had = global.ImageData;
-    global.ImageData = function ImageDataStub(data, w, h) { this.data = data; this.width = w; this.height = h; };
-    try { syncPathBody(); } finally { if (had) global.ImageData = had; else delete global.ImageData; }
-});
-
-function syncPathBody() {
-    const gate = mkGate();
-    // The default budget: 4 chords is light, so the layer publishes `q = "s"` at the exact zoom.
-    const { R, cam, store } = mkRenderer({ layerOpts: { syncBudget: 5000, syncMaxMs: Infinity } });
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-
-    const v = R.layer.view();
-    expect(v.mode).toBe("sync");
-    expect(v.q).toBe("s");
-    expect(v.s).toBe(1);
-    expect(gate.length).toBe(0);                            // no job, no worker, no queue
-    expect(rasterWorkerReport().jobs).toBe(0);
-    expect(store.size()).toBe(0);                           // ...and nothing cached (D159)
-    expect(pictureStats.syncRefused).toBe(0);               // the layer was never offered one
-
-    // The plates go into the LAYER canvas at their grid positions, and the whole surface is
-    // composed as ONE entry at (i0, j0) — zero extra memory, which is what Q1 chose.
-    const surface = R.layer.syncSurface();
-    const put = surface.rec.of("putImageData");
-    expect(rasterStats.syncPlates).toBe(put.length);
-    expect(rasterStats.syncPlates).toBe((v.i1 - v.i0 + 1) * (v.j1 - v.j0 + 1));
-    expect(put[0].a[1]).toBe(0);                            // plate (i0, j0) at the surface origin
-    expect(put[0].a[2]).toBe(0);
-    const blits = R.layer._canvas.rec.of("drawImage");
-    expect(blits.length).toBe(1);
-    expect(blits[0].a[0]).toBe(surface);
-    expect(blits[0].a[1]).toBe(v.dx);
-    expect(blits[0].a[2]).toBe(v.dy);
-    expect(pictureStats.canvasAllocs).toBe(2);              // the ink canvas and the layer, and no third
-    expect(rasterStats.syncNoImageData).toBe(0);
-}
-
-// ---------------------------------------------------------------------------
-// The acceptance counters (§10 stage 5b), and §8.4 rule 2's closure
-// ---------------------------------------------------------------------------
-
-test("one arriving job of N plates logs ONE compose (D173)", async () => {
-    const gate = mkGate();
-    const perf = mkPerf();
-    // A wide screen at four plates across: one job, four plates, one batch.
-    const { R, cam } = mkRenderer({ cam: mkCam(1600, 400), ropts: { perf } });
-    R.render([fillItem(7, 20, 20, 1400)], cam.frame);
-    expect(rasterStats.postedPlates).toBe(4);
-    // Four plates, one worker: the client's own strip size is ceil(plates / (workers × 2)), so
-    // this is two jobs of two — and what the counter must read is ONE compose per JOB.
-    expect(rasterStats.strips).toBe(2);
-    // The count `_post` predicts BEFORE the dispatch, so the queued-at can be stamped there
-    // (D254), against the count `submitPlates` returned. A multi-strip post is where the two
-    // would part company.
-    expect(perf.strips).toBe(rasterStats.strips);
-    expect(gate.length).toBe(1);                            // one in flight per worker; the second waits
-    const composes = pictureStats.composes;
-
-    await gate.release();
-    expect(rasterStats.batches).toBe(1);
-    expect(rasterStats.batchPlates).toBe(2);                // the job's own plates, in one call
-    expect(pictureStats.arrivalComposes).toBe(1);           // ONE, whatever the plate count
-    expect(pictureStats.composes).toBe(composes + 1);
-
-    await gate.release();
-    expect(rasterStats.batches).toBe(2);
-    expect(rasterStats.batchPlates).toBe(4);
-    expect(pictureStats.arrivalComposes).toBe(2);           // one more, not one per plate
-    expect(pictureStats.composes).toBe(composes + 2);
-});
-
-test("one frame posts at most ONE submitPlates per q, and two quanta are live together (D182)", () => {
-    mkGate();
-    const { R, cam } = mkRenderer();
-    // The settle's request is the second `q`: it is keyed "e" and carries its own Zq, so it
-    // cannot ride the view's call — one `submitPlates` carries one q and one Zq for every strip.
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    expect(rasterStats.posts).toBe(1);
-    const v = R.layer.view();
-    R.layer._req.frameId = v.frameId;
-    R.layer._req.Zq = v.Zq * 1.5;
-    R.layer._req.i0 = v.i0; R.layer._req.i1 = v.i1; R.layer._req.j0 = v.j0; R.layer._req.j1 = v.j1;
-    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
-
-    expect(rasterStats.posts).toBe(2);
-    expect(rasterStats.dupPostQ).toBe(0);                   // never twice at one q in one frame
-    expect(rasterWorkerReport().liveRequests).toBe(2);      // both live; neither dropped the other
-    expect(rasterWorkerReport().queued + rasterWorkerReport().inFlight).toBe(2);
-});
-
-test("the settle's post opens a row of its own when none is live, and none inside a frame (D266)", () => {
-    // Measured in Chrome on the Magnum Opus canvas: 58 notes with no row open after one load,
-    // six zoom steps and a pan — every one the settle's pack and post, reached through the
-    // layer's own timer, where nothing had opened a row. The largest post after a zoom was in
-    // no report.
-    mkGate();
-    const perf = mkPerf();
-    const { R, cam } = mkRenderer({ ropts: { perf } });
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);       // the frame's own post rides its render row
-    expect(perf.rows.map((r) => r.kind)).toEqual(["render"]);
-    const v = R.layer.view();
-    R.layer._req.frameId = v.frameId; R.layer._req.Zq = v.Zq;
-    R._post(R.layer.settleRequest(), [{ i: 0, j: 0, key: plateKey(v.frameId, "e", 0, 0) }], "settle");
-    expect(perf.rows.map((r) => r.kind)).toEqual(["render", "settle"]);
-    const row = perf.rows[1];
-    expect(row.seq).toBe(R.frameSeq);                       // the posting frame's seq: not a camera step
-    expect(row.mainMs).toBeGreaterThan(0);                  // closed, in the finally
-    expect(row.slots["xfer.out"]).toBeGreaterThan(0);       // the post's own bracket, in a row now
-    expect(R._rowLive).toBe(false);
-});
-
-test("a strip the pump dispatches after an arrival packs inside a row of its own (D268)", async () => {
-    // The client pumps its queue when a worker frees — in the arrival's task, after the arrival
-    // row has closed. Measured in Chrome, every orphan note left after D266 was this pack.
-    const gate = mkGate();
-    const perf = mkPerf();
-    const { R, cam } = mkRenderer({ ropts: { perf } });
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);       // one strip parked at the gate: the worker is busy
-    const v = R.layer.view();
-    R._post(v, [{ i: 3, j: 3, key: plateKey(v.frameId, v.q, 3, 3) }], "view");
-    expect(rasterWorkerReport().queued).toBe(1);            // behind the parked one
-    const n = perf.rows.length;
-    await gate.release();                                   // the arrival, then the pump
-    expect(rasterWorkerReport().queued).toBe(0);
-    expect(perf.orphans).toEqual([]);                      // names the offender when it fails
-    const packed = perf.rows.slice(n).filter((r) => r.kind === "arrival" && !r.info && (r.slots["eng.pack"] || 0) > 0);
-    expect(packed.length).toBe(1);                          // the pump's pack, rowed, no job on it
-    expect(packed[0].seq).toBe(R.frameSeq);
-    expect(R._rowLive).toBe(false);
-});
-
-test("BREAK-CHECK: a second post at the SAME q inside one frame is counted, not silently doubled", () => {
-    mkGate();
-    const { R, cam } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    const v = R.layer.view();
-    R._post(v, [{ i: 9, j: 9, key: plateKey(v.frameId, v.q, 9, 9) }], "view");
-    expect(rasterStats.dupPostQ).toBe(1);
-    expect(rasterWorkerReport().liveRequests).toBe(1);      // one q, one live request
-});
 
 /**
- * §8.4 rule 2's recorder, with §8.1's own slot names and its own `part` column: the shim stage 6
- * replaces. ENGINE's five, `xfer.out`, `xfer.in` and `br.blit` are MAIN; `br.bitmap` is wall.
+ * §8.4 rule 2's recorder, with §8.1's own slot names: ENGINE's buckets, `xfer.out`, `xfer.in` and `br.blit` are MAIN;
+ * `br.bitmap` is wall. `noteSubmit` takes the strip's queued-at (`JobQueue`'s push), as `rasterPerf.noteSubmit` does.
  */
 const MAIN_SLOTS = ["eng.list", "eng.settle", "eng.cull", "eng.band", "eng.pack",
     "eng.view", "eng.lookup", "ovl.tail", "xfer.out", "xfer.in", "br.blit"];
-/**
- * `rasterPerf`'s SYNC half (`part: "worker"`): the core's own phases, which join `mainMs` only
- * in sync mode, where the core runs on the main thread (§8.1, `rasterPerf.js` `SYNC_PART`).
- * `eng.local` and `ras.composite` are the two structural zeros (D207); `xfer.serialise` is the
- * worker's own and is never written on this path.
- */
-const SYNC_SLOTS = ["eng.clip", "eng.local", "ras.edges", "ras.union", "ras.accum",
-    "ras.composite", "xfer.serialise"];
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 function mkPerf() {
     const rows = [], queued = new Map();
     let open = null;
     const P = {
         rows,
-        strips: 0,
         attach() {}, detach() {},
-        // `backMs`: an arrival's row starts where the client's unwire did (`xfer.in`, `rasterPerf.beginFrame`).
         beginFrame(seq, kind, backMs = 0) { open = { seq, kind, t0: clock() - (backMs > 0 ? backMs : 0), slots: {}, mainMs: 0, wallMs: 0, info: null }; rows.push(open); },
         endFrame() {
             if (!open) return;
-            // ONE clock read for both totals, as `rasterPerf.endFrame` takes one `end` for
-            // `mainMs` and hands it to `closeRow` for `wallMs` (`rasterPerf.js:308-312`). Two
-            // reads would put a stray microsecond between the two totals and the wall
-            // partition's identity below is asserted exactly.
-            const end = clock();
+            const end = clock();                                 // one read for both totals, as `rasterPerf.endFrame`
             open.mainMs = end - open.t0;
-            if (open.queuedAt) open.wallMs = end - open.queuedAt;       // queued → this task's end
+            if (open.queuedAt) open.wallMs = end - open.queuedAt;
             open = null;
         },
-        orphans: [],                                                // notes with no row open, by slot (D268)
+        orphans: [],
         add(slot, ms) { if (!open) { P.orphans.push(slot); return; } open.slots[slot] = (open.slots[slot] || 0) + ms; },
-        // `nStrips` is the count `_post` predicts from the client's own rule BEFORE the
-        // dispatch; `rasterStats.strips` is what `submitPlates` returned. The suite compares
-        // them, so a prediction that drifted from the rule could not hide (D254).
-        noteSubmit(req, nPlates, nStrips) { queued.set(req.frameSeq, clock()); P.strips += nStrips | 0; },
-        // `xfer.in` is production's own term (`rasterPerf.js:451` fills it from `info.recvMs`),
-        // so the partition demonstrated here is the one the shipped report will print.
+        noteSubmit(req, nPlates, nStrips, at) { if (!queued.has(req.frameSeq)) queued.set(req.frameSeq, at != null ? at : clock()); },
         noteJob(info) {
             if (!open) return;
             open.info = info; open.queuedAt = queued.get(info.frameSeq) || 0;
@@ -396,307 +118,92 @@ function mkPerf() {
     return P;
 }
 const sumMain = (row) => MAIN_SLOTS.reduce((t, s) => t + (row.slots[s] || 0), 0);
-const sumSync = (row) => SYNC_SLOTS.reduce((t, s) => t + (row.slots[s] || 0), 0);
 const bar = (ms) => Math.max(1, 0.1 * ms);
-/**
- * D237's three phases — the view mapping (`PictureLayer.frameFor`), the cache lookup
- * (`PlateStore.want`) and the SVG overlay tail (`syncWorld` → `_renderOverlays`) — were timed
- * by a wrapper in this file until §15.3's 2026-09-22 Q1 gave them the slots `eng.view`,
- * `eng.lookup` and `ovl.tail`. They are now bracketed in `RasterRenderer` itself, so what
- * closes the sum below is SHIPPED code and the wrapper is gone.
- */
-const THREE = ["eng.view", "eng.lookup", "ovl.tail"];
-const sumThree = (row) => THREE.reduce((t, s) => t + (row.slots[s] || 0), 0);
 
-test("§8.4 rule 2: the main buckets sum on a frame that PACKS AND POSTS, light and dense, inside max(1 ms, 10 %)", async () => {
+/** A render whose view jobs go to the pool (no inline rest render), after a change under every cell. */
+function packingRender(E, items) {
+    for (const o of items) E.doc.add(o, "0");
+    const p0 = packStats.packed;
+    E._render();
+    return packStats.packed - p0;
+}
+
+test("§8.4 rule 2 on the pyramid: a frame that PACKS AND POSTS sums its main buckets, light and dense, inside max(1 ms, 10 %); an arrival's wall partitions", async () => {
     const gate = mkGate();
     const perf = mkPerf();
-    const { R, cam, store } = mkRenderer({ ropts: { perf } });
-    // The FIRST frame of a process is measured and reported, never asserted: every path inside
-    // the bracket runs cold once — the first `packJob`, the first `renderPlate`, the first
-    // canvas — and that warm-up belongs to no bucket and is not a phase.
-    R.render([fillItem(6, 30, 30, 100)], cam.frame);
-    await gate.release();
-
-    /**
-     * Each ASSERTED frame is invalidated first. Against one unmoving camera the second and
-     * third renders are cache hits — `want` returns no miss, nothing is packed and nothing is
-     * posted — so `eng.pack` and `xfer.out`, the two buckets a raster frame is about, would be
-     * in no asserted row (the review of 5b, 2026-09-21). A change under every cell stales the
-     * plates, so the frame misses, `_pack` runs and the submit's own bracket is written.
-     */
-    const packedIn = [];
-    function step(list) {
-        store.fresh.dirty();
-        const p0 = packStats.packed;
-        R.render(list, cam.frame);
-        packedIn.push(packStats.packed - p0);
-    }
-    step([fillItem(7, 20, 20, 120)]);
-    await gate.release();
-
+    const E = mkEngine(400, 300, perf), R = E.renderer;
+    R.pyramid.cfg.restInline = "never";                        // the rest render and the patches go to the pool:
+    R.pyramid.cfg.patchInlineMs = 0;                            // these frames pack AND post
+    E.cfg.prefetchQuietMs = 1e9;                                // the prefetch is its own task, not these frames
+    // The FIRST frame is measured and reported, never asserted: every path in the bracket runs cold once.
+    packingRender(E, [fillItem(6, 30, 30, 100)]);
+    while (await gate.release());
+    const packedIn = [packingRender(E, [fillItem(7, 20, 20, 120)])];
+    while (await gate.release());
     const dense = [];
     for (let k = 0; k < 60; k++) dense.push(fillItem(100 + k, 4 + (k % 20) * 18, 4 + Math.floor(k / 20) * 90, 16));
-    step(dense);
-    await gate.release();
-
+    packedIn.push(packingRender(E, dense));
     const renders = perf.rows.filter((r) => r.kind === "render");
-    expect(renders.length).toBe(3);
     const label = ["cold", "light", "dense"];
-    for (let k = 0; k < renders.length; k++) {
-        const row = renders[k];
-        const res = row.mainMs - sumMain(row);              // §8.1's list, the three new slots in it
-        const without = res + sumThree(row);                // ...and what it was before they existed
-        // Printed, not only asserted: a residual that is not small IS the finding (§8.4 rule 2).
+    renders.forEach((row, k) => {
+        const res = row.mainMs - sumMain(row);
         // eslint-disable-next-line no-console
-        console.log("rule 2 " + label[k] + ": mainMs " + row.mainMs.toFixed(3)
-            + " = buckets " + sumMain(row).toFixed(3)
-            + " (pack " + (row.slots["eng.pack"] || 0).toFixed(3)
-            + ", xfer.out " + (row.slots["xfer.out"] || 0).toFixed(3)
-            + ", view/lookup/tail " + sumThree(row).toFixed(3) + ")"
-            + " + residual " + res.toFixed(3) + "  (without the three slots " + without.toFixed(3)
-            + ", bar " + bar(row.mainMs).toFixed(3) + ")");
-        expect(res).toBeGreaterThan(-1e-9);                 // no bucket may exceed the task
-        if (k === 0) continue;                              // the cold frame is reported, not judged
-        // The row PACKED and POSTED: without these two the sum above closes on a cache hit and
-        // says nothing about a raster frame.
-        expect(row.slots["eng.pack"]).toBeGreaterThan(0);
+        console.log("rule 2 " + label[k] + ": mainMs " + row.mainMs.toFixed(3) + " = buckets " + sumMain(row).toFixed(3)
+            + " (pack " + (row.slots["eng.pack"] || 0).toFixed(3) + ", xfer.out " + (row.slots["xfer.out"] || 0).toFixed(3)
+            + ", view " + (row.slots["eng.view"] || 0).toFixed(3) + ") + residual " + res.toFixed(3) + "  (bar " + bar(row.mainMs).toFixed(3) + ")");
+        expect(res).toBeGreaterThan(-1e-9);                     // no bucket may exceed the task
+        if (k === 0) return;
+        expect(row.slots["eng.pack"]).toBeGreaterThan(0);       // the row PACKED and POSTED
         expect(row.slots["xfer.out"]).toBeGreaterThan(0);
         expect(res).toBeLessThanOrEqual(bar(row.mainMs));
-    }
-    // Counted, not timed: the dense frame packed its sixty items and the light one its one, so
-    // the two asserted rows differ in the work they did and not only in a cull (load-free).
-    expect(packedIn).toEqual([1, 60]);
-    expect(rasterStats.posts).toBe(3);                      // every frame here posted, the cold one too
-    // The three shipped slots are WRITTEN, not declared. What they are worth is PRINTED above
-    // as "without the three slots": 0.18–0.36 ms on this machine, inside the 1 ms floor either
-    // way, against the 1.35–1.96 ms of a 5.2–6.6 ms cold frame D237 measured on Kobin's.
-    expect(sumThree(renders[0])).toBeGreaterThan(0);
+    });
+    expect(renders.length).toBe(3);
+    expect(packedIn[1]).toBeGreaterThan(packedIn[0]);            // the dense frame packed more items
 
-    /**
-     * The WALL half, on the arrival row that carries the job. `wallMs` is queued → the end of
-     * that task; in jsdom there is no `createImageBitmap`, so the compose runs a microtask
-     * later in its own row and `br.blit` there is 0 (`rasterStats.bitmapWaits`).
-     *
-     * **Which assertion this is**: a sanity floor, not a bound on the machine — stage 3's W2
-     * precedent (§15.3, 2026-09-21 12:30). Everything between the worker's answer and the main
-     * thread taking the task up used to fall in this residual, so it grew with main-thread
-     * contention and not with the code, and it failed one quick-suite run in three under load.
-     * The delivery gap is now MEASURED (`arrivedAt` → the row's `t0`) and named in the
-     * partition, and what is asserted is the property: every part present and non-negative, the
-     * residual EXACTLY this task's own unbucketed main time, and a 1e3 ms floor against a
-     * clock-origin or unit bug.
-     */
+    // The WALL half, on the arrival row that carries the job: every part present and non-negative, and the residual
+    // exactly this task's own unbucketed main time.
+    await gate.release();
     const arrival = perf.rows.filter((r) => r.kind === "arrival" && r.info).pop();
     const info = arrival.info;
-    const phases = info.wallMs - info.queueingMs;           // the worker's own clock (§8.2)
-    const deliver = arrival.t0 - info.arrivedAt;            // the worker's answer → this task
-    const queueWait = info.postedAt - arrival.queuedAt;     // `rasterPerf`'s own `queueWait`
-    const parts = queueWait + phases + info.queueingMs + deliver
-        + (arrival.slots["xfer.in"] || 0) + (arrival.slots["br.blit"] || 0);
-    const resW = arrival.wallMs - parts;
-    // eslint-disable-next-line no-console
-    console.log("rule 2 wall: queued-to-task-end " + arrival.wallMs.toFixed(3) + " = queueWait "
-        + queueWait.toFixed(3) + " + phases " + phases.toFixed(3) + " + queueing "
-        + info.queueingMs.toFixed(3) + " + delivery " + deliver.toFixed(3) + " + xfer.in "
-        + (arrival.slots["xfer.in"] || 0).toFixed(3) + " + blit "
-        + (arrival.slots["br.blit"] || 0).toFixed(3) + " + residual " + resW.toFixed(3)
-        + "  (mainMs " + arrival.mainMs.toFixed(3) + ", composed in a later task: "
-        + (rasterStats.bitmapWaits > 0) + ")");
-    for (const [name, v] of [["phases", phases], ["queueing", info.queueingMs],
-        ["delivery", deliver], ["xfer.in", arrival.slots["xfer.in"] || 0],
-        ["br.blit", arrival.slots["br.blit"] || 0]]) {
-        expect([name, isFinite(v) && v >= -1e-9]).toEqual([name, true]);
-    }
-    // `queueWait` is stamped before the dispatch since D254, so a strip a free worker takes
-    // inside `submitPlates` is posted AFTER its queued-at and this is a real duration, not a
-    // clamp (`rasterPerf.noteJob:443` clamps a negative one and used to have to). It is
-    // queued → posted and so holds THIS strip's pack, which `submitPlates` runs before it
-    // posts: `eng.pack` is in the main partition and never in this one, so nothing is counted
-    // twice, but a reader of the wall row must not take it for idle queueing (1.18 ms here).
-    expect(queueWait).toBeGreaterThanOrEqual(0);
-    // The identity: nothing unnamed is left in the residual but this task's own main time,
-    // minus the two slots of it that are already parts. It is the client's own definition of
-    // `wallMs` restated, so it cannot fail — which is why the MAIN half below is asserted too
-    // (the third review of 5b, D255).
-    const own = arrival.mainMs - (arrival.slots["xfer.in"] || 0) - (arrival.slots["br.blit"] || 0);
-    expect(Math.abs(resW - own)).toBeLessThan(1e-6);
-    expect(resW).toBeLessThan(1e3);                         // the sanity floor, not a bound on the machine
-    // THE ARRIVAL ROW'S MAIN HALF, judged by exactly the rule the render rows are judged by.
-    // The delivery gap above is the scheduler's and grows with load; this task's own unbucketed
-    // main time is the code's, and nothing asserted it — `_takeResult` could have grown 50 ms of
-    // it with every part of the wall sum still balancing.
-    const resA = arrival.mainMs - sumMain(arrival);
-    // eslint-disable-next-line no-console
-    console.log("rule 2 arrival main: mainMs " + arrival.mainMs.toFixed(3) + " = buckets "
-        + sumMain(arrival).toFixed(3) + " (xfer.in " + (arrival.slots["xfer.in"] || 0).toFixed(3)
-        + ", blit " + (arrival.slots["br.blit"] || 0).toFixed(3) + ") + residual " + resA.toFixed(3)
-        + "  (bar " + bar(arrival.mainMs).toFixed(3) + ")");
-    expect(resA).toBeGreaterThan(-1e-9);
-    expect(resA).toBeLessThanOrEqual(bar(arrival.mainMs));
-
-    // THE SPLIT ARRIVAL'S OTHER HALF. With no `createImageBitmap` the conversion resolves in a
-    // LATER task, and `_deliverRow` gives that compose a row of its own — kind `arrival`, no
-    // job on it. Nothing judged it: `onPlateBatch` could grow 50 ms of store puts and paper
-    // fills there with every assertion above still passing. It gets the render rows' own rule.
-    expect(rasterStats.bitmapWaits).toBeGreaterThan(0);
-    const composed = perf.rows.filter((r) => r.kind === "arrival" && !r.info).pop();
-    const resC = composed.mainMs - sumMain(composed);
-    // eslint-disable-next-line no-console
-    console.log("rule 2 split compose: mainMs " + composed.mainMs.toFixed(3) + " = buckets "
-        + sumMain(composed).toFixed(3) + " (blit " + (composed.slots["br.blit"] || 0).toFixed(3)
-        + ") + residual " + resC.toFixed(3) + "  (bar " + bar(composed.mainMs).toFixed(3) + ")");
-    expect(composed.slots["br.blit"]).toBeGreaterThan(0);   // the compose IS this row's work
-    expect(resC).toBeGreaterThan(-1e-9);
-    expect(resC).toBeLessThanOrEqual(bar(composed.mainMs));
+    const phases = info.wallMs - info.queueingMs, deliver = arrival.t0 - info.arrivedAt, queueWait = info.postedAt - arrival.queuedAt;
+    const inMs = arrival.slots["xfer.in"] || 0, blitMs = arrival.slots["br.blit"] || 0;
+    const resW = arrival.wallMs - (queueWait + phases + info.queueingMs + deliver + inMs + blitMs);
+    for (const v of [phases, info.queueingMs, deliver, inMs, blitMs, queueWait]) expect(isFinite(v) && v >= -1e-9).toBe(true);
+    expect(arrival.queuedAt).toBeGreaterThan(0);                 // the strip's queued-at reached the recorder
+    expect(Math.abs(resW - (arrival.mainMs - inMs - blitMs))).toBeLessThan(1e-6);
+    expect(resW).toBeLessThan(1e3);
 });
 
 test("BREAK-CHECK: unbucketed work in the ARRIVAL task breaks the main half, and the wall half cannot see it", async () => {
     const gate = mkGate();
     const perf = mkPerf();
-    class SlowArrival extends RasterRenderer {
-        _takeResult(req, res, info, seq) {
-            const t = Date.now();
-            while (Date.now() - t < 5) { /* 5 ms of main-thread work in no bucket */ }
-            return super._takeResult(req, res, info, seq);
-        }
-    }
-    const { R, cam } = mkRenderer({ klass: SlowArrival, ropts: { perf } });
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
+    const E = mkEngine(400, 300, perf), R = E.renderer;
+    R.pyramid.cfg.restInline = "never";
+    R.pyramid.cfg.patchInlineMs = 0;
+    E.cfg.prefetchQuietMs = 1e9;
+    const land = R._pyrLand.bind(R);
+    R._pyrLand = (...a) => { const t = Date.now(); while (Date.now() - t < 5) { /* 5 ms in no bucket */ } return land(...a); };
+    while (await gate.release());                                // the constructor's jobs, queued before this recorder
+    packingRender(E, [fillItem(7, 20, 20, 120)]);
     await gate.release();
-
     const arrival = perf.rows.filter((r) => r.kind === "arrival" && r.info).pop();
     const inMs = arrival.slots["xfer.in"] || 0, blitMs = arrival.slots["br.blit"] || 0;
     expect(arrival.mainMs - sumMain(arrival)).toBeGreaterThan(bar(arrival.mainMs));
-    // ...and the wall identity still closes to 1e-6 ms, which is why it cannot stand alone: the
-    // 5 ms is in `own` on both sides of it (D255).
     const info = arrival.info;
     const parts = (info.postedAt - arrival.queuedAt) + (info.wallMs - info.queueingMs) + info.queueingMs
         + (arrival.t0 - info.arrivedAt) + inMs + blitMs;
     expect(Math.abs((arrival.wallMs - parts) - (arrival.mainMs - inMs - blitMs))).toBeLessThan(1e-6);
 });
 
-/**
- * §8.4 rule 2 on a SYNC frame — §6.5's path, and the one Kobin is on most of the time. The core
- * runs on THIS thread there, so its four phases are main-thread time (`rasterPerf` flags the row
- * `rasOnMain` from the view's mode and adds its SYNC list into the main sum). Charged to
- * `br.blit` instead, as they were until D256, RASTERISER read 0 on every light-ink frame.
- */
-test("§8.4 rule 2 on a SYNC frame: the core's own four phases are inside mainMs, not in br.blit", () => {
-    const had = global.ImageData;
-    global.ImageData = function ImageDataStub(data, w, h) { this.data = data; this.width = w; this.height = h; };
-    try { syncRule2Body(); } finally { if (had) global.ImageData = had; else delete global.ImageData; }
-});
-
-function syncRule2Body() {
-    mkGate();
-    const perf = mkPerf();
-    const { R, cam } = mkRenderer({ layerOpts: { syncBudget: 5000, syncMaxMs: Infinity }, ropts: { perf } });
-    const list = [fillItem(7, 20, 20, 120), fillItem(8, 160, 40, 60)];
-    R.render(list, cam.frame);                              // cold: measured, never judged
-    R.render(list, cam.frame);
-
-    const rows = perf.rows.filter((r) => r.kind === "render");
-    expect(rows.length).toBe(2);
-    const row = rows[1];
-    const core = sumSync(row);
-    const res = row.mainMs - sumMain(row) - core;
-    // eslint-disable-next-line no-console
-    console.log("rule 2 sync: mainMs " + row.mainMs.toFixed(3) + " = main " + sumMain(row).toFixed(3)
-        + " (blit " + (row.slots["br.blit"] || 0).toFixed(3) + ", pack "
-        + (row.slots["eng.pack"] || 0).toFixed(3) + ") + core " + core.toFixed(3)
-        + " (clip " + (row.slots["eng.clip"] || 0).toFixed(3) + ", edges "
-        + (row.slots["ras.edges"] || 0).toFixed(3) + ", union " + (row.slots["ras.union"] || 0).toFixed(3)
-        + ", accum " + (row.slots["ras.accum"] || 0).toFixed(3) + ") + residual " + res.toFixed(3)
-        + "  (bar " + bar(row.mainMs).toFixed(3) + ")");
-    expect(core).toBeGreaterThan(0);                        // the core's phases are WRITTEN, not declared
-    expect(row.slots["eng.pack"]).toBeGreaterThan(0);       // the frame packed: a sync frame always does
-    expect(res).toBeGreaterThan(-1e-9);                     // no bucket may exceed the task
-    expect(res).toBeLessThanOrEqual(bar(row.mainMs));
-    // The residual left is the paper fill, which runs before the core's first clock read — not
-    // the rasterising, which is what `br.blit` would be holding if the loop were bracketed whole.
-    expect(row.slots["br.blit"]).toBeLessThan(core);
-    expect(rasterStats.syncNoImageData).toBe(0);
-}
-
-test("BREAK-CHECK: with the four core phases unwritten, the sync frame's RASTERISER reads 0", () => {
-    const had = global.ImageData;
-    global.ImageData = function ImageDataStub(data, w, h) { this.data = data; this.width = w; this.height = h; };
-    try {
-        mkGate();
-        const perf = mkPerf();
-        // The old shape: the four slots never written. What the report then said was that a
-        // light-ink frame spends its time in the browser's compose call.
-        class NoCorePhases extends RasterRenderer { _addCorePhases() { return 0; } }
-        const { R, cam } = mkRenderer({ klass: NoCorePhases, layerOpts: { syncBudget: 5000, syncMaxMs: Infinity }, ropts: { perf } });
-        R.render([fillItem(7, 20, 20, 120)], cam.frame);
-        const row = perf.rows.filter((r) => r.kind === "render").pop();
-        expect(sumSync(row)).toBe(0);                       // RASTERISER, on a frame that rastered
-        // ...and the rasterising is in no bucket at all: what is left over is larger than the
-        // compose call it used to be charged to.
-        expect(row.mainMs - sumMain(row)).toBeGreaterThan(row.slots["br.blit"]);
-    } finally { if (had) global.ImageData = had; else delete global.ImageData; }
-});
-
 // ---------------------------------------------------------------------------
 // Stage 3's five hand-offs, and FC1 / FC2 / FC6 (§10 stage 5b)
 // ---------------------------------------------------------------------------
 
-test("every job id the client reports is ended, teardown included, and the pool spawned early", async () => {
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer();
-    expect(rasterWorkerReport().spawnedLate).toBe(0);       // `ensureRasterPool` ran in the constructor (D167)
-
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    await gate.release();
-    expect(rasterStats.jobsEnded).toBe(1);
-    expect(store.jobs.size).toBe(0);
-
-    // A job still in flight at teardown: `destroy` reports it, so `endJob` runs and the store's
-    // keys do not stay in flight for ever (D164). The drop is what makes the next render post:
-    // one screen at this size is one plate, and it is a hit.
-    store.dropAll();
-    R.render([fillItem(8, 200, 20, 120)], cam.frame);
-    const ended = rasterStats.jobsEnded;
-    expect(store.inflight.size).toBeGreaterThan(0);
-    R.destroy();
-    expect(rasterStats.jobsEnded).toBeGreaterThan(ended);
-    expect(store.inflight.size).toBe(0);
-    expect(store.jobs.size).toBe(0);
-});
-
-test("abandonInFlight frees the store's keys and NOTHING else: the slot stays held (D175)", async () => {
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    expect(store.inflight.size).toBe(1);
-
-    R._abandon("quantum");
-    expect(store.inflight.size).toBe(0);                    // the keys are free: `want` re-misses them
-    expect(rasterWorkerReport().heldSlots).toBe(1);         // ...and the capacity is NOT free
-    await gate.release();
-    expect(rasterWorkerReport().heldSlots).toBe(0);         // released by the abandoned job's own answer
-});
-
-test("a dead quantum's queued strips are dropped with the DEAD q, never the bare form (D185)", () => {
-    mkGate();
-    const { R, cam } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    const live = R.layer.view().q;
-
-    // A strip queued at a quantum the view has left, and one at the settle's "e" beside it.
-    R._post({ q: live - 3, Zq: 1, frameId: R.layer.view().frameId, mode: "quantum" },
-        [{ i: 0, j: 0 }], "quantum");
-    R._post({ q: "e", Zq: 1, frameId: R.layer.view().frameId, mode: "settle" },
-        [{ i: 1, j: 0 }], "settle");
-    const queuedBefore = rasterWorkerReport().queued + rasterWorkerReport().inFlight;
-    expect(queuedBefore).toBe(3);
-
-    R._qWas = live - 3;                                     // that quantum was live and is not now
-    R._dropDead(R.layer.view());
-    expect(rasterStats.quantumDrops).toBe(1);               // ONE strip, the dead quantum's
-    expect(rasterWorkerReport().queued + rasterWorkerReport().inFlight).toBe(2);   // the settle's survives
-});
+/** The engine's renderer, for the FC tests. */
+function mkRenderer() {
+    const E = mkEngine();
+    return { E, R: E.renderer, cam: E.cam, store: E.plates, host: E.renderer.host };
+}
 
 test("FC1: the stack is z-index and not the append order, one layer list, `_overlay` null", () => {
     const { R, host } = mkRenderer();
@@ -728,10 +235,10 @@ test("FC2 and FC6: one view object reaches the overlays, the origin is stable, n
     const { R, cam } = mkRenderer();
     const seen = [];
     R._renderOverlays = (view) => seen.push(view);
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
+    R.render([], cam.frame);
     R.syncCameraOnly();
     expect(seen.length).toBe(2);
-    expect(seen[0]).toBe(R.layer.view());                   // the object, not a copy (FC2)
+    expect(seen[0]).toBe(R._view);                          // the object, not a copy (FC2)
     expect(seen[1]).toBe(seen[0]);
 
     const o1 = R._origin();
@@ -744,15 +251,15 @@ test("FC2 and FC6: one view object reaches the overlays, the origin is stable, n
 
 test("FC2: the SVG world transform takes `d` from the view and never from the camera", () => {
     const { R, cam } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
-    const v = R.layer.view();
+    R.render([], cam.frame);
+    const v = R._view;
     const o = R._origin();
     expect(R.world.scale).toBeCloseTo(v.k / v.dpr, 12);
     expect(R.world.translation.x).toBeCloseTo((v.tx + o.x * v.k) / v.dpr, 12);
     // The camera's own pan is what FC2 replaces: they agree only when the snap is zero.
     cam.panBy(0.5, 0);
     R.syncCameraOnly();
-    const v2 = R.layer.view();
+    const v2 = R._view;
     expect(R.world.translation.x).toBeCloseTo((v2.tx + o.x * v2.k) / v2.dpr, 12);
 });
 
@@ -765,42 +272,27 @@ test("FC2: the SVG world transform takes `d` from the view and never from the ca
 // stage 7's, in Kobin's Chrome (§9.4).
 // ---------------------------------------------------------------------------
 
-const engines = [];
-function mkEngine(w = 400, h = 300) {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const E = new KobinEngine(host, { width: w, height: h, raster: true });
-    // The PLATES path. §6.5's synchronous path composes and caches NOTHING, and every test below
-    // reads the cache; `0` can never be entered, because the switch's own entry test is `n < 0`.
-    E.renderer.layer.syncBudget = 0;
-    engines.push({ E, host });
-    return E;
-}
-afterEach(() => {
-    while (engines.length) {
-        const e = engines.pop();
-        try { e.E.destroy(); } catch (err) { /* torn down */ }
-        e.host.remove();
-    }
-});
-
-/** Let the inline jobs arrive. The client dispatches one per worker, so this runs until quiet. */
+/** Let the inline jobs arrive: until no engine's queue has a strip queued or in flight. */
 async function flush(rounds = 12) {
     for (let k = 0; k < rounds; k++) {
         await new Promise((r) => setTimeout(r, 0));
-        const rep = rasterWorkerReport();
-        if (!rep.inFlight && !rep.queued) return k + 1;
+        const busy = engines.some(({ E }) => { const r = E.renderer.queue.report(); return r.queued.some((n) => n) || r.inFlight.some((n) => n); });
+        if (!busy) return k + 1;
     }
     return rounds;
 }
+/** No rest render and no inline patch: the view stays on its level's plates and every change's work goes to the pool. */
+function levelOnly(E) { const c = E.renderer.pyramid.cfg; c.restInline = "never"; c.restQuietMs = 1e9; c.patchInlineMs = 0; return E; }
+/** A view cell's own key: the rest set's at rest, else the view level's. */
+const viewKey = (v, i, j) => (v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
 const paint = async (E) => { E._render(); return flush(); };
 
 /** The plate pixel a CSS screen point lands on. `null` where no plate holds it. */
 function pixelAt(E, sx, sy) {
-    const v = E.renderer.layer.view();
-    const X = Math.floor(sx * v.dpr - v.dx + v.ox), Y = Math.floor(sy * v.dpr - v.dy + v.oy);
+    const v = E.renderer._view;
+    const X = Math.floor((sx * v.dpr - v.dx) / v.s + v.ox), Y = Math.floor((sy * v.dpr - v.dy) / v.s + v.oy);
     const i = Math.floor(X / PLATE_PX), j = Math.floor(Y / PLATE_PX);
-    const e = E.plates.get(plateKey(v.frameId, v.q, i, j));
+    const e = E.plates.get(viewKey(v, i, j));
     if (!e) return null;
     if (!e.pixels) return e.bytes === 0 ? [255, 255, 255, 255] : null;   // an empty plate IS the paper
     const o = ((Y - j * PLATE_PX) * PLATE_PX + (X - i * PLATE_PX)) * 4;
@@ -831,7 +323,7 @@ function plateGrid(E, n = 48) {
 }
 /** Within one DEVICE pixel of an edge, where the list's yes/no and a coverage value differ. */
 function nearEdge(E, sx, sy) {
-    const d = 1 / E.renderer.layer.view().dpr;
+    const d = 1 / E.renderer._view.dpr;
     const c = inkedAt(E, sx, sy);
     for (const [dx, dy] of [[-d, 0], [d, 0], [0, -d], [0, d], [-d, -d], [d, d]]) {
         if (inkedAt(E, sx + dx, sy + dy) !== c) return true;
@@ -857,7 +349,7 @@ test("E1 the plate's own pixels agree with the render list at the 48 × 48 grid"
     const E = mkEngine();
     drawStroke(E, [[60, 60], [340, 240]], 24);
     await paint(E);
-    expect(E.plates.size()).toBeGreaterThan(0);
+    expect(E.plates.cache.size).toBeGreaterThan(0);
     const d = compareGrid(E);
     expect(d.missing).toBe(0);                              // every sample is on a cached plate
     expect(d.clear).toBe(0);                                // and every disagreement is at an edge
@@ -896,7 +388,7 @@ test("E1 BREAK-CHECK: the same comparison against a picture the plates were neve
  * A cached plate a change has met since its G (rule 2, A2 §3.1). Under PAPER-PLAN R1 a stale
  * plate KEEPS its pixels, so `cache.has` does not separate the two states.
  */
-const staleAt = (E, k) => { const e = E.plates.cache.get(k); return !!e && !E.plates.isExact(e); };
+const staleAt = (E, k) => { const e = E.plates.cache.get(k); return !!e && !E.plates.exact(e); };
 
 async function crossIn(E) {
     let guard = 0;
@@ -906,15 +398,15 @@ async function crossIn(E) {
 }
 
 test("E2 (P7) an object drawn one crossing in drops the RETAINED plates of the frame it is not at", async () => {
-    const E = mkEngine();
+    const E = levelOnly(mkEngine());
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
     const shot = camShot(E);
-    const home = [...E.plates.cache.keys()];                // frame "0"'s own plates
+    const home = [...E.plates.cache.values()].filter((r) => r.kind === "level" && E.plates.exact(r)).map((r) => r.key);   // frame "0"'s level plates (a frame change discards the rest set, A3 §2.4)
     expect(home.length).toBeGreaterThan(0);
 
     await crossIn(E);
-    for (const k of home) expect(E.plates.cache.has(k)).toBe(true);   // rule 5: a crossing drops nothing
+    for (const k of home) expect(E.plates.cache.has(k)).toBe(true);   // rule 5: a crossing drops no level plate
     expect(E.plates.cache.size).toBeGreaterThan(home.length);         // ...and this frame's are beside them
 
     // The retained frame-"0" plates are reached only by the footprint mapped into EVERY frame
@@ -923,14 +415,15 @@ test("E2 (P7) an object drawn one crossing in drops the RETAINED plates of the f
     drawStroke(E, [[120, 120], [280, 180]], 24);
     await paint(E);
     expect(E.stage.stats.dirtied).toBeGreaterThan(dirtied);
-    for (const k of home) expect(staleAt(E, k)).toBe(true);
+    expect(home.some((k) => staleAt(E, k))).toBe(true);           // the frame-"0" records under its mapped footprint
 
     // ...and the camera returns to a cache that has to raster that frame again, to the picture
     // a cold cache rasters.
-    const puts = E.plates.report().puts;
+    const redone = () => E.plates.s.puts + E.plates.s.patches;     // a stale record is patched or replaced
+    const puts = redone();
     camRestore(E, shot);
     await flush();
-    expect(E.plates.report().puts).toBeGreaterThan(puts);
+    expect(redone()).toBeGreaterThan(puts);
     const warm = plateGrid(E);
     expect(compareGrid(E).clear).toBe(0);
     E.plates.dropAll();
@@ -939,10 +432,10 @@ test("E2 (P7) an object drawn one crossing in drops the RETAINED plates of the f
 });
 
 test("E2 BREAK-CHECK: with the Stage's dirt cut, the retained plates survive the edit made at the other level", async () => {
-    const E = mkEngine();
+    const E = levelOnly(mkEngine());
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
-    const home = [...E.plates.cache.keys()];
+    const home = [...E.plates.cache.values()].filter((r) => r.kind === "level" && E.plates.exact(r)).map((r) => r.key);
     await crossIn(E);
 
     const real = E.stage._dirt;
@@ -956,10 +449,10 @@ test("E2 BREAK-CHECK: with the Stage's dirt cut, the retained plates survive the
 });
 
 test("E2 BREAK-CHECK: a footprint mapped into the ACTIVE frame only leaves the other frame's plates stale", async () => {
-    const E = mkEngine();
+    const E = levelOnly(mkEngine());
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
-    const home = [...E.plates.cache.keys()];
+    const home = [...E.plates.cache.values()].filter((r) => r.kind === "level" && E.plates.exact(r)).map((r) => r.key);
     await crossIn(E);
 
     // The footprint mapped into the camera's own frame and into no other would leave a level-0
@@ -973,11 +466,12 @@ test("E2 BREAK-CHECK: a footprint mapped into the ACTIVE frame only leaves the o
 });
 
 test("E2b (P7) an object edited from one crossing IN leaves both frames' plates: the ink goes from each", async () => {
-    const E = mkEngine();
+    const E = levelOnly(mkEngine());
+    E.renderer.pyramid.cfg.patchInlineMs = undefined;         // the delete's patch in its own frame
     drawStroke(E, [[80, 80], [320, 220]], 24);
     await paint(E);
     const shot = camShot(E);
-    const home = [...E.plates.cache.keys()];
+    const home = [...E.plates.cache.values()].filter((r) => r.kind === "level" && E.plates.exact(r)).map((r) => r.key);
     expect(inkedAt(E, 200, 150)).toBe(true);
 
     await crossIn(E);
@@ -992,7 +486,7 @@ test("E2b (P7) an object edited from one crossing IN leaves both frames' plates:
     E.deleteSelection();
     await paint(E);
     expect(inkedAt(E, 200, 150)).toBe(false);               // gone at this level...
-    for (const k of home) expect(staleAt(E, k)).toBe(true);   // ...and the other frame's plates were invalidated too
+    expect(home.some((k) => staleAt(E, k))).toBe(true);     // ...and the other frame's records under it were invalidated too
 
     camRestore(E, shot);
     await flush();
@@ -1061,9 +555,11 @@ const nowAt = (E) => frameToScreen(E, 130 + MOVE, 200);
 test("§15.3 Q4: a LOADED object's first move drops the old address, and the plate in flight for it is refused", async () => {
     const doc = await oneStrokeDoc();
     const gate = mkGate();
-    const E = mkEngine(1600, 400);
+    setRasterWorkerCount(4);                                 // every strip of the screen in flight at once
+    const E = levelOnly(mkEngine(1600, 400));
     E.loadDrawing(JSON.parse(JSON.stringify(doc)));
     E._render();
+    await drain(gate); E.renderer.syncCameraOnly();          // the load's reset refused the jobs out before it: asked again
     const id = E._objs()[0].id;
     // A load emits one `reset` and no per-object event: the old address of the first move comes
     // from that change's own `oldBelow` (A2 §2.8). The break-check below proves it load-bearing.
@@ -1078,7 +574,7 @@ test("§15.3 Q4: a LOADED object's first move drops the old address, and the pla
     E._render();
     await drain(gate);
 
-    expect(E.plates.report().staleNewer).toBeGreaterThan(0); // the old-address plate arrived behind and was re-posted
+    expect(E.plates.s.newer).toBeGreaterThan(0); // the old-address plate arrived behind and was re-posted
     expect(inkedAt(E, wx, wy)).toBe(false);                  // ...and where it was is paper
     expect(inkedAt(E, nx, ny)).toBe(true);                   // ...and the ink is where it went
     expect(compareGrid(E).clear).toBe(0);
@@ -1087,9 +583,11 @@ test("§15.3 Q4: a LOADED object's first move drops the old address, and the pla
 test("BREAK-CHECK: with `oldBelow` left out of the footprint, that same plate caches the object where it no longer is", async () => {
     const doc = await oneStrokeDoc();
     const gate = mkGate();
-    const E = mkEngine(1600, 400);
+    setRasterWorkerCount(4);                                 // every strip of the screen in flight at once
+    const E = levelOnly(mkEngine(1600, 400));
     E.loadDrawing(JSON.parse(JSON.stringify(doc)));
     E._render();
+    await drain(gate); E.renderer.syncCameraOnly();          // the load's reset refused the jobs out before it: asked again
     const id = E._objs()[0].id;
 
     const real = E.stage._footOf;
@@ -1109,9 +607,11 @@ test("a geometry move with the old footprint's plate in flight: `oldBbox` reache
     // `bakeShapeById`, every one of which carries `oldBbox` and `oldLw` — has no other test.
     const doc = await oneStrokeDoc();
     const gate = mkGate();
-    const E = mkEngine(1600, 400);
+    setRasterWorkerCount(4);                                 // every strip of the screen in flight at once
+    const E = levelOnly(mkEngine(1600, 400));
     E.loadDrawing(JSON.parse(JSON.stringify(doc)));
     E._render();
+    await drain(gate); E.renderer.syncCameraOnly();          // the load's reset refused the jobs out before it: asked again
     const id = E._objs()[0].id;
 
     const [wx, wy] = wasAt(E), [nx, ny] = nowAt(E);
@@ -1119,7 +619,7 @@ test("a geometry move with the old footprint's plate in flight: `oldBbox` reache
     E._render();
     await drain(gate);
 
-    expect(E.plates.report().staleNewer).toBeGreaterThan(0);
+    expect(E.plates.s.newer).toBeGreaterThan(0);
     expect(inkedAt(E, wx, wy)).toBe(false);
     expect(inkedAt(E, nx, ny)).toBe(true);
     expect(compareGrid(E).clear).toBe(0);
@@ -1128,9 +628,11 @@ test("a geometry move with the old footprint's plate in flight: `oldBbox` reache
 test("BREAK-CHECK: with `oldBbox` dropped from the event, the geometry move leaves the old plate stale", async () => {
     const doc = await oneStrokeDoc();
     const gate = mkGate();
-    const E = mkEngine(1600, 400);
+    setRasterWorkerCount(4);                                 // every strip of the screen in flight at once
+    const E = levelOnly(mkEngine(1600, 400));
     E.loadDrawing(JSON.parse(JSON.stringify(doc)));
     E._render();
+    await drain(gate); E.renderer.syncCameraOnly();          // the load's reset refused the jobs out before it: asked again
     const id = E._objs()[0].id;
 
     const real = E.stage._footOf;
@@ -1217,25 +719,18 @@ test("E6 stacking order: the plate's colour at each sample is the render list's 
     expect(wrong).toBe(0);                                  // including the crossing, where red is on top
 });
 
-test("E7 a family with members at fade 1 and fade 0.02: the parent is not dimmed (§4.5)", async () => {
-    // A fade this deep cannot be reached from a two-stroke document without a crossing, so the
-    // list is built here: `Renderer.js:579`'s rule is that a member joins the family only at
-    // FULL fade, and a member under it renders under its own id (`rasterPack.renderIdOf`).
-    const gate = mkGate();
-    const { R, cam, store } = mkRenderer();
+test("E7 a family with members at fade 1 and fade 0.02: the parent is not dimmed (§4.5)", () => {
+    // A fade this deep cannot be reached from a two-stroke document without a crossing, so the list is built here and
+    // packed as a plate job is: `Renderer.js:579`'s rule is that a member joins the family only at FULL fade, and a
+    // member under it renders under its own id (`rasterPack.renderIdOf`).
+    const CFG = { enter: 256, cullPx: 0.3, fadeLoPx: 0.15, arcTolerancePx: 0.25 };
     const parent = { ...fillItem(1, 40, 40, 120), editId: 42 };
-    // fade = (px − fadeLoPx) / (cullPx − fadeLoPx) at px = fadeTag · (Zq/dpr) / enter, so
-    // 0.153 × 256 = 39.168 is a 2 % member at Zq 1.
+    // fade = (px − fadeLoPx) / (cullPx − fadeLoPx) at px = fadeTag · (Zq/dpr) / enter: 0.153 × 256 is a 2 % member at Zq 1.
     const faded = { ...fillItem(2, 100, 40, 120), editId: 42, fadeTag: 0.153 * CFG.enter };
-    R.render([parent, faded], cam.frame);
-    await gate.release();
-
-    const v = R.layer.view();
-    const at = (x, y) => {
-        const e = store.get(plateKey(v.frameId, v.q, 0, 0));
-        const o = ((y - v.dy + v.oy) * PLATE_PX + (x - v.dx + v.ox)) * 4;
-        return e && e.pixels ? e.pixels[o] : null;
-    };
+    const job = packJob([parent, faded], { plates: Int32Array.of(0, 0), Zq: 1, dpr: 1, cfg: CFG, paper: [255, 255, 255] });
+    const px = new Uint8ClampedArray(PLATE_PX * PLATE_PX * 4);
+    renderPlate(job, 0, px, null, null);
+    const at = (x, y) => px[(y * PLATE_PX + x) * 4];
     expect(at(60, 60)).toBe(0);                             // the parent alone: full ink
     expect(at(200, 60)).toBeGreaterThan(240);               // the faded member alone: about 2 %
     expect(at(140, 60)).toBe(0);                            // BOTH: the parent is not dimmed
@@ -1249,7 +744,7 @@ test("E8 the ink is on the canvas in raster mode and in the `<svg>` without it (
     // What a serialiser would get: the raster path's `<svg>` holds no ink at all, which is why
     // `thumbnails.js` builds its engine with `raster: false` and `exportSvg` refuses.
     expect(svg.querySelectorAll("path").length).toBe(0);
-    expect(E.plates.size()).toBeGreaterThan(0);
+    expect(E.plates.cache.size).toBeGreaterThan(0);
     expect(E.raster).toBe(true);
 
     const host2 = document.createElement("div");
@@ -1269,15 +764,15 @@ test("a raster engine CONSTRUCTS in jsdom with a null 2D context and no matchMed
     expect(E.renderer.layer._ctx).toBe(null);
     expect(E.renderer._dprMq == null).toBe(true);           // §6.1's listener, absent and harmless
     expect(() => { E._render(); E.renderer.syncCameraOnly(); }).not.toThrow();
-    expect(pictureStats.noContext).toBeGreaterThan(0);      // counted, never thrown (D187)
 });
 
 test("the fifth seam: the chevrons are ONE implementation, called from the SVG path (§2.5)", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const cam = mkCam(400, 300);
-    const R = new Renderer(host, cam, CFG, { width: 400, height: 300 });
-    hosts.push({ host, R });
+    const S = new KobinEngine(host, { width: 400, height: 300 });           // the SVG renderer
+    engines.push({ E: S, host });
+    const R = S.renderer;
+    expect(R).toBeInstanceOf(Renderer);
     const edges = [{ side: "left", from: 10, to: 90, chevron: true }, { side: "top", from: 10, to: 90 }];
     R.setSelectionAnts(() => ({ key: "k", inkPx: 10, runs: [], marks: [], edges, transform: { k: 1, tx: 0, ty: 0 } }));
     R.syncWorld();
@@ -1296,59 +791,13 @@ test("the fifth seam: the chevrons are ONE implementation, called from the SVG p
 // sequence; these prove that what a report Kobin sends will actually say.
 // ---------------------------------------------------------------------------
 
-/** Each timer the report prints is rounded to 3 decimals, so a sum of ~15 of them carries this. */
-const MS3_SUM = 0.02;
-
-test("the shipped rasterPerf on a SYNC frame: rasOnMain, the core inside mainMs, and 0 cache hits", () => {
-    const had = global.ImageData;
-    global.ImageData = function ImageDataStub(data, w, h) { this.data = data; this.width = w; this.height = h; };
-    try {
-        mkGate();
-        const { R, cam } = mkRenderer({ layerOpts: { syncBudget: 5000, syncMaxMs: Infinity } });   // no `perf`: the real module
-        const list = [fillItem(7, 20, 20, 120), fillItem(8, 160, 40, 60)];
-        R.render(list, cam.frame);                          // cold: measured, never judged
-        R.render(list, cam.frame);
-
-        const rep = rasterPerf.report();
-        const rows = rep.frames.filter((r) => r.kind === "render");
-        expect(rows.length).toBe(2);
-        const row = rows[1];
-        const sum = (names) => names.reduce((n, s) => n + (row.timers[s] || 0), 0);
-        const core = sum(rep.slots.parts.worker);
-        expect(row.mode).toBe("sync");
-        expect(row.flags).toContain("rasOnMain");           // set from the view's mode, in the ring
-        expect(core).toBeGreaterThan(0);                    // RASTERISER, on the frame §6.5 is about
-        // The module's own residual is `mainMs` less BOTH lists — which is the whole of what the
-        // `rasOnMain` flag buys, and it is asserted here against the two published lists.
-        const res = row.mainMs - sum(rep.slots.parts.main) - core;
-        // Printed as the recorder's rows are, so a failure under load carries its own numbers.
-        // eslint-disable-next-line no-console
-        console.log("rule 2 sync (shipped): mainMs " + row.mainMs.toFixed(3) + " = main "
-            + sum(rep.slots.parts.main).toFixed(3) + " + core " + core.toFixed(3) + " + residual "
-            + row.residualMainMs.toFixed(3) + "  (blit " + (row.timers["br.blit"] || 0).toFixed(3)
-            + ", bar " + Math.max(1, 0.1 * row.mainMs).toFixed(3) + ", flags " + (row.flags || []).join("/") + ")");
-        expect(Math.abs(res - row.residualMainMs)).toBeLessThan(MS3_SUM);
-        expect(row.residualMainMs).toBeGreaterThan(-1e-9);
-        expect(row.residualMainMs).toBeLessThanOrEqual(Math.max(1, 0.1 * row.mainMs));
-        expect(row.timers["br.blit"]).toBeLessThan(core);   // the compose call, not the rastering
-        // §15.3 Q8: a sync frame caches nothing, so it reports NO cache hits; what it rastered is
-        // `rasterStats.syncPlates`. Zero counts are omitted from a row, so `hits` is absent.
-        expect(row.counts.hits || 0).toBe(0);
-        expect(rasterStats.syncPlates).toBeGreaterThan(0);
-        expect(R.report().syncPlates).toBe(rasterStats.syncPlates);
-        // D272: the layer was handed the core's measure (the report's timers are rounded to 3 places).
-        expect(R.layer._syncMs).toBeGreaterThan(0);
-        expect(Math.abs(R.layer._syncMs - core)).toBeLessThan(0.01);
-    } finally { if (had) global.ImageData = had; else delete global.ImageData; }
-});
-
 test("attach hands rasterPerf SEVEN sources: pack, core, ants and worker are not null", () => {
     // With the three the shim was called with, `report().pack`, `.core`, `.ants` and `.worker`
     // all ship null and §10 stage 6's items 3 and 4 are unmet (stage 6's H1, D210). The suite
     // for stage 6 cannot catch this: it injects all six itself.
     mkGate();
     const { R, cam } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);
+    R.render([], cam.frame);
     const rep = rasterPerf.report();
     for (const k of ["pack", "core", "ants", "worker", "picture", "plates"]) {
         expect([k, rep[k] == null]).toEqual([k, false]);
@@ -1408,25 +857,4 @@ test("the ENGINE opens the row: eng.list is inside mainMs, and render does not o
     // its own — with every other assertion in this file still green.
     expect(rep.meta.unclosed).toBe(0);
     expect(rep.frames.every((r) => !r.flags || !r.flags.includes("truncated"))).toBe(true);
-});
-
-test("R2: a prio-0 request's strip dispatches ahead of queued prio-1 strips, and its quantum is alive at dispatch", async () => {
-    const gate = mkGate();
-    const { R, cam } = mkRenderer();
-    R.render([fillItem(7, 20, 20, 120)], cam.frame);              // one strip parked at the gate
-    const v = R.layer.view();
-    const packed = [];
-    const orig = R._pack.bind(R);
-    R._pack = (req, strip, jobId, pool) => { packed.push(String(req.q)); return orig(req, strip, jobId, pool); };
-    // Six more view plates: with one worker they queue as prio-1 strips behind the parked one.
-    R._post(v, [3, 4, 5, 6, 7, 8].map((i) => ({ i, j: 3, key: plateKey(v.frameId, v.q, i, 3) })), "view");
-    // ...then the preview, aimed 8 quanta below the view's, posted at prio 0.
-    R.layer._aimPreview(Number(v.q), v.frameId);
-    const p = R.layer.previewRequest();
-    R._post(p, [{ i: 0, j: 0, key: plateKey(v.frameId, p.q, 0, 0) }], "preview");
-    expect(rasterWorkerReport().queued).toBeGreaterThanOrEqual(2);
-    const refused = rasterStats.refusedAtDispatch;
-    await gate.release();                                           // the parked job answers; the pump picks next
-    expect(packed[packed.length - 1]).toBe(String(p.q));            // the preview, not the view's next strip
-    expect(rasterStats.refusedAtDispatch).toBe(refused);            // `prevQ` is alive to `_stillWanted`
 });

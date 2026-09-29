@@ -20,7 +20,7 @@ function state(E) {
     for (const f of E.lm.frames.values()) lattice.set(f.id, JSON.stringify([f.parent, f.cell, f.shift, f.shadowOf]));
     return { rev: E.doc.rev, offRev: E.doc.offRev, epoch: E.lm.addrEpoch, natives: JSON.stringify(E.doc.serializeNatives()), lattice };
 }
-const empty = (E, id) => !E.doc.count(id) && !E.lm.childrenOf(id).length;
+const empty = (E, id) => !E.doc.count(id) && E.lm.childrenOf(id).every((c) => empty(E, c.id));   // no native under it
 const snap = (v) => Math.round(v * 1024) / 1024;
 
 test("the reads leave the document and the lattice as they were, over seeded sequences", () => {
@@ -70,7 +70,7 @@ test("the reads leave the document and the lattice as they were, over seeded seq
             for (const [id, v] of before.lattice) if (after.lattice.get(id) !== v) why.push("frame " + id);
             for (const id of after.lattice.keys()) {
                 if (before.lattice.has(id)) continue;
-                if (empty(N, id)) st.minted++; else why.push("new frame " + id + " holds ink or kids");
+                if (empty(N, id)) st.minted++; else why.push("new frame " + id + " holds ink");
             }
             if (why.length) { fails.push(`seed ${seed} step ${step} ${op}: ${why.join(", ")}`); return false; }
             return true;

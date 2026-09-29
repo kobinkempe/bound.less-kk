@@ -50,7 +50,7 @@ const MEASURE_CHORD_CAP = 20000;
  * module's numeric slot, so a recording test double can take the names instead. `list` is timed by the ENGINE around
  * its table sync and handed to `noteList`.
  */
-export const SLOT = { list: "eng.list", pack: "eng.pack", view: "eng.view", tail: "ovl.tail" };
+export const SLOT = { list: "eng.list", pack: "eng.pack", view: "eng.view", tail: "ovl.tail", xferOut: "xfer.out" };
 
 /** This module's own counters, beside the pyramid's and the store's reports and `packStats`; scalars only (F58). */
 export const rasterStats = {
@@ -135,6 +135,7 @@ export default class RasterRenderer extends Renderer {
         this._lastList = [];
         this._view = null;
         this._snapSeq = 0;             // `snapshotJob`'s per-call key (S1): one snapshot's cell alone
+        this._packMs = 0;              // the packs' running total: `_pyrSubmit` takes it out of `xfer.out`
         /** The selection's drag plane (A3 §6); the engine's state is pulled (`setPlaneState`). */
         this._plane = new MovePlane();
         /** A test hook: no drag plane — every drag renders each step (the path a lost plane falls back to). */
@@ -698,6 +699,7 @@ export default class RasterRenderer extends Renderer {
      * is already the Stage's dirt, applied when it committed (A2 §2.5).
      */
     render(list, frame) {
+        if (this._destroyed) return false;             // inert once destroyed: the next engine shares the host (F101)
         if (!this._rowOpen) this._beginFrame("render");
         this._activateLevel(frame);
         this._lastList = this._sceneList();
@@ -711,6 +713,7 @@ export default class RasterRenderer extends Renderer {
 
     /** A camera step: no overlay rebuild; `super.syncCameraOnly(view)` is the SVG overlay's own transform. */
     syncCameraOnly() {
+        if (this._destroyed) return;
         this._beginFrame("camera");
         const list = this._sceneList();
         if (list !== this._lastList) { this._lastList = list; this._noteFatPending(list); }
@@ -800,9 +803,9 @@ export default class RasterRenderer extends Renderer {
      */
     _frameStep() {
         const pyr = this.pyramid, q = this.queue;
-        const tv = perfNow();
+        const tv = perfNow(), p0 = this._packMs;
         const view = pyr.frameFor(this.cam);
-        this._add(SLOT.view, perfNow() - tv);
+        this._add(SLOT.view, perfNow() - tv - (this._packMs - p0));   // an inline render's packs are `eng.pack`'s
         this._view = view;
         this.perf.noteView(view);
         q.setMotion(this._pyrMotion(view));
@@ -974,18 +977,27 @@ export default class RasterRenderer extends Renderer {
         return { E, A, U, P };
     }
 
-    /** The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused; a cut posts its own entry. */
+    /**
+     * The queue's pool face over the client's (A3 §4.4): a strip packed and posted now, or refused; a cut posts its own
+     * entry. The strip's queued-at goes to `rasterPerf` (an arrival's wall starts there); the post less the pack is
+     * `xfer.out` (§8.4 rule 2: every phase of the frame in a bucket).
+     */
     _pyrSubmit(st, pool) {
         if (st.entry) return pool.submit(st.entry);
         const plates = new Int32Array(st.cells.length * 2);
         for (let k = 0; k < st.cells.length; k++) { plates[k * 2] = st.cells[k].i; plates[k * 2 + 1] = st.cells[k].j; }
-        return pool.submit({
+        this.perf.noteSubmit({ frameSeq: this.frameSeq }, st.cells.length, 1, st.pushedAt);
+        const t0 = perfNow(), p0 = this._packMs;
+        const ok = pool.submit({
             req: {
-                prio: st.prio, pack: (_, jobId, bufPool) => this._pyrPack(st, jobId, bufPool), onResult: (res, info) => this._pyrResult(st, res, info),
+                prio: st.prio, frameSeq: this.frameSeq, pack: (_, jobId, bufPool) => this._pyrPack(st, jobId, bufPool),
+                onResult: (res, info) => this._pyrResult(st, res, info),
                 onDrop: (d) => this._pyrDrop(st, d), onRequeue: (jobId) => this._pyrRequeue(st, jobId),
             },
             plates,
         });
+        this._add(SLOT.xferOut, perfNow() - t0 - (this._packMs - p0));
+        return ok;
     }
 
     /** The pool failed under a strip (a worker's error or silence, RW-1): its id ended, the strip back at the head of its priority (H7). */

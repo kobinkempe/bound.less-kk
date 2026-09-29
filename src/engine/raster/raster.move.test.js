@@ -1,22 +1,20 @@
 /**
- * raster.move.test.js — the drag plane (PAPER-PLAN §10 S4, `MovePlane.js`): the plates under a
- * selection WITHOUT it and its ink ALONE are rastered as soon as it is selected; a drag then builds
- * no list and re-rasters nothing, the compose draws the plane translated by the pointer, and at the
- * drop the plane stays over each cell until that cell's own plate is fresh.
+ * raster.move.test.js — the drag plane (PAPER-PLAN §10 S4, `MovePlane.js`) on the pyramid (A3 §6): the plates under
+ * a selection WITHOUT it and its ink ALONE are rendered as soon as it is selected; a drag then builds no list and
+ * re-renders no view plate, the compose draws the plane translated by the pointer in true z-order, and at the drop the
+ * plane stays over each cell until that cell's own source is exact. Ported by B-PYRAMID-2b; the settled view, the
+ * old layer's compose unit, the carry, the hold and the live hold's clip went with their mechanisms (the plane's
+ * identity, H4 and the landing by exact are also `raster.pyramid`'s P3).
  *
- * jsdom has no canvas: the engine cases read the plates' own bytes out of the store (the inline
- * path's raw `pixels`), and the compose case drives a recording context. What it looks like, and
- * whether a drag shows any paper, is measured in Kobin's Chrome (PAPER-PLAN §10).
+ * jsdom has no canvas: the engine cases read the plates' own bytes out of the store (the inline path's raw
+ * `pixels`), and the z-order cases composite into `__testkit__/softCanvas`. What it looks like, and whether a drag
+ * shows any paper, is measured in Kobin's Chrome (PAPER-PLAN §10).
  */
 import KobinEngine from "../KobinEngine";
-import PictureLayer from "./PictureLayer";
-import PlateStore, { PLATE_BYTES } from "./PlateStore";
-import { freshStub } from "../__testkit__/freshStub";
-import MovePlane, { planeStats, resetPlaneStats, MOVE_PLANE_LAYERS, MOVE_PLANE_PLATES, MOVE_HOLD_MS } from "./MovePlane";
-import { plateKey, plateRange, PLATE_PX } from "./plate";
-import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount, setRasterTransport } from "./rasterWorkerClient";
-import { rasterStats } from "./RasterRenderer";
-import Camera from "../Camera";
+import { planeStats, resetPlaneStats, MOVE_PLANE_LAYERS, MOVE_HOLD_MS } from "./MovePlane";
+import { MOVE_PLANE_PLATES, levelKey, restKey } from "./level";
+import { PLATE_PX } from "./plate";
+import { resetRasterWorkerClient, setRasterWorkerCount, setRasterTransport } from "./rasterWorkerClient";
 import { softCtx } from "../__testkit__/softCanvas";
 
 const engines = [];
@@ -24,8 +22,6 @@ function mkEngine(w = 800, h = 600) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const E = new KobinEngine(host, { width: w, height: h, raster: true });
-    E.renderer.layer.syncBudget = 0;                   // the plates path: the plane lives there
-    E.renderer.layer._sync = false;                    // the constructor's empty first frame latched sync
     engines.push({ E, host });
     return E;
 }
@@ -37,8 +33,8 @@ afterEach(() => {
 async function flush(rounds = 24) {
     for (let k = 0; k < rounds; k++) {
         await new Promise((r) => setTimeout(r, 0));
-        const rep = rasterWorkerReport();
-        if (!rep.inFlight && !rep.queued) return k + 1;
+        const busy = engines.some(({ E }) => { const r = E.renderer.queue.report(); return r.queued.some((n) => n) || r.inFlight.some((n) => n); });
+        if (!busy) return k + 1;
     }
     return rounds;
 }
@@ -71,12 +67,15 @@ async function scene(E) {
 /** A plane layer's tag by kind: the first of that kind. */
 const tagOf = (pl, kind) => { const L = pl.layers.find((x) => x.kind === kind); return L ? L.tag : null; };
 
-/** The RGBA of plate `q` under a CSS screen point, from the store's raw pixels; null for no plate. */
-function rgbaAt(E, q, sx, sy) {
-    const v = E.renderer.layer.view();
-    const X = Math.floor(sx * v.dpr - v.dx + v.ox), Y = Math.floor(sy * v.dpr - v.dy + v.oy);
+/** A view cell's own key: the rest set's at rest, else the view level's. */
+const viewKey = (v, i, j) => (v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
+/** The RGBA under a CSS screen point of the plane layer `tag`'s plate (its level's grid), or of the view's own (`tag` null); null for no plate. */
+function rgbaAt(E, tag, sx, sy) {
+    const v = E.renderer._view, pl = E.renderer._plane, lvl = tag ? [pl.main, pl.quick].find((l) => l && l.tags.includes(tag)) : null;
+    const f = lvl ? lvl.pZq / v.Zq : 1;
+    const X = Math.floor(((sx * v.dpr - v.dx) / v.s + v.ox) * f), Y = Math.floor(((sy * v.dpr - v.dy) / v.s + v.oy) * f);
     const i = Math.floor(X / PLATE_PX), j = Math.floor(Y / PLATE_PX);
-    const e = E.plates.get(plateKey(v.frameId, q, i, j));
+    const e = E.plates.get(lvl ? pl._key(tag, lvl.pZq, i, j) : viewKey(v, i, j));
     if (!e) return null;
     if (!e.pixels) return "empty";
     const o = ((Y - j * PLATE_PX) * PLATE_PX + (X - i * PLATE_PX)) * 4;
@@ -113,14 +112,15 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         const { a, p } = await scene(E);
         const pl = E.renderer._plane;
         const lists = jest.spyOn(E, "_render");
-        const posted0 = E.plates.s.misses;
+        const views0 = E.renderer.queue.report().byPrio.slice(0, 2).join();
+        E.renderer.pyramid.cfg.patchInlineMs = 0;                 // the drop's patches go to the pool: the landing is seen
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 40; k++) E.pointerMove(p[0] + k * 3, p[1] + k);
         expect(E._holdMove).toBeTruthy();
         expect(lists).not.toHaveBeenCalled();                     // red with the per-step `_render`: 33 renders
         expect(pl.state).toBe("drag");
         expect(pl.off).toEqual([120, 40]);                        // the pointer's displacement, device px (dpr 1)
-        expect(E.plates.s.misses).toBe(posted0);                  // the plates were not touched
+        expect(E.renderer.queue.report().byPrio.slice(0, 2).join()).toBe(views0);   // no view or patch plate re-rendered
         E.pointerUp();
         expect(lists).toHaveBeenCalledTimes(1);                   // the drop's one render
         expect(pl.state).toBe("land");
@@ -187,152 +187,14 @@ describe("the plane while the camera moves (PAPER-PLAN §10 S4)", () => {
         // the view holds: aimed once PLANE_QUIET_MS passed and no settle is coming (a settle publishes a new view)
         await new Promise((r) => setTimeout(r, 400));
         for (let t0 = Date.now(); !pl.r && Date.now() - t0 < 5000;) { await quiet(); await flush(); }
-        const v = E.renderer.layer.view();
+        const v = E.renderer._view;
         expect(pl.r).toBeTruthy();
         expect(pl.q).toBe(v.q);
         expect(pl.Zq).toBe(v.Zq);
     });
 });
 
-describe("the plane at a settled view (PAPER-PLAN §10 S4)", () => {
-    test("M7 a settled view is q \"e\" at the camera's exact zoom: a second settle at another zoom re-aims the plane", async () => {
-        const E = mkEngine();
-        const { p } = await scene(E);
-        const pl = E.renderer._plane;
-        const settle = async () => { for (let k = 0; k < 4; k++) { await quiet(); await flush(); } };
-        E.zoomAt(p[0], p[1], -60);
-        await settle();
-        let v = E.renderer.layer.view();
-        expect(v.mode).toBe("settle");
-        expect(pl.q).toBe("e");
-        expect(pl.Zq).toBe(v.Zq);
-        E.zoomAt(p[0], p[1], -40);
-        await settle();
-        v = E.renderer.layer.view();
-        expect(v.mode).toBe("settle");
-        expect(pl.Zq).toBe(v.Zq);                                   // Zq in the key is defence: the step between two settles frees the plane first
-        const [i, j] = pl.layers[0].cells[0];
-        expect(E.plates.get(plateKey(pl.frameId, pl.layers[0].tag, i, j)).Zq).toBe(v.Zq);
-    });
-});
-
-describe("the plane's compose (PictureLayer._composePlane)", () => {
-    function rec() {
-        const ctx = {
-            calls: [], fillStyle: null, imageSmoothingEnabled: null,
-            setTransform() {}, fillRect(...a) { ctx.calls.push({ op: "fillRect", a }); }, clearRect() {},
-            drawImage(...a) { ctx.calls.push({ op: "drawImage", a }); },
-            save() { ctx.calls.push({ op: "save" }); }, restore() { ctx.calls.push({ op: "restore" }); },
-            beginPath() {}, rect(...a) { ctx.calls.push({ op: "rect", a }); }, clip() { ctx.calls.push({ op: "clip" }); },
-            of(op) { return ctx.calls.filter((c) => c.op === op); },
-        };
-        return ctx;
-    }
-    function mk() {
-        const lm = { width: 1024, height: 512, depthOf: () => 0, frame: () => true, ensureSpine: () => "0" };
-        const cam = new Camera(lm, {});
-        cam.inScale = 1; cam.inPanX = 0; cam.inPanY = 0;
-        const store = new PlateStore({ maxBytes: 64 * PLATE_BYTES, doc: null, fresh: freshStub() });
-        const layer = new PictureLayer(null, cam, {
-            store, width: 1024, height: 512, dpr: 1,
-            makeCanvas: (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = rec(); c.getContext = () => x; c.rec = x; return c; },
-        });
-        const v = layer.frameFor(cam, 1e9);
-        const bm = (tag) => ({ tag, close() {} });
-        const put = (q, i, j, tag) => store.put({ frameId: v.frameId, q, Zq: v.Zq, i, j, G: store.fresh.generation, bitmap: bm(tag), bytes: PLATE_BYTES });
-        return { layer, store, v, put, ctx: layer._canvas.rec };
-    }
-    const plane = (v, over = false) => {
-        const pl = new MovePlane();
-        const layers = [{ kind: "below", tag: "z0_" + v.q, cells: [[0, 0]] }, { kind: "sel", tag: "z1_" + v.q, cells: [[0, 0]] }];
-        if (over) { layers[0].cells.push([1, 0]); layers.push({ kind: "over", tag: "z2_" + v.q, cells: [[1, 0]] }); }
-        const r = { i0: 0, i1: over ? 1 : 0, j0: 0, j1: 0 }, selR = { i0: 0, i1: 0, j0: 0, j1: 0 };
-        const lvl = { k: 0, pq: v.q, pZq: v.Zq, layers, r, selR };
-        Object.assign(pl, { frameId: v.frameId, q: v.q, Zq: v.Zq, main: lvl, cur: lvl, layers, tags: layers.map((L) => L.tag),
-            r, selR, state: "drag", ready: true, off: [100, 20] });
-        return pl;
-    };
-
-    test("M4 dragging: BELOW at its cells, the selection translated by the pointer, OVER last and in place", () => {
-        const { layer, v, put, ctx } = mk();
-        put(v.q, 0, 0, "plate"); put("z0_" + v.q, 0, 0, "under"); put("z0_" + v.q, 1, 0, "under1");
-        put("z1_" + v.q, 0, 0, "ink"); put("z2_" + v.q, 1, 0, "over");
-        layer.setPlane(plane(v, true));
-        layer.compose([]);
-        const draws = ctx.of("drawImage").map((c) => [c.a[0].tag, c.a[1], c.a[2]]);
-        // red with the selection drawn last (S4): the moved ink would cover what is above it
-        expect(draws).toEqual([["under", 0, 0], ["under1", 512, 0], ["ink", 100, 20], ["over", 512, 0]]);
-    });
-
-    test("M5 landing: clipped to the cells whose own plate is stale, and nothing once they are fresh", () => {
-        const { layer, store, v, put, ctx } = mk();
-        put(v.q, 0, 0, "plate"); put(v.q, 1, 0, "plate1"); put("z0_" + v.q, 0, 0, "under"); put("z1_" + v.q, 0, 0, "ink");
-        const pl = plane(v);
-        pl.state = "land";
-        const k00 = plateKey(v.frameId, v.q, 0, 0);
-        store.fresh.dirty((c) => c.key === k00);               // a change staled cell (0,0) only
-        layer.setPlane(pl);
-        layer.compose([]);
-        expect(ctx.of("clip").length).toBe(1);
-        expect(ctx.of("rect").map((c) => c.a.slice(0, 2))).toEqual([[0, 0]]);   // (1,0) is fresh: not in the clip
-        expect(ctx.of("drawImage").map((c) => c.a[0].tag)).toEqual(["under", "ink"]);
-        // the cell's fresh plate lands: the plane draws nothing
-        put(v.q, 0, 0, "fresh");
-        ctx.calls.length = 0;
-        layer.compose([]);
-        expect(ctx.of("drawImage").filter((c) => c.a[0].tag === "under" || c.a[0].tag === "ink")).toEqual([]);
-    });
-});
-
-describe("the pen-up handoff (PAPER-PLAN §10 S5)", () => {
-    /** Every cell under a held path's box has a plate that paints its stroke (its G at or past Gs, A2 §3.3)? */
-    const allShow = (E, h) => {
-        const R = E.renderer, v = R.layer.view(), r = plateRange(h.box, v.Zq);
-        for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) {
-            for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) if (!R._plateShowsG(v, i, j, h)) return false;
-        }
-        return true;
-    };
-
-    test("L1 the live path stays until the plates under the stroke paint it: no arrival leaves neither", async () => {
-        const E = mkEngine();
-        E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
-        E._render();
-        await flush();
-        E.setTool("pen");
-        const a = E.cam.levelPointToScreen("0", -180, 0), b = E.cam.levelPointToScreen("0", 150, 40);
-        E.pointerDown(a[0], a[1]);
-        for (let k = 1; k <= 10; k++) E.pointerMove(a[0] + ((b[0] - a[0]) * k) / 10, a[1] + ((b[1] - a[1]) * k) / 10);
-        const path = E.renderer._liveRoot;                            // the live stroke: its tail and frozen chunks (D-1)
-        expect(path && path.parent).toBeTruthy();
-        const seen = [];
-        const R = E.renderer, orig = R._deliver.bind(R);
-        E._scheduleBake = () => {};                                   // the shape lands when the test steps the bake
-        let held = null;
-        // After every arrival and its own release: the path is still up, or every cell's plate paints the stroke.
-        R._deliver = (recs, jobId) => {
-            const out = orig(recs, jobId);
-            if (held) seen.push(!!(R._liveHeld[0] && R._liveHeld[0].path.parent) || allShow(E, held));
-            return out;
-        };
-        E.pointerUp();
-        const h = R._liveHeld[0];
-        held = h;
-        expect(h).toBeTruthy();                          // red with the path taken down at pen-up
-        expect(path.parent).toBeTruthy();
-        expect(R._liveModel).toBeNull();                 // the live path draws it until its shape lands (PLAN §1.5)
-        expect(allShow(E, h)).toBe(false);
-        await flush();
-        expect(R._liveHeld.length).toBe(1);              // pending its shape: held whatever lands
-        while (E._stepShapeBakes(1000));                 // the shape lands; its plates follow
-        await flush();
-        expect(R._liveHeld.length).toBe(0);
-        expect(path.parent).toBeFalsy();
-        expect(allShow(E, h)).toBe(true);
-        expect(seen.length).toBeGreaterThan(0);
-        expect(seen.every(Boolean)).toBe(true);
-    });
-
+describe("the pen-up handoff (PAPER-PLAN §10 S5; the group commit is raster.pyramid's P2)", () => {
     test("L2 a cancelled stroke's path goes with its stroke, not at the timeout", async () => {
         const E = mkEngine();
         E._render();
@@ -418,11 +280,11 @@ describe("the live trail under the pointer (Kobin 2026-09-22: erasers invisible 
 
 /** The screen x (CSS px, dpr 1) where the plane draws its SEL ink's left edge. */
 function selLeftDrawn(E) {
-    const R = E.renderer, pl = R._plane, v = R.layer.view();
+    const R = E.renderer, pl = R._plane, v = R._view;
     const sel = pl.layers.find((L) => L.kind === "sel");
     let minX = Infinity;
     for (const [i, j] of sel.cells) {
-        const e = E.plates.get(plateKey(pl.frameId, sel.tag, i, j));
+        const e = E.plates.get(pl._key(sel.tag, (pl.cur || pl.main).pZq, i, j));
         if (!e || !e.pixels) continue;
         for (let y = 0; y < PLATE_PX; y += 4) {
             for (let x = 0; x < PLATE_PX; x++) if (e.pixels[(y * PLATE_PX + x) * 4 + 3] > 128) { if (i * PLATE_PX + x < minX) minX = i * PLATE_PX + x; break; }
@@ -436,6 +298,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         const E = mkEngine();
         const { p } = await scene(E);
         const pl = E.renderer._plane;
+        E.renderer.pyramid.cfg.patchInlineMs = 0;                 // the drop's patches go to the pool: the landing is seen
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 40; k++) E.pointerMove(p[0] + k * 3, p[1] + k);
         E.pointerUp();
@@ -505,18 +368,18 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         for (let k = 1; k <= 20; k++) E.pointerMove(p[0] + k * 6, p[1] + k * 6);   // +120, +120: over paper
         await flush();
         const at = [p[0] + 120, p[1] + 120];
-        const v0 = R.layer.view();
+        const v0 = R._view;
         const X = (at[0] * v0.dpr - v0.dx + v0.ox) / v0.Zq, Y = (at[1] * v0.dpr - v0.dy + v0.oy) / v0.Zq;
         const i = Math.floor((X * v0.Zq) / PLATE_PX), j = Math.floor((Y * v0.Zq) / PLATE_PX);
         E.plates.dropFrames((f) => String(f) === String(v0.frameId));   // every plate, that one too, must re-raster
-        expect(E.plates.get(plateKey(v0.frameId, v0.q, i, j))).toBeUndefined();
+        expect(E.plates.get(viewKey(v0, i, j))).toBeUndefined();
         E._render();                                      // a cut landing, a crossing: the list now holds the move
         await flush();
-        const c = rgbaAt(E, R.layer.view().q, at[0], at[1]);
+        const c = rgbaAt(E, null, at[0], at[1]);
         expect(Array.isArray(c) && c[0] === 200 && c[1] === 30).toBe(false);   // red without `omit` on the view's packs
         E.pointerUp();
         await flush();
-        expect(rgbaAt(E, R.layer.view().q, at[0], at[1])).toEqual([200, 30, 30, 255]);   // and the drop puts it there
+        expect(rgbaAt(E, null, at[0], at[1])).toEqual([200, 30, 30, 255]);   // and the drop puts it there
     });
 });
 
@@ -525,11 +388,21 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
 // it — this is a problem"): the real compose, into a software canvas, pixel by pixel.
 // ---------------------------------------------------------------------------
 
-/** An engine whose picture layer composites into `softCtx`, every raw-pixel plate given a bitmap. */
+/**
+ * An engine whose pyramid composites into `softCtx` (the pyramid draws with the nine-argument `drawImage`, so the soft
+ * context runs its scaled form; `magnified` counts the draws whose size changes), every raw-pixel plate given a bitmap.
+ */
 function mkSoftEngine() {
     const E = mkEngine();
     const L = E.renderer.layer;
-    L._ctx = softCtx(L._canvas.width, L._canvas.height, PLATE_PX);
+    const soft = (w, h) => {
+        const c = softCtx(w, h, PLATE_PX, { scaled: true }), di = c.drawImage;
+        c.magnified = 0;
+        c.drawImage = (bm, ...a) => { if (a.length === 8 && (a[6] !== a[2] || a[7] !== a[3])) c.magnified++; return di.call(c, bm, ...a); };
+        return c;
+    };
+    L._ctx = soft(L._canvas.width, L._canvas.height);
+    L._mk = (w, h) => ({ width: w, height: h, getContext: () => soft(w, h) });
     const put = E.plates.put.bind(E.plates);
     E.plates.put = (rec) => { if (rec.pixels && !rec.bitmap) rec.bitmap = { pixels: rec.pixels }; return put(rec); };
     return E;
@@ -580,7 +453,7 @@ describe("the drag keeps the true z-order at every frame (PAPER-PLAN §10 S4z)",
             checked++;
         }
         expect(checked).toBeGreaterThan(30);
-        expect(ctx.scaled).toBe(0);
+        expect(ctx.magnified).toBe(0);
         E.pointerUp();
     });
 
@@ -591,8 +464,8 @@ describe("the drag keeps the true z-order at every frame (PAPER-PLAN §10 S4z)",
         const s = box(E, 100, 250, 100, 100, RED);                    // the latest ink
         E._render(); await flush();
         const posted = [];
-        const post = E.renderer._post.bind(E.renderer);
-        E.renderer._post = (src, misses, why) => { if (why === "plane") posted.push(src.q); return post(src, misses, why); };
+        const push = E.renderer.queue.push.bind(E.renderer.queue);
+        E.renderer.queue.push = (jobs) => { for (const j of jobs) if (j.kind === "plane") posted.push(j.cells[0].tag); return push(jobs); };
         await selectIds(E, [s.id]);
         const pl = E.renderer._plane;
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel"]);
@@ -619,7 +492,7 @@ describe("the drag keeps the true z-order at every frame (PAPER-PLAN §10 S4z)",
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel"]);
         E.pointerDown(150, 150);
         for (let dx = 10; dx <= 280; dx += 10) E.pointerMove(150 + dx, 150);
-        expect(R.layer._plane).toBe(pl);
+        expect(R.layer._plane).toBeTruthy();
         expect(ctx.at(410, 150)).toEqual(YELLOW);                     // the first square passes UNDER the yellow bar
         expect(ctx.at(410, 450)).toEqual(GREEN);                      // the second passes OVER it
         E.pointerUp();
@@ -662,13 +535,13 @@ describe("the drag keeps the true z-order at every frame (PAPER-PLAN §10 S4z)",
         E.pointerDown(150, 300);
         for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
         const pl = R._plane;
-        expect(pl.keys.some((k) => !E.plates.get(k))).toBe(true);    // the layers are still in flight
+        expect(pl.main.keys.some((k) => !E.plates.get(k))).toBe(true);   // the plane's own level still in flight
         expect(planeStats.stopgaps).toBe(1);                          // red before §10.14: the ink stood still, the ants moved
         expect(planeStats.notReady).toBe(0);
-        expect(R.layer._plane).toBe(pl);
-        expect(pl.cur).toBeNull();                                    // no level whole: the stopgap is what is drawn
-        expect(R.layer._ctx.scaled).toBeGreaterThan(0);               // at the quick level's quarter zoom
-        expect(R.layer._ctx.at(130, 300)).toEqual(RED);               // and the plates still hold the ink where it was
+        expect(R.layer._plane).toBeTruthy();                          // the stopgap's plates are drawn as the quick level
+        expect(R.layer._ctx.magnified).toBeGreaterThan(0);            // at the quick level's quarter zoom
+        expect(R.layer._ctx.at(130, 300)).toEqual(BLUE);              // H4: BELOW over the start, never the ink twice
+        expect(R.layer._ctx.at(200, 300)).toEqual(RED);               // and the selection moved
         await flush();
         E.pointerMove(220, 300);
         expect(pl.cur).toBe(pl.main);
@@ -736,39 +609,17 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         const R = E.renderer, pl = R._plane;
         expect(pl.quick).toBeTruthy();
         expect(pl.quick.plates).toBeLessThan(pl.main.plates);
-        for (const k of pl.main.keys) E.plates._remove(k);           // the plane's own level still rastering
+        for (const k of pl.main.keys) { E.plates._remove(k); R._pyrPlaneAsked.delete(k); }   // the plane's own level still rastering
         pl.ready = false;
         E.pointerDown(150, 300);
         for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
         expect(pl.cur).toBe(pl.quick);                                // red before §10.14: nothing drawn, the ink stood still
         expect(pl.partial).toBe(false);
         expect(planeStats.quickSteps).toBeGreaterThan(0);
-        expect(R.layer._ctx.scaled).toBeGreaterThan(0);               // drawn magnified, a quarter of the zoom
+        expect(R.layer._ctx.magnified).toBeGreaterThan(0);               // drawn magnified, a quarter of the zoom
         await flush();
         E.pointerMove(220, 300);
         expect(pl.cur).toBe(pl.main);
-        E.pointerUp();
-    });
-
-    test("P1 with the selection's layers in and what is under it not yet, the selection is drawn alone: it moves", async () => {
-        const E = mkSoftEngine();
-        box(E, 20, 20, 760, 560, BLUE);
-        const s = box(E, 100, 250, 100, 100, RED);
-        box(E, 400, 200, 150, 200, GREEN);
-        E._render(); await flush();
-        await selectIds(E, [s.id]);
-        const R = E.renderer, pl = R._plane;
-        for (const lvl of [pl.main, pl.quick]) {
-            const B = lvl.layers[0];
-            for (const [i, j] of B.cells) E.plates._remove(plateKey(pl.frameId, B.tag, i, j));   // BELOW still rastering
-        }
-        pl.ready = false;
-        E.pointerDown(150, 300);
-        for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
-        expect(pl.partial).toBe(true);
-        expect(planeStats.partialSteps).toBeGreaterThan(0);
-        expect(R._dragOmit).toBeNull();                               // the plates keep the ink where it was: nothing covers it
-        expect(R.layer._ctx.at(230, 300)).toEqual(RED);               // moved (the main level's own zoom: drawn 1:1)
         E.pointerUp();
     });
 
@@ -802,21 +653,6 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         expect(E.plates._plane.size).toBeLessThanOrEqual(R._planeCap);
     });
 
-    test("V5b an idle plane gives its pins back while a zoom holds a quantum (review 5)", async () => {
-        const E = mkSoftEngine();
-        box(E, 20, 20, 760, 560, BLUE);
-        const s = box(E, 100, 250, 100, 100, RED);
-        E._render(); await flush();
-        await selectIds(E, [s.id]);
-        expect(E.plates._plane.size).toBeGreaterThan(0);
-        setRasterTransport(() => new Promise(() => {}));             // the new quantum never lands: the hold stays
-        try {
-            E.zoomAt(400, 300, 250);
-            expect(E.renderer.layer.holding()).toBe(true);
-            expect(E.plates._plane.size).toBe(0);                     // red before: the idle plane stayed pinned through the hold
-        } finally { setRasterTransport(null); }
-    });
-
     test("V7 a re-cut that changes a layer's members renames it: its old plates are not drawn as the new layer (review 7)", async () => {
         const E = mkSoftEngine();
         box(E, 20, 20, 760, 560, BLUE);
@@ -836,55 +672,22 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         expect([...E.plates.cache.keys()].some((k) => k.split("|")[1] === selTag)).toBe(false);
     });
 
-    test("V8 the carry keeps no pixel the plane drew: the moved ink leaves no trail over an uncovered cell (review 8)", async () => {
-        const E = mkSoftEngine();
-        box(E, 20, 20, 760, 560, BLUE);
-        const s = box(E, 100, 250, 100, 100, RED);
-        E._render(); await flush();
-        await selectIds(E, [s.id]);
-        const R = E.renderer, L = R.layer, v = L.view();
-        E.plates._remove(plateKey(v.frameId, v.q, 1, 0));             // the cell the ink is dragged into has no plate
-        E.pointerDown(150, 300);
-        for (let dx = 10; dx <= 450; dx += 10) E.pointerMove(150 + dx, 300);
-        expect(L._ctx.at(610, 300)).toEqual(RED);                     // the moved square, 550–650
-        E.pointerMove(150 + 520, 300);                                // now 620–720
-        expect(L._ctx.at(610, 300)).not.toEqual(RED);                 // red before: the last step's square, carried
-        expect(L.uncoveredCells()).toBeGreaterThan(0);                // and the cell is counted as what it is: nothing carried
-        E.pointerUp();
-    });
-
-    test("V9a between quanta the plane is cut inside the scaled cap: its plates are drawn magnified (review 9)", async () => {
-        const E = mkEngine(1600, 1200);
-        box(E, 20, 20, 1560, 1160, BLUE);
-        const s = box(E, 100, 100, 1400, 1000, RED);                  // a selection over most of the screen
-        E._render(); await flush();
-        E.zoomAt(800, 600, -60);                                      // off the quantum: s != 1 until the settle
-        const R = E.renderer;
-        expect(R._view.s).not.toBe(1);
-        E.setTool("select");
-        E._setSelection([s.id], []);
-        R._aimPlane(R._view);
-        const pl = R._plane;
-        expect(pl.main).toBeTruthy();
-        expect(pl.main.plates).toBeLessThanOrEqual(16);               // red before: 24 plates, all drawn scaled (past the ~33 cliff with the rest)
-    });
-
     test("V9b dragging with the plane whole, the view's own plates under BELOW are not drawn (review 9)", async () => {
         const E = mkSoftEngine();
         box(E, 20, 20, 760, 560, BLUE);
         const s = box(E, 100, 250, 100, 100, RED);
         E._render(); await flush();
         await selectIds(E, [s.id]);
-        const R = E.renderer, L = R.layer, pl = R._plane, v = L.view();
+        const R = E.renderer, L = R.layer, pl = R._plane, v = R._view;
         const hitsOf = new Map();
-        for (const [k, e] of E.plates.cache) if (e.q === v.q && e.bitmap) hitsOf.set(e.bitmap, k);
+        for (const [k, e] of E.plates.cache) if (e.kind !== "plane" && e.bitmap) hitsOf.set(e.bitmap, k);
         const drawn = [];
         const di = L._ctx.drawImage;
         L._ctx.drawImage = (bm, ...a) => { if (hitsOf.has(bm)) drawn.push(hitsOf.get(bm)); return di(bm, ...a); };
         E.pointerDown(150, 300);
         for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
         expect(pl.cur).toBe(pl.main);
-        const below = pl.main.layers[0].cells.map(([i, j]) => plateKey(v.frameId, v.q, i, j));
+        const below = pl.main.layers[0].cells.map(([i, j]) => viewKey(v, i, j));
         expect(below.length).toBeGreaterThan(0);
         expect(drawn.filter((k) => below.includes(k))).toEqual([]);   // red before: drawn, then covered by BELOW
         E.pointerUp();
@@ -913,107 +716,6 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         expect(E.renderer._plane.state).toBe("idle");
         expect(lists.mock.calls.length).toBeGreaterThanOrEqual(5);
         E.pointerUp();
-    });
-
-    test("L3 past LIVE_HOLD_MS a path stays while its shape is pending or its plates are being rastered; the last limit runs from the landing", async () => {
-        const E = mkEngine();
-        E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
-        E._render(); await flush();
-        const R = E.renderer;
-        setRasterTransport(() => new Promise(() => {}));             // every job from here parks: in flight for ever
-        try {
-            E.setTool("pen");
-            const a = E.cam.levelPointToScreen("0", -180, 0), b = E.cam.levelPointToScreen("0", 150, 40);
-            E.pointerDown(a[0], a[1]);
-            for (let k = 1; k <= 10; k++) E.pointerMove(a[0] + ((b[0] - a[0]) * k) / 10, a[1] + ((b[1] - a[1]) * k) / 10);
-            E.pointerUp();
-            const h = R._liveHeld[0], v = R.layer.view(), ext0 = rasterStats.liveExtends;
-            expect(h).toBeTruthy();
-            expect(R._liveCellsComing(v, h)).toBe(true);
-            h.until = 0;                                              // the limit has passed
-            expect(R._releaseHeldLive(v, null)).toBe(0);              // red before: taken down with its plates on the way (F90: 5 s)
-            expect(rasterStats.liveExtends).toBe(ext0 + 1);
-            h.until = 0; h.at -= 20000;                               // past LIVE_HOLD_MAX_MS, the shape still pending:
-            expect(R._releaseHeldLive(v, null)).toBe(0);              // the path is the picture (PLAN §5.4 Q2)
-            while (E._stepShapeBakes(1000));                          // the shape lands; its plates park in flight
-            h.until = 0;
-            expect(R._releaseHeldLive(v, null)).toBe(0);              // the limit runs from the landing
-            h.until = 0; h.since -= 20000;                            // past LIVE_HOLD_MAX_MS from the landing
-            expect(R._releaseHeldLive(v, null)).toBe(1);
-        } finally { setRasterTransport(null); }
-    });
-
-    test("L4 a translucent held path is clipped to its stale cells, not taken down at the first fresh one (D-2)", async () => {
-        const E = mkEngine();
-        E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
-        E._render(); await flush();
-        const R = E.renderer;
-        setRasterTransport(() => new Promise(() => {}));             // no plate lands by itself
-        try {
-            E.setTool("pen"); E.setOpacity(0.4);
-            const a = [40, 300], b = [760, 330];
-            E.pointerDown(a[0], a[1]);
-            for (let k = 1; k <= 12; k++) E.pointerMove(a[0] + ((b[0] - a[0]) * k) / 12, a[1] + ((b[1] - a[1]) * k) / 12);
-            E.pointerUp();
-            const h = R._liveHeld[0], v = R.layer.view();
-            expect(h && h.translucent).toBe(true);
-            const r = plateRange(h.box, v.Zq), cells = [];
-            for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) cells.push([i, j]);
-            expect(cells.length).toBeGreaterThan(1);
-            const [fi, fj] = cells[0];
-            const fresh = jest.spyOn(R, "_plateShowsG").mockImplementation((vv, i, j) => i === fi && j === fj);
-            expect(R._releaseHeldLive(v, null)).toBe(0);                  // red before: taken down at the first cell that paints it
-            expect(h.path.parent).toBeTruthy();
-            const id = (h.path._renderer.elem.getAttribute("clip-path") || "").replace(/^url\(#|\)$/g, "");
-            const cp = id && document.getElementById(id);
-            expect(cp).toBeTruthy();
-            const rects = [...cp.querySelectorAll("rect")];
-            expect(rects.length).toBe(cells.length - 1);                   // every cell whose plate lacks it, not the one that has it
-            const u = PLATE_PX / v.Zq, [si, sj] = cells[1];
-            expect(Number(rects[0].getAttribute("x"))).toBeCloseTo(si * u - h.og.x, 6);
-            expect(Number(rects[0].getAttribute("y"))).toBeCloseTo(sj * u - h.og.y, 6);
-            fresh.mockImplementation(() => true);
-            expect(R._releaseHeldLive(v, null)).toBe(1);
-            expect(document.getElementById(id)).toBeNull();                // the clip goes with the path
-            fresh.mockRestore();
-        } finally { setRasterTransport(null); }
-    });
-
-    test("L4b a translucent held path is not drawn over a stale plate that already paints it (F123)", async () => {
-        const E = mkEngine();
-        E.doc.add(fill(E, -200, -60, "rgb(30,30,200)"), "0");
-        E._render(); await flush();
-        const R = E.renderer;
-        setRasterTransport(() => new Promise(() => {}));             // no plate lands by itself
-        try {
-            E.setTool("pen"); E.setOpacity(0.4);
-            const a = [40, 300], b = [760, 330];
-            E.pointerDown(a[0], a[1]);
-            for (let k = 1; k <= 12; k++) E.pointerMove(a[0] + ((b[0] - a[0]) * k) / 12, a[1] + ((b[1] - a[1]) * k) / 12);
-            E.pointerUp();
-            const h = R._liveHeld[0], v = R.layer.view();
-            const r = plateRange(h.box, v.Zq), cells = [];
-            for (let j = Math.max(r.j0, v.j0); j <= Math.min(r.j1, v.j1); j++) for (let i = Math.max(r.i0, v.i0); i <= Math.min(r.i1, v.i1); i++) cells.push([i, j]);
-            expect(cells.length).toBeGreaterThan(1);
-            while (E._stepShapeBakes(1000));                             // the shape lands: a plate at or past its G paints it
-            // A later change staled every cell; the plates packed at or past the G the stroke shows
-            // from had landed on all but the last.
-            const Gs = R._shownFrom(h);
-            expect(Gs).toBeGreaterThan(0);
-            const banded = new Set(cells.slice(0, -1).map(([i, j]) => plateKey(v.frameId, v.q, i, j)));
-            const get = R.store.get.bind(R.store);
-            const got = jest.spyOn(R.store, "get").mockImplementation((k) => (banded.has(k) ? { G: Gs, dead: false } : get(k)));
-            expect(R._releaseHeldLive(v, null)).toBe(0);
-            const id = (h.path._renderer.elem.getAttribute("clip-path") || "").replace(/^url\(#|\)$/g, "");
-            const cp = id && document.getElementById(id);
-            expect(cp).toBeTruthy();                                       // red before: unclipped over all of them
-            const rects = [...cp.querySelectorAll("rect")];
-            expect(rects.length).toBe(1);                                  // the one cell whose plate lacks the stroke
-            const u = PLATE_PX / v.Zq, [li, lj] = cells[cells.length - 1];
-            expect(Number(rects[0].getAttribute("x"))).toBeCloseTo(li * u - h.og.x, 6);
-            expect(Number(rects[0].getAttribute("y"))).toBeCloseTo(lj * u - h.og.y, 6);
-            got.mockRestore();
-        } finally { setRasterTransport(null); }
     });
 
     test("L7 a pan that carries the camera into another cell renders: the list is rebuilt in the new frame (REVIEWER-3 CAM-1)", () => {
@@ -1048,9 +750,9 @@ describe("the drop of a selected frame, the ladder under a pinned plane, the lan
         E.pointerUp();
         expect(E.selection.frames.length).toBe(1);
         await quiet(); await flush();
-        const v = E.renderer.layer.view();
-        const X = Math.floor(farS[0] * v.dpr - v.dx + v.ox), Y = Math.floor(farS[1] * v.dpr - v.dy + v.oy);
-        const farKey = plateKey(v.frameId, v.q, Math.floor(X / PLATE_PX), Math.floor(Y / PLATE_PX));
+        const v = E.renderer._view;
+        const X = Math.floor((farS[0] * v.dpr - v.dx) / v.s + v.ox), Y = Math.floor((farS[1] * v.dpr - v.dy) / v.s + v.oy);
+        const farKey = viewKey(v, Math.floor(X / PLATE_PX), Math.floor(Y / PLATE_PX));
         const farPlate = E.plates.get(farKey);
         expect(farPlate).toBeTruthy();
         const all0 = E.plates.s.dropsAll;
@@ -1059,26 +761,7 @@ describe("the drop of a selected frame, the ladder under a pinned plane, the lan
         E.pointerUp();
         expect(E.plates.s.dropsAll).toBe(all0);                      // red: `dropAll` at every frame drop
         expect(E.plates.get(farKey)).toBe(farPlate);                  // the far plate kept, and fresh
-        expect(E.plates._isStale(farPlate)).toBe(false);
-    });
-
-    test("F2 a ladder a pinned plane evicted is rebuilt once at that view, not in a loop", () => {
-        const E = mkEngine();
-        box(E, 100, 100, 100, 100, RED);
-        E._render();
-        E._lastCamMove = -1e9;
-        E._ladderAt = null;
-        E._buildLadder();
-        const steps1 = E._ladderSteps;
-        E._buildLadder();
-        expect(E._ladderSteps).toBe(steps1);                          // built: nothing to do
-        E.plates.s.ladderEvictions++;
-        E._buildLadder();
-        expect(E._ladderSteps).not.toBe(steps1);                      // red: an evicted ladder waited for a camera move
-        const steps2 = E._ladderSteps;
-        E.plates.s.ladderEvictions++;
-        E._buildLadder();
-        expect(E._ladderSteps).toBe(steps2);                          // once a view
+        expect(E.plates.exact(farPlate)).toBe(true);
     });
 
     test("F3 a landing waits past B's 600 ms for plates still in flight; MOVE_HOLD_MS is only its safety limit", async () => {
@@ -1088,13 +771,13 @@ describe("the drop of a selected frame, the ladder under a pinned plane, the lan
         const pl = E.renderer._plane;
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 30; k++) E.pointerMove(p[0] + k * 3, p[1]);
-        const post = E.renderer._post.bind(E.renderer);
-        E.renderer._post = () => 0;                                   // the drop's plates never arrive
+        setRasterTransport(() => new Promise(() => {}));             // the drop's plates never arrive
+        E.renderer.pyramid.cfg.patchInlineMs = 0;                     // nor are they patched on this thread
         E.pointerUp();
         expect(pl.state).toBe("land");
         await new Promise((r) => setTimeout(r, 700));
         E.renderer.syncCameraOnly();
         expect(pl.state).toBe("land");                                // red at 600: back to the stale picture
-        E.renderer._post = post;
+        setRasterTransport(null);
     });
 });

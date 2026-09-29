@@ -498,13 +498,15 @@ export default class PicturePyramid {
 
     /**
      * Rest mode: every rest cell with a plate is planned against its own plate — exact 1:1; stale, the patch rule
-     * or a fresh level cover or the stale plate — and drawn over the level plan of the cells the rest set lacks.
+     * or a fresh level cover or the stale plate — and drawn over the level plan of the cells the rest set lacks. A
+     * cell a whole dragged plane's BELOW covers is not drawn at all (A3 §6's `_planeBelow`).
      */
     _planRest(v, P, B) {
-        const st = this.store, F = v.frameId, S = v.S, Z = v.Z, N = Math.ceil(8 / S), floor = ownFloor(S);
+        const st = this.store, F = v.frameId, S = v.S, Z = v.Z, N = Math.ceil(8 / S), floor = ownFloor(S), skip = P.plane.skip;
         const top = [], bare = [];
         for (let j = v.j0; j <= v.j1; j++) {
             for (let i = v.i0; i <= v.i1; i++) {
+                if (skip && skip.has(i + "," + j)) continue;
                 const own = st.get(restKey(F, Z, i, j));
                 const cb = boxOf(Z, i, j);
                 if (!own) { bare.push(cb); continue; }

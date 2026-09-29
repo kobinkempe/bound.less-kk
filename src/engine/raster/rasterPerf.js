@@ -440,18 +440,17 @@ function perfExtra(row) {
 // ---------------------------------------------------------------------------
 
 /**
- * A request about to be submitted (H5). Every strip of one request is queued in one loop
- * (`rasterWorkerClient.submitPlates`), so the request's own stamp IS each strip's queued-at, and
- * `nStrips` is how many arrivals will claim it.
+ * A strip about to be dispatched (H5): `at` is when it was queued (the `JobQueue`'s push), so an arrival's wall
+ * starts there, and `nStrips` is how many arrivals will claim the stamp.
  *
  * `nPlates` is the row's MISSES; the hits are `noteCompose`'s, so `platesWanted` is the two
  * added and nothing counts a plate twice (§8.4 rule 5).
  */
-export function noteSubmit(req, nPlates, nStrips) {
+export function noteSubmit(req, nPlates, nStrips, at) {
     ensure();
     const seq = req && req.frameSeq != null ? req.frameSeq | 0 : 0;
     subSeq[subAt] = seq;
-    subT[subAt] = clock();
+    subT[subAt] = at != null ? at : clock();
     subLeft[subAt] = Math.max(1, nStrips | 0);
     subAt = (subAt + 1) % SUBMITS;
     if (nSub < SUBMITS) nSub++;

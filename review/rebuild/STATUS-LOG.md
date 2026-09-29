@@ -1669,3 +1669,24 @@ report-read on the pyramid's fields. Ported so far: stage.fresh/hold (+ the test
 **Measured:** typecheck 0; eslint 0 errors on every edited file; the ported suites 84/84 and 13/13 (load 2.2).
 **Questions asked:** none.
 WHERE I AM: item 4's ports — raster.picture/nopaper deleted (F101, F106 to raster.pyramid), then raster.plates → the store's suite.
+
+## 2026-09-29 06:51 UTC — B-MODEL-C1 (builder) — M3 checkpoint: the version-3 gate, the lint, the break-checks, the counters
+**Working on:** M3 done. Since 06:19: `model.pureRead` now gives an inked frame in view an unread shift before the
+reads and counts a render as one (its first form missed a settling read: the fuzz renders after every op); `select.stands`
+checks every selection drag against the ink before it. `hooks/store.model.test.js` green in the tree (P6 took `setPreBake`
+out of the hook).
+**Measured:** break-checks on the unimported copy (bm1/bc, red of run): baseline 0/13; the home-depth carry not honoured
+1/10; the picture table without the frame's shift 6/10; newcomer not cancelling 2/7; reach box not moved by the shift 1/7;
+H6 own table ignored 1/7; version gate removed 2/3; a read that settles (in `list`) 1/1; a logged settle not replayed 2/5;
+`oldBelow` bump removed 1/7. Lint: a leak file (`.below`, `{ below }`, `["below"]`) 3 errors, 0 with the rule removed;
+format2's allow comment removed 2 errors. Pure reads now: 180 states, 114 unread shifts, 826 reads, 77 empty frames
+minted by `displaced`. Counters, 300 natives in a frame one level under the camera, a 20-event subtree drag with a render
+each: before (oracle) 1 settle and 300 then 600 table writes per event; after 0 and 0 (`doc.rev` 12,640 → 940). Harness
+scenarios 3 and 4 (own Playwright script `bm1/scenes34.js`, gestures and drawing copied, seed 1, 1280×800, CSS animations
+off; 5e9b1dd on :3030 against the tree at 06:25 on :3031, load 1.5–3.6): pan 0 px differ; lasso + drag 45 selected, ink
+alone 0 px differ, with the selection shown 29–50k px on the ants only — the same outline, the dashes' phase shifted (the
+pieces under the ants are cut differently; not traced further). Same tree twice: 0 px. SVG path: pan 0 px; drag crashed
+the pre-C1 page twice (Chromium "Target crashed"), not compared. Typecheck 0; eslint 0 errors (8 warnings, none mine).
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: M4 — the docs (DESIGN §8/§13, docs/ai, PLAN §1.7 and §3 row 8, TEST-MAP, A1 notes, OPEN-FLAGS), then the quick suite.
