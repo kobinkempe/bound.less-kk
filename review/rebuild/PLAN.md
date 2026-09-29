@@ -593,3 +593,39 @@ family's ink above a mark). Its review is launched with this section (`review/re
 8. **B-PYRAMID-2's P0–P2 questions**: the coarsest-source reserve is adopted (yes); the fuzz's reading of
    step (f) is right — older is allowed only where nothing fresh is cached at any level, and `olderMs` = 0 in
    the harness stays the target; `_renderPending` goes at P6.
+
+### 5.9 To the B-ERASE review (its report of 2026-09-29)
+
+Read in full; its fixes are committed as 5e9b1dd (the bake's step budget — 2 × supply + 8, past which the mark aborts,
+is spent and reported; a round's fills promoted first so the log's order is the same inline and through workers; dead
+marks pruned when a redo branch drops and `_markAlive` read from the redo stack; the old-store test with a store made by
+the pre-B-ERASE engine; the parallel fuzz: 60 seeds, 42 worker deaths, 52 respawns, documents equal after every op).
+Measured in headless Chromium: Kobin's drag-across case (the dragged object's own colour over the pending mark at every
+step and after the drop; the bake lands with it uncut), plates kept through a bake equal to a fresh page, the barriers'
+timings (a tap parks and selects in 84–126 ms, a drag's start parks 418 ms, a lasso is judged at 378 ms), the fringe
+of a half-handled family within 1.5 px of the mark's edge. The eraser is not described as working; F65 stays open.
+
+1. **Major 1, Q1 yes**: a cut or descent the watchdog took is refused over ink (`setHandledById`, a journal reason, a
+   report count) instead of run inline; a job lost to a worker error is re-submitted once to the fresh pool; inline only
+   when the pool is broken. It lands with **B-PYRAMID-2's P6**, which moves the cuts into the shared `JobQueue` at
+   `PRIO.cut` (the queue's `requeue` is the one re-submission) — the B-ERASE review has ended, so `eraseWorkerClient.js`
+   is B-PYRAMID-2's from P6 on. A refusal shows the target's ink under the mark again (A2 §5.7): an honest failure,
+   never a hung tab.
+2. **Major 2, Q2 yes**: a selection left up during a bake makes the bake 8–9× slower (42–48 s against 5.1 s, the main
+   thread saturated: `packJob` → `prepassFor`/`famFill`/`loopBBox` 5.9 of 8.3 s, `_aimPlane` → `paintFamilies` 1.0 s;
+   profile `scratchpad/r-erase/cancel-profile.json`). To B-PYRAMID-2 (P5/P6): the pack's family prepass memoised by
+   family identity across steps, and the plane's pre-aim not re-run per cut step (it waits for the bake's quiet as it
+   waits for the view's). The measurement to beat: the same scenario under 8 s with the 413-piece object selected.
+3. **Major 3 to B-DRAG (C2)**: deleting 5,000 selected natives spends 18.7 of 25 s re-rendering the selection overlay,
+   once per removed member, from the per-remove listener (`KobinEngine.js:284–317` → `_setSelection`) — O(n²). C2's
+   "the selection is repaired from the op's own record, never from events" deletes that listener; until then the
+   batch-delete helper clears the selection once before the removals. The profile is the brief.
+4. **Q3, the sentence for Kobin** on undo under a newer mark, carried to him as the reviewer wrote it: "Undo takes the
+   newest gesture first, so a pending erase is undone before an older one. Undoing both and redoing both gives you back
+   the same drawing, and the newer erase cuts again. If you draw something after undoing them, both are gone for good and
+   nothing they covered stays hidden."
+5. **Open items**: `tools/docmaps/newdesc_engine.py` still describes done sets, `_uncutOf` and `_neutralUnder` (the
+   orchestrator's final docs pass); `stage.cover.test.js:84,228` pass a dead `markDone` option (B-PYRAMID-2 P6, with the
+   old layer's deletions); the deployed build drops an `attr`-set `targets` at its next snapshot — recoverable, since a
+   landed mark without `targets` is registered at first sight by the old rule (§5.8), so no version gate for the erase
+   fields (noted in A2 §4.9).
