@@ -307,10 +307,10 @@ test("S7b a snapshot aborted while its strip waits in the queue leaves the queue
     const ac = new AbortController();
     const p = E.snapshotView({ frame: E.cam.frame, rect: { x: 60, y: 60, w: 400, h: 300 }, signal: ac.signal });
     expect(await until(() => thumbs() === 1)).toBe(true);   // read at idle, queued behind the busy worker
-    const rejected = expect(p).rejects.toThrow("aborted");
+    const outcome = p.then(() => "resolved", (e) => e.message);
     ac.abort();
     expect(thumbs()).toBe(0);
-    await rejected;
+    expect(await outcome).toBe("aborted");
     while (await gate.release()) { /* the camera's plates */ }
     expect(rasterStats.snapshotPlates).toBe(0);
     expect(E.plates.jobs.size).toBe(0);

@@ -2192,3 +2192,18 @@ run; alone 3/3 pass, as before my change); lint 0 errors of mine. The quick suit
 **Questions asked:** none.
 WHERE I AM: re-running `erase.follow` and `sync.tabs` on the live tree and on the copy (load 0.1 now) to tell a stuck
 file from my change; then the break-checks (warm rule, release-in-task, one writer) on an unimported copy.
+
+## 2026-09-29 19:59 UTC — reviewer (B-PYRAMID review) — R-PYRAMID items 1–11 — end
+**Working on:** done; servers stopped, no process of mine running. Built (red first, break-checks red): items 1, 2, 4;
+item 8's minors and two defects found there (the snapshot strip's leaked slot, a drop forgetting every ask).
+**Measured (headless Chromium 141, dense; P6 = 15b3738 same session; load 1.8–3.6):** 1 out paper 8.4 | 109.8 | 8.5 | 6.1
+(P5 0.4 | 8 | 99; P6 0.4 | 1.8); undo key-to-exact 240 | 348 | 264 | 203 | 287 ms (P6 334 | 983), longest task 156–293
+(P6 352 | 310), older 0 (coarse-first); 7 erase olderOther 1,404 | 1,276 after the unask fix (P6 659 | 519): its cells
+are stale own plates with no patch asked (commit → next render ≤ 100 ms), not the stand-in's case; levelStep 2|3 older 0.
+jsdom: raster.pyramid 37, PicturePyramid.* 42, jobQueue 9, snapshot 13, worker 22, engine 30, move 33, liveHold 3,
+erase.worker 9 — green alone; a 63-file concurrent run: 763/767, LH-1 and RV4 red there with and without item 2 (load).
+typecheck 0; eslint 0 errors after my S7b fix (7 warnings, none mine); bundles raster b72e5be7… 430,605 B, scene dce304b8….
+Nothing in Kobin's Chrome.
+**Decisions made:** the snapshot identity and the unask fixed as item 8's minors (one line each, red first).
+**Questions asked:** in the report (scenario 7's commit window, the undo's pack cost, the (f′) last resort, the drop's budget).
+WHERE I AM: ended — report handed back; B-PYRAMID-3 may take `RasterRenderer.js` and the raster modules.

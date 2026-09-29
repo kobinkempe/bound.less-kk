@@ -145,6 +145,7 @@ test("thumbnails builds its engine with `raster: false`", async () => {
             constructor(host, opts) { built.push(opts); }
             setLazyOutlines() { }
             loadDrawing() { }
+            flushErases() { }                                    // the barrier `withSvgEngine` runs after the load
             jumpTo() { return false; }                           // no scene is rendered: nothing to rasterise
             destroy() { }
         },

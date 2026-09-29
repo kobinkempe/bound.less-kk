@@ -236,6 +236,11 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   publishes those plates and releases the SVG path in the same task, so no frame shows both or neither
   (a translucent stroke's alpha is applied once). This ends the double raster (D-3) and the per-cell
   clipPath. A group older than 3 s commits what it has.
+- *Built (2026-09-29, B-PYRAMID-3 items 1–3):* `raster/SvgLayer.js`, `raster/LiveStrokeLayer.js` (`begin(o, origin)`,
+  `arcs`, `hold()`, `release(id)`, `cancel()`), `raster/svgOverlay.js` (the lasso, the debug overlays, the chevrons and
+  the SVG ants) and `raster/svgAnchors.js`, composed by `Renderer`, which draws the Stage's items; `?svg` masks a landed
+  pending mark's targets (`eraseRule.underMask`, an SVG `<mask>`), the export bakes every mark in its copy first, and
+  a group at opacity 0 is not rebuilt (F133). `RasterRenderer` still inherits until item 4.
 
 ### 1.6 The worker pool
 

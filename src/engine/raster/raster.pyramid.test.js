@@ -316,12 +316,6 @@ function wholeRender(E, rec) {
     return out;
 }
 const diffBytes = (a, b) => { let n = 0; for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) n++; return n; };
-/** A plate of the renderer's paper, as a whole render of nothing is. */
-function paper(E) {
-    const out = new Uint8ClampedArray(512 * 512 * 4), [r, g, b] = E.renderer._paperRgb;
-    for (let k = 0; k < out.length; k += 4) { out[k] = r; out[k + 1] = g; out[k + 2] = b; out[k + 3] = 255; }
-    return out;
-}
 
 describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)", () => {
     test("pen-up: no compose shows both the held path and the stroke's plates, or neither; the path goes in the task that publishes them", async () => {
