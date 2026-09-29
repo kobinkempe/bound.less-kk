@@ -81,7 +81,7 @@ function refPixels(E, frameId, q, Zq, i, j) {
     const u = PLATE_PX / Zq, pad = 4;
     const list = E.listFor(frameId, { left: (i - pad) * u, top: (j - pad) * u, right: (i + 1 + pad) * u, bottom: (j + 1 + pad) * u });
     const job = packJob(list, { plates: Int32Array.of(i, j), q, Zq, dpr: E.renderer.layer.dpr, cfg: E.cfg, paper: [255, 255, 255],
-        live: E.renderer._liveModel, markDone: E.renderer.markDone });
+        live: E.renderer._liveModel });
     const rgba = new Uint8ClampedArray(TW * TH * 4);
     renderPlate(job, 0, rgba, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));
     return rgba;
@@ -225,7 +225,7 @@ describe("every plate job holds every item overlapping the plate", () => {
                 if (!px) continue;
                 const list = E.listFor(pl.frameId, { left: (i - 2) * u, top: (j - 2) * u, right: (i + 3) * u, bottom: (j + 3) * u });
                 const job = packJob(list, { plates: Int32Array.of(i, j), q: L.tag, Zq: lvl.pZq, dpr: E.renderer.layer.dpr, cfg: E.cfg,
-                    paper: [255, 255, 255], omit: L.omit, live: E.renderer._liveModel, markDone: E.renderer.markDone });
+                    paper: [255, 255, 255], omit: L.omit, live: E.renderer._liveModel });
                 const ref = new Uint8ClampedArray(TW * TH * 4);
                 renderPlate(job, 0, ref, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));
                 const d = diffPx(px, ref);

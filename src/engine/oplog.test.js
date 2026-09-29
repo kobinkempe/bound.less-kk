@@ -235,8 +235,6 @@ describe("the op log after a reload", () => {
     });
 });
 
-// The subtree move in the log (SUBTREE-O1-PLAN §2.8): the header's lattice is the authority on
-// addresses, shifts and shadows; a settle is an entry of result tables; a deleted subtree's
 describe("a moved stroke replayed before its stale move's redo (REVIEWER-3's save lane, seed 715)", () => {
     // Five gestures: the object is in the full snapshot, the add and move entries are stale, and only the
     // immediate rewind of the replayed object (U-2) puts the undo's inverse back at the move's table.
@@ -290,8 +288,10 @@ describe("a frame deleted in the tick its strokes were drawn (REVIEWER-3 SAVE-4)
     });
 });
 
-// natives ride the entry; a merge is recorded on its op. Reloads agree with the live engine
-// byte for byte, undo and redo included.
+// The subtree move in the log (SUBTREE-O1-PLAN §2.8): the header's lattice is the authority on
+// addresses, shifts and shadows (a shift is placement, written into no table: A1 C1); a deleted
+// subtree's natives ride the entry; a merge is recorded on its op. Reloads agree with the live
+// engine byte for byte, undo and redo included.
 describe("the op log and a subtree moved as frames", () => {
     const rects = (E, frame, n, seed, size = 900) => {
         const ids = [];

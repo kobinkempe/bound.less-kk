@@ -73,7 +73,6 @@ describe("a frame holds something (frame GC, F94)", () => {
         E.pointerUp();
         expect(minted).toBeGreaterThan(3);                       // the fixture: the drag's chains minted containers
         expect(strays(E)).toEqual([]);                            // red: every one of them left behind
-        for (const k of [...E.lm.frames.keys()]) E.doc.at(k);   // settled, so bytes compare
         const after = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id), L: addrOf(E, L.id) };
         E.undo();
         expect(bytes(E)).toBe(start.bytes);

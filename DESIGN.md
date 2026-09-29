@@ -369,7 +369,7 @@ where there is no worker) and applied strictly in that order through a reorder b
 parallel bake leaves the inline bake's document, ids, steps and log (three seeds of shuffled
 arrivals, `erase.rule.test.js`). A target pending under an earlier mark is not dispatched for a
 later one; descents run one at a time; a landed job applies only if its target is unchanged
-(`_ver`: a move or a settle projected the eraser through another table), the lattice not
+(`_ver`: a move projected the eraser through another table), the lattice not
 re-addressed and the pair still pending, else it is dispatched again; a pair its eraser's box
 misses is handled in memory only (no pixel of it is under the mask). The lookahead writes nothing
 to the document. A mark with nothing pending is spent, logged `spent`, its box re-rastered, and its
@@ -590,44 +590,52 @@ lands exactly where the per-object path would put it — registration by
 construction, proved native for native (`move.subtree.test.js`); a step of a target
 chain that a moving frame is headed for resolves to that frame, and the apply is
 two-phase so movers never collide with each other. Frames at the camera's depth + 1
-and + 2 also owe their natives the sub-cell rest: it stays on the frame as a
-**shift**, the k = 0 table entry every native of the frame owes, and is settled into
-their tables at the first read of the frame's list (`Document.at`), exactly as the
-per-object path applies a rest, a carry re-homing to the neighbour. A frame nobody
-zooms into is never settled; a frame a render settles mid-drag is unsettled from its
-record before it takes the next step's shift — O(its natives), the cost of drawing
-it. Scans that need identity only (a mark, a family key, a type, a count) read the
-list as stored (`Document.list`, `count`) and settle nothing: eight such walks used
-`at` and settled the whole document on every up-tile bake until 2026-09-15.
+and + 2 also take the sub-cell rest: it stays on the frame as its **shift**, and the
+shift is **placement, composed on read** (A1 C1, 2026-09-29): a native's picture table
+is its own table with its home frame's shift added at k = 0 (`Document.tableOf`), never
+written into it. `LevelMap.objShift` reads a composed table as it reads any table —
+whole frames name the frame the pieces are read from, the remainder is painted — and
+honours a carry at the home depth: a native the shift puts past its cell is drawn live
+in the neighbour (`placementModel.nativesIn`) and stays homed where it is. No read
+settles, merges or changes a table; the one lattice change a read may make is
+`displaced` minting the empty frame a picture's pieces are read from (PLAN §3 row 8;
+frame GC's). A native added to a shifted frame — a stroke, a ceded kid — cancels the
+shift in its own k = 0 entry, so it is drawn where it was put (`Document.ownFor`,
+`add(…, { fresh: true })`); a native promoted out of one composes the shift one level
+down (`promotedTable`). Until C1 the shift was a debt settled into the natives' tables
+at the first read of the frame's list, a carry re-homing to the neighbour, and a frame
+a render settled mid-drag was unsettled before the next step: a 20-event drag of a frame
+of 300 natives wrote 300 then 600 tables an event, 0 since (2026-09-29, the frozen model
+`__oracles__/model-v1` against the tree).
 
 A target cell another frame holds makes a **shadow** (`LevelMap._take`): the mover
 shadows the resident, or an empty, childless resident — a visited cell, the common
 case — yields the cell and shadows the mover. A shadow shares the cell, is listed
 among the parent's children (`childrenOf`, `walk`) and under its resident for the
-selection (`isUnder`), and is invisible to address lookups until the resident's
-list is first read, when `Document._mergeShadows` settles both, appends the
-shadow's natives to the resident's list, re-parents its kids (`adoptShadow`: a
-free cell taken, an occupied one shadowed in turn) and deletes it — O(the shadow's
-natives), the cost of reading them; the selection follows, the merged natives as
-ids and the kids as frames, and so does the camera when the shadow was its frame (an
-undo putting a moved frame back where the camera's empty twin sat: left on the gone
-frame, the canvas drew nothing and new ink went to a frame the lattice lacked, F126).
-A drag holds merges until its op is on the stack.
+selection (`isUnder`), and is invisible to address lookups until the user action that
+made it ends — the drop, an undo or a redo, a load, a replay's end (`Document.mergePending`;
+the resident's first read until C1) — when `Document._mergeShadows` appends the shadow's
+natives to the resident's list with the difference of the two frames' shifts folded into
+their own tables, so their pictures stay (the tables recorded for `unmerge` and the log),
+re-parents its kids (`adoptShadow`: a free cell taken, an occupied one shadowed in turn)
+and deletes it — O(the shadow's natives); a shadow holding nothing is frame GC's. The
+selection follows, the merged natives as ids and the kids as frames, and so does the
+camera when the shadow was its frame (an undo putting a moved frame back where the
+camera's empty twin sat: left on the gone frame, the canvas drew nothing and new ink went
+to a frame the lattice lacked, F126). A drag's merges wait for its op on the stack.
 
-**A settle can happen inside a tile bake** (F78, 2026-09-22, Kobin's Earth move on the
-Magnum Opus). `_bakeDown` and `_bakeUp` read frames through `Document.at`, so a settle's
-carry can re-home natives into a frame the bake has already passed over while the tile
-is not yet in the cache for the events to patch; the empty tile was then served for the
-session. `TileStore._bakeSettled` runs a bake again when `Document.rev` moved under it,
-at most three times (`_rebakes`). **An added native is patched into the cached tiles** a cold
+**No bake moves a native** (F78, 2026-09-22, Kobin's Earth move on the Magnum Opus: a settle
+inside `_bakeDown` carried natives into a frame the bake had passed, and the empty tile was
+served for the session; `TileStore._bakeSettled` re-ran such bakes until C1 took the settle
+out of every read). **An added native is patched into the cached tiles** a cold
 bake would put it in: a direct child's up tile derives it, a chained up tile takes it from its
 parent squares' pieces, coarsest first, and one whose parents are not all cached goes
 (2026-09-24 TB-1; dropped, a cut in an ancestor frame rebuilt the whole view cold, 1.4–1.7 s at
 depth 9 on the Magnum Opus; `tile.patch.test.js` compares every cached tile to a cold bake).
 **The shift stays within ±W/2** (`.claude/SUBTREE-O1-PLAN.md`
 §2.2, built 2026-09-23): each drag event carries whole cells of the frame's shift into its
-address (`moveSubtreeTargets`, given each frame's shift at the drag's start), so a settle
-carries only the natives whose own tables cross a cell edge, and a change of the shift alone
+address (`moveSubtreeTargets`, given each frame's shift at the drag's start), so only a native
+whose own table adds to it is drawn past a cell edge, and a change of the shift alone
 refiles the frame so its plates follow. Not built: `_take` lets a resident with kids keep its
 cell even when its whole subtree is empty, so an empty twin can take the mover's identity (F80).
 
@@ -644,21 +652,21 @@ so the store no longer lists it and replay counts it as holding every entry (§1
 next write's header lattice lacks it and the op log records it (`forget`); its tiles and
 plates go with it, since an unmoved frame's id can be minted again by a later read and its old
 tiles would be served without what changed meanwhile (F111). Undo and redo collect too. A
-moved frame's id is not minted again in the session. The rest and the settles move ink across cell edges — a
-kid re-homed under the neighbour container, a native carried next door — so what was selected
-stays selected by §10's rule.
+moved frame's id is not minted again in the session. The rest moves kids across cell edges — a
+kid re-homed under the neighbour container — so what was selected stays selected by §10's rule; a
+native's picture crosses a cell edge without leaving its frame (A1 C1).
 
 One op per gesture, `{ op: "moveFrames", frames: [{ id, from, to, shiftBefore,
-shiftAfter, settled, merged }], moves }`, the frame entries beside the per-object
-members. A settle records the result table of every native it touched and the homes
-of the carried ones on the entry that placed the frame (`Document.noteFrameOwner`);
-a merge records the natives, kids and address of the frame that went. Undo splits
-the merges back (`unmerge`, `unadoptShadow`), subtracts the settles from their
-records (idempotent; a carried native comes home by id), re-addresses to the start
-and restores the shift; redo is the inverse's inverse. Byte-exact on the stored
-natives and the lattice, reload included (`move.subtree.test.js`, `oplog.test.js`).
+shiftAfter, merged }], moves }`, the frame entries beside the per-object members. A
+merge records the natives, their tables before and after the fold, the kids and the
+address of the frame that went, on the entry of the frame it names. Undo splits the
+merges back (`unmerge`, `unadoptShadow`), re-addresses to the start and restores the
+shift; redo is the inverse's inverse. A `settled` record on an op from a store written
+before C1 is subtracted by `legacy/modelV1.js` (`unsettle`; deletion date 2026-12-31).
+Byte-exact on the stored natives and the lattice, reload included (`move.subtree.test.js`,
+`oplog.test.js`, `hooks/store.model.test.js`).
 
-Measured 2026-09-15 (jsdom, the median of three runs; 2,000 natives over a root one
+Measured 2026-09-15, before C1 (jsdom, the median of three runs; 2,000 natives over a root one
 level under the camera with kids two and three levels under; the render aside): the
 lasso enclosing the root 0.09 ms, one frame and no ids; one drag event 0.36 ms,
 three targets, no re-home and no table set; the op two frame entries; undo of the
@@ -672,8 +680,9 @@ Why this was more than the lattice made it look. The structure was ready — a t
 cells, natives homed by frame id, tables keyed by depth — and the move itself is the
 pointer change (`readdress`). The work was in what had grown up assuming an id was
 its address (tile stamps, the `#n` id a vacated cell mints, replay) and that one
-frame holds a cell (the shadows), and in the settle deferred to a read, which has to
-be undone and logged exactly where the per-object path wrote every table at once.
+frame holds a cell (the shadows), and in the settle deferred to a read, which had to
+be undone and logged exactly where the per-object path wrote every table at once — until
+A1 C1 (2026-09-29) made the shift placement, composed on read and written nowhere.
 
 ---
 
@@ -716,7 +725,7 @@ never behind the document; an item reads z and the erase data from the live nati
 is the one read of where it is drawn. One integer **G** moves once a commit (an event outside a
 batch; a drop, an undo, a delete, a load as one batch). A change dirties every plate cell its
 drawn footprint meets, before and after (the event carries the old box, width and table;
-a settle, a merge or an inkless refusal carries none; a union family whose routing flips dirties
+a merge or an inkless refusal carries none; a union family whose routing flips dirties
 its whole box); the plate store tracks every cell it holds or has a job for. A job carries the G
 it was packed at, a result replaces the stored plate iff its G is newer, and a plate is exact iff
 its G ≥ its cell's `dirtySince` — no epochs, no painted-id sets, no queued events drained at a
@@ -863,7 +872,7 @@ Five things in it are load-bearing and none is obvious:
 |---|---|
 | `upContent(F)` | **ancestor** frames' objects, magnified into F, built by **chaining** one crossing at a time through the parent's tiles. Magnify must chain: a composed long jump cancels catastrophically. Classified empty / solid / edge, where **solid** replaces a tile-covering band with a 4-vertex quad so geometry can never outgrow a tile. |
 | `downContent(F)` | every **non-ancestor** frame at depth ≥ F, projected directly (net factor ≤ 1, so it cannot explode). A view-independent cull drops sub-pixel content; a fade band tags size. Candidates come from the frame tree (`_downSources`): F's subtree and, outward, each ancestor's other subtrees, a subtree skipped whole when its cell grown by one misses the tile (invariant 2), and a frame skipped whole when its index's extent misses the tile or its largest object is under the cull (`Document.frameExtent`). The scan rests on invariant 2 as the ring does: a native overhanging its frame's neighbourhood is not found by a down tile. |
-| `ownContent(F)` | the frame's own natives, read straight out of the Document. A plain read, because a cut parent's stored rings **are** the rings to paint. |
+| `nativesIn(F)` | the natives drawn live in F (`placementModel.js`): its own, read straight out of the Document, less those whose picture its shift carries out, plus those carried in (A1 C1). A plain read, because a cut parent's stored rings **are** the rings to paint. |
 | `ringNatives` | the eight cells around each step of the up-chain. A cell is about three screens across, so zooming in slightly off-centre puts on-screen ink into a **sibling** of your ancestor — coarser than you, not an ancestor, so both other paths skipped it and it vanished. Invariant 2 is what makes the ring complete. |
 
 ---
@@ -902,9 +911,9 @@ as straddling, so the piece is judged with its family and left out, and the rest
 (`_tornUnder`, from `Document.keyedIn`, a per-frame set of keyed natives — no other ink is read; F108).
 
 **The selection stands for the same ink** (F93). A subtree drag's rest re-homes a selected
-frame's kid under the neighbour container, and a settle carries a frame's natives next door
-(§8); at the drop, at any later settle of a selected frame, and after an undo or a redo,
-what left every selected frame joins the selection — a frame as a frame, a native as an id —
+frame's kid under the neighbour container (§8; since A1 C1 no read moves a native, so a
+frame's natives stay its own wherever its shift draws them); at the drop and after an undo
+or a redo, what left every selected frame joins the selection — a frame as a frame, a native as an id —
 an id back under a selected frame leaves the ids, and a selected frame left with no ink
 leaves (`_reselect`). A frame under another selected frame is counted once.
 
@@ -1007,6 +1016,13 @@ drawing is written as version 2 only when it holds one; everything else is
 still version 1 and opens in any build. An object's displacement table
 (`below`, section 8) rides the native record in both versions.
 
+Version 3 (2026-09-29, A1 C1): a frame's `shift` in the lattice is its natives'
+placement, composed on read (§8), where a version-2 build reads it as a debt to settle
+into their tables and the deployed build before 4c99a8a drops it. A drawing whose
+lattice carries a shift is written as version 3, and those builds refuse it with
+their "saved by a newer version" message; one without a shift is written exactly as
+before, byte for byte (`hooks/store.model.test.js`).
+
 **Frame ids.** A frame's id is its birth chain, `0/i,j/…`; a cell a moved frame vacated
 mints a twin with `#n` on its segment, and every descendant carries that `#n` inside its
 own id. `persist.js` has one grammar for both of its checks (`FRAME_ID`, a `#n` on any
@@ -1051,18 +1067,16 @@ carries `LevelMap.serialize` — addresses, shifts, shadows — beside its entri
 the stored lattice is never older than any stored entry, and a replayed
 `moveFrames`, `mergeFrame` or their undo re-addresses nothing: it rebuilds the op.
 The natives' tables are entries, every apply by RESULT so it replays the same
-whatever else the tick held: a `settle` carries the table every native took and the
-homes of the carried ones (a carry forces both frames' snapshots; nothing else about
-a frame moved as a frame is re-snapshotted), a `mergeFrame` names the op it belongs
+whatever else the tick held (a frame moved as a frame is not re-snapshotted: its shift
+is the header's, and no table takes it — A1 C1; a `settle` entry, from a store written
+before C1, replays its result tables through `legacy/modelV1.js`), a `mergeFrame` names the op it belongs
 to and forces the resident's snapshot (the shadow's row goes with the write), a
 `moveFrames` carries its frame entries and its per-object members and none of the
 frames' natives (Kobin's decision: the snapshots hold them), and a `removeFrames`
 or `deleteMany` carries every deleted native's geometry, because its row goes with
-the write. A settle after a drain is its own entry, coalesced with one just before it
-for the same frame and the same move op (a drag settles and unsettles a visible frame every
-event; another op's settle merged in hung on the wrong op in replay, F110); the
-saver drains once more after its snapshots, because reading a frame for its row
-settles it; a failed write keeps its forced frames as well as its entries.
+the write. A merge is recorded when the action that made it ends, with the tables the
+fold wrote (F110's coalescing of settles went with the settle, A1 C1); a failed write
+keeps its forced frames as well as its entries.
 
 **What the snapshots hold** (F98, 2026-09-23, Kobin's Earth). A load skips an entry when
 every frame it touches holds a snapshot at or past it (`oplog.snapshotRule`), and a frame the
@@ -1198,7 +1212,9 @@ way, and throws if two files claim the same name.
 | collaborator | |
 |---|---|
 | `LevelMap.js` | the frame lattice: addresses, crossings, projection |
-| `Document.js` | natives, z-order, the undo stack |
+| `Document.js` | natives, z-order, the undo stack; a native's picture table (`tableOf`: its own with its frame's shift, A1 C1) |
+| `placementModel.js` | the document model as the Stage reads it: which natives a frame draws live, where a picture is read from and painted, a frame's footprint |
+| `legacy/modelV1.js` | the inverses of the settling model, for stores and undo stacks written before A1 C1; deletion date 2026-12-31 |
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache |
 | `Renderer.js` | the SVG renderer, and the base class of the raster one |

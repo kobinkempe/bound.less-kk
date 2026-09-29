@@ -198,7 +198,7 @@ export class SceneClient {
         this.export = null;              // the index's saved state, as of the last batch
         this.inflight = null;            // { ids, gen, restore } while a batch is out
         this.gen = 0;                    // bumped by every restore: a result from an earlier document is dropped
-        this.frameEv = 0;                // bumped by every frame event and settle: a prep that spans one is folded
+        this.frameEv = 0;                // bumped by every frame event: a prep that spans one is folded
         this.resync = null;              // { kind, ids, i, items } while a full restore is being prepared
         this.pending = null;             // { ids, i, items } while a batch is being prepared
         this.core = null; this.remote = null;
@@ -259,7 +259,6 @@ export class SceneClient {
         if (this.patchFam.has(k)) this.famDirty.add(k);
     }
     _onOp(ev) {
-        if (ev.kind === "settle") { this.frameEv++; return; }   // its natives' change events follow
         // A fresh action ends the redo branch: an undone gesture's footprints can never come back.
         if (ev.kind === "op") {
             for (const fp of this.foot.values()) if (fp.off && !fp.drop) { fp.drop = true; this.footDirty = true; }
@@ -430,7 +429,7 @@ export class SceneClient {
     }
     /**
      * Send a prepared batch. Frame records are read now and item tables were read per slice: after
-     * a frame event during the prep (a settle moves a frame's shift into its natives' tables) the
+     * a frame event during the prep (a refile changes a frame's shift, a merge folds it into tables) the
      * ids it dirtied are prepared into the batch first, or its halves disagree (review minor 9).
      */
     _sendPrepared(p) {

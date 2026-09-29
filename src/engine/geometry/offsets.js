@@ -59,14 +59,16 @@
  * re-homed to the neighbour cell with its coordinates untouched. Nothing is
  * ever added to a coordinate, not even a whole cell: adding an integer to a
  * float loses its low bits whenever the sum crosses a power of two, and four
- * levels down that lost bit is a screen.
+ * levels down that lost bit is a screen. A PICTURE table (A1 C1: the own table
+ * with the home frame's shift, `composeShift`) is never carried: its k = 0
+ * entry may reach a frame and a half, read as the neighbour the picture is
+ * drawn in (`LevelMap.objShift`).
  *
  * A CEDED KID k levels below its parent is homed in the frame the parent's
  * PICTURE occupies at that level (the moved frame), holds the parent's stored
- * bits for that square, and carries the parent's table from that level down:
- * below[0] = the parent's remainder at that level, below[m] = the parent's
- * below[k + m]. A promoted object (moved one level UP by `scaleGeometry`)
- * shifts the other way.
+ * bits for that square, and carries the parent's picture table from that level
+ * down, less its own frame's shift (`Document.cedeTileById`, `ownFor`). A
+ * promoted object (moved one level UP by `scaleGeometry`) shifts the other way.
  */
 import { W, G, R, HALF_W } from "../frameLattice";
 import { displacementDigits } from "../frameLattice";

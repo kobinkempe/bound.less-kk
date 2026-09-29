@@ -524,8 +524,8 @@ describe("the worker path across documents and failures", () => {
     });
 });
 
-describe("a settle between prep slices (review 2026-09-22, minor 9)", () => {
-    test("natives prepared before and after a frame's pending shift settles reach the index as one consistent picture", () => {
+describe("a read between prep slices (review 2026-09-22, minor 9)", () => {
+    test("natives prepared before and after a read of their shifted frame reach the index as one consistent picture", () => {
         const E = mkEngine();
         const C = E._sceneClient;
         const A = [300, 360, 420].map((y) => drawStroke(E, [[100, y], [300, y]], 20, BLUE));
@@ -558,7 +558,7 @@ describe("a settle between prep slices (review 2026-09-22, minor 9)", () => {
         try {
             C._cancel(); C._tick(null);
             expect(C.pending && C.pending.i < C.pending.ids.length).toBe(true);   // part-way through the prep
-            E.doc.at("0");                                                           // the shift settles
+            E.doc.at("0");                                                           // a read: it settled the shift before A1 C1
             for (let g = 0; g < 20 && (C.pending || C.dirty.size); g++) { C._cancel(); C._tick(null); }
         } finally { clock.mockRestore(); }
         scenes(E);

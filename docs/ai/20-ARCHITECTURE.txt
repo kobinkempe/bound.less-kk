@@ -251,9 +251,10 @@ MOVING
     is snapped to 2^-10 units at the move level and kept in the object's
     DISPLACEMENT TABLE (geometry/offsets.js), applied at paint and inverted on
     every input. A selected FRAME moves as a frame (2026-09-15): its address
-    changes and no object is touched; its sub-cell rest waits on the frame as
-    a shift, settled into its natives' tables at the first read of its list
-    (DESIGN.md section 8).
+    changes and no object is touched; its sub-cell rest stays on the frame as
+    its shift, which is PLACEMENT: a native's picture table is its own table
+    with its frame's shift at k = 0, composed on every read and written into
+    no table (A1 C1, 2026-09-29; DESIGN.md section 8).
 
     Every member expands the SAME displacement, so members that share an ancestor
     take bit-identical digits there and their relative positions cannot move.
@@ -335,9 +336,10 @@ TILES - how content from other levels arrives
     downContent(F) every NON-ANCESTOR frame at depth >= F, projected DIRECTLY
                    (net factor <= 1, so it cannot explode). A view-independent
                    cull drops sub-pixel content and a fade band tags size.
-    ownContent(F)  the frame's own natives, read straight out of the Document.
-                   A plain read, because a cut parent's stored rings ARE the
-                   rings to paint.
+    nativesIn(F)   the natives drawn live in F (placementModel.js): its own,
+                   read straight out of the Document, less those its shift
+                   draws in a neighbour, plus those carried in. A plain read,
+                   because a cut parent's stored rings ARE the rings to paint.
     ringNatives    the eight cells around each step of the up-chain. A cell is
                    about three screens across, so zooming in slightly off-centre
                    puts on-screen ink into a SIBLING of your ancestor - coarser

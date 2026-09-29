@@ -186,7 +186,7 @@ describe("format2 — frame entries", () => {
         sameRecord(dm.records[0].obj, k1["0"][2]);
         dm.frames[0].objects.forEach((r, i) => sameRecord(r, k1[deep][i]));
         const frames = [{ id: deep, depth: 2, from: { parent: "1", i: 0, j: 0 }, to: { parent: "1", i: 1, j: 0 }, shiftBefore: null, shiftAfter: [32768, 0],
-            settled: { dx: 32768, dy: 0, tables: [[objs[0].id, [[0, 32768, 0]]], [objs[1].id, null]], carries: [[objs[1].id, "1/1,0"]] },
+            settled: { dx: 32768, dy: 0, tables: [[objs[0].id, [[0, 32768, 0]]], [objs[1].id, null]], carries: [[objs[1].id, "1/1,0"]] },   // a store's from before A1 C1
             merged: [{ id: deep, into: "1/1,0", parent: "1", i: 1, j: 0, depth: 2, addrSeq: 3, shift: null, shadows: [], kids: [{ id: "x", shadowOf: null, shadows: [] }], ids: [objs[0].id] }] }];
         const mf = viaChunk({ k: "moveFrames", frames, moves: [{ id: L0[1].id, from: "0", to: "0", dx: 1, dy: 0, obj: L0[1], level: "0", index: 1, belowBefore: null, belowAfter: [[0, 1, 0]] }] });
         expect(mf.frames).toEqual(frames);
@@ -194,7 +194,7 @@ describe("format2 — frame entries", () => {
         sameRecord(mf.moves[0].obj, k1["0"][1]);
         expect(mf.moves[0]).not.toHaveProperty("base");
     });
-    test("settle and mergeFrame carry no geometry and read back as written", () => {
+    test("a settle (a store's from before A1 C1, replayed) and a mergeFrame carry no geometry and read back as written", () => {
         const settle = { k: "settle", frame: "1/5,5", of: 7, dx: 32768, dy: -4096, tables: [[3, [[0, 32768, -4096]]], [4, null]], carries: [] };
         const s = viaChunk(settle);
         expect(s).toEqual(settle);

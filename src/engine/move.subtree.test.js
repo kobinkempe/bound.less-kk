@@ -88,10 +88,9 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         expect(st.to).toEqual({ parent: "1", i: 6, j: 5 });                                // 40 units = one cell of "1" and 8 over
         expect(addrOf(E, R.id)).toEqual({ parent: "1", i: 6, j: 5 });
         expect(st.shiftAfter).toEqual([8 * 4096, 0]);                                      // the 8 units, in R's own units
-        // The render of the drag reads R's natives (they are above the cull at R's deepest zoom),
-        // which settles the shift into their tables right away; either state is the same picture.
-        if (E.lm.frame(R.id).shift) expect(E.lm.frame(R.id).shift).toEqual([8 * 4096, 0]);
-        else { expect(st.settled.tables.length).toBe(300); expect(encodeBelow(E.doc.getById(ids.R[0]).obj.below)).toEqual(encodeBelow([[8 * 4096, 0]])); }
+        // The render of the drag reads R's natives and writes nothing: the shift stays on R (A1 C1).
+        expect(E.lm.frame(R.id).shift).toEqual([8 * 4096, 0]);
+        expect(E.doc.getById(ids.R[0]).obj.below).toBeUndefined();
         expect(addrOf(E, K.id)).toEqual({ parent: R.id, i: 7 + 1024, j: -7 });              // and 1,024 of K's cells
         expect(E.lm.frame(K.id).shift).toBeNull();
         expect(addrOf(E, L.id)).toEqual({ parent: K.id, i: 1, j: 1 });                      // three levels down: nothing left over

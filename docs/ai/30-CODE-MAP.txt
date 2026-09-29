@@ -491,13 +491,15 @@ Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     O(1). rehomeManyById re-homes many in one pass per source
                     frame (the drag's path); frameExtent is the index's union
                     box and largest object, a bake's whole-frame skip. Since
-                    2026-09-15 at() merges a resident's shadows and settles a
-                    frame's pending shift into its natives' tables first
-                    (_mergeShadows, _settleIfPending), recording each on the
-                    move-op entry that placed the frame (noteFrameOwner) and
-                    notifying the op log; count() and list() read as stored
-                    for identity-only scans; setFrameShift, unsettle and
-                    applySettle (by result table, idempotent), unmerge;
+                    A1 C1 (2026-09-29) at(), list() and count() read as stored
+                    and nothing reads-and-writes: tableOf(o) is a native's
+                    picture table (its own with its frame's shift, composed),
+                    ownFor/add(..., {fresh}) give a newcomer the -shift entry,
+                    promotedTable, displacedNatives; setFrameShift bumps offRev;
+                    mergePending(op) merges shadows at an action's end (the
+                    drop, undo, redo, load, replay's end), folding the frames'
+                    shift difference into the merged natives' tables, recorded
+                    for unmerge and the log (mergeReplay/unmergeReplay);
                     removeFrameSubtree / insertFrameSubtree / detachFrame set
                     a subtree's lists aside by reference; _invert handles
                     moveFrames, removeFrames, eraseFrames and deleteMany, and
@@ -516,8 +518,20 @@ Stage.js            THE SCENE (A2 §2-§3, PLAN §1.1). The camera frame's items
                     piece with z, erase and family read from the live native.
 placementModel.js   The document model as the Stage reads it (A1 §6's
                     PlacementModel): nativesIn, placement, displaced,
-                    frameFootprint, toStored/fromStored/footprint over today's
-                    calls; B-MODEL replaces the bodies, the Stage does not change.
+                    frameFootprint, toStored/fromStored/footprint, table and
+                    tableBefore (a footprint's picture table). Composed from the
+                    frame's shift and the native's own table (A1 C1): the
+                    reroute grouped by home (TileStore._rerouteGroups, with a
+                    live set for natives the shift carries into a frame), a
+                    frame's box its reach united with its reach moved by the
+                    shift (reachBox). No read settles, merges or changes a
+                    table; displaced may mint the empty frame a picture's
+                    pieces are read from (PLAN §3 row 8).
+legacy/modelV1.js   The inverses of the model before A1 C1 (applySettle,
+                    unsettle), for stores and undo stacks written by it; used by
+                    the op log's replay and Document's undo of a moveFrames op
+                    carrying `settled`, nowhere else (legacy/modelV1.test.js).
+                    Deletion date 2026-12-31.
 TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     what a render reads [HOT]. Incremental: a document change
                     patches the cached tiles rather than dropping them, except
@@ -537,9 +551,8 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     frame events refile / removeFrame / addFrame / mergeFrame
                     / splitFrame drop every tile meeting the frame's footprint
                     (_onFrameEvent). F55 stands: a table change drops nothing.
-                    2026-09-22: _bakeSettled re-runs a bake whose Document.rev
-                    moved under it, at most three times (F78: a settle carry
-                    inside a bake had cached an empty tile); contentOffCamera
+                    (_bakeSettled, F78's re-run of a bake a settle moved under,
+                    went with the settle, A1 C1.) contentOffCamera
                     reads a frame the camera is not at, with the camera's pins
                     saved by value and eviction held until it ends;
                     _rerouteGroups memoises the reroute's grouping per frame
@@ -582,7 +595,8 @@ format2.js          kobin-2 (2026-09-08): objectHeader (the one whitelist, share
                     for bit. Entry kinds since 2026-09-15: moveFrames (frame
                     entries as JSON, members as a move's), removeFrames,
                     deleteMany and bakeFrames (each deleted frame's natives
-                    with geometry), settle and mergeFrame (no geometry).
+                    with geometry), mergeFrame (no geometry, the fold's
+                    tables), and a settle from a store written before A1 C1.
 oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     silent geometry changes as entries with results; drain() for
                     the saver; replay() onto a loaded document (idempotent,
@@ -593,12 +607,14 @@ oplog.js            The op log: records fresh ops, bake steps, undo/redo and
                     Validates an object's `below` (F41, F55: depth 0 allowed).
                     Version 2 (F43) only when a shape holds a cut line (code 2
                     in encodeLoops); everything else is still written as
-                    version 1 and opens in any build. The subtree move
+                    version 1 and opens in any build; version 3 (A1 C1) only
+                    when the lattice carries a shift. The subtree move
                     (2026-09-15): the lattice is the header's, so a replayed
                     moveFrames / mergeFrame / undo re-addresses nothing and
-                    rebuilds the op; a settle is an entry of result tables
-                    (_onSettle, coalesced per frame within a tick), a merge
-                    forces the resident's snapshot (_onMerge); _forcedFor
+                    rebuilds the op; a settle entry, from a store written
+                    before A1 C1, replays its result tables through
+                    legacy/modelV1.js; a merge forces the resident's snapshot
+                    (_onMerge); _forcedFor
                     snapshots only what changed frames; undoFrames applies the
                     per-frame table work where the snapshot predates it.
                     snapshotRule (F98, 2026-09-23): what the snapshots hold — a
@@ -631,7 +647,7 @@ worker/sceneWorker.js as chunk records, per-scene band grids (all/own), insert w
                     inline, and restores from meta.sceneIndex or builds an old
                     file once; a generation per restore drops a result from the
                     document before, a failed worker is rebuilt inline, a prep
-                    spanning a settle is folded (_sendPrepared, _fold), ceded
+                    spanning a frame event is folded (_sendPrepared, _fold), ceded
                     patches count only when their family has nothing else.
                     It replaced scenes.js, the all-pairs clustering that
                     took 129.6 s on the Magnum Opus.
@@ -882,7 +898,7 @@ src/engine/__testkit__/   harness.js (engine construction, gestures, camera
 TESTS BY SUBJECT - 107 fast suites (1,649 tests, 2026-09-22) and the slow ones
 (616 tests at the last count). Added since the list below was written: the
 raster renderer (raster/raster.*.test.js, rasterCore, chordMath,
-useKobinEngine.raster), moves (move.subtree, move.settle, move.twin,
+useKobinEngine.raster), moves (move.subtree, move.f78, move.twin,
 move.hold, move.below, move.registration, reroute.memo, tileEviction), scenes
 (scenes.cap, storage/thumbnails.live), the store (format2, oplog,
 persist.ids), the eraser (eraseJob, erase.worker, erase.rule, erase.moved,

@@ -825,7 +825,7 @@ export default class Document {
      * `offsetsOnly` so the tile store does not patch anything: the picture is
      * re-read from the unmoved tiles at its new address on the next render.
      */
-    setOffsetsById(id, below, { settle = false } = {}) {
+    setOffsetsById(id, below) {
         const rec = this.getById(id);
         if (!rec) return null;
         const o = rec.obj;
@@ -833,9 +833,7 @@ export default class Document {
         o.below = cloneBelow(below);
         this._noteBelow(o);
         o._ver = (o._ver || 0) + 1;
-        const ev = { kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true, oldBelow };
-        if (settle) ev.settle = true;
-        this._emit(ev);
+        this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true, oldBelow });
         return rec;
     }
     /** A detached copy of a native's geometry, safe to translate from later. */

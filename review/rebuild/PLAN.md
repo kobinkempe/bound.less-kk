@@ -250,6 +250,18 @@ cap). The design, `A1-document-model.md` §4.4, in four steps:
   the home; new ink in a shifted frame takes −shift in its own table; enclosure boxes are the union of
   the cell ± REACH and its shifted copy (closes H6). Measured picture-neutral: 716 of 720 placements
   bit-identical, the rest one ulp at the parent view, 480 of 480 at and below the home.
+  **Built 2026-09-29 (B-MODEL-C1)**: the model before it frozen as `__oracles__/model-v1/`; the
+  tile fuzz against it (`model.equivalence.probe.js`, 20 seeds × 40 ops) 6,336 native items at
+  1,717 frame views, every one bit-identical, the 33 the oracle carried included; a 20-event drag
+  of a frame of 300 natives writes 0 tables an event (the oracle 300, then 600). Where building
+  changed the step: a shadow now merges at the end of the user action that made it (the drop, an
+  undo or redo, a load, a replay's end), the frames' shift difference folded into the merged
+  natives' own tables, since a read may no longer merge (C3 still removes merges); `displaced`
+  keeps minting the empty frame a picture is read from, the one exception to §3 row 8 (C3
+  revisits it when a deleted subtree leaves the lattice); a geometry edit that takes a table away
+  moves `offRev` (the reroute memo kept a promoted newcomer's old placement). The settle's inverses
+  for old stores live in `legacy/modelV1.js`, deletion date 2026-12-31. Version 3 is written only
+  when the lattice carries a shift; a shift-free file is byte-identical to the model before C1.
 - **C2 — membership changes only at the end of a user action.** No document writes during a drag; at
   the drop a per-object member is re-homed once and a subtree re-addressed once (the 183–290 frames a
   40-step drag mints become the final 8–13); `_normalizeHome` goes; the selection is repaired from the
@@ -323,9 +335,9 @@ orchestrator, and its harness numbers in the status log. Kobin looks at the whol
 | a family's union is insensitive to a one-ulp disagreement at a shared edge | perturb one shared edge by an ulp; the plate is unchanged, except that a byte on the shared edge may move one alpha step where the exact value is a rounding tie (built: `raster.familyUlp.test.js`) |
 | the placed read equals the numeric table | random tables and depths: the picture through `placed()` equals the picture through the home frame with the table applied, to 1e-9 |
 | the pyramid's crossing mapping is exact | random frames and cells: the parent's coarser cell by integer arithmetic equals `_mapFrame`'s affine to the bit |
-| a selection stands for the same ink through drags, undo, redo and cuts, with no event chasing | the selection fuzz against the frozen model oracle (A1 §5 check 2): the selection's ink equals the oracle's and the ink it was made with, mapped through cuts to pieces; no inkless frame |
-| no read changes the document | `rev`, `offRev`, `addrEpoch` and the lattice's frame set unchanged across `listFor`, `content`, a lasso, a hit test, a pack and a snapshot, over the fuzz's states |
-| every derived tile piece is bit-identical to the frozen model's | the tile fuzz (A1 §5 check 1) over random op sequences, at and below the home to the bit, one ulp above it |
+| a selection stands for the same ink through drags, undo, redo and cuts, with no event chasing | the selection fuzz against the frozen model oracle (A1 §5 check 2): the selection's ink equals the oracle's and the ink it was made with, mapped through cuts to pieces; no inkless frame (built: `select.stands.probe.js`) |
+| no read changes the document | `rev`, `offRev`, `addrEpoch` and the lattice's frame set unchanged across `listFor`, `content`, a lasso, a hit test, a pack and a snapshot, over the fuzz's states — the one exception: `displaced` may mint the empty frame a picture's pieces are read from (A1 §1.2 row 19; frame GC's; C3 revisits it) (built: `model.pureRead.test.js`) |
+| every derived tile piece is bit-identical to the frozen model's | the tile fuzz (A1 §5 check 1) over random op sequences, at and below the home to the bit, one ulp above it (built: `model.equivalence.probe.js`) |
 | a partial re-render equals a full one | random dirty rectangles: the plate re-rendered through the clip box equals the plate rendered whole, pixel for pixel |
 
 The existing raster suites that assert an ordered call log on a recording context (about fifteen

@@ -208,9 +208,9 @@ SELECTING AND MOVING
       the selected FRAMES (2026-09-15), never per object:
         _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
         _dragFrames: lm.moveSubtreeTargets from the start record -> lm.readdressMany (two-phase; a held
-          cell makes a shadow) -> doc.noteRefile per address change, doc.setFrameShift (the rest, D+1/D+2),
-          doc.noteFrameOwner; a frame a render settled since is doc.unsettle'd first
-      _render()                             reading a moved frame's list settles its shift (doc.at)
+          cell makes a shadow) -> doc.setFrameShift (the rest, D+1/D+2; before the refile, so a memo keyed
+          on offRev sees it) -> doc.noteRefile per address or shift change
+      _render()                             reads through placementModel: the shift composed, nothing written (A1 C1)
         -- or, with the hold and the plane live: renderer.syncCameraOnly() alone, no list;
            _planeStep picks what the compose draws, the selection translated by the pointer:
            the plane's own level whole, else the quick one, else a level's selected layers
@@ -218,16 +218,17 @@ SELECTING AND MOVING
   pointerup
     _homeShift / _normalizeHome for a member outside its cell (geometry snapshots kept for it)
     doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
-      or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, settled, merged}
-    doc.holdMerges = false                  a shadow merges at its resident's first read from here on
+      or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, merged}
     store.setBatch(false)
-    _endMove("drop")                        the one exit: _releaseMove (one collapsed invalidation),
+    _endMove("drop")                        the one exit: doc.mergePending(op) (the drop's shadows merge,
+                                            recorded on its op), _releaseMove (one collapsed invalidation),
                                             renderer.endMove -> the plane LANDS (stays, clipped per
                                             cell, until each cell's own plate is fresh; MOVE_HOLD_MS),
                                             then one _render()
 
   undo of a moveFrames (Document._invert)
-    per frame entry: unmerge each merged record (lm.unadoptShadow), unsettle from the settle record
+    per frame entry: unmerge each merged record (lm.unadoptShadow); a `settled` record from a store written
+      before A1 C1 subtracted by legacy/modelV1.unsettle
     lm.readdressMany back to the start addresses; setFrameShift(shiftBefore); the inverse's entries own the frames
     _undoMove(moves)                        the per-object members as a move's
 
@@ -265,7 +266,7 @@ RENDERING   [HOT]
                                 skipped whole by doc.frameExtent, else per
                                 object: culled by projectedSizePx, projected
                                 directly, clipped by _downPieces
-      store.ownContent(frame)               a plain read of doc.at(frame)
+      model.nativesIn(frame)                the natives drawn live: doc.list less the carried out, plus the carried in
       sort by (z, id)                       global z-order
     renderer.render(null, frame)            RASTER (the default):
       RasterRenderer.render: _activateLevel (the overlay scene), _frameStep(_sceneList())
@@ -348,8 +349,8 @@ AUTOSAVE   (useKobinEngine, since 2026-09-02)
   doc event -> markDirty(frame)             1.5 s quiet, 8 s ceiling
     save("timer")
       log.drain()                           the tick's entries, and the frames forced to snapshot
-      encodeObjects(doc.at(L))              per forced or outgrown frame; then log.drain() again for
-                                            the settles those reads made (their rows already hold them)
+      encodeObjects(doc.at(L))              per forced or outgrown frame (a plain read since A1 C1: the
+                                            second log.drain() the hook still makes finds nothing new)
       engine.serializeDrawing({}, { frames: [] })
                                             the header, with lm.serialize(): the lattice every write
                                             carries (addresses, shifts, shadows) - the authority on replay
