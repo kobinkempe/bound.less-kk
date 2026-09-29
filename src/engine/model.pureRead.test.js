@@ -5,9 +5,11 @@
  * natives, the lattice's `addrEpoch`, its addresses and shifts, and its frame set as they were. The one
  * exception PLAN §3 row 8 names: `displaced` mints a frame the pieces of a picture are read from when
  * the lattice lacks it (`LevelMap.objShift`, A1 §1.2 row 19) — an empty frame, frame GC's; any other
- * new frame fails.
+ * new frame fails. The fuzz renders after every operation, so before the reads one inked frame the
+ * camera sees is given a shift nobody has read yet (what a drop leaves), and a render is one of them.
  */
 import { runPairFuzz, framesToCompare, CELL } from "./__testkit__/modelFuzz";
+import { W } from "./frameLattice";
 
 jest.setTimeout(10 * 60 * 1000);
 
@@ -19,17 +21,24 @@ function state(E) {
     return { rev: E.doc.rev, offRev: E.doc.offRev, epoch: E.lm.addrEpoch, natives: JSON.stringify(E.doc.serializeNatives()), lattice };
 }
 const empty = (E, id) => !E.doc.count(id) && !E.lm.childrenOf(id).length;
+const snap = (v) => Math.round(v * 1024) / 1024;
 
 test("the reads leave the document and the lattice as they were, over seeded sequences", () => {
-    const st = { seeds: SEEDS, steps: STEPS, checks: 0, reads: 0, minted: 0, hits: 0, lassos: 0 };
+    const st = { seeds: SEEDS, steps: STEPS, checks: 0, reads: 0, minted: 0, hits: 0, lassos: 0, unread: 0 };
     const fails = [];
     for (let seed = 1; seed <= SEEDS; seed++) {
         runPairFuzz(seed, STEPS, (O, N, step, op, rnd) => {
             // Quiet first: a pending erase lands at the next press (A2 §4.12), which is an input, not a read.
             for (const E of [O, N]) { E.flushErases(); E.flushBakes(); }
-            const before = state(N);
             const F = N.cam.frame, win = N._listWin();
             const views = framesToCompare(O, N).filter((V) => N.lm.frame(V));
+            // An unread shift on an inked frame in view (put back after the reads, so the engines stay in step).
+            const inked = [F, ...N.lm.childrenOf(F).map((c) => c.id)].filter((k) => N.doc.count(k)).sort();
+            const S = inked.length ? inked[Math.floor(rnd() * inked.length)] : null;
+            const kept = S ? N.lm.frame(S).shift : null;
+            if (S) { N.doc.setFrameShift(S, [snap((rnd() - 0.5) * W * 0.9), snap((rnd() - 0.5) * W * 0.9)]); st.unread++; }
+            const before = state(N);
+            N._render();
             N.listFor(F, win, true);
             N.store.content(F, win);
             N.store.read(F, win);
@@ -54,6 +63,7 @@ test("the reads leave the document and the lattice as they were, over seeded seq
             if (had) N._setSelection(had.ids, had.frames); else N._setSelection([]);
             N.setTool(tool);
             const after = state(N);
+            if (S) N.doc.setFrameShift(S, kept);
             st.checks++;
             const why = [];
             for (const k of ["rev", "offRev", "epoch", "natives"]) if (after[k] !== before[k]) why.push(k);
