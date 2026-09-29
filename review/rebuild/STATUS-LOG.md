@@ -1456,3 +1456,19 @@ KobinEngine (subscription, `_flushCarried`), selection and Stage, and a live dri
 today's engine. The tile fuzz compares pictures through each engine's own model.
 **Questions asked:** none.
 WHERE I AM: M1 — `placementModel` composition + `objShift`/`residual` carry + reroute by home, beside the settle.
+
+## 2026-09-29 02:22 UTC — B-PYRAMID-2 (builder) — P5 progress: the pack memo, before the harness pairs
+**Working on:** P5. The first pyramid run of the harness showed `olderMs` 5.6 s and 700–1,700 ms frames while the stack's
+mark baked (> 70 s under the pyramid, 15 s on the list path). Profiled: 11 of 15 s in `packJob` → `prepassFor`/`famFill` →
+`entryFor` rebuilds. The pack memo thrashed (10 MiB against ~20 MiB of the table's entries: every prepass rebuilt every
+entry) and was keyed by the wrapper, so a snapshot's items never hit. Fixed in `rasterPack`: the memo keyed by the
+geometry (`item.piece`), `PACK_BUDGET` 64 MiB (a phone 32), `outsideWin` (the cached drawn box) before any entry in
+`visibleChords` and `_pyrMeasure`; one list a snapshot table; the prefetch plans after the scene's quiet (100 ms after a
+commit), a new plan's generation dropping the old plan's queued strips; the plane's pre-aim waits for the scene's quiet
+as for the view's (PLAN §5.9 item 2). Two suites' fixed waits (`raster.move`'s scene, M2) now wait for the aim.
+**Measured:** the B-ERASE review's selection-up bake (the 413-piece target, its `browser-feel.js` cancel case on :3010):
+list path 47.4 s → 1.8 / 2.0 s, pyramid 90.8 s → 1.7 / 8.0 s (load 2.0–2.8); the stack's mark bake after load, pyramid
+at 64 MiB, 6 s (the list path 15 s at 10). raster + hooks 791/791; typecheck 0; eslint 0 errors.
+**Decisions made:** the memo budget raised (a memory policy: my question in the report, with the phone's half).
+**Questions asked:** the memo budget (64/32 MiB) — kept or another number.
+WHERE I AM: the harness pairs when the load is under 2 (pyramid=0 then 1, twice), then scenarios 1–2 at levelStep 2/3.

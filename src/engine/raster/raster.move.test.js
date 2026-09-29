@@ -60,7 +60,10 @@ async function scene(E) {
     E.pointerDown(p[0], p[1]); E.pointerUp();
     expect(E.selection && E.selection.ids).toEqual([a.id]);
     E._render();
-    await quiet();                                     // the plane is aimed once the view has held PLANE_QUIET_MS
+    // The plane is aimed once the view and the scene (no commit) have held PLANE_QUIET_MS: waited for, not raced.
+    const R = E.renderer;
+    await quiet();
+    for (let t = 0; t < 3000 && (R._planeTimer != null || !R._plane.tags.length); t += 10) await new Promise((r) => setTimeout(r, 10));
     await flush();
     return { a, b, p };
 }
@@ -125,9 +128,11 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         await flush();
         expect(pl.state).not.toBe("land");                        // the fresh plates ended the landing
         expect(planeStats.landTimeouts).toBe(0);
-        // and the plane is ready again, at the selection's new place
+        // and the plane is ready again, at the selection's new place, once the drop's commit is quiet (a bake's commits
+        // do not re-aim it each step, PLAN §5.9 item 2)
         E._render();
         await flush();
+        for (let t = 0; t < 3000 && !pl.r; t += 10) { await new Promise((r) => setTimeout(r, 10)); await flush(); }
         expect(pl.r).toBeTruthy();
         expect(rgbaAt(E, tagOf(pl, "sel"), p[0] + 120, p[1] + 40)).toEqual([200, 30, 30, 255]);
     });
