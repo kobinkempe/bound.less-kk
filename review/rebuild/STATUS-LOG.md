@@ -1716,3 +1716,24 @@ their docs edits meet in DESIGN, `docs/ai/`, TEST-MAP and OPEN-FLAGS: own sectio
 **Measured:** load 0.23 at the resume.
 **Decisions made:** none new.
 **Questions asked:** none.
+
+## 2026-09-29 09:55 UTC — B-PYRAMID-2b (builder) — resumed after the fifth session-limit stop (item 4)
+**Working on:** item 4's remainder. Checked the tree at 9118b48: the F101/F106 ports are already in
+`raster.pyramid.test.js` (lines 775, 800; 27/27 at 06:56), as are `raster.worker`/`move`/`engine` and the store suite
+(the 06:56 entry). The triage run of the remaining suites died with the reboot; re-running it first.
+**Measured:** load 0.14 at the resume (up 1 min).
+**Questions asked:** none.
+WHERE I AM: re-triaging raster.phone/snapshot/translucent/overlay/liveHold, the hook suites, `stage.cover`, then raster.perf's rows.
+
+## 2026-09-29 09:55 UTC — B-MODEL-C1 (builder) — resumed after the reboot (M4)
+**Working on:** M4, from the tree at e1050ef, which holds all my edits up to the stop: DESIGN §7 (one clause), §8, §9 (the
+footprint clause, the `nativesIn` row), §10 (F93's paragraph), §13 (version 3, the log's settle), §15 (the model rows);
+`docs/ai/20-`, `30-`, `40-`; PLAN §1.7 (C1 built, where building changed it) and §3 rows 7–9 (built; row 8 names
+`displaced`'s mint as the one exception); `offsets.js`'s header (the picture table is never carried; a ceded kid's
+table); `sceneClient.js`'s dead `settle` op handler and `Document.setOffsetsById`'s unused `settle` flag deleted; test
+comments and titles ported (`oplog`, `move.subtree` t1, `frame.gc`, `format2`, `sceneClient`). Left: TEST-MAP's model
+section, A1's dated notes, OPEN-FLAGS, `docs/ai/10-STATUS.txt`'s subtree-move lines, the quick suite, the end entry.
+**Files I am in:** TEST-MAP, A1, OPEN-FLAGS (the model's flags only), `docs/ai/10-STATUS.txt` (the model's lines only).
+**Measured:** nothing new; load 0.12 at the resume.
+**Questions asked:** none.
+WHERE I AM: M4 — TEST-MAP's model section.
