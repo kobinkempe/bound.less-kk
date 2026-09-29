@@ -20,6 +20,7 @@
  * with the layer split.
  */
 import Renderer from "./Renderer";
+import { ensureSelStyle } from "./raster/svgOverlay";
 import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawStroke, drag, descend, ascend, erase } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 import { loopRuns, runLength, circleLoop, onRectEdge } from "./geometry/antRuns";
@@ -287,7 +288,7 @@ describe("selection overlay (renderer)", () => {
         r._renderSelOverlay();
         const st = document.getElementById("bl-sel-style");
         st.textContent = "/* stale, from an earlier build */";
-        Renderer._ensureSelStyle();
+        ensureSelStyle();
         // Same element — no churn — but current content. Bailing out on "it
         // exists" left every animation on whatever rules the session started
         // with, so timing and opacity edits appeared to do nothing.
@@ -324,9 +325,9 @@ describe("selection overlay (renderer)", () => {
     test("the lasso is still drawn, dashed, while it is being made", () => {
         const r = mkRenderer();
         r.setLasso(() => [[10, 10], [200, 40], [180, 300], [20, 260]]);
-        r._renderSelection();
-        expect(r.selGroup.children.length).toBe(1);
-        expect(r.selGroup.children[0].dashes.length).toBeGreaterThan(0);
+        r.overlays.lasso();
+        expect(r.svg.selGroup.children.length).toBe(1);
+        expect(r.svg.selGroup.children[0].dashes.length).toBeGreaterThan(0);
     });
 });
 
@@ -403,10 +404,10 @@ describe("selection indicator (engine)", () => {
         E.setTool("select");
         E.pointerDown(120, 120);
         for (const p of [[400, 140], [420, 420], [140, 400]]) E.pointerMove(p[0], p[1]);
-        expect(E.renderer.selGroup.children.length).toBe(1);
-        expect(E.renderer.selGroup.children[0].dashes.length).toBeGreaterThan(0);
+        expect(E.renderer.svg.selGroup.children.length).toBe(1);
+        expect(E.renderer.svg.selGroup.children[0].dashes.length).toBeGreaterThan(0);
         E.pointerUp();
-        expect(E.renderer.selGroup.children.length).toBe(0);
+        expect(E.renderer.svg.selGroup.children.length).toBe(0);
     });
 
     test("switching away from the select tool drops the selection", () => {
@@ -523,7 +524,7 @@ describe("selection indicator (engine)", () => {
         // used to be dashed as a box. 111 M px across here.
         const pic = E._rectInActive(E.selection.obj, E.selection.level);
         expect((pic.right - pic.left) * E.cam.inScale).toBeGreaterThan(877395);
-        expect(E.renderer.selGroup.children.length).toBe(0);   // no bounding box, at any size
+        expect(E.renderer.svg.selGroup.children.length).toBe(0);   // no bounding box, at any size
         const got = E._selectionAnts();
         expect(got).not.toBeNull();
         // The edge really is on screen and traced — and what is traced is the

@@ -20,7 +20,7 @@ import Two from "two.js";
 import Renderer from "../Renderer";
 import { perfNow } from "../now";
 import { PLATE_PX } from "./plate";
-import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
+import { packJob, parseColour, visibleChords, itemChordsAt, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
 import { coreStats } from "./rasterCore";
 import { antStats, selAntScale } from "./antPaint";
 import OverlayLayer from "./OverlayLayer";
@@ -817,6 +817,9 @@ export default class RasterRenderer extends Renderer {
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
     onLevers() { this.store.setBudget(this.pyramid.budgetBytes()); }
 
+    /** The user's own action just committed (an undo, a redo): its patch has one frame's budget (A3 §3.3). */
+    noteUserEdit() { this.pyramid.noteUserEdit(); }
+
     /**
      * One camera step on the pyramid: the view (and in it the rest render, the patches and the view's requests),
      * the queue's frame, the compose, the pen-up groups, and the prefetch once the camera is still.
@@ -976,8 +979,9 @@ export default class RasterRenderer extends Renderer {
 
     /**
      * The estimate's inputs (A3 §2.2, §3.3) over a job's cells at `job.Z`, or their clips: E the visible chords
-     * (capped past any inline budget), A the item box pixels inside them, U the union items' rows inside them,
-     * P the cells an item meets.
+     * (capped past any inline budget) — for a patch, each item's chords times its rows' share inside the clips, the
+     * rows a clipped render deposits (A3 §3.1) —, A the item box pixels inside them, U the union items' rows inside
+     * them, P the cells an item meets.
      */
     _pyrMeasure(job) {
         const list = job.table ? this._tableList(job.table) : this._sceneList();
@@ -992,7 +996,8 @@ export default class RasterRenderer extends Renderer {
             win = win ? { left: Math.min(win.left, r.left), top: Math.min(win.top, r.top), right: Math.max(win.right, r.right), bottom: Math.max(win.bottom, r.bottom) } : { ...r };
         }
         if (!win) return { E: 0, A: 0, U: 0, P: 0 };
-        const E = visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this._liveModel);
+        const clipped = !!job.clips;
+        let E = clipped ? 0 : visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this._liveModel);
         const hit = new Uint8Array(n);
         let A = 0, U = 0;
         for (const o of list) {
@@ -1002,12 +1007,14 @@ export default class RasterRenderer extends Renderer {
             const r0 = o.res, x0 = b[0] + (r0 ? r0[0] : 0), y0 = b[1] + (r0 ? r0[1] : 0), x1 = b[2] + (r0 ? r0[0] : 0), y1 = b[3] + (r0 ? r0[1] : 0);
             if (x1 < win.left || x0 > win.right || y1 < win.top || y0 > win.bottom) continue;
             const union = entryFor(o, this.cfg).union;
+            const ch = clipped ? itemChordsAt(o, Z, this.cfg) : 0, ht = y1 - y0;
             for (let k = 0; k < n; k++) {
                 const r = rects[k], w = Math.min(x1, r.right) - Math.max(x0, r.left), h = Math.min(y1, r.bottom) - Math.max(y0, r.top);
                 if (w <= 0 || h <= 0) continue;
                 hit[k] = 1;
                 A += w * h * Z * Z;
                 if (union) U += h * Z;
+                if (clipped) E += ht > 0 ? ch * Math.min(1, h / ht) : ch;
             }
         }
         let P = 0;

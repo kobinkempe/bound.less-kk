@@ -383,7 +383,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         drawStroke(E, [[160, 420], [560, 160]], 18);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
-        R.pyramid.cfg.patchInlineMs = 1e9;                              // inline whatever the calibrated estimate says
+        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 1e9;  // inline whatever the calibrated estimate says
         const box = { left: 100, top: 100, right: 600, bottom: 460 }, c0 = E.cam;
         const frameBox = { left: (box.left - c0.inPanX) / c0.inScale, top: (box.top - c0.inPanY) / c0.inScale, right: (box.right - c0.inPanX) / c0.inScale, bottom: (box.bottom - c0.inPanY) / c0.inScale };
         for (const op of ["undo", "redo"]) {
@@ -400,7 +400,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             }
             expect(await drain(E, g)).toBe(0);
         }
-        delete R.pyramid.cfg.patchInlineMs;
+        delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
 
     test("the undo of a small stroke over dense cells is inline: the estimate clipped to the patch, one frame (16 ms) for a user's patch, 6 ms for a patch the bake issues (A3 §3.3)", async () => {
@@ -448,7 +448,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
     }, 60000);
 
     test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
-        const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, wrong: [] };
+        const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, wrong: [], why: { unread: 0, coming: 0, other: 0 } };
         const watch = (E, seed) => {
             const compose = E.renderer.pyramid.compose.bind(E.renderer.pyramid);
             E.renderer.pyramid.compose = () => {
@@ -459,7 +459,12 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
                     t.older++;
                     const od = c.draws.find((d) => d.cls === "older" && !d.wait);
                     if (od && od.own) t.other++;                     // a stale own plate with no worker patch pending
-                    else if (od) t.standIn++;                        // (f'): a stale coarser stand-in for a missing cell
+                    else if (od) {                                   // (f'): a stale coarser stand-in for a missing cell
+                        t.standIn++;
+                        const pyr = E.renderer.pyramid, v = P.v, own = { frame: v.frameId, Z: 2 ** (v.level * v.S), i: c.i, j: c.j };
+                        own.key = v.frameId + "|L" + v.level + "s" + v.S + "|" + c.i + "," + c.j;
+                        t.why[!pyr.covered(own) ? "unread" : pyr._asked.has(own.key) || E.plates.inflight.has(own.key) ? "coming" : "other"]++;
+                    }
                     const src = freshSourceFor(E, P, c);
                     if (src && t.wrong.length < 5) t.wrong.push(`seed ${seed}: cell ${c.i},${c.j} drawn older while ${src} is exact`);
                 }
@@ -488,12 +493,16 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         }
         expect(t.plans).toBeGreaterThan(40);
         expect(t.wrong).toEqual([]);
-        // A stale own plate is drawn only while its worker patch is pending (A3 §3.4). A stale coarser stand-in for a
-        // missing cell — a zoom from rest before the prefetch's quiet: the patches kept the rest set fresh, not the
-        // level plates under it (§3.4 item 1) — is `olderOtherMs` too; counted here, not yet 0 (B-PYRAMID-2b's report).
+        // A stale own plate is drawn only while its worker patch is pending (A3 §3.4). A zoom from rest draws the kept rest
+        // set (A3 §2.4), so a stale coarser stand-in (f') is left only where nothing fresh is cached at any level and the
+        // cell's own plate is on its way: its view job asked or in flight, or its tiles not yet read (a crossing's step
+        // reads the cache alone, the idle read waits for the quiet, A3 §4.2) — `olderOtherMs` charges those (the review's
+        // design question); any other (f') is a defect.
         expect(t.other).toBe(0);
+        expect(t.why.other).toBe(0);
         // eslint-disable-next-line no-console
-        console.log("never-older fuzz: " + t.plans + " plans, " + t.older + " with an older cell, " + t.standIn + " of them a stale stand-in; olderOtherMs " + t.otherMs.toFixed(1));
+        console.log("never-older fuzz: " + t.plans + " plans, " + t.older + " with an older cell, " + t.standIn + " of them a stale stand-in "
+            + JSON.stringify(t.why) + "; olderOtherMs " + t.otherMs.toFixed(1));
         expect(t.older).toBeGreaterThan(0);                            // the fuzz reaches the last resort
     }, 60000);
 });

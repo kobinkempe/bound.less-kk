@@ -525,6 +525,9 @@ function itemChords(item, Z, cfg, e) {
     return n;
 }
 
+/** One item's chords at zoom `Z` as `visibleChords` counts them (memoised on its entry): a patch estimate's term. */
+export function itemChordsAt(item, Z, cfg) { return itemChords(item, Z, cfg, entryFor(item, cfg)); }
+
 /**
  * The visible chord estimate — the E of the pyramid's inline estimate (A3 §2.2): Σ over the items the window
  * touches of the chords they would be flattened into **at the zoom `Z`** the job renders at.

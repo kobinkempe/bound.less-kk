@@ -100,7 +100,7 @@ test("the live stroke shares the scene origin (no mid-gesture reorigin)", () => 
     E.pointerDown(300, 250);
     E.pointerMove(420, 300);
     // Live path anchors must be origin-relative like finalized ones…
-    const live = E.renderer._live;
+    const live = E.renderer.live.tail;
     expect(live).toBeTruthy();
     let m = 0;
     for (const v of live.vertices) m = Math.max(m, Math.abs(v.x), Math.abs(v.y));

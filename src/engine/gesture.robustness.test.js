@@ -164,10 +164,10 @@ describe("F53 — a render mid-stroke does not paint the live stroke twice", () 
         E.pointerDown(100, 100); for (let i = 1; i <= 20; i++) E.pointerMove(100 + 5 * i, 100 + i);
         const id = E._drawing.id;
         E._render();                                   // what Ctrl+Z, a resize or an idle fit does
-        expect(E.renderer._live).not.toBeNull();
+        expect(E.renderer.live.tail).not.toBeNull();
         expect(E.renderer._groups.has(id)).toBe(false);
         E.pointerUp(); E.flushBakes(); E._render();
-        expect(E.renderer._live).toBeNull();
+        expect(E.renderer.live.tail).toBeNull();
         expect(E.renderer._groups.has(id)).toBe(true);
     });
 });

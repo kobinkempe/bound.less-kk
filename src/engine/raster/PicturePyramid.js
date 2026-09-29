@@ -34,7 +34,7 @@ export const SURFACE_IDLE_MS = 10000;
 /** The estimate's constants (A3 §2.2, §3.3), each overridable in cfg and calibrated online. */
 export const EST_DEFAULTS = Object.freeze({
     restEdgeUs: 0.73, restPxNs: 34, restCellMs: 0.15, patchUnionUs: 73, patchMergeMs: 0.3,
-    restInlineMs: 8, patchInlineMs: 6, restQuietMs: 100,
+    restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100,
 });
 const EWMA = 0.2;
 const WHOLE = Object.freeze([0, 0, PLATE_PX, PLATE_PX]);
@@ -132,6 +132,7 @@ export default class PicturePyramid {
         this._standIn = null;          // { frame, Z }: the rest set a zoom left, drawn as a stand-in at its own Z
         this._restTimer = null;
         this._heavyAt = 0;             // D272's backstop: an inline rest that ran over marks this estimate heavy
+        this._userG = 0;               // the commit of the user's last undo or redo (`noteUserEdit`)
         this._groups = new Map();      // id -> { id, need, held, at, onCommit, purpose }
         this._groupOf = new Map();     // key -> group id
         this._seqGroup = 0;
@@ -211,6 +212,8 @@ export default class PicturePyramid {
     setPlane(p) { this._plane = p || null; }
     /** The attention point in device px (the wheel or pinch focus, the pointer); null for the screen centre. */
     setAttention(x, y) { this._attn = x == null ? null : [x, y]; }
+    /** The commit a user's own action just made (an undo, a redo): its patch has one frame's budget, `patchUserMs`. */
+    noteUserEdit() { this._userG = this.stage ? this.stage.generation : 0; }
     /** Forget which cells were asked for, so the next frame asks again (a job failed or was dropped). */
     refresh() { this._asked.clear(); }
     /** The prefetch's far zoom-out keys (`prefetch.js`): protected in the store, evicted first among the protected. */
@@ -1149,12 +1152,15 @@ export default class PicturePyramid {
 
     /**
      * Per stale cell, the clip of the dirty rectangles since its G (grown a pixel; null, the whole cell, where the
-     * log no longer reaches), and the decision: inline at full resolution when T_patch ≤ PATCH_INLINE_MS; else the
+     * log no longer reaches), and the decision: inline at full resolution when T_patch fits the budget; else the
      * finest coarser level whose patches fit, drawn over the dirty rectangles by the plan's rule (e), with the full
-     * patches asked for at priority 0; else everything to the workers.
+     * patches asked for at priority 0; else everything to the workers. The budget is `patchUserMs` (one frame) for a
+     * user's action — an undo or a redo (`noteUserEdit`), a pen-up's group — which is paid once, and `patchInlineMs`
+     * for the patches the bake issues at every step.
      * @param {object[]} cells records @param {(F, G)=>object[]|null} [dirtyRects] the Stage's, by default
+     * @param {boolean} [user] a pen-up's group
      */
-    patchPlan(cells, dirtyRects = null) {
+    patchPlan(cells, dirtyRects = null, user = false) {
         const dr = dirtyRects || ((F, G) => (this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(F, G) : null));
         const v = this._v, S = v.S, N = Math.ceil(8 / S), floor = ownFloor(S);
         const items = [], rects = [];
@@ -1176,10 +1182,11 @@ export default class PicturePyramid {
         }
         const job = this._job("patch", 0, { frame: cells[0].frame, Z: cells[0].Z, cells: items.map((x) => descr(x.rec)), clips: items.map((x) => x.clip || [0, 0, PLATE_PX, PLATE_PX]), purpose: "patch", gen: this.gens.patch });
         if (cells[0].kind === "level") { job.level = cells[0].level; job.S = cells[0].S; }
-        const T = this.estimate(job), budget = cfgOr(this.cfg, "patchInlineMs");
+        const mine = user || (this._userG > 0 && cells.some((r) => this.store.fresh.dirtySince(r.key) === this._userG));
+        const T = this.estimate(job), budget = cfgOr(this.cfg, mine ? "patchUserMs" : "patchInlineMs");
         const out = { items, job, T, inline: T <= budget, coarse: null };
         // The last decision, for the report and the harness (the undo's path, PLAN §5.11 Q3).
-        this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, inline: out.inline, coarse: null, est: job.est || null };
+        this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, user: mine, inline: out.inline, coarse: null, est: job.est || null };
         if (out.inline) return out;
         for (let k = 1; k <= N; k++) {
             const l = v.level - k;
@@ -1279,7 +1286,7 @@ export default class PicturePyramid {
     _askGroup(g, stale, missing) {
         const v = this._v;
         if (stale.length) {
-            const plan = this.patchPlan(stale);
+            const plan = this.patchPlan(stale, null, true);
             plan.coarse = null;                  // the live path waits for full resolution: no coarse-first here
             this.applyPatchPlan(plan, g.id);
         }

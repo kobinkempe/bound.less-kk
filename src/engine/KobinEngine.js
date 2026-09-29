@@ -732,18 +732,17 @@ export default class KobinEngine {
         const ras = this.raster ? this.renderer : null;
         if (ras) ras.beginRender();
         const tList = perfNow();
-        // The raster path packs the Stage's items and builds no list (A2 §6.2 S3); the SVG path draws `listFor`'s.
-        if (!ras) this._lastList = this._buildList();
-        this.stage.sync(this.cam.frame, this._listWin(), readMs);
+        // Both renderers draw the Stage's items (A2 §6.2 S3, A3 §7.3): the raster path packs them, the SVG path's
+        // groups are built from them.
+        const F = this.cam.frame, win = this._listWin();
+        this.stage.sync(F, win, readMs);
         if (readMs !== Infinity) this._readIdle();
-        if (ras) {
-            // A change of frame: the tiles of frames the camera left go, after the read pinned the new view's (F83).
-            const F = this.cam.frame;
-            if (F !== this._tileFrame) { this.store.framesLeft(F); this._tileFrame = F; }
-            this._lastList = this.stage.items();
-            ras.noteList(perfNow() - tList);
-        }
-        this.renderer.render(this._lastList, this.cam.frame);
+        // A change of frame: the tiles of frames the camera left go, after the read pinned the new view's (F83).
+        if (F !== this._tileFrame) { this.store.framesLeft(F); this._tileFrame = F; }
+        this._lastList = this.stage.items();
+        if (ras) ras.noteList(perfNow() - tList);
+        else this._lastRange = this.lm.tileRange(F, win);   // `_visibleChanged`'s
+        this.renderer.render(this._lastList, F);
         this._renderedG = this.stage.generation;   // what this render drew (`flushBakes` reads it)
         this.renderer.update();
         this._emit();
@@ -1266,8 +1265,8 @@ export default class KobinEngine {
     // A drag in progress is cancelled first: its start snapshots describe the document the undo
     // is about to change (B §1.2, defect 1).
     // An undo or a redo is one Stage commit (A2 §2.5): per event, a 5,000-object one cost 0.5–0.9 s in node.
-    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.undo()))) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
-    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.redo()))) return false; this._scheduleBake(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    undo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.undo()))) return false; this._scheduleBake(); if (this.renderer.noteUserEdit) this.renderer.noteUserEdit(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
+    redo() { if (this.readOnly) return false; this._cancelBarrier(); if (this._dragSel) this.cancelSelectGesture(false); if (!this._keepingSelection(() => this.stage.batch(() => this.doc.redo()))) return false; this._scheduleBake(); if (this.renderer.noteUserEdit) this.renderer.noteUserEdit(); this._render(); collectFrames(this); return true; }   // the GC: a plate drop's mapping can mint a frame
     /** Frame GC over every frame: the saver calls it once a restored store is in (F94). */
     sweepFrames() { return this.readOnly ? 0 : sweepFrames(this); }
     clear() {
