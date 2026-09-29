@@ -29,6 +29,21 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-29 - THE SVG RENDERER DEMOTED (review/rebuild/A3-pyramid.md §7; B-PYRAMID-3). Both renderers
+    draw the Stage's items: listFor, _buildList and TileStore.content/contentOffCamera are deleted
+    (the brute-force list the suites compare with is src/engine/__oracles__/renderList.js).
+    RasterRenderer extends nothing: it composes the pyramid (z 0), raster/SvgLayer.js (z 1),
+    OverlayLayer (z 2) and bl-sel-edges (z 3), one list walked by setSize, destroy and the
+    store's release. The stroke under the pen is raster/LiveStrokeLayer.js (held at pen-up,
+    released in the group commit's task, carried into the new frame at a crossing); the lasso, the debug overlays and the indicator's SVG
+    are raster/svgOverlay.js - one implementation each for both renderers. ?svg masks a landed
+    pending mark's targets with an SVG <mask> (eraseRule.underMask), the export bakes every mark
+    in its own copy first (flushErases), and a group at opacity 0 is not rebuilt (F133: 59 MB
+    retained a drag event before, flat after). The prefetch's tile reads are warm (framesLeft
+    keeps them: 8-10 tiles re-baked on a zoom back in, 19-22 without). Measured in jsdom and in
+    headless Chromium on frozen trees; not seen by Kobin. Found on the way and filed for
+    B-PYRAMID-4: F134 (a fast zoom's view strips re-aimed past the frame's floor) and F135 (a
+    pen-up group whose strips were dropped waits LIVE_HOLD_MS).
 2026-09-29 - THE PICTURE PYRAMID IS THE ONLY RASTER PATH (review/rebuild/A3-pyramid.md; B-PYRAMID-2
     P0-P5, B-PYRAMID-2b P6). The old picture path is deleted: PictureLayer, the quantum plates
     of PlateStore, the sync path, the settle, the ladder, the crossing prebake, the carry, the

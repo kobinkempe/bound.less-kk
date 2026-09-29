@@ -2304,3 +2304,18 @@ d206cd3, green here). `select.stands` 12×40: 480 checks, 135 selections (= base
 **Decisions made:** no edit to `RasterRenderer`/`rasterPack`: the pack rule is the Stage's `Item.res`.
 **Questions asked:** none.
 WHERE I AM: scenario 4 in headless Chromium (pre on :3040, this tree's archive on :3041), then D1's break-checks.
+
+## 2026-09-29 21:20 UTC — B-PYRAMID-3 (builder) — checkpoint: the round trips, the warm rule re-measured, the docs
+**Working on:** item 5: the docs made true (DESIGN §9/§15, `docs/ai` 10/20/30/40, PLAN §1.5, A3 §7.2, TEST-MAP, the
+oracles' README, OPEN-FLAGS F83/F120/F131 notes and the new F134/F135); the quick suite running on the live tree.
+**Measured (headless Chromium, frozen copies: c7fed1a :3020 against c7fed1a + item 4 :3021, load 1.2–5.4):** the
+harness's canvas ink hashes identical at its four states, two runs each; `?svg` round trip 0 px in 9 of 9 states (a
+second pair 1 px, one level, in 3 states — the two after runs differ by that pixel too); the raster round trip's
+screenshots 0 px in 7 of 9 states, and at the live stroke 0 px once the hold state is matched (logged: the earlier
+stroke handed off in both, or held pending in both — which one depends on the run, not the tree). The shipped warm rule
+(prefetch reads warm, a dropped tile forgotten) on the dense zoom-out and back: back in 8 bakes twice (3.1–3.6 s; the
+all-snapshots measurement was 9–10, warm off 19–22). Worker bundles unchanged (b72e5be7…, dce304b8…); lint 0 errors;
+typecheck 0.
+**Decisions made:** none new. F134/F135 filed as the coordinator said.
+**Questions asked:** none.
+WHERE I AM: the quick suite's result, then the end entry and the report.

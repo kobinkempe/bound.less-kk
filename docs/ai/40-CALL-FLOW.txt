@@ -27,8 +27,10 @@ MOUNT
                                            _pyrBuild: the PyramidStore (fresh: the
                                            Stage), the PicturePyramid (the ink canvas,
                                            the layer), the JobQueue over the worker
-                                           pool; the overlay plane on the first
-                                           selection
+                                           pool; SvgLayer (the <svg>, z 1) with
+                                           LiveStrokeLayer in its world and the
+                                           SvgOverlays; FC1's _layers list; the
+                                           overlay plane on the first selection
                  stage.onCommit -> the pen-up groups (_pyrLive); a reset drops the store
         ?svg:    new Renderer(container, cam, cfg)  creates the Two.js scene
         renderer.setSelectionAnts / setLasso
@@ -65,9 +67,9 @@ DRAWING A STROKE   [HOT]
     engine.pointerUp()
       _pointerUp
         _note({kind:"draw", ...})          journal it BEFORE pts is deleted
-        renderer.endLive()                 raster: the live MODEL goes, the path is
-                                           held until the plates under the stroke
-                                           paint it (no limit while its shape is
+        renderer.endLive()                 raster: live.hold() - the model goes, the
+                                           root is held until the plates under the
+                                           stroke paint it (no limit while its shape is
                                            pending; then LIVE_HOLD_MS 3 s, up to 15 s
                                            from the landing; PLAN §5.4 Q2)
         doc.finalize(o)                    index it; announce the final bbox
@@ -267,8 +269,10 @@ RENDERING   [HOT]
     store.framesLeft(F) on a change of frame  AFTER the read, keeping what it pinned (F83)
     _lastList = stage.items()             the items in (z, id) order
     renderer.render(null, frame)            RASTER (the default):
-      RasterRenderer.render: _activateLevel (the overlay scene), _sceneList() (the Stage's items
+      RasterRenderer.render: _sceneList() (the Stage's items
         less the strokes pending their shape), _frameStep:
+        _liveCross(cam.frame)              a crossing carries the held paths into the new frame (before
+                                           the retarget reads a group's rectangle)
         pyramid.frameFor(cam)              the view (FC2): the level ℓv and σ, or the rest set when still;
                                            _onStill (the rest render: inline if the estimate fits, else a
                                            worker group after the quiet); _patchStep (inline, coarse-first
@@ -284,9 +288,11 @@ RENDERING   [HOT]
         _planeStep                          the drag plane: follow the drag, land, or keep it aimed
         pyramid.compose()                   the plan per cell (A3 §1.4) drawn: direct or the surface;
                                             the integrals charged forward
-        _pyrLive                            the pen-up handoff: a group commit, the path down in its task
-        _pyrPrefetch (the camera still)     prefetchPlan at idle: near levels, far snapshots, the ring
-      syncWorld(view)                       the SVG overlay's transform (live stroke)
+        _pyrLive                            the pen-up handoff: a group commit, live.release(id) in its task
+        _pyrPrefetch (the camera still)     prefetchPlan at idle: near levels, far snapshots, the ring;
+                                            its tile reads warm (store.warmReads)
+      syncWorld(view)                       the SvgLayer world's transform (the live stroke), then
+                                            overlays.render() and _renderSelOverlay(view)
     renderer.render(list, frame)            ?svg - the SVG renderer:
       _activateLevel(frame)                 swap in this level's SVG subtree
       _maybeReorigin(scene)                 re-anchor if drifted past 1.5e6 px
@@ -311,12 +317,6 @@ RENDERING   [HOT]
                                             zoom changed
 
   THE RASTER PATH's other jobs:
-    _maybePrebake / _crossTarget            near a crossing: the target frame's
-                                            preview plates (stage.snapshot, packed at
-                                            its G)
-    _maybeLadder                            while still: coarse plates for the
-                                            zoomed-out screens (PAPER-PLAN R5b), each
-                                            rung a snapshot read a slice at a time
     sceneOps.snapshotView(req)              one plate of any frame and rect, for
                                             a scene's thumbnail (a snapshot, snapshotJob,
                                             not _post); never touches the plate store

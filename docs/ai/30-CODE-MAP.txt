@@ -306,7 +306,12 @@ worker/rasterWorker.js  the raster worker's entry, bundled by `npm run build:wor
 THE RASTER RENDERER - src/engine/raster/  (2026-09-15..22; the app's default
 since 2026-09-22; the picture pyramid since 2026-09-29, review/rebuild/A3-pyramid.md)
 
-RasterRenderer.js   The Renderer subclass that draws the ink into plates: it builds
+RasterRenderer.js   The raster renderer. It extends nothing (B-PYRAMID-3): FC1's one
+                    _layers list is the pyramid (z 0), SvgLayer (z 1), OverlayLayer (z 2,
+                    from the first selection) and bl-sel-edges' slot (z 3), walked by
+                    setSize, destroy and the store's release; the live stroke is
+                    LiveStrokeLayer's and the lasso and debug overlays svgOverlay's. It
+                    draws the ink into plates: it builds
                     the store, the pyramid and the queue (_pyrBuild), packs and
                     posts for them (_pyrPack at the Stage's G or a snapshot table's,
                     refusing a cell the table does not cover; _pyrSubmit, a row of
@@ -315,7 +320,8 @@ RasterRenderer.js   The Renderer subclass that draws the ink into plates: it bui
                     the queue's motion with the attention point, the plane, the
                     compose, the pen-up groups, the prefetch at idle), the drag
                     plane (_aimPlane/_planeStep/_endPlane), the pen-up handoff
-                    (_pyrLive: the live path down in the group commit's task) and
+                    (_pyrLive: LiveStrokeLayer.hold at pen-up, release(id) in the group
+                    commit's task; _liveCross carries a held path across a crossing) and
                     snapshotJob (one plate of any rect: an idle budgeted read, the
                     strip at PRIO.thumb). listMargin grows the table's window to a
                     view while a selection is on the plane's path (D1).
@@ -340,7 +346,8 @@ jobQueue.js         Typed jobs into strips dealt from the attention point; PRIO
                     moving; requeue (H7).
 prefetch.js         The prefetch plan at idle: ℓv − 1 and ℓv − 2 from the live
                     table, the far levels through budgeted snapshots, a crossing's
-                    target, the ring at rest; nothing while a report sends.
+                    target, the ring at rest; nothing while a report sends. Its tile
+                    reads are warm (RasterRenderer._pyrPrefetch sets TileStore.warmReads).
 rasterPack.js       Items into a job (one G a job): bands for fat strokes (memo keyed
                     on the zoom, F77), the per-list pre-pass, only/omit for the
                     drag, the pack-time offset snapshotView uses.
@@ -441,11 +448,9 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      stage.sync, the renderer's step),
                                      _beginHold / _endMove /
                                      _releaseMove (the drag's hold in the Stage
-                                     and its one exit), _planeState, listFor (the
-                                     SVG path's render list, and the probe's),
-                                     _crossTarget / _maybePrebake (the crossing
-                                     prebake), _maybeLadder (the zoom-out ladder;
-                                     both read stage.snapshot)
+                                     and its one exit), _planeState (listFor went
+                                     with B-PYRAMID-3; the crossing prebake and the
+                                     ladder with the old picture path, P6)
                       files          serializeDrawing / loadDrawing (kobin-1)
                       [DEV]          the four instrument classes at the top of
                                      the file (LongFrames, EventLatency,
@@ -568,15 +573,17 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     / splitFrame drop every tile meeting the frame's footprint
                     (_onFrameEvent). F55 stands: a table change drops nothing.
                     (_bakeSettled, F78's re-run of a bake a settle moved under,
-                    went with the settle, A1 C1.) contentOffCamera
-                    reads a frame the camera is not at, with the camera's pins
-                    saved by value and eviction held until it ends;
+                    went with the settle, A1 C1.) read / readTiles read tiles with
+                    the camera's pins saved by value and eviction held (the Stage's
+                    table and its snapshots; content and contentOffCamera went with
+                    listFor, B-PYRAMID-3); a read while warmReads is on (the
+                    prefetch's) marks its tiles warm, a dropped tile is not;
                     _rerouteGroups memoises the reroute's grouping per frame
                     and revision; framesLeft runs after the camera's read and
                     keeps what it pinned (F83).
-Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 - and
-                    the base class of raster/RasterRenderer.js (until B-PYRAMID-3
-                    item 4). It draws the Stage's items and composes
+Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 (the
+                    raster one extends nothing since B-PYRAMID-3). It draws the
+                    Stage's items and composes
                     raster/SvgLayer.js (the Two.js instance), LiveStrokeLayer.js
                     (the live stroke: tail and frozen chunks, hold/release) and
                     svgOverlay.js (the lasso, the debug overlays, the indicator's
@@ -606,8 +613,9 @@ Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 - and
                     gone) and ONE fat representation: the windowed display bake
                     (_fatPolys, outlineMode, outlinePad, needsRebake) was
                     deleted, so no signature and no geometry carries a camera
-                    window. _buildOutlineInto/ensureOutline stay - the eraser
-                    shares that definition (curveOutline.strokeLoops).
+                    window. _buildOutlineInto stays and the engine's idle fitter
+                    calls curveOutline.strokeLoops itself (ensureOutline went with
+                    B-PYRAMID-3) - the eraser shares that definition.
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
                     FRAME_ID is the one frame-id grammar: a #n on any segment,
                     as a twin's children carry it (F80, 2026-09-22).

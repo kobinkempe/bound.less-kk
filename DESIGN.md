@@ -708,7 +708,9 @@ both renderers call (A3 §7).
 
 ### The raster renderer (`src/engine/raster/`)
 
-`RasterRenderer` extends `Renderer` and draws the ink into **plates**: 512-device-pixel
+`RasterRenderer` extends nothing (B-PYRAMID-3): it composes FC1's stack — the pyramid (z 0), `SvgLayer` (z 1),
+the ants' `OverlayLayer` (z 2) and `bl-sel-edges` (z 3), one list that `setSize`, `destroy` and the store's
+release walk — and draws the ink into **plates**: 512-device-pixel
 squares of the screen, measured in **pixels** — a tile, a cell and a cache square are
 measured in frame units, and calling two of them one thing once froze an arc to two
 chords (F36). Our own float64 coverage rasteriser fills them (`rasterCore.js`: arcs
@@ -743,7 +745,9 @@ estimate fits — `patchUserMs` (16 ms, one frame) for an undo, a redo or a pen-
 (6 ms) for the patches the bake issues at every step; the estimate's chords are each item's rows' share inside the
 clips — else the finest coarser level that fits is patched inline and drawn over the dirty rectangles while the
 full patches go to the workers. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser levels and a
-crossing's target through budgeted snapshots, and the ring at rest; nothing while a report sends. A pool that
+crossing's target through budgeted snapshots, and the ring at rest; nothing while a report sends. Its tile reads are
+warm: `framesLeft` keeps them across a change of frame (F83) and the LRU cap still evicts them (on the dense
+drawing's zoom-out and back, 8–10 tiles re-baked on the way in, 19–22 without; PLAN §5.14 item 5). A pool that
 fails after a worker has answered (an error, or a job silent past 30 s and still silent a check later) is
 replaced, three times, before the session rasters inline (`rasterWorkerClient`, RW-1). A plate is painted
 family by family in z order from the TOPMOST family whose coverage fills the whole plate opaquely (the occlusion
@@ -785,10 +789,11 @@ are cut coarser; a quick level two octaves coarser is drawn until the plane's ow
 the table's margin reading a snapshot over its plates at idle, F122; the selected runs reach one view past the
 screen and the camera's table is read that far while a selection is on the plane's path, D1; never the selection
 twice, H4; a small selection's stopgap rastered on the main thread: a drag always moves); at the drop each cell
-keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s safety limit). A pen-up keeps the live SVG path
-until one group commit publishes the drawn cells under its box, in the task that takes the path down (A3 §3.6;
-no limit while the stroke's shape is pending, PLAN §5.4 Q2; `LIVE_HOLD_MS` 3 s after), re-anchored when the next
-stroke moves the overlay origin (F131).
+keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s safety limit). A pen-up holds the live SVG path
+(`LiveStrokeLayer.hold`) until one group commit publishes the drawn cells under its box and `release`s it in the
+same task (A3 §3.6; no limit while the stroke's shape is pending, PLAN §5.4 Q2; `LIVE_HOLD_MS` 3 s after),
+re-anchored when the next stroke moves the layer's origin (F131) and carried into the new frame at a crossing (its
+root scaled by R^Δdepth, its box and its group's rectangle mapped: `_liveCross`).
 The band is never packed: until its perimeter resolves a stroke is drawn by its live path alone,
 and the resolve's commit stales the plates under it, which the next camera step re-posts. A bake
 renders at most every 100 ms (`_renderSoon`); a cut on a pending pair dirties only its footprint
@@ -1224,7 +1229,7 @@ the four instruments; `?dev` on an editor URL unlocks the panel.
 
 | file | |
 |---|---|
-| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync; both renderers draw its items), the drag's hold in the Stage and its one exit (`_endMove`), the crossing prebake and the ladder, pan/zoom, pointer input, undo/redo/clear |
+| `KobinEngine.js` | the facade: construction, the compat accessors, tool and style setters, the perf log, the render pipeline (the Stage's sync; both renderers draw its items), the drag's hold in the Stage and its one exit (`_endMove`), the idle outline fits (`strokeLoops`), pan/zoom, pointer input, undo/redo/clear |
 | `erasePipeline.js` | the eraser and the resumable bake behind it |
 | `eraseJob.js`, `eraseDescent.js`, `eraseWorkerClient.js` | one cut as a pure job; the descent as one job per family; the cuts' queue on the raster pool (`PRIO.cut`; inline only when the pool is broken or there is no worker) |
 | `overlays.js` | the selection indicator and the erase debug view |
@@ -1246,8 +1251,8 @@ way, and throws if two files claim the same name.
 | `placementModel.js` | the document model as the Stage reads it: which natives a frame draws live, where a picture is read from and painted, a frame's footprint |
 | `legacy/modelV1.js` | the inverses of the settling model, for stores and undo stacks written before A1 C1; deletion date 2026-12-31 |
 | `Camera.js` | level, in-frame scale, and pan |
-| `TileStore.js` | the derived-content cache |
-| `Renderer.js` | the SVG renderer (`?svg`, the export), and the base class of the raster one until B-PYRAMID-3's item 4 |
+| `TileStore.js` | the derived-content cache; the Stage reads it (`read`, `readTiles`), and the prefetch's reads are warm (F83) |
+| `Renderer.js` | the SVG renderer (`?svg`, the export); the raster one extends nothing since B-PYRAMID-3 |
 | `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore`, `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; the SVG layer both renderers draw with: `SvgLayer`, `LiveStrokeLayer`, `svgOverlay`, `svgAnchors`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
 | `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
 | `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |

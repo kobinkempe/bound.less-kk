@@ -1053,6 +1053,23 @@ keeps, for `RasterRenderer`'s inheritance only, accessors for `_live`/`_liveRoot
 `_mkSelLayer`, `_renderSelChevrons`, `_ensureSelStyle`. The `?svg` round trip was pixel-identical before and after in
 nine states (headless Chromium).
 
+*Built (2026-09-29, B-PYRAMID-3 item 4):* `RasterRenderer` extends nothing. FC1's list is `[PicturePyramid, SvgLayer,
+OverlayLayer, bl-sel-edges]` — the ants' layer joins at z 2 on the first selection, and z 3 is a slot that sizes and
+drops the chevrons' `<svg>` while a selection shows; `setSize`, `destroy` and the store's release walk it. `endLive`
+is `LiveStrokeLayer.hold()` with the box, the frame and the limit on the held entry, and the group commit's callback
+calls `release(id)` (`_pyrTakeDown`); the world transform folds the layer's origin, which only the layer writes (`begin`,
+and `cross` when a crossing carries the held roots into the new frame: scaled by R^Δdepth, the drawn-at origin, the box
+and a waiting group's rectangle mapped before the retarget; `_pyrLive` asks the document whether a stroke is gone or
+pending, since a crossing's table is read at idle). The
+promotions (`needs*`) and the fat gate are `Renderer`'s alone (the engine's raster step never asks them), and the
+engine calls `clear`, `setOpacityGroups`, `setDebug`, `setRetainScenes` and `setLazyOutlines` only where present.
+`Renderer`'s accessors and forwards for the inheritance, `listFor`, `_buildList` and `TileStore.content`/
+`contentOffCamera` are deleted; the prefetch's tile reads are warm (PLAN §5.14 item 5). Headless Chromium on c7fed1a
+against it (frozen copies): the harness's canvas ink hashes identical at its four states, twice; the `?svg` round
+trip 0 px in nine states (a second pair: one pixel, one level, in three states, which the two after runs also differ
+by); the raster round trip's screenshots 0 px at the live stroke in matched hold states. On the dense drawing's
+zoom-out and back, 8 tiles re-baked on the way in (twice; 19–22 with the warm reads off).
+
 ### 7.3 What `Renderer` keeps
 
 All of the Two.js ink path for `?svg` and the export: per-object groups and the signature diff, per-scene

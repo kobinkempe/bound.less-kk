@@ -240,7 +240,11 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   `arcs`, `hold()`, `release(id)`, `cancel()`), `raster/svgOverlay.js` (the lasso, the debug overlays, the chevrons and
   the SVG ants) and `raster/svgAnchors.js`, composed by `Renderer`, which draws the Stage's items; `?svg` masks a landed
   pending mark's targets (`eraseRule.underMask`, an SVG `<mask>`), the export bakes every mark in its copy first, and
-  a group at opacity 0 is not rebuilt (F133). `RasterRenderer` still inherits until item 4.
+  a group at opacity 0 is not rebuilt (F133). *Item 4:* `RasterRenderer` extends nothing: FC1's one list is
+  `[PicturePyramid, SvgLayer, OverlayLayer, bl-sel-edges]`, `endLive` is `LiveStrokeLayer.hold()` and the group
+  commit's callback `release(id)`, and a crossing carries a held path into the new frame (root scaled, box and group
+  rectangle mapped), so a pending stroke's path no longer comes down there (§5.15 item 1's last clause); `listFor`,
+  `_buildList` and `TileStore.content`/`contentOffCamera` are deleted, and the prefetch's tile reads are warm (§5.14 item 5).
 
 ### 1.6 The worker pool
 
