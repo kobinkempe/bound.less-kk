@@ -32,6 +32,7 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         const order = [];
         for (let n = 0; n < 6; n++) { q.pump(); const st = sent[sent.length - 1]; order.push(st.kind); finish(st); }
         expect(order).toEqual(["rest", "patch", "view", "plane", "prefetch", "thumb"]);
+        expect(q.report().byPrio).toEqual([2, 1, 1, 0, 1, 1]);             // the harness's jobs by priority
     });
 
     test("one worker is kept for cuts while any is pending; prefetch and thumbnails hold at most workers − 1", () => {

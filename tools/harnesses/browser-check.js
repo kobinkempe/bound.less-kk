@@ -107,7 +107,7 @@ async function roundTrip(browser) {
     fs.mkdirSync(OUT, { recursive: true });
     const t0 = Date.now();
     const { ctx, page, errors, consoleErrors } = await newPage(browser);
-    say("mounted", { ms: Date.now() - t0, url: await page.evaluate(() => location.hash), raster: await page.evaluate(() => !!window.__kobinEngine.raster) });
+    say("mounted", { ms: Date.now() - t0, url: await page.evaluate(() => window.location.hash), raster: await page.evaluate(() => !!window.__kobinEngine.raster) });
     await sleep(500);
 
     const box = await (await page.$("canvas.bl-ink")).boundingBox();

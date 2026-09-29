@@ -1345,3 +1345,26 @@ kobin-1 file (version unchanged). Load 1.0–2.2 during these; 7.2 now (other ag
 branch left its marks' ids on live natives (DESIGN §7 says never). Both red-before tests are in `erase.rule`.
 **Questions asked:** none yet.
 WHERE I AM: the feel run (item 2), then break-checks on `scratchpad/r-erase/bc` (bc.py), item 8, item 9 docs, item 11.
+
+## 2026-09-29 01:18 UTC — B-PYRAMID-2 (builder) — P4 checkpoint: the queue adopted, the camera's budgeted read, `job.ids` off the wire
+**Working on:** P4 done. `rasterWorkerClient.failPool` hands a queue strip back (`onRequeue` → `_pyrRequeue`: its id ended,
+`requeue` at the head of its priority, a pump; H7). `JobQueue._aim`: arrival = the view's age + the mean dispatch-to-landing
+time the queue measures from its own dispatch (no in-flight count: `pump` dispatches only to a free slot); a failure is no
+sample (`done(id, false)`). `job.ids` off the wire (the packer keeps them for the suites). The budgeted read (A3 §4.2):
+under the pyramid a camera step syncs with budget 0; `KobinEngine._readIdle` reads the rest after the rest's quiet, a
+`LADDER_SLICE_MS` slice an idle callback, stepping the renderer; `PicturePyramid.covered` keeps uncovered cells out of the
+view's, the rest's, the patch step's, the plane's and the near prefetch's asks; the pack (inline too) refuses a cell whose
+tiles left and `unask`s it; a pen-up group asks its refused cells again once covered (the path stays up). Deleted: the
+renderer's late-plane-plate discard (the store's `dropWhere` refusal already does it). Deferred to P6 with the old path
+(`?pyramid=0` is P5's comparison): `current`, `dropStale`, `pruneCurrent`, the q form of `dropQueued`, `bestIndex`/`LOW_PRIO`
+and the client's `STRIPS_PER_WORKER`. A3 §4.2/§4.4 notes; TEST-MAP rows.
+**Found:** P3's quick-level test raced a fixed 200 ms wait (red on the pristine tree under load, so four P3 break-checks were
+red for that): it waits for the aim now; re-run, 13 of 14 P3 rules red on their own tests, the 14th was a second mechanism.
+**Measured:** the quick suite 2,257 of 2,270 (12 skipped; one `raster.engine` test red once at load 6.8, 43/43 in five reruns
+incl. three concurrent — the old path's timing rules; the filtered log did not name it); raster.pyramid 22/22;
+typecheck 0; eslint 0 errors. Break-checks on the copy: 26 P4 rules, each red on its own test (1–2).
+**Decisions made:** the budgeted read under `cfg.pyramid` only (the old path keeps `Infinity` until P6); the idle read waits
+the rest's quiet (100 ms) and steps the renderer every slice (an empty tile covers without a commit); one cover test
+(`covered`) for the plan, the plane and the near prefetch; the queue counts dispatches by priority (the harness's column).
+**Questions asked:** see the report (D1's SEL cells past the table's window).
+WHERE I AM: P5 — `npm run build:worker`, a dev server on :3010, the harness both ways.

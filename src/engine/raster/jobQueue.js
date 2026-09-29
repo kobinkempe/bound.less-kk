@@ -47,7 +47,7 @@ export default class JobQueue {
         this.motion = null;            // { moving, view, vel: { px: [x, y] /ms, zoom: log2 Z /ms }, attention }
         this.jobMs = JOB_MS0;
         this.s = { pushed: 0, strips: 0, dispatched: 0, deferred: 0, reaimed: 0, skippedCells: 0, offscreenCells: 0, done: 0,
-            drops: { gen: 0, exact: 0, offscreen: 0, empty: 0 } };
+            drops: { gen: 0, exact: 0, offscreen: 0, empty: 0 }, byPrio: [0, 0, 0, 0, 0, 0] };   // byPrio: strips dispatched
     }
 
     // ---- in ----
@@ -118,7 +118,7 @@ export default class JobQueue {
             const ok = this.pool.submit(st);
             this._packMs += this.clock() - t0;
             if (ok === false) { this.inFlight.delete(st.id); this._drop(st, "empty"); continue; }
-            this.s.dispatched++;
+            this.s.dispatched++; this.s.byPrio[st.prio]++;
             n++;
         }
     }
@@ -246,6 +246,6 @@ export default class JobQueue {
         const queued = [0, 0, 0, 0, 0, 0], flying = [0, 0, 0, 0, 0, 0];
         for (const st of this.queue) queued[st.prio]++;
         for (const st of this.inFlight.values()) flying[st.prio]++;
-        return { queued, inFlight: flying, jobMs: this.jobMs, packMsFrame: this._packMs, ...this.s, drops: { ...this.s.drops } };
+        return { queued, inFlight: flying, jobMs: this.jobMs, packMsFrame: this._packMs, ...this.s, drops: { ...this.s.drops }, byPrio: this.s.byPrio.slice() };
     }
 }

@@ -1505,6 +1505,10 @@ loop's — asynchronously, parked until the cuts land (`select.eraseBarrier.test
 An object dragged under a mark after it landed is not its target and shows over it (`raster.eraseRule.test.js`
 (c)). Left open for Kobin's browser: the flag was his, on a real canvas.
 
+2026-09-29 (R-ERASE, the B-ERASE review). Measured in headless Chromium through the app (a mark held
+pending): an object dragged across it shows over its region at every step and after the drop, and the bake
+then ends with it uncut; nothing here is a measurement in Kobin's Chrome, so the flag stays open for it.
+
 2026-09-23 (ERASE-TEST agent, Kobin's request: a ring through a stack, selected while it bakes).
 Measured on fresh canvases, jsdom and his Chrome: a tap on an object the baker has not reached cuts
 it before it is selected (never an uncut object moved; 100, 300 and 1,000-stroke stacks all ended
