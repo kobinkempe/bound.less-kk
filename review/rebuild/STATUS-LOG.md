@@ -1566,3 +1566,22 @@ B-PYRAMID-2b (P6). One slot free; B-PYRAMID-3 waits for P6 and its review.
 pyramid's through the surface; round trip identical.
 **Decisions made:** PLAN §5.11 items 1–4.
 **Questions asked:** none.
+
+## 2026-09-29 05:31 UTC — B-PYRAMID-2b (builder) — P6: the old picture path deleted, the cuts through the queue — start
+**Working on:** B-PYRAMID-2's P6 (brief `briefs/B-PYRAMID-2b.md`), from the tree at 21defff (B-MODEL-C1's M2 edits in
+`Document.js`, `selection.js` uncommitted beside it). Read: the brief, the preamble, B-PYRAMID-2's brief, PLAN §1.2,
+§1.5, §1.6, §3, §5.6–§5.9, §5.11, B-PYRAMID-2's P0–P5 entries, A3 §2.5, §3.4, §3.6, §4.2, §4.6, §6, TEST-MAP.
+Order (brief §2): 1 the cuts through the `JobQueue` (`eraseWorkerClient.js`, `erasePipeline.js`'s dispatch; the
+watchdog refusal, the single requeue, inline only when the pool is broken; `erase.parallel` ported); 2 the deletions
+(`PictureLayer.js`, `PlateStore.js`'s old rules, `plate.js`'s quantum maths, the gate, `_renderPending`, the queue's
+quantum identity, the duplicates to one each); 3 the pyramid's open items; 4 the suites; 5 the docs; 6 the harness on a
+frozen copy.
+**Files I am in:** `src/engine/raster/*` (RasterRenderer, PictureLayer, PlateStore, plate, MovePlane, rasterWorkerClient,
+rasterPerf, PicturePyramid, PyramidStore, jobQueue, prefetch and the raster suites), `eraseWorkerClient.js`,
+`erasePipeline.js` (the dispatch and `_renderPending` lines only), `sceneOps.js`, `KobinEngine.js` (renderer-facing
+parts), `useKobinEngine.js` (gate, levers), `DevStats.js`, `CanvasEditor.js` (the toggle), `browser-check.js`,
+`newdesc_engine.py`, the docs of brief §2 item 5. Shared with B-MODEL-C1: `KobinEngine.js`, `Stage.js` (read only),
+`erasePipeline.js`, `sceneOps.js` — re-read before each edit, small edits.
+**Measured:** nothing yet. Load 0.75 at start; B-MODEL-C1's servers on :3030/:3031; nothing on :3011.
+**Questions asked:** none.
+WHERE I AM: item 1 — read `eraseWorkerClient.js`, `erasePipeline.js`'s dispatch and `jobQueue.js`'s cut kind.
