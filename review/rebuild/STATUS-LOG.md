@@ -1935,3 +1935,25 @@ reviewer's model files. Ports 3010–3019; scratch `scratchpad/r-pyr/`.
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: reading the brief's list (DESIGN §9, PLAN §0/§1/§3/§5, A3, the builders' entries, the code).
+
+## 2026-09-29 12:16 UTC — reviewer (B-MODEL-C1 review) — R-MODEL-C1 items 1–10 — end
+**Working on:** done; dev servers :3030/:3031 stopped at 11:47, worktrees `r-model/before`/`after` removed.
+**Measured (jsdom unless said; load 1–3):** item 3 — `model.pureRead` extended (budgeted snapshots as the Scenes panel
+reads, the drag's pick, the erase frame pass, the scene index's pass; `report()` its own case): 180 states, 2,192 reads,
+82 mints, each a displaced group's source and gone at the next frame GC; read by read over 600 states only the Stage's
+first read of a view minted; break-checks on the copy: a read minting elsewhere, GC off, `report()` writing — 1 red each.
+Item 4 — `model.compose` +3 (a ceded kid, a native promoted into a shifted frame, a cut piece keeping its own table):
+break-checks 1 red each (the kid's through `eraseDescent.ownIn`: production's cede never calls `Document.cedeTileById`).
+Item 5 — against 0732252's `persist.js`: a shifted file and a store header refused "file v3, app reads up to v2"; a
+shift-free file 705 bytes identical to the oracle's, read by the deployed reader. The legacy import test evaded by a
+`legacy/index.js` re-export (2 of 2 green): rewritten to resolve imports to the file and refuse re-exports (red then);
+the store test without `applySettle` or `unsettle`: 1 red each. Item 7 — four `.below` leak forms in 14 files incl.
+the allowed files and the model's neighbours: 56 of 56 red; the 7 allowed lines' reasons true. Item 8 — a 20-event
+drag of 300 natives: oracle 1 settle and 300→600 writes an event, rev +11,740; C1 0, 0, rev +40. Item 9 — `settleAll`
+deleted (a read that did nothing), sceneIndex's case renamed. Item 10 — DESIGN §8/§13, A1 §14, OPEN-FLAGS F111/F94/F116.
+Suites: 40 files 446 passed before; 44 files 541 passed, 4 skipped after; typecheck 0; eslint 0 errors (7 warnings, 1
+mine fixed). Worker bundles rebuilt; my `offsets.js` comment edit leaves the raster bundle's md5 as it was (378db4bf… on
+the copy either way).
+**Decisions made:** class B compared by place; `settleAll` deleted rather than renamed (rule 14: it does nothing now).
+**Questions asked:** in the report (the Stage's `_home` read, `warmReads` dead since P6, the SVG path's retention).
+WHERE I AM: ended — report handed back.

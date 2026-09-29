@@ -21,7 +21,7 @@ import { decodeDrawing, VERSION } from "../engine/persist";
 import { _resetDbForTests } from "../storage/db";
 import { writeCanvas2, getStoreHeader } from "../storage/localCanvases";
 import { fake } from "../engine/__testkit__/fakeFirestore";
-import { pictureAt, comparePictures } from "../engine/__testkit__/modelFuzz";
+import { comparePictures } from "../engine/__testkit__/modelFuzz";
 import { eraseGesture } from "../engine/__testkit__/harness";
 import { rectLoop } from "../engine/geometry/arcShape";
 import { G } from "../engine/frameLattice";

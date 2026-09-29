@@ -43,7 +43,7 @@ describe("the reroute grouping memo", () => {
         const E = scene();
         const F = E.cam.frame, P = E.lm.parentOf(F);
         const m1 = E.store._rerouteGroups(F);
-        E.store._rerouteGroups(P);                        // a ladder rung or the crossing prebake, between two renders
+        E.store._rerouteGroups(P);                        // a prefetch read of another frame, between two renders
         expect(E.store._rerouteGroups(F)).toBe(m1);       // red with one entry: the camera pays the whole scan again
     });
 

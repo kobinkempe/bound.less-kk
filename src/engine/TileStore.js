@@ -79,8 +79,8 @@ export default class TileStore {
         this._epoch = 0;
         this._pins = new Set(); // keys protected from eviction during a bake/render
         this._holdEvict = false; // `contentOffCamera` runs the eviction itself, once
-        // Tiles the zoom-out ladder and the crossing prebake read ahead (`warmReads` on): `framesLeft`
-        // keeps them, so the zoom they were read for finds them warm (F83). Cleared per ladder.
+        // Tiles read off camera while `warmReads` is on: `framesLeft` keeps them across a change of the
+        // camera's frame (F83). No caller turns it on since P6 deleted the ladder and the prebake.
         this._warm = new Set();
         this.warmReads = false;
         this._chainSeq = new Map();       // frame -> chainSeq(frame), valid for one lattice addrEpoch
@@ -214,20 +214,13 @@ export default class TileStore {
         return out;
     }
     /**
-     * `content(F, rect)` for a frame the camera is NOT at — the crossing prebake (PAPER-PLAN R4)
-     * and `snapshotView` (SCENES-PLAN S1). The visible pin set is saved BY VALUE and restored,
-     * so neither the read nor the bake it forces can unpin or evict the camera's own tiles.
-     *
-     * By value, because `content` mutates `_pins` IN PLACE (`:128`, `_reroute`, `_ensureUp`)
-     * before replacing the field: saving the reference, which `KobinEngine._maybePrebake` did,
-     * puts back a set that now holds the read frame's keys and pins them until the next
-     * `content` call. The tiles this bakes stay cached and stay evictable, which is what makes
-     * a prebake free to throw away.
-     *
-     * The pins are not enough on their own: `content` evicts at its end, with only its own
-     * range pinned, and PER_LEVEL_CAP is 64 tiles within ONE frame — so a run of thumbnail
-     * reads at the frame the camera is at took the visible tiles (S9). The eviction is held for
-     * the read and run once here, with the camera's pins back.
+     * `content(F, rect)` for a frame the camera is NOT at (`listFor` with `forCamera` false). The
+     * visible pin set is saved BY VALUE and restored, so neither the read nor the bake it forces
+     * can unpin or evict the camera's own tiles: `content` mutates `_pins` in place (`_reroute`,
+     * `_ensureUp`) before replacing the field, so a saved reference would come back holding the
+     * read frame's keys. The tiles this bakes stay cached and evictable. The eviction is held for
+     * the read and run once here, with the camera's pins back: `content` evicts at its end with
+     * only its own range pinned, and PER_LEVEL_CAP is 64 tiles a frame (S9).
      */
     contentOffCamera(F, rect, budgetMs = 0) {
         const pins = new Set(this._pins);
@@ -331,8 +324,9 @@ export default class TileStore {
      * is drawn live and in no group. Memoised on F, the document's `offRev` (tables, shifts, homes in
      * shifted frames), the lattice's `addrEpoch` and its frame count: the walk over every object with
      * a table was 70 of a 113–140 ms list build on the Magnum Opus (16,889 tables, PAPER-PLAN §10). A
-     * key that moved during the walk is not kept. One entry a frame, the last four: the ladder and the
-     * crossing prebake read other frames between two camera renders (review minor 7).
+     * key that moved during the walk is not kept. One entry a frame, the last four: the Stage's
+     * snapshots of other frames (the prefetch's reads among them) come between two camera renders
+     * (review minor 7).
      */
     _rerouteGroups(F) {
         const memo = this._rrMemo || (this._rrMemo = new Map());
