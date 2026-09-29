@@ -722,14 +722,19 @@ on a phone) never under the pinned bound; a result lands iff its G is newer (rul
 its G ≥ its cell's `dirtySince` (rule 2). `jobQueue.js` cuts typed jobs into strips dealt round-robin from the
 **attention point** (the last pointer, wheel focus or pinch centre) and dispatches them by priority — rest and
 patches 0, the view 1, the plane 2, cuts 3 (one worker kept for cuts while any is pending), the prefetch 4,
-thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; while the camera
-moves it packs at most 4 ms a frame and skips cells the camera will have left by the strip's arrival (the
-velocity rule). The pack refuses a cell whose tiles the table does not cover (F119) and it is asked again once
+thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; it packs at most 4 ms
+a frame while the camera moves and 4 ms a task while it is still (the strip that crosses it ends the task, the rest
+go in the next, so input runs between two 171–480 ms prefetch packs), and while moving skips cells the camera will
+have left by the strip's arrival (the velocity rule). The pack refuses a cell whose tiles the table does not cover (F119) and it is asked again once
 covered. A still camera renders the rest set inline when its estimate fits `restInlineMs` (8 ms; the estimate is
 calibrated from the core's own timings), else in the workers after `restQuietMs` (100 ms) as one group shown
-when all are in; a change patches the drawn cells inline when `patchInlineMs` (6 ms) fits, else the finest
-coarser level that fits is patched inline and drawn over the dirty rectangles while the full patches go to the
-workers. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser levels and a
+when all are in. A zoom keeps the rest set's records as a stand-in at their own Z — exact there, they beat a stale
+level plate, drawn scaled where their resolution ranks among the coarser levels — until the next zoom's set replaces
+them; a frame change, a resize or a dpr change removes them. A change patches the drawn cells inline when its
+estimate fits — `patchUserMs` (16 ms, one frame) for an undo, a redo or a pen-up's group, paid once; `patchInlineMs`
+(6 ms) for the patches the bake issues at every step; the estimate's chords are each item's rows' share inside the
+clips — else the finest coarser level that fits is patched inline and drawn over the dirty rectangles while the
+full patches go to the workers. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser levels and a
 crossing's target through budgeted snapshots, and the ring at rest; nothing while a report sends. A pool that
 fails after a worker has answered (an error, or a job silent past 30 s and still silent a check later) is
 replaced, three times, before the session rasters inline (`rasterWorkerClient`, RW-1). A plate is painted
@@ -759,8 +764,9 @@ What keeps paper off the screen is the plan's order above: a stale plate is show
 replacement that lands still behind but newer than the stale pixels takes their place (F106), and a missing cell is
 drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
 much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`,
-`olderPatchMs` and `olderOtherMs` (the last must be 0; a zoom from rest before the prefetch's quiet still shows a
-stale coarser stand-in, the P6 review's open item). A desktop tab releases its plates only after five minutes
+`olderPatchMs` and `olderOtherMs`. The last is 0 but for the plan's last resort: a stale coarser stand-in for a cell
+with nothing fresh cached at any level while its own plate is on its way — after a crossing, its tiles not yet read
+(the step reads the cache alone) or its view job in flight (the B-PYRAMID review's jsdom fuzz; its design question). A desktop tab releases its plates only after five minutes
 hidden (a phone at once). A drag draws the selection from plates made when it was selected, split by z so the
 drag keeps its true depth: the ink below the selection, the selected runs on transparent plates (moved with the
 pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers the smallest
