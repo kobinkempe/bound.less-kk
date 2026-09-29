@@ -1606,3 +1606,27 @@ not named 2 / not passed 2, a lost job rerun inline 1, inline with the pool up 1
 jobs in flight when the watchdog replaces the pool are requeued (lost to the replacement, not silent).
 **Questions asked:** none.
 WHERE I AM: item 2 — the gate: `KobinEngine`'s `pyramid` option and `cfg.pyramid` branches, then RasterRenderer's old path.
+
+## 2026-09-29 05:51 UTC — B-MODEL-C1 (builder) — M2 checkpoint: the settle removed
+**Working on:** M2 done (tree at 01fde6d + the fuzz's last edits). No read or write settles: `_settleIfPending`, `unsettle`,
+the settle replay, the engine's settle subscription and `_flushCarried`, `TileStore.ownContent`/`_bakeSettled`/`_rebakes`,
+Stage's carry handling and `Item.below` deleted. Newcomers cancel the shift (`add(…, {fresh: true})`, `ownFor`, PLAN §5.2
+Q3); a ceded kid's and a promoted native's tables come from the composition. Merges moved from the first read to the
+action's end (`mergePending(op)`: drop, undo, redo, load, replay's end), the frames' shift difference folded into the
+merged natives' tables and recorded for `unmerge` and the log; an empty childless shadow is frame GC's (F94, t9). Old
+stores: a logged settle replays through `legacy/modelV1.js` (deletion date 2026-12-31).
+**Measured:** tile fuzz vs the oracle with shifts live (`model.equivalence.probe.js`, seeds 1–20 × 40 = 800 ops of 15
+kinds): 1,717 pictures, 6,336 native items — 6,303 same-home bit-identical, 33 carried by the oracle all bit-identical
+through the mapped picture (0 ulp); 3,471 pieces, 1,332 items with own tables, 305 shifted-frame pictures; PASS, load
+~1.3. Comparison rules (in `modelFuzz.js`): above a native's home only the square's interior (64 units in) — the oracle
+read the unshifted window there; a carried native a later frame op moved in one engine only counts as diverged (0 here).
+Bug it found: a stale reroute memo (refile emitted before `setFrameShift`); shift now set first, `setFrameShift` bumps
+`offRev`. Quick suite at load 2.7: 2,203 passed, 68 failed in 8 suites — 7 are B-PYRAMID-2b's in-progress
+`eraseWorkerClient.js` (`setEraseTransport`/`eraseFreeSlots` not exported: erase.rule, select.eraseBarrier, bake.schedule,
+raster.snapshot/engine/liveHold/pyramid); 1 is mine: raster.nopaper R3 expects `mergeFrame` for a frame dropped on a
+visited EMPTY cell, which under C1 is frame GC's (t9's rule). Typecheck 0; eslint 0 errors (my 2 warnings fixed); worker
+bundles rebuilt, md5s unchanged (raster 2cd48b67…, scene dce304b8…). My dev servers :3030/:3031 stopped until the counters.
+**Decisions made:** merges at the action's end (pure reads forbid A1's first-read merge) — A1 dated note at M4.
+**Questions asked:** R3 lives in `raster/` (B-PYRAMID-2b's): port it to a visited cell holding ink, so the drop merges and
+the guard (a merge keeps the plates) still bites — recommend B-PYRAMID-2b in P6, or I do it with leave.
+WHERE I AM: M3 — `persist.js` writes version 3 when the lattice has a shift (written); next the `.below` lint, the store test.

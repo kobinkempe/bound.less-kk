@@ -669,3 +669,7 @@ level inline waits for the workers) but not verified per cell. The pack memo's t
    `snapshotView` through the pyramid, the open pyramid items (items 2–3 here, the attention point, `reportBusy`, a
    stale rest cell's cover through the mapped frame, the motion's break-check), the docs and OPEN-FLAGS; then the
    harness once more on a frozen tree against P5's reference table. One reviewer for P0–P6 after it.
+3. **M2 (2026-09-29 05:51)**: the settle removed; the tile fuzz with shifts live is bit-identical against the oracle
+   (6,336 items, 33 carried at 0 ulp); merges moved from the first read to the action's end (a pure read cannot merge
+   — A1's dated note at M4). Its question: `raster.nopaper` R3 expects a merge for a frame dropped on a visited empty
+   cell — **no port**: the suite is deleted by B-PYRAMID-2b's P6 with the carry, the ladder and the hold (TEST-MAP).

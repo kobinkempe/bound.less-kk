@@ -91,8 +91,8 @@ describe("format encode/decode", () => {
             loops: [[0, 0, 2, 0, 0, 10, 0, 0.2, 0.8, 8, 0, 0, 8, 5, 0, 0, 0]],
         });
         const doc = encodeDrawing({ ...parts, meta: { name: "cut" } });
-        expect(doc.version).toBe(VERSION);
-        expect(VERSION).toBe(2);
+        expect(doc.version).toBe(2);
+        expect(VERSION).toBe(3);   // 3: a frame shift in the lattice (A1 C1; store.model.test.js)
         const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
         expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
     });
