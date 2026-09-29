@@ -2331,3 +2331,27 @@ before B-DRAG: 191 files, 2,140/2,140. Lint 0 errors, typecheck 0, bundles uncha
 **Decisions made:** as logged (FC1's z-3 slot; the document answers gone/pending; `_dropTile` forgets a warm key).
 **Questions asked:** in the report (F134/F135 went to B-PYRAMID-4's brief).
 WHERE I AM: ended — report handed back; `RasterRenderer.js` and the raster modules are free for B-DRAG and B-PYRAMID-4.
+
+## 2026-09-29 21:29 UTC — B-PYRAMID-4 (builder) — the pyramid's last four rules (PLAN §5.15; F134, F135) — start
+**Working on:** the brief's reading list (DESIGN §9; PLAN §0 d2, §1.2, §1.5, §5.11 item 3, §5.15, §5.17 when written;
+A3 §1.4 (f′), §3.3–§3.6, §4.4; F134, F135; the review's and B-PYRAMID-3's entries), then the five rules in order:
+the patch step in the commit's task, the pack priced with its prepass kept, F134's floor, F135's re-ask, (f′)'s integral.
+Files I will be in: `src/engine/raster/{PicturePyramid,RasterRenderer,jobQueue,rasterPack,PyramidStore,prefetch}.js`,
+the raster suites, `tools/harnesses/browser-check.js`, `DevStats.js`'s pyramid fields, DESIGN §9, A3, `docs/ai/40-`,
+OPEN-FLAGS F134/F135. Not `KobinEngine.js` unless a rule needs one line there (re-read first, rule 17).
+**Measured:** tree at b793360; load 2.11 / 3.58 / 3.65 at the start. Scratch `scratchpad/bp4/`, ports 3010–3019.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading; next DESIGN §9 and PLAN §5.15, then the code's commit hook and `_patchStep`.
+
+## 2026-09-29 21:29 UTC — orchestrator (Fable) — B-PYRAMID-3 landed (b793360); B-PYRAMID-4 launched; PLAN §5.17
+**Working on:** B-PYRAMID-3's report answered in PLAN §5.17 (the `Stage.js` mention of `listFor` to B-DRAG; docmaps to
+the final docs pass; the dead `live` argument and the double-alpha check to B-PYRAMID-4). B-PYRAMID-4 launched
+(`opus-builder`, `briefs/B-PYRAMID-4.md`: the patch step at commit, the pack priced with its prepass kept, F134's
+floor, F135's dropped group strips, the (f′) integral). Running: B-DRAG (D1's browser check and break-checks),
+B-PYRAMID-4. One slot free; the reviewers for B-DRAG and for B-PYRAMID-3+4 follow their reports; B-MODEL-C34 after
+B-DRAG's review.
+**Measured:** B-PYRAMID-3's: the `?svg` round trip 0 px in 9 of 9 states; F133 fixed (memory flat over 40 drag events);
+the back-in re-bakes 8 against 19–22 with the warm reads; the quick suite 2,140/2,140 on its trial copy.
+**Decisions made:** PLAN §5.17 items 1–5.
+**Questions asked:** none.
