@@ -40,6 +40,7 @@ class Files {
         this.docMeta = { ...this.docMeta, scenes: [], sceneIndex: null, sceneSeq: null };
         this.cam.set(snap.camera || { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 });
         this.cam.settle();                  // a file may record an illegal zoom
+        this.doc.mergePending();            // a shadow the file holds merges at the load's end, the camera following (A1 C1)
         this.renderer.clear();
         this._render();
         this._scheduleBake(0);   // resolve any stroke the file carried unbaked
@@ -86,6 +87,7 @@ class Files {
         this.doc.loadNatives(d.natives); // reset event clears tiles + selection
         this.cam.set(d.camera);
         this.cam.settle();                  // a file may record an illegal zoom
+        if (render) this.doc.mergePending();   // a file's shadows merge now, the camera following; a store's after its replay (OpLog.replay)
         this._eraseCommits.clear();
         // The targets' lineage from the marks' `targets`; a mark from before them registers now, or
         // after the caller's replay when it renders later (A2 §4.9, `_eraseLoaded`).
