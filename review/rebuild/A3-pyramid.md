@@ -817,6 +817,9 @@ free slot, so no queue position is ahead of the strip (PLAN §5.6 item 7). `fail
 task (P6's undo trace: 171–480 ms prefetch packs, a free worker's each, in one task). A job that carries its own pool
 entry (a cut, a snapshot's plate) is queued as the object pushed: a snapshot's copy never matched its `done`, and every
 Scenes thumbnail held a low-priority slot for the session (two, on three workers, stopped the prefetch for good).
+A strip that will not land forgets only its own cells' asks (`_pyrUnask`; none for an `exact` drop): every drop used to
+forget every ask, so each queued patch was asked again at the next step, the duplicate dropped at dispatch forgot them
+all again, and meanwhile a stale plate whose patch was queued read as other older.
 
 ### 4.5 The cache budget
 

@@ -2144,3 +2144,17 @@ reviewer's end entry (last seen 16:26, still batching).
 **Questions asked:** none.
 WHERE I AM: the raster suites' ports on the trial copy (live fields → `live.held/root/tail`, `_buildList` spies →
 `_render`, the chevrons seam test → `svgOverlay.renderSelChevrons`), then the prefetch-warm test and its break-check.
+
+## 2026-09-29 16:45 UTC — reviewer (B-PYRAMID review) — checkpoint: the final table, scenario 7, one more defect
+**Measured (headless, cc1524a on :3013, `--dense --scenario all` ×2, load 1.95–3.6):** 1 out paper 8.4 | 109.8 (the
+second contended), blur 29 | 147, long 5 | 4; back paper 0 | 128, blur 2,916 | 3,587; 2 slow paper 0 | 0, long 16 | 11;
+3 pan 0; 4 drag 33 images through the surface (5 | 4 surface composes), olderPatch 815 | 1,059, olderOther 0;
+5 pen-up release 121 | 96, exact 123 | 101; 6 undo exact 264 | 203, longest task 174 | 293; **7 erase: olderOther
+1,666 | 1,369** (P6's builder 869 | 853), olderPatch 1,186 | 581, blur 842 | 485, bake 7.7 | 6.3 s, stand-in cells 12 | 10.
+**Found:** every strip dropped before dispatch cleared every ask (`refresh()`): a stale cell whose patch was queued
+lost its ask, read as other older, was asked again at the next step, and its duplicate's own drop cleared them all
+again. Fixed (`_pyrUnask`: a dropped strip forgets its own cells, none for `exact`; `refresh()` deleted), red first.
+The harness now counts older cells by cause (ownWait/ownOther/unread/coming/other) and the stand-in's cells.
+**Decisions made:** scenario 7 measured again, before (15b3738) and after the fix (a2240e4 on :3014), in `batch2.sh`.
+**Questions asked:** none yet.
+WHERE I AM: batch2 (scenario 7 ×2 each side, 1 ×2, 6 ×1); then break-checks 1f/8d/8e, typecheck, lint, bundles, report.

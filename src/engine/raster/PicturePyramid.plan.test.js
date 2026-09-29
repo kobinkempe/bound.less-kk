@@ -586,7 +586,7 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         expect(j.attention).toEqual([512, 384]);                              // the screen centre, in the job's grid px
         t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
         expect(asked.length).toBe(1);                                          // asked already: not again
-        t.pyr.refresh();
+        t.pyr._asked.clear();
         t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));
         expect(asked.length).toBe(2);
         const g0 = t.pyr.gens.view;

@@ -167,7 +167,7 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         t.pyr.groupCommit("s900", FOOT, (info) => seen.push(info));
         const job = t.posted.find((j) => j.group === "s900");
         expect([job.prio, job.cells.length, seen.length, t.pyr.s.patchCoarse]).toEqual([0, 2, 0, 0]);
-        t.pyr.refresh();                                                      // as a view change does: the asks forgotten
+        t.pyr._asked.clear();                                                 // as a view change does: the asks forgotten
         t.pyr.frameFor(cam(1));                                               // a frame meanwhile: the group's cells are not patched again
         expect(t.posted.filter((j) => j.kind === "patch").length).toBe(1);
         const packed = t.pack(job);

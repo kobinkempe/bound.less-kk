@@ -10,7 +10,7 @@
 import { useEngines, mkEngine, drawStroke, erase, eraseGesture, descend, ascend, drag } from "../__testkit__/harness";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
-import PyramidStore, { budgetBytes } from "./PyramidStore";
+import PyramidStore, { budgetBytes, levelCell } from "./PyramidStore";
 import PicturePyramid from "./PicturePyramid";
 import { rasterStats, resetRasterStats } from "./RasterRenderer";
 import { packJob } from "./rasterPack";
@@ -950,6 +950,33 @@ describe("the queue adopted (B-PYRAMID-2 P4)", () => {
         expect(await drain(E, g)).toBe(0);
         expect(R._liveHeld.length).toBe(0);
         expect(planCls(R).every((c) => c === "sharp")).toBe(true);
+    });
+
+    test("a strip dropped at dispatch forgets only its own cells: the other cells' asks stand, so a stale plate whose patch is out is neither asked twice nor charged as other older", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, pyr = R.pyramid;
+        drawStroke(E, [[140, 140], [520, 420]], 18);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        pyr.cfg.patchInlineMs = pyr.cfg.patchUserMs = 0;               // the change's patch goes to the workers
+        E.doc.add(fillAt(E, 200, 200, "#c00", 20), "0");
+        E._render();
+        await tick();
+        const asked = [...pyr._asked.keys()], req0 = pyr.s.requests;
+        expect(asked.length).toBeGreaterThan(0);
+        // A strip of a superseded purpose, dropped at its dispatch (the queue's `gen` drop).
+        const v = pyr._v, l = v.level - 1, cell = levelCell(v.frameId, l, v.S, 0, 0);
+        pyr._asked.set(cell.key, E.stage.generation);
+        R.queue.push([{ kind: "prefetch", prio: 4, frame: v.frameId, level: l, S: v.S, Z: 2 ** (l * v.S), cells: [cell], clips: null,
+            purpose: "prefetch:near", gen: 0, attention: null, group: null }]);
+        R.queue.pump();
+        expect(R.queue.s.drops.gen).toBeGreaterThan(0);
+        expect(pyr._asked.has(cell.key)).toBe(false);                  // its own cell: asked again when wanted
+        for (const k of asked) expect([k, pyr._asked.has(k)]).toEqual([k, true]);
+        R.syncCameraOnly();                                            // the next step's patch step: nothing asked twice
+        expect(pyr.s.requests).toBe(req0);
+        expect(await drain(E, g)).toBe(0);
+        delete pyr.cfg.patchInlineMs; delete pyr.cfg.patchUserMs;
     });
 
     test("a strip the worker fails is ended and asked again, and is no sample of the arrival estimate", async () => {

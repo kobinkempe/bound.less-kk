@@ -164,7 +164,7 @@ async function roundTrip(browser) {
 function installProbes() {
     const E = window.__kobinEngine;
     const L = E.renderer && E.renderer.layer;
-    const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0 };
+    const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0, older: {} };
     // The paper share now: the old layer's uncovered cells, or the pyramid's last compose's paper share.
     const shareNow = () => {
         if (L && L._share) return L._share.paper || 0;
@@ -193,6 +193,21 @@ function installProbes() {
         L.compose = (plates) => {
             const r = compose(plates), n = r && typeof r === "object" ? r.images : r;   // the pyramid returns its plan
             P.composes++; if (n > P.maxImages) P.maxImages = n;
+            // Older cells a compose draws, by cause: a stale own plate whose patch is out (ownWait) or not (ownOther); a
+            // stale stand-in for a cell whose tiles are unread, whose own job is asked or in flight (coming), or neither.
+            if (r && r.cells && r.v) {
+                const v = r.v;
+                for (const c of r.cells) for (const d of c.draws) {
+                    if (d.cls !== "older" || !d.rec) continue;
+                    let why = d.own ? (d.wait ? "ownWait" : "ownOther") : "other";
+                    if (!d.own) {
+                        const key = v.frameId + "|L" + v.level + "s" + v.S + "|" + c.i + "," + c.j;
+                        why = L.covered && !L.covered({ frame: v.frameId, Z: 2 ** (v.level * v.S), i: c.i, j: c.j }) ? "unread"
+                            : (L._asked && L._asked.has(key)) || (E.plates && E.plates.inflight && E.plates.inflight.has(key)) ? "coming" : "other";
+                    }
+                    P.older[why] = (P.older[why] || 0) + 1;
+                }
+            }
             sample(Math.max(performance.now(), P.last));
             return r;
         };
@@ -219,7 +234,7 @@ function probeRead() {
             bucket: r.verdict ? r.verdict.bucket : null, top: Object.entries(r.timers).filter(([, v]) => v > 5).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, v]) => k + " " + Math.round(v)).join(", ") })) : null;
     } catch (err) { rows = null; }
     return {
-        t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes,
+        t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes, older: { ...P.older },
         paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
         queue: Q ? { byPrio: Q.byPrio ? Q.byPrio.slice() : null, dispatched: Q.dispatched, done: Q.done, drops: Q.drops, reaimed: Q.reaimed, jobMs: Q.jobMs } : null,
         ref: R ? Object.fromEntries(REF.map((k) => [k, R[k] || 0])) : null,
@@ -319,7 +334,7 @@ function delta(a, b) {
             arrivals: b.arrivalComposes != null ? b.arrivalComposes - a.arrivalComposes : null, surface: b.surface != null ? b.surface - a.surface : null },
         queue: b.queue && a.queue ? { byPrio, dispatched: b.queue.dispatched - a.queue.dispatched, done: b.queue.done - a.queue.done,
             reaimed: b.queue.reaimed - a.queue.reaimed, drops: diff(a.queue.drops, b.queue.drops), jobMs: +b.queue.jobMs.toFixed(1) } : null,
-        refusals: diff(a.ref, b.ref), stageReads: diff(a.st, b.st), level: b.level,
+        refusals: diff(a.ref, b.ref), olderCells: diff(a.older, b.older), stageReads: diff(a.st, b.st), level: b.level,
         plates: b.plates, jobs: b.jobs && a.jobs ? { jobs: b.jobs.jobs - a.jobs.jobs, plates: b.jobs.plates - a.jobs.plates, queued: b.jobs.queued, inFlight: b.jobs.inFlight, mode: b.jobs.mode, workers: b.jobs.workers } : null,
         posts: b.posts && a.posts ? { batches: b.posts.batches - a.posts.batches, batchPlates: b.posts.batchPlates - a.posts.batchPlates,
             liveHandoffs: b.posts.liveHandoffs - a.posts.liveHandoffs } : null,

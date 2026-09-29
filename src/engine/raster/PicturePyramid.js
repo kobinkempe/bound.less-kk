@@ -214,8 +214,6 @@ export default class PicturePyramid {
     setAttention(x, y) { this._attn = x == null ? null : [x, y]; }
     /** The commit a user's own action just made (an undo, a redo): its patch has one frame's budget, `patchUserMs`. */
     noteUserEdit() { this._userG = this.stage ? this.stage.generation : 0; }
-    /** Forget which cells were asked for, so the next frame asks again (a job failed or was dropped). */
-    refresh() { this._asked.clear(); }
     /** The prefetch's far zoom-out keys (`prefetch.js`): protected in the store, evicted first among the protected. */
     setFar(keys) { const v = this.store && this.store.view; if (v) v.far = new Set(keys); }
 

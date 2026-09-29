@@ -805,7 +805,7 @@ export default class RasterRenderer extends Renderer {
         const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
         pyr.gens.plane = 1;                              // the drag plane's purpose: bumped when its layers go
         this._pyrPlaneAsked = new Map();                 // plane key -> the G it was asked at
-        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: () => { pyr.refresh(); this._pyrPlaneAsked.clear(); } });
+        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: (st, why) => this._pyrUnask(st, why) });
         this.layer = pyr;
         if (base === rasterPool) setOnSlotFreed(() => { if (!this._destroyed) this._pumpSoon(); });   // an orphan's answer frees a slot
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
@@ -1203,8 +1203,21 @@ export default class RasterRenderer extends Renderer {
         if (d && d.jobId != null) this._endJob(d.jobId);
         if (!d || d.before) return;                 // inside the queue's own pump: it counts the refusal itself
         this.queue.done(st.id, false);              // a failure: no arrival sample
-        this.pyramid.refresh();
+        this._pyrUnask(st, "failed");
         if (!this._destroyed) this.queue.pump();
+    }
+
+    /**
+     * A strip that will not land: its own cells are asked for again (a pen-up group's inside its group); a strip whose
+     * cells were exact or in flight exact asks for nothing. Every other ask stands — forgetting them all re-asked every
+     * stale cell whose patch was queued, each duplicate dropped at dispatch forgot them all again, and a queued patch's
+     * stale plate read as other older meanwhile (the review, scenario 7).
+     */
+    _pyrUnask(st, why) {
+        if (why === "exact" || !st.cells) return;
+        const cells = st.packedCells || st.cells;
+        this.pyramid.unask(cells);
+        for (const c of cells) this._pyrPlaneAsked.delete(c.key);
     }
 
     /**
