@@ -400,17 +400,20 @@ function pairNeedsUnion(ba, i, sa, bb, j, sb) {
  * `_outline` and an unfitted one with round joins — two different bands (D98).
  */
 export function entryFor(item, cfg) {
-    let e = MEMO.get(item);
+    // Keyed by the geometry: a Stage item is a wrapper (`piece`), and a snapshot wraps the same pieces anew each read,
+    // so a wrapper key rebuilt every snapshot's entries and churned the memo (B-PYRAMID-2 P5). No entry reads `res`.
+    const key = item.piece || item;
+    let e = MEMO.get(key);
     if (e && (e.ver !== item._ver || e.src !== geomRef(item) || e.outline !== item._outline)) {
-        MEMO.delete(item);
+        MEMO.delete(key);
         memoBytes -= e.bytes;
         e.dropped = true;                 // its bands go with it: they are the same entry
         packStats.rebuilt++;
         e = null;
     }
-    if (e) { touch(item, e); return e; }
+    if (e) { touch(key, e); return e; }
     e = build(item, cfg);
-    MEMO.set(item, e);
+    MEMO.set(key, e);
     packStats.memoEntries = MEMO.size;
     evict();
     return e;

@@ -1390,3 +1390,19 @@ frame-drag lock test added, now 1/99; serial order 4/34; inheritance 15/67.
 question (a reason on the rejection), not fixed.
 **Questions asked:** in the report.
 WHERE I AM: read test:erase and the quick set's results, stop the dev server, end entry, report.
+
+## 2026-09-29 01:56 UTC — reviewer (B-ERASE review) — end (R-ERASE items 1–11)
+**Working on:** done; report handed back. Dev server on :3020 stopped. Files: `erasePipeline.js` (the step budget; pruning
+when a new op drops the redo branch; `_markAlive` from the redo stack; a round's fills promoted first), `report.js`,
+`useKobinEngine.js` (erase status `aborted`), `oplog.js` (comment), the suites `erase.rule`, `raster/raster.eraseRule`,
+`select.eraseBarrier`, `erase.worker`, new `erase.parallel`, `erase.oldStore` + `__testkit__/preErase.store.json`;
+DESIGN §7/§13, A2 §4.15/§5.5/§6.4, TEST-MAP (2 rows), OPEN-FLAGS F65, `docs/ai/30-CODE-MAP.txt` (2 stale lines).
+**Measured:** final: test:erase 303 pass, 1 skipped, 399 s (load 2.0 → 1.8); the erase-adjacent quick set 49 files, 447
+pass, 2 skipped, 68 s; the engine/hooks/cloud/storage set 48 files, 425 pass; typecheck 0; eslint 0 on the changed files.
+Before: the erase set 419 (1 load flake, green alone); the rest of quick 1,914 (raster.pyramid red, B-PYRAMID-2's).
+Everything else in the 00:50, 01:16 and 01:47 entries.
+**Decisions made:** two break-checked lines at 0 red deleted rather than kept (a spent mark's round pair guard, the
+budget's delete on removal); the fringe of a half-handled family judged inside row 3 (b)'s envelope (location).
+**Questions asked:** the watchdog-lost job run inline (design question); the selection-during-bake slowness to
+B-PYRAMID-2; the sentence for Kobin on undo under a newer mark.
+WHERE I AM: done.
