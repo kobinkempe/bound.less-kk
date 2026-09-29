@@ -113,7 +113,7 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         const pl = E.renderer._plane;
         const lists = jest.spyOn(E, "_render");
         const views0 = E.renderer.queue.report().byPrio.slice(0, 2).join();
-        E.renderer.pyramid.cfg.patchInlineMs = 0;                 // the drop's patches go to the pool: the landing is seen
+        E.renderer.pyramid.cfg.patchInlineMs = E.renderer.pyramid.cfg.patchUserMs = 0;   // the drop's patches go to the pool: the landing is seen
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 40; k++) E.pointerMove(p[0] + k * 3, p[1] + k);
         expect(E._holdMove).toBeTruthy();
@@ -298,7 +298,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         const E = mkEngine();
         const { p } = await scene(E);
         const pl = E.renderer._plane;
-        E.renderer.pyramid.cfg.patchInlineMs = 0;                 // the drop's patches go to the pool: the landing is seen
+        E.renderer.pyramid.cfg.patchInlineMs = E.renderer.pyramid.cfg.patchUserMs = 0;   // the drop's patches go to the pool: the landing is seen
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 40; k++) E.pointerMove(p[0] + k * 3, p[1] + k);
         E.pointerUp();
@@ -317,7 +317,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         E.pointerUp();
     });
 
-    test("RV2 a wheel zoom into another frame during a drag releases the hold once, and the drag renders a step", async () => {
+    test("RV2 a wheel zoom into another frame during a drag hands the drag to the view's plates, and the drag renders a step", async () => {
         const E = mkEngine();
         const { p } = await scene(E);
         const R = E.renderer;
@@ -329,9 +329,9 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         for (let n = 0; E.cam.frame === f0 && n < 80; n++) E.zoomAt(cur[0], cur[1], -250);
         expect(E.cam.frame).not.toBe(f0);
         await flush();
-        expect(E._holdMove).toBeNull();                   // red: the hold outlived the plane
+        expect(E._holdMove.plane).toBe(false);            // red: the plane still drew a drag it had lost
+        expect(E.stage.holding).toBe(true);               // the hold stands: nothing is written until the drop (A1 C2)
         expect(R.dragLight()).toBe(false);
-        expect(E._dragSel.listAt).toBeNull();             // the ants anchor at the pointer from here
         const lists = jest.spyOn(E, "_render");
         for (let k = 21; k <= 40; k++) E.pointerMove(p[0] + k * 6, p[1]);
         await flush();
@@ -698,7 +698,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         expect(Object.keys(planeStats)).toEqual(expect.arrayContaining(["merged", "coarse", "overCap", "notReady", "stopgaps"]));
     });
 
-    test("H1 the test hook forcePerStepDrag: no plane, no hold, a render each step", async () => {
+    test("H1 the test hook forcePerStepDrag: no plane, the view's plates draw the held drag, a render each step", async () => {
         const E = mkSoftEngine();
         box(E, 20, 20, 760, 560, BLUE);
         const s = box(E, 100, 250, 100, 100, RED);
@@ -712,7 +712,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         const lists = jest.spyOn(E, "_render");
         E.pointerDown(150, 300);
         for (let dx = 10; dx <= 60; dx += 10) E.pointerMove(150 + dx, 300);
-        expect(E._holdMove).toBeNull();
+        expect(E._holdMove.plane).toBe(false);
         expect(E.renderer._plane.state).toBe("idle");
         expect(lists.mock.calls.length).toBeGreaterThanOrEqual(5);
         E.pointerUp();
@@ -772,7 +772,7 @@ describe("the drop of a selected frame, the landing's limit", () => {
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 30; k++) E.pointerMove(p[0] + k * 3, p[1]);
         setRasterTransport(() => new Promise(() => {}));             // the drop's plates never arrive
-        E.renderer.pyramid.cfg.patchInlineMs = 0;                     // nor are they patched on this thread
+        E.renderer.pyramid.cfg.patchInlineMs = E.renderer.pyramid.cfg.patchUserMs = 0;   // nor are they patched on this thread
         E.pointerUp();
         expect(pl.state).toBe("land");
         await new Promise((r) => setTimeout(r, 700));

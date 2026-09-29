@@ -346,18 +346,19 @@ describe("MB-5 — the undo entry is the frame and the table (row 11, 2026-09-14
         expect(E.redo()).toBe(true); expect(bytes(E)).toBe(after); expect(shown(E)).toBe(pic1);
         expect(E.undo()).toBe(true); expect(bytes(E)).toBe(before);
     });
-    test("a cancelled drag puts frame and table back the same way", () => {
+    test("a cancelled drag wrote nothing: frame, table and picture are as before the press", () => {
         const E = mkEngine();
         const a = drawStroke(E, [[250, 280], [550, 320]], 24);
         const y = descendOnEdge(E, 3);
         E._setSelection([a.id]);
         const before = bytes(E), pic0 = shown(E);
         E.setTool("select"); E.pointerDown(400, y + 12); E.pointerMove(440, y + 42); E.pointerMove(470, y - 10);
-        expect(bytes(E)).not.toBe(before);
+        expect(bytes(E)).toBe(before);                    // A1 C2: the drag is held, not written
+        expect(shown(E)).not.toBe(pic0);                  // and drawn where the pointer took it
         E.cancelSelectGesture(false);
         expect(bytes(E)).toBe(before); expect(shown(E)).toBe(pic0);
     });
-    test("a member the pen-up walks back into its cell keeps geometry snapshots and still round-trips", () => {
+    test("a member centred past its cell's edge keeps its home: the op is the frame and the table, no geometry", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[300, 300], [500, 300]], 20);
         // centre it 0.6 frames from its origin: outside its own cell, inside the neighbour's
@@ -369,7 +370,9 @@ describe("MB-5 — the undo entry is the frame and the table (row 11, 2026-09-14
         const before = bytes(E);
         E.setTool("select"); E.pointerDown(p[0], p[1]); E.pointerMove(p[0] + 10, p[1]); E.pointerMove(p[0] + 20, p[1]); E.pointerUp();
         const op = E.doc._undo[E.doc._undo.length - 1];
-        expect(op.op).toBe("move"); expect(op.base).toBeTruthy(); expect(op.after).toBeTruthy(); expect(op.to).not.toBe(op.from);
+        expect(op.op).toBe("move"); expect(op).not.toHaveProperty("base"); expect(op).not.toHaveProperty("after");
+        expect(op.to).toBe(op.from);                      // no pen-up re-home by the bbox centre (A1 C2)
+        expect(op.belowAfter).toBeTruthy();
         const after = bytes(E);
         E.undo(); expect(bytes(E)).toBe(before);
         E.redo(); expect(bytes(E)).toBe(after);

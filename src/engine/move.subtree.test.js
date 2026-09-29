@@ -1,8 +1,9 @@
 /**
  * A selected frame moves as a frame (DESIGN.md §8, the subtree move, 2026-09-15): the
- * drag re-addresses the frames within three levels of the camera and leaves a shift for
- * their natives, never touching an object; the shift stays on the frame, composed on read
- * (A1 C1); the per-object path gives the same picture, native for native; one op undoes it.
+ * drop re-addresses the frames within three levels of the camera once and leaves a shift
+ * for their natives, never touching an object (a drag writes nothing until its drop, A1 C2);
+ * the shift stays on the frame, composed on read (A1 C1); the per-object path gives the same
+ * picture, native for native; one op undoes it.
  */
 import { useEngines, mkEngine, eraseGesture } from "./__testkit__/harness";
 import { rectLoop } from "./geometry/arcShape";
@@ -53,10 +54,12 @@ const press = (E, frameId) => E._levelPointToScreen(frameId, 0, 0);
 const spy = (obj, name) => { const orig = obj[name].bind(obj); let n = 0; obj[name] = (...a) => { n++; return orig(...a); }; return () => n; };
 // The same gesture without the pointer: the per-object path needs no hit on sub-pixel ink.
 const dragDirect = (E, p, dx, dy) => {
-    E._dragSel = { start: [p[0], p[1]], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-    E.store.setBatch(true);
+    E._dragSel = { start: [p[0], p[1]], moved: false };
     E._dragSelection(p[0] + dx, p[1] + dy);
 };
+// Native `id`'s drawn box in the camera's frame: as the drag draws it, and at rest.
+const drawnAt = (E, id) => E.stage.placeNative(E.doc.getById(id).obj, E.cam.frame).box();
+const restAt = (E, id) => E.stage.atRest(() => drawnAt(E, id));
 
 describe("two subtree moves undone and redone with their frame unread (REVIEWER-3 MOVE-1)", () => {
     useEngines();
@@ -77,26 +80,27 @@ describe("two subtree moves undone and redone with their frame unread (REVIEWER-
 
 describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
     useEngines();
-    test("t1 a drag from the frame's mark re-addresses the frames and touches no object", () => {
+    test("t1 a drag from the frame's mark writes nothing; the drop re-addresses the frames and touches no object", () => {
         const { E, R, K, L, ids } = fixture();
         E._setSelection([], [R.id]);
         const rehome = spy(E.doc, "rehomeById"), rehomeMany = spy(E.doc, "rehomeManyById"), offsets = spy(E.doc, "setOffsetsById");
-        const p = press(E, R.id);
+        const p = press(E, R.id), start = state(E);
         E.setTool("select"); E.pointerDown(p[0], p[1]); E.pointerMove(p[0] + 40, p[1]);
         expect(E._dragSel).toBeTruthy();
-        const st = E._dragSel.frames.get(R.id);
+        expect(state(E)).toBe(start);                                                      // A1 C2: nothing written mid-drag
+        expect(drawnAt(E, ids.K[0]).left - restAt(E, ids.K[0]).left).toBeCloseTo(40, 9); // drawn where the pointer took it
+        E.pointerUp();
+        const op = E.doc._undo[E.doc._undo.length - 1];
+        const st = op.frames.find((e) => e.id === R.id);
         expect(st.to).toEqual({ parent: "1", i: 6, j: 5 });                                // 40 units = one cell of "1" and 8 over
         expect(addrOf(E, R.id)).toEqual({ parent: "1", i: 6, j: 5 });
         expect(st.shiftAfter).toEqual([8 * 4096, 0]);                                      // the 8 units, in R's own units
-        // The render of the drag reads R's natives and writes nothing: the shift stays on R (A1 C1).
+        // The shift stays on R, its natives' tables untouched (A1 C1).
         expect(E.lm.frame(R.id).shift).toEqual([8 * 4096, 0]);
         expect(E.doc.getById(ids.R[0]).obj.below).toBeUndefined();
         expect(addrOf(E, K.id)).toEqual({ parent: R.id, i: 7 + 1024, j: -7 });              // and 1,024 of K's cells
         expect(E.lm.frame(K.id).shift).toBeNull();
         expect(addrOf(E, L.id)).toEqual({ parent: K.id, i: 1, j: 1 });                      // three levels down: nothing left over
-        expect([rehome(), rehomeMany(), offsets()]).toEqual([0, 0, 0]);
-        E.pointerUp();
-        const op = E.doc._undo[E.doc._undo.length - 1];
         expect(op.op).toBe("moveFrames");
         expect(op.frames.map((e) => e.id).sort()).toEqual([R.id, K.id].sort());
         expect(op.moves).toEqual([]);
@@ -111,13 +115,13 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
         dragDirect(B.E, p, 40, 0); B.E.pointerUp();
         for (const id of A.all) expect(canon(A.E, id)).toEqual(canon(B.E, id));
     });
-    test("t3 a cancelled drag puts the frames and their natives back", () => {
+    test("t3 a cancelled drag wrote nothing: the frames and their natives are where they were", () => {
         const { E, R, K, L } = fixture();
         const start = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id), L: addrOf(E, L.id) };
         E._setSelection([], [R.id]);
         const p = press(E, R.id);
         dragDirect(E, p, 40, 0);
-        expect(addrOf(E, R.id)).not.toEqual(start.R);
+        expect(addrOf(E, R.id)).toEqual(start.R);        // A1 C2: the drag holds the move, the lattice does not
         E.doc.at(R.id);                                    // a read during the drag writes nothing (A1 C1)
         E.cancelSelectGesture(false);
         expect(bytes(E)).toBe(start.bytes);
@@ -190,13 +194,13 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         E._render();
         return { E, A, A1, B, B1, ids };
     };
-    test("t8 the mover shadows the resident during the drag, merges at the drop, and undo splits it back", () => {
+    test("t8 the mover lands on the resident at the drop, shadows it and merges there, and undo splits it back", () => {
         const { E, A, A1, B, B1, ids } = build();
         const start = bytes(E);
         E._setSelection([], [A.id]);
         dragDirect(E, press(E, A.id), 64, 0);
-        expect(E.lm.frame(A.id).shadowOf).toBe(B.id);
-        expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 12, j: 0 });
+        expect(E.lm.frame(A.id).shadowOf).toBeNull();     // A1 C2: the drag re-addresses nothing
+        expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 10, j: 0 });
         expect(E.lm.findCellChild("1", 12, 0)).toBe(B);
         expect(E.doc.getById(ids.A[0]).level).toBe(A.id);
         E.doc.at(B.id);                                    // a read merges nothing (A1 C1)
@@ -241,9 +245,7 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         const start = bytes(E);
         E._setSelection([], [A.id]);
         dragDirect(E, press(E, A.id), -64, 0);
-        expect(E.lm.findCellChild("1", 8, 0)).toBe(E.lm.frame(A.id));
-        expect(E.lm.frame(C.id).shadowOf).toBe(A.id);
-        expect(E.lm.frame(A.id).shadowOf).toBeNull();
+        expect(E.lm.findCellChild("1", 8, 0)).toBe(C);    // A1 C2: the cell is C's until the drop
         E.pointerUp();
         expect(E.lm.frame(C.id)).toBeUndefined();         // no natives, kids or shadows, named by no op
         expect(E.lm.frame(A.id)._shadows).toBeFalsy();
@@ -257,13 +259,14 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         for (let i = 7; i <= 9; i++) E.lm.cellChild("1", i, 0);
         const rehome = spy(E.doc, "rehomeById"), rehomeMany = spy(E.doc, "rehomeManyById"), offsets = spy(E.doc, "setOffsetsById");
         E._setSelection([], [A.id]);
-        const p = press(E, A.id);
-        E._dragSel = { start: [p[0], p[1]], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-        E.store.setBatch(true);
+        const p = press(E, A.id), n0 = E.lm.frames.size;
+        E._dragSel = { start: [p[0], p[1]], moved: false };
         for (const dx of [-32, -64, -96, -64, -32, 0, 32, 64]) { E._dragSelection(p[0] + dx, p[1]); E.doc.at(E.cam.frame); }
         expect(E.doc.count(A.id)).toBe(100);
-        expect(E.lm.frame(A.id).shadowOf).toBe(E.lm.frame("1/12,0").id);
+        expect(E.lm.frame(A.id).shadowOf).toBeNull();     // A1 C2: no step re-addresses, shadows or mints
+        expect(E.lm.frames.size).toBe(n0);
         E.pointerUp();
+        expect(E.lm.frame(A.id)).toBeUndefined();          // the drop: A on B's cell, merged there
         expect([rehome(), rehomeMany(), offsets()]).toEqual([0, 0, 0]);
         for (let i = 7; i <= 10; i++) expect(E.lm.findCellChild("1", i, 0)).toBeNull();   // the visited cells held nothing: collected at the drop (F94)
     });

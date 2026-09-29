@@ -8,7 +8,6 @@
 import KobinEngine from "../KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
 import { rasterStats } from "./RasterRenderer";
-import { ascend, descend } from "../__testkit__/harness";
 
 const engines = [];
 function mkEngine() {
@@ -123,7 +122,8 @@ describe("a crossing between pen-up and the landing", () => {
         const lx = h.root.translation.x + s * (tail.translation.x + v.x), ly = h.root.translation.y + s * (tail.translation.y + v.y);
         return [w.translation.x + w.scale * lx, w.translation.y + w.scale * ly];
     };
-    for (const [name, cross] of [["LH-5 out", (E) => ascend(E, -1, 200, 300)], ["LH-6 in", (E) => descend(E, 1, 200, 300)]]) {
+    // One zoom step each way, about the stroke's first point: past EXIT into the parent, past ENTER into a child.
+    for (const [name, cross] of [["LH-5 out", (E) => E.zoomFactorAt(200, 300, 1 / 64)], ["LH-6 in", (E) => E.zoomFactorAt(200, 300, 512)]]) {
         test(`${name}: the held path is carried into the new frame where its stroke is drawn, and its group releases it`, async () => {
             const E = mkEngine(), R = E.renderer;
             fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");

@@ -2,7 +2,8 @@
  * Frame GC (OPEN-FLAGS F94). Kobin, 2026-09-23: "I would kind of prefer the frame to automatically
  * delete when everything is deleted out of it ... Then you can know that if there ever is a frame,
  * it has stuff in it." His phone drawing held 471 empty frames of 495, the trails of subtree drags,
- * whose every pointer event mints the containers its target chains pass through.
+ * whose every pointer event minted the containers its target chains passed through (since A1 C2 a
+ * drag mints nothing until its drop, which mints the final chains' only).
  *
  * The rule as built: a frame with no natives, kids or shadows goes at a gesture's end or a change of
  * the camera's frame — unless the camera is in it or passed through it lately (its chain and the last
@@ -63,16 +64,15 @@ function wander(E, p, steps, span = 90) {
 describe("a frame holds something (frame GC, F94)", () => {
     useEngines();
 
-    test("G1 a 40-step subtree drag leaves no empty frame behind, and undo and redo are exact", () => {
+    test("G1 a 40-step subtree drag mints nothing until its drop, leaves no empty frame behind, and undo and redo are exact", () => {
         const { E, R, K, L } = fixture();
         const start = { bytes: bytes(E), lattice: lattice(E), R: addrOf(E, R.id), K: addrOf(E, K.id), L: addrOf(E, L.id) };
         const n0 = E.lm.frames.size;
         E._setSelection([], [R.id]);
         wander(E, press(E, R.id), 40);
-        const minted = E.lm.frames.size - n0;
+        expect(E.lm.frames.size - n0).toBe(0);                   // A1 C2: the pre-C2 drag minted a container trail here
         E.pointerUp();
-        expect(minted).toBeGreaterThan(3);                       // the fixture: the drag's chains minted containers
-        expect(strays(E)).toEqual([]);                            // red: every one of them left behind
+        expect(strays(E)).toEqual([]);                            // what the drop's chains minted and left empty went
         const after = { bytes: bytes(E), R: addrOf(E, R.id), K: addrOf(E, K.id), L: addrOf(E, L.id) };
         E.undo();
         expect(bytes(E)).toBe(start.bytes);
@@ -218,9 +218,9 @@ describe("a frame holds something (frame GC, F94)", () => {
         const p = press(E, R.id);
         E.setTool("select"); E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 12; k++) E.pointerMove(p[0] + 7 * k, p[1] - 3 * k);
+        E._gcCand.add(E.lm.cellChild("1", -30, 30).id);          // an empty frame waiting (a drag itself mints none, A1 C2)
         const mid = lattice(E);
-        expect(E._gcCand.size).toBeGreaterThan(0);
-        expect(collectFrames(E)).toBe(0);                        // red: the drag's containers go from under it
+        expect(collectFrames(E)).toBe(0);                        // red: collected from under the gesture
         expect(lattice(E)).toBe(mid);
         E.pointerUp();
         expect(strays(E)).toEqual([]);
@@ -279,8 +279,7 @@ describe("a frame holds something (frame GC, F94)", () => {
         const drop = (dx) => {
             E._setSelection(members, [R.id]);
             const p = press(E, R.id);
-            E._dragSel = { start: [p[0], p[1]], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-            E.store.setBatch(true);
+            E._dragSel = { start: [p[0], p[1]], moved: false };
             E._dragSelection(p[0] + dx, p[1]);
             E.pointerUp();
         };

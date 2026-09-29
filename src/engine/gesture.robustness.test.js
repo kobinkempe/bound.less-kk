@@ -73,14 +73,12 @@ describe("F49 — Delete on a multi-selection is one undo step", () => {
     });
 });
 
-describe("F50 / F52 — a drag whose pen-up re-homes the object", () => {
+describe("F50 / F52 — a drag of an object across its cell's edge", () => {
     // A stroke drawn ACROSS the root cell's right edge at the shallowest zoom,
-    // its centre just past W/2. Its first drag's pen-up runs `_normalizeHome`,
-    // which moves it to the neighbour cell (growing a parent above the root,
-    // since the root has no siblings until it needs one) and shifts its
-    // coordinates by exactly one frame. Since F55 a drag itself never re-homes
-    // a native this way — the displacement goes to the table — so the
-    // straddling stroke is what still exercises the pen-up path.
+    // its centre just past W/2. A move is an address and a table and never
+    // rewrites a coordinate (F55); since A1 C2 no pen-up re-homes by the bbox
+    // centre either, so the stroke stays homed where it was drawn and its
+    // picture is where its table puts it.
     function acrossEdge() {
         const E = mkEngine(800, 600);
         E.cam.set({ frame: "0", activeLevel: 0, inScale: 1 / 32, inPanX: 300 - FRAME_W / 2 / 32, inPanY: 200 });
@@ -90,21 +88,18 @@ describe("F50 / F52 — a drag whose pen-up re-homes the object", () => {
         const id = E.doc.at("0").slice(-1)[0].id;
         return { E, id };
     }
-    test("F50: the render list, the hit test and the ants follow the object to its new cell at pen-up", () => {
+    test("F50: the render list, the hit test and the ants follow the object at pen-up", () => {
         const { E, id } = acrossEdge();
         expect(E._hitTest(320, 192)).toBe(id);
         E.setTool("select");
         tap(E, [320, 192]);
         expect(E.selection.ids).toEqual([id]);
         drag(E, [320, 192], [380, 192], 12);
-        expect(E.doc.getById(id).level).not.toBe("0");
+        expect(E.doc.getById(id).level).toBe("0");          // homed where it was drawn (A1 C2)
         // No manual render: what pen-up left behind is what the next tap reads.
         expect(E._hitTest(380, 192)).toBe(id);
-        // Seen from its old frame it is down content now — one piece per tile
-        // its picture straddles, every one of them derived.
-        const origins = E._lastList.filter((o) => o.id === id).map((o) => o.origin);
-        expect(origins.length).toBeGreaterThan(0);
-        expect(origins.every((o) => o === "derived")).toBe(true);
+        expect(E._hitTest(320, 192)).toBeNull();
+        expect(E._lastList.some((o) => o.id === id && o.res && o.res[0] > 0)).toBe(true);   // drawn at its table
         expect(E._selectionAnts()).not.toBeNull();
     });
     test("F52: a piece shown from another frame picks with the same slack as a native", () => {
@@ -114,7 +109,6 @@ describe("F50 / F52 — a drag whose pen-up re-homes the object", () => {
         E.setTool("select");
         tap(E, [320, 192]);
         drag(E, [320, 192], [380, 192], 12);
-        expect(E._lastList.find((o) => o.id === id).type).toBe("fill");
         expect(E._hitTest(380, 199)).toBe(id);
         expect(E._hitTest(380, 215)).toBeNull();
     });
@@ -150,7 +144,8 @@ describe("F51 / F55 — a move never touches the stored object; undo empties the
         E.setTool("select");
         tap(E, [260, 214]);
         E.pointerDown(260, 214); for (let i = 1; i <= 8; i++) E.pointerMove(260 + 5 * i, 214);
-        expect(E.doc.getById(id).obj.below[0]).toEqual([40, 0]);
+        expect(E.doc.getById(id).obj.below).toBeUndefined();   // A1 C2: the drag is held, not written
+        expect(E._hitTest(260 + 40, 214)).toBe(id);             // and hit where it is drawn
         E.cancelSelectGesture(false);
         expect(E.doc.getById(id).obj.below).toBeUndefined();
         expect(ser(E)).toBe(before);

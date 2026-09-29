@@ -714,10 +714,9 @@ const edgeLayerOf = (E) => E.renderer.host.querySelector(".bl-sel-edges");
  * the marks, the edges, `inkPx` and `off` equal. **The SVG engine's `O` is used for both sides**:
  * a renderer's origin is its own bookkeeping (the SVG path takes the active scene's, the raster
  * path the live layer's, and a crossing re-chooses one and not the other), while what is under test is
- * the geometry. That the raster geometry needs no origin at all is G12. A drag the raster path holds
- * on its plane decides on the pre-drag list, its `off` the whole travel (`selection.js`'s `listAt`); the
- * SVG path decides at the drag's first step. Each is compared where it is painted: the pieces at
- * `O − (off_ras − off_svg) / scale`.
+ * the geometry. That the raster geometry needs no origin at all is G12. A drag is decided on the
+ * picture it began from under both renderers (the Stage's reads at rest), its `off` the whole travel
+ * (A1 C2).
  */
 function sameDecision(svgE, rasE) {
     expect(rasE.cam.inScale).toBe(svgE.cam.inScale);
@@ -730,8 +729,7 @@ function sameDecision(svgE, rasE) {
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     const O = svgE.renderer._origin(), sc = svgE.cam.inScale;
-    const held = rasE._dragSel && rasE._dragSel.listAt ? [(b.off[0] - a.off[0]) / sc, (b.off[1] - a.off[1]) / sc] : [0, 0];
-    const d = (r) => runPathData({ pieces: r.pieces, closed: r.closed }, O.x - held[0], O.y - held[1], sc);
+    const d = (r) => runPathData({ pieces: r.pieces, closed: r.closed }, O.x, O.y, sc);
     expect(b.runs.length).toBe(a.runs.length);
     expect(a.runs.length + a.marks.length).toBeGreaterThan(0);
     for (let i = 0; i < a.runs.length; i++) {
@@ -745,7 +743,7 @@ function sameDecision(svgE, rasE) {
     for (let i = 0; i < a.marks.length; i++) expect(d(b.marks[i])).toBe(a.marks[i].d);
     expect(b.edges).toEqual(a.edges);
     expect(b.inkPx).toBe(a.inkPx);
-    if (!held[0] && !held[1]) expect(b.off).toEqual(a.off);
+    expect(b.off).toEqual(a.off);
     return { a, b };
 }
 
@@ -831,7 +829,7 @@ const FIXTURES = [
             E.pointerMove(440, 329);
         },
         check: (a) => {
-            expect(a.off).toEqual([20, 0]);   // the travel since the drag's first event
+            expect(a.off).toEqual([40, 0]);   // the travel since the drag's start (both renderers decide at rest)
             expect(a.runs.length).toBeGreaterThan(0);
         },
     },

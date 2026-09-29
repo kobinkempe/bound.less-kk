@@ -44,8 +44,7 @@ const bytes = (E) => {
 };
 const press = (E, frameId) => E._levelPointToScreen(frameId, 0, 0);
 const dragDirect = (E, p, dx, dy) => {
-    E._dragSel = { start: [p[0], p[1]], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
-    E.store.setBatch(true);
+    E._dragSel = { start: [p[0], p[1]], moved: false };
     E._dragSelection(p[0] + dx, p[1] + dy);
 };
 const state = (E) => bytes(E) + JSON.stringify(E.lm.serialize());
@@ -64,8 +63,8 @@ describe("a frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2)", ()
         const { E, R, K } = fixture();
         E._setSelection([], [R.id]);
         dragDirect(E, press(E, R.id), 29, 0);                  // 29 units = 0.906 of R's cell (32)
-        const st = E._dragSel.frames.get(R.id);
         E.pointerUp();
+        const st = E.doc._undo[E.doc._undo.length - 1].frames.find((e) => e.id === R.id);
         expect(inHalf(st.shiftAfter)).toBe(true);               // red: 29 · 4096 = 118,784 > 65,536
         expect(st.shiftAfter).toEqual([(29 - 32) * 4096, 0]);
         expect(addrOf(E, R.id)).toEqual({ parent: "1", i: 6, j: 5 });

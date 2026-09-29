@@ -119,6 +119,7 @@ describe("translucent moves (Kobin 2026-09-23): the composed picture against z o
             E._setSelection([selId], []);
             E._render();
             const R = E.renderer, pl = R._plane;
+            R.pyramid.cfg.patchUserMs = 0;                          // the drop's patch goes to the pool: the landing is seen
             expect(await until(() => pl.layers.length > 0 && pl.checkReady(E.plates))).toBe(true);
             const bad = [];
             let drawn = 0;
@@ -160,7 +161,7 @@ describe("translucent moves (Kobin 2026-09-23): the composed picture against z o
             E.renderer.layer.compose();
             check(E, items, dx, bad, "step");
         }
-        expect(E._holdMove).toBeNull();
+        expect(E._holdMove.plane).toBe(false);                        // held, drawn by the view's plates (A1 C2)
         E.pointerUp();
         await flush();
         E.renderer.layer.compose();

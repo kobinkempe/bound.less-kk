@@ -258,7 +258,7 @@ describe("a selection stands for ink", () => {
         });
     }
 
-    test("I10 a delete in the middle of a drag takes the kid the drag has torn out of the selected frame", () => {
+    test("I10 a delete in the middle of a drag takes what the selection stood for at the press, the kid the drop would tear off included", () => {
         const E = mkE();
         const kid = E.lm.cellChild("0", 3, 2);
         const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
@@ -270,7 +270,7 @@ describe("a selection stands for ink", () => {
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
         expect(E.doc.getById(a.id).level).toBe(kid.id);           // the fixture: home (A1 C1)...
-        expect(E.lm.frame(deep.id).parent).not.toBe(kid.id);      // ...and the kid torn off
+        expect(E.lm.frame(deep.id).parent).toBe(kid.id);          // ...and nothing torn off before the drop (A1 C2)
         expect(E.deleteSelection()).toBe(true);
         expect(E.doc.getById(a.id)).toBeFalsy();                  // red: left behind
         expect(E.doc.getById(d.id)).toBeFalsy();                  // red: left behind
@@ -295,8 +295,7 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids).toEqual([]);
         E.pointerDown(org[0], org[1]);
         for (const dx of [10, 20, 32]) E.pointerMove(org[0] + dx, org[1]);   // one cell: onto the resident
-        expect(E.lm.frame(mover.id).shadowOf).toBe(resident.id);   // the fixture: it shadows the resident...
-        E.pointerUp();                                              // ...and merges at the drop (A1 C1)
+        E.pointerUp();                                              // the drop shadows it and merges there (A1 C1, C2)
         expect(E.lm.frame(mover.id)).toBeFalsy();
         expect(E.selection.frames).toContain(inked.id);
         expect(E.selection.frames).not.toContain(empty.id);        // red: the empty kid handed over

@@ -153,7 +153,33 @@ function remAbove(E, rec, D) {
     }
     return [rx, ry];
 }
+/**
+ * How far apart a native's drawn boxes may be, in its home's units, when the oracle normalised it: its
+ * whole-frame translation re-derived the arcs' records (measured up to 1.5e-8 units; 1e-6 is 2.6e-4 px at
+ * the level's deepest zoom).
+ */
+export const NORMALISED_TOL = 1e-6;
+/**
+ * A native the oracle normalised, seen from view V (O's VO): its drawn boxes through each model's own
+ * placement (`placeNative`, not through a tile: one engine draws it live and the other derived), how far
+ * apart in its home's units.
+ */
+function normalisedGap(O, N, ho, hn, VO, V) {
+    const a = O.stage.placeNative(ho.obj, VO).box(), b = N.stage.placeNative(hn.obj, V).box();
+    if (!a || !b) return a || b ? Infinity : 0;
+    const k = Math.pow(R, N.lm.depthOf(V) - N.lm.depthOf(hn.level));
+    let m = 0;
+    for (const e of ["left", "top", "right", "bottom"]) m = Math.max(m, Math.abs(a[e] - b[e]) / k);
+    return m;
+}
 const shiftedCell = (off) => ({ left: CELL.left - off[0], right: CELL.right - off[0], top: CELL.top - off[1], bottom: CELL.bottom - off[1] });
+/** Whether two natives store the same numbers (their geometry, bit for bit). */
+const sameNums = (a, b) => {
+    const x = numsOf(a), y = numsOf(b);
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (!Object.is(x[i], y[i])) return false;
+    return true;
+};
 const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it.sj <= r.j1;
 
 /**
@@ -167,7 +193,11 @@ const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it
  * oracle's reroute memo naming a frame GC forgot is dropped and read again (`oracleMemo`, the memo defect
  * `TileStore.forgetFrame` fixed after C1); and a native the oracle carried at an earlier check whose
  * picture then differs (`diverged`) must have had a home moved in one engine since — C1 keeps a native in
- * its frame — or the check fails. Adds to `st` and returns the first difference, or null.
+ * its frame — or the check fails. A native whose stored numbers differ between the engines is one the
+ * oracle's pen-up walked into the neighbour cell by whole frames (`_normalizeHome`, deleted by A1 C2):
+ * one engine draws it live and the other through a tile, so its drawn box through each model's
+ * placement is compared instead, within NORMALISED_TOL (`normalised`, the largest gap `normMax`).
+ * Adds to `st` and returns the first difference, or null.
  */
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
     const VO = frameAtPlace(O, placeOf(N, V));
@@ -185,6 +215,13 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
         const ho = O.doc.getById(id), hn = N.doc.getById(id);
         const po = ho ? placeOf(O, ho.level) : null, pn = hn ? placeOf(N, hn.level) : null;
         const same = po != null && po === pn;
+        if (!same && ho && hn && !sameNums(ho.obj, hn.obj)) {
+            const gap = normalisedGap(O, N, ho, hn, VO, V);
+            if (!(gap <= NORMALISED_TOL)) return "native " + id + " at " + V + ": normalised by the oracle, drawn boxes " + gap + " units apart";
+            st.normalised = (st.normalised || 0) + 1;
+            st.normMax = Math.max(st.normMax || 0, gap);
+            continue;
+        }
         if (!same && po && pn) carriedNow.push([id, po, pn]);
         const above = !!((hn && D < N.lm.depthOf(hn.level)) || (ho && D < O.lm.depthOf(ho.level)));
         const painted = !same && above;
