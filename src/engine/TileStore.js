@@ -717,9 +717,11 @@ export default class TileStore {
         if (ev.kind === "change") { this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
     }
     /**
-     * A frame the lattice forgot (frame GC): its tiles, reroute memo and chain sum go. A later read
-     * can mint the same id again, and its old tiles would be served without what changed since
-     * (REVIEWER-3 RENDER-1: a moved object's ink vanished after an undo at depth).
+     * A frame the lattice forgot (frame GC): its tiles, its chain sum and every reroute memo that names
+     * it go — its own, and each whose group reads its tiles: the memo's key counts frames, so a later
+     * mint restores the key and the group would read a frame that is gone (the native not drawn;
+     * R-MODEL-C1, 6 of 8,000 fuzz renders). A later read can mint the same id again, and its old tiles
+     * would be served without what changed since (REVIEWER-3 RENDER-1).
      */
     forgetFrame(frame) {
         const F = String(frame);
@@ -727,7 +729,7 @@ export default class TileStore {
             if (String(tile.level) !== F) continue;
             this._dropTile(key); this._pins.delete(key); this._warm.delete(key);
         }
-        if (this._rrMemo) this._rrMemo.delete(F);
+        if (this._rrMemo) for (const [k, m] of this._rrMemo) if (k === F || [...m.groups.values()].some((g) => g.F0 === F)) this._rrMemo.delete(k);
         this._chainSeq.delete(F);
     }
     /** Whether a tile still stands: dropped in a drag's batch mode unless on screen, or when its frame is gone (RENDER-1). */

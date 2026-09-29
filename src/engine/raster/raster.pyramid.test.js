@@ -917,16 +917,20 @@ describe("the pyramid's open items (B-PYRAMID-2b P6 item 3)", () => {
         try {
             const E = mkEngine(2560, 1440, { raster: true }), R = E.renderer, pl = R._plane, edge = W / 2;
             expect(R.pyramid.dpr).toBe(2);
-            // The screen's right edge 1,500 units short of square 1 (x ≥ W/2): four view cells (1,024 units) stop short of it.
-            E.cam.set({ frame: "0", inScale: 1, inPanX: -(edge - 4060), inPanY: 0 });
+            R.pyramid.cfg.prefetchQuietMs = 1e9;                     // the prefetch's own snapshot reads would read square 1
+            // The screen's right edge short of square 1 (x ≥ W/2) by more than the table's four view cells and less than a view.
+            const m4 = R.listMargin(1), view = 2560;
+            expect(m4).toBeLessThan(view);                             // the case: four view cells fall short of a view here
+            const gap = (m4 + view) / 2, reach = edge + (view - gap) / 2;
+            E.cam.set({ frame: "0", inScale: 1, inPanX: -(edge - gap - view), inPanY: 0 });
             const id = E.doc.allocId();
             E.doc.add({ type: "fill", origin: "native", id, color: "rgb(200,30,30)", opacity: 1,
-                polys: [[[edge - 3500, 300], [edge + 1000, 300], [edge + 1000, 700], [edge - 3500, 700]]] }, "0");
+                polys: [[[edge - gap - 2000, 300], [reach, 300], [reach, 700], [edge - gap - 2000, 700]]] }, "0");
             E._render();
             E.setTool("select");
             E._setSelection([id], []);
             E._render();
-            const far = { left: edge + 10, top: 300, right: edge + 1000, bottom: 700 };   // in square 1, a view past the screen
+            const far = { left: edge + 10, top: 300, right: reach, bottom: 700 };           // in square 1, inside a view past the screen
             for (let t0 = Date.now(); Date.now() - t0 < 10000; ) {
                 await new Promise((r) => setTimeout(r, 20));
                 if (pl.layers.length && E.stage.covers("0", far) && pl._whole(pl.main, E.plates, true)) break;

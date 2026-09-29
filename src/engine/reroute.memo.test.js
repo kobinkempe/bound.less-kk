@@ -4,6 +4,7 @@
  * table, a home or the lattice moved. Each case compares the camera's list with a fresh bake.
  */
 import { mkEngine, useEngines, drawStroke, descend, drag } from "./__testkit__/harness";
+import { collectFrames } from "./frameGc";
 
 useEngines();
 
@@ -87,6 +88,23 @@ describe("the reroute grouping memo", () => {
         const [a, f] = fresh(E);
         expect(a).toBe(f);
         expect(a).not.toBe(before);
+    });
+
+    test("a frame GC forgot is minted again for the read, even when later mints restore the frame count", () => {
+        const E = scene();
+        const F = String(E.cam.frame);
+        const m = E.store._rerouteGroups(F);
+        const F0 = [...m.groups.values()].map((g) => g.F0).find((id) => id !== F && !E.doc.count(id));
+        expect(F0).toBeTruthy();                                   // an empty frame the read minted: the pieces' source
+        const n = E.lm.frames.size;
+        E._gcCand.add(F0);
+        collectFrames(E);
+        expect(E.lm.frame(F0)).toBeFalsy();
+        for (let i = 0; E.lm.frames.size < n; i++) E.lm.cellChild(E.lm.parentOf(F), 900 + i, 900);   // a descent's mints, say
+        expect(E.lm.frames.size).toBe(n);                          // the memo's key is as it was
+        E._render();
+        const [a, b] = fresh(E);
+        expect(a).toBe(b);                                         // red before: the moved stroke was not drawn
     });
 
     test("a second move of the same object refreshes the grouping", () => {

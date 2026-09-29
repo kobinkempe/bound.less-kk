@@ -1821,3 +1821,19 @@ Divergences (the tainted rule): 174 in 9 seeds of 200 (0 in 1–20).
 **Decisions made:** the memo fix is a major (ink missing in a view): reported with the patch, not applied (brief §4).
 **Questions asked:** none yet.
 WHERE I AM: characterising the 174 divergences, then writing the full-square rule into `modelFuzz.js`.
+
+## 2026-09-29 11:06 UTC — B-PYRAMID-2b (builder) — item 3 progress: six of the seven open items built
+**Working on:** item 3. Built, each with a test red on its own break: `olderMs` split into `olderPatchMs` (a stale own
+plate whose worker patch is asked or in flight, A3 §3.4) and `olderOtherMs` in the integrals, `report()`, `DevStats`,
+the harness; a stale rest cell's cover takes the mapped frame's exact cells (PLAN §5.6 item 7); the table window grown
+to a view while a selection is on the plane's path (D1; test on 2560×1440@2 with square 1 between four cells and a
+view — the first geometry did not discriminate, the prefetch read the square); the attention point from the wheel,
+pinch and pointer into the plan and the queue; `reportBusy` and the focus into the prefetch; the motion's `at`.
+Item-4 break-checks: 13 of 14 red on their own tests; the phone P3 one needs both re-render paths broken (red then).
+**Found:** the never-older fuzz draws older cells that no patch waits for: 88–91 plans, olderOtherMs 98–104 ms, all
+A3 §1.4's (f′), a stale coarser stand-in for a missing cell — a zoom from rest before the prefetch's quiet (the
+patches keep the rest set fresh, not the level plates under it, §3.4 item 1). Without a rest set: 5 plans, 3.7 ms.
+`olderOtherMs` is therefore not asserted 0 there; own-stale-without-a-patch is (0). Question for the report.
+**Measured:** raster.pyramid 32/32, PicturePyramid.* and raster.engine 99/99 (load 0.8–1.7).
+**Questions asked:** none yet (in the report). One break-check run spun at 98 % CPU for 10 min (killed); not reproduced.
+WHERE I AM: item 3(c) the undo's 299 ms — a frozen tree (b3846a6) on :3012 for the harness; then items 5 and 6.
