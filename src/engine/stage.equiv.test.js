@@ -1,5 +1,6 @@
 /**
- * PLAN §3 row 2: the scene's items equal `listFor`'s sorted output (A2-scene.md §2.14), after every
+ * PLAN §3 row 2: the scene's items equal the render list's sorted output (the brute-force read,
+ * `__oracles__/renderList`; A2-scene.md §2.14), after every
  * operation of a seeded fuzz — strokes, erases baked whole and in slices, taps and drags, lassos,
  * subtree drags, deletes, undo and redo in runs, crossings, pans, reloads through kobin-1 and the op
  * log, frame GC — and PLAN §3's "no read changes the document" over the same states. The long run
@@ -14,7 +15,7 @@ useEngines();
 const SEEDS = [1, 2, 3, 4, 5];
 const STEPS = 40;
 
-describe("the Stage's table equals listFor's (PLAN §3 row 2)", () => {
+describe("the Stage's table equals the render list's (PLAN §3 row 2)", () => {
     for (const seed of SEEDS) {
         test("seed " + seed + ", " + STEPS + " steps", () => {
             const fails = [];

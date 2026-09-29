@@ -284,7 +284,10 @@ RENDERING
     its drawn footprint meets; a job carries the G it was packed at; a plate
     is exact iff its G >= its cell's dirtySince. The live stroke stays SVG and
     the ants are painted on an overlay canvas. The SVG renderer below is behind
-    ?svg and draws listFor's render list, which equals the scene's items.
+    ?svg and draws the scene's items too (B-PYRAMID-3). The Two.js instance
+    (raster/SvgLayer.js), the stroke under the pen (raster/LiveStrokeLayer.js)
+    and the lasso, debug overlays and indicator SVG (raster/svgOverlay.js) are
+    one implementation each, called by both renderers.
     DESIGN.md section 9 has both.
 
     The SVG renderer: Renderer builds the Two.js paths. One persistent Two.Group per

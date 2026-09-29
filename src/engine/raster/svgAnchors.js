@@ -9,6 +9,11 @@ import Two from "two.js";
 import { chordCubic, chordArcMid, planArc } from "../geometry/arcShape";
 import { onRectEdge } from "../geometry/antRuns";
 
+/** The arc plan `pushArcPiece` writes by: the frame's deepest zoom and the tolerance in px; `segMax` 0, no length split. */
+export function arcPlanOf(cfg) {
+    return { enter: cfg && cfg.enter > 0 ? cfg.enter : 256, tol: cfg && cfg.arcTolerancePx > 0 ? cfg.arcTolerancePx : 0.25, segMax: 0 };
+}
+
 export function pushMove(verts, pt, og) {
     verts.push(new Two.Anchor(pt[0] - og.x, pt[1] - og.y, undefined, undefined, undefined, undefined, Two.Commands.move));
 }

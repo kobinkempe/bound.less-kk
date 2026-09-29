@@ -102,8 +102,9 @@ src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
                             gzip, POST in parts to tools/report-server.js;
                             window.__kobinReport behind ?dev). rasterFromUrl picks the renderer at
                             construction: raster unless ?svg (or ?raster=0) is in
-                            the URL (2026-09-22); exportSvg in raster mode renders
-                            once through thumbnails.withSvgEngine.
+                            the URL (2026-09-22); exportSvg renders once through
+                            thumbnails.withSvgEngine in both modes, which bakes
+                            every pending mark in its copy first (flushErases).
 
 COMPONENTS
 
@@ -574,7 +575,15 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     and revision; framesLeft runs after the camera's read and
                     keeps what it pinned (F83).
 Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 - and
-                    the base class of raster/RasterRenderer.js. Per-id groups, the
+                    the base class of raster/RasterRenderer.js (until B-PYRAMID-3
+                    item 4). It draws the Stage's items and composes
+                    raster/SvgLayer.js (the Two.js instance), LiveStrokeLayer.js
+                    (the live stroke: tail and frozen chunks, hold/release) and
+                    svgOverlay.js (the lasso, the debug overlays, the indicator's
+                    SVG); svgAnchors.js writes the anchors. A landed pending mark
+                    is drawn as nothing and masks its targets' groups by
+                    eraseRule.underMask (an SVG <mask>, PLAN 5.8 item 2); a group
+                    at opacity 0 is not rebuilt (F133). Per-id groups, the
                     signature diff, per-scene origins, scene retention, the
                     fat-stroke outline gate, the thin rescale, the arc plan
                     (pushArcPiece: SVG arc or cubics, F40), the window chop

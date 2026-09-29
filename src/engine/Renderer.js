@@ -29,13 +29,13 @@ import { clipRingsToRect } from "./geometry/polyline";
 import { shapeLoopsInRect } from "./geometry/derive";
 import { strokeLoops } from "./geometry/curveOutline";
 import { loopsBBox } from "./geometry/arcShape";
-import { pushGapAnchors, pushShapeAnchors, pushRingAnchors, mkPath } from "./raster/svgAnchors";
+import { pushGapAnchors, pushShapeAnchors, pushRingAnchors, mkPath, arcPlanOf } from "./raster/svgAnchors";
 import { rectTol } from "./rectMath";
 import { underMask } from "./eraseRule";
 import { drawnBox } from "./placementModel";
 import { EXIT } from "./frameLattice";
 import SvgLayer from "./raster/SvgLayer";
-import LiveStrokeLayer from "./raster/LiveStrokeLayer";
+import LiveStrokeLayer, { viewCenter } from "./raster/LiveStrokeLayer";
 import { SvgOverlays, buildSelOverlay, dropSelOverlay, renderSelAnts, renderSelChevrons, mkSelLayer, ensureSelStyle } from "./raster/svgOverlay";
 
 /**
@@ -253,12 +253,11 @@ export default class Renderer {
         // deepest zoom, the tolerance, and the longest non-seam part allowed —
         // the largest power of two under (tol·2^24 − REORIGIN_PX)/enter, 8192
         // units for the default config (enter 256, tol 0.25 px).
-        const tol = cfg && cfg.arcTolerancePx > 0 ? cfg.arcTolerancePx : 0.25;
-        const enter = cfg && cfg.enter > 0 ? cfg.enter : 256;
-        const room = (tol * Math.pow(2, 24) - REORIGIN_PX) / enter;
+        const base = arcPlanOf(cfg), tol = base.tol;
+        const room = (tol * Math.pow(2, 24) - REORIGIN_PX) / base.enter;
         const segMax = Renderer.lengthChop === true ? (room > 1024 ? Math.pow(2, Math.floor(Math.log2(room))) : 1024) : 0;
-        this._arcPlan = { enter, tol, segMax };
-        this._arcPlanNoChop = { ...this._arcPlan, segMax: 0 };
+        this._arcPlan = { ...base, segMax };
+        this._arcPlanNoChop = base;
         this.opacityGroups = true; this.debug = false;
         /** The one Two.js instance: `world`, the debug groups, the lasso's group (A3 §7.2). */
         this.svg = new SvgLayer(container, { width: this.width, height: this.height });
@@ -536,10 +535,7 @@ export default class Renderer {
         const sc = this._scenes.get(this._level);
         return (sc && sc.origin) || Renderer._ZERO;
     }
-    _viewCenter() {
-        const w = this.cam.frameWindow(0);
-        return { x: Math.round((w.left + w.right) / 2), y: Math.round((w.top + w.bottom) / 2) };
-    }
+    _viewCenter() { return viewCenter(this.cam); }
     // Screen-px distance between the view center and the scene's origin — the
     // quantity that bounds the browser-side float32 error of on-screen vertices.
     _driftPx(sc) {
@@ -1235,17 +1231,11 @@ export default class Renderer {
     // Document busts `_outline` on move/restyle, tiles rebuild their pieces),
     // then rendered as manual Two.js bezier anchors. SVG rasterizes the curves,
     // so the same path is exact at every in-level zoom — no re-bake, ever.
-    // Build (or fetch) the cached outline for a stroke. Public: the engine's
-    // idle prefitter calls this so a later lazy flip costs nothing.
-    ensureOutline(o, curved) {
-        // One definition of "how a stroke becomes an outline", shared with the
-        // eraser (geometry/curveOutline.js). Above the fat gate that outline is
-        // CURVES, so it is exact at every in-level zoom — and the eraser, being
-        // a stroke, is polygonized by the very same rule.
-        return strokeLoops(o, this.cfg, { curved, live: this.live.model });
-    }
+    // `strokeLoops` is the one definition, shared with the eraser and the
+    // engine's idle prefitter (`_queueIdleFits`), which fits ahead of a flip.
     _buildOutlineInto(group, o, curved) {
-        const loops = this.ensureOutline(o.piece || o, curved);   // a Stage item's getters take no `_outline`
+        // A Stage item's getters take no `_outline`: the outline is cached on the piece.
+        const loops = strokeLoops(o.piece || o, this.cfg, { curved, live: this.live.model });
         // loops -> anchors: segment k ends at anchor k+1; a curve-command anchor
         // consumes prev.controls.right (its segment's C1) and its own
         // controls.left (C2). Controls are stored RELATIVE (Two.js default).

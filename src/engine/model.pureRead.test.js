@@ -1,6 +1,6 @@
 /**
  * No read mutates (PLAN §3 row 8, A1 C1): over the model fuzz's states (`modelFuzz.runPairFuzz`), the
- * reads the app makes — `listFor`, the tile store's `content` and `read`, the Stage's sync and a
+ * reads the app makes — the tile store's `read` (and the brute-force render list, `__oracles__/renderList`), the Stage's sync and a
  * snapshot at four frames (unbounded, and budgeted as the Scenes panel's picture reads), hit tests (the
  * drag's pick among the selection too), a lasso, the erase pipeline's frame pass and the scene index's
  * pass — leave the document's `rev` and `offRev`, its natives, the lattice's `addrEpoch`, its addresses
@@ -18,6 +18,7 @@ import { SceneClient } from "./sceneClient";
 import { rectLoop } from "./geometry/arcShape";
 import { collectFrames } from "./frameGc";
 import { buildReport } from "./report";
+import { renderList } from "./__oracles__/renderList";
 
 useEngines();
 
@@ -59,8 +60,7 @@ test("the reads leave the document and the lattice as they were, over seeded seq
             if (S) { N.doc.setFrameShift(S, [snap((rnd() - 0.5) * W * 0.9), snap((rnd() - 0.5) * W * 0.9)]); st.unread++; }
             const before = state(N), why0 = [];
             N._render();
-            N.listFor(F, win, true);
-            N.store.content(F, win);
+            renderList(N, F, win);
             N.store.read(F, win);
             for (const V of views) { N.stage.sync(V, CELL); N.stage.snapshot(V, CELL, Infinity); N.stage.snapshot(V, CELL, 0); N.stage.snapshot(V, CELL, 2); st.reads += 4; }
             for (let k = 0; k < 4; k++) { if (N.hitTestAt(Math.floor(rnd() * N.width), Math.floor(rnd() * N.height))) st.hits++; }

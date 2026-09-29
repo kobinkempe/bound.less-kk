@@ -10,7 +10,7 @@ useEngines();
 jest.setTimeout(30 * 60 * 1000);
 const log = (s) => { /* eslint-disable-next-line no-console */ console.log(s); };
 
-test("the Stage's table equals listFor's: 60 seeds × 80 steps", () => {
+test("the Stage's table equals the render list's: 60 seeds × 80 steps", () => {
     const fails = [], others = {};
     const cov = { checks: 0, synced: 0, rerouted: 0, pending: 0, marks: 0, tiles: 0, maxItems: 0 };
     for (let seed = 1; seed <= 60; seed++) {

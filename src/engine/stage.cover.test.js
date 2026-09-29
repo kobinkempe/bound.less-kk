@@ -3,7 +3,7 @@
  * TEST-MAP's replacement for `raster.listCover.test.js`). The camera's plates are packed from the
  * Stage's table only where `covers` says every tile under them is read; the prefetch's coarser levels and a drag
  * plane's far levels from a snapshot of their plates' rectangle (the picture pyramid, A3 §4.2). Two checks: at
- * the pack, the list it packs from against the items `listFor` finds over the plate (the brute-force read);
+ * the pack, the list it packs from against the items the render list finds over the plate (`__oracles__/renderList`, the brute-force read);
  * after it, every exact plate against the same plate rastered from a list read wide around it
  * (REVIEWER-4 P-1: past the read squares a plate was rastered as paper and cached fresh).
  */
@@ -15,6 +15,7 @@ import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./raster/rasterJob";
 import { PLATE_PX } from "./raster/plate";
 import { levelKey, restKey } from "./raster/level";
 import { drawnBox } from "./placementModel";
+import { renderList } from "./__oracles__/renderList";
 import { W } from "./frameLattice";
 
 jest.setTimeout(120000);
@@ -59,7 +60,7 @@ const fill = (E, x, y, w, h, color, frame = "0") => E.doc.add({ type: "fill", or
 /** A plate's rectangle in its frame's units. */
 const plateRect = (Zq, i, j) => { const u = PLATE_PX / Zq; return { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u }; };
 /**
- * The pack's own check, wrapped: every item `listFor` reads over a plate whose drawn box meets the plate's
+ * The pack's own check, wrapped: every item the render list (the brute-force read) has over a plate whose drawn box meets the plate's
  * inside (a device pixel in) is in the list the job was packed from, at the same offset. Returns the
  * misses, "plate:id". The pack's cull is the pixel check's (`badPlates`).
  */
@@ -76,7 +77,7 @@ function watchJobs(E) {
             const r = plateRect(c.Z, c.i, c.j), e = 1 / c.Z;
             const inner = { left: r.left + e, top: r.top + e, right: r.right - e, bottom: r.bottom - e };
             out.plates++;
-            for (const o of E.listFor(c.frame, r)) {
+            for (const o of renderList(E, c.frame, r)) {
                 if (E.stage._pending.has(o.id)) continue;                        // pending its shape: on no plate (PLAN §1.5)
                 const b = drawnBox(o), dx = o.res ? o.res[0] : 0, dy = o.res ? o.res[1] : 0;
                 if (b.right + dx < inner.left || b.left + dx > inner.right || b.bottom + dy < inner.top || b.top + dy > inner.bottom) continue;
@@ -93,9 +94,9 @@ function watchJobs(E) {
 /** The plate rastered from a list built four plates wide around it. */
 function refPixels(E, frameId, Zq, i, j) {
     const u = PLATE_PX / Zq, pad = 4;
-    const list = E.listFor(frameId, { left: (i - pad) * u, top: (j - pad) * u, right: (i + 1 + pad) * u, bottom: (j + 1 + pad) * u });
+    const list = renderList(E, frameId, { left: (i - pad) * u, top: (j - pad) * u, right: (i + 1 + pad) * u, bottom: (j + 1 + pad) * u });
     const job = packJob(list, { plates: Int32Array.of(i, j), Zq, dpr: E.renderer.layer.dpr, cfg: E.cfg, paper: [255, 255, 255],
-        live: E.renderer._liveModel });
+        live: E.renderer.live.model });
     const rgba = new Uint8ClampedArray(TW * TH * 4);
     renderPlate(job, 0, rgba, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));
     return rgba;
@@ -241,9 +242,9 @@ describe("every plate job holds every item overlapping the plate", () => {
                 const e = E.plates.get(pl._key(L.tag, lvl.pZq, i, j));
                 const px = e && (e.pixels || (e.bitmap && e.bitmap.pixels));
                 if (!px) continue;
-                const list = E.listFor(pl.frameId, { left: (i - 2) * u, top: (j - 2) * u, right: (i + 3) * u, bottom: (j + 3) * u });
+                const list = renderList(E, pl.frameId, { left: (i - 2) * u, top: (j - 2) * u, right: (i + 3) * u, bottom: (j + 3) * u });
                 const job = packJob(list, { plates: Int32Array.of(i, j), Zq: lvl.pZq, dpr: E.renderer.layer.dpr, cfg: E.cfg,
-                    paper: [255, 255, 255], omit: L.omit, live: E.renderer._liveModel });
+                    paper: [255, 255, 255], omit: L.omit, live: E.renderer.live.model });
                 const ref = new Uint8ClampedArray(TW * TH * 4);
                 renderPlate(job, 0, ref, new Uint32Array(COUNTS_PER_PLATE), new Float64Array(TIMINGS_PER_PLATE));
                 const d = diffPx(px, ref);

@@ -1,6 +1,7 @@
 /**
  * stageFuzz.js — the scene's equivalence fuzz (A2-scene.md §2.14, PLAN §3 row 2): seeded random
- * operations on a jsdom engine, and after every one the Stage's items against `listFor`'s over the
+ * operations on a jsdom engine, and after every one the Stage's items against the render list's (the
+ * brute-force read, `__oracles__/renderList`) over the
  * same window, grouped by (z, id) and compared as multisets, plus PLAN §3's "no read changes the
  * document" over the same states. Shared by `stage.equiv.test.js` (5 × 40) and
  * `stage.equiv.probe.js` (60 × 80).
@@ -11,6 +12,7 @@ import { mkEngine as mkHarnessEngine, drawStroke, eraseGesture, descend, ascend 
 import { OpLog } from "../oplog";
 import { encodeObjects, decodeObjects } from "../format2";
 import { collectFrames } from "../frameGc";
+import { renderList } from "../__oracles__/renderList";
 
 const COLOURS = ["rgb(0,0,0)", "rgb(200,30,30)", "rgb(30,120,200)", "rgb(40,160,60)"];
 
@@ -36,7 +38,7 @@ function rowOf(E, o, stageItem) {
 }
 
 /**
- * The first difference between the Stage's table and `listFor` over the Stage's window, or null.
+ * The first difference between the Stage's table and the render list over the Stage's window, or null.
  * The Stage is synced first when the camera left its frame or its window is not covered (a step
  * with no render); `synced` says so.
  */
@@ -47,12 +49,12 @@ export function compareStage(E) {
         S.sync(E.cam.frame, S.frame === String(E.cam.frame) && S.window ? S.window : E._listWin(), Infinity);
         synced = true;
     }
-    // listFor first: a tile it had to bake for a key the Stage watches means the Stage held it stale.
+    // The list first: a tile it had to bake for a key the Stage watches means the Stage held it stale.
     const watched = new Set(S._keys.keys());
     const stale = [];
     const unsub = E.store.onTile((ev) => { if (ev.kind === "bake" && watched.has(ev.key) && S._keys.get(ev.key) && S._keys.get(ev.key).tile) stale.push(ev.key); });
     let B;
-    try { B = E.listFor(S.frame, S.window, false, 0) || []; } finally { unsub(); }
+    try { B = renderList(E, S.frame, S.window); } finally { unsub(); }
     const A = S.items();
     if (stale.length) return { synced, diff: "a watched tile was stale: " + stale.slice(0, 3).join(" ") };
     const key = (r) => r.z + "|" + r.id;
@@ -61,12 +63,12 @@ export function compareStage(E) {
     for (const [k, rb] of gb) {
         const ra = ga.get(k);
         if (!ra) return { synced, diff: "missing in the Stage: " + k + " (" + rb.length + " pieces, " + rb[0].type + ")" };
-        if (ra.length !== rb.length) return { synced, diff: "piece count " + k + ": stage " + ra.length + " listFor " + rb.length };
+        if (ra.length !== rb.length) return { synced, diff: "piece count " + k + ": stage " + ra.length + " list " + rb.length };
         const byPiece = new Map(ra.map((r) => [r.piece, r]));
         for (const r of rb) {
             const a = byPiece.get(r.piece);
             if (!a) return { synced, diff: "a piece of " + k + " differs (" + r.type + ")" };
-            if (a.ox !== r.ox || a.oy !== r.oy) return { synced, diff: "offset of " + k + ": stage [" + a.ox + "," + a.oy + "] listFor [" + r.ox + "," + r.oy + "]" };
+            if (a.ox !== r.ox || a.oy !== r.oy) return { synced, diff: "offset of " + k + ": stage [" + a.ox + "," + a.oy + "] list [" + r.ox + "," + r.oy + "]" };
             if (a.fam !== r.fam || a.erase !== r.erase || a.type !== r.type) return { synced, diff: "fields of " + k };
         }
     }
@@ -82,7 +84,7 @@ export function compareStage(E) {
 /**
  * Reads that must not change the document: the Stage's own, after a sync. Returns the first read
  * that moved `docState`, or null. `others` counts, per kind, the reads that did move it today
- * (`listFor` of a frame, a lasso, a snapshot: A1 C1 makes them 0).
+ * (the render list of a frame, a lasso, a snapshot: A1 C1 makes them 0).
  */
 export function pureReads(E, rnd, others) {
     const S = E.stage, F = S.frame, win = S.window;
@@ -104,7 +106,7 @@ export function pureReads(E, rnd, others) {
     E._hitTest(sx, sy);
     if (docState(E) !== s0) return "a Stage read or the hit test";
     const note = (kind, fn) => { const a = docState(E); fn(); if (docState(E) !== a) others[kind] = (others[kind] || 0) + 1; };
-    note("listFor", () => E.listFor(F, win, false, 0));
+    note("renderList", () => renderList(E, F, win));
     note("snapshot", () => S.snapshot(F, win, Infinity));
     note("lasso", () => E._lassoFind([[sx - 60, sy - 60], [sx + 60, sy - 60], [sx + 60, sy + 60], [sx - 60, sy + 60]]));
     return null;

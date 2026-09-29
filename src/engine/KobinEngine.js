@@ -47,6 +47,7 @@ import { clipPolylineToRect, clipRingsToRect, flattenCurve } from "./geometry/po
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
 import { encodeBelow, cloneBelow, sameShift } from "./geometry/offsets";
 import { strokeOutline } from "./geometry/clipperBoolean";
+import { strokeLoops } from "./geometry/curveOutline";
 import { validateScaleDef } from "./scaleBar";
 import { EventLatency, FrameMeter, GrowthLog, LongFrames } from "./instruments";
 import { mixin } from "./mixin";
@@ -246,8 +247,9 @@ export default class KobinEngine {
         this._initScenes(scenes);
         this.renderer.setSelectionAnts(() => this._selectionAnts());
         this.renderer.setLasso(() => { const L = this._lasso || this._lassoParked; return L ? L.pts : null; });   // a parked lasso stays drawn
-        this.renderer.setDragState(() => this._dragState());
-        this.renderer.setPlaneState(() => this._planeState());
+        // The drag's and the plane's state, pulled by a renderer that draws the dragged ink itself (the raster one).
+        if (this.renderer.setDragState) this.renderer.setDragState(() => this._dragState());
+        if (this.renderer.setPlaneState) this.renderer.setPlaneState(() => this._planeState());
         if (this.renderer.setBusy) this.renderer.setBusy(() => !!this._reportBusy);   // a report sending: no prefetch
         this.renderer.onPlaneLost = () => this._planeLost();
         // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
@@ -917,7 +919,7 @@ export default class KobinEngine {
         this._perf(crossed ? "cross" : "zoom", t0, crossed);
         this._noteFast(crossed ? "crossStep" : "zoomStep", perfNow() - t0);
         // prefit outlines when strokes approach the gate or a new level activates
-        if (crossed || this.renderer.hasPendingNearFat()) this._queueIdleFits();
+        if (crossed || (this.renderer.hasPendingNearFat && this.renderer.hasPendingNearFat())) this._queueIdleFits();
     }
     // Idle outline pre-fitting (lazy mode): fat-gated strokes render raw until
     // needed; fit their curve outlines in idle slices (~8 ms) so the eventual
@@ -936,7 +938,7 @@ export default class KobinEngine {
             // TIMED. This fires on every crossing and ran unmeasured until
             // 2026-08-22, when a report attributed 380 ms to an anonymous
             // requestIdleCallback that nothing in the engine could account for.
-            // Note the budget below is tested BEFORE ensureOutline, not after —
+            // Note the budget below is tested BEFORE the fit, not after —
             // the same shape of defect as the erase bake had, so a single fit
             // can overrun the 8 ms slice by as much as it likes (50-135 ms per
             // stroke, measured 2026-07-07).
@@ -945,7 +947,7 @@ export default class KobinEngine {
                 if (o._outline) continue;
                 if (o.lwFrame * this.cfg.enter <= gate) continue;
                 if (perfNow() - t0 > 8) { more = true; break; }
-                this.renderer.ensureOutline(o, o.origin === "native");
+                strokeLoops(o, this.cfg, { curved: o.origin === "native", live: this._drawing });   // caches `o._outline`
                 // The fit emits no document event: its footprint is the Stage's dirt (§15.3 Q5).
                 if (this.plates) this.stage.touch(o.id);
                 fitted++;

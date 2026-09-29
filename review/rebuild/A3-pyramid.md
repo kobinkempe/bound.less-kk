@@ -1038,6 +1038,18 @@ bl-sel-edges (z 3)]` — FC1's list, walked by `setSize`, `destroy` and the stor
 `geometry/curveOutline`'s `strokeLoops`, `Renderer.js:1267-1273`); the fat gate (`needsFatFlip`,
 `hasPendingNearFat`) is SVG-only and returns false on the raster path.
 
+*Built (2026-09-29, B-PYRAMID-3 items 1–3):* `raster/SvgLayer.js` as above (the lasso's group keeps the name
+`selGroup`); `raster/LiveStrokeLayer.js` with `begin(o, origin)` — the owner gives the origin: the raster renderer
+the view centre (FC6), the SVG renderer its active scene's, which its world transform folds, so neither draws the
+stroke translated; `hold()` tags the root with the stroke's own id; the layer's group is in `world` only while it
+holds a path, so the idle `<svg>` is the one before. The shared module is `raster/svgOverlay.js`: `SvgOverlays` (the
+lasso and the two debug overlays, with their functions and flags) and the indicator's SVG as functions of its
+elements (layers, stylesheet, chevrons, the SVG renderer's ants). The anchor helpers both need moved to
+`raster/svgAnchors.js`. `Renderer` composes them and draws the Stage's items (`KobinEngine._render`); until item 4 it
+keeps, for `RasterRenderer`'s inheritance only, accessors for `_live`/`_liveRoot`/`_liveModel` and forwards for
+`_mkSelLayer`, `_renderSelChevrons`, `_ensureSelStyle`. The `?svg` round trip was pixel-identical before and after in
+nine states (headless Chromium).
+
 ### 7.3 What `Renderer` keeps
 
 All of the Two.js ink path for `?svg` and the export: per-object groups and the signature diff, per-scene
@@ -1048,6 +1060,11 @@ stroke (through the same `LiveStrokeLayer`, one implementation). It loses the ra
 for `planeAccepts`/`dragLight`, `KobinEngine.js:777`, `selection.js:724`). `thumbnails.withSvgEngine`
 (`storage/thumbnails.js:57-71`) and the export (`hooks/useKobinEngine.js:860-864`) are unchanged: they build a
 `KobinEngine` with `raster: false`.
+
+*Built (2026-09-29, B-PYRAMID-3):* a pending mark is masked per group by `eraseRule.underMask` (an SVG `<mask>`
+of the mark's shape, the mark itself drawn as nothing once landed), not painted as white ink (PLAN §5.8 item 2);
+`withSvgEngine` runs `flushErases` after its load, and the export goes through it in both modes (the `?svg` tab's
+own `<svg>` was serialised before, pending marks included). A group at opacity 0 is not rebuilt (OPEN-FLAGS F133).
 
 ### 7.4 The hook's gate
 

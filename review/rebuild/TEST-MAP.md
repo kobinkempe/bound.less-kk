@@ -48,8 +48,8 @@ new suite that carries the property forward. A suite marked DECIDE waits for the
 
 | suite | lines | asserts | fate | replaced by |
 |---|---|---|---|---|
-| `Renderer.*.test.js` (arcs, chop, reorigin, retention, thinscale) | 877 | the SVG renderer | KEEP (the SVG renderer stays for export and comparison) | — |
-| `Renderer.liveChunk.test.js` | 61 | the live stroke's frozen chunks | PORT | `LiveStrokeLayer` |
+| `Renderer.*.test.js` (arcs, chop, reorigin, retention, thinscale) | 877 | the SVG renderer | KEEP (the SVG renderer stays for export and comparison) | — 2026-09-29 (B-PYRAMID-3): kept, `retention` gains F133 (a hidden group is not rebuilt); new beside them `Renderer.eraseMask.test.js` (a pending mark masks its targets by `eraseRule.underMask`, PLAN §5.8 item 2) and `storage/thumbnails.test.js` (the export barrier) |
+| `Renderer.liveChunk.test.js` | 61 | the live stroke's frozen chunks | PORT | `LiveStrokeLayer` — done 2026-09-29 (B-PYRAMID-3): `raster/LiveStrokeLayer.test.js` LS-1/LS-2, with LS-3..5 (the origin's one writer, F131's re-anchor, hold/release/cancel and the empty layer out of the `<svg>`) |
 | `erase.neutral.test.js` | 125 | F109 neutral steps | DELETE with the neutral tags | row 3 — 2026-09-28: deleted (B-ERASE) |
 | `erase.zorder.test.js` | 86 | the mark's z follows the bake down | DELETE with `_lowerMark` | row 3 — 2026-09-28: deleted with `_lowerMark` (B-ERASE) |
 | `erase.markFrame.test.js` | 28 | E-5 a mark's derived pieces carry `erase` and its z | REPLACE | the scene reads z and the erase data from the object — 2026-09-28: deleted; its case is in `raster.eraseRule.test.js` (a mark's tile items read the natives' fields) |

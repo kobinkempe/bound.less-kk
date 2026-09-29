@@ -17,6 +17,12 @@ import { pushGapAnchors } from "./svgAnchors";
 /** Anchors behind the pen before they freeze into a chunk: the tail's `d`, re-serialised every event, stays this short. */
 export const LIVE_CHUNK = 128;
 
+/** The view's centre in frame units, rounded: the origin a stroke or a scene is drawn relative to (FC6). */
+export function viewCenter(cam) {
+    const w = cam.frameWindow(0);
+    return { x: Math.round((w.left + w.right) / 2), y: Math.round((w.top + w.bottom) / 2) };
+}
+
 export default class LiveStrokeLayer {
     /**
      * @param {object} parent the Two.js group the strokes go in (`SvgLayer.world`)

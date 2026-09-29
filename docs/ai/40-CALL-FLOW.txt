@@ -248,19 +248,12 @@ SELECTING AND MOVING
 RENDERING   [HOT]
 
   _render()
-    RASTER: stage.sync(frame, window grown by one preview plate, budget)
+    stage.sync(frame, window, budget)      both renderers (the raster window grown by one
+                                           preview plate); no list is built
       a crossing or a re-address rebuilds the table; a window change reads and drops
       tiles (store.readTiles, the camera's tiles pinned); queued events applied;
-      commits (G + 1) only when something changed. No list is built.
-    ?svg: _buildList()
-      listFor(frame, window, forCamera=true)    THE THREE STEPS BELOW ARE INSIDE IT
-                                                (the tiles the Stage reads are the same
-                                                bakes: _ensureUp / _ensureDown)
-      store.framesLeft(F) on a change of frame  AFTER the read, keeping what it
-                                                pinned (F83); the camera's, never
-                                                listFor's
-      store.content(frame, window)
-        for each visible cache tile, both directions:
+      commits (G + 1) only when something changed.
+      a tile not cached is baked, for each tile, both directions:
           _ensureUp(F,i,j)   -> _bakeUp: chain through the parent's up-tiles,
                                 plus doc.at(parent), plus _ringNatives(parent);
                                 classifyUp -> empty | solid | edge;
@@ -271,7 +264,8 @@ RENDERING   [HOT]
                                 object: culled by projectedSizePx, projected
                                 directly, clipped by _downPieces
       model.nativesIn(frame)                the natives drawn live: doc.list less the carried out, plus the carried in
-      sort by (z, id)                       global z-order
+    store.framesLeft(F) on a change of frame  AFTER the read, keeping what it pinned (F83)
+    _lastList = stage.items()             the items in (z, id) order
     renderer.render(null, frame)            RASTER (the default):
       RasterRenderer.render: _activateLevel (the overlay scene), _sceneList() (the Stage's items
         less the strokes pending their shape), _frameStep:
@@ -296,7 +290,9 @@ RENDERING   [HOT]
     renderer.render(list, frame)            ?svg - the SVG renderer:
       _activateLevel(frame)                 swap in this level's SVG subtree
       _maybeReorigin(scene)                 re-anchor if drifted past 1.5e6 px
+      a landed pending mark is not grouped: drawn as nothing (landedMarks)
       group pieces by editId when fully present, else by id
+      a group at opacity 0 keeps what it has (F133); needsFadeFlip promotes the zoom that shows it
       for each group whose SIGNATURE changed:
         _buildPieces                        merge every area piece into ONE path
           pushShapeAnchors / _buildInto
@@ -307,8 +303,9 @@ RENDERING   [HOT]
         _applyOpacity(entry, rep)           family groups are always full presence
       syncWorld()
         world.scale / translation           the origin folds in, in float64
-        _renderTileDebug / _renderEraseDebug / _renderSelection / _renderSelOverlay
-    renderer.update()                       two.update() -> the SVG
+        overlays.render() (tile and erase debug, the lasso) / _renderSelOverlay
+    renderer.update()                       two.update() -> the SVG; then _applyMasks sets each
+                                            changed group's mask attribute (_setMask's <mask>)
     _emit()                                 onStatus -> React, throttled to 100 ms;
                                             onZoom listeners (the scale HUD) when the
                                             zoom changed
