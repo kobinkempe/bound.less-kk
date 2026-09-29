@@ -151,7 +151,7 @@ class ErasePipeline {
         const o = ev.obj;
         if (o.erase) {
             if (k === "add") { this._marks.set(o.id, o); this._order.delete(o.id); }
-            else { this._marks.delete(o.id); this._dropCuts(o.id); this._budget.delete(o.id); }
+            else { this._marks.delete(o.id); this._dropCuts(o.id); }
             return;
         }
         if (k === "add" && !this._eraseReplaying && (o.targetOf || o.handledBy)) this._pruneDead(o);
@@ -861,7 +861,6 @@ class ErasePipeline {
     _dispatchPair(Erec, target, { ahead = false, barrier = false, inline = false } = {}) {
         const E = Erec.obj, HE = Erec.level;
         const o0 = target.obj;
-        if (!this.doc.getById(E.id)) return "none";                // spent or aborted while its round was out
         // A lookahead changes nothing in the document: a target still to resolve waits for its turn.
         if (ahead && (E.type !== "shape" || o0.type !== "shape")) return "none";
         if (E.type === "stroke") this._forceBake(E);              // called on a mark not yet landed: it lands and registers

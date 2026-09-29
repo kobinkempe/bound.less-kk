@@ -37,7 +37,7 @@ import Renderer from "../Renderer";
 import { perfNow } from "../now";
 import PictureLayer from "./PictureLayer";
 import { PLATE_PX, PREVIEW_QUANTA, plateKey, plateOriginPx, plateRange, quantumFor, zqOf } from "./plate";
-import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox } from "./rasterPack";
+import { packJob, parseColour, visibleChords, packStats, COORD_BOUND, entryFor, itemBox, outsideWin } from "./rasterPack";
 import { renderPlate, coreStats, TW, TH } from "./rasterCore";
 import { COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
 import { antStats, selAntScale } from "./antPaint";
@@ -49,7 +49,7 @@ import {
     plateBitmap, stripSizeFor, rasterWorkerReport, rasterPool,
 } from "./rasterWorkerClient";
 import PyramidStore, { planeCell } from "./PyramidStore";
-import PicturePyramid, { sampleOf } from "./PicturePyramid";
+import PicturePyramid, { sampleOf, EST_DEFAULTS } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
 import { prefetchPlan, farKeysOf } from "./prefetch";
 import { LEVEL_STEP, levelFor, zOf } from "./level";
@@ -740,6 +740,7 @@ export default class RasterRenderer extends Renderer {
         // than as misses — a permanent hole with every suite green (rasterWorkerClient's header).
         if (this.queue) this.queue.clear();
         if (this._pyrOff) { this._pyrOff(); this._pyrOff = null; }
+        if (this._pyrPrefetchTimer != null) { clearTimeout(this._pyrPrefetchTimer); this._pyrPrefetchTimer = null; }
         this._abandon("destroy");
         dropQueued("destroy");
         this._destroyed = true;
@@ -1551,8 +1552,12 @@ export default class RasterRenderer extends Renderer {
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
         // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
-        // while the path is still up (A3 §3.6).
-        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view); });
+        // while the path is still up (A3 §3.6). The commit's time is the prefetch's quiet.
+        this._pyrCommitAt = -Infinity;
+        this._pyrOff = this.stage.onCommit(() => {
+            this._pyrCommitAt = perfNow();
+            if (!this._destroyed && this._liveHeld.length && this._view) this._pyrLive(this._view);
+        });
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
@@ -1602,12 +1607,28 @@ export default class RasterRenderer extends Renderer {
      */
     _pyrPrefetch(v) {
         if (!v || v.frameId == null) return;
-        const q = this.queue, r = q.report();
+        const q = this.queue, r = q.report(), gens = this.pyramid.gens;
         for (let p = 0; p < PRIO.prefetch; p++) if (r.queued[p] || r.inFlight[p]) return;
-        const key = v.rev + ":" + this.pyramid.gens.prefetch + ":" + this.stage.generation;
+        const key = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
         if (this._pyrPrefetchKey === key) return;
-        this._pyrPrefetchKey = key;
-        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens: this.pyramid.gens });
+        // At idle means the scene too: a bake commits every few frames, and a plan a commit re-rendered the coarser
+        // levels each step (P5). The plan waits for the rest's quiet after the last commit.
+        const quiet = this.cfg.prefetchQuietMs != null ? this.cfg.prefetchQuietMs : EST_DEFAULTS.restQuietMs;
+        const since = perfNow() - this._pyrCommitAt;
+        if (since < quiet) {
+            if (this._pyrPrefetchTimer == null) {
+                this._pyrPrefetchTimer = setTimeout(() => {
+                    this._pyrPrefetchTimer = null;
+                    if (!this._destroyed && !this._pyrMot.moving) this._pyrPrefetch(this._view);
+                }, quiet - since + 1);
+            }
+            return;
+        }
+        // A new plan supersedes the queued one: its strips drop at dispatch by generation (a bake's commits re-plan
+        // each step, and the queue grew by a plan a step without this).
+        gens.prefetch++;
+        this._pyrPrefetchKey = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
+        const jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens });
         if (!jobs.length) return;
         this.pyramid.setFar(farKeysOf(jobs));
         q.push(jobs);
@@ -1622,8 +1643,14 @@ export default class RasterRenderer extends Renderer {
 
     /** A table's items packs paint (a stroke pending its shape is skipped, PLAN §1.5). */
     _tableList(tab) {
-        const out = [];
-        for (const it of tab.items()) if (!it.pending) out.push(it);
+        // One list a table: the pack's prepass (its families, every item's entry) is memoised on the list's identity.
+        if (!this._tabLists) this._tabLists = new WeakMap();
+        let out = this._tabLists.get(tab);
+        if (!out) {
+            out = [];
+            for (const it of tab.items()) if (!it.pending) out.push(it);
+            this._tabLists.set(tab, out);
+        }
         return out;
     }
 
@@ -1697,7 +1724,7 @@ export default class RasterRenderer extends Renderer {
         const hit = new Uint8Array(n);
         let A = 0, U = 0;
         for (const o of list) {
-            if (o === this._liveModel) continue;
+            if (o === this._liveModel || outsideWin(o, win, this._liveModel)) continue;
             const b = itemBox(o, this.cfg);
             if (!b) continue;
             const r0 = o.res, x0 = b[0] + (r0 ? r0[0] : 0), y0 = b[1] + (r0 ? r0[1] : 0), x1 = b[2] + (r0 ? r0[0] : 0), y1 = b[3] + (r0 ? r0[1] : 0);

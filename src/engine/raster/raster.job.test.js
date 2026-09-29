@@ -330,6 +330,27 @@ describe("the job wire (§3.3, §3.4)", () => {
 });
 
 describe("the packer (§3.3, §4.2, §5.2)", () => {
+    test("outsideWin is conservative: an item it rules out has a pack box that misses the window (seeded shapes, fills, strokes, offsets)", () => {
+        let s = 12345;
+        const rnd = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
+        let ruledOut = 0, n = 0;
+        for (let k = 0; k < 600; k++) {
+            const x = rnd() * 2000 - 1000, y = rnd() * 2000 - 1000, w = 1 + rnd() * 300, h = 1 + rnd() * 300, kind = k % 4;
+            const pts = Array.from({ length: 3 + (k % 5) }, () => [x + rnd() * w, y + rnd() * h]);
+            const item = kind === 0 ? shapeItem(k + 1, [rect(x, y, x + w, y + h)])
+                : kind === 1 ? fillItem(k + 1, [rect(x, y, x + w, y + h)])
+                    : strokeItem(k + 1, pts, 1 + rnd() * 40, kind === 2 ? { origin: "native" } : {});
+            if (k % 3 === 0) item.res = [rnd() * 200 - 100, rnd() * 200 - 100];
+            const cx = rnd() * 2000 - 1000, cy = rnd() * 2000 - 1000, ww = 10 + rnd() * 400, wh = 10 + rnd() * 400;
+            const win = { left: cx, top: cy, right: cx + ww, bottom: cy + wh };
+            const b = pack.itemBox(item, CFG), r = item.res || [0, 0];
+            const meets = b[2] + r[0] >= win.left && b[0] + r[0] <= win.right && b[3] + r[1] >= win.top && b[1] + r[1] <= win.bottom;
+            n++;
+            if (pack.outsideWin(item, win)) { ruledOut++; expect([k, meets]).toEqual([k, false]); }
+        }
+        expect(ruledOut).toBeGreaterThan(n / 2);                         // and it rules most of a scattered list out
+    });
+
     test("subs is one entry per loop, ascending, and a two-words-a-loop table is refused (D36)", () => {
         const job = packOne([shapeItem(1, [rect(10, 10, 100, 100), rect(120, 10, 200, 100), rect(220, 10, 300, 100)])]);
         expect(job.meta[5]).toBe(3);

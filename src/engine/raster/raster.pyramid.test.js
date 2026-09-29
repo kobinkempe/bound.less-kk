@@ -97,6 +97,7 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
+        R.cfg.prefetchQuietMs = 0;                                      // the scene's quiet is the next test's
         stroke(E);
         E.zoomAt(400, 300, -600);
         await settle(E, 2);
@@ -121,6 +122,46 @@ describe("the pyramid's path under cfg.pyramid (B-PYRAMID-2 P1)", () => {
         expect(near().some((r) => !E.plates.exact(r))).toBe(true);
         expect(await drain(E, g)).toBe(0);
         expect(near().filter((r) => !E.plates.exact(r)).map((r) => r.key)).toEqual([]);
+    });
+
+    test("the prefetch waits for the scene's quiet: commits every 20 ms plan nothing; the rest's quiet after the last, one plan", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        await new Promise((r) => setTimeout(r, 150));
+        expect(await drain(E, g)).toBe(0);
+        const pushed0 = R.queue.report().pushed;
+        for (let k = 0; k < 10; k++) {                                   // a bake's pace: a commit every 20 ms, on screen
+            E.doc.add(fillAt(E, 100 + 30 * k, 120, "rgb(30,30,200)", 20), "0");
+            E._render();
+            await settle(E, 1);
+            await new Promise((r) => setTimeout(r, 20));
+        }
+        expect(R.queue.report().pushed).toBe(pushed0);                   // red before: a plan a commit
+        for (let t = 0; t < 1000 && R.queue.report().pushed === pushed0; t += 10) await new Promise((r) => setTimeout(r, 10));
+        expect(R.queue.report().pushed).toBeGreaterThan(pushed0);        // planned once the scene was quiet
+    });
+
+    test("a new prefetch plan supersedes the queued one: the old plan's strips drop at dispatch by generation", async () => {
+        const g = gate();
+        setRasterWorkerCount(1);
+        const E = mkEngine(800, 600, { raster: true, pyramid: true }), R = E.renderer;
+        R.cfg.prefetchQuietMs = 0;
+        stroke(E);
+        await settle(E, 2);
+        expect(await drain(E, g)).toBe(0);
+        E.zoomAt(400, 300, -600);
+        for (let k = 0; k < 20 && !R.queue.report().queued[4]; k++) { await g.run(); await settle(E, 1); }
+        expect(R.queue.report().queued[4]).toBeGreaterThan(0);          // a plan's strips wait behind the one worker
+        const gen0 = R.queue.report().drops.gen, pushed0 = R.queue.report().pushed;
+        E.doc.add(fillAt(E, 90000, 90000, "rgb(30,30,200)"), "0");      // a commit far off the view: a new generation, no patch
+        E._render();
+        await settle(E, 2);
+        expect(R.queue.report().pushed).toBeGreaterThan(pushed0);       // planned again
+        expect(await drain(E, g)).toBe(0);
+        expect(R.queue.report().drops.gen).toBeGreaterThan(gen0);       // red before: both plans ran
     });
 
     test("the levers take effect live: a step change drops the old step's level records and moves the purposes; a budget change evicts once", async () => {

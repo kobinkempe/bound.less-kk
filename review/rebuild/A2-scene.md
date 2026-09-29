@@ -1145,6 +1145,23 @@ barrier (A2-Q7).
   objects dragged under it too (`?svg`, export): a mask per target there is B-PYRAMID-2's (the SVG
   demotion), asked as B-ERASE Q6.
 
+### 4.15 As reviewed (R-ERASE, 2026-09-29)
+
+- **A step budget per mark** (PLAN §5.8 item 3): each id pending under a mark costs one step, and a
+  step its pair survives is tried once more; past 2 × its supply + 8 the mark is aborted, reported and
+  spent. The supply is what was pending under it at its first step plus every later arrival pending
+  under it (another mark's piece, a source an undo returns, a frame set aside and back).
+- **Pruning when the redo branch dies**: a new op drops the undone gestures above it, and the marks they
+  held leave the live natives' fields then, not only at a load; a mark counts as able to return only
+  while its gesture is on the redo stack (an applied gesture's `strokeRec` outlives its redo).
+- **A barrier round promotes its fill targets before it dispatches any pair**, so the log's `put`s and
+  `bake`s read in the same order inline and in workers (a 60-seed fuzz of random op sequences through
+  the interim pool, `erase.parallel.test.js`, found the difference).
+- **Measured inside §6.4 row 3 (b)'s envelope, not named before**: a graze that splits two marks' shared
+  slot changes (1 − max) to (1 − a)(1 − b) along their overlapping edges with no dirt (36/255); a
+  family half handled is masked whole, so its handled piece's cut edge loses c − c² of its coverage
+  (59/255, node and headless Chromium alike). Both lie within 1.5 px of a mark's edge.
+
 ---
 
 ## 5. Kobin's semantics, traced through the new rule

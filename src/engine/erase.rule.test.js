@@ -16,8 +16,17 @@ import { shapeFromRings, normalizeLoops } from "./geometry/arcShape";
 import { lcg } from "./__testkit__/rasterLists";
 import { buildReport } from "./report";
 
+// The rule with its `handledBy` clause switchable off, everywhere it is read (the pack, the bake, the
+// barriers): the wrong rule the step budget must survive (PLAN §5.8 item 3).
+let mockWrongRule = false;
+jest.mock("./eraseRule", () => {
+    const actual = jest.requireActual("./eraseRule");
+    return { ...actual, underMask: (o, M) => (mockWrongRule ? actual.inLineage(o, M) : actual.underMask(o, M)) };
+});
+
 useEngines();
 jest.setTimeout(60000);
+afterEach(() => { mockWrongRule = false; });
 afterEach(() => setEraseTransport(null));
 
 const later = (ms = 2) => new Promise((r) => setTimeout(r, ms));
@@ -396,8 +405,8 @@ describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", ()
         E._spendMark = (Erec) => { const b = E._budget.get(Erec.obj.id); if (b) out.push(b.n / Math.max(1, b.supply)); spend(Erec); };
         return out;
     };
-    /** A deliberately wrong rule on the instance: `handledBy` ignored, so a mark's own pieces are pending under it. */
-    const wrongRule = (E) => { E._pendingPair = (M, o) => inLineage(o, M); };
+    /** A deliberately wrong rule: `handledBy` ignored, so a mark's own pieces are pending under it and its bake never empties. */
+    const wrongRule = () => { mockWrongRule = true; };
     const quiet = () => jest.spyOn(console, "error").mockImplementation(() => {});
 
     test("the correct rule never reaches the budget: each pending id costs one step, through undo and redo mid-bake", () => {
@@ -437,6 +446,26 @@ describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", ()
         err.mockRestore();
     });
 
+    test("targets an undo returns after a mark's first step grow its budget: twenty back, no false abort", () => {
+        const E = mkEngine(800, 600);
+        E._scheduleBake = () => {};
+        const X = fill(E, 180, 290, 200, 310);
+        const ts = [];
+        for (let k = 0; k < 20; k++) ts.push(fill(E, 250 + 16 * k, 280, 260 + 16 * k, 320, "rgb(200,60,40)"));
+        E._render();
+        eraseGesture(E, [[150, 300], [650, 300]], 12);                          // M over X and the twenty
+        const M = E._eraseStrokes()[0].obj;
+        expect(M.targets).toContain(X.id);
+        E._setSelection(ts.map((t) => t.id)); E.deleteSelection();              // the twenty out
+        E._bakeNext();                                                          // M's first step, on X: its budget taken with them away
+        E.undo();                                                               // the delete: the twenty back, pending under M
+        const err = quiet();
+        E.flushErases();
+        expect(E._eraseAborted).toEqual([]);
+        expect(err).not.toHaveBeenCalled();
+        err.mockRestore();
+    });
+
     test("a wrong rule fails loudly within the budget instead of hanging: flushErases", async () => {
         const E = mkEngine(800, 600);
         stack(E);
@@ -469,14 +498,17 @@ describe("PLAN §5.8 item 3: the bake terminates — a step budget per mark", ()
         err.mockRestore();
     });
 
-    test("a wrong rule fails loudly within the budget: an inline barrier with no worker completes the tap", () => {
+    test("a wrong rule in an inline barrier with no worker: the tap completes, every mark within its budget", () => {
         const E = mkEngine(800, 600);
         stack(E);
         wrongRule(E);
         const err = quiet();
         E.setTool("select");
-        const id = E.select(250, 230);                                          // on the first fill, pending under no mark there
-        expect(E._barrier).toBeNull();
+        const id = E.select(250, 305);                                          // the second fill: under all three marks
+        expect(E._barrier).toBeNull();                                          // the rounds end (a pair its own step left pending is set aside)
+        for (const a of E._eraseAborted) expect(a.steps).toBeLessThanOrEqual(a.limit);
+        E.flushErases();                                                        // and the rest fails loudly within the budget
+        expect(E._eraseStrokes()).toHaveLength(0);
         expect(E._eraseAborted.length).toBeGreaterThan(0);
         expect(id == null || E.doc.getById(id) != null).toBe(true);
         err.mockRestore();

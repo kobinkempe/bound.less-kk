@@ -1368,3 +1368,25 @@ the rest's quiet (100 ms) and steps the renderer every slice (an empty tile cove
 (`covered`) for the plan, the plane and the near prefetch; the queue counts dispatches by priority (the harness's column).
 **Questions asked:** see the report (D1's SEL cells past the table's window).
 WHERE I AM: P5 — `npm run build:worker`, a dev server on :3010, the harness both ways.
+
+## 2026-09-29 01:47 UTC — reviewer (B-ERASE review) — checkpoint: items 1–11 measured; final suites running
+**Working on:** test:erase and the erase-adjacent quick suites on the final tree; then the end entry and report.
+**Measured:** item 2 (headless, script time, load 2.5–4.3): a tap during a bake parks and selects in 84–126 ms (under the
+chip's 150 ms), the piece under the finger (SM-5); a drag's start parks 418 ms, then the selection moves exactly the
+finger's (240, 120); a lasso parks, chip at 240 ms, judged at 378 ms; a second press cancels a parked tap. The bake alone
+3.2 s; with a tap-selected 413-piece object left selected, 42–48 s and the page's main thread saturated (profile: 5.9 of
+8.3 s in `packJob` → `prepassFor`/`famFill`, `_aimPlane` 1.0 s); deselected, 5.1 s — reported, not mine to fix. Item 1c:
+a constructed stack under two marks, before vs after the bake: node 358–436 px, ≤ 37/255 within 1.5 px of a mark's edge,
+≤ 9/255 on cut outlines, 0 elsewhere; browser 325 px, max 36, 87 px off the band at ≤ 6/255, kept vs fresh 0 bytes.
+Item 8: scenario 7 pair eraseBakeMs 19,772 / 18,405 (B-SCENE review: 36.0 s), paper 0 on all three samplers, 59 long
+frames each (worst 798 / 667 ms), load 1.9 / 4.0; the 5,000-native delete 24.9–26.2 s in jsdom: 18.7 s of it two.js
+rendering the selection overlay from the per-remove listener (`KobinEngine.js:284–317` → `_setSelection`), O(n²) —
+not one line (wave 3's helper). Probes: erase.stack N=100 (cuts 22 ms median, lasso at 50 1,283 ms); erase.stuck and
+paper.cost need Kobin's exports (not in the container). Break-checks (copy `scratchpad/r-erase/bc`): budget 4/26 (suite
+5 → 43 s without: flushErases spins to its 100,000 guard), round promotion 2/8, alive-redo-only 1/25, prune-on-op 1/25,
+supply on add 1/34, on a frame back 1/25; two 0-red lines deleted; B-ERASE's lock 0/98 on this tree (was 1/71) → a
+frame-drag lock test added, now 1/99; serial order 4/34; inheritance 15/67.
+**Decisions made:** a pool job lost to the watchdog runs inline on the main thread (a hang there hangs the tab): a design
+question (a reason on the rejection), not fixed.
+**Questions asked:** in the report.
+WHERE I AM: read test:erase and the quick set's results, stop the dev server, end entry, report.

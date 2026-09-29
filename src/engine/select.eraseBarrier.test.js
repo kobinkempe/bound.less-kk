@@ -8,7 +8,7 @@
  *  (c) a frame selection's drag first finishes a mark homed under the frame (B4);
  *  (d) through the erase pool: a gesture is parked, visibly, until its cuts land; a new press cancels it.
  */
-import { useEngines, mkEngine, eraseGesture } from "./__testkit__/harness";
+import { useEngines, mkEngine, eraseGesture, descend } from "./__testkit__/harness";
 import { lcg } from "./__testkit__/rasterLists";
 import { setEraseTransport } from "./eraseWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
@@ -185,3 +185,34 @@ describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new 
         expect(E.selection).toBeNull();                                          // and the cancelled tap selected nothing
     });
 });
+
+test("a frame's drag bakes the marks homed under it with the per-target lock: an older mark never cuts a newer one's piece", () => {
+    // M1 at the root over T; M2 drawn one crossing down over T, homed in F. The drag of F names M2's pairs
+    // only (B4); each target is cut with the earliest mark pending over it anywhere, so M1 goes first.
+    const E = mkEngine(800, 600);
+    E._scheduleBake = () => {};
+    const T = fill(E, 300, 250, 500, 350, "rgb(40,40,200)");
+    E._render();
+    eraseGesture(E, [[420, 200], [420, 400]], 12);                              // M1, through where F is
+    const M1 = E._eraseStrokes()[0].obj;
+    descend(E, 1, 420, 300);
+    const F = E.cam.frame;
+    eraseGesture(E, [[300, 100], [500, 500]], 40);                              // M2, homed in F, over T there
+    const M2 = E._eraseStrokes().find((r) => r.obj.id !== M1.id).obj;
+    expect(M2._home).toBe(F);
+    expect(underMask(T, M1) && underMask(T, M2)).toBe(true);
+    const mintedBy = new Map(), wrong = [];
+    E.doc.subscribeOps((ev) => {
+        if (ev.kind !== "bake" || !ev.step.removed) return;
+        const by = mintedBy.get(ev.step.removed.obj.id);
+        if (by === M2.id && ev.op.strokeId === M1.id) wrong.push(ev.step.removed.obj.id);
+        for (const pc of ev.step.pieces || []) mintedBy.set(pc.obj.id, ev.op.strokeId);
+    });
+    E._setSelection([], [F]);
+    let ran = false;
+    expect(E._dragBarrier(() => { ran = true; })).toBe(true);                    // inline: no worker
+    expect(ran).toBe(true);
+    expect(mintedBy.size).toBeGreaterThan(0);                                   // the barrier cut
+    expect(wrong).toEqual([]);
+});
+

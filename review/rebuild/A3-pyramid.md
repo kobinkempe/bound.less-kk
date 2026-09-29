@@ -746,7 +746,9 @@ All three stop while a report is sending (`E._reportBusy`, `hooks/reportSend.js:
 
 *Wired (B-PYRAMID-2):* the plan runs at idle (the camera still, nothing of priority < 4 queued or in flight) once per
 view revision **and Stage generation**: a change stales the cached coarser levels, and without the re-plan a zoom out of
-rest fell to the stale ℓv under the rest set, drawn older (the P2 fuzz's trace).
+rest fell to the stale ℓv under the rest set, drawn older (the P2 fuzz's trace). A new plan bumps the prefetch's generation, so the
+queued strips of the one it supersedes drop at dispatch (P5: a bake's commits re-planned each step and the queue held
+200 prefetch strips after 70 s).
 
 ### 4.4 Admission, ordering, the velocity rule, cancellation
 

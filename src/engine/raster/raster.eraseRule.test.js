@@ -323,6 +323,48 @@ describe("row 3 (b) plates kept through a bake, re-rendered where the scene's di
     }
 });
 
+describe("row 3: the masked target looks like its cut pieces — a constructed stack, the picture before and after the bake", () => {
+    test("twelve overlapping fills and strokes under two marks: before (masked) and after (cut) differ only within 1.5 px of a mark's edge or on a cut outline by ≤ 16/255", () => {
+        const out = [];
+        for (const seed of [4, 9, 13]) {
+            const rnd = lcg(seed), E = mkEngine(800, 600);
+            E._scheduleBake = () => {};
+            const rr = (a, b) => a + rnd() * (b - a);
+            for (let k = 0; k < 12; k++) {
+                const x = 400 + rr(-60, 60), y = 300 + rr(-40, 40), c = "rgb(" + Math.floor(rr(20, 200)) + "," + Math.floor(rr(20, 200)) + ",120)";
+                if (k % 2) drawStroke(E, [[x - 70, y - 20], [x, y + 25], [x + 70, y - 10]], 6 + Math.floor(rr(0, 24)), c);
+                else { const R = rr(20, 90), n = 7, ring = []; for (let v = 0; v < n; v++) { const a = (v / n) * 2 * Math.PI; ring.push([x + R * Math.cos(a), y + R * Math.sin(a)]); } E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: c, opacity: k === 4 ? 0.5 : 1, polys: [ring] }, "0"); }
+            }
+            E._render();
+            eraseGesture(E, [[280, 250], [520, 350]], 16);
+            eraseGesture(E, [[330, 380], [470, 220]], 22);
+            const rings = E._eraseStrokes().flatMap((r) => flattenShape(r.obj.loops, 0.02));
+            const cutRings = [];
+            E.doc.subscribeOps((ev) => { if (ev.kind === "bake") for (const pc of ev.step.pieces || []) if (pc.obj.loops) cutRings.push(...flattenShape(pc.obj.loops, 0.02)); });
+            const before = pixels(job(E));
+            E.flushErases();
+            const after = pixels(job(E));
+            const dist = (rs, x, y) => { let best = Infinity; for (const r of rs) for (let k = 0; k < r.length; k++) { const [ax, ay] = r[k], [bx, by] = r[(k + 1) % r.length], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy; const t = L > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0; best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y)); } return best; };
+            const t = { n: 0, nearMark: 0, nearMarkMax: 0, onCut: 0, onCutMax: 0, other: 0 };
+            PLATES.forEach(([i, jj], k) => {
+                for (let o = 0; o < N; o += 4) {
+                    const d = Math.max(Math.abs(before[k][o] - after[k][o]), Math.abs(before[k][o + 1] - after[k][o + 1]), Math.abs(before[k][o + 2] - after[k][o + 2]));
+                    if (!d) continue;
+                    t.n++;
+                    const x = i * PLATE_PX + ((o >> 2) % PLATE_PX) + 0.5, y = jj * PLATE_PX + ((o >> 2) / PLATE_PX | 0) + 0.5;
+                    if (dist(rings, x, y) <= 1.5 + Math.SQRT1_2) { t.nearMark++; t.nearMarkMax = Math.max(t.nearMarkMax, d); }
+                    else if (d <= 16 && dist(cutRings, x, y) <= 1 + Math.SQRT1_2) { t.onCut++; t.onCutMax = Math.max(t.onCutMax, d); }
+                    else t.other++;
+                }
+            });
+            out.push({ seed, ...t });
+            expect(t.other).toBe(0);
+            expect(t.nearMark + t.onCut).toBe(t.n);
+        }
+        if (process.env.ENVELOPE_LOG) console.log("STACK " + JSON.stringify(out));
+    });
+});
+
 describe("row 3 (c) an object moved under a mark after its registration draws as with no mark, and is never cut", () => {
     const setup = (landed) => {
         const E = mkEngine(800, 600);

@@ -1038,7 +1038,13 @@ eraser resumes from its headers: the mark's `targets`, its pieces' `handledBy`, 
 interrupted by a tab close resumes where it left off. Compaction never drops an entry
 younger than the undo window or belonging to a pending mark. Header fields a build does
 not know ride through (`_extra`), and an `attr` entry carries a per-object field set on
-its own: a mark's `targets`, a refusal's `handledBy` (A2 §4.9), and later z-order.
+its own: a mark's `targets`, a refusal's `handledBy` (A2 §4.9), and later z-order. The erase
+fields are additive (no version bump): the deployed build (0732252) reads a kobin-1 file and
+kobin-2 frames written now and writes the three fields back unchanged (measured, R-ERASE). Its replay applies an `attr`
+entry without marking the field as one to keep (read from its `oplog.js`), so its next snapshot
+of that frame drops it; the mark then registers again by the old-file rule here (A2 §4.9 "Across versions").
+A store the pre-rule engine made (1cac470) loads, registers each landed mark once and ends its
+bake at that engine's own result (`erase.oldStore.test.js`).
 
 **The lattice is the header's** (2026-09-15, the subtree move of §8). Every write
 carries `LevelMap.serialize` — addresses, shifts, shadows — beside its entries, so

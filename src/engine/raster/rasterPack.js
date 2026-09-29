@@ -36,6 +36,7 @@ import { strokeStripNear, ringSignedArea, flattenCurve, controlsFor } from "../g
 import { flattenLoops, cubicLoopsBBox } from "../geometry/curveOutline";
 import { underMask } from "../eraseRule";
 import { sagittaOf } from "../geometry/chordMath";
+import { bboxOf } from "../geometry/derive";
 
 /**
  * The arc flattening tolerance, in device px — the same 1/16 as `rasterCore.ARC_TOL` (§4.4).
@@ -424,6 +425,22 @@ export function itemBox(item, cfg) {
     return e.bad ? null : e.box;
 }
 
+/**
+ * Whether an item cannot draw inside `win` (frame units), read off its cached drawn box (`bboxOf`, memoised on the
+ * geometry) without building its pack entry: a scan that builds every entry of a table larger than the memo rebuilds
+ * them all each time (the dense drawing thrashed the 10 MiB memo, B-PYRAMID-2 P5). Conservative: a stroke's box is
+ * widened by half its width and, for its curve's overshoot past its points, a quarter of its extent.
+ */
+export function outsideWin(item, win, live = null) {
+    const g = item.piece || item;
+    if (!g || g === live || !g.type) return false;
+    const b = bboxOf(g, live);
+    if (!b || !(b.x1 >= b.x0) || !(b.y1 >= b.y0)) return false;
+    const m = g.type === "shape" || g.type === "fill" ? 0 : (g.lwFrame || 0) / 2 + 0.25 * Math.max(b.x1 - b.x0, b.y1 - b.y0);
+    const r = item.res, dx = r ? r[0] : 0, dy = r ? r[1] : 0;
+    return b.x1 + dx + m < win.left || b.x0 + dx - m > win.right || b.y1 + dy + m < win.top || b.y0 + dy - m > win.bottom;
+}
+
 // ---------------------------------------------------------------------------
 // The visible chord estimate (§6.5): the one number the sync/plates switch is
 // decided on. Stage 5b's (§15.3 Q10, decision 7).
@@ -520,7 +537,7 @@ export function visibleChords(list, win, Z, cfg, cap, live = null) {
     let n = 0;
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
-        if (o === live) continue;
+        if (o === live || outsideWin(o, win, live)) continue;
         const e = entryFor(o, cfg);
         if (e.bad) continue;
         const b = e.box, r = o.res;
