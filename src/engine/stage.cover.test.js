@@ -41,8 +41,12 @@ async function flush(rounds = 200) {
     }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** Past the idle table read a camera step leaves (`_readIdle`), its step and their arrivals: at most a second. */
+/**
+ * The still frame the page's "raf" frames take after a camera step (A3 §2.1: stillness is seen only on a frame), then
+ * past the idle table read the step left (`_readIdle`), its step and their arrivals: at most a second.
+ */
 async function settled(E) {
+    E.renderer.syncCameraOnly();
     for (let k = 0; k < 100; k++) {
         await flush();
         if (E._readTimer == null && !holes(E).length) return;
@@ -127,7 +131,7 @@ describe("every plate job holds every item overlapping the plate", () => {
         for (let k = 0; k < 40; k++) fill(E, -3000 + (k % 8) * 760, -1600 + Math.floor(k / 8) * 640, 420, 300, "rgb(" + (30 + 5 * k) + ",90,160)", "0");
         const seen = watchJobs(E);
         E._render(); await flush();
-        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await settled(E); if (holes(E).length) { const v = E.renderer._view, P = E.renderer.pyramid; console.log("DBGC1 k=" + k + " mode=" + v.mode + " holes=" + holes(E).join(" ") + " covers=" + E.stage.covers(E.cam.frame, E._listWin()) + " readTimer=" + E._readTimer + " rest=" + JSON.stringify(P._rest) + " restTimer=" + (P._restTimer != null) + " groups=" + P._groups.size + " q=" + JSON.stringify(E.renderer.queue.report().queued)); } expect(holes(E)).toEqual([]); }
+        for (let k = 0; k < 12; k++) { E.panBy(k < 6 ? -260 : 260, k % 3 === 0 ? 180 : -60); await settled(E); expect(holes(E)).toEqual([]); }
         for (let k = 0; k < 6; k++) { E.zoomAt(400, 300, 300); await flush(); }
         expect(seen.jobs).toBeGreaterThan(5);
         expect(seen.plates).toBeGreaterThan(20);
