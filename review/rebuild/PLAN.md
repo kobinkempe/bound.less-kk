@@ -629,3 +629,18 @@ of a half-handled family within 1.5 px of the mark's edge. The eraser is not des
    old layer's deletions); the deployed build drops an `attr`-set `targets` at its next snapshot — recoverable, since a
    landed mark without `targets` is registered at first sight by the old rule (§5.8), so no version gate for the erase
    fields (noted in A2 §4.9).
+
+### 5.10 To B-MODEL-C1's checkpoints (2026-09-29)
+
+M0 (237cd6a): the frozen oracle is the whole engine closure at 5e9b1dd, not the five model files alone — accepted (the
+settle's glue lives in the engine, the selection and the Stage; a live driver over a frozen model would not be today's
+engine). The spine-id load gap closed in `LevelMap.ensureId`; no file-version change (the app never writes such a
+file; the deployed build loads it undrawn and writes it back unchanged). M1 (b62c2b4): the composition beside the
+settle, the tile fuzz (20 seeds × 40 steps, 6,705 items bit-identical, 0 carried at M1) and the round trip
+pixel-identical between the pre-C1 and M1 worktrees.
+
+1. **Q1 keep** `displaced`'s mint of a picture's source frame for C1 (A1 §1.2 row 19): it is the one exception to §3
+   row 8's "the lattice's frame set unchanged across reads" — an empty frame, GC'd — and the pure-read test asserts the
+   rest; C3 revisits it when a deleted subtree leaves the lattice.
+2. **Q2 no harness edit** (B-PYRAMID-2 is in it): the scenario 3 and 4 final-frame comparison through a Playwright
+   script of C1's own against the pre-C1 worktree; a `--shot` flag is B-PYRAMID-2's successor's.
