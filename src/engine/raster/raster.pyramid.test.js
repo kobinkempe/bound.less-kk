@@ -17,6 +17,7 @@ import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { lcg } from "../__testkit__/rasterLists";
 import { planeStats } from "./MovePlane";
+import { W } from "../frameLattice";
 
 useEngines();
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -910,27 +911,29 @@ describe("the pyramid's open items (B-PYRAMID-2b P6 item 3)", () => {
         expect(m.view.tx).toBe(R._view.tx);
     });
 
-    test("D1 on a 2560×1440@2 screen: a selection a view past the screen has its SEL cells covered, asked and exact", async () => {
+    test("D1 on a 2560×1440@2 screen: a selection a view past the screen, into the next square, has its SEL cells covered, asked and exact", async () => {
         const dpr0 = window.devicePixelRatio;
         Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
         try {
-            const E = mkEngine(2560, 1440, { raster: true }), R = E.renderer, pl = R._plane;
+            const E = mkEngine(2560, 1440, { raster: true }), R = E.renderer, pl = R._plane, edge = W / 2;
             expect(R.pyramid.dpr).toBe(2);
+            // The screen's right edge 1,500 units short of square 1 (x ≥ W/2): four view cells (1,024 units) stop short of it.
+            E.cam.set({ frame: "0", inScale: 1, inPanX: -(edge - 4060), inPanY: 0 });
             const id = E.doc.allocId();
             E.doc.add({ type: "fill", origin: "native", id, color: "rgb(200,30,30)", opacity: 1,
-                polys: [[[100, 300], [5000, 300], [5000, 700], [100, 700]]] }, "0");          // to x 5000: a view past 2560
+                polys: [[[edge - 3500, 300], [edge + 1000, 300], [edge + 1000, 700], [edge - 3500, 700]]] }, "0");
             E._render();
             E.setTool("select");
             E._setSelection([id], []);
             E._render();
-            const far = { left: 2560 + 1100, top: 300, right: 5000, bottom: 700 };           // past four view cells (1,024 units)
+            const far = { left: edge + 10, top: 300, right: edge + 1000, bottom: 700 };   // in square 1, a view past the screen
             for (let t0 = Date.now(); Date.now() - t0 < 10000; ) {
                 await new Promise((r) => setTimeout(r, 20));
-                if (pl.layers.length && E.stage.covers(E.cam.frame, far) && pl._whole(pl.main, E.plates, true)) break;
+                if (pl.layers.length && E.stage.covers("0", far) && pl._whole(pl.main, E.plates, true)) break;
             }
-            expect(E.stage.covers(E.cam.frame, far)).toBe(true);                               // red before: never read, never asked
+            expect(E.stage.covers("0", far)).toBe(true);                                       // red before: never read, never asked
             const sel = pl.main.layers.filter((L) => L.kind === "sel"), u = cellUnits(pl.main);
-            expect(sel.some((L) => L.cells.some(([i]) => i * u > far.left))).toBe(true);      // SEL cells a view past the screen
+            expect(sel.some((L) => L.cells.some(([i]) => (i + 1) * u > edge + 10))).toBe(true);   // SEL cells reaching into square 1
             expect(pl._whole(pl.main, E.plates, true)).toBe(true);
         } finally {
             Object.defineProperty(window, "devicePixelRatio", { value: dpr0, configurable: true });
