@@ -15,8 +15,8 @@ import KobinEngine from "../engine/KobinEngine";
 import { _resetDbForTests } from "../storage/db";
 import { saveCanvasDoc } from "../storage/localCanvases";
 import { encodeLoops, loopsArea } from "../engine/geometry/arcShape";
-import { setEraseTransport } from "../engine/eraseWorkerClient";
-import { cutJob, unwireJob, wireResult } from "../engine/eraseJob";
+import { setRasterTransport } from "../engine/raster/rasterWorkerClient";
+import { runJob, runCut } from "../engine/worker/rasterWorker";
 
 jest.setTimeout(120000);
 
@@ -105,7 +105,7 @@ async function bakeOut(e, ms = 60000) {
     return marks(e) === 0;
 }
 
-afterEach(() => setEraseTransport(null));
+afterEach(() => setRasterTransport(null));
 beforeEach(() => {
     localStorage.clear();
     window.indexedDB = new IDBFactory();
@@ -190,7 +190,8 @@ describe("an erase saved mid-bake", () => {
     });
 
     test("closed with a cut in the worker: the destroyed engine bakes no further; the reopened one finishes the same", async () => {
-        setEraseTransport((msg) => later(1500).then(() => wireResult(cutJob(unwireJob(msg))).msg));
+        // One pool for plates and cuts (PLAN §1.6): the plates answer at once, a cut after 1.5 s.
+        setRasterTransport((msg, transfer, kind) => (kind ? later(1500).then(() => runCut(kind, msg).msg) : runJob(msg).then((o) => o.msg)));
         let view = await mount("c1");
         stackAndRing(8);
         const ref = reference(E().serializeDrawing());

@@ -9,7 +9,8 @@
  * half a pixel (127.5, rounded to even by Uint8ClampedArray), 42 is a sixth.
  */
 
-import { PLATE_PX, QUANTA_PER_OCTAVE, QUANTUM_HYSTERESIS, quantumFor, plateRange, plateKey, plateOriginPx, zqOf } from "./plate";
+import { PLATE_PX, plateRange } from "./plate";
+import { levelKey, restKey } from "./level";
 import * as core from "./rasterCore";
 import { ringsArea, coverRings } from "../__oracles__/coverageOracle";
 
@@ -516,39 +517,19 @@ describe("rasterCore — the core loop", () => {
 });
 
 describe("plate.js — the grid", () => {
-    test("the quantum is the nearest quarter octave, and hysteresis keeps the one in force", () => {
-        expect(PLATE_PX).toBe(512);
-        expect(QUANTA_PER_OCTAVE).toBe(4);
-        expect(quantumFor(1, 1).q).toBe(0);
-        expect(quantumFor(1, 1).Zq).toBe(1);
-        expect(quantumFor(2, 1).q).toBe(4);
-        expect(quantumFor(0.5, 1).q).toBe(-4);
-        expect(quantumFor(1, 2).q).toBe(4);
-        // 0.75 of a step of drift is kept; more re-quantises
-        const drift = (steps) => quantumFor(zqOf(steps), 1, 0).q;
-        expect(drift(QUANTUM_HYSTERESIS - 0.01)).toBe(0);
-        expect(drift(QUANTUM_HYSTERESIS + 0.01)).toBe(1);
-        expect(drift(-(QUANTUM_HYSTERESIS - 0.01))).toBe(0);
-        expect(drift(-(QUANTUM_HYSTERESIS + 0.01))).toBe(-1);
-        expect(drift(0.49)).toBe(0);                          // without hysteresis this would round to 0 too
-        expect(quantumFor(zqOf(0.6), 1).q).toBe(1);           // with no quantum in force it rounds to nearest
-        expect(quantumFor(0, 1).q).toBe(0);
-        expect(quantumFor(Infinity, 1).Zq).toBe(1);
-    });
-
     test("a screen touches floor(W/512) + 1 or + 2 columns, at a random pan phase", () => {
+        expect(PLATE_PX).toBe(512);
         const win = { left: 0, top: 0, right: 2256, bottom: 1302 };
         const r = plateRange(win, 1);
         expect(r.i1 - r.i0 + 1).toBe(5);
         const off = plateRange({ left: 500, top: 0, right: 2756, bottom: 1302 }, 1);
         expect(off.i1 - off.i0 + 1).toBe(6);                  // the same screen at a worse pan phase
-        expect(plateOriginPx(3)).toBe(1536);
         expect(plateRange({ left: 0, top: 0, right: 1024, bottom: 512 }, 1)).toEqual({ i0: 0, i1: 1, j0: 0, j1: 0 });
     });
 
-    test("the key carries the frame, the quantum and the indices, and not dpr (D27)", () => {
-        expect(plateKey("f7", 3, -2, 5)).toBe("f7|3|-2,5");
-        expect(plateKey("f7", "e", 0, 0)).toBe("f7|e|0,0");
-        expect(plateKey("f7", 3, -2, 5)).toBe(plateKey("f7", 3, -2, 5));
+    test("the pyramid's keys carry the frame, the level (or the exact zoom) and the indices, and not dpr (D27)", () => {
+        expect(levelKey("f7", 3, 1, -2, 5)).toBe("f7|L3s1|-2,5");
+        expect(levelKey("f7", 3, 2, -2, 5)).not.toBe(levelKey("f7", 3, 1, -2, 5));   // the step is part of a level's name
+        expect(restKey("f7", 1.5, 0, 0)).toBe("f7|R1.5|0,0");
     });
 });

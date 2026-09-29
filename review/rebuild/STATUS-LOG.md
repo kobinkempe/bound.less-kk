@@ -1653,3 +1653,19 @@ stayed and the reroute memo kept the old placement (off −8,−4 at "0"); the e
 **Decisions made:** the lint also catches `o["below"]` and `{ below }` destructuring (one evasion found: selection's).
 **Questions asked:** none.
 WHERE I AM: M3 — break-checks on the copy, then the checkpoint entry.
+
+## 2026-09-29 06:22 UTC — B-PYRAMID-2b (builder) — item 2 progress: the old path's code deleted; its suites next
+**Working on:** item 2. Deleted: `PictureLayer.js`, `PlateStore.js`, `worker/eraseWorker.js`; `plate.js` down to
+`PLATE_PX` + `plateRange` (rasterPack's memo step is its own constant); RasterRenderer's old path (the sync path, the
+old post/pack/result/deliver chain, the live hold's clip and extension, the old stopgap, the prebake and ladder posts,
+`_dropDead`; `_frameStep` is the pyramid's step, `snapshotJob` a `PRIO.thumb` job read at idle a budget at a time);
+MovePlane's quantum keys; the client's own queue (`current`, `dropStale`, `pruneCurrent`, `dropQueued`, `pump`,
+`bestIndex`/`LOW_PRIO`, its `STRIPS_PER_WORKER`, `submitPlates`); the engine's ladder, prebake, `_crossTarget`,
+`preBake`/`setPreBake`, `cfg.pyramid`, `_camReadMs`, `_renderPending` (flushBakes compares the last render's G); the
+hook's `pyramidFromUrl`/`hrefWithPyramid`/`setPyramid`, the Dev panel's Pyramid and PreBake buttons; report/DevStats/
+report-read on the pyramid's fields. Ported so far: stage.fresh/hold (+ the testkit) to `PyramidStore`, rasterCore
+(the key test to `levelKey`), RS-3 (the inline estimate's budget), raster.job, erase.resume and select.eraseBarrier to
+`setRasterTransport`.
+**Measured:** typecheck 0; eslint 0 errors on every edited file; the ported suites 84/84 and 13/13 (load 2.2).
+**Questions asked:** none.
+WHERE I AM: item 4's ports — raster.picture/nopaper deleted (F101, F106 to raster.pyramid), then raster.plates → the store's suite.

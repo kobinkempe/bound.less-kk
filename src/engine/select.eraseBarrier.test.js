@@ -10,14 +10,15 @@
  */
 import { useEngines, mkEngine, eraseGesture, descend } from "./__testkit__/harness";
 import { lcg } from "./__testkit__/rasterLists";
-import { setEraseTransport } from "./eraseWorkerClient";
+import { setRasterTransport, setRasterWorkerCount } from "./raster/rasterWorkerClient";
 import { cutJob, unwireJob, wireResult } from "./eraseJob";
 import { underMask } from "./eraseRule";
 import { loopsArea, loopsBBox } from "./geometry/arcShape";
 
 useEngines();
 jest.setTimeout(60000);
-afterEach(() => setEraseTransport(null));
+beforeEach(() => setRasterWorkerCount(3));   // cuts share the raster pool: three slots, as the erase pool had
+afterEach(() => { setRasterTransport(null); setRasterWorkerCount(null); });
 
 const later = (ms = 2) => new Promise((r) => setTimeout(r, ms));
 const fill = (E, x0, y0, x1, y1, color, frame = "0") => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 1,
@@ -127,7 +128,7 @@ describe("row 7 (c) a frame selection's drag finishes a mark homed under the fra
 describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new press", () => {
     const worker = (ms) => (msg) => later(ms).then(() => wireResult(cutJob(unwireJob(msg))).msg);
     test("a lasso stays drawn and the status says finishing until its cuts land; then it judges", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
         fill(E, 200, 200, 330, 300, "rgb(200,40,40)");
@@ -143,7 +144,7 @@ describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new 
         expect(E.selection.ids.length).toBe(2);                                 // the red's two pieces
     });
     test("a drag whose cuts land while the pointer is down starts from the press and jumps to the finger (A2 §5.5)", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
         const R = fill(E, 200, 200, 330, 300, "rgb(200,40,40)");
@@ -169,7 +170,7 @@ describe("row 7 (d) through the erase pool: parked, visible, cancelled by a new 
     });
 
     test("a tap parked on its cuts is cancelled by a new press; the cuts go on as the bake's", async () => {
-        setEraseTransport(worker(20));
+        setRasterTransport(worker(20));
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
         const R = fill(E, 200, 200, 330, 300, "rgb(200,40,40)");

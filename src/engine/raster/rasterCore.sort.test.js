@@ -35,17 +35,17 @@ test("RS-2 a descending run of 1,200 crossings (the band's worst case) takes the
     for (let i = 2; i < out.length; i += 2) expect(out[i]).toBeGreaterThanOrEqual(out[i - 2]);
 });
 
-// F130's other half: the sync switch prices a band by its pen's width too. A 337 px scribble priced by
-// length alone (5,520 chords) stayed on the sync path at pen-up and rastered 20 s on the main thread.
-test("RS-3 a 337 px pen's scribble is priced past the sync path's bar, ten times a thin pen's on the same path", () => {
+// F130's other half: the estimate prices a band by its pen's width too. A 337 px scribble priced by length
+// alone (5,520 chords) was rastered 20 s on the main thread; the rest render's inline test reads these chords.
+test("RS-3 a 337 px pen's scribble is priced past the inline rest render's budget, ten times a thin pen's on the same path", () => {
     const { visibleChords } = require("./rasterPack");
-    const { SYNC_CHORD_BUDGET } = require("./PictureLayer");
+    const { EST_DEFAULTS } = require("./PicturePyramid");
     const cfg = { enter: 256, base: 1 / 16, exit: 1 / 32, arcTolerancePx: 0.25, cullPx: 0.3, fadeLoPx: 0.15, scale: 1000 };
     const pts = [];
     for (let k = 0; k < 69; k++) pts.push([(k % 2 ? 1 : -1) * 0.17, k * 0.02]);   // ~24 units: 4,600 px at Z 192, as stroke 14
     const mk = (lw) => ({ type: "stroke", origin: "native", id: lw * 1000 + 1, pts, lwFrame: lw, color: "#000", opacity: 0.1 });
     const win = { left: -1e6, top: -1e6, right: 1e6, bottom: 1e6 }, Z = 192;
     const wide = visibleChords([mk(1.7578)], win, Z, cfg, 1e9), thin = visibleChords([mk(0.05)], win, Z, cfg, 1e9);
-    expect(wide).toBeGreaterThan(2 * SYNC_CHORD_BUDGET);
+    expect(wide * EST_DEFAULTS.restEdgeUs / 1000).toBeGreaterThan(EST_DEFAULTS.restInlineMs);
     expect(wide / thin).toBeGreaterThan(10);                                                          // red before: 1
 });

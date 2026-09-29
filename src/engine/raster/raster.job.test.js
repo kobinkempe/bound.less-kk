@@ -16,7 +16,7 @@ import {
     wireJob, unwireJob, wireResult, unwireResult, validateJob, copyPlate,
     BufferPool, jobBytes, META_WORDS, ATTR_DOUBLES, KIND_RINGS, FLAG_UNION, FLAG_ERASE,
 } from "./rasterJob";
-import { PLATE_PX, zqOf } from "./plate";
+import { PLATE_PX } from "./plate";
 import KobinEngine from "../KobinEngine";
 import { coverRings, ringsArea } from "../__oracles__/coverageOracle";
 import { Loop } from "../geometry/loop";
@@ -1111,7 +1111,7 @@ describe("the chord estimate of a raw native stroke (F92 bands it along its curv
             expect(item).toBeTruthy();
             const win = { left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 };
             for (const zf of [1, 16]) {
-                const q = Math.round(Math.log2(E.cam.inScale * zf) * 4), Zq = zqOf(q);
+                const q = Math.round(Math.log2(E.cam.inScale * zf) * 4), Zq = 2 ** (q / 4);   // a quarter-octave zoom
                 const edges = pack.bandFor(item, q, Zq, E.cfg).geom.length / 2;
                 const tall = Math.max(1, (item.lwFrame * Zq) / 32);   // a band's rings cross as many sub-scanlines as the pen is tall
                 const priced = pack.visibleChords([item], win, Zq, E.cfg, 1e9) / tall;
