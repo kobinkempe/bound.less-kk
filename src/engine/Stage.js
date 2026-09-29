@@ -8,9 +8,9 @@
  * Four facts a reader needs not to break it:
  *   - a handler never bakes a tile: a tile the table needs and the cache does not hold current is
  *     listed missing and read at the next `sync`; `covers` says which rectangles are complete;
- *   - events raised inside `sync` (a bake settles a frame, `Document.at` merges shadows) are
- *     queued and applied at its end, and every handler is idempotent against the document as it
- *     is — a piece is in the table once, keyed by its object;
+ *   - no read raises a document event (A1 C1); the tile events `sync`'s reads raise are queued
+ *     and applied at its end, and every handler is idempotent against the document as it is — a
+ *     piece is in the table once, keyed by its object;
  *   - dirt is the changed native's drawn footprint before and after, taken from the event itself
  *     (`oldBbox`, `oldBelow`, the removed object) and mapped into every frame with tracked cells:
  *     a plate is exact iff `plate.G >= dirtySince(key)` (A2 §3.1, PLAN §3 row 1);
@@ -30,8 +30,6 @@ const LOG_MAX = 4096;
 const DIRT_LOG_MAX = 2048;
 /** Past this many rectangles in one frame a commit's footprint is one union box (today's MOVE_RECTS_MAX rule). */
 const RECTS_MAX = 256;
-/** `sync`'s rounds of reading what an event dropped while it read (TileStore `_bakeSettled`'s three). */
-const SYNC_ROUNDS = 3;
 /** `landedAt` answers for the most recent shape landings only. */
 const LANDED_MAX = 256;
 const DIRS = ["up", "down"];
@@ -535,17 +533,11 @@ export default class Stage {
         let rebuilt = false;
         this._sync++;
         try {
-            // The frame's natives read as `listFor` reads them each render: a pending shift settles and
-            // shadows merge on this read today (A1 C1 makes it pure); their events are queued below.
-            this.model.nativesIn(F);
-            for (let round = 0; ; round++) {
-                if (this._need || F !== this.frame) { this._rebuild(F, window, left()); rebuilt = true; }
-                else if (round === 0 && !sameRect(window, this.window)) this._setWindow(window);
-                this._drainQueue();
-                this._settle();
-                this._readMissing(left());
-                if ((!this._queue.length && !this._need) || round + 1 >= SYNC_ROUNDS) break;
-            }
+            if (this._need || F !== this.frame) { this._rebuild(F, window, left()); rebuilt = true; }
+            else if (!sameRect(window, this.window)) this._setWindow(window);
+            this._drainQueue();
+            this._settle();
+            this._readMissing(left());
         } finally { this._sync--; }
         this._drainQueue();
         if (this._pinnedVer !== this._keysVer) { this._pinnedVer = this._keysVer; this.store.setCameraPins(this._keys.keys()); }
@@ -731,13 +723,12 @@ export default class Stage {
         if (!o || ev.id == null) return;
         const pending = this._pending.has(ev.id);
         if (k === "add") {
-            if ((ev.live && !ev.rehome) || ev.carry || pending) return;
+            if ((ev.live && !ev.rehome) || pending) return;
             this._after(ev.id, with_(this._stateOf(o, ev.level)));
         } else if (k === "remove") {
-            if (ev.carry || pending) return;
+            if (pending) return;
             this._before(ev.id, with_(this._stateOf(o, ev.level)));
         } else if (k === "change") {
-            if (ev.settle) return;
             const now = this._stateOf(o, ev.level);
             if (ev.offsetsOnly) { this._before(ev.id, { ...now, below: this.model.table(ev.oldBelow, ev.level) }); this._after(ev.id, now); return; }
             if (ev.attrOnly) { this._after(ev.id, with_(now)); return; }

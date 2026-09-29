@@ -76,7 +76,7 @@ export function collectFrames(E, inRender = false) {
     const cand = E._gcCand;
     if (!FRAME_GC_ENABLED) { if (cand) cand.clear(); return 0; }
     if (!cand || !cand.size) return 0;
-    if (E._dragSel || E._drawing || E._lasso || E._descentOut || E.doc.holdMerges) return 0;   // the next trigger; a descent's lattice copy names frames
+    if (E._dragSel || E._drawing || E._lasso || E._descentOut) return 0;   // the next trigger; a descent's lattice copy names frames
     const lm = E.lm, doc = E.doc;
     const keep = new Set(E._camTrail);
     for (let f = lm.frame(E.cam.frame); f; f = f.parent != null ? lm.frame(f.parent) : null) keep.add(f.id);

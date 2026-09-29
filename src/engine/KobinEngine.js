@@ -155,13 +155,13 @@ export default class KobinEngine {
 
         this.lm = new LevelMap(this.cfg, this.width, this.height);
         this.doc = new Document();
-        this.doc.lm = this.lm;   // a frame's pending shift is settled into its natives on first read
+        this.doc.lm = this.lm;   // a frame's shift is its natives' placement, composed on read (A1 C1)
         initFrameGc(this);       // a frame holds something (F94): candidates from here on, collected at triggers
         this.doc.subscribe((ev) => noteFrameEvent(this, ev));
         // The camera's frame merged into the resident of its cell (an undo put a moved frame back where
-        // the camera's twin was): the camera follows, the two being one cell settled, and the view is
-        // drawn again once the read that merged it is done. Left on the gone frame, the canvas drew
-        // nothing and new ink went to a frame the lattice lacked (REVIEWER-3 MOVE-2, F126).
+        // the camera's twin was): the camera follows, one cell, and the view is drawn again after the
+        // action that merged it. Left on the gone frame, the canvas drew nothing and new ink went to a
+        // frame the lattice lacked (REVIEWER-3 MOVE-2, F126).
         this.doc.subscribe((ev) => {
             if (ev.kind !== "mergeFrame" || !this.cam || String(this.cam.frame) !== String(ev.frame)) return;
             this.cam.frame = ev.into;
@@ -272,8 +272,6 @@ export default class KobinEngine {
         this.renderer.setPlaneState(() => this._planeState());
         this.renderer.onPlaneLost = () => this._planeLost();
         this.renderer.onPlaneAimed = () => this._maybeLadder();
-        // A settle's carry takes natives across a cell edge (DESIGN.md §8); out of a selected frame they stay selected.
-        this.doc.subscribeOps((ev) => { if (ev.kind === "settle" && ev.rec && ev.rec.carries && ev.rec.carries.length) this._followCarries(ev.frame, ev.rec.carries); });
         // Back from a hidden tab (the store released its plates): one render re-asks the view's
         // plates over the carried picture, and the ladder is rebuilt at the next quiet (§10.13).
         this.renderer.onShown = () => { if (this._destroyed) return; this._ladderAt = null; this._render(); };
@@ -720,27 +718,24 @@ export default class KobinEngine {
         return { drag: d, ids: h.ids, frames: h.frames, at: h.at };
     }
     /**
-     * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo: the gesture,
-     * the tile batch and the merge hold cleared, the Stage's hold released as one commit, the
-     * renderer told, one render.
+     * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo: the gesture and the
+     * tile batch cleared, the Stage's hold released as one commit, the renderer told, the shadows the
+     * drag made merged (on the drop's op), one render.
      */
     _endMove(why) {
-        const d = this._dragSel, carried = this._carried || new Set();
+        const d = this._dragSel;
         this._dropHold(why);
-        // The drop's render settles the moved frames too: their carries join the drag's.
-        this._dropping = d ? { d, ids: carried } : null;
-        try { this._render(); } finally { this._dropping = null; }
+        this.doc.mergePending(why === "drop" && d && d.moved ? this.doc._undo[this.doc._undo.length - 1] : null);
+        this._render();
         // What the drag moved out of every selected frame stays selected (DESIGN.md §10).
-        if (d && this.selection && (why === "drop" || carried.size)) this._reselect([...carried], why === "drop" && d.frames ? this._outsideSelection(d.frames.keys()) : []);
+        if (d && this.selection && why === "drop" && d.frames) this._reselect([], this._outsideSelection(d.frames.keys()));
         collectFrames(this);      // the containers the gesture minted or emptied (F94)
     }
     /** `_endMove` without the render: for a document event (a reset, the last member removed under a bake) where a render would re-enter. */
     _dropHold(why) {
         const live = this._dragSel || this._holdMove;
         this._dragSel = null;
-        this._carried = null;
         this.store.setBatch(false);
-        this.doc.holdMerges = false;
         const n = this._releaseMove();
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
     }
@@ -778,7 +773,6 @@ export default class KobinEngine {
         this.renderer.update();
         this._emit();
         this._perf("render", t0, false, { n: this._lastList.length, fat: this.renderer._hasFat });
-        if (this._carriedLater) this._flushCarried();     // what this render's settles carried (F93)
         // Sample frames around a render too, not only around a gesture. The
         // worst stall seen so far is a COLD one — opening a drawing at a deep
         // camera — and a meter that only woke for zoom and pan would sleep
@@ -1274,7 +1268,7 @@ export default class KobinEngine {
             };
             this._startPen(o);
             this.store.live = o;
-            this.doc.add(o, this.cam.frame, { live: true });
+            this.doc.add(o, this.cam.frame, { live: true, fresh: true });
             this.renderer.addLive(o);
             this.renderer.setLiveArcs(o._pen.gaps);
             this.renderer.update();
@@ -1316,7 +1310,7 @@ export default class KobinEngine {
         if (straight) o._straight = true;
         this._startPen(o);
         this.store.live = o; // exempt from bbox/flatten caches until it stops growing
-        this.doc.add(o, this.cam.frame, { live: true });
+        this.doc.add(o, this.cam.frame, { live: true, fresh: true });
         this.renderer.addLive(o);
         this.renderer.setLiveArcs(o._pen.gaps);   // a lone tap is still a dot
         this.renderer.update();
@@ -1434,8 +1428,8 @@ export default class KobinEngine {
                     m.belowBefore = v.baseBelow; m.belowAfter = cloneBelow(v.own);
                     return m;
                 });
-                // The frames the drag moved as frames: the same entry objects the drag settled into
-                // (a settle since is already recorded on them), one op with the per-object moves.
+                // The frames the drag moved as frames: its entry objects, one op with the per-object
+                // moves; a merge the drop makes is recorded on them (`Document.mergePending`).
                 const frames = d.frames ? [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
                     || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter))) : [];
                 this._note({

@@ -77,7 +77,6 @@ export default class TileStore {
         this.cache = new Map(); // "F|dir|i,j" -> { level, dir, i, j, objs, epoch, lru }
         this._clock = 0;
         this._epoch = 0;
-        this._rebakes = 0;      // bakes run again because the document moved under them (F78)
         this._pins = new Set(); // keys protected from eviction during a bake/render
         this._holdEvict = false; // `contentOffCamera` runs the eviction itself, once
         // Tiles the zoom-out ladder and the crossing prebake read ahead (`warmReads` on): `framesLeft`
@@ -401,28 +400,11 @@ export default class TileStore {
         this._pins.add(key); // protect this tile (and its parents) during recursion
         let objs;
         this._nest++;   // a tile's parents are baked with it: a read stops between tiles, never inside a chain
-        try { objs = this._bakeSettled(() => this._bakeUp(F, i, j)); } finally { this._nest--; }
+        try { objs = this._bakeUp(F, i, j); } finally { this._nest--; }
         const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
         this._readBakes++;
         return tile;
-    }
-    /**
-     * A bake that read the document while a lazy settle re-homed natives out of it (OPEN-FLAGS
-     * F78): `Document.at` settles a frame's pending shift and can carry its natives to the
-     * neighbour cell mid-bake, and the tile is not in the cache yet for the `add` events to
-     * patch, so an empty tile would be cached for the session. `rev` bumps on every emit; a
-     * bake the document moved under runs again, at most three times.
-     */
-    _bakeSettled(bake) {
-        let objs;
-        for (let n = 0; n < 3; n++) {
-            const rev = this.doc.rev;
-            objs = bake();
-            if (this.doc.rev === rev) return objs;
-            this._rebakes++;
-        }
-        return objs;
     }
     _bakeUp(F, i, j) {
         const frame = this.lm.frame(F);
@@ -438,7 +420,7 @@ export default class TileStore {
         // No offsets enter here (F55). A tile is a pure function of stored bits
         // and the object's own grid; where a moved object's picture is read
         // from is decided in `_reroute`, at render time, from its table.
-        for (const o of this.doc.at(parentId)) parentObjs.push(o);
+        for (const o of this.doc.list(parentId)) parentObjs.push(o);
         for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
         const edges = [];
@@ -525,7 +507,7 @@ export default class TileStore {
     _ringNatives(parentId, rect) {
         const out = [];
         for (const G of this.lm.peekRing(parentId)) {
-            if (!this.doc.at(G.id).length) continue;
+            if (!this.doc.list(G.id).length) continue;
             // Ask the neighbour's own spatial index, in ITS coordinates, rather
             // than scanning every native it holds: this runs on every up-bake,
             // for eight cells, and a linear scan there is what a drag over a
@@ -558,7 +540,7 @@ export default class TileStore {
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         if (this._deadline != null && !this._nest && this._readBakes > 0 && perfNow() > this._deadline) throw OVER_BUDGET;
-        const objs = this._bakeSettled(() => this._bakeDown(F, i, j));
+        const objs = this._bakeDown(F, i, j);
         const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
         this._readBakes++;
@@ -584,7 +566,7 @@ export default class TileStore {
                 if (eAtF.right + tol < rect.left || eAtF.left - tol > rect.right ||
                     eAtF.bottom + tol < rect.top || eAtF.top - tol > rect.bottom) continue;
             }
-            for (const o of this.doc.at(G)) {
+            for (const o of this.doc.list(G)) {
                 const tag = projectedSizePx(o, f, this.cfg, this.live); // size at F's deepest zoom
                 if (tag < this.fadeLoPx) continue;                     // cull (invisible by construction)
                 const b = bboxOf(o, this.live);

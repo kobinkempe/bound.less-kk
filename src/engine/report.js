@@ -333,7 +333,7 @@ function movesOf(E, sub) {
         }))) : null,
         drag: d ? { start: d.start, last: d.last || null, moved: !!d.moved, members: d.moves ? d.moves.size : 0, frames: d.frames ? d.frames.size : 0 } : null,
         hold: h ? { ids: h.ids.size, frames: h.frames, at: h.at } : null,
-        holdOn: !!E._moveHoldOn, holdMerges: !!E.doc.holdMerges,
+        holdOn: !!E._moveHoldOn,
         shifts, shadows, recent,
     };
 }
