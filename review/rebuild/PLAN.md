@@ -644,3 +644,28 @@ pixel-identical between the pre-C1 and M1 worktrees.
    rest; C3 revisits it when a deleted subtree leaves the lattice.
 2. **Q2 no harness edit** (B-PYRAMID-2 is in it): the scenario 3 and 4 final-frame comparison through a Playwright
    script of C1's own against the pre-C1 worktree; a `--shot` flag is B-PYRAMID-2's successor's.
+
+### 5.11 To B-PYRAMID-2 (its checkpoint report of 2026-09-29, P0–P5) — P6 goes to B-PYRAMID-2b
+
+Read in full. P0–P5 landed (P5 as 22f4c8e). Its reference pair on one frozen tree (post-paint sampler on the old path,
+the pyramid's own integrals on the new): the zoom-out's paper 304 → 4.1 ms, frames over 33 ms 61 → 9, long frames 24
+(worst 7.7 s) → 4 (worst 0.7 s); the slow zoom's long frames 27 → 9; the pen-up's release 200 → 155 ms with the
+picture exact at release; the drag at 33 images on both paths, the pyramid's through the surface; the bake 5.3 → 6.6 s;
+the round trip identical (25,244 px, one hash). `olderMs` 0 in scenarios 1, 2, 3, 5, 6 on every run; 357–595 ms in the
+drag's drop and 1.7–2.2 s in the bake, attributed to A3 §3.4's one allowed case (a stale cell whose patch fits no
+level inline waits for the workers) but not verified per cell. The pack memo's thrash (wrapper keys, 10 MiB against
+20 MiB of entries) was the pyramid path's main cost and is fixed (keyed by geometry, 64 MiB).
+
+1. **Q1 yes**, `PACK_BUDGET` 64 MiB (32 on a phone); a scan-resistant memo is a wave 3 helper, not P6's.
+2. **Q2 yes**: while a plane is aimed, the camera's read window grows to one view past the screen so D1's SEL cells
+   are covered and asked (A3 §4.2's window is "the union of the covers of every cell the renderer will pack").
+3. **Q3 split `olderMs` by cause** before judging: `olderPatchMs` (a worker patch pending for a cell that no level
+   can patch inline — §3.4's case, reported and shown to Kobin) and `olderOtherMs`, which must be 0 in every
+   scenario; the drop's and the bake's numbers are re-measured with the split. The undo's 299 ms against 46 ms
+   (least-sure 4) is investigated with it: the inline patch (A3 §3.5's worked example) should make an undo exact
+   within one frame plus its budget, so 299 ms means the estimate sent it to the workers.
+4. **P6 is B-PYRAMID-2b's** (`briefs/B-PYRAMID-2b.md`): the deletion with the old path, the cuts through the queue
+   with the watchdog refusal (§5.9 item 1), `_renderPending`, the TEST-MAP ports, the duplicates to one each,
+   `snapshotView` through the pyramid, the open pyramid items (items 2–3 here, the attention point, `reportBusy`, a
+   stale rest cell's cover through the mapped frame, the motion's break-check), the docs and OPEN-FLAGS; then the
+   harness once more on a frozen tree against P5's reference table. One reviewer for P0–P6 after it.
