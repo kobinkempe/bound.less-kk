@@ -132,10 +132,15 @@ test("S1 a snapshot leaves the camera, the tile frame and the tile pins exactly 
     expect(E.store.size()).toBeGreaterThanOrEqual(tiles0);  // nothing was evicted out from under the view
     expect(E.renderer._lastList).toBe(lastList0);           // the camera's own list is untouched
 
+    const reads = jest.spyOn(E.stage, "snapshot");
+    await until(() => reads.mock.calls.length > 0);
     await flush();
     await p;
     expect(JSON.stringify(E.cam.state())).toBe(cam0);
     expect([...E.store._pins].sort()).toEqual(pins0);
+    // Read at idle, a budget at a time (D5: never unbudgeted).
+    expect(reads.mock.calls.length).toBeGreaterThan(0);
+    for (const c of reads.mock.calls) expect(c[2] > 0 && Number.isFinite(c[2])).toBe(true);
 });
 
 test("S1 BREAK-CHECK: with `content` in the snapshot's read, the visible pin set is replaced", async () => {

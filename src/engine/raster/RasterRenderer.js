@@ -97,6 +97,7 @@ export default class RasterRenderer extends Renderer {
         /** True while any row this module opened is open, whatever its kind (`_openRow`). */
         this._rowLive = false;
         this._pumpQueued = false;                       // a microtask pump is pending (`_pumpSoon`)
+        this._coreMs = 0;                               // the inline executor's core phases, summed (`_noteCore`)
         this.paper = opts.paper || "#ffffff";
         this._paperRgb = parseColour(this.paper);
 
@@ -772,6 +773,12 @@ export default class RasterRenderer extends Renderer {
         Promise.resolve().then(() => { this._pumpQueued = false; if (!this._destroyed) this.queue.pump(); });
     }
 
+    /** An inline render's core phases: the row's (`rasterPerf.noteCore`, rasOnMain), and out of `eng.view` around it. */
+    _noteCore(s) {
+        this._coreMs += (s.clipMs || 0) + (s.edgesMs || 0) + (s.unionMs || 0) + (s.accumMs || 0);
+        if (this.perf.noteCore) this.perf.noteCore(s);
+    }
+
     /** A job id ended in the store: for every id a strip was begun with, landed or not. */
     _endJob(jobId) {
         if (jobId == null) return 0;
@@ -790,7 +797,7 @@ export default class RasterRenderer extends Renderer {
             onRequest: (jobs) => { this.queue.push(jobs); this._pumpSoon(); },
             pack: (job) => this._pyrPack(job, null, null),
             measure: (job) => this._pyrMeasure(job),
-            onSample: (s) => pyr.calibrate(s),
+            onSample: (s) => { pyr.calibrate(s); this._noteCore(s); },
         });
         const base = opts.pool || rasterPool;
         const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
@@ -814,9 +821,10 @@ export default class RasterRenderer extends Renderer {
      */
     _frameStep() {
         const pyr = this.pyramid, q = this.queue;
-        const tv = perfNow(), p0 = this._packMs;
+        const tv = perfNow(), p0 = this._packMs, c0 = this._coreMs;
         const view = pyr.frameFor(this.cam);
-        this._add(SLOT.view, perfNow() - tv - (this._packMs - p0));   // an inline render's packs are `eng.pack`'s
+        // An inline render's packs are `eng.pack`'s and its core phases the row's own (`_noteCore`).
+        this._add(SLOT.view, perfNow() - tv - (this._packMs - p0) - (this._coreMs - c0));
         this._view = view;
         this.perf.noteView(view);
         q.setMotion(this._pyrMotion(view));

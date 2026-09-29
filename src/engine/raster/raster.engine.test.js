@@ -88,6 +88,8 @@ afterEach(() => {
  */
 const MAIN_SLOTS = ["eng.list", "eng.settle", "eng.cull", "eng.band", "eng.pack",
     "eng.view", "eng.lookup", "ovl.tail", "xfer.out", "xfer.in", "br.blit"];
+/** The core's phases: MAIN on a row the inline executor ran in (`noteCore`, rasOnMain), the worker's elsewhere. */
+const CORE_SLOTS = ["eng.clip", "ras.edges", "ras.union", "ras.accum"];
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 function mkPerf() {
     const rows = [], queued = new Map();
@@ -113,11 +115,17 @@ function mkPerf() {
         },
         noteBitmap(ms) { P.add("br.bitmap", ms); },
         noteCompose(ms) { P.add("br.blit", ms); },
+        noteCore(c) {
+            if (!open) return;
+            open.rasOnMain = true;
+            P.add("eng.clip", +c.clipMs || 0); P.add("ras.edges", +c.edgesMs || 0);
+            P.add("ras.union", +c.unionMs || 0); P.add("ras.accum", +c.accumMs || 0);
+        },
         noteDrop() {}, noteView() {},
     };
     return P;
 }
-const sumMain = (row) => MAIN_SLOTS.reduce((t, s) => t + (row.slots[s] || 0), 0);
+const sumMain = (row) => MAIN_SLOTS.concat(row.rasOnMain ? CORE_SLOTS : []).reduce((t, s) => t + (row.slots[s] || 0), 0);
 const bar = (ms) => Math.max(1, 0.1 * ms);
 
 /** A render whose view jobs go to the pool (no inline rest render), after a change under every cell. */
@@ -193,6 +201,30 @@ test("BREAK-CHECK: unbucketed work in the ARRIVAL task breaks the main half, and
     const parts = (info.postedAt - arrival.queuedAt) + (info.wallMs - info.queueingMs) + info.queueingMs
         + (arrival.t0 - info.arrivedAt) + inMs + blitMs;
     expect(Math.abs((arrival.wallMs - parts) - (arrival.mainMs - inMs - blitMs))).toBeLessThan(1e-6);
+});
+
+test("§8.4 rule 2 on an inline rest frame: the core's phases are the row's (rasOnMain), out of eng.view, inside the bar", async () => {
+    const gate = mkGate();
+    const perf = mkPerf();
+    const E = mkEngine(400, 300, perf), R = E.renderer;
+    R.pyramid.cfg.prefetchQuietMs = 1e9;
+    R.pyramid.cfg.restInline = "never";                             // the first frames: the level's plates, through the pool
+    for (let k = 0; k < 30; k++) E.doc.add(fillItem(200 + k, 6 + (k % 10) * 38, 6 + Math.floor(k / 10) * 90, 30), "0");
+    E._render();
+    while (await gate.release());
+    R.pyramid.cfg.restInline = "auto"; R.pyramid.cfg.restInlineMs = 1e3;   // any estimate fits: the still frame renders inline
+    const n0 = perf.rows.length, inline0 = R.pyramid.s.restInline;
+    R.syncCameraOnly();                                             // the still frame: the rest set, inline
+    expect(R.pyramid.s.restInline).toBe(inline0 + 1);
+    const row = perf.rows.slice(n0).find((r) => r.kind === "camera");
+    const res = row.mainMs - sumMain(row), core = CORE_SLOTS.reduce((t, s) => t + (row.slots[s] || 0), 0);
+    // eslint-disable-next-line no-console
+    console.log("rule 2 inline rest: mainMs " + row.mainMs.toFixed(3) + " = buckets " + sumMain(row).toFixed(3) + " (core "
+        + core.toFixed(3) + ", view " + (row.slots["eng.view"] || 0).toFixed(3) + ") + residual " + res.toFixed(3) + "  (bar " + bar(row.mainMs).toFixed(3) + ")");
+    expect(row.rasOnMain).toBe(true);
+    expect(row.slots["ras.edges"]).toBeGreaterThan(0);
+    expect(res).toBeGreaterThan(-1e-9);                             // counted twice (core inside eng.view too) is negative
+    expect(res).toBeLessThanOrEqual(bar(row.mainMs));
 });
 
 // ---------------------------------------------------------------------------

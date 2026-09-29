@@ -813,3 +813,28 @@ describe("ported from raster.picture (B-PYRAMID-2b P6)", () => {
         expect(host.querySelectorAll("canvas").length).toBe(0);
     });
 });
+
+describe("found by the P6 ports (B-PYRAMID-2b)", () => {
+    test("the rest after the quiet goes out with nothing else pumping, in a row of its own (A3 §4.6: kind settle)", async () => {
+        const g = gate();
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, P = R.pyramid, c = P.cfg;
+        c.restInline = "never"; c.restQuietMs = 1e9; c.prefetchQuietMs = 1e9;
+        stroke(E);
+        E._render();
+        for (let k = 0; k < 10; k++) await g.run();                 // the level's plates, landed
+        const armed = [];
+        P._onMove();                                                // no quiet running
+        P._setTimer = (fn) => { armed.push(fn); return armed.length; };
+        R.syncCameraOnly();                                         // the still frame: the rest set waits for the quiet
+        expect(armed.length).toBe(1);
+        expect(g.parked.length).toBe(0);
+        const kinds = [], open = R._openRow.bind(R);
+        R._openRow = (seq, kind, back) => { kinds.push(kind); return open(seq, kind, back); };
+        armed[0]();                                                 // the quiet runs out: no step, no arrival
+        await tick();
+        expect(g.parked.length).toBeGreaterThan(0);                 // red before: queued, and nothing pumped it
+        expect(kinds.length > 0 && kinds.every((k) => k === "settle")).toBe(true);   // each strip packed and posted in a row of its own
+        for (let k = 0; k < 10; k++) await g.run();
+        expect(R._view.mode).toBe("rest");                          // the group in: the rest set shown
+    });
+});

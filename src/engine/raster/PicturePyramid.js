@@ -922,7 +922,7 @@ export default class PicturePyramid {
         const out = [];
         if (!this._scratch) this._scratch = new Uint8ClampedArray(PLATE_PX * PLATE_PX * 4);
         const sc = this._scratch, counts = this._counts, tm = this._timings;
-        const sum = { edges: 0, edgesMs: 0, px: 0, accumMs: 0, unionMs: 0, unionRows: job.est && job.est.U ? job.est.U : 0 };
+        const sum = { edges: 0, edgesMs: 0, px: 0, accumMs: 0, unionMs: 0, clipMs: 0, unionRows: job.est && job.est.U ? job.est.U : 0 };
         // The pack may keep fewer cells than the job asked (the table's cover): plate p is `packedCells[p]`.
         const cells = job.packedCells || job.cells, clips = job.packedCells ? job.packedClips : job.clips;
         for (let p = 0; p < cells.length; p++) {
@@ -931,7 +931,7 @@ export default class PicturePyramid {
             if (packed && packed.nItems > 0) {
                 counts.fill(0); tm.fill(0);
                 renderPlate(packed, p, sc, counts, tm, clip);
-                sum.edges += counts[4]; sum.px += counts[7]; sum.edgesMs += tm[4]; sum.unionMs += tm[5]; sum.accumMs += tm[6];
+                sum.edges += counts[4]; sum.px += counts[7]; sum.clipMs += tm[2]; sum.edgesMs += tm[4]; sum.unionMs += tm[5]; sum.accumMs += tm[6];
                 if (!clip && counts[1] === 0) { out.push(rec); continue; }
             } else if (!clip) { out.push(rec); continue; }
             else fillPaper(sc, this._paperRGB, clip);

@@ -1785,3 +1785,20 @@ the settle-named tests (9), the docs (10). Files I may edit (brief §3): `Docume
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: reading the brief's list (DESIGN §8/§13, A1 §4.4/§14, the code).
+
+## 2026-09-29 10:31 UTC — B-PYRAMID-2b (builder) — item 4 checkpoint: every suite in the brief ported
+**Working on:** item 4 done bar its break-checks (running on `bp2b/bc`). Ported: `raster.phone` (P1 on the store's
+phone budget; P3/P4 → one pen-up rectangle test), `raster.snapshot` (S1/S5/S7/S8 through the idle read and the queue;
+R4 ×5 and R5b ×3 deleted), `raster.translucent`, `raster.overlay` (G3 a level change repaints; G11's held drag compared
+where painted — C1's "20 px off": the raster path holds the drag on its plane, decides on the pre-drag list, `off` 40
+against the SVG's 20, same place on screen), `raster.liveHold`, `raster.perf`, `stage.cover` C1–C5 (C3 → the
+prefetch), the hook suites, `report` RB-7, `KobinEngine.contract`; three probes ported, `picture.bench.probe` deleted.
+**Found by the ports, fixed:** (1) the rest after the quiet never went out when nothing else pumped: `onRequest`
+pushed without a pump, and a still camera has no step and no arrival — now a microtask pump; (2) a dispatch outside a
+row (the rest's quiet) was orphan adds — now a row of kind `settle` (A3 §4.6); (3) the inline executor's core time
+sat in `eng.view` (ENGINE): A3 §2.5 keeps it in the core's slots with `rasOnMain` — `rasterPerf.noteCore`.
+`OverlayLayer`'s repaint key dropped the dead `q`.
+**Measured:** rule 2 on an inline rest frame (jsdom, load 1.6): 4.385 ms = buckets 4.265 (core 1.479, view 2.214) +
+0.120 (bar 1.0). raster/hooks/stage/erase set: 821/822 at load 1.6 (LH-1's wait, made robust), then green.
+**Questions asked:** none. C1's two items (the hook's saver comment, `rasterPack`'s `ownContent`) queued for item 5.
+WHERE I AM: item-4 break-checks running; then item 3 (read window, olderMs split, undo 299 ms, attention, busy, cover, `at`).

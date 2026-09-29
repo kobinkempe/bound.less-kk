@@ -26,7 +26,7 @@ const now = () => t;
 const wall = () => WALL0 + t;
 
 let perfCalls = [];
-const LAYER = { mode: "plates", q: -3, s: 1.0905, dpr: 2.625, plates: 15, composes: 4,
+const LAYER = { mode: "level", q: -3, s: 1.0905, dpr: 2.625, plates: 15, composes: 4,
     canvasBytes: 25.2e6, layerBytes: 25.2e6, layerOverflow: 0 };
 const STORE = { plates: 15, plateBytes: 15 * 1048576, hits: 41, misses: 7, evictions: 2,
     pinned: 15, bitmapsOpen: 15, bitmapsClosed: 3 };
@@ -148,7 +148,7 @@ function rowSeq(rep, seq, kind) {
 describe("X1 — the buckets sum, and BOTH totals are recorded", () => {
     test("a render row: mainMs is the main-part slots plus a residual inside max(1 ms, 10 %)", () => {
         row(1, "render", { "eng.list": 2.0, "eng.cull": 1.0, "eng.band": 0.6, "eng.pack": 2.4,
-            "xfer.out": 1.4, "br.blit": 2.1 }, 9.7, { view: { mode: "plates", q: -3, s: 1.09 } });
+            "xfer.out": 1.4, "br.blit": 2.1 }, 9.7, { view: { mode: "level", q: -3, s: 1.09 } });
         const r = lastRow(rp.report());
         expect(r.mainMs).toBeCloseTo(9.7, 3);
         // 9.7 − (2.0 + 1.0 + 0.6 + 2.4 + 1.4 + 2.1) = 0.2, the test's own arithmetic: with
@@ -185,18 +185,18 @@ describe("X1 — the buckets sum, and BOTH totals are recorded", () => {
     });
 
     test("one frame posting at two quanta: each job's queueWait is its OWN request's (Q7)", () => {
-        // D182's acceptance: one camera step posts the settle's misses and the incoming
-        // quantum's under ONE frameSeq. Keyed by frameSeq alone, the second stamp overwrote the
+        // D182's acceptance: one camera step posts two requests under ONE frameSeq (the old
+        // path's settle misses and incoming quantum; on the pyramid, a view's cells and a patch). Keyed by frameSeq alone, the second stamp overwrote the
         // first, and the job that waited longest recorded the shorter wait or none at all (5b's
         // third review). A stamp is claimed by one job: the newest at or before that job's post
         // with strips still unclaimed.
         const seq = 4;
         const qA = t;
         rp.beginFrame(seq, "render");
-        rp.noteSubmit({ frameSeq: seq, q: -3 }, 2, 1);       // the settle's misses
+        rp.noteSubmit({ frameSeq: seq, q: -3 }, 2, 1);       // the first request
         t += 5;
         const qB = t;
-        rp.noteSubmit({ frameSeq: seq, q: -4 }, 1, 1);       // the incoming quantum's, 5 ms later
+        rp.noteSubmit({ frameSeq: seq, q: -4 }, 1, 1);       // the second, 5 ms later
         t += 1;
         rp.endFrame();
 
@@ -238,31 +238,34 @@ describe("X1 — the buckets sum, and BOTH totals are recorded", () => {
         expect(rep.totals["ras.plateResidual"]).toBeCloseTo(2.0, 2);
     });
 
-    test("ras.plateResidual reads the WORKER's rows alone: a sync frame cannot drive it negative", () => {
-        // `_renderSync` writes the four core phases on the MAIN thread (D256) and a sync row has
-        // no `job.startToFinish` for them to come out of. Summed over every row, a light-ink
-        // session — §6.5's, the one most of Kobin's time is in — reported a NEGATIVE residual
-        // (5b's third review). Both sides of the subtraction now come from the same rows.
+    test("ras.plateResidual reads the WORKER's rows alone: an inline rest frame cannot drive it negative", () => {
+        // The pyramid's inline executor writes the four core phases on the MAIN thread (`noteCore`,
+        // A3 §2.5) and its row has no `job.startToFinish` for them to come out of. Summed over every
+        // row, a light-ink session reported a NEGATIVE residual (5b's third review, on the sync path
+        // this replaced). Both sides of the subtraction come from the same rows.
         arrivalPair({});                                     // the worker's job: 35.0 − 33.0 = 2.0
-        row(2, "render", { "eng.clip": 1.0, "ras.edges": 6.0, "ras.union": 0.5, "ras.accum": 2.0 },
-            9.7, { view: { mode: "sync", q: "s", s: 1 } });
+        row(2, "render", {}, 9.7, { view: { mode: "rest", s: 1 },
+            body: () => rp.noteCore({ clipMs: 1.0, edgesMs: 6.0, unionMs: 0.5, accumMs: 2.0 }) });
         const rep = rp.report();
         expect(rep.totals["ras.plateResidual"]).toBeCloseTo(2.0, 2);
-        // ...and nothing is hidden: the sync row's phases are still in the session's totals, and
+        // ...and nothing is hidden: the inline row's phases are still in the session's totals, and
         // in its own row, where `rasOnMain` says they were main-thread time.
         expect(rep.totals["ras.edges"]).toBeCloseTo(18.0 + 6.0, 2);
         expect(rowSeq(rep, 2).flags).toContain("rasOnMain");
     });
 
-    test("a sync-mode row puts the core's own phases in mainMs, and nothing else does", () => {
-        row(2, "render", { "eng.clip": 1.0, "ras.edges": 6.0, "ras.accum": 2.0, "br.blit": 0.5 },
-            9.7, { view: { mode: "sync", q: "s", s: 1 } });
-        const r = rowSeq(rp.report(), 2);
-        expect(r.mode).toBe("sync");
-        expect(r.q).toBe("s");
+    test("a row the inline executor ran in puts the core's own phases in mainMs, and nothing else does", () => {
+        row(2, "render", { "br.blit": 0.5 }, 9.7, { view: { mode: "rest", s: 1 },
+            body: () => rp.noteCore({ clipMs: 1.0, edgesMs: 6.0, accumMs: 2.0 }) });
+        row(3, "render", { "ras.edges": 6.0 }, 9.7, { view: { mode: "level", s: 1.09 } });
+        const rep = rp.report(), r = rowSeq(rep, 2), l = rowSeq(rep, 3);
+        expect(r.mode).toBe("rest");
         expect(r.flags).toContain("rasOnMain");
         expect(r.residualMainMs).toBeCloseTo(0.2, 2);
         expect(r.verdict.bucket).toBe("RASTERISER");
+        expect(l.mode).toBe("level");
+        expect(l.flags).not.toContain("rasOnMain");                 // a phase added without the executor is the worker's
+        expect(l.residualMainMs).toBeCloseTo(9.7, 2);
     });
 });
 
@@ -271,7 +274,7 @@ describe("X1 — the buckets sum, and BOTH totals are recorded", () => {
 describe("a synthetic slow frame is attributed to exactly ONE bucket", () => {
     test("three 120 ms rows name ENGINE, RASTERISER and OVERLAY; a split one is ambiguous", () => {
         row(1, "render", { "eng.list": 114 }, 120);
-        row(2, "render", { "ras.edges": 114 }, 120, { view: { mode: "sync", q: "s", s: 1 } });
+        row(2, "render", {}, 120, { view: { mode: "rest", s: 1 }, body: () => rp.noteCore({ edgesMs: 114 }) });
         rp.noteCrawl({ phases: 8, lastPhaseMs: 114, pixels: 467265, bytes: 10.48e6, repaints: 1,
             mainMs: 120 });
         row(4, "render", { "eng.list": 40, "br.blit": 35, "ovl.paint": 45 }, 120);
@@ -583,7 +586,7 @@ describe("X3 — a dropped job is logged with why and with when", () => {
 describe("X4 — hits are logged as loudly as misses", () => {
     test("the row carries wanted, hits and misses, and the store's own three ride beside", () => {
         rp.beginFrame(3, "render");
-        rp.noteView({ mode: "plates", q: -3, s: 1.0905, dpr: 2.625 });
+        rp.noteView({ mode: "level", q: -3, s: 1.0905, dpr: 2.625 });
         rp.noteSubmit({ frameSeq: 3, q: -3 }, 4, 2);       // 4 misses in 2 strips
         rp.noteCompose(1.2, 11, 11);                       // 11 hits composed
         t += 3.0;
@@ -594,7 +597,7 @@ describe("X4 — hits are logged as loudly as misses", () => {
         expect(r.counts.misses).toBe(4);
         expect(r.counts.platesWanted).toBe(15);
         expect(r.counts.jobsPosted).toBe(2);
-        expect(r.mode).toBe("plates");
+        expect(r.mode).toBe("level");
         expect(r.q).toBe(-3);
         expect(r.s).toBeCloseTo(1.09, 2);
         expect(rep.plates.hits).toBe(41);
@@ -603,7 +606,7 @@ describe("X4 — hits are logged as loudly as misses", () => {
     });
 
     test("an arrival's plates are counted as arrivals and not as cache hits", () => {
-        arrivalPair({ view: { mode: "plates", q: -3, s: 1.09 } });
+        arrivalPair({ view: { mode: "level", q: -3, s: 1.09 } });
         const r = rowSeq(rp.report(), 1, "arrival");
         expect(r.counts.platesArrived).toBe(2);
         expect(r.counts.hits).toBeUndefined();
@@ -797,8 +800,8 @@ describe("the counters this stage must not read as alarms", () => {
         expect(rep.pack.items).toBe(40);                  // and the costs still ride behind them
         expect(rep.core.unionSplits).toBe(1);
         expect(rep.worker.jobs).toBe(12);
-        // core is the MAIN thread's guards (sync mode only) and worker.guards the pool's totals
-        expect(rep.notes.core).toMatch(/sync mode/);
+        // core is the MAIN thread's guards (the inline executor's only) and worker.guards the pool's totals
+        expect(rep.notes.core).toMatch(/inline executor/);
     });
 
     test("with nothing attached the five scalar sources are null and the ring still reports", () => {

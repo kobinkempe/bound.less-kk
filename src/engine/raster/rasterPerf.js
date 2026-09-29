@@ -40,8 +40,8 @@ export const STRIDE = 40;
  *
  * `part` is what §8.4 rule 2's two sums read, and it is the thing a reader gets wrong:
  *   main      main-thread time, inside `mainMs`
- *   worker    the worker's own clock — inside `mainMs` only in sync mode, where the core runs
- *             on the main thread (§8.1)
+ *   worker    the worker's own clock — inside `mainMs` only on a row where the inline executor
+ *             ran the core on the main thread (`noteCore`, §8.1)
  *   wall      a duration the main thread was free for, inside `wallMs` and never `mainMs`
  *   inferred  subtracted, not measured: in neither sum
  *   total     §8.4 rule 2's own four numbers
@@ -147,7 +147,7 @@ const FLAG = {
     shared: 4,            // several tasks in one rAF interval; the last one carries br.inferred
     spansFrames: 8,       // mainMs is longer than the interval it was patched with
     clamped: 16,          // rafDelta < Σ mainMs, so br.inferred clamped at 0
-    rasOnMain: 32,        // sync mode: the core's own phases belong to `mainMs`
+    rasOnMain: 32,        // the inline executor ran here (`noteCore`): the core's phases belong to `mainMs`
     truncated: 64,        // the row was closed by the next beginFrame, not by endFrame
     hasJob: 128,          // an arrival's numbers are on this row
 };
@@ -375,7 +375,20 @@ export function noteView(view) {
     I[base + C.q] = qCode(view.q);
     I[base + C.mode] = MODES.indexOf(lastView.mode) < 0 ? 0 : MODES.indexOf(lastView.mode);
     I[base + C.sMilli] = Math.round((+view.s || 0) * 1000);
-    if (lastView.mode === "sync") I[base + C.flags] |= FLAG.rasOnMain;
+}
+
+/**
+ * The core ran on THIS thread — the pyramid's inline executor (A3 §2.3, §2.5): its clip, edges, union and accum into
+ * the open row, flagged `rasOnMain`, so §8.4 rule 2 reads them inside `mainMs` and `ras.plateResidual` leaves the row
+ * out. The executor runs in camera steps and commits, never in a job's arrival row (whose phases are the worker's).
+ */
+export function noteCore(c) {
+    if (open < 0) { stats.orphanAdds++; return; }
+    I[open * STRIDE + C.flags] |= FLAG.rasOnMain;
+    add(T["eng.clip"], +c.clipMs || 0);
+    add(T["ras.edges"], +c.edgesMs || 0);
+    add(T["ras.union"], +c.unionMs || 0);
+    add(T["ras.accum"], +c.accumMs || 0);
 }
 
 /** @param {number} [endAt] the caller's own clock read, so a row is never stamped twice. */
@@ -852,7 +865,7 @@ const NOTES = {
         + "holds that strip's own pack as well as the time it waited. A job claims the newest "
         + "stamp of its frameSeq at or before its post that still has strips unclaimed, which is "
         + "what keeps the two requests of a frame posted at two quanta apart (§8.4 rule 3).",
-    core: "the MAIN thread's own guards, which move only in sync mode where the core runs on "
+    core: "the MAIN thread's own guards, which move only where the inline executor runs the core on "
         + "the main thread. worker.guards is the pool's session totals: the same names, two "
         + "sources, and neither is the other's subset.",
     staleByWhy: "every drop counted by its reason; `stale` holds the last 8 in full. A "

@@ -34,6 +34,16 @@ function stroke(E) {
     E.pointerUp();
 }
 
+/** Steps and arrivals until the held path is down, at most 3 s (the group's plates land a turn at a time). */
+async function handedOff(E) {
+    for (let t0 = Date.now(); Date.now() - t0 < 3000;) {
+        await flush();
+        E.renderer._pyrLive(E.renderer._view);
+        await flush();
+        if (!E.renderer._liveHeld.length) return;
+    }
+}
+
 describe("F120 the live path at a pen-up", () => {
     /** The drawn cells under a held path's box that are not exact, counted at each handoff. */
     function watchHandoffs(E) {
@@ -55,9 +65,7 @@ describe("F120 the live path at a pen-up", () => {
         await flush();
         expect(E.renderer._liveHeld.length).toBe(1);        // pending its shape: on no plate yet (PLAN §1.5)
         while (E._stepShapeBakes(1000));                    // the shape lands; its group asks for the cells under it
-        await flush();
-        E.renderer._pyrLive(E.renderer._view);
-        await flush();
+        await handedOff(E);
         expect(E.renderer._liveHeld.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
         expect(seen).toEqual([0]);                          // at the handoff every drawn cell under its box was exact
@@ -74,9 +82,7 @@ describe("F120 the live path at a pen-up", () => {
         E.renderer._pyrLive(E.renderer._view);
         expect(E.renderer._liveHeld.length).toBe(1);        // red on the old path: timed out at 15 s, the stroke nowhere
         while (E._stepShapeBakes(1000));                    // the shape lands; its plates are asked for
-        await flush();
-        E.renderer._pyrLive(E.renderer._view);
-        await flush();
+        await handedOff(E);
         expect(E.renderer._liveHeld.length).toBe(0);
         expect(rasterStats.liveHandoffs).toBe(hand0 + 1);
     });
