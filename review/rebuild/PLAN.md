@@ -562,3 +562,34 @@ on a ratio.
 5. **Row 2** is proved on the SVG engine by the `listFor` comparison and on the raster engine by the three seeds
    (30 × 80 steps, 0 differences, 150 holds); `listFor` itself is deleted with the SVG renderer's demotion
    (B-PYRAMID-3), after which the row's test is the raster fuzz alone.
+
+### 5.8 To B-ERASE (its report of 2026-09-29) and to B-PYRAMID-2's checkpoints
+
+B-ERASE landed as 5e84d43 (E1–E5 of A2 §6.2; `test:quick` 2,216 pass with 3 reds in B-PYRAMID-2's in-flight
+suites, `test:erase` 303 pass, `test:slow` 502 pass; 27 rules break-checked; row 3 (b) measured: fills 0 bytes,
+strokes 3–6/255 on cut outlines; the clip goldens' attribution found and fixed a per-item slot rule that hid a
+family's ink above a mark). Its review is launched with this section (`review/rebuild/briefs/R-ERASE.md`).
+
+1. **Q5 keep SM-5**: a tap after its barrier selects the piece under the finger, as SM-5 and RR-3/4 (Kobin's
+   rules) require; A2 §5.5's "all the target's pieces" was the analyst's reading and is corrected in A2. A
+   drag's barrier still carries the selection to every piece of its members.
+2. **Q6 to B-PYRAMID-3**: the SVG renderer (`?svg` and the export) masks a pending mark's targets with the same
+   rule (`eraseRule.underMask`), one implementation, instead of painting the mark as white ink at its z; and
+   the export and the thumbnails run the erase barrier first, so no pending mark reaches an export at all.
+   Until then `?svg` is the comparison view only, and its white ink over a dragged object is a known difference.
+3. **The bake must terminate** (B-ERASE's least-sure 3: with the `handledBy` clause removed the bake hangs, and
+   an inline barrier with no worker would spin if the rule were ever wrong): the reviewer adds a bound — a step
+   budget per mark derived from its targets and their pieces, past which the mark's bake aborts with a report
+   entry and the mark is spent — so a wrong rule fails loudly instead of hanging the page.
+4. **The interim erase pool stays until B-PYRAMID-2 P6**: B-PYRAMID-2 routes cuts through the `JobQueue` at
+   `PRIO.cut` with the reservation only after the B-ERASE review has ended (the orchestrator says when), since
+   the review is in `eraseWorkerClient.js` first.
+5. **The ~70 s engine-level delete of 5,000 selected natives** (both trees, not the Stage): the reviewer
+   attributes it with a node profile and reports; it is fixed only if the fix is one line, else it is wave 3's
+   batch-delete helper (§2) with the profile as its brief.
+6. **The three ported probes** (`erase.stack.probe`, `erase.stuck.probe`, `paper.cost.probe`) are run by the
+   reviewer once each.
+7. **F65 stays open** until Kobin's browser; nothing here describes the eraser as working (CLAUDE.md).
+8. **B-PYRAMID-2's P0–P2 questions**: the coarsest-source reserve is adopted (yes); the fuzz's reading of
+   step (f) is right — older is allowed only where nothing fresh is cached at any level, and `olderMs` = 0 in
+   the harness stays the target; `_renderPending` goes at P6.
