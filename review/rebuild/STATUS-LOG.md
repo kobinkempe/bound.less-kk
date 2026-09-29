@@ -1981,3 +1981,11 @@ Ports 3020–3029; scratch `scratchpad/bp3/`.
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: reading the brief's list (DESIGN §9/§7, PLAN §0/§1.5/§3/§5.7/§5.8/§5.14, A3 §3.6/§7, TEST-MAP, the code).
+
+## 2026-09-29 14:53 UTC — orchestrator (Fable) — resumed after the sixth session-limit stop
+**Working on:** the container rebooted; the tree as the two agents left it snapshot-committed as cbca128 (the push
+refused once by GitHub's credential service, 503 — retried). Both resumed from their transcripts: the B-PYRAMID
+reviewer (early in its reading), B-PYRAMID-3 (item 1). The C1 reviewer had ended at 12:16, so the machine is theirs.
+**Measured:** load 0.05 at the resume.
+**Decisions made:** none new.
+**Questions asked:** none.
