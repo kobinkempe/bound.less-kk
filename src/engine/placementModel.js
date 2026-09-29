@@ -21,14 +21,20 @@ const NO_GROUPS = new Map();
 const NONE = Object.freeze({ rev: "none", groups: NO_GROUPS, groupOf: () => undefined });
 
 /**
- * A frame's reach box in the active frame's units (`s`, `tx`, `ty` carry its coordinates there):
- * its cell ± REACH (invariant 2) united with that box moved by the frame's shift, where its own
- * natives are drawn (A1 C1; its kids are not shifted).
+ * A box united with its copy moved by `(sx, sy)`: where a shifted frame's own natives can be drawn (A1 C1: the
+ * frame's shift is their placement; its kids are not shifted).
+ */
+export function withShifted(b, sx, sy) {
+    return { left: b.left + Math.min(0, sx), top: b.top + Math.min(0, sy), right: b.right + Math.max(0, sx), bottom: b.bottom + Math.max(0, sy) };
+}
+
+/**
+ * A frame's reach box in the active frame's units (`s`, `tx`, `ty` carry its coordinates there): its cell
+ * ± REACH (invariant 2) with its shifted copy (`withShifted`).
  */
 export function reachBox(f, s, tx, ty, pad = 0) {
     const sx = f && f.shift ? f.shift[0] * s : 0, sy = f && f.shift ? f.shift[1] * s : 0;
-    return { left: -REACH * s + tx + Math.min(0, sx) - pad, top: -REACH * s + ty + Math.min(0, sy) - pad,
-        right: REACH * s + tx + Math.max(0, sx) + pad, bottom: REACH * s + ty + Math.max(0, sy) + pad };
+    return withShifted({ left: -REACH * s + tx - pad, top: -REACH * s + ty - pad, right: REACH * s + tx + pad, bottom: REACH * s + ty + pad }, sx, sy);
 }
 
 /** A native's drawn box in its home's units: its bbox, grown by half its pen for a stroke. */
@@ -128,9 +134,7 @@ export function createPlacementModel({ doc, lm, store }) {
             if (parent == null || !lm.frame(String(parent))) return null;
             const c = cellCentre(i, j), h = REACH / R;
             const sx = shift ? shift[0] / R : 0, sy = shift ? shift[1] / R : 0;
-            return { frame: String(parent), rect: {
-                left: c.x - h + Math.min(0, sx), top: c.y - h + Math.min(0, sy), right: c.x + h + Math.max(0, sx), bottom: c.y + h + Math.max(0, sy),
-            } };
+            return { frame: String(parent), rect: withShifted({ left: c.x - h, top: c.y - h, right: c.x + h, bottom: c.y + h }, sx, sy) };
         },
 
         /** An input made in frame F — a point, a rect or loops — in native `o`'s stored coordinates. */

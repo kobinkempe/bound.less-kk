@@ -727,7 +727,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         const pl = R._plane;
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 10; k++) E.pointerMove(p[0] + k * 8, p[1] + k * 5);
-        R.pyramid.cfg.patchInlineMs = 0;                               // the drop's re-render goes to the workers
+        R.pyramid.cfg.patchInlineMs = R.pyramid.cfg.patchUserMs = 0;  // the drop's re-render goes to the workers (a drop has a user's budget)
         E.pointerUp();
         expect(pl.state).toBe("land");
         const v = R._view, c = pl.landCells(v);
@@ -736,7 +736,7 @@ describe("the drag plane on the pyramid (B-PYRAMID-2 P3, A3 §6)", () => {
         expect(stale).toBeGreaterThan(0);                              // the plane waits on these cells (and is clipped to them)
         expect(await drain(E, g)).toBe(0);
         expect(pl.state).toBe("idle");
-        delete R.pyramid.cfg.patchInlineMs;
+        delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
 
     test("the quick level at Zp / 4; a plane is whole only when exact; a dropped layer's queued strips and late plates go", async () => {

@@ -1,11 +1,13 @@
 /**
  * jobQueue.test.js — the queue of A3 §4.1 and §4.4 over a fake pool and clock: priorities (and that a job must
  * carry one), one worker kept for cuts, the low-priority cap, the pack budget per frame while moving and per task at rest, centre-out
- * dealing into strips, the velocity rule (off-screen cells skipped, a level the camera leaves re-aimed),
- * cancellation by purpose generation, dedupe against the store, and a failed strip keeping its priority.
+ * dealing into strips, the velocity rule (off-screen cells skipped, a level the camera leaves re-aimed, at most
+ * AIM_LEVELS away and never past the frame's floor: F134), cancellation by purpose generation, dedupe against the
+ * store, and a failed strip keeping its priority.
  */
-import JobQueue, { PRIO, STRIPS_PER_WORKER, PACK_MS_PER_FRAME } from "./jobQueue";
+import JobQueue, { PRIO, STRIPS_PER_WORKER, PACK_MS_PER_FRAME, AIM_LEVELS } from "./jobQueue";
 import { levelCell } from "./PyramidStore";
+import { ownFloor, zOf } from "./level";
 
 function rig(W = 4, packMs = 0) {
     const clock = { t: 0 };
@@ -132,9 +134,28 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         d.q.setMotion({ moving: true, view, vel: { px: [0, 0], zoom: 0.2 } });
         d.q.push([{ ...job("view", 1, 2) }]);
         d.q.pump();
-        expect(d.sent[0].level).toBe(23);
+        expect(d.sent[0].level).toBe(3 + AIM_LEVELS);                       // aimed two levels in, not twenty (F134)
         expect(d.sent[0].cells.length).toBeGreaterThan(0);
         expect(d.sent[0].cells.length).toBeLessThanOrEqual(6);             // one screenful at the new level, not 2^40 children
+    });
+
+    test("F134: a fast zoom-out's strips are re-aimed at most AIM_LEVELS past the view's level and never under the frame's floor", () => {
+        // The flag's timings: zoom steps 1–3 ms apart halve Z each (−1 octave a ms) and an eta of 15–20 ms predicts 15–20
+        // octaves out; strips pushed at the view's level −4 went to −14…−21 and one such plate took 5–102 s inline.
+        for (const [S, level] of [[1, -4], [1, -5], [2, -3], [3, -1], [3, -2]]) {
+            for (const eta of [15, 20]) {
+                const Z = zOf(level, S) * 1.2, view = { frameId: "F", level, S, Z, k: Z, tx: 0, ty: 0, wDev: 800, hDev: 600, sigmaMin: 2 ** -0.5 };
+                const r = rig(1);
+                r.q.jobMs = eta;
+                r.q.setMotion({ moving: true, view, vel: { px: [0, 0], zoom: -1 } });
+                r.q.push([job("view", 1, 2, { level, S, Z: zOf(level, S), cells: [levelCell("F", level, S, 0, 0), levelCell("F", level, S, 1, 0)] })]);
+                r.q.pump();
+                const st = r.sent[0];
+                expect([S, level, eta, st.level]).toEqual([S, level, eta, Math.max(ownFloor(S), level - AIM_LEVELS)]);
+                expect(st.Z).toBe(zOf(st.level, S));
+                expect(st.cells.length).toBeGreaterThan(0);
+            }
+        }
     });
 
     test("the arrival estimate: the strip's own dispatch-to-landing time plus the time since the view, never the strips in flight", () => {

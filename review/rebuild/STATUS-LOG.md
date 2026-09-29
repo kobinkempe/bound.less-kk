@@ -2355,3 +2355,21 @@ B-DRAG's review.
 the back-in re-bakes 8 against 19–22 with the warm reads; the quick suite 2,140/2,140 on its trial copy.
 **Decisions made:** PLAN §5.17 items 1–5.
 **Questions asked:** none.
+
+## 2026-09-29 21:48 UTC — B-DRAG (builder) — D1 checkpoint: the hold carries the drag (and D2/D3 built)
+**Working on:** D1 done; D2's and D3's code is in too (the drop in `_dropMove`, `_normalizeHome`/`_homeShift`/
+`_restoreFrames` deleted, `noteUserEdit` at the drop; the per-remove listener and `_keepingSelection` deleted, the
+selection repaired from the op by `_opUnder`/`_repairSelection` (drop, undo, redo — one `_history` path), quietly,
+before the one render; `homeOf`; `withShifted`, the one box helper for `reachBox`/`frameFootprint`/`_selTable`).
+Ported for the coordinator: `raster.pyramid`'s landing test (`patchUserMs` 0), `Stage.js`'s `listFor` comment.
+**Measured (headless Chromium 141, dense seed 1, 3,441 natives, 45 selected; d206cd3 on :3040, 7319c2b on :3041):**
+scenario 4 after the drop, reduced motion: 0 px of 1,024,000 differ with the ants, 0 with the ink alone (load 3.7).
+Harness scenario 4 ×2 (load 2.9–4.6): drag long frames 26|25 → 22|23; the worst is the pointer-up, 1,775|1,852 →
+2,189|2,600 ms, and `olderPatchMs` 1,081|1,090 → 1,138|1,578 (the drop's patch T 437–555 ms: over 16 as over 6, to the
+workers either way). The drop timed by part: `_dropMove` 16–24 ms, the render 1.8–2.0 s both trees, and `_reselect`
+358–484 ms here against 0.2 — the drop now tears off frame "1/-1,1" (a carried kid) and the repair's second ants
+decision paid for it; now repaired before the render (to re-measure). That kid: the pre-B-DRAG drop left its 100
+natives at x 271.99, a cell (32 units) past where the move puts them (239.99, the per-object picture) — the same
+defect as the census's seed 777; filed as F136 in D4.
+**Decisions made:** none new. **Questions asked:** none.
+WHERE I AM: the 5,000-native delete timing (jsdom, running on both trees), then the drop re-timed and D2/D3 entries.

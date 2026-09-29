@@ -97,7 +97,7 @@ export class Item {
     get box() { return drawnBox(this.piece, this.stage.store.live); }
 }
 
-/** Paint order: `(z ?? id, id)` as `listFor` sorts, then the order `listFor` concatenates one native's pieces in. */
+/** Paint order: `(z ?? id, id)` as the oracle's `renderList` sorts (`__oracles__/renderList.js`), then the order it concatenates one native's pieces in. */
 function cmp(a, b) {
     return (a.zk - b.zk) || (a.id - b.id) || (a.si - b.si) || (a.sj - b.sj) || (a.sd - b.sd) || (a.seq - b.seq) || (a.uid - b.uid);
 }

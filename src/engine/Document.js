@@ -1189,9 +1189,9 @@ export default class Document {
     }
 
     // A move is a change of address plus a change of table (F55): undo puts the frame back, then the
-    // geometry if the pen-up walked the member into its cell by whole frames (`base`), then the table.
-    // Each step is independent — a normalised member carries both pairs. `dx`/`dy` alone is a pre-F41
-    // entry, restored by an inverse translation.
+    // table. `base`/`after` geometry is on ops from before A1 C2 only (the pen-up's walk into the cell,
+    // `_normalizeHome`, deleted 2026-09-29), kept for their replay and inverses; `dx`/`dy` alone is a
+    // pre-F41 entry, restored by an inverse translation.
     _undoMove(moves) {
         for (const m of moves) {
             if (m.from != null) this.rehomeById(m.id, m.from);
@@ -1294,7 +1294,7 @@ export default class Document {
                 return rec ? { op: "erase", obj: rec.obj, level: rec.level, index: rec.index } : op;
             }
             // A move is a change of address plus a change of table; undo puts the frame back first,
-            // then the table (or the geometry snapshot of a member the pen-up normalised). See _undoMove.
+            // then the table (a pre-C2 op's geometry snapshots too). See _undoMove.
             case "move": return this._undoMove([op]) && { op: "move", ...this._invertMove(op) };
             case "moveMany": {
                 this._undoMove(op.moves);

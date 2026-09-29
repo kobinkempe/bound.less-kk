@@ -179,8 +179,8 @@ export function decodeObjects(objects, geo) {
 // An entry is an op with its RESULTS: the objects it removed and made, so replay never
 // recomputes anything. Kinds: add/put/remove/mark carry `obj`; bake carries
 // `removed.obj` and `pieces[].obj`; removeMany carries `records[].obj`; move carries each
-// member's tables in file form, plus `base`/`after` geometry for a member the pen-up walked
-// back into its cell; moveFrames carries its frame entries as plain JSON and its members as
+// member's tables in file form, plus `base`/`after` geometry on an entry from before A1 C2 (the
+// pen-up's walk into the cell, deleted); moveFrames carries its frame entries as plain JSON and its members as
 // a move does; removeFrames, deleteMany and bakeFrames (an erase taking a frame whole)
 // carry each deleted frame's natives (`frames[].objects`, the rows go with the next save);
 // undo/redo/rekey/attr/meta/settle/mergeFrame carry no geometry.

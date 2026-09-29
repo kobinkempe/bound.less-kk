@@ -241,8 +241,8 @@ export class OpLog {
         }
         return [...out];
     }
-    // One move member in file form: the tables, and the geometry snapshots of a member the
-    // pen-up walked back into its cell. `obj` is the object as it now is.
+    // One move member in file form: the tables (and the geometry snapshots an op from before A1 C2
+    // carries, kept for its inverse). `obj` is the object as it now is.
     _moveFile(m) {
         const cur = this.doc.getById(m.id);
         const out = { id: m.id, from: lvl(m.from), to: lvl(m.to), dx: m.dx, dy: m.dy,
@@ -403,8 +403,8 @@ export class OpLog {
             return inv;
         };
         // A move's members, applied where their frames' snapshots predate the entry. Each pair is
-        // independent, as Document._undoMove reads them: the geometry snapshots of a normalised
-        // member, the tables, or the pre-F41 translation.
+        // independent, as Document._undoMove reads them: the tables, a pre-C2 entry's geometry
+        // snapshots, or the pre-F41 translation.
         const applyMoves = (fileMoves, seq) => {
             const moves = fileMoves.map((m) => {
                 const out = { id: m.id, dx: m.dx, dy: m.dy, from: m.from, to: m.to };

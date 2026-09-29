@@ -3,11 +3,13 @@
  * (`LiveStrokeLayer.hold`) until the plates under it are fresh. Pending its shape it stays, with no limit (PLAN §5.4
  * Q2); once the shape has landed, one group commit publishes the drawn cells under its box and `release`s the path in
  * the same task (A3 §3.6). F131: a held path stays put when the next pen-down re-chooses the origin, and a crossing
- * carries it into the new frame (LH-5, LH-6: never neither). `raster.liveHold` until B-PYRAMID-3.
+ * carries it into the new frame (LH-5, LH-6: never neither). F135: a stroke drawn right after another is released when
+ * its plates land, not at the hold's limit (LH-7). `raster.liveHold` until B-PYRAMID-3.
  */
 import KobinEngine from "../KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
 import { rasterStats } from "./RasterRenderer";
+import { LIVE_HOLD_MS } from "./PicturePyramid";
 
 const engines = [];
 function mkEngine() {
@@ -28,10 +30,10 @@ async function flush(rounds = 200) {
 }
 const fill = (E, x, y, c) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: c, opacity: 1,
     polys: [[[x, y], [x + 120, y], [x + 120, y + 120], [x, y + 120]]] }, "0");
-function stroke(E) {
+function stroke(E, y = 300) {
     E.setTool("pen");
-    E.pointerDown(200, 300);
-    for (let k = 1; k <= 30; k++) E.pointerMove(200 + k * 10, 300 + (k % 5) * 4);
+    E.pointerDown(200, y);
+    for (let k = 1; k <= 30; k++) E.pointerMove(200 + k * 10, y + (k % 5) * 4);
     E.pointerUp();
 }
 
@@ -148,6 +150,29 @@ describe("a crossing between pen-up and the landing", () => {
         });
     }
 });
+
+// F135 (B-PYRAMID-3, jsdom): the second of two strokes drawn back to back kept its path 3,070–3,075 ms — its group's
+// strips were dropped at dispatch as "exact" (their cells in flight for a job packed before its G) and nothing re-asked
+// them, so the group waited LIVE_HOLD_MS and committed what it had.
+test("LH-7 two strokes back to back: each path is released when its plates land, well under LIVE_HOLD_MS", async () => {
+    const E = mkEngine(), R = E.renderer;
+    R.pyramid.cfg.restInline = "never";                             // the flag's setting: the rest set from the workers
+    fill(E, 100, 200, "rgb(200,30,30)"); fill(E, 300, 200, "rgb(30,30,200)");
+    E._render(); await flush();
+    const seen = watchHandoffs(E), hand0 = rasterStats.liveHandoffs, timed0 = R.pyramid.s.groupsTimedOut;
+    rasterStats.liveHoldMsMax = 0;
+    stroke(E, 300);
+    stroke(E, 320);
+    for (const t0 = Date.now(); R.live.held.length && Date.now() - t0 < LIVE_HOLD_MS + 2000;) {
+        await flush();
+        R._pyrLive(R._view);
+        await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(R.live.held.length).toBe(0);
+    expect([R.pyramid.s.groupsTimedOut - timed0, rasterStats.liveHandoffs - hand0]).toEqual([0, 2]);
+    expect(rasterStats.liveHoldMsMax).toBeLessThan(LIVE_HOLD_MS / 3);
+    expect(seen).toEqual([0, 0]);                                  // at each handoff every drawn cell under its box was exact
+}, 20000);
 
 /** The drawn cells under a held path's box that are not exact, counted at each handoff. */
 function watchHandoffs(E) {

@@ -9,11 +9,12 @@
  *
  * The rules: the lasso never takes a frame with no native in its subtree; a native whose picture a
  * frame's shift carries past the cell stays the frame's (selected once, never an id as well); a kid
- * a drag's rest tears off stays selected; a merge hands the selection only the kids that hold ink.
+ * a drag's rest tears off stays selected; a merge hands the selection only the kids that hold ink. The
+ * repair is the action's own: after a drop, an undo or a redo, once, from its op (A1 C2) — no document
+ * event touches the selection but a reset and a merge.
  */
 import KobinEngine from "./KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
-import * as rasterPerf from "./raster/rasterPerf";
 
 const hosts = [];
 function mkE(w = 800, h = 600, raster = false) {
@@ -44,6 +45,15 @@ function loop(E, pts) {
     for (const p of pts.slice(1)) E.pointerMove(p[0], p[1]);
     E.pointerMove(pts[0][0], pts[0][1]);
     E.pointerUp();
+}
+/** Runs `fn` (a drop, an undo, a redo) and returns how often the selection was set, and how often repaired from the op. */
+function repairs(E, fn) {
+    const n = { set: 0, repair: 0 };
+    const set = E._setSelection, repair = E._repairSelection;
+    E._setSelection = function (...a) { n.set++; return set.apply(this, a); };
+    E._repairSelection = function (...a) { n.repair++; return repair.apply(this, a); };
+    try { fn(); } finally { E._setSelection = set; E._repairSelection = repair; }
+    return n;
 }
 const circleLoop = (cx, cy, r) => { const out = []; for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); } return out; };
 const screenLoop = (E, m = 10) => [[m, m], [E.width - m, m], [E.width - m, E.height - m], [m, E.height - m]]
@@ -108,8 +118,9 @@ describe("a selection stands for ink", () => {
             expect((after[k].top - before[k].top) * E.cam.inScale).toBeCloseTo(40, 0);
             expect((after[k].left - before[k].left) * E.cam.inScale).toBeCloseTo(0, 0);
         }
-        // Undo walks both drags back; nothing is selected twice.
-        E.undo(); E.undo(); E._render();
+        // Undo walks both drags back, each repaired once from its op; nothing is selected twice.
+        for (let k = 0; k < 2; k++) expect(repairs(E, () => E.undo())).toEqual({ set: 0, repair: 1 });   // nothing left the frame: no change
+        E._render();
         expect(E._isSelected(a.id) && E._isSelected(b.id)).toBe(true);
         expect(E.selection.ids.filter((id) => E._underFrames(E.doc.getById(id).level, E.selection.frames))).toEqual([]);
     });
@@ -131,10 +142,12 @@ describe("a selection stands for ink", () => {
         expect(E.doc.getById(a.id).level).toBe(kid.id);           // home: its picture a cell over (A1 C1)
         expect(E.selection.ids).toEqual([]);
         expect(E.selection.frames).toEqual([kid.id]);
-        E.undo(); E._render();
+        expect(repairs(E, () => E.undo())).toEqual({ set: 0, repair: 1 });   // from the op: the native never left the frame
+        E._render();
         expect(E._isSelected(a.id)).toBe(true);
         expect(E.selection.ids).toEqual([]);
-        E.redo(); E._render();
+        expect(repairs(E, () => E.redo())).toEqual({ set: 0, repair: 1 });
+        E._render();
         expect(E.doc.getById(a.id).level).toBe(kid.id);
         expect(E._isSelected(a.id)).toBe(true);
         expect(E.selection.ids).toEqual([]);
@@ -153,7 +166,7 @@ describe("a selection stands for ink", () => {
         expect(E.selection.frames).toEqual([kid.id]);
         E.pointerDown(org[0], org[1]);
         for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
-        E.pointerUp();
+        expect(repairs(E, () => E.pointerUp())).toEqual({ set: 1, repair: 1 });   // the drop's op: the torn kid joins, once
         E._render();
         expect(E.lm.isUnder(kid.id, E.lm.frame(deep.id).id) && E.lm.frame(deep.id).parent === kid.id).toBe(false);   // the fixture: torn off
         expect(E._isSelected(d.id)).toBe(true);                   // red: its ink left the selection
@@ -221,42 +234,20 @@ describe("a selection stands for ink", () => {
         E._render();
         expect(E.selection.frames.sort()).toEqual([deep.id, kid.id].sort());
         expect(E._selectionStatus().count).toBe(3);
-        E.undo(); E._render();
+        expect(repairs(E, () => E.undo()).repair).toBe(1);
+        E._render();
         expect(E.lm.frame(deep.id).parent).toBe(kid.id);          // the fixture: nested again
         expect(E._selectionStatus().count).toBe(3);               // red when a nested frame is counted by itself too
         E.deselect();
         lassoKid();
         expect(E.selection.frames).toEqual([kid.id]);
-        E.redo(); E._render();
+        expect(repairs(E, () => E.redo())).toEqual({ set: 1, repair: 1 });   // the redo's op: the kid joins again, once
+        E._render();
         expect(E.lm.frame(deep.id).parent).not.toBe(kid.id);      // the fixture: torn off again, by the redo
         expect([a, e, d].every((o) => E._isSelected(o.id))).toBe(true);   // red when the redo's re-address is not followed
         expect(E._selectionStatus().count).toBe(3);
     });
 
-    for (const raster of [false, true]) {
-        test("I9 " + (raster ? "raster" : "svg") + ": a render of a frame whose shift carries its native's picture changes neither the native nor the selection", () => {
-            const E = mkE(800, 600, raster);
-            const kid = E.lm.cellChild("0", 3, 2);
-            const a = E.doc.add(fill(E, -S / 2, -S / 2, S, EDGE), kid.id);
-            E._render();
-            const org = E.cam.levelPointToScreen(kid.id, 0, 0);
-            loop(E, circleLoop(org[0], org[1], 110));
-            expect(E.selection.frames).toEqual([kid.id]);
-            E.doc.setFrameShift(kid.id, [0.7 * 131072, 0]);       // what a drag leaves on a frame
-            E.store.bumpEpoch();
-            let calls = 0;
-            const ss = E._setSelection.bind(E);
-            E._setSelection = (...x) => { calls++; return ss(...x); };
-            const rev = E.doc.rev;
-            const unclosed0 = raster ? rasterPerf.report().meta.unclosed : 0;
-            E._render();
-            expect(E.doc.rev).toBe(rev);
-            expect(E.doc.getById(a.id).level).toBe(kid.id);
-            expect(calls).toBe(0);
-            expect(E._isSelected(a.id)).toBe(true);
-            if (raster) expect(rasterPerf.report().meta.unclosed).toBe(unclosed0);   // no camera row left open by the render
-        });
-    }
 
     test("I10 a delete in the middle of a drag takes what the selection stood for at the press, the kid the drop would tear off included", () => {
         const E = mkE();

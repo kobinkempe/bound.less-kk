@@ -792,9 +792,21 @@ export default class RasterRenderer {
         if (base === rasterPool) setOnSlotFreed(() => { if (!this._destroyed) this._pumpSoon(); });   // an orphan's answer frees a slot
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
-        // A shape lands in a commit: its group opens there, before any frame's patch step could publish its plates
-        // while the path is still up (A3 §3.6).
-        this._pyrOff = this.stage.onCommit(() => { if (!this._destroyed && this.live.held.length && this._view) this._pyrLive(this._view); });
+        // A commit: a shape that landed in it opens its group first, before any patch step could publish its plates
+        // while the path is still up (A3 §3.6); then the commit's patch step, in its task (`noteCommit`).
+        this._pyrOff = this.stage.onCommit(() => {
+            if (this._destroyed || !this._view) return;
+            if (this.live.held.length) this._pyrLive(this._view);
+            if (pyr.noteCommit()) Promise.resolve().then(() => this._pyrCommitStep());
+        });
+    }
+
+    /** A commit's patch step that no compose or step ran in its task: in a `settle` row of its own when none is open. */
+    _pyrCommitStep() {
+        if (this._destroyed || !this.pyramid.patchDue) return;
+        const own = !this._rowLive;
+        if (own) this._openRow(this.frameSeq, "settle");
+        try { this.pyramid.patchIfDue(); } finally { if (own) this._closeRow(); }
     }
 
     /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */

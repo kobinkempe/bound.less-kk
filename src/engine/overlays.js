@@ -30,6 +30,7 @@ import {
 import { rectSpan, rectTol } from "./rectMath";
 import { translateLoops } from "./geometry/arcShape";
 import { HALF_W } from "./frameLattice";
+import { withShifted } from "./placementModel";
 
 
 // ---- selection indicator ----------------------------------------------------
@@ -617,8 +618,8 @@ class Overlays {
                 if (b.y1 > bx.box.y1) bx.box.y1 = b.y1;
             }
         }
-        // A selected frame: one box, its own cell in its own units united with that cell moved by its
-        // shift, where its own natives are drawn (A1 C1); its natives are never read.
+        // A selected frame: one box, its own cell in its own units with its shifted copy (`withShifted`);
+        // its natives are never read.
         const frames = new Set();
         for (const f of s.frames || []) {
             const fr = this.lm.frame(f);
@@ -627,8 +628,8 @@ class Overlays {
             let e = byLevel.get(f);
             if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(f, e); }
             e.frame = true;
-            const sx = fr.shift ? fr.shift[0] : 0, sy = fr.shift ? fr.shift[1] : 0;
-            e.boxes.set("frame:" + f, { nat: null, box: { x0: -HALF_W + Math.min(0, sx), y0: -HALF_W + Math.min(0, sy), x1: HALF_W + Math.max(0, sx), y1: HALF_W + Math.max(0, sy) } });
+            const b = withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0);
+            e.boxes.set("frame:" + f, { nat: null, box: { x0: b.left, y0: b.top, x1: b.right, y1: b.bottom } });
         }
         const table = { byLevel, ids, levelOf, cross, frames, count: seen.size + frames.size };
         this._selTableCache = { sel: s, rev: this.doc.rev, table };

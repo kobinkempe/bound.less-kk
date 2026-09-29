@@ -18,7 +18,7 @@
  *     clock, the store's `wants(key)`. The caller calls `done(id, ms)` for every strip `submit` took.
  */
 import { PLATE_PX } from "./plate";
-import { levelFor, zOf } from "./level";
+import { levelFor, ownFloor, zOf } from "./level";
 import { levelCell } from "./PyramidStore";
 
 /** The priority of each kind of job (A3 §4.1). A job carries its own; this is the table the callers read. */
@@ -33,6 +33,11 @@ export const STRIPS_PER_WORKER = 2;
 export const PACK_MS_PER_FRAME = 4;
 /** The mean job ms before any job has come back. */
 const JOB_MS0 = 30;
+/**
+ * The velocity rule aims at most this many levels past the view's, and never past the frame's own floor (F134: with
+ * no bound, zoom steps 1–3 ms apart in jsdom re-aimed strips 15–20 octaves out, and one plate took 5–102 s inline).
+ */
+export const AIM_LEVELS = 2;
 
 export default class JobQueue {
     /**
@@ -239,19 +244,20 @@ export default class JobQueue {
      * plus the mean dispatch-to-landing time (`pump` dispatches only to a free slot, so nothing waits ahead of it) —
      * from the last frames' pan and zoom velocity about the attention point. Cells off the predicted screen are
      * skipped; a level the camera will have left is re-aimed at the one it is heading to — its cells under the
-     * strip's and on the predicted screen, so a jump of many levels (a descend doubles a step) stays one screenful.
+     * strip's and on the predicted screen — at most AIM_LEVELS from the view's and never under the frame's `ownFloor`.
      */
     _aim(st) {
         const m = this.motion, v = m.view;
         if (st.frame == null || String(st.frame) !== String(v.frameId) || st.level == null) return;
         const eta = (m.at != null ? Math.max(0, this.clock() - m.at) : 0) + this.jobMs;
         const vel = m.vel || { px: [0, 0], zoom: 0 };
-        const f = 2 ** ((vel.zoom || 0) * eta);
+        const oct = AIM_LEVELS * v.S;
+        const f = 2 ** Math.max(-oct, Math.min(oct, (vel.zoom || 0) * eta));
         const a = m.attention || [v.wDev / 2, v.hDev / 2];
         const k1 = v.k * f;
         const tx = a[0] - (a[0] - v.tx) * f + (vel.px ? vel.px[0] * eta : 0), ty = a[1] - (a[1] - v.ty) * f + (vel.px ? vel.px[1] * eta : 0);
         const win = { left: -tx / k1, top: -ty / k1, right: (v.wDev - tx) / k1, bottom: (v.hDev - ty) / k1 };
-        const l1 = levelFor(k1, v.S, v.level, v.sigmaMin);
+        const l1 = Math.max(ownFloor(v.S), v.level - AIM_LEVELS, Math.min(v.level + AIM_LEVELS, levelFor(k1, v.S, v.level, v.sigmaMin)));
         let cells = st.cells;
         if (l1 !== st.level) {
             const Z1 = zOf(l1, v.S), s0 = PLATE_PX / st.Z, u = Z1 / PLATE_PX, seen = new Set(), next = [];

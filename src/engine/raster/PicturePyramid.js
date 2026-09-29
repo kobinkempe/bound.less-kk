@@ -133,6 +133,7 @@ export default class PicturePyramid {
         this._restTimer = null;
         this._heavyAt = 0;             // D272's backstop: an inline rest that ran over marks this estimate heavy
         this._userG = 0;               // the commit of the user's last undo or redo (`noteUserEdit`)
+        this._patchDue = false;        // a commit's patch step not yet run (`noteCommit`)
         this._groups = new Map();      // id -> { id, need, held, at, onCommit, purpose }
         this._groupOf = new Map();     // key -> group id
         this._seqGroup = 0;
@@ -149,14 +150,14 @@ export default class PicturePyramid {
             union: cfgOr(this.cfg, "patchUnionUs") / 1000, merge: cfgOr(this.cfg, "patchMergeMs"),
         };
         this._lastCompose = null;
-        this._share = { paper: 0, blur: 0, olderPatch: 0, olderOther: 0 };
+        this._share = { paper: 0, blur: 0, olderPatch: 0, olderUnread: 0, olderOther: 0 };
         this._images = [];             // [t, images] of the last 10 s of composes (A3 §8's panel)
         this.lastPlan = null;
         this.lastPatch = null;         // the last patch decision: cells, T against the budget, inline or coarse (`patchPlan`)
         this.s = {
             composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0,
             composeMs: 0, composeMsMax: 0, maxImagesPerCompose: 0, lastImages: 0,
-            paperMs: 0, blurMs: 0, olderPatchMs: 0, olderOtherMs: 0,
+            paperMs: 0, blurMs: 0, olderPatchMs: 0, olderUnreadMs: 0, olderOtherMs: 0,
             restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0, standInCells: 0,
             patchInline: 0, patchCoarse: 0, patchWorker: 0, patchMs: 0, merges: 0, mergeMisses: 0,
             groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0,
@@ -458,7 +459,7 @@ export default class PicturePyramid {
             if (typeof c.i !== "number") continue;
             const r = st.get(levelKey(c.frame, c.level, S, c.i, c.j));
             const sub = r && this._sub(F, l, i, j, c, S);
-            if (sub && B.take([r])) { out.push(draw(r, sub, dst, "older", false)); return; }
+            if (sub && B.take([r])) { out.push(this._lastResort(r, sub, dst, levelCell(F, l, S, i, j))); return; }       // (f')
         }
         out.push(draw(null, WHOLE, dst, "paper", false));                                                           // (g)
     }
@@ -471,6 +472,18 @@ export default class PicturePyramid {
         const d = draw(own, WHOLE, dst, "older", false), g = this._asked.get(own.key), st = this.store;
         d.own = true;
         d.wait = (g != null && g >= st.fresh.dirtySince(own.key)) || st.inFlightExact(own.key);
+        return d;
+    }
+
+    /**
+     * (f′), a stale coarser stand-in for a cell with nothing fresh at any level: `unread` while the camera's table lacks
+     * the cell's tiles (a crossing's step reads the cache alone, A3 §4.2: `olderUnreadMs`), `wait` while its own job is
+     * asked or in flight (`olderPatchMs`); anything else is `olderOtherMs`, which must stay 0.
+     */
+    _lastResort(r, sub, dst, c) {
+        const d = draw(r, sub, dst, "older", false), g = this._asked.get(c.key), st = this.store;
+        d.unread = !this.covered(c);
+        d.wait = !d.unread && ((g != null && g >= st.fresh.dirtySince(c.key)) || st.inFlightExact(c.key));
         return d;
     }
 
@@ -687,8 +700,9 @@ export default class PicturePyramid {
 
     // ---- the compose (A3 §1.5, §9.1) ----
 
-    /** Plan, pin, draw — directly under COMPOSE_IMAGES, else through the surface — and charge the integrals. */
+    /** A commit's patch step if due, then plan, pin, draw — directly under COMPOSE_IMAGES, else through the surface — and charge the integrals. */
     compose() {
+        this.patchIfDue();
         const t0 = this._now(), v = this._v;
         this._checkGroups();
         const P = this.plan(v);
@@ -803,7 +817,8 @@ export default class PicturePyramid {
     /**
      * §9.1's integrals, charged forward: the last compose's paper, blur and older shares of the screen × the time it
      * stayed up; then this compose's shares. Blur is a coarser source or a patch; older a stale one — `olderPatch` while
-     * its worker patch is pending (A3 §3.4), `olderOther` else; paper nothing.
+     * the worker job that makes the cell exact is pending (A3 §3.4), `olderUnread` while its tiles are unread (f′),
+     * `olderOther` else; paper nothing.
      */
     _charge(P, v) {
         const t = this._now();
@@ -811,10 +826,10 @@ export default class PicturePyramid {
             const dt = t - this._lastCompose;
             const sh = this._share;
             this.s.paperMs += sh.paper * dt; this.s.blurMs += sh.blur * dt;
-            this.s.olderPatchMs += sh.olderPatch * dt; this.s.olderOtherMs += sh.olderOther * dt;
+            this.s.olderPatchMs += sh.olderPatch * dt; this.s.olderUnreadMs += sh.olderUnread * dt; this.s.olderOtherMs += sh.olderOther * dt;
         }
         this._lastCompose = t;
-        const area = { paper: 0, blur: 0, olderPatch: 0, olderOther: 0 };
+        const area = { paper: 0, blur: 0, olderPatch: 0, olderUnread: 0, olderOther: 0 };
         const W = this.wDev, H = this.hDev;
         const devArea = (d) => {
             const x0 = Math.max(0, (d.x0 - v.ox) * v.s + v.dx), y0 = Math.max(0, (d.y0 - v.oy) * v.s + v.dy);
@@ -832,11 +847,11 @@ export default class PicturePyramid {
             for (const d of c.draws) {
                 if (d.cls === "sharp") continue;
                 const a = devArea(d) - (c.base ? hidden(d) : 0);
-                if (a > 0) area[d.cls === "older" ? (d.wait ? "olderPatch" : "olderOther") : d.cls] += a;
+                if (a > 0) area[d.cls === "older" ? (d.wait ? "olderPatch" : d.unread ? "olderUnread" : "olderOther") : d.cls] += a;
             }
         }
         const scr = W * H;
-        this._share = { paper: area.paper / scr, blur: area.blur / scr, olderPatch: area.olderPatch / scr, olderOther: area.olderOther / scr };
+        this._share = { paper: area.paper / scr, blur: area.blur / scr, olderPatch: area.olderPatch / scr, olderUnread: area.olderUnread / scr, olderOther: area.olderOther / scr };
     }
 
     // ---- the rest render (A3 §2) ----
@@ -1131,9 +1146,26 @@ export default class PicturePyramid {
 
     // ---- partial re-render (A3 §3.3–§3.5) ----
 
+    /**
+     * A Stage commit staled what it dirtied (the renderer's hook, after its pen-up groups open): its patch step is due in
+     * this task — the next compose or `frameFor` runs it, else the renderer's microtask (`patchIfDue`) — so no compose
+     * draws a plate a commit staled with no patch asked (PLAN §5.15 item 1). Not run in the hook itself: an undo's
+     * `noteUserEdit` follows its commit and sets the patch's budget. Returns whether it was not due already.
+     */
+    noteCommit() {
+        if (this._patchDue) return false;
+        this._patchDue = true;
+        return true;
+    }
+
+    /** A commit's patch step, unless a compose or a camera step has run it. */
+    patchIfDue() { if (this._patchDue) this._patchStep(); }
+    get patchDue() { return this._patchDue; }
+
     /** The stale cells the view draws from its own grid: patched now or asked for, never left older than they must be. */
     _patchStep() {
         const v = this._v, st = this.store;
+        this._patchDue = false;
         if (v.frameId == null || !this.stage) return;
         const cells = [];
         for (let j = v.j0; j <= v.j1; j++) {
@@ -1447,6 +1479,7 @@ export default class PicturePyramid {
     }
 
     destroy() {
+        this._patchDue = false;
         this._onMove();
         this._freeSurface();
         for (const id of [...this._groups.keys()]) this._dropGroup(id);
