@@ -821,7 +821,7 @@ headless Chromium 141 on `git archive`s of d206cd3 (before) and the build.
   deleted; the subscriber keeps `reset` and the merge hand-over, which C3 deletes with merges (so `select.inkless`
   I4 stays; I9 went). An id a remote edit removes now stays in the selection, skipped, until the next repair.
   `deleteSelection` reads every family before one removal batch (reading them between removals rebuilt the
-  family index per id): 5,000 natives 585 s → 1.3–1.5 s SVG, 0.53 s raster, 0 `_setSelection` calls.
+  family index per id): 5,000 natives 532–585 s (4,999 `_setSelection` calls) → 1.3–1.5 s SVG, 0.53 s raster, 0 calls.
 - **Browser, scenario 4** (dense, 45 selected of 3,441): ink 0 px apart, with the ants frozen 0 px; drag event
   median 1.2–1.7 → 0.7–0.8 ms; the drag's first event 64–83 → 27–33 ms; the drop 1.7–2.0 → 1.5–1.9 s; harness long
   frames 22|26 → 24|16, `olderPatchMs` 953|1,218 → 988|886 (load 2.3–4.5).

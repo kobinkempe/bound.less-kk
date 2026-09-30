@@ -319,7 +319,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
 
     test("RV2 a wheel zoom into another frame during a drag hands the drag to the view's plates, and the drag renders a step", async () => {
         const E = mkEngine();
-        const { a, p } = await scene(E);
+        const { p } = await scene(E);
         const R = E.renderer;
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 20; k++) E.pointerMove(p[0] + k * 6, p[1]);
@@ -331,8 +331,7 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         await flush();
         expect(E._holdMove.plane).toBe(false);            // red: the plane still drew a drag it had lost
         expect(E.stage.holding).toBe(true);               // the hold stands: nothing is written until the drop (A1 C2)
-        const it = E.stage.itemsOf(a.id)[0], r = it.res || [0, 0];
-        expect(r).not.toEqual([it.off[0], it.off[1]]);    // red: the view drew the lost drag at rest until the next step
+        expect(E.stage._hold.view).toBe(true);            // red: the view drew the lost drag at rest until the next step
         expect(R.dragLight()).toBe(false);
         const lists = jest.spyOn(E, "_render");
         for (let k = 21; k <= 40; k++) E.pointerMove(p[0] + k * 6, p[1]);

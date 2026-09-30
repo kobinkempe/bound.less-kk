@@ -2522,3 +2522,20 @@ a concurrent run, not reproduced ×3), raster.commit 4/4, LH 6/6, raster.move, s
 entries the memo evicted); the union state kept by record identity, replaced per prepass (bounded).
 **Questions asked:** none new.
 WHERE I AM: the break-checks on `bp4/bc`, then the bundles, typecheck, lint, the frozen after-copy and the batch.
+
+## 2026-09-30 02:02 UTC — B-PYRAMID-4 (builder) — checkpoint: the break-checks; the after batch running
+**Working on:** the interleaved batch (`bp4/batch2.sh`: before = 39b67e2 with my five raster sources at adcae93 on
+:3014, after = 39b67e2 + the live tree's changes on :3015, one frozen harness, `--dense --scenario all` ×2 each, then
+the round trip ×2 each with the never-both log); meanwhile the docs (DESIGN §9, A3's dated notes, `docs/ai/40-`,
+OPEN-FLAGS F134/F135 — B-DRAG has A3 and OPEN-FLAGS open too: re-read before each edit, my sections only).
+**Measured (jsdom, `bp4/bc`, one guard removed at a time):** 18 of 18 red: r1 hook 2, compose 1, in-hook 2; r3 clamp
+1, floor 1, both 2; r4 join 2, exact-at-landing 1, a stroke-bearing result put 1, never re-asked 1, a held cell's
+second result put 1; r5 unread 2, (f′)-pending as other 1; r2 records 1, the clip margin 1, marks culled 2, unpriced 1,
+uncalibrated 1. The F134 engine test made deterministic (jobMs 40, steps under 1 ms): red on adcae93 (no view strip
+dispatched: all re-aimed off the lattice), green here. Bundles rebuilt: raster b72e5be7… 430,605 B, scene dce304b8…
+(unchanged: the pack runs on the main thread, `rasterPack` is not in them). typecheck 0; lint 0 errors (6 warnings,
+none mine). `DevStats` and `report.js` carry `olderUnreadMs`; the harness `olderUnreadMs`, `both`, `inlinePacks`,
+`unread`, `packRecs`.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: the docs while the batch runs; then its table, the probe split after, the report.
