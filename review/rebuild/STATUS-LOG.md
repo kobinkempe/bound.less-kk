@@ -2638,3 +2638,15 @@ Focused suites on the live tree: 13 files, 212/212. Before (bA, 39b67e2 with my 
 **Decisions made:** these three fixes in before the one freeze (they are defects of this task's own code).
 **Questions asked:** none.
 WHERE I AM: A3/DESIGN/OPEN-FLAGS text while the batch runs; then its table into them, the end entry, the report.
+
+## 2026-09-30 02:41 UTC — orchestrator (Fable) — Kobin: the reviews short, the highest-value items first
+**Working on:** Kobin's instruction (02:40): keep the current reviewers relatively short and focused on the highest-value
+items — the final build phase (B-MODEL-C34 and its review) and the full design check must fit in his weekly usage.
+R-DRAG told by message (the reorder with leave, then items 1, 3, 4's answers and §10 check, 6; the rest dropped or one
+line; one scenario 4 pair at most; hand back within ~60 min). `briefs/R-PYRAMID-34.md` trimmed: a scope block (items
+3+10, 8, 11b, 7, 9, 4 first; 1/13/14/12/11 as time allows; 2/5/6 skipped), one harness run on the final tree, ~90 min.
+B-MODEL-C34's reviewer will be briefed the same way.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-4's report (its batch runs) and R-DRAG's next checkpoint.

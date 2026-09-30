@@ -317,9 +317,22 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         for (let k = 1; k < n; k++) out.push([Math.min(w - 20, Math.max(20, out[k - 1][0] + ri(-160, 160))), Math.min(h - 20, Math.max(20, out[k - 1][1] + ri(-120, 120)))]);
         return out;
     };
-    // The live engine drops a selected frame an undo or a redo leaves without ink (DESIGN.md §10, A1 C2); the oracle
-    // kept it, and a later ctrl-lasso and drag of it parted the two op streams (seed 126). Its own `_reselect` applies the rule.
-    const inklessOut = () => { if (O.selection) O._reselect([], []); };
+    // The live engine repairs the selection at the end of an undo or a redo (A1 C2, DESIGN.md §10); the oracle did it per
+    // event, and two outcomes differ. The oracle takes the live one, so the two op streams stay one: a selected frame the
+    // action leaves without ink leaves (the oracle kept it; seed 126), and a selected id the action removed hands over to
+    // its family's first member when one exists at the action's end, as the uncut original an undo of a cut restores
+    // (the oracle's listener found no family mid-action and deselected; seed 43 of `select.stands`).
+    const repairLikeLive = (was) => {
+        const s = N.selection;
+        if (O.selection) O._reselect([], []);
+        else if (was && was.editId != null && s && s.ids.length && !s.frames.length
+            && s.ids.every((id) => { const r = O.doc.getById(id); return r && O.doc.editKey(r.obj) === was.editId; })) O._setSelection(s.ids.slice(), []);
+    };
+    const history = (k, step) => {
+        const was = O.selection ? { editId: O.selection.editId } : null;
+        both((E) => { for (let i = 0; i < k; i++) step(E); E.flushBakes(); });
+        repairLikeLive(was);
+    };
     const drag = (E, p, dx, dy, n) => { E.pointerDown(p[0], p[1]); for (let k = 1; k <= n; k++) E.pointerMove(p[0] + (dx * k) / n, p[1] + (dy * k) / n); E.pointerUp(); };
     const reload = (E) => {
         const kind = E._fuzzKind;
@@ -430,8 +443,8 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             });
         }],
         ["delete", 1, () => { both((E) => { if (E.selection) E.deleteSelection(); }); }],
-        ["undo", 3, () => { const k = ri(1, 4); both((E) => { for (let i = 0; i < k; i++) E.undo(); E.flushBakes(); }); inklessOut(); }],
-        ["redo", 2, () => { const k = ri(1, 3); both((E) => { for (let i = 0; i < k; i++) E.redo(); E.flushBakes(); }); inklessOut(); }],
+        ["undo", 3, () => history(ri(1, 4), (E) => E.undo())],
+        ["redo", 2, () => history(ri(1, 3), (E) => E.redo())],
         ["zoom", 3, () => {
             const L = O.activeLevel;
             let to = ri(-1, 4);

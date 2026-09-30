@@ -7,6 +7,15 @@ review's is `<scratchpad>/r-pyr/`. Fix minors inline in the files of §3; report
 evidence; a major with a bounded fix and a red-before test may be applied when the orchestrator says so (ask in your
 checkpoint entry, keep working meanwhile). Leave given at launch: item 11b's stall fix when bounded (one mechanism, one red-before test); more from B-PYRAMID-4's report when written.
 
+**Scope, per Kobin (2026-09-30 02:40): a short review, the highest-value items first.** Do, in this order: items 3 and
+10 together (the pen-up rule under the new layer with F135's merge: never both, never neither, per path; the doubling),
+8 (the pack's records: the moved item's `res`, byte-equal plates with the memo warm, the bound), 11b (the bake stall),
+7 (the patch step in the commit's task), 9 (F134's floor and the other `levelFor` callers), 4 (the mask rule's drag
+case only; M-1..3/X-1 exist). Then, as time allows: 1 (one round-trip pair only, b793360 against the final tree),
+13 and 14 (a grep and a read, no rewrite), 12 (only if the fuzz extension is cheap; else state the argument), 11 (the
+judgement on the (f′)-pending charge, three lines). Skip 2, 5 and 6 unless a finding leads there, and say in the report
+what you skipped. Hand back within about 90 minutes of your start.
+
 **The B-PYRAMID review verified P0–P6 on c7fed1a** (its 19:59 entry in the STATUS-LOG; `briefs/R-PYRAMID.md` items
 5–10). Do not repeat those items; re-check only what B-PYRAMID-3 and 4 touched (`git diff --stat c7fed1a -- src/engine/`
 tells you which files) and what §1 below names.
@@ -151,11 +160,12 @@ B-PYRAMID-4's (the pyramid's last rules; PLAN §5.15; F134, F135):
 
 ## 2. Measurement, once, at the end
 
-Frozen trees (`git archive`): c7fed1a, b793360 (B-PYRAMID-3 landed, B-DRAG's D1 partly in) and the final tree. The
-machine quiet: **R-DRAG runs beside you**; the STATUS-LOG is the coordination — announce a browser batch's start and end
-in an entry, start one only when the 1-min load is under 2 and no other agent's batch is announced and unfinished, and
-print the load with every number. `--dense --scenario all` twice on b793360 and on the final tree, scenarios 1–2 at
-`levelStep=2|3` on the final tree: the table beside the B-PYRAMID review's 19:59 table — paper, blur, older by cause
+Short, per Kobin: **one** `--dense --scenario all` run on the final tree (`git archive`), the load printed, compared
+with B-PYRAMID-4's after table (its end entry) and the B-PYRAMID review's 19:59 table; a second run only for a number
+that disagrees with both. No before tree, no `levelStep` runs (the final design check runs every scenario again).
+**R-DRAG runs beside you**; the STATUS-LOG is the coordination — announce a browser batch's start and end in an entry,
+start one only when the 1-min load is under 2 and no other agent's batch is announced and unfinished. The table's
+columns — paper, blur, older by cause
 (`olderPatchMs`, `olderUnreadMs`, `olderOtherMs` = 0 everywhere), scenario 6's key-to-exact and longest task, scenario
 7's bake and older split, scenario 5's release, scenario 4's drag older and **the drop's render** (R-DRAG's item 7 hands
 you B-DRAG's 1.8–2.0 s render after a 45-object drop on the dense scene: attribute it — the pack, the inline patch, the

@@ -4,18 +4,20 @@
  * selection added; after every operation the ink the live engine's selection stands for — its ids'
  * families and the natives under its frames — equals the frozen settling model's
  * (`__oracles__/model-v1`), no selected frame is without ink where the oracle's has ink (one both
- * keep is counted as `inklessBoth`: 0 since A1 C2's repair drops a frame an undo emptied, which the
- * oracle keeps), and a drag of a selection leaves it
+ * keep is counted as `inklessBoth`; after an undo or a redo the oracle takes the live repair's rules,
+ * `modelFuzz.runPairFuzz`), and a drag of a selection leaves it
  * standing for the ink it was made with. Cuts, undo, redo and delete are the fuzz's own. A probe, not
  * a suite. Run:
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/select.stands.probe.js"
- * SELECT_SEEDS (default 12) and SELECT_STEPS (default 40) set the size.
+ * SELECT_SEEDS (default 12, then the pinned seed) and SELECT_STEPS (default 40) set the size.
  */
 import { runPairFuzz } from "./__testkit__/modelFuzz";
 
 jest.setTimeout(30 * 60 * 1000);
 
 const SEEDS = Number(process.env.SELECT_SEEDS || 12), STEPS = Number(process.env.SELECT_STEPS || 40);
+// Past the range: 43 an undo of the cut that made a selected piece (red before the oracle took the hand-over rule).
+const PINNED = process.env.SELECT_SEEDS ? [] : [43];
 
 /** The natives a selection stands for: its ids with their families, and every native under its frames. */
 function selectionInk(E) {
@@ -69,9 +71,9 @@ const extra = ({ both, ri, pick, inkPoints, w, h }) => [
 ];
 
 test("a selection stands for the oracle's ink and the ink it was made with, over seeded sequences", () => {
-    const st = { seeds: [1, SEEDS], steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
+    const st = { seeds: [1, SEEDS], pinned: PINNED, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
     const fails = [];
-    for (let seed = 1; seed <= SEEDS; seed++) {
+    for (const seed of [...Array(SEEDS).keys()].map((k) => k + 1).concat(PINNED)) {
         let made = null;
         runPairFuzz(seed, STEPS, (O, N, step, op) => {
             st.ops[op] = (st.ops[op] || 0) + 1;
@@ -79,8 +81,8 @@ test("a selection stands for the oracle's ink and the ink it was made with, over
             st.checks++;
             if (N.selection) { st.selections++; st.natives += b.size; st.frames += N.selection.frames.length; }
             if (key(a) !== key(b)) { fails.push(`seed ${seed} step ${step} ${op}: oracle [${key(a)}], live [${key(b)}]`); return false; }
-            // An inkless selected frame the oracle's selection holds too is counted, not failed (an undo that
-            // took its ink: the oracle keeps it; the live repair drops it since A1 C2, 2 → 0 at 12 × 40).
+            // An inkless selected frame the oracle's selection holds too is counted, not failed (0 at 12 × 40: after an
+            // undo or a redo the oracle drops it by the live repair's rule, `runPairFuzz`).
             const bare = inklessFrames(N), was = new Set(inklessFrames(O));
             const mine = bare.filter((f) => !was.has(f));
             st.inklessBoth += bare.length - mine.length;
