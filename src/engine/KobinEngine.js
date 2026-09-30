@@ -138,15 +138,10 @@ export default class KobinEngine {
         this.doc.lm = this.lm;   // a frame's shift is its natives' placement, composed on read (A1 C1)
         initFrameGc(this);       // a frame holds something (F94): candidates from here on, collected at triggers
         this.doc.subscribe((ev) => noteFrameEvent(this, ev));
-        // The camera's frame merged into the resident of its cell (an undo put a moved frame back where
-        // the camera's twin was): the camera follows, one cell, and the view is drawn again after the
-        // action that merged it. Left on the gone frame, the canvas drew nothing and new ink went to a
-        // frame the lattice lacked (REVIEWER-3 MOVE-2, F126).
-        this.doc.subscribe((ev) => {
-            if (ev.kind !== "mergeFrame" || !this.cam || String(this.cam.frame) !== String(ev.frame)) return;
-            this.cam.frame = ev.into;
-            Promise.resolve().then(() => { if (!this._destroyed) this._render(); });
-        });
+        // The camera stays in a resident (A1 C3): a frame moved or put back onto the camera's cell takes it
+        // when the camera's frame holds nothing, and the camera is handed to it at the re-address — the same
+        // cell, the same coordinates (F126: left in a frame that was no longer the cell's, nothing was drawn).
+        this.doc.subscribe((ev) => { if (ev.kind === "refile" || ev.kind === "addFrame") this._camToResident(); });
         // A cut is anchored to the frame the gesture was made in, so moving the
         // object it belongs to has to carry the cut's origin into that frame.
         // One injected pure function is all the Document needs — it still owns
@@ -253,25 +248,23 @@ export default class KobinEngine {
         this.renderer.onPlaneLost = () => this._planeLost();
         // Back from a hidden tab (the store released its plates): one render re-asks the view's plates.
         this.renderer.onShown = () => { if (!this._destroyed) this._render(); };
-        // A reset (a wipe, a load) drops the selection; a merge hands a selected frame's ink over. Everything else
-        // an action does to the selection is repaired from its op at its end (`_repairSelection`, A1 C2).
+        // A reset (a wipe, a load) drops the selection. Everything else an action does to the selection is
+        // repaired from its op at its end (`_repairSelection`, A1 C2).
         this.doc.subscribe((ev) => {
-            if (!this.selection) return;
-            if (ev.kind === "reset") { this.selection = null; this._dropHold("reset"); return; }
-            // A selected frame merged into the resident of its cell: its natives stay selected as
-            // ids, its kids that hold ink as frames (SUBTREE-O1-PLAN §2.5).
-            if (ev.kind === "mergeFrame") {
-                const s = this.selection;
-                if (!s.frames.includes(ev.frame)) return;
-                const inked = this._inkedFrames();
-                const frames = s.frames.filter((f) => f !== ev.frame).concat(ev.kids.filter((k) => inked.has(k) && !s.frames.includes(k)));
-                this._setSelection(s.ids.concat(ev.ids), frames);
-            }
+            if (this.selection && ev.kind === "reset") { this.selection = null; this._dropHold("reset"); }
         });
 
         // "raf" frames: an arrival's compose waits for the frame (the pyramid's `deferCompose`, A3 §5).
         if (this.cfg.frames === "raf" && this.renderer.layer) this.renderer.layer.deferCompose = () => { if (!this._destroyed) this._pend().arrived = true; };
         this._render();
+    }
+
+    /** The camera in its cell's resident (A1 C3): the same cell, the same coordinates. True when it moved. */
+    _camToResident() {
+        const r = this.cam ? this.lm.residentOf(this.cam.frame) : null;
+        if (!r || r.id === String(this.cam.frame)) return false;
+        this.cam.frame = r.id;
+        return true;
     }
 
     // ---- camera compat (fields live on Camera) ----
@@ -602,7 +595,6 @@ export default class KobinEngine {
         this.stage.batch(() => {
             if (why === "drop" && d && d.moved && this.selection) op = this._dropMove(d);
             n = this._releaseMove();
-            if (op) this.doc.mergePending(op);
         });
         this._dragSel = null;
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);

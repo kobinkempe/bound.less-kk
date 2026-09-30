@@ -714,8 +714,8 @@ class Selection {
             for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
             for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
         } finally { this.store.setBatch(false); }
-        // The frames it moved as frames: entry objects beside the per-object moves; a merge the drop makes is
-        // recorded on them (`Document.mergePending`).
+        // The frames it moved as frames: entry objects beside the per-object moves (a frame landing on an occupied
+        // cell stays a co-resident there, A1 C3: nothing more to record).
         const frames = [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
             || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter)));
         if (!moves.length && !frames.length) return null;
@@ -732,7 +732,7 @@ class Selection {
             }),
             skipped: skipped.length ? skipped.slice(0, 12) : undefined,
             frames: frames.length || undefined,
-            frameShadowed: d.frameShadowed && d.frameShadowed.length ? d.frameShadowed.slice(0, 12) : undefined,
+            coresident: d.coresident && d.coresident.length ? d.coresident.slice(0, 12) : undefined,
         });
         const op = frames.length ? { op: "moveFrames", frames, moves } : moves.length === 1 ? { op: "move", ...moves[0] } : { op: "moveMany", moves };
         this.doc.pushUndo(op);
@@ -753,7 +753,7 @@ class Selection {
                 d.frameStart.set(id, e);
                 const fr = this.lm.frame(id);
                 d.frames.set(id, { id, depth: e.depth, from: { parent: e.parent, i: e.i, j: e.j }, to: null,
-                    shiftBefore: fr && fr.shift ? [fr.shift[0], fr.shift[1]] : null, shiftAfter: null, merged: null });
+                    shiftBefore: fr && fr.shift ? [fr.shift[0], fr.shift[1]] : null, shiftAfter: null });
             }
         }
     }
@@ -788,7 +788,7 @@ class Selection {
             e.to = to;
             if (addrChanged || shiftChanged) moved = true;
         }
-        for (const c of r.shadowed) (d.frameShadowed || (d.frameShadowed = [])).push(c);
+        for (const c of r.shadowed) (d.coresident || (d.coresident = [])).push(c);
         return moved;
     }
     /** The selected frame whose mark is under the screen point, or null. */

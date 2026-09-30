@@ -235,10 +235,6 @@ export class SceneClient {
                 if (ev.attrOnly) { this.attr.add(ev.id); break; }
                 if (!ev.offsetsOnly) { this.geom.add(ev.id); this.markGeo.delete(ev.id); }   // the geometry changed
                 this.dirty.add(ev.id); break;
-            case "mergeFrame": case "splitFrame":
-                this.frameEv++;
-                for (const id of ev.ids || []) this.dirty.add(id);
-                break;
             case "removeFrame":
                 this.frameEv++;
                 this.goneFrames.add(ev.frame);

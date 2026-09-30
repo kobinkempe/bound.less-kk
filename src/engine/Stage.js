@@ -742,12 +742,6 @@ export default class Stage {
             this._wide = true;
             return;
         }
-        if (k === "mergeFrame" || k === "splitFrame") {
-            if (String(ev.frame) === this.frame) { this._need = true; return; }
-            for (const id of ev.ids || []) this._touched.add(id);
-            this._wide = true;
-            return;
-        }
         if (k === "rekey") { for (const id of ev.ids || []) this._touched.add(id); return; }
         if (ev.id != null) this._touched.add(ev.id);
     }
@@ -828,8 +822,6 @@ export default class Stage {
             if (s) this._foot.push(s);
             return;
         }
-        if (k === "mergeFrame") { const M = String(ev.frame); this._info.drop.push((G) => String(G) === M); return; }
-        if (k === "splitFrame") return;
         if (k === "rekey") {
             for (const id of ev.ids || []) { const rec = this.doc.getById(id); if (rec) this._after(id, this._stateOf(rec.obj, rec.level)); }
             return;

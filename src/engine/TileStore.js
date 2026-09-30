@@ -582,9 +582,8 @@ export default class TileStore {
         const foot = [];
         const cur = this.lm.frame(ev.frame);
         if (cur && cur.parent != null) foot.push([cur.parent, cur.cell.i, cur.cell.j]);
-        else if (ev.at && ev.at.parent != null) foot.push([ev.at.parent, ev.at.i, ev.at.j]);   // a merged frame is gone from the lattice
+        else if (ev.at && ev.at.parent != null) foot.push([ev.at.parent, ev.at.i, ev.at.j]);   // a deleted frame is gone from the lattice
         if (ev.kind === "refile" && ev.from && ev.from.parent != null) foot.push([ev.from.parent, ev.from.i, ev.from.j]);
-        if (ev.kind === "mergeFrame") for (const [key, tile] of this.cache) if (tile.level === ev.frame) this._dropTile(key);
         if (!foot.length) return;
         const reach = REACH / R;    // in the parent's units
         const pad = seamPadFor(this.cfg);
@@ -610,7 +609,7 @@ export default class TileStore {
     }
     _onDoc(ev) {
         if (ev.kind === "reset") { this._clearTiles(); return; }
-        if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame" || ev.kind === "mergeFrame" || ev.kind === "splitFrame") { this._onFrameEvent(ev); return; }
+        if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame") { this._onFrameEvent(ev); return; }
         if (!ev.obj) return;
         if (ev.kind === "remove") { this._removeObject(ev.id); return; }
         if (ev.kind === "add" && ev.live) return; // still growing; finalize announces

@@ -52,14 +52,15 @@ export const FORMAT = "boundless-drawing";
 // Version 3 (2026-09-29, A1 C1): a frame's `shift` in the lattice is its natives' placement,
 // composed on read (DESIGN.md §8). A version-2 build reads it as a pending entry to settle into
 // their tables, and the deployed build before 4c99a8a drops it, so a drawing whose lattice
-// carries a shift is written as version 3 and those builds refuse it; one without a shift is
-// written exactly as before.
+// carries a shift is written as version 3 and those builds refuse it. The same holds for a
+// co-resident (`shadowOf`, A1 C3: an older build merges it or drops its cell) and a private frame
+// (`private`, A1 C4). A lattice with none of the three is written exactly as before.
 export const VERSION = 3;
 
-/** True when a serialized lattice (`LevelMap.serialize`) has a frame with a non-zero shift. */
-export function latticeHasShift(crossings) {
+/** True when a serialized lattice (`LevelMap.serialize`) has a frame with a non-zero shift, a co-resident or a private frame. */
+export function latticeNeedsV3(crossings) {
     const frames = crossings && crossings.__lattice && Array.isArray(crossings.frames) ? crossings.frames : [];
-    return frames.some((f) => !!(f && Array.isArray(f.shift) && (f.shift[0] || f.shift[1])));
+    return frames.some((f) => !!f && ((Array.isArray(f.shift) && (f.shift[0] || f.shift[1])) || f.shadowOf != null || f.private != null));
 }
 
 // ---- encode ----
@@ -77,8 +78,8 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
     if (decoded.scenes) outMeta.scenes = decoded.scenes;
     if (decoded.sceneIndex) outMeta.sceneIndex = decoded.sceneIndex;
     // The lowest version that holds the drawing, so an unaffected one still opens in any build:
-    // 3 when a frame carries a shift, 2 when a shape holds a cut piece (F43), else 1.
-    let version = latticeHasShift(crossings) ? 3 : 1;
+    // 3 when a frame carries a shift or is a co-resident or private, 2 when a shape holds a cut piece (F43), else 1.
+    let version = latticeNeedsV3(crossings) ? 3 : 1;
     for (const l of Object.keys(natives || {})) {
         if (version >= 2) break;
         for (const o of natives[l] || []) {

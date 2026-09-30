@@ -1,6 +1,7 @@
 /**
  * frameGc.js — a frame holds something (OPEN-FLAGS F94; Kobin, 2026-09-23: "if there ever is a
- * frame, it has stuff in it"). A frame with no natives, kids or shadows is forgotten, unless:
+ * frame, it has stuff in it"). A frame with no natives and no kids is forgotten — a resident with
+ * co-residents hands its cell to one (A1 C3: GC promotes) — unless:
  *   - the camera is in it or above it, or left it within the last CAM_TRAIL frames — a crossing
  *     back composes the plates of the frame it left through the frame affine (PAPER-PLAN R5a);
  *   - an undo or redo op names it (`Document.namedFrames`): history puts things back there by id,
@@ -8,7 +9,7 @@
  * Candidates are the frames something may have emptied or minted — a native's old home, a moved
  * frame and its old parent, a detached list, every frame a gesture adds, the frames the camera left
  * and what dropped ops named — collected at a gesture's end and at a change of the camera's frame,
- * never mid-gesture, while merges are held, or while an erase job holds a lattice copy (F67).
+ * never mid-gesture, or while an erase job holds a lattice copy (F67).
  * A load adds none: the host sweeps every frame once the store's state is in (`sweepFrames`).
  * STORE: a forgotten frame held nothing, so the saver no longer lists it and replay counts it as
  * holding every entry (F98); the next write's header lattice lacks it, and the op log records it.
@@ -88,10 +89,10 @@ export function collectFrames(E, inRender = false) {
         const id = String(todo.pop());
         const f = lm.frame(id);
         if (!f || f.parent == null || keep.has(id)) continue;
-        if (doc.count(id) || (f._kids && f._kids.size) || (f._shadows && f._shadows.size)) continue;
+        if (doc.count(id) || (f._kids && f._kids.size)) continue;
         if (!named) named = doc.namedFrames();
         if (named.has(id)) continue;
-        const up = f.shadowOf != null ? f.shadowOf : f.parent;
+        const up = f.parent;
         if (!lm.forget(id)) continue;
         doc.forgetFrame(id);
         if (E.store && E.store.forgetFrame) E.store.forgetFrame(id);   // its tiles: the id can be minted again (RENDER-1)

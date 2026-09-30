@@ -46,7 +46,7 @@ import {
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
 import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, composeShift, pictureTable, ownTableOf } from "./geometry/offsets";
-import { unsettle } from "./legacy/modelV1";
+import { unsettle, unmerge } from "./legacy/modelV1";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
 import { cede } from "./cede";
@@ -453,67 +453,6 @@ export default class Document {
         const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
         return f && f.shift ? composeShift(T, [-f.shift[0], -f.shift[1]]) : cloneBelow(T);
     }
-    /**
-     * Merge every shadow into the resident of its cell (SUBTREE-O1-PLAN §2.5) at the end of the user
-     * action that made them — a drop, an undo, a redo, a load — never at a read (A1 C1); a merge's kids
-     * can shadow in turn, so it repeats until none is left. `op`: the action's `moveFrames` op, whose
-     * entry for the shadow (or the resident) records each merge for `unmerge`.
-     */
-    mergePending(op = null) {
-        if (!this.lm) return 0;
-        let n = 0;
-        for (let pass = 0; pass < 16; pass++) {
-            const res = [];
-            for (const f of this.lm.frames.values()) if (f._shadows && f._shadows.size && !this._detached.has(f.id)) res.push(f);
-            let merged = 0;
-            for (const E of res) merged += this._mergeShadows(E, op);
-            n += merged;
-            if (!merged) break;
-        }
-        return n;
-    }
-    /**
-     * Merge the shadows of resident `E` into it: each shadow's natives appended to E's list (home E,
-     * indexed) with the difference of the two frames' shifts folded into their own tables, so their
-     * pictures stay; its kids re-parented by `LevelMap.adoptShadow`; the shadow gone. O(the shadow's
-     * natives). The record (tables before and after) goes on `op`'s entry, for `unmerge`, and to the log.
-     */
-    _mergeShadows(E, op) {
-        let n = 0;
-        for (const mid of [...E._shadows]) {
-            const M = this.lm.frame(mid);
-            if (!M || this._detached.has(mid)) continue;   // set aside by a delete: it waits
-            if (!this.count(mid) && !(M._kids && M._kids.size) && !(M._shadows && M._shadows.size)) continue;   // holds nothing: frame GC's (F94)
-            const d = [(M.shift ? M.shift[0] : 0) - (E.shift ? E.shift[0] : 0), (M.shift ? M.shift[1] : 0) - (E.shift ? E.shift[1] : 0)];
-            const src = this.nativesByLevel[mid] || [];
-            const ids = src.map((o) => o.id), tables = [];
-            if (src.length) {
-                this._reuseDetached(E.id);
-                const dst = this.nativesByLevel[E.id] || (this.nativesByLevel[E.id] = []);
-                for (const o of src) {
-                    dst.push(o); this._keyOut(mid, o); this._keyIn(E.id, o); o._home = E.id;
-                    if (!this._pending.has(o)) this._idx(E.id).add(o);
-                    o._ver = (o._ver || 0) + 1;
-                    if (d[0] || d[1]) {
-                        const before = cloneBelow(o.below);
-                        o.below = composeShift(o.below, d);
-                        this._noteBelow(o);
-                        tables.push([o.id, before || null, cloneBelow(o.below) || null]);
-                    }
-                }
-            }
-            delete this.nativesByLevel[mid]; delete this._index[mid];
-            const rec = this.lm.adoptShadow(M, E);
-            rec.ids = ids;
-            if (tables.length) rec.tables = tables;
-            const entry = op && op.frames ? (op.frames.find((e) => e.id === mid) || op.frames.find((e) => e.id === E.id)) : null;
-            if (entry) (entry.merged || (entry.merged = [])).push(rec);
-            this._emit({ kind: "mergeFrame", frame: mid, into: E.id, at: { parent: E.parent, i: E.cell.i, j: E.cell.j }, ids, kids: rec.kids.map((kd) => kd.id) });
-            this._notifyOps({ kind: "mergeFrame", rec, of: op && op._seq != null ? op._seq : null });
-            n++;
-        }
-        return n;
-    }
     _setKeyedAside(k) {
         const set = this._keyedIn.get(k);
         this._keyedIn.delete(k);
@@ -567,32 +506,6 @@ export default class Document {
         for (const o of this._detachedLists.get(k) || []) if (o._home === k) o._gone = true;
         this._detached.delete(k);
         this._reused.add(k);
-    }
-    /** A replayed merge or split: the record's natives into the list they belong in, their tables as recorded (idempotent). */
-    mergeReplay(rec) { this.rehomeManyById(rec.ids, rec.into); this._setTables(rec.tables, 2); this._forgetIfEmpty(rec.id); }
-    unmergeReplay(rec) { this.rehomeManyById(rec.ids, rec.id); this._setTables(rec.tables, 1); this._forgetIfEmpty(rec.into); }
-    _setTables(tables, which) { for (const t of tables || []) if (this.getById(t[0])) this.setOffsetsById(t[0], t[which] || undefined); }
-    /** The inverse of one `_mergeShadows` record: the frame back as a shadow, its natives back in its own list. */
-    unmerge(rec) {
-        const M = this.lm.unadoptShadow(rec);
-        const set = new Set(rec.ids);
-        const src = this.nativesByLevel[rec.into] || [];
-        const mine = [];
-        let w = 0;
-        for (let r = 0; r < src.length; r++) { const o = src[r]; if (set.has(o.id)) mine.push(o); else src[w++] = o; }
-        src.length = w;
-        if (mine.length) {
-            this.nativesByLevel[M.id] = mine;
-            for (const o of mine) {
-                if (!this._pending.has(o)) { this._idx(rec.into).remove(o); this._idx(M.id).add(o); }
-                this._keyOut(rec.into, o); this._keyIn(M.id, o);
-                o._home = M.id; o._ver = (o._ver || 0) + 1;
-            }
-        }
-        for (const [id, before] of rec.tables || []) { const o = this._byId.get(id); if (o) { o.below = cloneBelow(before); this._noteBelow(o); } }
-        this._forgetIfEmpty(rec.into);
-        this._emit({ kind: "splitFrame", frame: M.id, from: rec.into, at: { parent: M.parent, i: M.cell.i, j: M.cell.j }, ids: rec.ids, kids: rec.kids.map((kd) => kd.id) });
-        return M;
     }
     _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
     _keyIn(k, o) {
@@ -1264,7 +1177,6 @@ export default class Document {
         let inv;
         try { inv = this._carrySeq(op, this._invert(op)); this._redo.push(inv); } finally { this._inUndo = false; }
         this._notifyOps({ kind: "undo", op });
-        this.mergePending(inv);
         return true;
     }
     redo() {
@@ -1274,7 +1186,6 @@ export default class Document {
         let inv;
         try { inv = this._carrySeq(op, this._invert(op)); this._undo.push(inv); } finally { this._inUndo = false; }
         this._notifyOps({ kind: "redo", op });
-        this.mergePending(inv);
         return true;
     }
     // The log's seq rides an op's inverse (F71): a redo of an inverse without it read as
@@ -1322,11 +1233,11 @@ export default class Document {
             // A deleted frame subtree, held as whole lists (SUBTREE-O1-PLAN §2.3): undo and redo
             // are the same records re-attached and re-detached by reference, O(frames).
             case "moveFrames": {
-                // Frames first: a merge since the move is split back, then the start address and shift
+                // Frames first: a merge an op from before C3 records is split back (legacy), then the start address and shift
                 // come back, the shift being its natives' placement (A1 C1); the per-object moves follow
                 // (DESIGN.md §8). An op from a store written before C1 subtracts its settle (legacy).
                 for (const e of op.frames) {
-                    if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) this.unmerge(e.merged[i]); e.merged = null; }
+                    if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) unmerge(this, e.merged[i]); e.merged = null; }
                     if (e.settled) { unsettle(this, e.id, e.settled); delete e.settled; }
                 }
                 const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift } : null]; }));

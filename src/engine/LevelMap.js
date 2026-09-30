@@ -82,6 +82,7 @@ function phaseThrough(tile, path, frames) {
     return [px, py];
 }
 const EMPTY_PATH = { up: [], down: [] };
+const NEVER = () => false;
 
 export default class LevelMap {
     constructor(cfg, width, height) {
@@ -108,7 +109,7 @@ export default class LevelMap {
         const f = {
             id, parent, depth, cell, _kids: null,
             shift: null, addrSeq: 0,
-            shadowOf: null, _shadows: null,   // a shadow shares a resident's cell (SUBTREE-O1-PLAN §2.5)
+            shadowOf: null, _shadows: null,   // co-residency: the resident of a shared cell, its co-residents (A1 C3)
             edge: parent == null ? null : cellEdge(cell.i, cell.j),
             // The cell's centre in its PARENT's units — the exact integer i*G.
             // Transforms use this rather than the edge's `t`, because
@@ -121,7 +122,12 @@ export default class LevelMap {
         if (this._isSpine(parent, cell.i, cell.j)) this._spine.set(depth, id);
         if (parent != null) {
             const p = this.frames.get(parent);
-            if (p) { if (!p._kids) p._kids = new Map(); p._kids.set(cellKey(cell.i, cell.j), id); }
+            if (p) {
+                const key = cellKey(cell.i, cell.j), E = this._kidAt(p, key);
+                if (!p._kids) p._kids = new Map();
+                if (!p._kids.has(key)) p._kids.set(key, id);
+                if (E && E !== f) this._joinGroups(f, E, NEVER);   // added where a frame is: its co-resident
+            }
         }
         return f;
     }
@@ -185,11 +191,11 @@ export default class LevelMap {
             if (f._kids) for (const c of this.childrenOf(f.id)) stack.push(c);
         }
     }
-    /** Group `list` (frames at one cell) as one: its present resident stays one, else its first. Returns the resident. */
-    _regroup(list) {
+    /** Group `list` (frames at one cell) as one: `r`, else its present resident, else its first, is the resident. */
+    _regroup(list, r = null) {
         if (!list.length) return null;
         this._paths.clear();
-        const r = list.find((g) => g.shadowOf == null) || list[0];
+        r = r || list.find((g) => g.shadowOf == null) || list[0];
         r.shadowOf = null; r._shadows = null;
         for (const g of list) {
             if (g === r) continue;
@@ -560,9 +566,9 @@ export default class LevelMap {
     /**
      * Apply a `moveSubtreeTargets` array in two phases, so the movers never collide with
      * each other: every mover leaves its old cell first, then each takes its target. A
-     * target cell another frame holds makes a shadow (`_take`): the newcomer's when
-     * `opts.empty(id)` says the resident holds nothing, else the resident's. Returns
-     * `{ moved, shadowed: [{ id, of }] }`. (`readdress` stays for a single move.)
+     * target cell another frame holds makes a co-resident (`_take`): the resident's when
+     * `opts.empty(id)` says it holds nothing and it contains no frame, else the newcomer.
+     * Returns `{ moved, shadowed: [{ id, of }] }`, `of` the resident. (`readdress` stays for a single move.)
      */
     readdressMany(targets, opts = {}) {
         const empty = opts.empty || (() => false);
@@ -581,6 +587,34 @@ export default class LevelMap {
         this.addrEpoch++;
         this._rebuildSpine();
         return { moved, shadowed };
+    }
+    /**
+     * A frame put back at its address (an undo): a co-resident where a frame holds the cell, its resident
+     * when that one holds nothing (`empty`) and contains no frame. Its kids come back after it, each
+     * joining the group of its cell as it is added (`_addFrame`).
+     */
+    restoreFrame(rec, empty = NEVER) {
+        let f = this.frames.get(rec.id);
+        if (f) return f;
+        if (rec.parent != null && !this.frames.has(rec.parent)) return null;
+        f = this._addFrame(rec.id, rec.parent, { i: rec.i, j: rec.j }, rec.depth);
+        if (rec.shift) f.shift = [rec.shift[0], rec.shift[1]];
+        f.addrSeq = rec.addrSeq || 0;
+        if (rec.private != null) f.private = rec.private;
+        const r = this.residentOf(f.id);
+        if (r !== f && !(r._kids && r._kids.size) && empty(r.id)) this._regroup(this.cellFrames(f.id), f);
+        this.addrEpoch++;
+        this._rebuildSpine();
+        return f;
+    }
+    /** Frame `id` contained by `parentId` at its own cell (a legacy unmerge): its container changes, its cell does not. */
+    reparent(id, parentId) {
+        const f = this.frames.get(id), p = this.frames.get(parentId);
+        if (!f || !p) return null;
+        this._leave(f);
+        this._take(f, p, f.cell.i, f.cell.j, NEVER);
+        this._paths.clear(); this.addrEpoch++; this._rebuildSpine();
+        return f;
     }
     /**
      * Frames another lattice minted, added here (F67): a worker's descent runs on a
@@ -606,9 +640,9 @@ export default class LevelMap {
      * The frame an id names, re-minted when the lattice lacks it (F67; F99: natives under a `#2`
      * twin's child were never drawn). Ids are "<spine depth>[#n]/i,j[#n]/…": the spine frame first
      * (a bare "2" on a lattice without it was null, so its natives loaded undrawn), then below the
-     * deepest prefix that exists each missing frame is added with its EXACT id in its birth cell, or
-     * as a shadow of the cell's resident (merged at the load's end). Null, with nothing minted, for
-     * an id no frame can have.
+     * deepest prefix that exists each missing frame is added with its EXACT id in its birth cell, a
+     * co-resident when a frame holds it (`_addFrame`). Null, with nothing minted, for an id no frame
+     * can have.
      */
     ensureId(id) {
         const hit = this.frames.get(id);
@@ -630,18 +664,11 @@ export default class LevelMap {
         let cur = this.frames.get(segs.slice(0, k).join("/"));
         for (let n = k; n < segs.length && cur; n++) {
             const exact = segs.slice(0, n + 1).join("/"), { i, j } = cells[n - 1];
-            const resident = this.findCellChild(cur.id, i, j);
-            const f = this._addFrame(exact, cur.id, { i, j }, cur.depth + 1);
-            if (resident) {
-                cur._kids.set(cellKey(i, j), resident.id);
-                f.shadowOf = resident.id;
-                (resident._shadows || (resident._shadows = new Set())).add(f.id);
-            }
-            cur = f;
+            cur = this._addFrame(exact, cur.id, { i, j }, cur.depth + 1);
         }
         return cur && cur.id === id ? cur : null;
     }
-    /** A spine id ("2", or a moved spine frame's twin "2#3") minted in the spine cell: itself, or the resident's shadow. */
+    /** A spine id ("2", or a moved spine frame's twin "2#3") minted in the spine cell: itself, or the resident's co-resident. */
     _ensureSpineId(sid, depth) {
         this.ensureSpine(depth);
         let f = this.frames.get(sid);
@@ -650,9 +677,6 @@ export default class LevelMap {
         const p = resident && resident.parent != null ? this.frames.get(resident.parent) : null;
         if (!p) return null;
         f = this._addFrame(sid, p.id, { i: 0, j: 0 }, depth);
-        p._kids.set(cellKey(0, 0), resident.id);
-        f.shadowOf = resident.id;
-        (resident._shadows || (resident._shadows = new Set())).add(f.id);
         this._rebuildSpine();
         return f;
     }
@@ -1167,15 +1191,11 @@ export default class LevelMap {
         };
         for (const f of list) put(f);
         if (!this.frames.has("0")) this._addFrame("0", null, { i: 0, j: 0 }, 0);
-        // Shadows: the resident keeps the cell whatever order the two were added in.
+        // Frames sharing a cell were grouped as they were added (`_addFrame`); the saved resident keeps the cell.
         for (const f of list) {
             if (f.shadowOf == null) continue;
-            const s = this.frames.get(f.id), r = this.frames.get(f.shadowOf);
-            if (!s || !r || r.parent !== s.parent || r.cell.i !== s.cell.i || r.cell.j !== s.cell.j) continue;
-            s.shadowOf = r.id;
-            (r._shadows || (r._shadows = new Set())).add(s.id);
-            const p = this.frames.get(s.parent);
-            if (p && p._kids) p._kids.set(cellKey(s.cell.i, s.cell.j), r.id);
+            const r = this.frames.get(f.shadowOf);
+            if (r && r.shadowOf != null && this.sameCell(f.id, r.id)) this._regroup(this.cellFrames(r.id), r);
         }
         this._rebuildSpine();
     }
