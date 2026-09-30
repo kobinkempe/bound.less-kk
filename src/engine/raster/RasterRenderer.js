@@ -379,9 +379,6 @@ export default class RasterRenderer {
 
     // ---- the drag plane (PAPER-PLAN §10 S4, A3 §6) ----
 
-    /** The engine reads this once, at construction: the drag's plate events are held only where the renderer draws the dragged ink itself. */
-    get supportsDragPlane() { return true; }
-
     /** The engine's selection, as `{ key, ids }` of the current list or null; pulled each camera step. */
     setPlaneState(fn) { this._planeFn = fn; }
 

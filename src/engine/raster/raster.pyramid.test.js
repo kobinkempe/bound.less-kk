@@ -56,7 +56,6 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         expect(on.plates).toBeInstanceOf(PyramidStore);
         expect(on.plates).toBe(on.renderer.store);
         expect(on.renderer.queue).not.toBeNull();
-        expect(on.renderer.supportsDragPlane).toBe(true);
     });
 
     test("a stroke lands in exact plates through the queue and the pool; every job id ended; the pen-up path handed off", async () => {

@@ -2572,3 +2572,17 @@ committed as B-DRAG's landing (B-PYRAMID-4 still in progress in the raster files
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: launching R-DRAG; waiting for B-PYRAMID-4's report.
+
+## 2026-09-30 02:09 UTC — R-DRAG (reviewer) — the review of B-DRAG (items 1–9) — start
+**Working on:** the reading list (preamble, `briefs/R-DRAG.md`, PLAN §0/§1.4/§1.7/§3/§5.2/§5.15/§5.19, B-DRAG's brief
+and entries, then DESIGN §8/§10, A1 §1.4/§4.4 C2/§4.6/§8/§15, A2 §2.7), then the code of 8f9c073 against d206cd3.
+Files I may be in (brief §3): `selection.js`, `Document.js`, `LevelMap.js`, `Stage.js`, `placementModel.js`,
+`overlays.js`, `oplog.js`/`format2.js`'s move op, the move/select suites and probes, `__testkit__/modelFuzz.js`,
+`eraseDescent.js`'s `ownIn` only (the rule-3 minor), DESIGN §8/§10, A1 §15, OPEN-FLAGS' move flags; `KobinEngine.js`
+(shared) re-read before any one-line edit. Not mine: the raster modules, `RasterRenderer.js`, the raster suites, the
+harness (B-PYRAMID-4, then its reviewer). Scratch `scratchpad/r-drag/`, ports 3040–3049.
+**Measured:** tree at 8f9c073 (+ B-PYRAMID-4's uncommitted `RasterRenderer.js`, `raster.pyramid.test.js`); load 1.79.
+No browser batch yet (I will announce one before it starts).
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading; next the design docs, then the diff d206cd3..8f9c073 in my files.
