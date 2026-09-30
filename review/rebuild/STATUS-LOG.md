@@ -2738,3 +2738,11 @@ the harness, DESIGN §9/A3/OPEN-FLAGS renderer flags; nothing of B-MODEL-C34's. 
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: diffing bA against bC's raster sources to plan the F137 bisect copies.
+
+## 2026-09-30 03:06 UTC — R-PYRAMID-34 (reviewer) — browser batch b1 start (F137's bisect)
+**Working on:** headless batch `r-pyr34/b1.sh`: `--dense --scenario 1` ×2 on three frozen copies of `bp4/bC`
+(:3020 control, :3021 `_aim`'s two clamps off, :3023 `noteCommit` a no-op), interleaved, each run only at load < 2.
+**Measured:** load 4.02 1.41 1.79 at the start.
+**Decisions made:** the aim clamp and the commit-task step first (the brief's order); the records only if neither.
+**Questions asked:** none.
+WHERE I AM: batch b1 running; reading the undo's coarse search meanwhile.
