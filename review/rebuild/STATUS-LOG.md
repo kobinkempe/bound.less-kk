@@ -2758,3 +2758,24 @@ records; a user's coarse level within USER_COARSE_FRAMES × `patchUserMs` = 48 m
 **Decisions made:** the coarse budget as 3 × `patchUserMs` (tests that zero `patchUserMs` keep their meaning).
 **Questions asked:** none.
 WHERE I AM: batch b2 running; then scenario 6's number in the final run.
+
+## 2026-09-30 03:40 UTC — B-MODEL-C34 (builder) — checkpoint C3a: co-resident lookups and readers (merges still run)
+**Working on:** C3a done. `LevelMap`: a cell's frames are one group (resident + co-residents via the existing
+`shadowOf`/`_shadows` links); `residentOf`, `cellFrames`, `sameCell`, `_kidAt`; `findCellChild`/`cellChild` look
+through the group's kids (`own` flag for a mover's kids); geometry walks cells (`_cellParent`: `_ancestors`,
+`isAncestor`, `chainFrom`, `commonAncestor`, `_buildPath`, `pathFrameAt`), so co-residents are one cell to the bit
+and a path between them is empty; `objShift` gives F0 = the home when F0 is the home's cell; `childrenOf`/`walk` by
+container; `_leave` splits a leaving subtree out of shared groups; `forget` promotes. Readers: `Document.cellList`;
+`nativesIn`, `placement`, `drawnLive`; `TileStore._bakeUp`'s parent, `_ringNatives`, `_downSources`/`_addObject`
+(a cell's own natives never in its tiles), `_upVia`, the reroute's live test; the idle fits; the Stage's `_ownDiff`
+and frame events; `_cellOffset` by cell. The erase debug overlay already reads every frame (`doc.levels()`).
+Files: LevelMap, TileStore, Document, placementModel, Stage (2 lines), KobinEngine (1 line), erasePipeline.
+**Measured (jsdom, load 2.1–5.1):** 36 model/move/select/lattice/tile/stage suites 397 passed, 3 failed — all three
+`LevelMap.test` cases of the old shadow model (an emptied `_shadows` now null; a lookup finds a co-resident's kid;
+`walk` no longer takes the root's co-residents), rewritten in C3b with the merge's deletion. `model.equivalence`
+20+6 × 40: 1,040 checks, 8,249 items, 37 carried at 0 ulp, 16 normalised ≤ 1.46e-8 (27 s); `select.stands` 12+1 × 40:
+520 checks, 148 selections, `inklessBoth` 0; `move.hold` green. typecheck 0; eslint 0 on the edited files.
+**Decisions made:** keep `shadowOf`/`_shadows` as the co-residency links (the stored field name stays; docs say
+co-resident); geometry canonical by resident (a path through two co-residents' different containers rounded).
+**Questions asked:** none.
+WHERE I AM: C3b — `_take` joins the target cell's group and links kids recursively; delete the merge path.
