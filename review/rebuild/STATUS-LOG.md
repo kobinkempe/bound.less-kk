@@ -2886,3 +2886,14 @@ the drop's row 2,179 ms = `ovl.tail` 1,156 + `eng.list` 674 + `eng.view` 176, it
 **Decisions made:** F137 not fixed (bound); `unask`'s overwrite and the hidden-tab commit step reported, not fixed.
 **Questions asked:** in the report.
 WHERE I AM: ended; the report sent.
+
+## 2026-09-30 06:16 UTC — orchestrator (Fable) — R-PYRAMID-34 landed (1b95eb2); PLAN §5.22; Kobin's stop after C3/C4
+**Working on:** R-PYRAMID-34's report answered in PLAN §5.22 (the undo rules accepted; F137 open with its bisect table;
+the final tree's `eng.list` doubling sent to B-MODEL-C34 to fix inside its build; the exact-when-it-fits threshold,
+the `unask` G check, the hidden-tab step, RV4/C4 and the overlay's tail after a drop recorded as next steps). Kobin's
+instruction (06:00): when C3 and C4 land, wrap up the issues being resolved and stop — no reviewer for C34, the final
+design check deferred. Waiting for B-MODEL-C34's report.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: waiting for B-MODEL-C34 (C3c, C4, tests and docs, its report).

@@ -56,6 +56,7 @@ export class OpLog {
         this.queue = [];              // this tick's items, in event order
         this.queued = new Map();      // id -> queue item of its pending add/mark/put (coalescing)
         this.removed = new Map();     // id -> { obj, level } removed this tick
+        this.aside = new Map();       // id -> { obj, level } deleted with its frame this tick (the op's records hold it, F115)
         this.forced = new Set();      // frames that must snapshot this tick (undo, redo, moves)
         this.needFull = false;        // something no entry can say (a clear, a reset)
         this._unsub = [
@@ -110,11 +111,12 @@ export class OpLog {
                 this.queue.push({ seq: this._next(), k: "rekey", touches: [], encoded: { op: { k: "rekey", mark, rekeys: st.rekey }, geo: EMPTY } });
                 return;
             }
-            // A frame the mark covered whole: the natives with their geometry, as a delete's (the rows go).
+            // A frame the mark covered whole: the natives with their geometry and the frames' addresses, as a delete's (the rows go).
             if (st.frames) {
                 const frames = st.frames.map((r) => lvl(r.frame));
+                this._aside(st.frames);
                 this.queue.push({ seq: this._next(), k: "bakeFrames", touches: frames,
-                    encoded: encodeEntry({ k: "bakeFrames", mark, frames: st.frames.map((r) => ({ frame: lvl(r.frame), objects: r.natives })) }) });
+                    encoded: encodeEntry({ k: "bakeFrames", mark, frames: subtreeFile(st.frames) }) });
                 return;
             }
             const removed = st.removed;
@@ -178,11 +180,13 @@ export class OpLog {
             // `nativesByLevel`), so the entry carries the natives' geometry, encoded at the drain.
             case "removeFrames": case "eraseFrames": {
                 op._seq = this._next();
+                this._aside(op.records);
                 this.queue.push({ seq: op._seq, k: "removeFrames", records: op.records, touches: op.records.map((r) => lvl(r.frame)) });
                 return;
             }
             case "deleteMany": {
                 op._seq = this._next();
+                for (const p of op.parts) if (p.op === "removeFrames" || p.op === "eraseFrames") this._aside(p.records);
                 this.queue.push({ seq: op._seq, k: "deleteMany", parts: op.parts, touches: this._opLevels(op) });
                 return;
             }
@@ -190,6 +194,8 @@ export class OpLog {
             default: return;
         }
     }
+    // Natives a delete took out with their frames: no longer in the document, still their own add's record (F115).
+    _aside(records) { for (const r of records) for (const o of r.natives) this.aside.set(o.id, { obj: o, level: lvl(r.frame) }); }
     // The frames an op touches NOW (for forcing their snapshot with an undo/redo).
     _opLevels(op) {
         const out = new Set();
@@ -250,15 +256,12 @@ export class OpLog {
      */
     drain() {
         const entries = [];
-        const frameRecs = (records) => records.map((r) => ({ frame: lvl(r.frame), objects: r.natives }));
         for (const it of this.queue) {
             let enc = it.encoded;
             if (it.k === "add" || it.k === "mark" || it.k === "put") {
                 const cur = this.doc.getById(it.id);
-                // Set aside with its frame in the same tick: neither live nor removed, still its own record (SAVE-4).
-                const aside = !cur && !this.removed.has(it.id) ? this.doc._byId.get(it.id) : null;
-                const src = cur ? { obj: cur.obj, level: lvl(cur.level) }
-                    : this.removed.get(it.id) || (aside ? { obj: aside, level: lvl(aside._home) } : null);
+                // Deleted with its frame in the same tick: neither live nor removed, still its own record (SAVE-4, F115).
+                const src = cur ? { obj: cur.obj, level: lvl(cur.level) } : this.removed.get(it.id) || this.aside.get(it.id) || null;
                 if (!src) continue;                                   // came and went inside the tick, recorded elsewhere
                 it.touches = [src.level];
                 enc = encodeEntry({ k: it.k, level: src.level, index: it.index, obj: src.obj });
@@ -267,12 +270,12 @@ export class OpLog {
             } else if (it.k === "moveFrames") {
                 enc = encodeEntry({ k: "moveFrames", frames: it.frames.map(frameFile), moves: it.moves.map((m) => this._moveFile(m)) });
             } else if (it.k === "removeFrames") {
-                enc = encodeEntry({ k: "removeFrames", records: frameRecs(it.records) });
+                enc = encodeEntry({ k: "removeFrames", records: subtreeFile(it.records) });
             } else if (it.k === "deleteMany") {
                 const records = [], frames = [];
                 for (const p of it.parts) {
                     if (p.op === "eraseMany" || p.op === "removeMany") for (const r of p.records) records.push({ level: lvl(r.level), index: r.index, obj: r.obj });
-                    else if (p.op === "removeFrames" || p.op === "eraseFrames") frames.push(...frameRecs(p.records));
+                    else if (p.op === "removeFrames" || p.op === "eraseFrames") frames.push(...subtreeFile(p.records));
                 }
                 enc = encodeEntry({ k: "deleteMany", records, frames });
             }
@@ -280,7 +283,7 @@ export class OpLog {
             entries.push({ seq: it.seq, t: Date.now(), op: enc.op, geo: enc.geo, touches: it.touches });
         }
         const out = { entries, forced: [...this.forced], full: this.needFull };
-        this.queue = []; this.queued = new Map(); this.removed = new Map(); this.forced = new Set(); this.needFull = false;
+        this.queue = []; this.queued = new Map(); this.removed = new Map(); this.aside = new Map(); this.forced = new Set(); this.needFull = false;
         return out;
     }
 
@@ -416,7 +419,8 @@ export class OpLog {
             });
             return { moves, levels };
         };
-        const frameRecs = (list) => (list || []).map((r) => ({ frame: r.frame, natives: r.objects.map(liveOrDoc), index: null }));
+        // A deleted subtree's records: its natives, and (since A1 C3) each frame's address, for its undo; the ids retired.
+        const frameRecs = (list) => (list || []).map((r) => { doc.lm.retire(r.frame); return { frame: r.frame, natives: r.objects.map(liveOrDoc), index: null, ...(r.at ? { at: r.at } : {}) }; });
         for (const raw of entries) {
             const e = decodeEntry(raw);
             const seq = raw.seq;
@@ -463,7 +467,7 @@ export class OpLog {
                 case "bakeFrames": {
                     const rec = marks.get(e.mark);
                     const records = frameRecs(e.frames);
-                    for (const r of records) { if (rec) rec.levels.add(lvl(r.frame)); if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r); }
+                    for (const r of records) { if (rec) rec.levels.add(lvl(r.frame)); if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame); }
                     if (rec) rec.op.baked.push({ frames: records, _seq: seq });   // in the steps' order: undo reverts newest first (F128)
                     if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;
                     break;
@@ -520,7 +524,7 @@ export class OpLog {
                 }
                 case "removeFrames": {
                     const records = frameRecs(e.records);
-                    for (const r of records) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r);
+                    for (const r of records) if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame);
                     fresh(seq, { op: "removeFrames", records }, e, records.map((r) => r.frame));
                     break;
                 }
@@ -528,7 +532,7 @@ export class OpLog {
                     const records = (e.records || []).map((r) => ({ obj: liveOrDoc(r.obj), level: r.level, index: at(r.index) }));
                     for (const r of records) if (!stale(seq, [r.level])) doc.removeById(r.obj.id);
                     const frames = frameRecs(e.frames);
-                    for (const r of frames) if (!stale(seq, [r.frame])) doc.detachFrame(r.frame, r);
+                    for (const r of frames) if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame);
                     fresh(seq, { op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frames }] }, e,
                         [...records.map((r) => r.level), ...frames.map((r) => r.frame)]);
                     break;
@@ -576,6 +580,8 @@ export class OpLog {
 
 // A settle record from a store written before C1, from the file: `[[id, table], ...]` in `encodeBelow`'s form.
 const settleLive = (s) => (s ? { dx: s.dx, dy: s.dy, tables: s.tables.map(([id, t]) => [id, decodeBelow(t)]), carries: (s.carries || []).map(([id, L]) => [id, L]) } : null);
+// A deleted subtree's records in file form: each frame's natives and its address (A1 C3).
+const subtreeFile = (records) => records.map((r) => ({ frame: lvl(r.frame), objects: r.natives, ...(r.at ? { at: r.at } : {}) }));
 // A frame entry in file form (a legacy `merged` record came in an entry of its own).
 const frameFile = (e) => ({ id: lvl(e.id), depth: e.depth, from: e.from, to: e.to, shiftBefore: e.shiftBefore || null, shiftAfter: e.shiftAfter || null });
 

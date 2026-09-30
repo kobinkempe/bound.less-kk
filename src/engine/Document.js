@@ -880,14 +880,33 @@ export default class Document {
             if (r.natives.length) this._emit({ kind: "addFrame", frame: k, count: r.natives.length });
         }
     }
-    /** The redo of a subtree delete: each root the records hold deleted again, the records refreshed to what went. */
+    /**
+     * The redo of a subtree delete: each root the records hold deleted again, the records refreshed to what went (the
+     * same array: the op and its inverse share it). A root the lattice no longer has (a replay: the header's lattice is
+     * written after the delete) keeps its records.
+     */
     detachFrames(records) {
-        const inRecs = new Set(records.map((r) => r.frame));
-        const roots = records.filter((r) => !(r.at && inRecs.has(String(r.at.parent)))).map((r) => r.frame);
-        const out = [];
-        for (const root of roots) for (const r of this.removeFrameSubtree(root) || []) out.push(r);
+        const byId = new Map(records.map((r) => [r.frame, r]));
+        const rootOf = (r) => { let x = r; while (x.at && byId.has(String(x.at.parent))) x = byId.get(String(x.at.parent)); return x.frame; };
+        const groups = new Map();
+        for (const r of records) { const k = rootOf(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+        const out = [], done = new Set();
+        for (const [root, recs] of groups) {
+            if (done.has(root)) continue;
+            const got = this.lm.frame(root) ? this.removeFrameSubtree(root) || [] : recs;
+            for (const r of got) { done.add(r.frame); out.push(r); }
+        }
         records.length = 0;
         for (const r of out) records.push(r);
+    }
+    /** A replayed subtree delete whose frame a snapshot still lists: its natives go (the lattice is the header's). */
+    dropFrameList(frame) {
+        const k = String(frame), arr = this.nativesByLevel[k];
+        if (this.lm) this.lm.retire(k);                  // history names it: no new frame takes its id
+        if (!arr) return;
+        delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
+        for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
+        this._emit({ kind: "removeFrame", frame: k, count: arr.length });
     }
 
     // Replace a native with the region(s) an AREA erase left of its ink. Each

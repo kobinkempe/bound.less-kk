@@ -993,3 +993,36 @@ running), the `setBatch` timing, items 5 and 7, RV4's and seed 777's traces. Not
    B-PYRAMID-3/4 reviewer, one line; the drop's render → the same reviewer's §2 (already); seed 777's 5 frames after
    GC against the oracle's 5 (live ≤ oracle holds) → a note in the final summary; `ownIn` (the same arithmetic as
    `Document.ownFor`, worker-side, T uncloned) and the drop's `setBatch` wrap → the final pass's list, not built now.
+
+### 5.22 To the R-PYRAMID-34 review (its report of 2026-09-30; scoped, bounded after the 03:39 stop)
+
+Read in full; landed as 1b95eb2. **Built with leave:** the coarse search stops at the first level with no records; a
+user's action (undo, redo, a drop) admits its coarse level within 3 × `patchUserMs` = 48 ms; a pen-up's group searches
+no level (it measured the levels and discarded the plan); two red-before tests. Scenario 6 on the final tree: the full
+patch's T 74, ℓ − 1's 41 admitted after one level measured, its clipped pack inline in 56.7 ms, the change on screen in
+the commit's task (polled at 194 ms), exact at 432 ms (B-PYRAMID-4: 874 | 319; the B-PYRAMID review: 203–348 — under a
+builder's jest, once). Scenario 7's residual `olderOther` 62.5 ms (was 254 | 78): 28 composes of covered stale own
+plates in no group and never asked; an uncovered stale own plate is now charged as unread (red-before 1). Never-both
+holds on the final tree (3 holds, 3 handoffs, 0 both-composes; the crossing carry's break-check 2 red). Scenario 5's
+release 98 ms, exact 105. Typecheck 0, lint 0 on its files, 192/192 in 11 raster files; the quick suite not run. Nothing
+in Kobin's Chrome. **F137 stays open, bisected and not attributed:** every before-based run 0 (3), 13 of 14 after-based
+runs show paper; no single rule reverted removes it (the table is in OPEN-FLAGS F137); untested: `RasterRenderer.js`'s
+own changes (`_pyrPack`'s calibration and clips, `_pyrMeasure`'s kept count) and combinations.
+
+1. **The final tree's scenario 1** (out 2,157–2,583, back in 1,104–1,257 ms, no patch and no older draw): the
+   `eng.list` rows are 995–1,175 ms against 492–781 on B-PYRAMID-4's copy — the model files changed since (B-MODEL-C34
+   in progress). Sent to B-MODEL-C34 to profile and fix inside its build, both numbers in its entry.
+2. **The reviewer's question — a full-resolution patch whose T ≤ 48 ms preferred to coarse-first for a user's action:
+   yes** (when both fit, exact beats coarse: the user's budget is 48 ms for either path). Not built — Kobin's stop; a
+   next step, one threshold.
+3. **Proposed, not verified, next steps:** the `unask` G check (an older dropped strip erasing a newer patch's ask —
+   the candidate for the 28 never-asked composes); the hidden tab's commit step (return while hidden, the next compose
+   runs it); RV4 (`cfg.patchUserMs = 1e9` in the test) and `stage.cover` C4 (stub the idle read's clock); the
+   `RasterRenderer.js` half of F137's bisect.
+4. **The drop's render on the dense scene** (2.2 s = the overlay's tail 1.16 s + the list 0.67 s + the view 0.2 s; the
+   patch goes to the workers): the overlay's decision after a drop is the largest part — a next step for the overlays
+   (re-decide only the moved pieces), not the pyramid's.
+5. **Scenario 7's 6 both-composes** (the erase's held path; pre-existing, intermittent, in B-PYRAMID-4's before run too):
+   on Kobin's check list — whether it is visible.
+6. **Not measured this pass** (the scope): F133's memory, the `?svg` round trips, F134/F135's jsdom timings, the bundle
+   md5s — B-PYRAMID-3's and 4's own measurements stand; on the final check's list.

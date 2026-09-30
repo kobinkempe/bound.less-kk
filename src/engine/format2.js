@@ -230,14 +230,14 @@ export function encodeEntry(op) {
             });
             break;
         case "removeFrames":
-            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
+            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map(slot), ...(r.at ? { at: r.at } : {}) }));
             break;
         case "bakeFrames":
-            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot), ...(r.at ? { at: r.at } : {}) }));
             break;
         case "deleteMany":
             out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: slot(r.obj) }));
-            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map(slot), ...(r.at ? { at: r.at } : {}) }));
             break;
         default: break;
     }
@@ -267,14 +267,14 @@ export function decodeEntry(entry) {
             });
             break;
         case "removeFrames":
-            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
+            out.records = op.records.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)), ...(r.at ? { at: r.at } : {}) }));
             break;
         case "bakeFrames":
-            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)), ...(r.at ? { at: r.at } : {}) }));
             break;
         case "deleteMany":
             out.records = op.records.map((r) => ({ level: r.level, index: r.index, obj: recordOf(r.obj, geo) }));
-            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)) }));
+            out.frames = op.frames.map((r) => ({ frame: r.frame, objects: r.objects.map((h) => recordOf(h, geo)), ...(r.at ? { at: r.at } : {}) }));
             break;
         default: break;
     }
