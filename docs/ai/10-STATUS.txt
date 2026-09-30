@@ -62,9 +62,10 @@ WHERE THE BUILD IS
     levels, of the rest set and of the drag plane (PicturePyramid, PyramidStore, jobQueue,
     prefetch, level.js); the eraser's cuts run in the same worker pool through the JobQueue
     (PRIO.cut, one worker kept for cuts; a watchdog-taken job refused over ink, never inline).
-    The pyramid's integrals split older by cause: olderPatchMs (a stale plate while its worker
-    patch is pending, A3 §3.4) and olderOtherMs (must be 0; a zoom from rest before the
-    prefetch's quiet still shows a stale coarser stand-in: the P6 review's open item).
+    The pyramid's integrals split older by cause: olderPatchMs (a stale picture while the worker
+    job that makes the cell exact is pending, A3 §3.4), olderUnreadMs (the last resort, a stale
+    coarser stand-in, while a crossing left the cell's tiles unread) and olderOtherMs (0: the
+    patch step runs in the commit's task; B-PYRAMID-4, 2026-09-30).
     Measured in headless Chromium through tools/harnesses/browser-check.js on a frozen tree;
     not seen by Kobin.
 2026-09-29 - A FRAME'S SHIFT IS PLACEMENT (review/rebuild/A1-document-model.md §4.4 C1 and §14,

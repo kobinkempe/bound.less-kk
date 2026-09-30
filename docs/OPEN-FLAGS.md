@@ -4836,8 +4836,8 @@ Each event of a drag of selected frames computes every moving frame's target cha
 
 **2026-09-30, A1 C2 (B-DRAG):** the drop's rest re-homes a carried kid under the neighbour container
 once, and the selection is repaired from the drop's (or an undo's, a redo's) op, never from events
-(`_opUnder`, `_repairSelection`): `select.inkless` 10/10, `select.stands.probe.js` 12 × 40 as before
-(480 checks, 135 selections).
+(`_opUnder`, `_repairSelection`): `select.inkless` 11/11, `select.stands.probe.js` 12 × 40: 480 checks,
+133 selections (135 before: an undo that empties a selected frame now drops it, which the oracle keeps).
 
 **2026-09-29, A1 C1 (B-MODEL-C1):** one of the two ways ink left a selected frame is gone — no
 settle carries a native next door; a drag's rest still re-homes kids under the neighbour

@@ -31,7 +31,10 @@ MOUNT
                                            LiveStrokeLayer in its world and the
                                            SvgOverlays; FC1's _layers list; the
                                            overlay plane on the first selection
-                 stage.onCommit -> the pen-up groups (_pyrLive); a reset drops the store
+                 stage.onCommit -> the pen-up groups (_pyrLive), then pyramid.noteCommit: the
+                                           commit's patch step due in its task (the next compose or
+                                           frameFor runs it, else _pyrCommitStep in a microtask);
+                                           a reset drops the store
         ?svg:    new Renderer(container, cam, cfg)  creates the Two.js scene
         renderer.setSelectionAnts / setLasso
         doc.subscribe(...)                 keeps the selection honest when the
@@ -285,13 +288,18 @@ RENDERING   [HOT]
                                            worker group after the quiet); _patchStep (inline, coarse-first
                                            or the workers); _requestView (the missing cells, covered ones
                                            only, priority 1) -> onRequest -> queue.push (+ a microtask pump)
-        queue.setMotion (the velocity, the attention point, `at`); queue.frame(); queue.pump() (4 ms of packs a
+        queue.setMotion (the velocity, the attention point, `at`: _aim re-aims a view strip at most AIM_LEVELS 2
+          from the view's level, never under ownFloor, F134); queue.frame(); queue.pump() (4 ms of packs a
           frame while moving, a task while still: the rest in a later task; a cut or a snapshot's plate is one
           strip queued as pushed, one worker kept for cuts while any is pending) ->
-          _pyrSubmit -> _pyrPack (a cell the table does not cover refused and unasked; packJob at G;
+          _pyrSubmit -> _pyrPack (a cell the table does not cover refused and unasked; packJob at G: the
+          prepass's records kept by geometry across lists, a clipped job only the items meeting its clips, its
+          time calibrating the estimate's pack terms;
           store.beginJob) -> rasterPool -> the worker (res.G = job.G) -> _pyrResult -> _pyrLand ->
           pyramid.onResult -> store.put: rule 1 (newer G replaces), rule 2 (exact iff G >= dirtySince)
-          (a group's results held aside until its last lands) -> one compose (deferCompose in "raf")
+          (a group's results held aside until its last lands: packed at or after its G, or exact at landing;
+          pen-up groups over the same cells one group, one commit for every member's path, F135) -> one compose
+          (deferCompose in "raf")
         _planeStep                          the drag plane: follow the drag, land, or keep it aimed
         pyramid.compose()                   the plan per cell (A3 §1.4) drawn: direct or the surface;
                                             the integrals charged forward

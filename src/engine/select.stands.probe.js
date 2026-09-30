@@ -3,8 +3,9 @@
  * equivalence fuzz's sequences (`modelFuzz.runPairFuzz`) with lassos, ctrl-taps and drags of the
  * selection added; after every operation the ink the live engine's selection stands for — its ids'
  * families and the natives under its frames — equals the frozen settling model's
- * (`__oracles__/model-v1`), no selected frame is without ink where the oracle's has ink (both keep a
- * frame an undo emptied: counted as `inklessBoth`), and a drag of a selection leaves it
+ * (`__oracles__/model-v1`), no selected frame is without ink where the oracle's has ink (one both
+ * keep is counted as `inklessBoth`: 0 since A1 C2's repair drops a frame an undo emptied, which the
+ * oracle keeps), and a drag of a selection leaves it
  * standing for the ink it was made with. Cuts, undo, redo and delete are the fuzz's own. A probe, not
  * a suite. Run:
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/select.stands.probe.js"
@@ -78,8 +79,8 @@ test("a selection stands for the oracle's ink and the ink it was made with, over
             st.checks++;
             if (N.selection) { st.selections++; st.natives += b.size; st.frames += N.selection.frames.length; }
             if (key(a) !== key(b)) { fails.push(`seed ${seed} step ${step} ${op}: oracle [${key(a)}], live [${key(b)}]`); return false; }
-            // An inkless selected frame the oracle's selection holds too (an undo that took the frame's ink
-            // leaves it selected, in both models) is counted, not failed: C1 changes neither.
+            // An inkless selected frame the oracle's selection holds too is counted, not failed (an undo that
+            // took its ink: the oracle keeps it; the live repair drops it since A1 C2, 2 → 0 at 12 × 40).
             const bare = inklessFrames(N), was = new Set(inklessFrames(O));
             const mine = bare.filter((f) => !was.has(f));
             st.inklessBoth += bare.length - mine.length;

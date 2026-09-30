@@ -819,7 +819,9 @@ headless Chromium 141 on `git archive`s of d206cd3 (before) and the build.
   an older per-object move can carry a native out of a newer frame selection, which the event capture kept
   as an id (`select.inkless` I11). `_keepingSelection`, the `_moving` capture and the per-remove listener are
   deleted; the subscriber keeps `reset` and the merge hand-over, which C3 deletes with merges (so `select.inkless`
-  I4 stays; I9 went). An id a remote edit removes now stays in the selection, skipped, until the next repair.
+  I4 stays; I9 went). An id a remote edit removes now stays in the selection, skipped, until the next repair. The
+  inkless rule now follows every undo and redo: a selected frame an undo empties leaves, where the oracle
+  keeps it (`select.stands` 12 × 40: 480 checks, 133 selections against 135, `inklessBoth` 2 → 0).
   `deleteSelection` reads every family before one removal batch (reading them between removals rebuilt the
   family index per id): 5,000 natives 532–585 s (4,999 `_setSelection` calls) → 1.3–1.5 s SVG, 0.53 s raster, 0 calls.
 - **Browser, scenario 4** (dense, 45 selected of 3,441): ink 0 px apart, with the ants frozen 0 px; drag event

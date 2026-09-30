@@ -2539,3 +2539,24 @@ none mine). `DevStats` and `report.js` carry `olderUnreadMs`; the harness `older
 **Decisions made:** none new.
 **Questions asked:** none.
 WHERE I AM: the docs while the batch runs; then its table, the probe split after, the report.
+
+## 2026-09-30 02:05 UTC — B-DRAG (builder) — D4 checkpoint and end: the tests, the docs, the break-checks
+**Working on:** D4 done, and B-DRAG with it. Tests: `move.drop.test.js` (new, 14), `select.inkless` I12 (an undo that
+removes a selected native drops its id), `raster.move` RV2 (the view draws the hold from the plane's loss). Docs: DESIGN
+§1/§8/§9/§10, docs/ai 10/20/30/40, PLAN §1.4/§1.7, A1 §15, A2 §2.7, A3 §6, TEST-MAP (C2), OPEN-FLAGS F136 (new,
+fixed) and notes on F93/F94/F100/F107/F108/F126, `select.stands.probe.js`'s comment.
+**Measured:** break-checks on the unimported copy `bdrag/bc`, one line each (red/run): a write in a step 2/14;
+`placed` without δ 3/22; `placeNative` without δ 2/28; the view's delta uncommitted 2/20; `res` without δ 3/24; the
+release without the drawn states 1/20; a cancel merging 3/28; no `noteUserEdit` 1/14; a hold only with the plane
+8/47; the plane's loss ignored 1/47 (RV2); the ants decided with δ 2/142; no at-rest reuse 1/101; the repair without
+frames 1/10, without ids 1/10, none after undo/redo 4/24, none after the drop 3/24; dead ids kept 1/100 (I12).
+Quick suite: 193 of 198 suites, 2,169 passed, 12 skipped, 0 failed (251 s, load 2.3 → 3.0); typecheck 0; lint 0
+errors (6 warnings, in files unchanged since d206cd3); no file of mine is a worker input (esbuild metafile): bundles
+not rebuilt. Fuzzes on the final tree: `model.equivalence` 25 seeds × 40, 1,000 checks, 8,049 items, 37 carried at
+0 ulp, 16 normalised within 1.46e-8; `select.stands` 12 × 40, 480 checks, 133 selections (135 on d206cd3 and at
+21:12: an undo that empties selected frame "0/5,7", seed 12 step 23, now drops it, where the oracle keeps it;
+`inklessBoth` 2 → 0). The 5,000-native delete on d206cd3 re-run at load 3.84 → 2.57: 532 s, 4,999 calls.
+**Decisions made:** the inkless rule after every undo and redo stands, as DESIGN §10 says (a frame left with no ink
+leaves); A1 §15, TEST-MAP and F93's note carry the new count.
+**Questions asked:** none here; "moved into" and the second parent pointer are in the report.
+WHERE I AM: done. My servers on :3040/:3041 stopped; nothing of mine running. Nothing checked in Kobin's Chrome.

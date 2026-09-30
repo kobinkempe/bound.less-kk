@@ -332,7 +332,8 @@ PicturePyramid.js   The layer: the view (frameFor: the level with its stretch ba
                     or a worker group), the patch step and patchPlan (inline,
                     coarse-first, workers), the pen-up group commit, the inline
                     executor, the estimate and its calibration, and §9.1's
-                    integrals (paperMs, blurMs, olderPatchMs, olderOtherMs).
+                    integrals (paperMs, blurMs, olderPatchMs, olderUnreadMs,
+                    olderOtherMs); a Stage commit's patch step (noteCommit).
 PyramidStore.js     The plate store: records by level/rest/plane key, a record's G
                     and the freshness source (the Stage): rule 1 in put (a newer
                     G replaces), rule 2 exact (G >= dirtySince), patches merged,
@@ -342,15 +343,18 @@ PyramidStore.js     The plate store: records by level/rest/plane key, a record's
 jobQueue.js         Typed jobs into strips dealt from the attention point; PRIO
                     (rest/patch 0, view 1, plane 2, cut 3, prefetch 4, thumb 5);
                     one worker kept for cuts; drops by purpose generation and by
-                    exact G; the velocity rule and 4 ms of packs a frame while
-                    moving; requeue (H7).
+                    exact G; the velocity rule (a re-aim at most AIM_LEVELS 2
+                    from the view's level, never under ownFloor: F134) and 4 ms
+                    of packs a frame while moving; requeue (H7).
 prefetch.js         The prefetch plan at idle: ℓv − 1 and ℓv − 2 from the live
                     table, the far levels through budgeted snapshots, a crossing's
                     target, the ring at rest; nothing while a report sends. Its tile
                     reads are warm (RasterRenderer._pyrPrefetch sets TileStore.warmReads).
 rasterPack.js       Items into a job (one G a job): bands for fat strokes (memo keyed
-                    on the zoom, F77), the per-list pre-pass, only/omit for the
-                    drag, the pack-time offset snapshotView uses.
+                    on the zoom, F77), the per-list pre-pass (each item's record
+                    kept by its geometry across lists), only/omit for the drag, a
+                    clipped job's cull by its clips (PLAN §5.18), the pack-time
+                    offset snapshotView uses.
 rasterCore.js       The rasteriser: float64 edges, centre-free arc flattening to
                     1/16 device px, one nonzero union per family, transparent
                     plates for the drag, and a clip box (renderPlate's `clip`:

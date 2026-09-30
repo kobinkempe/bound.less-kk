@@ -3,9 +3,11 @@
  * task that made it — the next compose runs it, else a microtask — so no compose draws a plate the commit staled with
  * no patch asked (PLAN §5.15 item 1: scenario 7's `olderOtherMs` was stale own plates waiting for the bake's next render);
  * and a fast zoom-out's view strips are re-aimed at most AIM_LEVELS (2) past the view and never under the frame's floor
- * (F134: levels −14…−21 and 5–102 s a plate in jsdom).
+ * (F134: levels −14…−21 and 5–102 s a plate in jsdom); and the pack's records, kept across the commits' lists, see a held
+ * drag's placement and the drop's write (PLAN §5.15 item 1).
  */
-import { useEngines, mkEngine, drawStroke } from "../__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, drag } from "../__testkit__/harness";
+import { packJob, clearPackCaches } from "./rasterPack";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
 import { resetRasterStats } from "./RasterRenderer";
@@ -95,6 +97,39 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
         E.undo();
         expect(pyr.lastPatch.budget).toBe(16);
         expect(await drain(E, g)).toBe(0);
+    });
+});
+
+describe("the pack's records across lists see where an item is drawn (PLAN §5.15 item 1)", () => {
+    test("held at a drag's delta the item packs at +δ, released at its home, dropped at its new home — each the pack a cold cache makes", () => {
+        const E = mkEngine(800, 600, { raster: true }), R = E.renderer, id = E.doc.allocId(), F = E.cam.frame;
+        const a = E.cam.screenToFrame(300, 250), b = E.cam.screenToFrame(420, 330);
+        E.doc.add({ type: "fill", origin: "native", id, color: "#c00", opacity: 1, polys: [[a, [b[0], a[1]], b, [a[0], b[1]]]] }, F);
+        E._render();
+        const v = R._view, opts = { plates: Int32Array.of(Math.floor(a[0] * v.Zq / 512), Math.floor(a[1] * v.Zq / 512)), q: 0, Zq: v.Zq, dpr: 1, cfg: E.cfg, paper: [255, 255, 255] };
+        const place = (job) => { const k = Array.from(job.ids).indexOf(id); return [job.attr[k * 9], job.attr[k * 9 + 1], job.attr[k * 9 + 4], job.attr[k * 9 + 5]]; };
+        const same = (x, y) => x.length === y.length && x.every((n, k) => n === y[k]);
+        /** The warm pack of the Stage's list now, checked against a cold one; its item's box corner and res. */
+        const packNow = () => {
+            const warm = packJob(R._sceneList(), opts);
+            clearPackCaches();
+            const cold = packJob(R._sceneList().slice(), opts);
+            expect([same(warm.attr, cold.attr), same(warm.geom, cold.geom), same(warm.meta, cold.meta)]).toEqual([true, true, true]);
+            return place(warm);
+        };
+        const at0 = packNow();
+        E.stage.hold({ ids: [id] });
+        E.stage.setDragDelta([30, 20], { viewDraws: true });            // no plane: the view's plates draw the hold (Item.res)
+        expect(packNow()).toEqual([at0[0] + 30, at0[1] + 20, 30, 20]);
+        E.stage.setDragDelta([50, 0], { viewDraws: true });
+        expect(packNow()).toEqual([at0[0] + 50, at0[1], 50, 0]);
+        E.stage.release();                                                // no write: back at its home
+        expect(packNow()).toEqual(at0);
+        const s0 = E.cam.levelPointToScreen(F, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        drag(E, s0, [s0[0] + 40, s0[1] + 10]);                            // the drop writes the move
+        E._render();
+        const moved = packNow(), inScale = E.cam.inScale;
+        expect([moved[0] - at0[0], moved[1] - at0[1]].map((x) => +(x * inScale).toFixed(6))).toEqual([40, 10]);   // the box, res applied
     });
 });
 
