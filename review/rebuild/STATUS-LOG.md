@@ -2875,3 +2875,14 @@ native 2 ulp above its home (seed 20, no co-resident: two roundings) — the c34
 stay one; the oracle's pending merges are read before a comparison (its read order drew a shadow's natives twice).
 **Questions asked:** none.
 WHERE I AM: C3c — `removeFrameSubtree` takes the subtree out of the lattice; `insertFrameSubtree` restores it.
+
+## 2026-09-30 06:14 UTC — R-PYRAMID-34 (reviewer) — end (scoped review; F137 bisected, not attributed)
+**Working on:** done; b6 ended 06:14, dev servers stopped. Files: `PicturePyramid.js` (the undo's search stop and 48 ms
+user coarse budget, a group searches none, `_older`'s unread), its patch/plan tests (+3, red-before 2 + 1 on HEAD's
+source), the harness (`ownUnread`, `ownOther.*`), DESIGN §9, A3's dated note, OPEN-FLAGS F137 (the bisect table).
+**Measured (b6, the final tree again, load 1.96→2.36):** 1 out 2,157, back 1,257 ms paper — no patch, no older draw
+(my changes idle); `eng.list` rows 995–1,175 ms (bC 492–781): the model files changed since bC. 4 drag olderPatch 1,712;
+the drop's row 2,179 ms = `ovl.tail` 1,156 + `eng.list` 674 + `eng.view` 176, its patch (T 1,372) to the workers.
+**Decisions made:** F137 not fixed (bound); `unask`'s overwrite and the hidden-tab commit step reported, not fixed.
+**Questions asked:** in the report.
+WHERE I AM: ended; the report sent.

@@ -60,7 +60,7 @@ export function unmergeReplay(doc, rec) { doc.rehomeManyById(rec.ids, rec.id); s
 /** The live undo of a recorded merge: the frame back at its cell as a co-resident, its kids and natives back in it. */
 export function unmerge(doc, rec) {
     const lm = doc.lm;
-    if (!lm.frame(rec.id)) lm.restoreFrame({ id: rec.id, parent: rec.parent, i: rec.i, j: rec.j, depth: rec.depth, shift: rec.shift, addrSeq: (rec.addrSeq || 0) + 1 });
+    if (!lm.frame(rec.id)) lm.restoreFrame({ id: rec.id, parent: rec.parent, i: rec.i, j: rec.j, depth: rec.depth, shift: rec.shift, addrSeq: rec.addrSeq || 0 });
     for (let n = rec.kids.length - 1; n >= 0; n--) lm.reparent(rec.kids[n].id, rec.id);
     unmergeReplay(doc, rec);
 }

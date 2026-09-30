@@ -208,7 +208,7 @@ export function opFrames(op, out = new Set()) {
         case "move": add(op.from); add(op.to); break;
         case "moveMany": for (const m of op.moves) { add(m.from); add(m.to); } break;
         case "eraseMany": case "removeMany": for (const r of op.records) add(r.level); break;
-        case "removeFrames": case "eraseFrames": for (const r of op.records) add(r.frame); break;
+        case "removeFrames": case "eraseFrames": for (const r of op.records) { add(r.frame); if (r.at) add(r.at.parent); } break;
         case "deleteMany": for (const p of op.parts) opFrames(p, out); break;
         case "moveFrames":
             for (const e of op.frames) {
@@ -223,7 +223,7 @@ export function opFrames(op, out = new Set()) {
             for (const st of op.baked || []) {
                 if (st.removed) add(st.removed.level);
                 for (const p of st.pieces || []) add(p.level);
-                for (const r of st.frames || []) add(r.frame);
+                for (const r of st.frames || []) { add(r.frame); if (r.at) add(r.at.parent); }
             }
             break;
         default: break;
@@ -264,13 +264,7 @@ export default class Document {
         this._offsetIds = new Set();
         // The lattice, attached by the engine; a frame's shift (its natives' placement, A1 C1) is read from it.
         this.lm = null;
-        // Frames whose list and index a subtree removal has set aside. Their natives stay
-        // in `_byId` by reference, and `getById` answers null while the frame is here.
-        this._detached = new Set();
-        this._detachedLists = new Map();   // frame -> its set-aside list: `forgetFrame` drops them from `_byId`
-        this._reused = new Set();          // set-aside frames written again: their old natives are `_gone` (DOC-1)
         this._keyedIn = new Map();         // frame -> Set of its natives with a family key: the lasso's family test under an enclosed frame (LASSO-1)
-        this._detachedKeyed = new Map();   // frame -> that Set while its list is set aside
     }
     /** Keep `_offsetIds` in step with one object's `below`. */
     _noteBelow(o) {
@@ -312,10 +306,10 @@ export default class Document {
         }
         if (!this.lm) return;
         for (const f of this.lm.frames.values()) {
-            const list = f.shift && !this._detached.has(f.id) ? this.nativesByLevel[f.id] : null;
+            const list = f.shift ? this.nativesByLevel[f.id] : null;
             if (!list) continue;
             const T = [f.shift];
-            for (const o of list) if (!this._offsetIds.has(o.id) && !o._gone) yield [o, f.id, T];
+            for (const o of list) if (!this._offsetIds.has(o.id)) yield [o, f.id, T];
         }
     }
     /** Does native `o` carry a table of its own (not only its frame's shift)? */
@@ -453,60 +447,6 @@ export default class Document {
         const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
         return f && f.shift ? composeShift(T, [-f.shift[0], -f.shift[1]]) : cloneBelow(T);
     }
-    _setKeyedAside(k) {
-        const set = this._keyedIn.get(k);
-        this._keyedIn.delete(k);
-        if (set) this._detachedKeyed.set(k, set); else this._detachedKeyed.delete(k);
-    }
-    /**
-     * A frame's list set aside (the redo of a subtree delete, and replay): its natives stay in `_byId`,
-     * unreadable. The record, when given, is refreshed to what was set aside: an undo put its list
-     * back by reference and later ops changed or replaced it (REVIEWER-3 DOC-2). Ink the record
-     * `kept` — placed while the frame was set aside, merged back by the undo — stays listed (DOC-1).
-     */
-    detachFrame(frame, rec = null) {
-        const k = String(frame);
-        const arr = this.nativesByLevel[k];
-        if (arr && rec && rec.kept && arr.some((o) => rec.kept.has(o))) {
-            const aside = [];
-            let w = 0;
-            for (let r = 0; r < arr.length; r++) {
-                const o = arr[r];
-                if (rec.kept.has(o)) { arr[w++] = o; continue; }
-                aside.push(o);
-                o._gone = true;
-                if (!this._pending.has(o)) this._idx(k).remove(o);
-                this._keyOut(k, o);
-            }
-            arr.length = w;
-            this._reused.add(k);
-            this._detachedLists.set(k, aside);
-            this._detachedKeyed.delete(k);                   // a restore keys them one by one
-            rec.natives = aside; rec.index = null;
-            this._emit({ kind: "removeFrame", frame: k, count: aside.length, partial: true });
-            return;
-        }
-        const index = this._index[k] || null;
-        delete this.nativesByLevel[k]; delete this._index[k];
-        this._setKeyedAside(k);
-        this._detached.add(k);
-        if (arr) {
-            this._detachedLists.set(k, arr);
-            if (rec) { rec.natives = arr; rec.index = index; }
-        }
-        this._emit({ kind: "removeFrame", frame: k, count: arr ? arr.length : 0 });
-    }
-    /**
-     * Ink is placed in a frame whose list a delete set aside (drawn where the frame was, re-homed or
-     * ceded there): the set-aside natives become unreadable one by one (`_gone`, O(that list), only
-     * here) and the frame is live again, so the new ink reads (REVIEWER-3 DOC-1).
-     */
-    _reuseDetached(k) {
-        if (!this._detached.has(k)) return;
-        for (const o of this._detachedLists.get(k) || []) if (o._home === k) o._gone = true;
-        this._detached.delete(k);
-        this._reused.add(k);
-    }
     _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
     _keyIn(k, o) {
         if (o.editId == null) return;
@@ -526,11 +466,10 @@ export default class Document {
     add(o, level, { live = false, by = null, fresh = false } = {}) {
         const k = String(level);
         if (fresh) { const b = this.ownFor(o.below, k); if (b) o.below = b; else delete o.below; }
-        this._reuseDetached(k);
         flattenLoops(o);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
-        o._home = k; delete o._gone;
+        o._home = k;
         this._keyIn(k, o);
         this._byId.set(o.id, o);
         this._noteBelow(o);
@@ -554,7 +493,6 @@ export default class Document {
     // object sets.
     getById(id) {
         const o = this._byId.get(id);
-        if (o && (o._gone || this._detached.has(o._home))) return null;   // set aside by a subtree removal
         return o ? { obj: o, level: o._home } : null;
     }
 
@@ -608,12 +546,11 @@ export default class Document {
     // affects the array; z-order is by id, which the object kept.
     insertAt(obj, level, index) {
         const k = String(level);
-        this._reuseDetached(k);
         flattenLoops(obj);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         const arr = this.nativesByLevel[k];
         arr.splice(Math.min(index, arr.length), 0, obj);
-        obj._home = k; delete obj._gone;
+        obj._home = k;
         this._keyIn(k, obj);
         this._byId.set(obj.id, obj);
         this._noteBelow(obj);
@@ -844,7 +781,6 @@ export default class Document {
         // a drag drops every member the moment it re-homes and the rest of the
         // gesture moves only what happened to stay put.
         this._emit({ kind: "remove", id, level: rec.level, obj: o, rehome: k });
-        this._reuseDetached(k);
         if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
         this.nativesByLevel[k].push(o);
         o._home = k;
@@ -882,7 +818,6 @@ export default class Document {
             for (const o of objs) { if (!this._pending.has(o)) this._idx(from).remove(o); this._keyOut(from, o); }
             this._forgetIfEmpty(from);
             for (const o of objs) this._emit({ kind: "remove", id: o.id, level: from, obj: o, rehome: k });
-            this._reuseDetached(k);
             if (!this.nativesByLevel[k]) this.nativesByLevel[k] = [];
             for (const o of objs) {
                 const wasPending = this._pending.has(o);
@@ -899,63 +834,60 @@ export default class Document {
     }
 
     /**
-     * Set a frame subtree aside (the delete of a selected frame): each frame's list and index
-     * detached by reference, no per-object work. Returns the records the op holds; null when the
-     * root has no list and no descendants with one.
+     * A frame subtree deleted (a selected frame's delete, a mark covering it whole): it leaves the lattice with its lists
+     * (A1 C3) — O(frames), and O(natives) for the id index. Returns the records the op holds, parents first: each
+     * frame's address `at`, its list and its index. Null, and nothing changed, when no native is under the root.
      */
     removeFrameSubtree(rootId, { by = null } = {}) {
-        const frames = [];
-        this.lm.walk(rootId, (f) => frames.push(f.id));
+        const k0 = String(rootId);
+        let n = 0;
+        if (this.lm.frame(k0)) this.lm.walk(k0, (f) => { n += this.count(f.id); });
+        if (!n) return null;
         const records = [];
-        for (const k of frames) {
-            const arr = this.nativesByLevel[k];
-            if (!arr) continue;
-            records.push({ frame: k, natives: arr, index: this._index[k] || null });
-            delete this.nativesByLevel[k]; delete this._index[k];
-            this._setKeyedAside(k);
-            this._detached.add(k);
-            this._detachedLists.set(k, arr);
-            const ev = { kind: "removeFrame", frame: k, count: arr.length };
-            if (by != null) ev.by = by;      // a frame a mark covers whole, set aside at its landing (A2 §4.2)
+        for (const at of this.lm.removeSubtree(k0) || []) {
+            const k = at.id, arr = this.nativesByLevel[k] || [];
+            records.push({ frame: k, natives: arr, index: this._index[k] || null, at });
+            delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
+            for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
+            if (!arr.length) continue;
+            const ev = { kind: "removeFrame", frame: k, count: arr.length, at: { parent: at.parent, i: at.i, j: at.j, shift: at.shift } };
+            if (by != null) ev.by = by;      // a frame a mark covers whole, taken at its landing (A2 §4.2)
             this._emit(ev);
         }
-        return records.length ? records : null;
+        return records;
     }
     /**
-     * The inverse of removeFrameSubtree: the same lists and indexes back, by reference. A record
-     * without an index (rebuilt from the op log) has its natives registered here. A frame holding
-     * ink placed there since the delete keeps it, the record's natives listed first (DOC-1).
+     * The inverse of `removeFrameSubtree`: the frames back at their addresses — the root a co-resident where a frame
+     * holds its cell since, its resident when that one holds nothing (the camera handed on) — and their lists and
+     * indexes by reference. A record without an index (rebuilt from the op log) has its natives registered here, one
+     * without an address (a store's from before A1 C3) finds its frame in the lattice.
      */
     insertFrameSubtree(records) {
+        for (const r of records) if (r.at) this.lm.restoreFrame(r.at, (id) => !this.count(id));
         for (const r of records) {
-            const k = r.frame, cur = this.nativesByLevel[k];
-            if (this._reused.delete(k)) for (const o of r.natives) delete o._gone;
-            if (cur && cur !== r.natives && cur.length) {
-                r.kept = new Set(cur);                        // placed while it was set aside: a redo leaves them
-                const all = r.natives.slice();
-                for (const o of r.natives) {
-                    flattenLoops(o); o._home = k; this._byId.set(o.id, o); this._noteBelow(o); this._keyIn(k, o);
-                    if (!this._pending.has(o)) this._idx(k).add(o);
-                }
-                for (const o of cur) all.push(o);
-                this.nativesByLevel[k] = all;
-            } else {
-                r.kept = null;
-                this.nativesByLevel[k] = r.natives;
-                const aside = this._detachedKeyed.get(k);
-                if (r.index) {
-                    this._index[k] = r.index;
-                    for (const o of aside || r.natives) this._keyIn(k, o);
-                } else {
-                    delete this._index[k];
-                    for (const o of r.natives) { flattenLoops(o); o._home = k; this._byId.set(o.id, o); this._noteBelow(o); this._idx(k).add(o); this._keyIn(k, o); }
-                }
+            const k = r.frame;
+            if (!this.lm.frame(k)) continue;
+            const cur = this.nativesByLevel[k];
+            const all = cur && cur !== r.natives && cur.length ? r.natives.concat(cur) : r.natives;
+            const reuse = all === r.natives && !!r.index;
+            this.nativesByLevel[k] = all;
+            if (reuse) this._index[k] = r.index; else delete this._index[k];
+            for (const o of r.natives) {
+                flattenLoops(o); o._home = k; this._byId.set(o.id, o); this._noteBelow(o); this._keyIn(k, o);
+                if (!reuse && !this._pending.has(o)) this._idx(k).add(o);
             }
-            this._detachedKeyed.delete(k);
-            this._detached.delete(k);
-            this._detachedLists.delete(k);
-            this._emit({ kind: "addFrame", frame: k, count: r.natives.length });
+            if (all !== r.natives) for (const o of cur) if (!this._pending.has(o)) this._idx(k).add(o);
+            if (r.natives.length) this._emit({ kind: "addFrame", frame: k, count: r.natives.length });
         }
+    }
+    /** The redo of a subtree delete: each root the records hold deleted again, the records refreshed to what went. */
+    detachFrames(records) {
+        const inRecs = new Set(records.map((r) => r.frame));
+        const roots = records.filter((r) => !(r.at && inRecs.has(String(r.at.parent)))).map((r) => r.frame);
+        const out = [];
+        for (const root of roots) for (const r of this.removeFrameSubtree(root) || []) out.push(r);
+        records.length = 0;
+        for (const r of out) records.push(r);
     }
 
     // Replace a native with the region(s) an AREA erase left of its ink. Each
@@ -1145,22 +1077,13 @@ export default class Document {
         for (const op of this._redo) opFrames(op, out);
         return out;
     }
-    /**
-     * A frame the lattice forgot (frame GC, F94): its empty list, index and marks go. A set-aside
-     * list goes with it: no op can bring it back, and its natives would read again as ghosts.
-     */
+    /** A frame the lattice forgot (frame GC, F94): its empty list, index and keyed set go. */
     forgetFrame(frame) {
         const k = String(frame);
         const arr = this.nativesByLevel[k];
         if (arr && arr.length) return false;
         delete this.nativesByLevel[k]; delete this._index[k];
-        for (const o of this._detachedLists.get(k) || []) {
-            if (o._home !== k || this._byId.get(o.id) !== o) continue;
-            this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o);
-        }
-        this._detachedLists.delete(k);
-        this._detached.delete(k); this._reused.delete(k);
-        this._keyedIn.delete(k); this._detachedKeyed.delete(k);
+        this._keyedIn.delete(k);
         return true;
     }
     /** One collection's forgotten frames, for the op log's record (F94). */
@@ -1261,7 +1184,7 @@ export default class Document {
                 return { op: "eraseFrames", records: op.records };
             }
             case "eraseFrames": {
-                for (const r of op.records) this.detachFrame(r.frame, r);
+                this.detachFrames(op.records);
                 return { op: "removeFrames", records: op.records };
             }
             // One gesture that deleted ids AND frames: the parts invert in reverse order, and the
@@ -1338,7 +1261,7 @@ export default class Document {
     }
     _revertStep(st) {
         st._on = false;
-        // A frame the mark covered whole went as containers: its lists come back by reference.
+        // A frame the mark covered whole went with its subtree: frames and lists come back.
         if (st.frames) { this.insertFrameSubtree(st.frames); return; }
         // A severance's re-key: nothing geometric moved, so it just runs backwards.
         if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.before); } this.keysChanged(st.rekey.map((r) => r.id)); return; }
@@ -1350,7 +1273,7 @@ export default class Document {
     }
     /** Re-applies a step whose source is in the document; false (still suspended) when it is not. */
     _applyStep(st) {
-        if (st.frames) { for (const r of st.frames) this.detachFrame(r.frame, r); st._on = true; return true; }
+        if (st.frames) { this.detachFrames(st.frames); st._on = true; return true; }
         if (st.rekey) { for (const r of st.rekey) { const o = this.getById(r.id); if (o) Object.assign(o.obj, r.after); } this.keysChanged(st.rekey.map((r) => r.id)); st._on = true; return true; }
         const r = this.removeById(st.removed.obj.id);
         if (!r) return false;
@@ -1399,11 +1322,7 @@ export default class Document {
         this._pending = new Set();
         this._byId = new Map();
         this._offsetIds = new Set();
-        this._detached = new Set();
-        this._detachedLists = new Map();
-        this._reused = new Set();
         this._keyedIn = new Map();
-        this._detachedKeyed = new Map();
         for (const Ls of Object.keys(natives)) {
             for (const o of natives[Ls] || []) { o._home = Ls; this._byId.set(o.id, o); this._noteBelow(o); this._idx(Ls).add(o); this._keyIn(Ls, o); }
         }

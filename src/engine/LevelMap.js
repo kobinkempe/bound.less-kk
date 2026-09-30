@@ -599,13 +599,32 @@ export default class LevelMap {
         if (rec.parent != null && !this.frames.has(rec.parent)) return null;
         f = this._addFrame(rec.id, rec.parent, { i: rec.i, j: rec.j }, rec.depth);
         if (rec.shift) f.shift = [rec.shift[0], rec.shift[1]];
-        f.addrSeq = rec.addrSeq || 0;
+        f.addrSeq = (rec.addrSeq || 0) + 1;                    // caches keyed on its chain read it afresh
         if (rec.private != null) f.private = rec.private;
         const r = this.residentOf(f.id);
         if (r !== f && !(r._kids && r._kids.size) && empty(r.id)) this._regroup(this.cellFrames(f.id), f);
         this.addrEpoch++;
         this._rebuildSpine();
         return f;
+    }
+    /**
+     * A deleted subtree leaves the lattice (A1 C3): `rootId` and every frame it contains, out of every group they share,
+     * their ids retired for the session (history names them). Returns each frame's address, parents first, for
+     * `restoreFrame`; null for no frame or a root.
+     */
+    removeSubtree(rootId) {
+        const root = this.frames.get(String(rootId));
+        if (!root || root.parent == null) return null;
+        const out = [];
+        this.walk(root.id, (f) => out.push({ id: f.id, parent: f.parent, i: f.cell.i, j: f.cell.j, depth: f.depth,
+            shift: f.shift ? [f.shift[0], f.shift[1]] : null, addrSeq: f.addrSeq || 0, ...(f.private != null ? { private: f.private } : {}) }));
+        out.sort((a, b) => a.depth - b.depth);
+        this._leave(root);
+        for (const r of out) { this.frames.delete(r.id); this.retire(r.id); }
+        this._paths.clear();
+        this.addrEpoch++;
+        if (out.some((r) => this._spine.get(r.depth) === r.id)) this._rebuildSpine();
+        return out;
     }
     /** Frame `id` contained by `parentId` at its own cell (a legacy unmerge): its container changes, its cell does not. */
     reparent(id, parentId) {
