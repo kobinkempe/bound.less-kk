@@ -99,8 +99,9 @@ B-PYRAMID-4's (the pyramid's last rules; PLAN §5.15; F134, F135):
    and whether the undo's patch is inline now; the plates byte-equal to a whole render with the memo warm (the existing
    test, plus a break-check: the memo handing back an entry after a geometry change → red). The memo's bound: entries
    after scenarios 1, 4 and 6 (a number), evicted with the item or held weakly — say which; the worker's copy of the
-   memo (the workers pack too — per thread, bounded?). `rasterPack.js` is a bundle input: the md5s changed and
-   `npm run build:worker` was run (the entry says so; check the bundles' dates against the source).
+   memo — B-PYRAMID-4's 02:02 entry says the pack runs on the main thread only and `rasterPack.js` is not in the
+   worker bundles (their md5s unchanged): confirm from the worker entry's imports, and that a bundle input did not
+   change elsewhere in the build (else `npm run build:worker` and the md5s in your entry).
 9. **F134, the re-aim's floor** (rule 3). `_aim` clamped at the frame's `ownFloor` and within `AIM_LEVELS` (2) of the
    view's level; the flag's jsdom timings before and after (the −19 plate 2.6–2.9 s and 1.5 GB RSS → none; the cost is
    `Stage.covers` → `_tileKeys` enumerating every tile key under a cell). Then every other caller of `levelFor` that can
@@ -167,7 +168,8 @@ plus `TileStore.js`, `oplog`/`persist`/`format2`): none of them yours. `KobinEng
 (the commit hook's line, `ensureOutline`, the export barrier's call): re-read before every edit, one-line edits, rule 17;
 `Stage.js` read only. Ports 3020–3029 (Node 14 via nvm; 3010–3019 are free once B-PYRAMID-4's end entry is in); R-DRAG
 uses 3040–3049, B-MODEL-C34 3030–3039. The worker bundles: `npm run build:worker` after a change to `rasterCore`/
-`rasterPack`/`rasterJob`/`worker/`/`geometry/`. Every commit is the orchestrator's with `[skip ci]`; you commit nothing.
+`rasterJob`/`worker/`/`geometry/` (`rasterPack` is main-thread only). Every commit is the orchestrator's with
+`[skip ci]`; you commit nothing.
 
 ## 4. Report (rule 11, under 60 lines)
 
