@@ -737,7 +737,7 @@ export default class Stage {
         if (k === "refile" || k === "removeFrame" || k === "addFrame") {
             const X = String(ev.frame);
             if (k === "refile" && this.lm.isUnder(X, this.frame)) { this._need = true; return; }
-            if (k !== "refile" && (X === this.frame || this.lm.isUnder(X, this.frame))) this._ownDiff();
+            if (k !== "refile" && (this.lm.sameCell(X, this.frame) || this.lm.isUnder(X, this.frame))) this._ownDiff();
             if (k === "refile") this._staleUnder(X);
             this._wide = true;
             return;
@@ -1213,10 +1213,10 @@ export default class Stage {
         for (const ks of this._keys.values()) if (this.lm.isUnder(X, ks.frame)) this._missing.add(ks.key);
     }
 
-    /** The camera frame's own natives against the document's list for it (a frame set aside or put back). */
+    /** The camera cell's own natives against the document's lists for it (a frame set aside or put back). */
     _ownDiff() {
         const ids = new Set(this._own.keys());
-        for (const o of this.doc.list(this.frame)) ids.add(o.id);
+        for (const o of this.doc.cellList(this.frame)) ids.add(o.id);
         for (const id of ids) this._touched.add(id);
     }
 

@@ -845,7 +845,7 @@ export default class KobinEngine {
             // the same shape of defect as the erase bake had, so a single fit
             // can overrun the 8 ms slice by as much as it likes (50-135 ms per
             // stroke, measured 2026-07-07).
-            for (const o of this.doc.at(this.cam.frame)) {
+            for (const o of this.doc.cellList(this.cam.frame)) {     // the camera's cell: its co-residents too (A1 C3)
                 if (o.type !== "stroke" || o === this._drawing) continue;
                 if (o._outline) continue;
                 if (o.lwFrame * this.cfg.enter <= gate) continue;

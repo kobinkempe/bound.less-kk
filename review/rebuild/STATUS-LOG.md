@@ -2746,3 +2746,15 @@ WHERE I AM: diffing bA against bC's raster sources to plan the F137 bisect copie
 **Decisions made:** the aim clamp and the commit-task step first (the brief's order); the records only if neither.
 **Questions asked:** none.
 WHERE I AM: batch b1 running; reading the undo's coarse search meanwhile.
+
+## 2026-09-30 03:16 UTC — R-PYRAMID-34 (reviewer) — checkpoint: b1 ended at 3 runs; browser batch b2 start
+**Working on:** F137. b1 (scenario 1, one run a copy): back-in paper control 654 (load 1.96→3.02), `_aim`'s clamps
+off 416 (1.99→2.69), the commit-task step off 232 (1.92→5.06, B-MODEL-C34's jest) — neither rule alone (before bA 0 | 0).
+b2 now: :3024 `y1` = bA with bC's `rasterPack.js` (the records), :3025 `y2` = bC with bA's `rasterPack.js`, :3020
+control, `--dense --scenario 1` ×2 interleaved, each at load < 2.
+**Measured:** the undo's two rules built in `PicturePyramid.patchPlan` (the search stops at the first level with no
+records; a user's coarse level within USER_COARSE_FRAMES × `patchUserMs` = 48 ms; a pen-up's group searches none):
+`PicturePyramid.patch` 11/11, the 2 new tests red on HEAD's source (copy `r-pyr34/rb`). Harness: `ownOther` split by cause.
+**Decisions made:** the coarse budget as 3 × `patchUserMs` (tests that zero `patchUserMs` keep their meaning).
+**Questions asked:** none.
+WHERE I AM: batch b2 running; then scenario 6's number in the final run.

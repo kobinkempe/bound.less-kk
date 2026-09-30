@@ -51,13 +51,13 @@ export function createPlacementModel({ doc, lm, store }) {
     const groupsAt = (F) => (doc.hasOffsets() ? store._rerouteGroups(F) : null);
     const model = {
         /**
-         * The natives drawn live when the camera is in frame F, as stored: F's own, less those whose
-         * picture carried out of F (their group reads another frame), plus those of other frames
-         * whose picture carried into F (a group whose F0 is their home).
+         * The natives drawn live when the camera is in frame F, as stored: those of F's cell (F and its
+         * co-residents, A1 C3), less those whose picture carried out of it (their group reads another
+         * frame), plus those of other frames whose picture carried into F (a group whose F0 is their home).
          */
         nativesIn(F) {
             F = String(F);
-            const own = doc.list(F);
+            const own = doc.cellList(F);
             const m = groupsAt(F);
             if (!m || !m.moved.size) return own;
             const out = own.filter((o) => !m.moved.has(o.id));
@@ -80,11 +80,11 @@ export function createPlacementModel({ doc, lm, store }) {
             const m = groupsAt(F);
             const gk = m ? m.gk.get(o.id) : undefined;
             if (gk !== undefined) { const g = m.groups.get(gk); return { F0: g.F0, rem: g.rem, rerouted: g.F0 !== home }; }
-            if (home !== F) return { F0: F, rem: ZERO, rerouted: false };
+            if (!lm.sameCell(home, F)) return { F0: F, rem: ZERO, rerouted: false };
             const T = doc.tableOf(rec.obj, home);
-            if (!hasOffsets(T)) return { F0: F, rem: ZERO, rerouted: false };
+            if (!hasOffsets(T)) return { F0: home, rem: ZERO, rerouted: false };
             const r = shiftAt(T, 0).rem;
-            return { F0: F, rem: r[0] || r[1] ? r : ZERO, rerouted: false };
+            return { F0: home, rem: r[0] || r[1] ? r : ZERO, rerouted: false };
         },
 
         /** The frame native `o` is homed in: its address in the document, never its picture's. */
@@ -95,7 +95,7 @@ export function createPlacementModel({ doc, lm, store }) {
             const rec = o ? doc.getById(o.id) : null;
             if (!rec) return false;
             const m = groupsAt(String(F));
-            return m && m.moved.has(o.id) ? m.live.has(o.id) : rec.level === String(F);
+            return m && m.moved.has(o.id) ? m.live.has(o.id) : lm.sameCell(rec.level, F);
         },
 
         /**

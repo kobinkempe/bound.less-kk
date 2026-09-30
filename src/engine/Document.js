@@ -425,6 +425,14 @@ export default class Document {
      * their tables with the frame's shift composed (`tableOf`), never written into them.
      */
     list(level) { return this.nativesByLevel[String(level)] || []; }
+    /** The natives of every frame sharing `frame`'s cell, its resident's first (A1 C3); its own list when alone. */
+    cellList(frame) {
+        const fs = this.lm ? this.lm.cellFrames(String(frame)) : null;
+        if (!fs || fs.length < 2) return this.list(frame);
+        const out = [];
+        for (const g of fs) for (const o of this.list(g.id)) out.push(o);
+        return out;
+    }
     /**
      * Set a frame's shift, the k = 0 displacement its natives are drawn with (DESIGN.md §8, A1 C1); a zero
      * shift clears. Every placement memo keyed on `offRev` is stale from here, whether or not a refile follows.

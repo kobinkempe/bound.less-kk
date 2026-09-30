@@ -249,7 +249,7 @@ export default class TileStore {
         if (m && m.key === k0) { this._rrHits = (this._rrHits || 0) + 1; return m; }
         // `live`: natives of another frame whose picture carried into F, drawn live here (F0 is their home).
         const put = (out, id, home, s) => {
-            if (!s || (home === F && s.F0 === F)) return;
+            if (!s || (s.F0 === home && this.lm.sameCell(home, F))) return;   // drawn live in F's cell
             out.moved.add(id);
             if (s.F0 === home) out.live.add(id);
             const k = s.F0 + "|" + s.rem[0] + "|" + s.rem[1];
@@ -321,8 +321,9 @@ export default class TileStore {
         const parentObjs = this._upPiecesOver(parentId, pr, null);
         // No offsets enter here (F55). A tile is a pure function of stored bits
         // and the object's own grid; where a moved object's picture is read
-        // from is decided at read time, from its table (`_rerouteGroups`).
-        for (const o of this.doc.list(parentId)) parentObjs.push(o);
+        // from is decided at read time, from its table (`_rerouteGroups`). The parent's cell is every
+        // frame sharing it (A1 C3).
+        for (const o of this.doc.cellList(parentId)) parentObjs.push(o);
         for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
         const edges = [];
@@ -408,21 +409,24 @@ export default class TileStore {
      */
     _ringNatives(parentId, rect) {
         const out = [];
-        for (const G of this.lm.peekRing(parentId)) {
-            if (!this.doc.list(G.id).length) continue;
-            // Ask the neighbour's own spatial index, in ITS coordinates, rather
-            // than scanning every native it holds: this runs on every up-bake,
-            // for eight cells, and a linear scan there is what a drag over a
-            // crowded document feels.
-            const inG = this.lm.mapRectF(rect, parentId, G.id);
-            if (!inG) continue;
-            for (const o of this.doc.queryRect(G.id, inG)) {
-                const d = this.lm.projectF(o, G.id, parentId);
-                if (!d) continue;
-                // Keep the ORIGIN: a native translated into the cell next door is
-                // still a native, and the magnify step treats natives as curved.
-                d.origin = o.origin;
-                out.push(d);
+        for (const C of this.lm.peekRing(parentId)) {
+            let inG;
+            for (const G of this.lm.cellFrames(C.id)) {      // every frame sharing the neighbour's cell (A1 C3)
+                if (!this.doc.list(G.id).length) continue;
+                // Ask the neighbour's own spatial index, in ITS coordinates, rather
+                // than scanning every native it holds: this runs on every up-bake,
+                // for eight cells, and a linear scan there is what a drag over a
+                // crowded document feels.
+                if (inG === undefined) inG = this.lm.mapRectF(rect, parentId, G.id);
+                if (!inG) break;
+                for (const o of this.doc.queryRect(G.id, inG)) {
+                    const d = this.lm.projectF(o, G.id, parentId);
+                    if (!d) continue;
+                    // Keep the ORIGIN: a native translated into the cell next door is
+                    // still a native, and the magnify step treats natives as curved.
+                    d.origin = o.origin;
+                    out.push(d);
+                }
             }
         }
         return out;
@@ -486,7 +490,8 @@ export default class TileStore {
      * The frames a down tile of F can read: every non-ancestor at depth >= F whose cell, grown by
      * one (invariant 2 bounds a whole subtree to that, as `_ringNatives` and the lasso rely on),
      * meets `rect` in F's units — F's subtree, then outward through each ancestor the other
-     * children's subtrees, a subtree whose cell misses the tile skipped whole. Ascending depth.
+     * children's subtrees, a subtree whose cell misses the tile skipped whole. Ascending depth. A frame
+     * sharing F's cell is not one: its natives are drawn live with F's (A1 C3, `nativesIn`).
      */
     _downSources(F, rect) {
         const Fd = this._depth(F);
@@ -495,7 +500,7 @@ export default class TileStore {
             const reach = REACH * s * (1 + 1e-9);
             if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
             const f = this.lm.frame(id);
-            if (id !== F && f.depth >= Fd && this.doc.count(id)) out.push(id);
+            if (f.depth >= Fd && this.doc.count(id) && !this.lm.sameCell(id, F)) out.push(id);
             for (const c of this.lm.childrenOf(id)) if (c.centre) visit(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
         };
         visit(F, 1, 0, 0);
@@ -668,7 +673,7 @@ export default class TileStore {
         for (const [key, tile] of this.cache) {
             if (!this._tileLive(key, tile)) continue;
             const F = tile.level;
-            if (F === H) continue;
+            if (this.lm.sameCell(F, H)) continue;            // a frame's cell's own natives are drawn live, never in its tiles
             if (tile.dir === "down") {
                 // H is a down source for F iff non-ancestor and depth(H) ≥ depth(F).
                 if (!this.lm.isAncestor(H, F) && this._depth(H) >= this._depth(F)) this._appendDown(tile, o, H);
@@ -677,7 +682,7 @@ export default class TileStore {
             let A = via.get(F);
             if (A === undefined) { A = this._upVia(H, F); via.set(F, A); }
             if (A == null) continue;
-            if (this.lm.parentOf(F) === A) {
+            if (this.lm.sameCell(this.lm.parentOf(F), A)) {
                 const d = A === H ? o : this._ringCopy(o, H, A, this.lm.rectToParent(this.lm.tileRect(F, tile.i, tile.j), F));
                 if (d) this._appendUp(tile, [d]);
             } else if (this._reaches(o, H, tile)) chained.push([key, tile]);
@@ -696,8 +701,8 @@ export default class TileStore {
         while (A != null && this._depth(A) > dH) A = this.lm.parentOf(A);
         if (A == null) return null;
         A = String(A);
-        if (A === H) return H;
-        for (const G of this.lm.peekRing(A)) if (String(G.id) === H) return A;
+        if (this.lm.sameCell(A, H)) return H;
+        for (const G of this.lm.peekRing(A)) if (this.lm.sameCell(G.id, H)) return A;
         return null;
     }
     /** `o` (a native of `H`, in `A`'s ring) as `_ringNatives(A, pr)` hands it over, or null when it does not. */

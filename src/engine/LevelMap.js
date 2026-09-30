@@ -128,32 +128,130 @@ export default class LevelMap {
     frame(id) { return this.frames.get(id); }
     depthOf(key) { const f = this._frameFor(key); return f ? f.depth : null; }
     parentOf(key) { const f = this._frameFor(key); return f ? f.parent : null; }
-    /** The frames under `id`: each cell's resident and the shadows sharing its cell. */
+
+    // ---- co-residents (A1 C3, DESIGN.md §8) ----
+    // Frames sharing a lattice cell are one group: a resident (`shadowOf` null) and its co-residents
+    // (`shadowOf` its id, in its `_shadows`). A frame's `parent` is its container, so a co-resident keeps
+    // its own subtree. Lookups return residents; geometry reads a frame through its resident, so the
+    // group is one cell to the bit. Invariant: the frames at one cell are one group, and their parents
+    // are one group. `p._kids` maps a cell to one of p's own kids there; p's others there are in its group.
+
+    /** The resident of `id`'s cell: what lookups return for it. */
+    residentOf(id) {
+        const f = this.frames.get(String(id));
+        return f && f.shadowOf != null ? this.frames.get(f.shadowOf) || f : f || null;
+    }
+    /** The frames sharing `id`'s cell, its resident first. */
+    cellFrames(id) {
+        const r = this.residentOf(id);
+        if (!r) return [];
+        if (!r._shadows || !r._shadows.size) return [r];
+        const out = [r];
+        for (const s of r._shadows) { const g = this.frames.get(s); if (g) out.push(g); }
+        return out;
+    }
+    /** Whether frames `a` and `b` are one cell: the same frame, or co-residents. */
+    sameCell(a, b) {
+        if (String(a) === String(b)) return true;
+        const x = this.residentOf(a);
+        return !!x && x === this.residentOf(b);
+    }
+    /** The resident of child cell `key` of `p`'s cell, looked up through every frame sharing that cell. */
+    _kidAt(p, key) {
+        let v = null;
+        for (const g of this.cellFrames(p.id)) if (g._kids && (v = g._kids.get(key))) break;
+        return v ? this.residentOf(v) : null;
+    }
+    /** The frames `id` contains: its own kids, each once (a co-resident's kids are its own). */
     childrenOf(id) {
-        const p = this.frames.get(id);
+        const p = this.frames.get(String(id));
         const out = [];
-        if (p && p._kids) for (const cid of p._kids.values()) {
+        if (!p || !p._kids) return out;
+        for (const cid of p._kids.values()) {
             const c = this.frames.get(cid);
+            if (!c) continue;
             out.push(c);
-            if (c && c._shadows) for (const sid of c._shadows) out.push(this.frames.get(sid));
+            for (const g of this.cellFrames(c.id)) if (g !== c && g.parent === p.id) out.push(g);
         }
         return out;
     }
-    /** `fn(frame)` over the subtree `rootId` stands for: the root, its shadows, its kids and theirs. */
+    /** `fn(frame)` over the subtree `rootId` stands for: the root, its kids and theirs. */
     walk(rootId, fn) {
         const stack = [this.frames.get(rootId)];
         while (stack.length) {
             const f = stack.pop();
             if (!f) continue;
             fn(f);
-            if (f._shadows) for (const sid of f._shadows) stack.push(this.frames.get(sid));
-            if (f._kids) for (const cid of f._kids.values()) stack.push(this.frames.get(cid));
+            if (f._kids) for (const c of this.childrenOf(f.id)) stack.push(c);
+        }
+    }
+    /** Group `list` (frames at one cell) as one: its present resident stays one, else its first. Returns the resident. */
+    _regroup(list) {
+        if (!list.length) return null;
+        this._paths.clear();
+        const r = list.find((g) => g.shadowOf == null) || list[0];
+        r.shadowOf = null; r._shadows = null;
+        for (const g of list) {
+            if (g === r) continue;
+            g.shadowOf = r.id; g._shadows = null;
+            (r._shadows || (r._shadows = new Set())).add(g.id);
+        }
+        return r;
+    }
+    /** Residents `a` and `b` of one cell become one group; an empty childless `b` yields the cell to `a`. Returns the resident. */
+    _joinGroups(a, b, empty) {
+        this._paths.clear();
+        const yieldB = !(b._kids && b._kids.size) && empty(b.id);
+        const [r, s] = yieldB ? [a, b] : [b, a];
+        const add = [s.id, ...(s._shadows || [])];
+        s._shadows = null;
+        for (const id of add) {
+            const g = this.frames.get(id);
+            if (!g) continue;
+            g.shadowOf = r.id;
+            (r._shadows || (r._shadows = new Set())).add(id);
+        }
+        return r;
+    }
+    /** The kids of the frames sharing resident `r`'s cell, one group per child cell (after a join), all the way down. */
+    _linkKids(r, empty) {
+        const at = new Map();
+        for (const g of this.cellFrames(r.id)) {
+            if (!g._kids) continue;
+            for (const [key, cid] of g._kids) {
+                const c = this.residentOf(cid), had = at.get(key);
+                if (!c || had === c) continue;
+                if (!had) { at.set(key, c); continue; }
+                const j = this._joinGroups(c, had, empty);
+                at.set(key, j);
+                this._linkKids(j, empty);
+            }
+        }
+    }
+    /** Frames `A` leave a cell that frames `B` keep: no child cell's group holds both sides' kids, all the way down. */
+    _splitKids(A, B) {
+        if (!A.length || !B.length) return;
+        const inA = new Set(A.map((g) => g.id)), seen = new Set();
+        for (const a of A) {
+            if (!a._kids) continue;
+            for (const cid of a._kids.values()) {
+                const r = this.residentOf(cid);
+                if (!r || seen.has(r.id)) continue;
+                seen.add(r.id);
+                const G = this.cellFrames(r.id), A2 = G.filter((g) => inA.has(g.parent)), B2 = G.filter((g) => !inA.has(g.parent));
+                if (!B2.length) continue;
+                this._regroup(A2); this._regroup(B2);
+                this._splitKids(A2, B2);
+            }
         }
     }
     spineAt(depth) { return this._spine.get(depth) || null; }
+    /** The resident of `f`'s container's cell: the lattice parent every geometric walk reads. */
+    _cellParent(f) { return f && f.parent != null ? this.residentOf(f.parent) : null; }
+    /** The resident at `depth` on `fromId`'s cell chain, else the spine frame there. */
     pathFrameAt(fromId, depth) {
-        let f = this.frames.get(fromId);
-        while (f && f.depth > depth) f = this.frames.get(f.parent);
+        let f = this.residentOf(fromId);
+        while (f && f.depth > depth) f = this._cellParent(f);
         if (f && f.depth === depth) return f.id;
         return this.spineAt(depth);
     }
@@ -184,27 +282,23 @@ export default class LevelMap {
         return id;
     }
     /**
-     * Remove a frame that holds nothing lattice-side — no kids, no shadows; the caller checks its
-     * natives and its keepers (frame GC, OPEN-FLAGS F94). A shadow leaves its resident's set, a
-     * resident its parent's cell. A MOVED frame's id is retired for the session: caches keyed by it
-     * picture its last address, which a new mint at its birth cell would not be. False if refused.
+     * Remove a frame that contains no frames; the caller checks its natives and its keepers (frame GC,
+     * OPEN-FLAGS F94). A resident with co-residents hands its cell to one (A1 C3: GC promotes). A MOVED
+     * frame's id is retired for the session: caches keyed by it picture its last address, which a new
+     * mint at its birth cell would not be. False if refused.
      */
     forget(id) {
         const f = this.frames.get(id);
-        if (!f || f.parent == null || (f._kids && f._kids.size) || (f._shadows && f._shadows.size)) return false;
-        if (f.shadowOf != null) {
-            const r = this.frames.get(f.shadowOf);
-            if (r && r._shadows) { r._shadows.delete(id); if (!r._shadows.size) r._shadows = null; }
-        } else {
-            const p = this.frames.get(f.parent), key = cellKey(f.cell.i, f.cell.j);
-            if (p && p._kids && p._kids.get(key) === id) p._kids.delete(key);
-        }
-        if (f.addrSeq) (this._retired || (this._retired = new Set())).add(id);
+        if (!f || f.parent == null || (f._kids && f._kids.size)) return false;
+        this._leave(f);
+        if (f.addrSeq) this.retire(id);
         this.frames.delete(id);
         this._paths.clear();
         if (this._spine.get(f.depth) === id) this._rebuildSpine();
         return true;
     }
+    /** Ids no new frame may take this session: a moved frame's, a deleted one's (caches and history name them). */
+    retire(id) { (this._retired || (this._retired = new Set())).add(String(id)); }
     /** The child cell (i, j) of `parentId`, minting it if this is its first visit. */
     cellChild(parentId, i, j) {
         const p = this.frames.get(parentId);
@@ -229,18 +323,24 @@ export default class LevelMap {
             if (!sib) return null;
             return this.cellChild(sib.id, ci.digit, cj.digit);
         }
-        if (p._kids) { const hit = p._kids.get(cellKey(i, j)); if (hit) return this.frames.get(hit); }
+        const hit = this._kidAt(p, cellKey(i, j));
+        if (hit) return hit;
         return this._addFrame(this._childId(parentId, i, j), parentId, { i, j }, p.depth + 1);
     }
-    /** The child cell that already exists, or null. No side effects. */
-    findCellChild(parentId, i, j) {
+    /**
+     * The resident of the child cell that already exists, or null. No side effects. `own`: only a kid
+     * `parentId` itself contains (a mover's kids go with it; its co-residents' stay).
+     */
+    findCellChild(parentId, i, j, own = false) {
         // No existing child can hold an out-of-range digit (see `cellChild`),
         // and resolving the carry would have to CREATE frames — which this is
         // required not to do. A miss sends the caller to `cellChild`, which
         // carries properly.
         if (!inDigit(i) || !inDigit(j)) return null;
         const p = this.frames.get(parentId);
-        const hit = p && p._kids && p._kids.get(cellKey(i, j));
+        if (!p) return null;
+        if (!own) return this._kidAt(p, cellKey(i, j));
+        const hit = p._kids && p._kids.get(cellKey(i, j));
         return hit ? this.frames.get(hit) : null;
     }
 
@@ -317,28 +417,21 @@ export default class LevelMap {
         this._rebuildSpine();
         return f;
     }
-    // A frame leaves its cell: a shadow leaves its resident's set; a resident hands the cell to
-    // one of its shadows, which takes the others.
+    // A frame leaves its cell: out of its group (a resident hands the cell to a co-resident), out of its
+    // container's kids, and its subtree out of every group it shares with frames that stay.
     _leave(f) {
-        if (f.shadowOf != null) {
-            const res = this.frames.get(f.shadowOf);
-            if (res && res._shadows) res._shadows.delete(f.id);
-            f.shadowOf = null;
-            return;
-        }
         const old = f.parent != null ? this.frames.get(f.parent) : null;
         const key = cellKey(f.cell.i, f.cell.j);
-        if (!old || !old._kids || old._kids.get(key) !== f.id) return;
-        old._kids.delete(key);
-        if (!f._shadows || !f._shadows.size) return;
-        const sid = f._shadows.values().next().value;
-        const s = this.frames.get(sid);
-        f._shadows.delete(sid);
-        s.shadowOf = null;
-        s._shadows = f._shadows.size ? f._shadows : null;
-        if (s._shadows) for (const t of s._shadows) this.frames.get(t).shadowOf = sid;
-        f._shadows = null;
-        old._kids.set(key, sid);
+        const mates = this.cellFrames(f.id).filter((g) => g !== f);
+        if (mates.length) {
+            this._regroup(mates);
+            f.shadowOf = null; f._shadows = null;
+            this._splitKids([f], mates);
+        }
+        if (old && old._kids && old._kids.get(key) === f.id) {
+            const next = mates.find((g) => g.parent === old.id);
+            if (next) old._kids.set(key, next.id); else old._kids.delete(key);
+        }
     }
     // A frame takes cell (i, j) of `p`. A free cell is taken; a resident that `empty` says holds
     // nothing and that has no kids becomes the newcomer's shadow; any other resident keeps the
@@ -783,17 +876,18 @@ export default class LevelMap {
     }
 
     // ---- tree walks (frame keys) ----
+    // Geometry walks cells (each frame read as its resident, `_cellParent`): co-residents are one cell
+    // to the bit, and a path between them is empty (A1 C3). `isUnder` walks containers.
     _ancestors(id) {
         const out = [];
-        let f = this.frames.get(id);
-        while (f) { out.push(f.id); f = f.parent ? this.frames.get(f.parent) : null; }
+        for (let f = this.residentOf(id); f; f = this._cellParent(f)) out.push(f.id);
         return out;
     }
+    /** Whether `aId`'s cell is a strict ancestor of `bId`'s. */
     isAncestor(aId, bId) {
-        if (aId === bId) return false;
-        let f = this.frames.get(bId);
-        f = f && f.parent ? this.frames.get(f.parent) : null;
-        while (f) { if (f.id === aId) return true; f = f.parent ? this.frames.get(f.parent) : null; }
+        const a = this.residentOf(aId);
+        if (!a) return false;
+        for (let f = this._cellParent(this.residentOf(bId)); f; f = this._cellParent(f)) if (f === a) return true;
         return false;
     }
     /** Is `bId` what `aId` stands for: itself, a descendant, or a shadow of either? (The selection's rule; tiles use `isAncestor`.) */
@@ -810,9 +904,9 @@ export default class LevelMap {
      * Null if `rootId` is not an ancestor (or the frame itself).
      */
     chainFrom(rootId, id) {
-        const out = [];
-        let f = this.frames.get(id);
-        while (f && f.id !== rootId) { out.push(f.cell); f = f.parent ? this.frames.get(f.parent) : null; }
+        const root = this.residentOf(rootId), out = [];
+        let f = this.residentOf(id);
+        while (f && f !== root) { out.push(f.cell); f = this._cellParent(f); }
         if (!f) return null;
         out.reverse();
         return out;
@@ -829,8 +923,7 @@ export default class LevelMap {
     /** The nearest common ancestor of two frames, or null. */
     commonAncestor(aId, bId) {
         const seen = new Set(this._ancestors(aId));
-        let f = this.frames.get(bId);
-        while (f) { if (seen.has(f.id)) return f.id; f = f.parent ? this.frames.get(f.parent) : null; }
+        for (let f = this.residentOf(bId); f; f = this._cellParent(f)) if (seen.has(f.id)) return f.id;
         return null;
     }
     /**
@@ -889,17 +982,15 @@ export default class LevelMap {
         this._paths.set(ck, built);
         return built;
     }
+    /** Up from `fromId`'s cell to the common one and down to `toId`'s, as resident ids; empty between co-residents. */
     _buildPath(fromId, toId) {
-        const fa = this._ancestors(fromId), ta = new Map();
-        let f = this.frames.get(toId);
-        while (f) { ta.set(f.id, f); f = f.parent ? this.frames.get(f.parent) : null; }
+        const fa = this._ancestors(fromId), ta = new Set(this._ancestors(toId));
         const upIds = [];
         let common = null;
         for (const a of fa) { if (ta.has(a)) { common = a; break; } upIds.push(a); }
         if (!common) return null;
         const downIds = [];
-        f = this.frames.get(toId);
-        while (f && f.id !== common) { downIds.push(f.id); f = this.frames.get(f.parent); }
+        for (let f = this.residentOf(toId); f && f.id !== common; f = this._cellParent(f)) downIds.push(f.id);
         downIds.reverse();
         return { up: upIds, down: downIds };
     }
@@ -945,18 +1036,20 @@ export default class LevelMap {
      * F0's tile is a piece of F's picture with the same numbers. Above the home
      * (k0 < 0) everything is sub-cell: F0 is F and only `rem` applies. At the
      * home depth a composed table (A1 C1) can carry whole frames: F0 is F's
-     * neighbour the carry points back to — the home itself when F is where the
-     * picture went. `sh` is the raw decomposition.
+     * neighbour the carry points back to — the home itself when that is the
+     * home's cell (a co-resident's native is drawn live, A1 C3). `sh` is the raw
+     * decomposition.
      */
     objShift(below, homeId, F) {
         const hd = this.depthOf(homeId), D = this.depthOf(F);
         if (hd == null || D == null) return null;
         const k0 = D - hd;
         const sh = shiftAt(below, k0);
-        if (k0 < 0 || !hasDigits(sh)) return { F0: F, rem: sh.rem, sh };
+        const at = (id) => (k0 === 0 && this.sameCell(id, homeId) ? String(homeId) : id);
+        if (k0 < 0 || !hasDigits(sh)) return { F0: at(F), rem: sh.rem, sh };
         if (k0 === 0) {
             const n = this.neighbour(F, -sh.carry[0], -sh.carry[1]);
-            return n ? { F0: n.id, rem: sh.rem, sh } : null;
+            return n ? { F0: at(n.id), rem: sh.rem, sh } : null;
         }
         const A = this.pathFrameAt(F, hd);
         const chain = A != null ? this.chainFrom(A, F) : null;

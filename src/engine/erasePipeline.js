@@ -1190,13 +1190,16 @@ class ErasePipeline {
         const unresolved = ids.filter((i) => this.lm.depthOf(members[i].level) == null);
         return { members, classes: G.classes(ids), unresolved };
     }
-    /** What to add to frame `B`'s coordinates to read them in frame `A`, a cell of the same depth at most one away; null past that. */
+    /**
+     * What to add to frame `B`'s coordinates to read them in frame `A`, a cell of the same depth at most one
+     * away; null past that. Cells, not frames: a kid in a private frame is its cell's (F124, A1 C4).
+     */
     _cellOffset(A, B) {
-        if (String(A) === String(B)) return [0, 0];
+        if (this.lm.sameCell(A, B)) return [0, 0];
         for (let di = -1; di <= 1; di++) {
             for (let dj = -1; dj <= 1; dj++) {
                 const n = (di || dj) ? this.lm.peekNeighbour(A, di, dj) : null;
-                if (n && String(n.id) === String(B)) return [di * FRAME_W, dj * FRAME_W];
+                if (n && this.lm.sameCell(n.id, B)) return [di * FRAME_W, dj * FRAME_W];
             }
         }
         return null;

@@ -29,6 +29,8 @@ import { perfNow } from "../now";
 export const PATCH_MAX = 0.5;
 /** A group older than this commits what it has (A3 §3.6). */
 export const LIVE_HOLD_MS = 3000;
+/** A user's action (an undo, a redo, a drop) may show its change coarse-first within this many frames of `patchUserMs` (PLAN §5.20 item 2): one action, not a per-frame cost. */
+export const USER_COARSE_FRAMES = 3;
 /** The surface is freed after this long unused. */
 export const SURFACE_IDLE_MS = 10000;
 /** The estimate's constants (A3 §2.2, §3.3), each overridable in cfg and calibrated online. */
@@ -214,7 +216,7 @@ export default class PicturePyramid {
     setPlane(p) { this._plane = p || null; }
     /** The attention point in device px (the wheel or pinch focus, the pointer); null for the screen centre. */
     setAttention(x, y) { this._attn = x == null ? null : [x, y]; }
-    /** The commit a user's own action just made (an undo, a redo): its patch has one frame's budget, `patchUserMs`. */
+    /** The commit a user's own action just made (an undo, a redo, a drop): its patch has the user's budget (`patchPlan`). */
     noteUserEdit() { this._userG = this.stage ? this.stage.generation : 0; }
     /** The prefetch's far zoom-out keys (`prefetch.js`): protected in the store, evicted first among the protected. */
     setFar(keys) { const v = this.store && this.store.view; if (v) v.far = new Set(keys); }
@@ -1229,8 +1231,9 @@ export default class PicturePyramid {
      * log no longer reaches), and the decision: inline at full resolution when T_patch fits the budget; else the
      * finest coarser level whose patches fit, drawn over the dirty rectangles by the plan's rule (e), with the full
      * patches asked for at priority 0; else everything to the workers. The budget is `patchUserMs` (one frame) for a
-     * user's action — an undo or a redo (`noteUserEdit`), a pen-up's group — which is paid once, and `patchInlineMs`
-     * for the patches the bake issues at every step.
+     * user's action — an undo, a redo or a drop (`noteUserEdit`), a pen-up's group — which is paid once, and its
+     * coarse level USER_COARSE_FRAMES of them; `patchInlineMs` for the patches the bake issues at every step. A pen-up's
+     * group waits for full resolution (A3 §3.6): it searches no coarser level.
      * @param {object[]} cells records @param {(F, G)=>object[]|null} [dirtyRects] the Stage's, by default
      * @param {boolean} [user] a pen-up's group
      */
@@ -1261,22 +1264,26 @@ export default class PicturePyramid {
         const out = { items, job, T, inline: T <= budget, coarse: null };
         // The last decision, for the report and the harness (the undo's path, PLAN §5.11 Q3).
         this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, user: mine, inline: out.inline, coarse: null, est: job.est || null };
-        if (out.inline) return out;
-        // The pack's terms do not shrink with a coarser level (the same items meet the same rectangles): over the budget
-        // alone, no level fits, and each would cost a measure of the whole list.
+        if (out.inline || user) return out;
+        // Each coarser level costs a measure, a walk of the whole list. The pack's terms do not shrink with the level
+        // (the same items meet the same rectangles): over the budget alone, no level fits. The search stops at the first
+        // level with no records, whose patch is a whole render of its cells (PLAN §5.20 item 2).
+        const cb = mine ? USER_COARSE_FRAMES * budget : budget;
         const m = job.est, packT = m ? this._k.pack * (m.K || 0) + this._k.list * (m.N || 0) : 0;
-        for (let k = 1; k <= N && packT < budget; k++) {
+        this.lastPatch.levels = 0;
+        for (let k = 1; k <= N && packT < cb; k++) {
             const l = v.level - k;
             if (l < floor) break;
             const cj = this._coarseJob(v.frameId, l, S, rects);
-            if (!cj) continue;
+            if (!cj) break;
             const Tc = this.estimate(cj);
-            if (Tc <= budget) { out.coarse = { level: l, job: cj, T: Tc }; this.lastPatch.coarse = { level: l, T: +Tc.toFixed(2) }; break; }
+            this.lastPatch.levels++;
+            if (Tc <= cb) { out.coarse = { level: l, job: cj, T: Tc }; this.lastPatch.coarse = { level: l, T: +Tc.toFixed(2) }; break; }
         }
         return out;
     }
 
-    /** Level ℓ's cells over `rects`: a patch where the record exists (clip = the rects inside it), a whole render where not. */
+    /** Level ℓ's cells over `rects`: a patch where the record exists (clip = the rects inside it), a whole render where not; null where no record exists. */
     _coarseJob(F, l, S, rects) {
         const Zl = zOf(l, S), per = new Map();
         for (const x of rects) {
@@ -1293,11 +1300,14 @@ export default class PicturePyramid {
         }
         if (!per.size) return null;
         const cells = [], clips = [];
+        let kept = 0;
         for (const e of per.values()) {
-            const c = levelCell(F, l, S, e.i, e.j), old = this.store.get(c.key);
+            const c = levelCell(F, l, S, e.i, e.j), old = this.store.get(c.key), has = !!old && !!(old.bitmap || old.pixels);
             cells.push(c);
-            clips.push(old && (old.bitmap || old.pixels) ? clipOf(e.bb, c) : [0, 0, PLATE_PX, PLATE_PX]);
+            clips.push(has ? clipOf(e.bb, c) : [0, 0, PLATE_PX, PLATE_PX]);
+            if (has) kept++;
         }
+        if (!kept) return null;
         const job = this._job("patch", 0, { frame: F, level: l, S, Z: Zl, cells, clips, purpose: "coarse", gen: this.gens.patch });
         return job;
     }
@@ -1433,9 +1443,7 @@ export default class PicturePyramid {
     _askGroup(g, stale, missing) {
         const v = this._v;
         if (stale.length) {
-            const plan = this.patchPlan(stale, null, true);
-            plan.coarse = null;                  // the live path waits for full resolution: no coarse-first here
-            this.applyPatchPlan(plan, g.id);
+            this.applyPatchPlan(this.patchPlan(stale, null, true), g.id);
         }
         if (missing.length && this._groups.has(g.id)) {
             const Zg = v.mode === "rest" ? v.Z : zOf(v.level, v.S);

@@ -6,8 +6,8 @@
  * (the stroke shows nowhere), outside the change it is the sharp old plate, the full patches are asked for at
  * priority 0, and `olderPatchMs` and `olderOtherMs` stay 0. The GPU merge (a software OffscreenCanvas) equals `pastePatch`.
  */
-import PyramidStore, { PLATE_BYTES, restCell } from "./PyramidStore";
-import PicturePyramid from "./PicturePyramid";
+import PyramidStore, { PLATE_BYTES, levelCell, restCell } from "./PyramidStore";
+import PicturePyramid, { USER_COARSE_FRAMES } from "./PicturePyramid";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { copyPlate, pastePatch } from "./rasterJob";
@@ -57,11 +57,18 @@ function* pixels(stride = 3, m = 4) {
     }
 }
 
+/** Level ℓ − k's four plates at the pre-undo picture: the records a coarse patch lands in. */
+function seedLevel(t, k = 1) {
+    const l = t.pyr._v.level - k;
+    for (const [i, j] of [[0, 0], [1, 0], [0, 1], [1, 1]]) t.store.put({ ...levelCell("F", l, 1, i, j), G: t.stage.generation, pixels: whole(t.doc.list, 2 ** l, i, j) });
+}
+
 /** Rest at Z = 1 on plates (0..1, 0..1), then the undo of STROKE. Returns the pre-undo plates. */
-function restThenUndo(t) {
+function restThenUndo(t, levels = []) {
     t.pyr.frameFor(cam(1));
     t.pyr.frameFor(cam(1));
     expect(t.pyr._v.mode).toBe("rest");
+    for (const k of levels) seedLevel(t, k);
     const pre = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([i, j]) => t.store.get(restCell("F", 1, i, j).key).pixels.slice());
     t.pyr.compose();
     expect(eq(t.ctx.at(420, 150), [255, 0, 255])).toBe(true);                // the stroke shows
@@ -101,7 +108,7 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         for (const seed of [21, 22]) {
             // Full resolution does not fit the budget; a coarser level does (its area term is a quarter).
             const t = setup(seed, (job) => ({ E: 3000, A: job.kind === "rest" || job.purpose === "coarse" ? 20000 : 400000, U: 0, P: job.cells.length }));
-            const pre = reader(restThenUndo(t));
+            const pre = reader(restThenUndo(t, [1]));
             t.pyr.frameFor(cam(1));
             expect([t.pyr.s.patchInline, t.pyr.s.patchCoarse]).toEqual([0, 1]);
             const asked = t.posted.filter((j) => j.kind === "patch");
@@ -136,6 +143,46 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
             t.pyr.compose();
             expect(t.pyr.lastPlan.draws.every((d) => d.cls === "sharp" && !d.under)).toBe(true);
         }
+    });
+
+    test("the coarse search (PLAN §5.20 item 2): it stops at the first level with no records, and a pen-up's group searches none", () => {
+        // Full resolution over every budget; any coarse job would fit. Each coarse estimate is a measure (a list walk).
+        const run = (levels) => {
+            const coarse = [];
+            const t = setup(23, (job) => { if (job.purpose === "coarse") coarse.push(job.level); return { E: 0, A: job.kind === "rest" || job.purpose === "coarse" ? 1000 : 9e6, U: 0, P: job.cells.length }; });
+            restThenUndo(t, levels);
+            return { t, coarse };
+        };
+        const a = run([]);                                                   // no level under the view has records
+        a.t.pyr.frameFor(cam(1));
+        expect([a.coarse.length, a.t.pyr.s.patchCoarse, a.t.pyr.s.patchWorker, a.t.pyr.lastPatch.levels]).toEqual([0, 0, 1, 0]);
+        const b = run([2]);                                                   // ℓ − 1 has none: ℓ − 2's are not searched
+        b.t.pyr.frameFor(cam(1));
+        expect([b.coarse.length, b.t.pyr.s.patchCoarse]).toEqual([0, 0]);
+        const c = run([1]);                                                   // ℓ − 1 has them: measured once, taken
+        const l = c.t.pyr._v.level;
+        c.t.pyr.frameFor(cam(1));
+        expect([c.coarse, c.t.pyr.s.patchCoarse, c.t.pyr.lastPatch.levels]).toEqual([[l - 1], 1, 1]);
+        const d = run([1]);                                                   // a pen-up's group waits for full resolution
+        const stale = [...d.t.store.records()].filter((r) => r.kind === "rest" && !d.t.store.exact(r));
+        const plan = d.t.pyr.patchPlan(stale, null, true);
+        expect([plan.inline, plan.coarse, d.coarse.length]).toEqual([false, null, 0]);
+    });
+
+    test("a user's action shows its change coarse-first within USER_COARSE_FRAMES × patchUserMs; the bake's patches keep patchInlineMs", () => {
+        // ~28 ms at full resolution and at ℓ − 1: over one frame (16), within three (48), over the bake's 6.
+        const measure = (job) => ({ E: 0, A: job.kind === "rest" ? 1000 : 800000, U: 0, P: job.cells.length });
+        const user = setup(24, measure);
+        restThenUndo(user, [1]);
+        user.pyr.noteUserEdit();                                             // the undo's order: commit, noteUserEdit, render
+        user.pyr.frameFor(cam(1));
+        const lp = user.pyr.lastPatch;
+        expect([lp.user, lp.inline, lp.budget, lp.T > 16, lp.coarse && lp.coarse.T <= USER_COARSE_FRAMES * 16]).toEqual([true, false, 16, true, true]);
+        expect([user.pyr.s.patchInline, user.pyr.s.patchCoarse, user.posted.filter((j) => j.kind === "patch").length]).toEqual([0, 1, 1]);
+        const bake = setup(24, measure);
+        restThenUndo(bake, [1]);                                             // no noteUserEdit: a bake's commit
+        bake.pyr.frameFor(cam(1));
+        expect([bake.pyr.lastPatch.user, bake.pyr.lastPatch.coarse, bake.pyr.s.patchCoarse, bake.pyr.s.patchWorker]).toEqual([false, null, 0, 1]);
     });
 
     test("pen-up's group commit, inline: the stroke's cells patched, composed and the live path released in one task", () => {
