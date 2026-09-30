@@ -595,7 +595,7 @@ async function penUp(page) {
             // The pyramid publishes the stroke's plates in the task that takes the path down (A3 §3.6): at the first
             // read without the path, the picture is exact.
             const st = await page.evaluate(() => {
-                const E = window.__kobinEngine, L = E.renderer.layer, h = (E.renderer._liveHeld || []).length > 0;
+                const E = window.__kobinEngine, L = E.renderer.layer, h = ((E.renderer.live && E.renderer.live.held) || []).length > 0;
                 const sh = L && L._share ? L._share : null;
                 return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.olderPatch || sh.olderUnread || sh.olderOther) };
             });

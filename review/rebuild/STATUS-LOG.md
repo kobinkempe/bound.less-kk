@@ -2679,3 +2679,17 @@ launched at ~02:52 with Kobin's constraint (one measurement pass, hand back at d
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-4's report (its batch) and B-MODEL-C34's start entry.
+
+## 2026-09-30 02:50 UTC — B-MODEL-C34 (builder) — C3 and C4 of the document model as one build — start
+**Working on:** read the preamble (19 rules), `briefs/B-MODEL-C34.md`, PLAN §0/§1.7/§3/§5.2/§5.10/§5.12/§5.14/§5.16/
+§5.19/§5.21, R-DRAG's end entry, DESIGN §2/§3/§7/§8/§10/§13, A1 §1.2/§1.3/§4.4/§4.6/§5/§6/§8/§9/§14/§15, OPEN-FLAGS
+F94/F100/F107/F108/F124/F126; next the code the brief names. Tree at ce6f397 (+ `tools/harnesses/browser-check.js`,
+not mine). Files I will be in (brief §4): `LevelMap.js`, `Document.js`, `placementModel.js`, `TileStore.js` (the
+readers), `frameGc.js`, `selection.js`, `overlays.js`, `eraseDescent.js`, `erasePipeline.js` (`_cellOffset`,
+`lm.merge`), `cede.js`, `legacy/modelV1.js`, `persist.js`/`format2.js`, `KobinEngine.js` (shared: re-read, small
+edits), the model/move/select/erase suites and probes, `__testkit__/modelFuzz.js`, `__oracles__/README.md`, the docs.
+Scratch `bm34/`, ports 3030–3039 (the frozen copies for §3's scenarios 3/4: 3040–3049 per the brief).
+**Measured:** nothing yet; load 2.62. B-PYRAMID-4's browser batch is running (:3014/:3016): no batch of mine yet.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading the code — `LevelMap._take`/`_leave`/lookups, `Document`'s merge and detached paths.
