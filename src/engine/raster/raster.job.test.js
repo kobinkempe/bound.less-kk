@@ -246,6 +246,11 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect([pack.packStats.prepasses - b0.prepasses, pack.packStats.recsBuilt - b0.recsBuilt]).toEqual([1, 0]);
         expect(pack.packStats.famReused - b0.famReused).toBe(3);                // each family's union rule and sign kept
         expect(same(again.geom, first.geom) && same(again.attr, first.attr) && same(again.meta, first.meta)).toBe(true);
+        // A subset's pack (a drag plane's layer) adds to the records and drops none.
+        packOne(pieces.map((p) => wrap(p)), { only: new Set([31]) });
+        const b2 = { ...pack.packStats };
+        packOne(pieces.map((p) => wrap(p)));
+        expect(pack.packStats.recsBuilt - b2.recsBuilt).toBe(0);
         // The second item moved (a held drag re-places it with no document write) and the third edited: theirs alone.
         pieces[2].polys = [rect(380, 60, 490, 200)]; pieces[2]._ver = 1;
         const list = () => pieces.map((p, k) => wrap(p, k === 1 ? [5, 0] : undefined));

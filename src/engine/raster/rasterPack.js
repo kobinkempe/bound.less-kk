@@ -802,7 +802,8 @@ const alloc = (pool, ctor, len) => (pool ? pool.take(ctor, len) : new ctor(len))
  * commit makes one, and a snapshot wraps the same pieces anew — each item's record is kept by its geometry (the memo's
  * key) per zoom, dpr, cfg and offset, and rebuilt only where the item changed: its entry, fade, z, family, erase flag or
  * `res` (a held drag moves `res` with no document write; a drop writes the placement). A family keeps its union rule
- * and sign while its records are the same objects. The records kept are the last list's at each of RECS_KEYS keys.
+ * and sign while its records are the same objects. The records kept are the last whole list's at each of RECS_KEYS
+ * keys; a subset's pack (a drag plane's `only` or `omit`) adds to them and drops none.
  * PLAN §5.15 item 1: refilling the families of a list after a snapshot's (wrappers never matched) was 18–33 ms of the
  * undo's 45–64 ms inline pack on the dense drawing.
  */
@@ -827,7 +828,7 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
     const R = RECS.get(rk) || { recs: new Map(), fams: new Map() };
     RECS.delete(rk); RECS.set(rk, R);
     if (RECS.size > RECS_KEYS) RECS.delete(RECS.keys().next().value);
-    const was = R.recs, recs = new Map(), fams = new Map();
+    const sub = !!(only || omit), was = R.recs, recs = sub ? was : new Map(), fams = new Map();
     let faded = 0;
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
@@ -844,7 +845,7 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
             fams.set(rid, f);
         }
         const g = o.piece || o;
-        const r = recFor(was.get(g) || recs.get(g), o, fade, cfg, offset);
+        const r = recFor(sub ? was.get(g) : was.get(g) || recs.get(g), o, fade, cfg, offset);
         recs.set(g, r);
         f.items.push({ o, fade, idx: k });
         famAdd(f, r, o, fade, k);
@@ -854,7 +855,7 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
         const g = R.fams.get(f.rid);
         if (g && g.union !== null && sameRecs(g.recs, f.recs)) { f.union = g.union; f.unionSign = g.unionSign; f.mixed = g.mixed; packStats.famReused++; }
     }
-    R.recs = recs; R.fams = fams;
+    if (!sub) { R.recs = recs; R.fams = fams; }
     let n = 0;
     for (const x of RECS.values()) n += x.recs.size;
     packStats.recs = n;
