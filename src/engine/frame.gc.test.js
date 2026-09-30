@@ -5,9 +5,10 @@
  * whose every pointer event minted the containers its target chains passed through (since A1 C2 a
  * drag mints nothing until its drop, which mints the final chains' only).
  *
- * The rule as built: a frame with no natives, kids or shadows goes at a gesture's end or a change of
- * the camera's frame — unless the camera is in it or passed through it lately (its chain and the last
- * few frames it left) or an undo or redo op names it (undo puts things back there by id).
+ * The rule as built: a frame with no natives and no kids goes at a gesture's end or a change of the
+ * camera's frame — a resident with co-residents handing its cell to one (A1 C3) — unless the camera is
+ * in it or passed through it lately (its chain and the last few frames it left) or an undo or redo op
+ * names it (undo puts things back there by id).
  */
 import { useEngines, mkEngine } from "./__testkit__/harness";
 import { rectLoop } from "./geometry/arcShape";
@@ -49,7 +50,7 @@ function strays(E) {
     const out = [];
     for (const f of E.lm.frames.values()) {
         if (f.parent == null || keep.has(f.id) || named.has(f.id)) continue;
-        if (E.doc.count(f.id) || (f._kids && f._kids.size) || (f._shadows && f._shadows.size)) continue;
+        if (E.doc.count(f.id) || (f._kids && f._kids.size)) continue;
         out.push(f.id);
     }
     return out;

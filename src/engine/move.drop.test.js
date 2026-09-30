@@ -4,7 +4,7 @@
  * held natives are drawn, hit and placed at the pointer's delta through the Stage. At the drop: one
  * write and one op, the frames minted there the final chains' only (A1 §1.4's census, against the
  * frozen model that wrote every event). A cancel leaves the document byte-equal to before the press
- * and merges nothing. The drop's patch has a user's budget, like an undo (PLAN §5.15 item 2).
+ * and makes no co-resident. The drop's patch has a user's budget, like an undo (PLAN §5.15 item 2).
  */
 import { useEngines, mkEngine } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
@@ -182,7 +182,7 @@ describe("D2 — the drop: one write, one op; mints at the drop are the final ch
         }
     });
 
-    test("the drop's write, the hold's release and its merges are one Stage commit", () => {
+    test("the drop's write and the hold's release are one Stage commit", () => {
         const f = fixture();
         const { E } = f;
         E._setSelection([f.a.id], [f.R.id]);
@@ -272,7 +272,7 @@ describe("D3 — a cancel writes nothing: the document is byte-equal to before t
         ["a tool change", (E) => E.setTool("pen")],
         ["a redo mid-drag", (E) => E.redo()],
     ]) {
-        test(name + ", after a drag across an occupied cell: no shadow, no merge, no op", () => {
+        test(name + ", after a drag across an occupied cell: no co-resident, no op", () => {
             const f = fixture();
             const { E } = f;
             const B = E.lm.cellChild("1", 7, 5);                           // two cells over: the old drag shadowed it on the way
@@ -281,7 +281,6 @@ describe("D3 — a cancel writes nothing: the document is byte-equal to before t
             E._setSelection([], [f.R.id]);
             E.setTool("select");
             const before = state(E), undo0 = E.doc._undo.length;
-            const merge = jest.spyOn(E.doc, "mergePending");
             const p = pressOn(E, f.R.id);
             E.pointerDown(p[0], p[1]);
             for (let k = 1; k <= 12; k++) E.pointerMove(p[0] + 6 * k, p[1]);   // 72 units: across (7, 5)
@@ -289,8 +288,7 @@ describe("D3 — a cancel writes nothing: the document is byte-equal to before t
             cancel(E);
             expect(E._dragSel).toBeNull();
             expect(E.stage.holding).toBe(false);
-            expect(state(E)).toBe(before);                                 // red: the drag's writes, or a shadow merged
-            expect(merge).not.toHaveBeenCalled();                          // red: a merge without an op record
+            expect(state(E)).toBe(before);                                 // red: the drag's writes
             expect(E.doc._undo.length).toBe(undo0);
             for (const fr of E.lm.frames.values()) expect(fr.shadowOf == null && !(fr._shadows && fr._shadows.size)).toBe(true);
         });

@@ -194,7 +194,7 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         E._render();
         return { E, A, A1, B, B1, ids };
     };
-    test("t8 the mover lands on the resident at the drop, shadows it and merges there, and undo splits it back", () => {
+    test("t8 the mover lands on the resident's cell at the drop and stays there its co-resident (A1 C3); undo puts it back", () => {
         const { E, A, A1, B, B1, ids } = build();
         const start = bytes(E);
         E._setSelection([], [A.id]);
@@ -202,39 +202,28 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         expect(E.lm.frame(A.id).shadowOf).toBeNull();     // A1 C2: the drag re-addresses nothing
         expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 10, j: 0 });
         expect(E.lm.findCellChild("1", 12, 0)).toBe(B);
-        expect(E.doc.getById(ids.A[0]).level).toBe(A.id);
-        E.doc.at(B.id);                                    // a read merges nothing (A1 C1)
-        expect(E.doc.count(A.id)).toBe(100);
         E.pointerUp();
         const op = E.doc._undo[E.doc._undo.length - 1];
         expect(op.op).toBe("moveFrames");
-        // The drop merged A into B: natives, kids, and the selection follows.
-        expect(E.lm.frame(A.id)).toBeUndefined();
-        expect(E.doc.getById(ids.A[0]).level).toBe(B.id);
-        expect(E.doc.count(B.id)).toBe(200);
-        expect(E.doc.count(A.id)).toBe(0);
-        expect(addrOf(E, A1.id)).toEqual({ parent: B.id, i: 1, j: 1 });
+        // A shares B's cell: no native moved, each frame its kids, the lookups B's, the selection A.
+        expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 12, j: 0 });
+        expect(E.lm.frame(A.id).shadowOf).toBe(B.id);
+        expect(E.lm.findCellChild("1", 12, 0)).toBe(B);
+        expect([E.doc.count(A.id), E.doc.count(B.id), E.doc.getById(ids.A[0]).level]).toEqual([100, 100, A.id]);
+        expect(addrOf(E, A1.id)).toEqual({ parent: A.id, i: 1, j: 1 });
         expect(addrOf(E, B1.id)).toEqual({ parent: B.id, i: 2, j: 2 });
-        expect(E.doc.getById(ids.A1[0]).level).toBe(A1.id);
-        const merged = op.frames.find((e) => e.id === A.id).merged;
-        expect(merged.length).toBe(1);
-        expect(merged[0].ids.length).toBe(100);
-        expect(E.selection.ids.slice().sort()).toEqual(ids.A.slice().sort());
-        expect(E.selection.frames).toEqual([A1.id]);
-        // Undo: A is back at (10, 0) with its natives and its kid; the bytes are the start's.
+        expect(E.lm.findCellChild(B.id, 1, 1)).toBe(A1);   // found through the co-resident
+        expect(op.frames.find((e) => e.id === A.id).merged).toBeUndefined();
+        expect([E.selection.ids, E.selection.frames]).toEqual([[], [A.id]]);
+        expect(E.stage.model.nativesIn(B.id).length).toBe(200);
+        // Undo: A back at (10, 0), the bytes the start's; redo shares the cell again.
         expect(E.undo()).toBe(true);
         expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 10, j: 0 });
-        expect(E.lm.frame(A.id).shadowOf).toBeNull();
+        expect([E.lm.frame(A.id).shadowOf, E.lm.frame(B.id)._shadows]).toEqual([null, null]);
         expect(E.lm.findCellChild("1", 10, 0)).toBe(E.lm.frame(A.id));
-        expect(addrOf(E, A1.id)).toEqual({ parent: A.id, i: 1, j: 1 });
-        expect(E.doc.count(A.id)).toBe(100);
-        expect(E.doc.count(B.id)).toBe(100);
         expect(bytes(E)).toBe(start);
-        // Redo puts A on B's cell again and merges it at its end, on the same op.
         expect(E.redo()).toBe(true);
-        expect(E.lm.frame(A.id)).toBeUndefined();
-        expect(E.doc.count(B.id)).toBe(200);
-        expect(E.doc._undo[E.doc._undo.length - 1].frames.find((e) => e.id === A.id).merged.length).toBe(1);
+        expect(E.lm.frame(A.id).shadowOf).toBe(B.id);
         expect(E.undo()).toBe(true);
         expect(bytes(E)).toBe(start);
         expect(addrOf(E, A1.id)).toEqual({ parent: A.id, i: 1, j: 1 });
@@ -247,15 +236,15 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         dragDirect(E, press(E, A.id), -64, 0);
         expect(E.lm.findCellChild("1", 8, 0)).toBe(C);    // A1 C2: the cell is C's until the drop
         E.pointerUp();
-        expect(E.lm.frame(C.id)).toBeUndefined();         // no natives, kids or shadows, named by no op
+        expect(E.lm.frame(C.id)).toBeUndefined();         // no natives or kids, named by no op
         expect(E.lm.frame(A.id)._shadows).toBeFalsy();
         expect(E.undo()).toBe(true);
         expect(E.lm.findCellChild("1", 8, 0)).toBeNull();
         expect(addrOf(E, A.id)).toEqual({ parent: "1", i: 10, j: 0 });
         expect(bytes(E)).toBe(start);
     });
-    test("t10 a drag across visited cells never merges and never touches an object", () => {
-        const { E, A } = build();
+    test("t10 a drag across visited cells never touches an object, and the drop shares B's cell", () => {
+        const { E, A, B } = build();
         for (let i = 7; i <= 9; i++) E.lm.cellChild("1", i, 0);
         const rehome = spy(E.doc, "rehomeById"), rehomeMany = spy(E.doc, "rehomeManyById"), offsets = spy(E.doc, "setOffsetsById");
         E._setSelection([], [A.id]);
@@ -266,7 +255,7 @@ describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () =>
         expect(E.lm.frame(A.id).shadowOf).toBeNull();     // A1 C2: no step re-addresses, shadows or mints
         expect(E.lm.frames.size).toBe(n0);
         E.pointerUp();
-        expect(E.lm.frame(A.id)).toBeUndefined();          // the drop: A on B's cell, merged there
+        expect(E.lm.frame(A.id).shadowOf).toBe(B.id);      // the drop: A on B's cell, its co-resident
         expect([rehome(), rehomeMany(), offsets()]).toEqual([0, 0, 0]);
         for (let i = 7; i <= 10; i++) expect(E.lm.findCellChild("1", i, 0)).toBeNull();   // the visited cells held nothing: collected at the drop (F94)
     });

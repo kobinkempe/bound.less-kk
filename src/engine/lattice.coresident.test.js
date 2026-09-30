@@ -28,7 +28,7 @@ describe("co-residents in the lattice", () => {
     test("a frame on a taken cell is its co-resident, its kids join the cells' groups, and it leaves them as they were", () => {
         const { M, E, Ex, Exy, A, Ax, Ay, Axz } = build();
         const before = lattice(M), n = M.frames.size;
-        expect(moveA(M, A, -2 * G).shadowed).toEqual([{ id: A.id, of: E.id }]);
+        expect(moveA(M, A, -2 * G).shadowed).toEqual([{ id: A.id, of: E.id }, { id: Ax.id, of: Ex.id }]);   // Ax moves as a frame too
         expect(M.frames.size).toBe(n);                                        // nothing merged, nothing minted
         expect([M.frame(A.id).shadowOf, M.frame(Ax.id).shadowOf, M.frame(Ay.id).shadowOf]).toEqual([E.id, Ex.id, null]);
         expect([M.frame(Ax.id).parent, M.frame(Ay.id).parent, M.frame(Axz.id).parent]).toEqual([A.id, A.id, Ax.id]);   // A keeps its kids
@@ -38,7 +38,7 @@ describe("co-residents in the lattice", () => {
         expect(M.findCellChild(A.id, 1, 1, true)).toBe(Ax);                  // a container's own kid
         expect(M.cellChild(E.id, 2, 2)).toBe(Ay);
         expect(M.frames.size).toBe(n);
-        expect(M.peekNeighbour(M.cellChild("1", 3, 4).id, 1, 0)).toBe(E);
+        expect(M.peekNeighbour(Ex.id, 1, 1)).toBe(Ay);                          // a neighbour under the co-resident
         expect([M.isUnder(E.id, Ax.id), M.isUnder(A.id, Axz.id), M.isUnder(E.id, A.id)]).toEqual([false, true, false]);
         expect(M.childrenOf(E.id).map((f) => f.id)).toEqual([Ex.id]);
         expect(M.childrenOf(A.id).map((f) => f.id).sort()).toEqual([Ax.id, Ay.id].sort());

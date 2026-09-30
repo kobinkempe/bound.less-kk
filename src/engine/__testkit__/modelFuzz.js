@@ -493,7 +493,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
  * no document event; `rev`, `offRev`, `addrEpoch`, the undo stack and the natives byte-equal to the press; every frame
  * of the press at its address and shift, and any new one empty (`displaced` may mint one, PLAN §3 row 8); every held
  * native drawn (`placeNative`) and every held item placed (`placed`) at its rest plus the drag's delta while the camera
- * is in the delta's frame. After a cancel, a deselect or a tool change the same, and no shadow; after any exit no drag
+ * is in the delta's frame. After a cancel, a deselect or a tool change the same, no co-resident made; after any exit no drag
  * and no hold. A violation throws. `st` counts drags, events, exits and placement checks.
  */
 export function heldDragOp(ctx, st) {
@@ -611,10 +611,7 @@ export function heldDragOp(ctx, st) {
                 if (E.width !== w || E.height !== h) E.resize(w, h);
             });
             if (Nn._dragSel || Nn._holdMove || Nn.stage.holding) fail("after " + exit + ": a drag or a hold remains");
-            if (exit === "pinch" || exit === "deselect" || exit === "tool") {
-                same("after " + exit, true);
-                for (const f of Nn.lm.frames.values()) if (f.shadowOf != null || (f._shadows && f._shadows.size)) fail("after " + exit + ": a shadow at " + f.id);
-            }
+            if (exit === "pinch" || exit === "deselect" || exit === "tool") same("after " + exit, true);   // no co-resident made: `frames` holds them
         } finally { off(); }
         st.drags = (st.drags || 0) + 1;
         st.exits = st.exits || {};

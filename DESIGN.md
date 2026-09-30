@@ -767,12 +767,14 @@ calibrated from the core's own timings), else in the workers after `restQuietMs`
 when all are in. A zoom keeps the rest set's records as a stand-in at their own Z — exact there, they beat a stale
 level plate, drawn scaled where their resolution ranks among the coarser levels — until the next zoom's set replaces
 them; a frame change, a resize or a dpr change removes them. A change patches the drawn cells inline when its
-estimate fits — `patchUserMs` (16 ms, one frame) for an undo, a redo or a pen-up's group, paid once; `patchInlineMs`
-(6 ms) for the patches the bake issues at every step; the estimate's chords are each item's rows' share inside the
-clips, and it prices the pack (a kept item's and a list item's cost, calibrated from every pack; over the budget
-alone, no coarser level is tried) — else the finest
-coarser level that fits is patched inline and drawn over the dirty rectangles while the full patches go to the
-workers. The patch step runs in the commit's task (PLAN §5.15 item 1): the commit hook marks it due, and the next
+estimate fits — `patchUserMs` (16 ms, one frame) for an undo, a redo, a drop or a pen-up's group, paid once;
+`patchInlineMs` (6 ms) for the patches the bake issues at every step; the estimate's chords are each item's rows' share
+inside the clips, and it prices the pack (a kept item's and a list item's cost, calibrated from every pack; over the
+budget alone, no coarser level is tried) — else the finest coarser level that fits is patched inline and drawn over the
+dirty rectangles while the full patches go to the workers. A user's action (an undo, a redo, a drop) admits its coarse
+level within three frames (`USER_COARSE_FRAMES` × `patchUserMs`, 48 ms: one action, not a per-frame cost); the search
+stops at the first level with no records (each level's estimate is a walk of the whole list); a pen-up's group waits
+for full resolution and searches none. The patch step runs in the commit's task (PLAN §5.15 item 1): the commit hook marks it due, and the next
 compose or camera step runs it, else a microtask of that task — not the hook itself, since an undo's `noteUserEdit`
 follows its commit and sets the budget — so no compose draws a plate a commit staled with no patch asked. A clipped
 job packs only the items whose box meets its clips (PLAN §5.18; a patch's pixels are its clip's), and the pack's
@@ -819,8 +821,9 @@ replacement that lands still behind but newer than the stale pixels takes their 
 drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
 much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`, and older by
 cause — `olderPatchMs`, a stale picture while the worker job that makes its cell exact is asked or in flight (a patch
-no level does inline, or the last resort's own job); `olderUnreadMs`, the plan's last resort (a stale coarser stand-in
-for a cell with nothing fresh at any level) while a crossing has left the cell's tiles unread; and `olderOtherMs`,
+no level does inline, or the last resort's own job); `olderUnreadMs`, a stale own plate or the plan's last resort (a
+stale coarser stand-in for a cell with nothing fresh at any level) while the cell's tiles are unread (the patch step
+cannot pack it until they are read); and `olderOtherMs`,
 anything else: 0 in the never-older fuzz and in scenarios 1–6 of the dense harness since the patch step runs in the
 commit's task (scenario 7's was 1.3–1.6 s: stale own plates waiting for the bake's next render). After (headless, two
 runs a tree): scenario 7's `olderOtherMs` 254 | 78 ms (before 1,370 | 1,573), not 0 — 36 | 30 cell-composes of a stale

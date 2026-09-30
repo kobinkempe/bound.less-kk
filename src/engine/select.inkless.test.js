@@ -9,9 +9,9 @@
  *
  * The rules: the lasso never takes a frame with no native in its subtree; a native whose picture a
  * frame's shift carries past the cell stays the frame's (selected once, never an id as well); a kid
- * a drag's rest tears off stays selected; a merge hands the selection only the kids that hold ink. The
- * repair is the action's own: after a drop, an undo or a redo, once, from its op (A1 C2) — no document
- * event touches the selection but a reset and a merge.
+ * a drag's rest tears off stays selected; a frame dropped on an inked cell stays selected as itself, a
+ * co-resident there (A1 C3). The repair is the action's own: after a drop, an undo or a redo, once, from
+ * its op (A1 C2) — no document event touches the selection but a reset.
  */
 import KobinEngine from "./KobinEngine";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./raster/rasterWorkerClient";
@@ -36,7 +36,7 @@ const fill = (E, ox, oy, s = S, below = null) => ({
 // A frame's shift stays within half a frame (SUBTREE-O1-PLAN §2.2), so what crosses the cell edge is a
 // native whose OWN table adds past it: 62,000 units (0.47 of a frame) plus a 12 px drag's 0.375.
 const EDGE = [[62000, 0]];
-/** Natives in a frame's whole subtree, shadows included. */
+/** Natives in a frame's whole subtree. */
 const inkUnder = (E, id) => { let n = 0; E.lm.walk(id, (f) => { n += E.doc.count(f.id); }); return n; };
 const inkless = (E) => (E.selection ? E.selection.frames.filter((f) => !inkUnder(E, f)) : []);
 function loop(E, pts) {
@@ -306,7 +306,7 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids).toEqual([m.id]);                  // red: the removed native's id kept
     });
 
-    test("I4 a selected frame merged into its cell's resident hands over only the kids that hold ink", () => {
+    test("I4 a selected frame dropped on an inked cell stays selected as itself: a co-resident, its kids its own", () => {
         const E = mkE();
         const mover = E.lm.cellChild("0", 3, 2);
         E.doc.add(fill(E, -S / 2, -S / 2), mover.id);
@@ -322,10 +322,11 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids).toEqual([]);
         E.pointerDown(org[0], org[1]);
         for (const dx of [10, 20, 32]) E.pointerMove(org[0] + dx, org[1]);   // one cell: onto the resident
-        E.pointerUp();                                              // the drop shadows it and merges there (A1 C1, C2)
-        expect(E.lm.frame(mover.id)).toBeFalsy();
-        expect(E.selection.frames).toContain(inked.id);
-        expect(E.selection.frames).not.toContain(empty.id);        // red: the empty kid handed over
+        E.pointerUp();                                              // the drop makes it the resident's co-resident (A1 C3)
+        expect(E.lm.frame(mover.id).shadowOf).toBe(resident.id);
+        expect(E.selection.frames).toEqual([mover.id]);
+        expect(E.lm.frame(inked.id).parent).toBe(mover.id);        // its kids its own (the empty one frame GC's)
+        expect(E._isSelected(E.doc.list(resident.id)[0].id)).toBe(false);   // the resident's ink is its own
         expect(inkless(E)).toEqual([]);
     });
 });

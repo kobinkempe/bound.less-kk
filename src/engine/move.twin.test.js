@@ -1,10 +1,10 @@
 /**
  * OPEN-FLAGS F80's neighbour, Kobin 2026-09-22 on the Magnum Opus: a lasso moves a subtree
  * away, the camera crosses into the cells it vacated (which mints `#2` twins along the chain,
- * `LevelMap._childId`), then undo brings the movers back as the twins' shadows, merged into
- * the twins at the undo's end, level after level (`Document.mergePending`, never at a read: A1
- * C1). The picture at the camera must equal a fresh bake at every step; his city frame's down
- * tile stayed stale and the houses vanished.
+ * `LevelMap._childId`), then undo brings the movers back into the twins' cells, where they stay
+ * co-residents, level after level — an empty twin with no kids yielding its cell, the camera
+ * handed on (A1 C3: no merge). The picture at the camera must equal a fresh bake at every step;
+ * his city frame's down tile stayed stale and the houses vanished.
  */
 import KobinEngine from "./KobinEngine";
 
@@ -72,7 +72,7 @@ function setupAndMove(E) {
 }
 
 describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing into the vacated chain, then undo (%s)", (name, raster) => {
-    test("the camera inside the twin chain sees the merged content, tile for tile equal to a fresh bake", () => {
+    test("the camera inside the twin chain sees the returned content, tile for tile equal to a fresh bake", () => {
         const E = mkE(raster);
         const { kid, grand } = setupAndMove(E);
         // The camera crosses into the vacated cell (3, 2), then into ITS cell (5, 5): two twins.
@@ -85,21 +85,23 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         // emptiness is now a cached down tile of the twin.
         lookAt(E, twin, 5, 5);
         expect(drawnIds(E)).toEqual([]);
-        // Undo: the kid comes back to (3, 2), a shadow of the twin (which has a kid, so it keeps
-        // the cell); the grandchild follows. The picture at the camera must be the fresh one.
+        // Undo: the kid comes back to (3, 2), the twin's co-resident (the twin has a kid, so it keeps
+        // the cell); the grandchild follows and takes its empty twin's cell. The picture at the
+        // camera must be the fresh one.
         E.undo();
         E._render();
         const seen = drawnIds(E);
         E.store.bumpEpoch(); E._render();
         expect(seen).toEqual(drawnIds(E));                  // red when the stale tile survives the undo
         expect(drawnIds(E)).toEqual(docIds(E));             // the two kid natives and the houses, all drawn
-        expect(E.lm.frame(grand.id)).toBeUndefined();       // the grandchild merged into the twin's kid in its cell
-        expect(E.doc.getById(houses).level).toBe(twinKid);
-        expect(E.doc.count(twin)).toBe(2);                  // the kid's natives merged into the twin
-        expect(E.lm.frame(kid.id)).toBeUndefined();         // the mover's id is gone (F80's design item)
+        expect(E.lm.frame(kid.id).shadowOf).toBe(twin);        // no merge: every frame keeps its identity
+        expect([E.lm.frame(grand.id).parent, E.lm.frame(grand.id).shadowOf]).toEqual([kid.id, null]);
+        expect(E.lm.frame(twinKid).shadowOf).toBe(grand.id);    // the empty twin yielded its cell
+        expect(E.doc.getById(houses).level).toBe(grand.id);
+        expect(E.doc.count(kid.id)).toBe(2);
     });
 
-    test("a four-deep chain with the camera at the deepest twin: the merges cascade at the undo's end and the picture is still the fresh one", () => {
+    test("a four-deep chain with the camera at the deepest twin: the chain returns as co-residents, the camera handed on, the picture the fresh one", () => {
         const E = mkE(raster);
         // Natives at every level of a four-deep chain under the kid; Kobin's Earth, continent,
         // city and houses.
@@ -135,10 +137,12 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         const seen = drawnIds(E);
         E.store.bumpEpoch(); E._render();
         expect(seen).toEqual(drawnIds(E));
-        // From the deepest twin the city's own natives and the houses one level down are drawn.
-        expect(drawnIds(E)).toEqual(expect.arrayContaining([E.doc.list("0/3,2#2/5,5/7,7")[0].id, E.doc.list(c4.id)[0].id]));
-        expect(E.doc.count("0/3,2#2/5,5/7,7")).toBe(1);
-        expect(E.lm.frame(c4.id).parent).toBe("0/3,2#2/5,5/7,7");
+        // The deepest twin, empty and childless, yields its cell to the city (c3): the camera is handed to it,
+        // and from there the city's own natives and the houses one level down are drawn.
+        expect(E.cam.frame).toBe(c3.id);
+        expect(E.lm.frame("0/3,2#2/5,5/7,7").shadowOf).toBe(c3.id);
+        expect(drawnIds(E)).toEqual(expect.arrayContaining([E.doc.list(c3.id)[0].id, E.doc.list(c4.id)[0].id]));
+        expect(E.lm.frame(c4.id).parent).toBe(c3.id);
     });
 
     test("with the camera at level 0 above the chain, the undo restores the picture too", () => {
