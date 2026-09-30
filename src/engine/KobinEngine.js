@@ -259,6 +259,24 @@ export default class KobinEngine {
         this._render();
     }
 
+    /**
+     * The camera view's picture sources, minted at the end of the action that moved them or the camera — the first
+     * render after a placement, address or camera-frame change — so no read mints (A1 C3, PLAN §3 row 8). Views a
+     * snapshot found wanting are minted then too, or at idle.
+     */
+    _prepareView() {
+        const key = () => this.cam.frame + "|" + this.doc.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size;
+        if (key() !== this._prepKey) { this.store.prepare(this.cam.frame); this.store.prepareWanted(); this._prepKey = key(); }
+        if (this.store.wanted() && !this._prepIdle) {
+            this._prepIdle = true;
+            idleHop(() => {
+                this._prepIdle = false;
+                if (this._destroyed || !this.store.prepareWanted()) return;
+                this._prepKey = null;
+                this._render();
+            });
+        }
+    }
     /** The camera in its cell's resident (A1 C3): the same cell, the same coordinates. True when it moved. */
     _camToResident() {
         const r = this.cam ? this.lm.residentOf(this.cam.frame) : null;
@@ -624,6 +642,7 @@ export default class KobinEngine {
         const t0 = perfNow();
         // The camera changed frame: what it left may go (F94) — before the table, whose memos count frames.
         if (noteCameraFrame(this)) collectFrames(this, true);
+        this._prepareView();
         // RASTER (§8.1): the table's sync is ENGINE work, so the frame's perf row opens HERE and
         // `RasterRenderer.render` finds it open — `eng.list` is inside `mainMs` (D233, D241).
         const ras = this.raster ? this.renderer : null;

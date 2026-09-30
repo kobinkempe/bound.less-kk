@@ -66,9 +66,14 @@ export function paintedOf(p, off) {
     return out;
 }
 
-/** The picture of frame V over `rect` as the engine's Stage reads it: native id -> its items `{type, nums, off, painted}`. */
+/**
+ * The picture of frame V over `rect` as the engine's Stage reads it: native id -> its items `{type, nums, off, painted}`.
+ * A read that finds a picture's source frame missing is not ready (A1 C3: no read mints); the engine's idle step
+ * (`prepareWanted`) mints it and the read is made again.
+ */
 export function pictureAt(E, V, rect = CELL) {
-    const snap = E.stage.snapshot(V, rect, Infinity);
+    let snap = E.stage.snapshot(V, rect, Infinity);
+    if (!snap && E.store.prepareWanted && E.store.prepareWanted()) snap = E.stage.snapshot(V, rect, Infinity);
     if (!snap) return null;
     const out = new Map();
     for (const it of snap.items()) {

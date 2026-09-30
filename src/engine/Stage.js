@@ -324,8 +324,9 @@ export default class Stage {
     /**
      * A read-only table for another frame or rectangle, built as a rebuild builds the live one and
      * stamped with the G it was read at; null when a tile was not read inside the budget (the tiles
-     * read stay cached, so the next try goes further). `fresh()`: no commit since has a footprint
-     * meeting its rectangle.
+     * read stay cached, so the next try goes further), or a displaced picture's source frame is not in
+     * the lattice yet (the engine mints it at idle, `prepareWanted`). `fresh()`: no commit since has a
+     * footprint meeting its rectangle.
      */
     snapshot(frameId, rect, budgetMs = Infinity) {
         const cf = this.lm.frameFor(frameId);
@@ -343,6 +344,7 @@ export default class Stage {
         const t0 = perfNow();
         const left = () => (budgetMs === Infinity ? Infinity : budgetMs <= 0 ? 0 : Math.max(1e-9, budgetMs - (perfNow() - t0)));
         const d = this.model.displaced(F);
+        if (d.missing) { this.store.want(F); return null; }   // a picture's source frame not minted yet: the next action's end, or idle
         const read = this.store.read(F, rect, left());
         if (!read.complete) return null;
         const groups = new Map();

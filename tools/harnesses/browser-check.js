@@ -255,8 +255,8 @@ function installProbes() {
                 const v = r.v;
                 for (const c of r.cells) for (const d of c.draws) {
                     if (d.cls !== "older" || !d.rec) continue;
-                    let why = d.own ? (d.wait ? "ownWait" : "ownOther") : "other";
-                    // ownOther by cause: its tiles unread, in a pen-up group, asked before newer dirt, or never asked.
+                    let why = d.own ? (d.wait ? "ownWait" : d.unread ? "ownUnread" : "ownOther") : "other";
+                    // ownOther by cause: its tiles unread (older code), in a pen-up group, asked before newer dirt, or never asked.
                     if (why === "ownOther") why = L.covered && !L.covered(d.rec) ? "ownOther.unread" : L._groupOf && L._groupOf.has(d.rec.key) ? "ownOther.group"
                         : L._asked && L._asked.has(d.rec.key) ? "ownOther.askedOld" : "ownOther.notAsked";
                     if (!d.own) {

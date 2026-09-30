@@ -709,6 +709,25 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         expect(t.pyr.s.olderOtherMs).toBeCloseTo(2 * q, 6);                     // (0, 0) and (1, 1): nothing on its way
     });
 
+    test("older by cause, (f) — a stale own plate: olderUnread while its tiles are unread (the patch step skips it), olderPatch while its patch is asked, else olderOther", () => {
+        const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
+        let now = 0;
+        t.pyr._now = () => now;
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // cells (0..1, 0..1) at level 4
+        for (const [i, j] of [[0, 0], [1, 0], [0, 1], [1, 1]]) t.put(levelCell(F, 4, S, i, j), 0);
+        t.stage.commit({ [F]: [{ left: 0, top: 0, right: 64, bottom: 64 }] });  // all four staled
+        t.stage.covers = (f, b) => !(b.left >= 32 && b.top < 32);             // cell (1, 0)'s tiles unread
+        t.pyr._asked.clear();
+        t.pyr._asked.set(levelKey(F, 4, S, 0, 1), t.stage.generation);         // cell (0, 1)'s patch asked
+        t.pyr.compose();
+        now = 100;
+        t.pyr.compose();
+        const q = 100 * 512 * 512 / (W * H);
+        expect(t.pyr.s.olderUnreadMs).toBeCloseTo(q, 6);
+        expect(t.pyr.s.olderPatchMs).toBeCloseTo(q, 6);
+        expect(t.pyr.s.olderOtherMs).toBeCloseTo(2 * q, 6);                     // (0, 0) and (1, 1): nothing on its way
+    });
+
     test("the surface is freed after SURFACE_IDLE_MS unused", () => {
         const W = 3000, H = 2000, t = setup(W, H), F = String(t.A);
         const timers = [];

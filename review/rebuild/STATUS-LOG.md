@@ -2790,3 +2790,26 @@ at load 10.2, green on three reruns (129/129 at load 6) — the known load-sensi
 result counted only when packed at or after its G, bA's rule), :3020 control, ×2 interleaved, load < 2 each.
 **Decisions made:** none new. **Questions asked:** none.
 WHERE I AM: b3 running; then the fix for whichever rule it names, else F137 reported with the bisect so far.
+
+## 2026-09-30 03:32 UTC — R-PYRAMID-34 (reviewer) — checkpoint: b3 done (one round); browser batch b4 start
+**Measured (scenario 1 back-in paper, one run each):** x13 (the aim clamps and the commit-task step both off) 143 (load
+1.99→3.00); x4 (bA's rest-group rule) 571 (1.98→2.83); control 102 (1.92→2.92). Still neither. Crossing carry removed
+on a copy: LH-5, LH-6 red (2, as B-PYRAMID-3). Scenario 7's residual: `_older` now charges an uncovered stale own
+plate (the patch step skips it until its tiles are read) to `olderUnreadMs`, as (f′) is; red-before 1 (plan test on
+HEAD's source); the harness names it `ownUnread` and splits the rest of `ownOther` by cause.
+**Working on:** b4: :3026 `x5` (the estimate's pack terms dropped), :3027 `x6` ((f′) drawn as bA did), ×2.
+**Decisions made:** none new. **Questions asked:** none.
+WHERE I AM: b4 running; then the final tree's `--dense --scenario all` (git archive HEAD + my files).
+
+## 2026-09-30 05:53 UTC — orchestrator (Fable) — the session-limit stop of ~03:35 UTC; both agents resumed
+**Working on:** the session limit stopped B-MODEL-C34 (last action: C3b — `_take` joining the cell's group, the merge
+path going; the harness's `pictureAt` to model the engine's idle step, then the model suites) and R-PYRAMID-34 (last
+action: F137's bisect, batch b4 — the estimate's pack terms dropped, (f′) drawn as before — then two single-rule
+reversions on the copies). The container rebooted (uptime 0 at 05:52): every server and batch is gone, the scratchpad
+and the live tree's edits survived; the tree snapshot-committed with this entry. Both resumed by message. Per Kobin's
+bound: R-PYRAMID-34 stops bisecting after b4's two reversions if they name no rule — F137 reported with the table —
+and finishes the remaining items and its one final run within ~45 minutes.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: waiting for the resumed entries; the monitor re-armed.

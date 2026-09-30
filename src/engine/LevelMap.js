@@ -846,6 +846,12 @@ export default class LevelMap {
         out.reverse();
         return out;
     }
+    /** The frame at `chain` below `rootId` if the lattice has it; never mints. */
+    peekAtChain(rootId, chain) {
+        let cur = this.frames.get(rootId);
+        for (const c of chain) { if (!cur) return null; cur = this.findCellChild(cur.id, c.i, c.j); }
+        return cur;
+    }
     /** Walk (and mint) the frame at `chain` below `rootId`. */
     frameAtChain(rootId, chain) {
         let cur = this.frames.get(rootId);
@@ -962,7 +968,8 @@ export default class LevelMap {
      *
      *   F0    the frame whose UNMOVED tiles hold the pieces that are drawn in
      *         F — F walked back by the table's cell digits, level by level,
-     *         exact integers with borrows; minted if it was never visited;
+     *         exact integers with borrows; minted if it was never visited, or,
+     *         with `mint` false (a read, PLAN §3 row 8), `{ missing: true }`;
      *   rem   the remainder at F's depth, in F's units, which the pieces are
      *         drawn translated by (`piece.res`) and inputs are translated back
      *         by before they reach the geometry.
@@ -975,16 +982,18 @@ export default class LevelMap {
      * home's cell (a co-resident's native is drawn live, A1 C3). `sh` is the raw
      * decomposition.
      */
-    objShift(below, homeId, F) {
+    objShift(below, homeId, F, mint = true) {
         const hd = this.depthOf(homeId), D = this.depthOf(F);
         if (hd == null || D == null) return null;
         const k0 = D - hd;
         const sh = shiftAt(below, k0);
         const at = (id) => (k0 === 0 && this.sameCell(id, homeId) ? String(homeId) : id);
+        const nb = (id, di, dj) => (mint ? this.neighbour(id, di, dj) : this.peekNeighbour(id, di, dj));
+        const missing = { F0: null, rem: sh.rem, sh, missing: true };
         if (k0 < 0 || !hasDigits(sh)) return { F0: at(F), rem: sh.rem, sh };
         if (k0 === 0) {
-            const n = this.neighbour(F, -sh.carry[0], -sh.carry[1]);
-            return n ? { F0: at(n.id), rem: sh.rem, sh } : null;
+            const n = nb(F, -sh.carry[0], -sh.carry[1]);
+            return n ? { F0: at(n.id), rem: sh.rem, sh } : mint ? null : missing;
         }
         const A = this.pathFrameAt(F, hd);
         const chain = A != null ? this.chainFrom(A, F) : null;
@@ -993,10 +1002,11 @@ export default class LevelMap {
         for (let m = 1; m <= k0; m++) { const d = sh.digits[m] || [0, 0]; negX.push(-d[0]); negY.push(-d[1]); }
         const ax = applyDigits(chain.map((c) => c.i), 0, negX);
         const ay = applyDigits(chain.map((c) => c.j), 0, negY);
-        const A0 = this.neighbour(A, ax.carry - sh.carry[0], ay.carry - sh.carry[1]);
-        if (!A0) return null;
-        const F0 = this.frameAtChain(A0.id, ax.chain.map((i, n) => ({ i, j: ay.chain[n] })));
-        return F0 ? { F0: F0.id, rem: sh.rem, sh } : null;
+        const A0 = nb(A, ax.carry - sh.carry[0], ay.carry - sh.carry[1]);
+        if (!A0) return mint ? null : missing;
+        const cells = ax.chain.map((i, n) => ({ i, j: ay.chain[n] }));
+        const F0 = mint ? this.frameAtChain(A0.id, cells) : this.peekAtChain(A0.id, cells);
+        return F0 ? { F0: F0.id, rem: sh.rem, sh } : mint ? null : missing;
     }
     /**
      * The other way: the frame at F0's depth that the object's picture occupies,

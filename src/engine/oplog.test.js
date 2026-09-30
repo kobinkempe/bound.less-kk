@@ -473,7 +473,7 @@ describe("the op log and a subtree moved as frames", () => {
         E.undo(); G.undo(); same(G, E);
     });
 
-    test("a frame dropped on an occupied cell, merged at the resident's read: the merge is on the op after a reload", () => {
+    test("a frame dropped on an occupied cell stays its co-resident (A1 C3): one entry, no merge; a reload, undo and redo keep it", () => {
         const E = mkEngine(800, 600);
         const log = new OpLog(E);
         E.lm.ensureSpine(4);
@@ -485,28 +485,19 @@ describe("the op log and a subtree moved as frames", () => {
         log.drain();
         const snap = snapshot(E, log);
         moveFrame(E, A, 64);
-        E.doc.at(B.id);                                                // the merge
         const d = log.drain();
-        expect(d.entries.map((e) => e.op.k)).toEqual(["moveFrames", "mergeFrame"]);
-        expect(d.entries[1].op.of).toBe(d.entries[0].seq);
-        expect(d.forced).toContain(B.id);
-        expect(E.lm.frame(A.id)).toBeUndefined();
-        // What the write holds: the old rows, except B's (forced: it has A's natives now) and
-        // A's (gone with the write). The merge entry finds nothing left to fold.
-        const later = snapshot(E, log);
-        const mixed = { ...snap, frames: { ...snap.frames, [B.id]: later.frames[B.id] }, frameSeq: { ...snap.frameSeq, [B.id]: later.frameSeq[B.id] } };
-        delete mixed.frames[A.id]; delete mixed.frameSeq[A.id];
-        const { F } = restore(mixed, d.entries, E.lm.serialize());
+        expect(d.entries.map((e) => e.op.k)).toEqual(["moveFrames"]);
+        expect(E.lm.frame(A.id).shadowOf).toBe(B.id);                    // B keeps the cell, A shares it
+        expect([E.doc.count(A.id), E.doc.count(B.id), E.doc.count(A1.id)]).toEqual([60, 60, 20]);
+        expect(E.lm.frame(A1.id).parent).toBe(A.id);                     // A's kid is still A's
+        const { F } = restore(snap, d.entries, E.lm.serialize());
         same(F, E);
-        expect(F.doc._undo[0].frames[0].merged.length).toBe(1);
+        expect(F.lm.frame(A.id).shadowOf).toBe(B.id);
         E.undo(); F.undo(); same(F, E);
-        expect(F.lm.frame(A.id).parent).toBe("1");
-        expect(F.doc.count(A.id)).toBe(60);
-        E.redo(); F.redo(); E.doc.at(B.id); F.doc.at(B.id); same(F, E);
-        // From a snapshot after everything: nothing applied, the merge still on the op, undo splits it.
+        expect([F.lm.frame(A.id).parent, F.lm.frame(A.id).shadowOf, F.lm.frame(B.id)._shadows]).toEqual(["1", null, null]);
+        E.redo(); F.redo(); same(F, E);
         const { F: G } = restore(snapshot(E, log), d.entries, E.lm.serialize());
         same(G, E);
         E.undo(); G.undo(); same(G, E);
-        expect(G.doc.getById(G.doc.at(A.id)[0].id).level).toBe(A.id);
     });
 });

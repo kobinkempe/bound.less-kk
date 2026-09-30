@@ -476,7 +476,7 @@ describe("a subtree's targets equal the per-object path's, frame for frame (subt
         expect(sawRest).toBe(true);
     });
 
-    test("t2 — readdressMany applies the targets; a cell a stranger holds makes a shadow", () => {
+    test("t2 — readdressMany applies the targets; a cell a stranger holds makes a co-resident", () => {
         const { M, root, k2, k2b, k3, k4 } = fixture();
         const before = M.frames.size;
         const start = M.subtreeStart(root.id, D);
@@ -507,8 +507,8 @@ describe("a subtree's targets equal the per-object path's, frame for frame (subt
         const was = { parent: M.frame(k2.id).parent, i: M.frame(k2.id).cell.i, j: M.frame(k2.id).cell.j };
         const res2 = M.readdressMany(M.moveSubtreeTargets(root.id, D, G / R, 0, start2));
         expect(res2.shadowed).toEqual([{ id: k2.id, of: blocker.id }]);
-        // k2 moved: it sits at the blocker's cell as its shadow, invisible to address lookups,
-        // listed among the parent's children, its own subtree intact.
+        // k2 moved: it sits at the blocker's cell as its co-resident (A1 C3), lookups return the
+        // blocker, it is listed among the parent's children, its own subtree intact.
         expect(M.frame(k2.id).parent).toBe(was.parent);
         expect(M.frame(k2.id).cell).toEqual({ i: was.i + 1, j: was.j });
         expect(M.frame(k2.id).shadowOf).toBe(blocker.id);
@@ -518,13 +518,13 @@ describe("a subtree's targets equal the per-object path's, frame for frame (subt
         expect(M.childrenOf(was.parent).map((f) => f.id)).toContain(k2.id);
         expect(M.frame(k3.id).parent).toBe(k2.id);
         expect(M.isUnder(k2.id, k3.id)).toBe(true);
-        expect(M.isUnder(blocker.id, k2.id)).toBe(true);     // a shadow is under the frame it shadows
-        expect(M.isAncestor(blocker.id, k2.id)).toBe(false); // but not its descendant
+        expect(M.isUnder(blocker.id, k2.id)).toBe(false);    // a co-resident is its own subtree
+        expect(M.isAncestor(blocker.id, k2.id)).toBe(false); // and one cell with the blocker
         // Moving on, k2 leaves the blocker's set and takes a free cell as a resident.
         const res3 = M.readdressMany(M.moveSubtreeTargets(root.id, D, 2 * G / R, 0, start2));
         expect(res3.shadowed).toEqual([]);
         expect(M.frame(k2.id).shadowOf).toBeNull();
-        expect(blocker._shadows.size).toBe(0);
+        expect(blocker._shadows).toBeNull();
         expect(M.findCellChild(was.parent, was.i + 2, was.j)).toBe(M.frame(k2.id));
     });
 
@@ -561,66 +561,5 @@ describe("a subtree's targets equal the per-object path's, frame for frame (subt
             expect(liveChain(M, F.id, D)).toEqual(liveChain(C, put.frame.id, D));
             expect(t.find((e) => e.id === F.id).rest).toEqual(put.rest);
         }
-    });
-});
-
-describe("a shadow merges into its resident and splits back (subtree O(1), 2026-09-15)", () => {
-    const build = () => {
-        const M = mkMap();
-        M.ensureSpine(3);
-        const E = M.cellChild("1", 4, 4), Ex = M.cellChild(E.id, 1, 1), Exy = M.cellChild(Ex.id, 0, 0);
-        const A = M.cellChild("1", 6, 4), Ax = M.cellChild(A.id, 1, 1), Ay = M.cellChild(A.id, 2, 2), Axz = M.cellChild(Ax.id, 5, 5);
-        const start = M.subtreeStart(A.id, 1);
-        const r = M.readdressMany(M.moveSubtreeTargets(A.id, 1, -2 * G, 0, start));   // two cells of "1"
-        expect(r.shadowed).toEqual([{ id: A.id, of: E.id }]);
-        return { M, E, Ex, Exy, A, Ax, Ay, Axz };
-    };
-    test("adopt re-parents the kids: a free cell taken, an occupied one shadowed; unadopt reverses it exactly", () => {
-        const { M, E, Ex, Exy, A, Ax, Ay, Axz } = build();
-        const snap = JSON.stringify(M.serialize());
-        const rec = M.adoptShadow(A, E);
-        expect(M.frame(A.id)).toBeUndefined();
-        expect(E._shadows.size).toBe(0);
-        expect(M.frame(Ay.id).parent).toBe(E.id);                 // (2,2) was free under E
-        expect(M.findCellChild(E.id, 2, 2)).toBe(Ay);
-        expect(M.frame(Ax.id).parent).toBe(E.id);                 // (1,1) is Ex's: Ax shadows it
-        expect(M.frame(Ax.id).shadowOf).toBe(Ex.id);
-        expect(M.findCellChild(E.id, 1, 1)).toBe(Ex);
-        expect(M.frame(Axz.id).parent).toBe(Ax.id);               // Ax's own kids follow it
-        expect(M.isUnder(E.id, Axz.id)).toBe(true);
-        expect(M.childrenOf(E.id).map((f) => f.id).sort()).toEqual([Ex.id, Ax.id, Ay.id].sort());
-        expect(rec.kids.map((k) => [k.id, k.shadowOf]).sort()).toEqual([[Ax.id, Ex.id], [Ay.id, null]].sort());
-        const back = M.unadoptShadow(rec);
-        expect(back.id).toBe(A.id);
-        expect(M.frame(A.id).shadowOf).toBe(E.id);
-        expect(M.frame(Ax.id).parent).toBe(A.id);
-        expect(M.frame(Ax.id).shadowOf).toBeNull();
-        expect(Ex._shadows.size).toBe(0);
-        expect(M.frame(Ay.id).parent).toBe(A.id);
-        expect(M.findCellChild(E.id, 2, 2)).toBeNull();
-        expect(M.findCellChild(A.id, 1, 1)).toBe(Ax);
-        expect(M.findCellChild(A.id, 2, 2)).toBe(Ay);
-        expect(M.frame(Exy.id).parent).toBe(Ex.id);
-        expect(JSON.stringify(M.serialize())).toBe(snap);
-    });
-    test("serialize/load carries shadowOf, and the resident keeps the cell", () => {
-        const { M, E, A, Ax } = build();
-        const data = M.serialize();
-        expect(data.frames.find((f) => f.id === A.id).shadowOf).toBe(E.id);
-        const M2 = mkMap();
-        M2.load(data);
-        expect(M2.frame(A.id).shadowOf).toBe(E.id);
-        expect(M2.frame(E.id)._shadows.has(A.id)).toBe(true);
-        expect(M2.findCellChild("1", 4, 4).id).toBe(E.id);
-        expect(M2.frame(Ax.id).parent).toBe(A.id);
-        expect(M2.childrenOf("1").map((f) => f.id).sort()).toEqual(M.childrenOf("1").map((f) => f.id).sort());
-        expect(M2.spineAt(1)).toBe("1");
-        expect(JSON.stringify(M2.serialize())).toBe(JSON.stringify(data));
-    });
-    test("walk covers the root, its shadows, its kids and theirs, once each", () => {
-        const { M, E, Ex, Exy, A, Ax, Ay, Axz } = build();
-        const seen = [];
-        M.walk(E.id, (f) => seen.push(f.id));
-        expect(seen.sort()).toEqual([E.id, Ex.id, Exy.id, A.id, Ax.id, Ay.id, Axz.id].sort());
     });
 });

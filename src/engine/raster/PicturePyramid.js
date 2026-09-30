@@ -469,13 +469,15 @@ export default class PicturePyramid {
     }
 
     /**
-     * A stale own plate drawn whole: `wait` when a worker patch that makes it exact is asked or in flight — A3 §3.4's one
-     * allowed case, no level patching it inline (`olderPatchMs`); anything else is `olderOtherMs`, which must stay 0.
+     * A stale own plate drawn whole: `unread` while the camera's table lacks its tiles (the patch step cannot pack it
+     * until they are read: `olderUnreadMs`), `wait` when a worker patch that makes it exact is asked or in flight — A3
+     * §3.4's one allowed case, no level patching it inline (`olderPatchMs`); anything else is `olderOtherMs`, which must stay 0.
      */
     _older(own, dst) {
         const d = draw(own, WHOLE, dst, "older", false), g = this._asked.get(own.key), st = this.store;
         d.own = true;
-        d.wait = (g != null && g >= st.fresh.dirtySince(own.key)) || st.inFlightExact(own.key);
+        d.unread = !this.covered(own);
+        d.wait = !d.unread && ((g != null && g >= st.fresh.dirtySince(own.key)) || st.inFlightExact(own.key));
         return d;
     }
 

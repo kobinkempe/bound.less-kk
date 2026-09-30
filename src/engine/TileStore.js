@@ -238,17 +238,19 @@ export default class TileStore {
      * a table was 70 of a 113–140 ms list build on the Magnum Opus (16,889 tables, PAPER-PLAN §10). A
      * key that moved during the walk is not kept. One entry a frame, the last four: the Stage's
      * snapshots of other frames (the prefetch's reads among them) come between two camera renders
-     * (review minor 7).
+     * (review minor 7). A read never mints (PLAN §3 row 8): a native whose source frame the lattice
+     * lacks is in `miss`, and `prepare` (`mint`) makes the frames at an action's end.
      */
-    _rerouteGroups(F) {
+    _rerouteGroups(F, mint = false) {
         const memo = this._rrMemo || (this._rrMemo = new Map());
         const m = memo.get(F);
         const lat = () => this.lm.addrEpoch + "|" + this.lm.frames.size;
         const key = () => F + "|" + this.doc.offRev + "|" + lat();
         const k0 = key();
-        if (m && m.key === k0) { this._rrHits = (this._rrHits || 0) + 1; return m; }
+        if (m && m.key === k0 && !(mint && m.miss.size)) { this._rrHits = (this._rrHits || 0) + 1; return m; }
         // `live`: natives of another frame whose picture carried into F, drawn live here (F0 is their home).
         const put = (out, id, home, s) => {
+            if (s && s.missing) { out.miss.add(id); out.moved.add(id); return; }   // drawn nowhere until its frame is minted
             if (!s || (s.F0 === home && this.lm.sameCell(home, F))) return;   // drawn live in F's cell
             out.moved.add(id);
             if (s.F0 === home) out.live.add(id);
@@ -259,32 +261,33 @@ export default class TileStore {
             out.gk.set(id, k);
         };
         const unput = (out, id) => {
+            out.miss.delete(id); out.moved.delete(id); out.live.delete(id);
             const k = out.gk.get(id);
             if (k === undefined) return;
             const g = out.groups.get(k);
             g.ids.delete(id);
             if (!g.ids.size) out.groups.delete(k);
-            out.moved.delete(id); out.gk.delete(id); out.live.delete(id);
+            out.gk.delete(id);
         };
         const place = (out, id) => {
             const rec = this.doc.getById(id);
             if (!rec) return;
             const T = this.doc.tableOf(rec.obj, rec.level);
-            if (T) put(out, id, rec.level, this.lm.objShift(T, rec.level, F));
+            if (T) put(out, id, rec.level, this.lm.objShift(T, rec.level, F, mint));
         };
         // The lattice as it was: only the objects whose tables or homes moved since are placed again.
         const since = m && m.lat === lat() ? this.doc.offTouchedSince(m.rev) : null;
         let out;
-        if (since && since.size < this.doc.offsetIds().size / 2) {
+        if (since && !mint && since.size < this.doc.offsetIds().size / 2) {
             out = m;
             for (const id of since) { unput(out, id); place(out, id); }
             this._rrPatches = (this._rrPatches || 0) + 1;
         } else {
-            out = { moved: new Set(), groups: new Map(), gk: new Map(), live: new Set() };
+            out = { moved: new Set(), groups: new Map(), gk: new Map(), live: new Set(), miss: new Set() };
             const shared = new Map();                      // a shifted frame's table -> its one placement
             for (const [o, home, T] of this.doc.displacedNatives()) {
                 let sh = shared.get(T);
-                if (sh === undefined) { sh = this.lm.objShift(T, home, F); if (!this.doc.hasOwnTable(o)) shared.set(T, sh); }
+                if (sh === undefined) { sh = this.lm.objShift(T, home, F, mint); if (!this.doc.hasOwnTable(o)) shared.set(T, sh); }
                 put(out, o.id, home, sh);
             }
         }
@@ -292,6 +295,28 @@ export default class TileStore {
         memo.delete(F);
         if (key() === k0) { memo.set(F, out); if (memo.size > 4) memo.delete(memo.keys().next().value); }
         return out;
+    }
+    /**
+     * The frames F's displaced pictures are read from, minted where the lattice lacks them: at the end of the
+     * action that moved them or the camera, and for the views a read found wanting (`want`), never in a read
+     * (A1 C3, PLAN §3 row 8). Returns how many frames were minted.
+     */
+    prepare(F) {
+        const n0 = this.lm.frames.size;
+        if (this.lm.frame(String(F)) && this.doc.hasOffsets()) this._rerouteGroups(String(F), true);
+        return this.lm.frames.size - n0;
+    }
+    /** A view a read found wanting: a picture's source frame is missing (`_rerouteGroups`' `miss`). */
+    want(F) { (this._wanted || (this._wanted = new Set())).add(String(F)); }
+    wanted() { return this._wanted ? this._wanted.size : 0; }
+    /** `prepare` every view a read found wanting. Returns how many frames were minted. */
+    prepareWanted() {
+        if (!this._wanted || !this._wanted.size) return 0;
+        const views = [...this._wanted];
+        this._wanted.clear();
+        let n = 0;
+        for (const V of views) n += this.prepare(V);
+        return n;
     }
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----

@@ -8,8 +8,8 @@
  * k = 0 (`Document.tableOf`); `LevelMap.objShift` turns it into the frame F0 its pieces are read from
  * and the remainder they are painted with, honouring a whole-frame carry at the home depth. The
  * grouping is `TileStore._rerouteGroups`' memo, so the Stage and the oracle's list read one answer. No read
- * settles, merges or changes a table; `displaced` mints a frame its pieces are read from when the
- * lattice lacks it (`objShift`, A1 §1.2 row 19).
+ * settles, merges, mints or changes a table (PLAN §3 row 8): a picture's source frame is minted at the end
+ * of the action that moved it or the camera (`TileStore.prepare`, A1 C3).
  */
 import { REACH, R, cellCentre } from "./frameLattice";
 import { hasOffsets, shiftAt } from "./geometry/offsets";
@@ -18,7 +18,7 @@ import { bboxOf } from "./geometry/derive";
 const ZERO = Object.freeze([0, 0]);
 const EVERYWHERE = Object.freeze({ left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity });
 const NO_GROUPS = new Map();
-const NONE = Object.freeze({ rev: "none", groups: NO_GROUPS, groupOf: () => undefined });
+const NONE = Object.freeze({ rev: "none", groups: NO_GROUPS, groupOf: () => undefined, missing: 0 });
 
 /**
  * A box united with its copy moved by `(sx, sy)`: where a shifted frame's own natives can be drawn (A1 C1: the
@@ -101,12 +101,13 @@ export function createPlacementModel({ doc, lm, store }) {
         /**
          * Every group of natives drawn away from their stored bits as seen from F, keyed by the
          * (F0, rem) they share; `groupOf(id)` a native's key. `rev` moves whenever a placement can
-         * have changed. The groups are the memo's own: read them, never keep them.
+         * have changed. The groups are the memo's own: read them, never keep them. `missing`: how many
+         * pictures' source frames the lattice lacks (a read mints none; `TileStore.prepare` does).
          */
         displaced(F) {
             const m = groupsAt(String(F));
             if (!m) return NONE;
-            return { rev: m.key, groups: m.groups, groupOf: (id) => m.gk.get(id) };
+            return { rev: m.key, groups: m.groups, groupOf: (id) => m.gk.get(id), missing: m.miss.size };
         },
 
         /** Native `o`'s picture table at `home` (its own with the home frame's shift), for a footprint state. */
