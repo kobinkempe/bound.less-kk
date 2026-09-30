@@ -758,7 +758,10 @@ patches 0, the view 1, the plane 2, cuts 3 (one worker kept for cuts while any i
 thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; it packs at most 4 ms
 a frame while the camera moves and 4 ms a task while it is still (the strip that crosses it ends the task, the rest
 go in the next, so input runs between two 171–480 ms prefetch packs), and while moving skips cells the camera will
-have left by the strip's arrival (the velocity rule). The pack refuses a cell whose tiles the table does not cover (F119) and it is asked again once
+have left by the strip's arrival (the velocity rule) and re-aims a view strip at the level the camera is heading to — at
+most `AIM_LEVELS` 2 levels from the view's and never under the frame's `ownFloor` (F134: unbounded, a fast zoom-out in
+jsdom re-aimed strips 15–20 octaves out, and one strip's cover check alone took 2.6–2.9 s and 1.5 GB at ℓ −19). The pack
+refuses a cell whose tiles the table does not cover (F119) and it is asked again once
 covered. A still camera renders the rest set inline when its estimate fits `restInlineMs` (8 ms; the estimate is
 calibrated from the core's own timings), else in the workers after `restQuietMs` (100 ms) as one group shown
 when all are in. A zoom keeps the rest set's records as a stand-in at their own Z — exact there, they beat a stale
@@ -766,8 +769,23 @@ level plate, drawn scaled where their resolution ranks among the coarser levels 
 them; a frame change, a resize or a dpr change removes them. A change patches the drawn cells inline when its
 estimate fits — `patchUserMs` (16 ms, one frame) for an undo, a redo or a pen-up's group, paid once; `patchInlineMs`
 (6 ms) for the patches the bake issues at every step; the estimate's chords are each item's rows' share inside the
-clips — else the finest coarser level that fits is patched inline and drawn over the dirty rectangles while the
-full patches go to the workers. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser levels and a
+clips, and it prices the pack (a kept item's and a list item's cost, calibrated from every pack; over the budget
+alone, no coarser level is tried) — else the finest
+coarser level that fits is patched inline and drawn over the dirty rectangles while the full patches go to the
+workers. The patch step runs in the commit's task (PLAN §5.15 item 1): the commit hook marks it due, and the next
+compose or camera step runs it, else a microtask of that task — not the hook itself, since an undo's `noteUserEdit`
+follows its commit and sets the budget — so no compose draws a plate a commit staled with no patch asked. A clipped
+job packs only the items whose box meets its clips (PLAN §5.18; a patch's pixels are its clip's), and the pack's
+per-list half keeps each item's record by its geometry across lists, rebuilt where the item's entry, fade, z, family,
+erase flag or `res` changed (a held drag moves `res` with no write): the dense undo's inline pack was 45–64 ms, a
+prepass refilled 18–33 and a copy of both whole cells 21–29. After (headless, frozen copies, `--dense`, two runs a
+tree): the undo's patch is not inline — T 31.7 | 26.8 against 16, its pack terms 9.4–9.5 ms (58 kept items at 105–110
+µs, 2,841 list items at 1.1–1.2 µs, calibrated) — and no coarser level fits (ℓ −1's patch prices the same pack; a level
+with no records is a whole render, whose kept items are the cell's); the search still measures every level, a walk of
+the whole list each: the key task 303 | 272 ms, 246–278 of it in `eng.view` (before 178 ms with ℓ −1 inline, its pack 50
+ms and 764 items, | 368 ms, T 39.4, workers); key to exact 874 | 319 ms (before 260 | 819). Open: the search should stop
+at the first level with no records. `prefetch.js` renders ℓv − 1 and ℓv − 2 at idle from the live table, the far coarser
+levels and a
 crossing's target through budgeted snapshots, and the ring at rest; nothing while a report sends. Its tile reads are
 warm: `framesLeft` keeps them across a change of frame (F83) and the LRU cap still evicts them (on the dense
 drawing's zoom-out and back, 8–10 tiles re-baked on the way in, 19–22 without; PLAN §5.14 item 5). A pool that
@@ -799,12 +817,17 @@ from pen-down until its shape lands: packs skip it and the pick sees it.
 What keeps paper off the screen is the plan's order above: a stale plate is shown until its replacement lands, a
 replacement that lands still behind but newer than the stale pixels takes their place (F106), and a missing cell is
 drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
-much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`,
-`olderPatchMs` and `olderOtherMs`. The last is not yet 0 (the B-PYRAMID review, headless): a stale drawn plate whose
-patch is not yet asked — a commit stales it at once, the patch step runs at the next render or camera step, and a
-bake renders at most every 100 ms (scenario 7: 1.3–1.4 s a run) — and the plan's last resort, a stale coarser stand-in
-for a cell with nothing fresh cached at any level while its own plate is on its way (after a crossing, its tiles not
-yet read or its view job in flight). A desktop tab releases its plates only after five minutes
+much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`, and older by
+cause — `olderPatchMs`, a stale picture while the worker job that makes its cell exact is asked or in flight (a patch
+no level does inline, or the last resort's own job); `olderUnreadMs`, the plan's last resort (a stale coarser stand-in
+for a cell with nothing fresh at any level) while a crossing has left the cell's tiles unread; and `olderOtherMs`,
+anything else: 0 in the never-older fuzz and in scenarios 1–6 of the dense harness since the patch step runs in the
+commit's task (scenario 7's was 1.3–1.6 s: stale own plates waiting for the bake's next render). After (headless, two
+runs a tree): scenario 7's `olderOtherMs` 254 | 78 ms (before 1,370 | 1,573), not 0 — 36 | 30 cell-composes of a stale
+own plate with nothing asked or in flight (159 | 86 before), suspected cells a zoom's crossing left unread, which the
+patch step skips (`covered` false) and `_older` does not tell as unread (unverified; open); `olderPatchMs` 2,476 | 1,499
+(899 | 721), the waits asked at once; the bake 7.6 | 5.5 s (6.7 s | not finished in 60 s). A desktop tab releases its
+plates only after five minutes
 hidden (a phone at once). A drag draws the selection from plates made when it was selected, split by z so the
 drag keeps its true depth: the ink below the selection, the selected runs on transparent plates (moved with the
 pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers the smallest
@@ -817,7 +840,15 @@ keeps the plane until its fresh plate lands (`MOVE_HOLD_MS`, a 3 s safety limit)
 (`LiveStrokeLayer.hold`) until one group commit publishes the drawn cells under its box and `release`s it in the
 same task (A3 §3.6; no limit while the stroke's shape is pending, PLAN §5.4 Q2; `LIVE_HOLD_MS` 3 s after),
 re-anchored when the next stroke moves the layer's origin (F131) and carried into the new frame at a crossing (its
-root scaled by R^Δdepth, its box and its group's rectangle mapped: `_liveCross`).
+root scaled by R^Δdepth, its box and its group's rectangle mapped: `_liveCross`). Pen-up groups over the same cells
+are one group (F135): one commit publishes its plates and releases every member's path, a result that shows a member's
+stroke is never put while that path is up — never both, for each path — a result counts when packed at or after the
+group's G or exact at landing, and a need cell whose landing does not count is asked again inside the group unless a
+job for it is coming (two groups over one cell each took the other's results: the first path stayed 3 s over plates
+already showing its stroke, jsdom). Headless round trip (three strokes, two runs a tree, the never-both log at every
+compose): before and after alike, 3 holds, 3 handoffs, 0 composes drawing a plate under a held path, no path held at the
+"drawn" shot, its ink equal to the settled ink — the review's 53,919 px of double alpha there is not path-and-plates in
+these runs.
 The band is never packed: until its perimeter resolves a stroke is drawn by its live path alone,
 and the resolve's commit stales the plates under it, which the next camera step re-posts. A bake
 renders at most every 100 ms (`_renderSoon`); a cut on a pending pair dirties only its footprint

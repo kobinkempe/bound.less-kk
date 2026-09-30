@@ -94,9 +94,10 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F137](#f137) | **the dense drawing's zoom back in (harness scenario 1) showed paper after B-PYRAMID-4** — found by B-PYRAMID-4 in headless Chromium (2026-09-30): `paperMs` 743, 88 and 765 ms in its three after runs (the whole screen at one compose in two), 0 and 0 in the two before runs on a copy with the old raster sources; not seen in Chrome, not attributed | `jobQueue._aim` (the re-aim's clamp), `rasterPack` (the records), the commit hook — unisolated | open — the reviewer: bisect by rule on frozen copies |
 | [F136](#f136) | ~~**a long subtree drag could land a torn-off kid of the dragged frame a cell off where the move puts it**~~ — **FIXED 2026-09-30 by A1 C2 (unverified by Kobin)**, found by B-DRAG measuring A1 §1.4's census: the same 40-step walk applied to a selected frame and to every native per object disagreed for 400 of 1,250 natives by 32 units (one cell of the camera's frame; seed 777), and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 after the drop (sub-pixel ink: the screenshots matched). Each drag event re-addressed the subtree against the lattice the previous event had left, where the moving root could sit in the cell a carried kid's chain named. A drag now writes nothing until its drop, which computes once against the lattice as it stood at the press: 0 of 1,250 at seeds 777/12345/99 (`move.drop.test.js` D2, red on d206cd3) | `selection._dropMove`, `_dragFrames` | fixed |
-| [F135](#f135) | **the second of two strokes drawn back to back kept its live path 3 s** — found by B-PYRAMID-3 in jsdom (2026-09-29): a pen-up group's strips are dropped at dispatch as "exact" when their cells are in flight for another job (`PyramidStore.wants` is false for both), the drop neither resolves nor re-asks the group's cells, and the job in flight was packed before the stroke landed, so its result does not count for the group: the group waits `LIVE_HOLD_MS` and commits what it has. Two strokes back to back, the rest render off the inline path: the second path up 3,070–3,075 ms (3 runs of 3), `groupsTimedOut` 1. Not seen in Chrome | `RasterRenderer._pyrUnask`, `jobQueue._admit`, `PicturePyramid.groupCommit` | open — B-PYRAMID-4: a dropped group strip re-asked, or resolved from the job in flight |
-| [F134](#f134) | **a fast zoom-out re-aimed view strips at levels far past the frame's floor, and one plate took 5–102 s and up to 8 GB** — found by B-PYRAMID-3 in jsdom (2026-09-29): the queue's velocity rule predicts the camera at a strip's arrival and re-aims a view strip at the level it will then be at, with no floor; zoom-out steps 1–3 ms apart re-aimed strips pushed at levels −4 and −5 to −14…−21 (Z down to 4.8e-7), and the inline render of one such plate took 5–102 s and 1.5–8 GB (a heap-limit crash at 8 GB). Almost certainly the jest worker that spun at 98 % CPU for 10 and 32 minutes in B-PYRAMID-2b's and the B-PYRAMID review's whole-directory runs, and the 25-minute deadlines of 2026-09-29. Not seen in Chrome | `jobQueue._aim` | open — B-PYRAMID-4: the re-aimed level clamped at `ownFloor` |
+| [F135](#f135) | ~~**the second of two strokes drawn back to back kept its live path 3 s**~~ — **FIXED 2026-09-30 (unverified by Kobin)**, B-PYRAMID-4: it was the FIRST path, over plates already showing its stroke (never both broken: a translucent stroke doubled). Two pen-up groups over the same cells: the key's group was the last to open, the second took the first's results and committed, the first waited `LIVE_HOLD_MS` (jsdom, B-PYRAMID-3's setup: 3,050–3,083 ms, `groupsTimedOut` 1, 12 composes drawing stroke 1's plates under its path). Pen-up groups over the same cells now join — one commit publishes their plates and releases every member's path; a result counts when packed at or after the group's G or exact at landing; one showing a member's stroke is never put while that path is up; a need cell's landing that does not count is asked again inside the group unless a job is coming. After: both paths at one commit, 41–63 ms, 0 doubled composes, 0 timeouts (LH-7 ×3); Headless round trip (three strokes, two runs a tree, the never-both log at every compose): before and after alike, 3 holds, 3 handoffs, 0 composes drawing a plate under a held path, no path held at the "drawn" shot, its ink equal to the settled ink — the review's 53,919 px of double alpha there is not path-and-plates in these runs. | `PicturePyramid.groupCommit`/`_join`/`onResult`/`_notForGroup` | **fixed** |
+| [F134](#f134) | ~~**a fast zoom-out re-aimed view strips at levels far past the frame's floor, and one plate took 5–102 s and up to 8 GB**~~ — **FIXED 2026-09-30 (unverified by Kobin)**, B-PYRAMID-4: the time was the pack's cover check, `Stage.covers` enumerating every tile key under the re-aimed cell (2·4^(−ℓ−8) keys; jsdom: ℓ −17 0.12 s, −18 0.6 s, −19 2.6–2.9 s and 1.5 GB RSS). `_aim` now re-aims at most `AIM_LEVELS` (2) levels from the view's and never under the frame's `ownFloor`, the prediction bounded to as many octaves: a 40-octave prediction dispatches at the view's level − 2 at most (`jobQueue.test.js` F134; before −19 for a view at −4, and in the engine no view strip at all — every one re-aimed off the lattice and dropped). Not measured in Chrome | `jobQueue._aim` | **fixed** |
 | [F133](#f133) | ~~**the `?svg` view's heap grew about 57 MB a drag event on the dense scene, and the tab crashed at the third**~~ — **FIXED 2026-09-29 (unverified by Kobin)**, found by the B-MODEL-C1 review (A3 §9.3's scenario 4 on `?svg`, both trees): Two.js never renders a group at opacity 0, the removal of its old paths included, and the SVG renderer rebuilt every fully faded down-piece's group at each drag step, so every generation stayed. A hidden group now keeps what it has until the frame that shows it | `Renderer.render`, `needsFadeFlip` | **fixed** |
 | [F132](#f132) | ~~**a Scenes picture re-rendered after an edit could lose most of its ink**~~ — **FIXED 2026-09-26 (unverified by Kobin)**, found by B-FOUNDATION's partial re-render merge test (`raster/rasterCore.clip.test.js`): `rasterPack.famTake`, which takes a family unchanged from the previous list packed under the same key, rebuilt its items' residuals without the pack-time `offset` `famFill` adds, while keeping the boxes that include it, so the reused families were drawn one offset away, off the plate. Only `snapshotView` packs with an offset: a scene's picture re-rendered at the same framing after an edit showed only what changed | `raster/rasterPack.famTake`, `withOffset` | **fixed** |
 | [F131](#f131) | ~~**a stroke just drawn jumped across the screen when the next stroke started after a zoom or pan**~~ — **FIXED 2026-09-24 (unverified by Kobin)**, found by the FREEZE agent from Kobin's report 2026-09-24T21-08-16 ("a piece suddenly jumped ... as I was zooming"): a held live path is drawn relative to the overlay origin of its own stroke, and the next pen-down re-chose the origin. Also behind his "pieces disappeared, then came back" (21-09-45): the jumped path was released at the 15 s limit before its slow plates landed | `RasterRenderer.addLive` | **fixed** |
@@ -4486,6 +4487,16 @@ Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision
 **Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
 
 <a id="f136"></a>
+### F137 — OPEN, found by B-PYRAMID-4 (2026-09-30). The dense drawing's zoom back in showed paper.
+
+Headless Chromium, `browser-check.js --dense --scenario all`, frozen copies, load 1.9–4.4: scenario 1's "zoomout, back
+in" row had `paperMs` 743 (the first after tree, before three fixes to the pack's records and the coarse search), 88
+and 765 ms (the final tree; `maxPaperShare` 0.5 and 1), against 0 and 0 on the before copy (the same tree with the
+five raster sources at adcae93). Nothing in scenario 1 draws, so the candidates are what changes while zooming: the
+queue's re-aim, now at most two levels from the view's (F134), the pack's records kept across lists, and the patch step
+the commit hook now runs (the scenario has three Stage commits). The unread cells were the same (16 distinct, 8 at most
+a compose) and drawn from fresh stand-ins as before (`olderUnreadMs` 0). Not bisected: the batch was the only one.
+
 ### F136 — FIXED 2026-09-30 by A1 C2 (unverified by Kobin), found by B-DRAG. A long subtree drag landed a torn-off kid a cell off.
 
 Found measuring A1 §1.4's census (40 steps of 7 px, a render each, a root one level under the camera with 6 kids and
@@ -4508,7 +4519,7 @@ the lattice as it stood at the press. Measured: 0 of 1,250 at seeds 777, 12345 a
 registration case, red on a copy of d206cd3); scenario 4's kid at 239.99.
 
 <a id="f135"></a>
-### F135 — OPEN, found by B-PYRAMID-3 (2026-09-29). A pen-up group whose strips were dropped waited 3 s.
+### F135 — FIXED 2026-09-30 (unverified by Kobin), found by B-PYRAMID-3 (2026-09-29). A pen-up group whose strips were dropped waited 3 s.
 
 A pen-up's group commit (A3 §3.6) asks the drawn cells under the stroke's box at priority 0 and holds their results
 until the last lands. `jobQueue._admit` drops a strip's cells the store does not want — exact, or in flight for another
@@ -4521,8 +4532,25 @@ off the inline path, the pool a `runJob` transport): two pen strokes drawn back 
 Not seen in Chrome. B-PYRAMID-4: a dropped group strip re-asked once its cells are free, or resolved from the job in
 flight when that job's G reaches the group's.
 
+**Fixed (B-PYRAMID-4, 2026-09-30).** Logged on the reproducing setup (two strokes, `restInline` "never", a `runJob`
+transport): both groups asked the same two cells; `_groupOf` named the second, so the first group's two results (packed
+after both strokes landed) were held by the second, which committed at 57 ms and released the second path; the first
+group waited 3 s while its path stood over plates already showing its stroke — both shown for 3 s, a translucent
+stroke doubled. The strips dropped as "exact" were the second group's own, their cells exact by then: harmless. Now a
+pen-up whose drawn cells meet an open pen-up group's (needed or held) joins it (`_join`): one commit publishes the plates
+and releases every member's path; a result counts when packed at or after the group's G (its latest member's) or exact
+at landing (rule 2: no member's stroke touched the cell — the dispatch case this entry first named); a result showing a
+member's stroke that does not count is closed, never put while that path is up; a need cell whose landing does not
+count is asked again inside the group unless an ask since the group's G or another job in flight is coming; a second
+result for a held cell is kept aside, the newer. jsdom: LH-7 both paths at one commit, 41–63 ms, 0 composes drawing a
+stroke twice, `groupsTimedOut` 0 (3 runs; before 3,050–3,083 ms, `timedOut` 1, 12 such composes);
+`PicturePyramid.patch` covers the exact-at-landing case and the join. Headless round trip (three strokes, two runs a
+tree, the never-both log at every compose): before and after alike, 3 holds, 3 handoffs, 0 composes drawing a plate
+under a held path, no path held at the "drawn" shot, its ink equal to the settled ink — the review's 53,919 px of double
+alpha there is not path-and-plates in these runs.
+
 <a id="f134"></a>
-### F134 — OPEN, found by B-PYRAMID-3 (2026-09-29). The velocity rule re-aimed view strips past the frame's floor.
+### F134 — FIXED 2026-09-30 (unverified by Kobin), found by B-PYRAMID-3 (2026-09-29). The velocity rule re-aimed view strips past the frame's floor.
 
 `jobQueue._aim` (A3 §4.4) predicts the camera at a view strip's arrival — the time since the motion's view plus the
 mean dispatch-to-landing time — from the last frames' zoom velocity, and re-aims the strip at `levelFor(k·2^(v·eta))`
@@ -4535,6 +4563,17 @@ item 4). Almost certainly the jest worker that spun at 98 % CPU for 10 and 32 mi
 B-PYRAMID review's whole-directory runs, and the 25-minute deadlines both B-PYRAMID-3 and the review hit on 2026-09-29.
 In Chrome the steps are ~16 ms apart and the eta is a worker's, so a fast wheel may re-aim a few octaves too far; not
 measured there. B-PYRAMID-4: the re-aimed level clamped at `ownFloor` (and the prediction bounded).
+
+**Fixed (B-PYRAMID-4, 2026-09-30).** The seconds and gigabytes were the pack's cover check, not the render:
+`Stage.covers` enumerates every tile key under the cell (`_tileKeys` builds the array), 2·4^(−ℓ−8) keys, so one strip
+at ℓ −19 cost 2.6–2.9 s and 1.5 GB RSS in jsdom (−17 0.12 s, −18 0.6 s). `jobQueue._aim` now re-aims a view strip at
+most `AIM_LEVELS` (2) levels from the view's and never under the frame's `ownFloor`, and bounds the predicted zoom to
+as many octaves (A3 §4.4's velocity rule was for a level or two ahead). jsdom: `jobQueue.test.js` F134 (S 1, 2, 3; an
+arrival 15–20 ms out at −1 octave a ms) dispatches at max(`ownFloor`, ℓv − 2); `raster.commit.test.js` F134 (steps
+under a millisecond, a 40 ms arrival) the same through the engine — before, no view strip left the queue at all, every
+one re-aimed off the lattice and dropped. `Stage.covers` stays O(the cell's tiles), so any other caller asking a cell far
+coarser than the view would pay the same; the others are bounded: the coarse-first patch stops at `ownFloor`, the far
+prefetch packs from a snapshot's own table (no cover check), the plane's quick level is two octaves under its own.
 
 <a id="f133"></a>
 ### F133 — FIXED 2026-09-29 (unverified by Kobin), found by the B-MODEL-C1 review. The `?svg` view kept every rebuilt path of a hidden group.

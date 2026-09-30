@@ -2693,3 +2693,25 @@ Scratch `bm34/`, ports 3030–3039 (the frozen copies for §3's scenarios 3/4: 3
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: reading the code — `LevelMap._take`/`_leave`/lookups, `Document`'s merge and detached paths.
+
+## 2026-09-30 02:59 UTC — B-PYRAMID-4 (builder) — end: five rules in, F134/F135 fixed, the after batch, F137 filed
+**Working on:** done. The measured tree `bp4/bC` has 479e07c's `src` (the `supportsDragPlane` deletion and the three
+pre-freeze fixes in; since then only R-DRAG's tests and testkit changed there). Docs: DESIGN §9, A3's dated notes (§1.4,
+§3.3, §3.4, §3.6, §4.4, §9.1; never-both holds for each path of a joined group), OPEN-FLAGS F134/F135 fixed and F137
+filed, `docs/ai/10-`, `30-`, `40-`. Harness: scenario 5's release polled `renderer._liveHeld`, gone since bcba05a, so
+it timed the first poll (before 12 | 13 ms, after 364 | 394 behind a 341–374 ms settle pack); now `renderer.live.held`
+(not yet run).
+**Measured (headless, `--dense --scenario all`, before bA ×2 | after bC ×2, load 1.9–4.4):** 1 back in paper 0 | 0 →
+88 | 765 ms (F137; the first after tree 743), blur 3.2 | 3.0 → 2.2 | 3.0 s; the 16 unread cells' tiles, 15 | 19, baked in
+536 | 549 ms by the reads that covered them (29–36 ms a tile), `olderUnreadMs` 0 (fresh stand-ins). 4 drag olderPatch
+1,040 | 937 → 567 | 575, worst task 2,068 | 1,851 → 1,177 | 1,158. 6 undo T 17.5 (ℓ −1 inline, its pack 50 ms) | 39.4 →
+31.7 | 26.8, not inline, no coarse level fits and the search measures all (key task 178 | 368 → 303 | 272 ms), exact
+260 | 819 → 874 | 319 ms. 7 olderOther 1,370 | 1,573 → 254 | 78 (not 0), olderPatch 899 | 721 → 2,476 | 1,499, bake
+6.7 s | not done in 60 s → 7.6 | 5.5 s, both-composes 0 | 6 → 0 | 0. Records at most 20,974 (after scenario 1), 9,264
+after 4 and 6. Round trip ×2 a tree: 3 holds, 3 handoffs, 0 both-composes, nothing held at "drawn", in both trees.
+jsdom: break-checks 18/18 red on the final tree; typecheck 0; lint 0 errors (6 warnings, none mine); bundles unchanged.
+**Decisions made:** worse numbers attributed, not re-measured (the orchestrator's bound): F137 filed unbisected; the
+undo against the first before run is rule 2's price (ℓ −1 no longer fits 16 ms) plus the coarse search's measures.
+**Questions asked:** in the report — the budgeted read at the crossing (recommend no), (f′)-pending as `olderPatchMs`,
+the coarse search's bound, F137's bisect, scenario 7's residual `olderOtherMs`.
+WHERE I AM: ended; the report sent.

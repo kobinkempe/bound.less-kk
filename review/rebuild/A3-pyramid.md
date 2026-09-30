@@ -236,6 +236,13 @@ screen). So when the plan refuses a stand-in, every cell not drawn sharp from it
 exact source and the cells are planned again nearest the attention point first: 1 / 1 / 1 runs of one cell (the
 coarsest set itself over the cap) and 0 at rest. When nothing is refused the plan is the rules' choice, unchanged.
 
+*Split (B-PYRAMID-4, 2026-09-30, PLAN §5.15):* the last resort (f′) — a stale coarser stand-in for a cell with nothing
+fresh at any level — is charged by its cause: `olderUnreadMs` while the camera's table lacks the cell's tiles (a
+crossing's step reads the cache alone, §4.2), `olderPatchMs` while the cell's own job is asked or in flight (the wait a
+patch's is), `olderOtherMs` only when nothing is on its way. The never-older fuzz asserts `olderOtherMs` 0: 117 plans,
+42 with an older cell, every one (f′) with its tiles unread, 139 ms `olderUnreadMs` (the same draws were 178.6 ms of
+`olderOtherMs` before).
+
 ### 1.5 Direct scaled draws versus the surface, against the image cliff
 
 Chrome's 2D canvas pays per frame once one frame holds more than ~33 distinct images with any scaled (PP
@@ -560,6 +567,28 @@ budget is `patchUserMs` 16 ms (one frame) for a user's action — an undo or a r
 paid once, and 6 ms for the patches the bake issues at every step. jsdom: an undo over ten 1,500-point fills, E 1/4 of
 the whole cells' and T under 6 ms, inline, its plates equal to a whole render.
 
+*Changed (B-PYRAMID-4, 2026-09-30, PLAN §5.15 item 1, §5.18):* T prices the pack — `packItemUs` (seed 20) a kept item,
+K, and `packListUs` (seed 1) a list item, N (an inline render follows a commit, whose new list misses the prepass), both
+calibrated from every pack's own time (`_pyrPack`; the list term only from prepasses that kept 90 % of their records);
+the coarse search stops when the pack's terms alone are over the budget (they do not shrink with a coarser level, and
+each level costs a measure of the whole list: the undo's key task was 317 ms) — and a clipped job packs only the items
+whose box meets its clips: the pack's
+per-plate cull narrowed to the plate ∩ its clip, with the plate cull's edge margin (an item ending inside the clip's
+edge pixel is kept). Exact by the plate cull's own argument: a patch's pixels are its clip's, and a mark whose box
+misses the clip masks nothing inside it; the families' union rule and sign are still taken over every item. The
+prepass keeps each item's record by its geometry across lists (the memo's key, per zoom, dpr, cfg and offset), rebuilt
+only where the item's entry, fade, z, family, erase flag or `res` changed — a held drag moves `res` with no document
+write — and a family its union rule and sign while its records are the same; the records kept are the last list's at
+each of 8 keys. On the dense drawing (headless) the undo's inline pack was 45–64 ms: the prepass 18–33 ms (its families
+refilled: the list before it at that zoom was a snapshot's, whose wrappers never matched) and the copy of both whole
+cells, 764 items and 3.9 M doubles, 21–29 ms. After (headless, frozen copies, `--dense`, two runs a tree): the undo's
+patch is not inline — T 31.7 | 26.8 against 16, its pack terms 9.4–9.5 ms (58 kept items at 105–110 µs, 2,841 list items
+at 1.1–1.2 µs, calibrated) — and no coarser level fits (ℓ −1's patch prices the same pack; a level with no records is a
+whole render, whose kept items are the cell's); the search still measures every level, a walk of the whole list each:
+the key task 303 | 272 ms, 246–278 of it in `eng.view` (before 178 ms with ℓ −1 inline, its pack 50 ms and 764 items, |
+368 ms, T 39.4, workers); key to exact 874 | 319 ms (before 260 | 819). Open: the search should stop at the first level
+with no records.
+
 ### 3.4 Coarse-first for large dirty regions
 
 When `T_patch` is over budget for the drawn cells a change touches:
@@ -581,6 +610,16 @@ When `T_patch` is over budget for the drawn cells a change touches:
 screen or the plate, the larger) — §3.2's rule for a clip applied to the draw; without it 12 changed pixels at a
 .5 edge kept their pre-undo value. The live path's group commit (§3.6) takes no coarse-first step: it waits for
 full resolution.
+
+*Changed (B-PYRAMID-4, 2026-09-30, PLAN §5.15 item 1):* the patch step runs in the commit's task. The renderer's commit
+hook (after its pen-up groups open) marks it due (`noteCommit`); the next compose or camera step runs it, else a
+microtask of the same task — so no compose draws a plate a commit staled with no patch asked. Not in the hook itself:
+an undo's `noteUserEdit` follows its commit and sets the budget. The bake renders at most every 100 ms, and every
+compose between (the arrivals) drew the plates its commits staled as other older: scenario 7's `olderOtherMs` 1.3–1.6 s.
+After (headless, two runs a tree): scenario 7's `olderOtherMs` 254 | 78 ms (before 1,370 | 1,573), not 0 — 36 | 30
+cell-composes of a stale own plate with nothing asked or in flight (159 | 86 before), suspected cells a zoom's crossing
+left unread, which the patch step skips (`covered` false) and `_older` does not tell as unread (unverified; open);
+`olderPatchMs` 2,476 | 1,499 (899 | 721), the waits asked at once; the bake 7.6 | 5.5 s (6.7 s | not finished in 60 s).
 
 ### 3.5 Worked example: undo of one stroke (Kobin's decision 2)
 
@@ -646,6 +685,21 @@ The re-target of item 5 runs on every change of the view's drawn set.
 path was still up, one compose showing both (a jsdom call-order test, red without it). While a group waits for the
 workers, a stale draw under its rectangle older than its stroke is class "held" — the path shows the change — and the
 integrals do not charge it as older. Headless round trip (3 strokes, `?pyramid=1`): 3 holds, 3 handoffs, 0 timeouts.
+
+*Changed (B-PYRAMID-4, 2026-09-30, F135):* pen-up groups over the same cells are one group. Two groups over one cell each
+took the other's results (a key's group was the last to open), and the first path stayed `LIVE_HOLD_MS` over plates
+already showing its stroke (jsdom: 3,050–3,083 ms, 12 composes drawing it twice). A pen-up whose drawn cells meet an
+open pen-up group's, needed or held, joins it: one commit publishes the group's plates and releases every member's
+path — a plate that shows the later stroke shows the earlier one too, so neither path may go before the other's plates,
+and the never-both rule holds for each path. A result counts for a group when packed at or after its G (the latest
+member's) or exact at landing (rule 2: then no member's stroke touched the cell — the case of a cell in flight for an
+earlier job); one that shows a member's stroke but does not count is closed, never put while that path is up; a need
+cell whose landing does not count is asked again inside the group unless a job asked since the group's G, or another
+in flight, is coming; a second result for a held cell is kept aside, the newer one. The limit stays the first
+member's. LH-7: both paths at one commit, 41–63 ms, no compose drawing a stroke twice. Headless round trip (three
+strokes, two runs a tree, the never-both log at every compose): before and after alike, 3 holds, 3 handoffs, 0 composes
+drawing a plate under a held path, no path held at the "drawn" shot, its ink equal to the settled ink — the review's
+53,919 px of double alpha there is not path-and-plates in these runs.
 
 ### 3.7 What a dirty rectangle must include (a requirement on A2)
 
@@ -820,6 +874,12 @@ Scenes thumbnail held a low-priority slot for the session (two, on three workers
 A strip that will not land forgets only its own cells' asks (`_pyrUnask`; none for an `exact` drop): every drop used to
 forget every ask, so each queued patch was asked again at the next step, the duplicate dropped at dispatch forgot them
 all again, and meanwhile a stale plate whose patch was queued read as other older.
+
+*Changed (B-PYRAMID-4, 2026-09-30, F134):* a re-aim is at most `AIM_LEVELS` (2) levels from the view's and never under
+the frame's `ownFloor` (coarser is its parent's picture), the prediction bounded to as many octaves. Unbounded, jsdom's
+zoom steps 1–3 ms apart (−1 octave a ms, an arrival 15–20 ms out) re-aimed strips 15–20 octaves out, and the pack's
+cover check alone — `Stage.covers` enumerates every tile key under the cell, 2·4^(−ℓ−8) — took 0.6 s at ℓ −18 and
+2.6–2.9 s and 1.5 GB at −19 (5–102 s and up to 8 GB below it: the spinning jest workers of 2026-09-29).
 
 ### 4.5 The cache budget
 
@@ -1142,7 +1202,9 @@ screen, charged forward**. The new layer keeps three integrals, updated at each 
 patch (the price of "blurrier now"), `olderMs` for cells drawn stale (step (f): should be ~0; *built 2026-09-29,
 P6:* split by cause into `olderPatchMs`, a stale own plate while its worker patch is asked or in flight — §3.4's
 case — and `olderOtherMs`, everything else, which must be 0: the never-older fuzz still reaches step (f′) after a
-zoom from rest, 88–91 plans and 98–104 ms, 5 plans and 3.7 ms without a rest set). `report()`
+zoom from rest, 88–91 plans and 98–104 ms, 5 plans and 3.7 ms without a rest set; *split again, B-PYRAMID-4,
+2026-09-30:* `olderUnreadMs`, (f′) while its cell's tiles are unread, and (f′) while its job is pending is `olderPatchMs`
+— `olderOtherMs` is 0 in the fuzz and in scenarios 1–6, not yet in 7: §1.4's and §3.4's notes). `report()`
 carries them cumulatively; the harness reads `E.renderer.layer.report()` before and after each scripted
 gesture and prints the deltas. For today's code, which has no integral, the harness runs an in-page rAF sampler
 over `layer.uncoveredCells()` (`PictureLayer.js:1268`) and the cell count of `_rFull`, integrating forward —

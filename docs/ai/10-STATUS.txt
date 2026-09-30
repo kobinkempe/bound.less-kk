@@ -64,8 +64,9 @@ WHERE THE BUILD IS
     (PRIO.cut, one worker kept for cuts; a watchdog-taken job refused over ink, never inline).
     The pyramid's integrals split older by cause: olderPatchMs (a stale picture while the worker
     job that makes the cell exact is pending, A3 §3.4), olderUnreadMs (the last resort, a stale
-    coarser stand-in, while a crossing left the cell's tiles unread) and olderOtherMs (0: the
-    patch step runs in the commit's task; B-PYRAMID-4, 2026-09-30).
+    coarser stand-in, while a crossing left the cell's tiles unread) and olderOtherMs (0 in the
+    fuzz and in the dense harness's scenarios 1-6 since the patch step runs in the commit's task;
+    78-254 ms in scenario 7, from 1.3-1.6 s, open; B-PYRAMID-4, 2026-09-30; F137 open).
     Measured in headless Chromium through tools/harnesses/browser-check.js on a frozen tree;
     not seen by Kobin.
 2026-09-29 - A FRAME'S SHIFT IS PLACEMENT (review/rebuild/A1-document-model.md §4.4 C1 and §14,
