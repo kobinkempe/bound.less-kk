@@ -168,7 +168,7 @@ describe("D2 — the drop: one write, one op; mints at the drop are the final ch
                 if (perObject) E._setSelection(all, []); else E._setSelection([], [R.id]);
                 const p = pressOn(E, R.id);
                 let x = p[0], y = p[1];
-                E._dragSel = { start: [p[0], p[1]], moved: false };
+                E._dragSel = { start: [p[0], p[1]], moved: false, moves: new Map(), frames: new Map(), frameStart: null };   // the old drag's fields too, so d206cd3 runs it
                 for (let s = 0; s < 40; s++) { x += (rnd() - 0.3) * 7; y += (rnd() - 0.4) * 7; E._dragSelection(x, y); E._render(); }
                 E.pointerUp();
                 const out = new Map();
@@ -231,7 +231,7 @@ describe("D2b — a frame and per-object members dropped together: each member m
         ["1.4 cells", 44.8, 0, 0],
         ["1.1 cells right, 0.1 down, X carrying 0.45: X into the cell R moves to", 35.2, 3.2, 14.4],
     ]) {
-        test(name, () => {
+        test("dropped " + name, () => {
             const setUp = () => {
                 const f = mixed();
                 if (pre) { f.E._setSelection([f.x.id], []); dragBy(f.E, f.E._levelPointToScreen(f.L.id, 0, 0), pre, 0); }
@@ -269,6 +269,8 @@ describe("D3 — a cancel writes nothing: the document is byte-equal to before t
         ["a pinch (cancelSelectGesture)", (E) => E.cancelSelectGesture(false)],
         ["an undo mid-drag", (E) => E.undo()],
         ["a deselect", (E) => E.deselect()],
+        ["a tool change", (E) => E.setTool("pen")],
+        ["a redo mid-drag", (E) => E.redo()],
     ]) {
         test(name + ", after a drag across an occupied cell: no shadow, no merge, no op", () => {
             const f = fixture();

@@ -568,7 +568,8 @@ The **drop** is the one write (`_dropMove`): the arithmetic runs **once per home
 frame** — members that share a frame and a picture table take one answer
 (`_displaceMember`), and their re-homes are one compaction of the frame's list
 (`Document.rehomeManyById`, 56 us a re-home at 2,000 objects, 189 at 8,000;
-2026-09-14) — and the selected frames are re-addressed once; with the hold's
+2026-09-14) — and the selected frames are re-addressed once, first, so a member carried
+into a selected frame's start cell is placed against where that frame went (`move.drop.test.js` D2b); with the hold's
 release and the merges it makes it is one Stage commit, and its patch has a user's
 budget, as an undo's has. A cancel (a pinch, an undo mid-drag, a deselect) writes
 nothing: the document is as it was at the press. The undo entry of a move is the

@@ -2650,3 +2650,21 @@ B-MODEL-C34's reviewer will be briefed the same way.
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-4's report (its batch runs) and R-DRAG's next checkpoint.
+
+## 2026-09-30 02:47 UTC — R-DRAG (reviewer) — the review of B-DRAG — end (narrowed scope, 02:41)
+**Working on:** done. In the tree: `selection.js` (`_dropMove`: the frames first, with leave), `move.drop.test.js` (D2b ×3,
+D3 + tool change + redo mid-drag, F136's walk runnable on d206cd3), `__testkit__/modelFuzz.js` (the oracle takes the live
+repair's two rules after undo/redo; `heldDragOp`), `move.hold.probe.js` (new), `select.stands.probe.js` (seed 43 pinned),
+`model.equivalence.probe.js` (seed 126 pinned), DESIGN §8 (one clause), A1 §15 (one bullet), TEST-MAP (C2 rows).
+**Measured (jsdom; load 1.9–4.7):** named suites 92/92; census during 0/0/0, left 14/5/4 (oracle 15/5/5); `select.stands`
+12+[43] × 40 520 checks, 50 × 40 2,000 checks/432 selections; `model.equivalence` 20+6 × 40 1,040 checks, 200 × 40 8,000
+checks/55,701 items/137 normalised ≤ 1.46e-8; `move.hold` 20 × 30: 42 drags, 291 events, 398 placement checks, all 8
+exits, document byte-equal at every event. Break-checks (`r-drag/bc`): write in a step, `placed`/`placeNative` without δ,
+every exit dropping — each red; the GC guard mid-drag not reached (0); members-first 3/17 red. D2b red on 8f9c073
+(3/3), F136's walk red on d206cd3 (400 of 1,250 at seed 777), both green here. typecheck 0; eslint 0 on my files.
+**Decisions made:** the harness (not the frozen oracle) applies DESIGN §10's repair to the oracle after undo/redo, and
+cancels the oracle's drag before a deselect, tool change or delete mid-drag (d206cd3 kept its per-event writes there,
+with no op; C2 writes nothing).
+**Questions asked:** none new. Skipped per scope: Chromium (B-PYRAMID-4's batch unfinished), `setBatch` timing, items 5,
+7, the normalised-rule break-check, RV4 and seed 777 traces, `ownIn` (same arithmetic, not identical: worker-side).
+WHERE I AM: done; nothing of mine running.

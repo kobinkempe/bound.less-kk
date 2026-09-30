@@ -479,3 +479,140 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     }
     return { ops };
 }
+
+/**
+ * A `runPairFuzz` extra (A1 C2, PLAN §1.4): a drag of a selection (a tap, a lasso, a camera kid frame, or a frame with an
+ * id outside it) whose pointer moves are interleaved with reads and camera changes — a render, a hit test, a lasso's
+ * find, a resize, a wheel zoom that can cross a frame — and ended by one exit: the drop, a pinch (young or old), an
+ * undo, a redo, a deselect, a tool change or a delete. After every event before the exit the live engine is checked:
+ * no document event; `rev`, `offRev`, `addrEpoch`, the undo stack and the natives byte-equal to the press; every frame
+ * of the press at its address and shift, and any new one empty (`displaced` may mint one, PLAN §3 row 8); every held
+ * native drawn (`placeNative`) and every held item placed (`placed`) at its rest plus the drag's delta while the camera
+ * is in the delta's frame. After a cancel, a deselect or a tool change the same, and no shadow; after any exit no drag
+ * and no hold. A violation throws. `st` counts drags, events, exits and placement checks.
+ */
+export function heldDragOp(ctx, st) {
+    const { both, ri, pick, rnd, inkPoints, w, h, O, N } = ctx;
+    const EXITS = ["drop", "drop", "drop", "pinch", "pinchOld", "undo", "redo", "deselect", "tool", "delete"];
+    const natives = (E) => JSON.stringify(Object.entries(E.doc.serializeNatives()).sort((a, b) => (a[0] < b[0] ? -1 : 1)));
+    const frames = (E) => new Map([...E.lm.frames.values()].map((f) => [f.id, JSON.stringify([f.parent, f.cell && f.cell.i, f.cell && f.cell.j, f.shift || null, f.shadowOf || null])]));
+    const fail = (why) => { throw new Error("heldDrag: " + why); };
+    return ["heldDrag", 8, () => {
+        const kids = [...N().lm.frames.values()].filter((f) => f.parent === N().cam.frame && N().doc.count(f.id) && O().lm.frame(f.id)).map((f) => f.id).sort();
+        const ink = inkPoints();
+        const how = pick(["tap", "tap", "lasso", "frame", "mixed"]);
+        if (!ink.length && how !== "frame") return;
+        if (how === "frame" || how === "mixed") {
+            if (!kids.length) return;
+            const f = pick(kids), q = ink.length ? pick(ink) : null;
+            both((E) => {
+                E.setTool("select");
+                const id = how === "mixed" && q ? E._hitTest(q[0], q[1]) : null;
+                E._setSelection(id != null && !E._underFrames(E.doc.getById(id).level, [f]) ? [id] : [], [f]);
+            });
+        } else if (how === "tap") {
+            const p = pick(ink);
+            both((E) => { E.setTool("select"); E.pointerDown(p[0], p[1]); E.pointerUp(); });
+        } else {
+            const x0 = ri(0, w / 2), y0 = ri(0, h / 2), x1 = x0 + ri(80, w / 2), y1 = y0 + ri(80, h / 2);
+            both((E) => {
+                E.setTool("select");
+                E.pointerDown(x0, y0);
+                for (const [x, y] of [[x1, y0], [x1, y1], [x0, y1], [x0, y0 + 2]]) E.pointerMove(x, y);
+                E.pointerUp();
+            });
+        }
+        const s = N().selection;
+        if (!s || !O().selection) return;
+        // The press: on a selected frame's mark, or on selected ink, found in the live engine and replayed on both.
+        let p = s.frames.length ? N()._levelPointToScreen(s.frames[0], 0, 0) : null;
+        if (!p || p[0] < 2 || p[1] < 2 || p[0] > w - 2 || p[1] > h - 2) p = inkPoints().find((q) => N()._hitTest(q[0], q[1], undefined, (id) => N()._isSelected(id)) != null) || null;
+        if (!p) return;
+        const plan = [], n = ri(3, 10);
+        let x = p[0] + (rnd() < 0.5 ? -1 : 1) * ri(12, 40), y = p[1] + ri(-30, 30);
+        plan.push(["move", x, y]);
+        for (let k = 1; k < n; k++) {
+            const kind = pick(["move", "move", "move", "render", "hit", "lasso", "resize", "zoom"]);
+            if (kind === "move") { x += ri(-60, 60); y += ri(-45, 45); plan.push(["move", x, y]); }
+            else if (kind === "hit" || kind === "zoom") plan.push([kind, ri(20, w - 20), ri(20, h - 20), ri(-300, 300)]);
+            else if (kind === "lasso") { const a = ri(0, w / 2), b = ri(0, h / 2); plan.push(["lasso", a, b, a + ri(60, w / 2), b + ri(60, h / 2)]); }
+            else if (kind === "resize") plan.push(["resize", w + ri(-120, 120), h + ri(-90, 90)]);
+            else plan.push([kind]);
+        }
+        const exit = pick(EXITS);
+        st.last = { how, sel: [N().selection.ids.length, N().selection.frames.length], plan: plan.map((e) => e[0]).join(","), exit };
+        const apply = (E, ev) => {
+            if (ev[0] === "move") E.pointerMove(ev[1], ev[2]);
+            else if (ev[0] === "render") E._render();
+            else if (ev[0] === "hit") E.hitTestAt(ev[1], ev[2]);
+            else if (ev[0] === "lasso") E._lassoFind([[ev[1], ev[2]], [ev[3], ev[2]], [ev[3], ev[4]], [ev[1], ev[4]]].map(([a, b]) => E.cam.screenToFrame(a, b)));
+            else if (ev[0] === "resize") E.resize(ev[1], ev[2]);
+            else if (ev[0] === "zoom") E.zoomAt(ev[1], ev[2], ev[3]);
+        };
+        both((E) => { E.flushErases(); E.pointerDown(p[0], p[1]); });
+        const Nn = N(), evs = [];
+        const off = Nn.doc.subscribe((ev) => evs.push(ev.kind));
+        const m0 = [Nn.doc.rev, Nn.doc.offRev, Nn.lm.addrEpoch, Nn.doc._undo.length].join("|"), s0 = natives(Nn), f0 = frames(Nn);
+        const inked0 = new Set([...f0.keys()].filter((id) => Nn.doc.count(id)));
+        // `ended`: the gesture's end may forget an empty frame (frame GC, DESIGN.md §8), nothing else.
+        const same = (when, ended = false) => {
+            const own = ended ? evs.filter((k) => k !== "removeFrame") : evs;
+            if (own.length) fail(when + ": document events " + own.slice(0, 6).join(","));
+            const m = [Nn.doc.rev, Nn.doc.offRev, Nn.lm.addrEpoch, Nn.doc._undo.length].join("|");
+            if (m !== m0) fail(when + ": rev|offRev|addrEpoch|undo " + m0 + " -> " + m);
+            if (natives(Nn) !== s0) fail(when + ": the natives changed");
+            const f1 = frames(Nn);
+            for (const [id, a] of f0) if (f1.get(id) !== a && !(ended && !f1.has(id) && !inked0.has(id))) fail(when + ": frame " + id + " " + a + " -> " + f1.get(id));
+            for (const id of f1.keys()) if (!f0.has(id) && Nn.doc.count(id)) fail(when + ": a new frame " + id + " holds natives");
+        };
+        const placedAtDelta = (when) => {
+            const d = Nn._dragSel, hm = Nn._holdMove;
+            if (!d || !d.t || !hm || String(Nn.cam.frame) !== String(d.frame)) return;
+            const F = String(Nn.cam.frame), held = [...hm.ids];
+            for (const k of Nn.doc.levels()) if (hm.frames.some((r) => r === k || Nn.lm.isUnder(r, k))) for (const o of Nn.doc.list(k)) held.push(o.id);
+            for (const id of held.slice(0, 24)) {
+                const rec = Nn.doc.getById(id);
+                if (!rec) continue;
+                const a = Nn.stage.placeNative(rec.obj, F).box(), b = Nn.stage.atRest(() => Nn.stage.placeNative(rec.obj, F).box());
+                if (!a || !b) continue;
+                const tol = 1e-9 * Math.max(1, Math.abs(b.left), Math.abs(b.top));
+                if (Math.abs(a.left - b.left - d.t[0]) > tol || Math.abs(a.top - b.top - d.t[1]) > tol) fail(when + ": native " + id + " drawn at " + [a.left - b.left, a.top - b.top] + ", the delta " + d.t);
+                for (const it of Nn.stage.itemsOf(id)) {
+                    const q = Nn.stage.placed(it).off;
+                    if (q[0] !== it.off[0] + d.t[0] || q[1] !== it.off[1] + d.t[1]) fail(when + ": item of " + id + " placed at " + q + ", rest " + it.off);
+                }
+                st.placeChecks = (st.placeChecks || 0) + 1;
+            }
+        };
+        try {
+            plan.forEach((ev, k) => {
+                both((E) => apply(E, ev));
+                same("event " + k + " (" + ev[0] + ")");
+                placedAtDelta("event " + k + " (" + ev[0] + ")");
+                st.events = (st.events || 0) + 1;
+            });
+            both((E) => {
+                // The oracle's deselect, tool change and delete mid-drag kept its per-event writes, with no op; since
+                // A1 C2 they write nothing (DESIGN.md §8), so the oracle's drag is cancelled first to take that rule.
+                if (E === O() && (exit === "deselect" || exit === "tool" || exit === "delete")) E.cancelSelectGesture(false);
+                if (exit === "drop") E.pointerUp();
+                else if (exit === "pinch" || exit === "pinchOld") E.cancelSelectGesture(exit === "pinchOld");
+                else if (exit === "undo") E.undo();
+                else if (exit === "redo") E.redo();
+                else if (exit === "deselect") E.deselect();
+                else if (exit === "tool") { E.setTool("pen"); E.setTool("select"); }
+                else E.deleteSelection();
+                if (exit !== "drop") E.pointerUp();                         // the finger lifts after a cancel: it ends nothing
+                if (E.width !== w || E.height !== h) E.resize(w, h);
+            });
+            if (Nn._dragSel || Nn._holdMove || Nn.stage.holding) fail("after " + exit + ": a drag or a hold remains");
+            if (exit === "pinch" || exit === "deselect" || exit === "tool") {
+                same("after " + exit, true);
+                for (const f of Nn.lm.frames.values()) if (f.shadowOf != null || (f._shadows && f._shadows.size)) fail("after " + exit + ": a shadow at " + f.id);
+            }
+        } finally { off(); }
+        st.drags = (st.drags || 0) + 1;
+        st.exits = st.exits || {};
+        st.exits[exit] = (st.exits[exit] || 0) + 1;
+    }];
+}

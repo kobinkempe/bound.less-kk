@@ -832,3 +832,14 @@ headless Chromium 141 on `git archive`s of d206cd3 (before) and the build.
   set by `_dragFrames` when `readdressMany` re-parents a kid away from its root; `_underFrames`/`isUnder`,
   `walk`, `_subtreeCount`, the delete's `removeFrameSubtree` and frame GC reading `container` first; and the
   op's frame entries recording it for undo — `_outsideSelection` and the repair's frame half then go.
+- **As reviewed (R-DRAG, 2026-09-30).** A selection of a frame and per-object members: the drop re-homed a member
+  carried into a selected frame's start cell into that frame and then re-addressed the frame, moving the member twice
+  (38.4 px for a 19.2 px drop; d206cd3 had a different defect there, 24 px, its last event only). `_dropMove` now
+  re-addresses the frames first and runs the members' arithmetic against the lattice they left (`move.drop` D2b, red
+  on 8f9c073); the arithmetic is still once per (home, picture table). A member landing in a moving frame's vacated
+  cell takes a new frame there; an undo that returns the frame to that cell merges it into that frame when it keeps an
+  emptied kid (F80's mechanism; the picture exact, the redo byte-exact) — C3's co-residents remove it. The census is
+  unchanged (0 during the drag; 14/5/4 after GC). The pair fuzz's oracle follows DESIGN §10 after an undo or a redo
+  (TEST-MAP); `model.equivalence` 200 × 40: 8,000 checks, 55,701 items, 137 normalised within 1.46e-8;
+  `select.stands` 50 × 40: 2,000 checks, 432 selections. `move.hold.probe.js`: the document byte-equal at every event
+  of drags interleaved with renders, hit tests, lassos, resizes and crossings, under every exit.
