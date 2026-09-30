@@ -231,6 +231,15 @@ export function pictureTable(o, shift) { return composeShift(o.below, shift); }
 export function ownTableOf(o) { return cloneBelow(o.below); }
 
 /**
+ * The own table a native homed in a frame with `shift` carries to be drawn with picture table `T`: `T` less the
+ * shift (A1 C1: new ink and a ceded kid are drawn where they were put). A copy; undefined when none. The one
+ * helper of `Document.ownFor` and the descent's kids (PLAN §5.14 item 4).
+ */
+export function ownTableFor(T, shift) {
+    return shift && (shift[0] || shift[1]) ? cloneBelow(composeShift(T, [-shift[0], -shift[1]])) : cloneBelow(T);
+}
+
+/**
  * A native's PICTURE table (A1 C1): its own table with its home frame's shift added at k = 0, without
  * a carry, so the sum may reach a frame and a half. `below` itself when the frame has no shift.
  * Exact: both terms are multiples of 2^-10 under 2^18.

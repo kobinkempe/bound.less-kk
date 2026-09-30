@@ -200,21 +200,34 @@ class ErasePipeline {
         return true;
     }
     /**
-     * Whether mark `id` can mask anything again: in the document (set aside with a frame too), or
-     * held by an undone gesture on the redo stack. A spent mark never returns (its gesture undoes by
-     * its steps), nor does one whose redo branch a new op cleared; an applied gesture's `strokeRec`
-     * outlives its redo and names nothing that can return.
+     * Whether mark `id` can mask anything again: in the document, deleted with its frame by an op in
+     * history (A1 C3: the subtree left the document, its undo puts it back), or held by an undone
+     * gesture on the redo stack. A spent mark never returns (its gesture undoes by its steps), nor does
+     * one whose redo branch a new op cleared; an applied gesture's `strokeRec` outlives its redo and
+     * names nothing that can return.
      */
     _markAlive(id) {
         const o = this.doc._byId.get(id);
-        if (o && o.erase && !o._gone) return true;
+        if (o && o.erase) return true;
         const r = this.doc._redo, h = this._held;
         if (!h || h.r !== r || h.rl !== r.length || h.rt !== r[r.length - 1]) {
             const set = new Set();
             for (const op of r) if (op.strokeRec && op.strokeRec.obj) set.add(op.strokeRec.obj.id);
             this._held = { r, rl: r.length, rt: r[r.length - 1], set };
         }
-        return this._held.set.has(id);
+        if (this._held.set.has(id)) return true;
+        const u = this.doc._undo, g = this._asideMarks;
+        if (!g || g.u !== u || g.ul !== u.length || g.ut !== u[u.length - 1]) {
+            const set = new Set();
+            const recs = (list) => { for (const rec of list || []) for (const n of rec.natives || []) if (n.erase) set.add(n.id); };
+            for (const op of u) {
+                if (op.op === "removeFrames") recs(op.records);
+                else if (op.op === "deleteMany") { for (const p of op.parts) if (p.op === "removeFrames") recs(p.records); }
+                else if (op.baked) for (const st of op.baked) if (st.frames && st._on !== false) recs(st.frames);
+            }
+            this._asideMarks = { u, ul: u.length, ut: u[u.length - 1], set };
+        }
+        return this._asideMarks.set.has(id);
     }
     /** A live native names no mark that cannot return (A2 §4.6): dropped as it re-enters, and at a load. */
     _pruneDead(o) {

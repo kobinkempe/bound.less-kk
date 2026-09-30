@@ -110,6 +110,7 @@ export default class LevelMap {
             id, parent, depth, cell, _kids: null,
             shift: null, addrSeq: 0,
             shadowOf: null, _shadows: null,   // co-residency: the resident of a shared cell, its co-residents (A1 C3)
+            private: null,                    // a family's private frame: the id its chain hangs from (A1 C4)
             edge: parent == null ? null : cellEdge(cell.i, cell.j),
             // The cell's centre in its PARENT's units — the exact integer i*G.
             // Transforms use this rather than the edge's `t`, because
@@ -158,9 +159,10 @@ export default class LevelMap {
     }
     /** Whether frames `a` and `b` are one cell: the same frame, or co-residents. */
     sameCell(a, b) {
-        if (String(a) === String(b)) return true;
-        const x = this.residentOf(a);
-        return !!x && x === this.residentOf(b);
+        if (a === b) return true;
+        const fa = this.frames.get(String(a));
+        if (!fa || (fa.shadowOf == null && !fa._shadows)) return String(a) === String(b);   // alone in its cell: the common case
+        return (fa.shadowOf != null ? this.frames.get(fa.shadowOf) : fa) === this.residentOf(b);
     }
     /** The resident of child cell `key` of `p`'s cell, looked up through every frame sharing that cell. */
     _kidAt(p, key) {
@@ -191,11 +193,11 @@ export default class LevelMap {
             if (f._kids) for (const c of this.childrenOf(f.id)) stack.push(c);
         }
     }
-    /** Group `list` (frames at one cell) as one: `r`, else its present resident, else its first, is the resident. */
+    /** Group `list` (frames at one cell) as one: `r`, else its present resident unless a private one, else a non-private frame, is the resident. */
     _regroup(list, r = null) {
         if (!list.length) return null;
         this._paths.clear();
-        r = r || list.find((g) => g.shadowOf == null) || list[0];
+        r = r || list.find((g) => g.shadowOf == null && g.private == null) || list.find((g) => g.private == null) || list.find((g) => g.shadowOf == null) || list[0];
         r.shadowOf = null; r._shadows = null;
         for (const g of list) {
             if (g === r) continue;
@@ -207,7 +209,7 @@ export default class LevelMap {
     /** Residents `a` and `b` of one cell become one group; an empty childless `b` yields the cell to `a`. Returns the resident. */
     _joinGroups(a, b, empty) {
         this._paths.clear();
-        const yieldB = !(b._kids && b._kids.size) && empty(b.id);
+        const yieldB = (b.private != null && a.private == null) || (!(b._kids && b._kids.size) && empty(b.id));   // a private frame never keeps a cell from another
         const [r, s] = yieldB ? [a, b] : [b, a];
         const add = [s.id, ...(s._shadows || [])];
         s._shadows = null;
@@ -330,8 +332,11 @@ export default class LevelMap {
             return this.cellChild(sib.id, ci.digit, cj.digit);
         }
         const hit = this._kidAt(p, cellKey(i, j));
-        if (hit) return hit;
-        return this._addFrame(this._childId(parentId, i, j), parentId, { i, j }, p.depth + 1);
+        if (hit && hit.private == null) return hit;
+        // A cell of private frames alone (A1 C4) gets a frame of its own, its resident: the camera and new ink go there.
+        const f = this._addFrame(this._childId(parentId, i, j), parentId, { i, j }, p.depth + 1);
+        if (hit) this._regroup(this.cellFrames(f.id), f);
+        return f;
     }
     /**
      * The resident of the child cell that already exists, or null. No side effects. `own`: only a kid
@@ -589,6 +594,21 @@ export default class LevelMap {
         return { moved, shadowed };
     }
     /**
+     * The private frame of family `key` at child cell (i, j) of `parentId`'s cell, contained by `parentId` (A1 C4): a
+     * co-resident there flagged `private` with `key` — the id of the non-private frame the family's chain hangs from —
+     * made on first use. A cede's kids live in it, so the lasso can take every other frame whole.
+     */
+    privateFrame(parentId, i, j, key) {
+        const p = this.frames.get(String(parentId));
+        if (!p || !inDigit(i) || !inDigit(j)) return null;
+        const r = this._kidAt(p, cellKey(i, j));
+        if (r) for (const g of this.cellFrames(r.id)) if (g.private === String(key) && g.parent === p.id) return g;
+        const f = this._addFrame(this._childId(p.id, i, j), p.id, { i, j }, p.depth + 1);
+        f.private = String(key);
+        if (r) this._regroup(this.cellFrames(f.id));
+        return f;
+    }
+    /**
      * A frame put back at its address (an undo): a co-resident where a frame holds the cell, its resident
      * when that one holds nothing (`empty`) and contains no frame. Its kids come back after it, each
      * joining the group of its cell as it is added (`_addFrame`).
@@ -600,9 +620,9 @@ export default class LevelMap {
         f = this._addFrame(rec.id, rec.parent, { i: rec.i, j: rec.j }, rec.depth);
         if (rec.shift) f.shift = [rec.shift[0], rec.shift[1]];
         f.addrSeq = (rec.addrSeq || 0) + 1;                    // caches keyed on its chain read it afresh
-        if (rec.private != null) f.private = rec.private;
+        if (rec.private != null) { f.private = rec.private; this._regroup(this.cellFrames(f.id)); }
         const r = this.residentOf(f.id);
-        if (r !== f && !(r._kids && r._kids.size) && empty(r.id)) this._regroup(this.cellFrames(f.id), f);
+        if (r !== f && f.private == null && !(r._kids && r._kids.size) && empty(r.id)) this._regroup(this.cellFrames(f.id), f);
         this.addrEpoch++;
         this._rebuildSpine();
         return f;
@@ -610,11 +630,12 @@ export default class LevelMap {
     /**
      * A deleted subtree leaves the lattice (A1 C3): `rootId` and every frame it contains, out of every group they share,
      * their ids retired for the session (history names them). Returns each frame's address, parents first, for
-     * `restoreFrame`; null for no frame or a root.
+     * `restoreFrame`; null for no frame. A parentless root is given its parent first (`_growRoot`).
      */
     removeSubtree(rootId) {
         const root = this.frames.get(String(rootId));
-        if (!root || root.parent == null) return null;
+        if (!root) return null;
+        if (root.parent == null) this._growRoot(root);
         const out = [];
         this.walk(root.id, (f) => out.push({ id: f.id, parent: f.parent, i: f.cell.i, j: f.cell.j, depth: f.depth,
             shift: f.shift ? [f.shift[0], f.shift[1]] : null, addrSeq: f.addrSeq || 0, ...(f.private != null ? { private: f.private } : {}) }));
@@ -650,7 +671,8 @@ export default class LevelMap {
             if (cur) { if (cur.parent == null && p) this._adopt(cur, p, { i: f.i, j: f.j }); continue; }
             if (f.parent != null && !p) p = this.ensureId(f.parent);   // a parent main lost since: re-minted, not skipped (F99)
             if (f.parent != null && !p) continue;
-            this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            const g = this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            if (f.private != null) g.private = String(f.private);
             added++;
         }
         return added;
@@ -1006,13 +1028,12 @@ export default class LevelMap {
         if (hd == null || D == null) return null;
         const k0 = D - hd;
         const sh = shiftAt(below, k0);
-        const at = (id) => (k0 === 0 && this.sameCell(id, homeId) ? String(homeId) : id);
+        if (k0 < 0 || !hasDigits(sh)) return { F0: k0 === 0 && this.sameCell(F, homeId) ? String(homeId) : F, rem: sh.rem, sh };
         const nb = (id, di, dj) => (mint ? this.neighbour(id, di, dj) : this.peekNeighbour(id, di, dj));
-        const missing = { F0: null, rem: sh.rem, sh, missing: true };
-        if (k0 < 0 || !hasDigits(sh)) return { F0: at(F), rem: sh.rem, sh };
+        const missing = () => (mint ? null : { F0: null, rem: sh.rem, sh, missing: true });
         if (k0 === 0) {
             const n = nb(F, -sh.carry[0], -sh.carry[1]);
-            return n ? { F0: at(n.id), rem: sh.rem, sh } : mint ? null : missing;
+            return n ? { F0: this.sameCell(n.id, homeId) ? String(homeId) : n.id, rem: sh.rem, sh } : missing();
         }
         const A = this.pathFrameAt(F, hd);
         const chain = A != null ? this.chainFrom(A, F) : null;
@@ -1022,10 +1043,10 @@ export default class LevelMap {
         const ax = applyDigits(chain.map((c) => c.i), 0, negX);
         const ay = applyDigits(chain.map((c) => c.j), 0, negY);
         const A0 = nb(A, ax.carry - sh.carry[0], ay.carry - sh.carry[1]);
-        if (!A0) return mint ? null : missing;
+        if (!A0) return missing();
         const cells = ax.chain.map((i, n) => ({ i, j: ay.chain[n] }));
         const F0 = mint ? this.frameAtChain(A0.id, cells) : this.peekAtChain(A0.id, cells);
-        return F0 ? { F0: F0.id, rem: sh.rem, sh } : mint ? null : missing;
+        return F0 ? { F0: F0.id, rem: sh.rem, sh } : missing();
     }
     /**
      * The other way: the frame at F0's depth that the object's picture occupies,
@@ -1186,6 +1207,7 @@ export default class LevelMap {
                 id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j,
                 ...(f.shift ? { shift: [f.shift[0], f.shift[1]] } : {}),
                 ...(f.shadowOf != null ? { shadowOf: f.shadowOf } : {}),
+                ...(f.private != null ? { private: f.private } : {}),
             })),
         };
     }
@@ -1215,8 +1237,9 @@ export default class LevelMap {
             done.add(f.id);
             if (f.parent != null && byId.has(f.parent)) put(byId.get(f.parent));
             else if (f.parent != null && !this.frames.has(f.parent)) this.ensureId(f.parent);   // not an unreachable orphan (F99)
-            this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
-            if (f.shift) this.frames.get(f.id).shift = [f.shift[0], f.shift[1]];
+            const g = this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            if (f.shift) g.shift = [f.shift[0], f.shift[1]];
+            if (f.private != null) g.private = String(f.private);
         };
         for (const f of list) put(f);
         if (!this.frames.has("0")) this._addFrame("0", null, { i: 0, j: 0 }, 0);

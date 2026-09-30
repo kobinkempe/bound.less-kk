@@ -45,7 +45,7 @@ import {
     repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, composeShift, pictureTable, ownTableOf } from "./geometry/offsets";
+import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, pictureTable, ownTableOf, ownTableFor } from "./geometry/offsets";
 import { unsettle, unmerge } from "./legacy/modelV1";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
@@ -445,7 +445,7 @@ export default class Document {
      */
     ownFor(T, home) {
         const f = this.lm && home != null ? this.lm.frame(String(home)) : null;
-        return f && f.shift ? composeShift(T, [-f.shift[0], -f.shift[1]]) : cloneBelow(T);
+        return ownTableFor(T, f ? f.shift : null);
     }
     _idx(level) { const k = String(level); return this._index[k] || (this._index[k] = new LevelIndex()); }
     _keyIn(k, o) {
@@ -866,7 +866,7 @@ export default class Document {
         for (const r of records) if (r.at) this.lm.restoreFrame(r.at, (id) => !this.count(id));
         for (const r of records) {
             const k = r.frame;
-            if (!this.lm.frame(k)) continue;
+            if (!this.lm.frame(k) || !r.natives.length) continue;       // a frame of the structure alone holds no list
             const cur = this.nativesByLevel[k];
             const all = cur && cur !== r.natives && cur.length ? r.natives.concat(cur) : r.natives;
             const reuse = all === r.natives && !!r.index;
@@ -899,14 +899,25 @@ export default class Document {
         records.length = 0;
         for (const r of out) records.push(r);
     }
-    /** A replayed subtree delete whose frame a snapshot still lists: its natives go (the lattice is the header's). */
-    dropFrameList(frame) {
-        const k = String(frame), arr = this.nativesByLevel[k];
-        if (this.lm) this.lm.retire(k);                  // history names it: no new frame takes its id
-        if (!arr) return;
-        delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
-        for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
-        this._emit({ kind: "removeFrame", frame: k, count: arr.length });
+    /**
+     * A replayed subtree delete (`stale(record)`: a snapshot at or past it, nothing to do there): the natives a
+     * snapshot still lists go, and a frame only those rows named (minted at the load, the header's lattice lacking
+     * it: A1 C3) leaves the lattice again. A store's record from before C3 has no address and its frame stays. Every
+     * id retired: history names them.
+     */
+    dropFrames(records, stale = () => false) {
+        for (const r of records) {
+            this.lm.retire(r.frame);
+            const k = String(r.frame), arr = this.nativesByLevel[k];
+            if (stale(r) || !arr) continue;
+            delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
+            for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
+            this._emit({ kind: "removeFrame", frame: k, count: arr.length });
+        }
+        for (let i = records.length - 1; i >= 0; i--) {
+            const r = records[i], k = String(r.frame);
+            if (r.at && !stale(r) && this.lm.frame(k) && !this.count(k)) this.lm.forget(k);
+        }
     }
 
     // Replace a native with the region(s) an AREA erase left of its ink. Each

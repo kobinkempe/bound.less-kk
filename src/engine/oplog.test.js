@@ -414,7 +414,7 @@ describe("the op log and a subtree moved as frames", () => {
         const d = log.drain();
         expect(d.entries.map((e) => e.op.k)).toEqual(["removeFrames"]);
         expect(d.entries[0].geo.length).toBeGreaterThan(0);
-        expect(d.entries[0].op.records.length).toBe(3);
+        expect(d.entries[0].op.records.filter((r) => r.objects.length).length).toBe(3);   // every frame of it, with its address
         const later = snapshot(E, log);                              // the rows R, K, L have gone with the write
         expect(Object.keys(later.frames)).not.toContain(R.id);
         const { F } = restore(later, d.entries, E.lm.serialize());
@@ -422,7 +422,7 @@ describe("the op log and a subtree moved as frames", () => {
         E.undo(); F.undo(); same(F, E);
         expect(nat(F)).toBe(before);
         E.redo(); F.redo(); same(F, E);
-        // From the older snapshot the entry detaches the rows it still finds.
+        // From the older snapshot the entry drops the rows it still finds, and the frames only they named.
         const { F: G } = restore(snap, d.entries, E.lm.serialize());
         same(G, E);
         E.undo(); G.undo(); same(G, E);
@@ -452,13 +452,13 @@ describe("the op log and a subtree moved as frames", () => {
 
     test("an erase that takes a frame whole is a bakeFrames entry with the natives; undo after a reload restores them", () => {
         const { E, log, R, K, snap } = fixture();
-        const before = nat(E);
+        const before = nat(E), K11 = E.lm.cellChild(K.id, 1, 1).id;
         eraseGesture(E, [[500, 460], [620, 460]], 130);
         E.flushErases();
         expect(E.doc.count(R.id)).toBe(0);
         const d = log.drain();
         expect(d.entries.map((e) => e.op.k)).toEqual(["mark", "bakeFrames", "spent"]);
-        expect(d.entries[1].op.frames.map((f) => f.frame).sort()).toEqual([R.id, K.id, E.lm.cellChild(K.id, 1, 1).id].sort());
+        expect(d.entries[1].op.frames.filter((f) => f.objects.length).map((f) => f.frame).sort()).toEqual([R.id, K.id, K11].sort());
         expect(d.entries[1].geo.length).toBeGreaterThan(0);
         const later = snapshot(E, log);                              // the three rows have gone
         const { F, stats } = restore(later, d.entries, E.lm.serialize());
@@ -468,7 +468,7 @@ describe("the op log and a subtree moved as frames", () => {
         expect(nat(F)).toBe(before);
         E.redo(); F.redo(); same(F, E);
         expect(F.doc.count(R.id)).toBe(0);
-        const { F: G } = restore(snap, d.entries, E.lm.serialize());   // the old rows: detached by the entry
+        const { F: G } = restore(snap, d.entries, E.lm.serialize());   // the old rows: dropped by the entry
         same(G, E);
         E.undo(); G.undo(); same(G, E);
     });

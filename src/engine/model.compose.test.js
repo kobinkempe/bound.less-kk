@@ -150,9 +150,10 @@ describe("the composition", () => {
             X._render();
             erase(X, [[100, 450], [400, 460], [700, 450]], 30);                // at K: the coarse native cedes K's tile
         }
-        const kids = E.doc.list(K).filter((o) => o.editId != null && o.type !== "stroke" && !o.erase);
+        const kids = E.doc.cellList(K).filter((o) => o.editId != null && o.type !== "stroke" && !o.erase);
         expect(kids.length).toBeGreaterThan(0);
-        for (const k of kids) expect(E.doc.ownTable(k)).toEqual([[-s[0], -s[1]]]);   // composed: no displacement
+        for (const k of kids) expect(E.lm.frame(k._home).private).not.toBeNull();        // A1 C4: its family's private frame, unshifted
+        for (const k of kids) expect(E.doc.ownTable(k)).toBeUndefined();                  // nothing to cancel there
         for (const k of kids) expect(hasOffsets(E.doc.tableOf(k))).toBe(false);
         samePictures(O, E, [K, "1"]);
     });

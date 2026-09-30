@@ -277,6 +277,29 @@ export default class KobinEngine {
             });
         }
     }
+    /**
+     * The camera's frame deleted with a subtree (A1 C3: it left the lattice): the camera goes to a fresh frame at the
+     * same cell — its chain as the last render read it — with the same coordinates. Else its chain is noted.
+     */
+    _camToLattice() {
+        const F = String(this.cam.frame);
+        if (this.lm.frame(F)) {
+            if (!this._camAt || this._camAt.F !== F || this._camAt.epoch !== this.lm.addrEpoch) {
+                const up = this.lm._ancestors(F), root = up[up.length - 1];
+                this._camAt = { F, epoch: this.lm.addrEpoch, root, chain: this.lm.chainFrom(root, F) };
+            }
+            return false;
+        }
+        const at = this._camAt;
+        const f = at && at.chain && this.lm.frame(at.root) ? this.lm.frameAtChain(at.root, at.chain) : null;
+        this.cam.frame = f ? f.id : this.lm.ensureSpine(this.cam.activeLevel || 0);
+        this._camAt = null;
+        // What the deleted frame's id cached goes, as frame GC's forget does: an undo brings the id back (F111).
+        if (this.store && this.store.forgetFrame) this.store.forgetFrame(F);
+        if (this.stage) this.stage.forgetFrame(F);
+        if (this.plates) this.plates.dropFrames((G) => String(G) === F);
+        return true;
+    }
     /** The camera in its cell's resident (A1 C3): the same cell, the same coordinates. True when it moved. */
     _camToResident() {
         const r = this.cam ? this.lm.residentOf(this.cam.frame) : null;
@@ -640,6 +663,7 @@ export default class KobinEngine {
         // next engine shares (OPEN-FLAGS F101).
         if (this._destroyed) return;
         const t0 = perfNow();
+        this._camToLattice();
         // The camera changed frame: what it left may go (F94) — before the table, whose memos count frames.
         if (noteCameraFrame(this)) collectFrames(this, true);
         this._prepareView();

@@ -17,6 +17,7 @@ test("list build over a zoom out and back on the dense drawing", () => {
     if (E.flushErases) E.flushErases();
     E.cam.set({ frame: "2", activeLevel: E.lm.depthOf("2"), inScale: 1, inPanX: 640, inPanY: 400 });
     E._render();
+    E.renderer.render = () => {}; E.renderer.update = () => {};          // the engine's side alone: the list
     const sync = E.stage.sync.bind(E.stage);
     const t = { sync: 0, syncN: 0, render: 0, renders: 0 };
     E.stage.sync = (...a) => { const a0 = now(); const r = sync(...a); t.sync += now() - a0; t.syncN++; return r; };
@@ -35,8 +36,16 @@ test("list build over a zoom out and back on the dense drawing", () => {
     zoom(0.9, 90);
     zoom(1 / 0.9, 90);
     t.total = now() - a0;
+    // The same zoom again, its tiles cached: the list's own cost.
+    const s0 = t.sync, n0 = t.syncN, b0 = now();
+    for (const v of prof.values()) { v.ms0 = v.ms; v.n0 = v.n; }
+    zoom(0.9, 90);
+    zoom(1 / 0.9, 90);
+    t.warm = { sync: Math.round(t.sync - s0), syncN: t.syncN - n0, total: Math.round(now() - b0) };
+    t.warmProf = {};
+    for (const [k, v] of prof) t.warmProf[k] = [Math.round(v.ms - v.ms0), v.n - v.n0];
     const p = {};
     for (const [k, v] of prof) p[k] = [Math.round(v.ms), v.n];
-    log("LIST " + JSON.stringify({ sync: Math.round(t.sync), syncN: t.syncN, render: Math.round(t.render), renders: t.renders, total: Math.round(t.total), frames: E.lm.frames.size, prof: p }));
+    log("LIST " + JSON.stringify({ sync: Math.round(t.sync), syncN: t.syncN, total: Math.round(t.total), warm: t.warm, warmProf: t.warmProf, frames: E.lm.frames.size, prof: p }));
     E.destroy(); host.remove();
 });

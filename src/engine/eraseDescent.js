@@ -21,15 +21,25 @@ import LevelMap from "./LevelMap";
 import { R as CROSS_RATIO, W as FRAME_W, childTilePhase } from "./frameLattice";
 import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf } from "./geometry/derive";
 import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop } from "./geometry/arcShape";
-import { shiftDown, pictureTable, composeShift } from "./geometry/offsets";
+import { shiftDown, pictureTable, ownTableFor } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
 import { cede } from "./cede";
 
 const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
 const frameShift = (lm, id) => { const f = lm.frame(String(id)); return f ? f.shift : null; };
-/** The own table of a kid homed in `F` drawn with picture table `T`: `T` less F's shift (A1 C1); null for none. */
-const ownIn = (lm, T, F) => { const s = frameShift(lm, F); return (s ? composeShift(T, [-s[0], -s[1]]) : T) || null; };
+/**
+ * Where a kid ceded from a piece homed in `from` into cell `Fn` lives (A1 C4): the private frame of its family at that
+ * cell — contained by `from` when that is Fn's parent cell (the family's chain), else by Fn's parent — so no shared
+ * frame holds a family's kids.
+ */
+function kidHome(lm, Fn, from) {
+    const f = lm.frame(String(Fn)), h = lm.frame(String(from));
+    const key = h.private != null ? h.private : h.id;
+    const parent = lm.sameCell(h.id, f.parent) ? h.id : f.parent;
+    const p = lm.privateFrame(parent, f.cell.i, f.cell.j, key);
+    return p ? p.id : f.id;
+}
 
 /** The objects a descent reads and mints, apart from the document. */
 export class VirtualDoc {
@@ -235,9 +245,10 @@ export function descentJob(world, input) {
                     const ph = ink.tile || (cfo && cfo.centre
                         ? [childTilePhase(pcur[0], cfo.centre.x, CROSS_RATIO), childTilePhase(pcur[1], cfo.centre.y, CROSS_RATIO)]
                         : [0, 0]);
-                    const step = cede(vdoc, cid, Fn, specs,
+                    const home = kidHome(lm, Fn, crec.level);
+                    const step = cede(vdoc, cid, home, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
-                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownIn(lm, kidT, Fn), boolOpts,
+                        { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownTableFor(kidT, frameShift(lm, home)), boolOpts,
                         dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id);
                     if (!step) { why = "cedeTileById refused"; continue; }
                     const spec = (p) => ({ vid: p.obj.id, level: p.level, obj: p.obj });
@@ -259,7 +270,10 @@ export function descentJob(world, input) {
     if (!steps.length) return { refused: "no tile ceded: " + (why || "?"), stats, inkless };
     if (!lastCeded) return { refused: "last link refused: " + (why || "?"), stats, inkless };
     const minted = [];
-    for (const f of lm.frames.values()) if (!had.has(f.id) || had.get(f.id) !== f.parent) minted.push({ id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j });
+    for (const f of lm.frames.values()) {
+        if (had.has(f.id) && had.get(f.id) === f.parent) continue;
+        minted.push({ id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j, ...(f.private != null ? { private: f.private } : {}) });
+    }
     return { steps, stats, minted };
 }
 

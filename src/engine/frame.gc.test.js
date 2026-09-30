@@ -94,19 +94,18 @@ describe("a frame holds something (frame GC, F94)", () => {
         expect(lattice(E)).toBe(start);                          // red: the drag's containers stay
     });
 
-    test("G3 a frame an undo can refill is kept; it goes when the op leaves history", () => {
+    test("G3 a deleted subtree leaves the lattice at once (A1 C3); an undo puts it back; nothing of it outlives its op", () => {
         const { E, R, K, L } = fixture();
         E._setSelection([], [R.id]);
         E.deleteSelection();
-        expect(E.lm.frame(R.id) && E.lm.frame(K.id) && E.lm.frame(L.id)).toBeTruthy();   // the removeFrames op names them
+        expect([E.lm.frame(R.id), E.lm.frame(K.id), E.lm.frame(L.id)]).toEqual([undefined, undefined, undefined]);
+        E.sweepFrames();
         E.undo();
-        expect(E.doc.count(R.id) + E.doc.count(K.id) + E.doc.count(L.id)).toBe(180);
+        expect(E.doc.count(R.id) + E.doc.count(K.id) + E.doc.count(L.id)).toBe(180);   // red when the sweep took R's container
         E.redo();
-        E.sweepFrames();                                                                  // a collection meanwhile: named, kept
-        expect(E.lm.frame(R.id) && E.lm.frame(K.id) && E.lm.frame(L.id)).toBeTruthy();
         for (let k = 0; k < 200; k++) E.doc.pushUndo({ op: "noop" });                   // the delete falls off the 200-op history
         collectFrames(E);
-        expect([E.lm.frame(R.id), E.lm.frame(K.id), E.lm.frame(L.id)]).toEqual([undefined, undefined, undefined]);   // red: kept for ever
+        expect([E.lm.frame(R.id), E.lm.frame(K.id), E.lm.frame(L.id)]).toEqual([undefined, undefined, undefined]);
         expect(strays(E)).toEqual([]);
     });
 

@@ -820,7 +820,7 @@ export default class Stage {
         }
         if (k === "removeFrame" || k === "addFrame") {
             if (!ev.count) return;
-            const s = this._frameState(String(ev.frame), null, String(ev.frame));
+            const s = this._frameState(String(ev.frame), ev.at || null, String(ev.frame));   // a deleted frame's address rides the event
             if (s) this._foot.push(s);
             return;
         }

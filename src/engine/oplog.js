@@ -420,7 +420,7 @@ export class OpLog {
             return { moves, levels };
         };
         // A deleted subtree's records: its natives, and (since A1 C3) each frame's address, for its undo; the ids retired.
-        const frameRecs = (list) => (list || []).map((r) => { doc.lm.retire(r.frame); return { frame: r.frame, natives: r.objects.map(liveOrDoc), index: null, ...(r.at ? { at: r.at } : {}) }; });
+        const frameRecs = (list) => (list || []).map((r) => ({ frame: r.frame, natives: r.objects.map(liveOrDoc), index: null, ...(r.at ? { at: r.at } : {}) }));
         for (const raw of entries) {
             const e = decodeEntry(raw);
             const seq = raw.seq;
@@ -467,7 +467,8 @@ export class OpLog {
                 case "bakeFrames": {
                     const rec = marks.get(e.mark);
                     const records = frameRecs(e.frames);
-                    for (const r of records) { if (rec) rec.levels.add(lvl(r.frame)); if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame); }
+                    for (const r of records) if (rec) rec.levels.add(lvl(r.frame));
+                    doc.dropFrames(records, (r) => stale(seq, [r.frame]));
                     if (rec) rec.op.baked.push({ frames: records, _seq: seq });   // in the steps' order: undo reverts newest first (F128)
                     if (seq > (doc._stepSeq || 0)) doc._stepSeq = seq;
                     break;
@@ -524,7 +525,7 @@ export class OpLog {
                 }
                 case "removeFrames": {
                     const records = frameRecs(e.records);
-                    for (const r of records) if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame);
+                    doc.dropFrames(records, (r) => stale(seq, [r.frame]));
                     fresh(seq, { op: "removeFrames", records }, e, records.map((r) => r.frame));
                     break;
                 }
@@ -532,7 +533,7 @@ export class OpLog {
                     const records = (e.records || []).map((r) => ({ obj: liveOrDoc(r.obj), level: r.level, index: at(r.index) }));
                     for (const r of records) if (!stale(seq, [r.level])) doc.removeById(r.obj.id);
                     const frames = frameRecs(e.frames);
-                    for (const r of frames) if (!stale(seq, [r.frame])) doc.dropFrameList(r.frame);
+                    doc.dropFrames(frames, (r) => stale(seq, [r.frame]));
                     fresh(seq, { op: "deleteMany", parts: [{ op: "eraseMany", records }, { op: "removeFrames", records: frames }] }, e,
                         [...records.map((r) => r.level), ...frames.map((r) => r.frame)]);
                     break;

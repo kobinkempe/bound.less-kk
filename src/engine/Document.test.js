@@ -361,14 +361,15 @@ describe("a frame subtree is removed and restored as containers (subtree O(1), 2
         expect(d.queryRect("1/5,5", { left: -100, top: -100, right: 100, bottom: 100 })).toEqual([kid]);
     });
 
-    test("a frame's shift waits out the removal and draws its natives again after it", () => {
+    test("a frame's shift leaves with the removal (A1 C3: the frame too) and draws its natives again after it", () => {
         const d = mkDoc();
         const a = mkStroke(d, "1/5,5", [[0, 0], [10, 5]]);
         const b = mkStroke(d, "1/5,5", [[20, 0], [30, 5]]);
         d.setFrameShift("1/5,5", [512, 0]);
         const recs = d.removeFrameSubtree("1/5,5");
         expect(d.at("1/5,5")).toEqual([]);
-        expect(d.lm.frame("1/5,5").shift).toEqual([512, 0]);
+        expect(d.lm.frame("1/5,5")).toBeUndefined();
+        expect(recs[0].at.shift).toEqual([512, 0]);
         expect([a, b].map(table)).toEqual([null, null]);
         d.insertFrameSubtree(recs);
         const arr = d.at("1/5,5");

@@ -322,10 +322,11 @@ class Selection {
         // per-object rect still goes through `mapRectF` hop by hop.
         const visit = (id, s, tx, ty, skip) => {
             if (!inked.has(id)) return;                                       // nothing under it to select
-            const own = reachBox(this.lm.frame(id), s, tx, ty);
+            const fr = this.lm.frame(id), own = reachBox(fr, s, tx, ty);
             if (own.right < box.left || own.left > box.right
                 || own.bottom < box.top || own.top > box.bottom) return;      // out of reach
-            if (!noWhole.has(id) && rectInsidePolygon(poly, own)) { takeAll(id); return; }   // enclosed
+            // Enclosed: one entry. Never a private frame (A1 C4): its natives are judged with their families.
+            if (fr.private == null && !noWhole.has(id) && rectInsidePolygon(poly, own)) { takeAll(id); return; }
             for (const o of this.doc.queryRect(id, { left: (box.left - tx) / s, top: (box.top - ty) / s,
                 right: (box.right - tx) / s, bottom: (box.bottom - ty) / s })) {
                 if (o.erase) continue;
@@ -404,7 +405,10 @@ class Selection {
      * The frames an enclosed frame may not stand for whole: the path from each keyed native under
      * it whose family the loop does not bound (a ceded kid of a stroke outside it) up to the frame.
      * Reads only the keyed natives under enclosed frames (`Document.keyedIn`), never their other
-     * ink (REVIEWER-3 LASSO-1: a drag then tore the kid out of the stroke).
+     * ink (REVIEWER-3 LASSO-1: a drag then tore the kid out of the stroke). Since A1 C4 a cede's kids
+     * live in private frames under their family's chain, so an enclosed frame holds such a kid only
+     * with its family: this is the backstop for kids in shared frames (content from before C4, a kid
+     * ceded across its chain's parent cell, a member moved per object).
      */
     _tornUnder(frames, found) {
         const keyed = new Set();
@@ -875,8 +879,8 @@ class Selection {
                 const rec = this.doc.removeById(id);
                 if (rec) records.push(rec);
             }
-            // A selected frame goes as CONTAINERS: each frame's list detached by reference,
-            // O(frames) and no per-object work (SUBTREE-O1-PLAN §2.3).
+            // A selected frame goes with its subtree: out of the lattice with its lists, O(frames) and the id
+            // index (A1 C3, SUBTREE-O1-PLAN §2.3).
             for (const f of frames) {
                 if (this._underFrames(f, frames.filter((x) => x !== f))) continue;   // an ancestor of it is going anyway
                 const recs = this.doc.removeFrameSubtree(f);
