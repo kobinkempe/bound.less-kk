@@ -2503,3 +2503,22 @@ count one repair an action, I11 new, I9 deleted). Chromium: the drag's first ste
 the first write had dropped frame "1"'s tiles from the table) → 27–33 ms (the at-rest decision of 1,044 pieces kept).
 **Decisions made:** I4 kept (merges stay until C3). **Questions asked:** none.
 WHERE I AM: D4 — DESIGN §1/§8/§9/§10, docs/ai 20/30/40, PLAN §1.4/§1.7, A1 §14 C2, TEST-MAP, OPEN-FLAGS (+F136).
+
+## 2026-09-30 01:40 UTC — B-PYRAMID-4 (builder) — checkpoint: rule 2 and the clip cull built (PLAN §5.18); all five red-before
+**Working on:** `rasterPack.js` — the prepass's records kept by geometry (`recFor`: rebuilt on entry/fade/z/family/erase/
+`res`-by-value change; the set bounded to the last list's items at each of RECS_KEYS 8 zoom|dpr|cfg|offset keys), a
+family keeps its union rule/sign while its records are the same; the clip cull in `PlateBinner` (a clipped job files an
+item into a plate only where its floored pixel box meets that plate's clip; whole-cell clips cull as before); the dead
+`live` gone from `packJob`/`prepassFor`/`paintFamilies`/`visibleChords`/`outsideWin`/`MovePlane.aim`/`_cut`/the renderer.
+The estimate prices the pack (`packItemUs` 20 × kept items + `packListUs` 1 × list items, both calibrated from every
+`_pyrPack`). F135: `_notForGroup` re-asks only when no ask since the group's G and no other job in flight is coming.
+**Measured (jsdom; red-before on `bp4/rb` = adcae93's code with the new tests):** 9 of 117 red there — J4g (records by
+geometry), the clip-cull fuzz, the pack's price, the two commit tests, F134's engine test, the never-older fuzz
+(`olderOtherMs` 178.6 → 0 here: 117 plans, 42 older, all (f′) unread, `olderUnreadMs` 139), the two F135 unit tests
+(exact-at-landing; the join) — plus jobQueue's two and LH-7 before. Live tree: raster.job 41/41, rasterCore.clip 13/13
+(the fuzz: 36 seeds × 3 zooms, byte-equal inside the clip), PicturePyramid.* + raster.pyramid 82/82 (one earlier red in
+a concurrent run, not reproduced ×3), raster.commit 4/4, LH 6/6, raster.move, stage.cover, raster.snapshot green.
+**Decisions made:** the record set's bound is the last list per key (not a WeakMap over every piece: that would hold
+entries the memo evicted); the union state kept by record identity, replaced per prepass (bounded).
+**Questions asked:** none new.
+WHERE I AM: the break-checks on `bp4/bc`, then the bundles, typecheck, lint, the frozen after-copy and the batch.

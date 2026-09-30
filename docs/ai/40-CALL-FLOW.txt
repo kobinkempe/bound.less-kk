@@ -187,17 +187,17 @@ SELECTING AND MOVING
       select(sx, sy, members) / members()   the erase barriers: the hit object's,
       _dragBarrier(start)                   then EVERYTHING about to move; parked
                                             while cuts are in workers
-      _dragSel = { start, moves, moved }
-      store.setBatch(true)                  stop patching off-screen tiles
-      _beginHold()                          raster: renderer.planeAccepts() aims the drag
-                                            plane (PAPER-PLAN §10 S4, S4z, §10.14; normally
-                                            cached since the selection was made): layers by z,
-                                            "z<n>_<q>" - the ink below the selection, each
-                                            selected run on transparent plates, each run above
-                                            it in place - at the plane's own level and at a
-                                            quick one two octaves under it; runs merged past 5,
-                                            the level coarser past the plate cap; accepted -> the
-                                            members' plate events are held until _endMove
+      _dragSel = { start, moved }
+      _beginHold()                          stage.hold({ids, frames}): the members and everything
+                                            under the selected frames are HELD until the drop
+                                            (A1 C2: a drag writes nothing); raster:
+                                            renderer.planeAccepts() aims the drag plane (PAPER-PLAN
+                                            §10 S4, S4z, §10.14; normally cached since the selection
+                                            was made): layers by z, "z<n>_<q>" - the ink below the
+                                            selection, each selected run on transparent plates, each
+                                            run above it in place - at the plane's own level and at a
+                                            quick one two octaves under it; runs merged past 5, the
+                                            level coarser past the plate cap; accepted -> hold.plane
     on paper:
       _lasso = { pts, ctrl }
   pointermove
@@ -205,32 +205,39 @@ SELECTING AND MOVING
                                             frame runs this once, at the last one (it
                                             recomputes from the drag's start, M-4); a
                                             release takes the pending step first
-      tx, ty = snapDisplacement((pointer - start) / cam.inScale)   camera units (F55)
-      for each member of the selection's edit families:
-        _displaceMember(from, baseBelow, camDepth, tx, ty)   once per (frame, table), memoised
-          depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
-          depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
-      doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per changed table
-      the selected FRAMES (2026-09-15), never per object:
-        _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
-        _dragFrames: lm.moveSubtreeTargets from the start record -> lm.readdressMany (two-phase; a held
-          cell makes a shadow) -> doc.setFrameShift (the rest, D+1/D+2; before the refile, so a memo keyed
-          on offRev sees it) -> doc.noteRefile per address or shift change
-      _render()                             reads through placementModel: the shift composed, nothing written (A1 C1)
-        -- or, with the hold and the plane live: renderer.syncCameraOnly() alone, no list;
-           _planeStep picks what the compose draws, the selection translated by the pointer:
-           the plane's own level whole, else the quick one, else a level's selected layers
-           alone, else a stopgap rastered here (a selection of <= 500 objects)
+      tx, ty = snapDisplacement((pointer - start) / cam.inScale)   camera units (F55); d.t, d.depth
+      stage.setDragDelta(d.t, {frame, viewDraws: !hold.plane})   nothing written: the held natives are
+                                            placed (hit, lassoed) at + delta; the view's plates draw
+                                            them there only without the plane (Item.res), each change
+                                            one commit dirtying where they were drawn and where they are
+      renderer.syncCameraOnly() alone with the plane live (no list): _planeStep picks what the
+        compose draws, the selection translated by the pointer: the plane's own level whole,
+        else the quick one, else a level's selected layers alone, else a stopgap rastered here
+        (a selection of <= 500 objects); without it, _render()
+      (the plane lost - _planeLost: the camera left its frame - hands the drag to the view's plates)
   pointerup
-    _homeShift / _normalizeHome for a member outside its cell (geometry snapshots kept for it)
-    doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
-      or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, merged}
-    store.setBatch(false)
-    _endMove("drop")                        the one exit: doc.mergePending(op) (the drop's shadows merge,
-                                            recorded on its op), _releaseMove (one collapsed invalidation),
-                                            renderer.endMove -> the plane LANDS (stays, clipped per
-                                            cell, until each cell's own plate is fresh; MOVE_HOLD_MS),
-                                            then one _render()
+    _endMove("drop")                        the one exit; one stage.batch:
+      _dropMove(d)                          the drag's ONE write, from the start to d.t:
+        for each member of the selection's edit families:
+          _displaceMember(from, pictureTable, d.depth, tx, ty)   once per (frame, table)
+            depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
+            depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
+          own table = doc.ownFor(picture table, target frame) (less its shift, A1 C1)
+        store.setBatch(true); doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per
+          changed table; the selected FRAMES (2026-09-15), never per object:
+          _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
+          _dragFrames: lm.moveSubtreeTargets -> lm.readdressMany (two-phase; a held cell makes a shadow)
+            -> doc.setFrameShift (the rest, D+1/D+2; before the refile) -> doc.noteRefile per change;
+          store.setBatch(false)
+        doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
+          or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, merged}
+      _releaseMove -> stage.release()       the held events applied: one commit, start ∪ end
+      doc.mergePending(op)                  the drop's shadows merge, recorded on its op
+    renderer.endMove -> the plane LANDS (stays, clipped per cell, until each cell's own plate is fresh;
+      MOVE_HOLD_MS); renderer.noteUserEdit() (the drop's patch: patchUserMs)
+    _repairSelection(op's frames)           torn kids join the selection, quietly (A1 C2)
+    one _render(); collectFrames
+  a cancel (a pinch, an undo mid-drag, a deselect): _endMove(why) releases the hold, writes nothing
 
   undo of a moveFrames (Document._invert)
     per frame entry: unmerge each merged record (lm.unadoptShadow); a `settled` record from a store written
@@ -320,9 +327,9 @@ RENDERING   [HOT]
     sceneOps.snapshotView(req)              one plate of any frame and rect, for
                                             a scene's thumbnail (a snapshot, snapshotJob,
                                             not _post); never touches the plate store
-    the drag: _beginSelectDrag -> _beginHold -> stage.hold({ids, frames}) when the
-      plane draws it; the members' events wait; _endMove -> stage.release(): one commit
-      that dirties where the selection was and where it is
+    the drag: _beginSelectDrag -> _beginHold -> stage.hold({ids, frames}); each event
+      stage.setDragDelta; the drop's write waits in the hold; _endMove -> stage.release():
+      one commit that dirties where the selection was and where it is
 
   THE INPUT FRAME (A3 §5; cfg.frames "raf" for the page, "sync" for the suites and
   the one-off engines):

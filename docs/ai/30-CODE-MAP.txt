@@ -429,15 +429,17 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      store's own piece - _squareInk, F42)
                       severance      _familyComponents / _resplitFamily
                       selection      _hitTest, _lassoFind (the frame-tree walk),
-                                     _dragSelection (a move is address
-                                     arithmetic: the displacement, snapped to
-                                     2^-10 units at the move level, goes into
-                                     the object's displacement TABLE and never
-                                     into a coordinate - F41, then F55),
-                                     _displaceMember (the frame and the table
-                                     for a displacement, one lookup per
-                                     (frame, table), memoised), _homeShift,
-                                     _normalizeHome, _selectionAnts
+                                     _dragSelection (a step writes nothing:
+                                     the displacement, snapped to 2^-10 units
+                                     at the move level, is the Stage's held
+                                     delta - A1 C2), _dropMove (the drop's one
+                                     write: the displacement into each
+                                     member's address and TABLE, never into a
+                                     coordinate - F41, F55), _displaceMember
+                                     (one lookup per (frame, table)),
+                                     _opUnder / _repairSelection (the
+                                     selection repaired from an action's op),
+                                     _selectionAnts
                       scenes         (sceneOps) refreshScenes and renameScene
                                      through the scene client (_initScenes),
                                      sceneReport, sceneZoom, jumpTo / fitView,
@@ -447,8 +449,9 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                       the raster path _tableStep (the camera step:
                                      stage.sync, the renderer's step),
                                      _beginHold / _endMove /
-                                     _releaseMove (the drag's hold in the Stage
-                                     and its one exit), _planeState (listFor went
+                                     _releaseMove (the drag's hold in the Stage,
+                                     the drop and its one exit), _history
+                                     (undo, redo), _planeState (listFor went
                                      with B-PYRAMID-3; the crossing prebake and the
                                      ladder with the old picture path, P6)
                       files          serializeDrawing / loadDrawing (kobin-1)

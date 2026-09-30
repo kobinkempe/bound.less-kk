@@ -359,11 +359,12 @@ THE TWO INVARIANTS EVERYTHING RESTS ON
     2. AN OBJECT NEVER EXTENDS PAST ITS FRAME'S IMMEDIATE NEIGHBOURS. This is the
        load-bearing one. It makes the lasso's tree prune sound, it makes the
        ring pickup complete, and it bounds every neighbourhood query in the
-       engine. Two things keep it true: D9 promotion (an over-wide native is
+       engine. What keeps it true: D9 promotion (an over-wide native is
        promoted to its parent level at pen-up, dividing its coordinates by R,
-       which is a change of UNITS and not a loss of precision) and
-       _normalizeHome (a move that walks an object out of its cell re-homes it
-       into the one it now sits in). Break either and things start silently
+       which is a change of UNITS and not a loss of precision), and no move
+       rewrites a stored coordinate (a move is an address and a table), so
+       stored bits stay where they were drawn. _normalizeHome went with A1 C2
+       (2026-09-29). Break the promotion and things start silently
        disappearing rather than merely being slow.
 
 SELECTION
