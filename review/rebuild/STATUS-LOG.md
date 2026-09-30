@@ -2855,3 +2855,23 @@ raster files 192/192; lint 0 on my files; typecheck 0.
 **Working on:** b6: scenarios 1 and 4 once more (both disagree with B-PYRAMID-4's table and the review's).
 **Decisions made:** none. **Questions asked:** none.
 WHERE I AM: b6 running; then the end entry and the report.
+
+## 2026-09-30 06:10 UTC — B-MODEL-C34 (builder) — checkpoint C3b: no merges
+**Working on:** C3b done. A frame dropped on a taken cell stays a co-resident (its kids join the cells' groups all the
+way down; an empty childless resident yields); `isUnder`, `walk`, `subtreeStart`, `childrenOf` by container; the
+merge path, the `mergeFrame`/`splitFrame` events and their four handlers, the selection's merge hand-over and F126's
+follow deleted (legacy stores' merges replay and undo through `legacy/modelV1.js`); the camera handed to the resident at
+a refile/addFrame; GC promotes; version 3 covers co-residents and private frames. Row 8's exception closed: reads call
+`objShift(…, false)`; the engine mints the camera view's sources at the action's end (`_prepareView`, the render after
+a placement/address/camera change); a snapshot of another view whose source is missing is not ready (`want`) and the
+engine mints it at idle. Tests: `lattice.coresident.test.js` (new, 7), `move.camMerge` deleted (ported), `move.twin`,
+`move.subtree` t8/t10, `select.inkless` I4, `oplog`'s merge case, `move.drop`, `LevelMap` t2 rewritten; the fuzz got
+`c34` ops (dropOnto, deleteUndo, eraseDeep, lassoTorn) and `unitSelect`/`settleOracle` (the harness, not the oracle).
+**Measured (jsdom, load 2.1–3.9):** 67 suites 690 passed, 0 failed. `model.equivalence` 20+6 plain: 1,040 checks, 8,249
+items, as at C3a; 1+20 c34: 840 checks, 5,146 items, a co-resident with ink at 12 checks, bit-equal by place; one carried
+native 2 ulp above its home (seed 20, no co-resident: two roundings) — the c34 runs allow 2. `select.stands` 1+12 c34 green.
+`model.pureRead` (c34 on even seeds): 180 states, 2,048 reads, 0 frames minted, 58 snapshots not ready.
+**Decisions made:** the harness selects a frame by id as the oracle's merged unit (the cell's frames), so the op streams
+stay one; the oracle's pending merges are read before a comparison (its read order drew a shadow's natives twice).
+**Questions asked:** none.
+WHERE I AM: C3c — `removeFrameSubtree` takes the subtree out of the lattice; `insertFrameSubtree` restores it.
