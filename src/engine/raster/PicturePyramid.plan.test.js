@@ -690,6 +690,25 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         expect(t.pyr.s.olderOtherMs).toBeCloseTo(q, 6);
     });
 
+    test("older by cause, (f′) — a stale coarser stand-in: olderUnread while the cell's tiles are unread, olderPatch while its own job is asked, else olderOther", () => {
+        const W = 1024, H = 1024, t = setup(W, H), F = String(t.A);
+        let now = 0;
+        t.pyr._now = () => now;
+        t.pyr.frameFor(cam(t.A, 16, 0, 0, W, H));                              // cells (0..1, 0..1) at level 4, none stored
+        t.put(levelCell(F, 3, S, 0, 0), 0);                                    // the coarser plate over all four, then staled
+        t.stage.commit({ [F]: [{ left: 4, top: 4, right: 5, bottom: 5 }] });
+        t.stage.covers = (f, b) => !(b.left >= 32 && b.top < 32);             // cell (1, 0)'s tiles unread
+        t.pyr._asked.clear();
+        t.pyr._asked.set(levelKey(F, 4, S, 0, 1), t.stage.generation);         // cell (0, 1)'s own job asked
+        t.pyr.compose();
+        now = 100;
+        t.pyr.compose();
+        const q = 100 * 512 * 512 / (W * H);
+        expect(t.pyr.s.olderUnreadMs).toBeCloseTo(q, 6);
+        expect(t.pyr.s.olderPatchMs).toBeCloseTo(q, 6);
+        expect(t.pyr.s.olderOtherMs).toBeCloseTo(2 * q, 6);                     // (0, 0) and (1, 1): nothing on its way
+    });
+
     test("the surface is freed after SURFACE_IDLE_MS unused", () => {
         const W = 3000, H = 2000, t = setup(W, H), F = String(t.A);
         const timers = [];

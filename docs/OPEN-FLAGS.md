@@ -94,6 +94,7 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F136](#f136) | ~~**a long subtree drag could land a torn-off kid of the dragged frame a cell off where the move puts it**~~ — **FIXED 2026-09-30 by A1 C2 (unverified by Kobin)**, found by B-DRAG measuring A1 §1.4's census: the same 40-step walk applied to a selected frame and to every native per object disagreed for 400 of 1,250 natives by 32 units (one cell of the camera's frame; seed 777), and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 after the drop (sub-pixel ink: the screenshots matched). Each drag event re-addressed the subtree against the lattice the previous event had left, where the moving root could sit in the cell a carried kid's chain named. A drag now writes nothing until its drop, which computes once against the lattice as it stood at the press: 0 of 1,250 at seeds 777/12345/99 (`move.drop.test.js` D2, red on d206cd3) | `selection._dropMove`, `_dragFrames` | fixed |
 | [F135](#f135) | **the second of two strokes drawn back to back kept its live path 3 s** — found by B-PYRAMID-3 in jsdom (2026-09-29): a pen-up group's strips are dropped at dispatch as "exact" when their cells are in flight for another job (`PyramidStore.wants` is false for both), the drop neither resolves nor re-asks the group's cells, and the job in flight was packed before the stroke landed, so its result does not count for the group: the group waits `LIVE_HOLD_MS` and commits what it has. Two strokes back to back, the rest render off the inline path: the second path up 3,070–3,075 ms (3 runs of 3), `groupsTimedOut` 1. Not seen in Chrome | `RasterRenderer._pyrUnask`, `jobQueue._admit`, `PicturePyramid.groupCommit` | open — B-PYRAMID-4: a dropped group strip re-asked, or resolved from the job in flight |
 | [F134](#f134) | **a fast zoom-out re-aimed view strips at levels far past the frame's floor, and one plate took 5–102 s and up to 8 GB** — found by B-PYRAMID-3 in jsdom (2026-09-29): the queue's velocity rule predicts the camera at a strip's arrival and re-aims a view strip at the level it will then be at, with no floor; zoom-out steps 1–3 ms apart re-aimed strips pushed at levels −4 and −5 to −14…−21 (Z down to 4.8e-7), and the inline render of one such plate took 5–102 s and 1.5–8 GB (a heap-limit crash at 8 GB). Almost certainly the jest worker that spun at 98 % CPU for 10 and 32 minutes in B-PYRAMID-2b's and the B-PYRAMID review's whole-directory runs, and the 25-minute deadlines of 2026-09-29. Not seen in Chrome | `jobQueue._aim` | open — B-PYRAMID-4: the re-aimed level clamped at `ownFloor` |
 | [F133](#f133) | ~~**the `?svg` view's heap grew about 57 MB a drag event on the dense scene, and the tab crashed at the third**~~ — **FIXED 2026-09-29 (unverified by Kobin)**, found by the B-MODEL-C1 review (A3 §9.3's scenario 4 on `?svg`, both trees): Two.js never renders a group at opacity 0, the removal of its old paths included, and the SVG renderer rebuilt every fully faded down-piece's group at each drag step, so every generation stayed. A hidden group now keeps what it has until the frame that shows it | `Renderer.render`, `needsFadeFlip` | **fixed** |
@@ -4484,6 +4485,28 @@ Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision
 
 **Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
 
+<a id="f136"></a>
+### F136 — FIXED 2026-09-30 by A1 C2 (unverified by Kobin), found by B-DRAG. A long subtree drag landed a torn-off kid a cell off.
+
+Found measuring A1 §1.4's census (40 steps of 7 px, a render each, a root one level under the camera with 6 kids and
+18 grandkids at seeded cells within ±2,000 of their parents' grids, 50 natives a frame): on the tree before B-DRAG
+(d206cd3), the drag of the selected root and the same walk applied to all 1,250 natives by id disagreed for 400 of
+them by exactly 32 units — one cell of the camera's frame — at seed 777 (0 at seeds 12345 and 99). The per-object
+picture is the registration reference (`move.subtree` t2). In the harness's scenario 4 (dense seed 1) the drop left
+frame "1/-1,1"'s 100 natives at x 271.99 in the camera's units, where the move puts them at 239.99; that ink is far
+under a pixel there, so the screenshots of the two trees matched.
+
+**Mechanism, as far as traced:** each drag event computed every frame's target from its start address but
+re-addressed against the lattice the previous event had left. A kid whose own digit carries is re-parented under
+the root's lattice neighbour; when the moving root (or a container the trail had minted) sat in the cell that
+neighbour step named, the kid went under it and moved with it at the next event — pre-B-DRAG's op record for
+scenario 4 has the kid under the root at cell (2047, −1023) where the drop now puts it under the neighbour
+"0/7,4". Not traced further: the drag that wrote every event is gone.
+
+**Fixed by A1 C2** (B-DRAG): a drag writes nothing until its drop, which re-addresses the subtree once against
+the lattice as it stood at the press. Measured: 0 of 1,250 at seeds 777, 12345 and 99 (`move.drop.test.js` D2's
+registration case, red on a copy of d206cd3); scenario 4's kid at 239.99.
+
 <a id="f135"></a>
 ### F135 — OPEN, found by B-PYRAMID-3 (2026-09-29). A pen-up group whose strips were dropped waited 3 s.
 
@@ -4562,6 +4585,8 @@ F118's rewrite orders an erase gesture's bake steps by `_seq` and undoes them ne
 
 <a id="f126"></a>
 ### F126 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (lane lasso2, seed 2208). An undo merged the camera's frame away.
+
+**2026-09-30, A1 C2 (B-DRAG):** unchanged: a drop's shadows merge at its end on its op, a cancel makes none; the camera's merge follow stays until C3 removes merges (`move.camMerge` green).
 
 **2026-09-29, A1 C1:** unchanged in substance: a shadow now merges when the undo that made it
 ends (not at a read), and the camera still follows it (`move.camMerge.test.js` green); merges go at C3.
@@ -4710,12 +4735,16 @@ Tests: `erase.neutral.test.js` (new, 5). An in-place graze in a ring's hole and 
 <a id="f108"></a>
 ### F108 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 reading the code and a jsdom repro. A lasso round a frame took a ceded kid whose family was outside the loop; a drag tore it out.
 
+**2026-09-30, A1 C2 (B-DRAG):** unchanged; C4's (private cede frames).
+
 **2026-09-29, A1 C1:** unchanged; C4 (private cede frames) replaces the torn-family pass.
 
 The lasso's frame walk takes an ENCLOSED frame as one entry and reads nothing under it (O(1) per frame, Kobin's subtree requirement). The per-object path has asked since 2026-09-03 that a keyed family be wholly inside ("a loop around a ceded tile alone ... must not take it"); the frame path never did. Repro (REVIEWER-3, measured): a 30-px stroke across the screen at depth 0, a 12-px eraser nick at depth 2, the camera back at depth 0 (inScale 16), a 20-px circle round the nick: selection `{ids: [], frames: ["0/13,9/-2048,1664"]}`, the kid (id 6) selected through its frame, and a drag from the frame mark moved it 100 px and ids 3 and 5 not at all — the patch torn out of its stroke, a rectangular hole where the nick was. A loop round the whole screen with the stroke running off it took the kids too, through `0/13,9`. **Fixed**: the Document keeps, per frame, the set of its natives with a family key (`keyedIn`; maintained where natives enter and leave lists: add, insertAt, removeById, the re-homes, shadow merges and unmerges, subtree set-asides and restores, a reset — a rekey is keyed to keyed, so the sets do not change). After the walk, `_tornUnder` reads only the keyed natives under each enclosed frame and asks each family the per-object question (every piece found, a pending mark, or under an enclosed frame); for a family that fails, the frames from that native up to the enclosed frame are read as straddling in a second walk, where the piece is found one by one and dropped with its family, and the rest of those frames' ink is found one by one. Unkeyed content keeps the O(1) path; the cost is O(keyed frames × depth) plus the family lookups (`editGroup`, which the per-object path already pays). Test `select.lassoFamilyFrame.test.js` (3): the small loop takes none of the family and the keyless stroke beside the nick; the whole-screen loop at inScale 16 takes none of it, and at inScale 1, where it encloses the stroke, all of it; a drag after the small loop moves every piece alike or none. LF-4 builds the case where the enclosed frame holds no ink of its own and the kid sits a frame below it. The bookkeeping is checked against a recount in `select.detachedFrame.test.js`. Break-checks on an unimported copy: without `_tornUnder` 4 red; marking only the kid's own frame, not the path up to the enclosed one, 1 red (LF-4).
 
 <a id="f107"></a>
 ### F107 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 in a jsdom repro. Ink drawn where a lassoed frame had been deleted could not be selected, lassoed or erased.
+
+**2026-09-30, A1 C2 (B-DRAG):** unchanged; C3's (a deleted subtree leaves the lattice).
 
 **2026-09-29, A1 C1:** unchanged; the revival sets go when a deleted subtree leaves the lattice (C3).
 
@@ -4757,6 +4786,8 @@ Seen in Chrome on a scratch copy of the Magnum Opus: a lasso of the inner solar 
 <a id="f100"></a>
 ### F100 — FIXED 2026-09-24 (unverified by Kobin), found by the REVIEWER agent from Kobin's phone report 2026-09-24T04-25-10. A lasso missed a ceded family whose other pieces sat under an enclosed frame.
 
+**2026-09-30, A1 C2 (B-DRAG):** unchanged; C4's.
+
 **2026-09-29, A1 C1:** unchanged; a ceded family's pieces go to private frames at C4.
 
 Kobin: "the lasso select is missing objects." `_lassoFind` takes a re-homed family only when every piece is in the loop's id set (`editGroup(...).every(m => set.has(m.obj.id))`), but pieces homed under an ENCLOSED frame are taken as that frame, never as ids, so the family read as partly outside. On the report's drawing (21 natives) a loop round the whole screen returned 7, 10, 13 and the frames `-1/3,3` and `0`, dropping 60 (pieces 62, 63) and 66 (pieces 68, 69). Fixed: a piece counts as inside when its home is under a selected frame. The fix needs a second half: `_selectionMembers` now skips a family member homed under a selected frame, which the frame's own re-address moves — otherwise it moved twice (per object and with its frame), a path a ctrl-tap on 60 with `-1/3,3` selected already reached. `select.cededLasso.test.js` CL-1 (the lasso takes 60 and 66) and CL-2 (a drag moves 60, 62 and 63 by the same amount); break-checks on copies outside src/: without the lasso guard both fail, without the members guard CL-2 fails. 19 select/move/erase/GC suites, 270 tests, green.
@@ -4786,6 +4817,11 @@ Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth
 <a id="f94"></a>
 ### F94 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent (found replaying Kobin's report 08-16-23). A subtree drag mints empty frames on every pointer event.
 
+**2026-09-30, A1 C2 (B-DRAG):** the cause is gone — a drag writes nothing until its drop, so no event mints; the
+drop mints its final chains only. A1 §1.4's census (40 × 7 px, a render each, seeds 12345/777/4242): frames minted
+during the drag 211/145/239 → 0/0/0; left after the drop's GC 14/4/4 → 14/5/4 (`move.drop.test.js` D2, `frame.gc`
+G1). Frame GC stays: a drop, a delete or an undo can still leave an empty container.
+
 **2026-09-29, A1 C1:** unchanged — the per-event mints go at C2. C1 adds one read that may mint:
 `displaced` mints the empty frame a picture's pieces are read from (PLAN §3 row 8's exception),
 which frame GC collects like these (77 over `model.pureRead.test.js`'s 180 states; the review's 82,
@@ -4797,6 +4833,11 @@ Each event of a drag of selected frames computes every moving frame's target cha
 
 <a id="f93"></a>
 ### F93 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent. A zoomed-out lasso selected empty frames, and a drag of the selection left its ink unselected.
+
+**2026-09-30, A1 C2 (B-DRAG):** the drop's rest re-homes a carried kid under the neighbour container
+once, and the selection is repaired from the drop's (or an undo's, a redo's) op, never from events
+(`_opUnder`, `_repairSelection`): `select.inkless` 10/10, `select.stands.probe.js` 12 × 40 as before
+(480 checks, 135 selections).
 
 **2026-09-29, A1 C1 (B-MODEL-C1):** one of the two ways ink left a selected frame is gone — no
 settle carries a native next door; a drag's rest still re-homes kids under the neighbour

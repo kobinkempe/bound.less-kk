@@ -238,8 +238,12 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect([...t.pyr._groups.values()][0].need.has(c11.key)).toBe(true);
         const plate = (c, G) => ({ ...c, G, pixels: new Uint8ClampedArray(P * P * 4), bytes: PLATE_BYTES, jobId: 7 });
         expect(t.pyr.onResult(plate(c11, G1))).toBe("held");                  // red before: put, and the group waited 3 s
+        const kept = t.store.get(c11.key);
+        expect(t.pyr.onResult(plate(c11, t.stage.generation))).toBe("held");  // a second result for a held cell: kept aside too
+        expect(t.store.get(c11.key)).toBe(kept);
         expect(t.pyr.onResult(plate(c00, t.stage.generation))).toBe("held");
         expect(seen).toMatchObject([{ id: "s", committed: 2, missing: 0, timedOut: false }]);
+        expect(t.store.get(c11.key).G).toBe(t.stage.generation);              // the newer of the two
     });
 
     test("F135: pen-ups over one cell are one group — a result showing the first stroke alone is not put while its path is up, the cell is asked again, one commit releases both", () => {

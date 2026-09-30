@@ -270,6 +270,43 @@ describe("D5 — the view draws a drag the plane does not", () => {
         E.pointerUp();
         expect(E.stage.itemsOf(a.id)[0].res).toEqual([60, 0]);            // the drop's table, no delta
     });
+
+    test("no plane, a cancel: the release dirties where the view drew the hold, not only where it started", () => {
+        const f = fixture();
+        const { E, a } = f;
+        E._setSelection([a.id], []);
+        E.setTool("select");
+        const p = pressOn(E, { x: -180, y: -80 });
+        E.pointerDown(p[0], p[1]);
+        for (let k = 1; k <= 6; k++) E.pointerMove(p[0] + 10 * k, p[1]);   // drawn at +60
+        const G0 = E.stage.generation;
+        E.cancelSelectGesture(false);
+        const rects = E.stage.dirtyRects(E.cam.frame, G0) || [];
+        const covers = (x0, x1) => rects.some((r) => r.left <= x0 && r.right >= x1 && r.top <= -100 && r.bottom >= -60);
+        expect(covers(-200, -160)).toBe(true);                             // where it rests
+        expect(covers(-140, -100)).toBe(true);                             // red: the view's +60 copy left on its plates
+        expect(E.stage.itemsOf(a.id)[0].res).toBeUndefined();
+    });
+});
+
+describe("D7 — a drag begins on the picture at rest", () => {
+    test("the ants' decision made at rest is the drag's: not remade at its first step, anchored at its start", () => {
+        const f = fixture();
+        const { E, a } = f;
+        E._setSelection([a.id], []);
+        E.setTool("select");
+        E._render();
+        expect(E._selectionAnts()).not.toBeNull();
+        const dec0 = E._selDec;
+        E._dragSel = { start: [300, 300], moved: false };                 // a drag begun: nothing written, G unchanged
+        E._beginHold();
+        E._dragSel.last = [310, 305];
+        const ants = E._selectionAnts();
+        expect(E._selDec).toBe(dec0);                                      // red: re-decided (220–250 ms on the dense scene)
+        expect(dec0.drag).toBe(E._dragSel);
+        expect(ants.off).toEqual([10, 5]);                                 // the travel from the drag's start
+        E._endMove("cancel");
+    });
 });
 
 describe("D6 — the drop is a user's action: its patch has one frame's budget (PLAN §5.15 item 2)", () => {

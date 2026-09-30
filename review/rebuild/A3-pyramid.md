@@ -971,7 +971,9 @@ scene; `_dragOmit` (`RasterRenderer.js:577`, `:1341`) becomes the pack rule **"a
 plane draws, and packed at `placed(item) + δ` when it does not"** (the plane lost: `_losePlane`, `:622-628`).
 Wave 2 lands before B-DRAG (PLAN §2): until then the drag still writes per frame, and the scene's `hold(ids)` /
 `release()` must keep today's semantics — held items' changes dirty nothing until the release dirties start ∪
-end once. That is `_holdMove` moved into the scene (A2).
+end once. That is `_holdMove` moved into the scene (A2). *As built (B-DRAG, 2026-09-30):* `_dragOmit` is the
+rule's first half unchanged; the second half is the Stage's `Item.res` (held items at `placed + δ` while the view
+draws the hold), so neither `RasterRenderer` nor `rasterPack` was edited, and the SVG path follows the same `res`.
 
 *Ported (B-PYRAMID-2 P3, under `?pyramid=1`):* `MovePlane({pyramid})` keys `planeKey(F, Zp, tag, i, j)` with Zp the
 view's grid Z (the rest Z at rest, the level's Z in level mode) and `Zp / 2^k` coarser, the quick level `Zp / 4`; a

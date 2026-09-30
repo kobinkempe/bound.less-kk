@@ -19,7 +19,7 @@ function readStats(E) {
     return {
         S, lv, sigma: L ? L.s : Z / zOf(lv, S),
         mode: L ? L.mode : "svg", stretch: L ? L.s : null,
-        paper: L ? [L.paperMs, L.blurMs, L.olderPatchMs, L.olderOtherMs] : null,
+        paper: L ? [L.paperMs, L.blurMs, L.olderPatchMs, L.olderUnreadMs, L.olderOtherMs] : null,
         rest: L ? [L.restInline, L.restWorker, L.restMs] : null,
         composes: L ? L.composes : null, maxImages: L ? L.imagesMax10s : null, composeMs: L ? L.composeMs : null,
         plates: P ? P.plates : null, mib: P ? P.plateBytes / MIB : null, capMib: P ? P.maxBytes / MIB : null,
@@ -34,8 +34,9 @@ const f1 = (v) => (v == null ? "–" : (+v).toFixed(1));
 
 /**
  * The Dev panel's counters on a timer of their own (500 ms), so a zoom or an arrival never re-renders the
- * editor for them: the pyramid's view level and σ, paper/blur/older (older split: waiting for a worker patch, and
- * any other, which must stay 0), the rest executor, the images over 10 s, and the queue's jobs by priority.
+ * editor for them: the pyramid's view level and σ, paper/blur/older (older split: waiting for a worker job, waiting for
+ * the table's read of a cell's tiles, and any other, which must stay 0), the rest executor, the images over 10 s, and
+ * the queue's jobs by priority.
  */
 export default function DevStats({ engineRef, intervalMs = 500 }) {
     const [s, setS] = useState(null);
@@ -49,7 +50,7 @@ export default function DevStats({ engineRef, intervalMs = 500 }) {
     return (
         <div className="bl-dev-stats" style={{ marginTop: 6, fontSize: 11, lineHeight: 1.35 }}>
             <div><b>level</b> ℓ{s.lv} at S={s.S}, σ {f1(s.sigma)} · <b>view</b> {s.mode} s {f1(s.stretch)}</div>
-            {s.paper && <div><b>paper</b> {f1(s.paper[0])} · blur {f1(s.paper[1])} · older {f1(s.paper[2])} patch / {f1(s.paper[3])} other ms</div>}
+            {s.paper && <div><b>paper</b> {f1(s.paper[0])} · blur {f1(s.paper[1])} · older {f1(s.paper[2])} patch / {f1(s.paper[3])} unread / {f1(s.paper[4])} other ms</div>}
             {s.rest && <div><b>rest</b> inline {s.rest[0]} · workers {s.rest[1]} · last {f1(s.rest[2])} ms</div>}
             <div><b>plates</b> {s.plates ?? "–"} · {f1(s.mib)}/{f1(s.capMib)} MiB · pinned {s.pinned ?? "–"}{s.stale != null ? " · stale " + s.stale : ""} · in flight {s.inFlight ?? "–"}</div>
             {s.jobs && <div><b>jobs</b> queued {s.jobs[0].join("/")} · in flight {s.jobs[1].join("/")} (prio 0–5)</div>}

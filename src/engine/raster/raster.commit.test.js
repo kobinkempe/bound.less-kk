@@ -99,7 +99,7 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
 });
 
 describe("F134: the velocity rule's re-aim is bounded", () => {
-    test("zoom-out steps 2 ms apart re-aim view strips at most AIM_LEVELS past the view's level and never under the frame's floor", async () => {
+    test("zoom-out steps under a millisecond apart re-aim view strips at most AIM_LEVELS past the view's level and never under the frame's floor", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         const fill = (x, y, c) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: c, opacity: 1,
@@ -113,10 +113,10 @@ describe("F134: the velocity rule's re-aim is bounded", () => {
             if (st.kind === "view") sent.push({ level: st.level, S: st.S, view: R._view.level });
             return submit(st);
         };
-        for (let k = 0; k < 8; k++) {
-            E.zoomAt(400, 300, 1000);                    // a halving a step
-            await new Promise((r) => setTimeout(r, 2));
-        }
+        // The flag's case, made deterministic: steps closer than 1 ms read as −1 octave a millisecond (the motion's dt is at
+        // least 1 ms) and an arrival 40 ms out predicts 40 octaves.
+        R.queue.jobMs = 40;
+        for (let k = 0; k < 8; k++) E.zoomAt(400, 300, 1000);           // a halving a step
         expect(sent.length).toBeGreaterThan(0);
         expect(sent.filter((s) => s.level < Math.max(ownFloor(s.S), s.view - 2))).toEqual([]);      // AIM_LEVELS
         const t0 = Date.now();

@@ -779,3 +779,54 @@ frozen whole at 5e9b1dd (`src/engine/__oracles__/model-v1/`); every number below
   settle entries replayed by result through `legacy/modelV1.js`, deletion date 2026-12-31) and undoes
   and redoes to them; version 3 is written only when the lattice carries a non-zero shift, and a
   shift-free file is byte-identical to the oracle's.
+
+## 15. As built: C2 (B-DRAG, 2026-09-30)
+
+Dated notes where building C2 changed or sharpened §4.4, §5 and §8. jsdom unless said; the browser numbers are
+headless Chromium 141 on `git archive`s of d206cd3 (before) and the build.
+
+- **The hold carries the drag.** `stage.hold` takes the members and every native under the selected frames;
+  `stage.setDragDelta(δ, {frame, viewDraws})` per event. Held natives are placed at + δ for every input
+  (`placed`, `placeNative`: hit tests, the lasso) and painted there by the view only when the drag plane does
+  not draw them (`Item.res`; each δ change then one commit dirtying the old and the new boxes). So the pack
+  rule needed no edit to `RasterRenderer`/`rasterPack` — the SVG path reads the same `res` — and the plane's
+  own SEL packs keep reading the rest. `stage.atRest(fn)` reads without δ: the ants decide on the picture the
+  drag began from, and a decision still good at rest becomes the drag's (a re-decision there cost 220–250 ms
+  on the dense scene). Counters over 40 events (per-object, a frame, both): 0 document events, re-homes,
+  settles; `rev`, `offRev`, `addrEpoch`, the frame count and the undo stack unchanged (`move.drop` D1).
+- **The drop, once** (`selection._dropMove`): §4.4's arithmetic on the picture table, the frames by
+  `_dragFramesStart`/`_dragFrames` against the lattice as it stood at the press, one op, the write, the hold's
+  release and `mergePending(op)` in one Stage batch, then `noteUserEdit` (PLAN §5.15 item 2). A cancel writes
+  nothing, so no shadow exists to merge (`move.drop` D3: byte-equal after a drag across an occupied cell,
+  for a pinch, an undo mid-drag and a deselect; `mergePending` never called).
+- **The census** (§1.4's fixture, 40 × 7 px, a render each; seeds 12345/777/4242): frames minted during the
+  drag, the tree before 211/145/239 (the oracle the same), now 0/0/0; left after GC 14/4/4 → 14/5/4 (oracle
+  15/5/5: it keeps an emptied cell its trail shadowed).
+- **Registration, found while measuring it (F136).** The per-event path re-addressed each event against the
+  lattice the previous event left, where the moving root could sit in the cell a carried kid's chain named:
+  over the census walk, 400 of 1,250 natives landed 32 units (a cell) off the per-object picture at seed 777,
+  and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 (too small to
+  see there: its ink screenshots matched). The drop computes once against the unmoved lattice: 0 of 1,250 at
+  seeds 777/12345/99 (`move.drop` D2, red on d206cd3).
+- **`_normalizeHome` goes**, and with it every coordinate a move wrote: `move` ops carry no `base`/`after`
+  (the codecs still carry them on older ops, for replay and for an undone old op's inverse). The tile fuzz's
+  oracle still normalises, so `modelFuzz.comparePictures` compares a native whose stored numbers differ
+  between the two by its drawn box through each model's placement (one draws it live, the other through a
+  tile): 16 such over 25 seeds × 40, within 1.5e-8 home units (`NORMALISED_TOL` 1e-6).
+- **The selection from the op.** `_opUnder(op)` reads, before a drop, an undo or a redo, the op's frames under a
+  selected frame and its per-object members listed or under one; `_repairSelection` runs `_reselect` on them
+  quietly after, before the one render. The per-object members are read too, not only the frames: an undo of
+  an older per-object move can carry a native out of a newer frame selection, which the event capture kept
+  as an id (`select.inkless` I11). `_keepingSelection`, the `_moving` capture and the per-remove listener are
+  deleted; the subscriber keeps `reset` and the merge hand-over, which C3 deletes with merges (so `select.inkless`
+  I4 stays; I9 went). An id a remote edit removes now stays in the selection, skipped, until the next repair.
+  `deleteSelection` reads every family before one removal batch (reading them between removals rebuilt the
+  family index per id): 5,000 natives 585 s → 1.3–1.5 s SVG, 0.53 s raster, 0 `_setSelection` calls.
+- **Browser, scenario 4** (dense, 45 selected of 3,441): ink 0 px apart, with the ants frozen 0 px; drag event
+  median 1.2–1.7 → 0.7–0.8 ms; the drag's first event 64–83 → 27–33 ms; the drop 1.7–2.0 → 1.5–1.9 s; harness long
+  frames 22|26 → 24|16, `olderPatchMs` 953|1,218 → 988|886 (load 2.3–4.5).
+- **What stays a lattice fact** (§4.4's last bullet): a carried kid is re-parented under the root's lattice
+  neighbour at the drop. A second parent pointer (§4.6, Question 2) would take: `container` beside `parent`,
+  set by `_dragFrames` when `readdressMany` re-parents a kid away from its root; `_underFrames`/`isUnder`,
+  `walk`, `_subtreeCount`, the delete's `removeFrameSubtree` and frame GC reading `container` first; and the
+  op's frame entries recording it for undo — `_outsideSelection` and the repair's frame half then go.

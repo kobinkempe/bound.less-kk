@@ -445,7 +445,7 @@ function headlineOf(rep) {
         renderer: rep.meta ? rep.meta.renderer : null,
         camera: { frame: cam.frame, depth: cam.depth, inScale: r3(cam.inScale), zoom: r3(cam.effectiveZoom) },
         natives: c.natives, pieces: c.pieces, frames: c.frames, lattice: cam.latticeFrames, moved: c.moved, listed: c.listed,
-        paper: pic ? { paperMs: pic.paperMs, blurMs: pic.blurMs, olderPatchMs: pic.olderPatchMs, olderOtherMs: pic.olderOtherMs,
+        paper: pic ? { paperMs: pic.paperMs, blurMs: pic.blurMs, olderPatchMs: pic.olderPatchMs, olderUnreadMs: pic.olderUnreadMs, olderOtherMs: pic.olderOtherMs,
             composes: pic.composes, maxImages: pic.maxImagesPerCompose } : null,
         worstLongFrameMs: worst ? worst.ms : null,
         heapMB: rep.memory && rep.memory.heap ? rep.memory.heap.usedMB : null,

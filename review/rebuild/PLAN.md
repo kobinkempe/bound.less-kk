@@ -220,7 +220,11 @@ white stroke with a deferred bake) is unchanged except where §1.7 says. The ras
   clipped at drag start (R25 D1).
 - **No document writes during a drag**: the scene holds the selected items and applies the pointer
   delta at pack time; at the drop every member's table is written once, one undo entry, old ∪ new
-  boxes dirtied; the plane holds per cell until the fresh plates land, as now.
+  boxes dirtied; the plane holds per cell until the fresh plates land, as now. **Built 2026-09-30
+  (B-DRAG)**: `stage.setDragDelta`; held natives placed at + δ for every input (`placed`,
+  `placeNative`) and painted there by the view only when the plane does not draw them (`Item.res`,
+  so the raster pack and the SVG path needed no edit); the drop (`_dropMove`) one Stage commit with
+  its merges, a user's patch budget; per drag event 0 document events, re-homes, mints, settles.
 
 ### 1.5 The live stroke and the SVG renderer (decision 6; R25 §4.5, §4.10; A3 §3.6, §7)
 
@@ -290,6 +294,12 @@ cap). The design, `A1-document-model.md` §4.4, in four steps:
   the drop a per-object member is re-homed once and a subtree re-addressed once (the 183–290 frames a
   40-step drag mints become the final 8–13); `_normalizeHome` goes; the selection is repaired from the
   op's own record, never from events. "An object belongs to the frame it was drawn or moved into."
+  **Built 2026-09-30 (B-DRAG; A1 §15)**: A1 §1.4's census 145–239 frames minted during a 40-step
+  drag → 0, the drop leaving 4–14; `_normalizeHome`, `_homeShift`, `_restoreFrames`,
+  `_keepingSelection` and the per-remove listener deleted; the repair (`_opUnder`/`_repairSelection`)
+  reads the op's frames and per-object members before a drop, an undo or a redo; a 5,000-native delete
+  585 s → 0.5–1.5 s in jsdom. The merge hand-over stays until C3. Found: a long subtree drag landed a
+  carried kid a cell off (F136, 400 of 1,250 natives at one seed), gone with the per-event writes.
 - **C3 — a frame keeps its identity.** No merges: a frame landing on an occupied cell is a permanent
   co-resident; lookups and every by-cell reader see co-residents; each co-resident is its own
   selection unit; the camera is handed to the resident at the re-address; GC promotes; a deleted

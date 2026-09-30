@@ -6,9 +6,10 @@
  * compared native for native over the whole square, frames and homes matched by place
  * (`modelFuzz.comparePictures`): bit for bit for a native homed at the same place in both; through its
  * picture for one the oracle carried — to the bit at and below its home, one ulp above it; above a home,
- * the oracle's picture inside the live one and the rest accounted for by the composition's window. Seeds
- * 1–200 × 40 (R-MODEL-C1): 55,896 items, 36 edge-only, 46 divergences after a home moved, 499 oracle
- * memo re-reads. A probe, not a suite. Run:
+ * the oracle's picture inside the live one and the rest accounted for by the composition's window; a native
+ * the oracle's pen-up walked into the next cell (its stored numbers moved; A1 C2 deleted that walk) through
+ * its drawn box by each model's placement. Seeds 1–200 × 40 (R-MODEL-C1): 55,896 items, 36 edge-only, 46
+ * divergences after a home moved, 499 oracle memo re-reads. A probe, not a suite. Run:
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/model.equivalence.probe.js"
  * MODEL_SEEDS (default 20, then the pinned seeds) and MODEL_STEPS (default 40) set the size.
  */

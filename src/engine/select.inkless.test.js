@@ -293,6 +293,19 @@ describe("a selection stands for ink", () => {
         expect(E.selection.ids).toEqual([n.id]);
     });
 
+    test("I12 an undo that removes a selected native drops it from the selection, once, from the op", () => {
+        const E = mkE();
+        const A = E.lm.cellChild("0", 3, 2);
+        const m = E.doc.add(fill(E, -S / 2, -S / 2), A.id);
+        const n = E.doc.add(fill(E, S, -S / 2), A.id);
+        E.doc.pushUndo({ op: "add", id: n.id });
+        E._render();
+        E._setSelection([m.id, n.id]);
+        expect(repairs(E, () => E.undo())).toEqual({ set: 1, repair: 1 });
+        expect(E.doc.getById(n.id)).toBeFalsy();
+        expect(E.selection.ids).toEqual([m.id]);                  // red: the removed native's id kept
+    });
+
     test("I4 a selected frame merged into its cell's resident hands over only the kids that hold ink", () => {
         const E = mkE();
         const mover = E.lm.cellChild("0", 3, 2);

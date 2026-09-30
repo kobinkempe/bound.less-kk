@@ -367,6 +367,11 @@ Two phases, because B-SCENE lands before B-DRAG (PLAN §2):
   held items' placed boxes at the old and the new delta. At the drop the engine writes every member's
   table once inside `stage.batch`, releasing the hold: footprints before (the stored placement) and
   after (the written one). One undo entry, as PLAN §1.4 says.
+  *As built (B-DRAG, 2026-09-30):* no item's `off` is written. `placed(item)` and `placeNative` add δ
+  for a held native (inputs); `Item.res`, what paint reads, adds it only while the view draws the
+  hold (`viewDraws`), one cached array per δ so the pack's memo keeps its identity test; the release
+  also dirties where the view drew them. The drop's write, the release and the drop's merges are one
+  batch. `stage.atRest(fn)` reads without δ (the ants' decision). A1 §15.
 
 ### 2.8 Every document event, as a table delta and a dirt rule
 

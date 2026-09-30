@@ -17,7 +17,10 @@
  * printing its deltas as one JSON line: paper (PAPER-PLAN
  * §9: each picture's uncovered share × how long it stayed, charged forward; the layer's own `paperMs`, `blurMs`,
  * `olderPatchMs` and `olderOtherMs` when it carries them), the frame-time histogram and long frames over the gesture, the compose's
- * count, ms and most images, plates, and jobs. `--query` is appended to the canvas URL (`?dev&…`), e.g. a lever
+ * count, ms and most images, plates, and jobs; `olderUnreadMs` (the (f′) stand-in while its cell's tiles are unread,
+ * B-PYRAMID-4) where the layer keeps it, `both` (composes that drew a plate packed after a held stroke's landing under
+ * its path: PLAN §1.5's never-both, logged in every mode), scenario 6's `inlinePacks` and scenario 1's `unread` (the view
+ * cells whose tiles a step left unread, and the tile reads that brought them). `--query` is appended to the canvas URL (`?dev&…`), e.g. a lever
  * (`levelStep=2`); the raster path is the picture pyramid (the old layer and its `?pyramid` gate went at P6).
  *
  * Three paper samplers, each named in the output: `paperMs` is the layer's own integral where it keeps one (the
@@ -61,6 +64,34 @@ const VIEW = { width: 1280, height: 800 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const say = (label, obj) => console.log(JSON.stringify({ [label]: obj }));
 
+/**
+ * Runs in the page: PLAN §1.5's never-both, logged at every compose — a draw of a plate packed at or after a held stroke's
+ * landing G whose cell meets that stroke's box, while its path is still up, draws the stroke twice.
+ */
+function installBoth() {
+    const E = window.__kobinEngine, R = E.renderer, L = R && R.layer;
+    const B = window.__bfBoth = { composes: 0, draws: 0, ids: {} };
+    if (!L || !L.compose || !R.live || !E.stage.landedAt) return false;
+    const compose = L.compose.bind(L);
+    L.compose = (...a) => {
+        const P = compose(...a);
+        let hit = false;
+        for (const h of R.live.held) {
+            const G = E.stage.landedAt(h.id);
+            if (!G || !h.box || !P || !P.draws) continue;
+            for (const d of P.draws) {
+                const r = d.rec;
+                if (!r || r.G < G || r.frame !== String(h.frameId) || !(r.Z > 0)) continue;
+                const u = 512 / r.Z, b = h.box;
+                if ((r.i + 1) * u > b.left && r.i * u < b.right && (r.j + 1) * u > b.top && r.j * u < b.bottom) { B.draws++; B.ids[h.id] = (B.ids[h.id] || 0) + 1; hit = true; }
+            }
+        }
+        if (hit) B.composes++;
+        return P;
+    };
+    return true;
+}
+
 /** Runs in the page: the compact form of the engine's counters for one state. */
 function pageState(which) {
     const E = window.__kobinEngine;
@@ -85,6 +116,8 @@ function pageState(which) {
         plates: pick(ps, ["plates", "plateBytes", "maxBytes", "evictions", "overCapPinned", "stale", "epochBumps", "abandons"]),
         longFrames: lf ? { count: lf.count, totalMs: lf.totalMs, worst: (lf.worst || []).slice(0, 3).map((w) => ({ ms: Math.round(w.ms), script: Math.round(w.scriptMs || 0), fn: (w.scripts || []).map((s) => s.fn + "@" + s.src).join(" ") })) } : null,
         ink,
+        both: window.__bfBoth ? { ...window.__bfBoth, ids: { ...window.__bfBoth.ids } } : null,
+        held: E.renderer && E.renderer.live ? E.renderer.live.held.map((h) => ({ id: h.id, ms: Math.round(performance.now() - h.at), group: !!h.group })) : null,
     };
 }
 
@@ -100,6 +133,7 @@ async function newPage(browser) {
     // The editor is read-only until its session holds the pen (SYNC-PLAN R2); a press would pan until then.
     const pen = await page.waitForFunction(() => !window.__kobinEngine.readOnly, null, { timeout: 30000 }).then(() => true, () => false);
     if (!pen) say("warning", { readOnly: true, note: "the session never gave this page the pen; gestures pan" });
+    await page.evaluate(installBoth);
     return { ctx, page, errors, consoleErrors };
 }
 
@@ -164,7 +198,18 @@ async function roundTrip(browser) {
 function installProbes() {
     const E = window.__kobinEngine;
     const L = E.renderer && E.renderer.layer;
-    const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0, older: {} };
+    const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0, older: {},
+        unread: { composes: 0, cells: 0, max: 0, keys: new Set(), reads: 0, tiles: 0, ms: 0 } };
+    // The tile reads (`TileStore.readTiles`, what a budgeted read at a crossing's step would spend) and the view cells whose
+    // tiles a step left unread (`covered` false: drawn from stand-ins, never packed).
+    if (E.store && E.store.readTiles) {
+        const read = E.store.readTiles.bind(E.store);
+        E.store.readTiles = (cells, budgetMs) => {
+            const a = performance.now(), got = read(cells, budgetMs);
+            P.unread.reads++; P.unread.ms += performance.now() - a; P.unread.tiles += got && got.tiles ? got.tiles.size || got.tiles.length || 0 : 0;
+            return got;
+        };
+    }
     // The paper share now: the old layer's uncovered cells, or the pyramid's last compose's paper share.
     const shareNow = () => {
         if (L && L._share) return L._share.paper || 0;
@@ -195,6 +240,14 @@ function installProbes() {
             P.composes++; if (n > P.maxImages) P.maxImages = n;
             // Older cells a compose draws, by cause: a stale own plate whose patch is out (ownWait) or not (ownOther); a
             // stale stand-in for a cell whose tiles are unread, whose own job is asked or in flight (coming), or neither.
+            if (r && r.cells && r.v && r.v.mode === "level" && L.covered) {
+                let n = 0;
+                for (const c of r.cells) {
+                    if (L.covered({ frame: r.v.frameId, Z: 2 ** (r.v.level * r.v.S), i: c.i, j: c.j })) continue;
+                    n++; P.unread.keys.add(r.v.frameId + "|" + r.v.level + "|" + c.i + "," + c.j);
+                }
+                if (n) { P.unread.composes++; P.unread.cells += n; if (n > P.unread.max) P.unread.max = n; }
+            }
             if (r && r.cells && r.v) {
                 const v = r.v;
                 for (const c of r.cells) for (const d of c.draws) {
@@ -235,12 +288,15 @@ function probeRead() {
     } catch (err) { rows = null; }
     return {
         t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes, older: { ...P.older },
+        unread: { composes: P.unread.composes, cells: P.unread.cells, max: P.unread.max, distinct: P.unread.keys.size, reads: P.unread.reads, tiles: P.unread.tiles, ms: P.unread.ms },
+        both: window.__bfBoth ? { composes: window.__bfBoth.composes, draws: window.__bfBoth.draws } : null,
+        packRecs: (() => { try { const p = E.renderer.perf.report().pack; return p ? { recs: p.recs, recsBuilt: p.recsBuilt, memoEntries: p.memoEntries, memoMiB: +((p.memoBytes || 0) / 1048576).toFixed(1) } : null; } catch (err) { return null; } })(),
         paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
         queue: Q ? { byPrio: Q.byPrio ? Q.byPrio.slice() : null, dispatched: Q.dispatched, done: Q.done, drops: Q.drops, reaimed: Q.reaimed, jobMs: Q.jobMs } : null,
         ref: R ? Object.fromEntries(REF.map((k) => [k, R[k] || 0])) : null,
         st: E.stage && E.stage.stats ? { ...E.stage.stats } : null,
         surface: L && L.surface != null ? L.surface : null,
-        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderPatchMs: L.olderPatchMs, olderOtherMs: L.olderOtherMs, standInCells: L.standInCells || 0 } : null,
+        layerPaper: L && L.paperMs != null ? { paperMs: L.paperMs, blurMs: L.blurMs, olderPatchMs: L.olderPatchMs, olderUnreadMs: L.olderUnreadMs || 0, olderOtherMs: L.olderOtherMs, standInCells: L.standInCells || 0 } : null,
         composes: L ? L.composes : null, composeMs: L ? L.composeMs : null, arrivalComposes: L ? L.arrivalComposes : null,
         hist: F.hist, frames: F.frames, longCount: LF.count, longRecent: LF.recent,
         plates: S ? { plates: S.plates, mib: +(S.plateBytes / 1048576).toFixed(1), capMib: +(S.maxBytes / 1048576).toFixed(1), pinned: S.pinned, inFlight: S.inFlight, evictions: S.evictions, stale: S.stale } : null,
@@ -316,6 +372,7 @@ function delta(a, b) {
     const lp = a.layerPaper && b.layerPaper ? {
         paperMs: +(b.layerPaper.paperMs - a.layerPaper.paperMs).toFixed(1), blurMs: +(b.layerPaper.blurMs - a.layerPaper.blurMs).toFixed(1),
         olderPatchMs: +(b.layerPaper.olderPatchMs - a.layerPaper.olderPatchMs).toFixed(1),
+        olderUnreadMs: +(b.layerPaper.olderUnreadMs - a.layerPaper.olderUnreadMs).toFixed(1),
         olderOtherMs: +(b.layerPaper.olderOtherMs - a.layerPaper.olderOtherMs).toFixed(1),
         standInCells: (b.layerPaper.standInCells || 0) - (a.layerPaper.standInCells || 0),
     } : null;
@@ -326,7 +383,10 @@ function delta(a, b) {
         samplers: { paperMs: lp ? "layer" : "rAF", paperSampledMs: "rAF", paintPaperMs: "post-paint" },
         paperMs: lp ? lp.paperMs : +(b.paperMs - a.paperMs).toFixed(1), paperSampledMs: +(b.paperMs - a.paperMs).toFixed(1),
         paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
-        blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, standInCells: lp ? lp.standInCells : null, maxPaperShare: +b.maxShare.toFixed(3),
+        blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderUnreadMs: lp ? lp.olderUnreadMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, standInCells: lp ? lp.standInCells : null, maxPaperShare: +b.maxShare.toFixed(3),
+        unread: b.unread && a.unread ? { composes: b.unread.composes - a.unread.composes, cells: b.unread.cells - a.unread.cells, maxCells: b.unread.max, distinctCells: b.unread.distinct - a.unread.distinct,
+            reads: b.unread.reads - a.unread.reads, tiles: b.unread.tiles - a.unread.tiles, readMs: +(b.unread.ms - a.unread.ms).toFixed(1) } : null,
+        both: b.both && a.both ? { composes: b.both.composes - a.both.composes, draws: b.both.draws - a.both.draws } : null, packRecs: b.packRecs,
         frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0),
             top: r.scripts && r.scripts[0] ? (r.scripts[0].invoker || r.scripts[0].fn) + (r.scripts[0].fn ? " " + r.scripts[0].fn : "") : null })) },
         compose: { n: composes, ms: b.composeMs != null ? +(b.composeMs - a.composeMs).toFixed(1) : null,
@@ -470,6 +530,15 @@ const SCENARIOS = {
         return [await measure(page, "6 undo", async () => {
             // Exact is read only once the undo has committed and a compose has drawn after it: the picture before the
             // undo is exact too, and reading it gave a first poll's 11 ms (B-PYRAMID-2b).
+            await page.evaluate(() => {
+                const R = window.__kobinEngine.renderer, pk = R._pyrPack.bind(R), P = window.__inlinePacks = [];
+                R._pyrPack = (job, id, pool) => {
+                    if (id != null) return pk(job, id, pool);
+                    const a = performance.now(), r = pk(job, id, pool);
+                    P.push({ purpose: job.purpose, level: job.level, cells: job.cells.length, clipped: !!job.clips, ms: +(performance.now() - a).toFixed(1), items: r ? r.nItems : 0 });
+                    return r;
+                };
+            });
             const at = await page.evaluate(() => ({ G: window.__kobinEngine.stage.generation, c: window.__kobinEngine.renderer.layer.s.composes }));
             const t0 = Date.now();
             await page.keyboard.press("Control+z");
@@ -480,7 +549,8 @@ const SCENARIOS = {
             }
             const c1 = await page.evaluate(() => window.__kobinEngine.renderer.layer.s.composes);
             while (Date.now() - t0 < 10000 && await page.evaluate((c) => window.__kobinEngine.renderer.layer.s.composes <= c, c1)) await sleep(4);
-            return { committedMs, exactMs: await untilExact(page, t0) };
+            const exactMs = await untilExact(page, t0);
+            return { committedMs, exactMs, inlinePacks: await page.evaluate(() => window.__inlinePacks) };
         })];
     },
     erase: async (page) => {
@@ -522,7 +592,7 @@ async function penUp(page) {
             const st = await page.evaluate(() => {
                 const E = window.__kobinEngine, L = E.renderer.layer, h = (E.renderer._liveHeld || []).length > 0;
                 const sh = L && L._share ? L._share : null;
-                return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.olderPatch || sh.olderOther) };
+                return { h, exact: h || !sh ? null : !(sh.paper || sh.blur || sh.olderPatch || sh.olderUnread || sh.olderOther) };
             });
             held = st.h;
             if (!held) { exactAtRelease = st.exact; break; }
@@ -546,7 +616,7 @@ function exactNow() {
     const L = window.__kobinEngine.renderer.layer;
     if (!L || !L._share || !L.lastPlan) return true;              // the SVG renderer: nothing cached to be stale
     const s = L._share;
-    return !(s.paper || s.blur || s.olderPatch || s.olderOther) && !L.lastPlan.cells.some((c) => c.draws.some((d) => d.cls === "held"));
+    return !(s.paper || s.blur || s.olderPatch || s.olderUnread || s.olderOther) && !L.lastPlan.cells.some((c) => c.draws.some((d) => d.cls === "held"));
 }
 
 async function dense(browser) {
