@@ -5,7 +5,7 @@
 
 **Read, only the parts named:** `CLAUDE.md`; `DESIGN.md` §2, §3, §7 (the descent and the cede), §8 (as B-DRAG left it),
 §10, §13; `review/rebuild/PLAN.md` §0 (decision 9 in Kobin's words), §1.7 (C3, C4), §3 rows 7, 8, 9, §5.2 (Q4, Q5, Q8,
-Q9, Q11), §5.10 item 1 (the `displaced` mint), §5.12 item 6, §5.14 item 4, §5.16, §5.18–§5.19 (B-DRAG's and its
+Q9, Q11), §5.10 item 1 (the `displaced` mint), §5.12 item 6, §5.14 item 4, §5.16, §5.19 and the R-DRAG review's section, when written (B-DRAG's and its
 review's answers); `review/rebuild/A1-document-model.md` §1.2, §1.3, §4.4 C3 and C4 (whole), §4.6, §5 steps 3–4, §6,
 §8 (the `lattice.coresident` and `erase.privateCede` rows), §9, §14 (as built: C1, C2); `docs/OPEN-FLAGS.md` F94, F100,
 F107, F108, F124, F126 (whole entries, with B-DRAG's notes); B-MODEL-C1's, B-DRAG's and their reviews' entries in

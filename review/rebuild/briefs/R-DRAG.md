@@ -9,7 +9,7 @@ says so (ask in your checkpoint entry, keep working meanwhile).
 §0 (decisions 4 and 9), §1.4, §1.7 (C2), §3 rows 7 and 8, §5.2 (Q1, Q2), §5.15 item 2, §5.18 (B-DRAG's answers, when
 written); `review/rebuild/briefs/B-DRAG.md` (the build's brief); `review/rebuild/A1-document-model.md` §1.4, §4.4 C2,
 §4.6, §8's C2 rows, §14 (as built: C2); `review/rebuild/A2-scene.md` §2.7 (hold/release/setDragDelta); B-DRAG's
-entries in `review/rebuild/STATUS-LOG.md` (grep `— B-DRAG`) and its report as PLAN §5.18 summarises it; then the code:
+entries in `review/rebuild/STATUS-LOG.md` (grep `— B-DRAG`) and its report as PLAN §5.19 summarises it; then the code:
 `KobinEngine.js`'s drag paths (`_beginSelectDrag`, `_dragSelection`, `_dropMove`, `_endMove`, `_planeLost`, the
 pointer-up), `Stage.js` (`hold`, `release`, `setDragDelta`, `Item.res`, `homeOf`'s use), `selection.js` (`_opUnder`,
 `_repairSelection`, `deleteSelection`, `_history`), `Document.js` (`_displaceMember`, `mergePending`), `placementModel.js`
