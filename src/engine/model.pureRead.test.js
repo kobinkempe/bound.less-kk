@@ -1,22 +1,20 @@
 /**
- * No read mutates (PLAN §3 row 8, A1 C1): over the model fuzz's states (`modelFuzz.runPairFuzz`), the
- * reads the app makes — the tile store's `read` (and the brute-force render list, `__oracles__/renderList`), the Stage's sync and a
- * snapshot at four frames (unbounded, and budgeted as the Scenes panel's picture reads), hit tests (the
- * drag's pick among the selection too), a lasso, the erase pipeline's frame pass and the scene index's
- * pass — leave the document's `rev` and `offRev`, its natives, the lattice's `addrEpoch`, its addresses
- * and shifts, and its frame set as they were; so does `report()` (its own case). The one exception
- * PLAN §3 row 8 names: `displaced` mints a frame the pieces of a picture are read from when the lattice
- * lacks it (`LevelMap.objShift`, A1 §1.2 row 19) — each new frame must hold nothing, be a displaced
- * group's source frame or on its chain, and go at the next frame GC. The fuzz renders after every
- * operation, so before the reads one inked frame the camera sees is given a shift nobody has read yet
- * (what a drop leaves), and a render is one of them.
+ * No read mutates (PLAN §3 row 8, A1 C1, C3): over the model fuzz's states (`modelFuzz.runPairFuzz`, C3/C4's
+ * operations included), the reads the app makes — the tile store's `read` (and the brute-force render list,
+ * `__oracles__/renderList`), a render, the Stage's sync and a snapshot at four frames (unbounded, and budgeted as
+ * the Scenes panel's picture reads), hit tests (the drag's pick among the selection too), a lasso, the erase
+ * pipeline's frame pass and the scene index's pass — leave the document's `rev` and `offRev`, its natives, the
+ * lattice's `addrEpoch`, its addresses, shifts and co-residents, and its frame set as they were; so does
+ * `report()` (its own case). No exception: a picture's source frame is minted at the end of the action that moved
+ * it or the camera (`KobinEngine._prepareView`), and a snapshot that finds one missing is not ready, the engine
+ * minting it at idle. Before the reads one inked frame the camera sees is given a shift (what a drop leaves) and
+ * the render that ends that action is made.
  */
 import { runPairFuzz, framesToCompare, CELL } from "./__testkit__/modelFuzz";
 import { mkEngine, useEngines, drawStroke } from "./__testkit__/harness";
 import { W } from "./frameLattice";
 import { SceneClient } from "./sceneClient";
 import { rectLoop } from "./geometry/arcShape";
-import { collectFrames } from "./frameGc";
 import { buildReport } from "./report";
 import { renderList } from "./__oracles__/renderList";
 
@@ -31,21 +29,10 @@ function state(E) {
     for (const f of E.lm.frames.values()) lattice.set(f.id, JSON.stringify([f.parent, f.cell, f.shift, f.shadowOf]));
     return { rev: E.doc.rev, offRev: E.doc.offRev, epoch: E.lm.addrEpoch, natives: JSON.stringify(E.doc.serializeNatives()), lattice };
 }
-const empty = (E, id) => !E.doc.count(id) && E.lm.childrenOf(id).every((c) => empty(E, c.id));   // no native under it
-/** Every frame a displaced group of these views reads its pieces from, and the frames on its chain up. */
-function displacedSources(E, views) {
-    const out = new Set();
-    for (const V of views) {
-        for (const g of E.stage.model.displaced(V).groups.values()) {
-            for (let f = E.lm.frame(g.F0); f; f = f.parent != null ? E.lm.frame(f.parent) : null) out.add(f.id);
-        }
-    }
-    return out;
-}
 const snap = (v) => Math.round(v * 1024) / 1024;
 
 test("the reads leave the document and the lattice as they were, over seeded sequences", () => {
-    const st = { seeds: SEEDS, steps: STEPS, checks: 0, reads: 0, minted: 0, hits: 0, lassos: 0, unread: 0 };
+    const st = { seeds: SEEDS, steps: STEPS, checks: 0, reads: 0, hits: 0, lassos: 0, unread: 0, unready: 0 };
     const fails = [];
     for (let seed = 1; seed <= SEEDS; seed++) {
         runPairFuzz(seed, STEPS, (O, N, step, op, rnd) => {
@@ -58,11 +45,16 @@ test("the reads leave the document and the lattice as they were, over seeded seq
             const S = inked.length ? inked[Math.floor(rnd() * inked.length)] : null;
             const kept = S ? N.lm.frame(S).shift : null;
             if (S) { N.doc.setFrameShift(S, [snap((rnd() - 0.5) * W * 0.9), snap((rnd() - 0.5) * W * 0.9)]); st.unread++; }
+            N._render();                                             // the action's end: its sources minted (`_prepareView`)
             const before = state(N), why0 = [];
             N._render();
             renderList(N, F, win);
             N.store.read(F, win);
-            for (const V of views) { N.stage.sync(V, CELL); N.stage.snapshot(V, CELL, Infinity); N.stage.snapshot(V, CELL, 0); N.stage.snapshot(V, CELL, 2); st.reads += 4; }
+            for (const V of views) {
+                N.stage.sync(V, CELL);
+                if (!N.stage.snapshot(V, CELL, Infinity)) st.unready++;   // a source frame not minted yet: not ready, nothing minted
+                N.stage.snapshot(V, CELL, 0); N.stage.snapshot(V, CELL, 2); st.reads += 4;
+            }
             for (let k = 0; k < 4; k++) { if (N.hitTestAt(Math.floor(rnd() * N.width), Math.floor(rnd() * N.height))) st.hits++; }
             N._hitTest(N.width / 2, N.height / 2, 6, (i) => N._isSelected(i));
             // The erase frame pass, for a mark over the whole view drawn below everything: it takes no frame.
@@ -89,25 +81,16 @@ test("the reads leave the document and the lattice as they were, over seeded seq
             }
             if (had) N._setSelection(had.ids, had.frames); else N._setSelection([]);
             N.setTool(tool);
-            const after = state(N), sources = displacedSources(N, [F, ...views]);
+            const after = state(N);
             if (S) N.doc.setFrameShift(S, kept);
             st.checks++;
             const why = why0;
             for (const k of ["rev", "offRev", "epoch", "natives"]) if (after[k] !== before[k]) why.push(k);
             for (const [id, v] of before.lattice) if (after.lattice.get(id) !== v) why.push("frame " + id);
-            const minted = [...after.lattice.keys()].filter((id) => !before.lattice.has(id));
-            for (const id of minted) {
-                if (!empty(N, id)) why.push("new frame " + id + " holds ink");
-                else if (!sources.has(id)) why.push("new frame " + id + " is no displaced group's source");
-                else st.minted++;
-            }
-            // Frame GC takes them: none is the camera's, an ancestor of it, or one it left.
-            collectFrames(N);
-            const named = N.doc.namedFrames();
-            for (const id of minted) if (N.lm.frame(id) && !N._camTrail.includes(id) && !named.has(id)) why.push("minted frame " + id + " outlived frame GC");
+            for (const id of after.lattice.keys()) if (!before.lattice.has(id)) why.push("new frame " + id);
             if (why.length) { fails.push(`seed ${seed} step ${step} ${op}: ${why.join(", ")}`); return false; }
             return true;
-        });
+        }, { c34: seed % 2 === 0 });
     }
     // eslint-disable-next-line no-console
     console.log("MODEL-PURE " + JSON.stringify(st));
@@ -123,13 +106,13 @@ test("report() leaves the document and the lattice as they were, a subtree's shi
     const kid = E.lm.cellChild("1", 2, 1).id;
     E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: -9000, top: -7000, right: 9000, bottom: 7000 }), color: "#246", opacity: 1, w: 8 }, kid);
     E._render();
-    E.doc.setFrameShift(kid, [0.375 * W, -0.25 * W]);             // a drop's rest, not read yet
+    E.doc.setFrameShift(kid, [0.375 * W, -0.25 * W]);             // a drop's rest
+    E._render();                                                  // the drop's end
     const before = state(E);
     const rep = await buildReport(E, { yieldFn: () => Promise.resolve() });
     expect(rep.moves).toBeTruthy();
     const after = state(E);
     for (const k of ["rev", "offRev", "epoch", "natives"]) expect([k, after[k]]).toEqual([k, before[k]]);
     for (const [id, v] of before.lattice) expect([id, after.lattice.get(id)]).toEqual([id, v]);
-    const sources = displacedSources(E, [E.cam.frame, kid]);
-    for (const id of after.lattice.keys()) if (!before.lattice.has(id)) expect([id, empty(E, id), sources.has(id)]).toEqual([id, true, true]);
+    expect([...after.lattice.keys()].filter((id) => !before.lattice.has(id))).toEqual([]);
 });

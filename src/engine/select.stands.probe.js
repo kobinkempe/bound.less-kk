@@ -11,13 +11,14 @@
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/select.stands.probe.js"
  * SELECT_SEEDS (default 12, then the pinned seed) and SELECT_STEPS (default 40) set the size.
  */
-import { runPairFuzz } from "./__testkit__/modelFuzz";
+import { runPairFuzz, settleOracle } from "./__testkit__/modelFuzz";
 
 jest.setTimeout(30 * 60 * 1000);
 
 const SEEDS = Number(process.env.SELECT_SEEDS || 12), STEPS = Number(process.env.SELECT_STEPS || 40);
 // Past the range: 43 an undo of the cut that made a selected piece (red before the oracle took the hand-over rule).
 const PINNED = process.env.SELECT_SEEDS ? [] : [43];
+const C34_SEEDS = Number(process.env.SELECT_C34_SEEDS || 12);
 
 /** The natives a selection stands for: its ids with their families, and every native under its frames. */
 function selectionInk(E) {
@@ -71,16 +72,19 @@ const extra = ({ both, ri, pick, inkPoints, w, h }) => [
 ];
 
 test("a selection stands for the oracle's ink and the ink it was made with, over seeded sequences", () => {
-    const st = { seeds: [1, SEEDS], pinned: PINNED, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
+    const st = { seeds: [1, SEEDS], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
     const fails = [];
-    for (const seed of [...Array(SEEDS).keys()].map((k) => k + 1).concat(PINNED)) {
+    const runs = [...Array(SEEDS).keys()].map((k) => [k + 1, false]).concat(PINNED.map((k) => [k, false]))
+        .concat([...Array(C34_SEEDS).keys()].map((k) => [k + 1, true]));
+    for (const [seed, c34] of runs) {
         let made = null;
         runPairFuzz(seed, STEPS, (O, N, step, op) => {
             st.ops[op] = (st.ops[op] || 0) + 1;
+            settleOracle(O);
             const a = selectionInk(O), b = selectionInk(N);
             st.checks++;
             if (N.selection) { st.selections++; st.natives += b.size; st.frames += N.selection.frames.length; }
-            if (key(a) !== key(b)) { fails.push(`seed ${seed} step ${step} ${op}: oracle [${key(a)}], live [${key(b)}]`); return false; }
+            if (key(a) !== key(b)) { fails.push(`seed ${seed}${c34 ? " (c34)" : ""} step ${step} ${op}: oracle [${key(a)}], live [${key(b)}]`); return false; }
             // An inkless selected frame the oracle's selection holds too is counted, not failed (0 at 12 × 40: after an
             // undo or a redo the oracle drops it by the live repair's rule, `runPairFuzz`).
             const bare = inklessFrames(N), was = new Set(inklessFrames(O));
@@ -93,7 +97,7 @@ test("a selection stands for the oracle's ink and the ink it was made with, over
             }
             made = N.selection ? key(b) : null;                           // what the next drag must keep
             return true;
-        }, { extra });
+        }, { extra, c34 });
     }
     // eslint-disable-next-line no-console
     console.log("SELECT-STANDS " + JSON.stringify(st));

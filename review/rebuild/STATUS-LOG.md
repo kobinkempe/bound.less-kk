@@ -2844,3 +2844,14 @@ WHERE I AM: `lattice.coresident.test.js` (the lattice cases the deleted LevelMap
 `--dense --scenario all` once, then one round trip (the never-both log), each at load < 2.
 **Measured:** load 1.63 0.91 0.37 at the start. **Decisions made:** none. **Questions asked:** none.
 WHERE I AM: b5 running (~8 min); reading items 7/9/4 meanwhile, no jest until it ends.
+
+## 2026-09-30 06:09 UTC — R-PYRAMID-34 (reviewer) — b5 done; browser batch b6 start (scenarios 1 and 4 again)
+**Measured (b5, the final tree 9fe45f8, headless, load 1.46→3.65, a builder's jest beside it):** 1 out paper 2,583, back
+in 1,104 (F137); 4 drag olderPatch 2,104, the drop's row 2,175 ms (`ovl.tail` 1,174, `eng.list` 676, `eng.view` 216;
+its patch T 1,882 to the workers); 5 release 98 ms, exact 105; 6 undo T 74.1, ℓ −1 41.0 admitted (one level measured),
+coarse pack 56.7 ms inline, commit polled 194, exact 432; 7 olderOther 62.5 (28 cell-composes `ownOther.notAsked`, none
+unread), olderPatch 2,145, bake 5.9 s, both-composes 6; round trip 3 holds, 3 handoffs, 0 both-composes. Suites: 11
+raster files 192/192; lint 0 on my files; typecheck 0.
+**Working on:** b6: scenarios 1 and 4 once more (both disagree with B-PYRAMID-4's table and the review's).
+**Decisions made:** none. **Questions asked:** none.
+WHERE I AM: b6 running; then the end entry and the report.

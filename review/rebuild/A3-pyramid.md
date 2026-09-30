@@ -589,6 +589,16 @@ the key task 303 | 272 ms, 246–278 of it in `eng.view` (before 178 ms with ℓ
 368 ms, T 39.4, workers); key to exact 874 | 319 ms (before 260 | 819). Open: the search should stop at the first level
 with no records.
 
+*R-PYRAMID-34, 2026-09-30 (PLAN §5.20 item 2):* the search stops at the first level with no records (`_coarseJob` returns
+null), a user's action (an undo, a redo, a drop) admits its coarse level within `USER_COARSE_FRAMES` × `patchUserMs` =
+48 ms, the bake's patches keep `patchInlineMs` 6, and a pen-up's group searches no level (it discarded the coarse plan).
+Scenario 6 on the final tree (headless, one run, load 1.5→3.7 with a builder's jest beside it): full T 74.1, ℓ −1's T
+41.0 admitted, one level measured, its clipped pack inline 56.7 ms over 60 items; the commit, whose task draws the coarse
+level, polled at 194 ms, exact at 432 ms (B-PYRAMID-4 exact 874 | 319; the B-PYRAMID review's 203–348); the key task
+under 243 ms (not among the three longest: 478, 396, 243). A stale own plate whose tiles
+are unread is `olderUnreadMs`, as (f′) is (the patch step skips it until the read); scenario 7's residual `olderOther`
+in the same run, 62.5 ms, was 28 cell-composes of stale own plates covered, in no group and not asked — none unread.
+
 ### 3.4 Coarse-first for large dirty regions
 
 When `T_patch` is over budget for the drawn cells a change touches:

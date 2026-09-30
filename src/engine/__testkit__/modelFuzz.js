@@ -17,6 +17,7 @@ import { encodeObjects as oEncodeObjects, decodeObjects as oDecodeObjects } from
 import { collectFrames } from "../frameGc";
 import { collectFrames as oCollectFrames } from "../__oracles__/model-v1/frameGc";
 import { drawStroke, eraseGesture, descend, ascend } from "./harness";
+import { G } from "../frameLattice";
 import { lcg } from "./stageFuzz";
 import { W, R } from "../frameLattice";
 
@@ -120,6 +121,16 @@ export function frameAtPlace(E, place) {
     return null;
 }
 
+/**
+ * The oracle merges a shadow into its resident at the resident's first read, and a read made before that one
+ * can draw the shadow's natives twice (its tile pieces, then its own after the merge): every pending merge is
+ * read first. The live engine never merges (A1 C3): its frame stays a co-resident, compared by place.
+ */
+export function settleOracle(O) {
+    if (O.lm.cellFrames) return;                                  // a live engine
+    for (const f of [...O.lm.frames.values()]) if (f._shadows && f._shadows.size && O.lm.frame(f.id)) O.doc.at(f.id);
+}
+
 /** The frames compared after an operation, as N's ids: the camera's, its parent, a ring neighbour and a child, each with a resident at its place in O. */
 export function framesToCompare(O, N) {
     const F = String(N.cam.frame);
@@ -205,6 +216,7 @@ const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it
  * Adds to `st` and returns the first difference, or null.
  */
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
+    settleOracle(O);
     const VO = frameAtPlace(O, placeOf(N, V));
     if (VO == null) return "no frame at " + V + "'s place in the first engine";
     const memo = O.store._rrMemo && O.store._rrMemo.get(VO);
@@ -286,12 +298,27 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
 }
 
 /**
+ * A frame selected by id as the oracle's frame stands: in the live engine every frame sharing its cell (A1 C3/C4:
+ * where the oracle merged a frame dropped there, or ceded kids into it, the live engine keeps a co-resident or a
+ * private frame, each its own unit), so the two engines move and delete the same ink. The lasso is the app's own
+ * rule and is left alone.
+ */
+export function unitSelect(E, f) {
+    const cell = E.lm.cellFrames ? E.lm.cellFrames(f).map((g) => g.id) : [f];
+    E._setSelection([], cell.length ? cell : [f]);
+    return cell.length;
+}
+
+/**
  * One seeded run over the two engines: `steps` operations, `check(O, N, step, op)` after each
  * (after both rendered). Returns `{ ops }`. Engines replaced by a reload are destroyed. `extra(ctx)`
  * returns more `[name, weight, fn]` operations; `ctx` gives `both`, `ri`, `pick`, `rnd`, `inkPoints`,
- * `w`, `h` and the current engines as `O()` and `N()`.
+ * `w`, `h` and the current engines as `O()` and `N()`. `c34`: A1 C3's and C4's operations as well — a frame
+ * dropped on an inked frame's cell, a subtree deleted (and undone), an erase levels under the ink it cuts
+ * (its cedes across cell edges), a small loop round a ceded kid (F108) — which change the random stream, so
+ * the seeds pinned without them stay as they were.
  */
-export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null } = {}) {
+export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null, c34 = false } = {}) {
     const all = [];
     const rnd = lcg(seed * 7919 + 101);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
@@ -422,7 +449,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             if (!kids.length) return;
             const f = pick(kids), dx = ri(-200, 200), dy = ri(-150, 150);
             both((E) => {
-                E._setSelection([], [f]);
+                unitSelect(E, f);
                 const p = E._levelPointToScreen(f, 0, 0);
                 E.setTool("select");
                 drag(E, p, dx, dy, 2);
@@ -467,6 +494,75 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         ["reload2", 0.5, () => { O = reloadStore(O); N = reloadStore(N); }],
         ["gc", 0.5, () => { both((E) => { E.sweepFrames(); KIND[E._fuzzKind].gc(E); E._render(); }); }],
     ];
+    // The camera's inked kids in the oracle that the live engine has too, by id.
+    const camKids = () => [...O.lm.frames.values()].filter((f) => f.parent === O.cam.frame && O.doc.count(f.id) && N.lm.frame(f.id))
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
+    if (c34) table.push(
+        ["dropOnto", 2, () => {
+            const kids = camKids();
+            if (kids.length < 2) return;
+            const f = pick(kids), g = pick(kids.filter((x) => x !== f)), s = O.cam.inScale * G;
+            const dx = (g.cell.i - f.cell.i) * s + ri(-3, 3), dy = (g.cell.j - f.cell.j) * s + ri(-3, 3);
+            if (Math.abs(dx) > 2000 || Math.abs(dy) > 2000) return;
+            both((E) => {
+                unitSelect(E, f.id);
+                const p = E._levelPointToScreen(f.id, 0, 0);
+                E.setTool("select");
+                drag(E, p, dx, dy, 2);
+            });
+        }],
+        ["deleteUndo", 1, () => {
+            const kids = camKids();
+            if (!kids.length) return;
+            const f = pick(kids), undo = rnd() < 0.6;
+            both((E) => { unitSelect(E, f.id); E.deleteSelection(); });
+            if (undo) history(1, (E) => E.undo());
+        }],
+        ["eraseDeep", 2, () => {
+            const ink = inkPoints();
+            if (!ink.length) return;
+            const p = pick(ink), to = Math.min(5, O.activeLevel + ri(1, 2)), pts = strokePts(), size = ri(6, 30);
+            both((E) => {
+                const cam = E.cam.state();
+                descend(E, to, p[0], p[1]);
+                eraseGesture(E, pts, size);
+                E.flushErases();
+                E.cam.set(cam);
+                E._render();
+            });
+        }],
+        ["lassoTorn", 1.5, () => {
+            const snap = O.stage.snapshot(O.cam.frame, O._listWin(), Infinity);
+            if (!snap) return;
+            const kids = [];
+            for (const it of snap.items()) {
+                if (it.erase || !it.nat || it.nat.editId == null || !it.nat.attachRect) continue;
+                const pc = it.piece.loops && it.piece.loops.length ? (it.piece.loops[0].at ? it.piece.loops[0].at(0) : it.piece.loops[0][0]) : null;
+                const q = pc && (pc.A || pc);
+                if (!q) continue;
+                const x = (q[0] + it.off[0]) * O.cam.inScale + O.cam.inPanX, y = (q[1] + it.off[1]) * O.cam.inScale + O.cam.inPanY;
+                if (x > 2 && y > 2 && x < w - 2 && y < h - 2) kids.push([x, y]);
+            }
+            if (!kids.length) return;
+            const c = pick(kids), r = ri(12, 90), go = rnd() < 0.5, dx = ri(-200, 200), dy = ri(-150, 150);
+            const loop = [];
+            for (let k = 0; k <= 16; k++) { const a = (k / 16) * Math.PI * 2; loop.push([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]); }
+            both((E) => {
+                E.setTool("select");
+                E.pointerDown(loop[0][0], loop[0][1], true);
+                for (const q of loop.slice(1)) E.pointerMove(q[0], q[1]);
+                E.pointerUp();
+            });
+            if (!go || !O.selection) return;
+            both((E) => {
+                if (!E.selection) return;
+                E._dragSel = { start: [w / 2, h / 2], moves: new Map(), moved: false, frames: new Map(), frameStart: null };
+                E.store.setBatch(true);
+                E._dragSelection(w / 2 + dx, h / 2 + dy);
+                E.pointerUp();
+            });
+        }],
+    );
     if (extra) table.push(...extra({ both, ri, pick, rnd, inkPoints, w, h, O: () => O, N: () => N }));
     const total = table.reduce((s, t) => s + t[1], 0);
     const ops = [];
