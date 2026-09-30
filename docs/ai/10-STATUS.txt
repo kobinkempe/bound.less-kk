@@ -29,6 +29,17 @@ WHERE THE BUILD IS
     0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
     rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
 
+2026-09-30 - A DRAG WRITES NOTHING UNTIL ITS DROP (review/rebuild/A1-document-model.md §4.4 C2 and
+    §15, B-DRAG). The Stage holds the selection's natives (stage.hold) and draws, hits and
+    lassoes them at the pointer's delta (stage.setDragDelta; the plane draws them, or the view's
+    plates when there is none); the drop is one write (selection.js _dropMove), one op and one
+    commit, with a user's patch budget; a cancel writes nothing. _normalizeHome, the per-remove
+    selection listener and _keepingSelection are deleted: the selection is repaired from the
+    action's op (_opUnder / _repairSelection) at a drop, an undo or a redo. Measured (jsdom): per
+    drag event 0 document events, re-homes, mints and settles; a 40-step subtree drag's trail of
+    145-239 minted frames gone (the drop mints the final chains); a 5,000-native delete 585 s ->
+    0.5-1.5 s. Found on the way: F136, a long subtree drag's torn-off kid landing a cell off
+    (fixed by construction). Headless Chromium: scenario 4's ink 0 px apart. Not seen by Kobin.
 2026-09-29 - THE SVG RENDERER DEMOTED (review/rebuild/A3-pyramid.md §7; B-PYRAMID-3). Both renderers
     draw the Stage's items: listFor, _buildList and TileStore.content/contentOffCamera are deleted
     (the brute-force list the suites compare with is src/engine/__oracles__/renderList.js).
