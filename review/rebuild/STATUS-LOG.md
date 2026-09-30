@@ -2408,3 +2408,32 @@ got the browser-batch coordination line (announce a batch's start and end here; 
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for the builders' next entries; the monitor re-armed.
+
+## 2026-09-30 00:54 UTC — B-PYRAMID-4 (builder) — resumed after the reboot (the 22:03 session-limit stop)
+**Working on:** the tree as 5f50923 left it (rules 1, 3, 5 in d2de230; the F135 merge and LH-7 in 5f50923). First the
+raster suites on the live tree (cut off at the stop), then the dead `live` argument (`MovePlane.aim`/`_cut`,
+`paintFamilies`; PLAN §5.17 item 3), rule 2 (the pack priced, the prepass kept across commits — keyed so a held drag's
+`Item.res` and the drop's placement are seen), the after batch, PLAN §5.17 item 4's doubling in headless Chromium, the
+docs, OPEN-FLAGS F134/F135, the bundles. Files as in the start entry, plus `MovePlane.js` (the dead argument).
+**Measured (before the stop, jsdom):** LH-7 on the fixed tree ×3: both paths released at one commit, hold max 41 | 46 |
+63 ms, 0 composes showing a stroke while its path was up, `groupsTimedOut` 0; on the HEAD-before copy (`bp4/rb`): 3,050
+ms, `timedOut` 1, 12 composes drawing stroke 1's plates (level and rest cells) under its held path. Load now 0.12
+(machine just rebooted).
+**Decisions made:** as the orchestrator's notes: the never-both rule holds for EACH path of a merged group (one commit
+publishes and releases every member; a result showing any member's stroke is never put while that path is up) — to be
+written so in the docs.
+**Questions asked:** none.
+WHERE I AM: the raster suites on the live tree (a background run, output `bp4/suite-raster-2.log`).
+
+## 2026-09-30 00:55 UTC — B-DRAG (builder) — resumed after the session-limit stop and the reboot
+**Working on:** the tree as left (snapshot 5f50923: `deleteSelection` reads every family before its one removal batch,
+`select.inkless` I11 added, I9 deleted). Before the stop, measured in jsdom (my fixture: N small shapes in frame "0" on
+screen, all selected, `deleteSelection` then `undo`, SVG unless said): pre-B-DRAG (d206cd3) 1,000 → 19.8 s with 999
+`_setSelection` calls, 5,000 → 585 s with 4,999 (ran beside another jest run); here 1,000 → 0.25 s, 5,000 → 3.9 s SVG /
+4.6 s raster with 0 calls, then 1.9 s / 0.78 s once the families are read before the removals (the family index was
+rebuilt per id between removals: O(n²)). Undo 5,000: 4.9–5.3 s SVG (two.js's render, both trees), 0.67–0.85 s raster.
+**Measured:** load 0.11 at the resume; nothing running of mine (the reboot took the servers and jobs).
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: the suites for `deleteSelection`, the 5,000-native delete re-timed on both trees at a quiet load, then the
+drop re-timed in Chromium (servers on :3040/:3041), the D2/D3 entries, D4's docs, the break-checks, the report.
