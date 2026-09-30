@@ -2759,7 +2759,7 @@ records; a user's coarse level within USER_COARSE_FRAMES × `patchUserMs` = 48 m
 **Questions asked:** none.
 WHERE I AM: batch b2 running; then scenario 6's number in the final run.
 
-## 2026-09-30 03:40 UTC — B-MODEL-C34 (builder) — checkpoint C3a: co-resident lookups and readers (merges still run)
+## 2026-09-30 03:17 UTC — B-MODEL-C34 (builder) — checkpoint C3a: co-resident lookups and readers (merges still run)
 **Working on:** C3a done. `LevelMap`: a cell's frames are one group (resident + co-residents via the existing
 `shadowOf`/`_shadows` links); `residentOf`, `cellFrames`, `sameCell`, `_kidAt`; `findCellChild`/`cellChild` look
 through the group's kids (`own` flag for a mover's kids); geometry walks cells (`_cellParent`: `_ancestors`,
@@ -2779,3 +2779,14 @@ Files: LevelMap, TileStore, Document, placementModel, Stage (2 lines), KobinEngi
 co-resident); geometry canonical by resident (a path through two co-residents' different containers rounded).
 **Questions asked:** none.
 WHERE I AM: C3b — `_take` joins the target cell's group and links kids recursively; delete the merge path.
+
+## 2026-09-30 03:25 UTC — R-PYRAMID-34 (reviewer) — checkpoint: F137 not the pack; browser batch b3 start
+**Measured (scenario 1 back-in paper, headless, one run each unless noted):** y1 (bA + bC's `rasterPack.js`) 0 (load
+1.88→2.19); y2 (bC + bA's `rasterPack.js`) 109 (1.85→2.12); control 193 (1.95→2.38). Every bA-based run 0 (4 runs),
+every bC-based run 88–765 (8 runs): not the records, not the aim clamp alone, not the commit-task step alone. b2 stopped
+after one round. Focused raster suites on the live tree (my patchPlan change): 180/181, the one red in `raster.move`
+at load 10.2, green on three reruns (129/129 at load 6) — the known load-sensitive case, name to confirm.
+**Working on:** b3: :3021 `x13` (the aim clamps and the commit-task step both off), :3023 `x4` (a rest group's
+result counted only when packed at or after its G, bA's rule), :3020 control, ×2 interleaved, load < 2 each.
+**Decisions made:** none new. **Questions asked:** none.
+WHERE I AM: b3 running; then the fix for whichever rule it names, else F137 reported with the bisect so far.
