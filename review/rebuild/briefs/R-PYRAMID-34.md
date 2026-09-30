@@ -7,14 +7,33 @@ review's is `<scratchpad>/r-pyr/`. Fix minors inline in the files of §3; report
 evidence; a major with a bounded fix and a red-before test may be applied when the orchestrator says so (ask in your
 checkpoint entry, keep working meanwhile). Leave given at launch: item 11b's stall fix when bounded (one mechanism, one red-before test); more from B-PYRAMID-4's report when written.
 
-**Scope, per Kobin (2026-09-30 02:40): a short review, the highest-value items first.** Do, in this order: items 3 and
-10 together (the pen-up rule under the new layer with F135's merge: never both, never neither, per path; the doubling),
-8 (the pack's records: the moved item's `res`, byte-equal plates with the memo warm, the bound), 11b (the bake stall),
-7 (the patch step in the commit's task), 9 (F134's floor and the other `levelFor` callers), 4 (the mask rule's drag
-case only; M-1..3/X-1 exist). Then, as time allows: 1 (one round-trip pair only, b793360 against the final tree),
-13 and 14 (a grep and a read, no rewrite), 12 (only if the fuzz extension is cheap; else state the argument), 11 (the
-judgement on the (f′)-pending charge, three lines). Skip 2, 5 and 6 unless a finding leads there, and say in the report
-what you skipped. Hand back within about 90 minutes of your start.
+**Scope, per Kobin (2026-09-30 02:40): a short review, the highest-value items first; hand back within about 90
+minutes of your start.** B-PYRAMID-4's report is answered in PLAN §5.20 (read it first): its after table is in its 02:59
+end entry (grep `— B-PYRAMID-4 (builder) — end`). Do, in this order:
+
+1. **F137 — leave to fix.** Scenario 1's back-in paper 0 | 0 → 88 | 765 ms on the final tree against the before copy
+   (B-PYRAMID-4's `bp4/bA`, :3014 — its `batch3.sh` says how the copies were made). Bisect by rule on frozen copies: the
+   aim's clamp (`jobQueue._aim`, AIM_LEVELS/`ownFloor`) first, then the pack's records, then the commit-task patch step;
+   fix the rule that costs it (a bound's size, not a rule's removal), scenario 1's back-in paper back to 0, the fixed
+   rule's own test still green, a red-before test for the paper if the harness can pin it.
+2. **The undo — leave to build both.** (a) The coarse search stops at the first level with no records (B-PYRAMID-4's
+   Q3; today it measures every level: 246–278 ms of `eng.view` in the key task). (b) PLAN §5.20 item 2: for a user's
+   action (undo, redo, a drop) the coarse-first path is admitted when its priced T is within 48 ms (three frames),
+   `patchInlineMs` 6 for the bake's patches unchanged. Measure scenario 6: T, the first change on screen, key-to-exact
+   (the B-PYRAMID review's 203–348 ms; B-PYRAMID-4's 874 | 319), the longest task.
+3. Items 3 and 10 together, short: never both, never neither, per path of a joined group — B-PYRAMID-4's round trips
+   show 0 both-composes; one state-logged run of your own, and the crossing carry's break-check once.
+4. Item 8: the moved item's `res` in the record's key (a held drag, then the drop: the packed item at +δ and at its new
+   home — a test if none), the plates byte-equal with the memo warm (J4g exists: read it), the bound as stated.
+5. Scenario 7's residual `olderOther` (254 | 78 after B-PYRAMID-4): classify it by the older-by-cause log — the builder
+   suspects uncovered stale own plates that `_patchStep` skips and `_older` leaves as other — and fix if bounded (leave),
+   else name the cause with the number. Item 11b (the stall) only if a run of yours stalls: then the probe; else record
+   it as pre-existing and unreproduced.
+6. Scenario 5's release with the harness fix (`renderer.live.held`), one run; RV4 and `stage.cover` C4 one line each.
+7. Items 7, 9 and 4 as reads of the tests that exist (an hour of yours is not worth what they already prove); item 4's
+   drag case only if a test is quick.
+
+As time allows: 13 and 14 (a grep and a read). Skip 1, 2, 5, 6, 11 and 12, and say so in the report.
 
 **The B-PYRAMID review verified P0–P6 on c7fed1a** (its 19:59 entry in the STATUS-LOG; `briefs/R-PYRAMID.md` items
 5–10). Do not repeat those items; re-check only what B-PYRAMID-3 and 4 touched (`git diff --stat c7fed1a -- src/engine/`

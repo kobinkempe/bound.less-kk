@@ -923,7 +923,41 @@ quick suite 2,169 passed, 0 failed; 17 break-checks red. Nothing in Kobin's Chro
 
 ### 5.20 To B-PYRAMID-4 (its report of 2026-09-30)
 
-(Written when its report arrives; the section number was promised to it and to its reviewer's brief.)
+Read in full; landed as fea473e (its end entry has the table). The five rules are in, each red-before and break-checked
+(18 of 18 red on the final tree): the patch step in the commit's task (`noteCommit`, run by the next compose or camera
+step, else a microtask); the pack priced (`packItemUs`/`packListUs`, calibrated from every pack) and the prepass's
+records kept by geometry with the placement seen through `res` by value; the clip cull (§5.18); F134 (`_aim` within two
+levels of the view's and never under `ownFloor`; the −19 plate's 2.6–2.9 s and 1.5 GB gone); F135 as the overlap merge
+(3,050–3,083 ms with 12 doubled composes → 41–63 ms with 0; never-both holds for each path of a joined group, the round
+trip 0 both-composes in both trees); `olderUnreadMs` split out. The dead `live` arguments and `supportsDragPlane`
+deleted. Measured after against before (load 1.9–4.4): scenario 4's drag olderPatch 1,040 | 937 → 567 | 575 ms and its
+worst task 2,068 | 1,851 → 1,177 | 1,158; scenario 7's olderOther 1,370 | 1,573 → 254 | 78 (not 0), its bake 6.7 s |
+stalled → 7.6 | 5.5 s; the jsdom fuzz's olderOther 178.6 → 0. **Two regressions reported, not fixed (my bound):**
+scenario 1's back-in paper 0 | 0 → 88 | 765 ms (F137, unbisected), and scenario 6's undo — priced, ℓ − 1 no longer
+fits 16 ms (T 31.7 | 26.8), so the undo goes to the workers and the coarse search measures every level (246–278 ms of
+`eng.view`): key-to-exact 260 | 819 → 874 | 319 ms. Scenario 5 has no valid numbers (the harness polled a field gone
+since bcba05a; fixed, not run). Nothing in Kobin's Chrome.
+
+1. **F137 is the reviewer's first item, with leave to fix:** bisect by rule on frozen copies (the aim's clamp in
+   `jobQueue.js` first, then the records, then the commit-task patch step), scenario 1's back-in paper back to 0.
+2. **The undo:** Q3 yes — the coarse search stops at the first level with no records (leave to build). And the budget:
+   an honest price must not make the feel worse than the unpriced path it replaced (a change on screen in one ~60 ms
+   task against 300–870 ms of nothing): for a user's action (undo, redo, a drop) the coarse-first path is admitted when
+   its priced T is within three frames, 48 ms, one action, not a per-frame cost; `patchInlineMs` for the bake's patches
+   stays 6. The reviewer sets it, then measures the undo's first change and key-to-exact against the review's 203–348.
+3. **Q1 no** (a budgeted read at the crossing's step): the 16 unread cells drew fresh stand-ins (`olderUnreadMs` 0) and
+   their tiles baked in 536 | 549 ms by the reads that covered them at 29–36 ms a tile; a read at the step costs at
+   least one tile. Closed.
+4. **Q2 yes**, (f′) waiting on its own job is `olderPatchMs` — and scenario 7's residual `olderOther` (254 | 78; the
+   builder suspects uncovered stale own plates that `_patchStep` skips and `_older` does not classify) is the reviewer's
+   to classify or fix: no stale draw hides under a name.
+5. **Q4 leave `Stage.covers`** (O(tiles); `_aim` is bounded now).
+6. **The record set's bound** (8 keys × the last list, 20,974 records after scenario 1, 9,264 after 4 and 6): accepted;
+   the reviewer's item 8 checks the moved item's `res` in the key and the byte-equal plates with the memo warm.
+7. **The doubling** (PLAN §5.17 item 4): not path-and-plates in four round trips (0 both-composes, nothing held at
+   "drawn"); off the pen-up rule's account; the final check looks once in Kobin's Chrome (translucent ink at the shot).
+8. **Scenario 5** with the harness fix: the reviewer's one run. The `stage.cover` C4 flake and item 11b's stall
+   (pre-existing; the bake finished in both after runs): the reviewer's, short.
 
 ### 5.21 To the R-DRAG review (its report of 2026-09-30, scope narrowed at 02:41 per Kobin)
 

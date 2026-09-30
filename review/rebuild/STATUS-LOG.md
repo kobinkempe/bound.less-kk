@@ -2715,3 +2715,15 @@ undo against the first before run is rule 2's price (ℓ −1 no longer fits 16 
 **Questions asked:** in the report — the budgeted read at the crossing (recommend no), (f′)-pending as `olderPatchMs`,
 the coarse search's bound, F137's bisect, scenario 7's residual `olderOtherMs`.
 WHERE I AM: ended; the report sent.
+
+## 2026-09-30 03:01 UTC — orchestrator (Fable) — B-PYRAMID-4 landed (fea473e); PLAN §5.20; R-PYRAMID-34 launching
+**Working on:** B-PYRAMID-4's report read and answered in PLAN §5.20: F137 (scenario 1's back-in paper) is the reviewer's
+first item with leave to fix by bisecting the rules; the undo's regression (the priced pack sends it to the workers)
+answered by the search stop (Q3 yes) and a user's coarse-first budget of 48 ms, the reviewer builds and measures both;
+Q1 no, Q2 yes with the residual olderOther to classify, Q4 leave; the doubling off the pen-up rule's account. The
+R-PYRAMID-34 brief re-scoped to that order (~90 min). Launching the reviewer now (ports 3020–3029); B-MODEL-C34 runs
+in the model files.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: launching R-PYRAMID-34; waiting for B-MODEL-C34's checkpoints.
