@@ -2727,3 +2727,14 @@ in the model files.
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: launching R-PYRAMID-34; waiting for B-MODEL-C34's checkpoints.
+
+## 2026-09-30 03:05 UTC — R-PYRAMID-34 (reviewer) — the review of B-PYRAMID-3/4, scoped (brief's Scope block) — start
+**Working on:** in the brief's order: F137's bisect and fix (frozen copies of `bp4/bA` and `bp4/bC`, scenario 1 only,
+ports 3020–3029), then the undo (the coarse search's stop; the 48 ms coarse-first budget for a user's action), then
+items 3/10, 8, scenario 7's residual `olderOther`, scenario 5's release, RV4/C4, reads of 7/9/4; one `--dense
+--scenario all` on the final tree at the end. Files I may edit: the raster sources of the brief's §3, their suites,
+the harness, DESIGN §9/A3/OPEN-FLAGS renderer flags; nothing of B-MODEL-C34's. Browser batches announced here.
+**Measured:** nothing yet (load 0.27 at 03:02).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: diffing bA against bC's raster sources to plan the F137 bisect copies.
