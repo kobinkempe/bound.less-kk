@@ -2560,3 +2560,15 @@ not rebuilt. Fuzzes on the final tree: `model.equivalence` 25 seeds × 40, 1,000
 leaves); A1 §15, TEST-MAP and F93's note carry the new count.
 **Questions asked:** none here; "moved into" and the second parent pointer are in the report.
 WHERE I AM: done. My servers on :3040/:3041 stopped; nothing of mine running. Nothing checked in Kobin's Chrome.
+
+## 2026-09-30 02:16 UTC — orchestrator (Fable) — B-DRAG landed (D1–D4); PLAN §5.19; R-DRAG launching
+**Working on:** B-DRAG's report read in full and answered in PLAN §5.19 ("moved into" kept as built and put to Kobin;
+the second parent pointer not built, his decision; the inkless rule after undo/redo stands per DESIGN §10, on his
+list; the drop's patch to R-PYRAMID-34's attribution and R-DRAG's `setBatch` timing; the remote-removal repair to
+B-MODEL-C34; RV4, seed 777's frame count and `ownIn` to R-DRAG; `supportsDragPlane` to B-PYRAMID-4). The tree
+committed as B-DRAG's landing (B-PYRAMID-4 still in progress in the raster files). R-DRAG (opus-reviewer,
+`briefs/R-DRAG.md`, ports 3040–3049) launches now; B-MODEL-C34 after it ends.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: launching R-DRAG; waiting for B-PYRAMID-4's report.

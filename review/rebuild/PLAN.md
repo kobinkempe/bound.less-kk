@@ -882,3 +882,41 @@ argument: a patch's pixels are its clip's, a plate's pixels outside the clip com
 `stage.cover` C4 red in its run at load 5–7 and green alone 5/5 is not B-PYRAMID-4's: it goes to the B-PYRAMID-3/4
 reviewer (make it deterministic as LH-1 was, or say why it is load-only). The section numbers move: B-DRAG's report is
 answered in §5.19, B-PYRAMID-4's in §5.20 (the briefs updated).
+
+### 5.19 To B-DRAG (its report of 2026-09-30)
+
+Read in full; landed with this section (D1–D4). A drag writes nothing until its drop: the Stage's hold carries δ
+(`setDragDelta`; `placed`/`placeNative` at +δ for inputs, `Item.res` for paint while the view draws the hold, the release
+dirtying where the view drew them); the drop once (`_dropMove`: the arithmetic once per (home, picture table) on the
+composed table, the subtree re-addressed once; the write, the hold's release and the merges one batch, one undo entry,
+then `noteUserEdit`); the selection repaired from the op (`_opUnder` before, `_repairSelection` after) at a drop, an
+undo or a redo; `_normalizeHome`, `_homeShift`, `_restoreFrames`, `_keepingSelection`, the `_moving` capture and the
+per-remove listener deleted; `deleteSelection` reads the families first and removes in one batch. F136 found (400 of
+1,250 natives a cell off after a long subtree drag at seed 777) and gone with the per-event writes. Measured: 0 writes,
+re-homes, mints and settles per event over 40 events; frames minted during a drag 211/145/239 → 0/0/0; scenario 4's
+ink 0 px different after the drop against d206cd3, the drag event median 1.2–1.7 → 0.7–0.8 ms, the first event 64–83
+→ 27–33 ms, the drop 1.7–2.0 → 1.5–1.9 s; the 5,000-native delete 532–585 s → 0.53 s raster and 1.3–1.5 s SVG; the
+quick suite 2,169 passed, 0 failed; 17 break-checks red. Nothing in Kobin's Chrome.
+
+1. **"Moved into"** (Kobin's §5.2 Q1): built literally — a per-object member joins the frame of the cell it lands in;
+   a carried kid goes under the root's lattice neighbour at the drop. Kept; the final summary shows Kobin scenario 4's
+   kid "1/-1,1" and asks once; R-DRAG item 4 writes the plain-words answer.
+2. **The second parent pointer** (Q2): not built. B-DRAG's three lines — a `container` beside `parent`, set where
+   `readdressMany` re-parents a kid away from its root; the walks (`isUnder`, `walk`, `_subtreeCount`,
+   `removeFrameSubtree`, the GC) reading it first; the op's frame entries recording it — are here for Kobin's decision.
+   The op repair already keeps a re-parented subtree selected, which is what the pointer was for; the final summary
+   puts it to him.
+3. **The inkless rule after an undo or a redo** stands as DESIGN §10 says (a frame left with no ink leaves the
+   selection; the oracle and d206cd3 kept it; a redo does not restore it): user-visible, on the final check's list for
+   Kobin; R-DRAG item 4 checks it against §10's words.
+4. **The drop's patch** (an estimate of 437–555 ms, over both budgets, so `noteUserEdit` changes nothing there):
+   R-PYRAMID-34 §2 attributes the drop's render by part; R-DRAG item 2 times the drop with and without
+   `TileStore.setBatch` around its writes (unmeasured) and keeps or deletes the wrap on the number.
+5. **Dead ids after a remote edit** (leastSure 1): a sync's removal reaches the selection through no repair now.
+   B-MODEL-C34 (C4's sync) repairs a remote op like a local one, with a test; its brief says so.
+6. **RV4** load-sensitive on both trees and **seed 777's** 5 frames after GC against 4: R-DRAG (deterministic or why;
+   the one-frame difference traced).
+7. **`supportsDragPlane`**, read only by `raster.pyramid.test.js:59` and the oracle now: B-PYRAMID-4 deletes the getter
+   and the assertion (told). **`ownIn`** in `eraseDescent.js` duplicating `Document.ownFor`: R-DRAG, a minor under
+   rule 3 if identical. Empty leaf containers left by `_dragFramesStart`: as before, F94's GC after the drop.
+8. The C3/C4 items (the `mergeFrame` hand-over, I4, F126's follow, F107, F100, F108): in B-MODEL-C34's brief.

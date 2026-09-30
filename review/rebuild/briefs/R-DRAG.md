@@ -29,7 +29,8 @@ pointer-up), `Stage.js` (`hold`, `release`, `setDragDelta`, `Item.res`, `homeOf`
    re-addressed once; the mint census at the drop against A1 §1.4 (B-DRAG: 0 during the drag; 14/5/4 left after GC
    against the oracle's 15/5/5 — explain the one-frame difference); `noteUserEdit` at the drop and the drop's patch
    budget (scenario 4's `olderPatchMs`, B-DRAG's runs 1,081 | 1,090 → 1,138 | 1,578 under load: attribute the drop's
-   T of 437–555 ms and say whether coarse-first or the worker path is the right one there).
+   T of 437–555 ms and say whether coarse-first or the worker path is the right one there). The drop's writes are still wrapped in `TileStore.setBatch` (B-DRAG: unmeasured
+   for a single drop): time the drop with and without it, one number, and keep or delete the wrap.
 3. **The cancel.** A non-drop exit (escape, a lost plane, an undo mid-drag, a tool change, a second pointer) leaves
    the document byte-equal to before the press and no shadow, merge or op behind (the C1 review's least-sure 4);
    B-DRAG's cancel test extended to every exit.
@@ -39,9 +40,14 @@ pointer-up), `Stage.js` (`hold`, `release`, `setDragDelta`, `Item.res`, `homeOf`
    (`select.stands.probe`) with drags, undo, redo and delete: the selection's ink equals the oracle's and the ink it
    was made with; no inkless frame. Kobin's PLAN §5.2 Q1 ("moved into") and Q2 (the second parent pointer) get a
    written answer from the code as built: what "moved into" means for a per-object member and a subtree today, and
-   what the second parent pointer would take (B-DRAG's three lines checked against the code).
+   what the second parent pointer would take (B-DRAG's three lines checked against the code). B-DRAG's decision that an undo or a redo emptying a selected frame
+   drops it from the selection (DESIGN §10's inkless rule; the oracle and d206cd3 kept it; a redo does not restore it):
+   check it against §10's words and record it as user-visible for Kobin's check. An id a remote edit removes stays
+   selected until the next repair (B-DRAG's leastSure 1): say which path repairs it today; the fix is B-MODEL-C34's.
 5. **The delete.** `deleteSelection` clears the selection once and removes in one batch: the 5,000-native delete's
-   time before and after (B-DRAG measures it; the review's number was 24.9–26.2 s with 18.7 s in the listener).
+   time before and after (B-DRAG measures it; the review's number was 24.9–26.2 s with 18.7 s in the listener; B-DRAG's: 532–585 s → 0.53 s
+   raster, 1.3–1.5 s SVG). RV4 (`raster.move`) is load-sensitive on both trees (4/4 red under three busy loops, 3/3
+   green alone): make it deterministic or say why it is load-only.
 6. **F136 and the seed-777 defect** (a carried kid's natives left a cell off their picture after the old drop): pinned
    by a red-before test on the pre-B-DRAG tree and green now; the flag closed with the number.
 7. **The drop's cost by part** (B-DRAG's trace: `_dropMove` 16–24 ms, the render 1.8–2.0 s on both trees, the repair
@@ -52,7 +58,8 @@ pointer-up), `Stage.js` (`hold`, `release`, `setDragDelta`, `Item.res`, `homeOf`
    `modelFuzz.comparePictures`: a native the oracle normalised is compared by its drawn box — check that rule cannot
    hide a wrong placement: the box is the placement's, so a wrong rem moves the box; say so with a break-check).
 9. **Docs**: DESIGN §8/§10, A1 §14 (C2), OPEN-FLAGS (F94, F100, F107, F108, F126: B-DRAG closed what it measured;
-   check each number), PLAN §1.4/§1.7 true to the code.
+   check each number), PLAN §1.4/§1.7 true to the code. A minor: `ownIn` in `eraseDescent.js` duplicates `Document.ownFor` (B-DRAG's open
+   item) — if identical, one implementation (rule 3), with its test.
 
 ## 2. Measurement
 

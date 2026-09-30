@@ -50,6 +50,11 @@ a lasso over a torn family), with the differences C3/C4 make by design named and
 oracle merged: compared by place, the picture equal); the version-3 gate covers co-residents and private frames; the
 docs true; F94, F100, F107, F108, F124, F126 closed with numbers or their notes updated.
 
+Also from B-DRAG's report (PLAN §5.19 item 5): an id a remote edit removes (C4's sync) stays in the selection until the
+next local repair — the per-remove listener is gone, the selection is repaired from an op at the action's end. A remote
+op is repaired like a local one (`_opUnder`/`_repairSelection` around its apply), with a test; and `select.inkless` I4
+and the subscriber's `mergeFrame` hand-over go with the merges (B-DRAG kept both until you).
+
 ## 2. Order, with checkpoints (an entry each; the orchestrator snapshot-commits)
 
 1. **C3a — co-resident lookups and readers** while merges still run (A1 §5 step 3: between a drop and the merge they

@@ -199,14 +199,16 @@ function installProbes() {
     const E = window.__kobinEngine;
     const L = E.renderer && E.renderer.layer;
     const P = window.__bfProbe = { paperMs: 0, maxShare: 0, samples: 0, share: 0, last: performance.now(), maxImages: 0, composes: 0, older: {},
-        unread: { composes: 0, cells: 0, max: 0, keys: new Set(), reads: 0, tiles: 0, ms: 0 } };
+        unread: { composes: 0, cells: 0, max: 0, keys: new Set(), reads: 0, tiles: 0, ms: 0, cur: 0, epiReads: 0, epiTiles: 0, epiMs: 0 } };
     // The tile reads (`TileStore.readTiles`, what a budgeted read at a crossing's step would spend) and the view cells whose
     // tiles a step left unread (`covered` false: drawn from stand-ins, never packed).
     if (E.store && E.store.readTiles) {
         const read = E.store.readTiles.bind(E.store);
         E.store.readTiles = (cells, budgetMs) => {
-            const a = performance.now(), got = read(cells, budgetMs);
-            P.unread.reads++; P.unread.ms += performance.now() - a; P.unread.tiles += got && got.tiles ? got.tiles.size || got.tiles.length || 0 : 0;
+            const a = performance.now(), got = read(cells, budgetMs), ms = performance.now() - a, n = got && got.tiles ? got.tiles.size || got.tiles.length || 0 : 0;
+            P.unread.reads++; P.unread.ms += ms; P.unread.tiles += n;
+            // While the last compose drew unread cells: the reads that cover them (what a read at the crossing's step would pay).
+            if (P.unread.cur) { P.unread.epiReads++; P.unread.epiMs += ms; P.unread.epiTiles += n; }
             return got;
         };
     }
@@ -247,7 +249,8 @@ function installProbes() {
                     n++; P.unread.keys.add(r.v.frameId + "|" + r.v.level + "|" + c.i + "," + c.j);
                 }
                 if (n) { P.unread.composes++; P.unread.cells += n; if (n > P.unread.max) P.unread.max = n; }
-            }
+                P.unread.cur = n;
+            } else if (r && r.v) P.unread.cur = 0;
             if (r && r.cells && r.v) {
                 const v = r.v;
                 for (const c of r.cells) for (const d of c.draws) {
@@ -288,7 +291,8 @@ function probeRead() {
     } catch (err) { rows = null; }
     return {
         t: Date.now(), paperMs: P.paperMs, maxShare: P.maxShare, samples: P.samples, maxImages: P.maxImages, wrapComposes: P.composes, older: { ...P.older },
-        unread: { composes: P.unread.composes, cells: P.unread.cells, max: P.unread.max, distinct: P.unread.keys.size, reads: P.unread.reads, tiles: P.unread.tiles, ms: P.unread.ms },
+        unread: { composes: P.unread.composes, cells: P.unread.cells, max: P.unread.max, distinct: P.unread.keys.size, reads: P.unread.reads, tiles: P.unread.tiles, ms: P.unread.ms,
+            epiReads: P.unread.epiReads, epiTiles: P.unread.epiTiles, epiMs: P.unread.epiMs },
         both: window.__bfBoth ? { composes: window.__bfBoth.composes, draws: window.__bfBoth.draws } : null,
         packRecs: (() => { try { const p = E.renderer.perf.report().pack; return p ? { recs: p.recs, recsBuilt: p.recsBuilt, memoEntries: p.memoEntries, memoMiB: +((p.memoBytes || 0) / 1048576).toFixed(1) } : null; } catch (err) { return null; } })(),
         paintPaper: window.__bfPaint ? window.__bfPaint.paperMs : 0,
@@ -385,7 +389,8 @@ function delta(a, b) {
         paintPaperMs: +(b.paintPaper - a.paintPaper).toFixed(1),
         blurMs: lp ? lp.blurMs : null, olderPatchMs: lp ? lp.olderPatchMs : null, olderUnreadMs: lp ? lp.olderUnreadMs : null, olderOtherMs: lp ? lp.olderOtherMs : null, standInCells: lp ? lp.standInCells : null, maxPaperShare: +b.maxShare.toFixed(3),
         unread: b.unread && a.unread ? { composes: b.unread.composes - a.unread.composes, cells: b.unread.cells - a.unread.cells, maxCells: b.unread.max, distinctCells: b.unread.distinct - a.unread.distinct,
-            reads: b.unread.reads - a.unread.reads, tiles: b.unread.tiles - a.unread.tiles, readMs: +(b.unread.ms - a.unread.ms).toFixed(1) } : null,
+            reads: b.unread.reads - a.unread.reads, tiles: b.unread.tiles - a.unread.tiles, readMs: +(b.unread.ms - a.unread.ms).toFixed(1),
+            whileUnread: { reads: b.unread.epiReads - a.unread.epiReads, tiles: b.unread.epiTiles - a.unread.epiTiles, ms: +(b.unread.epiMs - a.unread.epiMs).toFixed(1) } } : null,
         both: b.both && a.both ? { composes: b.both.composes - a.both.composes, draws: b.both.draws - a.both.draws } : null, packRecs: b.packRecs,
         frames: { n: b.frames - a.frames, hist }, longFrames: { count: b.longCount - a.longCount, worst: long.slice(0, 3).map((r) => ({ ms: Math.round(r.ms), script: Math.round(r.scriptMs || 0),
             top: r.scripts && r.scripts[0] ? (r.scripts[0].invoker || r.scripts[0].fn) + (r.scripts[0].fn ? " " + r.scripts[0].fn : "") : null })) },
