@@ -148,7 +148,8 @@ B-PYRAMID-4's (the pyramid's last rules; PLAN §5.15; F134, F135):
     `setDragState`/`setPlaneState`/`endMove` in `Renderer`, `liveChunk`, `warmReads`/`_warm`/`clearWarm`, the dead `live`
     argument of `MovePlane.aim`/`paintFamilies` (B-PYRAMID-4 deletes it): no caller, no reader, no comment naming one as
     live; TEST-MAP's rows say PORT/KEEP truly (`Renderer.liveChunk` → `LiveStrokeLayer`, `raster.liveHold` → `.hold`).
-    Also `stage.cover` C4 (`pl._whole(pl.quick)`), red in B-PYRAMID-4's raster run at load 5–7 and green alone 5 of 5:
+    Also RV4 (`raster.move`, load-sensitive on both trees per B-DRAG: red under load, green alone — one line: deterministic
+    or why) and `stage.cover` C4 (`pl._whole(pl.quick)`), red in B-PYRAMID-4's raster run at load 5–7 and green alone 5 of 5:
     make it deterministic as LH-1 was (its idle timer stubbed), or say why it is load-only. The clip cull (PLAN §5.18):
     its fuzz and break-checks re-run, and the exactness argument checked against the mask slots' filing.
 14. **Docs.** DESIGN §9 (the layers list, the SVG renderer's paragraph, the pen-up rule with the merge, the commit-task

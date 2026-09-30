@@ -2668,3 +2668,14 @@ with no op; C2 writes nothing).
 **Questions asked:** none new. Skipped per scope: Chromium (B-PYRAMID-4's batch unfinished), `setBatch` timing, items 5,
 7, the normalised-rule break-check, RV4 and seed 777 traces, `ownIn` (same arithmetic, not identical: worker-side).
 WHERE I AM: done; nothing of mine running.
+
+## 2026-09-30 02:48 UTC — orchestrator (Fable) — R-DRAG landed (ce6f397); PLAN §5.21; B-MODEL-C34 launched
+**Working on:** R-DRAG's report read and answered in PLAN §5.21 (the major fixed with leave accepted; F80 on the mixed
+drop's undo and the remote removal to B-MODEL-C34; RV4 to the B-PYRAMID-3/4 reviewer; Kobin's two answers and his
+three user-visible items recorded for the final summary; `ownIn` and the `setBatch` wrap to the final pass). §5.20
+holds B-PYRAMID-4's place. B-MODEL-C34 (opus-builder, `briefs/B-MODEL-C34.md`, ports 3030–3039, scratch `bm34/`)
+launched at ~02:52 with Kobin's constraint (one measurement pass, hand back at done-means).
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-4's report (its batch) and B-MODEL-C34's start entry.

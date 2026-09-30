@@ -920,3 +920,42 @@ quick suite 2,169 passed, 0 failed; 17 break-checks red. Nothing in Kobin's Chro
    and the assertion (told). **`ownIn`** in `eraseDescent.js` duplicating `Document.ownFor`: R-DRAG, a minor under
    rule 3 if identical. Empty leaf containers left by `_dragFramesStart`: as before, F94's GC after the drop.
 8. The C3/C4 items (the `mergeFrame` hand-over, I4, F126's follow, F107, F100, F108): in B-MODEL-C34's brief.
+
+### 5.20 To B-PYRAMID-4 (its report of 2026-09-30)
+
+(Written when its report arrives; the section number was promised to it and to its reviewer's brief.)
+
+### 5.21 To the R-DRAG review (its report of 2026-09-30, scope narrowed at 02:41 per Kobin)
+
+Read in full; landed as ce6f397. **The major, fixed with leave:** a drop of a selected frame R plus a per-object member
+X homed in R's neighbour moved X twice (38.4 px for a 19.2 px drop; 89.6 for 44.8; a deeper member 70.4 for 35.2):
+`_dropMove` re-homed the members into R against the press lattice, then re-addressed R, which carried X again — DESIGN
+§8's registration broken. Now the frames are re-addressed first and the member loop runs against the lattice they
+left, the arithmetic still once per (home, picture table); `move.drop` D2b (three cases, each member at +δ to 1e-9,
+undo and redo exact) red on 8f9c073, green now. d206cd3 had a different defect there (24 px for 19.2, its last event
+only). Minors fixed: the oracle harness follows DESIGN §10 after an undo or redo and cancels the oracle's drag before a
+deselect, tool change or delete mid-drag (seeds 126 and 43 pinned; the frozen oracle module untouched); F136's walk
+runnable on d206cd3 (red there at 400 of 1,250, green now). Added: `move.hold.probe.js` (42 drags, 291 events, hit
+tests, lasso finds, resizes and crossings interleaved, all eight exits: the document byte-equal at every event, every
+held native at +δ); D3 over a tool change and a redo mid-drag. Skipped per the scope: Chromium (B-PYRAMID-4's batch was
+running), the `setBatch` timing, items 5 and 7, RV4's and seed 777's traces. Nothing in Kobin's Chrome.
+
+1. **F80 on the mixed drop's undo** (X landing in R's vacated cell mints a frame there; an undo merges R into it when
+   it kept an emptied kid; the picture exact, the redo byte-exact): B-MODEL-C34's, with the co-residents (its brief).
+2. **The harness rule** (leastSure 2: the pair fuzz can no longer catch a live defect of those shapes): accepted;
+   `select.inkless` and D3 carry them, and the final summary says so.
+3. **Kobin's answers, in the reviewer's words** (for the final summary): *"Moved into"* — loose objects you drag
+   belong, after the drop, to the frame of the place they land, as if drawn there; if a dragged frame has moved into
+   that place they join it, if a dragged frame left it a new frame is made there; a dragged frame keeps its contents;
+   if it lands where another frame already has ink its contents merge into that frame (until C3); a sub-frame the move
+   pushes across a cell edge becomes a child of the neighbouring frame and stays selected. Kept. *The second parent
+   pointer* — not built; it would keep a dragged frame's sub-frames its own for good, not only for the current
+   selection; B-DRAG's three lines miss two readers and a file header field (`subtreeStart`, the lasso's enclosed-frame
+   mapping, the format). Recommendation: not unless Kobin wants groups that persist after deselecting.
+4. **On Kobin's check list** (user-visible, per DESIGN §10/§8): an undo that empties a selected frame deselects it and
+   a redo does not bring it back; undoing the cut of a selected piece selects the restored whole stroke; a deselect or
+   tool change mid-drag puts the drag back where it started.
+5. **Routed:** the remote removal's dead id → B-MODEL-C34 (its brief); RV4 (`raster.move`, load-sensitive) → the
+   B-PYRAMID-3/4 reviewer, one line; the drop's render → the same reviewer's §2 (already); seed 777's 5 frames after
+   GC against the oracle's 5 (live ≤ oracle holds) → a note in the final summary; `ownIn` (the same arithmetic as
+   `Document.ownFor`, worker-side, T uncloned) and the drop's `setBatch` wrap → the final pass's list, not built now.
