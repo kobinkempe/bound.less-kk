@@ -1262,7 +1262,10 @@ export default class PicturePyramid {
         // The last decision, for the report and the harness (the undo's path, PLAN §5.11 Q3).
         this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, user: mine, inline: out.inline, coarse: null, est: job.est || null };
         if (out.inline) return out;
-        for (let k = 1; k <= N; k++) {
+        // The pack's terms do not shrink with a coarser level (the same items meet the same rectangles): over the budget
+        // alone, no level fits, and each would cost a measure of the whole list.
+        const m = job.est, packT = m ? this._k.pack * (m.K || 0) + this._k.list * (m.N || 0) : 0;
+        for (let k = 1; k <= N && packT < budget; k++) {
             const l = v.level - k;
             if (l < floor) break;
             const cj = this._coarseJob(v.frameId, l, S, rects);

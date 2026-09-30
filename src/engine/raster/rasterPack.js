@@ -867,14 +867,12 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
 
 /**
  * Item `o`'s prepass record: `r` when its entry is live and its fade, z, family, erase flag and `res` (by value) are the
- * ones it was built with — its memo entry touched, as `entryFor` would — else a new one.
+ * ones it was built with, else a new one. A kept record does not touch the memo's LRU (a delete and a set a list item
+ * was most of a 26 ms prepass on the dense drawing), as the families it replaced did not.
  */
 function recFor(r, o, fade, cfg, offset) {
     const own = o.res || null;
-    if (r && r.fade === fade && r.z === o.z && r.editId === o.editId && r.erase === !!o.erase && sameRes(r.own, own) && entryLive(r.e, o)) {
-        touch(o.piece || o, r.e);
-        return r;
-    }
+    if (r && r.fade === fade && r.z === o.z && r.editId === o.editId && r.erase === !!o.erase && sameRes(r.own, own) && entryLive(r.e, o)) return r;
     const e = entryFor(o, cfg), res = withOffset(own, offset);
     packStats.recsBuilt++;
     return { e, fade, z: o.z, editId: o.editId, erase: !!o.erase, own, res, box: e.bad ? null : boxWithRes(e.box, res) };

@@ -5,7 +5,7 @@
 `svgdrag.js`, `svgalloc.js`) and `<scratchpad>/bp4/` (its red-before copy `rb`, its harness batches); the B-PYRAMID
 review's is `<scratchpad>/r-pyr/`. Fix minors inline in the files of §3; report majors with a proposed fix and its
 evidence; a major with a bounded fix and a red-before test may be applied when the orchestrator says so (ask in your
-checkpoint entry, keep working meanwhile). Leave given at launch: (filled from B-PYRAMID-4's report — none yet).
+checkpoint entry, keep working meanwhile). Leave given at launch: item 11b's stall fix when bounded (one mechanism, one red-before test); more from B-PYRAMID-4's report when written.
 
 **The B-PYRAMID review verified P0–P6 on c7fed1a** (its 19:59 entry in the STATUS-LOG; `briefs/R-PYRAMID.md` items
 5–10). Do not repeat those items; re-check only what B-PYRAMID-3 and 4 touched (`git diff --stat c7fed1a -- src/engine/`
@@ -123,6 +123,14 @@ B-PYRAMID-4's (the pyramid's last rules; PLAN §5.15; F134, F135):
     place for stale draws?) with the fuzz's split as evidence, and recommend. Its number for a budgeted read of the
     unread cells' tiles at the crossing's step (scenario 1: the cells' count and bake times): check it once and
     recommend — the decision is the orchestrator's.
+11b. **Scenario 7's bake stall** (B-PYRAMID-4's 02:36 entry): the erase bake never finished within 60 s in two runs —
+    one on the old raster code (39b67e2 with the raster sources at adcae93), one on its after copy — with strips queued
+    and none in flight, intermittent; its `bp4/h/probe7.js` logs the queue's state and was not yet run. Reproduce it
+    (the probe, several runs, the load printed), root-cause it in `jobQueue`/`rasterWorkerClient`/the cut reservation
+    (a freed slot that pumps nothing, a refused strip nothing re-asks, a barrier waiting on a job the queue dropped,
+    the microtask pump outside a camera step) and fix it with a red-before test — **leave to build** if the fix is
+    bounded (one mechanism, one test), else a proposed fix with the evidence. A bake that stalls is a major whoever
+    wrote the line.
 12. **PLAN §3 row 1 through the new paths.** A stored plate's G monotone and exact iff `G ≥ dirtySince` through a merged
     group's results (`onResult` counting for a group), the commit-task patch step, a re-aimed strip's late result;
     extend the review's row-1 fuzz in `raster.pyramid` with overlapping pen-up groups and commits inside the task:

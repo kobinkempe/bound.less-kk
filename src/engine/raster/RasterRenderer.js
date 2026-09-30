@@ -960,7 +960,7 @@ export default class RasterRenderer {
         const plates = new Int32Array(cells.length * 2);
         for (let k = 0; k < cells.length; k++) { plates[k * 2] = cells[k].i; plates[k * 2 + 1] = cells[k].j; }
         if (jobId != null) this.store.beginJob(jobId, cells, G);
-        const t0 = perfNow(), pre0 = packStats.prepassMs;
+        const t0 = perfNow(), pre0 = packStats.prepassMs, built0 = packStats.recsBuilt;
         // A plane layer packs its own members (`only`, transparent) or everything but them (`omit`); any other pack leaves
         // the selection out while the plane draws the move. A clipped job packs only what meets its clips (PLAN §5.18).
         const packed = packJob(list, {
@@ -973,11 +973,12 @@ export default class RasterRenderer {
             packed.clips = cl;
         }
         job.packedCells = cells; job.packedClips = clips;
-        const ms = perfNow() - t0, pre = packStats.prepassMs - pre0;
+        const ms = perfNow() - t0, pre = packStats.prepassMs - pre0, built = packStats.recsBuilt - built0;
         this._packMs += ms;
         this._add(SLOT.pack, ms);
-        // The estimate's pack terms (A3 §2.2): the prepass a list item when it ran, the rest a packed item.
-        this.pyramid.calibrate({ prepassMs: pre, listItems: pre > 0 ? list.length : 0, packMs: ms - pre, packItems: packed.nItems });
+        // The estimate's pack terms (A3 §2.2): a packed item's cost, and a list item's in a prepass that kept its records
+        // (an inline render's after a commit; a new zoom's rebuilds them all).
+        this.pyramid.calibrate({ prepassMs: pre, listItems: pre > 0 && built * 10 < list.length ? list.length : 0, packMs: ms - pre, packItems: packed.nItems });
         return packed;
     }
 

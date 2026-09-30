@@ -9,6 +9,7 @@
 import { useEngines, mkEngine } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
 import { rectLoop } from "./geometry/arcShape";
+import { snapDisplacement } from "./geometry/offsets";
 
 useEngines();
 
@@ -200,6 +201,67 @@ describe("D2 — the drop: one write, one op; mints at the drop are the final ch
         // The first commit after the press holds the whole drop: its op, the released hold, every write.
         expect(commits[0]).toEqual({ ops: 1, holding: false, rev: E.doc.rev });
     });
+});
+
+describe("D2b — a frame and per-object members dropped together: each member moved once", () => {
+    // R one level under the camera with a kid K; X in R's left neighbour L and Y in L's kid at K's cell. Carried into
+    // R's start cell, X (or Y into K's) was re-homed there and then moved again by R's re-address: 38.4 px for a
+    // 19.2 px drop on 8f9c073. Every member must land exactly where it lands when dragged alone, at +δ.
+    function mixed() {
+        const E = mkEngine(800, 600);
+        E.lm.ensureSpine(4);
+        E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 });
+        const R = E.lm.cellChild("1", 5, 5), L = E.lm.cellChild("1", 4, 5);
+        const K = E.lm.cellChild(R.id, 3, -2), KL = E.lm.cellChild(L.id, 3, -2);
+        const sq = (frame) => shapeAt(E, frame, -20000, -20000, 40000, 40000);
+        const r = sq(R.id), k = sq(K.id), x = sq(L.id), y = sq(KL.id);
+        E._render();
+        E.setTool("select");
+        return { E, R, L, r, k, x, y };
+    }
+    const dragBy = (E, p, dx, dy) => {
+        E.pointerDown(p[0], p[1]);
+        for (let s = 1; s <= 4; s++) E.pointerMove(p[0] + (dx * s) / 4, p[1] + (dy * s) / 4);
+        E.pointerUp();
+    };
+    const boxOf = (E, id) => { const b = E.stage.placeNative(E.doc.getById(id).obj, "1").box(); return [b.left, b.top, b.right, b.bottom]; };
+    const boxes = (f) => ["r", "k", "x", "y"].map((n) => boxOf(f.E, f[n].id));
+    for (const [name, dx, dy, pre] of [
+        ["0.6 cell: X into R's start cell, Y into K's", 19.2, 0, 0],
+        ["1.4 cells", 44.8, 0, 0],
+        ["1.1 cells right, 0.1 down, X carrying 0.45: X into the cell R moves to", 35.2, 3.2, 14.4],
+    ]) {
+        test(name, () => {
+            const setUp = () => {
+                const f = mixed();
+                if (pre) { f.E._setSelection([f.x.id], []); dragBy(f.E, f.E._levelPointToScreen(f.L.id, 0, 0), pre, 0); }
+                return f;
+            };
+            // Each part dragged alone: where the per-object and the frame paths put it.
+            const alone = [];
+            for (const [ids, frames, n] of [[[], ["R"], [0, 1]], [["x", "y"], [], [2, 3]]]) {
+                const f = setUp();
+                f.E._setSelection(ids.map((m) => f[m].id), frames.map((m) => f[m].id));
+                dragBy(f.E, f.E._levelPointToScreen(frames.length ? f.R.id : f.L.id, 0, 0), dx, dy);
+                const b = boxes(f);
+                for (const i of n) alone[i] = b[i];
+            }
+            const f = setUp(), { E } = f, before = boxes(f);
+            E._setSelection([f.x.id, f.y.id], [f.R.id]);
+            dragBy(E, E._levelPointToScreen(f.L.id, 0, 0), dx, dy);
+            const after = boxes(f);
+            expect(after).toEqual(alone);                                  // red on 8f9c073: X and Y moved again by R
+            const [sx, sy] = [snapDisplacement(dx), snapDisplacement(dy)];
+            for (let i = 0; i < 4; i++) {
+                expect(after[i][0] - before[i][0]).toBeCloseTo(sx, 9);
+                expect(after[i][1] - before[i][1]).toBeCloseTo(sy, 9);
+            }
+            E.undo();
+            expect(boxes(f)).toEqual(before);
+            E.redo();
+            expect(boxes(f)).toEqual(after);
+        });
+    }
 });
 
 describe("D3 — a cancel writes nothing: the document is byte-equal to before the press", () => {

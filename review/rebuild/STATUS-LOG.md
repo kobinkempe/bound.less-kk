@@ -2619,3 +2619,22 @@ module stays untouched.
 **Decisions made:** as above; the answer to its report will be the PLAN's next section.
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-4's report and R-DRAG's next checkpoint.
+
+## 2026-09-30 02:36 UTC — B-PYRAMID-4 (builder) — checkpoint: the final tree frozen, its batch running
+**Working on:** the final after batch (`bp4/batch3.sh`: `bp4/bC` = 8ad8a2e + my uncommitted raster changes, :3016,
+`--dense --scenario all` ×2, then the round trip ×2 on bC and on the before copy bA, :3014); the docs meanwhile.
+**Measured (headless, before the freeze):** batch2's first after run (bB) and one probe6d pair showed my rule 2 wrong
+twice, fixed before the freeze: (1) a kept record touched the memo's LRU (a Map delete + set a list item): the undo's
+prepass 26 ms over 2,841 items; now no touch, as the families it replaced; (2) the pack's terms (calibrated 48–140 µs a
+packed item, 2–8 µs a list item) put every coarse level over budget, and the search measured all eight: the undo's key
+task 317 ms (before 117); now the search stops when the pack alone is over the budget, and the list term calibrates
+only from prepasses that kept 90 % of their records. Also: a drag plane's `only`/`omit` pack adds to the records and
+drops none (J4g extended); `supportsDragPlane` and its assertion deleted (the coordinator's addition). The erase bake
+of scenario 7 never finished in 60 s in batch2's before-2 (old raster code on HEAD) as in bB's run: not mine — an
+intermittent stall with strips queued and none in flight (the queue's state logged by `h/probe7.js`, not yet run).
+Focused suites on the live tree: 13 files, 212/212. Before (bA, 39b67e2 with my raster sources at adcae93, load
+1.9–3.7): 1 out paper 6 | 946, back 0 | 0; 6 undo exact 260 | 819 ms (coarse ℓ −1 inline: pack 50 ms, 764 items);
+7 olderOther 1,370 | 1,573, bake 6.7 s | stalled.
+**Decisions made:** these three fixes in before the one freeze (they are defects of this task's own code).
+**Questions asked:** none.
+WHERE I AM: A3/DESIGN/OPEN-FLAGS text while the batch runs; then its table into them, the end entry, the report.
