@@ -667,11 +667,13 @@ class Selection {
     }
     /**
      * The drop: the drag's one write (A1 C2), from where the drag started to the last step's displacement.
-     * The arithmetic runs ONCE per (home frame, picture table) and every member of that frame takes the
-     * same answer, which is what registration rests on (DESIGN.md §8): a per-object member is re-homed and
-     * its own table set by `_displaceMember` on its picture table — whole cells into the address, the rest
-     * into its own table less the target frame's shift; the selected frames are re-addressed once. The
-     * Stage's hold stands, so the table takes it all at the release. Returns the op pushed, or null.
+     * The selected frames are re-addressed first, from their addresses at the press; then the arithmetic runs
+     * ONCE per (home frame, picture table) and every member of that frame takes the same answer, which is what
+     * registration rests on (DESIGN.md §8): a per-object member is re-homed and its own table set by
+     * `_displaceMember` on its picture table — whole cells into the address, the rest into its own table less
+     * the target frame's shift. Frames first, because a member re-homed into a selected frame's start cell is
+     * moved again by that frame's re-address. The Stage's hold stands, so the table takes it all at the
+     * release. Returns the op pushed, or null.
      */
     _dropMove(d) {
         if (!d.t) return null;
@@ -680,37 +682,37 @@ class Selection {
         const seen = new Map();                          // (frame, table) -> the answer
         const rehomes = new Map();                       // target frame -> ids, in member order
         const offsets = [];                              // [id, table] whose table changes
-        for (const m of this._selectionMembers()) {
-            const o = m.obj, from = m.level, T = this.doc.tableOf(o);
-            const key = from + "|" + JSON.stringify(T || null);
-            let put = seen.get(key);
-            if (!put) {
-                put = this._displaceMember(from, T, camDepth, tx, ty);
-                if (!put.why) put.own = this.doc.ownFor(put.table, put.frame);   // less the target frame's shift
-                seen.set(key, put);
-            }
-            // A member the drag could not move, and why (F35): journaled with the move.
-            if (put.why) { skipped.push({ id: o.id, level: from, why: put.why }); continue; }
-            const before = this.doc.ownTable(o), tableMoved = !sameBelow(put.own, before);
-            if (put.frame === from && !tableMoved) continue;
-            if (put.frame !== from) {
-                let ids = rehomes.get(put.frame);
-                if (!ids) rehomes.set(put.frame, ids = []);
-                ids.push(o.id);
-            }
-            if (tableMoved) offsets.push([o.id, put.own]);
-            moves.push({ id: o.id, dx: tx, dy: ty, from, to: put.frame, belowBefore: before, belowAfter: cloneBelow(put.own) });
-        }
         // Tiles the camera cannot see are dropped rather than patched for a bulk write (TileStore.setBatch).
         this.store.setBatch(true);
         try {
-            for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
-            for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
             d.frames = new Map();
             if (this.selection.frames.length) {
                 this._dragFramesStart(d, camDepth);
                 if (d.frameStart.size) this._dragFrames(d, camDepth, tx, ty);
             }
+            for (const m of this._selectionMembers()) {
+                const o = m.obj, from = m.level, T = this.doc.tableOf(o);
+                const key = from + "|" + JSON.stringify(T || null);
+                let put = seen.get(key);
+                if (!put) {
+                    put = this._displaceMember(from, T, camDepth, tx, ty);
+                    if (!put.why) put.own = this.doc.ownFor(put.table, put.frame);   // less the target frame's shift
+                    seen.set(key, put);
+                }
+                // A member the drag could not move, and why (F35): journaled with the move.
+                if (put.why) { skipped.push({ id: o.id, level: from, why: put.why }); continue; }
+                const before = this.doc.ownTable(o), tableMoved = !sameBelow(put.own, before);
+                if (put.frame === from && !tableMoved) continue;
+                if (put.frame !== from) {
+                    let ids = rehomes.get(put.frame);
+                    if (!ids) rehomes.set(put.frame, ids = []);
+                    ids.push(o.id);
+                }
+                if (tableMoved) offsets.push([o.id, put.own]);
+                moves.push({ id: o.id, dx: tx, dy: ty, from, to: put.frame, belowBefore: before, belowAfter: cloneBelow(put.own) });
+            }
+            for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
+            for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
         } finally { this.store.setBatch(false); }
         // The frames it moved as frames: entry objects beside the per-object moves; a merge the drop makes is
         // recorded on them (`Document.mergePending`).
