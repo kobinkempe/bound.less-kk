@@ -20,8 +20,9 @@ const log = (s) => { /* eslint-disable-next-line no-console */ console.log(s); }
 const SEEDS = Number(process.env.MODEL_SEEDS || 20), STEPS = Number(process.env.MODEL_STEPS || 40);
 const FIRST = Number(process.env.MODEL_FIRST || 1);
 // Past the range, each reaching a rule: 22 a memo naming a frame GC forgot (red before `TileStore.forgetFrame`
-// dropped it), 42 the oracle's own, 50 and 145 one frame id at two places, 81 divergences after a home moved.
-const PINNED = process.env.MODEL_SEEDS ? [] : [22, 42, 50, 81, 145];
+// dropped it), 42 the oracle's own, 50 and 145 one frame id at two places, 81 divergences after a home moved,
+// 126 an undo that empties a selected frame (red before `runPairFuzz` gave the oracle the live inkless rule).
+const PINNED = process.env.MODEL_SEEDS ? [] : [22, 42, 50, 81, 126, 145];
 
 test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.length} seeds × ${STEPS} steps`, () => {
     const st = { items: 0, exact: 0, carried: 0, carriedExact: 0, carriedUlp: 0, maxUlp: 0 };

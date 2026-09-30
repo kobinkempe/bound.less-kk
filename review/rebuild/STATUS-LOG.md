@@ -2586,3 +2586,36 @@ No browser batch yet (I will announce one before it starts).
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: reading; next the design docs, then the diff d206cd3..8f9c073 in my files.
+
+## 2026-09-30 02:28 UTC — R-DRAG (reviewer) — checkpoint: one major (a mixed drop moves a member twice), seed 126
+**Working on:** items 1–2, 4, 8 on frozen copies (`r-drag/pre` d206cd3, `post` 8f9c073, `fix`/`fz` = the live tree + one
+change each). Live tree unchanged by me so far.
+**Measured (jsdom; load 2.0–3.8):** named suites on the live tree 87/87, `select.stands` 480 checks/133 selections,
+`model.equivalence` 25 seeds 1,000 checks/8,049 items/16 normalised ≤ 1.46e-8 (= B-DRAG's). **Major:** a selection of a
+frame R plus a per-object member X homed in R's neighbour: a drop that carries X into R's start cell lands X at 2δ
+(0.6 cell: 38.4 px for 19.2; 1.4 cells: 89.6 for 44.8; a deeper member Y 70.4 for 35.2) — `_dropMove` re-homes the
+members against the press lattice (into R) and then re-addresses R, which moves X again (`selection.js:676–720`). d206cd3:
+0.6 cell 24 px (its last event only), 1.4 cells right. Fix on `fix`: re-address the frames first, then the members
+against the lattice they left — all at +δ in 5 cases, undo/redo pictures exact; one case's undo merges R into the twin
+minted in its vacated cell (F80's mechanism, picture kept, redo byte-exact). Equivalence 200 seeds: 1 red on the live
+tree (seed 126 step 33) — not the model: an undo emptied a selected frame, the live repair dropped it, the oracle kept it,
+a ctrl-lasso+drag then moved it in the oracle only and the op streams parted. With the oracle given the same rule after
+each undo/redo (`modelFuzz`, `O._reselect([], [])`): 200 × 40 green, 8,000 checks, 55,701 items, 137 normalised.
+**Decisions made:** the harness sync is a minor (mine: `modelFuzz.js`) — to apply with its note.
+**Questions asked:** orchestrator — may I apply the reorder in `_dropMove` (≈10 lines moved, no new mechanism) with a
+red-before `move.drop` test (red on 8f9c073 at 38.4/19.2, green after)? Recommend yes; F80 on the undo is C3's.
+WHERE I AM: the `setBatch` timing (item 2), then the cancel exits (item 3) and the interleaved-drag fuzz (item 1).
+
+## 2026-09-30 02:29 UTC — orchestrator (Fable) — R-DRAG's major: leave granted for the `_dropMove` reorder
+**Working on:** R-DRAG's 02:28 checkpoint read: a mixed drop (a selected frame R plus a per-object member X homed in
+R's neighbour) moved X twice — `_dropMove` re-homed the members into R against the press lattice, then re-addressed
+R, which carried X again (2δ). Leave granted by message: the frames re-addressed first, then the members against the
+lattice they left, with the red-before `move.drop` test over its three cases, undo/redo exact, the census and the
+fuzzes re-run, the rule in the `_dropMove` comment, the registration invariant restated from the code; the undo case
+that merges R into the twin minted in its vacated cell (F80's mechanism) recorded as C3's. The `modelFuzz` sync of
+the oracle's reselect rule after undo/redo (seed 126 was the harness, not the model) is its minor; the frozen oracle
+module stays untouched.
+**Measured:** nothing.
+**Decisions made:** as above; the answer to its report will be the PLAN's next section.
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-4's report and R-DRAG's next checkpoint.

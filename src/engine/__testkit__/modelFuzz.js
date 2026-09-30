@@ -317,6 +317,9 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         for (let k = 1; k < n; k++) out.push([Math.min(w - 20, Math.max(20, out[k - 1][0] + ri(-160, 160))), Math.min(h - 20, Math.max(20, out[k - 1][1] + ri(-120, 120)))]);
         return out;
     };
+    // The live engine drops a selected frame an undo or a redo leaves without ink (DESIGN.md §10, A1 C2); the oracle
+    // kept it, and a later ctrl-lasso and drag of it parted the two op streams (seed 126). Its own `_reselect` applies the rule.
+    const inklessOut = () => { if (O.selection) O._reselect([], []); };
     const drag = (E, p, dx, dy, n) => { E.pointerDown(p[0], p[1]); for (let k = 1; k <= n; k++) E.pointerMove(p[0] + (dx * k) / n, p[1] + (dy * k) / n); E.pointerUp(); };
     const reload = (E) => {
         const kind = E._fuzzKind;
@@ -427,8 +430,8 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             });
         }],
         ["delete", 1, () => { both((E) => { if (E.selection) E.deleteSelection(); }); }],
-        ["undo", 3, () => { const k = ri(1, 4); both((E) => { for (let i = 0; i < k; i++) E.undo(); E.flushBakes(); }); }],
-        ["redo", 2, () => { const k = ri(1, 3); both((E) => { for (let i = 0; i < k; i++) E.redo(); E.flushBakes(); }); }],
+        ["undo", 3, () => { const k = ri(1, 4); both((E) => { for (let i = 0; i < k; i++) E.undo(); E.flushBakes(); }); inklessOut(); }],
+        ["redo", 2, () => { const k = ri(1, 3); both((E) => { for (let i = 0; i < k; i++) E.redo(); E.flushBakes(); }); inklessOut(); }],
         ["zoom", 3, () => {
             const L = O.activeLevel;
             let to = ri(-1, 4);
