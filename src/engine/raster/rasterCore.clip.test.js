@@ -2,14 +2,15 @@
  * rasterCore.clip.test.js — PLAN §3's partial re-render row, the quick part (A3 §3.1): a plate rendered through a
  * clip box is, inside the clip, the plate rendered whole, byte for byte, and outside it untouched. Each
  * configuration's first plate against its golden and through clips, the crafted cases (the cull, the family prune,
- * a pending mark, a bad clip), four seeds of union bands across a clip's edges, the wire, and F132. The random
- * part (every golden, edge clips, the merge through `job.clips`, 60 union seeds) is `rasterCore.clip.slow.test.js`.
+ * a pending mark, a bad clip), four seeds of union bands across a clip's edges, the wire, F132, and the pack's clip cull
+ * (PLAN §5.18: a clipped job packs only what meets its clips). The random part (every golden, edge clips, the merge
+ * through `job.clips`, 60 union seeds) is `rasterCore.clip.slow.test.js`.
  */
 import { packJob, clearPackCaches, resetPackStats, packStats } from "./rasterPack";
 import * as core from "./rasterCore";
 import { wireJob, unwireJob, unwireResult, validateJob, copyPlate, pastePatch, resultBytes } from "./rasterJob";
 import { runJob } from "../worker/rasterWorker";
-import { lcg, sortList, LIST_CFG, plateHash, sameBytes } from "../__testkit__/rasterLists";
+import { lcg, randomList, sortList, LIST_CFG, plateHash, sameBytes } from "../__testkit__/rasterLists";
 import {
     TW, TH, N, CONFIGS, GOLDEN, packFor, listFor, whole, NOISE, randomClip, compare, familiesMeeting, bandsAcross,
 } from "../__testkit__/clipSuite";
@@ -199,6 +200,56 @@ describe("job.clips on the wire", () => {
         const d = compare(dst, src, new Uint8ClampedArray(N), clip);
         expect({ inside: d.inside, outside: d.outside }).toEqual({ inside: 0, outside: 0 });
         expect(sameBytes(copyPlate(src), src)).toBe(true);
+    });
+});
+
+describe("the pack's clip cull (PLAN §5.18): a clipped job packs only the items meeting its clips", () => {
+    /** Items made to sit on a clip's edges: one ending inside its first column's pixel, a mark across its right edge over a target reaching in. */
+    function edgeItems(clip, Zq, firstId) {
+        const u = (px) => px / Zq, [x0, y0, x1, y1] = clip, my = (y0 + y1) / 2;
+        const fill = (id, box, extra) => ({ type: "fill", origin: "native", id, color: "rgb(20,120,200)", opacity: 0.6,
+            polys: [[[u(box[0]), u(box[1])], [u(box[2]), u(box[1])], [u(box[2]), u(box[3])], [u(box[0]), u(box[3])]]], ...extra });
+        const end = fill(firstId, [x0 - 40, y0 - 3, x0 + 0.4, y1 + 3]);                   // its box ends inside the edge pixel
+        const target = fill(firstId + 1, [x1 - 20, y0, x1 + 60, y1], { color: "rgb(200,40,40)", opacity: 1 });
+        const mark = { type: "stroke", origin: "native", id: firstId + 2, color: "#ffffff", opacity: 1, erase: true,
+            pts: [[u(x1 + 30), u(my - 30)], [u(x1 - 2), u(my)], [u(x1 + 30), u(my + 30)]], lwFrame: u(6),
+            targets: [firstId + 1] };
+        target.targetOf = [firstId + 2];
+        const thin = { type: "stroke", origin: "native", id: firstId + 3, color: "rgb(0,0,0)", opacity: 0.8,
+            pts: [[u(x0 - 30), u(y1 + 0.6)], [u(x1 + 30), u(y1 + 0.2)]], lwFrame: u(0.7) };   // thin, along the bottom edge
+        return [end, target, mark, thin];
+    }
+
+    test("seeded lists and clips at three zooms: the culled clipped pack's pixels are the unculled one's inside the clip, byte for byte", () => {
+        let clips = 0, culled = 0, edge = 0;
+        const bad = [];
+        for (let seed = 0; seed < 36; seed++) {
+            const rnd = lcg(5180 + seed), c = seed % CONFIGS.length, Zq = [1, 0.5, 0.25][seed % 3];
+            core.setOcclusion(CONFIGS[c].cull);
+            clearPackCaches();
+            const clip = randomClip(rnd);
+            const list = sortList(randomList(rnd, 40, { cover: CONFIGS[c].cover, maxWalk: 12 }).concat(edgeItems(clip, Zq, 900)));
+            const opts = { plates: Int32Array.of(0, 0), q: 0, Zq, dpr: 1, cfg: LIST_CFG, paper: CONFIGS[c].paper };
+            const all = packJob(list, opts), cut = packJob(list, { ...opts, clips: [clip] });
+            const a = NOISE.slice(), b = NOISE.slice();
+            core.renderPlate(all, 0, a, null, null, clip);
+            core.renderPlate(cut, 0, b, null, null, clip);
+            const d = compare(b, a, NOISE, clip);
+            if ((d.inside || d.outside) && bad.length < 3) bad.push({ seed, Zq, clip, ...d });
+            clips++; culled += all.nItems - cut.nItems;
+            if ([900, 901, 902, 903].every((id) => Array.from(cut.ids).includes(id))) edge++;
+        }
+        expect(bad).toEqual([]);
+        expect(culled).toBeGreaterThan(clips * 5);                               // the cull keeps a clip's items, not the plate's
+        expect(edge).toBe(clips);                                                // every edge item filed, the mark with its target
+    });
+
+    test("a whole-cell job's cull is the plate's, whatever its clips say", () => {
+        const list = randomList(lcg(77), 30, { maxWalk: 12 });
+        const opts = { plates: Int32Array.of(0, 0), q: 0, Zq: 1, dpr: 1, cfg: LIST_CFG, paper: [255, 255, 255] };
+        const plain = packJob(list, opts), whole = packJob(list, { ...opts, clips: [[0, 0, TW, TH]] });
+        expect(whole.nItems).toBe(plain.nItems);
+        expect(sameBytes(new Uint8Array(whole.geom.buffer), new Uint8Array(plain.geom.buffer))).toBe(true);
     });
 });
 

@@ -687,12 +687,18 @@ class Overlays {
         // is inside the retained window, and the zoom has not drifted past
         // SEL_REDECIDE_DRIFT from the scale it was decided at — between
         // decisions the ants ride a compositor transform, so the band and the
-        // dashes are a little off their screen size until the next.
+        // dashes are a little off their screen size until the next. A drag
+        // begins on the picture at rest (nothing is written until its drop, A1
+        // C2), so a decision still good at rest becomes the drag's (a
+        // re-decision at a drag's start was 220–250 ms on the dense scene).
         const drag = this._dragSel || null;
         if (c && drag && c.drag === drag && c.sel === s && c.frame === F) return c;
-        if (c && !drag && !c.drag && c.G === G && c.sel === s && c.rev === this.doc.rev && c.frame === F && c.origin === O
+        if (c && !c.drag && c.G === G && c.sel === s && c.rev === this.doc.rev && c.frame === F && c.origin === O
             && sc / c.scale <= SEL_REDECIDE_DRIFT && c.scale / sc <= SEL_REDECIDE_DRIFT
-            && vp.left >= c.win.left && vp.right <= c.win.right && vp.top >= c.win.top && vp.bottom <= c.win.bottom) return c;
+            && vp.left >= c.win.left && vp.right <= c.win.right && vp.top >= c.win.top && vp.bottom <= c.win.bottom) {
+            if (drag) { c.drag = drag; c.dragAt = [drag.start[0], drag.start[1]]; }
+            return c;
+        }
 
         const runs = [], marks = [], pieces = [];
         let inkPx = Infinity;

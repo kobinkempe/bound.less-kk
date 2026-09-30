@@ -37,6 +37,7 @@ import { flattenLoops, cubicLoopsBBox } from "../geometry/curveOutline";
 import { underMask } from "../eraseRule";
 import { sagittaOf } from "../geometry/chordMath";
 import { bboxOf } from "../geometry/derive";
+import { perfNow } from "../now";
 
 /** A band and a chord count are memoised per quarter octave of their zoom (`bandFor`, `itemChords`). */
 const MEMO_STEPS_PER_OCTAVE = 4;
@@ -73,7 +74,8 @@ export const packStats = {
     nonFinite: 0, overBound: 0, mixedFamily: 0, mixedWinding: 0,
     coordsCopied: 0, unionItems: 0, familyUnion: 0, overlapCapped: 0,
     bandsBuilt: 0, bandHits: 0, boxWalks: 0, rebuilt: 0,
-    prepasses: 0, prepassHits: 0, famRefills: 0, famReused: 0,   // S3: the per-list half built, reused, a family refilled, a family taken from the last list
+    prepasses: 0, prepassHits: 0, famRefills: 0, famReused: 0,   // S3: the per-list half built, reused, a family refilled, a family's union rule kept
+    recs: 0, recsBuilt: 0, prepassMs: 0,            // the prepass records kept (the last list's at each key), built, its time
     masked: 0,                                      // items packed under a pending mark's mask
     maskOverflow: 0,                                // marks past MASKS_MAX sharing a slot they over-hide in (A2 §4.4)
     memoBytes: 0, memoEntries: 0, evictions: 0, logs: 0,
@@ -112,7 +114,7 @@ export function clearPackCaches() {
     for (const e of MEMO.values()) e.dropped = true;
     MEMO.clear(); memoBytes = 0; COLOURS.clear(); LOGGED.clear();
     PREPASS = new WeakMap();
-    FAMS = new Map();
+    RECS = new Map(); packStats.recs = 0;
 }
 
 function touch(item, e) { MEMO.delete(item); MEMO.set(item, e); }
@@ -444,10 +446,10 @@ export function itemBox(item, cfg) {
  * them all each time (the dense drawing thrashed the 10 MiB memo, B-PYRAMID-2 P5). Conservative: a stroke's box is
  * widened by half its width and, for its curve's overshoot past its points, a quarter of its extent.
  */
-export function outsideWin(item, win, live = null) {
+export function outsideWin(item, win) {
     const g = item.piece || item;
-    if (!g || g === live || !g.type) return false;
-    const b = bboxOf(g, live);
+    if (!g || !g.type) return false;
+    const b = bboxOf(g);
     if (!b || !(b.x1 >= b.x0) || !(b.y1 >= b.y0)) return false;
     const m = g.type === "shape" || g.type === "fill" ? 0 : (g.lwFrame || 0) / 2 + 0.25 * Math.max(b.x1 - b.x0, b.y1 - b.y0);
     const r = item.res, dx = r ? r[0] : 0, dy = r ? r[1] : 0;
@@ -541,15 +543,14 @@ export function itemChordsAt(item, Z, cfg) { return itemChords(item, Z, cfg, ent
  * @param {number} Z device px per frame unit, exact
  * @param {object} cfg the engine cfg
  * @param {number} cap the count above which the caller stops caring
- * @param {object|null} [live] the stroke the SVG overlay is drawing, skipped as the packer skips it
  * @returns {number} the estimate, or `cap + 1`
  */
-export function visibleChords(list, win, Z, cfg, cap, live = null) {
+export function visibleChords(list, win, Z, cfg, cap) {
     if (!(Z > 0) || !isFinite(Z)) return cap + 1;
     let n = 0;
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
-        if (o === live || outsideWin(o, win, live)) continue;
+        if (outsideWin(o, win)) continue;
         const e = entryFor(o, cfg);
         if (e.bad) continue;
         const b = e.box, r = o.res;
@@ -737,14 +738,18 @@ export class PlateBinner {
     /**
      * @param {Int32Array|number[]} plates [i, j, i, j, …] — the plates this grid covers
      * @param {number} Zq device px per frame unit
+     * @param {number[][]|null} [clips] one `[x0, y0, x1, y1]` (plate px) a plate: a clipped job files an item into a plate
+     *        only where its box meets that plate's clip (PLAN §5.18) — a clipped render reads nothing else (A3 §3.1)
      */
-    constructor(plates, Zq) {
+    constructor(plates, Zq, clips = null) {
         this.Zq = Zq;
         this.cells = new Map();
+        this.clips = null;
         this.i0 = Infinity; this.i1 = -Infinity; this.j0 = Infinity; this.j1 = -Infinity;
         for (let p = 0; p * 2 < plates.length; p++) {
-            const i = plates[p * 2], j = plates[p * 2 + 1];
+            const i = plates[p * 2], j = plates[p * 2 + 1], c = clips && clips[p];
             this.cells.set(i + "," + j, []);
+            if (c && !(c[0] <= 0 && c[1] <= 0 && c[2] >= PLATE_PX && c[3] >= PLATE_PX)) (this.clips || (this.clips = new Map())).set(i + "," + j, c);
             if (i < this.i0) this.i0 = i;
             if (i > this.i1) this.i1 = i;
             if (j < this.j0) this.j0 = j;
@@ -752,7 +757,9 @@ export class PlateBinner {
         }
     }
     /**
-     * File an item's box (frame units, `res` already added) into every plate it touches.
+     * File an item's box (frame units, `res` already added) into every plate it touches — and, for a plate with a clip,
+     * whose clip it touches: the pixels its box's edges fall in, floored as the plate cull floors, so an item ending
+     * inside a clip's edge pixel is filed.
      * @returns {boolean} whether it touched any plate of this grid — the cull's own answer
      */
     add(index, box) {
@@ -765,8 +772,15 @@ export class PlateBinner {
         let hit = false;
         for (let j = j0; j <= j1; j++) {
             for (let i = i0; i <= i1; i++) {
-                const c = this.cells.get(i + "," + j);
-                if (c) { c.push(index); hit = true; }
+                const key = i + "," + j, c = this.cells.get(key);
+                if (!c) continue;
+                const k = this.clips && this.clips.get(key);
+                if (k) {
+                    const Z = this.Zq, x0 = Math.floor(box[0] * Z) - i * PLATE_PX, x1 = Math.floor(box[2] * Z) - i * PLATE_PX;
+                    const y0 = Math.floor(box[1] * Z) - j * PLATE_PX, y1 = Math.floor(box[3] * Z) - j * PLATE_PX;
+                    if (x1 < k[0] || x0 >= k[2] || y1 < k[1] || y0 >= k[3]) continue;
+                }
+                c.push(index); hit = true;
             }
         }
         return hit;
@@ -782,37 +796,41 @@ export class PlateBinner {
 const alloc = (pool, ctor, len) => (pool ? pool.take(ctor, len) : new ctor(len));
 
 /**
- * The strip-independent half of a pack (PAPER-PLAN §10, S3): the families in paint order, each
- * item's entry, fade and box with `res`, and per family its union rule and sign. Kept per list and
- * zoom, so the strips of one request walk the list's families once and not once a strip — on the
- * Magnum Opus's 15,192 pieces a strip cost 25 ms before its first plate (jsdom). A family is
- * refilled when any item's entry or `res` moved, which is `entryFor`'s own identity test.
+ * The strip-independent half of a pack (PAPER-PLAN §10, S3): the families in paint order, each item's entry, fade and
+ * box with `res`, and per family its union rule and sign. Kept per list and key, so the strips of one request walk the
+ * list once (on the Magnum Opus's 15,192 pieces a strip cost 25 ms before its first plate, jsdom). Across lists — every
+ * commit makes one, and a snapshot wraps the same pieces anew — each item's record is kept by its geometry (the memo's
+ * key) per zoom, dpr, cfg and offset, and rebuilt only where the item changed: its entry, fade, z, family, erase flag or
+ * `res` (a held drag moves `res` with no document write; a drop writes the placement). A family keeps its union rule
+ * and sign while its records are the same objects. The records kept are the last list's at each of RECS_KEYS keys.
+ * PLAN §5.15 item 1: refilling the families of a list after a snapshot's (wrappers never matched) was 18–33 ms of the
+ * undo's 45–64 ms inline pack on the dense drawing.
  */
 let PREPASS = new WeakMap();                     // list -> Map(key -> prepass), at most PREPASS_KEYS a list
 const PREPASS_KEYS = 4;
-// Per prepass key, the last list's families by render id: a new list reuses a family whose items are
-// the same objects, unchanged (`sameFamily`). A pen-up's list is the last one plus the stroke, and
-// rebuilding every family cost 16–28 ms of an 18–30 ms pack on the Magnum Opus (REVIEWER-4).
-let FAMS = new Map();
-const FAMS_KEYS = 8;
+let RECS = new Map();                            // zoom|dpr|cfg|offset -> { recs: Map(geometry -> record), fams: Map(rid -> family) }
+const RECS_KEYS = 8;
 const IDS = new WeakMap();
 let idSeq = 0;
 const idOf = (x) => { if (x == null) return 0; let v = IDS.get(x); if (!v) IDS.set(x, (v = ++idSeq)); return v; };
 
-function prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset) {
-    const key = Zq + "|" + dpr + "|" + idOf(cfg) + "|" + idOf(live) + "|" + idOf(only) + "|" + idOf(omit)
-        + "|" + (offset ? offset[0] + "," + offset[1] : "");
+function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
+    const rk = Zq + "|" + dpr + "|" + idOf(cfg) + "|" + (offset ? offset[0] + "," + offset[1] : "");
+    const key = rk + "|" + idOf(only) + "|" + idOf(omit);
     let m = PREPASS.get(list);
     if (!m) PREPASS.set(list, (m = new Map()));
     const hit = m.get(key);
     if (hit) { packStats.prepassHits++; return hit; }
     packStats.prepasses++;
+    const t0 = perfNow();
     if (m.size >= PREPASS_KEYS) m.delete(m.keys().next().value);
-    const fams = new Map();
+    const R = RECS.get(rk) || { recs: new Map(), fams: new Map() };
+    RECS.delete(rk); RECS.set(rk, R);
+    if (RECS.size > RECS_KEYS) RECS.delete(RECS.keys().next().value);
+    const was = R.recs, recs = new Map(), fams = new Map();
     let faded = 0;
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
-        if (o === live) continue;
         // A pending mark is in every job, whatever it packs: it masks the items the erase rule names.
         if (only && !only.has(o.id) && !o.erase) continue;
         if (omit && omit.has(o.id) && !o.erase) continue;
@@ -820,76 +838,83 @@ function prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset) {
         if (fade <= 0) { faded++; continue; }
         const rid = renderIdOf(o, fade);
         let f = fams.get(rid);
-        if (!f) { f = { rid, z: o.z != null ? o.z : rid, items: [], all: null, isFam: o.editId != null && rid === o.editId, union: null }; fams.set(rid, f); }
-        f.items.push({ o, fade, idx: k, e: null, res: null });
+        if (!f) {
+            f = { rid, z: o.z != null ? o.z : rid, items: [], all: [], recs: [], isFam: o.editId != null && rid === o.editId,
+                union: null, unionSign: 0, mixed: 0, rejected: 0, over: 0 };
+            fams.set(rid, f);
+        }
+        const g = o.piece || o;
+        const r = recFor(was.get(g) || recs.get(g), o, fade, cfg, offset);
+        recs.set(g, r);
+        f.items.push({ o, fade, idx: k });
+        famAdd(f, r, o, fade, k);
     }
     const order = Array.from(fams.values()).sort((a, b) => (a.z - b.z) || (a.rid - b.rid));
-    const last = FAMS.get(key);
     for (const f of order) {
-        const g = last && last.get(f.rid);
-        if (g && sameFamily(g, f)) { famTake(f, g, offset); packStats.famReused++; } else famFill(f, cfg, offset);
+        const g = R.fams.get(f.rid);
+        if (g && g.union !== null && sameRecs(g.recs, f.recs)) { f.union = g.union; f.unionSign = g.unionSign; f.mixed = g.mixed; packStats.famReused++; }
     }
-    FAMS.delete(key);
-    FAMS.set(key, fams);
-    if (FAMS.size > FAMS_KEYS) FAMS.delete(FAMS.keys().next().value);
-    const pre = { order, faded, n: list.length };
+    R.recs = recs; R.fams = fams;
+    let n = 0;
+    for (const x of RECS.values()) n += x.recs.size;
+    packStats.recs = n;
+    const pre = { order, faded, n: list.length, recs, offset };
     m.set(key, pre);
+    packStats.prepassMs += perfNow() - t0;
     return pre;
 }
 
-/** Whether family `g` of an earlier list holds `f`'s items, in order, with nothing a fill reads changed since. */
-function sameFamily(g, f) {
-    if (!g.all || g.items.length !== f.items.length) return false;
-    for (let n = 0; n < f.items.length; n++) {
-        const a = f.items[n], b = g.items[n], o = a.o, e = b.e;
-        if (o !== b.o || a.fade !== b.fade || o.z !== b.z || o.editId !== b.editId || !!o.erase !== b.erase) return false;
-        if (!e || e.dropped || e.ver !== o._ver || e.src !== geomRef(o) || e.outline !== o._outline) return false;
-        const r = o.res || null, s = b.res;   // a re-placement makes a new array: compared by value
-        if (r !== s && !(r && s && r[0] === s[0] && r[1] === s[1])) return false;
+/**
+ * Item `o`'s prepass record: `r` when its entry is live and its fade, z, family, erase flag and `res` (by value) are the
+ * ones it was built with — its memo entry touched, as `entryFor` would — else a new one.
+ */
+function recFor(r, o, fade, cfg, offset) {
+    const own = o.res || null;
+    if (r && r.fade === fade && r.z === o.z && r.editId === o.editId && r.erase === !!o.erase && sameRes(r.own, own) && entryLive(r.e, o)) {
+        touch(o.piece || o, r.e);
+        return r;
     }
+    const e = entryFor(o, cfg), res = withOffset(own, offset);
+    packStats.recsBuilt++;
+    return { e, fade, z: o.z, editId: o.editId, erase: !!o.erase, own, res, box: e.bad ? null : boxWithRes(e.box, res) };
+}
+
+/** Is memo entry `e` still item `o`'s: not evicted, its geometry and outline the ones it was built from? */
+const entryLive = (e, o) => !e.dropped && e.ver === o._ver && e.src === geomRef(o) && e.outline === o._outline;
+const sameRes = (a, b) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+function sameRecs(a, b) {
+    if (a.length !== b.length) return false;
+    for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
     return true;
 }
 
-/**
- * `f` filled from `g` (`sameFamily`): its records copied with this list's indices and residuals, the
- * pack's `offset` added as `famFill` adds it (without it a reused family drew one offset away, F132).
- */
-function famTake(f, g, offset) {
-    for (let n = 0; n < f.items.length; n++) {
-        const m = f.items[n], b = g.items[n];
-        m.e = b.e; m.res = m.o.res || null; m.z = b.z; m.editId = b.editId; m.erase = b.erase;
+/** Record `r` into family `f` as item `o`'s drawn record, or its rejection counted. */
+function famAdd(f, r, o, fade, idx) {
+    f.recs.push(r);
+    const e = r.e;
+    if (e.bad) {
+        f.rejected++;
+        logOnce("a non-finite coordinate", "item id " + o.id + " (" + o.type + ") refused; it paints nothing");
+        return;
     }
-    f.all = []; f.rejected = g.rejected; f.over = g.over; f.union = g.union; f.unionSign = g.unionSign; f.mixed = g.mixed;
-    let n = 0;
-    for (const d of g.all) {
-        while (f.items[n].o !== d.o) n++;
-        const m = f.items[n];
-        f.all.push({ o: d.o, e: d.e, fade: d.fade, box: d.box, res: withOffset(m.res, offset), idx: m.idx });
+    if (e.maxAbs > COORD_BOUND) {
+        f.over++;
+        logOnce("a render-list coordinate past the bound", "item id " + o.id + " reaches " + e.maxAbs.toExponential(2)
+            + " frame units, over §4.6's " + COORD_BOUND.toExponential(1) + "; the plate stays float64-exact to ~1.5e-8 px below it");
     }
+    f.all.push({ o, e, fade, box: r.box, res: r.res, idx });
 }
 
 /** An item's residual with the pack's `offset` added (frame units); the residual itself when there is none. */
 const withOffset = (own, offset) => (offset ? [(own ? own[0] : 0) + offset[0], (own ? own[1] : 0) + offset[1]] : own);
 
-/** A family's items with their entries and boxes; its union rule and sign are taken lazily, on the first strip that draws it. */
-function famFill(f, cfg, offset) {
-    f.all = []; f.rejected = 0; f.over = 0; f.union = null; f.unionSign = 0; f.mixed = 0;
+/** A family's records again, each rebuilt where its item changed since the prepass (`famStale`). */
+function famFill(f, pre, cfg) {
+    f.all = []; f.recs = []; f.rejected = 0; f.over = 0; f.union = null; f.unionSign = 0; f.mixed = 0;
     for (const m of f.items) {
-        const e = entryFor(m.o, cfg);
-        m.e = e; m.res = m.o.res || null;
-        m.z = m.o.z; m.editId = m.o.editId; m.erase = !!m.o.erase;   // what `sameFamily` compares
-        if (e.bad) {
-            f.rejected++;
-            logOnce("a non-finite coordinate", "item id " + m.o.id + " (" + m.o.type + ") refused; it paints nothing");
-            continue;
-        }
-        if (e.maxAbs > COORD_BOUND) {
-            f.over++;
-            logOnce("a render-list coordinate past the bound", "item id " + m.o.id + " reaches " + e.maxAbs.toExponential(2)
-                + " frame units, over §4.6's " + COORD_BOUND.toExponential(1) + "; the plate stays float64-exact to ~1.5e-8 px below it");
-        }
-        const res = withOffset(m.res, offset);
-        f.all.push({ o: m.o, e, fade: m.fade, box: boxWithRes(e.box, res), res, idx: m.idx });
+        const g = m.o.piece || m.o, r = recFor(pre.recs.get(g), m.o, m.fade, cfg, pre.offset);
+        pre.recs.set(g, r);
+        famAdd(f, r, m.o, m.fade, m.idx);
     }
 }
 
@@ -898,17 +923,17 @@ function famFill(f, cfg, offset) {
  * boxes (`f.all[k].box`, `res` applied) — the pre-pass `packJob` uses, so a caller that splits a
  * picture by z (the drag plane's layers, PAPER-PLAN §10 S4z) splits it exactly where the pack paints.
  */
-export function paintFamilies(list, q, Zq, dpr, cfg, live = null) {
-    const pre = prepassFor(list, q, Zq, dpr, cfg, live, null, null, null);
-    for (const f of pre.order) if (famStale(f)) { famFill(f, cfg, null); packStats.famRefills++; }
+export function paintFamilies(list, q, Zq, dpr, cfg) {
+    const pre = prepassFor(list, q, Zq, dpr, cfg, null, null, null);
+    for (const f of pre.order) if (famStale(f)) { famFill(f, pre, cfg); packStats.famRefills++; }
     return pre.order;
 }
 
-/** Has any item of the family been edited, fitted, evicted from the memo or re-stamped with a `res` since `famFill`? */
+/** Has any item of the family been edited, fitted, evicted from the memo or re-placed (`res`, by value) since its prepass? */
 function famStale(f) {
-    for (const m of f.items) {
-        const o = m.o, e = m.e;
-        if (e.dropped || e.ver !== o._ver || e.src !== geomRef(o) || e.outline !== o._outline || (o.res || null) !== m.res) return true;
+    for (let k = 0; k < f.items.length; k++) {
+        const o = f.items[k].o, r = f.recs[k];
+        if (!entryLive(r.e, o) || !sameRes(r.own, o.res || null)) return true;
     }
     return false;
 }
@@ -926,11 +951,12 @@ function famStale(f) {
  *   G         the scene's generation the list was read at (A2 §3.1): every plate of the job carries it
  *   jobId, frameSeq, postedAt
  *   pool      a `BufferPool`, or null to allocate fresh
- *   live      the object the SVG overlay is drawing (skipped, as `Renderer.js:566` does)
  *   only/omit id Sets, never both (PAPER-PLAN R3): a selection job packs `only` the dragged
  *             ids, every other job while that drag is live `omit`s them. Whole families by
  *             construction — `_selectionMembers` expands an id to its edit group and a lasso
  *             takes a family whole — so the union sign never differs between the two jobs.
+ *   clips     one `[x0, y0, x1, y1]` (plate px) a plate, or null: a clipped job's cull keeps only the items whose
+ *             box meets a plate's clip (PLAN §5.18); the families' union rule and sign still see every item
  *   offset    `[dx, dy]` in frame units, added to every item's `res` — the way a caller that
  *             wants an arbitrary rectangle on ONE plate moves the world instead of the grid
  *             (SCENES-PLAN S1). The core already applies `res` per item, nothing goes on the
@@ -939,13 +965,13 @@ function famStale(f) {
  * @returns {object} the job `rasterCore.renderPlate` and `rasterJob.wireJob` both read
  */
 export function packJob(list, opts) {
-    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, live = null, offset = null, only = null, omit = null } = opts;
-    const binner = new PlateBinner(plates, Zq);
+    const { plates, q = 0, Zq, dpr = 1, cfg, paper = [255, 255, 255], pool = null, offset = null, only = null, omit = null, clips = null } = opts;
+    const binner = new PlateBinner(plates, Zq, clips);
 
     // 1 — the families, in the order the SVG renderer stacks them: (z, renderId) ascending,
     //     with z the group's, which is `rep.z ?? renderId` (`Renderer._insertSorted:829`) —
     //     built once per list and zoom (`prepassFor`); the counters still read per pack.
-    const pre = prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset);
+    const pre = prepassFor(list, q, Zq, dpr, cfg, only, omit, offset);
     packStats.items += pre.n;
     packStats.faded += pre.faded;
 
@@ -953,7 +979,7 @@ export function packJob(list, opts) {
     //     copied for one that misses the strip (§5.2, edge case 4.4).
     const kept = [];
     for (const f of pre.order) {
-        if (famStale(f)) { famFill(f, cfg, offset); packStats.famRefills++; }
+        if (famStale(f)) { famFill(f, pre, cfg); packStats.famRefills++; }
         packStats.rejected += f.rejected; packStats.nonFinite += f.rejected; packStats.overBound += f.over;
         const all = f.all;
         if (!all.length) continue;

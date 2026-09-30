@@ -226,6 +226,42 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect(seen).toMatchObject([{ id: "s900", committed: re[0].cells.length, missing: 0, timedOut: false }]);
     });
 
+    test("F135: a group's cell its stroke did not dirty counts a result exact at landing, though packed before the group's G", () => {
+        const t = setup(44, (job) => ({ E: 100, A: job.kind === "rest" ? 1000 : 9e6, U: 0, P: 1 }));
+        t.pyr.frameFor(cam(1));
+        t.pyr.frameFor(cam(1));
+        const c00 = restCell("F", 1, 0, 0), c11 = restCell("F", 1, 1, 1), seen = [];
+        t.stage.commit({ F: [{ left: 700, top: 700, right: 710, bottom: 710 }] });        // another change stales (1, 1)
+        const G1 = t.stage.generation;
+        t.stage.commit({ F: [{ left: 100, top: 100, right: 140, bottom: 120 }] });        // the stroke lands in (0, 0)
+        t.pyr.groupCommit("s", { left: 100, top: 100, right: 720, bottom: 720 }, (info) => seen.push(info));   // its box reaches (1, 1)
+        expect([...t.pyr._groups.values()][0].need.has(c11.key)).toBe(true);
+        const plate = (c, G) => ({ ...c, G, pixels: new Uint8ClampedArray(P * P * 4), bytes: PLATE_BYTES, jobId: 7 });
+        expect(t.pyr.onResult(plate(c11, G1))).toBe("held");                  // red before: put, and the group waited 3 s
+        expect(t.pyr.onResult(plate(c00, t.stage.generation))).toBe("held");
+        expect(seen).toMatchObject([{ id: "s", committed: 2, missing: 0, timedOut: false }]);
+    });
+
+    test("F135: pen-ups over one cell are one group — a result showing the first stroke alone is not put while its path is up, the cell is asked again, one commit releases both", () => {
+        const t = setup(45, (job) => ({ E: 100, A: job.kind === "rest" ? 1000 : 9e6, U: 0, P: 1 }));
+        t.pyr.frameFor(cam(1));
+        t.pyr.frameFor(cam(1));
+        const c00 = restCell("F", 1, 0, 0), seen = [];
+        t.stage.commit({ F: [{ left: 100, top: 100, right: 140, bottom: 120 }] });
+        const G1 = t.stage.generation;
+        t.pyr.groupCommit("s1", { left: 100, top: 100, right: 140, bottom: 120 }, (info) => seen.push(info));
+        t.stage.commit({ F: [{ left: 110, top: 130, right: 160, bottom: 150 }] });
+        t.pyr.groupCommit("s2", { left: 110, top: 130, right: 160, bottom: 150 }, (info) => seen.push(info));
+        expect(t.pyr._groups.size).toBe(1);                                   // red before: two groups, the second taking the cell
+        const before = t.store.get(c00.key), posted0 = t.posted.length;
+        const plate = (c, G) => ({ ...c, G, pixels: new Uint8ClampedArray(P * P * 4), bytes: PLATE_BYTES, jobId: 8 });
+        expect(t.pyr.onResult(plate(c00, G1))).toBe("dropped");               // stroke 1 without stroke 2: path 1 is still up
+        expect(t.store.get(c00.key)).toBe(before);
+        expect(t.posted.length).toBe(posted0 + 1);                           // asked again inside the group
+        expect(t.pyr.onResult(plate(c00, t.stage.generation))).toBe("held");
+        expect(seen.map((x) => [x.id, x.committed, x.timedOut])).toEqual([["s1", 1, false], ["s2", 1, false]]);
+    });
+
     test("a patch whose clip misses dirt since the record's G lands its pixels but leaves the record stale", () => {
         const t = setup(31, () => ({ E: 10, A: 10, U: 0, P: 1 }));
         t.pyr.frameFor(cam(1));

@@ -414,7 +414,7 @@ export default class RasterRenderer {
         if (this.forcePerStepDrag) { if (pl.tags.length) this._endPlane(); return false; }
         const gen = pl.gen, was = pl.tags.slice();
         const st = this._planeFn && this._planeViewOk(v) ? this._planeFn() : null;
-        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr, this.live.model);
+        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr);
         const gone = was.filter((t) => pl.gen !== gen || !ok || !pl.tags.includes(t));   // a re-cut's renamed layers too
         if (gone.length) this._dropPlaneTags(gone);
         this.store.setPlanePins(ok ? pl.keys : null);
@@ -963,12 +963,12 @@ export default class RasterRenderer {
         const plates = new Int32Array(cells.length * 2);
         for (let k = 0; k < cells.length; k++) { plates[k * 2] = cells[k].i; plates[k * 2 + 1] = cells[k].j; }
         if (jobId != null) this.store.beginJob(jobId, cells, G);
-        const t0 = perfNow();
+        const t0 = perfNow(), pre0 = packStats.prepassMs;
         // A plane layer packs its own members (`only`, transparent) or everything but them (`omit`); any other pack leaves
-        // the selection out while the plane draws the move.
+        // the selection out while the plane draws the move. A clipped job packs only what meets its clips (PLAN §5.18).
         const packed = packJob(list, {
             plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: job.paper || this._paperRgb, G, jobId, frameSeq: this.frameSeq,
-            pool: bufPool, live: this.live.model, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit),
+            pool: bufPool, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit), clips,
         });
         if (clips) {
             const cl = new Int32Array(clips.length * 4);
@@ -976,9 +976,11 @@ export default class RasterRenderer {
             packed.clips = cl;
         }
         job.packedCells = cells; job.packedClips = clips;
-        const ms = perfNow() - t0;
+        const ms = perfNow() - t0, pre = packStats.prepassMs - pre0;
         this._packMs += ms;
         this._add(SLOT.pack, ms);
+        // The estimate's pack terms (A3 §2.2): the prepass a list item when it ran, the rest a packed item.
+        this.pyramid.calibrate({ prepassMs: pre, listItems: pre > 0 ? list.length : 0, packMs: ms - pre, packItems: packed.nItems });
         return packed;
     }
 
@@ -986,7 +988,7 @@ export default class RasterRenderer {
      * The estimate's inputs (A3 §2.2, §3.3) over a job's cells at `job.Z`, or their clips: E the visible chords
      * (capped past any inline budget) — for a patch, each item's chords times its rows' share inside the clips, the
      * rows a clipped render deposits (A3 §3.1) —, A the item box pixels inside them, U the union items' rows inside
-     * them, P the cells an item meets.
+     * them, P the cells an item meets, K the items the pack keeps (those meeting them, PLAN §5.18), N the list's items.
      */
     _pyrMeasure(job) {
         const list = job.table ? this._tableList(job.table) : this._sceneList();
@@ -1000,31 +1002,33 @@ export default class RasterRenderer {
             rects[k] = r;
             win = win ? { left: Math.min(win.left, r.left), top: Math.min(win.top, r.top), right: Math.max(win.right, r.right), bottom: Math.max(win.bottom, r.bottom) } : { ...r };
         }
-        if (!win) return { E: 0, A: 0, U: 0, P: 0 };
+        if (!win) return { E: 0, A: 0, U: 0, P: 0, K: 0, N: list.length };
         const clipped = !!job.clips;
-        let E = clipped ? 0 : visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP, this.live.model);
+        let E = clipped ? 0 : visibleChords(list, win, Z, this.cfg, MEASURE_CHORD_CAP);
         const hit = new Uint8Array(n);
-        let A = 0, U = 0;
+        let A = 0, U = 0, K = 0;
         for (const o of list) {
-            if (o === this.live.model || outsideWin(o, win, this.live.model)) continue;
+            if (outsideWin(o, win)) continue;
             const b = itemBox(o, this.cfg);
             if (!b) continue;
             const r0 = o.res, x0 = b[0] + (r0 ? r0[0] : 0), y0 = b[1] + (r0 ? r0[1] : 0), x1 = b[2] + (r0 ? r0[0] : 0), y1 = b[3] + (r0 ? r0[1] : 0);
             if (x1 < win.left || x0 > win.right || y1 < win.top || y0 > win.bottom) continue;
             const union = entryFor(o, this.cfg).union;
             const ch = clipped ? itemChordsAt(o, Z, this.cfg) : 0, ht = y1 - y0;
+            let kept = 0;
             for (let k = 0; k < n; k++) {
                 const r = rects[k], w = Math.min(x1, r.right) - Math.max(x0, r.left), h = Math.min(y1, r.bottom) - Math.max(y0, r.top);
                 if (w <= 0 || h <= 0) continue;
-                hit[k] = 1;
+                hit[k] = 1; kept = 1;
                 A += w * h * Z * Z;
                 if (union) U += h * Z;
                 if (clipped) E += ht > 0 ? ch * Math.min(1, h / ht) : ch;
             }
+            K += kept;
         }
         let P = 0;
         for (let k = 0; k < n; k++) P += hit[k];
-        return { E, A, U, P };
+        return { E, A, U, P, K, N: list.length };
     }
 
     /**

@@ -124,7 +124,7 @@ export default class MovePlane {
      * `gen`). A new list, or a view over other plates, with the same selection re-cuts the layers,
      * so a pan keeps what is cached (the Stage's items keep their array while the table does).
      */
-    aim(st, list, view, cfg, max, dpr = 1, live = null) {
+    aim(st, list, view, cfg, max, dpr = 1) {
         if (this.state === "drag" || this.state === "land") return true;
         const same = st && this.sel === st.key && this.frameId === view.frameId && this.Zq === view.Zq;
         if (!same) {
@@ -136,20 +136,20 @@ export default class MovePlane {
         const vr = view.i0 + "," + view.i1 + "," + view.j0 + "," + view.j1;
         if (this.list !== list || this.ids !== st.ids || this.max !== max || this.vr !== vr) {
             this.list = list; this.ids = st.ids; this.max = max; this.vr = vr;
-            this._cut(list, st.ids, view, cfg, max, dpr, live);
+            this._cut(list, st.ids, view, cfg, max, dpr);
         }
         return !this.refused;
     }
 
     /** The runs: the pack's families in paint order, cut into selected and unselected ones on screen. */
-    _cut(list, ids, view, cfg, max, dpr, live) {
+    _cut(list, ids, view, cfg, max, dpr) {
         this.main = null; this.quick = null; this.cur = null; this.ready = false; this.partial = false;
         this.layers = []; this.keys = []; this.tags = []; this.r = null; this.selR = null; this.selIds = null; this.refused = true;
         const s = view.Zq / PLATE_PX;
         // D1: a selected family counts when it touches the view grown by one view each way.
         const gw = view.i1 - view.i0 + 1, gh = view.j1 - view.j0 + 1;
         const runs = [];
-        for (const f of paintFamilies(list, 0, view.Zq, dpr, cfg, live)) {
+        for (const f of paintFamilies(list, 0, view.Zq, dpr, cfg)) {
             if (f.all.length && f.all.every((d) => d.o.erase)) continue;   // a pending mark paints nothing: every layer's pack masks with it
             const sel = f.all.some((d) => ids.has(d.o.id)), w = sel ? gw : 0, h = sel ? gh : 0;
             let on = false;

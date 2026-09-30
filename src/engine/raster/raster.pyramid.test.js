@@ -469,7 +469,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
     }, 60000);
 
     test("never older while a fresh source is cached: a seeded fuzz of draw, undo, redo, erase, zoom, pan and crossings with the gated pool", async () => {
-        const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, wrong: [], why: { unread: 0, coming: 0, other: 0 } };
+        const g = gate(), t = { plans: 0, older: 0, other: 0, standIn: 0, otherMs: 0, unreadMs: 0, patchMs: 0, wrong: [], why: { unread: 0, coming: 0, other: 0 } };
         const watch = (E, seed) => {
             const compose = E.renderer.pyramid.compose.bind(E.renderer.pyramid);
             E.renderer.pyramid.compose = () => {
@@ -509,21 +509,21 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
                 await settle(E, 1);
                 await drain(E, g);
             }
-            t.otherMs += E.renderer.pyramid.s.olderOtherMs;
+            t.otherMs += E.renderer.pyramid.s.olderOtherMs; t.unreadMs += E.renderer.pyramid.s.olderUnreadMs; t.patchMs += E.renderer.pyramid.s.olderPatchMs;
             E.destroy();
         }
         expect(t.plans).toBeGreaterThan(40);
         expect(t.wrong).toEqual([]);
         // A stale own plate is drawn only while its worker patch is pending (A3 §3.4). A zoom from rest draws the kept rest
         // set (A3 §2.4), so a stale coarser stand-in (f') is left only where nothing fresh is cached at any level and the
-        // cell's own plate is on its way: its view job asked or in flight, or its tiles not yet read (a crossing's step
-        // reads the cache alone, the idle read waits for the quiet, A3 §4.2) — `olderOtherMs` charges those (the review's
-        // design question); any other (f') is a defect.
+        // cell's own plate is on its way: its tiles not yet read (a crossing's step reads the cache alone, A3 §4.2:
+        // `olderUnreadMs`) or its job asked or in flight (`olderPatchMs`). Anything else is `olderOtherMs`, a defect.
         expect(t.other).toBe(0);
         expect(t.why.other).toBe(0);
+        expect(t.otherMs).toBe(0);
         // eslint-disable-next-line no-console
         console.log("never-older fuzz: " + t.plans + " plans, " + t.older + " with an older cell, " + t.standIn + " of them a stale stand-in "
-            + JSON.stringify(t.why) + "; olderOtherMs " + t.otherMs.toFixed(1));
+            + JSON.stringify(t.why) + "; olderUnreadMs " + t.unreadMs.toFixed(1) + ", olderPatchMs " + t.patchMs.toFixed(1) + ", olderOtherMs " + t.otherMs.toFixed(1));
         expect(t.older).toBeGreaterThan(0);                            // the fuzz reaches the last resort
     }, 60000);
 });

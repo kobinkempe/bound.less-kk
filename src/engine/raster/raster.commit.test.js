@@ -42,7 +42,7 @@ const patches = (pyr) => pyr.s.patchInline + pyr.s.patchCoarse + pyr.s.patchWork
 beforeEach(() => { resetRasterWorkerClient(); setRasterWorkerCount(2); resetRasterStats(); });
 afterEach(() => { setRasterTransport(null); resetRasterWorkerClient(); });
 
-/** An exact screen with a stroke on it, then a fill the document gains — a commit no render follows, as a bake's. */
+/** An exact screen with a stroke on it; `commit()` adds a fill over it — a commit no render follows, as a bake's. */
 async function staleByCommit() {
     const g = gate();
     const E = mkEngine(800, 600, { raster: true }), R = E.renderer, pyr = R.pyramid, c0 = E.cam;
@@ -52,17 +52,18 @@ async function staleByCommit() {
     const F = (sx, sy) => [(sx - c0.inPanX) / c0.inScale, (sy - c0.inPanY) / c0.inScale];
     const [a, b] = [F(200, 150), F(260, 190)];
     const box = { left: a[0], top: a[1], right: b[0], bottom: b[1] };
-    const n0 = patches(pyr);
-    E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#0a0", opacity: 1,
+    const commit = () => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#0a0", opacity: 1,
         polys: [[a, [b[0], a[1]], b, [a[0], b[1]]]] }, "0");
-    return { g, E, R, pyr, box, n0 };
+    return { g, E, R, pyr, box, commit };
 }
 
 describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
     test("a commit, then a compose in the same task: the cells it staled are drawn patched or with their patch asked, never other older", async () => {
-        const { g, E, pyr, box, n0 } = await staleByCommit();
+        const { g, E, pyr, box, commit } = await staleByCommit();
         let now = 1e6;
         pyr._now = () => now;
+        const n0 = patches(pyr);
+        commit();
         const P = pyr.compose();
         expect(patches(pyr)).toBe(n0 + 1);
         const under = cellsUnder(P, box);
@@ -76,7 +77,9 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
     });
 
     test("a commit with no compose or step after it: the patch step runs in a microtask of the commit's task", async () => {
-        const { g, E, pyr, n0 } = await staleByCommit();
+        const { g, E, pyr, commit } = await staleByCommit();
+        const n0 = patches(pyr);
+        commit();
         expect(patches(pyr)).toBe(n0);                   // not in the hook: an undo's `noteUserEdit` follows its commit
         await Promise.resolve();
         expect(patches(pyr)).toBe(n0 + 1);
@@ -85,7 +88,8 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
     });
 
     test("an undo still gets the user's budget: its commit's patch step waits for `noteUserEdit` and the render", async () => {
-        const { g, E, pyr } = await staleByCommit();
+        const { g, E, pyr, commit } = await staleByCommit();
+        commit();
         await settle(E, 1);
         expect(await drain(E, g)).toBe(0);
         E.undo();

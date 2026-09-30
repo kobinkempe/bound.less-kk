@@ -2468,3 +2468,38 @@ B-PYRAMID-4's → §5.20 (both briefs updated).
 **Decisions made:** the clip cull is in B-PYRAMID-4's scope.
 **Questions asked:** none.
 WHERE I AM: waiting for the builders' next entries.
+
+## 2026-09-30 01:38 UTC — B-DRAG (builder) — D2 checkpoint: the drop, once
+**Working on:** D2 done. `_dropMove` (selection.js): `_displaceMember` once per (home, picture table) on the composed
+table, whole cells into the address, the rest into the own table less the target frame's shift; the frames by
+`_dragFramesStart`/`_dragFrames` once; one op, no `base`/`after` (the codecs carry them only on older ops, for replay
+and their inverses); the write, the hold's release and `mergePending(op)` one Stage batch; then `noteUserEdit`.
+`_normalizeHome`, `_homeShift`, `_restoreFrames` deleted.
+**Measured (jsdom unless said):** census (A1 §1.4 fixture, seeds 12345/777/4242): frames minted during the drag 211/145/
+239 → 0/0/0, left after GC 14/4/4 → 14/5/4. Registration: the same 40-step walk on the frame vs every native per
+object, 1,250 natives — pre-B-DRAG 400 off by 32 units at seed 777 (F136), now 0 at 777/12345/99. `move.drop` D2: the
+first commit after the press holds the op, the released hold and every write. Chromium, scenario 4 (load 2.3–4.5): ink
+0 px differ, with the ants 0; the drop's pointer-up 1,715–1,968 ms (pre) vs 1,526–1,861 (now), `_dropMove` 16–18 ms;
+harness ×2: long frames 22|26 → 24|16, worst 1,664|1,957 → 1,738|1,755 ms, `olderPatchMs` 953|1,218 → 988|886 (the
+drop's patch estimate 437–555 ms, over either budget: `noteUserEdit` changes nothing there; in jsdom's small scenes it
+lands inline and the plane ends in the drop's task — the landing tests set `patchUserMs` 0 to see it).
+**Decisions made:** the codecs keep carrying `base`/`after` where an older op has them (an undone replayed op's inverse
+must log them); new ops never do.
+**Questions asked:** none.
+WHERE I AM: D3's entry, then D4's docs.
+
+## 2026-09-30 01:39 UTC — B-DRAG (builder) — D3 checkpoint: the selection from the op
+**Working on:** D3 done. `_opUnder(op)` (read before the action: the op's frames under a selected frame, its per-object
+members listed or under one) and `_repairSelection` (after: `_reselect` quietly — torn frames join as frames, carried
+natives as ids, ids back under a frame leave, removed ids go with the family hand-over, inkless frames leave), used by
+the drop and by `undo`/`redo` (one `_history` path), before the one render. Deleted: `_keepingSelection`, the `_moving`
+capture and the per-remove listener (the subscriber keeps `reset` and the merge hand-over, C3's). `deleteSelection`
+reads every family before one removal batch, clears once. `placementModel.homeOf` (Stage's `_home` read);
+`withShifted`, the one box helper. The ants: decided at rest; a decision still good at rest becomes the drag's.
+**Measured (jsdom; my fixture: N shapes on screen in "0", all selected):** delete 1,000: 19.8 s, 999 `_setSelection`
+calls → 0.25 s, 0; 5,000: 585 s, 4,999 calls (SVG, beside a jest run) → 1.29|1.51 s SVG, 0.53|0.54 s raster, 0 calls
+(load 2.0); undo of 5,000 4.1–4.2 s SVG (two.js, both trees), 0.61–0.65 s raster. `select.inkless` 10/10 (I3/I5/I6/I8
+count one repair an action, I11 new, I9 deleted). Chromium: the drag's first step 64–66 ms (pre, 44 pieces decided —
+the first write had dropped frame "1"'s tiles from the table) → 27–33 ms (the at-rest decision of 1,044 pieces kept).
+**Decisions made:** I4 kept (merges stay until C3). **Questions asked:** none.
+WHERE I AM: D4 — DESIGN §1/§8/§9/§10, docs/ai 20/30/40, PLAN §1.4/§1.7, A1 §14 C2, TEST-MAP, OPEN-FLAGS (+F136).

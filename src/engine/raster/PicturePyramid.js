@@ -33,7 +33,7 @@ export const LIVE_HOLD_MS = 3000;
 export const SURFACE_IDLE_MS = 10000;
 /** The estimate's constants (A3 §2.2, §3.3), each overridable in cfg and calibrated online. */
 export const EST_DEFAULTS = Object.freeze({
-    restEdgeUs: 0.73, restPxNs: 34, restCellMs: 0.15, patchUnionUs: 73, patchMergeMs: 0.3,
+    restEdgeUs: 0.73, restPxNs: 34, restCellMs: 0.15, patchUnionUs: 73, patchMergeMs: 0.3, packItemUs: 20, packListUs: 1,
     restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100,
 });
 const EWMA = 0.2;
@@ -148,6 +148,7 @@ export default class PicturePyramid {
         this._k = {
             edge: cfgOr(this.cfg, "restEdgeUs") / 1000, px: cfgOr(this.cfg, "restPxNs") / 1e6, cell: cfgOr(this.cfg, "restCellMs"),
             union: cfgOr(this.cfg, "patchUnionUs") / 1000, merge: cfgOr(this.cfg, "patchMergeMs"),
+            pack: cfgOr(this.cfg, "packItemUs") / 1000, list: cfgOr(this.cfg, "packListUs") / 1000,
         };
         this._lastCompose = null;
         this._share = { paper: 0, blur: 0, olderPatch: 0, olderUnread: 0, olderOther: 0 };
@@ -978,12 +979,16 @@ export default class PicturePyramid {
 
     // ---- the estimate (A3 §2.2, §3.3) ----
 
-    /** T = 0.73 µs·E + 34 ns·A + 0.15 ms·P (+ K_u·U + 0.3 ms a merged plate for patches), with the calibrated constants. */
+    /**
+     * T = 0.73 µs·E + 34 ns·A + 0.15 ms·P (+ K_u·U + 0.3 ms a merged plate for patches) + the pack — a packed item's cost
+     * a kept item and a prepass's a list item (an inline render follows a commit, whose new list misses the prepass) —
+     * with the calibrated constants (PLAN §5.15 item 1: the undo's inline pack was 45–64 ms and priced at 0).
+     */
     estimate(job) {
         const m = this._measure ? this._measure(job) : null;
         if (!m) return Infinity;
         const k = this._k;
-        let T = k.edge * (m.E || 0) + k.px * (m.A || 0);
+        let T = k.edge * (m.E || 0) + k.px * (m.A || 0) + k.pack * (m.K || 0) + k.list * (m.N || 0);
         if (job.kind === "patch") T += k.union * (m.U || 0) + k.merge * job.cells.length;
         else T += k.cell * (m.P || 0);
         job.est = m;
@@ -992,13 +997,16 @@ export default class PicturePyramid {
 
     /**
      * Online calibration (A3 §2.2): `{ edges, edgesMs, px, accumMs, unionRows, unionMs }` from a job's `ras.*`
-     * timings and counts; each constant moves by an EWMA when its sample is large enough to mean something.
+     * timings and counts, `{ packMs, packItems, prepassMs, listItems }` from a pack (`RasterRenderer._pyrPack`); each
+     * constant moves by an EWMA when its sample is large enough to mean something.
      */
     calibrate(t) {
         const k = this._k;
         if (t.edges > 1000 && t.edgesMs >= 0) k.edge += EWMA * (t.edgesMs / t.edges - k.edge);
         if (t.px > 10000 && t.accumMs >= 0) k.px += EWMA * (t.accumMs / t.px - k.px);
         if (t.unionRows > 16 && t.unionMs >= 0) k.union += EWMA * (t.unionMs / t.unionRows - k.union);
+        if (t.packItems > 20 && t.packMs >= 0) k.pack += EWMA * (t.packMs / t.packItems - k.pack);
+        if (t.listItems > 500 && t.prepassMs >= 0) k.list += EWMA * (t.prepassMs / t.listItems - k.list);
         this.s.calibrations++;
         return { ...k };
     }
@@ -1114,13 +1122,17 @@ export default class PicturePyramid {
     }
 
     /**
-     * A pen-up group's cell landed without what the group waits for (packed before its G and staled since): asked again
-     * inside the group (F135), and put only when it shows none of the group's strokes — one that does would draw a
-     * stroke twice beside its path, which stays up until the commit (never both, A3 §3.6).
+     * A pen-up group's cell landed without what the group waits for (packed before its G and staled since): put only when
+     * it shows none of the group's strokes — one that does would draw a stroke twice beside its path, which stays up
+     * until the commit (never both, A3 §3.6) — and asked again inside the group unless a job asked since the group's G,
+     * or another in flight, is coming for it (F135).
      */
     _notForGroup(g, rec) {
+        const a = this._asked.get(rec.key), f = this.store.inflight.get(rec.key);
+        const coming = (a != null && a >= g.G) || (!!f && !f.refused && f.jobId !== rec.jobId);
         let out = "dropped";
         if (rec.G >= g.G0) { this.s.discarded++; this.store.discard(rec); } else out = this._take(rec);
+        if (coming) return out;
         const cur = this.store.get(rec.key);
         if (cur) this._askGroup(g, [cur], []); else this._askGroup(g, [], [cellOf(rec)]);
         return out;
@@ -1427,6 +1439,8 @@ export default class PicturePyramid {
             const job = this._job(v.mode === "rest" ? "rest" : "view", 0, { frame: v.frameId, Z: Zg, cells: missing, purpose: "live", gen: this.gens.view });
             if (v.mode !== "rest") { job.level = v.level; job.S = v.S; }
             job.group = g.id;
+            const G = this.stage ? this.stage.generation : 0;
+            for (const c of missing) this._asked.set(c.key, G);
             this._request([job]);
         }
     }

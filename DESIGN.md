@@ -47,10 +47,13 @@ origin in that build was already slightly wrong.
    load-bearing one. It makes the lasso's tree prune sound, it makes the ring
    pickup complete, and it bounds every neighbourhood query in the engine.
 
-Two mechanisms keep (2) true: **D9 promotion** — an over-wide native is promoted
-to its parent level at pen-up, dividing its coordinates by `R`, which is a change
-of *units* and not a loss of precision — and **`_normalizeHome`**, which re-homes
-an object a move has walked out of its cell. Break either and things start
+What keeps (2) true: **D9 promotion** — an over-wide native is promoted to its
+parent level at pen-up, dividing its coordinates by `R`, which is a change of
+*units* and not a loss of precision — and the fact that **no move rewrites a
+stored coordinate** (§8: a move is an address and a table), so stored bits stay
+where they were drawn, within the cell ± REACH. `_normalizeHome`, which walked an
+object whose centre a move had carried past its cell into the neighbour by whole
+frames, went with A1 C2 (2026-09-29). Break the promotion and things start
 silently disappearing rather than merely being slow.
 
 ---
@@ -554,15 +557,25 @@ on two levels only. Result, measured (`move.registration.test.js`): the coarse
 object's pieces four levels below a move are the same bits in the new frame,
 and its gap to the detail drawn there is unchanged to 1e-9.
 
-A drag runs that arithmetic **once per home frame** — members that share a
-frame and a starting table take one answer (`_displaceMember`), and their
-re-homes are one compaction of the frame's list (`Document.rehomeManyById`),
-which removed the quadratic a whole-frame move had through the list's splice
-(56 us a re-home at 2,000 objects, 189 at 8,000; 2026-09-14). The undo entry of
-a move is the address and the table either side, `{id, dx, dy, from, to,
-belowBefore, belowAfter}`; only a member the pen-up walks back into its cell
-(whole frames into its coordinates) keeps geometry snapshots. Undo is
-byte-exact on the stored natives (`move.below.test.js` MB-5).
+**A drag writes nothing until its drop** (A1 C2, 2026-09-29). Each pointer event
+hands the Stage the displacement from the drag's start (`stage.setDragDelta`): the
+selection's natives and everything under its frames are *held*, drawn, hit and
+lassoed at their placement plus that delta (`placed`, `placeNative`), and painted
+there by the view's plates only when the drag plane does not draw them (`Item.res`;
+each change then dirties where they were drawn and where they are). Per event: no
+document event, re-home, table, mint or settle (`move.drop.test.js` D1, 40 events).
+The **drop** is the one write (`_dropMove`): the arithmetic runs **once per home
+frame** — members that share a frame and a picture table take one answer
+(`_displaceMember`), and their re-homes are one compaction of the frame's list
+(`Document.rehomeManyById`, 56 us a re-home at 2,000 objects, 189 at 8,000;
+2026-09-14) — and the selected frames are re-addressed once; with the hold's
+release and the merges it makes it is one Stage commit, and its patch has a user's
+budget, as an undo's has. A cancel (a pinch, an undo mid-drag, a deselect) writes
+nothing: the document is as it was at the press. The undo entry of a move is the
+address and the table either side, `{id, dx, dy, from, to, belowBefore,
+belowAfter}` (an op from before C2 can carry `base`/`after` geometry, kept for its
+replay and inverse). Undo is byte-exact on the stored natives (`move.below.test.js`
+MB-5).
 
 Kobin's words for it: "the move is only handled locally" — moving a level-6
 object at level 8 "would affect level 7 but shouldn't make a change to the way
@@ -578,9 +591,10 @@ The old build translated by `displacement × R^k`. At five levels of separation
 that rewrote a member's coordinates to 7.3e18 and destroyed 82.9% of its area —
 the object did not move wrong, **it came apart** (F25/F28).
 
-The whole step is recomputed from where the drag *started*, not from the previous
+The whole move is computed from where the drag *started*, not from the previous
 event, so a slow drag and a fast one apply the same arithmetic to the same
-numbers.
+numbers — and since C2 it is computed once, at the drop, against the lattice as it
+stood at the press.
 
 **A subtree moves as frames** (2026-09-15; the design and its build record in
 `.claude/SUBTREE-O1-PLAN.md`). A selected frame is one entry of the selection, and

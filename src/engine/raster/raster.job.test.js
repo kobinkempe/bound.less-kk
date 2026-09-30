@@ -237,6 +237,27 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(whole.nItems).toBe(2);
     });
 
+    test("J4g across lists each item's record is kept by its geometry: re-wrapped items reuse them all, a moved or an edited item rebuilds its own (PLAN §5.15 item 1)", () => {
+        const pieces = [shapeItem(31, [rect(10, 10, 120, 90)]), shapeItem(32, [rect(200, 40, 330, 150)]), fillItem(33, [rect(380, 60, 470, 200)])];
+        const wrap = (p, res) => Object.assign({}, p, { piece: p, res });   // a Stage item: a wrapper over the piece, as a snapshot reads it anew
+        const first = packOne(pieces.map((p) => wrap(p)));
+        const b0 = { ...pack.packStats };
+        const again = packOne(pieces.map((p) => wrap(p)));
+        expect([pack.packStats.prepasses - b0.prepasses, pack.packStats.recsBuilt - b0.recsBuilt]).toEqual([1, 0]);
+        expect(pack.packStats.famReused - b0.famReused).toBe(3);                // each family's union rule and sign kept
+        expect(same(again.geom, first.geom) && same(again.attr, first.attr) && same(again.meta, first.meta)).toBe(true);
+        // The second item moved (a held drag re-places it with no document write) and the third edited: theirs alone.
+        pieces[2].polys = [rect(380, 60, 490, 200)]; pieces[2]._ver = 1;
+        const list = () => pieces.map((p, k) => wrap(p, k === 1 ? [5, 0] : undefined));
+        const b1 = { ...pack.packStats };
+        const moved = packOne(list());
+        expect([pack.packStats.recsBuilt - b1.recsBuilt, pack.packStats.famReused - b1.famReused]).toEqual([2, 1]);
+        expect([moved.attr[9 + 4], moved.attr[18 + 2]]).toEqual([5, 490]);   // its res, and the edit's right edge
+        pack.clearPackCaches();
+        const cold = packOne(list());
+        expect(same(cold.geom, moved.geom) && same(cold.attr, moved.attr) && same(cold.meta, moved.meta)).toBe(true);
+    });
+
     test("J4c an edited stroke drops its band with its entry, so the next plate bands the new stroke", () => {
         const item = strokeItem(13, [[40, 100], [240, 100]], 12);
         const b1 = pack.bandFor(item, 0, 1, CFG);

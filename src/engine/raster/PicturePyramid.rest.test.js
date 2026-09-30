@@ -285,4 +285,17 @@ describe("PicturePyramid — the rest render (A3 §2)", () => {
         t.pyr.calibrate({ edges: 10, edgesMs: 50, px: 10, accumMs: 50 });   // too small a sample to mean anything
         expect(t.pyr._k.edge).toBeCloseTo(2e-4, 6);
     });
+
+    test("the pack is priced (PLAN §5.15 item 1): its kept items and its list's, each constant calibrated from the packs' own samples", () => {
+        const t = setup();
+        t.pyr._measure = (job) => job.measure;
+        const T = (m) => t.pyr.estimate({ kind: "patch", cells: [{}], measure: m });
+        const priced = T({ E: 0, A: 0, U: 0, K: 1000, N: 3000 }) - T({ E: 0, A: 0, U: 0, K: 0, N: 0 });
+        expect(priced).toBeCloseTo((1000 * EST_DEFAULTS.packItemUs + 3000 * EST_DEFAULTS.packListUs) / 1000, 6);
+        for (let n = 0; n < 60; n++) t.pyr.calibrate({ packMs: 30, packItems: 1000, prepassMs: 3, listItems: 3000 });
+        expect(t.pyr._k.pack).toBeCloseTo(0.03, 4);
+        expect(t.pyr._k.list).toBeCloseTo(0.001, 5);
+        t.pyr.calibrate({ packMs: 50, packItems: 5, prepassMs: 50, listItems: 10 });   // too small a sample to mean anything
+        expect(t.pyr._k.pack).toBeCloseTo(0.03, 4);
+    });
 });
