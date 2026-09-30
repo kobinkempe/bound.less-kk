@@ -2813,3 +2813,28 @@ and finishes the remaining items and its one final run within ~45 minutes.
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: waiting for the resumed entries; the monitor re-armed.
+
+## 2026-09-30 05:53 UTC — R-PYRAMID-34 (reviewer) — resumed after the reboot (the 03:39 session-limit stop)
+**Working on:** the orchestrator's bound: F137's bisect stops (b4 read, below); then scenario 6, items 3/10, 8, 7's
+residual, 5, RV4/C4, one `--dense --scenario all` on the final tree, the end entry — ~45 min. Files: `PicturePyramid.js`,
+its plan/patch tests, the harness.
+**Measured (b4, completed before the stop, scenario 1 back-in paper):** x5 (the estimate's pack terms dropped) 571 (load
+1.86→3.41), 66 (1.91→2.08); x6 ((f′) drawn as bA did) 0 (1.96→2.49), 138 (1.92→3.20). No single rule names it:
+F137 reported with the table, not fixed. Load 0.39 at 05:53 (fresh boot).
+**Decisions made:** bisect stopped per the orchestrator's bound. **Questions asked:** none.
+WHERE I AM: starting the final tree's dev server (:3020) for scenario 6/7/5 and the round trip.
+
+## 2026-09-30 05:53 UTC — B-MODEL-C34 (builder) — resumed after the session-limit stop and the reboot (C3b)
+**Working on:** C3b, from the tree at 9fe45f8 (my edits all there). Done before the stop: `_take` joins the target
+cell's group and links kids all the way down (`_joinGroups`/`_linkKids`, the empty childless resident yields),
+`_addFrame` makes a frame added at a taken cell its co-resident (ensureId, merge, load), `isUnder`/`subtreeStart`/
+`walk` by container, `adoptShadow`/`unadoptShadow`/`mergePending`/`_mergeShadows`/`unmerge`/`merge*Replay` and the
+`mergeFrame`/`splitFrame` events and handlers deleted (old stores' merges replay and undo through
+`legacy/modelV1.js`: `mergeLive`, `mergeReplay`, `unmergeReplay`, `unmerge` over `restoreFrame`/`reparent`), the
+camera handed to the resident at a refile/addFrame, GC promotes, version 3 for co-residents/private frames
+(`latticeNeedsV3`), `objShift(…, mint)`: reads never mint (`_rerouteGroups`' `miss`, a snapshot not ready), the
+engine prepares the camera view at the action's end (`_prepareView`) and wanted views at idle.
+**Measured:** nothing since the stop; load 0.44.
+**Decisions made:** as above (the pure-read exception closes by `prepare`, not by a read).
+**Questions asked:** none.
+WHERE I AM: `lattice.coresident.test.js` (the lattice cases the deleted LevelMap describe held), then the suites.
