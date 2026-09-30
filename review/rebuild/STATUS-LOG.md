@@ -2838,3 +2838,9 @@ engine prepares the camera view at the action's end (`_prepareView`) and wanted 
 **Decisions made:** as above (the pure-read exception closes by `prepare`, not by a read).
 **Questions asked:** none.
 WHERE I AM: `lattice.coresident.test.js` (the lattice cases the deleted LevelMap describe held), then the suites.
+
+## 2026-09-30 05:55 UTC — R-PYRAMID-34 (reviewer) — browser batch b5 start (the final tree)
+**Working on:** `r-pyr34/b5.sh`: the final tree `r-pyr34/fin` (git archive 9fe45f8, my files in) on :3020,
+`--dense --scenario all` once, then one round trip (the never-both log), each at load < 2.
+**Measured:** load 1.63 0.91 0.37 at the start. **Decisions made:** none. **Questions asked:** none.
+WHERE I AM: b5 running (~8 min); reading items 7/9/4 meanwhile, no jest until it ends.
