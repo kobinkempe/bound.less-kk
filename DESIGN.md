@@ -602,12 +602,15 @@ its drag touches no object. A frame's id is its birth chain and never changes, b
 its address — parent, cell, edge, centre — is mutable (`LevelMap.readdress`,
 `readdressMany`), so re-addressing the root and its descendants within three levels
 of the camera moves every native under them through the parent pointer. The targets
-come from the addresses recorded at the drag's start (`subtreeStart`,
-`moveSubtreeTargets`) by `displaceFrame`'s arithmetic, frame for frame, so a native
-lands exactly where the per-object path would put it — registration by
-construction, proved native for native (`move.subtree.test.js`); a step of a target
-chain that a moving frame is headed for resolves to that frame, and the apply is
-two-phase so movers never collide with each other. Frames at the camera's depth + 1
+come from the addresses at the drag's start (`subtreeStart`, `moveSubtreeTargets`,
+read at the drop against the lattice as it stood at the press) by `displaceFrame`'s
+arithmetic, frame for frame, so a native lands exactly where the per-object path would
+put it — registration by construction, proved native for native (`move.subtree.test.js`
+t2; `move.drop.test.js` over a 40-step walk, 1,250 of 1,250); a step of a target chain
+that a moving frame is headed for resolves to that frame, and the apply is two-phase so
+movers never collide with each other. Until C2 each event re-addressed against the
+lattice the previous event had left, where the moving root could sit in the cell a
+carried kid's chain named: the kid landed a cell off (F136). Frames at the camera's depth + 1
 and + 2 also take the sub-cell rest: it stays on the frame as its **shift**, and the
 shift is **placement, composed on read** (A1 C1, 2026-09-29): a native's picture table
 is its own table with its home frame's shift added at k = 0 (`Document.tableOf`), never
@@ -640,7 +643,8 @@ and deletes it — O(the shadow's natives); a shadow holding nothing is frame GC
 selection follows, the merged natives as ids and the kids as frames, and so does the
 camera when the shadow was its frame (an undo putting a moved frame back where the
 camera's empty twin sat: left on the gone frame, the canvas drew nothing and new ink went
-to a frame the lattice lacked, F126). A drag's merges wait for its op on the stack.
+to a frame the lattice lacked, F126). A drop's merges are recorded on its op; a cancel
+merges nothing (it made no shadow).
 
 **No bake moves a native** (F78, 2026-09-22, Kobin's Earth move on the Magnum Opus: a settle
 inside `_bakeDown` carried natives into a frame the bake had passed, and the empty tile was
@@ -651,16 +655,17 @@ parent squares' pieces, coarsest first, and one whose parents are not all cached
 (2026-09-24 TB-1; dropped, a cut in an ancestor frame rebuilt the whole view cold, 1.4–1.7 s at
 depth 9 on the Magnum Opus; `tile.patch.test.js` compares every cached tile to a cold bake).
 **The shift stays within ±W/2** (`.claude/SUBTREE-O1-PLAN.md`
-§2.2, built 2026-09-23): each drag event carries whole cells of the frame's shift into its
+§2.2, built 2026-09-23): the drop carries whole cells of the frame's shift into its
 address (`moveSubtreeTargets`, given each frame's shift at the drag's start), so only a native
 whose own table adds to it is drawn past a cell edge, and a change of the shift alone
 refiles the frame so its plates follow. Not built: `_take` lets a resident with kids keep its
 cell even when its whole subtree is empty, so an empty twin can take the mover's identity (F80).
 
 **A frame holds something** (frame GC, F94; Kobin: "if there ever is a frame, it has stuff in
-it"). Every pointer event of a subtree drag mints the containers its target chains pass
-through, and the next leaves most of them empty — 80–103 in one 40-step drag on his phone
-drawing, whose lattice held 471 empty cells of 495. `engine/frameGc.js` forgets a frame with
+it"). Until C2 every pointer event of a subtree drag minted the containers its target chains
+passed through, and the next left most of them empty — 80–103 in one 40-step drag on his
+phone drawing, whose lattice held 471 empty cells of 495; since C2 only the drop mints, its
+final chains' (A1 §1.4's census, 40 × 7 px: 145–239 frames during the drag → 0, 4–14 left). `engine/frameGc.js` forgets a frame with
 no natives, kids or shadows at a gesture's end or a change of the camera's frame, unless the
 camera is in it or above it, left it within the last four frames (a crossing back composes
 through it), or an undo or redo op names it (`opFrames`: history puts things back there by
@@ -695,7 +700,10 @@ move 2.0 ms (700 tables unsettled) and redo 0.1 ms; delete of the subtree 0.9 ms
 with no `removeById`, its undo 0.04 ms. The render after the drag is 77–113 ms: the
 root's 700 natives are above the cull, settled and redrawn, which is drawing them.
 The per-object path, measured the day before: lasso 0.75 ms, a drag event 31.6 ms,
-an undo entry of 146,529 bytes.
+an undo entry of 146,529 bytes. Since A1 C2 (2026-09-29, headless Chromium, the harness's
+dense scene, 45 selected of 3,441 natives, a frame of 1,000 among them): a drag event
+0.7–0.8 ms median against 1.2–1.7 before it, the drag's first event 27–33 ms against
+64–83, the drop 1.5–1.9 s against 1.7–2.0 s (its render 1.5–1.6 s both; `_dropMove` 16–18 ms).
 
 Why this was more than the lattice made it look. The structure was ready — a tree of
 cells, natives homed by frame id, tables keyed by depth — and the move itself is the
@@ -782,8 +790,9 @@ a merge or an inkless refusal carries none; a union family whose routing flips d
 its whole box); the plate store tracks every cell it holds or has a job for. A job carries the G
 it was packed at, a result replaces the stored plate iff its G is newer, and a plate is exact iff
 its G ≥ its cell's `dirtySince` — no epochs, no painted-id sets, no queued events drained at a
-frame. A drag the plane draws is held in the Stage (`stage.hold`): its events wait, and the drop
-is one commit that dirties where the selection started and where it ended. A stroke is pending
+frame. A drag writes nothing (A1 C2): the Stage holds its natives (`stage.hold`) at the pointer's
+delta (`setDragDelta`) — the plane draws them, or the view's plates do when there is none — and the
+drop's one write is one commit that dirties where the selection started and where it ended. A stroke is pending
 from pen-down until its shape lands: packs skip it and the pick sees it.
 
 What keeps paper off the screen is the plan's order above: a stale plate is shown until its replacement lands, a
@@ -956,12 +965,19 @@ to a family the loop does not bound: the frames from that native up to the enclo
 as straddling, so the piece is judged with its family and left out, and the rest is found one by one
 (`_tornUnder`, from `Document.keyedIn`, a per-frame set of keyed natives — no other ink is read; F108).
 
-**The selection stands for the same ink** (F93). A subtree drag's rest re-homes a selected
-frame's kid under the neighbour container (§8; since A1 C1 no read moves a native, so a
-frame's natives stay its own wherever its shift draws them); at the drop and after an undo
-or a redo, what left every selected frame joins the selection — a frame as a frame, a native as an id —
-an id back under a selected frame leaves the ids, and a selected frame left with no ink
-leaves (`_reselect`). A frame under another selected frame is counted once.
+**The selection stands for the same ink** (F93). A drop's rest re-homes a selected frame's kid
+under the neighbour container (§8; since A1 C1 no read moves a native, so a frame's natives
+stay its own wherever its shift draws them). The selection is **repaired from the action's
+op, never from document events** (A1 C2): before a drop, an undo or a redo, the op's frames
+under a selected frame and its per-object members listed or under one are read
+(`_opUnder`); after it, what left every selected frame joins the selection — a frame as a
+frame, a native as an id — an id back under a selected frame leaves the ids, an id the
+action removed goes (its family's first member takes its place when nothing else is
+left), and a selected frame left with no ink leaves (`_repairSelection`, `_reselect`),
+quietly, before the action's one render. Only a reset and a merge (the hand-over of a
+merged frame's ink, until C3 removes merges) still reach the selection as events; an id a
+remote edit removes stays in the list, dead and skipped, until the next repair. A frame
+under another selected frame is counted once.
 
 **A press picks, a drag moves** (`_selectTap`, `_beginSelectDrag`). Nothing changes on
 pointer-down, so a pinch never selects. A tap takes the topmost object under the point, read
@@ -976,7 +992,8 @@ it (`_tinyHit`: the reach's eight probes passed between them, and a press on a l
 the ink under it, TESTER-2 2026-09-24).
 
 **The indicator shows what is drawn.** Ants run along the scene's items (`stage.placed`; the
-decision is remade when G moves),
+decision is remade when G moves; a drag keeps the decision made at rest, read through
+`stage.atRest`, and moves it with the pointer from the drag's start),
 so a magnified shape that the browser could not hold as arcs is shown from the
 tile pieces that hold it, and a frame whose selected content is under 2 px on
 screen is one dot with none of its members visited — the frame's box bounds
