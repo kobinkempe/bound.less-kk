@@ -59,7 +59,9 @@ pointer-up), `Stage.js` (`hold`, `release`, `setDragDelta`, `Item.res`, `homeOf`
 Headless Chromium on frozen copies (the pre-B-DRAG commit d206cd3 and the final tree), scenario 4 twice each with the
 ants' crawl frozen (B-DRAG's and the C1 review's scripts under `scratchpad/bdrag/` and `scratchpad/r-model/`): ink
 pixel-identical after the drop; the drag's long frames and the pointer-up's task; the load printed. jsdom for the
-rest. Nothing in Kobin's Chrome: say so.
+rest. **The B-PYRAMID-3/4 reviewer runs beside you** (`briefs/R-PYRAMID-34.md`); the STATUS-LOG is the coordination —
+announce a browser batch's start and end in an entry, start one only when the 1-min load is under 2 and no other
+agent's batch is announced and unfinished, and print the load with every number. Nothing in Kobin's Chrome: say so.
 
 ## 3. Files
 

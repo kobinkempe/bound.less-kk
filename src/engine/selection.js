@@ -852,22 +852,26 @@ class Selection {
     deleteSelection() {
         const s = this.selection; if (!s) return false;
         const records = [];
-        const seen = new Set();
+        const seen = new Set(), members = [];
         const frames = s.frames || [];
         const frameRecords = [];
+        // The individually selected ids and their families, read before any removal (a removal drops the family
+        // index, and reading it between removals rebuilt it per id: O(n²)) — NOT through `_selectionMembers`,
+        // whose bridge would expand a selected frame to its natives.
+        for (const id of s.ids) {
+            const hit = this.doc.getById(id);
+            if (!hit) continue;
+            for (const m of this.doc.editGroup(this.doc.editKey(hit.obj))) {
+                if (seen.has(m.obj.id)) continue;
+                seen.add(m.obj.id);
+                members.push(m.obj.id);
+            }
+        }
         // One commit for the whole delete: a commit an event cost 487–558 ms for 5,000 natives (PLAN §5.7).
         this.stage.batch(() => {
-            // The individually selected ids and their families, object by object — NOT through
-            // `_selectionMembers`, whose bridge would expand a selected frame to its natives.
-            for (const id of s.ids) {
-                const hit = this.doc.getById(id);
-                if (!hit) continue;
-                for (const m of this.doc.editGroup(this.doc.editKey(hit.obj))) {
-                    if (seen.has(m.obj.id)) continue;
-                    seen.add(m.obj.id);
-                    const rec = this.doc.removeById(m.obj.id);
-                    if (rec) records.push(rec);
-                }
+            for (const id of members) {
+                const rec = this.doc.removeById(id);
+                if (rec) records.push(rec);
             }
             // A selected frame goes as CONTAINERS: each frame's list detached by reference,
             // O(frames) and no per-object work (SUBTREE-O1-PLAN §2.3).

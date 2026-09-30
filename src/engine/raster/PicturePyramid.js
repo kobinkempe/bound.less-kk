@@ -134,7 +134,7 @@ export default class PicturePyramid {
         this._heavyAt = 0;             // D272's backstop: an inline rest that ran over marks this estimate heavy
         this._userG = 0;               // the commit of the user's last undo or redo (`noteUserEdit`)
         this._patchDue = false;        // a commit's patch step not yet run (`noteCommit`)
-        this._groups = new Map();      // id -> { id, need, held, at, onCommit, purpose }
+        this._groups = new Map();      // id -> { id, need, held, bytes, at, G, onCommit, purpose; a pen-up group: G0, members }
         this._groupOf = new Map();     // key -> group id
         this._seqGroup = 0;
         this._plane = null;
@@ -396,7 +396,8 @@ export default class PicturePyramid {
     _markHeld(P) {
         const v = P.v, gs = [];
         for (const g of this._groups.values()) {
-            if (g.purpose === "live" && g.rect) gs.push({ G: g.G, x0: g.rect.left * v.Zq, y0: g.rect.top * v.Zq, x1: g.rect.right * v.Zq, y1: g.rect.bottom * v.Zq });
+            if (g.purpose !== "live") continue;
+            for (const m of g.members) gs.push({ G: m.G, x0: m.rect.left * v.Zq, y0: m.rect.top * v.Zq, x1: m.rect.right * v.Zq, y1: m.rect.bottom * v.Zq });
         }
         if (!gs.length) return;
         for (const c of P.cells) {
@@ -1081,7 +1082,8 @@ export default class PicturePyramid {
 
     /**
      * A result from the workers or the inline executor: a rest cell of a discarded set is closed; one a group waits
-     * for is held aside; a patch (`clip`) is merged into its record; anything else is put (rule 1).
+     * for is held aside — packed at or after the group's G, or exact at landing (rule 2: then no commit since touched
+     * the cell, the group's strokes included); a patch (`clip`) is merged into its record; anything else is put (rule 1).
      * @returns {string} what happened
      */
     onResult(rec) {
@@ -1091,20 +1093,49 @@ export default class PicturePyramid {
             this.store.discard(rec);
             return "discarded";
         }
-        const gid = this._groupOf.get(rec.key);
-        if (gid != null) {
-            const g = this._groups.get(gid);
-            // Only a result packed at or after the group's G shows what the group waits for (a pen-up's stroke).
-            if (g && g.need.has(rec.key) && rec.G >= g.G) {
+        const g = this._groups.get(this._groupOf.get(rec.key));
+        if (g && g.need.has(rec.key)) {
+            if (rec.G >= g.G || rec.G >= this.store.fresh.dirtySince(rec.key)) {
                 g.need.delete(rec.key);
-                g.held.push(rec);
-                const b = rec.bytes || (rec.bitmap || rec.pixels || rec.patch ? PLATE_BYTES : 0);
-                g.bytes += b; this.store.holdBytes(b);
+                this._hold(g, rec);
                 if (!g.need.size) this._commitGroup(g);
+                return "held";
+            }
+            if (g.purpose === "live") return this._notForGroup(g, rec);
+        } else if (g && g.purpose === "live") {
+            // A second result for a cell the group holds: the newer is kept aside, nothing is put before the commit.
+            const n = g.held.findIndex((r) => r.key === rec.key);
+            if (n >= 0) {
+                if (rec.G > g.held[n].G) { this._unhold(g, g.held[n]); g.held.splice(n, 1); this._hold(g, rec); } else this.store.discard(rec);
                 return "held";
             }
         }
         return this._take(rec);
+    }
+
+    /**
+     * A pen-up group's cell landed without what the group waits for (packed before its G and staled since): asked again
+     * inside the group (F135), and put only when it shows none of the group's strokes — one that does would draw a
+     * stroke twice beside its path, which stays up until the commit (never both, A3 §3.6).
+     */
+    _notForGroup(g, rec) {
+        let out = "dropped";
+        if (rec.G >= g.G0) { this.s.discarded++; this.store.discard(rec); } else out = this._take(rec);
+        const cur = this.store.get(rec.key);
+        if (cur) this._askGroup(g, [cur], []); else this._askGroup(g, [], [cellOf(rec)]);
+        return out;
+    }
+
+    _hold(g, rec) {
+        g.held.push(rec);
+        const b = heldBytes(rec);
+        g.bytes += b; this.store.holdBytes(b);
+    }
+
+    _unhold(g, rec) {
+        const b = heldBytes(rec);
+        g.bytes -= b; this.store.holdBytes(-b);
+        this.store.discard(rec);
     }
 
     /** Put a whole plate, or merge a patch into its record: `G` is raised only when the clip covers the dirt since the record's G. */
@@ -1284,23 +1315,76 @@ export default class PicturePyramid {
     /**
      * Pen-up: the drawn cells meeting `rect` (the view frame's units) are re-rendered — inline when the patch fits,
      * the swap in this task, else one priority-0 group whose results are held aside — and `onCommit(info)` runs in
-     * the task that publishes them (the renderer releases the live path there). A group older than LIVE_HOLD_MS
-     * commits what it has. Returns the group id.
+     * the task that publishes them (the renderer releases the live path there). A pen-up over cells an open pen-up
+     * group waits for or holds joins it (`_join`). A group older than LIVE_HOLD_MS commits what it has.
      */
     groupCommit(id, rect, onCommit) {
         const { stale, missing } = this._under(rect);
         const keys = stale.map((x) => x.key).concat(missing.map((c) => c.key));
-        const g = this._openGroup(id, keys, onCommit, "live");
-        g.rect = rect;
+        const m = { id, rect, G: this.stage ? this.stage.generation : 0, onCommit };
+        const into = this._liveOver(keys);
+        if (into) { this._join(into, m, stale, missing); return id; }
+        const g = this._openGroup(id, keys, (info) => { for (const x of g.members) if (x.onCommit) x.onCommit({ ...info, id: x.id }); }, "live");
+        g.members = [m]; g.G0 = g.G;
         if (!keys.length) { this._commitGroup(g); return id; }
         this._askGroup(g, stale, missing);
         return id;
     }
 
-    /** A crossing carried a pen-up group's rectangle into the view's new frame (`RasterRenderer._liveCross`). */
+    /** The open pen-up group that waits for or holds any of `keys`, or null. */
+    _liveOver(keys) {
+        for (const k of keys) {
+            const g = this._groups.get(this._groupOf.get(k));
+            if (g && g.purpose === "live") return g;
+        }
+        return null;
+    }
+
+    /**
+     * F135: pen-up groups over the same cells are one group, and both paths go at its commit — a plate that shows the
+     * later stroke shows the earlier one too (two groups over one cell each took the other's results, and the first path
+     * stayed LIVE_HOLD_MS over plates showing its stroke). Held results the new stroke staled go back to need; only cells
+     * nothing is asked for are asked. The limit stays the first stroke's.
+     */
+    _join(g, m, stale, missing) {
+        for (const k of stale.map((x) => x.key).concat(missing.map((c) => c.key))) {
+            const o = this._groups.get(this._groupOf.get(k));
+            if (o && o !== g && o.purpose === "live") this._absorb(g, o);
+        }
+        g.members.push(m);
+        g.G = Math.max(g.G, m.G);
+        const s1 = [], m1 = [], ask = (c) => { const r = this.store.get(c.key); if (r) s1.push(r); else m1.push(c); };
+        for (let n = g.held.length - 1; n >= 0; n--) {
+            const r = g.held[n];
+            if (r.G >= g.G || r.G >= this.store.fresh.dirtySince(r.key)) continue;
+            g.held.splice(n, 1); this._unhold(g, r);
+            g.need.add(r.key); ask(cellOf(r));
+        }
+        const held = new Set(g.held.map((r) => r.key));
+        for (const c of [...stale, ...missing]) {
+            if (g.need.has(c.key) || held.has(c.key)) continue;
+            g.need.add(c.key); this._groupOf.set(c.key, g.id); ask(c);
+        }
+        if (s1.length || m1.length) this._askGroup(g, s1, m1);
+    }
+
+    /** Group `o` into `g`: its members, cells and held results. */
+    _absorb(g, o) {
+        this._groups.delete(o.id);
+        g.members.push(...o.members);
+        g.G = Math.max(g.G, o.G); g.G0 = Math.min(g.G0, o.G0); g.at = Math.min(g.at, o.at);
+        for (const k of o.need) g.need.add(k);
+        g.held.push(...o.held); g.bytes += o.bytes;
+        if (o.refused) for (const [k, c] of o.refused) (g.refused || (g.refused = new Map())).set(k, c);
+        for (const [k, id] of this._groupOf) if (id === o.id) this._groupOf.set(k, g.id);
+    }
+
+    /** A crossing carried a held path's rectangle into the view's new frame (`RasterRenderer._liveCross`). */
     moveGroup(id, rect) {
-        const g = this._groups.get(id);
-        if (g && g.purpose === "live") g.rect = rect;
+        for (const g of this._groups.values()) {
+            const m = g.purpose === "live" ? g.members.find((x) => x.id === id) : null;
+            if (m) { m.rect = rect; return; }
+        }
     }
 
     /** The view's own drawn cells meeting `rect` that are not exact: `{ stale: records, missing: descriptors }`. */
@@ -1315,6 +1399,17 @@ export default class PicturePyramid {
                 if (rec && st.exact(rec)) continue;
                 if (rec) stale.push(rec); else missing.push(c);
             }
+        }
+        return { stale, missing };
+    }
+
+    /** `_under` over several rectangles, each cell once. */
+    _underAll(rects) {
+        const seen = new Set(), stale = [], missing = [];
+        for (const rect of rects) {
+            const u = this._under(rect);
+            for (const x of u.stale) if (!seen.has(x.key)) { seen.add(x.key); stale.push(x); }
+            for (const c of u.missing) if (!seen.has(c.key)) { seen.add(c.key); missing.push(c); }
         }
         return { stale, missing };
     }
@@ -1342,8 +1437,8 @@ export default class PicturePyramid {
      */
     _retarget() {
         for (const g of [...this._groups.values()]) {
-            if (g.purpose !== "live" || !g.rect || !this._groups.has(g.id)) continue;
-            const { stale, missing } = this._under(g.rect);
+            if (g.purpose !== "live" || !this._groups.has(g.id)) continue;
+            const { stale, missing } = this._underAll(g.members.map((m) => m.rect));
             const now = new Set(stale.map((x) => x.key).concat(missing.map((c) => c.key)));
             const held = new Set(g.held.map((r) => r.key));
             for (const k of [...g.need]) if (!now.has(k)) { g.need.delete(k); this._groupOf.delete(k); }
@@ -1488,6 +1583,11 @@ export default class PicturePyramid {
         this._canvas = null; this._ctx = null;
     }
 }
+
+/** The bytes a result held aside for a group counts against the cap. */
+const heldBytes = (rec) => rec.bytes || (rec.bitmap || rec.pixels || rec.patch ? PLATE_BYTES : 0);
+/** A record's cell descriptor (`levelCell`, `restCell`). */
+const cellOf = (r) => (r.kind === "rest" ? restCell(r.frame, r.Z, r.i, r.j) : levelCell(r.frame, r.level, r.S, r.i, r.j));
 
 /**
  * A worker result's core timings and counts (`rasterJob`'s per-plate arrays) as `calibrate`'s sample; `U` is the

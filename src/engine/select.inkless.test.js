@@ -270,6 +270,29 @@ describe("a selection stands for ink", () => {
         expect(E.doc.getById(a.id) && E.doc.getById(d.id)).toBeTruthy();   // one undo brings both back
     });
 
+    test("I11 an undo of an older per-object move that carries a native out of a selected frame keeps it, as an id", () => {
+        const E = mkE();
+        const A = E.lm.cellChild("0", 3, 2);
+        const n = E.doc.add(fill(E, -S / 2, -S / 2), A.id);
+        const other = E.doc.add(fill(E, -S / 2, -S / 2), E.lm.cellChild("0", 4, 2).id);   // B's ink, so B is inked
+        E._render();
+        // Move n one cell right, per object: re-homed from A into B (the older op).
+        E._setSelection([n.id]);
+        const p = E.cam.levelPointToScreen(A.id, 0, 0);
+        E._dragSel = { start: [p[0], p[1]], moved: false };
+        E._dragSelection(p[0] + 32, p[1]);
+        E.pointerUp();
+        const B = E.doc.getById(n.id).level;
+        expect(B).toBe(E.doc.getById(other.id).level);            // the fixture: n now B's
+        // Select B as a frame (n is under it), then undo the move: n goes back to A, out of the selection's frame.
+        E._setSelection([], [B]);
+        expect(E._isSelected(n.id)).toBe(true);
+        expect(repairs(E, () => E.undo())).toEqual({ set: 1, repair: 1 });
+        expect(E.doc.getById(n.id).level).toBe(A.id);
+        expect(E._isSelected(n.id)).toBe(true);                   // red when the repair reads only the op's frames
+        expect(E.selection.ids).toEqual([n.id]);
+    });
+
     test("I4 a selected frame merged into its cell's resident hands over only the kids that hold ink", () => {
         const E = mkE();
         const mover = E.lm.cellChild("0", 3, 2);

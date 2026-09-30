@@ -2373,3 +2373,38 @@ natives at x 271.99, a cell (32 units) past where the move puts them (239.99, th
 defect as the census's seed 777; filed as F136 in D4.
 **Decisions made:** none new. **Questions asked:** none.
 WHERE I AM: the 5,000-native delete timing (jsdom, running on both trees), then the drop re-timed and D2/D3 entries.
+
+## 2026-09-29 21:56 UTC — B-PYRAMID-4 (builder) — progress: rules 1, 3, 5 written; F135's real mechanism found
+**Working on:** rule 3 (F134) in `jobQueue._aim` (AIM_LEVELS 2, `ownFloor`); rule 1 (`PicturePyramid.noteCommit`/
+`patchIfDue`: the commit hook marks the patch step due, the next compose or step runs it, else a microtask — not in the
+hook, so an undo's `noteUserEdit` still sets its budget); rule 5 (`_lastResort`: (f′) unread → `olderUnreadMs`, its job
+pending → `olderPatchMs`). New `raster.commit.test.js`; `jobQueue.test.js` F134; LH-7 in `LiveStrokeLayer.hold.test.js`.
+**Measured (jsdom; red-before on `scratchpad/bp4/rb`, a HEAD copy with the new tests):** 5 of 14 red there (the velocity
+rule's descend at 23, F134 at −19; the two commit tests: no patch step before the compose; the engine's zoom-out sent
+−11/−13 with the view at −3/−5). F134's cost is `Stage.covers` → `_tileKeys` building every tile key under the cell:
+−17 0.12 s, −18 0.6 s, −19 2.6–2.9 s and 1.5 GB RSS (×4 a level: the flag's 5–102 s at −19…−21). F135 reproduced on HEAD
+with B-PYRAMID-3's script (3,083 ms, `timedOut` 1); logged: two pen-up groups over the same two cells, `_groupOf`
+overwritten by the second, whose commit takes the first's results — the FIRST path stays 3 s over plates that already
+show its stroke (both shown: a translucent stroke doubled — likely PLAN §5.17 item 4's 53,919 px). My LH-7 did not
+reproduce it (fills + bake timer): it is being rewritten to the reproducing setup. Before batch (b793360 archive on
+:3010, `--dense --scenario all` ×2, load 1.9 → 4.5–4.7, contended by other agents' suites): 7 olderOther 1,577 | 1,797
+ms (ownOther 127 | 157 cells, coming 7 | 38), bake 8.3 | 8.1 s; 6 undo exact 260 | 281 ms; 5 release 15 | 84 ms.
+**Decisions made:** F135's fix is the overlap, not the brief's dispatch re-ask (the trace's dropped strips were exact in
+the store, nothing in flight): overlapping pen-up groups merge (both paths go at one commit); a result counts for a
+group when packed at/after its G or exact at landing (rule 2: then the stroke never touched the cell), and a need key's
+landing that does not count re-asks it inside the group — the brief's "re-asked / re-targeted at that landing".
+**Questions asked:** none yet (the (f′)-pending → olderPatch choice goes to the report).
+WHERE I AM: the group merge in `PicturePyramid.groupCommit`/`onResult`, then LH-7 on the reproducing setup.
+
+## 2026-09-30 00:54 UTC — orchestrator (Fable) — the session-limit stop of 22:04 UTC; both builders resumed; R-PYRAMID-34 drafted
+**Working on:** the session limit stopped B-DRAG (last action 22:03: `deleteSelection` collecting the members before the
+removals, re-timing the 5,000-native delete) and B-PYRAMID-4 (last action 22:03: the F135 overlap merge in
+`PicturePyramid.js` with LH-7 rewritten and measured, the raster suites started, the dead `live` argument next). The
+container rebooted (uptime 0 at 00:52 UTC): every server and batch is gone, the scratchpad and the live tree's edits
+survived. The tree snapshot-committed with this entry (`[skip ci]`); both builders resumed by message with that state.
+`briefs/R-PYRAMID-34.md` drafted (one reviewer for B-PYRAMID-3 and 4; launched when B-PYRAMID-4 reports); R-DRAG's brief
+got the browser-batch coordination line (announce a batch's start and end here; start only under load 2).
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the builders' next entries; the monitor re-armed.
