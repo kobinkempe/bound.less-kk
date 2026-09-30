@@ -13,7 +13,7 @@ tells you which files) and what §1 below names.
 
 **Read, only the parts named:** `CLAUDE.md`; `DESIGN.md` §9 (as the two builds left it), §7's pending-mark paragraph,
 §15; `review/rebuild/PLAN.md` §0 (decisions 2 and 6), §1.5, §1.6, §3 rows 1, 2, 8, 10, §5.8 item 2, §5.14 items 1 and 3,
-§5.15, §5.17, §5.19 (B-PYRAMID-4's answers, when written); `review/rebuild/briefs/B-PYRAMID-3.md` and `B-PYRAMID-4.md`
+§5.15, §5.17, §5.18 (the clip cull), §5.20 (B-PYRAMID-4's answers, when written); `review/rebuild/briefs/B-PYRAMID-3.md` and `B-PYRAMID-4.md`
 (the builds' briefs); `review/rebuild/A3-pyramid.md` §1.4 (f′), §3.3–§3.6, §4.4, §7 whole and every dated note;
 `docs/OPEN-FLAGS.md` F133, F134, F135 (whole entries); in `review/rebuild/STATUS-LOG.md` the entries of B-PYRAMID-3
 (grep `— B-PYRAMID-3`; the 15:27, 15:54 ×2, 20:10, 20:59, 21:20 checkpoints carry the measurements) and B-PYRAMID-4
@@ -130,6 +130,9 @@ B-PYRAMID-4's (the pyramid's last rules; PLAN §5.15; F134, F135):
     `setDragState`/`setPlaneState`/`endMove` in `Renderer`, `liveChunk`, `warmReads`/`_warm`/`clearWarm`, the dead `live`
     argument of `MovePlane.aim`/`paintFamilies` (B-PYRAMID-4 deletes it): no caller, no reader, no comment naming one as
     live; TEST-MAP's rows say PORT/KEEP truly (`Renderer.liveChunk` → `LiveStrokeLayer`, `raster.liveHold` → `.hold`).
+    Also `stage.cover` C4 (`pl._whole(pl.quick)`), red in B-PYRAMID-4's raster run at load 5–7 and green alone 5 of 5:
+    make it deterministic as LH-1 was (its idle timer stubbed), or say why it is load-only. The clip cull (PLAN §5.18):
+    its fuzz and break-checks re-run, and the exactness argument checked against the mask slots' filing.
 14. **Docs.** DESIGN §9 (the layers list, the SVG renderer's paragraph, the pen-up rule with the merge, the commit-task
     patch step, the pack's memo, the aim's floor), §7's pending-mark paragraph, §15; A3 §3.6/§4.4/§7's dated notes;
     `docs/ai/20-`, `30-`, `40-` (the four new modules named, the deleted ones gone; `tools/docmaps` is the orchestrator's

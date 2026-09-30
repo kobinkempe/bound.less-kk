@@ -842,3 +842,33 @@ re-bakes 8 against 19–22 with the warm reads.
    B-PYRAMID-4 with a state log while it fixes F135: if the path and the plates are both shown for a frame it is the
    pen-up rule's never-both, and the fix goes with F135's.
 5. Not verified in Kobin's Chrome: F133, the mask rule, the crossing carry, the warm reads — on the final check's list.
+
+### 5.18 To B-PYRAMID-4 (its question of 2026-09-30 01:22: the clip cull)
+
+Its measurement: the undo's inline pack is 45–64 ms on scenario 6, of which the copy is 21–29 ms because a clipped job
+keeps every item of its two whole cells (764 items, 31.5 MB) although its clips are the undone stroke's dirt, and the
+prepass 18–33 ms because the family fill never matched a prefetch snapshot's re-wrapped items (rule 2's records by
+geometry fix that). It asks to build the clip cull here. **Yes, build it here**, as the pack's existing cull narrowed:
+a clipped job's per-plate cull tests an item's box against the plate ∩ its clips instead of the plate (the binner's
+filing), with the same edge margin the plate cull uses (an item ending inside the clip's edge pixel is filed). The
+union routing and the union sign stay taken over every item of the family, as they are now: the cull already runs
+after the families are grouped, so nothing about a family changes with the clip. It is exact by the plate cull's own
+argument: a patch's pixels are its clip's, a plate's pixels outside the clip come from the record the patch merges into
+(A3 §3.2), and a mark whose box misses the clip masks nothing inside it. Conditions:
+
+1. The plates byte-equal to a whole render (the existing test) with the cull on, plus a fuzz over random clips and
+   lists — families, translucent ink, thin strokes at a coarse Zq, marks and their targets on both sides of a clip's
+   edge, an item ending inside the edge pixel: the culled clipped pack's plates equal the unculled clipped pack's inside
+   the clip, byte for byte.
+2. Break-checks: the margin removed (red); a mark culled while a target it masks is kept although the mark's box meets
+   the clip (red).
+3. Measured on scenario 6: the copy ms before and after, the undo's T against 16 ms, and whether the undo's patch is
+   now inline and exact rather than coarse-first at ℓ − 1.
+4. Clipped jobs only; a whole-cell job's cull stays as it is. `rasterPack.js` is a bundle input: the bundles rebuilt.
+5. Rule 2's records keyed by geometry per zoom/dpr/cfg/offset, rebuilt when the entry, fade, z, family, erase flag or
+   `res` changed, shared by the camera's and a snapshot's lists: as decided; the entry says what bounds the record set
+   (evicted with the memo's entry under F77's budget, or otherwise) with a number after scenarios 1, 4 and 6.
+
+`stage.cover` C4 red in its run at load 5–7 and green alone 5/5 is not B-PYRAMID-4's: it goes to the B-PYRAMID-3/4
+reviewer (make it deterministic as LH-1 was, or say why it is load-only). The section numbers move: B-DRAG's report is
+answered in §5.19, B-PYRAMID-4's in §5.20 (the briefs updated).
