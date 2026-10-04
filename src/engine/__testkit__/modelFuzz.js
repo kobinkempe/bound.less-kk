@@ -113,7 +113,7 @@ function worst(a, b, painted = false) {
 }
 
 /**
- * A frame's place: its top frame's id and the cells down to it. One id can name two places in the two
+ * A frame's place: its top frame's depth and the cells down to it. One id can name two places in the two
  * engines (the oracle zeroed a frame's shift at its settle, so a later drag carried another whole cell
  * into the address), so frames and homes are matched by place.
  */
@@ -122,11 +122,12 @@ export function placeOf(E, id) {
     let f = id != null ? E.lm.frame(String(id)) : null;
     while (f) { chain.push(f); f = f.parent != null ? E.lm.frame(String(f.parent)) : null; }
     if (!chain.length || chain[chain.length - 1].parent != null) return null;
-    // A root grown above the spine (depth < 0, its kid on the chain at (0, 0)) is no part of a place: one engine grows a
-    // root the other does not (seed 174's store reload), and every place under it would differ.
+    // A root grown above the spine (depth < 0, its kid on the chain at (0, 0)) is no part of a place, and the top is named
+    // by its depth: one engine grows a root the other does not (seed 174's store reload), and a deleted root's cell is
+    // taken by a fresh frame of another id (A1 C3; seed 174's delete).
     while (chain.length > 1 && chain[chain.length - 1].depth < 0 && chain[chain.length - 2].cell.i === 0 && chain[chain.length - 2].cell.j === 0) chain.pop();
     const top = chain.pop();
-    return [top.id, ...chain.reverse().map((g) => g.cell.i + "," + g.cell.j)].join("/");
+    return ["d" + top.depth, ...chain.reverse().map((g) => g.cell.i + "," + g.cell.j)].join("/");
 }
 /** Engine E's resident frame at `place`, or null. */
 export function frameAtPlace(E, place) {
