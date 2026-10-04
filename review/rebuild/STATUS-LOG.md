@@ -3057,3 +3057,12 @@ on my files. Loads 1.7–9 (busy loops mine, killed by pid).
 keeps 16 ms; RV4's home check added (its guard was unreached).
 **Questions asked:** none.
 WHERE I AM: item 5 — announce the batch, copies `landed` (git archive HEAD) and bA on ports 3010/3011, 3 × scenario 1 each.
+
+## 2026-10-04 07:40 UTC — B-PYRAMID-5 (builder) — browser batch b1 START (item 5, F137 real or not)
+**Working on:** headless Chromium, `--dense --scenario 1` × 3 on the landed tree (59f0a76, `git archive`, :3010) and × 3 on
+B-PYRAMID-4's before copy bA (:3011), interleaved, one frozen harness (`bp5/h`); each run starts under load 2 (waits
+up to 30 min). Dev servers Node 14, pids in `bp5/dev-301x.pid`. Script `bp5/batch1.sh`, log `bp5/batch1.log`.
+**Measured:** load at start 2.9 (another agent's jest).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for b1; meanwhile reading the overlay's tail (item 6) in `overlays.js`.
