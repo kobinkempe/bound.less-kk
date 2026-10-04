@@ -219,17 +219,18 @@ describe("every plate job holds every item overlapping the plate", () => {
         const sel = fill(E, left + 100 / s, top + 100 / s, 1800 / s, 1200 / s, "rgb(200,60,40)", child);
         E._render(); await flush();
         E.renderer._planeCap = 20;
-        // The far level is read at idle, never inside an aim (the select's and the drop's frames: 0.2–0.6 s in Chrome).
+        // The far level is read at idle, never inside an aim (the select's and the drop's frames: 0.2–0.6 s in Chrome). The
+        // read is unbudgeted here and the waits count turns: its IDLE_READ_MS budget and the waits' 5 s were wall-clock.
         const R = E.renderer, aim = R._aimPlane.bind(R), snap = E.stage.snapshot.bind(E.stage);
         let aiming = false, inAim = 0, built = 0;
         R._aimPlane = (v) => { aiming = true; try { return aim(v); } finally { aiming = false; } };
-        E.stage.snapshot = (...args) => { if (aiming) inAim++; built++; return snap(...args); };
+        E.stage.snapshot = (frameId, rect) => { if (aiming) inAim++; built++; return snap(frameId, rect); };
         E.setTool("select"); E._setSelection([sel.id], []); E._render();
         const pl = E.renderer._plane;
-        for (let t0 = Date.now(); !(pl.layers.length && pl.checkReady(E.plates)) && Date.now() - t0 < 5000;) { await sleep(20); await flush(); }
+        for (let k = 0; !(pl.layers.length && pl.checkReady(E.plates)) && k < 250; k++) { await sleep(20); await flush(); }
         E.pointerDown(1000, 700); E.pointerMove(1010, 705); await flush();
         expect(pl.quick && pl.quick.k).toBeGreaterThan(2);           // the case: a quick level past the table's margin
-        for (let t0 = Date.now(); (pl.quick.listPending || !pl._whole(pl.quick, E.plates)) && Date.now() - t0 < 5000;) { await sleep(20); await flush(); }
+        for (let k = 0; (pl.quick.listPending || !pl._whole(pl.quick, E.plates)) && k < 250; k++) { await sleep(20); await flush(); }
         expect(pl.quick.list).toBeTruthy();                           // read at idle, not in the aim
         expect(pl.quick.G).toBeGreaterThan(0);                        // and packed at the snapshot's G
         expect(built).toBeGreaterThan(0);

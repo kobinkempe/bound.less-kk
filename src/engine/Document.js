@@ -836,21 +836,24 @@ export default class Document {
     /**
      * A frame subtree deleted (a selected frame's delete, a mark covering it whole): it leaves the lattice with its lists
      * (A1 C3) — O(frames), and O(natives) for the id index. Returns the records the op holds, parents first: each
-     * frame's address `at`, its list and its index. Null, and nothing changed, when no native is under the root.
+     * frame's address `at`, its list and its index. Null, and nothing changed, when no native is under the root. Each
+     * frame's event carries the root's address: the whole subtree has left the lattice when the events go out, and only
+     * the root's parent is still there for a footprint (F138 seed 51; the root's covers the subtree, invariant 2).
      */
     removeFrameSubtree(rootId, { by = null } = {}) {
         const k0 = String(rootId);
         let n = 0;
         if (this.lm.frame(k0)) this.lm.walk(k0, (f) => { n += this.count(f.id); });
         if (!n) return null;
-        const records = [];
-        for (const at of this.lm.removeSubtree(k0) || []) {
+        const records = [], gone = this.lm.removeSubtree(k0) || [];
+        const top = gone.find((r) => r.id === k0) || gone[0];
+        for (const at of gone) {
             const k = at.id, arr = this.nativesByLevel[k] || [];
             records.push({ frame: k, natives: arr, index: this._index[k] || null, at });
             delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
             for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
             if (!arr.length) continue;
-            const ev = { kind: "removeFrame", frame: k, count: arr.length, at: { parent: at.parent, i: at.i, j: at.j, shift: at.shift } };
+            const ev = { kind: "removeFrame", frame: k, count: arr.length, at: { parent: top.parent, i: top.i, j: top.j, shift: top.shift } };
             if (by != null) ev.by = by;      // a frame a mark covers whole, taken at its landing (A2 §4.2)
             this._emit(ev);
         }

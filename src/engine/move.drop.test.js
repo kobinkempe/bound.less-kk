@@ -264,6 +264,39 @@ describe("D2b — a frame and per-object members dropped together: each member m
     }
 });
 
+describe("D2c — an id under a selected frame whose kid frame the drop carries out of it: moved once (F138 seed 70)", () => {
+    // R one level under the camera, its kid K at R's edge digit; the selection lists K's native k and R. A drop of 0.4 of
+    // R's cell keeps R's cell (shift +0.4 W) and carries K past R's last digit, under R's neighbour: the members read
+    // after the frames' re-address saw k outside every selected frame and moved it a second time.
+    test("k lands at +δ, as with R alone; undo and redo", () => {
+        const run = (ids) => {
+            const E = mkEngine(800, 600);
+            E.lm.ensureSpine(4);
+            E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 });
+            const R = E.lm.cellChild("1", 5, 5), K = E.lm.cellChild(R.id, 2047, 0);
+            const r = shapeAt(E, R.id, -20000, -20000, 40000, 40000), k = shapeAt(E, K.id, -20000, -20000, 40000, 40000);
+            E._render();
+            E.setTool("select");
+            const box = () => { const b = E.stage.placeNative(E.doc.getById(k.id).obj, "1").box(); return [b.left, b.top]; };
+            const before = box();
+            E._setSelection(ids ? [k.id] : [], [R.id]);
+            const p = E._levelPointToScreen(R.id, 0, 0);
+            E.pointerDown(p[0], p[1]);
+            for (let s = 1; s <= 4; s++) E.pointerMove(p[0] + (12.8 * s) / 4, p[1]);
+            E.pointerUp();
+            return { E, R, K, r, k, before, after: box(), box };
+        };
+        const alone = run(false), both = run(true);
+        expect(alone.E.lm.parentOf(alone.K.id)).not.toBe(alone.R.id);                 // K carried out of R
+        expect(both.after).toEqual(alone.after);                                      // red before: moved twice
+        expect(both.after[0] - both.before[0]).toBeCloseTo(snapDisplacement(12.8), 9);
+        both.E.undo();
+        expect(both.box()).toEqual(both.before);
+        both.E.redo();
+        expect(both.box()).toEqual(both.after);
+    });
+});
+
 describe("D3 — a cancel writes nothing: the document is byte-equal to before the press", () => {
     for (const [name, cancel] of [
         ["a pinch (cancelSelectGesture)", (E) => E.cancelSelectGesture(false)],

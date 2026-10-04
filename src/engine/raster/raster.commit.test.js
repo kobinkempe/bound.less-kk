@@ -89,6 +89,22 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
         expect(await drain(E, g)).toBe(0);
     });
 
+    test("a commit while the tab is hidden (a desktop, before the release) runs no patch step in its task; the return to visible runs it", async () => {
+        const { g, E, R, pyr, commit } = await staleByCommit();
+        const vis = (v) => { Object.defineProperty(document, "visibilityState", { value: v, configurable: true }); document.dispatchEvent(new Event("visibilitychange")); };
+        R.store.phone = false;                           // jsdom's 0-px screen reads as a phone, which releases at once
+        const n0 = patches(pyr);
+        try {
+            vis("hidden");
+            commit();
+            await Promise.resolve();
+            expect([patches(pyr), pyr.patchDue, R.store.s.releases]).toEqual([n0, true, 0]);
+            vis("visible");
+            expect([patches(pyr), pyr.patchDue]).toEqual([n0 + 1, false]);
+        } finally { vis("visible"); }
+        expect(await drain(E, g)).toBe(0);
+    });
+
     test("an undo still gets the user's budget: its commit's patch step waits for `noteUserEdit` and the render", async () => {
         const { g, E, pyr, commit } = await staleByCommit();
         commit();

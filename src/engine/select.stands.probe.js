@@ -9,7 +9,8 @@
  * standing for the ink it was made with. Cuts, undo, redo and delete are the fuzz's own. A probe, not
  * a suite. Run:
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/select.stands.probe.js"
- * SELECT_SEEDS (default 12, then the pinned seed) and SELECT_STEPS (default 40) set the size.
+ * SELECT_SEEDS (default 12, then the pinned seed), SELECT_C34_SEEDS (default 12), SELECT_STEPS (default 40) and
+ * SELECT_FIRST (default 1) set the size.
  */
 import { runPairFuzz, settleOracle } from "./__testkit__/modelFuzz";
 
@@ -18,6 +19,7 @@ jest.setTimeout(30 * 60 * 1000);
 const SEEDS = Number(process.env.SELECT_SEEDS || 12), STEPS = Number(process.env.SELECT_STEPS || 40);
 // Past the range: 43 an undo of the cut that made a selected piece (red before the oracle took the hand-over rule).
 const PINNED = process.env.SELECT_SEEDS ? [] : [43];
+const FIRST = Number(process.env.SELECT_FIRST || 1);
 const C34_SEEDS = Number(process.env.SELECT_C34_SEEDS || 12);
 
 /** The natives a selection stands for: its ids with their families, and every native under its frames. */
@@ -72,10 +74,10 @@ const extra = ({ both, ri, pick, inkPoints, w, h }) => [
 ];
 
 test("a selection stands for the oracle's ink and the ink it was made with, over seeded sequences", () => {
-    const st = { seeds: [1, SEEDS], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
+    const st = { seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
     const fails = [];
-    const runs = [...Array(SEEDS).keys()].map((k) => [k + 1, false]).concat(PINNED.map((k) => [k, false]))
-        .concat([...Array(C34_SEEDS).keys()].map((k) => [k + 1, true]));
+    const runs = [...Array(SEEDS).keys()].map((k) => [FIRST + k, false]).concat(PINNED.map((k) => [k, false]))
+        .concat([...Array(C34_SEEDS).keys()].map((k) => [FIRST + k, true]));
     for (const [seed, c34] of runs) {
         let made = null;
         runPairFuzz(seed, STEPS, (O, N, step, op) => {

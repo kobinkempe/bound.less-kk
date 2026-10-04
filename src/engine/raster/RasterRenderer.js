@@ -145,7 +145,8 @@ export default class RasterRenderer {
         /** FC1, FC8: the ants' `OverlayLayer`, at z-index 2; null until the first selection. */
         this._overlay = null;
         this.store.onRelease = (reason) => this._onStoreRelease(reason);
-        this.store.onShow = () => { if (this.onShown) this.onShown(); };
+        // The return to visible: after a release the engine renders again; else a commit's patch step that waited runs.
+        this.store.onShow = (released) => { if (!released) this._pyrCommitStep(); else if (this.onShown) this.onShown(); };
         if (this.store.phone) setPackBudget(PACK_BUDGET_PHONE);   // the pack memo: half on a phone
         // The scene's last commit: the plane's pre-aim and the prefetch wait for its quiet (a bake commits every few frames).
         this._commitAt = -Infinity;
@@ -798,9 +799,12 @@ export default class RasterRenderer {
         });
     }
 
-    /** A commit's patch step that no compose or step ran in its task: in a `settle` row of its own when none is open. */
+    /**
+     * A commit's patch step that no compose or step ran in its task: in a `settle` row of its own when none is open. Not
+     * while the tab is hidden (PLAN §5.22 item 3): it stays due for the next compose or the return to visible.
+     */
     _pyrCommitStep() {
-        if (this._destroyed || !this.pyramid.patchDue) return;
+        if (this._destroyed || !this.pyramid.patchDue || this.store.hidden) return;
         const own = !this._rowLive;
         if (own) this._openRow(this.frameSeq, "settle");
         try { this.pyramid.patchIfDue(); } finally { if (own) this._closeRow(); }
@@ -951,7 +955,7 @@ export default class RasterRenderer {
             }
             if (refused.length) {
                 rasterStats.refusedCoverPlates += refused.length;
-                this.pyramid.unask(refused);
+                this.pyramid.unask(refused, job.askG);
                 for (const c of refused) this._pyrPlaneAsked.delete(c.key);
                 cells = keep.map((k) => cells[k]); if (clips) clips = keep.map((k) => clips[k]);
             }
@@ -1082,7 +1086,7 @@ export default class RasterRenderer {
                 const clip = clips ? clips[p] : null;
                 const whole = !clip || (clip[0] === 0 && clip[1] === 0 && clip[2] === PLATE_PX && clip[3] === PLATE_PX);
                 if (px && whole) wait = true;
-                recs.push({ ...c, G: res.G, bitmap: bm, pixels: px, jobId: res.jobId, clip: whole ? null : clip, bytes: whole && (bm || px) ? PLATE_PX * PLATE_PX * 4 : 0 });
+                recs.push({ ...c, G: res.G, askG: st.askG, bitmap: bm, pixels: px, jobId: res.jobId, clip: whole ? null : clip, bytes: whole && (bm || px) ? PLATE_PX * PLATE_PX * 4 : 0 });
             }
             if (!wait) { this._pyrLand(st, recs, res, info); return null; }
             rasterStats.bitmapWaits++;
@@ -1209,15 +1213,15 @@ export default class RasterRenderer {
     }
 
     /**
-     * A strip that will not land: its own cells are asked for again (a pen-up group's inside its group); a strip whose
-     * cells were exact or in flight exact asks for nothing. Every other ask stands — forgetting them all re-asked every
-     * stale cell whose patch was queued, each duplicate dropped at dispatch forgot them all again, and a queued patch's
-     * stale plate read as other older meanwhile (the review, scenario 7).
+     * A strip that will not land: its own cells' asks, made at or before its own (`askG`), are forgotten and the cells
+     * asked for again (a pen-up group's inside its group); a newer ask, and every other cell's, stands — its job brings
+     * them (scenario 7's other older: a queued patch's stale plate read as unasked). A strip whose cells were exact or in
+     * flight exact asks for nothing.
      */
     _pyrUnask(st, why) {
         if (why === "exact" || !st.cells) return;
         const cells = st.packedCells || st.cells;
-        this.pyramid.unask(cells);
+        this.pyramid.unask(cells, st.askG);
         for (const c of cells) this._pyrPlaneAsked.delete(c.key);
     }
 

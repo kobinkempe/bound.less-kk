@@ -354,4 +354,18 @@ describe("a re-addressed frame's content moves in the tiles (subtree O(1), 2026-
         expect(ts.cache.has("0|down|0,0")).toBe(false);
         expect(xs(ts._ensureDown("0", 0, 0), o.id).length).toBeGreaterThan(0);
     });
+    test("a deleted subtree whose ink is below an empty root leaves no piece in an ancestor's tile (F138 seed 51)", () => {
+        // Every frame of the subtree leaves the lattice before the events go out: a kid's own address names a parent
+        // that is gone, so the event carries the root's, whose footprint holds the subtree (invariant 2).
+        const M = mkMap(0, 2);
+        const E = M.cellChild("0", 3, 0), K = M.cellChild(E.id, 5, 0);
+        const d = new Document(); d.lm = M;
+        const o = mkStroke(d, K.id, [[-6e4, 0], [6e4, 0]], 6e4);
+        const ts = mkStore(M, d);
+        expect(xs(ts._ensureDown("0", 0, 0), o.id).length).toBeGreaterThan(0);
+        expect(xs(ts._ensureDown(E.id, 0, 0), o.id).length).toBeGreaterThan(0);
+        d.removeFrameSubtree(E.id);
+        expect(ts.cache.has("0|down|0,0")).toBe(false);                                   // red before: the speck stayed
+        expect(xs(ts._ensureDown("0", 0, 0), o.id).length).toBe(0);
+    });
 });

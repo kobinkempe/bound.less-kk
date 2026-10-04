@@ -38,7 +38,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
         .concat([...Array(C34_SEEDS).keys()].map((k) => [FIRST + k, true]));
     for (const [seed, c34] of runs) {
         st.tainted = new Map();                                  // native ids start again with each seed
-        runPairFuzz(seed, STEPS, (O, N, step, op) => {
+        const run = runPairFuzz(seed, STEPS, (O, N, step, op) => {
             opCount[op] = (opCount[op] || 0) + 1;
             cov.checks++;
             let co = 0, pr = 0;
@@ -52,6 +52,8 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
             }
             return true;
         }, { c34 });
+        cov.camSynced = (cov.camSynced || 0) + run.camSynced;
+        cov.unitApart = (cov.unitApart || 0) + run.unitApart;
     }
     delete st.tainted;
     log("MODEL-EQUIV " + JSON.stringify({ seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, ...cov, ...st, ops: opCount }));

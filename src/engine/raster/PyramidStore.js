@@ -128,7 +128,7 @@ export default class PyramidStore {
         this._view = null;
         this._clock = 0;
         this.onRelease = opts.onRelease || null;
-        this.onShow = null;
+        this.onShow = null;           // (released) => …, at every return to visible: `released` after a hidden release
         this.s = {
             puts: 0, kept: 0, newer: 0, older: 0, refused: 0, noG: 0, replaced: 0, patches: 0,
             evictions: 0, evictedByRank: new Array(9).fill(0), overCapPinned: 0,
@@ -150,13 +150,18 @@ export default class PyramidStore {
                     return;
                 }
                 if (this._hideTimer != null) { clearTimeout(this._hideTimer); this._hideTimer = null; }
-                if (this._releasedHidden) { this._releasedHidden = false; if (this.onShow) this.onShow(); }
+                const released = this._releasedHidden;
+                this._releasedHidden = false;
+                if (this.onShow) this.onShow(released);
             };
             this._doc.addEventListener("visibilitychange", this._onVis);
         }
     }
 
     // ---- reads ----
+
+    /** The tab is hidden (`visibilityState`): a commit's patch step waits for the return (PLAN §5.22 item 3). */
+    get hidden() { return !!this._doc && this._doc.visibilityState === "hidden"; }
 
     /** The live record under `key`, or undefined. */
     get(key) { return this.cache.get(key); }

@@ -1158,9 +1158,13 @@ export default class PicturePyramid {
         this.store.discard(rec);
     }
 
-    /** Put a whole plate, or merge a patch into its record: `G` is raised only when the clip covers the dirt since the record's G. */
+    /**
+     * Put a whole plate, or merge a patch into its record: `G` is raised only when the clip covers the dirt since the
+     * record's G. The cell's ask is answered unless it is newer than the result's own (its job's `askG`, else its pack G).
+     */
     _take(rec) {
-        this._asked.delete(rec.key);
+        const a = this._asked.get(rec.key), by = rec.askG != null ? rec.askG : rec.G != null ? rec.G : Infinity;
+        if (a != null && a <= by) this._asked.delete(rec.key);
         if (rec.clip && isWhole(rec.clip)) {
             const px = rec.patch || rec.pixels;
             rec = { ...rec, clip: null, patch: null, pixels: this._pixels ? px || null : null, bitmap: rec.bitmap || (px && !this._pixels ? this._bitmapOf(px) : null), bytes: PLATE_BYTES };

@@ -676,8 +676,9 @@ class Selection {
      * registration rests on (DESIGN.md §8): a per-object member is re-homed and its own table set by
      * `_displaceMember` on its picture table — whole cells into the address, the rest into its own table less
      * the target frame's shift. Frames first, because a member re-homed into a selected frame's start cell is
-     * moved again by that frame's re-address. The Stage's hold stands, so the table takes it all at the
-     * release. Returns the op pushed, or null.
+     * moved again by that frame's re-address; the members are listed before it, at the press, because a frame
+     * the re-address carries out from under a selected one moves its natives itself (F138 seed 70: moved twice).
+     * The Stage's hold stands, so the table takes it all at the release. Returns the op pushed, or null.
      */
     _dropMove(d) {
         if (!d.t) return null;
@@ -689,12 +690,13 @@ class Selection {
         // Tiles the camera cannot see are dropped rather than patched for a bulk write (TileStore.setBatch).
         this.store.setBatch(true);
         try {
+            const members = this._selectionMembers();
             d.frames = new Map();
             if (this.selection.frames.length) {
                 this._dragFramesStart(d, camDepth);
                 if (d.frameStart.size) this._dragFrames(d, camDepth, tx, ty);
             }
-            for (const m of this._selectionMembers()) {
+            for (const m of members) {
                 const o = m.obj, from = m.level, T = this.doc.tableOf(o);
                 const key = from + "|" + JSON.stringify(T || null);
                 let put = seen.get(key);

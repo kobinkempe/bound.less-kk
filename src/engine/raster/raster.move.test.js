@@ -363,8 +363,12 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
 
     test("RV4 a full render mid-drag bakes no copy of the dragged object into the ordinary plates", async () => {
         const E = mkEngine();
-        const { p } = await scene(E);
         const R = E.renderer;
+        // The rest sets and the drop's patch inline, whatever this node's timings say: loaded, a rest render past
+        // `restInlineMs` marked the next heavy and it went to the pool after `flush`, so the drop's cell had no plate
+        // (2 runs in 7 beside eight busy loops). Set before the scene's first rest render.
+        R.pyramid.cfg.restInlineMs = R.pyramid.cfg.patchUserMs = 1e9;
+        const { p } = await scene(E);
         E.pointerDown(p[0], p[1]);
         for (let k = 1; k <= 20; k++) E.pointerMove(p[0] + k * 6, p[1] + k * 6);   // +120, +120: over paper
         await flush();

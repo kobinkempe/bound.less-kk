@@ -311,7 +311,7 @@ export function unitSelect(E, f) {
 
 /**
  * One seeded run over the two engines: `steps` operations, `check(O, N, step, op)` after each
- * (after both rendered). Returns `{ ops }`. Engines replaced by a reload are destroyed. `extra(ctx)`
+ * (after both rendered). Returns `{ ops, camSynced }` (the oracle's camera put at the live one's place). Engines replaced by a reload are destroyed. `extra(ctx)`
  * returns more `[name, weight, fn]` operations; `ctx` gives `both`, `ri`, `pick`, `rnd`, `inkPoints`,
  * `w`, `h` and the current engines as `O()` and `N()`. `c34`: A1 C3's and C4's operations as well — a frame
  * dropped on an inked frame's cell, a subtree deleted (and undone), an erase levels under the ink it cuts
@@ -327,6 +327,23 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     const logs = new Map([[O, new OracleOpLog(O)], [N, new OpLog(N)]]);
     const stores = new Map();
     const both = (fn) => { fn(O); fn(N); };
+    // DESIGN.md §8: the live camera is handed to its cell's resident (`_camToResident`); the oracle's stays in the frame it
+    // merged the cell into, which an undo of the drop carries away (seed 29). Its camera is put at the live one's place.
+    let camSynced = 0;
+    const sameView = () => {
+        const cells = [];
+        let f = N.lm.frame(String(N.cam.frame));
+        while (f && f.parent != null) { cells.push(f.cell); f = N.lm.frame(String(f.parent)); }
+        if (!f || placeOf(O, O.cam.frame) === placeOf(N, N.cam.frame)) return;
+        const g = O.lm.frameAtChain(f.id, cells.reverse());
+        if (!g) return;
+        O.cam.frame = g.id;
+        camSynced++;
+    };
+    // The oracle's frame `id` in each engine: the frame at its place, read before either acts. C3/C4 keep a cell's frames
+    // apart where the oracle merged, so one id can name another place in the live engine (seed 198: an emptied co-resident
+    // left behind by a drag).
+    const atPlace = (id) => { const n = frameAtPlace(N, placeOf(O, id)) || id; return (E) => (E === O ? id : n); };
     const inkPoints = () => {
         const out = [];
         const snap = O.stage.snapshot(O.cam.frame, O._listWin(), Infinity);
@@ -376,6 +393,19 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         E.destroy();
         return F;
     };
+    // A write after every step, as the saver's (`useKobinEngine`): the tick's entries; a snapshot of every frame the tick
+    // forced (an undo, a redo, a move) and of every frame with a list and no row; a frame without a list loses its row,
+    // and the reload lists the frames with rows (F98). No compaction.
+    const syncStore = (E) => {
+        const st = stores.get(E);
+        if (!st) return;
+        const K = KIND[E._fuzzKind], log = logs.get(E), d = log.drain(), seq = log.seq;
+        st.entries.push(...d.entries);
+        const want = new Set(d.full ? Object.keys(E.doc.nativesByLevel) : d.forced.map(String));
+        for (const level of Object.keys(st.frames)) if (!E.doc.nativesByLevel[level]) { delete st.frames[level]; delete st.frameSeq[level]; }
+        for (const level of Object.keys(E.doc.nativesByLevel)) if (!(level in st.frames)) want.add(level);
+        for (const level of want) if (E.doc.nativesByLevel[level]) { st.frames[level] = K.encode(E.doc.list(level)); st.frameSeq[level] = seq; }
+    };
     const reloadStore = (E) => {
         const kind = E._fuzzKind, K = KIND[kind];
         const log = logs.get(E);
@@ -386,13 +416,14 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             stores.set(E, { frames, frameSeq, camera: E.cam.state(), entries: log.drain().entries });
             return E;
         }
+        syncStore(E);
         const entries = st.entries.concat(log.drain().entries);
         const F = mk(kind, w, h, all);
         const nat = {};
         for (const level of Object.keys(st.frames)) nat[level] = K.decode(st.frames[level].objects, st.frames[level].geo);
         F.loadDrawing({ format: "boundless-drawing", version: 2, meta: { name: "t" }, camera: st.camera, crossings: E.lm.serialize(), natives: nat });
         const L = new K.OpLog(F);
-        L.replay(entries, st.frameSeq);
+        L.replay(entries, st.frameSeq, Object.keys(st.frames));
         F.flushBakes();
         F._render();
         logs.set(F, L);
@@ -448,9 +479,11 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             const kids = [...O.lm.frames.values()].filter((f) => f.parent === O.cam.frame && O.doc.count(f.id) && N.lm.frame(f.id)).map((f) => f.id).sort();
             if (!kids.length) return;
             const f = pick(kids), dx = ri(-200, 200), dy = ri(-150, 150);
+            const at = atPlace(f);
             both((E) => {
-                unitSelect(E, f);
-                const p = E._levelPointToScreen(f, 0, 0);
+                const u = at(E);
+                unitSelect(E, u);
+                const p = E._levelPointToScreen(u, 0, 0);
                 E.setTool("select");
                 drag(E, p, dx, dy, 2);
             });
@@ -504,18 +537,23 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             const f = pick(kids), g = pick(kids.filter((x) => x !== f)), s = O.cam.inScale * G;
             const dx = (g.cell.i - f.cell.i) * s + ri(-3, 3), dy = (g.cell.j - f.cell.j) * s + ri(-3, 3);
             if (Math.abs(dx) > 2000 || Math.abs(dy) > 2000) return;
+            const at = atPlace(f.id);
             both((E) => {
-                unitSelect(E, f.id);
-                const p = E._levelPointToScreen(f.id, 0, 0);
+                const u = at(E);
+                unitSelect(E, u);
+                const p = E._levelPointToScreen(u, 0, 0);
                 E.setTool("select");
                 drag(E, p, dx, dy, 2);
+                // The oracle's dropped frame is a shadow whose first read merges it and hands its selection to its ids; the
+                // live one stays a co-resident unit (DESIGN.md §8, §10): the two select different ink once it changes (seed 140).
             });
         }],
         ["deleteUndo", 1, () => {
             const kids = camKids();
             if (!kids.length) return;
             const f = pick(kids), undo = rnd() < 0.6;
-            both((E) => { unitSelect(E, f.id); E.deleteSelection(); });
+            const at = atPlace(f.id);
+            both((E) => { unitSelect(E, at(E)); E.deleteSelection(); });
             if (undo) history(1, (E) => E.undo());
         }],
         ["eraseDeep", 2, () => {
@@ -571,14 +609,16 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             let r = rnd() * total, op = table[0];
             for (const t of table) { if ((r -= t[1]) < 0) { op = t; break; } }
             op[2]();
+            sameView();
             both((E) => E._render());
+            both(syncStore);
             ops.push(op[0]);
             if (check(O, N, step, op[0], rnd) === false) break;
         }
     } finally {
         for (const E of all) { try { E.destroy(); } catch (e) { /* already gone */ } }
     }
-    return { ops };
+    return { ops, camSynced };
 }
 
 /**
