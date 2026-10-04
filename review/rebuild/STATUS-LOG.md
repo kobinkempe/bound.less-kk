@@ -2983,3 +2983,19 @@ job is gone; the scratchpad and the live tree's edits survived, snapshot-committ
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for the resumed entries; the monitor re-armed.
+
+## 2026-10-04 06:47 UTC — B-PYRAMID-5 (builder) — resumed after the session-limit stop and the reboot (full scope)
+**Working on:** the six items (item 6 now a fix, `overlays.js` mine), then R-PYRAMID-34's skipped items, then the full
+measurement; no time box. Files: `PicturePyramid.js`, its patch test, `raster.commit`/`raster.pyramid` tests (aa97e25).
+**Item 1 (exact over coarse within 48 ms):** built. `patchPlan`'s budget for a user's action (undo, redo, drop) is
+USER_COARSE_FRAMES × `patchUserMs` = 48 ms for either path; a pen-up's group keeps `patchUserMs` 16 and searches no
+level; the bake keeps 6. Red-before (the patch test's user-budget case: coarse taken at T 27.5); green after; the two
+tests that pinned budget 16 for an undo now pin 48. Break-check and scenario 6 pending.
+**Item 2 (the `unask` G check):** a job carries the G it was asked at (`_ask`, one helper for the three ask sites);
+`unask(cells, G)` keeps a newer ask. Red-before test: its drop case red on HEAD (olderOther 50 ms), green with it; its
+landing case still red — `_take` forgets a newer ask the same way (an older job's result landing). Fixing `_take` by
+the same rule next (obvious and local; reported).
+**Measured:** jsdom only so far (above). Load 0.04.
+**Decisions made:** the pen-up group's inline budget stays one frame (the brief names undo, redo, a drop).
+**Questions asked:** none.
+WHERE I AM: `_take` keeps an ask newer than the landing's G; then items 1–2's break-checks, then item 3.
