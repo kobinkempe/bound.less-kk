@@ -529,19 +529,23 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
 });
 
 describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID review)", () => {
-    test("a stored plate's G never falls and every draw the plan calls exact is exact: out-of-order and late answers, zooms with strips queued, a step change's refused jobs, a drag's plane plates, snapshots", async () => {
+    /**
+     * Seeded steps through the gated pool, a random share of the parked jobs answered in random order after each (the rest
+     * land after later steps): a stored plate's G never falls — a put replaces only with a newer G, a patch never lowers it
+     * — and every draw the plan calls exact is exact. `op(E, rnd, pt, seen)` is one step.
+     */
+    async function row1Fuzz(seeds, steps, op) {
         const parked = [];
         setRasterTransport((msg) => new Promise((resolve) => parked.push({ msg, resolve })));
-        /** Answer a random share of what is parked, in random order; the rest stays parked, to land after later ops. */
         const answer = async (rnd, share) => {
             const take = parked.filter(() => rnd() < share).sort(() => rnd() - 0.5);
             for (const p of take) { parked.splice(parked.indexOf(p), 1); const out = await runJob(p.msg); p.resolve(out.msg); }
             for (let n = 0; n < 6; n++) await tick();
         };
-        const bad = [], seen = { refused: 0, reaimed: 0, planePuts: 0, snapshots: 0, exactDraws: 0, puts: 0 };
-        for (const seed of [5, 17, 29]) {
+        const bad = [], seen = { refused: 0, reaimed: 0, planePuts: 0, snapshots: 0, exactDraws: 0, puts: 0, joins: 0, inTask: 0 };
+        for (const seed of seeds) {
             const rnd = lcg(seed), E = mkEngine(800, 600, { raster: true }), R = E.renderer, st = E.plates;
-            const put = st.put.bind(st), patch = st.patch.bind(st);
+            const put = st.put.bind(st), patch = st.patch.bind(st), join = R.pyramid._join.bind(R.pyramid);
             st.put = (rec) => {
                 const cur = st.cache.get(rec.key), out = put(rec), nxt = st.cache.get(rec.key);
                 seen.puts++;
@@ -554,6 +558,7 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
                 if (cur && st.cache.get(key).G < G0) bad.push(`seed ${seed}: ${key} patched down to ${st.cache.get(key).G} from ${G0}`);
                 return out;
             };
+            R.pyramid._join = (...a) => { seen.joins++; return join(...a); };
             const compose = R.pyramid.compose.bind(R.pyramid);
             R.pyramid.compose = () => {
                 const P = compose();
@@ -565,16 +570,8 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
                 return P;
             };
             const pt = () => [80 + rnd() * 640, 80 + rnd() * 440];
-            for (let step = 0; step < 18; step++) {
-                const op = rnd();
-                if (op < 0.3) drawStroke(E, [pt(), pt(), pt()], 6 + rnd() * 24);
-                else if (op < 0.4) E.undo();
-                else if (op < 0.45) E.redo();
-                else if (op < 0.6) { E.zoomAt(400, 300, (rnd() - 0.5) * 900); E.zoomAt(380, 280, (rnd() - 0.5) * 900); }   // strips queued mid-gesture (the re-aim: jobQueue's own test)
-                else if (op < 0.68) { R.pyramid.cfg.levelStep = R.pyramid.cfg.levelStep === 2 ? 1 : 2; R.syncCameraOnly(); }   // the old step's jobs refused
-                else if (op < 0.8) { const a = pt(); drag(E, a, [a[0] + 60 * (rnd() - 0.5), a[1] + 60 * (rnd() - 0.5)], 4); E.setTool("pen"); }
-                else if (op < 0.88) { E.snapshotView({ frame: E.cam.frame, rect: { x: 40, y: 40, w: 300, h: 200 } }).then(() => { seen.snapshots++; }, () => {}); }
-                else E.panBy((rnd() - 0.5) * 200, (rnd() - 0.5) * 200);
+            for (let step = 0; step < steps; step++) {
+                op(E, rnd, pt, seen);
                 await settle(E, 1);
                 await answer(rnd, 0.6);
             }
@@ -583,12 +580,57 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
             E.destroy();
             parked.length = 0;
         }
+        return { bad, seen };
+    }
+
+    /** Draw, undo, redo, zoom with strips queued, a step change's refused jobs, a drag's plane plates, snapshots, pans. */
+    const ops = (E, rnd, pt, seen) => {
+        const R = E.renderer, op = rnd();
+        if (op < 0.3) drawStroke(E, [pt(), pt(), pt()], 6 + rnd() * 24);
+        else if (op < 0.4) E.undo();
+        else if (op < 0.45) E.redo();
+        else if (op < 0.6) { E.zoomAt(400, 300, (rnd() - 0.5) * 900); E.zoomAt(380, 280, (rnd() - 0.5) * 900); }   // strips queued mid-gesture (the re-aim: jobQueue's own test)
+        else if (op < 0.68) { R.pyramid.cfg.levelStep = R.pyramid.cfg.levelStep === 2 ? 1 : 2; R.syncCameraOnly(); }   // the old step's jobs refused
+        else if (op < 0.8) { const a = pt(); drag(E, a, [a[0] + 60 * (rnd() - 0.5), a[1] + 60 * (rnd() - 0.5)], 4); E.setTool("pen"); }
+        else if (op < 0.88) { E.snapshotView({ frame: E.cam.frame, rect: { x: 40, y: 40, w: 300, h: 200 } }).then(() => { seen.snapshots++; }, () => {}); }
+        else E.panBy((rnd() - 0.5) * 200, (rnd() - 0.5) * 200);
+    };
+
+    test("a stored plate's G never falls and every draw the plan calls exact is exact: out-of-order and late answers, zooms with strips queued, a step change's refused jobs, a drag's plane plates, snapshots", async () => {
+        const { bad, seen } = await row1Fuzz([5, 17, 29], 18, ops);
         expect(bad.slice(0, 5)).toEqual([]);
         // eslint-disable-next-line no-console
         console.log("row 1 fuzz: " + JSON.stringify(seen));
         expect(seen.exactDraws).toBeGreaterThan(100);
         expect(seen.refused).toBeGreaterThan(0);                        // late answers of refused jobs reached the store
     }, 120000);
+
+    test("the same through overlapping pen-up groups and commits inside the task (a commit, then a compose; an undo and a redo)", async () => {
+        const fill = (E, a, w, color) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color, opacity: 0.7,
+            polys: [[E.cam.screenToFrame(a[0], a[1]), E.cam.screenToFrame(a[0] + w, a[1]), E.cam.screenToFrame(a[0] + w, a[1] + w), E.cam.screenToFrame(a[0], a[1] + w)]] }, E.cam.frame);
+        const { bad, seen } = await row1Fuzz([7, 19, 31], 18, (E, rnd, pt, seen) => {
+            const R = E.renderer, op = rnd();
+            if (op < 0.3) {                                              // two pen-ups over the same cells before the first group commits
+                const a = pt(), w = 6 + rnd() * 18;
+                drawStroke(E, [a, [a[0] + 50, a[1] + 12], [a[0] + 100, a[1] - 6]], w);
+                drawStroke(E, [[a[0] + 8, a[1] + 6], [a[0] + 60, a[1] + 20], [a[0] + 110, a[1] + 2]], w);
+            } else if (op < 0.55) {                                      // commits and composes in one task
+                const a = pt();
+                fill(E, a, 30 + rnd() * 80, "rgb(" + Math.floor(rnd() * 255) + ",90,140)");
+                const due = R.pyramid.patchDue;
+                R.pyramid.compose();
+                if (due && !R.pyramid.patchDue) seen.inTask++;
+                E.undo(); E.redo();
+                R.pyramid.compose();
+            } else ops(E, rnd, pt, seen);
+        });
+        expect(bad.slice(0, 5)).toEqual([]);
+        // eslint-disable-next-line no-console
+        console.log("row 1 fuzz, groups and in-task commits: " + JSON.stringify(seen));
+        expect(seen.exactDraws).toBeGreaterThan(100);
+        expect(seen.joins).toBeGreaterThan(0);                           // overlapping groups merged
+        expect(seen.inTask).toBeGreaterThan(0);                          // a commit's patch step run by its task's compose
+    }, 180000);
 
     test("rows 8/10 at the bake's cut steps: every patch through its clip, the pending mark's byte masks in the job, is the whole render's bytes inside the clip", async () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;   // no transport: the inline pool, cuts and plates alike

@@ -19,7 +19,7 @@
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/model.equivalence.probe.js"
  * MODEL_SEEDS (default 20, then the pinned seeds), MODEL_C34_SEEDS (default 20) and MODEL_STEPS (default 40) set the size.
  */
-import { runPairFuzz, framesToCompare, comparePictures } from "./__testkit__/modelFuzz";
+import { runPairFuzz, framesToCompare, comparePictures, latticeBreach } from "./__testkit__/modelFuzz";
 
 jest.setTimeout(60 * 60 * 1000);
 const log = (s) => { /* eslint-disable-next-line no-console */ console.log(s); };
@@ -41,6 +41,8 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
         const run = runPairFuzz(seed, STEPS, (O, N, step, op) => {
             opCount[op] = (opCount[op] || 0) + 1;
             cov.checks++;
+            const br = latticeBreach(N);
+            if (br) { fails.push("seed " + seed + (c34 ? " (c34)" : "") + " step " + step + " (" + op + "): lattice: " + br); return false; }
             let co = 0, pr = 0;
             for (const f of N.lm.frames.values()) { if (!N.doc.count(f.id)) continue; if (f.private != null) pr++; else if (f.shadowOf != null) co++; }
             if (co) { cov.coresident++; cov.coresidentMax = Math.max(cov.coresidentMax, co); }

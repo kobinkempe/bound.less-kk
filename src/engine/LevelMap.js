@@ -206,10 +206,14 @@ export default class LevelMap {
         }
         return r;
     }
-    /** Residents `a` and `b` of one cell become one group; an empty childless `b` yields the cell to `a`. Returns the resident. */
+    /**
+     * Residents `a` and `b` of one cell become one group; an empty childless `b` yields the cell to `a`, and a private frame
+     * never keeps it from a public one nor takes it from one (a mover's empty public frame is childless mid-move; F138).
+     * Returns the resident.
+     */
     _joinGroups(a, b, empty) {
         this._paths.clear();
-        const yieldB = (b.private != null && a.private == null) || (!(b._kids && b._kids.size) && empty(b.id));   // a private frame never keeps a cell from another
+        const yieldB = (a.private == null) !== (b.private == null) ? a.private == null : !(b._kids && b._kids.size) && empty(b.id);
         const [r, s] = yieldB ? [a, b] : [b, a];
         const add = [s.id, ...(s._shadows || [])];
         s._shadows = null;

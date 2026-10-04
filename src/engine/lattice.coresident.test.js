@@ -109,6 +109,25 @@ describe("co-residents in the lattice", () => {
         expect(M.findCellChild("1", 8, 4)).toBe(res);
         expect(M.cellFrames(A.id).map((f) => f.id).sort()).toEqual([A.id, C.id].sort());
     });
+
+    test("a private frame never keeps a cell from a public one: moved together, the empty public frame stays resident (F138)", () => {
+        // A unit of a public frame P, empty, and a private co-resident Q with a kid, moved one cell: every mover leaves its
+        // cell before any lands, so P is childless when Q's landing meets it; it yielded the cell, and the camera handed to
+        // the resident went into a family's private frame.
+        const M = new LevelMap(CFG, 800, 600);
+        M.ensureSpine(3);
+        const P = M.cellChild("1", 4, 4), Q = M.privateFrame("1", 4, 4, "1"), Qk = M.cellChild(Q.id, 3, 3);
+        expect(M.residentOf(Q.id)).toBe(P);
+        const empty = (id) => id === P.id;
+        for (const order of [[P, Q], [Q, P]]) {
+            const at = order[0].cell.i + 1;
+            M.readdressMany(order.map((f) => ({ id: f.id, depth: 1, parent: "1", i: at, j: 4 })), { empty });
+            expect(M.residentOf(Q.id)).toBe(P);                                    // red before for [P, Q]: Q
+            expect(M.cellFrames(P.id).map((f) => f.id)).toEqual([P.id, Q.id]);
+            expect(M.findCellChild("1", at, 4)).toBe(P);
+        }
+        expect(M.frame(Qk.id).parent).toBe(Q.id);
+    });
 });
 
 describe("co-residents in the engine", () => {

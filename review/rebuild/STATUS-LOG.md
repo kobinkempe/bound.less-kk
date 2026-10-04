@@ -3114,3 +3114,7 @@ WHERE I AM: reading the back-in row of `h-landed-s1-2.log` for where the paper i
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: b2 running; reading item 6 (the overlay's tail) meanwhile.
+
+## 2026-10-04 15:49 UTC — B-PYRAMID-5 (builder) — browser batch b2 continued (runs 5–7: the store's puts and evictions of the crossing's stand-ins)
+**Working on:** F137's paper traced in run 2 (234.5 ms: frame 2 at ℓ −4..−2 after the crossing, no record at any searched level, the store at its 90-plate cap); runs 5–7 log the stand-ins' puts and evictions. Same copy (:3012), each run under load 2.
+WHERE I AM: b2 runs 5–7; then the flag, then item 6.

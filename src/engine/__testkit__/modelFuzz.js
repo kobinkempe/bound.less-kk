@@ -118,10 +118,15 @@ function worst(a, b, painted = false) {
  * into the address), so frames and homes are matched by place.
  */
 export function placeOf(E, id) {
-    const cells = [];
+    const chain = [];
     let f = id != null ? E.lm.frame(String(id)) : null;
-    while (f && f.parent != null) { cells.push(f.cell.i + "," + f.cell.j); f = E.lm.frame(String(f.parent)); }
-    return f ? [f.id, ...cells.reverse()].join("/") : null;
+    while (f) { chain.push(f); f = f.parent != null ? E.lm.frame(String(f.parent)) : null; }
+    if (!chain.length || chain[chain.length - 1].parent != null) return null;
+    // A root grown above the spine (depth < 0, its kid on the chain at (0, 0)) is no part of a place: one engine grows a
+    // root the other does not (seed 174's store reload), and every place under it would differ.
+    while (chain.length > 1 && chain[chain.length - 1].depth < 0 && chain[chain.length - 2].cell.i === 0 && chain[chain.length - 2].cell.j === 0) chain.pop();
+    const top = chain.pop();
+    return [top.id, ...chain.reverse().map((g) => g.cell.i + "," + g.cell.j)].join("/");
 }
 /** Engine E's resident frame at `place`, or null. */
 export function frameAtPlace(E, place) {
@@ -404,6 +409,32 @@ export function unitSelect(E, f) {
     const cell = E.lm.cellFrames ? E.lm.cellFrames(f).map((g) => g.id) : [f];
     E._setSelection([], cell.length ? cell : [f]);
     return cell.length;
+}
+
+/**
+ * The live lattice's co-resident invariant (DESIGN.md §8, A1 C3/C4), the first breach as a string or null: a co-resident's
+ * resident is there and lists it; a group is one cell — one depth, one cell, its parents one group; a lookup at a frame's
+ * cell from its container returns the frame's resident; a private frame is no resident while a public one shares its cell.
+ */
+export function latticeBreach(E) {
+    const lm = E.lm;
+    if (!lm.cellFrames) return null;
+    for (const f of lm.frames.values()) {
+        if (f.shadowOf != null) {
+            const r = lm.frames.get(f.shadowOf);
+            if (!r || r.shadowOf != null || !r._shadows || !r._shadows.has(f.id)) return "co-resident " + f.id + " of " + f.shadowOf + ": not in its resident's group";
+            continue;
+        }
+        const group = lm.cellFrames(f.id);
+        for (const g of group) {
+            if (g.depth !== f.depth || g.cell.i !== f.cell.i || g.cell.j !== f.cell.j) return "group of " + f.id + ": " + g.id + " at another cell";
+            if ((g.parent == null) !== (f.parent == null)) return "group of " + f.id + ": " + g.id + " parentless apart";
+            if (g.parent != null && lm.residentOf(g.parent) !== lm.residentOf(f.parent)) return "group of " + f.id + ": " + g.id + "'s container in another group";
+            if (g.parent != null) { const p = lm.frames.get(g.parent); if (!p || lm._kidAt(p, g.cell.i + "," + g.cell.j) !== f) return "lookup at " + g.id + "'s cell does not return its resident " + f.id; }
+        }
+        if (f.private != null && group.some((g) => g.private == null)) return "private " + f.id + " is resident beside a public frame";
+    }
+    return null;
 }
 
 /**
