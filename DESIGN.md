@@ -576,7 +576,9 @@ frame** — members that share a frame and a picture table take one answer
 (`_displaceMember`), and their re-homes are one compaction of the frame's list
 (`Document.rehomeManyById`, 56 us a re-home at 2,000 objects, 189 at 8,000;
 2026-09-14) — and the selected frames are re-addressed once, first, so a member carried
-into a selected frame's start cell is placed against where that frame went (`move.drop.test.js` D2b); with the hold's
+into a selected frame's start cell is placed against where that frame went (`move.drop.test.js` D2b); the members are
+listed at the press, before it, so a native under a selected frame moves with it once even when the re-address carries
+its frame out from under the selected one (D2c, F138 seed 70); with the hold's
 release it is one Stage commit, and its patch has a user's
 budget, as an undo's has. A cancel (a pinch, an undo mid-drag, a deselect) writes
 nothing: the document is as it was at the press. The undo entry of a move is the
@@ -998,7 +1000,8 @@ selected when its home is the frame or under it (`_isSelected`, `LevelMap.isUnde
 container chain, so a co-resident is its own unit, A1 C3); the status count sums the subtree's list
 lengths (`walk`); a drag moves it as a frame (§8) and delete takes the subtree out of the
 lattice with its lists (`Document.removeFrameSubtree`, one `removeFrames` op holding each
-frame's address, O(frames)). Ink placed at its cells afterwards goes to fresh frames, and an
+frame's address, O(frames); each frame's `removeFrame` event carries the root's address, the one whose parent is
+still in the lattice, so the tiles and the scene drop the subtree's footprint, F138 seed 51). Ink placed at its cells afterwards goes to fresh frames, and an
 undo puts the subtree back, a co-resident where new ink holds a cell; a camera in a deleted
 frame moves to a fresh frame at its cell (A1 C3; F107's set-aside frames and `_gone` flags
 went). A keyless native is a family of one and skips the family re-check (2026-09-14). A family piece homed under an enclosed frame counts as inside, and is moved by that frame's re-address, never also per object (F100). An object whose box pokes out of the loop is asked about its ink against the loop AS DRAWN (every 7th point of a slow loop, joined, cut inside the line by the finger's wiggle and dropped ink 0.6 px inside it; REPORTS 2026-09-24, `select.lasso.test.js` LD-1/2).
