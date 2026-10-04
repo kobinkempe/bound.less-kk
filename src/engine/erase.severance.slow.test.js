@@ -190,7 +190,7 @@ describe("V-3 — a fragment the erase fully encloses severs with no relay", () 
         // The island inside the loop is enclosed: it touches no boundary, so no
         // relay is needed and it is severed outright.
         expect(families(E)).toBeGreaterThanOrEqual(2);
-        const kids = E.doc.at(E.cam.frame).filter((o) => !o.erase);
+        const kids = E.doc.cellList(E.cam.frame).filter((o) => !o.erase);   // a cede's kid lives in a private co-resident (A1 C4)
         expect(kids.length).toBeGreaterThanOrEqual(1);
         for (const k of kids) expect(k.type).toBe("shape");
         // The parent ceded that ground rather than painting it twice — its ink

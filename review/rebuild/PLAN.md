@@ -304,9 +304,16 @@ cap). The design, `A1-document-model.md` §4.4, in four steps:
   co-resident; lookups and every by-cell reader see co-residents; each co-resident is its own
   selection unit; the camera is handed to the resident at the re-address; GC promotes; a deleted
   subtree leaves the lattice (F107's revival sets go).
+  **Built 2026-09-30 (B-MODEL-C34; A1 §16)**: the frames at a cell are one group all the way down (a
+  landing links kids, a leaving splits them); readers read the cell (`cellList`, `cellFrames`, `sameCell`) and
+  geometry walks cells, so co-residents' pictures are bit-exact; no read mints (`displaced`'s mint moved to the
+  action's end, `TileStore.prepare`; row 8 without exception); a deleted subtree's op carries each frame's
+  address, its replay takes the frames out again. Measured at the landing (2026-10-04): every C3 rule's break-check red; frames minted during a drag 0/0/0; scenario 1 in headless Chromium no worse than before C3/C4; the 200-seed tile fuzz not clean (OPEN-FLAGS F138).
 - **C4 — a cede's kids live in private frames of their object.** The lasso never takes a private frame
   whole and every other frame keeps the O(1) enclosed rule with no family pass; F108's 17,007-id torn
   walk goes for new content (legacy kids keep the backstop rule). Severance compares cells.
+  **Built 2026-09-30 (B-MODEL-C34; A1 §16)**: `privateFrame(parent, i, j, key)`, keyed by the public frame the
+  family's chain hangs from; version 3 covers co-residents and private frames. The city lasso takes 16 frames and 0 ids where the oracle read 48 ids; every C4 rule's break-check red.
 
 What it deletes: `_settleIfPending` and its seven call sites, `unsettle` (legacy inverse only), the
 settle entries and their coalescing, `_bakeSettled`, `_followCarries`/`_flushCarried`/`_keepingSelection`,
@@ -1026,3 +1033,39 @@ own changes (`_pyrPack`'s calibration and clips, `_pyrMeasure`'s kept count) and
    on Kobin's check list — whether it is visible.
 6. **Not measured this pass** (the scope): F133's memory, the `?svg` round trips, F134/F135's jsdom timings, the bundle
    md5s — B-PYRAMID-3's and 4's own measurements stand; on the final check's list.
+
+### 5.23 B-MODEL-C34 (C3 and C4): landed by the orchestrator after the builder's weekly-limit stop (2026-10-04)
+
+The builder stopped at 07:21 UTC on 2026-09-30 (the weekly limit) with C3a and C3b entered, C3c and C4 built but not
+entered, the docs partly done and no report. Its last 27 minutes of edits were uncommitted in the container (on no
+branch: the remote had nothing newer than 3662169) and are snapshot b750633. Per Kobin (stop when C3 and C4 land, no
+more reviewers) the orchestrator landed it, without a review:
+
+1. **Tests that read one frame.** C4 homes a cede's kid in a private co-resident of the crossing's cell; 21 cede tests
+   (`erase.cede`, `erase.depth`, `erase.curve.depth`, `KobinEngine.edit`, `erase.severance.slow` V-3) read the kid
+   from one frame's list. Ported to `Document.cellList`, every assertion unchanged; F42 maps a kid to its cell's
+   resident; F46 reads a frame's depth from the lattice (a co-resident's id carries `#n`).
+2. **The F108 city lasso** was drawn inside the cells' reach boxes, so the edge cells were read object by object by the
+   enclosure rule, not by C4; sized to the reach boxes it measures 16 frames and 0 ids (the oracle 48 ids).
+3. **`raster.pyramid`'s F119 test** raced the velocity re-aim, which reads wall-clock frame times and dropped the zoom's
+   strips as offscreen: 1 run in 3 on 1b95eb2, 6 in 7 once C3 checked the camera at every render. The re-aim is stubbed
+   in that test; 3 of 3 green.
+4. **Break-checks**, one rule at a time on an unimported copy: all nine red; three needed a test first (kids linked
+   four levels below a join; severance by cell for a private frame; the version-3 clause for a private frame alone).
+5. The worker bundle rebuilt (the descent changed; raster a949be55…, 434,437 B); the builder's six scratch probes
+   deleted; A1 §16, PLAN §1.7, TEST-MAP, OPEN-FLAGS F94/F108 filled with numbers.
+6. **Measured**: the quick suite 2,186 passed, 0 failed, 12 skipped; `test:erase` 303 passed, 1 skipped (after V-3's
+   port); typecheck 0; lint 0 errors (5 warnings, none in these files); the hold fuzz green; the city lasso and the
+   census as A1 §16 says; headless Chromium against the tree before C3/C4 with the same raster code: scenario 1 no
+   worse (paper 173 | 264 → 100 | 0 ms), scenarios 3 and 4 no paper and no stale draw, the round trip's ink identical.
+   The list build the R-PYRAMID-34 review saw doubled (PLAN §5.22 item 1) is not doubled on the landed tree in the
+   browser; in jsdom the raster path's tile bakes are 10–25 % slower.
+7. **Not clean — OPEN-FLAGS F138**: the tile fuzz at 200 + 200 seeds finds 11 walks where a native is drawn
+   differently from the oracle (3 new with C3c/C4, 8 already on the C3b tree, never run there at that size), and the
+   selection fuzz one of C3b's age. One traced (seed 131: a store reload replays an undone cede under a private frame
+   id GC freed and a later frame took; the resurrection of the undone native is older than C3 — the oracle does it
+   too). C3 and C4 are in the tree and their tests pass; they are not done until F138 is classified and fixed. That
+   is the next model pass.
+8. **On Kobin's check list** (user-visible): a frame dropped where another holds ink stays itself, a co-resident,
+   never merged; a lasso over ink a cede tore takes the frames whole, not the pieces; an undo of a subtree delete can
+   put the subtree back beside new ink in its cell; a camera left in a deleted frame moves to a fresh frame there.

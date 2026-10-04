@@ -843,3 +843,43 @@ headless Chromium 141 on `git archive`s of d206cd3 (before) and the build.
   (TEST-MAP); `model.equivalence` 200 × 40: 8,000 checks, 55,701 items, 137 normalised within 1.46e-8;
   `select.stands` 50 × 40: 2,000 checks, 432 selections. `move.hold.probe.js`: the document byte-equal at every event
   of drags interleaved with renders, hit tests, lassos, resizes and crossings, under every exit.
+
+## 16. As built: C3 and C4 (B-MODEL-C34, 2026-09-30)
+
+Dated notes where building C3 and C4 changed or sharpened §4.4, §5 and §8. jsdom unless said.
+
+- **A cell's frames are one group, all the way down.** `_take` makes the mover a co-resident (`shadowOf` the resident,
+  in its `_shadows`); a frame's `_kids` maps a cell to one of its own kids, so a lookup goes through every frame of the
+  parent's group (`_kidAt`) and returns the resident. Linking kids when a frame lands (`_linkKids`) is recursive and
+  splitting them when it leaves (`_splitKids`) is its inverse, so the invariant holds after any re-address: the frames
+  at one cell are one group, and their parents are one group. Container (`parent`) and geometry are separate: paths
+  and chains walk cells through residents (`_cellParent`), so the path between co-residents is empty and their
+  pictures are bit-exact (`lattice.coresident`).
+- **Who holds the cell.** An empty childless resident yields to the mover (the visited cell); a private frame never
+  keeps residency from a public one. `_regroup` picks the resident; `sameCell`, `cellFrames`, `residentOf` and
+  `Document.cellList` are the readers' four primitives. Every by-cell reader named in §4.4 reads the cell; the erase
+  debug overlay needed no change (it reads every frame of `levels()`).
+- **No read mints** (row 8 without exception). `objShift`'s `mint` is false in the reroute; a missing source is in
+  the grouping's `miss` (the native drawn nowhere until its frame exists); `TileStore.prepare(F)` mints at the end of
+  the action that moved something or the camera (`KobinEngine._prepareView`, keyed on the camera's frame, `offRev`,
+  `addrEpoch` and the frame count), and a snapshot of another view that finds a source missing returns null
+  (`store.want`) until the engine mints it at idle (`prepareWanted`). Measured (the builder's minting-callers probe over a fuzz run and the engine's renders): every `objShift` call that minted came from `TileStore.prepare` — at a zoom's end (291), a render after an action (149), an undo or redo (57), a pan (6), the fuzz's idle step (232) — or from the descent's write (9); none from a read.
+- **The camera.** A camera whose frame becomes a co-resident is handed to the cell's resident, same coordinates
+  (`_camToResident`, at the frame events and a load); a camera whose frame was deleted goes to a fresh frame at the
+  chain the last render read (`_camToLattice`), its cached tiles, table and plates dropped (the id may come back).
+- **A deleted subtree leaves the lattice.** `removeFrameSubtree` returns records `{frame, natives, index, at}`, parents
+  first, and retires the ids; `insertFrameSubtree` puts them back (`restoreFrame`: a co-resident where a frame holds
+  the cell, its resident when that one is empty and childless); the redo deletes again in place (`detachFrames`). The
+  op carries each frame's address (`at`, in `format2` too), so a replay takes the frames out again (`dropFrames`,
+  which forgets a frame only stale rows named). The op log's drain finds a deleted native in the op's records
+  (`aside`, F115), and the eraser's alive test in the undo stack's (`_asideMarks`).
+- **Private frames.** `eraseDescent.kidHome` homes a kid in `LevelMap.privateFrame(parent, i, j, key)`: `key` the id
+  of the public frame the family's chain hangs from, `parent` the piece's own frame when it is the cell's parent (the
+  chain), else the cell's parent; created on first use, a co-resident of whatever holds the cell. `ownTableFor` is the
+  one −shift helper (`Document.ownFor`, the cede's kid). The lasso takes a frame whole only when it is not private
+  (`_lassoFind`'s `visit`); `_tornUnder` stays for families ceded before C4. Severance: `_cellOffset` by `sameCell`.
+- **Version 3** covers a co-resident and a private frame (`latticeNeedsV3`), refused by a version-2 reader.
+- **Remote edits.** A remote edit arrives as a reload, whose reset drops the selection: no dead id is left and there
+  is no op to repair around (`select.remote.test.js`); a live follow, if one is built, wraps its apply in
+  `_opUnder`/`_repairSelection`.
+- **Measured** (2026-10-04, at the landing, by the orchestrator: the builder stopped at the weekly limit before its measurement pass; jsdom unless said). Break-checks on an unimported copy, one rule at a time, each red: the group lookup (2 tests), no read mints (1), kids linked all the way down (1, a test added: the builder's linked one level), the camera hand-over (3), a deleted subtree out of the lattice (6), a cede's kid in a private frame (3), the lasso never taking a private frame whole (1), severance by cell (1, an assertion added), each version-3 clause (1, and 1 for a private frame alone, a check added). The city lasso: 16 frames and 0 ids against the oracle's 48 ids. The drop census: frames minted during a drag 0/0/0, left after GC 14/5/4 (the oracle 15/5/5). The list build over the dense drawing out and back (the builder's probes): the SVG path warm 7,051 → 6,872 ms; the raster path cold 6,056 → 6,790 and warm 4,965 → 6,156 ms, the difference in tile bakes. Headless Chromium against the tree before C3/C4 with the same raster code, one run each, load 1.7–3.1: scenario 1's paper 173 | 264 → 100 | 0 ms and its worst frame 865 | 876 → 821 | 645 ms; scenarios 3 and 4 no paper and no stale draw on either tree; the round trip's ink hashes identical at all four states. **Not clean:** the tile fuzz at 200 plain and 200 C3/C4 seeds finds 11 walks where a native is drawn differently from the oracle, 3 of them new with C3c/C4 and 8 already on the C3b tree, and the selection fuzz at 50 + 50 one difference of C3b's age (OPEN-FLAGS F138; seed 131 traced to a replay that brings back an undone cede under a private frame id GC freed). Nothing in Kobin's Chrome.

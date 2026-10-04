@@ -2897,3 +2897,20 @@ design check deferred. Waiting for B-MODEL-C34's report.
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: waiting for B-MODEL-C34 (C3c, C4, tests and docs, its report).
+
+## 2026-10-04 02:30 UTC — orchestrator (Opus) — B-MODEL-C34 landed after the builder's weekly-limit stop; PLAN §5.23
+**Working on:** Kobin (2026-10-04): "some additional work was done by another agent after you hit your limit, can you
+review it and continue? It may be on another branch". It was on no branch: B-MODEL-C34's last edits (06:54–07:21 UTC on
+2026-09-30: C3c/C4's docs, `select.remote`, the version-3 tests, timing probes, the city test being rewritten) were
+uncommitted in the container, snapshot b750633; the remote held nothing newer than 3662169. Reviewed and landed without a
+reviewer (Kobin's stop): PLAN §5.23 lists the repairs (21 cede tests reading one frame ported to the cell; the city lasso
+sized to the reach boxes; `raster.pyramid`'s F119 race stubbed), the break-checks (all nine red, three after a test was
+added), the bundle, the docs.
+**Measured:** the quick suite 2,186 passed, 0 failed; `test:erase` 303 passed, 1 skipped; typecheck 0; lint 0 errors;
+the city lasso 16 frames, 0 ids (oracle 48 ids); headless Chromium scenarios 1/3/4 and the round trip no worse than the
+tree before C3/C4 (load 1.7–3.1). The tile fuzz at 200 + 200 seeds: 11 walks differ from the oracle (3 new with
+C3c/C4), the selection fuzz at 50 + 50 one (C3b's): OPEN-FLAGS F138, open. Nothing in Kobin's Chrome.
+**Decisions made:** a trial fix for seed 131 (retire a private frame's id at GC) changed nothing and was reverted;
+F138 is reported, not fixed (Kobin's stop).
+**Questions asked:** none.
+WHERE I AM: the closing entry next; then stop.

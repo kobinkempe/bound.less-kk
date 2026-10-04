@@ -94,6 +94,7 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F138](#f138) | **the model fuzz at 200 seeds: 11 of 400 walks draw a native differently from the frozen oracle** — found landing C3/C4 (2026-10-04, jsdom, `model.equivalence.probe` with 200 plain and 200 C3/C4 seeds); 3 new with C3c/C4, 8 already on the C3b tree and never run there (20 seeds were); one traced: a store reload replays an undone cede into a private frame whose id GC freed and a later frame took, so the native is homed in a frame the lattice lacks and drawn nowhere | OPEN: the next model pass |
 | [F137](#f137) | **the dense drawing's zoom back in (harness scenario 1) showed paper after B-PYRAMID-4** — found by B-PYRAMID-4 in headless Chromium (2026-09-30): `paperMs` 743, 88 and 765 ms in its three after runs (the whole screen at one compose in two), 0 and 0 in the two before runs on a copy with the old raster sources; not seen in Chrome, not attributed | bisected (R-PYRAMID-34): not the re-aim's clamps, the records or cull, the commit-task step, the rest-group rule, the pack terms; `RasterRenderer`'s pack/measure changes untested | open — not attributed |
 | [F136](#f136) | ~~**a long subtree drag could land a torn-off kid of the dragged frame a cell off where the move puts it**~~ — **FIXED 2026-09-30 by A1 C2 (unverified by Kobin)**, found by B-DRAG measuring A1 §1.4's census: the same 40-step walk applied to a selected frame and to every native per object disagreed for 400 of 1,250 natives by 32 units (one cell of the camera's frame; seed 777), and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 after the drop (sub-pixel ink: the screenshots matched). Each drag event re-addressed the subtree against the lattice the previous event had left, where the moving root could sit in the cell a carried kid's chain named. A drag now writes nothing until its drop, which computes once against the lattice as it stood at the press: 0 of 1,250 at seeds 777/12345/99 (`move.drop.test.js` D2, red on d206cd3) | `selection._dropMove`, `_dragFrames` | fixed |
 | [F135](#f135) | ~~**the second of two strokes drawn back to back kept its live path 3 s**~~ — **FIXED 2026-09-30 (unverified by Kobin)**, B-PYRAMID-4: it was the FIRST path, over plates already showing its stroke (never both broken: a translucent stroke doubled). Two pen-up groups over the same cells: the key's group was the last to open, the second took the first's results and committed, the first waited `LIVE_HOLD_MS` (jsdom, B-PYRAMID-3's setup: 3,050–3,083 ms, `groupsTimedOut` 1, 12 composes drawing stroke 1's plates under its path). Pen-up groups over the same cells now join — one commit publishes their plates and releases every member's path; a result counts when packed at or after the group's G or exact at landing; one showing a member's stroke is never put while that path is up; a need cell's landing that does not count is asked again inside the group unless a job is coming. After: both paths at one commit, 41–63 ms, 0 doubled composes, 0 timeouts (LH-7 ×3); Headless round trip (three strokes, two runs a tree, the never-both log at every compose): before and after alike, 3 holds, 3 handoffs, 0 composes drawing a plate under a held path, no path held at the "drawn" shot, its ink equal to the settled ink — the review's 53,919 px of double alpha there is not path-and-plates in these runs. | `PicturePyramid.groupCommit`/`_join`/`onResult`/`_notForGroup` | **fixed** |
@@ -4486,7 +4487,35 @@ Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision
 
 **Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
 
-<a id="f136"></a>
+<a id="f138"></a>
+### F138 — OPEN, found landing C3/C4 (2026-10-04). The 200-seed model fuzz: 11 of 400 walks draw a native differently.
+
+`model.equivalence.probe.js` with `MODEL_SEEDS=200 MODEL_C34_SEEDS=200` (40 steps each, jsdom) on the C3/C4 tree: 15,894
+checks, 108,917 items, 108,664 exact, 253 carried (204 exact, 49 within 2 ulp), 277 normalised within 1.46e-8 — and 11
+walks where a native's picture differs from the frozen oracle's beyond the designed differences:
+
+| lane | seed, step (op) | difference | on the C3b tree (1b95eb2) |
+|---|---|---|---|
+| plain | 131, 39 (reload2) | native 14: oracle 1 item, live 0 (carried) | green: new with C3c/C4 |
+| C3/C4 | 47, 33 (reload2) | native 18: an item has no match (carried) | green: new with C3c/C4 |
+| C3/C4 | 198, 17 (deleteUndo) | native 7: an item has no match | green: new with C3c/C4 |
+| C3/C4 | 29, 23 (stroke); 49, 30 (reload2); 51, 37 (erase); 70, 30 (lassoDrag); 87, 38 (subtreeDrag); 140, 24 and 193, 28 (tapDrag); 194, 24 (delete) | an item unmatched, or one engine drawing an item the other does not | the same failure: C3b's or the comparison's |
+
+The plain lane was green at 200 seeds on R-DRAG's tree (ce6f397); the builder ran 20 seeds of each lane, which pass.
+The selection fuzz (`select.stands.probe.js`, 50 plain and 50 C3/C4 seeds: 3,996 checks, 808 selections, no inkless
+frame) has one difference of the same age: C3/C4 seed 34, step 35 (subtreeDrag), the live selection lacks natives 13
+and 26 that the oracle's holds — the same on the C3b tree.
+**Seed 131, traced:** at step 8 an erase cedes native 14 into a private frame `0/23,16#2/…` (A1 C4); step 17 undoes it,
+leaving the private frames empty; at step 23 frame GC forgets them, and a later frame at that cell takes the freed id
+`0/23,16#2`; at step 39 the fuzz's store reload (the snapshot taken at step 22, the current lattice, the op log
+replayed) brings native 14 back in BOTH engines — the oracle too, so the resurrection of an undone native by the replay
+is older than C3 — and the oracle draws it in a public frame that exists while the live engine homes it under the old
+private id, a frame its lattice lacks: drawn nowhere. Retiring a private frame's id when GC forgets it (as a moved
+frame's is) was tried and changed none of the three new failures; reverted. Not seen in Chrome. Next: the three new
+seeds first (`MODEL_FIRST=<seed> MODEL_SEEDS=0 MODEL_C34_SEEDS=1`, or `MODEL_SEEDS=1 MODEL_C34_SEEDS=0` for 131), then the
+eight C3b ones, each classified as a model defect or a comparison gap before anything is fixed.
+
+<a id="f137"></a>
 ### F137 — OPEN, found by B-PYRAMID-4 (2026-09-30). The dense drawing's zoom back in showed paper.
 
 Headless Chromium, `browser-check.js --dense --scenario all`, frozen copies, load 1.9–4.4: scenario 1's "zoomout, back
@@ -4509,6 +4538,7 @@ Left untested: `RasterRenderer.js`'s changes (`_pyrPack`'s calibration and `clip
 combination; next step, the after tree with the before `RasterRenderer.js` less the commit hook. Stopped at the
 orchestrator's bound.
 
+<a id="f136"></a>
 ### F136 — FIXED 2026-09-30 by A1 C2 (unverified by Kobin), found by B-DRAG. A long subtree drag landed a torn-off kid a cell off.
 
 Found measuring A1 §1.4's census (40 steps of 7 px, a render each, a root one level under the camera with 6 kids and
@@ -4896,7 +4926,9 @@ Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth
 
 **2026-09-30, A1 C3 (B-MODEL-C34):** no read mints (PLAN §3 row 8, without exception): the frames a picture is read
 from are minted at the action's end (`TileStore.prepare`); frame GC promotes a co-resident when its resident goes.
-CENSUS_NUMBERS
+Measured on the C3/C4 tree (jsdom, `move.drop`'s census, A1 §1.4's walk at seeds 12345/777/4242): frames minted during
+the drag 0/0/0 (the oracle 211/145/239), left after the drop's GC 14/5/4 (the oracle 15/5/5); a drop on an occupied cell
+mints nothing and leaves one co-resident (`lattice.coresident`).
 
 **2026-09-30, A1 C2 (B-DRAG):** the cause is gone — a drag writes nothing until its drop, so no event mints; the
 drop mints its final chains only. A1 §1.4's census (40 × 7 px, a render each, seeds 12345/777/4242): frames minted
