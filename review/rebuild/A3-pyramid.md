@@ -599,6 +599,12 @@ under 243 ms (not among the three longest: 478, 396, 243). A stale own plate who
 are unread is `olderUnreadMs`, as (f′) is (the patch step skips it until the read); scenario 7's residual `olderOther`
 in the same run, 62.5 ms, was 28 cell-composes of stale own plates covered, in no group and not asked — none unread.
 
+*B-PYRAMID-5, 2026-10-04 (PLAN §5.22 item 2):* exact over coarse when both fit — a user's action (an undo, a redo, a drop)
+takes its full-resolution patch inline when T ≤ USER_COARSE_FRAMES × `patchUserMs` = 48 ms, the same budget its coarse
+level is admitted within, so coarse-first is taken only past it; a pen-up's group keeps one frame (`patchUserMs`) and
+searches no level; the bake's patches keep 6 ms. jsdom (red before, on 1b95eb2's rule): an undo whose exact patch prices
+~28 ms took ℓ − 1 at 27.5; now it is inline and byte-equal to a whole render; at ~68 ms ℓ − 1 is still drawn first.
+
 ### 3.4 Coarse-first for large dirty regions
 
 When `T_patch` is over budget for the drawn cells a change touches:
@@ -630,6 +636,12 @@ After (headless, two runs a tree): scenario 7's `olderOtherMs` 254 | 78 ms (befo
 cell-composes of a stale own plate with nothing asked or in flight (159 | 86 before), suspected cells a zoom's crossing
 left unread, which the patch step skips (`covered` false) and `_older` does not tell as unread (unverified; open);
 `olderPatchMs` 2,476 | 1,499 (899 | 721), the waits asked at once; the bake 7.6 | 5.5 s (6.7 s | not finished in 60 s).
+
+*B-PYRAMID-5, 2026-10-04 (PLAN §5.22 item 3):* not while the tab is hidden — a desktop keeps its plates five minutes
+hidden, and the commit's microtask patched them there (the bake commits on its timers). The microtask returns while
+`visibilityState` is hidden and the step stays due: the next compose runs it, or the return to visible (the store's
+`onShow`, now called at every return; after a release the engine renders again instead). jsdom: a commit while hidden asks
+nothing in its task (red before: the patch ran in the microtask); the return runs one patch step.
 
 ### 3.5 Worked example: undo of one stroke (Kobin's decision 2)
 
@@ -890,6 +902,16 @@ the frame's `ownFloor` (coarser is its parent's picture), the prediction bounded
 zoom steps 1–3 ms apart (−1 octave a ms, an arrival 15–20 ms out) re-aimed strips 15–20 octaves out, and the pack's
 cover check alone — `Stage.covers` enumerates every tile key under the cell, 2·4^(−ℓ−8) — took 0.6 s at ℓ −18 and
 2.6–2.9 s and 1.5 GB at −19 (5–102 s and up to 8 GB below it: the spinning jest workers of 2026-09-29).
+
+*B-PYRAMID-5, 2026-10-04 (PLAN §5.22 item 3):* an ask is forgotten only by its own job or a newer one. A job carries the
+G it was asked at (`askG`, set by `_ask`, the one helper the patch, the group's and the view's requests use); `unask`
+(a dropped or failed strip, a pack's refusal) and `_take` (a result landing: its job's `askG`, else its pack G) keep an
+ask made after it. Before, an older strip's drop, refusal or landing erased the newer patch's ask, and its stale plate
+read as other older until the next step asked again (a duplicate) — masked whenever the next queued strip was dispatched
+at once (in flight and exact), so only a task whose pack budget was spent showed it. jsdom: three red-before cases at
+the pyramid (a drop; a landing packed before the newer ask; one packed after it, its clip short of the newer dirt) and
+two in the engine (a failed strip, a refused one): the drop case's `olderOtherMs` 50 ms before, 0 after; every link of
+the rule red when removed (the break-checks, B-PYRAMID-5's end entry).
 
 ### 4.5 The cache budget
 

@@ -480,7 +480,7 @@ export default class RasterRenderer {
             else if (lvl === pl.quick) planeStats.quickSteps++;
         }
         // While the plane draws the move, every other pack leaves the selection out: a plate re-rastered
-        // mid-drag (a cut landing, a crossing's render) would bake it at its moved place (review minor 4).
+        // mid-drag (a cut landing, a crossing's render) would bake it at home, where a held item paints (A2 §2.7; RV4).
         this._dragOmit = whole && pl.state === "drag" ? pl.selIds : null;
         this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
     }

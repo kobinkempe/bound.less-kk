@@ -12,7 +12,7 @@
  * SELECT_SEEDS (default 12, then the pinned seed), SELECT_C34_SEEDS (default 12), SELECT_STEPS (default 40) and
  * SELECT_FIRST (default 1) set the size.
  */
-import { runPairFuzz, settleOracle } from "./__testkit__/modelFuzz";
+import { runPairFuzz, settleOracle, selectionInk, carriedAlike } from "./__testkit__/modelFuzz";
 
 jest.setTimeout(30 * 60 * 1000);
 
@@ -22,27 +22,6 @@ const PINNED = process.env.SELECT_SEEDS ? [] : [43];
 const FIRST = Number(process.env.SELECT_FIRST || 1);
 const C34_SEEDS = Number(process.env.SELECT_C34_SEEDS || 12);
 
-/**
- * The natives a selection stands for: its ids with their families, and every native under its frames. `held(id)`: an id
- * that stands for itself alone — one the oracle's drop carried out of a dragged frame and listed, which the live engine
- * keeps under that selected frame (A1 C1: a frame's shift stays on it, nothing is carried; seed 34).
- */
-function selectionInk(E, held = () => false) {
-    const out = new Set(), s = E.selection;
-    if (!s) return out;
-    for (const id of s.ids) {
-        const rec = E.doc.getById(id);
-        if (!rec) continue;
-        const fam = held(id) ? [rec] : E.doc.editGroup(E.doc.editKey(rec.obj));
-        for (const m of fam) if (!m.obj.erase) out.add(m.obj.id);
-    }
-    const walk = (fid) => {
-        for (const o of E.doc.list(fid)) if (!o.erase) out.add(o.id);
-        for (const c of E.lm.childrenOf(fid)) walk(c.id);
-    };
-    for (const f of s.frames) if (E.lm.frame(f)) walk(f);
-    return out;
-}
 /** The selected frames with no native under them. */
 function inklessFrames(E) {
     const s = E.selection;
@@ -83,17 +62,24 @@ const extra = ({ both, ri, pick, inkPoints, w, h }) => [
 ];
 
 test("a selection stands for the oracle's ink and the ink it was made with, over seeded sequences", () => {
-    const st = { seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, checks: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
+    const st = { seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, checks: 0, held: 0, selections: 0, natives: 0, frames: 0, dragsKept: 0, inklessBoth: 0, ops: {} };
     const fails = [];
     const runs = [...Array(SEEDS).keys()].map((k) => [FIRST + k, false]).concat(PINNED.map((k) => [k, false]))
         .concat([...Array(C34_SEEDS).keys()].map((k) => [FIRST + k, true]));
     for (const [seed, c34] of runs) {
-        let made = null;
+        let made = null, carried = new Set();
         runPairFuzz(seed, STEPS, (O, N, step, op) => {
             st.ops[op] = (st.ops[op] || 0) + 1;
             settleOracle(O);
-            const held = (id) => { const r = N.selection && N.doc.getById(id); return !!r && N._underFrames(r.level, N.selection.frames); };
-            const a = selectionInk(O, (id) => !!O.selection && O.selection.ids.includes(id) && held(id)), b = selectionInk(N);
+            // An id the oracle's drop carried out of a dragged frame and listed stands for itself while the live engine keeps it
+            // under a selected frame (A1 C1: a frame's shift stays on it, nothing is carried; DESIGN.md §10; seed 34): taken
+            // when the oracle lists it carried (`carriedAlike`), kept while both still hold it so.
+            const under = (id) => { const r = N.selection && N.doc.getById(id); return !!r && N._underFrames(r.level, N.selection.frames); };
+            const now = new Set();
+            for (const id of O.selection ? O.selection.ids : []) if (under(id) && (carried.has(id) || carriedAlike(O, N, id))) now.add(id);
+            carried = now;
+            st.held += now.size;
+            const a = selectionInk(O, (id) => now.has(id)), b = selectionInk(N);
             st.checks++;
             if (N.selection) { st.selections++; st.natives += b.size; st.frames += N.selection.frames.length; }
             if (key(a) !== key(b)) { fails.push(`seed ${seed}${c34 ? " (c34)" : ""} step ${step} ${op}: oracle [${key(a)}], live [${key(b)}]`); return false; }

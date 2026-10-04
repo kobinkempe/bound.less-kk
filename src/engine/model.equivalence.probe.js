@@ -54,6 +54,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
         }, { c34 });
         cov.camSynced = (cov.camSynced || 0) + run.camSynced;
         cov.unitApart = (cov.unitApart || 0) + run.unitApart;
+        cov.dropDeselect = (cov.dropDeselect || 0) + run.dropDeselect;
     }
     delete st.tainted;
     log("MODEL-EQUIV " + JSON.stringify({ seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, ...cov, ...st, ops: opCount }));

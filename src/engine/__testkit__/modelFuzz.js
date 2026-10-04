@@ -81,9 +81,18 @@ export function pictureAt(E, V, rect = CELL) {
         let a = out.get(it.id);
         if (!a) out.set(it.id, (a = []));
         const off = [it.off[0], it.off[1]];
-        a.push({ type: it.piece.type, nums: numsOf(it.piece), off, painted: paintedOf(it.piece, off), own: it.key === "own", si: it.si, sj: it.sj });
+        a.push({ type: it.piece.type, nums: numsOf(it.piece), off, painted: paintedOf(it.piece, off), box: outlineBox(it.piece, off), own: it.key === "own", si: it.si, sj: it.sj });
     }
     return out;
+}
+/** The box of a piece's outline points (a loop's ends, a fill's rings, a stroke's points) at `off`: inside its drawn box. */
+function outlineBox(p, off) {
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    const q = (pt) => { if (!pt) return; const x = pt[0] + off[0], y = pt[1] + off[1]; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; };
+    for (const l of p.loops || []) for (const pc of l || []) { q(pc.A); q(pc.B); }
+    for (const ring of p.polys || []) for (const pt of ring) q(pt);
+    for (const pt of p.pts || []) q(pt);
+    return b;
 }
 
 const ulp = (v) => { v = Math.abs(v); if (v === 0) return Number.MIN_VALUE; return Math.pow(2, Math.floor(Math.log2(v)) - 52); };
@@ -204,8 +213,52 @@ function oracleSlipped(O, N, ho, hn, VO, V) {
     if (!m) return false;
     const mv = [m.left, m.top, m.right, m.bottom], k = Math.pow(R, N.lm.depthOf(V) - N.lm.depthOf(H));
     const gap = (b) => Math.max(...b.map((v, i) => Math.abs(v - mv[i])));
-    return gap(vN) <= NORMALISED_TOL * k && gap(vO) >= (W / 2) * k;
+    if (!(gap(vN) <= NORMALISED_TOL * k && gap(vO) >= (W / 2) * k)) return false;
+    // The live picture's own pieces inside that box: a slip of the live tiles is not the oracle's.
+    const tol = NORMALISED_TOL * k, its = (pictureAt(N, V) || new Map()).get(hn.obj.id) || [];
+    return its.length > 0 && its.every((it) => it.box[0] >= mv[0] - tol && it.box[1] >= mv[1] - tol && it.box[2] <= mv[2] + tol && it.box[3] <= mv[3] + tol);
 }
+/**
+ * Whether native `id` is one the oracle carried and both engines draw at one place: homed at different places (the oracle
+ * settled a frame's shift into its address, the live engine composes it on the frame, A1 C1, DESIGN.md §8), its live own
+ * table within a half cell, its drawn box the same from the parent of the oracle's home, at that place in both, within
+ * NORMALISED_TOL at its home.
+ */
+export function carriedAlike(O, N, id) {
+    const ho = O.doc.getById(id), hn = N.doc.getById(id);
+    if (!ho || !hn || placeOf(O, ho.level) === placeOf(N, hn.level)) return false;
+    // The live carry is its frame's shift composed with an own table inside [-W/2, W/2): a home a cell off that the
+    // own table makes up for is not one.
+    for (const e of N.doc.ownTable(hn.obj) || []) if (e && (e[0] < -W / 2 || e[0] >= W / 2 || e[1] < -W / 2 || e[1] >= W / 2)) return false;
+    const PO = O.lm.parentOf(String(ho.level));
+    const PN = PO == null ? null : frameAtPlace(N, placeOf(O, PO));
+    if (PN == null) return false;
+    const a = O.stage.placeNative(ho.obj, String(PO)).box(), b = N.stage.placeNative(hn.obj, PN).box();
+    if (!a || !b) return false;
+    const tol = NORMALISED_TOL * Math.pow(R, N.lm.depthOf(PN) - N.lm.depthOf(hn.level));
+    return ["left", "top", "right", "bottom"].every((e) => Math.abs(a[e] - b[e]) <= tol);
+}
+/**
+ * The natives a selection stands for (DESIGN.md §10): its ids with their families, and every native under its frames.
+ * `held(id)`: an id that stands for itself alone. `families` false: the ids alone.
+ */
+export function selectionInk(E, held = () => false, families = true) {
+    const out = new Set(), s = E.selection;
+    if (!s) return out;
+    for (const id of s.ids) {
+        const rec = E.doc.getById(id);
+        if (!rec) continue;
+        const fam = held(id) || !families ? [rec] : E.doc.editGroup(E.doc.editKey(rec.obj));
+        for (const m of fam) if (!m.obj.erase) out.add(m.obj.id);
+    }
+    const walk = (fid) => {
+        for (const o of E.doc.list(fid)) if (!o.erase) out.add(o.id);
+        for (const c of E.lm.childrenOf(fid)) walk(c.id);
+    };
+    for (const f of s.frames) if (E.lm.frame(f)) walk(f);
+    return out;
+}
+const inkKey = (set) => [...set].sort((a, b) => a - b).join(",");
 /** The largest gap between two items' painted points, or Infinity when their shapes differ. */
 function paintedGap(a, b) {
     if (a.type !== b.type || a.painted.length !== b.painted.length) return Infinity;
@@ -355,7 +408,7 @@ export function unitSelect(E, f) {
 
 /**
  * One seeded run over the two engines: `steps` operations, `check(O, N, step, op)` after each
- * (after both rendered). Returns `{ ops, camSynced, unitApart }` (the oracle's camera put at the live one's place; frame ops skipped). Engines replaced by a reload are destroyed. `extra(ctx)`
+ * (after both rendered). Returns `{ ops, camSynced, unitApart, dropDeselect }` (the counts of the harness's named exceptions). Engines replaced by a reload are destroyed. `extra(ctx)`
  * returns more `[name, weight, fn]` operations; `ctx` gives `both`, `ri`, `pick`, `rnd`, `inkPoints`,
  * `w`, `h` and the current engines as `O()` and `N()`. `c34`: A1 C3's and C4's operations as well — a frame
  * dropped on an inked frame's cell, a subtree deleted (and undone), an erase levels under the ink it cuts
@@ -373,12 +426,23 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     const both = (fn) => { fn(O); fn(N); };
     // DESIGN.md §8: the live camera is handed to its cell's resident (`_camToResident`); the oracle's stays in the frame it
     // merged the cell into, which an undo of the drop carries away (seed 29). Its camera is put at the live one's place.
-    let camSynced = 0;
-    const sameView = () => {
+    // Only that: both at one place before the op, the live camera's place unchanged, the oracle's camera frame the same and
+    // moved, that frame (or its nearest ancestor the live lattice has) at one place in both, and the live camera not in it,
+    // before the op or after.
+    let camSynced = 0, dropDeselect = 0;
+    const viewOf = () => ({ o: placeOf(O, O.cam.frame), n: placeOf(N, N.cam.frame), oid: String(O.cam.frame), nid: String(N.cam.frame) });
+    const sameView = (was) => {
         const cells = [];
         let f = N.lm.frame(String(N.cam.frame));
         while (f && f.parent != null) { cells.push(f.cell); f = N.lm.frame(String(f.parent)); }
-        if (!f || placeOf(O, O.cam.frame) === placeOf(N, N.cam.frame)) return;
+        const now = viewOf();
+        if (!f || now.o === now.n) return;
+        if (was.o !== was.n || now.n !== was.n || now.oid !== was.oid) return;
+        // The frame the oracle's camera rode (its nearest ancestor the live lattice has) moved alike in both; the live camera is not in it.
+        let a = O.lm.frame(now.oid);
+        while (a && !N.lm.frame(a.id)) a = a.parent != null ? O.lm.frame(a.parent) : null;
+        if (!a || a.parent == null || placeOf(N, a.id) !== placeOf(O, a.id) || N.lm.isUnder(a.id, String(N.cam.frame))) return;
+        if (N.lm.frame(was.nid) && N.lm.isUnder(a.id, was.nid)) return;           // the live camera was in it before the op
         const g = O.lm.frameAtChain(f.id, cells.reverse());
         if (!g) return;
         O.cam.frame = g.id;
@@ -389,17 +453,24 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     // so one id can name another place in the live engine (seed 198: an emptied co-resident left behind by a drag); and a
     // frame's composed shift draws its ink where the oracle moved the frame, so a native re-homed at that place joins the
     // frame in one engine and a fresh one in the other (seed 87).
+    // Skipped only where every native the two units disagree on is one the oracle carried and both draw alike
+    // (`carriedAlike`); any other disagreement throws.
     let unitApart = 0;
     const inkUnder = (E, ids) => {
         const out = new Set();
         for (const f of ids) E.lm.walk(String(f), (g) => { for (const o of E.doc.list(g.id)) if (!o.erase) out.add(o.id); });
-        return [...out].sort((x, y) => x - y).join(",");
+        return out;
     };
     const atPlace = (id) => {
         settleOracle(O);
         const n = frameAtPlace(N, placeOf(O, id));
-        if (n == null || inkUnder(O, [id]) !== inkUnder(N, N.lm.cellFrames(n).map((g) => g.id))) { unitApart++; return null; }
-        return (E) => (E === O ? id : n);
+        const a = inkUnder(O, [id]), b = n == null ? new Set() : inkUnder(N, N.lm.cellFrames(n).map((g) => g.id));
+        const apart = [...a].filter((x) => !b.has(x)).concat([...b].filter((x) => !a.has(x)));
+        if (n != null && !apart.length) return (E) => (E === O ? id : n);
+        const odd = apart.filter((x) => !carriedAlike(O, N, x));
+        if (odd.length || !apart.length) throw new Error("the units at " + placeOf(O, id) + " hold different natives: " + (odd.length ? odd.join(",") : "no live frame"));
+        unitApart++;
+        return null;
     };
     const inkPoints = () => {
         const out = [];
@@ -603,10 +674,14 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
                 const p = E._levelPointToScreen(u, 0, 0);
                 E.setTool("select");
                 drag(E, p, dx, dy, 2);
-                // The oracle's dropped frame is a shadow whose first read merges it and hands its selection to its ids; the
-                // live one stays a co-resident unit (DESIGN.md §8, §10): the two select different ink once it changes (seed 140).
-                E.deselect();
             });
+            // The oracle's dropped frame is a shadow whose first read merges it and hands its selection to its ids, their
+            // families with them; the live one stays a co-resident unit (DESIGN.md §8, §10; seeds 140, 194). The two stand
+            // for the same natives at the drop; then both deselect.
+            const so = inkKey(selectionInk(O, undefined, false)), sn = inkKey(selectionInk(N, undefined, false));
+            if (so !== sn) throw new Error("the drop's selections stand for different natives: oracle [" + so + "], live [" + sn + "]");
+            both((E) => E.deselect());
+            dropDeselect++;
         }],
         ["deleteUndo", 1, () => {
             const kids = camKids();
@@ -669,8 +744,9 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         for (let step = 0; step < steps; step++) {
             let r = rnd() * total, op = table[0];
             for (const t of table) { if ((r -= t[1]) < 0) { op = t; break; } }
-            op[2]();
-            sameView();
+            const was = viewOf();
+            try { op[2](); } catch (e) { e.message = "seed " + seed + " step " + step + " (" + op[0] + "): " + e.message; throw e; }
+            sameView(was);
             both((E) => E._render());
             both(syncStore);
             ops.push(op[0]);
@@ -679,7 +755,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     } finally {
         for (const E of all) { try { E.destroy(); } catch (e) { /* already gone */ } }
     }
-    return { ops, camSynced, unitApart };
+    return { ops, camSynced, unitApart, dropDeselect };
 }
 
 /**

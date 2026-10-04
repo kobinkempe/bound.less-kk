@@ -381,7 +381,9 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
         E._render();                                      // a cut landing, a crossing: the list now holds the move
         await flush();
         const c = rgbaAt(E, null, at[0], at[1]);
-        expect(Array.isArray(c) && c[0] === 200 && c[1] === 30).toBe(false);   // red without `omit` on the view's packs
+        expect(Array.isArray(c) && c[0] === 200 && c[1] === 30).toBe(false);
+        // A held item paints at home while the plane draws it (A2 §2.7): the view's plates leave it out there.
+        expect(rgbaAt(E, null, p[0], p[1])).toEqual([255, 255, 255, 255]);   // red without `omit` on the view's packs
         E.pointerUp();
         await flush();
         expect(rgbaAt(E, null, at[0], at[1])).toEqual([200, 30, 30, 255]);   // and the drop puts it there

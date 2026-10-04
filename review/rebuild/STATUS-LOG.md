@@ -3038,3 +3038,22 @@ oracle places a native a cell off at its home (two half cells summing to −W); 
 **Decisions made:** each exception counted in the probe's line, with a one-line note naming the difference.
 **Questions asked:** none.
 WHERE I AM: reading the 200+200 tile fuzz result (`r-c34/fuzz200a.log`); next the 50+50 selection fuzz.
+
+## 2026-10-04 07:33 UTC — B-PYRAMID-5 (builder) — checkpoint: items 1–4 built, break-checked
+**Working on:** items 1–4 done in jsdom; item 5 (F137) next. Files: `PicturePyramid.js`, `RasterRenderer.js`,
+`PyramidStore.js`, their tests (`PicturePyramid.patch`, `raster.commit`, `raster.pyramid`, `raster.move`),
+`stage.cover.test.js`, DESIGN §9, A3 §3.3/§3.4/§4.4 notes, TEST-MAP (a new section).
+**Measured (jsdom):** 1: an act's budget 48 ms for either path (red before: coarse at T 27.5). 2: one `_ask` helper
+stamps `askG`; `unask` and `_take` keep a newer ask (red before: `olderOtherMs` 50 ms; the engine cases needed a
+spent pack budget — an at-once dispatch is in flight exact and hides the erased ask). 3: hidden → the commit step
+returns; the store's `onShow(released)` now fires at every return and runs the due step. 4: RV4 red 2 runs in 7 beside
+8 busy loops (no plate at the drop: a loaded rest render > 8 ms marked the next heavy → pool after `flush`), 0 in 8
+after (`restInlineMs`/`patchUserMs` 1e9 before the scene); 3×3 loops green; RV4's mid-drag check read the moved place,
+which C2's hold never paints — added the home check (red without `omit`). C4 never red here (3/3 at 3, 8, 14 loops);
+read unbudgeted, waits in turns. Break-checks (`bp5/bc`): 1 → 1 red; 2a–2g → 1,1,1,1,2,1,1; 3a/3b → 1,1; RV4's omit
+→ 1 (was 0); C4's far read → 1. Raster suites + `stage.cover` + `move.drop`: 606/606 (37 files). typecheck 0; eslint 0
+on my files. Loads 1.7–9 (busy loops mine, killed by pid).
+**Decisions made:** `_take` takes the same G rule as `unask` (the landing case was red too; local); a pen-up's group
+keeps 16 ms; RV4's home check added (its guard was unreached).
+**Questions asked:** none.
+WHERE I AM: item 5 — announce the batch, copies `landed` (git archive HEAD) and bA on ports 3010/3011, 3 × scenario 1 each.

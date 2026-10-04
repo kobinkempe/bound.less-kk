@@ -125,3 +125,15 @@ with `--testMatch "**/<name>.probe.js"` and are not in the quick suite.
 | `erase.cede`, `erase.depth`, `erase.curve.depth`, `KobinEngine.edit`'s deferred area erase | — | a cede's kid read from its crossing's cell (`Document.cellList`), not one frame's list: C4 homes it in a private co-resident there; F42 maps a minted kid to its cell's resident; F46 reads a frame's depth from the lattice (a co-resident's id carries `#n`) | PORTED (2026-10-04, the C3/C4 landing) | — |
 | `lattice.coresident` "linked all the way down" and its version-3 clause check; `erase.privateCede`'s `_cellOffset` assertion | — | three rules the break-checks found untested: kids linked four levels below a join; each version-3 clause on its own (a private frame alone in its cell); severance by cell for a private frame | NEW (2026-10-04) | — |
 | `raster.pyramid`'s F119 refusal test | — | its view strips no longer ride the velocity re-aim (stubbed in the test): a wall-clock race dropped them as offscreen — 1 run in 3 on 1b95eb2, 6 in 7 once C3 checked the camera at every render | FIXED (2026-10-04) | — |
+
+### PLAN §5.22's next steps: the user's budget, the ask's G, the hidden tab, two load-sensitive tests (B-PYRAMID-5, 2026-10-04)
+
+| suite | lines | asserts | fate | replaced by |
+|---|---|---|---|---|
+| `PicturePyramid.patch` "a user's action takes the exact patch inline within USER_COARSE_FRAMES × patchUserMs" | — | an undo's exact patch at ~28 ms inline (48 ms budget) and byte-equal to a whole render; at ~68 ms ℓ − 1 first; a pen-up's group one frame, no level; the bake 6 ms | REWRITTEN (the coarse-first-at-28-ms case it pinned is the rule PLAN §5.22 item 2 replaced) | — |
+| `PicturePyramid.patch` "an ask stands until its own job or a newer one answers" | — | an older patch's drop, its landing packed before the newer ask, and one packed after it with its clip short of the newer dirt: the newer patch's cells wait (`olderPatchMs`), `olderOtherMs` 0 (50 before) | NEW | — |
+| `raster.commit` "an ask stands …" (two tests) | — | one worker, three asks in a plate: a failed strip and a strip refused at its pack (each answered in a task whose pack budget is spent) leave the newer ask; a strip packed after it lands short of its dirt and leaves it | NEW | — |
+| `raster.commit` "a commit while the tab is hidden …" | — | a desktop store before its release: the commit's microtask asks nothing; the return to visible runs one patch step | NEW | — |
+| `raster.commit` "an undo still gets the user's budget", `raster.pyramid`'s dense undo | — | the budget 48 (was 16) | CHANGED | — |
+| `raster.move` RV4 | — | the rest sets and the drop's patch inline (`restInlineMs`, `patchUserMs` 1e9, set before the scene: a loaded rest render past 8 ms marked the next heavy, to the pool after `flush`; red 2 runs in 7 beside eight busy loops, 0 in 8 after); the view's plates leave the held selection out at home (where it paints while the plane draws: the old check read the moved place, unreached since C2) | CHANGED | — |
+| `stage.cover` C4 | — | the far level's read unbudgeted (its IDLE_READ_MS budget is wall-clock) and the two waits counted in turns, not 5 s | CHANGED | — |

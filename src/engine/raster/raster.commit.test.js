@@ -10,7 +10,7 @@ import { useEngines, mkEngine, drawStroke, drag } from "../__testkit__/harness";
 import { packJob, clearPackCaches } from "./rasterPack";
 import { setRasterTransport, setRasterWorkerCount, resetRasterWorkerClient } from "./rasterWorkerClient";
 import { runJob } from "../worker/rasterWorker";
-import { resetRasterStats } from "./RasterRenderer";
+import { resetRasterStats, rasterStats } from "./RasterRenderer";
 import { ownFloor } from "./level";
 
 useEngines();
@@ -117,34 +117,62 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
 });
 
 describe("an ask stands until its own job or a newer one answers (PLAN §5.22 item 3)", () => {
-    test("one worker: a patch strip that fails, and one packed after a newer patch was asked, leave that patch's ask — never other older", async () => {
+    /**
+     * One worker, every patch to the pool; three fills in one plate (G1–G3): p1 dispatched and parked, p2 and p3 queued
+     * behind it. `answer` resolves a parked strip in a task whose pack budget is spent, so the strips behind it stay queued
+     * until the next task (a strip dispatched at once would be in flight and exact, and hide an erased ask), and returns
+     * `olderOtherMs` after two composes 50 ms apart in that task.
+     */
+    async function threeAsks() {
         setRasterWorkerCount(1);
-        const { g, E, pyr } = await staleByCommit();
-        pyr.cfg.patchInlineMs = pyr.cfg.patchUserMs = 0;            // every patch to the pool
+        const { g, E, R, pyr } = await staleByCommit();
+        pyr.cfg.patchInlineMs = pyr.cfg.patchUserMs = 0;
         let now = 1e6;
         pyr._now = () => now;
         const c0 = E.cam, F = (sx, sy) => [(sx - c0.inPanX) / c0.inScale, (sy - c0.inPanY) / c0.inScale];
         const fillAt = (sx, sy, w) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#0a0", opacity: 1,
             polys: [[F(sx, sy), F(sx + w, sy), F(sx + w, sy + w), F(sx, sy + w)]] }, "0");
         const waits = () => { pyr.compose(); now += 50; pyr.compose(); return pyr.s.olderOtherMs; };
-        fillAt(200, 150, 10);                                        // G1: p1, dispatched to the one worker and parked
+        const answer = async (p, msg, spent = true) => {
+            if (spent) R.queue._packMs = 1e9;
+            p.resolve(msg);
+            for (let n = 0; n < 6; n++) await Promise.resolve();
+            const other = waits();
+            for (let n = 0; n < 4; n++) await tick();
+            return other;
+        };
+        fillAt(200, 150, 10);
         for (let n = 0; n < 4; n++) await tick();
         expect(g.parked.length).toBe(1);
-        fillAt(230, 170, 10);                                        // G2: p2 queued behind it
+        fillAt(230, 170, 10);
         await tick();
-        fillAt(250, 150, 8);                                         // G3: p3 queued
+        fillAt(250, 150, 8);
         await tick();
-        const other0 = waits();
+        return { g, E, R, pyr, waits, answer, other0: waits() };
+    }
+
+    test("a patch strip that fails, and one packed after a newer patch was asked, leave that patch's ask — never other older", async () => {
+        const { g, E, pyr, waits, answer, other0 } = await threeAsks();
         const p1 = g.parked.shift();                                 // p1 fails: p3's ask stands
-        p1.resolve({ kind: "raster-error", jobId: p1.msg.jobId, frameSeq: p1.msg.frameSeq, err: "test" });
-        for (let n = 0; n < 4; n++) await tick();
-        expect(waits()).toBe(other0);
+        expect(await answer(p1, { kind: "raster-error", jobId: p1.msg.jobId, frameSeq: p1.msg.frameSeq, err: "test" })).toBe(other0);
         expect(g.parked.length).toBe(1);                             // p2, packed at G3 with its clips of G1–G2's dirt
-        const p2 = g.parked.shift(), out = await runJob(p2.msg);
-        p2.resolve(out.msg);
-        for (let n = 0; n < 4; n++) await tick();
-        expect(waits()).toBe(other0);                                // landed short of G3's dirt: p3's ask stands
+        const p2 = g.parked.shift();
+        expect(await answer(p2, (await runJob(p2.msg)).msg)).toBe(other0);   // landed short of G3's dirt: p3's ask stands
         expect(pyr.s.olderPatchMs).toBeGreaterThan(0);
+        expect(await drain(E, g)).toBe(0);
+        expect(waits()).toBe(other0);
+    });
+
+    test("a patch strip refused at its pack (its tiles not in the table) leaves a newer patch's ask — never other older", async () => {
+        const { g, E, R, waits, answer, other0 } = await threeAsks();
+        // p1 lands; the landing's pump dispatches p2, whose pack finds its plate uncovered once (and ends the task's budget).
+        const pack = R._pyrPack.bind(R), covers = E.stage.covers.bind(E.stage);
+        let packing = false, refuse = 1;
+        R._pyrPack = (...a) => { packing = true; try { return pack(...a); } finally { packing = false; } };
+        E.stage.covers = (...a) => { if (packing && refuse > 0) { refuse--; R.queue._packMs = 1e9; return false; } return covers(...a); };
+        const p1 = g.parked.shift(), n0 = rasterStats.refusedCoverPlates;
+        expect(await answer(p1, (await runJob(p1.msg)).msg, false)).toBe(other0);   // p3's ask stands
+        expect([refuse, rasterStats.refusedCoverPlates - n0]).toEqual([0, 1]);
         expect(await drain(E, g)).toBe(0);
         expect(waits()).toBe(other0);
     });
