@@ -3155,3 +3155,17 @@ oracleSlip 3, normalised 276); selection 50+50 green (held 5). Tile 500+500: pla
 selection 200+200: C3/C4 seed 73 step 21 (subtreeDrag) oracle [5,7,8] live [8]. Both being traced.
 **Questions asked:** none.
 WHERE I AM: tracing tile seed 416 step 13 (plain lane), then selection seed 73.
+
+## 2026-10-04 21:47 UTC — B-PYRAMID-5 (builder) — resumed after the third stop and reboot; b3 END (interrupted, to re-run)
+**Working on:** item 6 (the drop's profile, then the overlay fix in `overlays.js`), R-PYRAMID-34's skipped items, the
+full measurement. Tree at 3e215f0.
+**F137's tests, confirmed:** on an unimported copy of 3e215f0 with `PicturePyramid.js` from 26e3e69 (before the fix) the
+plan suite is 3 red of 27 — both F137 tests (the cell past the crossing: 6 cells paper; the budget's coarsest reserve)
+and the random mixes (their oracle now has a coarser level's root twin); on the tree, 27 of 27. The first F137 test was
+also red on the live file before the edit (6 paper); the second was written after it and is red with the reserve's twin
+removed (break-check 5b: 1 red; 5a, the twin removed everywhere: 2 red before the second test existed).
+**b3 (the drop's profile) END: interrupted** by the stop (the dev server was up, no run made); re-run now.
+**Measured:** as above (jsdom). Load 0.3.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: b3 again — `bp5/cur` on :3013, one profiled scenario-4 drop under load 2.
