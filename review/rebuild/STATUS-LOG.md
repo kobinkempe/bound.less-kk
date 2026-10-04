@@ -3018,3 +3018,23 @@ whose private co-resident holds ink, a delete and its undo put the frames back a
 ([11840,-5120], step 13) instead of the latest ([-768,-6144], step 14); native 7 drawn at the old offset.
 **Questions asked:** none.
 WHERE I AM: tracing seed 198's step 17 (the delete's records' `at.shift` vs the undo's restore).
+
+## 2026-10-04 07:18 UTC — R-MODEL-C34 (reviewer) — checkpoint: all twelve F138 differences root-caused, each alone green
+**Working on:** the 200+200 tile fuzz running (load 3.3); then 50+50 selection, the larger runs, the review. Files:
+`Document.js` (`removeFrameSubtree`), `selection.js` (`_dropMove`), `__testkit__/modelFuzz.js`, `select.stands.probe.js`,
+`model.equivalence.probe.js`, tests `TileStore`, `move.drop`, `hooks/store.subtree`; scratch `zz_*` probes in `src/`.
+**Measured (jsdom, each seed alone, all green now):** (a) live defects, 2: seed 51 — a subtree delete emits `removeFrame`
+after the whole subtree left the lattice, so a kid's event names a parent that is gone, `mapRectF` null, no tile dropped:
+a deleted native stayed in an ancestor's down tile (fix: each event carries the root's address; `TileStore` test red→green);
+seed 70 — the drop listed its members after the frames' re-address, so a listed id whose frame was carried out of the
+selected root moved twice (fix: members listed at the press; `move.drop` D2c red by 12.8 → green). (b) comparison gaps,
+7: 198 (an oracle id names another place live: frame ops pick by place), 87 (units at a place hold different natives:
+skipped, counted `unitApart`; a carried native read through a rerouted frame: painted within 1e-6, `rerouted`, max
+9.3e-10), 29 (the live camera is handed to the resident, the oracle's rides an undone drop: `camSynced`), 140 and 194 (the
+oracle's merge hands a dropped frame's selection to ids: deselect after `dropOnto`), select 34 (an id the oracle's drop
+carried stands for itself). (c) 131, 47, 49: the fuzz's one-snapshot store; the app's saver (F98's listing, per-write
+snapshots) does not resurrect — `syncStore`; hook test green, break-check K1 red. (d) an oracle-only fault, 193: the
+oracle places a native a cell off at its home (two half cells summing to −W); counted `oracleSlip`.
+**Decisions made:** each exception counted in the probe's line, with a one-line note naming the difference.
+**Questions asked:** none.
+WHERE I AM: reading the 200+200 tile fuzz result (`r-c34/fuzz200a.log`); next the 50+50 selection fuzz.

@@ -344,15 +344,15 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
 
     test("an ask stands until its own job or a newer one answers: an older patch's drop or landing leaves the newer patch's ask (waiting, never other older)", () => {
         // Full resolution over every budget and no coarser records: each commit's patch goes to the workers.
-        const run = (answer) => {
+        const run = (D2, answer) => {
             const t = setup(32, (job) => ({ E: 0, A: job.kind === "rest" ? 1000 : 9e6, U: 0, P: job.cells.length }));
             restThenUndo(t);                                                 // G1: the stroke's two cells stale
             t.pyr.frameFor(cam(1));
             const p1 = t.posted.filter((j) => j.kind === "patch");
-            t.stage.commit({ F: [FOOT] });                                   // G2 over the same cells, before p1 answers
+            t.stage.commit({ F: [D2] });                                     // G2 in the same cells, before p1 answers
             t.pyr.frameFor(cam(1));
             const p2 = t.posted.filter((j) => j.kind === "patch").slice(p1.length);
-            expect([p1.length, p2.length, p2[0].cells.length]).toEqual([1, 1, 2]);
+            expect([p1.length, p2.length]).toEqual([1, 1]);
             answer(t, p1[0]);
             t.pyr.compose();
             t.clock.t += 100;
@@ -360,10 +360,19 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
             return [t.pyr.s.olderOtherMs, t.pyr.s.olderPatchMs > 0];
         };
         // p1's strip dropped (failed, or refused at its pack): its asks only.
-        expect(run((t, job) => t.pyr.unask(job.cells, job.askG))).toEqual([0, true]);
+        expect(run(FOOT, (t, job) => t.pyr.unask(job.cells, job.askG))).toEqual([0, true]);
         // p1 lands, packed before G2: its records put, still stale; p2's ask stands.
-        expect(run((t, job) => {
-            for (const c of job.cells) t.pyr.onResult({ ...c, G: t.stage.generation - 1, pixels: whole(t.doc.list, 1, c.i, c.j), jobId: 7 });
+        expect(run(FOOT, (t, job) => {
+            for (const c of job.cells) t.pyr.onResult({ ...c, G: t.stage.generation - 1, askG: job.askG, pixels: whole(t.doc.list, 1, c.i, c.j), jobId: 7 });
+        })).toEqual([0, true]);
+        // p1 lands packed at G2 (dispatched after it), its clip short of G2's dirt in plate (0, 0): patched, still stale; p2's ask stands.
+        expect(run({ left: 100, top: 300, right: 120, bottom: 320 }, (t, job) => {
+            const packed = t.pack(job);
+            for (let p = 0; p < job.cells.length; p++) {
+                const out = new Uint8ClampedArray(P * P * 4);
+                renderPlate(packed, p, out, null, null, job.clips[p]);
+                t.pyr.onResult({ ...job.cells[p], G: packed.G, askG: job.askG, clip: job.clips[p], pixels: copyPlate(out, job.clips[p]), jobId: 7 });
+            }
         })).toEqual([0, true]);
     });
 
