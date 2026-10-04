@@ -9,7 +9,7 @@ import { BASE, ENTER, EXIT, G } from "./frameLattice";
 import { mkEngine, useEngines } from "./__testkit__/harness";
 import { collectFrames } from "./frameGc";
 import { rectLoop } from "./geometry/arcShape";
-import { decodeDrawing } from "./persist";
+import { decodeDrawing, latticeNeedsV3 } from "./persist";
 import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
 useEngines();
@@ -27,6 +27,19 @@ function build() {
 const moveA = (M, A, dx, empty = () => false) => M.readdressMany(M.moveSubtreeTargets(A.id, 1, dx, 0, M.subtreeStart(A.id, 1)), { empty });
 
 describe("co-residents in the lattice", () => {
+    test("kids are linked all the way down: two subtrees holding the same cells four levels deep share every one", () => {
+        const M = new LevelMap(CFG, 800, 600);
+        M.ensureSpine(3);
+        const chain = (root) => { const out = [root]; for (const [i, j] of [[1, 1], [0, 0], [3, 3], [-2, 5]]) out.push(M.cellChild(out[out.length - 1].id, i, j)); return out; };
+        const Es = chain(M.cellChild("1", 4, 4)), As = chain(M.cellChild("1", 6, 4));
+        const before = lattice(M);
+        moveA(M, As[0], -2 * G);
+        for (let d = 0; d < As.length; d++) expect([d, M.sameCell(As[d].id, Es[d].id)]).toEqual([d, true]);   // red when the linking stops a level down
+        for (let d = 1; d < As.length; d++) expect(M.frame(As[d].id).parent).toBe(As[d - 1].id);               // each keeps its own container
+        moveA(M, As[0], 2 * G);
+        expect(lattice(M)).toBe(before);                                                                         // every group split back
+    });
+
     test("a frame on a taken cell is its co-resident, its kids join the cells' groups, and it leaves them as they were", () => {
         const { M, E, Ex, Exy, A, Ax, Ay, Axz } = build();
         const before = lattice(M), n = M.frames.size;
@@ -147,6 +160,9 @@ describe("co-residents in the engine", () => {
         expect(() => decodeV2(d)).toThrow("file v3, app reads up to v2");
         E.undo();
         expect(E.serializeDrawing().version).toBe(1);
+        // Each of the three needs version 3 on its own; a private frame alone in its cell has no co-residency to trip it.
+        const one = (f) => latticeNeedsV3({ __lattice: true, frames: [{ id: "1", parent: null, depth: 1, i: 0, j: 0 }, { id: "x", parent: "1", depth: 2, i: 1, j: 1, ...f }] });
+        expect([one({}), one({ shift: [3, 0] }), one({ shadowOf: "1" }), one({ private: "1" })]).toEqual([false, true, true, true]);
     });
 
     test("frame GC promotes: an emptied resident is forgotten and its co-resident takes the cell, its ink drawn", () => {

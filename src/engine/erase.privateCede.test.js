@@ -51,6 +51,9 @@ describe("a cede's kids in private frames (A1 C4)", () => {
         expect(E.doc.keyedIn(deep)).toBeNull();
         expect(kids.some((m) => E.lm.sameCell(m.frame, deep))).toBe(true);               // the kid's cell is the enclosed frame's
         expect(E.lm.residentOf(deep).id).toBe(deep);                                     // which keeps it
+        // Severance reads cells (F124): a kid's private frame and the frame holding its cell are one place, no offset.
+        const k0 = kids.find((m) => E.lm.sameCell(m.frame, deep)).frame;
+        expect([E._cellOffset(k0, deep), E._cellOffset(deep, k0)]).toEqual([[0, 0], [0, 0]]);
         const d = JSON.parse(JSON.stringify(E.serializeDrawing()));                       // version 3: a private frame
         expect(d.version).toBe(3);
         expect(decodeDrawing(d).crossings.frames.find((r) => r.id === kids[0].frame).private).toBe(String(S._home));

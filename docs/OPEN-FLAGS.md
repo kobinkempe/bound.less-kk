@@ -4798,7 +4798,10 @@ Tests: `erase.neutral.test.js` (new, 5). An in-place graze in a ring's hole and 
 their family (`LevelMap.privateFrame`, `eraseDescent.kidHome`); the lasso never takes a private frame whole and every
 other frame keeps the O(1) enclosed rule. The repro takes the enclosed frame whole, the stroke beside the nick with it,
 none of the family, and `_tornUnder` finds nothing (`erase.privateCede.test.js`, red before C4). `_tornUnder` stays as
-the backstop for families ceded before C4. TORN_NUMBERS
+the backstop for families ceded before C4. Measured (jsdom, `erase.privateCede`'s city: a backdrop stroke nicked in
+16 inked depth-3 cells, one loop round all their reach boxes): 16 frames and 0 ids in 12 ms, where the pre-C4 oracle
+read the same loop as 48 ids and no frame. F108-COST's Earth (17,007 ids before) is this shape at scale; the Earth
+itself was not re-measured.
 
 **2026-09-30, A1 C2 (B-DRAG):** unchanged; C4's (private cede frames).
 
