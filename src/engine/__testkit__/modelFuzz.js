@@ -747,6 +747,13 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             const was = viewOf();
             try { op[2](); } catch (e) { e.message = "seed " + seed + " step " + step + " (" + op[0] + "): " + e.message; throw e; }
             sameView(was);
+            // The fuzz's premise: one view in both, every gesture's screen points the same place (a frame the oracle
+            // lacks at the live camera's place is left out of the comparison, so a camera apart would go unseen).
+            const co = O.cam.state(), cn = N.cam.state();
+            if (placeOf(O, co.frame) !== placeOf(N, cn.frame) || ["activeLevel", "inScale", "inPanX", "inPanY"].some((k) => co[k] !== cn[k])) {
+                throw new Error("seed " + seed + " step " + step + " (" + op[0] + "): the cameras are apart: oracle " + placeOf(O, co.frame)
+                    + " " + JSON.stringify(co) + ", live " + placeOf(N, cn.frame) + " " + JSON.stringify(cn));
+            }
             both((E) => E._render());
             both(syncStore);
             ops.push(op[0]);

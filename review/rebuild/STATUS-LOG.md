@@ -3105,3 +3105,12 @@ back-in paper in 3 runs of 3. Not bisecting between two trees that both show it;
 landed tree instead (where it comes from, which rule), then the flag rewritten with the six numbers.
 **Questions asked:** none yet (the flag's new reading goes in the report).
 WHERE I AM: reading the back-in row of `h-landed-s1-2.log` for where the paper is; then item 6.
+
+## 2026-10-04 15:50 UTC — B-PYRAMID-5 (builder) — browser batch b2 START (F137: where the back-in paper comes from)
+**Working on:** headless Chromium, a traced copy of HEAD (`bp5/tr`: a log of every paper cell's sources at `_planCell`'s
+(g) — own, mapped, kids, coverage, asks, the coarser chain) on :3012 with a traced harness (`bp5/ht`), `--dense
+--scenario 1` up to 4 times, stopping at the first back-in paper over 50 ms; each run under load 2. Log `bp5/batch2.log`.
+**Measured:** load at start 0.4.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: b2 running; reading item 6 (the overlay's tail) meanwhile.
