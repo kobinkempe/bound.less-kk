@@ -81,8 +81,19 @@ THE FOUR STRUCTURES, AND WHAT EACH ONE OWNS
     OBJECT     a native, stored in one frame. Its id is its creation order and
                its z-order. A logical object may be several natives across
                several frames, sharing one editId - that is what an erase leaves
-               when it cedes a tile downward.
+               when it cedes a tile downward; since A1 C4 (2026-09-30) the kids
+               live in PRIVATE frames of their family, co-residents of the cells
+               they are ceded into, so no shared frame holds them.
                Owner: src/engine/Document.js
+
+    A FRAME KEEPS ITS IDENTITY (A1 C3, 2026-09-30). A frame is a container
+               written at a cell: a frame moved onto a cell another frame holds
+               stays there as a CO-RESIDENT, never merged; lookups return the
+               cell's resident, every reader of a cell's ink reads all of its
+               frames, geometry reads them as one cell, and each is its own
+               selection unit. A deleted subtree leaves the lattice; its undo
+               puts it back, a co-resident where new ink took the cell.
+               Owner: src/engine/LevelMap.js
 
 THE OBJECT MODEL
 

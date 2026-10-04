@@ -229,13 +229,13 @@ SELECTING AND MOVING
         store.setBatch(true); doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per
           changed table; the selected FRAMES (2026-09-15), never per object:
           _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
-          _dragFrames: lm.moveSubtreeTargets -> lm.readdressMany (two-phase; a held cell makes a shadow)
+          _dragFrames: lm.moveSubtreeTargets -> lm.readdressMany (two-phase; a held cell makes a co-resident, A1 C3)
             -> doc.setFrameShift (the rest, D+1/D+2; before the refile) -> doc.noteRefile per change;
           store.setBatch(false)
         doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
-          or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter, merged}
+          or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter}
       _releaseMove -> stage.release()       the held events applied: one commit, start ∪ end
-      doc.mergePending(op)                  the drop's shadows merge, recorded on its op
+      (a refile hands the camera to its cell's resident: _camToResident)
     renderer.endMove -> the plane LANDS (stays, clipped per cell, until each cell's own plate is fresh;
       MOVE_HOLD_MS); renderer.noteUserEdit() (the drop's patch: patchUserMs)
     _repairSelection(op's frames)           torn kids join the selection, quietly (A1 C2)
@@ -243,8 +243,8 @@ SELECTING AND MOVING
   a cancel (a pinch, an undo mid-drag, a deselect): _endMove(why) releases the hold, writes nothing
 
   undo of a moveFrames (Document._invert)
-    per frame entry: unmerge each merged record (lm.unadoptShadow); a `settled` record from a store written
-      before A1 C1 subtracted by legacy/modelV1.unsettle
+    per frame entry: a `merged` record (a store's from before A1 C3) split by legacy/modelV1.unmerge; a
+      `settled` record (before A1 C1) subtracted by legacy/modelV1.unsettle
     lm.readdressMany back to the start addresses; setFrameShift(shiftBefore); the inverse's entries own the frames
     _undoMove(moves)                        the per-object members as a move's
 

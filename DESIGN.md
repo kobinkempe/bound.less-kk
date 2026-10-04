@@ -355,7 +355,7 @@ copy), so no pending mark reaches a picture.
 **What an erase step dirties** (PLAN §5.3 A2-Q2; the scene classifies each event by the mark it
 names, `by`, and the rule): a cut or a descent on the mark's lineage, the target's box inside the
 mark's and the boxes of the dust it dropped; a refusal over ink, the target's box inside the mark's
-(its ink under the mark shows again); a graze or an inkless refusal, nothing; a frame set aside at
+(its ink under the mark shows again); a graze or an inkless refusal, nothing; a frame taken whole at
 the landing, nothing past the landing's box; the landing and the spend, the mark's box. Measured
 (`raster.eraseRule.test.js` (b), plates kept through a bake against a fresh raster): 0 differing
 bytes for fills; strokes differ on the outlines of cut arcs, flattened again from their new ends
@@ -389,7 +389,7 @@ no scan during the bake.
 **The bake terminates** (PLAN §5.8 item 3). Each id pending under a mark costs it one step, and a step
 its pair survives is tried once more, so a mark's steps past 2 × its supply + 8 — its supply being what
 was pending under it at its first step plus every id that arrives pending under it later (another mark's
-piece, a source an undo returns, a frame set aside and back) — can only be a wrong rule: the mark is
+piece, a source an undo returns, a deleted frame an undo puts back) — can only be a wrong rule: the mark is
 aborted, spent with the cuts it made, and reported (`report().erase.counters.aborted`, `status.erase.aborted`,
 its journal note, a console error). Measured: with the `handledBy` clause ignored the bake ends within
 the budget on the tick through a pool, in `flushErases` and in an inline barrier; the correct rule's steps
@@ -444,10 +444,16 @@ piece bit for bit; nothing touches the document until the whole descent has succ
 so a refused last link needs no unwinding. The worker gets the target, the eraser and
 the lattice (`LevelMap.serialize`) and returns the steps; `_applyDescent` mints the
 family with real ids in the order its cedes minted them and records the steps on the
-gesture's op. Inline where there is no worker. The frames the job
-mints on its lattice copy (a kid is homed by the carry, often a cell over from any frame
-the engine has visited) come back with the steps and are merged into the engine's lattice
-before a kid is added; a load mints any frame its natives name (F67).
+gesture's op. Inline where there is no worker. **A step's kids live in a private frame of
+their family** (A1 C4, 2026-09-30): a co-resident (§8) of the chain's frame at the kid's
+cell, contained by the frame the ceded piece lives in when that is the cell's parent (the
+target's own frame at the first step), flagged `private` with the id of the non-private
+frame the family's chain hangs from, made on first use (`LevelMap.privateFrame`); the
+remnants stay in the target's frame. So no shared frame holds a family's kid, and the lasso
+can take every other frame whole (§10). The frames the job mints on its lattice copy (a kid
+is homed by the carry, often a cell over from any frame the engine has visited; its private
+frames) come back with the steps and are added to the engine's lattice before a kid is
+added; a load mints any frame its natives name (F67).
 
 **Dust is what could not be seen** (Kobin, 2026-09-08). A fragment a cut leaves is
 dust when it is narrower than a quarter of a pixel at the zoom the mark was drawn at
@@ -474,11 +480,11 @@ reach its content may have (invariant 2), grown by the flatten's tolerance, lies
 the mark's ink, and under which nothing is drawn above the mark (`Document.maxZUnder`,
 an upper bound kept per frame index: a native drawn since the mark, or a piece a cut
 minted, keeps the frame on the per-object path and its kids are judged on their own),
-goes as containers — its lists set aside by reference, one bake step in the gesture's
-op, no cut, O(frames). A native drawn into such a frame after the landing stays: it is not a
-target. Undo re-attaches them with the rest of the gesture; the op log
-carries the natives' geometry (`bakeFrames`) because their rows go with the write. An
-empty container is not a step. `move.subtree.test.js` t11–t13, `oplog.test.js`.
+goes whole — its subtree leaves the lattice with its lists (§8, A1 C3), one bake step in the
+gesture's op, no cut, O(frames). A native drawn at that cell after the landing goes to a frame of
+its own there: it is not a target. Undo puts the subtree back with the rest of the gesture; the op
+log carries the natives' geometry and the frames' addresses (`bakeFrames`) because their rows go
+with the write. A subtree with no ink is not a step. `move.subtree.test.js` t11–t13, `oplog.test.js`.
 
 ### Severance — is the family still one object?
 
@@ -506,7 +512,8 @@ different branches while sitting in exactly the same place; requiring literal
 parent-child made one unchanged object report as three. Two kids side by side in
 NEIGHBOURING cells (a cede over a cell seam) are compared in one cell's coordinates,
 whole frames apart (`_cellOffset`): compared raw they never met, and one blob became
-several split along the seam (F124, Kobin's "shattered" report).
+several split along the seam (F124, Kobin's "shattered" report). It compares cells, not
+frames: a kid in a private frame (§7's descent, A1 C4) is its cell's.
 
 A member the test **cannot evaluate** — its frame, or a frame one of its possible parents is
 homed in, is missing from the lattice — keeps the family's key: "cannot evaluate" is not
@@ -570,7 +577,7 @@ frame** — members that share a frame and a picture table take one answer
 (`Document.rehomeManyById`, 56 us a re-home at 2,000 objects, 189 at 8,000;
 2026-09-14) — and the selected frames are re-addressed once, first, so a member carried
 into a selected frame's start cell is placed against where that frame went (`move.drop.test.js` D2b); with the hold's
-release and the merges it makes it is one Stage commit, and its patch has a user's
+release it is one Stage commit, and its patch has a user's
 budget, as an undo's has. A cancel (a pinch, an undo mid-drag, a deselect) writes
 nothing: the document is as it was at the press. The undo entry of a move is the
 address and the table either side, `{id, dx, dy, from, to, belowBefore,
@@ -619,9 +626,10 @@ written into it. `LevelMap.objShift` reads a composed table as it reads any tabl
 whole frames name the frame the pieces are read from, the remainder is painted — and
 honours a carry at the home depth: a native the shift puts past its cell is drawn live
 in the neighbour (`placementModel.nativesIn`) and stays homed where it is. No read
-settles, merges or changes a table; the one lattice change a read may make is
-`displaced` minting the empty frame a picture's pieces are read from (PLAN §3 row 8;
-frame GC's). A native added to a shifted frame — a stroke, a ceded kid — cancels the
+settles, mints or changes a table (PLAN §3 row 8, `model.pureRead.test.js`): the frame a
+picture's pieces are read from is minted at the end of the action that moved them or the
+camera (`TileStore.prepare`, from `KobinEngine._prepareView`), and a snapshot of another view
+that finds one missing is not ready until the engine mints it at idle (A1 C3). A native added to a shifted frame — a stroke, a ceded kid — cancels the
 shift in its own k = 0 entry, so it is drawn where it was put (`Document.ownFor`,
 `add(…, { fresh: true })`); a native promoted out of one composes the shift one level
 down (`promotedTable`). Until C1 the shift was a debt settled into the natives' tables
@@ -630,22 +638,21 @@ a render settled mid-drag was unsettled before the next step: a 20-event drag of
 of 300 natives wrote 300 then 600 tables an event, 0 since (2026-09-29, the frozen model
 `__oracles__/model-v1` against the tree).
 
-A target cell another frame holds makes a **shadow** (`LevelMap._take`): the mover
-shadows the resident, or an empty, childless resident — a visited cell, the common
-case — yields the cell and shadows the mover. A shadow shares the cell, is listed
-among the parent's children (`childrenOf`, `walk`) and under its resident for the
-selection (`isUnder`), and is invisible to address lookups until the user action that
-made it ends — the drop, an undo or a redo, a load, a replay's end (`Document.mergePending`;
-the resident's first read until C1) — when `Document._mergeShadows` appends the shadow's
-natives to the resident's list with the difference of the two frames' shifts folded into
-their own tables, so their pictures stay (the tables recorded for `unmerge` and the log),
-re-parents its kids (`adoptShadow`: a free cell taken, an occupied one shadowed in turn)
-and deletes it — O(the shadow's natives); a shadow holding nothing is frame GC's. The
-selection follows, the merged natives as ids and the kids as frames, and so does the
-camera when the shadow was its frame (an undo putting a moved frame back where the
-camera's empty twin sat: left on the gone frame, the canvas drew nothing and new ink went
-to a frame the lattice lacked, F126). A drop's merges are recorded on its op; a cancel
-merges nothing (it made no shadow).
+**A frame keeps its identity** (A1 C3, 2026-09-30). A target cell another frame holds makes
+the mover a permanent **co-resident** there (`LevelMap._take`); nothing merges. An empty,
+childless resident — a visited cell, the common case — hands the mover the residency; a
+private frame (§10) never keeps it from a public one. Co-residents' kids are linked the same
+way all the way down (`_linkKids`; a frame leaving splits them, `_splitKids`), so the frames at a
+cell are one group and their parents one group. Address lookups return the resident
+(`findCellChild`); every by-cell reader reads the whole cell (`Document.cellList`,
+`LevelMap.cellFrames`, `sameCell`), and geometry walks cells, so the path between co-residents
+is empty and their pictures are bit-exact. Each co-resident is its own selection unit
+(`isUnder` is the container chain); a camera whose frame becomes a co-resident is handed to
+the cell's resident, same coordinates (`_camToResident`); frame GC promotes a co-resident when
+the resident goes. Until C3 the mover was a shadow merged into the resident at the action's end —
+tables folded, kids adopted, the merge recorded on the op and split back by its undo — and a
+camera left on a merged frame drew nothing (F126); an old store's `mergeFrame` entry replays
+through `legacy/modelV1.js`.
 
 **No bake moves a native** (F78, 2026-09-22, Kobin's Earth move on the Magnum Opus: a settle
 inside `_bakeDown` carried natives into a frame the bake had passed, and the empty tile was
@@ -659,15 +666,16 @@ depth 9 on the Magnum Opus; `tile.patch.test.js` compares every cached tile to a
 §2.2, built 2026-09-23): the drop carries whole cells of the frame's shift into its
 address (`moveSubtreeTargets`, given each frame's shift at the drag's start), so only a native
 whose own table adds to it is drawn past a cell edge, and a change of the shift alone
-refiles the frame so its plates follow. Not built: `_take` lets a resident with kids keep its
-cell even when its whole subtree is empty, so an empty twin can take the mover's identity (F80).
+refiles the frame so its plates follow. A resident with kids keeps its cell even when its whole
+subtree is empty; the mover is its co-resident under its own id until GC promotes it (A1 C3).
 
 **A frame holds something** (frame GC, F94; Kobin: "if there ever is a frame, it has stuff in
 it"). Until C2 every pointer event of a subtree drag minted the containers its target chains
 passed through, and the next left most of them empty — 80–103 in one 40-step drag on his
 phone drawing, whose lattice held 471 empty cells of 495; since C2 only the drop mints, its
 final chains' (A1 §1.4's census, 40 × 7 px: 145–239 frames during the drag → 0, 4–14 left). `engine/frameGc.js` forgets a frame with
-no natives, kids or shadows at a gesture's end or a change of the camera's frame, unless the
+no natives or kids — a co-resident of it becomes its cell's resident (A1 C3) — at a gesture's
+end or a change of the camera's frame, unless the
 camera is in it or above it, left it within the last four frames (a crossing back composes
 through it), or an undo or redo op names it (`opFrames`: history puts things back there by
 id; the frame goes when the op leaves history). Never mid-gesture, and never during a load: a
@@ -684,11 +692,10 @@ kid re-homed under the neighbour container — so what was selected stays select
 native's picture crosses a cell edge without leaving its frame (A1 C1).
 
 One op per gesture, `{ op: "moveFrames", frames: [{ id, from, to, shiftBefore,
-shiftAfter, merged }], moves }`, the frame entries beside the per-object members. A
-merge records the natives, their tables before and after the fold, the kids and the
-address of the frame that went, on the entry of the frame it names. Undo splits the
-merges back (`unmerge`, `unadoptShadow`), re-addresses to the start and restores the
-shift; redo is the inverse's inverse. A `settled` record on an op from a store written
+shiftAfter }], moves }`, the frame entries beside the per-object members. Undo
+re-addresses to the start and restores the shift — a frame leaves the cell it shared, and
+one that took its start cell since stays there beside it; redo is the inverse's inverse.
+An op from before C3 can carry `merged` records, split back by `legacy/modelV1.js` (`unmerge`). A `settled` record on an op from a store written
 before C1 is subtracted by `legacy/modelV1.js` (`unsettle`; deletion date 2026-12-31).
 Byte-exact on the stored natives and the lattice, reload included (`move.subtree.test.js`,
 `oplog.test.js`, `hooks/store.model.test.js`).
@@ -710,7 +717,7 @@ Why this was more than the lattice made it look. The structure was ready — a t
 cells, natives homed by frame id, tables keyed by depth — and the move itself is the
 pointer change (`readdress`). The work was in what had grown up assuming an id was
 its address (tile stamps, the `#n` id a vacated cell mints, replay) and that one
-frame holds a cell (the shadows), and in the settle deferred to a read, which had to
+frame holds a cell (the shadows; co-residents since A1 C3), and in the settle deferred to a read, which had to
 be undone and logged exactly where the per-object path wrote every table at once — until
 A1 C1 (2026-09-29) made the shift placement, composed on read and written nowhere.
 
@@ -987,18 +994,21 @@ judged where its picture is (F69). A frame with no native anywhere in its subtre
 visited cell — stands for nothing: the walk neither takes nor enters it (`_inkedFrames`,
 O(frames with natives × depth); F93). An **enclosed frame is one entry** of the
 selection (`selection.frames`, 2026-09-15): nothing under it is read; a native is
-selected when its home is the frame, under it, or a shadow of either
-(`_isSelected`, `LevelMap.isUnder`); the status count sums the subtree's list
-lengths (`walk`); a drag moves it as a frame (§8) and delete sets its lists aside as
-containers (`Document.removeFrameSubtree`, one `removeFrames` op, O(frames)). Ink placed
-in a set-aside frame afterwards (drawn where it was, re-homed or ceded there) makes the frame
-live again: its old natives are flagged `_gone` one by one then, and only then; an undo of the
-delete merges them back beside the new ink, and a redo sets only them aside (F107). A
-keyless native is a family of one and skips the family re-check (2026-09-14). A family piece homed under an enclosed frame counts as inside, and is moved by that frame's re-address, never also per object (F100). An object whose box pokes out of the loop is asked about its ink against the loop AS DRAWN (every 7th point of a slow loop, joined, cut inside the line by the finger's wiggle and dropped ink 0.6 px inside it; REPORTS 2026-09-24, `select.lasso.test.js` LD-1/2).
-An enclosed frame is **not** one entry when a keyed native under it (a ceded kid, a patch) belongs
-to a family the loop does not bound: the frames from that native up to the enclosed one are read
-as straddling, so the piece is judged with its family and left out, and the rest is found one by one
-(`_tornUnder`, from `Document.keyedIn`, a per-frame set of keyed natives — no other ink is read; F108).
+selected when its home is the frame or under it (`_isSelected`, `LevelMap.isUnder`: the
+container chain, so a co-resident is its own unit, A1 C3); the status count sums the subtree's list
+lengths (`walk`); a drag moves it as a frame (§8) and delete takes the subtree out of the
+lattice with its lists (`Document.removeFrameSubtree`, one `removeFrames` op holding each
+frame's address, O(frames)). Ink placed at its cells afterwards goes to fresh frames, and an
+undo puts the subtree back, a co-resident where new ink holds a cell; a camera in a deleted
+frame moves to a fresh frame at its cell (A1 C3; F107's set-aside frames and `_gone` flags
+went). A keyless native is a family of one and skips the family re-check (2026-09-14). A family piece homed under an enclosed frame counts as inside, and is moved by that frame's re-address, never also per object (F100). An object whose box pokes out of the loop is asked about its ink against the loop AS DRAWN (every 7th point of a slow loop, joined, cut inside the line by the finger's wiggle and dropped ink 0.6 px inside it; REPORTS 2026-09-24, `select.lasso.test.js` LD-1/2).
+**A cede's kids live in private frames of their family** (A1 C4, 2026-09-30): a chain flagged
+`private` hanging from the family's frame (`LevelMap.privateFrame`, `eraseDescent.kidHome`), so no
+shared frame holds a family's piece. A private frame is never taken whole — its natives are judged
+with their families — and every other frame keeps the O(1) enclosed rule. A family ceded before
+C4 keeps the backstop: an enclosed frame is **not** one entry when a keyed native under it belongs
+to a family the loop does not bound; the frames from that native up are read as straddling and
+the rest is found one by one (`_tornUnder`, from `Document.keyedIn`; F108).
 
 **The selection stands for the same ink** (F93). A drop's rest re-homes a selected frame's kid
 under the neighbour container (§8; since A1 C1 no read moves a native, so a frame's natives
@@ -1009,10 +1019,10 @@ under a selected frame and its per-object members listed or under one are read
 frame, a native as an id — an id back under a selected frame leaves the ids, an id the
 action removed goes (its family's first member takes its place when nothing else is
 left), and a selected frame left with no ink leaves (`_repairSelection`, `_reselect`),
-quietly, before the action's one render. Only a reset and a merge (the hand-over of a
-merged frame's ink, until C3 removes merges) still reach the selection as events; an id a
-remote edit removes stays in the list, dead and skipped, until the next repair. A frame
-under another selected frame is counted once.
+quietly, before the action's one render. Only a reset still reaches the selection as an
+event: a remote edit arrives as a reload, whose reset drops the selection, so none of its
+removals is left in it (`select.remote.test.js`). A frame under another selected frame is
+counted once.
 
 **A press picks, a drag moves** (`_selectTap`, `_beginSelectDrag`). Nothing changes on
 pointer-down, so a pinch never selects. A tap takes the topmost object under the point, read
@@ -1122,7 +1132,9 @@ their "saved by a newer version" message; one without a shift is written exactly
 before, byte for byte (`hooks/store.model.test.js`). Measured against the deployed reader
 (0732252's `persist.js`, 2026-09-29): a shifted file and a store header with a shift are refused
 ("file v3, app reads up to v2"), a shift-free file is read; a store and a cloud copy reach the
-same check through `loadDrawing`.
+same check through `loadDrawing`. Since A1 C3/C4 a lattice with a co-resident or a private frame
+is written as version 3 too (`persist.latticeNeedsV3`): a build before them would merge a
+co-resident into its resident at the load and read a private frame as a shared one.
 
 **Frame ids.** A frame's id is its birth chain, `0/i,j/…`; a cell a moved frame vacated
 mints a twin with `#n` on its segment, and every descendant carries that `#n` inside its
@@ -1164,20 +1176,18 @@ A store the pre-rule engine made (1cac470) loads, registers each landed mark onc
 bake at that engine's own result (`erase.oldStore.test.js`).
 
 **The lattice is the header's** (2026-09-15, the subtree move of §8). Every write
-carries `LevelMap.serialize` — addresses, shifts, shadows — beside its entries, so
-the stored lattice is never older than any stored entry, and a replayed
-`moveFrames`, `mergeFrame` or their undo re-addresses nothing: it rebuilds the op.
+carries `LevelMap.serialize` — addresses, shifts, co-residents, private flags — beside its
+entries, so the stored lattice is never older than any stored entry, and a replayed
+`moveFrames` or its undo re-addresses nothing: it rebuilds the op.
 The natives' tables are entries, every apply by RESULT so it replays the same
 whatever else the tick held (a frame moved as a frame is not re-snapshotted: its shift
 is the header's, and no table takes it — A1 C1; a `settle` entry, from a store written
-before C1, replays its result tables through `legacy/modelV1.js`), a `mergeFrame` names the op it belongs
-to and forces the resident's snapshot (the shadow's row goes with the write), a
-`moveFrames` carries its frame entries and its per-object members and none of the
+before C1, replays its result tables through `legacy/modelV1.js`, as does a `mergeFrame` from before
+C3), a `moveFrames` carries its frame entries and its per-object members and none of the
 frames' natives (Kobin's decision: the snapshots hold them), and a `removeFrames`
 or `deleteMany` carries every deleted native's geometry, because its row goes with
-the write. A merge is recorded when the action that made it ends, with the tables the
-fold wrote (F110's coalescing of settles went with the settle, A1 C1); a failed write
-keeps its forced frames as well as its entries.
+the write, and each deleted frame's address (`at`, A1 C3), so its replay takes the frames
+out of the lattice again. A failed write keeps its forced frames as well as its entries.
 
 **What the snapshots hold** (F98, 2026-09-23, Kobin's Earth). A load skips an entry when
 every frame it touches holds a snapshot at or past it (`oplog.snapshotRule`), and a frame the

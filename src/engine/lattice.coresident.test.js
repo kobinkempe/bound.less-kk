@@ -9,6 +9,8 @@ import { BASE, ENTER, EXIT, G } from "./frameLattice";
 import { mkEngine, useEngines } from "./__testkit__/harness";
 import { collectFrames } from "./frameGc";
 import { rectLoop } from "./geometry/arcShape";
+import { decodeDrawing } from "./persist";
+import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
 useEngines();
 const CFG = { base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 };
@@ -133,6 +135,18 @@ describe("co-residents in the engine", () => {
         expect([E.lm.frame(A).shadowOf, E.lm.frame(B)._shadows]).toEqual([null, null]);
         E.redo();
         expect(E.lm.frame(A).shadowOf).toBe(B);
+    });
+
+    test("a lattice with a co-resident is written as version 3, read back with it, and refused by a version-2 reader", () => {
+        const { E, A, B } = fixture();
+        expect(E.serializeDrawing().version).toBe(1);
+        moveFrame(E, A, 64);
+        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));
+        expect(d.version).toBe(3);
+        expect(decodeDrawing(d).crossings.frames.find((r) => r.id === A).shadowOf).toBe(B);
+        expect(() => decodeV2(d)).toThrow("file v3, app reads up to v2");
+        E.undo();
+        expect(E.serializeDrawing().version).toBe(1);
     });
 
     test("frame GC promotes: an emptied resident is forgotten and its co-resident takes the cell, its ink drawn", () => {

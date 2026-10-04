@@ -4637,6 +4637,11 @@ F118's rewrite orders an erase gesture's bake steps by `_seq` and undoes them ne
 <a id="f126"></a>
 ### F126 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3's lasso fuzz (lane lasso2, seed 2208). An undo merged the camera's frame away.
 
+**2026-09-30, A1 C3 (B-MODEL-C34): the mechanism is gone.** No frame merges: the frame an undo puts back where
+the camera's empty twin sat is that cell's co-resident, and a camera whose frame becomes a co-resident is handed to
+the cell's resident at the re-address, same coordinates (`KobinEngine._camToResident`). `move.camMerge.test.js` went
+with the merges; `lattice.coresident.test.js` holds the repro (the view draws, a new stroke has a frame) and its control.
+
 **2026-09-30, A1 C2 (B-DRAG):** unchanged: a drop's shadows merge at its end on its op, a cancel makes none; the camera's merge follow stays until C3 removes merges (`move.camMerge` green).
 
 **2026-09-29, A1 C1:** unchanged in substance: a shadow now merges when the undo that made it
@@ -4651,6 +4656,9 @@ Kobin: "phantom ants or missing ants on various selections, esp. on that reporte
 
 <a id="f124"></a>
 ### F124 — FIXED 2026-09-24 (unverified by Kobin), found by the REPORTS agent in Kobin's phone report 2026-09-24T06-40-12. A two-cell cede's kids were never joined: one object became several along the seam.
+
+**2026-09-30, A1 C4 (B-MODEL-C34):** severance compares cells (`erasePipeline._cellOffset` by `LevelMap.sameCell`),
+so a kid in its family's private frame at a cell joins its family there as before (`erase.cedeSeam` green).
 
 Kobin: "an eraser shattered a doc into too many pieces (they didn't stay connected at the tile seams, I think)". The ink was not broken: the grey blob at his camera (depth 8) is 7 families, and its pixels form 2 components — the only real separation is one erase's line, 3.3 units at depth 9. Five of the splits touch directly across the seam between cells -1428,1293 and -1428,1294 (2,599 device px of contact in all). A cede hands ink down one cache square at a time (F42), so a gesture over a cell seam mints kids in two frames, the second cut from the parent's remnant so that its edge lies exactly on the first's window. `_familyComponents`' same-depth branch compared the neighbour kid's window and outline in its OWN cell's coordinates against this kid's window: whole frames off, the contact test looked at the wrong side and the kids never joined, although the branch's comment and F42 say they should. Erase 27 in the report ceded 1873 into both cells and the re-split made 1 family 4; erases 28 and 34 each cut a piece whose only link was across the seam. **Fixed**: a kid in a neighbouring cell is brought into this one's coordinates, exact whole-frame offsets (`_cellOffset`, from `peekNeighbour`), before the same test. Measured by REPORTS: the report's 7 keys give 2 classes, the pixel components exactly. Test `erase.cedeSeam.test.js` (CS-1 a nick across the seam that severs nothing leaves one family, red before; CS-2 a nick inside one cell; CS-3 a band that parts the dot across both cells gives two), break-checked two ways. **Not repaired**: the 5 wrong keys already on Kobin's canvas stay until he decides to re-join them (like F104's 18 kids). The ants have the matching gap (`_familyJoinNotes`, no same-depth branch): with REPORTS.
 
@@ -4786,6 +4794,12 @@ Tests: `erase.neutral.test.js` (new, 5). An in-place graze in a ring's hole and 
 <a id="f108"></a>
 ### F108 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 reading the code and a jsdom repro. A lasso round a frame took a ceded kid whose family was outside the loop; a drag tore it out.
 
+**2026-09-30, A1 C4 (B-MODEL-C34): the mechanism is gone for new cedes.** A cede's kids live in private frames of
+their family (`LevelMap.privateFrame`, `eraseDescent.kidHome`); the lasso never takes a private frame whole and every
+other frame keeps the O(1) enclosed rule. The repro takes the enclosed frame whole, the stroke beside the nick with it,
+none of the family, and `_tornUnder` finds nothing (`erase.privateCede.test.js`, red before C4). `_tornUnder` stays as
+the backstop for families ceded before C4. TORN_NUMBERS
+
 **2026-09-30, A1 C2 (B-DRAG):** unchanged; C4's (private cede frames).
 
 **2026-09-29, A1 C1:** unchanged; C4 (private cede frames) replaces the torn-family pass.
@@ -4794,6 +4808,12 @@ The lasso's frame walk takes an ENCLOSED frame as one entry and reads nothing un
 
 <a id="f107"></a>
 ### F107 — FIXED 2026-09-24 (unverified by Kobin), found by REVIEWER-3 in a jsdom repro. Ink drawn where a lassoed frame had been deleted could not be selected, lassoed or erased.
+
+**2026-09-30, A1 C3 (B-MODEL-C34): the mechanism is gone.** A deleted subtree leaves the lattice
+(`Document.removeFrameSubtree`, its ids retired): ink placed at its cells afterwards goes to fresh frames and is read,
+tapped, lassoed and erased as any; the undo puts the subtree back, a co-resident where new ink holds a cell, and the
+redo takes it out again. `_detached`, `_reuseDetached`, `getById`'s set-aside test and the `_gone` flags are deleted
+(`select.detachedFrame.test.js` DF-1..4).
 
 **2026-09-30, A1 C2 (B-DRAG):** unchanged; C3's (a deleted subtree leaves the lattice).
 
@@ -4837,6 +4857,9 @@ Seen in Chrome on a scratch copy of the Magnum Opus: a lasso of the inner solar 
 <a id="f100"></a>
 ### F100 — FIXED 2026-09-24 (unverified by Kobin), found by the REVIEWER agent from Kobin's phone report 2026-09-24T04-25-10. A lasso missed a ceded family whose other pieces sat under an enclosed frame.
 
+**2026-09-30, A1 C4 (B-MODEL-C34):** a new cede's pieces live in private frames, which the lasso never takes whole;
+a family piece under an enclosed frame (a cede from before C4) keeps this rule (`select.lassoFamilyFrame` green).
+
 **2026-09-30, A1 C2 (B-DRAG):** unchanged; C4's.
 
 **2026-09-29, A1 C1:** unchanged; a ceded family's pieces go to private frames at C4.
@@ -4867,6 +4890,10 @@ Kobin, 23:12Z, in his Local Magnum Opus (`mu34hlxc1t16986e`): "Most of the Earth
 
 <a id="f94"></a>
 ### F94 — FIXED 2026-09-23 (unverified by Kobin), filed the same day by the PHONE agent (found replaying Kobin's report 08-16-23). A subtree drag mints empty frames on every pointer event.
+
+**2026-09-30, A1 C3 (B-MODEL-C34):** no read mints (PLAN §3 row 8, without exception): the frames a picture is read
+from are minted at the action's end (`TileStore.prepare`); frame GC promotes a co-resident when its resident goes.
+CENSUS_NUMBERS
 
 **2026-09-30, A1 C2 (B-DRAG):** the cause is gone — a drag writes nothing until its drop, so no event mints; the
 drop mints its final chains only. A1 §1.4's census (40 × 7 px, a render each, seeds 12345/777/4242): frames minted

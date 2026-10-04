@@ -40,7 +40,7 @@ describe("LF — a lasso's enclosed frame and the families under it", () => {
     test("LF-1 a small loop round the nick takes none of the stroke's family, and the keyless stroke beside it", () => {
         const { E, deep, dot, fam } = scene();
         expect(new Set(fam.map((m) => m.key)).size).toBe(1);
-        expect(fam.some((m) => m.frame === deep)).toBe(true);           // a kid under the frame the loop encloses
+        expect(fam.some((m) => E.lm.sameCell(m.frame, deep))).toBe(true);   // a kid at the enclosed frame's cell (its private frame, A1 C4)
         E.deselect();
         lasso(E, circle(20));
         for (const m of fam) expect(E._isSelected(m.id)).toBe(false);  // red before: the kid, through its frame

@@ -6,6 +6,9 @@
 import { useEngines, mkEngine, drawStroke, erase } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
 import { rectLoop } from "./geometry/arcShape";
+import { G } from "./frameLattice";
+import { decodeDrawing } from "./persist";
+import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
 useEngines();
 const log = (s) => { /* eslint-disable-next-line no-console */ console.log(s); };
@@ -48,6 +51,10 @@ describe("a cede's kids in private frames (A1 C4)", () => {
         expect(E.doc.keyedIn(deep)).toBeNull();
         expect(kids.some((m) => E.lm.sameCell(m.frame, deep))).toBe(true);               // the kid's cell is the enclosed frame's
         expect(E.lm.residentOf(deep).id).toBe(deep);                                     // which keeps it
+        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));                       // version 3: a private frame
+        expect(d.version).toBe(3);
+        expect(decodeDrawing(d).crossings.frames.find((r) => r.id === kids[0].frame).private).toBe(String(S._home));
+        expect(() => decodeV2(d)).toThrow("file v3, app reads up to v2");
     });
 
     test("F108's loop takes the enclosed frame whole, the stroke beside the nick with it, none of the family, and no frame torn", () => {
@@ -69,23 +76,24 @@ describe("a cede's kids in private frames (A1 C4)", () => {
         const run = (mk) => {
             const E = mk();
             drawStroke(E, [[100, 300], [700, 300]], 200);                                  // the backdrop at depth 0
-            for (let i = 0; i < 6; i++) E.zoomFactorAt(400, 300, 16);                     // depth 1 at ~inScale 1: its cells 32 px
-            const cam = E.cam.state(), F1 = E.cam.frame;
-            const c0 = E.lm.frame(F1) ? [400, 300] : null;
+            for (let i = 0; i < 6; i++) E.zoomFactorAt(400, 300, 16);                     // depth 2 at inScale 1: its cells 32 px
+            const cam = E.cam.state(), F2 = E.cam.frame;
+            const c = E.cam.screenToFrame(400, 300), ci = Math.round(c[0] / G) - N / 2, cj = Math.round(c[1] / G) - N / 2;
             const cells = [];
             for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) {
-                const x = c0[0] + (a - N / 2) * 32 + 16, y = c0[1] + (b - N / 2) * 32 + 16;
-                // The city's own ink in the depth-2 cell, then a nick through the backdrop there (a cede into the cell).
-                for (let i = 0; i < 2; i++) E.zoomFactorAt(x, y, 16);
+                // The city's own ink in the depth-3 cell, then a nick through the backdrop there (a cede into the cell).
+                const [x, y] = E.cam.levelPointToScreen(F2, (ci + a) * G, (cj + b) * G);
+                for (let i = 0; i < 3; i++) E.zoomFactorAt(x, y, 16);
                 cells.push(E.cam.frame);
                 for (let k = 0; k < 3; k++) E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: -900 + k * 700, top: -400, right: -500 + k * 700, bottom: 300 }), color: "#246", opacity: 1, w: 6 }, E.cam.frame);
                 erase(E, [[x - 30, y - 30], [x + 30, y + 30]], 10);
                 E.cam.set(cam); E._render();
             }
             E.deselect();
-            const L = N * 16 + 12;
+            const m = G / 2 + 6;
+            const lo = E.cam.levelPointToScreen(F2, ci * G - m, cj * G - m), hi = E.cam.levelPointToScreen(F2, (ci + N - 1) * G + m, (cj + N - 1) * G + m);
             const t0 = now();
-            lasso(E, [[400 - L, 300 - L], [400 + L, 300 - L], [400 + L, 300 + L], [400 - L, 300 + L], [400 - L, 300 - L + 2]]);
+            lasso(E, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]], [lo[0], lo[1] + 2]]);
             const ms = now() - t0;
             const s = E.selection || { ids: [], frames: [] };
             return { ids: s.ids.length, frames: s.frames.length, cells: new Set(cells).size, ms: Math.round(ms * 10) / 10 };
@@ -93,6 +101,7 @@ describe("a cede's kids in private frames (A1 C4)", () => {
         const live = run(() => mkEngine());
         const oracle = run(() => new OracleEngine(document.body.appendChild(document.createElement("div")), { width: 800, height: 600 }));
         log("PRIVATE-CEDE " + JSON.stringify({ N, live, oracle }));
+        expect(live.cells).toBe(N * N);
         expect(live.ids).toBe(0);                                                         // the city's frames whole, the backdrop's kids left
         expect(live.frames).toBeGreaterThanOrEqual(live.cells);
         expect(oracle.ids).toBeGreaterThan(live.cells);                                   // before C4: every torn city frame read one by one
