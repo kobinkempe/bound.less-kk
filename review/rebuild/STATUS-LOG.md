@@ -3123,3 +3123,13 @@ WHERE I AM: b2 runs 5–7; then the flag, then item 6.
 **Measured (b2):** traced HEAD copy, scenario 1 back-in paper 0 | 234.5 | 0.7 | 244 ms (runs 1, 2, 5, 6; load at start 1.31–1.92, at the end 2.9–6.6: the other agent's jest). The paper: step (d) never took a coarser cell's twin in the frame left (OPEN-FLAGS F137 rewritten); fixed in the plan, red-before tests and break-checks 2 and 1.
 **Working on:** b3 — a CDP sampling profile (100 µs) of scenario 4's drop on a clean copy of HEAD (`bp5/cur`, :3013), one run under load 2.
 WHERE I AM: b3; then the overlay fix.
+
+## 2026-10-04 21:45 UTC — orchestrator (Opus) — the third session-limit stop (~16:05); both agents resumed
+**Working on:** the limit stopped R-MODEL-C34 (the exception break-checks; a `normalised` break-check and fuzz runs in
+flight) and B-PYRAMID-5 (F137 fixed in the compose plan with two tests; batch b3, the drop's profile, unfinished). The
+container rebooted (uptime 0 at 21:44); the tree was clean at 3e215f0 with every edit of both. Both resumed by message;
+B-PYRAMID-5 asked to confirm its two F137 tests fail on the old `PicturePyramid.js`.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the resumed entries.
