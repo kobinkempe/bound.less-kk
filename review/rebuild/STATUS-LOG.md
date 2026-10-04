@@ -2999,3 +2999,22 @@ the same rule next (obvious and local; reported).
 **Decisions made:** the pen-up group's inline budget stays one frame (the brief names undo, redo, a drop).
 **Questions asked:** none.
 WHERE I AM: `_take` keeps an ask newer than the landing's G; then items 1–2's break-checks, then item 3.
+
+## 2026-10-04 06:48 UTC — R-MODEL-C34 (reviewer) — resumed after the session-limit stop and the reboot (full scope)
+**Working on:** F138, every seed root-caused and fixed (no time box), then the larger fuzz runs, the full C3/C4 review,
+R-DRAG's skipped items. Files: `__testkit__/modelFuzz.js`, `hooks/store.subtree.test.js`; scratch `zz_*` probes in `src/`
+(deleted before hand-back). Next model files as seed 198 needs (`LevelMap.js`, `Document.js`, `selection.js`).
+**F138 so far:** 131 (plain) and 47 (C3/C4) are one class, (c): the fuzz's store took ONE snapshot at its first reload2
+and replayed every later entry with no listed set and no forced snapshots, so a frame the snapshot lacked (emptied by an
+undo) replayed its whole history and both engines brought the undone native back (131: an undone cede into a private
+frame whose id GC freed and a later cede took; 47: an undone subtree delete's add). The app's saver does not: it lists
+frames (F98), snapshots forced and newly listed frames each write. Fixed in `modelFuzz.js` (`syncStore`: a write after
+every step, the saver's rules); 131 and 47 pass alone. The app path pinned by two hook tests in `store.subtree`
+(an undone cede whose private ids GC freed and a later cede took; a delete undone, then dragged): green.
+**Break-checks on my copy `r-c34/bc`:** K1 (the loader replays without `frameIds`) 5 red of 8 (the cede test and 4 F98
+tests); K3 (a newly listed frame not snapshotted) 2 red; K2 (no forced snapshot) 0 red, K2+K3 2 red (the delete test).
+**198 (C3/C4), in progress:** a model defect candidate: after a subtree drag of a cell whose resident is empty and
+whose private co-resident holds ink, a delete and its undo put the frames back at the shift of an EARLIER drag
+([11840,-5120], step 13) instead of the latest ([-768,-6144], step 14); native 7 drawn at the old offset.
+**Questions asked:** none.
+WHERE I AM: tracing seed 198's step 17 (the delete's records' `at.shift` vs the undo's restore).
