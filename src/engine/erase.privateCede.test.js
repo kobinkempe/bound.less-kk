@@ -6,7 +6,7 @@
 import { useEngines, mkEngine, drawStroke, erase } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
 import { rectLoop } from "./geometry/arcShape";
-import { G } from "./frameLattice";
+import { G, R, REACH } from "./frameLattice";
 import { decodeDrawing } from "./persist";
 import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
@@ -90,7 +90,7 @@ describe("a cede's kids in private frames (A1 C4)", () => {
                 E.cam.set(cam); E._render();
             }
             E.deselect();
-            const m = G / 2 + 6;
+            const m = REACH / R + 6;                                                      // every cell's reach box inside the loop: only then is a frame taken whole
             const lo = E.cam.levelPointToScreen(F2, ci * G - m, cj * G - m), hi = E.cam.levelPointToScreen(F2, (ci + N - 1) * G + m, (cj + N - 1) * G + m);
             const t0 = now();
             lasso(E, [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]], [lo[0], lo[1] + 2]]);

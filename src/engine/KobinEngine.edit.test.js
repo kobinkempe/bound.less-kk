@@ -415,7 +415,7 @@ describe("deferred area erase", () => {
         }
         // The ink that was inside the tile re-homes as fills of the erase level,
         // each recording the tile it fills, in its own frame.
-        const kids = E.nativesByLevel[E.cam.frame] || [];
+        const kids = E.doc.cellList(E.cam.frame);
         expect(kids.length).toBeGreaterThanOrEqual(1);
         for (const k of kids) {
             expect(k.type).toBe("shape");
@@ -430,7 +430,7 @@ describe("deferred area erase", () => {
         expect(E.nativesByLevel[0]).toHaveLength(1);
         expect(E.nativesByLevel[0][0].type).toBe("shape");
         expect(E.doc.editKey(E.nativesByLevel[0][0])).toBe(key);
-        expect(E.nativesByLevel[E.cam.frame] || []).toHaveLength(0);
+        expect(E.doc.cellList(E.cam.frame)).toHaveLength(0);
     });
 
     test("a far-frame cede outlines the eraser locally before its boolean", () => {
@@ -466,7 +466,7 @@ describe("deferred area erase", () => {
         const parents = E.doc.at("0").filter((o) => !o.erase);
         expect(parents.length).toBeGreaterThanOrEqual(1);
         expect(parents.every((o) => o.type === "shape" && E.doc.editKey(o) === src.id)).toBe(true);
-        expect(E.doc.at(child.id).some((o) => !o.erase && o.attachRect && E.doc.editKey(o) === src.id)).toBe(true);
+        expect(E.doc.cellList(child.id).some((o) => !o.erase && o.attachRect && E.doc.editKey(o) === src.id)).toBe(true);
     });
 
     test("a ceded hole survives zooming out and back in", () => {
@@ -514,7 +514,7 @@ describe("deferred area erase", () => {
         // Translucent ink: parent and child overlap along the tile edge to hide
         // the antialiasing seam, so they must composite as ONE opacity group or
         // the overlap darkens. That is what the shared family key buys.
-        const kids = (E.nativesByLevel[E.cam.frame] || []).filter((o) => !o.erase);
+        const kids = E.doc.cellList(E.cam.frame).filter((o) => !o.erase);
         expect(kids.length).toBeGreaterThan(0);
         expect(kids.every((o) => E.doc.editKey(o) === src.id)).toBe(true);
         expect(E._hitTest(400, 300)).toBeNull();
@@ -597,7 +597,7 @@ describe("deferred area erase", () => {
         zoomToLevel1(E);
         eraseGesture(E, [[400, 300]]);
         E.flushErases();
-        const kids = (E.nativesByLevel[E.cam.frame] || []).filter((o) => !o.erase && o.editId === key);
+        const kids = E.doc.cellList(E.cam.frame).filter((o) => !o.erase && o.editId === key);
         expect(kids.length).toBeGreaterThan(0);
         // The parent is a cut fill now, not the original stroke, but it is the
         // same object: it kept the key across the outline.
@@ -660,7 +660,7 @@ describe("deferred area erase", () => {
         E.flushErases();
         expect(E._hitTest(270, 390)).toBeNull();
 
-        const kids = E.nativesByLevel[E.cam.frame] || [];
+        const kids = E.doc.cellList(E.cam.frame);
         expect(kids.length).toBeGreaterThan(0);
         expect(kids.every((o) => o.editId === src.id)).toBe(true);
         E._render();

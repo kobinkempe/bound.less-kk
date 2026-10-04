@@ -97,7 +97,8 @@ describe("F46: a 12-px nick on a curve, level 3, zoomed in within the level", ()
         expect(note && note.cuts && note.cuts.length).toBeTruthy();
         // The cede reached the erase level: the last link's kid lives at level 3.
         const through = note.cuts[note.cuts.length - 1].through;
-        const deepest = through[through.length - 1].map((s) => s.split("#")[0].split("/").length - 1);
+        // Each entry is `frameId#objId`; a co-resident's frame id carries "#n" of its own, so the lattice gives the depth.
+        const deepest = through[through.length - 1].map((s) => E.lm.frame(s.slice(0, s.lastIndexOf("#"))).depth);
         expect(Math.max(...deepest)).toBe(3);
         expect(note.refused || []).toEqual([]);
     });

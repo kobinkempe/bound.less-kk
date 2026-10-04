@@ -325,7 +325,8 @@ describe("a selection stands for ink", () => {
         E.pointerUp();                                              // the drop makes it the resident's co-resident (A1 C3)
         expect(E.lm.frame(mover.id).shadowOf).toBe(resident.id);
         expect(E.selection.frames).toEqual([mover.id]);
-        expect(E.lm.frame(inked.id).parent).toBe(mover.id);        // its kids its own (the empty one frame GC's)
+        expect(E.lm.frame(inked.id).parent).toBe(mover.id);        // its kids its own
+        expect(E.lm.frame(empty.id)).toBeFalsy();                 // the empty one taken by frame GC at the drop
         expect(E._isSelected(E.doc.list(resident.id)[0].id)).toBe(false);   // the resident's ink is its own
         expect(inkless(E)).toEqual([]);
     });

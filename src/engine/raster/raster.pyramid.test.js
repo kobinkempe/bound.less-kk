@@ -227,6 +227,7 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         R._pyrPrefetch = () => {};
+        R.queue._aim = () => {};   // no velocity re-aim: it reads wall-clock frame times and could drop the zoom's strips as offscreen
         stroke(E);
         await settle(E, 1);
         expect(await drain(E, g)).toBe(0);

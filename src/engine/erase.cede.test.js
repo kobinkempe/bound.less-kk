@@ -73,7 +73,8 @@ const inkAtScreen = (E, sx, sy) => inks(E._objs().filter((o) => !o.erase), E.cam
 // names nothing afterwards. The family key is what survives; look members up
 // through it. This bit the implementation too — see _bakeRehome's note on
 // taking the key from `cur`.
-const familyAt = (E, key, F) => (E.doc.at(F) || []).filter((o) => !o.erase && E.doc.editKey(o) === key);
+// The family's members in F's cell: a cede's kids live in a private co-resident there (A1 C4).
+const familyAt = (E, key, F) => E.doc.cellList(F).filter((o) => !o.erase && E.doc.editKey(o) === key);
 const soleKey = (E) => {
     const keys = new Set();
     for (const k of E.doc.levels()) for (const o of E.doc.at(k)) if (!o.erase) keys.add(E.doc.editKey(o));
@@ -473,7 +474,7 @@ describe("C — composition", () => {
         // object's ink fringes past another's boundary anywhere along the edge.
         expect(soleKey(E)).toHaveLength(5);
         const F = E.lm.pathFrameAt(E.cam.frame, 1);
-        const kids = (E.doc.at(F) || []).filter((o) => !o.erase && o.attachRect != null);
+        const kids = E.doc.cellList(F).filter((o) => !o.erase && o.attachRect != null);
         expect(new Set(kids.map((o) => E.doc.editKey(o))).size).toBe(5);
         // Sample down the cut: at any row, either all five are inked or none is.
         for (let sy = 200; sy <= 400; sy += 8) {

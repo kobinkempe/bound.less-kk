@@ -56,7 +56,8 @@ const soleKey = (E) => {
     for (const k of E.doc.levels()) for (const o of E.doc.at(k)) if (!o.erase) keys.add(E.doc.editKey(o));
     return [...keys];
 };
-const familyAt = (E, key, F) => (E.doc.at(F) || []).filter((o) => !o.erase && E.doc.editKey(o) === key);
+// The family's members in F's cell: a cede's kids live in a private co-resident there (A1 C4).
+const familyAt = (E, key, F) => E.doc.cellList(F).filter((o) => !o.erase && E.doc.editKey(o) === key);
 const depthOf = (F) => F.split("/").length - 1;
 
 /**
@@ -143,7 +144,9 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         }
         // ...and every intermediate kid was minted from loops the render chain
         // already held for that level — the same bits, loop for loop.
-        const inter = minted.filter((m) => depthOf(m.level) < n);
+        // A kid lives in a private co-resident of the chain's frame at its cell (A1 C4): read it as that cell's resident.
+        const cellOf = (level) => E.lm.residentOf(level).id;
+        const inter = minted.map((m) => ({ ...m, level: cellOf(m.level) })).filter((m) => depthOf(m.level) < n);
         expect(inter.length).toBeGreaterThanOrEqual(n - 1);
         for (const m of inter) {
             const had = before.get(m.level);
