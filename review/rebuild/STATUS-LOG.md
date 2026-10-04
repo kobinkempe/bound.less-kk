@@ -3066,3 +3066,12 @@ up to 30 min). Dev servers Node 14, pids in `bp5/dev-301x.pid`. Script `bp5/batc
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for b1; meanwhile reading the overlay's tail (item 6) in `overlays.js`.
+
+## 2026-10-04 15:38 UTC — orchestrator (Opus) — the second session-limit stop (~07:45); both agents resumed
+**Working on:** the limit stopped R-MODEL-C34 (the selection fuzz at 50 + 50 green; next the camera exception's
+break-check over 100 + 100 seeds) and B-PYRAMID-5 (F137's batch b1 announced, never run). The container rebooted (uptime
+0 at 15:37); the tree was clean at ce474fc, every edit of both in it. Both resumed by message with their full scope.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the resumed entries; the monitor re-armed.
