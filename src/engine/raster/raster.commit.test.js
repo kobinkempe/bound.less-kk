@@ -116,6 +116,40 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
     });
 });
 
+describe("an ask stands until its own job or a newer one answers (PLAN §5.22 item 3)", () => {
+    test("one worker: a patch strip that fails, and one packed after a newer patch was asked, leave that patch's ask — never other older", async () => {
+        setRasterWorkerCount(1);
+        const { g, E, pyr } = await staleByCommit();
+        pyr.cfg.patchInlineMs = pyr.cfg.patchUserMs = 0;            // every patch to the pool
+        let now = 1e6;
+        pyr._now = () => now;
+        const c0 = E.cam, F = (sx, sy) => [(sx - c0.inPanX) / c0.inScale, (sy - c0.inPanY) / c0.inScale];
+        const fillAt = (sx, sy, w) => E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#0a0", opacity: 1,
+            polys: [[F(sx, sy), F(sx + w, sy), F(sx + w, sy + w), F(sx, sy + w)]] }, "0");
+        const waits = () => { pyr.compose(); now += 50; pyr.compose(); return pyr.s.olderOtherMs; };
+        fillAt(200, 150, 10);                                        // G1: p1, dispatched to the one worker and parked
+        for (let n = 0; n < 4; n++) await tick();
+        expect(g.parked.length).toBe(1);
+        fillAt(230, 170, 10);                                        // G2: p2 queued behind it
+        await tick();
+        fillAt(250, 150, 8);                                         // G3: p3 queued
+        await tick();
+        const other0 = waits();
+        const p1 = g.parked.shift();                                 // p1 fails: p3's ask stands
+        p1.resolve({ kind: "raster-error", jobId: p1.msg.jobId, frameSeq: p1.msg.frameSeq, err: "test" });
+        for (let n = 0; n < 4; n++) await tick();
+        expect(waits()).toBe(other0);
+        expect(g.parked.length).toBe(1);                             // p2, packed at G3 with its clips of G1–G2's dirt
+        const p2 = g.parked.shift(), out = await runJob(p2.msg);
+        p2.resolve(out.msg);
+        for (let n = 0; n < 4; n++) await tick();
+        expect(waits()).toBe(other0);                                // landed short of G3's dirt: p3's ask stands
+        expect(pyr.s.olderPatchMs).toBeGreaterThan(0);
+        expect(await drain(E, g)).toBe(0);
+        expect(waits()).toBe(other0);
+    });
+});
+
 describe("the pack's records across lists see where an item is drawn (PLAN §5.15 item 1)", () => {
     test("held at a drag's delta the item packs at +δ, released at its home, dropped at its new home — each the pack a cold cache makes", () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer, id = E.doc.allocId(), F = E.cam.frame;
