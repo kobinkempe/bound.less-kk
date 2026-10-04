@@ -29,7 +29,7 @@ import { perfNow } from "../now";
 export const PATCH_MAX = 0.5;
 /** A group older than this commits what it has (A3 §3.6). */
 export const LIVE_HOLD_MS = 3000;
-/** A user's action (an undo, a redo, a drop) may show its change coarse-first within this many frames of `patchUserMs` (PLAN §5.20 item 2): one action, not a per-frame cost. */
+/** A user's action's patch budget (an undo, a redo, a drop) in frames of `patchUserMs`, for the exact patch or, past it, the coarse level (PLAN §5.22 item 2): one action, not a per-frame cost. */
 export const USER_COARSE_FRAMES = 3;
 /** The surface is freed after this long unused. */
 export const SURFACE_IDLE_MS = 10000;
@@ -946,11 +946,15 @@ export default class PicturePyramid {
     }
 
     /**
-     * Cells the pack refused (their tiles not in the table when it ran): asked for again once covered — by the plan, or
-     * by their pen-up group (`_reaskGroups`), which keeps its path up meanwhile.
+     * Cells a job asked for at `G` that will not come from it (its pack refused them, their tiles not in the table, or
+     * its strip was dropped): asked for again once covered — by the plan, or by their pen-up group (`_reaskGroups`),
+     * which keeps its path up meanwhile — unless a newer ask stands, whose job brings them (an older strip erased it:
+     * scenario 7's other older, PLAN §5.22 item 3). `G` omitted (an inline pack's): every ask.
      */
-    unask(cells) {
+    unask(cells, G = Infinity) {
         for (const c of cells) {
+            const a = this._asked.get(c.key);
+            if (a != null && a > G) continue;
             this._asked.delete(c.key);
             const g = this._groups.get(this._groupOf.get(c.key));
             if (g) (g.refused || (g.refused = new Map())).set(c.key, c);
@@ -1232,10 +1236,10 @@ export default class PicturePyramid {
      * Per stale cell, the clip of the dirty rectangles since its G (grown a pixel; null, the whole cell, where the
      * log no longer reaches), and the decision: inline at full resolution when T_patch fits the budget; else the
      * finest coarser level whose patches fit, drawn over the dirty rectangles by the plan's rule (e), with the full
-     * patches asked for at priority 0; else everything to the workers. The budget is `patchUserMs` (one frame) for a
-     * user's action — an undo, a redo or a drop (`noteUserEdit`), a pen-up's group — which is paid once, and its
-     * coarse level USER_COARSE_FRAMES of them; `patchInlineMs` for the patches the bake issues at every step. A pen-up's
-     * group waits for full resolution (A3 §3.6): it searches no coarser level.
+     * patches asked for at priority 0; else everything to the workers. The budget, for either path: USER_COARSE_FRAMES
+     * × `patchUserMs` (48 ms) for a user's action — an undo, a redo or a drop (`noteUserEdit`), paid once, so the exact
+     * patch is taken whenever it fits (PLAN §5.22 item 2); `patchUserMs` for a pen-up's group, which waits for full
+     * resolution (A3 §3.6) and searches no coarser level; `patchInlineMs` for the patches the bake issues at every step.
      * @param {object[]} cells records @param {(F, G)=>object[]|null} [dirtyRects] the Stage's, by default
      * @param {boolean} [user] a pen-up's group
      */
@@ -1261,26 +1265,26 @@ export default class PicturePyramid {
         }
         const job = this._job("patch", 0, { frame: cells[0].frame, Z: cells[0].Z, cells: items.map((x) => descr(x.rec)), clips: items.map((x) => x.clip || [0, 0, PLATE_PX, PLATE_PX]), purpose: "patch", gen: this.gens.patch });
         if (cells[0].kind === "level") { job.level = cells[0].level; job.S = cells[0].S; }
-        const mine = user || (this._userG > 0 && cells.some((r) => this.store.fresh.dirtySince(r.key) === this._userG));
-        const T = this.estimate(job), budget = cfgOr(this.cfg, mine ? "patchUserMs" : "patchInlineMs");
+        const act = !user && this._userG > 0 && cells.some((r) => this.store.fresh.dirtySince(r.key) === this._userG);
+        const T = this.estimate(job);
+        const budget = act ? USER_COARSE_FRAMES * cfgOr(this.cfg, "patchUserMs") : cfgOr(this.cfg, user ? "patchUserMs" : "patchInlineMs");
         const out = { items, job, T, inline: T <= budget, coarse: null };
         // The last decision, for the report and the harness (the undo's path, PLAN §5.11 Q3).
-        this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, user: mine, inline: out.inline, coarse: null, est: job.est || null };
+        this.lastPatch = { cells: cells.length, T: +T.toFixed(2), budget, user: user || act, inline: out.inline, coarse: null, est: job.est || null };
         if (out.inline || user) return out;
         // Each coarser level costs a measure, a walk of the whole list. The pack's terms do not shrink with the level
         // (the same items meet the same rectangles): over the budget alone, no level fits. The search stops at the first
         // level with no records, whose patch is a whole render of its cells (PLAN §5.20 item 2).
-        const cb = mine ? USER_COARSE_FRAMES * budget : budget;
         const m = job.est, packT = m ? this._k.pack * (m.K || 0) + this._k.list * (m.N || 0) : 0;
         this.lastPatch.levels = 0;
-        for (let k = 1; k <= N && packT < cb; k++) {
+        for (let k = 1; k <= N && packT < budget; k++) {
             const l = v.level - k;
             if (l < floor) break;
             const cj = this._coarseJob(v.frameId, l, S, rects);
             if (!cj) break;
             const Tc = this.estimate(cj);
             this.lastPatch.levels++;
-            if (Tc <= cb) { out.coarse = { level: l, job: cj, T: Tc }; this.lastPatch.coarse = { level: l, T: +Tc.toFixed(2) }; break; }
+            if (Tc <= budget) { out.coarse = { level: l, job: cj, T: Tc }; this.lastPatch.coarse = { level: l, T: +Tc.toFixed(2) }; break; }
         }
         return out;
     }
@@ -1317,7 +1321,6 @@ export default class PicturePyramid {
     /** Carry out `patchPlan`'s decision. Returns the records rendered inline. */
     applyPatchPlan(plan, group = null) {
         const t0 = this._now();
-        const G = this.stage ? this.stage.generation : 0;
         if (plan.inline) {
             const recs = this._renderInline(plan.job);
             if (group) for (const r of recs) this.onResult(r); else for (const r of recs) this._take(r);
@@ -1330,9 +1333,8 @@ export default class PicturePyramid {
             for (const r of recs) this._take(r);
             this.s.patchCoarse++;
         } else this.s.patchWorker++;
-        for (const x of plan.items) this._asked.set(x.rec.key, G);
         if (group) plan.job.group = group;
-        this._request([plan.job]);
+        this._ask(plan.job, plan.items.map((x) => x.rec));
         this.s.patchMs = this._now() - t0;
         return recs;
     }
@@ -1452,9 +1454,7 @@ export default class PicturePyramid {
             const job = this._job(v.mode === "rest" ? "rest" : "view", 0, { frame: v.frameId, Z: Zg, cells: missing, purpose: "live", gen: this.gens.view });
             if (v.mode !== "rest") { job.level = v.level; job.S = v.S; }
             job.group = g.id;
-            const G = this.stage ? this.stage.generation : 0;
-            for (const c of missing) this._asked.set(c.key, G);
-            this._request([job]);
+            this._ask(job, missing);
         }
     }
 
@@ -1544,10 +1544,7 @@ export default class PicturePyramid {
             }
         }
         if (!cells.length) return;
-        const job = this._job("view", 1, { frame: v.frameId, level: v.level, S: v.S, Z: Zl, cells, purpose: "view", gen: this.gens.view });
-        const G = this.stage ? this.stage.generation : 0;
-        for (const c of cells) this._asked.set(c.key, G);
-        this._request([job]);
+        this._ask(this._job("view", 1, { frame: v.frameId, level: v.level, S: v.S, Z: Zl, cells, purpose: "view", gen: this.gens.view }), cells);
     }
 
     /** The level range under the rest cells with no rest plate, or null. */
@@ -1572,6 +1569,13 @@ export default class PicturePyramid {
         const v = this._v, a = this._attn || [this.wDev / 2, this.hDev / 2];
         if (v.k > 0 && String(o.frame) === v.frameId) job.attention = [((a[0] - v.tx) / v.k) * o.Z, ((a[1] - v.ty) / v.k) * o.Z];
         return job;
+    }
+
+    /** `job` requested for `cells` at the Stage's G, which the job carries (`askG`): `unask` and `_take` forget no ask made after it. */
+    _ask(job, cells) {
+        const G = job.askG = this.stage ? this.stage.generation : 0;
+        for (const c of cells) this._asked.set(c.key, G);
+        this._request([job]);
     }
 
     _request(jobs) {

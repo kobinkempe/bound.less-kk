@@ -95,7 +95,7 @@ describe("a commit's patch step runs in its task (PLAN §5.15 item 1)", () => {
         await settle(E, 1);
         expect(await drain(E, g)).toBe(0);
         E.undo();
-        expect(pyr.lastPatch.budget).toBe(16);
+        expect(pyr.lastPatch.budget).toBe(48);           // USER_COARSE_FRAMES × patchUserMs, not the bake's 6
         expect(await drain(E, g)).toBe(0);
     });
 });

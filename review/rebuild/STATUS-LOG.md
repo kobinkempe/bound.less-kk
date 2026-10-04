@@ -2972,3 +2972,14 @@ the full measurement. Time boxes dropped.
 **Decisions made:** `overlays.js` to B-PYRAMID-5 (R-MODEL-C34 is not in it); `selection.js` and the drag paths stay R-MODEL-C34's.
 **Questions asked:** none.
 WHERE I AM: waiting for both; the final design check after.
+
+## 2026-10-04 06:46 UTC — orchestrator (Opus) — the session-limit stop; both agents resumed
+**Working on:** the session limit stopped R-MODEL-C34 (last action: break-checking a fix in the store's subtree path —
+"K1 turns the new cede test red, and four F98 tests; the delete-undo-drag test stays green under K1, so next the
+saver's snapshot rules") and B-PYRAMID-5 (last action: item 2, the `unask` G check, its red-before test red at
+olderOther 50 ms). Neither had written a checkpoint entry. The container rebooted (uptime 0 at 06:46): every server and
+job is gone; the scratchpad and the live tree's edits survived, snapshot-committed with this entry. Both resumed by message.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the resumed entries; the monitor re-armed.

@@ -169,20 +169,36 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect([plan.inline, plan.coarse, d.coarse.length]).toEqual([false, null, 0]);
     });
 
-    test("a user's action shows its change coarse-first within USER_COARSE_FRAMES × patchUserMs; the bake's patches keep patchInlineMs", () => {
-        // ~28 ms at full resolution and at ℓ − 1: over one frame (16), within three (48), over the bake's 6.
-        const measure = (job) => ({ E: 0, A: job.kind === "rest" ? 1000 : 800000, U: 0, P: job.cells.length });
-        const user = setup(24, measure);
-        restThenUndo(user, [1]);
-        user.pyr.noteUserEdit();                                             // the undo's order: commit, noteUserEdit, render
-        user.pyr.frameFor(cam(1));
-        const lp = user.pyr.lastPatch;
-        expect([lp.user, lp.inline, lp.budget, lp.T > 16, lp.coarse && lp.coarse.T <= USER_COARSE_FRAMES * 16]).toEqual([true, false, 16, true, true]);
-        expect([user.pyr.s.patchInline, user.pyr.s.patchCoarse, user.posted.filter((j) => j.kind === "patch").length]).toEqual([0, 1, 1]);
-        const bake = setup(24, measure);
+    test("a user's action takes the exact patch inline within USER_COARSE_FRAMES × patchUserMs, coarse-first only past it; a group keeps patchUserMs, the bake patchInlineMs", () => {
+        // A[full] px at full resolution, 800,000 at ℓ − 1 (~28 ms: over one frame, within three, over the bake's 6).
+        const measure = (full) => (job) => ({ E: 0, A: job.kind === "rest" ? 1000 : job.purpose === "coarse" ? 800000 : full, U: 0, P: job.cells.length });
+        const undo = (A) => {
+            const t = setup(24, measure(A));
+            restThenUndo(t, [1]);
+            t.pyr.noteUserEdit();                                            // the undo's order: commit, noteUserEdit, render
+            t.pyr.frameFor(cam(1));
+            return t;
+        };
+        const fits = undo(800000);                                           // exact ~28 ms: both paths fit 48, exact is taken
+        const lp = fits.pyr.lastPatch;
+        expect([lp.user, lp.inline, lp.budget, lp.T > 16, lp.T <= USER_COARSE_FRAMES * 16, lp.coarse]).toEqual([true, true, 48, true, true, null]);
+        expect([fits.pyr.s.patchInline, fits.pyr.s.patchCoarse, fits.posted.filter((j) => j.kind === "patch").length]).toEqual([1, 0, 0]);
+        for (const [i, j] of [[0, 0], [1, 0]]) {
+            const r = fits.store.get(restCell("F", 1, i, j).key);
+            expect([i, fits.store.exact(r), sameBytes(r.pixels, whole(fits.doc.list, 1, i, j))]).toEqual([i, true, true]);
+        }
+        const over = undo(2000000);                                          // exact ~68 ms: past 48, ℓ − 1's ~28 is drawn first
+        expect([over.pyr.lastPatch.inline, over.pyr.lastPatch.coarse && over.pyr.lastPatch.coarse.T <= 48]).toEqual([false, true]);
+        expect([over.pyr.s.patchInline, over.pyr.s.patchCoarse, over.posted.filter((j) => j.kind === "patch").length]).toEqual([0, 1, 1]);
+        const group = setup(24, measure(800000));                            // a pen-up's group: one frame, full resolution only
+        restThenUndo(group, [1]);
+        const stale = [...group.store.records()].filter((r) => r.kind === "rest" && !group.store.exact(r));
+        const gp = group.pyr.patchPlan(stale, null, true);
+        expect([gp.inline, gp.coarse, group.pyr.lastPatch.budget]).toEqual([false, null, 16]);
+        const bake = setup(24, measure(800000));
         restThenUndo(bake, [1]);                                             // no noteUserEdit: a bake's commit
         bake.pyr.frameFor(cam(1));
-        expect([bake.pyr.lastPatch.user, bake.pyr.lastPatch.coarse, bake.pyr.s.patchCoarse, bake.pyr.s.patchWorker]).toEqual([false, null, 0, 1]);
+        expect([bake.pyr.lastPatch.user, bake.pyr.lastPatch.budget, bake.pyr.lastPatch.coarse, bake.pyr.s.patchCoarse, bake.pyr.s.patchWorker]).toEqual([false, 6, null, 0, 1]);
     });
 
     test("pen-up's group commit, inline: the stroke's cells patched, composed and the live path released in one task", () => {
@@ -324,6 +340,31 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
         expect(t.pyr.onResult({ ...restCell("F", 1, 0, 0), G: t.stage.generation, clip, pixels: new Uint8ClampedArray(14 * 14 * 4).fill(9), jobId: 1 })).toBe("patched-stale");
         expect(t.store.get(key).G).toBe(G0);
         expect(t.store.exact(t.store.get(key))).toBe(false);
+    });
+
+    test("an ask stands until its own job or a newer one answers: an older patch's drop or landing leaves the newer patch's ask (waiting, never other older)", () => {
+        // Full resolution over every budget and no coarser records: each commit's patch goes to the workers.
+        const run = (answer) => {
+            const t = setup(32, (job) => ({ E: 0, A: job.kind === "rest" ? 1000 : 9e6, U: 0, P: job.cells.length }));
+            restThenUndo(t);                                                 // G1: the stroke's two cells stale
+            t.pyr.frameFor(cam(1));
+            const p1 = t.posted.filter((j) => j.kind === "patch");
+            t.stage.commit({ F: [FOOT] });                                   // G2 over the same cells, before p1 answers
+            t.pyr.frameFor(cam(1));
+            const p2 = t.posted.filter((j) => j.kind === "patch").slice(p1.length);
+            expect([p1.length, p2.length, p2[0].cells.length]).toEqual([1, 1, 2]);
+            answer(t, p1[0]);
+            t.pyr.compose();
+            t.clock.t += 100;
+            t.pyr.compose();
+            return [t.pyr.s.olderOtherMs, t.pyr.s.olderPatchMs > 0];
+        };
+        // p1's strip dropped (failed, or refused at its pack): its asks only.
+        expect(run((t, job) => t.pyr.unask(job.cells, job.askG))).toEqual([0, true]);
+        // p1 lands, packed before G2: its records put, still stale; p2's ask stands.
+        expect(run((t, job) => {
+            for (const c of job.cells) t.pyr.onResult({ ...c, G: t.stage.generation - 1, pixels: whole(t.doc.list, 1, c.i, c.j), jobId: 7 });
+        })).toEqual([0, true]);
     });
 
     test("the GPU merge through one scratch OffscreenCanvas equals pastePatch (a software canvas)", () => {

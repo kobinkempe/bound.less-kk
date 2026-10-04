@@ -1,5 +1,5 @@
 /* Scratch probe (R-MODEL-C34; deleted before hand-back): who inserts/removes native ID during a store reload's replay. */
-import { runPairFuzz, framesToCompare, comparePictures } from "./__testkit__/modelFuzz";
+const { runPairFuzz, framesToCompare, comparePictures } = process.env.DBG_OLD ? require("./__testkit__/zz_modelFuzzOld") : require("./__testkit__/modelFuzz");
 import { OpLog } from "./oplog";
 import { OpLog as OOpLog } from "./__oracles__/model-v1/oplog";
 import Document from "./Document";
@@ -45,6 +45,11 @@ test("trace", () => {
     const st = {};
     runPairFuzz(SEED, STEP + 1, (O, N, step, op) => {
         const hn = N.doc.getById(ID), ho = O.doc.getById(ID);
+        if (process.env.DBG_FROM && step >= Number(process.env.DBG_FROM)) {
+            const fl = (E) => [...E.lm.frames.values()].filter((f) => f.parent != null && (E.doc.count(f.id) || f.shift || f.shadowOf != null || f.private != null || String(f.id).split("/").length <= 3))
+                .map((f) => f.id + "<" + f.parent + "@" + f.cell.i + "," + f.cell.j + (f.shift ? " sh" + JSON.stringify(f.shift) : "") + (f.shadowOf != null ? " ~" + f.shadowOf : "") + (f.private != null ? " P" + f.private : "") + " n" + E.doc.count(f.id)).join(" | ");
+            log("FR " + step + " " + op + "\n  O: " + fl(O) + "\n  N: " + fl(N) + "\n  sel O " + JSON.stringify(O.selection && { ids: O.selection.ids, frames: O.selection.frames }) + " N " + JSON.stringify(N.selection && { ids: N.selection.ids, frames: N.selection.frames }) + " cam " + N.cam.frame);
+        }
         log("TL " + step + " " + op + " live=" + (hn ? hn.level + (N.lm.frame(String(hn.level)) ? "" : " MISSING") : "-") + " oracle=" + (ho ? ho.level : "-") + (lines.length ? "\n  " + lines.splice(0).join("\n  ") : ""));
         if (step < STEP) { for (const V of framesToCompare(O, N)) comparePictures(O, N, V, st, C34 ? 2 : 1); return true; }
         for (const V of framesToCompare(O, N)) { const d = comparePictures(O, N, V, st, C34 ? 2 : 1); if (d) { log("DIFF " + d); break; } }

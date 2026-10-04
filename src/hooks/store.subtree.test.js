@@ -15,6 +15,8 @@ import { loadCanvasDoc, loadCanvasStore, cloudPushSource, replaceCanvasStore } f
 import { cloudPushCanvas2, cloudPullCanvas2 } from "../cloud/canvasSync";
 import { fake } from "../engine/__testkit__/fakeFirestore";
 import { rectLoop } from "../engine/geometry/arcShape";
+import { collectFrames } from "../engine/frameGc";
+import { drawStroke, erase } from "../engine/__testkit__/harness";
 
 jest.mock("firebase/firestore", () => require("../engine/__testkit__/fakeFirestore").sdk);
 jest.mock("../cloud/firebaseApp", () => ({ getDb: () => require("../engine/__testkit__/fakeFirestore").fake.db }));
@@ -209,6 +211,60 @@ describe("a multi-drop subtree drag survives the store (F98)", () => {
         expect(state(E())).toBe(before);
         act(() => view.unmount());
         view = await mount("c1");
+        expect(state(E())).toBe(before);
+        act(() => view.unmount());
+    });
+});
+
+// OPEN-FLAGS F138: a reload's replay skips what the store's rows hold, and a frame the header does not list held nothing
+// at the write (F98). The model fuzz's one-snapshot store lacked that rule and brought these back.
+describe("history over frames emptied and taken again survives the store (F138)", () => {
+    test("an undone cede whose private frames were collected, one id taken by a later cede: the undone kids stay out", async () => {
+        let view = await mount("c3");
+        const e = E(), at = [400, 301];
+        const priv = () => [...e.lm.frames.values()].filter((f) => f.private != null).map((f) => f.id);
+        act(() => {
+            drawStroke(e, [[50, 300], [300, 305], [550, 298], [750, 302]], 30);
+            for (let i = 0; i < 6; i++) e.zoomFactorAt(at[0], at[1], 16);
+            erase(e, [[380, 250], [400, 300], [420, 350]], 12);
+        });
+        const first = priv();
+        expect(first.length).toBe(2);                           // the kid's private frame (A1 C4) and its parent
+        await save();
+        act(() => { e.undo(); drawStroke(e, [[100, 100], [140, 120]], 4); });   // a fresh op: the redo goes
+        await save();
+        act(() => { e.sweepFrames(); collectFrames(e); });
+        expect(priv()).toEqual([]);
+        await save();
+        act(() => {
+            for (let i = 0; i < 4; i++) e.zoomFactorAt(at[0], at[1], 1 / 16);
+            erase(e, [[396, 280], [400, 300], [404, 320]], 3);
+        });
+        expect(priv()).toContain(first[0]);                     // the freed id taken again...
+        expect(e.lm.frame(first[1])).toBeUndefined();           // ...and its kid's not
+        await save();
+        const before = state(e);
+        act(() => view.unmount());
+        view = await mount("c3");
+        expect(state(E())).toBe(before);
+        act(() => view.unmount());
+    });
+
+    test("a frame deleted, its delete undone, then dragged: the reload keeps it at its new address", async () => {
+        let view = await mount("c4");
+        const fx = build(E());
+        await save();
+        act(() => { E()._setSelection([], [fx.R]); E().deleteSelection(); });
+        await save();
+        act(() => { expect(E().undo()).toBe(true); });
+        await save();
+        const was = chain(E(), fx.R);
+        drop(E(), fx, 40, 0);
+        expect(chain(E(), fx.R)).not.toEqual(was);
+        await save();
+        const before = state(E());
+        act(() => view.unmount());
+        view = await mount("c4");
         expect(state(E())).toBe(before);
         act(() => view.unmount());
     });

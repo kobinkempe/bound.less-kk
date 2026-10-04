@@ -376,6 +376,19 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         E.destroy();
         return F;
     };
+    // A write after every step, as the saver's (`useKobinEngine`): the tick's entries; a snapshot of every frame the tick
+    // forced (an undo, a redo, a move) and of every frame with a list and no row; a frame without a list loses its row,
+    // and the reload lists the frames with rows (F98). No compaction.
+    const syncStore = (E) => {
+        const st = stores.get(E);
+        if (!st) return;
+        const K = KIND[E._fuzzKind], log = logs.get(E), d = log.drain(), seq = log.seq;
+        st.entries.push(...d.entries);
+        const want = new Set(d.full ? Object.keys(E.doc.nativesByLevel) : d.forced.map(String));
+        for (const level of Object.keys(st.frames)) if (!E.doc.nativesByLevel[level]) { delete st.frames[level]; delete st.frameSeq[level]; }
+        for (const level of Object.keys(E.doc.nativesByLevel)) if (!(level in st.frames)) want.add(level);
+        for (const level of want) if (E.doc.nativesByLevel[level]) { st.frames[level] = K.encode(E.doc.list(level)); st.frameSeq[level] = seq; }
+    };
     const reloadStore = (E) => {
         const kind = E._fuzzKind, K = KIND[kind];
         const log = logs.get(E);
@@ -386,13 +399,14 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             stores.set(E, { frames, frameSeq, camera: E.cam.state(), entries: log.drain().entries });
             return E;
         }
+        syncStore(E);
         const entries = st.entries.concat(log.drain().entries);
         const F = mk(kind, w, h, all);
         const nat = {};
         for (const level of Object.keys(st.frames)) nat[level] = K.decode(st.frames[level].objects, st.frames[level].geo);
         F.loadDrawing({ format: "boundless-drawing", version: 2, meta: { name: "t" }, camera: st.camera, crossings: E.lm.serialize(), natives: nat });
         const L = new K.OpLog(F);
-        L.replay(entries, st.frameSeq);
+        L.replay(entries, st.frameSeq, Object.keys(st.frames));
         F.flushBakes();
         F._render();
         logs.set(F, L);
@@ -572,6 +586,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             for (const t of table) { if ((r -= t[1]) < 0) { op = t; break; } }
             op[2]();
             both((E) => E._render());
+            both(syncStore);
             ops.push(op[0]);
             if (check(O, N, step, op[0], rnd) === false) break;
         }

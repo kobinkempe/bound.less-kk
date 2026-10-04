@@ -424,7 +424,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
         delete R.pyramid.cfg.patchInlineMs; delete R.pyramid.cfg.patchUserMs;
     });
 
-    test("the undo of a small stroke over dense cells is inline: the estimate clipped to the patch, one frame (16 ms) for a user's patch, 6 ms for a patch the bake issues (A3 §3.3)", async () => {
+    test("the undo of a small stroke over dense cells is inline: the estimate clipped to the patch, three frames (48 ms) for a user's patch, 6 ms for a patch the bake issues (A3 §3.3)", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer, c0 = E.cam;
         R.pyramid.calibrate = () => ({});                              // the Chrome-derived constants, not this node's timings
@@ -446,7 +446,7 @@ describe("the pen-up rule and the partial path on the pyramid (B-PYRAMID-2 P2)",
             const n0 = R.pyramid.s.patchInline;
             E[op]();
             const lp = R.pyramid.lastPatch;
-            expect([op, lp.inline, lp.budget]).toEqual([op, true, 16]);
+            expect([op, lp.inline, lp.budget]).toEqual([op, true, 48]);
             expect(R.pyramid.s.patchInline).toBe(n0 + 1);
             // Over whole cells the chords alone are past the bake's 6 ms (0.73 µs each): the clip is what makes it small.
             const [a, b] = [F(60, 490), F(120, 530)];
