@@ -170,6 +170,8 @@ and the view plates omit the selection, so it is invisible until the drop, and t
 part ends at a hard plate edge that moves with the pointer. Bites exactly the "select a lot
 and move it" case whenever the selection is bigger than the screen.
 
+*Closed 2026-09-29 by the rebuild (B-PYRAMID-2 P3; A3 §6's D1): the plane's SEL layers are cut from cells grown by one screen and the read window grows under a plane, so ink outside the view at the press is in a layer; P3's break-check of the rule turned 4 of 90 plane checks red, and the B-PYRAMID review re-ran it red on its copy.*
+
 **D2. Nine or more pending marks in one job share a mask.** `packJob` gives a mark slot
 `min(markOf.size, 7)`; `resolveMask` clears a slot only the first time it is used in a
 plate and max-merges after. Marks 8, 9, … become one union mask, and an ink item below
@@ -1683,6 +1685,8 @@ collected in 11.14 with the redesign's answer). Every ✗ needs a browser before
 None of these needed a new mechanism to fix; each disappears when the one rule that owns
 the invariant (10.9) is in place.
 
+*Closed by the rebuild (the orchestrator's docs pass, 2026-10-04), each by the rule that owns it:* **H1** — the store's pinned bound is own-grid records + 30 stand-ins + the plane cap, with a floor and the phone's ceiling (PLAN §5.6 M2, `PyramidStore`); the B-PYRAMID review's break-checks of the release, the floor and a step change each went red. **H4** — the plane draws a layer only when it is whole and the view never draws the selection beside it (A3 §6, never both); P3's break-check turned 3 of 90 plane checks red. **H6** — the lasso judges a moved native by its own placement (`selection._lassoMoved`, B-MODEL-C1), its break-check (the own table ignored) 1 red of 7.
+
 ---
 
 ## 12. Cross-check against the repository's own records
@@ -1838,6 +1842,8 @@ Each row names the repeat, where it is, and what removes it.
 | the selection status (subtree counts) recomputed on every pan and zoom event | `_emit` → `_selectionStatus` | cache per (selection, document revision) |
 | a tile's pieces removed by scanning every cached tile per remove event | `TileStore._removeObject` | an id → tiles index |
 | a thumbnail's list built cold for a scene the pyramid already covers | `snapshotView` | scale from cached plates when they cover the rectangle (W6) |
+
+*D-3 closed by the rebuild (B-PYRAMID-2 P2, A3 §3.6): a pen-up posts no band plates; the live path is held until the resolved shape's plates land in one group commit, which takes the path down in the task that shows them. B-PYRAMID-4 and R-PYRAMID-34 measured the round trip at 0 composes drawing a path and its plates together. **D272** (`.claude/RASTERISER-PLAN.md`, on the `claude-context` branch): the sync path it measured is deleted (B-PYRAMID-2b); its measured exit lives on as the inline rest's backstop, `PicturePyramid._heavyAt` (an inline rest that ran over 8 ms marks its estimate heavy).*
 
 ### 13.3 Where the memory goes
 

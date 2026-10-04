@@ -2939,3 +2939,26 @@ Browser batches announced here, each started under load 2. Then the final design
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: launching both; the monitor re-armed.
+
+## 2026-10-04 02:49 UTC — R-MODEL-C34 (reviewer, opus) — start: F138's fixes, then a short C3/C4 review
+**Working on:** brief `briefs/R-MODEL-C34.md`. Item 1 first: reproduce each F138 seed alone (131; C3/C4 47, 198; then
+29, 49, 51, 70, 87, 140, 193, 194; then select seed 34), classify (a) model defect / (b) comparison gap / (c) shared
+fault, fix with a red-before test. Files I am in: the model files the brief names (`LevelMap.js`, `Document.js`,
+`oplog.js`, `__testkit__/modelFuzz.js`, the model suites); `KobinEngine.js` only by small re-read edits. Scratch
+`r-c34/`. Hand back by ~05:50 UTC.
+**Measured:** nothing yet (load 0.07).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: reading the design and reproducing seed 131 alone.
+
+## 2026-10-04 02:50 UTC — B-PYRAMID-5 (builder) — start (PLAN §5.22's next steps, F137, the overlay's tail)
+**Working on:** the brief's six items in order: exact over coarse when both fit 48 ms; `unask`'s G check; the hidden
+tab's commit step; RV4 and `stage.cover` C4 deterministic; F137 real or not (three runs a tree, landed against bA,
+before any bisect); the overlay's tail after a drop measured and proposed. Files: `src/engine/raster/*` (PicturePyramid,
+RasterRenderer, jobQueue), the raster suites, `stage.cover.test.js`, the harness, DESIGN §9, A3, OPEN-FLAGS F137.
+`KobinEngine.js` only if needed (re-read first); `Stage.js` read only. Scratch `bp5/`, ports 3010–3019. Hand back by
+~04:50 UTC. Browser batches announced here, started under load 2.
+**Measured:** nothing yet (load 0.24).
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: reading the code (`patchPlan`, `_coarseJob`, `unask`, `_pyrCommitStep`, `_aim`).
