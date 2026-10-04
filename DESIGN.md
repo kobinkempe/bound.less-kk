@@ -643,7 +643,8 @@ of 300 natives wrote 300 then 600 tables an event, 0 since (2026-09-29, the froz
 **A frame keeps its identity** (A1 C3, 2026-09-30). A target cell another frame holds makes
 the mover a permanent **co-resident** there (`LevelMap._take`); nothing merges. An empty,
 childless resident — a visited cell, the common case — hands the mover the residency; a
-private frame (§10) never keeps it from a public one. Co-residents' kids are linked the same
+private frame (§10) never keeps it from a public one, nor takes it from one (a unit moving together leaves its cells
+first, so its empty public frame is childless when its private co-resident lands; F138). Co-residents' kids are linked the same
 way all the way down (`_linkKids`; a frame leaving splits them, `_splitKids`), so the frames at a
 cell are one group and their parents one group. Address lookups return the resident
 (`findCellChild`); every by-cell reader reads the whole cell (`Document.cellList`,
@@ -754,7 +755,8 @@ lever (1, 2 or 3), of the **rest set** (the camera's exact Z once it is still) o
 (`level.js` keys them; no dpr and no quantum in a key). `PicturePyramid` is the layer: each camera step
 publishes one view — a level ℓv drawn stretched by σ inside a band [σmin, 2^S·σmin), or the rest set at σ = 1 —
 and plans every screen cell from one rule list (A3 §1.4): its own exact plate; the same picture from another
-frame's level (a crossing's frame just left); exact children; the finest exact coarser plate (blurrier); the patch
+frame's level (a crossing's frame just left); exact children; the finest exact coarser plate (blurrier: its own, else its twin in another frame — past a
+crossing the frame left holds it, F137); the patch
 rule (the stale plate sharp, the fresh coarser picture over the dirty rectangles only); the stale plate (older)
 only while its worker patch is pending (A3 §3.4, counted as `olderPatchMs`); a stale coarser one; paper. A compose
 draws at most `COMPOSE_IMAGES` 30 distinct images directly (Chrome's 2D canvas pays ~100 ms a frame past 33 with
@@ -1184,7 +1186,8 @@ bake at that engine's own result (`erase.oldStore.test.js`).
 **The lattice is the header's** (2026-09-15, the subtree move of §8). Every write
 carries `LevelMap.serialize` — addresses, shifts, co-residents, private flags — beside its
 entries, so the stored lattice is never older than any stored entry, and a replayed
-`moveFrames` or its undo re-addresses nothing: it rebuilds the op.
+`moveFrames` or its undo re-addresses nothing: it rebuilds the op. A lattice whose frame `0` a subtree delete took
+loads without it: the root `0` is added only to an empty lattice, never parentless beside the tree (F138 seed 174).
 The natives' tables are entries, every apply by RESULT so it replays the same
 whatever else the tick held (a frame moved as a frame is not re-snapshotted: its shift
 is the header's, and no table takes it — A1 C1; a `settle` entry, from a store written
@@ -1207,7 +1210,9 @@ away since); the saver snapshots every listed frame that has no stored snapshot,
 emptied and later drawn in again is never listed at seq 0; and replay caps the rebuilt undo
 stack op by op, as `pushUndo` does. The format did not change: every listed frame has a
 snapshot, so the cloud manifest's `frameIds` and chunks carry the rule as they are. Frame GC
-(§8) leans on it: a forgotten frame is an unlisted one. **Undo and redo in replay** (2026-09-24,
+(§8) leans on it: a forgotten frame is an unlisted one — so an undone cede whose private frames GC forgot, one id
+taken again by a later cede, does not come back at a reload (F138 seed 131; `store.subtree`; a replay without the
+listing brings it back). **Undo and redo in replay** (2026-09-24,
 REVIEWER-2 U-1..U-4, REVIEWER-3 SAVE-1): the undo of an add names the frame the object was
 removed from; a stale undo or redo of a move rewinds each member to the op it inverts —
 always that op's `from` and `belowBefore`, since after an undo the op held is already the

@@ -386,8 +386,8 @@ export default class PicturePyramid {
             const c = coarser(this.lm, S, F, l, i, j, k);
             if (!c) break;
             if (typeof c.i !== "number") continue;
-            const r = st.get(levelKey(c.frame, c.level, S, c.i, c.j));
-            if (r && st.exact(r) && this._sub(F, l, i, j, c, S)) best = r;
+            const x = this._coarserExact(c, S);
+            if (x && this._sub(F, l, i, j, x.c, S)) best = x.r;
         }
         return best;
     }
@@ -440,9 +440,9 @@ export default class PicturePyramid {
             const c = coarser(this.lm, S, F, l, i, j, k);
             if (!c) break;
             if (typeof c.i !== "number") continue;
-            const r = st.get(levelKey(c.frame, c.level, S, c.i, c.j));
-            if (!r || !st.exact(r)) continue;
-            const sub = this._sub(F, l, i, j, c, S);
+            const x = this._coarserExact(c, S);
+            if (!x) continue;
+            const r = x.r, sub = this._sub(F, l, i, j, x.c, S);
             if (!sub || !B.take([r])) continue;
             if (own) {                                                                                              // (e)
                 const D = this._dirtyIn(F, own, cellBox(own), cb);
@@ -536,6 +536,18 @@ export default class PicturePyramid {
             if (r && st.exact(r)) return r;
         }
         return null;
+    }
+
+    /**
+     * Coarser cell `c`'s exact picture and the cell it is: its own record, else the same picture at another frame's level
+     * (`_mapped`) — past a crossing the frame left holds it while the new frame's levels are not rendered (F137: the dense
+     * zoom back in drew paper with the parent's plates of that place in the store).
+     */
+    _coarserExact(c, S) {
+        const r = this.store.get(levelKey(c.frame, c.level, S, c.i, c.j));
+        if (r && this.store.exact(r)) return { r, c };
+        const m = this._mapped(c.frame, c.level, S, c.i, c.j);
+        return m ? { r: m, c: m } : null;
     }
 
     /** Where frame F's cell (i, j) at ℓ lies inside the coarser plate `c` (`level.coarser`'s answer): `[sx, sy, sw, sw]`. */

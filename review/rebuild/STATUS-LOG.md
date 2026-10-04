@@ -3118,3 +3118,8 @@ WHERE I AM: b2 running; reading item 6 (the overlay's tail) meanwhile.
 ## 2026-10-04 15:49 UTC — B-PYRAMID-5 (builder) — browser batch b2 continued (runs 5–7: the store's puts and evictions of the crossing's stand-ins)
 **Working on:** F137's paper traced in run 2 (234.5 ms: frame 2 at ℓ −4..−2 after the crossing, no record at any searched level, the store at its 90-plate cap); runs 5–7 log the stand-ins' puts and evictions. Same copy (:3012), each run under load 2.
 WHERE I AM: b2 runs 5–7; then the flag, then item 6.
+
+## 2026-10-04 16:00 UTC — B-PYRAMID-5 (builder) — b2 END; browser batch b3 START (item 6: the drop's profile)
+**Measured (b2):** traced HEAD copy, scenario 1 back-in paper 0 | 234.5 | 0.7 | 244 ms (runs 1, 2, 5, 6; load at start 1.31–1.92, at the end 2.9–6.6: the other agent's jest). The paper: step (d) never took a coarser cell's twin in the frame left (OPEN-FLAGS F137 rewritten); fixed in the plan, red-before tests and break-checks 2 and 1.
+**Working on:** b3 — a CDP sampling profile (100 µs) of scenario 4's drop on a clean copy of HEAD (`bp5/cur`, :3013), one run under load 2.
+WHERE I AM: b3; then the overlay fix.

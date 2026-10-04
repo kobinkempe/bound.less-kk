@@ -495,7 +495,9 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     cell another frame holds makes it a permanent co-resident
                     (_take joins the cell's group, _linkKids links the kids'
                     cells all the way down; an empty childless resident
-                    yields; _leave splits a leaving subtree out), lookups
+                    yields, but a private frame never takes or keeps a cell
+                    from a public one; _leave splits a leaving subtree out;
+                    a load mints "0" only into an empty lattice), lookups
                     return residents through the group (_kidAt,
                     findCellChild, cellChild, peekNeighbour; residentOf,
                     cellFrames, sameCell), geometry walks cells (_cellParent),
@@ -587,7 +589,9 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     stamped with chainSeq (the addrSeq sum up its frame's
                     ancestry), so a re-address rebuilds it on lookup; the
                     frame events refile / removeFrame / addFrame drop every
-                    tile meeting the frame's footprint (_onFrameEvent). F55
+                    tile meeting the frame's footprint (_onFrameEvent; a
+                    deleted subtree's events carry its root's address, the
+                    one whose parent is still there). F55
                     stands: a table change drops nothing. A cell's co-residents
                     are one cell to the tiles (A1 C3): the up bake's parent and
                     ring read cellList, a down tile leaves out its own cell's

@@ -96,6 +96,10 @@ test("trace", () => {
             const one = (E) => { const h = E.doc.getById(ID); if (!h || !E.lm.frame(B)) return "-"; const bx = E.stage.placeNative(h.obj, B).box(); const f = E.lm.frame(String(h.level)); return (bx ? [bx.left, bx.top].map((v) => v.toFixed(2)).join(",") : "nobox") + " home " + h.level + " @" + (f ? f.cell.i + "," + f.cell.j + " <" + f.parent + " sh" + JSON.stringify(f.shift) : "?") + " own " + JSON.stringify(E.doc.ownTable ? E.doc.ownTable(h.obj) : h.obj.below); };
             log("BOX " + step + " " + op + "\n  O " + one(O) + "\n  N " + one(N));
         }
+        if (process.env.DBG_ROOTS && step >= Number(process.env.DBG_ROOTS)) {
+            const rs = (E) => [...E.lm.frames.values()].filter((f) => f.depth <= 0).map((f) => f.id + "<" + f.parent + "@" + f.cell.i + "," + f.cell.j + " d" + f.depth + (f.shadowOf != null ? " ~" + f.shadowOf : "") + " n" + E.doc.count(f.id) + " kids" + (f._kids ? f._kids.size : 0) + " place " + placeOf(E, f.id)).join(" | ");
+            log("ROOTS " + step + " " + op + "\n  O: " + rs(O) + "\n  N: " + rs(N) + "\n  cam O " + O.cam.frame + " N " + N.cam.frame);
+        }
         log("TL " + step + " " + op + " live=" + (hn ? hn.level + (N.lm.frame(String(hn.level)) ? "" : " MISSING") : "-") + " oracle=" + (ho ? ho.level : "-") + (lines.length ? "\n  " + lines.splice(0).join("\n  ") : ""));
         if (step < STEP) { for (const V of framesToCompare(O, N)) comparePictures(O, N, V, st, C34 ? 2 : 1); return true; }
         for (const V of framesToCompare(O, N)) { const d = comparePictures(O, N, V, st, C34 ? 2 : 1); if (d) { log("DIFF " + d); break; } }

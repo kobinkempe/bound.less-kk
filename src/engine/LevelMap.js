@@ -1246,7 +1246,8 @@ export default class LevelMap {
             if (f.private != null) g.private = String(f.private);
         };
         for (const f of list) put(f);
-        if (!this.frames.has("0")) this._addFrame("0", null, { i: 0, j: 0 }, 0);
+        // An empty lattice gets its root; a "0" a subtree delete took is not minted parentless beside the tree (F138).
+        if (!this.frames.size) this._addFrame("0", null, { i: 0, j: 0 }, 0);
         // Frames sharing a cell were grouped as they were added (`_addFrame`); the saved resident keeps the cell.
         for (const f of list) {
             if (f.shadowOf == null) continue;

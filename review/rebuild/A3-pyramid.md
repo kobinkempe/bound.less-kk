@@ -243,6 +243,13 @@ patch's is), `olderOtherMs` only when nothing is on its way. The never-older fuz
 42 with an older cell, every one (f′) with its tiles unread, 139 ms `olderUnreadMs` (the same draws were 178.6 ms of
 `olderOtherMs` before).
 
+*B-PYRAMID-5, 2026-10-04 (OPEN-FLAGS F137):* step (d) — and the budget's coarsest reserve — takes each coarser cell's
+own exact record, else its exact twin at another frame's level (`_coarserExact` → `_mapped`, the cross-frame rule (b)
+already applies at the cell's own level). Traced in headless Chromium on the dense zoom back in: just past the crossing
+into frame 2 (view ℓ −3), frame 2 had no level rendered (the zoom outran the workers) and the store, at its 90-plate cap,
+held frame 1's levels 5–8 of that place (39 plates: frame 2's ℓ −7..−4 as twins), which (d) never consulted — it
+followed frame 2's own levels −4..−8, then frame 1 under the floor (levels 3..0, gone): 6–8 cells paper for 0.2–1 s.
+
 ### 1.5 Direct scaled draws versus the surface, against the image cliff
 
 Chrome's 2D canvas pays per frame once one frame holds more than ~33 distinct images with any scaled (PP

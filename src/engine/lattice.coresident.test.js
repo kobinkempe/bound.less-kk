@@ -128,6 +128,22 @@ describe("co-residents in the lattice", () => {
         }
         expect(M.frame(Qk.id).parent).toBe(Q.id);
     });
+
+    test("a lattice whose frame \"0\" was deleted loads without a parentless \"0\"; the delete's undo puts it back in the tree (F138 seed 174)", () => {
+        const M = new LevelMap(CFG, 800, 600);
+        M.ensureSpine(-1); M.ensureSpine(2);
+        const K = M.cellChild("0", 3, 3);
+        const recs = M.removeSubtree("0");
+        expect(recs[0].id).toBe("0");
+        expect(recs.map((r) => r.id)).toEqual(expect.arrayContaining(["1", "2", K.id]));
+        const L = new LevelMap(CFG, 800, 600);
+        L.load(M.serialize());
+        expect([...L.frames.values()].filter((f) => f.parent == null).map((f) => f.id)).toEqual(["-1"]);   // red before: "-1" and "0"
+        for (const r of recs) L.restoreFrame(r);
+        expect(L.frame("0").parent).toBe("-1");
+        expect(L.frame(K.id).parent).toBe("0");
+        expect(L.spineAt(0)).toBe("0");
+    });
 });
 
 describe("co-residents in the engine", () => {

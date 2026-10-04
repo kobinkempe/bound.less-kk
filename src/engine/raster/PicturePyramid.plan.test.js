@@ -110,7 +110,11 @@ function oracle(t, v, i, j) {
     if (kids.every(ex)) return { kids };
     for (let k = 1; k <= N; k++) {
         const c = coarser(t.lm, S, F, l, i, j, k);
-        const r = c && st.get(levelKey(c.frame, c.level, S, c.i, c.j));
+        let r = c && st.get(levelKey(c.frame, c.level, S, c.i, c.j));
+        if (!ex(r) && c && typeof c.i === "number" && c.frame !== "0") {      // the coarser cell's twin in the root (F137)
+            const m = mapCell(t.lm, S, c.frame, c.level, c.i, c.j, "0");
+            r = m && st.get(levelKey("0", m.level, S, m.i, m.j));
+        }
         if (!ex(r)) continue;
         if (own) {
             const Z = zOf(l, S), cb = { left: i * P / Z, top: j * P / Z, right: (i + 1) * P / Z, bottom: (j + 1) * P / Z };
@@ -170,6 +174,10 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
                 if (r < 0.12 && S === 1) for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) t.put(levelCell(F, l + 1, S, 2 * i + a, 2 * j + b), G);
                 else if (r < 0.3) { const k = 1 + Math.floor(rnd() * 3); t.put(levelCell(F, l - k, S, i >> (k * S), j >> (k * S)), G); }
                 else if (r < 0.38) { const off = 2 ** (8 + l * S); t.put(levelCell("0", l + 12 / S, S, i + fa.cell.i * off, j + fa.cell.j * off), G); }
+                else if (r < 0.44) {                                         // a coarser level's twin in the root (F137)
+                    const k = 1 + Math.floor(rnd() * 3), off = 2 ** (8 + (l - k) * S);
+                    t.put(levelCell("0", l - k + 12 / S, S, (i >> (k * S)) + fa.cell.i * off, (j >> (k * S)) + fa.cell.j * off), G);
+                }
             }
             const P0 = t.pyr.compose();
             checked += checkPixels(t, P0, fail);
@@ -282,6 +290,40 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         const cell = P0.cells.find((c) => c.rest && c.i === i && c.j === j);
         expect(cell.draws.map((d) => d.cls)).not.toContain("older");           // red before: the stale rest plate, older
         expect(cell.draws.every((d) => d.cls === "blur" && twins.includes(d.rec.key))).toBe(true);
+    });
+
+    test("F137: just past a crossing, a cell with no level of its own takes a coarser level's twin in the frame left, not paper", () => {
+        // The dense zoom back in: the child's levels never rendered, the parent's plates of the same place a level or more
+        // coarser than the view's twin (the zoom outran the workers there) — those, not paper.
+        for (const k of [1, 3]) {
+            const W = 900, H = 700, t = setup(W, H), F = String(t.A), fa = t.lm.frame(t.A);
+            const l = 4, Z = zOf(l, S) * 1.1;
+            t.pyr.frameFor(cam(t.A, Z, -300, -200, W, H));
+            const v = t.pyr._v, G = t.stage.generation, lc = l - k, off = 2 ** (8 + lc * S), twins = new Set();
+            for (let j = v.j0 >> k; j <= v.j1 >> k; j++) {
+                for (let i = v.i0 >> k; i <= v.i1 >> k; i++) {
+                    const c = levelCell("0", lc + 12 / S, S, i + fa.cell.i * off, j + fa.cell.j * off);
+                    t.put(c, G);
+                    twins.add(c.key);
+                }
+            }
+            const P0 = t.pyr.compose();
+            expect([k, paperCells(P0)]).toEqual([k, 0]);                     // red before: every cell paper
+            expect(P0.cells.every((c) => c.draws.length === 1 && c.draws[0].cls === "blur" && twins.has(c.draws[0].rec.key))).toBe(true);
+            const fail = (m) => { throw new Error(m); };
+            expect(checkPixels(t, P0, fail)).toBeGreaterThan(1000);
+        }
+    });
+
+    test("F137: a binding budget's coarsest reserve takes a coarser level's twin in the frame left: none is paper", () => {
+        const W = 1024, H = 768, t = setup(W, H), fa = t.lm.frame(t.A);
+        t.pyr.frameFor(cam(t.A, 16 * 0.72, -200, -200, W, H));               // ℓ 4 at σ 0.72: cells (0..3, 0..2), none cached
+        const v = t.pyr._v, twin = (lc, i, j) => { const off = 2 ** (8 + lc * S); return levelCell("0", lc + 12 / S, S, i + fa.cell.i * off, j + fa.cell.j * off); };
+        for (let j = v.j0; j <= v.j1; j++) for (let i = v.i0; i <= v.i1; i++) { t.put(twin(3, i >> 1, j >> 1), 0); t.put(twin(2, i >> 2, j >> 2), 0); }
+        planeOf(t, String(t.A), 16, COMPOSE_IMAGES - 3);                       // three stand-ins for four ℓ 3 twins and one ℓ 2
+        const P0 = t.pyr.compose();
+        expect([P0.scaled, paperCells(P0)]).toEqual([3, 0]);                  // red without the twin in the reserve: cells paper
+        expect(P0.cells.every((c) => c.draws[0].rec && c.draws[0].rec.frame === "0")).toBe(true);
     });
 
     test("the patch rule (e): the fresh coarser picture inside the dirty rectangles only, the sharp stale plate elsewhere", () => {

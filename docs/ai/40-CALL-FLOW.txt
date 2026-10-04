@@ -221,7 +221,7 @@ SELECTING AND MOVING
   pointerup
     _endMove("drop")                        the one exit; one stage.batch:
       _dropMove(d)                          the drag's ONE write, from the start to d.t:
-        for each member of the selection's edit families:
+        for each member of the selection's edit families (listed at the press, before the frames move: F138 seed 70):
           _displaceMember(from, pictureTable, d.depth, tx, ty)   once per (frame, table)
             depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
             depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
