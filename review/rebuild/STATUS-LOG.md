@@ -3133,3 +3133,25 @@ B-PYRAMID-5 asked to confirm its two F137 tests fail on the old `PicturePyramid.
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for the resumed entries.
+
+## 2026-10-04 21:46 UTC — R-MODEL-C34 (reviewer) — resumed after the third stop and reboot (tree at 3e215f0)
+**Working on:** the two differences the larger runs found (below), then the review's measurements (bake profile, census,
+city lasso, R-DRAG's timings, Chromium scenarios 3/4), docs, the suites. Files as before plus `LevelMap.js`,
+`lattice.coresident.test.js`, `model.fuzzRules.test.js`, DESIGN §8/§13, docs/ai 30/40.
+**Fixed since 07:45 (each red before, one test each; break-check on my copy: exactly that test red):** (a) the fuzz's
+new lattice-invariant check found a private frame made a cell's resident beside a public one (`_joinGroups`: an empty
+childless public frame yielded to a private mover — mid-`readdressMany` every mover has left; seeds 198, 87, 29) →
+`lattice.coresident` "a private frame never keeps a cell from a public one"; (b) seed 174, hidden until places stopped
+depending on root growth: a load added a parentless "0" when a subtree delete had taken "0" (`_loadFrames`), a camera
+named "0" landed in it, and an undo would restore the subtree under it → "a lattice whose frame 0 was deleted loads
+without a parentless 0". Harness: the cameras asserted at one place after every op (a camera apart was unseen: frames
+the oracle lacks at its place were left out silently); places name the top frame by depth, grown roots dropped.
+**Exception break-checks, red:** rerouted (1e-3, W), oracleSlip (live −W slip; was green before its pieces check),
+dropDeselect (140, 194), held (select 34), carriedAlike (own-table bound, `model.fuzzRules`), unitApart (a mis-homed
+member: 21 fires, red at seed 8; the earlier wide guard skipped it 3 times), the camera premise (a camera moved a cell at
+an undo: red at seed 29 step 7), normalised (a 1e-3 placement offset: red at seeds 2, 16).
+**Runs:** tile 200+200 green (16,000 checks; camSynced 1, unitApart 5, dropDeselect 38, rerouted 6 max 9.3e-10,
+oracleSlip 3, normalised 276); selection 50+50 green (held 5). Tile 500+500: plain seed 416 step 13 (undo) cameras apart;
+selection 200+200: C3/C4 seed 73 step 21 (subtreeDrag) oracle [5,7,8] live [8]. Both being traced.
+**Questions asked:** none.
+WHERE I AM: tracing tile seed 416 step 13 (plain lane), then selection seed 73.
