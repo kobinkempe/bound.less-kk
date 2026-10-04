@@ -1078,3 +1078,9 @@ differences classified and fixed, then a short review of C3/C4; **B-PYRAMID-5** 
 RV4 and `stage.cover` C4 made deterministic), F137 established as real or not before more bisecting, the overlay's tail
 after a drop measured and proposed. After both land: the final full-design check (the harness on every scenario, the
 docmaps, the review-document rows, `docs/ai/10-STATUS.txt`, the summary for Kobin).
+
+Addendum, the same day — Kobin: "No need to be short/high value anymore, the limit has reset." Both agents told by
+message: the time boxes dropped; R-MODEL-C34 root-causes every F138 difference, then runs the fuzzes larger (500 + 500
+tile, 200 + 200 selection), does the C3/C4 review in full (B-MODEL-C34's §3 acceptance item by item) and R-DRAG's
+skipped items (§5.21); B-PYRAMID-5 fixes the overlay's tail after a drop (`overlays.js` its), then takes R-PYRAMID-34's
+skipped items (§5.22 item 6) and measures in full. The final design check after both, in full.

@@ -2962,3 +2962,13 @@ RasterRenderer, jobQueue), the raster suites, `stage.cover.test.js`, the harness
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: reading the code (`patchPlan`, `_coarseJob`, `unask`, `_pyrCommitStep`, `_aim`).
+
+## 2026-10-04 02:51 UTC — orchestrator (Opus) — Kobin: the limit has reset; both agents to full scope
+**Working on:** Kobin's "no need to be short/high value anymore" relayed to both agents (PLAN §5.24's addendum):
+R-MODEL-C34 — every F138 difference root-caused and fixed, the fuzzes run larger, the C3/C4 review in full, R-DRAG's
+skipped items; B-PYRAMID-5 — the overlay's tail after a drop fixed (`overlays.js` its), R-PYRAMID-34's skipped items,
+the full measurement. Time boxes dropped.
+**Measured:** nothing.
+**Decisions made:** `overlays.js` to B-PYRAMID-5 (R-MODEL-C34 is not in it); `selection.js` and the drag paths stay R-MODEL-C34's.
+**Questions asked:** none.
+WHERE I AM: waiting for both; the final design check after.
