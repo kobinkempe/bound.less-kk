@@ -2914,3 +2914,18 @@ C3c/C4), the selection fuzz at 50 + 50 one (C3b's): OPEN-FLAGS F138, open. Nothi
 F138 is reported, not fixed (Kobin's stop).
 **Questions asked:** none.
 WHERE I AM: the closing entry next; then stop.
+
+## 2026-10-04 02:31 UTC — orchestrator (Opus) — the rebuild's build phase closed (Kobin's stop after C3/C4)
+**Working on:** done; no agent running, no server or job of mine running. Landed in this phase: B-DRAG (C2) and its
+review, B-PYRAMID-3 and B-PYRAMID-4 and their review, B-MODEL-C34 (C3, C4) without a review (PLAN §5.19–§5.23).
+**Open, for the next session:** OPEN-FLAGS F138 (the 200-seed model fuzz: 11 walks differ from the oracle, 3 new with
+C3c/C4; the selection fuzz one of C3b's age) — the model pass to run first; F137 (scenario 1's zoom-back paper,
+bisected by rule without a culprit; the landed tree showed 0 ms in one run); PLAN §5.22's recorded next steps (exact
+over coarse when both fit 48 ms, the `unask` G check, the hidden tab's commit step, RV4/C4, the overlay's tail after a
+drop). Deferred by Kobin: a reviewer for C3/C4 and the final full-design check (the harness on every scenario, the
+docmaps, the review-document rows H1/H4/D1/D-3/D272/H6, `docs/ai/10-STATUS.txt`). Nothing of this phase has been
+checked in Kobin's Chrome: his list is in PLAN §5.19 items 1–3, §5.21 items 3–4 and §5.23 item 8.
+**Measured:** as the entry above.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: stopped.
