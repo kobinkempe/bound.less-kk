@@ -3075,3 +3075,33 @@ break-check over 100 + 100 seeds) and B-PYRAMID-5 (F137's batch b1 announced, ne
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for the resumed entries; the monitor re-armed.
+
+## 2026-10-04 15:39 UTC — R-MODEL-C34 (reviewer) — resumed after the second stop and reboot (tree at ce474fc)
+**Working on:** the exception break-checks (orchestrator 07:19), then 200+200 / 500+500 tile and 50+50 / 200+200
+selection runs, the full C3/C4 review, R-DRAG's skipped items. Files as at the 07:18 checkpoint, plus
+`model.fuzzRules.test.js` (new) and `select.stands.probe.js` (uses `modelFuzz.selectionInk`/`carriedAlike`).
+**Measured before the stop (jsdom, load 1.9–3.4):** tile fuzz 200+200 green (16,000 checks, 110,356 items; camSynced 1,
+unitApart 5, dropDeselect 38, rerouted 6 max 9.3e-10, oracleSlip 3) — on the harness before the last two narrowings, so it
+reruns. Selection fuzz 50+50 green (4,000 checks, 800 selections, held 5).
+**Exception break-checks on my copy `r-c34/bc` (env-gated injections):** rerouted — a 1e-3 or a W offset at a rerouted
+read: seed 87 red. oracleSlip — a live −W slip beside its home: 193 red (and green before the live-pieces check: the rule
+was wider than its reason, narrowed). dropDeselect — the drop's selections must stand for one ink: a dropped first frame
+throws on 140, 194. held (select 34) — 34 red with a frame lost from the live selection. carriedAlike — a home a cell off
+made up by its own table: `model.fuzzRules` red (bound added). Not yet biting: the camera rule (a held-back live camera
+never fired over 100+100) and unitApart (a lost re-home never fired on 87): need injections that fire.
+**Questions asked:** none.
+WHERE I AM: a camera injection that fires (the live camera in a frame an undo moves), then unitApart's.
+
+## 2026-10-04 15:40 UTC — B-PYRAMID-5 (builder) — resumed after the second stop and reboot; batch b1 had run (END)
+**Working on:** item 5's result, then item 6 (the overlay's tail, a fix in `overlays.js`), R-PYRAMID-34's skipped
+items, the full measurement. Tree at ce474fc (items 1–4 as checkpointed).
+**b1 did run before the stop** (its log `bp5/batch1.log`, 07:36–07:45 by the container's clock; six runs, exit 0, each
+started under load 2: 1.74–1.98 → 1.74–2.83 at the end; dev servers compiled clean; nothing re-run). Headless
+Chromium, `--dense --scenario 1`, one frozen harness (HEAD's), interleaved. **Back-in `paperMs`:** landed 59f0a76
+0 | 225.5 | 0.3; bA (B-PYRAMID-4's before copy) 451.9 | 141.6 | 178.2. Out: landed 26.1 | 587.9 | 3.3, bA 98.9 | 25.0 |
+435.8. Unread cells on the way back 64–88 (landed), 48–80 (bA); older 0 in all.
+**Decisions made:** F137's premise (paper after B-PYRAMID-4, none before) does not hold: the before copy shows the
+back-in paper in 3 runs of 3. Not bisecting between two trees that both show it; tracing the paper's cells on the
+landed tree instead (where it comes from, which rule), then the flag rewritten with the six numbers.
+**Questions asked:** none yet (the flag's new reading goes in the report).
+WHERE I AM: reading the back-in row of `h-landed-s1-2.log` for where the paper is; then item 6.
