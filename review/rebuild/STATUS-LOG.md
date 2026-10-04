@@ -2929,3 +2929,13 @@ checked in Kobin's Chrome: his list is in PLAN §5.19 items 1–3, §5.21 items 
 **Decisions made:** none new.
 **Questions asked:** none.
 WHERE I AM: stopped.
+
+## 2026-10-04 02:48 UTC — orchestrator (Opus) — Kobin: the reviews and fixes; R-MODEL-C34 and B-PYRAMID-5 launching
+**Working on:** Kobin's "go ahead onto the reviews and fixes" (PLAN §5.24): R-MODEL-C34 (F138's fixes, then a short C3/C4
+review; ports 3030–3039, scratch `r-c34/`) and B-PYRAMID-5 (PLAN §5.22's next steps, F137, the overlay's tail; ports
+3010–3019, scratch `bp5/`) launching side by side; files disjoint (model against raster); `KobinEngine.js` shared.
+Browser batches announced here, each started under load 2. Then the final design check.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: launching both; the monitor re-armed.

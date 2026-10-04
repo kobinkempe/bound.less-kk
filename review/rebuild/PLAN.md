@@ -1069,3 +1069,12 @@ more reviewers) the orchestrator landed it, without a review:
 8. **On Kobin's check list** (user-visible): a frame dropped where another holds ink stays itself, a co-resident,
    never merged; a lasso over ink a cede tore takes the frames whole, not the pieces; an undo of a subtree delete can
    put the subtree back beside new ink in its cell; a camera left in a deleted frame moves to a fresh frame there.
+
+### 5.24 Kobin, 2026-10-04: "go ahead onto the reviews and fixes"
+
+Two agents side by side, files disjoint: **R-MODEL-C34** (`briefs/R-MODEL-C34.md`, opus-reviewer) — F138's twelve fuzz
+differences classified and fixed, then a short review of C3/C4; **B-PYRAMID-5** (`briefs/B-PYRAMID-5.md`, opus-builder)
+— PLAN §5.22's next steps (exact over coarse when both fit 48 ms, the `unask` G check, the hidden tab's commit step,
+RV4 and `stage.cover` C4 made deterministic), F137 established as real or not before more bisecting, the overlay's tail
+after a drop measured and proposed. After both land: the final full-design check (the harness on every scenario, the
+docmaps, the review-document rows, `docs/ai/10-STATUS.txt`, the summary for Kobin).
