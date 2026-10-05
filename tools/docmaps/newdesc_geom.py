@@ -644,3 +644,21 @@ FIX = {
 # Functions that looked mid-edit (another agent is writing them): described as they stand.
 FLUX = [
 ]
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("off.homeTranslation", "homeTranslation(below)",
+    "A table's whole translation at the home depth, in home units — its whole frames and its remainder — or null when it has none.",
+    ["-"], "§8")
+add("off.ownTranslation", "ownTranslation(o)",
+    "A native's own table's translation at its home (k = 0), without its frame's shift; null when it has none.", ["-"], "§8")
+add("off.pictureTable", "pictureTable(o, shift)",
+    "A native's picture table given its home frame's shift: its own table composed with the shift (A1 C1).", ["-"], "§8")
+add("off.ownTableOf", "ownTableOf(o)",
+    "A copy of a native's own table, as a piece cut from it or an undo entry keeps it; undefined when it has none.", ["-"], "§8")
+add("off.ownTableFor", "ownTableFor(T, shift)",
+    "The own table a native homed in a frame with `shift` must carry to be drawn with picture table T: T less the shift, so new ink and a ceded kid are drawn where they were put (A1 C1).",
+    ["A copy. The one helper of `Document.ownFor` and the descent's kids (PLAN §5.14 item 4)."], "§8")
+add("off.composeShift", "composeShift(below, shift)",
+    "A native's picture table (A1 C1): its own table with its home frame's shift added at k = 0, without a carry, so the sum may reach a frame and a half; the table itself when the frame has no shift.",
+    ["Exact: both terms are multiples of 2^-10 under 2^18. The shift is placement, composed on read and never written into the table (DESIGN.md §8)."],
+    "§8")
