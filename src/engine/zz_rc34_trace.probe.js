@@ -78,6 +78,14 @@ for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
         if (process.env.DBG_CUTS) { const after = new Set(); for (const L of this.doc.levels()) for (const o of this.doc.list(L)) after.add(o.id); const gone = [...before].filter((x) => !after.has(x)), made = [...after].filter((x) => !before.has(x)); if (gone.length || made.length) lines.push(tag + " _applyCut gone " + JSON.stringify(gone) + " made " + JSON.stringify(made)); }
         return r; };
 }
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const pp = K.prototype._pendingPairs;
+    if (pp) K.prototype._pendingPairs = function (pred, mp) {
+        const r = pp.call(this, (rec) => { const v = pred(rec); if (watch && process.env.DBG_PAIRS) lines.push(tag + " pair? " + rec.obj.id + " -> " + v); return v; }, mp);
+        if (watch && process.env.DBG_PAIRS) { const marks = this._eraseStrokes().map((m) => m.obj.id + ":" + JSON.stringify([...(this._lineage.get(m.obj.id) || [])])); lines.push(tag + " pendingPairs marks " + marks.join(" ") + " -> " + r.map((x) => x.Erec.obj.id + "/" + x.rec.obj.id).join(",")); }
+        return r;
+    };
+}
 wrapLog(OpLog, "LIVE", decodeEntry); wrapLog(OOpLog, "ORAC", oDecodeEntry);
 test("trace", () => {
     const st = {};
