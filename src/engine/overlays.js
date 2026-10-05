@@ -541,11 +541,12 @@ class Overlays {
      * whole drag, stamped with the drag and the pointer position it was made
      * at, and each event moves it by the pointer's travel since — a screen
      * translation, added to the transform. It outlives the drop (or a cancel)
-     * too, moved by the displacement the drop wrote, when the selection draws
-     * the same natives and frames as at the drag's start (a drop's repair may
-     * re-express it, DESIGN.md §10) and each is drawn exactly that far from where
-     * it was then (`_selMovedBy`); anything else decides afresh from the moved
-     * geometry. Re-deciding at the drop was 548–803 ms of the dense scene's drop frame.
+     * too, moved by the displacement the drop wrote, when the ink the selection
+     * stands for — its natives, and every frame under it by its own natives —
+     * is drawn exactly that far from where it was at the drag's start, whichever
+     * frames the drop's repair made its entries (DESIGN.md §10; `_selMovedBy`);
+     * anything else decides afresh from the moved geometry. Re-deciding at the
+     * drop was 548–803 ms of the dense scene's drop frame.
      */
     _selectionAnts() {
         const s = this.selection;
@@ -652,20 +653,25 @@ class Overlays {
     }
 
     /**
-     * A selected frame's content where it is drawn, in F's units: the union of its subtree's index
-     * extents, each through its frame's shift. O(frames); no list is read (F103).
+     * A selected frame's content where it is drawn, in F's units: the union of its subtree's frames' own
+     * natives (`_selFrameInk`). O(frames); no list is read (F103).
      */
     _selFrameContent(f, F) {
         let out = null;
         this.lm.walk(f, (g) => {
-            const ext = this.doc.frameExtent(g.id);
-            if (!ext) return;
-            const b = ext.box, t = g.shift || [0, 0];
-            const r = this.lm.mapRectF({ left: b.x0 + t[0], top: b.y0 + t[1], right: b.x1 + t[0], bottom: b.y1 + t[1] }, g.id, F);
+            const r = this._selFrameInk(g, F);
             if (!r) return;
             out = out ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) } : r;
         });
         return out;
+    }
+
+    /** Frame `g`'s own natives where they are drawn, in F's units: its index extent through its shift; null when it has none. */
+    _selFrameInk(g, F) {
+        const ext = this.doc.frameExtent(g.id);
+        if (!ext) return null;
+        const b = ext.box, t = g.shift || [0, 0];
+        return this.lm.mapRectF({ left: b.x0 + t[0], top: b.y0 + t[1], right: b.x1 + t[0], bottom: b.y1 + t[1] }, g.id, F);
     }
 
     /**
@@ -855,10 +861,10 @@ class Overlays {
     }
 
     /**
-     * The ink the selection draws, each piece's drawn box in F's units by id: the natives among the scene's items that
-     * are its own or under a selected frame, its own members off the list, and its frames — a cell under
-     * SEL_FRAME_MARK_PX on screen as its dot, any other by its content (F103's dot where it is culled). Null when one is
-     * not drawn anywhere.
+     * The ink the selection stands for, each piece's drawn box in F's units: by id the natives among the scene's items
+     * that are its own or under a selected frame and its own members off the list, and every frame under a selected
+     * frame by its own natives (`_selFrameInk`), so a kid that a drop's rest tears off a selected frame and the repair
+     * makes a selected frame itself (DESIGN.md §10) is the same entry before and after. Null when a native is not drawn.
      */
     _selMembersAt(table, F) {
         const out = new Map(), memo = new Map();
@@ -874,14 +880,11 @@ class Overlays {
             if (!put(item.id)) return null;
         }
         for (const id of table.ids) if (!out.has(id) && !put(id)) return null;
-        const sc = this.cam.inScale;
         for (const f of table.frames) {
-            const fr = this.lm.frame(f);
-            const cell = fr && this.lm.mapRectF(withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0), f, F);
-            if (!cell) return null;
-            if (Math.max(cell.right - cell.left, cell.bottom - cell.top) * sc < SEL_FRAME_MARK_PX) { out.set("frame:" + f + ":dot", cell); continue; }
-            const r = this._selFrameContent(f, F);
-            if (r) out.set("frame:" + f, r);
+            this.lm.walk(f, (g) => {
+                const r = this._selFrameInk(g, F);
+                if (r) out.set("frame:" + g.id, r);
+            });
         }
         return out;
     }

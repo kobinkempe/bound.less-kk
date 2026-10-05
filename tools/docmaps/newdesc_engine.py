@@ -748,3 +748,182 @@ add("doc._stepsUndo", "_stepsUndo(op)",
 add("doc._stepsRedo", "_stepsRedo(op)",
     "The redo of an erase gesture: its steps in landing order where their sources are back, then any suspended step of an applied gesture whose source now is, until none applies.",
     ["-"], "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("erp.cutKey", "cutKey(m, t)",
+    "The reorder buffer's key for the pair (mark, target).", ["-"], "§7")
+add("erp._initErase", "_initErase()",
+    "The erase state, made once from the engine's constructor: the pending marks, each mark's lineage and serial order, the reorder buffer of cuts, the parked barrier, the step budgets — and the document subscriptions that keep them.",
+    ["Runs after the scene subscribes. The marks set and the lineage index are kept by events (`_onEraseEvent`), the history forks by ops (`_onEraseStep`), and the index is built once from the document (`_rebuildEraseIndex`). DESIGN.md §7, A2 §4.6."],
+    "§7")
+add("erp._onEraseEvent", "_onEraseEvent(ev)",
+    "Keeps the pending marks and the lineage index from the document's events: a mark added or removed, a native entering or leaving a mark's lineage; a reset drops every cut in flight and the parked barrier and rebuilds the index.",
+    ["A reset bumps the erase generation, so a job from before it is dropped when it lands. A frame put back (`addFrame`) brings its natives back by reference with no events of their own, so its natives are pruned of dead marks and counted into the budgets here. A native re-entering is pruned of marks that cannot return (`_pruneDead`) and, unless it is a re-home, grows the budgets of the marks it is pending under (`_supplyAdd`)."],
+    "§7")
+add("erp._supplyAdd", "_supplyAdd(o, by)",
+    "Native `o` arrived pending under marks other than `by` — another mark's piece, a source an undo returned, a frame an undo put back: each such mark's step budget grows by one.",
+    ["-"], "§7")
+add("erp._stepBudget", "_stepBudget(M)",
+    "Mark M's step budget, taken at its first step: the steps so far and its supply, the ids pending under it then.",
+    ["-"], "§7")
+add("erp._overBudget", "_overBudget(Erec)",
+    "Counts one step of a mark's bake; past 2 × its supply + 8 steps the bake is not converging — a wrong rule — so the mark is aborted, reported, noted on its journal entry and spent with the cuts it made, and true returned.",
+    ["So no loop can hang the page (DESIGN.md §7, the bake terminates; PLAN §5.8 item 3). The abort is kept for `report().erase.counters` and logged as a console error; the correct rule's steps never exceed the supply (`erase.rule.test.js`)."],
+    "§7")
+add("erp._markAlive", "_markAlive(id)",
+    "Whether mark `id` can mask anything again: it is in the document, deleted with its frame by an op in history (its undo puts it back, A1 C3), or held by an undone gesture on the redo stack.",
+    ["A spent mark never returns (its gesture undoes by its steps), nor one whose redo branch a new op cleared. The redo and undo scans are memoised on the stacks' identity, length and top."],
+    "§7")
+add("erp._pruneDead", "_pruneDead(o)",
+    "Drops from a native's `targetOf` and `handledBy` every mark that cannot return (A2 §4.6) — as it re-enters the document and at a load — so the undo of a finished erase restores the document exactly.",
+    ["-"], "§7")
+add("erp._onEraseStep", "_onEraseStep(ev)",
+    "The op-log side: a new op forks history, so the marks its dropped redo branch held leave the live natives' fields; a bake step replaces, in what a running barrier follows, the source by its pieces (A2 §4.11).",
+    ["-"], "§7")
+add("erp._rebuildEraseIndex", "_rebuildEraseIndex()",
+    "Builds the pending marks and the lineage index afresh from every frame's list; the serial orders, silent pairs and projections are dropped.",
+    ["-"], "§7")
+add("erp._lineageAdd", "_lineageAdd(m, id) · _lineageDelete(m, id)",
+    "Native `id` joins or leaves mark `m`'s lineage — the live natives with `m` in `targetOf`; one that joins is also noted for the mark's serial order (`_headOf`).",
+    ["-"], "§7")
+add("erp._marksUnlanded", "_marksUnlanded()",
+    "Whether any mark's shape has not landed, other than the one being drawn: a reader of the mask resolves it first.",
+    ["-"], "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("erp._registerMark", "_registerMark(Erec)",
+    "Records a landed mark's targets, once (A2 §4.2): the frames its ink covers whole set aside as one step, then every reachable native under it below its z, in the mark's `targets` and in each target's `targetOf`.",
+    ["Nothing can have moved under the mark before this runs: every gesture that moves ink resolves pending perimeters first, and the mark's op is on top of the undo stack until its shape lands (DESIGN.md §7). A mark from a file written before `targets` registers by the same scan under its stepped z, less the ids its op's steps name, whose pieces join its lineage as handled. Runs in the landing's Stage batch, so the mask reaches the plates with the shape."],
+    "§7")
+add("erp._registerLanded", "_registerLanded()",
+    "Registers every landed mark that has no `targets` yet: one from before the field, a direct add, one back by a redo (A2 §4.9).",
+    ["-"], "§7")
+add("erp._deriveTargetOf", "_deriveTargetOf()",
+    "After a load or a replay: every known mark's `targets` — live, or held by an op in the undo or redo stack — put back into its targets' `targetOf`, dead marks pruned, and the index rebuilt (A2 §4.9).",
+    ["A union, so idempotent. A snapshot written before a registration lacks the fields, and no log entry carries `targetOf`: it is derived."],
+    "§13")
+add("erp._eraseLoaded", "_eraseLoaded()",
+    "The erase side of a load: the lineage derived and, when this tab holds the pen, every mark from before `targets` registered, its `targets` logged once.",
+    ["-"], "§13")
+add("erp._opOf", "_opOf(id)",
+    "Mark `id`'s gesture op — its `eraseCommit` — from the commits seen or the undo stack, without minting one.", ["-"], "§7")
+add("erp._rectMayTouch", "_rectMayTouch(r, o)",
+    "Whether the eraser's rect, in native `o`'s stored coordinates, meets its box — a shape's loop by loop, a stroke's grown by half its width.",
+    ["-"], "§7")
+add("erp._projected", "_projected(E, HE, o)",
+    "Mark E's loops in native `o`'s stored coordinates, memoised per home and picture table, so targets moved together share one projection (A2 §4.7).",
+    ["The memo is keyed on the lattice's address epoch and the mark's version, so a re-address or a re-projected mark reads it afresh."], "§7")
+add("erp._pendingPair", "_pendingPair(M, o)",
+    "Whether the bake still owes the pair (mark M, native o): `o` is under M's mask by the erase rule and the eraser's box has not ruled it out.",
+    ["-"], "§7")
+add("erp._silentAdd", "_silentAdd(m, id)",
+    "A pair the tighter box test rules out, handled in memory only — no pixel of it is under the mask; a reload derives it again.",
+    ["-"], "§7")
+add("erp._orderOf", "_orderOf(M)",
+    "Mark M's lineage in the serial order — top-down by (z, id) — with a cursor past what is no longer pending; ids that joined since are inserted in place.",
+    ["Keyed by the z each id had when it joined (a native's z never changes; a piece inherits it), so a removed id keeps its place and the order is a function of the ids alone, whenever they arrive — what lets a parallel bake leave the inline bake's document (DESIGN.md §7)."],
+    "§7")
+add("erp._headOf", "_headOf(Erec)",
+    "Mark E's first pending target in the serial order, or null; the cursor moves past what is no longer pending.", ["-"], "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("erp._pendingOf", "_pendingOf(Erec)",
+    "Mark E's pending targets in the serial order, from its head on (a generator).", ["-"], "§7")
+add("erp._serialHead", "_serialHead()",
+    "The serial head: the oldest mark and its first pending target — the target null when the mark has nothing left — or null when no mark is pending.",
+    ["-"], "§7")
+add("erp._bakeRun", "_bakeRun(deadline)",
+    "The bake's work until `deadline`: the serial head applied when its job has landed (run inline where there is no worker), a mark with nothing pending spent in its turn, then the lookahead dispatched; it stops at a head still in flight.",
+    ["Results apply strictly in the serial order, so the ids, steps and log are the inline bake's (DESIGN.md §7, A2 §4.7). One pair a tick always runs, or a pair costing more than the budget would be refused for ever (BS-3); the next pair is started only when the last one's cost fits the deadline. A pair its own inline step left pending is set aside as handled, not looped on. Returns whether anything changed, a mark was spent, and whether work is left that waits on no worker."],
+    "§7")
+add("erp._lookahead", "_lookahead()",
+    "Dispatches pairs ahead of the serial head, in the serial order, up to the pool's free cut slots; a target pending under an earlier mark is not dispatched for a later one (the per-target lock).",
+    ["The lookahead writes nothing to the document: only shape-on-shape pairs are dispatched ahead, and the scan stops after LOOKAHEAD_SCAN targets."],
+    "§7")
+add("erp._bakeNext", "_bakeNext()",
+    "For the tests: the serial head baked inline, or the oldest mark spent when it has nothing left; false when nothing is pending.", ["-"], "§7")
+add("erp._dispatchPair", "_dispatchPair(Erec, target, {ahead, barrier, inline})",
+    "Bakes one pair (mark, target): the target resolved to a shape, its job built (a cut or a descent), then sent to the raster pool's queue — landing in the reorder buffer — or, with no worker or `inline`, run and applied at once.",
+    ["A mark not yet landed is landed and registered first; a stroke target is resolved, a fill turned into a shape. A pair the eraser's box misses is handled in memory only; a target with no perimeter is refused. Descents run one at a time (\"wait\" while one is out). `ahead`: dispatch only, never write the document. Returns \"flight\", \"wait\", \"applied\", \"handled\" or \"none\" (DESIGN.md §7, A2 §4.7)."],
+    "§7")
+add("erp._jobFor", "_jobFor(E, HE, o, HO)",
+    "A pair's job: a descent when the target is homed shallower along the mark's own chain — the hole belongs at the level the mark was drawn at — else a cut in the target's stored coordinates, the eraser brought there through its table; null when the eraser maps to nothing.",
+    ["A target homed in a ring neighbour's cell cedes down the mark's chain below it (REVIEWER-3 ERASE-4). The cut in stored coordinates keeps every piece it does not cut bit for bit (F41, F42); its dust bar is a quarter pixel at the mark's zoom, through the frame factor (F66)."],
+    "§7")
+add("erp._onLanded", "_onLanded(c, r, err)",
+    "A worker's job has landed: into the reorder buffer, then the tick or the parked barrier applies it in its turn; a job no longer in the buffer is counted stale.",
+    ["-"], "§7")
+add("erp._cutQ", "_cutQ()",
+    "The job queue cuts go through: the renderer's, where plates and cuts share the raster pool (A3 §4.1), else the engine's own.",
+    ["-"], "§7")
+add("erp._applyLanded", "_applyLanded(Erec, rec, c)",
+    "Applies a landed job in its turn if it is still valid — the target live and unchanged (`_ver`), the pair still pending, the lattice not re-addressed, the document not reset — else counts it stale, to be dispatched again; a job the pool lost is refused here.",
+    ["A move projects the eraser through another table, so a changed `_ver` makes the result wrong for the target as it is now (DESIGN.md §7). The apply is timed for the erase journal."],
+    "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("erp._refuseLost", "_refuseLost(Erec, rec, c)",
+    "A job the pool lost — the watchdog, a second worker error, a throw in the worker — refused over the ink, with the reason journaled and counted, never run inline (PLAN §5.9 item 1).",
+    ["-"], "§7")
+add("erp._applyPair", "_applyPair(Erec, rec, kind, r)",
+    "Applies one pair's result — a descent's steps or a cut's pieces — after counting the step against the mark's budget.", ["-"], "§7")
+add("erp._dropCut", "_dropCut(c) · _dropCuts(id)",
+    "A job out of the reorder buffer (and the descent slot); and every job of a mark that left the document, so their late answers are ignored.",
+    ["-"], "§7")
+add("erp._eraseBusy", "_eraseBusy()",
+    "Whether a cut or a descent is in a worker.", ["-"], "§7")
+add("erp._spendMark", "_spendMark(Erec)",
+    "A mark with nothing pending is spent: removed from the document (logged `spent`, its box re-rastered exactly) and its id pruned from its lineage (A2 §4.6).",
+    ["-"], "§7")
+add("erp._pruneMark", "_pruneMark(id)",
+    "A spent or unreturnable mark's id taken off every live native of its lineage, with its order, silent pairs, projections and budget — it never comes back, since its gesture undoes by its steps.",
+    ["-"], "§7")
+add("erp._refuse", "_refuse(E, o, HO, why, inkless)",
+    "A refusal: the mark's bake leaves native `o` whole and adds the mark to its `handledBy`, so its ink under the mark shows again unless `inkless` (A2 §5.7); the bail is journaled.",
+    ["-"], "§7")
+add("erp._noteOf", "_noteOf(id)",
+    "Mark `id`'s erase entry in the engine's journal.", ["-"], "§14")
+add("erp._renderSoon", "_renderSoon()",
+    "One render within ERASE_RENDER_MS for a bake's steps, not one per landed cut: a render per cut or per slice was most of a bake's main thread on a big drawing (REVIEWER E-2).",
+    ["A spent mark renders at once. On the raster path a cut under its mark has already staled only its band (PLAN §5.3 A2-Q2)."], "§7")
+add("erp._cellOffset", "_cellOffset(A, B)",
+    "What to add to frame B's coordinates to read them in frame A, for a cell of the same depth at most one away; null past that. Cells, not frames: a kid in a private frame is its cell's (F124, A1 C4).",
+    ["-"], "§7")
+add("erp._eraseBarrier", "_eraseBarrier(kind, pairsOf, then, follow)",
+    "The barrier (A2 §4.11): bakes the pending pairs a tap, a drag or a lasso names, round after round in serial order, then runs the gesture's `then` — so nothing is selected, moved or judged before its cuts land.",
+    ["Pending perimeters resolve first, so a mark registers before anything moves under it. Each round takes every named pair whose target is not pending under an earlier mark; the pieces still pending under another form the next, so a target under k marks takes k rounds and no cap is needed. `follow`: the ids replaced by their pieces as steps land. With no worker the rounds run inline and `then` runs before it returns true; otherwise the gesture is parked (false) until the last round applies, and a new press, a tool change, an undo, a deselect or a pinch cancels it while its cuts go on as the bake's (DESIGN.md §7)."],
+    "§7")
+add("erp._barrierStep", "_barrierStep()",
+    "A job landed while a gesture is parked: its barrier's rounds go on.", ["-"], "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("erp._barrierAdvance", "_barrierAdvance(b)",
+    "Runs a barrier's rounds: the landed jobs of the last round applied in serial order, then the next round dispatched; false when a round waits on a worker, true when none is left and the gesture's `then` has run.",
+    ["A round's fill targets become shapes before any pair is dispatched, so the log reads the same whether its cuts run inline or in workers. A pair its own inline step left pending is set aside as handled, not looped on."],
+    "§7")
+add("erp._barrierRound", "_barrierRound(b)",
+    "A barrier's next round: each target its pairs name, with the earliest mark it is pending under anywhere, in serial order — the per-target lock, so an older mark never cuts a newer one's piece.",
+    ["-"], "§7")
+add("erp._finishBarrier", "_finishBarrier(b)",
+    "A barrier's end: every mark it emptied is spent, the gesture's continuation runs with the followed ids still live, and the bake is rescheduled.",
+    ["-"], "§7")
+add("erp._cancelBarrier", "_cancelBarrier()",
+    "Drops a parked gesture — a new press, a tool change, an undo, a pinch, a load: its continuation never runs, a parked lasso's loop goes, and its cuts go on as the bake's.",
+    ["-"], "§7")
+add("erp._pendingPairs", "_pendingPairs(pred, markPred)",
+    "Every pending pair whose live target `pred` accepts, of the marks `markPred` accepts, as `{Erec, rec}`.", ["-"], "§7")
+add("erp._familiesOf", "_familiesOf(ids)",
+    "The natives of the families of the ids a barrier follows, so a tap or a drag bakes a family whole.", ["-"], "§7")
+add("erp._tapBarrier", "_tapBarrier(id, then)",
+    "A tap's barrier: bakes the pending pairs of the hit object's family, then hands `then` its pieces, so the tap selects the piece under the finger (A2 §5.5, SM-5).",
+    ["-"], "§7")
+add("erp._dragBarrier", "_dragBarrier(then)",
+    "A drag's barrier (B4): bakes the pending pairs among the selection's members and under its frames, and every pending pair of a mark homed under a selected frame — a mark moved with its frame would carry its mask off its targets.",
+    ["The selection follows the cuts to the pieces (re-selected, or deselected when nothing is left), then `then(b)` starts the drag."],
+    "§7")
+add("erp._lassoBarrier", "_lassoBarrier(poly, then)",
+    "A lasso's barrier (H5): bakes every pending pair whose target's drawn box — placed by the Stage at the camera's frame — meets the loop's box, wherever its mark is.",
+    ["-"], "§7")
+add("erp._eraseStatus", "_eraseStatus()",
+    "The erase part of the engine's status: the pending marks, whether a gesture is parked on their cuts (the editor's \"Finishing the erase…\" chip) and how many bakes were aborted.",
+    ["-"], "§7")

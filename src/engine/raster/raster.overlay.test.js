@@ -998,6 +998,49 @@ describe("G14 — a drop keeps the drag's decision, moved by the selection's dis
         E.pointerUp();
         expect(E._selDecSeq).toBe(seq0 + 1);
     });
+
+    test("a kid the drop's rest tears off a selected frame joins the selection as a frame: the same ink, nothing decided", () => {
+        // `select.inkless` I6's fixture: a selected frame, its kid near its edge; a 12 px drag's rest re-homes the kid
+        // under the next cell and `_repairSelection` adds it (DESIGN.md §10). The dense scene's drop: 1,045 → 1,046 entries.
+        const E = mkEngine(true);
+        E.cam.inPanX = ENG_W / 2; E.cam.inPanY = ENG_H / 2;
+        const S = 8000;
+        const fill = (ox, oy, below) => ({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#c33", opacity: 1,
+            polys: [[[ox, oy], [ox + S, oy], [ox + S, oy + S], [ox, oy + S]]], ...(below ? { below } : null) });
+        const kid = E.lm.cellChild("0", 3, 2);
+        E.doc.add(fill(-S / 2, -S / 2, [[62000, 0]]), kid.id);
+        const deep = E.lm.cellChild(kid.id, 1000, 5);
+        E.doc.add(fill(0, 0), deep.id);
+        E._render();
+        const org = E.cam.levelPointToScreen(kid.id, 0, 0);
+        E.setTool("select");
+        E.pointerDown(org[0] + 110, org[1]);
+        for (let k = 1; k <= 24; k++) E.pointerMove(org[0] + 110 * Math.cos(k * Math.PI / 12), org[1] + 110 * Math.sin(k * Math.PI / 12));
+        E.pointerUp();
+        expect(E.selection.frames).toEqual([kid.id]);
+        E._selectionAnts();
+        E.pointerDown(org[0], org[1]);
+        for (const dx of [4, 8, 12]) E.pointerMove(org[0] + dx, org[1]);
+        E._selectionAnts();                                                   // the drag's decision
+        const seq0 = E._selDecSeq;
+        E.pointerUp();
+        expect(E.selection.frames).toEqual([kid.id, deep.id]);               // the fixture: the torn kid joined
+        E._selectionAnts();
+        expect(E._selDecSeq - seq0).toBe(0);                                  // red: decided again (338–548 ms at the dense drop)
+        const sc = E.cam.inScale, sh = E._selDec.shift;
+        expect(sh.map((x) => Math.round(x * sc))).toEqual([12, 0]);
+        // The kept ants are a fresh decision's: the frame's run, and the torn kid's dot (its piece's then, its cell's now).
+        const marks = (dec, t) => dec.marks.map((m) => { const b = loopsBounds([m.pieces]); return [b.x0 + t[0], b.y0 + t[1], b.x1 + t[0], b.y1 + t[1]]; });
+        const k0 = box(E._selDec, sh), L0 = len(E._selDec), m0 = marks(E._selDec, sh);
+        E._selDec = null;
+        E._selectionAnts();
+        const k1 = box(E._selDec), m1 = marks(E._selDec, [0, 0]);
+        expect(E._selDec.runs.length).toBe(1);
+        expect(Math.abs(len(E._selDec) - L0)).toBeLessThan(0.01);
+        for (let n = 0; n < 4; n++) expect([n, Math.abs(k0[n] - k1[n]) * sc < 0.01]).toEqual([n, true]);
+        expect([m0.length, m1.length]).toEqual([1, 1]);
+        for (let n = 0; n < 4; n++) expect([n, Math.abs(m0[0][n] - m1[0][n]) * sc < 0.01]).toEqual([n, true]);
+    });
 });
 
 describe("G12 — the overlay origin is not read", () => {

@@ -3380,3 +3380,16 @@ on the list and the own members off it by id, and every frame under a selected f
 its shift — so a frame torn off at the rest is the same key before and after.
 **Questions asked:** none.
 WHERE I AM: writing the red-before test on I6's fixture in `raster.overlay.test.js` G14.
+
+## 2026-10-05 22:40 UTC — B-DOCMAPS-2 (builder) — checkpoint: item 2's rest, 5 files of 30 done
+**Working on:** the new live functions in pre-existing files, file by file; entries into the existing area files
+(`dmap/setentry.py`'s MODTARGET: `newdesc_engine.py` for lm/doc/erp, `newdesc_paper.py` ts, `newdesc_scenes.py` six).
+**Measured:** `dmap/todo2.py` (new = absent from the graphdata committed at 56e36b3, file present then, outside
+`__oracles__`): 302 functions in 30 files after the refresh (`inventory.py` 3,655 functions). Described so far from their
+bodies: LevelMap 19, Document 26, TileStore 24, sceneIndex 23, erasePipeline 57 = 149. Lenient `verify_coverage`: those
+files off the Code Map's gap list. The Call Graph half is stale for every new function: `build_graph_page.py` stops on its
+layout assertion (not item 2's; noted for the report).
+**Decisions made:** node ids exactly as `graphdata` names them (`doc.tableOf`, not `doc.Document.tableOf`); a getter pair
+in one row where the one-liner covers both (`_keyIn · _keyOut`, `_lineageAdd · _lineageDelete`); § = DESIGN.md's numbering.
+**Questions asked:** none.
+WHERE I AM: selection.js (10), then KobinEngine.js (20), RasterRenderer.js (40).
