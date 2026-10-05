@@ -505,3 +505,29 @@ add("ts._reaches", "_reaches(o, H, tile)",
 add("ts._appendChained", "_appendChained(key, tile, o)",
     "Patches an added native into a chained up tile from its parent squares' pieces; when one of those parent tiles is not cached and current, the tile is dropped instead (DESIGN.md §8: an added native is patched into the cached tiles a cold bake would put it in).",
     ["-"], "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rnd.landedMarks", "landedMarks(list)",
+    "The landed pending marks among a render list — those whose `targets` are recorded — as mark id → its items (DESIGN.md §7).",
+    ["-"], "§9")
+add("rnd._setMask", "_setMask(entry, marks)",
+    "The SVG renderer's erase rule (PLAN §5.8 item 2): a group with any member under a landed mark's mask gets an SVG `<mask>` — white over the group's box, the marks' shapes black — so what the rule says shows, shows; a family is masked whole, as the raster core masks it.",
+    ["So an object dragged under the mark, a stroke drawn over it and a piece it has cut all show, and a mark not yet landed is ink at its z (DESIGN.md §9, the SVG renderer). The mask is in the group's own units — its transform is the thin rescale's 1/S, so a mark drawn at S_m is scaled by S/S_m, exact in powers of two — and is rebuilt only when its marks, their signatures, the scale or the box change."],
+    "§9")
+add("rnd._dropMask", "_dropMask(entry, gone)",
+    "Removes a group's mask; `gone`: the group itself went, so no attribute is left to clear.", ["-"], "§9")
+add("rnd._applyMasks", "_applyMasks()",
+    "After each Two.js render: the `mask` attribute set or cleared on each changed group's element, once it has one.", ["-"], "§9")
+add("rnd._markDef", "_markDef(id, items)",
+    "A mark's shape in the SVG `<defs>`, built from its items by the ink's own path and the thin rescale: a fill takes the `<use>`'s black, a stroke keeps its width; rebuilt when its pieces' signatures move.",
+    ["-"], "§9")
+add("rnd._maskBox", "_maskBox(entry)",
+    "A masked group's box in its own units: its pieces' drawn boxes where they are drawn, padded by two pixels at the frame's coarsest zoom, inside the scene's window (float32 stays in budget); null when empty.",
+    ["-"], "§9")
+add("rnd._defsEl", "_defsEl()", "The SVG renderer's `<defs>` element, where the masks and the marks' shapes live.", ["-"], "§9")
+add("rnd._groupOpacity", "_groupOpacity(entry, o)",
+    "A group's opacity: a family group is painted at full presence, never at the fade of whichever member sorts first; in erase-debug the opacity lives on each path instead.",
+    ["An erase family spans frames at very different depths; reading the first member's fade let a microscopic member's fade-out take the window-filling parent with it (the fade-out bug, 2026-08-20). In erase-debug two overlapping pieces of one object must read darker, which a group alpha would hide."],
+    "§9")
+add("rnd._isLive", "_isLive(o)",
+    "Whether a list item is the stroke under the pen, whose only picture is the live path.", ["-"], "§9")

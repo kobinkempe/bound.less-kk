@@ -3409,3 +3409,12 @@ ink in view, 1 frame forgotten and re-minted, 2 tile bakes, 1 plate drop (pre-C3
 design question.
 **Questions asked:** none yet (in the report).
 WHERE I AM: item 3 — frozen copies of 59f0a76 and HEAD, dev servers on 3030/3031, the batch announced before it starts.
+
+## 2026-10-05 22:45 UTC — R-MODEL-C34b (reviewer) — browser batch c1 START (item 3: scenario 4 and the round trip)
+**Working on:** headless Chromium, frozen `git archive` copies: the landed tree 59f0a76 (`r-c34/landed`, :3030) and HEAD
+b3c842b (`r-c34/curB`, :3031); one frozen harness (`r-c34/h`). `--dense --scenario 4` × 2 per tree interleaved, then the
+plain round trip × 1 per tree; each run starts only under load 2 (waits up to 30 min), load printed. Dev servers Node 14,
+pids in `r-c34/dev-303x.pid` (mine; killed by pid at the end). Script `r-c34/batchc1.sh`, log `r-c34/batchc1.log`.
+**Measured:** load at announce 1.1.
+**Questions asked:** none.
+WHERE I AM: starting the servers; meanwhile item 2's acceptance list.

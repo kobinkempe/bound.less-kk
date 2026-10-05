@@ -32697,14 +32697,14 @@
 "ovl._emitOutlineRing",
 "ovl._splitOnJoins",
 [
-"src/engine/overlays.js:1069"
+"src/engine/overlays.js:1072"
 ]
 ],
 [
 "ovl._emitOutlineRing",
 "sel._objPointInActive",
 [
-"src/engine/overlays.js:1039"
+"src/engine/overlays.js:1042"
 ]
 ],
 [
@@ -32926,432 +32926,425 @@
 "ovl._selDecide",
 "ant.circleLoop",
 [
-"src/engine/overlays.js:745",
-"src/engine/overlays.js:827"
+"src/engine/overlays.js:751",
+"src/engine/overlays.js:833"
 ]
 ],
 [
 "ovl._selDecide",
 "ant.clipRunToRect",
 [
-"src/engine/overlays.js:787"
+"src/engine/overlays.js:793"
 ]
 ],
 [
 "ovl._selDecide",
 "ant.loopRuns",
 [
-"src/engine/overlays.js:786"
+"src/engine/overlays.js:792"
 ]
 ],
 [
 "ovl._selDecide",
 "ant.loopsBounds",
 [
-"src/engine/overlays.js:767"
+"src/engine/overlays.js:773"
 ]
 ],
 [
 "ovl._selDecide",
 "ant.runLength",
 [
-"src/engine/overlays.js:788"
+"src/engine/overlays.js:794"
 ]
 ],
 [
 "ovl._selDecide",
 "ant.runPathData",
 [
-"src/engine/overlays.js:725"
+"src/engine/overlays.js:731"
 ]
 ],
 [
 "ovl._selDecide",
 "cam.frameWindow",
 [
-"src/engine/overlays.js:682",
-"src/engine/overlays.js:727"
+"src/engine/overlays.js:688",
+"src/engine/overlays.js:733"
 ]
 ],
 [
 "ovl._selDecide",
 "doc.getById",
 [
-"src/engine/overlays.js:809"
+"src/engine/overlays.js:815"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selDragStart",
 [
-"src/engine/overlays.js:700",
-"src/engine/overlays.js:710"
+"src/engine/overlays.js:706",
+"src/engine/overlays.js:716"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selFrameContent",
 [
-"src/engine/overlays.js:820"
+"src/engine/overlays.js:826"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selFrameOf",
 [
-"src/engine/overlays.js:751"
+"src/engine/overlays.js:757"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selFrameRect",
 [
-"src/engine/overlays.js:734"
+"src/engine/overlays.js:740"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selMembersAt",
 [
-"src/engine/overlays.js:835"
+"src/engine/overlays.js:841"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selMovedBy",
 [
-"src/engine/overlays.js:705"
+"src/engine/overlays.js:711"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selPieceLoops",
 [
-"src/engine/overlays.js:764"
+"src/engine/overlays.js:770"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl._selSeamRects",
 [
-"src/engine/overlays.js:784"
+"src/engine/overlays.js:790"
 ]
 ],
 [
 "ovl._selDecide",
 "ovl.mergeClose",
 [
-"src/engine/overlays.js:824"
+"src/engine/overlays.js:830"
 ]
 ],
 [
 "ovl._selDecide",
 "rnd._origin",
 [
-"src/engine/overlays.js:681"
+"src/engine/overlays.js:687"
 ]
 ],
 [
 "ovl._selDecide",
 "rr._origin",
 [
-"src/engine/overlays.js:681"
+"src/engine/overlays.js:687"
 ]
 ],
 [
 "ovl._selDecide",
 "sel._rectInActive",
 [
-"src/engine/overlays.js:811"
+"src/engine/overlays.js:817"
 ]
 ],
 [
 "ovl._selDecide",
 "shp.meanWidth",
 [
-"src/engine/overlays.js:779"
+"src/engine/overlays.js:785"
 ]
 ],
 [
 "ovl._selDecide",
 "shp.translateLoops",
 [
-"src/engine/overlays.js:766"
+"src/engine/overlays.js:772"
 ]
 ],
 [
 "ovl._selDecide",
 "stg.items",
 [
-"src/engine/overlays.js:679"
+"src/engine/overlays.js:685"
 ]
 ],
 [
 "ovl._selDecide",
 "stg.placed",
 [
-"src/engine/overlays.js:763"
+"src/engine/overlays.js:769"
 ]
 ],
 [
 "ovl._selDragStart",
 "ovl._selMembersAt",
 [
-"src/engine/overlays.js:842"
+"src/engine/overlays.js:848"
 ]
 ],
 [
 "ovl._selEdges",
 "ant.edgeSpans",
 [
-"src/engine/overlays.js:1011"
+"src/engine/overlays.js:1014"
 ]
 ],
 [
 "ovl._selEdges",
 "ant.insideLoops",
 [
-"src/engine/overlays.js:1011"
+"src/engine/overlays.js:1014"
 ]
 ],
 [
 "ovl._selEdges",
 "cam.frameWindow",
 [
-"src/engine/overlays.js:999"
+"src/engine/overlays.js:1002"
 ]
 ],
 [
 "ovl._selEdges",
 "ovl.mergeSpans",
 [
-"src/engine/overlays.js:1021"
-]
-],
-[
-"ovl._selFrameContent",
-"doc.frameExtent",
-[
-"src/engine/overlays.js:661"
-]
-],
-[
-"ovl._selFrameContent",
-"lm.mapRectF",
-[
-"src/engine/overlays.js:664"
+"src/engine/overlays.js:1024"
 ]
 ],
 [
 "ovl._selFrameContent",
 "lm.walk",
 [
-"src/engine/overlays.js:660"
+"src/engine/overlays.js:661"
+]
+],
+[
+"ovl._selFrameContent",
+"ovl._selFrameInk",
+[
+"src/engine/overlays.js:662"
+]
+],
+[
+"ovl._selFrameInk",
+"doc.frameExtent",
+[
+"src/engine/overlays.js:671"
+]
+],
+[
+"ovl._selFrameInk",
+"lm.mapRectF",
+[
+"src/engine/overlays.js:674"
 ]
 ],
 [
 "ovl._selFrameOf",
 "doc.getById",
 [
-"src/engine/overlays.js:850"
+"src/engine/overlays.js:856"
 ]
 ],
 [
 "ovl._selFrameOf",
 "lm.isUnder",
 [
-"src/engine/overlays.js:852"
+"src/engine/overlays.js:858"
 ]
 ],
 [
 "ovl._selFrameRect",
 "lm.mapRectF",
 [
-"src/engine/overlays.js:647"
+"src/engine/overlays.js:648"
 ]
 ],
 [
 "ovl._selFrameRect",
 "stg.placeNative",
 [
-"src/engine/overlays.js:647"
+"src/engine/overlays.js:648"
 ]
 ],
 [
 "ovl._selMembersAt",
 "doc.getById",
-[
-"src/engine/overlays.js:866"
-]
-],
-[
-"ovl._selMembersAt",
-"lm.frame",
-[
-"src/engine/overlays.js:879"
-]
-],
-[
-"ovl._selMembersAt",
-"lm.mapRectF",
-[
-"src/engine/overlays.js:880"
-]
-],
-[
-"ovl._selMembersAt",
-"ovl._selFrameContent",
-[
-"src/engine/overlays.js:883"
-]
-],
-[
-"ovl._selMembersAt",
-"ovl._selFrameOf",
-[
-"src/engine/overlays.js:873"
-]
-],
-[
-"ovl._selMembersAt",
-"plm.withShifted",
-[
-"src/engine/overlays.js:880"
-]
-],
-[
-"ovl._selMembersAt",
-"stg.items",
 [
 "src/engine/overlays.js:872"
 ]
 ],
 [
 "ovl._selMembersAt",
+"lm.walk",
+[
+"src/engine/overlays.js:884"
+]
+],
+[
+"ovl._selMembersAt",
+"ovl._selFrameInk",
+[
+"src/engine/overlays.js:885"
+]
+],
+[
+"ovl._selMembersAt",
+"ovl._selFrameOf",
+[
+"src/engine/overlays.js:879"
+]
+],
+[
+"ovl._selMembersAt",
+"stg.items",
+[
+"src/engine/overlays.js:878"
+]
+],
+[
+"ovl._selMembersAt",
 "stg.placeNative",
 [
-"src/engine/overlays.js:867"
+"src/engine/overlays.js:873"
 ]
 ],
 [
 "ovl._selMovedBy",
 "ovl._selMembersAt",
 [
-"src/engine/overlays.js:896"
+"src/engine/overlays.js:899"
 ]
 ],
 [
 "ovl._selPieceLoops",
 "cvo.strokeLoops",
 [
-"src/engine/overlays.js:943"
+"src/engine/overlays.js:946"
 ]
 ],
 [
 "ovl._selPieceLoops",
 "shp.shapeFromRings",
 [
-"src/engine/overlays.js:941"
+"src/engine/overlays.js:944"
 ]
 ],
 [
 "ovl._selSeamRects",
 "doc.editGroup",
 [
-"src/engine/overlays.js:972"
+"src/engine/overlays.js:975"
 ]
 ],
 [
 "ovl._selSeamRects",
 "doc.getById",
 [
-"src/engine/overlays.js:970"
+"src/engine/overlays.js:973"
 ]
 ],
 [
 "ovl._selSeamRects",
 "ovl.asLTRB",
 [
-"src/engine/overlays.js:963"
+"src/engine/overlays.js:966"
 ]
 ],
 [
 "ovl._selSeamRects",
 "ovl.clipRect",
 [
-"src/engine/overlays.js:963",
-"src/engine/overlays.js:981"
+"src/engine/overlays.js:966",
+"src/engine/overlays.js:984"
 ]
 ],
 [
 "ovl._selSeamRects",
 "stg.placeNative",
 [
-"src/engine/overlays.js:980"
+"src/engine/overlays.js:983"
 ]
 ],
 [
 "ovl._selTable",
 "der.bboxOf",
 [
-"src/engine/overlays.js:609"
+"src/engine/overlays.js:610"
 ]
 ],
 [
 "ovl._selTable",
 "doc.editGroup",
 [
-"src/engine/overlays.js:597"
+"src/engine/overlays.js:598"
 ]
 ],
 [
 "ovl._selTable",
 "doc.tableOf",
 [
-"src/engine/overlays.js:611"
+"src/engine/overlays.js:612"
 ]
 ],
 [
 "ovl._selTable",
 "lm.frame",
 [
-"src/engine/overlays.js:625"
+"src/engine/overlays.js:626"
 ]
 ],
 [
 "ovl._selTable",
 "plm.withShifted",
 [
-"src/engine/overlays.js:631"
+"src/engine/overlays.js:632"
 ]
 ],
 [
 "ovl._selectionAnts",
 "ovl._selDecide",
 [
-"src/engine/overlays.js:563",
-"src/engine/overlays.js:563"
+"src/engine/overlays.js:564",
+"src/engine/overlays.js:564"
 ]
 ],
 [
 "ovl._selectionAnts",
 "ovl._selEdges",
 [
-"src/engine/overlays.js:567"
+"src/engine/overlays.js:568"
 ]
 ],
 [
 "ovl._selectionAnts",
 "ovl._selTable",
 [
-"src/engine/overlays.js:561"
+"src/engine/overlays.js:562"
 ]
 ],
 [
 "ovl._selectionAnts",
 "stg.atRest",
 [
-"src/engine/overlays.js:563"
+"src/engine/overlays.js:564"
 ]
 ],
 [
@@ -53111,6 +53104,7 @@
 "ovl._selDragStart",
 "ovl._selEdges",
 "ovl._selFrameContent",
+"ovl._selFrameInk",
 "ovl._selFrameOf",
 "ovl._selFrameRect",
 "ovl._selMembersAt",
@@ -55672,80 +55666,86 @@
 "_selectionAnts": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 550,
-"hi": 576
+"lo": 551,
+"hi": 577
 },
 "_selTable": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 585,
-"hi": 637
+"lo": 586,
+"hi": 638
 },
 "_selFrameRect": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 643,
-"hi": 652
+"lo": 644,
+"hi": 653
 },
 "_selFrameContent": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 658,
-"hi": 669
+"lo": 659,
+"hi": 667
+},
+"_selFrameInk": {
+"kind": "method",
+"klass": "Overlays",
+"lo": 670,
+"hi": 675
 },
 "_selDecide": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 676,
-"hi": 837
+"lo": 682,
+"hi": 843
 },
 "_selDragStart": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 840,
-"hi": 843
+"lo": 846,
+"hi": 849
 },
 "_selFrameOf": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 846,
-"hi": 855
+"lo": 852,
+"hi": 861
 },
 "_selMembersAt": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 863,
-"hi": 887
+"lo": 869,
+"hi": 890
 },
 "_selMovedBy": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 895,
-"hi": 926
+"lo": 898,
+"hi": 929
 },
 "_selPieceLoops": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 936,
-"hi": 948
+"lo": 939,
+"hi": 951
 },
 "_selSeamRects": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 958,
-"hi": 986
+"lo": 961,
+"hi": 989
 },
 "_selEdges": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 997,
-"hi": 1030
+"lo": 1000,
+"hi": 1033
 },
 "_emitOutlineRing": {
 "kind": "method",
 "klass": "Overlays",
-"lo": 1032,
-"hi": 1074
+"lo": 1035,
+"hi": 1077
 },
 "Overlays": {
 "kind": "class",

@@ -4283,6 +4283,11 @@
 "class": "Overlays"
 },
 {
+"name": "_selFrameInk",
+"kind": "method",
+"class": "Overlays"
+},
+{
 "name": "_selDecide",
 "kind": "method",
 "class": "Overlays"
