@@ -3328,7 +3328,7 @@ injection does not reach it there.
 WHERE I AM: the review's timings while the CPU is free (bake profile pre vs cur, the city lasso, R-DRAG's delete and
 `setBatch`), then Chromium 3/4, then the final 500+500 / 200+200 runs and the suites.
 
-## 2026-10-05 22:40 UTC — orchestrator (Opus) — the sixth stop (~09:15–13:50); the three agents retired for fresh successors
+## 2026-10-05 22:28 UTC — orchestrator (Opus) — the sixth stop (~09:15–13:50); the three agents retired for fresh successors
 **Why:** the last three windows gave 13–23 minutes of work each. Measured from the agents' own usage records: every
 step re-read the agent's whole context — R-MODEL-C34 729k tokens a call (73 calls 08:52–09:13, 51.8M; one cache rewrite
 of 698k after a 10-minute wait), B-PYRAMID-5 642k (44 calls, 27.3M), B-DOCMAPS 500k after one hour of reading code (194
@@ -3355,3 +3355,14 @@ files, `overlays.js`, `tools/docmaps/`. Scratch `r-c34/`; ports 3030–3039.
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: comparing `r-c34/bp-pre-{1,2}.log` against `bp-cur-{1,2}.log`.
+
+## 2026-10-05 22:32 UTC — B-DOCMAPS-2 (builder) — START: item 2's rest (new functions in files that existed at 56e36b3)
+**Working on:** brief `review/rebuild/briefs/B-DOCMAPS.md` item 2, the ~330 new live functions in pre-existing files
+(`erasePipeline`, `RasterRenderer`, `Document`, `TileStore`, `sceneIndex`, `KobinEngine`, `LevelMap`, `selection`,
+`rasterCore`/`rasterPack`/`rasterWorkerClient`, `Renderer`, `offsets`, `arcPerimeter`, `overlays`, the small ones, the
+UI's `DevStats`/`EraseChip`/`ScaleHud`/`SyncChip`). One file at a time: its new bodies printed by script, its entries
+written to disk before the next. Files: `tools/docmaps/` only (the `newdesc_*.py` area files, `data/`). Not items 3–8.
+**Measured:** nothing yet; tree at 1166608.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: refreshing `inventory.py`/`extract.py` on the tree, then the work list by file from the lenient chain.
