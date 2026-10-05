@@ -13,49 +13,15 @@ def add(key, fn, what, long, ref=""):
 
 
 # ---- src/engine/KobinEngine.js ----
-add("eng.listFor", "listFor(frameKey, rect, forCamera)",
-    "The render list for any frame and window: its tile pieces and own natives, residuals stamped, sorted by z then id.",
-    ["Normalises the frame, reads the tile pieces (`TileStore.content` for the camera's own build, `contentOffCamera` otherwise) and the frame's own natives, copies each object's `editId` onto its pieces, stamps `res` (the object's displacement table as a translation at this frame's depth) and sorts by `(z ?? id, id)`. `_buildList` is this call for the camera; the crossing prebake, the zoom-out ladder and `snapshotView` call it for other frames.",
-     "The residual's depth is the listed frame's, never the camera's: a wrong depth draws every moved object at the wrong offset, in a picture nobody is looking at yet (F41).",
-     "`forCamera` pins the tiles read and seeds `_footBelow`, the table each object was last drawn with. An off-camera build does neither, or the next plate drain would take the new table for the old address. An unvisited frame pays its tile bake here, synchronously (F59); an off-camera build over 8 ms is logged as `listFor`."],
-    "§9")
-add("eng._drainPlates", "_drainPlates()",
-    "Maps every document event since the last frame onto the plate cache's invalidation rules, at the top of a render.",
-    ["Walks the queued events by index (a handler may add more) and skips those a live drag holds (`_heldByMove`). A `neutral` event (an erase bake step under its mark, F90) drops nothing and only updates `_footBelow`. A frame `refile` goes to `_refilePlates`; a merge drops only the merged-away frame's own plates and a split nothing; a frame's list removed or put back goes to `_frameListPlates`. Anything else goes to `PlateStore.onDocEvent` with `_drawnRectIn` as its footprint (a frame event it cannot narrow is a `dropAll` there), and the object's new table is recorded in `_footBelow`. Returns the count; 0 on the SVG path.",
-     "Runs after the list build and before the renderer draws, because the build itself emits: `Document.at` settles a moved frame and sends one change per native. The camera-only path reaches it through the renderer's injected `drain`. `_footBelow` is a hint and is cleared past 1,024 entries."],
-    "§9")
-add("eng._refilePlates", "_refilePlates(ev)",
-    "A frame re-addressed (a subtree drag's step or its undo): removes its own plates and those under it, and stales its cell grown by one at the old and new addresses.",
-    ["Returns the plates dropped. Kept narrow: a `dropAll` here wiped every stand-in at each step of a frame drag the drag plane refused (899 in one phone report, PAPER-PLAN §10.13)."],
-    "§9")
-add("eng._cellFootIn", "_cellFootIn(at, G)",
-    "Cells, each grown by a subtree's reach, mapped into frame G's units; null when none maps.",
-    ["Each `{ parent, i, j }` is the cell's centre in its parent's units, grown by REACH / R: the bound invariant 2 puts on everything under the cell. The footprint `_refilePlates` and `_frameListPlates` stale."],
-    "§9")
-add("eng._frameListPlates", "_frameListPlates(ev)",
-    "A frame's list removed or put back (a subtree delete or its undo): stales every plate of the frame and those under it, and elsewhere its cell grown by one.",
-    ["An event naming no natives needs nothing. Returns false for a root or a frame the lattice no longer has, and the drain falls back to `onDocEvent`, which drops every plate."],
-    "§9")
 add("eng._beginHold", "_beginHold()",
     "At a drag's start, records the members and selected frames whose plate events wait until the drop.",
     ["Raster path only, and only when the renderer's drag plane accepts the selection (`planeAccepts`, which also aims the plane); otherwise `_holdMove` stays null and the drag re-rasters each step. Records each member's id, home frame and table, the selected frame roots, and the roots' footprints in every frame the plate cache holds (`_framesFootIn`).",
      "Taken once, from `_beginSelectDrag`; released once, by `_releaseMove` (PAPER-PLAN R3)."],
     "§9")
-add("eng._framesFootIn", "_framesFootIn(frames)",
-    "Each selected frame's reach, its cell grown by one, mapped into every frame the plate cache holds or has a job for.",
-    ["Returns frame id -> rects. The box is [-REACH, REACH]² in the root's own units, which bounds its whole subtree by invariant 2. Taken at the drag's start and again at the drop, so the drop stales where the subtree was and where it landed."],
-    "§9")
 add("eng._planeLost", "_planeLost()",
     "The renderer's drag plane can no longer draw the drag: releases the hold once, so each step renders.",
     ["Called by `RasterRenderer` when the camera leaves the plane's frame or the view leaves plates under a live drag. Runs `_releaseMove` and clears the drag's `listAt`, so the ants decide from the list as it stands, which now holds the move. Returns the plates dropped."],
     "§9")
-add("eng._heldByMove", "_heldByMove(ev)",
-    "Whether a document event belongs to the live drag and must wait for its drop.",
-    ["True for an event naming a held member, a `refile` of a dragged frame or one under it, or any event whose frame is under a dragged root (a settle's per-native change). A held event is neither drained nor recorded in `_footBelow`, so the memo keeps the table the object was last drawn with."],
-    "§9")
-add("eng._underHeldFrames", "_underHeldFrames(level)",
-    "Whether a frame is one of the dragged frame roots, under one, or a shadow of either (`LevelMap.isUnder`).",
-    ["-"], "§9")
 add("eng._planeState", "_planeState()",
     "The selection's ids in the current render list, for the raster renderer's drag plane; null with nothing selected.",
     ["Collects the members' ids (`_selectionMembers`) and adds every listed piece homed under a selected frame, found by its home, so a selected subtree costs the list's length rather than its object count. Memoised on the selection object and the list; returns `{ key, ids }`.",
@@ -78,47 +44,6 @@ add("eng._releaseMove", "_releaseMove()",
     "Releases a drag's held plate events as one collapsed invalidation.",
     ["Drops every plate painting a member, then every plate under the members' drawn boxes at their start and end addresses (`_movedRectsIn`). When frames moved, removes every plate of a moved frame or one under it and stales the subtrees' start and end footprints in the other frames. Clears `_holdMove` first, so it runs once; returns the plates dropped.",
      "PAPER-PLAN §5.4's rules 1-4, applied once per drag instead of once per event."],
-    "§9")
-add("eng._movedRectsIn", "_movedRectsIn(h, frameId)",
-    "Every held member's drawn box in one frame, at its end address and, where it changed, its start address.",
-    ["Each box is the bbox plus half the line width, mapped through the member's own home and table (`mapRectObj`). Past 256 members (MOVE_RECTS_MAX) they collapse to one union box a frame. Null when nothing maps.",
-     "Over-dropping is safe; under-dropping leaves a plate holding the old picture (F68, F69)."],
-    "§9")
-add("eng._drawnRectIn", "_drawnRectIn(ev, prev, frameId)",
-    "One document event's drawn footprint in a frame, at both old addresses an edit can have.",
-    ["The bbox plus half the wider of the old and new line widths, mapped through the object's displacement table. An edit has two independent old addresses, the geometry it had (`oldBbox` on the event) and the table it had (`prev`, from `_footBelow`), so the result is every combination that changed: up to four rects.",
-     "A move replaces the table rather than mutating it, so identity says whether it changed. A bare bbox would leave a fat stroke's outer edge on the plates."],
-    "§9")
-add("eng._crossTarget", "_crossTarget()",
-    "The frame and in-frame scale the camera would land at if the crossing it is approaching happened now.",
-    ["Past 0.8 of `enter`: the child frame under the view, defined early by `LevelMap.ensureChild` while `preBake` is on (its default). Under 1.25 x `exit`: the parent. The scale is `_crossUp`'s or `_crossDown`'s arithmetic on the same edge record. Null otherwise; it never grows a root.",
-     "One copy of the crossing arithmetic: a second copy is what F45 cost."],
-    "§9")
-add("eng._maybeLadder", "_maybeLadder()",
-    "Restarts the quiet timer after which the zoom-out ladder is built at idle.",
-    ["Raster path only. Every render and camera step restarts the 300 ms timer (LADDER_QUIET_MS), so nothing is built during a gesture; when it runs out, `_buildLadder` runs at the next idle callback. The renderer also calls it when its drag plane is aimed, since the plane's pins can evict rungs."],
-    "§9")
-add("eng._buildLadder", "_buildLadder()",
-    "Queues the zoom-out ladder: coarse plates for the screens 4x to 4,194,304x zoomed out, then the view just past each crossing in that span.",
-    ["Skipped mid-gesture, within 300 ms of a camera move, and when the camera is where the last ladder was built, unless a pinned drag plane has since evicted rungs (rebuilt once a view). Clears the tile cache's warm set, lists the rungs (the first three on a phone) and then the crossing steps, and starts `_ladderRung(0)`. Returns what the first rung posted.",
-     "The crossing steps come last so their tile, which a zoom-out crossing otherwise bakes on the main thread (measured 1,199 ms cold, 101 warm, on the Magnum Opus), stays inside TileStore's per-frame cap. Ladder plates are drawn only as stand-ins (DESIGN.md §9)."],
-    "§9")
-add("eng._ladderCrossings", "_ladderCrossings(maxFactor)",
-    "The zoom-out factors, from the camera, just past each level crossing within `maxFactor`.",
-    ["Walks up the parent chain with `_crossDown`'s arithmetic, 2% past each exit so the camera would be in the parent; stops at a root or past `maxFactor`."],
-    "§9")
-add("eng._ladderKey", "_ladderKey()",
-    "The camera and the screen size as one string, so a ladder is built once a view.",
-    ["-"], "§9")
-add("eng._ladderRung", "_ladderRung(k, key)",
-    "Builds one ladder rung and schedules the next at the following idle callback.",
-    ["Stops when the camera moved (`key` changed), a gesture started, or the engine was destroyed. Computes the zoomed-out view (`_zoomedOut`); builds its list off camera and posts its plates (`ladderPlates`) only when the renderer reports a plate missing, or always for a crossing step, whose purpose is warming the tiles. Tiles it reads are marked warm, so `TileStore.framesLeft` keeps them (F83).",
-     "One rung an idle callback because a list build is 100-300 ms of main thread on the Magnum Opus."],
-    "§9")
-add("eng._zoomedOut", "_zoomedOut(factor)",
-    "The view zoomed out `factor`x about the screen centre, computed through each crossing without running a camera.",
-    ["Maps the centre up through the parents at `_crossDown`'s scale until the in-frame scale is back at or above `exit`; returns the frame, its scale, and the zoomed-out screen grown 2.5x (LADDER_MARGIN) as the window. Null where the zoom would pass a root.",
-     "No `Camera` runs, so no frame is minted."],
     "§9")
 add("eng.screenToFrame", "screenToFrame(sx, sy)",
     "A screen point in the camera frame's own units; a pass-through to the camera.",
@@ -153,22 +78,9 @@ add("sel._inkedFrames", "_inkedFrames()",
     "Every frame with a native in its subtree: each frame that holds one, and its ancestors.",
     ["Stops climbing at an ancestor already seen. The lasso skips frames outside it and the selection drops them, because a visited cell with nothing under it stands for nothing: a selection holding such cells drew a dot each on blank paper (50 in one report, F93)."],
     "§12")
-add("sel._followCarries", "_followCarries(frame, carries)",
-    "A settle carried natives across a cell edge, out of or back into a selected frame: queues them to stay selected.",
-    ["Subscribed to the document's `settle` ops. During a drag, or its drop's render, natives carried out of a dragged frame or one under the selection wait in the drag's carried set for `_endMove`. Otherwise, from a frame under the selection, they are queued for `_flushCarried` at the render's end, with a microtask as the fallback for a list built outside a render (a ladder rung, a prebake).",
-     "Not applied inside the render: a selection change there ran a camera step on the old list and cut the render's perf row short."],
-    "§12")
-add("sel._flushCarried", "_flushCarried()",
-    "Applies the carries queued outside a drag to the selection they were carried out of: at a render's end, or a microtask later.",
-    ["Keeps the queued natives whose source frame still exists and is under a selected frame; mid-drag they join the drag's carried set, otherwise `_reselect` adds them. Called at the end of `_render`, by `deleteSelection`, and by the microtask `_followCarries` schedules."],
-    "§12")
 add("sel._outsideSelection", "_outsideSelection(ids)",
     "Of a set of frame ids, those no selected frame holds any more, coarsest first and none under another.",
     ["The frames a subtree drag or an undo moved out of the selected subtrees (a sub-cell rest re-homed them next door), so they can join the selection as frames."],
-    "§12")
-add("sel._keepingSelection", "_keepingSelection(fn)",
-    "Runs an undo or a redo so that the natives it re-homes and the frames it re-addresses out of the selection stay selected.",
-    ["With frames selected, sets `_moving`, which the engine's document subscription fills with re-homed natives that were selected or under a selected frame, and re-addressed frames whose old parent was under one; afterwards `_reselect`s them, the frames through `_outsideSelection`. Returns `fn`'s result."],
     "§12")
 add("sel._reselect", "_reselect(ids, torn)",
     "Keeps the selection standing for the same ink after ink crossed cell edges: carried natives join as ids, torn frames as frames, empty frames leave.",
@@ -193,10 +105,6 @@ add("sel._dragFrames", "_dragFrames(d, camDepth, tx, ty)",
     ["Targets come from the start record (`LevelMap.moveSubtreeTargets`, `displaceFrame`'s arithmetic frame for frame). A frame's new shift is its starting shift plus this step's rest; a frame a render settled mid-drag is unsettled first. The targets are applied in one two-phase `readdressMany`; each changed address is noted (`noteRefile`), the shift set, and the frame's entry recorded as the owner of later settles. Returns whether anything moved.",
      "No native is touched: a frame's shift is settled into its natives' tables at the first read of its list (DESIGN.md §8)."],
     "§6")
-add("sel._restoreFrames", "_restoreFrames(d)",
-    "Puts a cancelled drag's frames back at their start addresses and shifts, undoing any settle.",
-    ["Unsettles each settled frame, re-addresses the moved ones in one `readdressMany`, restores every shift, clears the owner records, and releases the merge hold."],
-    "§6")
 add("sel._frameUnderPoint", "_frameUnderPoint(sx, sy)",
     "The selected frame whose mark is within 8 px of a screen point, or null.",
     ["The mark is the frame's origin on screen. A press there drags the selection, as a press on selected ink does."],
@@ -205,10 +113,6 @@ add("sel._displaceMember", "_displaceMember(from, below, camDepth, tx, ty)",
     "Where one member goes for a drag displacement: its new home frame and table, or why it cannot move.",
     ["Homed at or above the camera's depth: the displacement enters the table at the camera's depth (`addOffset`). Deeper: `LevelMap.displaceFrame` turns the whole-cell digits into a new home and the rest enters the home-level entry. A carry out of the home level moves the member to the neighbour cell. Stored coordinates are never touched (DESIGN.md §8).",
      "Pure in the lattice's state, so `_dragSelection` asks once per (home frame, starting table) and every member sharing those takes the same answer; registration rests on that."],
-    "§6")
-add("sel._homeShift", "_homeShift(id)",
-    "The neighbour cell an object's stored bbox centre lies in, as the re-home that would put it there; null in its own cell.",
-    ["Returns `{ level, dx, dy }`, dx and dy the whole-frame shift for its coordinates. Read at pen-up for every member a drag touched; only a non-null answer re-homes (`_normalizeHome`)."],
     "§6")
 add("sel._subtreeCount", "_subtreeCount(f)",
     "How many natives a selected frame stands for (its list, its subtree's and its shadows'), for the status count.",
@@ -222,28 +126,11 @@ add("ts.flattenAll", "flattenAll(objs)",
     "Turns derived pieces' loops into stored Loops, so a cached tile holds eight doubles a piece.",
     ["In place, and returns the list. The freeze and the chop hand over transient piece arrays; the cache keeps the `Loop` form the document's natives use."],
     "§7")
-add("ts.contentOffCamera", "contentOffCamera(F, rect)",
-    "`content` for a frame the camera is not at, without unpinning or evicting the camera's own tiles.",
-    ["Saves the pin set by value, holds eviction for the read, restores the pins and evicts once. With `warmReads` on (the ladder, the crossing prebake) the tiles it read go into the warm set, which `framesLeft` keeps.",
-     "By value because `content` mutates `_pins` in place before replacing it. The tiles this bakes stay cached and evictable."],
-    "§9")
-add("ts.clearWarm", "clearWarm()",
-    "Returns the last ladder's warm tiles to the ordinary eviction rules; called as a new ladder starts.",
-    ["-"], "§9")
-add("ts._reroute", "_reroute(F, win, out, pins)",
-    "Swaps moved objects' pieces for the ones read from where their picture is: the frame their table's whole cells point to, over the shifted window.",
-    ["Drops every moved object's pieces from F's own tiles, then for each group from `_rerouteGroups` reads and pins the source frame's tiles over the window shifted back by the remainder, keeping only the group's ids. The pieces are painted translated by that remainder (`res`, stamped in `listFor`).",
-     "Tiles are in unmoved space: a move invalidates no tile, it only changes which tiles a moved object is read from (F55, DESIGN.md §8)."],
-    "§6")
 add("ts._rerouteGroups", "_rerouteGroups(F)",
     "The moved objects to be read from another frame at F, grouped by source frame and remainder; memoised.",
     ["Skips objects homed at F (natives, rendered live) and those homed deeper than F, which the residual draws. For the rest `LevelMap.objShift` names the source frame and remainder; objects sharing both form one group, so each tile is scanned once a group.",
      "Memoised per frame on the document's `rev`, the lattice's `addrEpoch` and its frame count, for the last four frames; a key that changed during the walk is not kept. Measured: the walk was 70 ms of a 113-140 ms list build on the Magnum Opus (16,889 tables, jsdom)."],
     "§6")
-add("ts._bakeSettled", "_bakeSettled(bake)",
-    "Runs a tile bake again when the document changed under it, at most three times (F78).",
-    ["A bake reads frames through `Document.at`, which can settle a moved frame's shift and carry its natives into a frame the bake has already passed; the tile is not cached yet, so no event patches it. `rev` bumps on every emit; a bake that saw it move is repeated and counted in `_rebakes`. After three tries the last result stands."],
-    "§9")
 add("ts._upPiecesOver", "_upPiecesOver(parentId, pr, only)",
     "The parent's magnified pieces over a rectangle, one square's copy of each object when the rectangle straddles squares.",
     ["Inside one parent cache square: that square's up pieces. Across several: the square holding the rectangle's centre, and another square's piece of an object only when the centre square's clip does not cover the rectangle. `only` limits it to one object id; its one caller passes null.",
@@ -270,31 +157,12 @@ add("ts.framesLeft", "framesLeft(F)",
     "§9")
 
 # ---- src/engine/Renderer.js ----
-add("rnd.pushMove", "pushMove(verts, pt, og)",
-    "Appends a move anchor at a point, relative to the scene origin.",
-    ["-"], "§9")
-add("rnd.pushLine", "pushLine(verts, A, B, og, ctx)",
-    "Appends a line as anchors, split into equal parts when the length split is on and the line is not a seam.",
-    ["A line longer than `ctx.segMax` is cut into ceil(len / segMax) parts unless it lies on the rectangle that cut its piece. `segMax` is 0 unless the `Renderer.lengthChop` dev toggle is on, so in the app a line is one anchor."],
-    "§9")
-add("rnd.pushArcPiece", "pushArcPiece(verts, p, og, ctx)",
-    "Appends one arc piece by its once-per-piece plan: SVG arc commands, or kappa cubics built from its ends and sweep.",
-    ["A line, or an arc with no finite radius, goes through `pushLine`. Otherwise `planArc` chooses at the quarter-pixel tolerance and the frame's deepest zoom: the arc command while the browser's float32 centre is within tolerance, else as many centre-free cubics as the sixth-root law needs. A cubic's first handle is written onto the previous anchor. Each anchor carries `_mid`, the part's midpoint, for the thin rescale.",
-     "The plan never changes while zooming (DESIGN.md §9, F40)."],
-    "§9")
-add("rnd.pushRingAnchors", "pushRingAnchors(verts, poly, og, ctx)",
-    "Appends a polygon ring as a move and lines; the closing edge is written out only when long enough to be split, otherwise the fill closes it.",
-    ["-"], "§9")
 add("rnd.areaBounds", "areaBounds(o)",
     "An area piece's bounds for the chop window's verdict: a shape by its true arc extremes, a fill by its points.",
     ["-"], "§9")
 add("rnd.asClip", "asClip(clip)",
     "A tile piece's clip rectangle in the form the seam test takes, with its tolerance.",
     ["-"], "§9")
-add("rnd._renderOverlays", "_renderOverlays(view)",
-    "Redraws what follows the camera over the ink: the tile and erase debug views, the lasso, and the selection indicator.",
-    ["Called from `syncWorld`, so on every render and camera-only frame. The raster renderer passes its published view, so the ink and the overlays take one mapping (RASTERISER-PLAN §2.5 seam 1)."],
-    "§9")
 add("rnd._syncWorldTransform", "_syncWorldTransform()",
     "Writes the world group's scale and translation, folding the scene origin in at float64.",
     ["`translation = inPan + inScale * origin`: anchors are origin-relative, and the cancellation between the pan and the scaled origin happens here in doubles, so nothing large reaches Two.js's float32 matrices or the browser (DESIGN.md §9). `RasterRenderer` overrides it to take the snapped translation from its view."],
@@ -322,32 +190,6 @@ add("rnd._planFor", "_planFor(o)",
     "The arc plan for one piece: the frame's constants plus the piece's clip rectangle, so its seams are known.",
     ["A covering quad (classifyUp's solid tier) takes the plan with no length split: its edges are the tile's own, overlapped by the neighbours."],
     "§9")
-add("rnd.setDragState", "setDragState(fn)",
-    "Registers the engine's live-drag getter, pulled each frame by a renderer that draws the dragged ink itself.",
-    ["The SVG renderer only stores it; `RasterRenderer` reads it each camera step to move its drag plane (PAPER-PLAN R3)."],
-    "§9")
-add("rnd.setPlaneState", "setPlaneState(fn)",
-    "Registers the engine's getter for the selection a drag plane is kept ready for.",
-    ["Stored and unused here; `RasterRenderer` overrides it and aims its plane from it (PAPER-PLAN §10 S4)."],
-    "§9")
-add("rnd.endMove", "endMove()",
-    "The engine's notice that a drag ended; nothing to do in the SVG renderer.",
-    ["`RasterRenderer.endMove(why)` lands its drag plane on a drop and drops it on any other end."],
-    "§9")
-add("rnd._renderSelChevrons", "_renderSelChevrons(edges, kt, W, H)",
-    "Draws the breathing chevrons that point where a selection carries on past a side of the screen.",
-    ["One pooled path per edge run marked `chevron`, 24 px in from its side at the run's middle and rotated to face out, in the `bl-sel-edges` layer. Returns how many were drawn.",
-     "The raster overlay calls this same method, so the chevrons have one implementation on both paths."],
-    "§12")
-add("rnd._antPath", "_antPath(width, nonScaling)",
-    "Makes one ant path element: no fill, the terracotta, butt caps, the `bl-sel-ants` class.",
-    ["A non-scaling stroke unless told otherwise, so the band and the dashes stay in screen pixels under the layer's transform; the screen-edge runs pass false."],
-    "§12")
-add("rnd._mkSelLayer", "_mkSelLayer(svg, host, cls)",
-    "Makes one indicator `<svg>` layer, laid exactly over the drawing's own and promoted to its own compositing layer.",
-    ["Absolutely positioned at the drawing's offset within the host, no pointer events, `will-change: transform`. The SVG renderer builds two (`bl-sel-layer`, `bl-sel-edges`); the raster one builds the edge layer only.",
-     "Its own layer so the crawl repaints the ants and not the drawing: measured 50 ms a frame with the ants in the drawing's `<svg>`, 16.7 split out (DESIGN.md §9)."],
-    "§12")
 
 
 # Existing descriptions of functions in this batch's files that are now FALSE.
@@ -431,12 +273,6 @@ FIX = {
         "what": None,
         "long": ["Pan by a pixel delta. A full render when the visible tile set changed, the view drifted past the re-origin budget, or it left the chop window's inner half; otherwise one transform. Restarts the ladder's quiet timer."],
     },
-    "eng._maybePrebake": {
-        "why": "says it warms the child's tiles; it warms whichever frame the approaching crossing leads to, up or down, and on the raster path rasters that view's preview plates",
-        "what": None,
-        "long": ["Near a crossing (`_crossTarget`), queues one idle callback that re-checks the target, builds its render list off camera over the view mapped into it (which bakes its tiles, kept warm for the zoom), and on the raster path posts preview plates for it (`prebakePlates`, unpinned).",
-                 "Fire-and-forget and idempotent. On the way up the child may be defined early (`preBake`, on by default): a child's crossing record is fixed when first defined, so a frame made on the approach is the one the crossing will use."],
-    },
     "eng.undo": {
         "why": "says undo, redo and clear each re-schedule the background worker; clear does not, undo and redo cancel a live drag, run inside `_keepingSelection`, and are refused while read-only",
         "what": None,
@@ -491,12 +327,6 @@ FIX = {
                  "Selected frames move as frames (`_dragFramesStart`, `_dragFrames`). With the raster drag plane drawing the move, the step is a camera-only sync and no list is built; otherwise it renders.",
                  "Members sharing a home frame and a table take one answer, so their relative positions cannot drift. A member it could not move is recorded with why and journaled at pen-up (F35)."],
     },
-    "sel._normalizeHome": {
-        "why": "says a drag puts the whole displacement into coordinates; a drag changes only the table and the address, and this re-homes, at pen-up, a member whose stored bbox centre lies outside its cell",
-        "what": None,
-        "long": ["At pen-up, for a moved member whose stored bbox centre lies in a neighbouring cell (`_homeShift`): re-home it there and shift its coordinates by the whole frames, so invariant 2 holds again. Exact, because neighbouring origins differ by exactly W, a power of two.",
-                 "The only place a move writes coordinates, so that member's undo entry keeps geometry snapshots."],
-    },
     "sel._selectionMembers": {
         "why": "says every object the selection covers; selected frames are not expanded, so it returns the selected ids and their families only",
         "what": None,
@@ -518,12 +348,6 @@ FIX = {
         "why": "names a deepest-content helper; only `_minContentDepth` exists",
         "what": None,
         "long": ["`_depth` is a frame's depth, 0 when unknown. `_minContentDepth` is the shallowest depth any frame with natives has, which lets `_bakeUp` return nothing when the parent is coarser than all content."],
-    },
-    "ts.content": {
-        "why": "describes only the tiles covering the window; a moved object's pieces are swapped for ones read from another frame (`_reroute`)",
-        "what": None,
-        "long": ["Everything to draw at one frame inside one window. Works out which cache tiles the window covers and takes both content classes from each, coarser ink magnified in and finer ink minified in, building either on demand.",
-                 "When any object has a displacement table, `_reroute` replaces moved objects' pieces with those read from where their picture is. Then pins exactly the tiles read and evicts down to the caps."],
     },
     "ts._ensureUp": {
         "why": "rebuilds only on a miss or an epoch change; it also rebuilds when `chainSeq` changed (a subtree move), and bakes through `_bakeSettled`",
@@ -566,11 +390,6 @@ FIX = {
     "rnd.setSelection": {"why": "gone", "what": None, "long": ["The bounding-box indicator went on 2026-09-14; the selection is shown by the ants (`setSelectionAnts`, `_renderSelOverlay`)."]},
     "rnd.selectionDrawable": {"why": "gone", "what": None, "long": ["The bounding-box indicator went on 2026-09-14; the selection is shown by the ants (`setSelectionAnts`, `_renderSelOverlay`)."]},
     "rnd.setOutlineMode": {"why": "gone", "what": None, "long": ["Nothing replaced it; `setLazyOutlines` remains."]},
-    "rnd._renderSelection": {
-        "why": "says it draws the selection box with a viewport test; it draws only the lasso loop",
-        "what": "Redraws the lasso loop in progress; the selection indicator is drawn elsewhere.",
-        "long": ["Clears the selection layer and draws the lasso, in screen coordinates, as a dashed terracotta path. That is all it draws; the indicator is `_renderSelOverlay`."],
-    },
     "rnd._sig": {
         "why": "says a resolved outline's signature carries no window; a shape or fill straddling the chop window carries the window's key, and a piece with a residual carries it too",
         "what": None,

@@ -138,18 +138,6 @@ add("opl._onEvent", "_onEvent(ev)",
     ["Ignored while replaying. A reset that is not a load sets `needFull`. A removal is remembered so the drain can encode an object added and removed within the tick; an erase mark removed outside undo and not by a rehome is queued as `spent`, since its consumption has no op of its own.",
      "A change that is not offsets-only and not inside undo queues one `put` per id per tick, unless an add, mark or put for that id is already queued: those encode the current state at the drain anyway."],
     "§13")
-add("opl._ownerSeq", "_ownerSeq(owner)",
-    "The seq of the `moveFrames` op a frame entry belongs to, found on the undo and redo stacks or among the replay's rebuilt ops.",
-    ["Null while the op is not on a stack yet (a settle mid-drag), which is why a settle entry's `of` can be absent."],
-    "§13")
-add("opl._onSettle", "_onSettle(ev)",
-    "Queues a `settle` entry carrying the result tables, coalesced with a settle of the same frame queued just before it.",
-    ["A drag unsettles and settles a visible frame every event, so consecutive settles of one frame keep only the latest record. `touches` is the frame plus every carry's destination; a carry forces all of them to snapshot, since it changed which frame holds a native (DESIGN.md §13)."],
-    "§13")
-add("opl._onMerge", "_onMerge(ev)",
-    "Queues a `mergeFrame` entry for a shadow merged into its resident and forces the resident's snapshot.",
-    ["The resident now holds the shadow's natives and the shadow's row goes with the write. The entry names its `moveFrames` op (`of`) so replay hangs the record on it for undo."],
-    "§13")
 add("opl._onOp", "_onOp(ev)",
     "Turns document op events into the tick's items: bake steps, undo and redo, and each fresh op kind with its seq.",
     ["While replaying it only collects settles, to queue once the replayed seqs are known. A bake step encodes at once, since its pieces may be cut again before the tick: a `rekey`, a `bakeFrames` for a frame the mark covered whole, or a `bake` with the removed object and its pieces. An undo or redo names its op's `_seq` and forces what `_forcedFor` returns; an op from before the log (a clear) sets `needFull`.",
@@ -183,14 +171,8 @@ add("opl._replay", "_replay(entries, frameSeq)",
      "An undo or redo inverts the rebuilt op: from the entry's own data where the snapshots already hold its effect, through `Document._invert` otherwise, and a `moveFrames` by splitting merges and subtracting settles without re-addressing. The inverse keeps the op's seq (F71). A `settle` or `mergeFrame` entry is hung on the `moveFrames` op it names.",
      "The undo stack is capped at 200. Each erase mark still in the document is re-registered in `_eraseCommits` with a done set of the ids its bake entries name, so the bake resumes where the log left it."],
     "§13")
-add("opl.settleFile", "settleFile(rec)",
-    "A settle record in file form: the shift, each native's result table through `encodeBelow`, the carries' frames as strings.",
-    ["-"], "§13")
 add("opl.settleLive", "settleLive(s)",
     "A stored settle record back to live form, its tables decoded.", ["-"], "§13")
-add("opl.mergeFile", "mergeFile(rec)",
-    "A merge record as a plain-data deep copy, so the op and the entry never share it.",
-    ["The same function reads it back (`mergeLive`)."], "§13")
 add("opl.frameFile", "frameFile(e)",
     "A `moveFrames` frame entry in file form: address before and after, shifts, and its settle inline; its merges are left out.",
     ["A settle is inline because one mid-drag has no op to be an entry of; a merge always happens after the op is on the stack, so its own `mergeFrame` entry names the op."],

@@ -448,9 +448,6 @@ add("scc._prepStep", "_prepStep(st, budget)",
 add("scc._frameRec", "_frameRec(f)",
     "A lattice frame as the index's frame record `{id, parent, depth, cx, cy, sx, sy}`.",
     ["-"], "§14")
-add("scc._frameKey", "_frameKey(r)",
-    "A frame record as a string, to tell whether it changed since it was sent.",
-    ["-"], "§14")
 add("scc._framesChanged", "_framesChanged()",
     "Has any frame been added, removed or changed since the last batch?",
     ["-"], "§14")

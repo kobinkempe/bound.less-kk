@@ -104,15 +104,6 @@ L = {
  "Collects the eraser gestures that have a resolved outline, oldest first.",
  "An eraser that is still raw is not skipped, it is simply not ready — the same tick resolves outlines before it touches erases, so it arrives here a tick later.",
 ],
-"erp._doneSet": [
- "Returns the set of object ids a given eraser gesture has already handled, creating it on first use.",
- "This is what stops an eraser reconsidering the same object repeatedly, and it doubles as the record of everything the gesture looked at, which a spent mark reports if it cut nothing.",
-],
-"erp._nextEraseTarget": [
- "Finds the first object beneath an eraser that it has not yet handled.",
- "Skips other eraser strokes, anything already done, and anything drawn *after* the eraser — drawing order is what makes the picture correct, so an eraser only ever cuts what was below it.",
- "Reachability is the only remaining bar. There used to be a depth guard here, and past five crossings it silently did nothing: the gesture painted, the mark was consumed, and no ink was ever removed.",
-],
 "erp._eraseMayTouch": [
  "A cheap rejection test: could this eraser possibly touch this object?",
  "Projects the eraser's **bounding box**, not its geometry, into the target's frame — a box maps to a box exactly, and costs a constant amount where projecting the outline rebuilds one arc per piece.",
@@ -123,14 +114,6 @@ L = {
  "Finds or creates the undo entry that a gesture's background cuts append to.",
  "Always called **before** the document is touched: a cut that cannot record itself must not happen, because unrecorded cuts were how duplicated, stacked geometry formed.",
  "After a reload the map is empty, so resumed baking registers a fresh entry — which also makes a resumed erase undoable again.",
-],
-"erp._bakeOne": [
- "Subtracts one eraser gesture from one object. The single most consequential function in the engine.",
- "**Makes both operands resolved outlines** — forcing a resolve or converting a legacy polygon fill if necessary.",
- "**Decides where the cut happens.** If the object is homed at a coarser level *and* there is a straight ancestor chain to descend, the work is handed to the descent. Otherwise the cut is made here, in place. The 'straight chain' test matters: the box tree branches, so 'finer than' and 'underneath' are different questions, and between branches there is no chain to cede along.",
- "**Works local to the subject.** Both operands are shifted so the object being cut sits near the origin — an eraser three levels above its target arrives 27 billion times its own size, and centring on *that* leaves the target's own features below the rounding.",
- "**Refuses grazing touches.** If almost no ink was removed, nothing is changed, so a tangent brush past a stroke does not churn it. The threshold is measured against the subject as well as the eraser, because 'a negligible fraction of the eraser' is nonsense once the eraser is magnified.",
- "**Culls dust**, replaces the object with the surviving regions, and — if a cut inside a multi-level family left several pieces — asks whether the object came apart.",
 ],
 "erp._noteSeal": [
  "Counts the booleans that had to be closed with a fabricated chord.",
@@ -161,17 +144,6 @@ L = {
  "Pure identity work — no geometry is touched, because ceding already left the parent in pieces. Severance used to need a second cut through the parent, which declined on any cut that was not dead straight, which is what a real scribbled erase always looks like.",
  "The first component keeps the original key so a selection already pointing at it stays valid; the rest get fresh keys. The key changes are recorded on the gesture's undo entry so one undo unwinds geometry and identity together.",
 ],
-"erp._bakeRehome": [
- "Times the descent and delegates to `_bakeRehomeInner`.",
-],
-"erp._bakeRehomeInner": [
- "Cuts a hole in an object from a level below its own, by descending one crossing at a time.",
- "**Why the chain.** Ceding straight from the object's level to the erase level dies: the ceded rectangle is 1.9e-8 units wide at three crossings, 9.1e-12 at four, and exactly zero at five — a zero-width window is recorded and no hole ever appears. Descending, each step cedes a tile that is a fixed fraction of its parent, at every depth, forever.",
- "**Each step** maps the eraser's footprint into this frame, works out which of the object's own tiles it reaches, extracts the parent's ink inside that block, cuts the block out of the parent, and hands the ink to a new object one level down.",
- "**The block is a block, not a tile.** A gesture landing on a tile boundary spans two, and ceding only the first halves the mark exactly — measured at 19.5 px removed against a 20 px eraser, looking like a perfectly ordinary hole of the wrong size.",
- "**The block must also cover the box the next step descends into**, or the chain arrives holding half a box's ink and the rest of the erase has nothing to cut. At five crossings that showed up as a hole 18 px short against an 18 px eraser, with the chain looking perfectly healthy.",
- "Only the last step cuts. Intermediate links exist purely so the level below has something to cut into.",
-],
 "erp._rehomeBail": [
  "Records why a descent refused, against the gesture that made it.",
  "A refusal is otherwise invisible: the object is already in the eraser's done set, so the erase never returns to it, and if nothing else was under the gesture the mark is consumed having done nothing. That is exactly what 'I erase and then it just disappears' looks like from the outside.",
@@ -184,25 +156,12 @@ L = {
  "Resolves one stroke's perimeter immediately, cancelling any queued job for it.",
  "Used where an erase has reached an object that has not resolved yet — the boolean needs both operands as outlines and cannot wait for the queue.",
 ],
-"erp._flushErasesFor": [
- "Applies every pending eraser mark that overlaps one object, right now.",
- "Called before a selection is dragged. Ink dragged out from under a mark that has not been applied yet takes its un-erased shape with it, and the mark stays behind to cut whatever arrives there instead.",
-],
-"erp._settleSelectionErases": [
- "The same barrier, over everything that is about to move.",
- "The single-object flush was not enough: with several objects selected, or one object whose family has a re-homed piece at another level, marks over the other members survived the drag. It also left the white mark itself on screen, hanging over the object being dragged.",
-],
 "erp.flushErases": [
  "Runs the background erase worker to completion. For tests, and for anywhere the document must be settled before it is inspected.",
 ],
 "eng._render": [
  "A full render: rebuild the display list, hand it to the renderer, update, and emit status.",
  "Times itself, and pokes the frame meter — the worst stall measured so far is a cold one, opening a drawing at a deep camera, and a meter that only woke for zoom and pan would sleep straight through it.",
-],
-"eng._buildList": [
- "Assembles everything to draw at the active frame.",
- "Takes the cached tile pieces covering the view, adds the active frame's own objects (which are drawn live, not cached), and tags each piece with its family key so the renderer can group a multi-level object into one path.",
- "Sorts by drawing order — which is creation order, with cut pieces inheriting their source's place so a stroke stays at its original depth after being split.",
 ],
 "eng._visibleChanged": [
  "Has the set of visible tiles changed since the last full render?",
@@ -216,10 +175,6 @@ L = {
 ],
 "eng.panBy": [
  "Pan by a pixel delta. Same structure as zoom but with fewer questions to ask — only the visible tile set and re-anchoring can change.",
-],
-"eng._maybePrebake": [
- "While the camera is near a crossing, warms the child tiles under the view during idle time so the crossing lands on a hot cache.",
- "Safe to do early: a box's edge to its parent is fixed the first time it is crossed into and never changes, so a frame captured on the way up is as valid as the one at the crossing moment.",
 ],
 "eng._queueIdleFits": [
  "Schedules outline fitting for wide strokes during idle time, so a stroke that is approaching the display gate has its outline ready before it needs it.",
@@ -268,10 +223,6 @@ L = {
  "**A member coarser than or level with the camera** translates directly: the displacement measured in its units shrinks with separation, so plain translation cannot explode.",
  "**A member deeper than the camera** has the displacement expanded into whole-box steps. Everything a box or larger becomes a change of *address* — the object is re-homed into the box that many steps along, its geometry untouched — and only the sub-box remainder is added to coordinates.",
  "Every member expands the **same** displacement, so members sharing an ancestor take identical steps and their relative positions cannot drift.",
-],
-"sel._normalizeHome": [
- "Puts an object back inside its own box after a move.",
- "A drag at or above an object's own level puts the whole displacement into its coordinates, and enough of them walk it out of its box. Re-homing to the box that now contains it costs nothing in accuracy — neighbouring origins differ by exactly one box width, a power of two, so subtracting whole boxes is exact.",
 ],
 "sel.deleteSelection": [
  "Removes every selected object and its family, as one undo entry.",

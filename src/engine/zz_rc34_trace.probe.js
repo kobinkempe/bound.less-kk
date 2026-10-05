@@ -72,11 +72,18 @@ import TileStore from "./TileStore";
             for (const L of levels) { const r = this.lm.mapRectF(rc, ev.at.parent, L); lines.push("TS   map to " + L + " -> " + JSON.stringify(r && [r.left, r.top, r.right, r.bottom].map((v) => +v.toFixed(3))) + " tiles " + [...this.cache.values()].filter((t) => String(t.level) === L).map((t) => t.dir + t.i + "," + t.j).join(" ")); } } const r = fe.call(this, ev); if (watch) { const gone = before.filter((k) => !this.cache.has(k)); lines.push("TS   dropped " + gone.length + ": " + gone.slice(0, 6).join(" ; ")); } return r; };
     T._setTile = function (key, tile) { if (watch && tile && tile.objs && tile.objs.some((q) => q.id === ID)) lines.push("TS _setTile " + key + " with " + ID + " doc " + !!this.doc.getById(ID)); return st.call(this, key, tile); };
 }
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const ac = K.prototype._applyCut;
+    if (ac) K.prototype._applyCut = function (...a) { const before = new Set(); for (const L of this.doc.levels()) for (const o of this.doc.list(L)) before.add(o.id); const r = ac.apply(this, a);
+        if (process.env.DBG_CUTS) { const after = new Set(); for (const L of this.doc.levels()) for (const o of this.doc.list(L)) after.add(o.id); const gone = [...before].filter((x) => !after.has(x)), made = [...after].filter((x) => !before.has(x)); if (gone.length || made.length) lines.push(tag + " _applyCut gone " + JSON.stringify(gone) + " made " + JSON.stringify(made)); }
+        return r; };
+}
 wrapLog(OpLog, "LIVE", decodeEntry); wrapLog(OOpLog, "ORAC", oDecodeEntry);
 test("trace", () => {
     const st = {};
     runPairFuzz(SEED, STEP + 1, (O, N, step, op) => {
         watch = process.env.DBG_WATCH != null && step + 1 >= Number(process.env.DBG_WATCH);
+        if (process.env.DBG_CUTS && lines.length) log("CUTS after " + step + " " + op + "\n  " + lines.filter((l) => l.includes("_applyCut")).join("\n  "));
         const hn = N.doc.getById(ID), ho = O.doc.getById(ID);
         if (process.env.DBG_FROM && step >= Number(process.env.DBG_FROM)) {
             const fl = (E) => [...E.lm.frames.values()].filter((f) => f.parent != null && (E.doc.count(f.id) || f.shift || f.shadowOf != null || f.private != null || String(f.id).split("/").length <= 3))

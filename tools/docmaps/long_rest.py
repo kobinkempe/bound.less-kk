@@ -175,10 +175,6 @@ L = {
  "Pooled elements rather than rebuilt ones, and the dash pattern is fitted to each ring's measured length so the ants stay evenly spaced instead of bunching at the join.",
 ],
 "@Renderer.setOpacityGroups": ["Settings pass-throughs. Plumbing."],
-"rnd._renderEraseDebug": [
- "The debug overlays: tile rectangles, and what an erase actually touched.",
- "The erase overlay classifies a boundary by asking exactly the question severance asks, sharing the same perimeter-parameter code — a second, parallel notion of 'where on the rectangle is this' would drift from the one the engine severs on, and then the picture would lie.",
-],
 
 # ---- connect / hittest / clipper / curveOutline ---------------------------
 "con.asRect": ["Accepts either rectangle shape the codebase uses, so callers do not have to care which one they hold."],

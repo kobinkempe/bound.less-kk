@@ -74,10 +74,6 @@ add("lm.LevelMap", "LevelMap", "The box lattice itself.",
 add("lm.LevelMap._centre", "_centre(key)", "One box's centre in its parent's units.",
     ["An exact integer, and the reason a descent is exact: subtracting it BEFORE scaling makes the magnification a power of two on numbers that are already commensurate."], "§2")
 add("rnd.perfRendererNow", "perfRendererNow()", "Monotonic time for the render budget.", ["-"], "§9")
-add("rnd.selAntScale", "selAntScale(inkPx)",
-    "Shrinks the marching ants for thin ink.",
-    ["The design file's band is a fixed width, which buries a three-pixel mark under its own indicator. Below a reference width the whole dash pattern scales down together.",
-     "The floor is the speck's own band, so the ants never get thinner than the thing they collapse into - which also removes a discontinuity, because as a mark shrinks past being traceable the band it had is the band its speck gets."], "§9")
 add("rnd.Renderer", "Renderer", "The only class that touches Two.js.",
     ["Owns the SVG scene, one persistent group per object, the per-frame diff, the per-level scene subtrees, and the selection overlay."], "§9")
 add("ts.TileStore", "TileStore", "The bidirectional tile cache.",

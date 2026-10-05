@@ -21,7 +21,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 _NAMES = ("newdesc_scale", "newdesc_scale2", "newdesc_rules", "newdesc_shell",
           "newdesc_ui", "newdesc_oracle", "newdesc_last",
           "newdesc_geom", "newdesc_engine", "newdesc_store",
-          "newdesc_paper", "newdesc_raster1", "newdesc_raster2", "newdesc_raster3",
+          "newdesc_paper", "newdesc_raster1", "newdesc_raster3",
           "newdesc_raster4", "newdesc_scenes", "newdesc_local", "newdesc_cloud",
           "newdesc_report")
 _SOURCES = []
@@ -336,10 +336,6 @@ EXTRA = {
     ("LevelMap", "lm.effectiveZoom"): [
         "Absolute zoom: the in-frame scale times the factor from the origin spine's level-0 frame to the active one.",
         "Falls back to the in-frame scale when either frame is unknown. The scale bar reads it through `Camera.effectiveZoom`, and `sceneZoom` through the engine.",
-    ],
-    ("Renderer", "rnd.ensureOutline"): [
-        "A stroke's outline as curve loops (`curveOutline.strokeLoops`), the one definition the eraser shares; `_buildOutlineInto` lays those loops into one filled Two.js path.",
-        "Used for a stroke not yet resolved that could paint wider than the fat gate at this level (`_strokeMode`): at once, or with lazy outlines when it nears the gate, within 12 ms a render; the engine's idle prefitter (`_queueIdleFits`) builds it ahead so the switch costs nothing. Anchors are origin-relative; each loop ends at its start and the path stays open, because fill closes every subpath and Two's `closed` would draw a stray segment across loops.",
     ],
     ("biarc", "bia.tracePath"): [
         "Lay a resolved chain into a canvas path.",

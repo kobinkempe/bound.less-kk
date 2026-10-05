@@ -3247,3 +3247,53 @@ pin "a frame dropped on an inked frame's cell stays selected as itself").
 **Decisions made:** each new rule counted in the probe's line, narrowed to its named difference.
 **Questions asked:** none.
 WHERE I AM: tile 500+500 and selection 200+200 running on the final harness (`r-c34/fuzz500c.log`, `sel200c.log`).
+
+## 2026-10-05 08:55 UTC — orchestrator (Opus) — the fifth session-limit stop (~04:15–08:50); all three agents resumed
+**Working on:** the limit stopped all three agents minutes after their resumes (R-MODEL-C34 at its 04:14 checkpoint,
+B-PYRAMID-5 with batch b4 done at 04:12, B-DOCMAPS in item 1). The container rebooted (uptime 0 at 08:51); the tree was
+clean at 62d7e23 with every edit. R-MODEL-C34's final runs had finished: tile 500+500 (1,015 s) one difference, seed 321
+step 26 (lassoDrag): native 16, oracle 1 item, live 0 (carried) — to be traced as a possible live defect; selection
+200+200 (210 s) green. All three resumed by message.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: measuring the production code's size before and after the rebuild for Kobin; the monitor re-armed.
+
+## 2026-10-05 08:54 UTC — R-MODEL-C34 (reviewer) — resumed after the fifth stop and reboot (tree at 62d7e23)
+**Runs that finished before the stop (final harness, jsdom):** tile 500+500: 39,987 checks, 276,021 items, ONE difference
+— plain seed 321 step 26 (lassoDrag): native 16 at "0", oracle 1 item, live 0 (carried); counts camSynced 2, unitApart
+11, dropDeselect 83, heldDeselect 19, rerouted 31 (max 9.3e-10), oracleSlip 6, walkedCut 9 (max 2.3e-6), normalised 536.
+Selection 200+200: green (16,000 checks, 3,188 selections, held 41).
+**Next, in order:** seed 321 traced as a possible live defect first; break-checks for `heldDeselect`, `walkedCut` and the
+2-ulp carry (injections in copy `bc3`: BK_SEL, BK_CUT, BK_ABOVE), and the oracle's one-event frame drag shown to be the
+oracle's alone; then the review's measurements (bake profile, city lasso, R-DRAG timings, Chromium 3/4), the suites.
+**Questions asked:** none.
+WHERE I AM: tracing tile seed 321 (plain, step 26, lassoDrag).
+
+## 2026-10-05 08:53 UTC — B-DOCMAPS (builder) — resumed after the session-limit stop (tree at 62d7e23)
+**Item 1 had reached** (on disk, snapshotted in 9e0f7b9/62d7e23): `extract.MODFILE` keys all 153 files (19 live new:
+`stg plm fgc lv1 eru cde dvl pyr pys lvl jbq pft lsl svl svo sva dvs erc shd`; oracles `rls` + 22 `m1*` for
+`model-v1/`; `pic`/`pls` gone); `extract.py` resolves a `new X()` and `extends X` through the file's own import first
+(the oracle's `new Document()` went to the live file) and has a second prototype group for the frozen engine;
+`graph.MOD`/`MODNAME` and `newdesc.ARTICLES` carry them (new pristine slots `space`, `views`; one article per
+model-v1 file); `entries_for` orders rows by source line. `extract.py` runs: 153 files, 3,649 nodes, 7,054 edges.
+**Measured** (`dmap/diffsets.py`, 56e36b3 copy + the graphdata committed there): live 733 new, 355 changed (287 code),
+8 text-only, 1,473 same, 264 deleted; model-v1 456 identical to their 56e36b3 described body, 442 to read (281 of
+them identical to today's live body). src since fba12b4: tests/testkit/probes only, so the sets stand.
+**Decisions made:** one article per model-v1 file (a multi-module article resolves a shared leaf name to one
+module's row); the frozen-model statement in each article's role, never in a row.
+**Questions asked:** none.
+WHERE I AM: item 1 — ROLE texts for the new articles, the `pic.*`/`pls.*` entries and pristine prose removed, then
+`rebuild.py` to `verify_coverage` (gaps expected) as item 1's checkpoint.
+
+## 2026-10-05 08:54 UTC — B-PYRAMID-5 (builder) — resumed after the fifth stop; b4 END (item 6 not effective in the browser)
+**Working on:** why the kept decision did not apply in scenario 4; then R-PYRAMID-34's items, the full measurement.
+**b4's numbers (headless, `--dense --scenario 4`, each run started under load 2: 1.84–1.99 → 2.36–3.29 at the end):**
+the drop's render row before item 6 (`cur`, 26e3e69) 1,061 | 1,028 ms with `ovl.tail` 488 | 470; after (`fin1`,
+fba12b4) 1,149 | 1,071 ms with `ovl.tail` 566 | 430, and the profiled run 1,141 with 535 — `_selDecide` 338.7 ms at the
+drop in its profile (548 in b3's). **Item 6's rule did not take effect in the browser**: the drop still decides afresh.
+What did change: the "crawl" rows (473–456 ms of a carried decision each, three a run before) are gone after.
+**Decisions made:** not reporting item 6 as done; tracing it next on a copy (`bp5/tr6`: why the kept decision is
+refused — the selection replaced at the drop, a member's or a frame's displacement, the window).
+**Questions asked:** none.
+WHERE I AM: b5 — the traced copy on :3013, one profiled scenario-4 run that dumps the refusal's reason.

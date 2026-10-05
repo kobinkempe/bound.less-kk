@@ -10,16 +10,8 @@ def add(key, fn, what, long, ref=""):
 
 
 # ---- src/engine/raster/RasterRenderer.js ----
-add("rr.CHORD_CAP", "CHORD_CAP(budget)",
-    "The chord count `visibleChords` stops counting at: twice the sync budget plus one.",
-    ["It must be strictly above `PictureLayer`'s `2 × syncBudget`, the hysteresis that keeps the sync path, or the exit value would read as a light view."],
-    "§9")
 add("rr.resetRasterStats", "resetRasterStats()",
     "Zeroes every counter in `rasterStats`, the renderer's own report counters.", ["-"], "§15")
-add("rr.sortCentreOut", "sortCentreOut(misses, r)",
-    "Sorts a request's missing plates by squared distance from its range's centre, in place.",
-    ["`_postNow` applies it to the preview and the incoming quantum, so the centre of the screen is posted first rather than the top band that `want`'s row-major order puts first."],
-    "§9")
 add("rr.RasterRenderer", "RasterRenderer",
     "The raster renderer: a `Renderer` subclass that paints the render list into cached plates on a canvas instead of into SVG.",
     ["It keeps the base class's Two.js `<svg>` for the live stroke and the selection chevrons only; the ink goes through `PictureLayer` (the mapping and the compose), `PlateStore` (the cache and its invalidation) and `rasterWorkerClient` (the queue and the workers). It is the only module that posts raster jobs.",
@@ -76,16 +68,9 @@ add("rr._onStoreRelease", "_onStoreRelease(reason)",
     "The store's release when the tab is hidden: ends the drag plane and passes the release to every screen layer.",
     ["Driven by `PlateStore.onRelease`, which the constructor sets."],
     "§9")
-add("rr.supportsDragPlane", "supportsDragPlane (getter)",
-    "True: the engine reads it once, at construction, to turn on the drag's plate hold, because this renderer draws the dragged ink itself.",
-    ["-"], "§9")
 add("rr.setPlaneState", "setPlaneState(fn)",
     "Stores the engine's selection callback, pulled each camera step as `{ key, ids }` of the current list, or null.",
     ["The engine's `_planeState`, memoised on the list and the selection; a selected frame's natives are found by their home."],
-    "§9")
-add("rr.dropCarry", "dropCarry()",
-    "Tells the layer to forget the last picture it carries as a stand-in, because a different document is coming.",
-    ["The engine calls it on the document's `reset` event."],
     "§9")
 add("rr.planeAccepts", "planeAccepts()",
     "At a drag's start: aims the drag plane at the selection and posts what it lacks; false sends the drag down the per-step render path.",
@@ -117,13 +102,6 @@ add("rr._planeStep", "_planeStep(v)",
     ["Under a drag, a plane with no layers, at another frame, or in a view that cannot carry it is lost (`_losePlane`); otherwise it moves by the pointer's displacement from the drag's start and re-posts any plane plate staled mid-drag.",
      "The drawn level is `MovePlane.pick`'s: the main level whole, else the quick one whole, else the selected layers of either alone (partial). Under a drag with none of those and no stopgap yet, `_planeStopgap` rasters a small selection here. Only a whole level sets `_dragOmit`, which makes every other pack leave the selection out; while partial the plates still show the ink where it was. Counts the steps drawn not ready, partial and from the quick level."],
     "§9")
-add("rr._planeStopgap", "_planeStopgap(pl)",
-    "With no plane level in at a drag step, rasters the selected layers of the quick level (else the main one) on the main thread, for a selection of at most 500 objects over at most 8 plates.",
-    ["Each plate is packed with only the layer's ids on transparent paper at that level's zoom, rastered into the sync scratch and kept as a canvas in `pl.stop`, which the layer draws alone until a level lands. The longest one is kept in `planeStats.stopgapMsMax`."],
-    "§9")
-add("rr._stopSurface", "_stopSurface(rgba)",
-    "Copies one stopgap plate's pixels into a new canvas for `drawImage`, or keeps a copy of the raw pixels where there is no canvas (jsdom).",
-    ["-"], "§9")
 add("rr._losePlane", "_losePlane()",
     "Ends the plane under a live drag and tells the engine, which releases its hold so the drag renders each step.",
     ["Counted in `planeStats.lost`; sets `_noPlaneDrag` so no new plane is aimed under that drag."],
@@ -154,14 +132,6 @@ add("rr.destroy", "destroy()",
     "Tears down the raster path: abandons in-flight jobs, empties the queue, clears the timers, stops the pool and listeners, destroys the layers, then the SVG base.",
     ["The abandon comes first: a job never reported leaves its keys in the store's in-flight map and `want` reads them as in flight rather than missing, a permanent hole."],
     "§9")
-add("rr.needsReorigin", "needsReorigin()",
-    "Always false: the overlay origin is chosen at pen-down (`addLive`) and nowhere else.", ["-"], "§9")
-add("rr.needsWindowChop", "needsWindowChop()",
-    "Always false: the raster path has no SVG window chop.", ["-"], "§9")
-add("rr.needsFadeFlip", "needsFadeFlip()",
-    "Always false: the packer re-derives family membership on every pack, so no fade regroup render is needed.",
-    ["A quantised fade cannot change inside a quantum, and every plate is re-packed at a quantum change anyway. The inherited version reads `_groups`, which is empty on this path."],
-    "§9")
 add("rr.endLive", "endLive()",
     "Pen-up: releases the live stroke's model now and keeps its SVG path on screen until the plates under it are fresh.",
     ["On the plates or settle path, with a store, a live path and points, it records the stroke's box (half its width added), its frame and a limit of `LIVE_HOLD_MS` (3,000 ms, extended while its plates are on the way) in `_liveHeld`, and arms the timer; every later pack paints the stroke. Anywhere else the base `endLive` removes the path at once: the sync path rasters the stroke in the pen-up frame itself."],
@@ -170,22 +140,9 @@ add("rr._armLiveTimer", "_armLiveTimer()",
     "Arms one timer for all held live paths, at the earliest limit; it releases what it can and re-arms while any path is held.",
     ["A release is followed by `update()`, so Two redraws without the path."],
     "§9")
-add("rr._releaseHeldLive", "_releaseHeldLive(v, list)",
-    "Takes down each held live path whose plates have landed, whose time is up, whose frame the view left, or whose stroke left the list.",
-    ["Landed means every view cell under the stroke's box is fresh; for a translucent stroke the first fresh cell is enough, since its path over its own plated picture doubles the alpha. Past its limit a path is kept 250 ms at a time, up to `LIVE_HOLD_MAX_MS` (15 s) from pen-up, while `_liveCellsComing` says its plates are on the way (the code records a 1,000-family plate taking 5 s). Counts handoffs, extensions, timeouts and the longest hold, clears the timer when nothing is held, and returns the paths removed.",
-     "Called from every camera step, the sync step, each arrival and the timer."],
-    "§9")
-add("rr._liveCellsComing", "_liveCellsComing(v, h)",
-    "Whether every stale view cell under a held live path is on its way: its plate in flight at the key's current epoch, or strips still queued in the pool.",
-    ["False at the first stale cell in flight at an old epoch, or not in flight while nothing is queued, and false when no cell is stale. `_releaseHeldLive` extends a held path past its limit only while this is true."],
-    "§9")
 add("rr.addLive", "addLive(o)",
     "Starts the live stroke's SVG path, first re-centring the overlay origin on the view and re-syncing the world transform if it moved.",
     ["The origin is one object with one writer, this method, and a new choice is a new object, because `_selDecide` caches on the origin's identity. Re-syncing here is what puts a stroke begun after a pan or zoom under the pen instead of offset by the origin's move until pen-up."],
-    "§9")
-add("rr._activateLevel", "_activateLevel()",
-    "Makes the one persistent overlay scene `_ov` active for the live stroke, whatever the level.",
-    ["There is no SVG ink to retain per level on this path. The scene is looked up in `_scenes`, not kept in `_ovScene` alone: `Renderer.clear()` empties `_scenes` on every load and scene jump, so the scene is registered again, its detached groups forgotten and its root re-attached to the world; keyed on `_ovScene` alone, the live stroke would be built into a group Two never draws."],
     "§9")
 add("rr._syncWorldTransform", "_syncWorldTransform(view)",
     "Sets the SVG world group's scale and translation from the published view, with the overlay origin folded in, so the live stroke sits on the composed ink.",
@@ -214,13 +171,6 @@ add("rr._frameStep", "_frameStep(list)",
     ["Plates path, in order: `store.want(view)` (the visible pins, after `frameFor` has added its own), the plane step, `compose(hits)`, the held-live release, and a post of the misses. The sync path ends or loses the plane, rasters on this thread, releases held paths and gives the layer the measured core time.",
      "`frameFor` can post inside itself; that time is subtracted from `eng.view` because it is already counted in `eng.pack` and `xfer.out`. Returns the published view, which the overlays are handed."],
     "§9")
-add("rr._dropDead", "_dropDead(view)",
-    "Drops the queued strips of any quantum that was live last step and is not now, and the settle's strips once it is no longer pending.",
-    ["Liveness is `layer.status()`: the current, pending, held and preview quanta. Each drop passes the dead `q`; a bare `dropQueued` would also empty the newest quantum's strips and the settle's."],
-    "§9")
-add("rr._noteFatPending", "_noteFatPending(list)",
-    "Records the widest fat stroke in the list still waiting for its outline, the idle fitter's input (`needsFatFlip`).",
-    ["-"], "§9")
 add("rr._beginFrame", "_beginFrame(kind)",
     "Advances `frameSeq` (from the engine's counter when given), counts the frame, and opens its perf row.", ["-"], "§15")
 add("rr._endFrame", "_endFrame()",
@@ -232,71 +182,8 @@ add("rr._closeRow", "_closeRow()",
 add("rr._add", "_add(name, ms)",
     "Adds a duration to one named perf slot, through `rasterPerf`'s slot index or the name itself for a test recorder.",
     ["-"], "§15")
-add("rr._renderSync", "_renderSync(list, view)",
-    "The sync path: rasters every visible plate on this thread at the exact zoom into the layer's own canvas and composes it as one uncached entry.",
-    ["Packs the whole range as one job, runs `renderPlate` per plate into the one scratch and `putImageData`s each at its plate origin in the layer canvas, which is idle in sync mode (scale 1). The surface goes to `compose` as a single hit at `(i0, j0)`, key `sync`; nothing reaches the store.",
-     "Sync mode and a quantum hold are exclusive by construction in `PictureLayer`, which is what leaves the layer canvas free. Times the pack, the blit and the core's four phases."],
-    "§9")
-add("rr._addCorePhases", "_addCorePhases(timings, n)",
-    "Sums the clip, edges, union and accumulate phases of the sync loop's per-plate timings into their perf slots and returns the total.",
-    ["In sync mode the core runs on the main thread, so these count inside the frame. The total is what `noteSyncCost` gives the layer's sync switch."],
-    "§15")
-add("rr._syncScratch", "_syncScratch(nPlates)",
-    "The sync path's scratch: one RGBA plate, allocated on the first sync frame, and count and timing arrays grown to the plate count.",
-    ["-"], "§9")
-add("rr._post", "_post(src, misses, why)",
-    "Posts one request's missing plates, opening a perf row of kind `settle` when no row is open (the settle's timer task, a prebake).",
-    ["The work is `_postNow`."],
-    "§9")
-add("rr._postNow", "_postNow(src, misses, why)",
-    "Builds the job request for one set of misses — plates, epochs at the want, priority, off-camera list, the plane's only and omit sets — and submits it to the worker client.",
-    ["Copies `q`, `Zq`, `frameId` and the rest from `src` at this moment, because the layer's request objects are mutated in place, and wires the callbacks `pack`, `onResult`, `onDrop`, `stillWanted` and `epochOf`. Preview and incoming-quantum misses are sorted centre-out first. A second post at one `q` in one task is counted in `dupPostQ`.",
-     "Priorities: 0 the preview, 1 the view and the incoming quantum (the default), 2 the settle and the plane, 3 the prebake and the ladder, 4 a snapshot. The perf submit is noted before `submitPlates`, which can dispatch at once."],
-    "§9")
-add("rr._pack", "_pack(req, strip, jobId, pool)",
-    "The client's pack callback at dispatch; opens a perf row of kind `arrival` when a strip is dispatched outside any row.",
-    ["The work is `_packNow`."],
-    "§9")
-add("rr._packNow", "_packNow(req, strip, jobId, pool)",
-    "Begins the job in the store, which returns the strip's epochs, and packs the strip from the request's list with those epochs.",
-    ["The one place epochs enter a job: packed without them a job carries zeros, and every arrival for a key ever dropped reads stale and is re-posted for ever. The list is the request's own (an off-camera one) or the last render list; during a drag every pack but the plane's own omits the selection. The pack's time is subtracted from the post bracket so `xfer.out` is the wire alone."],
-    "§9")
-add("rr._stillWanted", "_stillWanted(req, strip)",
-    "The dispatch-time check: is the strip's quantum still live, and are its plates' epochs where they were at the want?",
-    ["A refusal costs a pull and no pack; the same frame's `want` re-misses the plate. The liveness half is skipped for an off-camera request (prebake, ladder, plane), whose quantum `layer.status()` never names; the epoch half always applies."],
-    "§9")
-add("rr._onResult", "_onResult(req, res, info)",
-    "A job arrived: opens a perf row of kind `arrival` under the posting frame's seq and hands the result to `_takeResult`.",
-    ["An arrival is a task of its own, so the per-task duplicate-post record is cleared first; a stale plate's re-post from here is not counted as a second post."],
-    "§9")
-add("rr._takeResult", "_takeResult(req, res, info, seq)",
-    "Turns an arrived job into one store record per plate and delivers them as one batch, converting raw pixels to bitmaps first where needed.",
-    ["Each record carries its key, frame, quantum, epoch, bitmap or pixels, painted ids and job id; an empty plate is priced at 0 bytes. With no raw pixels the batch is delivered now; with them `plateBitmap` runs for each and the batch is delivered in a later task (`_deliverRow`), the job still in flight across the wait."],
-    "§9")
-add("rr._deliverRow", "_deliverRow(recs, jobId, seq, bitmapMs)",
-    "Delivers a batch whose bitmaps were awaited, in a perf row of its own that also carries the wait's time.",
-    ["-"], "§9")
-add("rr._deliver", "_deliver(recs, jobId)",
-    "Hands one job's records to `layer.onPlateBatch` (one compose), updates the drag plane and the held live paths, then ends the job.",
-    ["A landing plane ends on the arrival of the last fresh plate under it. When a plane plate arrives during a drag, the level is picked again (`MovePlane.pick`), `_dragOmit` follows whether it is whole, the layer is handed the plane when a level or the stopgap can be drawn, and it recomposes. A held path released here triggers `update()`, and with no plane showing `_planeIdle` runs. `_endJob` runs in `finally`, after the batch: `put` ends each key and `endJob` the rest."],
-    "§9")
-add("rr._onDrop", "_onDrop(req, d)",
-    "A job or strip that will not deliver: counts it and ends its job id, except a stale arrival's, which `onResult` ends.",
-    ["Ending a stale arrival here as well would free its keys twice and let the next want re-post a plate whose pixels are about to arrive."],
-    "§9")
 add("rr._endJob", "_endJob(jobId)",
     "Ends a job id in the store, freeing its in-flight keys.", ["-"], "§9")
-add("rr.prebakePlates", "prebakePlates(t, win, list, dq, mode)",
-    "Rasters, off camera, the coarse plates of a frame the camera is about to cross into, or of a ladder rung, unpinned and at low priority.",
-    ["The quantum is the target's own, from its post-crossing scale, less `dq` (the preview's 8 by default): a crossing moves the quantum by 48, so the camera's says nothing about it. The want is `{ pin: \"none\" }`, so an unused prebake costs one LRU generation, and arrivals are cached but compose nothing at a frame nobody is looking at.",
-     "In ladder mode a rung wider than 24 plates is refused, and every key of the rung is marked as the ladder's, which the store evicts last. Posts at priority 3 with the list it is given."],
-    "§9")
-add("rr.ladderPlates", "ladderPlates(t, win, list)",
-    "Posts one rung of the zoom-out ladder: `prebakePlates` at 12 quanta down, in ladder mode.", ["-"], "§9")
-add("rr.ladderMisses", "ladderMisses(t, win)",
-    "Counts the plates a ladder rung still lacks, with no list and no post, and marks the rung's keys as the ladder's.",
-    ["0 for a rung refused as wider than 24 plates. The engine asks this before it builds a rung's list."],
-    "§9")
 add("rr.snapshotJob", "snapshotJob(o)",
     "Rasters one plate of any frame and rect off camera, for the Scenes panel, and resolves with its bitmap; the plate cache is never touched.",
     ["Each call has its own quantum string (`t1`, `t2`, …), so no cached plate is reused at a zoom it was not rastered at, and snapshots never drop each other's queued strips. The rect lands on plate (0, 0) through an `offset` folded into each item at pack time; an offset at or past the coordinate bound is rejected before any work.",
@@ -368,21 +255,9 @@ add("mvp.landCells", "landCells(v)",
     "§9")
 
 # ---- src/engine/raster/plate.js ----
-add("plt.quantumFor", "quantumFor(inScale, dpr, prev)",
-    "The zoom quantised to quarter-octave steps of device px per frame unit, holding the previous quantum until the zoom drifts 0.75 of a step from it.",
-    ["The dpr enters the geometry here and nowhere else. A zero or non-finite zoom reads as quantum 0 rather than throwing on the render path."],
-    "§9")
-add("plt.zqOf", "zqOf(q)",
-    "Device pixels per frame unit at quantum `q`: 2^(q/4).", ["-"], "§9")
-add("plt.plateOriginPx", "plateOriginPx(i)",
-    "A plate's origin in device px, `i × 512`: an exact integer, which is what keeps plate seams exact.", ["-"], "§9")
 add("plt.plateRange", "plateRange(win, Zq)",
     "The inclusive range of plates a frame-unit window touches at zoom `Zq`.",
     ["The grid is anchored at the frame origin, so a screen W device px wide touches floor(W/512) + 1 or + 2 columns."],
-    "§9")
-add("plt.plateKey", "plateKey(frameId, q, i, j)",
-    "The plate cache key, `frame|q|i,j`; `q` is a quantum index or a tag such as the settle's \"e\".",
-    ["The dpr is not in it: a plate's pixels depend on frame, quantum and cell alone, so a dpr change keeps every plate valid."],
     "§9")
 
 # ---- src/engine/raster/rasterWorkerClient.js ----
@@ -429,37 +304,9 @@ add("rwc.onWorkerError", "onWorkerError(e)",
     "A worker failed to load or threw outside a job: marks the pool broken for the session, reports each in-flight strip dropped, re-queues them and pumps them onto the inline path.",
     ["Each stranded strip is re-packed under a new job id, so the caller must still end the old one."],
     "§9")
-add("rwc.stripSizeFor", "stripSizeFor(nPlates, workerCount)",
-    "Plates per strip: ceil(plates / (workers × 2)), so a free worker always has a strip to take.",
-    ["The code records ten runs of 15 plates on 4 workers: an imbalance ratio of 1.44–1.54, and 1.35–1.62 at one plate a strip; one plate of that screen is 15–20× the median, which no strip rule can split."],
-    "§9")
 add("rwc.activeCount", "activeCount()",
     "The workers available for strip sizing: the transport's count, the pool's (spawning it late if needed), or 1 for the inline path.",
     ["-"], "§9")
-add("rwc.submitPlates", "submitPlates(req)",
-    "Queues one request's missing plates as strips and pumps: drops queued strips of an older frame at the same quantum, records this frame as that quantum's newest, and cuts the plates into strips.",
-    ["Requests at different quanta stay live together, since one frame can post for the old and the new quantum during a hold; a second call at one quantum in one frame drops nothing. Packing happens at dispatch, not here, so a strip superseded while it waits costs no pack. Returns the strip count."],
-    "§9")
-add("rwc.dropStale", "dropStale(frameSeq, q)",
-    "Drops queued strips at quantum `q` from any other frame, reporting each with no job id, then prunes the per-quantum record.",
-    ["Only the queue: a dispatched job is never recalled."],
-    "§9")
-add("rwc.pruneCurrent", "pruneCurrent()",
-    "Forgets the newest-frame record of every quantum with nothing queued and nothing in flight.",
-    ["So the map holds the live requests rather than a session's zoom quanta. A quantum with strips in flight stays, because a worker error re-queues them."],
-    "§9")
-add("rwc.dropQueued", "dropQueued(why, q)",
-    "Drops the waiting strips of one quantum, or every waiting strip when `q` is omitted, reporting each; returns how many.",
-    ["At a quantum change the caller passes the dead `q`: a bare call would also empty the newest quantum's strips and the settle's. Dispatched jobs still arrive."],
-    "§9")
-add("rwc.pump", "pump()",
-    "Hands queued strips to free workers while there are both, dropping at the pull any strip whose frame is no longer its quantum's newest or that `stillWanted` refuses.",
-    ["One job per worker."],
-    "§9")
-add("rwc.bestIndex", "bestIndex()",
-    "Picks the next strip: the lowest priority number, oldest first within it, skipping speculative strips (priority 3 and up) while they hold all but one worker.",
-    ["A preview re-queued each gesture frame is the newest strip at priority 0, and this dispatches it the moment a worker frees. Returns -1 when nothing may run."],
-    "§9")
 add("rwc.freeSlot", "freeSlot()",
     "A worker with no job; `null` for the slotless paths when they have room; `undefined` when everything is busy.",
     ["A transport takes as many jobs as the pool would and the inline path takes one; both count abandoned slotless jobs as held. Spawns the pool late if needed."],
@@ -475,10 +322,6 @@ add("rwc.onFailed", "onFailed(jobId, err, slot)",
 add("rwc.onMessage", "onMessage(slot, data)",
     "A worker's answer: frees the slot, returns the job's buffers to the pool, derives the timings, totals the guards and counts, checks staleness, then calls `onDrop` for stale plates and `onResult`.",
     ["Queueing time is the main thread's wall time minus the phases the worker reports, since the worker returns durations only. A `raster-error` message goes to `onFailed`. A result with no record is ignored except to release an abandoned hold. A stale arrival fires both `onDrop` (naming the stale plates) and `onResult`; the caller ends the id once."],
-    "§9")
-add("rwc.plateIds", "plateIds(res, p)",
-    "Plate `p`'s painted-id run out of a result's `idSet`, from its offset to the next plate's.",
-    ["The one reader of `idOff`, so nobody reads a length as an offset."],
     "§9")
 add("rwc.plateBitmap", "plateBitmap(px)",
     "Converts one plate's raw RGBA to an `ImageBitmap`, or null where the scope has no `createImageBitmap`.",
@@ -496,10 +339,6 @@ add("rwc.resetRasterWorkerClient", "resetRasterWorkerClient()",
 # ---- src/engine/worker/rasterWorker.js ----
 add("rwk.resetGuards", "resetGuards()",
     "Zeroes the raster core's guard counters, so a job's guards are its own.", ["-"], "§9")
-add("rwk.idsForPlate", "idsForPlate(job)",
-    "The ids of every item that survived the core's prune on the plate just drawn, sorted and without repeats.",
-    ["Read from `drawnFlags`, so it must be called straight after `renderPlate`. The set is a superset of what painted, so an invalidation drops too much rather than too little."],
-    "§9")
 add("rwk.runJob", "runJob(msg, opts)",
     "Rasters every plate of one strip into the one RGBA scratch and returns the wired result: bitmaps or pixel copies, ids, timings, counts, guards and the job's buffers.",
     ["Each plate is serialised (a bitmap awaited, or the bytes copied) before the next is drawn, because the scratch is reused. A plate no item reached after the prune stays null: nothing is drawn there. Times are durations only; receipt-to-start, start-to-finish and serialisation partition the worker's time, so the main thread's queueing subtraction cannot hide a phase.",

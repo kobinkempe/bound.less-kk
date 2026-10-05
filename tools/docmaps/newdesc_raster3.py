@@ -28,10 +28,6 @@ add("rco.rowRange", "rowRange(y)",
     "A row's touched-column range, [first, last], which the resolve and the bounded clear walk.",
     ["The last column is never above TW − 1: a deposit clamped at the plate's right edge sets it there, and that is what paints a clamped row out to the edge."],
     "")
-add("rco.drawnFlags", "drawnFlags()",
-    "The prune flags the last `renderPlate` filled: one byte an item, 1 where the item's box reached that plate.",
-    ["The raster worker builds each plate's painted-id set from them, so the prune rule has one copy. The array is shared, longer than the job and refilled by the next `renderPlate`: read it straight after the plate and only below `nItems`."],
-    "§9")
 add("rco.depositRun", "depositRun(y, xs, xe, d)",
     "Deposits one step of an edge inside one pixel row into the accumulation buffer, font-rs's `draw_line` arithmetic in float64, and widens the row's touched range.",
     ["`xs` and `xe` are already inside [0, TW]. A step within one column splits `d` between two cells by its mean x; a longer one spreads it over the columns it spans by their trapezoid areas. The deposit is signed area, so the running sum along the row is the coverage.",
@@ -187,10 +183,6 @@ add("rjb.wireResult", "wireResult(res)",
     "§9")
 add("rjb.unwireResult", "unwireResult(msg)",
     "The result the main thread reads from a worker's message, with defaults for the recycled list and the serialisation time.", ["-"], "§9")
-add("rjb.resultStale", "resultStale(res, epochOf)",
-    "Lists the plates of an arrived result whose epoch no longer matches the store's, so they are discarded and asked for again.",
-    ['A plate posted before a document change and arriving after it has missed the invalidation that would have dropped it; the epoch it was posted with is compared with `epochOf(i, j)`. Returns `{ stale, why: "epoch" }` with the plate indices, or null.'],
-    "§9")
 add("rjb.copyPlate", "copyPlate(rgba)",
     "Copies one plate's pixels out of the worker's RGBA scratch, for the path without ImageBitmap.",
     ["It has to be a copy: the scratch is reused by the next plate, `new ImageData` aliases rather than copies, and a transferred buffer is detached. 1.05 MB a plate."],

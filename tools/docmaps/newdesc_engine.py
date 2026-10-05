@@ -40,15 +40,6 @@ add("lm._take", "_take(f, p, i, j, empty)",
     ["Sets the frame's address (parent, cell, edge, centre), bumps its `addrSeq` and drops its record view. A free cell is taken. A resident with no kids that `empty(id)` reports as holding nothing yields the cell and becomes the newcomer's shadow, its own shadows with it; any other resident keeps the cell and the newcomer shadows it.",
      "Returns `[shadow, resident]` when a shadow was made, else null. A resident with kids keeps the cell even when its whole subtree is empty (DESIGN.md §8, F80)."],
     "§6")
-add("lm.adoptShadow", "adoptShadow(M, E)",
-    "The lattice half of merging shadow M into its resident E: M's kids and shadows move under E and M is deleted.",
-    ["Each kid of M takes its cell under E, or shadows the child E already has there, its own shadows following. M's shadows become E's. The route cache is dropped, `addrEpoch` bumped and the spine rebuilt.",
-     "Returns the record `unadoptShadow` reverses. The natives are moved by `Document._mergeShadows`, which calls this."],
-    "§6")
-add("lm.unadoptShadow", "unadoptShadow(rec)",
-    "Reverses `adoptShadow`: the merged frame comes back as E's shadow, with its kids and shadows under it.",
-    ["Rebuilds the frame from the record (address, shift, a bumped `addrSeq`), takes back the shadows it gave E, and walks the kids in reverse, freeing the cells they took or un-shadowing them. Used by `Document.unmerge` on undo."],
-    "§6")
 add("lm._rebuildSpine", "_rebuildSpine()",
     "Recomputes the origin chain: climbs to the true root, then follows the (0, 0) cells down.",
     ["Called after every re-address, merge and load, because `_spine`, not a frame's id, says which frame is the origin at a depth. It climbs first because `merge` can give the recorded root a parent without updating `_rootId`."],
@@ -167,45 +158,9 @@ add("doc.list", "list(level)",
     "A frame's list as stored, for scans that need identity or flags only; never for positions.",
     ["No shadow merged and no shift settled, so a walk over every frame does no per-native work on frames nobody has looked at. The erase's mark and family scans, the overlays and the report read it (DESIGN.md §8)."],
     "§6")
-add("doc._settleIfPending", "_settleIfPending(level, arr)",
-    "Applies a frame's pending shift to every native it holds, once, as the per-object path would have.",
-    ["The shift is the k = 0 table entry every native of a frame moved as a frame owes. It is cleared first (a re-home below re-enters here), added to each native's table with `addOffset`, and a native whose entry carried a whole cell is re-homed to the neighbour.",
-     "The record `{ dx, dy, tables, carries }` goes on the move entry that placed the frame (`noteFrameOwner`) for undo, and to the op channel, where its result tables make a replay idempotent. `at`, `add`, `insertAt`, `removeById` and the re-homes call it first (DESIGN.md §8)."],
-    "§6")
 add("doc.setFrameShift", "setFrameShift(frameId, shift)",
     "Sets the shift a frame's natives owe after a subtree move; a zero shift clears it.",
     ["Nothing is applied here; the first read of the frame's list settles it (`_settleIfPending`)."],
-    "§6")
-add("doc.noteFrameOwner", "noteFrameOwner(frameId, entry)",
-    "Records which move-op entry last placed a frame, so a later settle or merge of it lands on that entry; null forgets.",
-    ["-"], "§6")
-add("doc.unsettle", "unsettle(frameId, settled)",
-    "Reverses a recorded settle from its result tables; a native the settle carried to a neighbour comes home.",
-    ["Idempotent, because it works from the recorded results. Outside an undo (the next step of a drag, a cancelled drag) the restored tables go to the op log as a settle of their own."],
-    "§6")
-add("doc.applySettle", "applySettle(frameId, rec)",
-    "Replays a logged settle: the homes and tables it recorded, set as they are.",
-    ["Re-homes a carried native to the frame the record names, then sets its table (`setOffsetsById`). Idempotent. Called by the op log's replay."],
-    "§13")
-add("doc._mergeShadows", "_mergeShadows(E)",
-    "Merges every shadow of resident frame E into it: natives appended to E's list, kids re-parented, the shadow deleted.",
-    ["For each shadow not set aside by a delete: both frames' pending shifts settled, the shadow's natives appended to E's list and index with E as home, then `LevelMap.adoptShadow`. O(the shadow's natives), paid at the first `at` of E, and held while a drag is in progress (`holdMerges`).",
-     "The record goes on the move entry that made the pair, for `unmerge`, and to the op channel (DESIGN.md §8)."],
-    "§6")
-add("doc.detachFrame", "detachFrame(frame)",
-    "Sets one frame's list and index aside, as a subtree delete does; its natives stay in `_byId`, unreadable.",
-    ["The redo of a subtree delete or of a frame-covering erase step, and the op log's replay of them. `getById` answers null for a native of a detached frame."],
-    "§12")
-add("doc.mergeReplay", "mergeReplay(rec)",
-    "Replays a logged shadow merge on the natives: the record's ids re-homed into the resident.",
-    ["Idempotent from wherever a snapshot left them; the shadow's empty list is forgotten. The lattice needs nothing: the logged lattice already holds the result (DESIGN.md §13)."],
-    "§13")
-add("doc.unmergeReplay", "unmergeReplay(rec)",
-    "Replays the undo of a logged merge: the record's ids re-homed back into the shadow frame.",
-    ["-"], "§13")
-add("doc.unmerge", "unmerge(rec)",
-    "Reverses one shadow merge on undo: the frame back as a shadow, its natives back in their own list.",
-    ["`LevelMap.unadoptShadow` restores the frame; the record's natives are compacted out of the resident's list into the shadow's, re-indexed and re-homed, and a `splitFrame` event is emitted."],
     "§6")
 add("doc.maxZUnder", "maxZUnder(rootId)",
     "An upper bound on the z of everything under a frame subtree: the erase's test for taking a frame whole.",
@@ -293,24 +248,6 @@ add("erp._eraseFramesPass", "_eraseFramesPass(Erec)",
     ["Walks frames as the lasso does, out from the mark's frame one hop at a time, skipping a subtree whose box misses the mark. A frame other than the mark's own is taken when its cell grown by the content's reach (invariant 2) and the flatten tolerance lies inside the mark's ink (a corner inside, no flattened chord touching it) and `Document.maxZUnder` is below the mark's z; a taken frame is not descended into.",
      "Each subtree is set aside by reference (`removeFrameSubtree`) as one `{ frames }` bake step on the gesture's op, with a journal note; no cut. Runs once per mark per session (`_framesPassed`); after a reload it runs again and finds the frames already gone. Returns how many went (DESIGN.md §7)."],
     "§10")
-add("erp._lowerMark", "_lowerMark(Erec, target)",
-    "Steps a mark's z to just below the object it has handled, unless the next target shares that z; returns the next target.",
-    ["The target may have been cut, refused or grazed. Pieces a cut mints inherit their parent's z and so sit above the mark: the white mark paints only over ink still to be cut, and the move gate is the z order (DESIGN.md §7). Called by the tick, by `_onCutResult`, and by the barrier (`_flushErasesFor`) only when it baked the mark's next target in the tick's order.",
-     "The z change runs inside `_neutral`. The raster engine untags it when the step passes a target the mark's `_uncutOf` set still holds whole (refused over ink, or its cut not landed), since that ink comes out from under the mark (F90); a graze or an inkless descent refusal is not held (F109)."],
-    "§10")
-add("erp._neutral", "_neutral(fn)",
-    "Runs `fn` with the picture-neutral flag set, so the document events it raises leave the raster plates as they are.",
-    ["For the edits that change no pixel: a cut or a descent under the mark's white, which already paints what goes, and the mark's step down (DESIGN.md §7). The raster engine's document subscriber tags events raised under the flag `neutral` and the plate cache keeps its plates; the spent mark's removal stales them once (OPEN-FLAGS F90).",
-     "The subscriber untags a mark's step that passes a target its `_uncutOf` set still holds whole. The previous flag is restored afterwards, so calls nest."],
-    "§9")
-add("erp._neutralUnder", "_neutralUnder(E, o, fn)",
-    "Runs `fn` picture-neutral only while mark E is still above target `o` in z; otherwise plainly.",
-    ["A cut or descent is hidden by the mark's white only while the mark is above the target; below it, the change is on screen and the plates must be re-rastered. `_applyCut` and `_applyDescent` wrap their document edits in it."],
-    "§9")
-add("erp._uncutOf", "_uncutOf(markId)",
-    "The targets a mark has handled and left whole with ink under it (refused, or a cut not yet landed), created on first use.",
-    ["`_bakeOne` adds each target; a landed cut, removal or descent takes it out, and so do a graze and a descent refused `inkless` (F109). The raster engine's document subscriber reads it: a neutral step of the mark that passes a target still in the set is untagged, because it uncovers that ink, and the target leaves the set. The subscriber drops a mark's set when the mark is removed and every set on a reset (F90)."],
-    "§9")
 add("erp._eraserRectInto", "_eraserRectInto(rect, HE, o, HO)",
     "A mark's rect, drawn in frame HE, in the coordinates object `o` is stored in at its home HO.",
     ["With no table it is `mapRectF`, bit for bit; a moved object's table is undone on the way in (`LevelMap.mapRectObj` with `toHome`). The erase prefilter's box goes through it."],
@@ -318,16 +255,6 @@ add("erp._eraserRectInto", "_eraserRectInto(rect, HE, o, HO)",
 add("erp._eraserLoopsInto", "_eraserLoopsInto(loops, HE, o, HO)",
     "The mark's loops in the coordinates object `o` is stored in: the clip of an in-place cut.",
     ["`LevelMap.projectLoopsObj` with `toHome`: the exact chain, through the object's table when it has one."],
-    "§10")
-add("erp._onCutResult", "_onCutResult(inflight, r, err)",
-    "Lands a worker's cut or descent: dropped when stale, run again inline on failure, else applied.",
-    ["Ignored when the job in flight has been replaced: a load, a reset, or `_settleInflight` landing it first. Dropped when the mark is gone, the target is gone or replaced, or the target changed meanwhile (`_ver`); a changed target, and one whose mark an undo took, leave the mark's done set, so the next tick or the redo bakes them. A worker error or empty result runs the same job inline (`cutJob` or `descentJob`).",
-     "Then `_applyCut` or `_applyDescent`, timed as `cutApply` or `descentApply` with the worker's round trip; the mark steps down, the engine renders and the tick is rescheduled. One job is in flight at a time (`_cutInflight`)."],
-    "§10")
-add("erp._settleInflight", "_settleInflight()",
-    "Runs the job in the worker here and now, for a barrier that cannot wait, and lands it; the worker's late answer is ignored.",
-    ["The inline result goes through `_onCutResult`, the same staleness checks and apply as a worker's; that clears `_cutInflight` first, so the worker's reply finds itself superseded. Returns false when nothing is in flight.",
-     "Called by `_flushErasesFor` (the mark's cut on another object must land before the mark steps past this one) and by `flushErases` (a mark with its last cut in flight looks spent)."],
     "§10")
 add("erp._applyCut", "_applyCut(Erec, target, r, ctx)",
     "The document side of one cut: `cutJob`'s verdict applied and recorded on the gesture's op.",
@@ -353,11 +280,6 @@ add("erp._boolOpts", "_boolOpts()",
     "The boolean's one option, the freeze radius at this engine's tolerance, passed to every cut and descent job.",
     ["So an erase stands in for an arc by its chord exactly where the tile chain would have frozen it, and nowhere else (DESIGN.md §5)."],
     "§11")
-add("erp._settleLassoErases", "_settleLassoErases(poly)",
-    "The erase barrier for a lasso: every pending mark whose box meets the loop's box bakes out before the loop selects.",
-    ["Returns at once when no mark is pending. A raw mark is resolved first (a mark has no box until it has a shape); each mark's box is mapped into the camera's frame and compared with the loop's; the marks that meet it are baked to completion, their targets anywhere, and consumed (`flushErases` with their ids).",
-     "Synchronous: the lasso waits for the bake, then selects the cut-outs (`_applyLasso`). Returns true when a mark was baked."],
-    "§12")
 
 # ---- src/engine/overlays.js (mixed onto KobinEngine; `this` is the engine) ----
 add("ovl.mergeClose", "mergeClose(rects, gap)",
@@ -464,11 +386,6 @@ add("eds.squareInkOf", "squareInkOf(world, vdoc, id, F, i, j)",
     ["Runs `classifyUp`, then `solidQuad` or `deriveStep`, on the one object and on the same numbers `TileStore._bakeUp` uses, so the kid a cede mints is the store's piece bit for bit (F42). An object homed in a cell around the parent is first projected into the parent's coordinates, if its box meets the square's pre-image.",
      "Returns `{ loops, clip, tile }` (shape loops, or a covering fill's clip as a rect loop), or null when the square holds none of the object's ink."],
     "§10")
-add("eds.cedeVirtual", "cedeVirtual(vdoc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts)",
-    "`Document.cedeTileById` on the virtual document: the parent's hole cut exactly, remnants and kids minted with virtual ids.",
-    ["The hole is subtracted in the parent's own coordinates and the remnant's slivers dropped against the pen. Remnants keep the parent's frame, attach rect, grid phase and table; kids go to `level` with the given window, phase and table (the parent's shifted one level down by default). Every piece keeps the parent's z, colour, opacity, pen and family key.",
-     "Returns `{ removed, parents, kids, pieces }`, or null for a missing or non-shape object."],
-    "§10")
 add("eds.descentJob", "descentJob(world, input)",
     "The whole rehome descent for one target, on a virtual document: every cede down to the erase level, then the last link's cut.",
     ["Refuses unless the route from the target's frame to the mark's is a pure descent. At each crossing, for each object the step above minted: the frame F0 holding its picture (through its table), the eraser's box grown by half its size and widened to cover the cell the next crossing enters, and at most a 2x2 block of F0's squares, the square under the box's centre first and alone when its window covers the box. Each square's ink (`squareInkOf`) is ceded into a kid one level down; at the last link the kid is `cutJob`'s result under the `cede` graze rule.",
@@ -542,19 +459,6 @@ ROLE = {
 # Existing descriptions of functions in this batch's files that are now FALSE.
 FIX = {
     # ---- erasePipeline.js ----
-    "erp._bakeOne": {
-        "why": "The long says both operands are shifted onto the subject's centre and that the graze, dust and severance are handled here. The cut now runs in the subject's stored coordinates as an `eraseJob.cutJob`, posted to the worker where there is one (returning \"pending\"), and `_applyCut` applies it.",
-        "what": "One mark against one object: ceded down by the descent, or cut in place as a job, in the worker where there is one.",
-        "long": ["Puts the target in the mark's `_uncutOf` set until a cut lands, so a step past it left whole stales the raster plates (F90). Both operands are made resolved outlines (a stroke force-baked, a legacy fill converted), the object joins the mark's done set, and the gesture's op is resolved before anything changes.",
-                 "A target homed shallower than the mark on a pure descent goes to `_bakeRehome`. Otherwise the mark is brought into the coordinates the object is stored in (`_eraserLoopsInto`) and the cut is a `cutJob` there, so every piece it does not cut stays bit for bit (F42); its dust bar is a quarter pixel at the mark's zoom.",
-                 "With a worker, nothing in flight and no `sync`, the job is posted and this returns \"pending\"; `_onCutResult` applies it later. Otherwise (the barriers, jsdom) the job runs inline and `_applyCut` applies it."],
-    },
-    "erp._bakeRehomeInner": {
-        "why": "Describes the descent stepping crossing by crossing against the document. It now builds one `eraseDescent.descentJob` for the whole family on a virtual document, in the worker where there is one, and `_applyDescent` swaps the family in. The row `_bakeRehome · _bakeRehomeInner` needs the same correction.",
-        "what": "Hands a target homed shallower than the mark to the descent: one job for the family, in the worker where there is one.",
-        "long": ["Resolves a stroke or a legacy fill first and refuses anything that is not a shape (`_rehomeBail`). Builds the job's input (the target, the mark's loops, pen and zoom, the freeze radius) and its world (`_descentWorld`).",
-                 "With a worker and nothing in flight the job is posted and this returns \"pending\" (`_onCutResult`); otherwise `descentJob` runs inline and `_applyDescent` applies it. The cede-by-cede algorithm is in `descentJob` (DESIGN.md §7)."],
-    },
     "erp._inkShapeInRect": {
         "why": "gone",
         "what": None,
@@ -573,29 +477,11 @@ FIX = {
                  "A promotion renders at once (the object changed frames). Otherwise the resolved shape waits for the next render (`_renderPending`, honoured by `flushBakes`): two renders a pen-up were 185 s of a 203 s jsdom session at 1,000 strokes.",
                  "On a raster engine the plates hold the raw band until re-rastered. A stroke homed in the camera's frame is its own list item, so a camera step re-posts them and no list is built; one homed elsewhere is a projected copy the old list still holds raw, so it takes a render (OPEN-FLAGS F92)."],
     },
-    "erp._nextEraseTarget": {
-        "why": "Incomplete to the point of misleading: it first runs `_eraseFramesPass`, which removes whole frames, and takes targets top-down by z from `_candidatesUnder`; 'drawn after the eraser' is now 'at or above the mark's z', which steps down as the bake proceeds.",
-        "what": "The next object to bake under a mark: the highest still under it that the mark's box reaches. Runs the frame-covering pass first.",
-        "long": ["Runs `_eraseFramesPass` (once per mark), then walks `_candidatesUnder`'s list from its cursor, skipping handled objects, marks and anything at or above the mark's z. An object with no route to the mark's frame, or one the box prefilter (`_eraseMayTouch`) misses, is marked done.",
-                 "Reachability is the only depth bar: the cut lives in the frame it was made in (DESIGN.md §7)."],
-    },
     "erp.flushErases": {
         "why": "Says it runs the background erase worker to completion. There is a real erase worker and this never uses it: pending marks (all, or those in `only`) are baked synchronously on the main thread, the cut in flight landed first. It is also the lasso's and the selected-frame drag's barrier, not only the tests' settle point.",
         "what": "Bakes pending marks to completion now, every one or those whose ids are in `only`, synchronously on the main thread.",
         "long": ["Resolves every pending stroke, lands the cut in flight first when its mark is included (a mark with its last cut in flight looks spent), then bakes each mark's targets, oldest mark first, with `_bakeOne` in sync mode and consumes the mark when nothing is left under it. Never uses the worker; only the landed cut in flight steps a mark down.",
                  "The tests' settle point, and the barriers': a lasso (`_settleLassoErases`, the marks it meets) and a drag holding a selected frame (every mark)."],
-    },
-    "erp._flushErasesFor": {
-        "why": "Misses what the change added: the mark's cut in flight on another object lands first (`_settleInflight`), and a bake in the mark's z order steps the mark down (`_lowerMark`). It also runs on tap-select, not only before a drag.",
-        "what": "The erase barrier for one object: every pending mark above it that reaches it is baked into it now.",
-        "long": ["Resolves every pending stroke first. For each mark above the object: skipped if the object is handled for it (unless the object's own cut is in the worker, which is baked here anyway and its late result dropped); marked done if the box prefilter misses. The mark's cut in flight on another object lands first (`_settleInflight`), since stepping the mark below this object would pass that one uncut; if that replaced the object, it returns true.",
-                 "Then the object is baked synchronously. When nothing above it is due first in the mark's z order, the mark steps down past it as the tick would (`_lowerMark`); out of order the mark stays (DESIGN.md §7). Returns true as soon as a bake changed the object; its callers (tap-select, the drag's start, `_settleSelectionErases`) re-hit or scan again."],
-    },
-    "erp._settleSelectionErases": {
-        "why": "Misses what the change added: a mark whose last cut is in the worker is kept rather than consumed as spent. The long also omits that a selected frame with marks pending bakes every mark out (`flushErases`).",
-        "what": "The erase barrier for a move: every mark pending over anything in the selection bakes now, and marks left with nothing to cut are consumed.",
-        "long": ["With a selected frame and any mark pending, every mark is baked out (`flushErases`), since a frame's natives are not read. Then `_flushErasesFor` runs over the selection's members, families included, until nothing changes; members are carried across each bake by diffing the document's ids, not by id or z, so exactly the pieces a bake minted join the drag.",
-                 "A mark with no target left and no cut in the worker is consumed, so it stops painting white over the drag; one whose last cut is in flight is kept. The selection is replaced with the surviving members if a bake changed them. Returns true when anything changed."],
     },
     # ---- overlays.js (the engine-select row `_outlineInView · _splitOnJoins _familyJoinNotes · _selectionAnts _selEdgeSpans · _selInkRings _emitAntRing · _emitOutlineRing`) ----
     "ovl._outlineInView": {

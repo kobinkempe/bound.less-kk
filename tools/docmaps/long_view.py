@@ -3,16 +3,6 @@
 
 L = {
 # ---- TileStore ------------------------------------------------------------
-"ts.content": [
- "Everything to draw at one box inside one window.",
- "Works out which cache tiles the window covers, then for each one takes both content classes — coarser ink magnified in, and finer ink minified in — building either on demand.",
- "Pins the tiles currently on screen so eviction cannot take them, then evicts down to the caps.",
-],
-"ts.ownContent": [
- "The active box's own objects. A plain array read.",
- "It used to re-derive. A parent that had ceded a window still held whole geometry, so its hole existed only as a rectangle and had to be subtracted **per view, every render**, by polygonizing the band and clipping it. Two defects came straight out of that: the result was cached against the view and the fast zoom path skips the render, so an in-level zoom left the cache describing a 16-pixel hole while the object on screen was 3,000 pixels wide; and when it did rebuild it cost 232–386 ms with a handful of objects on screen.",
- "Cutting the ceded tile out of the parent is what made this a plain read.",
-],
 "ts.setBatch": [
  "Turns on drag mode: a tile the camera cannot see is **dropped** rather than patched.",
  "A change normally patches every cached tile that could hold the object, because one edit is cheaper to patch in than to re-derive. A drag is not one edit — it is one per pointer event per member, and patching a tile nobody is looking at is work thrown away sixty times a second.",
@@ -128,20 +118,8 @@ L = {
  "A resolved outline becomes anchors via its cubic conversion. A fill becomes a polygon path. A wide stroke becomes a filled capsule outline.",
  "**A stroke that has been drawn but not yet resolved is drawn from the pen's own arc chain** rather than letting the drawing library run its own spline through the samples. That is what makes pen-up invisible: the ink under the pen, the ink between pen-up and the bake, and the resolved shape are all the same curve. Without it the stroke twitches twice — once at pen-up and again when the bake lands.",
 ],
-"rnd.pushShapeAnchors": [
- "Appends a resolved outline to a path as anchors.",
- "Each loop ends exactly where it began and the path stays **open**: a fill auto-closes its subpaths, whereas marking the path closed would rule a stray segment from the end of one loop back to the start of the whole path.",
-],
-"rnd.pushGapAnchors": [
- "Appends one gap's worth of the live pen's arcs as anchors.",
-],
 "rnd._addFillPath": ["Adds an accumulated polygon path to a group, with its colour and opacity."],
 "rnd._addShapePath": ["Adds an accumulated outline path to a group, with its colour and opacity."],
-"rnd.mkPath": [
- "Builds a path without ever handing the drawing library an unbounded array.",
- "The library's collection constructor spreads its input as function arguments, which gives out past roughly 131,000 anchors — and that is reachable by **drawing**, not only by pathological input: a wide stroke's capsule outline runs about thirteen curves per sample, so a few thousand points of one scribbled drag crosses it, and an erased fill is worse.",
- "It surfaces as a crash with no ink at all rather than a slow render, because the throw happens before the path reaches the scene.",
-],
 "rnd._applyThinScale": [
  "Rescales an object whose features are too small **in the numbers handed over**, however much the transform then enlarges them.",
  "Chrome drops such a path entirely. Measured on the real geometry, holding the on-screen result pixel-identical and varying only the numbers: a feature 0.0657 units across renders and 0.0641 does not, while the app was handing over 0.0033.",
@@ -184,10 +162,6 @@ L = {
 "rnd.setLiveArcs": ["Redraws the in-progress stroke from the pen's current arc chain."],
 "rnd.endLive": ["Detaches the in-progress stroke; the resolved object takes over."],
 "rnd.update": ["Tells the drawing library to flush to the screen."],
-"rnd._renderSelection": [
- "Draws the selection box, and only while it could actually be seen: it must overlap the viewport and be no more than a few viewports across.",
- "That second clause is a performance rule, not a cosmetic one — a selected object seen from far below is astronomically large on screen.",
-],
 
 # ---- derive ---------------------------------------------------------------
 "der.bboxOf": [
