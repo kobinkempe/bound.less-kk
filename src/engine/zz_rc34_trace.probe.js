@@ -100,6 +100,11 @@ test("trace", () => {
             const rs = (E) => [...E.lm.frames.values()].filter((f) => f.depth <= 0).map((f) => f.id + "<" + f.parent + "@" + f.cell.i + "," + f.cell.j + " d" + f.depth + (f.shadowOf != null ? " ~" + f.shadowOf : "") + " n" + E.doc.count(f.id) + " kids" + (f._kids ? f._kids.size : 0) + " place " + placeOf(E, f.id)).join(" | ");
             log("ROOTS " + step + " " + op + "\n  O: " + rs(O) + "\n  N: " + rs(N) + "\n  cam O " + O.cam.frame + " N " + N.cam.frame);
         }
+        if (process.env.DBG_GEOM) {
+            const ids = process.env.DBG_GEOM.split(",").map(Number);
+            const g = (E, id) => { const r = E.doc.getById(id); if (!r) return "-"; const n = []; for (const l of r.obj.loops || []) for (const e of l) { n.push(e.A[0], e.A[1]); } return r.level.split("/").length + ":" + n.length + ":" + n.slice(0, 4).map((v) => v.toFixed(6)).join(",") + "|h" + n.reduce((a, v) => (a * 31 + Math.round(v * 1e9)) % 1e9, 0); };
+            log("GEOM " + step + " " + op + " " + ids.map((id) => id + " O " + g(O, id) + " N " + g(N, id) + (g(O, id).split("|h")[1] === g(N, id).split("|h")[1] ? " =" : " DIFF")).join(" ; "));
+        }
         log("TL " + step + " " + op + " live=" + (hn ? hn.level + (N.lm.frame(String(hn.level)) ? "" : " MISSING") : "-") + " oracle=" + (ho ? ho.level : "-") + (lines.length ? "\n  " + lines.splice(0).join("\n  ") : ""));
         if (step < STEP) { for (const V of framesToCompare(O, N)) comparePictures(O, N, V, st, C34 ? 2 : 1); return true; }
         for (const V of framesToCompare(O, N)) { const d = comparePictures(O, N, V, st, C34 ? 2 : 1); if (d) { log("DIFF " + d); break; } }

@@ -275,6 +275,32 @@ export function selectionInk(E, held = () => false, families = true) {
     return out;
 }
 const inkKey = (set) => [...set].sort((a, b) => a - b).join(",");
+/** A native's first stored point, or null. */
+function firstPoint(o) {
+    const l = o.loops && o.loops[0];
+    const e = l && (l.at ? l.at(0) : l[0]);
+    if (e) return e.A || e;
+    if (o.polys && o.polys[0] && o.polys[0][0]) return o.polys[0][0];
+    return o.pts && o.pts[0] ? o.pts[0] : null;
+}
+/**
+ * The families whose natives the oracle's pen-up walked by whole frames (its stored numbers a half frame or more from the
+ * live engine's; A1 C2 deleted that walk), noted once a document revision: a cut of one computes its pieces from
+ * coordinates a frame apart, and they round apart (seed 476: 2.3e-9 home units).
+ */
+function noteWalked(O, N, st) {
+    const key = O.doc.rev + "|" + N.doc.rev;
+    if (st._walkRev === key) return;
+    st._walkRev = key;
+    const fam = st.walked || (st.walked = new Set());
+    for (const L of N.doc.levels()) {
+        for (const o of N.doc.list(L)) {
+            const r = O.doc.getById(o.id);
+            const a = r && firstPoint(o), b = r && firstPoint(r.obj);
+            if (a && b && (Math.abs(a[0] - b[0]) >= W / 2 || Math.abs(a[1] - b[1]) >= W / 2)) fam.add(N.doc.editKey(o));
+        }
+    }
+}
 /** The largest gap between two items' painted points, or Infinity when their shapes differ. */
 function paintedGap(a, b) {
     if (a.type !== b.type || a.painted.length !== b.painted.length) return Infinity;
@@ -312,6 +338,7 @@ const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it
  */
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
     settleOracle(O);
+    noteWalked(O, N, st);
     const VO = frameAtPlace(O, placeOf(N, V));
     if (VO == null) return "no frame at " + V + "'s place in the first engine";
     const memo = O.store._rrMemo && O.store._rrMemo.get(VO);
@@ -327,6 +354,14 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
         const ho = O.doc.getById(id), hn = N.doc.getById(id);
         const po = ho ? placeOf(O, ho.level) : null, pn = hn ? placeOf(N, hn.level) : null;
         const same = po != null && po === pn;
+        // A piece of a family the oracle walked, cut from coordinates a frame apart: by its drawn box, as a walked one.
+        if (same && ho && hn && st.walked && st.walked.has(N.doc.editKey(hn.obj)) && !sameNums(ho.obj, hn.obj)) {
+            const gap = normalisedGap(O, N, ho, hn, VO, V);
+            if (!(gap <= NORMALISED_TOL)) return "native " + id + " at " + V + ": cut from a walked family, drawn boxes " + gap + " units apart";
+            st.walkedCut = (st.walkedCut || 0) + 1;
+            st.walkedMax = Math.max(st.walkedMax || 0, gap);
+            continue;
+        }
         if (!same && ho && hn && !sameNums(ho.obj, hn.obj)) {
             const gap = normalisedGap(O, N, ho, hn, VO, V);
             if (!(gap <= NORMALISED_TOL)) return "native " + id + " at " + V + ": normalised by the oracle, drawn boxes " + gap + " units apart";
@@ -450,14 +485,14 @@ export function latticeBreach(E) {
 
 /**
  * One seeded run over the two engines: `steps` operations, `check(O, N, step, op)` after each
- * (after both rendered). Returns `{ ops, camSynced, unitApart, dropDeselect }` (the counts of the harness's named exceptions). Engines replaced by a reload are destroyed. `extra(ctx)`
+ * (after both rendered). Returns `{ ops, camSynced, unitApart, dropDeselect, heldDeselect }` (the counts of the harness's named exceptions). Engines replaced by a reload are destroyed. `extra(ctx)`
  * returns more `[name, weight, fn]` operations; `ctx` gives `both`, `ri`, `pick`, `rnd`, `inkPoints`,
  * `w`, `h` and the current engines as `O()` and `N()`. `c34`: A1 C3's and C4's operations as well — a frame
  * dropped on an inked frame's cell, a subtree deleted (and undone), an erase levels under the ink it cuts
  * (its cedes across cell edges), a small loop round a ceded kid (F108) — which change the random stream, so
  * the seeds pinned without them stay as they were.
  */
-export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null, c34 = false } = {}) {
+export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null, c34 = false, deselectHeld = false } = {}) {
     const all = [];
     const rnd = lcg(seed * 7919 + 101);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
@@ -472,7 +507,21 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     // 416). The oracle's camera is put at the live one's place, only when both were at one place before the op, the camera
     // that stayed kept its place, the one that moved kept its frame, the frame it rode (its nearest ancestor both lattices
     // have) is at one place in both after the op, and the other camera was in that frame neither before nor after.
-    let camSynced = 0, dropDeselect = 0;
+    let camSynced = 0, dropDeselect = 0, heldDeselect = 0;
+    // `deselectHeld`: where the two selections differ only by ids the oracle's drop carried or merged out of a dragged frame
+    // and listed (they stand for their families there, for themselves in the live frame: DESIGN.md §8, §10; seeds 451, 34,
+    // 73), both deselect, counted, so the next gesture moves or deletes one ink. The selection fuzz judges those itself.
+    const heldApart = () => {
+        settleOracle(O);
+        if (!O.selection || !N.selection) return;
+        const b = inkKey(selectionInk(N));
+        if (inkKey(selectionInk(O)) === b) return;
+        const under = (id) => { const r = N.doc.getById(id); return !!r && N._underFrames(r.level, N.selection.frames); };
+        const held = (id) => O.selection.ids.includes(id) && under(id) && (carriedAlike(O, N, id) || mergedAlike(O, N, id));
+        if (inkKey(selectionInk(O, held)) !== b) return;
+        both((E) => E.deselect());
+        heldDeselect++;
+    };
     const viewOf = () => ({ o: placeOf(O, O.cam.frame), n: placeOf(N, N.cam.frame), oid: String(O.cam.frame), nid: String(N.cam.frame) });
     const rode = (A, B, id, wasOther, nowOther) => {
         let a = A.lm.frame(id);
@@ -796,6 +845,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
             const was = viewOf();
             try { op[2](); } catch (e) { e.message = "seed " + seed + " step " + step + " (" + op[0] + "): " + e.message; throw e; }
             sameView(was);
+            if (deselectHeld) heldApart();
             // The fuzz's premise: one view in both, every gesture's screen points the same place (a frame the oracle
             // lacks at the live camera's place is left out of the comparison, so a camera apart would go unseen).
             const co = O.cam.state(), cn = N.cam.state();
@@ -811,7 +861,7 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     } finally {
         for (const E of all) { try { E.destroy(); } catch (e) { /* already gone */ } }
     }
-    return { ops, camSynced, unitApart, dropDeselect };
+    return { ops, camSynced, unitApart, dropDeselect, heldDeselect };
 }
 
 /**

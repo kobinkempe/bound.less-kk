@@ -38,6 +38,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
         .concat([...Array(C34_SEEDS).keys()].map((k) => [FIRST + k, true]));
     for (const [seed, c34] of runs) {
         st.tainted = new Map();                                  // native ids start again with each seed
+        st.walked = new Set(); st._walkRev = null;
         const run = runPairFuzz(seed, STEPS, (O, N, step, op) => {
             opCount[op] = (opCount[op] || 0) + 1;
             cov.checks++;
@@ -53,12 +54,13 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
                 if (d) { fails.push("seed " + seed + (c34 ? " (c34)" : "") + " step " + step + " (" + op + "): " + d); return false; }
             }
             return true;
-        }, { c34 });
+        }, { c34, deselectHeld: true });
         cov.camSynced = (cov.camSynced || 0) + run.camSynced;
         cov.unitApart = (cov.unitApart || 0) + run.unitApart;
         cov.dropDeselect = (cov.dropDeselect || 0) + run.dropDeselect;
+        cov.heldDeselect = (cov.heldDeselect || 0) + run.heldDeselect;
     }
-    delete st.tainted;
+    delete st.tainted; delete st.walked; delete st._walkRev;
     log("MODEL-EQUIV " + JSON.stringify({ seeds: [FIRST, FIRST + SEEDS - 1], pinned: PINNED, c34: C34_SEEDS, steps: STEPS, ...cov, ...st, ops: opCount }));
     expect(fails).toEqual([]);
 });
