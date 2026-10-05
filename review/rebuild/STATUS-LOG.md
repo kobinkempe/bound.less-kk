@@ -3418,3 +3418,20 @@ pids in `r-c34/dev-303x.pid` (mine; killed by pid at the end). Script `r-c34/bat
 **Measured:** load at announce 1.1.
 **Questions asked:** none.
 WHERE I AM: starting the servers; meanwhile item 2's acceptance list.
+
+## 2026-10-05 22:58 UTC — B-PYRAMID-5b (builder) — checkpoint: item 6 rule finished (jsdom); browser batch b6 START
+**Built (`overlays.js`):** `_selMembersAt` keys the ink the selection stands for — natives on the list and own members off
+it by id, and every frame under a selected frame (`lm.walk`) by its own natives (`_selFrameInk`, which `_selFrameContent`
+now unions) — so the torn kid is the same key before and after. The frames' cell keys (dot) are gone (tr6d: a residue
+shift moves a cell with its shift unevenly). DESIGN §10's indicator sentence rewritten to the rule.
+**Tests (raster.overlay G14, +2):** "a kid the drop's rest tears off a selected frame…" (I6's fixture: kept, shift 12 px,
+the kept run and dot within 0.01 px of a fresh decision's) and "ink that left or entered the list…" (3 cases). File 60/60.
+**Red before (unimported copy `bp5/bc`):** with the in-progress `overlays.js` (97b9dce) 1 of 60 (the torn kid); with
+62d7e23's 2 of 60 (both new tests). **Break-checks:** roots only, no walk 1 red; frames by cell with shift 1; the
+selection object required to be the drag's 1; off-list ink never refuses 1; the window not cut 1; entered ink not looked
+at 1; no kept decision 4 (of 121, three suites); displacement from the first piece alone 1; the view-in-window check 1.
+**b6 (headless, `--dense --scenario 4`):** `landed` (59f0a76, :3015) ×2 and `fin2` (the working tree at 22:55, :3016) ×2
+interleaved, then one profiled drop on `fin2`; harness `bp5/h5` = `hp` + the ant decisions the drop made
+(`_selDecSeq`). Each run under load 2. Log `bp5/batch6.log`.
+**Questions asked:** none.
+WHERE I AM: b6 running; R-PYRAMID-34's skipped items meanwhile (F134/F135's jsdom timings first).
