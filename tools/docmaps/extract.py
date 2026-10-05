@@ -293,7 +293,7 @@ def parse(path):
         s = clean.strip()
         started = None
         if klass is not None and depth == kdepth + 1:
-            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*([A-Za-z_$][\w$]*)\s*\(', clean)
+            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*\*?\s*([A-Za-z_$][\w$]*)\s*\(', clean)
             if mm and mm.group(1) not in KW_DEF:
                 started = {"name": mm.group(1), "klass": klass, "kind": "method"}
         # TOP LEVEL, two ways: depth zero, or a definition flush left (a JSX

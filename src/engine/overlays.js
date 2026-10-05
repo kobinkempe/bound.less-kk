@@ -541,10 +541,11 @@ class Overlays {
      * whole drag, stamped with the drag and the pointer position it was made
      * at, and each event moves it by the pointer's travel since — a screen
      * translation, added to the transform. It outlives the drop (or a cancel)
-     * too, moved by the displacement the drop wrote, when every selected member
-     * and frame is drawn exactly that far from where it was at the drag's start
-     * (`_selMovedBy`); anything else decides afresh from the moved geometry.
-     * Re-deciding at the drop was 548–803 ms of the dense scene's drop frame.
+     * too, moved by the displacement the drop wrote, when the selection draws
+     * the same natives and frames as at the drag's start (a drop's repair may
+     * re-express it, DESIGN.md §10) and each is drawn exactly that far from where
+     * it was then (`_selMovedBy`); anything else decides afresh from the moved
+     * geometry. Re-deciding at the drop was 548–803 ms of the dense scene's drop frame.
      */
     _selectionAnts() {
         const s = this.selection;
@@ -692,20 +693,20 @@ class Overlays {
         // re-decision at a drag's start was 220–250 ms on the dense scene).
         const drag = this._dragSel || null;
         if (c && drag && c.drag === drag && c.sel === s && c.frame === F) return c;
-        const same = !!c && c.sel === s && c.frame === F && c.origin === O
+        const view = !!c && c.frame === F && c.origin === O
             && sc / c.scale <= SEL_REDECIDE_DRIFT && c.scale / sc <= SEL_REDECIDE_DRIFT;
         const inside = (w) => vp.left >= w.left && vp.right <= w.right && vp.top >= w.top && vp.bottom <= w.bottom;
-        if (same && !c.drag && c.G === G && c.rev === this.doc.rev && inside(c.win)) {
+        if (view && c.sel === s && !c.drag && c.G === G && c.rev === this.doc.rev && inside(c.win)) {
             if (drag) this._selDragStart(c, drag, table, F);
             return c;
         }
-        // A drag that ended (a drop or a cancel): its decision, moved by the displacement every member moved by.
-        if (same && c.drag && c.drag !== drag && c.at) {
+        // A drag that ended (a drop or a cancel): its decision, moved by the displacement its ink moved by.
+        if (view && c.drag && c.drag !== drag && c.at) {
             const d = this._selMovedBy(c.at, table, F, sc);
             const win = d && { left: c.win.left + d[0], top: c.win.top + d[1], right: c.win.right + d[0], bottom: c.win.bottom + d[1] };
             if (d && inside(win)) {
                 c.shift = c.shift ? [c.shift[0] + d[0], c.shift[1] + d[1]] : d;
-                Object.assign(c, { win, G, rev: this.doc.rev, drag: null, dragAt: null, at: null });
+                Object.assign(c, { sel: s, win, G, rev: this.doc.rev, drag: null, dragAt: null, at: null });
                 if (drag) this._selDragStart(c, drag, table, F);
                 return c;
             }
@@ -745,19 +746,9 @@ class Overlays {
         }
 
         // ---- the pieces on screen that belong to the selection -------------------
-        // A piece homed under a selected frame belongs through the frame (one document
-        // lookup per piece id, memoised for this decision).
+        // A piece homed under a selected frame belongs through the frame (`_selFrameOf`, memoised for this decision).
         const underFrame = new Map();
-        const frameOf = (id) => {
-            if (!table.frames.size) return null;
-            let f = underFrame.get(id);
-            if (f !== undefined) return f;
-            const rec = this.doc.getById(id);
-            f = null;
-            if (rec) for (const fr of table.frames) if (this.lm.isUnder(fr, rec.level)) { f = fr; break; }
-            underFrame.set(id, f);
-            return f;
-        };
+        const frameOf = (id) => this._selFrameOf(id, table, underFrame);
         const seamCache = new Map();
         const traced = new Set();
         const small = [];
@@ -845,21 +836,43 @@ class Overlays {
         return this._selDec;
     }
 
-    /** A decision becomes drag `drag`'s: anchored at its start, with where its members are then (at rest). */
+    /** A decision becomes drag `drag`'s: anchored at its start, with where its ink is then (at rest). */
     _selDragStart(c, drag, table, F) {
         c.drag = drag; c.dragAt = [drag.start[0], drag.start[1]];
         c.at = this._selMembersAt(table, F);
     }
 
-    /** Each selected member's and frame's drawn box in F's units, by id; null when one is not drawn anywhere. */
+    /** The selected frame native `id` is homed under, or null; `memo` caches it by id. */
+    _selFrameOf(id, table, memo) {
+        if (!table.frames.size) return null;
+        let f = memo.get(id);
+        if (f !== undefined) return f;
+        const rec = this.doc.getById(id);
+        f = null;
+        if (rec) for (const fr of table.frames) if (this.lm.isUnder(fr, rec.level)) { f = fr; break; }
+        memo.set(id, f);
+        return f;
+    }
+
+    /**
+     * The ink the selection draws, each piece's drawn box in F's units by id: the natives among the scene's items that
+     * are its own or under a selected frame, its own members off the list, and its frames' cells. Null when one is not
+     * drawn anywhere.
+     */
     _selMembersAt(table, F) {
-        const out = new Map();
-        for (const id of table.ids) {
+        const out = new Map(), memo = new Map();
+        const put = (id) => {
             const rec = this.doc.getById(id);
             const r = rec && this.stage.placeNative(rec.obj, F).box();
-            if (!r) return null;
+            if (!r) return false;
             out.set(id, r);
+            return true;
+        };
+        for (const item of this.stage.items()) {
+            if (out.has(item.id) || (!table.ids.has(item.id) && !this._selFrameOf(item.id, table, memo))) continue;
+            if (!put(item.id)) return null;
         }
+        for (const id of table.ids) if (!out.has(id) && !put(id)) return null;
         for (const f of table.frames) {
             const fr = this.lm.frame(f);
             const r = fr && this.lm.mapRectF(withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0), f, F);

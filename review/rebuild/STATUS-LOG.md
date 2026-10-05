@@ -3311,3 +3311,19 @@ every old text kept in `dmap/oldtext.json` for the moved ones); the `ensureOutli
 not decide its place; the paper section's lead rewritten (the Stage's items into the pyramid's plates).
 **Questions asked:** none.
 WHERE I AM: item 2 — reading `src/engine/Stage.js` function by function, entries into `newdesc_stage.py`.
+
+## 2026-10-05 09:02 UTC — R-MODEL-C34 (reviewer) — checkpoint: seed 321 was the harness's; the last break-checks red
+**Seed 321 (plain, step 26):** not a live defect — my oracle-only one-event drag. The press missed the selection and
+started a lasso; the oracle's selection held a frame, so it got one move, a 2-point lasso, refused (`pts >= 3`); the live
+one got 3 points, applied it, and its barrier cut a pending mark's target (16 → 19). The one-event rule now applies only
+when the oracle's press is on the selection (selected ink or a selected frame's mark); 321, 222, 241 green. Measured: in
+seed 241's frame drag the oracle gets 1 move, the live engine 2 (its per-event path keeps its coverage).
+**Break-checks (copy `bc3`, injected live defects, each red):** `heldDeselect` — a repair dropping a frame (BK_SEL): 451,
+213, 231, 341 all red (each green with 1 heldDeselect uninjected). `walkedCut` — the cut's kids moved 1e-3 home units
+(BK_CUT): 476 red ("drawn boxes 0.000999 units apart"); a missing kid (BK_CUTDROP): red ("oracle 1 items, live 0"). The
+2-ulp carry — the excused native read above its home 2.4e-10 (~8 ulp) or 1e-9 home units off, armed from the carried
+step: plain 296 red at step 10 ("no match (carried)"); 386's carried read goes through tiles, not a group, so that
+injection does not reach it there.
+**Questions asked:** none.
+WHERE I AM: the review's timings while the CPU is free (bake profile pre vs cur, the city lasso, R-DRAG's delete and
+`setBatch`), then Chromium 3/4, then the final 500+500 / 200+200 runs and the suites.

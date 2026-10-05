@@ -42,7 +42,7 @@ def scan(path):
     for clean in mask(src).split("\n"):
         s = clean.strip()
         if klass is not None and depth == kdepth + 1:
-            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*([A-Za-z_$][\w$]*)\s*\(', clean)
+            mm = re.match(r'^\s*(?:static\s+|get\s+|set\s+|async\s+)*\*?\s*([A-Za-z_$][\w$]*)\s*\(', clean)
             if mm and mm.group(1) not in KW:
                 out.append({"name": mm.group(1), "kind": "method", "class": klass})
         # TOP LEVEL, two ways. Depth counting is exact for plain JS, but a

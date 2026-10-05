@@ -659,9 +659,11 @@ describe("FC7 — the report is the shape `rasterPerf.noteCrawl` reads", () => {
         for (let i = 0; i < 3; i++) timers.tick();                             // frozen ticks: nothing painted
         timers.resume(); timers.tick();                                        // a crawl tick: one phase painted
         const rows = rasterPerf.report().frames.filter((r) => r.kind === "crawl");
-        expect(rows.map((r) => r.timers["ovl.decide"] || 0)).toEqual([0, 0, 0, 0]);   // red: 778 in every row (the dense drop's 903–924 ms "crawl" rows)
-        expect(rows.map((r) => r.timers["ovl.paint"] || 0)).toEqual([0, 0, 0, 5]);    // red: the show's paint carried into each frozen tick
-        expect(rows.map((r) => r.mainMs)).toEqual([0, 0, 0, 10]);                     // the tick's paint and blit, 5 ms each here
+        // The report's order of rows is its own: compared as sorted lists.
+        const sorted = (f) => rows.map(f).sort((a, b) => a - b);
+        expect(sorted((r) => r.timers["ovl.decide"] || 0)).toEqual([0, 0, 0, 0]);   // red: 778 in every row (the dense drop's 903–924 ms "crawl" rows)
+        expect(sorted((r) => r.timers["ovl.paint"] || 0)).toEqual([0, 0, 0, 5]);    // red: the show's paint carried into each frozen tick
+        expect(sorted((r) => r.mainMs)).toEqual([0, 0, 0, 10]);                     // the tick's paint and blit, 5 ms each here
         expect(layer.report().decideMs).toBe(778);                             // the panel's last decision stays
         rasterPerf.reset();
     });

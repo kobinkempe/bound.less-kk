@@ -25,8 +25,8 @@ _NAMES = ("newdesc_scale", "newdesc_scale2", "newdesc_rules", "newdesc_shell",
           "newdesc_raster4", "newdesc_scenes", "newdesc_local", "newdesc_cloud",
           "newdesc_report",
           # 2026-10-05, the renderer and document-model rebuild's files
-          "newdesc_stage", "newdesc_pyramid", "newdesc_pyrparts", "newdesc_svg",
-          "newdesc_model", "newdesc_m1")
+          "newdesc_rb_stage", "newdesc_rb_pyramid", "newdesc_rb_pyrparts", "newdesc_rb_svg",
+          "newdesc_rb_model", "newdesc_rb_m1")
 _SOURCES = []
 for _n in _NAMES:
     if os.path.exists(os.path.join(HERE, _n + ".py")):

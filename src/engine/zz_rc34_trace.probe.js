@@ -110,6 +110,10 @@ for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
     K.prototype._beginSelectDrag = function (P, sx, sy) { const r = bs.call(this, P, sx, sy); if (watch && process.env.DBG_PRESS) lines.push(tag + " beginSelectDrag hit " + P.hit + " ctrl " + P.ctrl + " lasso " + !!this._lasso + " dragSel " + !!this._dragSel + " pressWait " + !!this._pressWait); return r; };
     if (al) K.prototype._applyLasso = function (...a) { if (watch && process.env.DBG_PRESS) lines.push(tag + " applyLasso pts " + (this._lasso ? this._lasso.pts.length : "?") + " " + JSON.stringify(this._lasso && this._lasso.pts.slice(0, 4))); return al.apply(this, a); };
 }
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const pm = K.prototype.pointerMove;
+    K.prototype.pointerMove = function (...a) { if (watch && process.env.DBG_MOVES) lines.push(tag + " move"); return pm.apply(this, a); };
+}
 wrapLog(OpLog, "LIVE", decodeEntry); wrapLog(OOpLog, "ORAC", oDecodeEntry);
 test("trace", () => {
     const st = {};

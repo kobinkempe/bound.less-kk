@@ -311,6 +311,11 @@
 "class": "Document"
 },
 {
+"name": "displacedNatives",
+"kind": "method",
+"class": "Document"
+},
+{
 "name": "hasOwnTable",
 "kind": "method",
 "class": "Document"
@@ -2219,6 +2224,11 @@
 "class": "Stage"
 },
 {
+"name": "itemsTopDown",
+"kind": "method",
+"class": "Stage"
+},
+{
 "name": "itemsOf",
 "kind": "method",
 "class": "Stage"
@@ -3396,6 +3406,11 @@
 "class": "ErasePipeline"
 },
 {
+"name": "_pendingOf",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
 "name": "_serialHead",
 "kind": "method",
 "class": "ErasePipeline"
@@ -4274,6 +4289,11 @@
 },
 {
 "name": "_selDragStart",
+"kind": "method",
+"class": "Overlays"
+},
+{
+"name": "_selFrameOf",
 "kind": "method",
 "class": "Overlays"
 },
@@ -14566,6 +14586,11 @@
 "class": "Stage"
 },
 {
+"name": "itemsTopDown",
+"kind": "method",
+"class": "Stage"
+},
+{
 "name": "itemsOf",
 "kind": "method",
 "class": "Stage"
@@ -15610,6 +15635,11 @@
 },
 {
 "name": "_headOf",
+"kind": "method",
+"class": "ErasePipeline"
+},
+{
+"name": "_pendingOf",
 "kind": "method",
 "class": "ErasePipeline"
 },
