@@ -657,3 +657,64 @@ ROLE = {
     "src/engine/sceneWorkerClient.js": "Opens the worker (`public/scene-worker.js`) that holds a scene client's index and posts it one batch at a time; where there is no Worker, or it failed, the client runs the index inline.",
     "src/engine/__oracles__/sceneOracle.js": "The scene index's rules by brute force (all-pairs scans, no grids, anchors or caches), which `sceneIndex.test.js` runs beside SceneIndex on the same batches and compares after every one. Test-only.",
 }
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("six.CellTab", "CellTab",
+    "A grid's cell table: open addressing with linear probing, from a cell key — `(i + OFF)·KEYM + (j + OFF)`, below 2^52 — to the offset of the cell's segment in the grid's pool.",
+    ["Part of the packing that keeps the index in typed arrays — grids as cell tables over one pool, chunks in shared pools — 26 MB on the Magnum Opus where it was 79 (DESIGN.md §11, SCENES-PLAN §7.8)."],
+    "§11")
+add("six.CellTab.constructor", "CellTab.constructor(cap)",
+    "An empty table of `cap` slots (a power of two): keys −1, segments 0.", ["-"], "§11")
+add("six._h", "CellTab._h(key)",
+    "A cell key's slot: its high and low halves mixed by two multiplicative hashes, masked to the table.", ["-"], "§11")
+add("six.find", "CellTab.find(key)",
+    "The segment offset of cell `key`, or −1 when the table lacks it.", ["-"], "§11")
+add("six.set", "CellTab.set(key, seg)",
+    "Files cell `key` at segment offset `seg`, growing the table first when it would pass half full.", ["-"], "§11")
+add("six._grow", "CellTab._grow()",
+    "Doubles the table and re-files every key.", ["-"], "§11")
+add("six.segAlloc", "segAlloc(G, cap)",
+    "A new segment of `cap` entries at the end of grid G's pool (a capacity and a length word, then the entries), the pool doubled when it is full.",
+    ["-"], "§11")
+add("six.roomFor", "roomFor(len)",
+    "A segment's capacity after a compaction: its length and a quarter more, so the next adds do not move it.", ["-"], "§11")
+add("six.gridCompact", "gridCompact(G)",
+    "Rebuilds grid G's pool without abandoned segments or empty cells, each cell's entries in the same order with a quarter's room, and its cell tables sized afresh.",
+    ["-"], "§11")
+add("six.padInk", "padInk(r, wmin)",
+    "An ink box as a scene's frame: at least `wmin` (one stroke) each way, padded by FRAME_PAD of its longer side.",
+    ["DESIGN.md §11: a frame is the ink and 10 %, with no minimum."], "§11")
+add("six.cutParts", "cutParts(pts, limit)",
+    "A wide scene's parts: its chunk boxes cut in two at the emptiest line across the long axis — a mass histogram over the middle 60 % — the widest piece first, until each fits `limit` or there are MAX_PARTS (12).",
+    ["Returns the parts' boxes in the order of the cut tree. A piece is not cut past depth 12 or below two chunks."],
+    "§11")
+add("six.compact", "compact()",
+    "Gives memory back between batches (`_compact`): the worker runs it after posting a result, the inline index after applying one.",
+    ["-"], "§11")
+add("six._reserve", "_reserve(items)",
+    "Makes room in the raw-chunk pool and the per-item number column for a batch's new items, one allocation each, so filing the batch does not grow them item by item.",
+    ["-"], "§11")
+add("six._alloc", "_alloc(which, n)",
+    "A region of `n` in one of the index's pools — raw chunks, filed boxes or valid flags — the pool grown by doubling; returns its offset.",
+    ["-"], "§11")
+add("six._locFor", "_locFor(x)",
+    "Item `x`'s region of filed boxes in the box pool, sized to its chunks: the one it has when the count matches, else a new one (the old counted as waste).",
+    ["-"], "§11")
+add("six._rawOf", "_rawOf(x) · _locOf(x) · _validOf(x)",
+    "Copies of an item's raw chunks, filed boxes and valid flags out of the pools, for the tests and probes.", ["-"], "§11")
+add("six._compact", "_compact(force)",
+    "Rebuilds each pool holding more waste than live data (or doubled well past it) with every item's regions in slot order, compacts each scene grid with more garbage than entries, and trims the number column.",
+    ["Between batches only (`compact`); `force` rebuilds everything."], "§11")
+add("six._cellsOut", "_cellsOut(G, xs)",
+    "Takes items `xs` out of grid G, each touched cell's segment rewritten once with the others' entries in order.",
+    ["When finding the leavers' cells would cost more than rewriting every cell, every segment is rewritten instead."], "§11")
+add("six._unfileMany", "_unfileMany(S, xs)",
+    "Many members out of scene S at once, each touched cell rewritten once; when all leave, the grids are dropped whole.",
+    ["The leavers go from the stray-flag grid first, so the invalidating scans see only who stays — the same stays one-by-one removal would mark, none when no multi-chunk member stays."],
+    "§11")
+add("six._unfiled", "_unfiled(S, x)",
+    "The bookkeeping of item `x` leaving scene S once its cells are out: membership, mass, the multi-chunk count, the width range marked dirty when `x` was at its edge, and S marked `lost`, so the end of the batch re-anchors it at its coarsest remaining home.",
+    ["-"], "§11")
+add("six._keyCheck", "_keyCheck(S)",
+    "A restored scene whose frame or parts differ from the saved ones — a framing rule changed since the save — gets a new version, so its thumbnails are made again.",
+    ["-"], "§11")

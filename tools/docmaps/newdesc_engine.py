@@ -604,3 +604,147 @@ FIX = {
 # Functions that looked mid-edit (another agent is writing them): described as they stand.
 FLUX = [
 ]
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("lm.NEVER", "NEVER()",
+    "The `empty` test that is never true: with it no resident is taken as empty, so a frame put back or re-contained never takes a cell's residency for that reason (`restoreFrame`'s default, `reparent`).",
+    ["-"], "§8")
+add("lm.residentOf", "residentOf(id)",
+    "The frame that stands for `id`'s cell: `id` itself, or the resident it is a co-resident of — what an address lookup returns.",
+    ["-"], "§8")
+add("lm.cellFrames", "cellFrames(id)",
+    "Every frame sharing `id`'s cell, its resident first — what a by-cell reader walks, so co-residents read as one cell.",
+    ["-"], "§8")
+add("lm.sameCell", "sameCell(a, b)",
+    "Whether two frames are one cell: the same frame, or co-residents.",
+    ["A frame alone in its cell, the common case, is answered by the ids without looking up a resident (DESIGN.md §8)."], "§8")
+add("lm._kidAt", "_kidAt(p, key)",
+    "The resident of child cell `key` under `p`'s cell, found through every co-resident's kids, since the kids of one cell's frames are one group.",
+    ["-"], "§8")
+add("lm._regroup", "_regroup(list, r)",
+    "Makes the frames at one cell one group with one resident: `r` when given, else the present public resident, else a public frame; the others become its co-residents.",
+    ["Nothing merges: each frame keeps its id, its table and its kids (A1 C3). Used where a cell's group is formed again — a private frame made or put back (`privateFrame`, `restoreFrame`), a group split as frames leave (`_splitKids`), a load's saved resident restored (`_loadFrames`). Clears the route cache."],
+    "§8")
+add("lm._joinGroups", "_joinGroups(a, b, empty)",
+    "Two residents of one cell become one group: an empty, childless `b` hands the residency to `a`, and a private frame never keeps the cell from a public one nor takes it from one (F138). Returns the resident.",
+    ["The other frame and its co-residents all become the resident's co-residents; nothing merges (A1 C3). `empty` is the caller's test that a frame holds no natives. A unit moving together leaves its cells first, so its empty public frame is childless when its private co-resident lands — hence the private rule (DESIGN.md §8)."],
+    "§8")
+add("lm._linkKids", "_linkKids(r, empty)",
+    "After a join, the kids of the frames now sharing `r`'s cell are grouped child cell by child cell, all the way down, so the frames at a cell and their parents are one group.",
+    ["-"], "§8")
+add("lm._splitKids", "_splitKids(A, B)",
+    "The inverse of `_linkKids`: when frames `A` leave a cell that frames `B` keep, each child cell's group is split into A's kids and B's, all the way down.",
+    ["-"], "§8")
+add("lm._cellParent", "_cellParent(f)",
+    "The resident of `f`'s container's cell — the lattice parent every geometric walk reads, so the path between co-residents is empty and their pictures are bit-exact.",
+    ["-"], "§8")
+add("lm.forget", "forget(id)",
+    "Frame GC's removal of a frame that contains no frames (its natives and keepers checked by the caller): it leaves its cell's group, a co-resident taking the residency (A1 C3); false if refused.",
+    ["A frame that was ever moved has its id retired for the session (`retire`): caches keyed by the id picture its last address, which a new mint at its birth cell would not be. The spine is rebuilt when the frame was on it."],
+    "§8")
+add("lm.retire", "retire(id)",
+    "Marks an id no new frame may take this session — a moved frame's, a deleted one's — because caches and history still name it.",
+    ["-"], "§8")
+add("lm.privateFrame", "privateFrame(parentId, i, j, key)",
+    "The private frame of family `key` at child cell (i, j) of `parentId`'s cell, made on first use (A1 C4): a co-resident there flagged `private` with the id of the public frame the family's chain hangs from. A cede's kids live in it, so no shared frame holds a family's piece.",
+    ["Its container is `parentId`; the selection never takes a private frame whole but judges its natives one by one, so the lasso can take every other frame whole (DESIGN.md §7, §10). Called by the erase descent's `kidHome`; null for a cell digit out of range."],
+    "§7")
+add("lm.restoreFrame", "restoreFrame(rec, empty)",
+    "Puts a removed frame back at its address — the undo of a subtree delete or of a legacy merge: a co-resident where a frame holds the cell, or the cell's resident when that one holds nothing and contains no frame.",
+    ["Its kids come back after it, each joining its cell's group as it is added. Its `addrSeq` is bumped so the caches keyed on its chain read it afresh; a private flag regroups the cell; the address epoch moves and the spine is rebuilt. Null when its parent is gone (DESIGN.md §10: an undo puts the subtree back, a co-resident where new ink holds a cell)."],
+    "§10")
+add("lm.removeSubtree", "removeSubtree(rootId)",
+    "A deleted subtree leaves the lattice (A1 C3): the root and every frame it contains leave every group they share, their ids retired for the session; returns their addresses, parents first, for `restoreFrame`.",
+    ["Each address carries the cell, the depth, the shift, `addrSeq` and the private flag. A parentless root is given its parent first (`_growRoot`). Called by `Document.removeFrameSubtree`; history names the ids, hence the retirement."],
+    "§10")
+add("lm.reparent", "reparent(id, parentId)",
+    "Makes `parentId` frame `id`'s container at the cell it already has — the live undo of a legacy merge (`legacy/modelV1.unmerge`) giving a frame its kids back.",
+    ["-"], "§13")
+add("lm._ensureSpineId", "_ensureSpineId(sid, depth)",
+    "A spine id minted at the spine cell of `depth` for `ensureId`: the spine frame itself (\"2\"), or a moved spine frame's twin (\"2#3\") made there as a co-resident of the cell's resident.",
+    ["-"], "§8")
+add("lm.peekAtChain", "peekAtChain(rootId, chain)",
+    "The frame at a chain of child cells below `rootId` if the lattice has it, never minting — the read side of `frameAtChain`, so a read adds no frame.",
+    ["-"], "§8")
+add("lm._loadFrames", "_loadFrames(data)",
+    "Builds the lattice from a saved one: frames added parents first (a missing parent minted by id, not left an orphan, F99), their shifts and private flags restored, and each shared cell's saved resident put back.",
+    ["Frames sharing a cell are grouped as they are added (`_addFrame`); a group whose saved resident lost the cell is regrouped round it. An empty list gets the root `0`; a `0` that a subtree delete took is not minted parentless beside the tree (F138). The spine is rebuilt at the end."],
+    "§13")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("doc.opFrames", "opFrames(op, out)",
+    "Every frame an op names — where its undo or redo puts something back by frame id: homes, sources and targets, a moved frame and its parents, a deleted subtree's roots and their parents, a bake step's pieces and frames.",
+    ["Frame GC keeps these frames while the op is in history (F94; `namedFrames`, `frameGc.namedBy`); a frame goes when the op leaves history. A delete gesture's parts are walked one by one; an old store's merge records and settle carries are named too."],
+    "§8")
+add("doc.tableOf", "tableOf(o, home)",
+    "Native `o`'s picture table (A1 C1): its own table with its home frame's shift added at k = 0, never written into it. Every reader of where a native is drawn composes here.",
+    ["The shift is placement, composed on read (DESIGN.md §8): a change of a frame's shift moves every native in it without touching one. `home` defaults to the native's own."],
+    "§8")
+add("doc.displacedNatives", "displacedNatives()",
+    "Every live native drawn away from its stored bits, as `[obj, home, picture table]`: the ones with an own table, then every other native of each shifted frame.",
+    ["A shifted frame's other natives share one table array, so a reader may key a placement on it (the selection's union box, the store's routes, the erase targets' scan of moved natives, DESIGN.md §7)."],
+    "§8")
+add("doc.hasOwnTable", "hasOwnTable(o)",
+    "Whether native `o` carries a table of its own, not only its frame's shift.", ["-"], "§8")
+add("doc.ownTable", "ownTable(o)",
+    "A copy of native `o`'s own table, as an undo entry records it; undefined when it has none.", ["-"], "§8")
+add("doc.promotedTable", "promotedTable(o, from, to)",
+    "The own table native `o` needs once promoted from frame `from` to its parent `to`: its picture table one level down, less `to`'s shift (A1 C1).",
+    ["-"], "§8")
+add("doc._shifted", "_shifted(k)",
+    "Whether frame `k` carries a shift, so its natives are drawn displaced by it.", ["-"], "§8")
+add("doc.offTouchedSince", "offTouchedSince(rev)",
+    "The ids whose table or home may have changed since the table revision was `rev`, or null when that cannot be told — so a reader memoised at `rev` re-reads only these.",
+    ["Null when an event since named no one object, or the log no longer reaches back. The store's `_rerouteGroups` reads it: re-walking 19.7k moved natives was 166 ms of a drop on the Magnum Opus (TESTER-3)."],
+    "§9")
+add("doc.cellList", "cellList(frame)",
+    "The natives of every frame sharing `frame`'s cell, the resident's first (A1 C3) — what a by-cell reader reads, so co-residents draw as one cell; the frame's own list when it is alone.",
+    ["-"], "§8")
+add("doc.ownFor", "ownFor(T, home)",
+    "The own table a native homed in `home` must carry to be drawn with picture table `T`: `T` less the frame's shift (A1 C1), so new ink in a shifted frame stays where it was drawn.",
+    ["-"], "§8")
+add("doc._keyIn", "_keyIn(k, o) · _keyOut(k, o)",
+    "Keep the per-frame set of natives with a family key (an `editId`: ceded kids, erase pieces) as natives enter and leave frame `k`.",
+    ["-"], "§10")
+add("doc.keyedIn", "keyedIn(frame) · keyedFrames()",
+    "The natives of a frame with a family key, or null; and every frame holding one — so the lasso reads only the keyed natives under the frames it encloses, never their other natives.",
+    ["-"], "§10")
+add("doc.setHandledById", "setHandledById(id, markId, {inkless})",
+    "A mark's bake dealt with native `id` without cutting it — a refusal or a graze (A2 §4.1): the mark joins its `handledBy`, so the erase rule stops masking it; logged as an `attr` entry (A2 §4.9).",
+    ["`inkless`: no ink of it lay under the mark, so no pixel changes. Nothing is emitted when the mark is already there."],
+    "§7")
+add("doc.setTargetsById", "setTargetsById(id, targets)",
+    "A mark's `targets`, recorded once when its shape lands (A2 §4.2), as an `attr` entry in the log — what a reopened mid-bake erase resumes from.",
+    ["-"], "§7")
+add("doc.detachFrames", "detachFrames(records)",
+    "The redo of a subtree delete: each root the records hold is deleted again (`removeFrameSubtree`), and the records are refreshed in place to what went, since the op and its inverse share the array.",
+    ["A root the lattice no longer has — a replay, where the header's lattice was written after the delete — keeps its records. Also the redo of a bake step that took frames the mark covered whole."],
+    "§10")
+add("doc.dropFrames", "dropFrames(records, stale)",
+    "A subtree delete replayed from the log: the natives a snapshot still lists go, and a frame only those rows named — minted at the load because the header's lattice lacked it — leaves the lattice again (A1 C3).",
+    ["`stale(record)`: a snapshot at or past the record, nothing to do there. A record from before C3 has no address and its frame stays. Every id is retired, because history names them."],
+    "§13")
+add("doc.namedFrames", "namedFrames()",
+    "Every frame an op in the undo or redo history names (`opFrames`): frame GC keeps them (F94).", ["-"], "§8")
+add("doc.forgetFrame", "forgetFrame(frame)",
+    "The document's side of frame GC (F94): a forgotten frame's empty list, index and keyed set go; false when the frame still holds natives.",
+    ["-"], "§8")
+add("doc.noteForgotten", "noteForgotten(frames)",
+    "One collection's forgotten frames, sent to the op log as a `forget` record (F94).", ["-"], "§8")
+add("doc._stepIndex", "_stepIndex(extra)",
+    "The bake steps of every erase gesture in history in the order they landed, with the step that consumed each object, each step's gesture and the applied gestures — so undo and redo follow what each step consumed, not the stack.",
+    ["Two marks pending at once bake out of stack order: one's step can cut the other's piece and then cut it again (REVIEWER-3 ERASE-2, F118). Each step carries `_on` (applied); a step rebuilt by a reload has none and is taken as applied when its gesture is, its source is gone and the step that minted its source is applied."],
+    "§7")
+add("doc._revertStep", "_revertStep(st)",
+    "Undoes one bake step: a frame the mark covered whole comes back with its subtree, a severance's re-key runs backwards, else the step's pieces go and its source comes back.",
+    ["The source comes back only for pieces the step still owns: pieces something unrecorded took (a stale replay) are that thing's ink now, and the source over them would stack ink twice."],
+    "§7")
+add("doc._applyStep", "_applyStep(st)",
+    "Re-applies one bake step — the frames taken again, the re-key forward, or the source removed and its pieces put back; false, still suspended, when its source is not in the document.",
+    ["What this redo takes out is what its undo puts back (F70)."], "§7")
+add("doc._stepsUndo", "_stepsUndo(op)",
+    "The undo of an erase gesture: its applied steps and every applied step that consumed what they made, reverted newest first.",
+    ["-"], "§7")
+add("doc._stepsRedo", "_stepsRedo(op)",
+    "The redo of an erase gesture: its steps in landing order where their sources are back, then any suspended step of an applied gesture whose source now is, until none applies.",
+    ["-"], "§7")

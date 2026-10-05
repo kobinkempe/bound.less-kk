@@ -441,3 +441,67 @@ ROLE = {
         "diffed by signature, arcs planned once per piece, a per-scene float64 origin and chop window, retained "
         "per-level scenes, the live pen path, and the selection indicator's SVG layers (DESIGN.md §9).",
 }
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("ts.onTile", "onTile(fn)",
+    "The tile hook (A2 §2.9): subscribes `fn` to every write to the cache or to a tile's pieces — a bake, an append, a remove, a drop, a clear — reported synchronously as it happens; returns the unsubscribe.",
+    ["Nothing else writes the cache or a tile's `objs`, so the Stage, the one subscriber, sees every change to the content its items were built from."],
+    "§9")
+add("ts._tileEv", "_tileEv(ev)", "Hands one tile event to every `onTile` subscriber.", ["-"], "§9")
+add("ts._indexTile", "_indexTile(key, tile) · _unindexTile(key, tile)",
+    "Keep the index from a native's id to the cached tiles holding its pieces as a tile enters or leaves the cache (`tilesOf`).",
+    ["-"], "§9")
+add("ts._setTile", "_setTile(key, tile)",
+    "The one way a tile enters the cache: indexed by its pieces' ids and reported as a `bake`.", ["-"], "§9")
+add("ts._dropTile", "_dropTile(key)",
+    "The one way a tile leaves the cache: unindexed, out of the warm set, reported as a `drop`; false when it was not cached.",
+    ["-"], "§9")
+add("ts._clearTiles", "_clearTiles()",
+    "Empties the cache, the warm set and the id index, reported as one `clear`.", ["-"], "§9")
+add("ts._appended", "_appended(tile, n0)",
+    "Pieces patched onto a cached tile from index `n0` on: indexed by id and reported as an `append`, so an added native reaches the picture without a re-bake.",
+    ["-"], "§9")
+add("ts._keyOf", "_keyOf(tile)", "A tile's cache key: `frame|dir|i,j`.", ["-"], "§9")
+add("ts.tilesOf", "tilesOf(id)",
+    "The keys of the cached tiles holding pieces of native `id`, read-only, or null.", ["-"], "§9")
+add("ts.peek", "peek(key)",
+    "A cached tile that is current — same cache epoch, same chain sequence — or null; it neither bakes nor touches the LRU.",
+    ["-"], "§9")
+add("ts.read", "read(F, rect, budgetMs)",
+    "The tiles over `rect` in frame `F`, both directions, cached or baked while the budget lasts; a miss past the budget is listed, never thrown (A3 §4.2).",
+    ["`budgetMs`: Infinity reads everything, 0 the cache alone, anything else bakes until the deadline and at least one tile. Returns the tiles, the missing keys and whether the read was complete. The Stage reads the store through it (DESIGN.md §15); it leaves the camera's pins and the eviction as they were."],
+    "§9")
+add("ts.readTiles", "readTiles(cells, budgetMs)",
+    "`read` for a list of tiles, `[frame, dir, i, j]` each: each served from the cache or baked, stopping between tiles (never inside a parent chain) once the deadline passes.",
+    ["The eviction is held for the read and the pins restored after it, so a read never evicts what the camera pinned. A read the budget stopped is counted (`overBudget`); with `warmReads` set, the keys read join the warm set (the prefetch's reads, F83)."],
+    "§9")
+add("ts.setCameraPins", "setCameraPins(keys)",
+    "Replaces the camera's pin set, then runs the eviction a read had held.", ["-"], "§9")
+add("ts.prepare", "prepare(F)",
+    "Mints the frames F's displaced pictures are read from — at the end of the action that moved them or the camera, or for a view a read found wanting — never in a read (A1 C3); returns how many were minted.",
+    ["Called by the engine's `_prepareView` (DESIGN.md §8: no read settles, mints or changes a table). Runs the reroute with minting on when the document has any displaced native."],
+    "§8")
+add("ts.want", "want(F) · wanted()",
+    "Notes a view whose read found a picture's source frame missing (the reroute's `miss`), for `prepareWanted`; and how many are waiting.",
+    ["-"], "§8")
+add("ts.prepareWanted", "prepareWanted()",
+    "`prepare` for every view a read found wanting, the set then cleared; returns how many frames were minted.", ["-"], "§8")
+add("ts.forgetFrame", "forgetFrame(frame)",
+    "The store's side of frame GC: a forgotten frame's tiles, pins and chain sequence go, with every reroute memo that names it — its own and each whose group reads its tiles.",
+    ["A memo whose group read the frame would, after a later mint restored its key, read a frame that is gone and leave the native undrawn (R-MODEL-C1, 6 of 8,000 fuzz renders); a later read can mint the same id again, and its old tiles would be served without what changed since (REVIEWER-3 RENDER-1)."],
+    "§8")
+add("ts._tileLive", "_tileLive(key, tile)",
+    "Whether a cached tile still stands: it is dropped during a drag's batch mode unless pinned on screen, and when its frame is gone (RENDER-1).",
+    ["-"], "§9")
+add("ts._upVia", "_upVia(H, F)",
+    "The frame whose child chain carries frame `H`'s natives up into F's up tiles: F's ancestor at H's depth when that is H's cell, or when H is in its ring; null when H's natives never reach F.",
+    ["-"], "§9")
+add("ts._ringCopy", "_ringCopy(o, H, A, pr)",
+    "Native `o` of ring frame `H` as `_ringNatives(A, pr)` would hand it over — projected into `A`'s coordinates — or null when it would not.",
+    ["-"], "§9")
+add("ts._reaches", "_reaches(o, H, tile)",
+    "Whether native `o`'s box at `H` meets an up tile's rect grown by the seam pad — the cold bake's cull, so a patch adds a native only where a bake would.",
+    ["-"], "§9")
+add("ts._appendChained", "_appendChained(key, tile, o)",
+    "Patches an added native into a chained up tile from its parent squares' pieces; when one of those parent tiles is not cached and current, the tile is dropped instead (DESIGN.md §8: an added native is patched into the cached tiles a cold bake would put it in).",
+    ["-"], "§9")

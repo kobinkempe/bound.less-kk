@@ -3366,3 +3366,17 @@ written to disk before the next. Files: `tools/docmaps/` only (the `newdesc_*.py
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: refreshing `inventory.py`/`extract.py` on the tree, then the work list by file from the lenient chain.
+
+## 2026-10-05 22:40 UTC — B-PYRAMID-5b (builder) — start (item 6's kept ant decision across a drop; R-PYRAMID-34's skipped items; the full measurement)
+**Working on:** item 6, from the tree (97b9dce) and the predecessor's traces. Files: `overlays.js`, `raster.overlay.test.js`,
+`selection.indicator.test.js`, DESIGN §10's indicator line; later the raster files of the brief's §3.
+**Read from the traces (`bp5/h-tr6a`–`e`):** the extra entry at the drop is frame `1/-1,1`, a kid of the selected spine
+frame `1` that the drop's rest re-homed under the neighbour container, so `_repairSelection` added it as a selected frame
+(DESIGN §10; the mechanism `select.inkless` I6 pins). Its ink was in the selection already (under `1`); only the
+selection's structure changed. tr6d: a frame keyed by its cell with its shift (`withShifted`) moves unevenly when the drop
+writes a residue shift (frame `1`: [-16,16] → [224,272]×[104,144] for d = (240,120)); its content moves by d exactly.
+**Decision (pending the test):** key the drawn ink independently of which frames are the selection's entries — the natives
+on the list and the own members off it by id, and every frame under a selected frame (`walk`) by its own content through
+its shift — so a frame torn off at the rest is the same key before and after.
+**Questions asked:** none.
+WHERE I AM: writing the red-before test on I6's fixture in `raster.overlay.test.js` G14.
