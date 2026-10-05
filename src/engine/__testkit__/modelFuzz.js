@@ -556,7 +556,10 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
         both((E) => { for (let i = 0; i < k; i++) step(E); E.flushBakes(); });
         repairLikeLive(was);
     };
-    const drag = (E, p, dx, dy, n) => { E.pointerDown(p[0], p[1]); for (let k = 1; k <= n; k++) E.pointerMove(p[0] + (dx * k) / n, p[1] + (dy * k) / n); E.pointerUp(); };
+    // The oracle drags a selection holding frames in one event: its drag wrote every event, and a kid whose digit carried
+    // was re-addressed against the lattice the previous event left, landing a cell off (F136, fixed live by A1 C2; seeds
+    // 222, 241). The live engine writes at the drop alone, whatever the events, and keeps them.
+    const drag = (E, p, dx, dy, n) => { if (E === O && E.selection && E.selection.frames.length) n = 1; E.pointerDown(p[0], p[1]); for (let k = 1; k <= n; k++) E.pointerMove(p[0] + (dx * k) / n, p[1] + (dy * k) / n); E.pointerUp(); };
     const reload = (E) => {
         const kind = E._fuzzKind;
         const d = E.serializeDrawing();

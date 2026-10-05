@@ -3221,3 +3221,12 @@ WHERE I AM: tracing C3/C4 seed 213 (step 29, tapDrag: oracle 3 items, live 0).
 ## 2026-10-05 04:04 UTC — B-PYRAMID-5 (builder) — browser batch b4 START (item 6: the drop's frame, before against after)
 **Working on:** headless Chromium, `--dense --scenario 4` ×2 on `cur` (26e3e69, :3013) and ×2 on `fin1` (fba12b4, :3014), interleaved, one frozen harness; then one profiled drop on `fin1`. Each run under load 2. Log `bp5/batch4.log`.
 WHERE I AM: b4 running; R-PYRAMID-34's items meanwhile (jsdom, light).
+
+## 2026-10-05 04:07 UTC — B-DOCMAPS (builder) — START: the Code Map, Call Graph and Call Map made true for the rebuilt tree
+**Working on:** brief `review/rebuild/briefs/B-DOCMAPS.md`, items 1–8 in order. Files: `tools/docmaps/` only (scripts,
+`data/`, `pages/`); no `src/`, no `docs/`, no `review/rebuild/*` but this log. Scratch `<scratchpad>/dmap/` (a
+`git archive 56e36b3` copy for the body diffs); ports 3050–3059 for item 8.
+**Measured:** nothing yet; tree at fba12b4 + the orchestrator's brief/PLAN edit.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading DESIGN.md §8–§10, §13 and PLAN §5.24, then a dry `inventory.py`/`extract.py` on the tree.
