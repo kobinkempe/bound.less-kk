@@ -1084,3 +1084,10 @@ message: the time boxes dropped; R-MODEL-C34 root-causes every F138 difference, 
 tile, 200 + 200 selection), does the C3/C4 review in full (B-MODEL-C34's §3 acceptance item by item) and R-DRAG's
 skipped items (§5.21); B-PYRAMID-5 fixes the overlay's tail after a drop (`overlays.js` its), then takes R-PYRAMID-34's
 skipped items (§5.22 item 6) and measures in full. The final design check after both, in full.
+
+Second addendum, 2026-10-05 — the final check's docmaps started early, beside the two agents (its files are disjoint
+from theirs): **B-DOCMAPS** (`briefs/B-DOCMAPS.md`, opus-builder) brings `tools/docmaps/` to the rebuilt tree. The
+orchestrator's dry run on fba12b4: 153 files and 3,649 functions inventoried (2,282 in 113 at the last rebuild, 56e36b3);
+1,616 added (895 in the frozen `__oracles__/model-v1/`), 264 deleted; `extract.py` stops on 42 unkeyed files and 2 deleted
+ones. Done is `rebuild.py` to its end (coverage OK, stale 0, the Call Map's calls checked) and the pages' prose true; the
+orchestrator publishes the pages after its report, and gives it the two agents' final diffs for a last pass.

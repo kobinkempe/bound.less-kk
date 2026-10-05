@@ -3169,3 +3169,55 @@ removed (break-check 5b: 1 red; 5a, the twin removed everywhere: 2 red before th
 **Decisions made:** none new.
 **Questions asked:** none.
 WHERE I AM: b3 again — `bp5/cur` on :3013, one profiled scenario-4 drop under load 2.
+
+## 2026-10-05 04:05 UTC — orchestrator (Opus) — the fourth session-limit stop (~22:00); both agents resumed
+**Working on:** the limit stopped R-MODEL-C34 (tile seed 416 traced to a live camera that rode the mover — the harness's
+camera rule widened, a test added; selection seed 73 being traced; larger fuzz runs in flight) and B-PYRAMID-5 (item 6:
+the selection decision kept across a drop, moved by the displacement the drop wrote; "the two-line fix" pending). The
+container rebooted (uptime 0 at 03:59); the tree held every edit of both, snapshot fba12b4 (pushed). Scratch dirs `r-c34/`
+and `bp5/` survived; no dev servers or Chromium were left running. Both resumed by message with their remaining scope.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the resumed entries; the monitor re-armed.
+
+## 2026-10-05 04:02 UTC — B-PYRAMID-5 (builder) — resumed after the fourth stop and reboot (tree at fba12b4)
+**Working on:** item 6's browser re-measure, then R-PYRAMID-34's skipped items, the full measurement, the report.
+**On disk, checked:** both crawl-row lines are in (`rasterPerf.noteCrawl` charges no decision; a frozen tick zeroes its
+paint), the kept decision in `overlays.js` (`_selDragStart`, `_selMembersAt`, `_selMovedBy`), DESIGN's indicator line.
+**Item 6 so far (jsdom, before the stop):** b3's profile of the dense drop (clean HEAD copy, load 1.47→3.54): `syncWorld`
+579.5 ms = `_selDecide` 548 (+ its GC); the drop's row 1,694 ms = `ovl.tail` 803 + `eng.list` 538 + `eng.pack` 170; three
+"crawl" rows of 903–924 ms were each the last decision (778) and paint carried into a frozen tick — a reporting
+artifact, fixed (red before: 778 in every row). The fix: a drop or a cancel keeps the drag's decision, moved by the
+displacement every member was drawn away from its place at the drag's start (checked member by member, to 0.01 px; the
+view inside the kept window), else decides afresh. Red before on an unimported copy with HEAD's `overlays.js`: 2 of 57
+(the drop/cancel test, the member test); green 58/58. Break-checks: kept decision off 2 red, the member check 1, the
+window 1, the shift out of the transform 1, the crawl decide 1, the frozen paint 1. `selection.indicator` pinned the
+old re-decision ("decided afresh … when it ends"): rewritten to the new rule (same key, +60 px, a fresh decision draws
+the ants at the same place to 0.005 px).
+**Measured:** as above. Load now 0.22.
+**Decisions made:** `OverlayLayer.js` and `rasterPerf.js` (not in my brief's list, no other agent in them) fixed for the
+crawl rows: the artifact made every selection's drop look like 1–3 phantom 0.9 s tasks in the harness.
+**Questions asked:** none.
+WHERE I AM: b4 — scenario 4 in headless Chromium on a frozen copy of the tree against the landed one, under load 2.
+
+## 2026-10-05 04:02 UTC — R-MODEL-C34 (reviewer) — resumed after the fourth stop and reboot (tree at fba12b4)
+**Established before the stop:** tile seed 416 (plain, step 13 undo): the reverse of seed 29 — the live camera rode the
+mover that took an empty cell (A1 C3: a frame keeps its identity, the camera stays in its frame), the oracle's stayed in
+the frame it merged into; class (b). The camera rule made symmetric (`rode`); `lattice.coresident` "a camera inside a
+dropped frame's subtree rides its undo and redo" pins the live behaviour: green, red on my copy with the live camera held
+at its old place (BK_CAM3: 1 test red; the fuzz itself stays green there — the oracle agrees). Selection seed 73
+(C3/C4, step 21): the subtree drag landed on a held cell, the oracle merged and handed its selection to the natives (with
+families), the live frame stays a co-resident unit; class (b), `mergedAlike`; with a frame dropped from the live repair
+(BK_SEL) 73 is red at step 17.
+**Runs before the stop:** tile 500+500 on that harness: 9 walks differ (plain 296, 386: a carried native 2 ulp above its
+home, the plain lane allows 1; C3/C4 213, 222, 231, 241, 341, 451, 476) — 39,813 checks, 274,605 items. Selection
+200+200 on the final harness: green.
+**Re-running / next:** each of the nine alone, classified; the live-rode branch's own break-check; `mergedAlike`'s
+break-check and a pinning test; then the 500+500 and 200+200 again; the review's measurements; R-DRAG's items.
+**Questions asked:** none.
+WHERE I AM: tracing C3/C4 seed 213 (step 29, tapDrag: oracle 3 items, live 0).
+
+## 2026-10-05 04:04 UTC — B-PYRAMID-5 (builder) — browser batch b4 START (item 6: the drop's frame, before against after)
+**Working on:** headless Chromium, `--dense --scenario 4` ×2 on `cur` (26e3e69, :3013) and ×2 on `fin1` (fba12b4, :3014), interleaved, one frozen harness; then one profiled drop on `fin1`. Each run under load 2. Log `bp5/batch4.log`.
+WHERE I AM: b4 running; R-PYRAMID-34's items meanwhile (jsdom, light).
