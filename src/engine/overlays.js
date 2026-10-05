@@ -702,11 +702,11 @@ class Overlays {
         }
         // A drag that ended (a drop or a cancel): its decision, moved by the displacement its ink moved by.
         if (view && c.drag && c.drag !== drag && c.at) {
-            const d = this._selMovedBy(c.at, table, F, sc);
-            const win = d && { left: c.win.left + d[0], top: c.win.top + d[1], right: c.win.right + d[0], bottom: c.win.bottom + d[1] };
-            if (d && inside(win)) {
+            const k = this._selMovedBy(c.at, table, F, sc, c.win, vp);
+            if (k) {
+                const d = k.d;
                 c.shift = c.shift ? [c.shift[0] + d[0], c.shift[1] + d[1]] : d;
-                Object.assign(c, { sel: s, win, G, rev: this.doc.rev, drag: null, dragAt: null, at: null });
+                Object.assign(c, { sel: s, win: k.win, G, rev: this.doc.rev, drag: null, dragAt: null, at: null });
                 if (drag) this._selDragStart(c, drag, table, F);
                 return c;
             }
@@ -856,8 +856,9 @@ class Overlays {
 
     /**
      * The ink the selection draws, each piece's drawn box in F's units by id: the natives among the scene's items that
-     * are its own or under a selected frame, its own members off the list, and its frames' cells. Null when one is not
-     * drawn anywhere.
+     * are its own or under a selected frame, its own members off the list, and its frames — a cell under
+     * SEL_FRAME_MARK_PX on screen as its dot, any other by its content (F103's dot where it is culled). Null when one is
+     * not drawn anywhere.
      */
     _selMembersAt(table, F) {
         const out = new Map(), memo = new Map();
@@ -873,29 +874,55 @@ class Overlays {
             if (!put(item.id)) return null;
         }
         for (const id of table.ids) if (!out.has(id) && !put(id)) return null;
+        const sc = this.cam.inScale;
         for (const f of table.frames) {
             const fr = this.lm.frame(f);
-            const r = fr && this.lm.mapRectF(withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0), f, F);
-            if (!r) return null;
-            out.set("frame:" + f, r);
+            const cell = fr && this.lm.mapRectF(withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0), f, F);
+            if (!cell) return null;
+            if (Math.max(cell.right - cell.left, cell.bottom - cell.top) * sc < SEL_FRAME_MARK_PX) { out.set("frame:" + f + ":dot", cell); continue; }
+            const r = this._selFrameContent(f, F);
+            if (r) out.set("frame:" + f, r);
         }
         return out;
     }
 
-    /** The one displacement, in F's units, every member in `at` has moved by since (to 0.01 px at scale `sc`), or null. */
-    _selMovedBy(at, table, F, sc) {
+    /**
+     * Whether a drag's decision still stands, and where: `{ d, win }` — the one displacement in F's units every piece of
+     * ink in both `at` and now moved by (to 0.01 px at `sc`), and the kept window `win` moved by it and shrunk to exclude
+     * the ink that entered or left the list (a moved frame's tile pieces at its edges), none of which may meet the view
+     * `vp` — else null.
+     */
+    _selMovedBy(at, table, F, sc, win, vp) {
         const now = this._selMembersAt(table, F);
-        if (!now || now.size !== at.size) return null;
+        if (!now) return null;
         const tol = 0.01 / sc;
         let d = null;
         for (const [k, a] of at) {
             const b = now.get(k);
-            if (!b) return null;
+            if (!b) continue;
             if (!d) d = [b.left - a.left, b.top - a.top];
             if (Math.abs(b.left - a.left - d[0]) > tol || Math.abs(b.right - a.right - d[0]) > tol
                 || Math.abs(b.top - a.top - d[1]) > tol || Math.abs(b.bottom - a.bottom - d[1]) > tol) return null;
         }
-        return d;
+        if (!d) return null;
+        const w = { left: win.left + d[0], top: win.top + d[1], right: win.right + d[0], bottom: win.bottom + d[1] };
+        const exclude = (r) => {
+            if (r.right < w.left || r.left > w.right || r.bottom < w.top || r.top > w.bottom) return true;
+            const cuts = [];
+            if (r.right <= vp.left) cuts.push(["left", r.right, r.right - w.left]);
+            if (r.left >= vp.right) cuts.push(["right", r.left, w.right - r.left]);
+            if (r.bottom <= vp.top) cuts.push(["top", r.bottom, r.bottom - w.top]);
+            if (r.top >= vp.bottom) cuts.push(["bottom", r.top, w.bottom - r.top]);
+            if (!cuts.length) return false;                      // it meets the view
+            const [side, at1] = cuts.sort((p, q) => p[2] - q[2])[0];
+            w[side] = at1;
+            return true;
+        };
+        for (const [k, a] of at) {
+            if (!now.has(k) && !exclude({ left: a.left + d[0], top: a.top + d[1], right: a.right + d[0], bottom: a.bottom + d[1] })) return null;
+        }
+        for (const [k, b] of now) if (!at.has(k) && !exclude(b)) return null;
+        return vp.left >= w.left && vp.right <= w.right && vp.top >= w.top && vp.bottom <= w.bottom ? { d, win: w } : null;
     }
 
     /**
