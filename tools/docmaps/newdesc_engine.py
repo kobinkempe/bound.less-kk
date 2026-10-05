@@ -1025,3 +1025,24 @@ add("eng.sweepFrames", "sweepFrames()",
 add("eng.onZoom", "onZoom(cb)",
     "Subscribes `cb(effectiveZoom)` to every status emit that finds the zoom changed — once a frame — so the scale HUD follows a zoom without re-rendering the page (A3 §5, R25 W1); returns the unsubscribe.",
     ["-"], "§12")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("ovl._selFrameContent", "_selFrameContent(f, F)",
+    "A selected frame's content where it is drawn, in F's units: the union of its subtree's frames' own natives (`_selFrameInk`) — O(frames), no list read (F103).",
+    ["-"], "§10")
+add("ovl._selFrameInk", "_selFrameInk(g, F)",
+    "Frame g's own natives where they are drawn, in F's units: its index extent moved by its shift and mapped into F; null when it holds none.",
+    ["-"], "§10")
+add("ovl._selDragStart", "_selDragStart(c, drag, table, F)",
+    "Makes a selection-indicator decision the drag's: anchored at the drag's start, with where the selection's ink is then (at rest), since a drag writes nothing until its drop (A1 C2).",
+    ["-"], "§10")
+add("ovl._selFrameOf", "_selFrameOf(id, table, memo)",
+    "The selected frame a native is homed under, or null, memoised by id.", ["-"], "§10")
+add("ovl._selMembersAt", "_selMembersAt(table, F)",
+    "The ink the selection stands for, each entry's drawn box in F's units: its natives on the scene's list and its own members off it, and every frame under a selected frame by its own natives; null when a native is not drawn.",
+    ["Frames are entered by their own natives, so a kid that a drop's rest tears off a selected frame — which the repair then makes a selected frame itself — is the same entry before and after (DESIGN.md §10)."],
+    "§10")
+add("ovl._selMovedBy", "_selMovedBy(at, table, F, sc, win, vp)",
+    "Whether a drag's indicator decision still stands at the drop or a cancel: every piece of ink in both the start's set and now moved by one displacement (to 0.01 px), and the view inside the kept window moved by it and cut short of the ink that entered or left the list; `{d, win}`, else null.",
+    ["Ink that entered or left the list — a moved frame's tile pieces at its edges — may not meet the view. Else the decision is remade: re-deciding in the dense scene's drop frame was 338–803 ms (B-PYRAMID-5, DESIGN.md §10)."],
+    "§10")
