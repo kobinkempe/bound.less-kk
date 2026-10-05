@@ -438,7 +438,11 @@ export default class OverlayLayer {
      */
     step() {
         if (!this._dec || !this._shown || this._reduced) return;
-        if (this._frozen) { this._maybeUncovered(); this._note(); return; }
+        if (this._frozen) {
+            const rep = this._rep;
+            rep.paintMs = 0; rep.blitMs = 0; rep.blitPx = 0;   // per tick: a frozen one paints only an uncovered screen
+            this._maybeUncovered(); this._note(); return;
+        }
         this._phase = (this._phase + 1) % ANT_PHASES;
         this._paint(this._phase, this._planeDirty);
         this._note();

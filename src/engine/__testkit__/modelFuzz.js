@@ -245,6 +245,16 @@ export function carriedAlike(O, N, id) {
     return ["left", "top", "right", "bottom"].every((e) => Math.abs(a[e] - b[e]) <= tol);
 }
 /**
+ * Whether native `id` is one the oracle merged and the live engine keeps in a co-resident: homed at one place in both, the
+ * live home sharing its cell with another frame (A1 C3: a frame landing on a held cell stays a co-resident, its own
+ * selection unit; the oracle merged it into the resident and handed its selection to its natives, DESIGN.md §8, §10).
+ */
+export function mergedAlike(O, N, id) {
+    const ho = O.doc.getById(id), hn = N.doc.getById(id);
+    if (!ho || !hn || placeOf(O, ho.level) !== placeOf(N, hn.level)) return false;
+    return N.lm.cellFrames(String(hn.level)).length > 1 && O.lm.frame(String(ho.level)).shadowOf == null;
+}
+/**
  * The natives a selection stands for (DESIGN.md §10): its ids with their families, and every native under its frames.
  * `held(id)`: an id that stands for itself alone. `families` false: the ids alone.
  */
@@ -456,25 +466,29 @@ export function runPairFuzz(seed, steps, check, { w = 800, h = 600, extra = null
     const logs = new Map([[O, new OracleOpLog(O)], [N, new OpLog(N)]]);
     const stores = new Map();
     const both = (fn) => { fn(O); fn(N); };
-    // DESIGN.md §8: the live camera is handed to its cell's resident (`_camToResident`); the oracle's stays in the frame it
-    // merged the cell into, which an undo of the drop carries away (seed 29). Its camera is put at the live one's place.
-    // Only that: both at one place before the op, the live camera's place unchanged, the oracle's camera frame the same and
-    // moved, that frame (or its nearest ancestor the live lattice has) at one place in both, and the live camera not in it,
-    // before the op or after.
+    // A frame keeps its identity and the camera stays in its frame (A1 C3, DESIGN.md §8); the oracle merged a cell into one
+    // frame. Where the two cameras sat in different frames of one cell, an undo of the drop carries one away and not the
+    // other: the oracle's rode its merged frame (seed 29), or the live one rode the mover that took the empty cell (seed
+    // 416). The oracle's camera is put at the live one's place, only when both were at one place before the op, the camera
+    // that stayed kept its place, the one that moved kept its frame, the frame it rode (its nearest ancestor both lattices
+    // have) is at one place in both after the op, and the other camera was in that frame neither before nor after.
     let camSynced = 0, dropDeselect = 0;
     const viewOf = () => ({ o: placeOf(O, O.cam.frame), n: placeOf(N, N.cam.frame), oid: String(O.cam.frame), nid: String(N.cam.frame) });
+    const rode = (A, B, id, wasOther, nowOther) => {
+        let a = A.lm.frame(id);
+        while (a && !B.lm.frame(a.id)) a = a.parent != null ? A.lm.frame(a.parent) : null;
+        if (!a || a.parent == null || placeOf(A, a.id) !== placeOf(B, a.id)) return false;
+        return !B.lm.isUnder(a.id, nowOther) && !(B.lm.frame(wasOther) && B.lm.isUnder(a.id, wasOther));
+    };
     const sameView = (was) => {
         const cells = [];
         let f = N.lm.frame(String(N.cam.frame));
         while (f && f.parent != null) { cells.push(f.cell); f = N.lm.frame(String(f.parent)); }
         const now = viewOf();
-        if (!f || now.o === now.n) return;
-        if (was.o !== was.n || now.n !== was.n || now.oid !== was.oid) return;
-        // The frame the oracle's camera rode (its nearest ancestor the live lattice has) moved alike in both; the live camera is not in it.
-        let a = O.lm.frame(now.oid);
-        while (a && !N.lm.frame(a.id)) a = a.parent != null ? O.lm.frame(a.parent) : null;
-        if (!a || a.parent == null || placeOf(N, a.id) !== placeOf(O, a.id) || N.lm.isUnder(a.id, String(N.cam.frame))) return;
-        if (N.lm.frame(was.nid) && N.lm.isUnder(a.id, was.nid)) return;           // the live camera was in it before the op
+        if (!f || now.o === now.n || was.o !== was.n) return;
+        const oracleRode = now.n === was.n && now.oid === was.oid && rode(O, N, now.oid, was.nid, now.nid);
+        const liveRode = now.o === was.o && now.nid === was.nid && rode(N, O, now.nid, was.oid, now.oid);
+        if (!oracleRode && !liveRode) return;
         const g = O.lm.frameAtChain(f.id, cells.reverse());
         if (!g) return;
         O.cam.frame = g.id;

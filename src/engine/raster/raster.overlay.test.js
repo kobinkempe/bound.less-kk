@@ -17,8 +17,9 @@ import OverlayLayer, { SEL_CRAWL_RESUME_MS, OVERLAY_UNCOVERED_MS } from "./Overl
 import { antStats, resetAntStats, dashIntervals, ANT_PHASES, ANT_STEP_MS, ANT_LOOK, selAntScale } from "./antPaint";
 import KobinEngine from "../KobinEngine";
 import * as svgOverlay from "./svgOverlay";
-import { runPathData } from "../geometry/antRuns";
+import { runPathData, loopsBounds } from "../geometry/antRuns";
 import { resetRasterWorkerClient } from "./rasterWorkerClient";
+import * as rasterPerf from "./rasterPerf";
 
 // ---------------------------------------------------------------------------
 // The doubles: a recording 2D context on a real canvas element, an `ImageData`
@@ -635,7 +636,7 @@ describe("FC7 — the report is the shape `rasterPerf.noteCrawl` reads", () => {
         layer.show(mkDec(), mkView());
         timers.resume(); timers.tick();
         const r = layer.report();
-        // `rasterPerf.js` `noteCrawl` reads these nine by name, plus the stage-L three it
+        // `rasterPerf.js` `noteCrawl` reads these by name (not `decideMs`: a tick decides nothing), plus the stage-L three it
         // defaults to 0; the five of §10 item 7 are the first five.
         for (const k of ["phases", "lastPhaseMs", "pixels", "bytes", "repaints",
             "decideMs", "paintMs", "blitMs", "blitPx", "dashes", "stamps"]) {
@@ -646,6 +647,23 @@ describe("FC7 — the report is the shape `rasterPerf.noteCrawl` reads", () => {
         expect(r.stamps).toBeGreaterThan(0);
         expect(r.pixels).toBeGreaterThan(0);
         expect(r.bytes).toBe(CSS_W * CSS_H * 4);
+    });
+
+    test("a crawl row charges what its tick did: no decision (the render row's `ovl.tail` holds it), no paint while frozen", () => {
+        rasterPerf.reset();
+        const { layer, timers } = mkLayer({ perf: rasterPerf });
+        let t = 0;
+        layer._now = () => (t += 5);                                           // every paint 5 ms on this clock
+        layer.noteDecide(778);
+        layer.show(mkDec(), mkView());                                         // the render's frame: decided, painted
+        for (let i = 0; i < 3; i++) timers.tick();                             // frozen ticks: nothing painted
+        timers.resume(); timers.tick();                                        // a crawl tick: one phase painted
+        const rows = rasterPerf.report().frames.filter((r) => r.kind === "crawl");
+        expect(rows.map((r) => r.timers["ovl.decide"] || 0)).toEqual([0, 0, 0, 0]);   // red: 778 in every row (the dense drop's 903–924 ms "crawl" rows)
+        expect(rows.map((r) => r.timers["ovl.paint"] || 0)).toEqual([0, 0, 0, 5]);    // red: the show's paint carried into each frozen tick
+        expect(rows.map((r) => r.mainMs)).toEqual([0, 0, 0, 10]);                     // the tick's paint and blit, 5 ms each here
+        expect(layer.report().decideMs).toBe(778);                             // the panel's last decision stays
+        rasterPerf.reset();
     });
 
     test("a tick hands the report to the injected perf object, once", () => {
@@ -909,6 +927,74 @@ describe("G11 — the decision is identical under both renderers", () => {
         const O = svg.renderer._origin(), sc = svg.cam.inScale;
         const moved = runPathData({ pieces: b.runs[0].pieces, closed: b.runs[0].closed }, O.x + 1, O.y, sc);
         expect(moved).not.toBe(svg._selectionAnts().runs[0].d);
+    });
+});
+
+describe("G14 — a drop keeps the drag's decision, moved by the selection's displacement (the overlay's tail after a drop)", () => {
+    /** Two strokes and a fill selected, the ants decided at rest; returns the engine and a press on the fill. */
+    function selected() {
+        const E = mkEngine(true);
+        const a = penStroke(E, [[200, 200], [300, 260], [400, 210]], 13);
+        const b = penStroke(E, [[220, 330], [330, 300], [420, 360]], 9);
+        const f = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), color: "#284", opacity: 1,
+            polys: [[E.cam.screenToFrame(460, 200), E.cam.screenToFrame(560, 200), E.cam.screenToFrame(560, 300), E.cam.screenToFrame(460, 300)]] }, E.cam.frame);
+        E.setTool("select"); E._setSelection([a.id, b.id, f.id], []);
+        E._render();
+        return { E, press: [510, 250] };
+    }
+    const len = (dec) => dec.runs.reduce((s, r) => s + r.len, 0);
+    const box = (dec, sh = [0, 0]) => {
+        const b = loopsBounds(dec.runs.map((r) => r.pieces));
+        return [b.x0 + sh[0], b.y0 + sh[1], b.x1 + sh[0], b.y1 + sh[1]];
+    };
+
+    test("the drop and a cancel decide nothing; the kept ants are a fresh decision's, where the ink is", () => {
+        for (const end of ["drop", "cancel"]) {
+            const { E, press } = selected();
+            expect(E._selectionAnts()).not.toBeNull();
+            E.pointerDown(press[0], press[1]);
+            for (let k = 1; k <= 12; k++) E.pointerMove(press[0] + 9 * k, press[1] + 4 * k);
+            expect(E._selectionAnts().off).toEqual([108, 48]);                    // the drag's decision, riding the pointer
+            const seq0 = E._selDecSeq;
+            if (end === "drop") E.pointerUp(); else E.cancelSelectGesture(false);
+            const kept = E._selectionAnts();
+            expect([end, E._selDecSeq - seq0]).toEqual([end, 0]);                  // red: the drop re-decided (548–803 ms on the dense scene)
+            const sh = E._selDec.shift || [0, 0];
+            expect(end === "drop" ? Math.hypot(sh[0] * E.cam.inScale - 108, sh[1] * E.cam.inScale - 48) < 0.5 : sh[0] === 0 && sh[1] === 0).toBe(true);
+            const k0 = box(E._selDec, sh), L0 = len(E._selDec), off = kept.off;
+            E._selDec = null;                                                     // a fresh decision of the same state
+            const fresh = E._selectionAnts(), k1 = box(E._selDec);
+            expect(Math.abs(len(E._selDec) - L0)).toBeLessThan(1);
+            for (let n = 0; n < 4; n++) expect([end, n, Math.abs(k0[n] - k1[n]) * E.cam.inScale < 0.05]).toEqual([end, n, true]);
+            expect(fresh.off).toEqual([0, 0]);
+            expect(off.map((x) => Math.round(x))).toEqual(end === "drop" ? [108, 48] : [0, 0]);
+        }
+    });
+
+    test("a member not drawn the rest's displacement away from where it was at the drag's start: decided again", () => {
+        const { E, press } = selected();
+        E._selectionAnts();
+        E.pointerDown(press[0], press[1]);
+        for (let k = 1; k <= 6; k++) E.pointerMove(press[0] + 9 * k, press[1]);
+        E._selectionAnts();                                                   // the drag's decision, its members' boxes at rest
+        const dec = E._selDec, [k0, r0] = [...dec.at][0], px = 2 / E.cam.inScale;
+        expect(dec.at.size).toBe(3);
+        dec.at.set(k0, { ...r0, left: r0.left - px, right: r0.right - px });   // that member 2 px off the others' displacement
+        const seq0 = E._selDecSeq;
+        E.pointerUp();
+        expect(E._selDecSeq).toBe(seq0 + 1);                                  // red without the member-by-member check
+        expect(E._selDec.shift).toBeUndefined();
+    });
+
+    test("a drop farther than the kept window's margin: decided again (the view would hold ink the decision never traced)", () => {
+        const { E, press } = selected();
+        E._selectionAnts();
+        E.pointerDown(press[0], press[1]);
+        for (let k = 1; k <= 25; k++) E.pointerMove(press[0] - 20 * k, press[1]);    // 500 px left: the window kept 400 past the view
+        E._selectionAnts();
+        const seq0 = E._selDecSeq;
+        E.pointerUp();
+        expect(E._selDecSeq).toBe(seq0 + 1);
     });
 });
 

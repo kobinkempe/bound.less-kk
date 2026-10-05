@@ -126,6 +126,17 @@ with `--testMatch "**/<name>.probe.js"` and are not in the quick suite.
 | `lattice.coresident` "linked all the way down" and its version-3 clause check; `erase.privateCede`'s `_cellOffset` assertion | — | three rules the break-checks found untested: kids linked four levels below a join; each version-3 clause on its own (a private frame alone in its cell); severance by cell for a private frame | NEW (2026-10-04) | — |
 | `raster.pyramid`'s F119 refusal test | — | its view strips no longer ride the velocity re-aim (stubbed in the test): a wall-clock race dropped them as offscreen — 1 run in 3 on 1b95eb2, 6 in 7 once C3 checked the camera at every render | FIXED (2026-10-04) | — |
 
+### F138's fixes and the C3/C4 review (R-MODEL-C34, 2026-10-04)
+
+| suite | lines | asserts | fate | replaced by |
+|---|---|---|---|---|
+| `TileStore.test.js` "a deleted subtree whose ink is below an empty root" | ~15 | an ancestor's down tile drops a deleted kid's ink: each `removeFrame` event carries the root's address (red before: the speck stayed) | NEW | — |
+| `move.drop.test.js` D2c | ~30 | a listed id under a selected frame whose kid frame the drop carries out of it moves once, as with the frame alone; undo, redo (red before: 12.8 further) | NEW | — |
+| `lattice.coresident.test.js`, three cases | ~60 | a private frame never takes nor keeps a cell from a public one, either landing order; a lattice whose "0" a delete took loads with no parentless "0", the undo restores into the tree; a camera inside a dropped frame's subtree rides its undo and redo, the picture kept | NEW (two red before; the third pins the camera rule the fuzz cannot see) | — |
+| `hooks/store.subtree.test.js`, two cases | ~55 | an undone cede whose private frames GC freed, one id taken by a later cede: the reload leaves it undone; a delete undone then dragged: the reload exact (the real saver and loader) | NEW (F138 class (c): green; red with the replay's listing removed) | — |
+| `model.fuzzRules.test.js` | ~55 | `carriedAlike` takes a carry composed on the frame, not a home a cell off made up by its own table | NEW | — |
+| `__testkit__/modelFuzz.js`, `model.equivalence.probe.js`, `select.stands.probe.js` | — | the saver's writes after every step (`syncStore`); frame ops by place, skipped only for carried-alike natives (`unitApart`); the cameras asserted at one place (`camSynced` the one exception); the lattice invariant asserted (`latticeBreach`); places by the top's depth; counted exceptions `rerouted`, `oracleSlip`, `dropDeselect`, `held`; each break-checked (OPEN-FLAGS F138) | PORT | — |
+
 ### PLAN §5.22's next steps: the user's budget, the ask's G, the hidden tab, two load-sensitive tests (B-PYRAMID-5, 2026-10-04)
 
 | suite | lines | asserts | fate | replaced by |

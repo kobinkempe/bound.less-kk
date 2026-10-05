@@ -296,7 +296,7 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         // The dense zoom back in: the child's levels never rendered, the parent's plates of the same place a level or more
         // coarser than the view's twin (the zoom outran the workers there) — those, not paper.
         for (const k of [1, 3]) {
-            const W = 900, H = 700, t = setup(W, H), F = String(t.A), fa = t.lm.frame(t.A);
+            const W = 900, H = 700, t = setup(W, H), fa = t.lm.frame(t.A);
             const l = 4, Z = zOf(l, S) * 1.1;
             t.pyr.frameFor(cam(t.A, Z, -300, -200, W, H));
             const v = t.pyr._v, G = t.stage.generation, lc = l - k, off = 2 ** (8 + lc * S), twins = new Set();

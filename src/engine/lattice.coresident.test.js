@@ -250,6 +250,29 @@ describe("co-residents in the engine", () => {
         for (const L of E.doc.levels()) if (E.doc.count(L)) expect(E.lm.frame(L)).toBeTruthy();
     });
 
+    test("a camera inside a dropped frame's subtree rides its undo and redo: its frame, and the picture it shows, kept (F138 seed 416)", () => {
+        const E = mkEngine(800, 600);
+        E.lm.ensureSpine(3);
+        E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 });
+        const R = E.lm.cellChild("1", 10, 0).id, K = E.lm.cellChild(R, 3, 3).id;
+        rects(E, R, 2); rects(E, K, 2);
+        E._render();
+        moveFrame(E, R, 64);                                                     // to an empty cell two over
+        const at = () => { const f = E.lm.frame(R); return [f.cell.i, f.cell.j]; };
+        expect(at()).toEqual([12, 0]);
+        E.cam.set({ activeLevel: 3, frame: K, inScale: 1, inPanX: 400, inPanY: 300 });
+        E._render();
+        const o = E.doc.list(K)[0];
+        const box = () => { const b = E.stage.placeNative(o, E.cam.frame).box(); return [b.left, b.top, b.right, b.bottom]; };
+        const seen = box();
+        E.undo();
+        expect(at()).toEqual([10, 0]);
+        expect(E.cam.frame).toBe(K);                                             // red with the camera held at its old place
+        expect(box()).toEqual(seen);
+        E.redo();
+        expect([at(), E.cam.frame, box()]).toEqual([[12, 0], K, seen]);
+    });
+
     test("control: the same undo with the camera a level out leaves it in its own frame", () => {
         const E = farMove();
         zoomN(E, 582, 71, 1 / 16, 3);

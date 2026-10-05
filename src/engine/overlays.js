@@ -536,17 +536,15 @@ class Overlays {
      * THERE IS NO BUDGET. Every selected piece on screen gets its ants; see
      * the note at SEL_KEEP_FRACTION for what bounds the work instead.
      *
-     * A DRAG IS A TRANSLATION. While the selection is being dragged the
-     * objects are rewritten on every pointer event and the render list with
-     * them, which would decide again every event. Instead the decision made
-     * on the drag's first event is kept for the whole drag, stamped with the
-     * drag and the pointer position it was made at, and each event moves it
-     * by the pointer's travel since — a screen translation, added to the
-     * transform. Pen-up ends the drag and the next step decides afresh from
-     * the moved geometry. (Until 2026-09-03 the loops were cached on the
-     * piece object itself, and a native's loops are replaced in place by a
-     * move, so the ants stayed where the object had been — Kobin: "the ants
-     * have to move when the object is moved".)
+     * A DRAG IS A TRANSLATION. The decision made on the drag's first event
+     * (at rest: nothing is written until the drop, A1 C2) is kept for the
+     * whole drag, stamped with the drag and the pointer position it was made
+     * at, and each event moves it by the pointer's travel since — a screen
+     * translation, added to the transform. It outlives the drop (or a cancel)
+     * too, moved by the displacement the drop wrote, when every selected member
+     * and frame is drawn exactly that far from where it was at the drag's start
+     * (`_selMovedBy`); anything else decides afresh from the moved geometry.
+     * Re-deciding at the drop was 548–803 ms of the dense scene's drop frame.
      */
     _selectionAnts() {
         const s = this.selection;
@@ -563,7 +561,8 @@ class Overlays {
         if (!held && !table.count) return null;
         const dec = held ? kept : d ? this.stage.atRest(() => this._selDecide(s, table)) : this._selDecide(s, table);
         const sc = this.cam.inScale;
-        const off = (d && dec.drag === d && d.last) ? [d.last[0] - dec.dragAt[0], d.last[1] - dec.dragAt[1]] : [0, 0];
+        const sh = dec.shift ? [dec.shift[0] * sc, dec.shift[1] * sc] : [0, 0];
+        const off = (d && dec.drag === d && d.last) ? [d.last[0] - dec.dragAt[0] + sh[0], d.last[1] - dec.dragAt[1] + sh[1]] : sh;
         const edges = this._selEdges(dec, off);
         if (!dec.runs.length && !dec.marks.length && !edges.list.length) return null;
         return {
@@ -693,11 +692,23 @@ class Overlays {
         // re-decision at a drag's start was 220–250 ms on the dense scene).
         const drag = this._dragSel || null;
         if (c && drag && c.drag === drag && c.sel === s && c.frame === F) return c;
-        if (c && !c.drag && c.G === G && c.sel === s && c.rev === this.doc.rev && c.frame === F && c.origin === O
-            && sc / c.scale <= SEL_REDECIDE_DRIFT && c.scale / sc <= SEL_REDECIDE_DRIFT
-            && vp.left >= c.win.left && vp.right <= c.win.right && vp.top >= c.win.top && vp.bottom <= c.win.bottom) {
-            if (drag) { c.drag = drag; c.dragAt = [drag.start[0], drag.start[1]]; }
+        const same = !!c && c.sel === s && c.frame === F && c.origin === O
+            && sc / c.scale <= SEL_REDECIDE_DRIFT && c.scale / sc <= SEL_REDECIDE_DRIFT;
+        const inside = (w) => vp.left >= w.left && vp.right <= w.right && vp.top >= w.top && vp.bottom <= w.bottom;
+        if (same && !c.drag && c.G === G && c.rev === this.doc.rev && inside(c.win)) {
+            if (drag) this._selDragStart(c, drag, table, F);
             return c;
+        }
+        // A drag that ended (a drop or a cancel): its decision, moved by the displacement every member moved by.
+        if (same && c.drag && c.drag !== drag && c.at) {
+            const d = this._selMovedBy(c.at, table, F, sc);
+            const win = d && { left: c.win.left + d[0], top: c.win.top + d[1], right: c.win.right + d[0], bottom: c.win.bottom + d[1] };
+            if (d && inside(win)) {
+                c.shift = c.shift ? [c.shift[0] + d[0], c.shift[1] + d[1]] : d;
+                Object.assign(c, { win, G, rev: this.doc.rev, drag: null, dragAt: null, at: null });
+                if (drag) this._selDragStart(c, drag, table, F);
+                return c;
+            }
         }
 
         const runs = [], marks = [], pieces = [];
@@ -830,8 +841,48 @@ class Overlays {
             scale: sc, runs, marks, inkPx, pieces,
             // The pointer the decided geometry belongs to: the drag's start (it is decided at rest, and a
             // drag writes nothing until its drop, A1 C2).
-            drag, dragAt: drag ? [drag.start[0], drag.start[1]] : null };
+            drag, dragAt: drag ? [drag.start[0], drag.start[1]] : null, at: drag ? this._selMembersAt(table, F) : null };
         return this._selDec;
+    }
+
+    /** A decision becomes drag `drag`'s: anchored at its start, with where its members are then (at rest). */
+    _selDragStart(c, drag, table, F) {
+        c.drag = drag; c.dragAt = [drag.start[0], drag.start[1]];
+        c.at = this._selMembersAt(table, F);
+    }
+
+    /** Each selected member's and frame's drawn box in F's units, by id; null when one is not drawn anywhere. */
+    _selMembersAt(table, F) {
+        const out = new Map();
+        for (const id of table.ids) {
+            const rec = this.doc.getById(id);
+            const r = rec && this.stage.placeNative(rec.obj, F).box();
+            if (!r) return null;
+            out.set(id, r);
+        }
+        for (const f of table.frames) {
+            const fr = this.lm.frame(f);
+            const r = fr && this.lm.mapRectF(withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0), f, F);
+            if (!r) return null;
+            out.set("frame:" + f, r);
+        }
+        return out;
+    }
+
+    /** The one displacement, in F's units, every member in `at` has moved by since (to 0.01 px at scale `sc`), or null. */
+    _selMovedBy(at, table, F, sc) {
+        const now = this._selMembersAt(table, F);
+        if (!now || now.size !== at.size) return null;
+        const tol = 0.01 / sc;
+        let d = null;
+        for (const [k, a] of at) {
+            const b = now.get(k);
+            if (!b) return null;
+            if (!d) d = [b.left - a.left, b.top - a.top];
+            if (Math.abs(b.left - a.left - d[0]) > tol || Math.abs(b.right - a.right - d[0]) > tol
+                || Math.abs(b.top - a.top - d[1]) > tol || Math.abs(b.bottom - a.bottom - d[1]) > tol) return null;
+        }
+        return d;
     }
 
     /**

@@ -12,7 +12,7 @@
  * SELECT_SEEDS (default 12, then the pinned seed), SELECT_C34_SEEDS (default 12), SELECT_STEPS (default 40) and
  * SELECT_FIRST (default 1) set the size.
  */
-import { runPairFuzz, settleOracle, selectionInk, carriedAlike } from "./__testkit__/modelFuzz";
+import { runPairFuzz, settleOracle, selectionInk, carriedAlike, mergedAlike } from "./__testkit__/modelFuzz";
 
 jest.setTimeout(30 * 60 * 1000);
 
@@ -71,12 +71,13 @@ test("a selection stands for the oracle's ink and the ink it was made with, over
         runPairFuzz(seed, STEPS, (O, N, step, op) => {
             st.ops[op] = (st.ops[op] || 0) + 1;
             settleOracle(O);
-            // An id the oracle's drop carried out of a dragged frame and listed stands for itself while the live engine keeps it
-            // under a selected frame (A1 C1: a frame's shift stays on it, nothing is carried; DESIGN.md §10; seed 34): taken
-            // when the oracle lists it carried (`carriedAlike`), kept while both still hold it so.
+            // An id the oracle's drop listed stands for itself while the live engine keeps it under a selected frame: one its drop
+            // carried out of the dragged frame (A1 C1: a frame's shift stays on it, nothing is carried; seed 34,
+            // `carriedAlike`), or one its merge handed over from the dropped frame (A1 C3: the frame stays a co-resident unit;
+            // seed 73, `mergedAlike`); DESIGN.md §10. Taken when the oracle lists it so, kept while both still hold it so.
             const under = (id) => { const r = N.selection && N.doc.getById(id); return !!r && N._underFrames(r.level, N.selection.frames); };
             const now = new Set();
-            for (const id of O.selection ? O.selection.ids : []) if (under(id) && (carried.has(id) || carriedAlike(O, N, id))) now.add(id);
+            for (const id of O.selection ? O.selection.ids : []) if (under(id) && (carried.has(id) || carriedAlike(O, N, id) || mergedAlike(O, N, id))) now.add(id);
             carried = now;
             st.held += now.size;
             const a = selectionInk(O, (id) => now.has(id)), b = selectionInk(N);

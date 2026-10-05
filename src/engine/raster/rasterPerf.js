@@ -609,8 +609,10 @@ export function noteDrop(req, d) {
 
 /**
  * FC7's crawl tick (H11): a 50 ms timer with no render behind it, so it is a row of its own.
- * `rep` is 5d's `report()` — `{ phases, lastPhaseMs, pixels, bytes, repaints }` — and the
- * optional `decideMs` / `paintMs` / `blitMs` / `mainMs` are the split once 5d measures it.
+ * `rep` is the layer's `report()` — `{ phases, lastPhaseMs, pixels, bytes, repaints }`, and the
+ * tick's `paintMs` / `blitMs` / `mainMs`. A tick decides nothing: `decideMs` is the last decision's,
+ * charged in the render row that made it (`ovl.tail`), so `ovl.decide` stays 0 here (charged in every
+ * tick, a dense drop's 778 ms decision showed as 903–924 ms "crawl" rows).
  * A crawl numbers in its own NEGATIVE space, so a tick can never collide with a render's seq.
  */
 export function noteCrawl(rep) {
@@ -631,7 +633,7 @@ export function noteCrawl(rep) {
     I[base + C.mode] = Math.max(0, MODES.indexOf(lastView.mode));
     I[base + C.sMilli] = Math.round(lastView.s * 1000);
 
-    const decide = +rep.decideMs || 0;
+    const decide = 0;
     const paint = rep.paintMs != null ? +rep.paintMs : (+rep.lastPhaseMs || 0);
     const blit = +rep.blitMs || 0;
     const live = +rep.liveMs || 0;

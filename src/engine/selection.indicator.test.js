@@ -656,7 +656,7 @@ describe("selection indicator (engine)", () => {
         expect(totalLen(got)).toBeGreaterThan(24000 * 2);
     });
 
-    test("the ants ride along with a drag, and are decided afresh from the moved ink when it ends", () => {
+    test("the ants ride along with a drag, and the drop keeps that decision, moved by the displacement it wrote", () => {
         const E = mkEngine();
         const o = drawStroke(E, [[300, 300], [400, 330], [500, 300]]);
         E.setTool("select");
@@ -680,13 +680,17 @@ describe("selection indicator (engine)", () => {
         expect(c.transform.tx - a.transform.tx).toBeCloseTo(40, 6);
         expect(c.transform.ty - a.transform.ty).toBeCloseTo(0, 6);
         E.pointerUp();
-        // Pen-up: a fresh decision from where the ink now is — different path
-        // data, no leftover offset — and the ink really did move 60 px.
+        // The drop: the drag's decision kept, moved by the 60 px the drop wrote (re-deciding was 548–803 ms of the
+        // dense scene's drop frame); the ink really did move 60 px, and a fresh decision draws the ants there too.
         const after = E._selectionAnts();
-        expect(after.key).not.toBe(a.key);
-        expect(after.runs[0].d).not.toBe(before.runs[0].d);
+        expect(after.key).toBe(a.key);
+        expect(after.off[0]).toBeCloseTo(60, 6);
         const bx = (r) => { const m = r.runs[0].d.match(/M(-?[\d.]+),(-?[\d.]+)/); return parseFloat(m[1]) * r.transform.k + r.transform.tx; };
         expect(bx(after) - bx(before)).toBeCloseTo(60, 0);
+        E._selDec = null;
+        const fresh = E._selectionAnts();
+        expect(fresh.key).not.toBe(a.key);
+        expect(bx(fresh) - bx(after)).toBeCloseTo(0, 2);
     });
 
     test("a native's loops are replaced in place by a move, and the ants follow the new loops", () => {
