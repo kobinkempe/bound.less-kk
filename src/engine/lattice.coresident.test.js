@@ -185,6 +185,19 @@ describe("co-residents in the engine", () => {
         expect(E.lm.frame(A).shadowOf).toBe(B);
     });
 
+    test("a frame dropped on an inked frame's cell stays selected as itself: its natives, not the resident's (F138 select seed 73)", () => {
+        const { E, A, B } = fixture();
+        moveFrame(E, A, 64);
+        expect(E.lm.frame(A).shadowOf).toBe(B);
+        expect(E.selection.frames).toEqual([A]);                               // the oracle's merge handed it to ids
+        expect(E.selection.ids).toEqual([]);
+        expect(E.doc.list(A).every((o) => E._isSelected(o.id))).toBe(true);
+        expect(E.doc.list(B).some((o) => E._isSelected(o.id))).toBe(false);
+        E.undo();
+        expect(E.selection.frames).toEqual([A]);
+        expect(E.doc.list(B).some((o) => E._isSelected(o.id))).toBe(false);
+    });
+
     test("a lattice with a co-resident is written as version 3, read back with it, and refused by a version-2 reader", () => {
         const { E, A, B } = fixture();
         expect(E.serializeDrawing().version).toBe(1);

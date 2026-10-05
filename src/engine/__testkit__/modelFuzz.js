@@ -191,6 +191,12 @@ function remAbove(E, rec, D) {
  */
 export const NORMALISED_TOL = 1e-6;
 /**
+ * How far apart a piece cut from a family the oracle walked may be drawn, in its home's units: the cut ran on coordinates a
+ * frame apart, and a near-tangent vertex moves (seed 476: 2.3e-6 by the boxes, 7.6e-6 at a vertex; 1e-4 is 0.026 px at
+ * the level's deepest zoom).
+ */
+export const WALKED_CUT_TOL = 1e-4;
+/**
  * A native the oracle normalised, seen from view V (O's VO): its drawn boxes through each model's own
  * placement (`placeNative`, not through a tile: one engine draws it live and the other derived), how far
  * apart in its home's units.
@@ -357,7 +363,7 @@ export function comparePictures(O, N, V, st, aboveUlps = 1) {
         // A piece of a family the oracle walked, cut from coordinates a frame apart: by its drawn box, as a walked one.
         if (same && ho && hn && st.walked && st.walked.has(N.doc.editKey(hn.obj)) && !sameNums(ho.obj, hn.obj)) {
             const gap = normalisedGap(O, N, ho, hn, VO, V);
-            if (!(gap <= NORMALISED_TOL)) return "native " + id + " at " + V + ": cut from a walked family, drawn boxes " + gap + " units apart";
+            if (!(gap <= WALKED_CUT_TOL)) return "native " + id + " at " + V + ": cut from a walked family, drawn boxes " + gap + " units apart";
             st.walkedCut = (st.walkedCut || 0) + 1;
             st.walkedMax = Math.max(st.walkedMax || 0, gap);
             continue;

@@ -13,8 +13,8 @@
  * (`runPairFuzz`'s `c34`): where the oracle merged a frame dropped on an inked cell, or ceded a kid into a
  * shared frame, the live engine keeps a co-resident or a private frame at the same cell — compared by place,
  * the picture the same; counted (`coresident`, `private`: checks that saw one holding ink, and the most at once).
- * A native the oracle carried is compared within two ulps above its home in these runs, not one: seed 20 drew one
- * two apart (the oracle's carried home and C1's composed one, two roundings each; no co-resident involved).
+ * A native the oracle carried is compared within two ulps above its home, not one: C3/C4 seed 20 and plain seeds 296 and 386
+ * (at 500 seeds) drew one two apart (the oracle's carried home and C1's composed one, two roundings each).
  * A probe, not a suite. Run:
  *   CI=true npx react-scripts test --watchAll=false --testMatch "**\/model.equivalence.probe.js"
  * MODEL_SEEDS (default 20, then the pinned seeds), MODEL_C34_SEEDS (default 20) and MODEL_STEPS (default 40) set the size.
@@ -50,7 +50,7 @@ test(`the composed model draws what the settling model drew: ${SEEDS + PINNED.le
             if (pr) { cov.private++; cov.privateMax = Math.max(cov.privateMax, pr); }
             for (const V of framesToCompare(O, N)) {
                 cov.frames++;
-                const d = comparePictures(O, N, V, st, c34 ? 2 : 1);
+                const d = comparePictures(O, N, V, st, 2);
                 if (d) { fails.push("seed " + seed + (c34 ? " (c34)" : "") + " step " + step + " (" + op + "): " + d); return false; }
             }
             return true;

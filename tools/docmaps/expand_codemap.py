@@ -24,8 +24,9 @@ OUT = os.path.join(HERE, "pages", "boundless-code-map.expanded.html")
 PILL = {
     "nr-v0": "oracle", "nr-curveperim": "oracle", "nr-strokeshape": "oracle",
     "nr-bakestrat": "oracle", "nr-cede": "test only", "nr-erase": "test only",
-    "nr-coverage": "oracle", "nr-sceneoracle": "oracle",
+    "nr-coverage": "oracle", "nr-sceneoracle": "oracle", "nr-renderlist": "oracle",
 }
+PILL.update({a[0]: "frozen model" for a in newdesc.ARTICLES if a[0].startswith("nr-m1")})
 
 _DATA = json.load(open(os.path.join(HERE, "data", "graphdata.json")))
 MODFILE = _DATA["modfile"]

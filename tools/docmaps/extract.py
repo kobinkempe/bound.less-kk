@@ -34,15 +34,22 @@ MODFILE = {
     "eds": "src/engine/eraseDescent.js",
     "ewc": "src/engine/eraseWorkerClient.js",
     "rep": "src/engine/report.js",
+    "eru": "src/engine/eraseRule.js",
+    "cde": "src/engine/cede.js",
+    "dvl": "src/engine/devLevers.js",
     # space, the store and the saved form
     "cam": "src/engine/Camera.js",
     "lm":  "src/engine/LevelMap.js",
+    "fgc": "src/engine/frameGc.js",
     "ts":  "src/engine/TileStore.js",
     "rnd": "src/engine/Renderer.js",
+    "stg": "src/engine/Stage.js",
+    "plm": "src/engine/placementModel.js",
     "doc": "src/engine/Document.js",
     "per": "src/engine/persist.js",
     "f2":  "src/engine/format2.js",
     "opl": "src/engine/oplog.js",
+    "lv1": "src/engine/legacy/modelV1.js",
     "fl":  "src/engine/frameLattice.js",
     # the scene index
     "six": "src/engine/sceneIndex.js",
@@ -50,8 +57,15 @@ MODFILE = {
     "swc": "src/engine/sceneWorkerClient.js",
     # the raster renderer: the paper
     "rr":  "src/engine/raster/RasterRenderer.js",
-    "pic": "src/engine/raster/PictureLayer.js",
-    "pls": "src/engine/raster/PlateStore.js",
+    "pyr": "src/engine/raster/PicturePyramid.js",
+    "pys": "src/engine/raster/PyramidStore.js",
+    "lvl": "src/engine/raster/level.js",
+    "jbq": "src/engine/raster/jobQueue.js",
+    "pft": "src/engine/raster/prefetch.js",
+    "lsl": "src/engine/raster/LiveStrokeLayer.js",
+    "svl": "src/engine/raster/SvgLayer.js",
+    "svo": "src/engine/raster/svgOverlay.js",
+    "sva": "src/engine/raster/svgAnchors.js",
     "ovy": "src/engine/raster/OverlayLayer.js",
     "mvp": "src/engine/raster/MovePlane.js",
     "anp": "src/engine/raster/antPaint.js",
@@ -131,6 +145,9 @@ MODFILE = {
     "wop": "src/Components/editor/WidthOpacityPanel.js",
     "aps": "src/Components/editor/useAnchorPopoverStyle.js",
     "cka": "src/Components/editor/useClickAway.js",
+    "dvs": "src/Components/editor/DevStats.js",
+    "erc": "src/Components/editor/EraseChip.js",
+    "shd": "src/Components/editor/ScaleHud.js",
     # not running: the oracles (src/engine/__oracles__)
     "v0":  "src/engine/__oracles__/KobinEngineV0.js",
     "cvp": "src/engine/__oracles__/curvePerimeter.js",
@@ -140,8 +157,20 @@ MODFILE = {
     "ers": "src/engine/__oracles__/erase.js",
     "cov": "src/engine/__oracles__/coverageOracle.js",
     "sor": "src/engine/__oracles__/sceneOracle.js",
+    "rls": "src/engine/__oracles__/renderList.js",
     "reportWebVitals": "src/reportWebVitals.js",
 }
+# The frozen pre-C1 model (`__oracles__/model-v1/`, A1 §14): one key per file, `m1` + the
+# live file's key where there is one, so its classes never resolve into the live ones.
+for _k, _f in (("m1eng", "KobinEngine"), ("m1erp", "erasePipeline"), ("m1ovl", "overlays"),
+               ("m1sel", "selection"), ("m1sco", "sceneOps"), ("m1fil", "files"),
+               ("m1eds", "eraseDescent"), ("m1ewc", "eraseWorkerClient"), ("m1cde", "cede"),
+               ("m1lm", "LevelMap"), ("m1gc", "frameGc"), ("m1ts", "TileStore"),
+               ("m1rnd", "Renderer"), ("m1stg", "Stage"), ("m1plm", "placementModel"),
+               ("m1doc", "Document"), ("m1per", "persist"), ("m1f2", "format2"),
+               ("m1opl", "oplog"), ("m1off", "offsets"), ("m1scc", "sceneClient"),
+               ("m1shm", "rasterShim")):
+    MODFILE[_k] = "src/engine/__oracles__/model-v1/%s.js" % _f
 FILEMOD = {v: k for k, v in MODFILE.items()}
 
 # `this.<field>` -> the module(s) that field holds an instance of. Hand-written,
@@ -150,36 +179,47 @@ FILEMOD = {v: k for k, v in MODFILE.items()}
 # exactly, below, from `this.x = new SomeClass()`.
 #
 # The engine's `renderer` is a RasterRenderer by default and a Renderer under
-# `?svg`, and RasterRenderer extends Renderer, so a call on it is a call into
-# whichever of the two defines the method - both, when the raster one overrides.
+# `?svg` (two classes, neither extending the other), so a call on it is a call
+# into whichever of the two defines the method - both, when both do.
 #
 # A value is `module:Class` where the module defines more than one class, so
 # `this.doc.add()` reaches `Document.add` and not `LevelIndex.add`.
 _ENGINE_FIELDS = {"lm": "lm:LevelMap", "doc": "doc:Document", "cam": "cam:Camera",
-                  "store": "ts:TileStore",
+                  "store": "ts:TileStore", "stage": "stg:Stage",
                   "renderer": ["rr:RasterRenderer", "rnd:Renderer"],
-                  "plates": "pls:PlateStore", "_sceneClient": "scc:SceneClient"}
+                  "plates": "pys:PyramidStore", "_sceneClient": "scc:SceneClient"}
+# The frozen model's engine: its own document, lattice, tile store, scene and
+# renderers (`rasterShim` stands in for the raster one), the live Camera.
+_M1_FIELDS = {"lm": "m1lm:LevelMap", "doc": "m1doc:Document", "cam": "cam:Camera",
+              "store": "m1ts:TileStore", "stage": "m1stg:Stage",
+              "renderer": ["m1shm:RasterRenderer", "m1rnd:Renderer"],
+              "plates": "m1shm:PlateStore", "_sceneClient": "m1scc:SceneClient"}
 FIELD = {
     "ts":  {"lm": "lm:LevelMap", "doc": "doc:Document"},
     "cam": {"lm": "lm:LevelMap"},
     "rnd": {"cam": "cam:Camera", "two": None},
-    "rr":  {"cam": "cam:Camera", "two": None, "store": "pls:PlateStore",
-            "layer": "pic:PictureLayer", "_overlay": "ovy:OverlayLayer",
-            "_plane": "mvp:MovePlane"},
-    "pic": {"store": "pls:PlateStore"},
+    "rr":  {"cam": "cam:Camera", "layer": "pyr:PicturePyramid",
+            "_overlay": "ovy:OverlayLayer", "_plane": "mvp:MovePlane"},
     "scc": {"core": "six:SceneIndex"},
+    "m1ts":  {"lm": "m1lm:LevelMap", "doc": "m1doc:Document"},
+    "m1rnd": {"cam": "cam:Camera", "two": None},
+    "m1scc": {"core": "six:SceneIndex"},
     "v0":  {},
 }
-# Every file mixed onto the engine's prototype sees the same `this` and so the
-# same fields.
-for _m in ("eng", "erp", "ovl", "sel", "sco", "fil"):
-    FIELD[_m] = dict(_ENGINE_FIELDS)
 
 # ONE PROTOTYPE, SIX FILES. `engine/mixin.js` copies five mixin classes onto
 # KobinEngine's prototype, so `this._queueBake()` in `KobinEngine.js` reaches a
 # method defined in `erasePipeline.js`. Without this the hand-list agreement
-# fell from 88% to 77% (2026-08-31).
-PROTOTYPE = ("eng", "erp", "ovl", "sel", "sco", "fil")
+# fell from 88% to 77% (2026-08-31). The frozen model's engine is a second
+# such prototype over its own six files.
+PROTOTYPES = (("eng", "erp", "ovl", "sel", "sco", "fil"),
+              ("m1eng", "m1erp", "m1ovl", "m1sel", "m1sco", "m1fil"))
+PROTO_OF = {m: grp for grp in PROTOTYPES for m in grp}
+# Every file mixed onto an engine's prototype sees the same `this` and so the
+# same fields.
+for _grp, _fields in zip(PROTOTYPES, (_ENGINE_FIELDS, _M1_FIELDS)):
+    for _m in _grp:
+        FIELD[_m] = dict(_fields)
 
 KW = {"if", "for", "while", "switch", "catch", "return", "function", "typeof",
       "new", "do", "else", "try", "await", "yield", "in", "of", "case",
@@ -302,7 +342,19 @@ def parse(path):
     return defs, imports, lines, extends
 
 
-def learn_fields(src, classes):
+def class_home(cls, mod, imports, classes, universe):
+    """The module a class name means in `mod`: its own definition, then the
+    file's import of that name, then the first module defining it. Two
+    modules define `Document` (the live one and the frozen model's), so the
+    global map alone sent the oracle's `new Document()` into the live file."""
+    if cls in universe.get(mod, {}) and universe[mod][cls]["kind"] == "class":
+        return mod
+    if cls in imports:
+        return imports[cls]
+    return classes.get(cls)
+
+
+def learn_fields(src, classes, mod=None, imports=None, universe=None):
     """`this.x = new SomeClass()` -> {x: module}, for classes we know.
 
     EXACT, not a guess: the assignment is right there in the constructor. Only
@@ -312,8 +364,11 @@ def learn_fields(src, classes):
     """
     out = {}
     for f, cls in re.findall(r'this\.([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Z][\w$]*)', src):
-        if cls in classes:
-            out[f] = classes[cls] + ":" + cls
+        if cls not in classes:
+            continue
+        home = class_home(cls, mod, imports or {}, classes, universe or {})
+        names = (universe or {}).get(home, {})
+        out[f] = home + ":" + cls if (cls in names or not universe) else home
     return out
 
 
@@ -369,14 +424,15 @@ def main():
     parent = {}
     for mod, (defs, imports, lines, extends) in parsed.items():
         for child, base in extends.items():
-            if base in classmod and classmod[base] != mod:
-                parent[mod] = classmod[base]
+            home = class_home(base, mod, imports, classmod, universe) if base in classmod else None
+            if home and home != mod:
+                parent[mod] = home
 
     # module -> {field: [modules]}, the hand-written map plus what was learned
     fieldmap = {}
     for mod, (defs, imports, lines, extends) in parsed.items():
         raw = open(MODFILE[mod], encoding="utf-8", errors="replace").read()
-        merged = {k: [v] for k, v in learn_fields(raw, classmod).items()}
+        merged = {k: [v] for k, v in learn_fields(raw, classmod, mod, imports, universe).items()}
         for k, v in FIELD.get(mod, {}).items():      # the hand-written entries win
             merged[k] = [] if v is None else (list(v) if isinstance(v, list) else [v])
         fieldmap[mod] = merged
@@ -455,8 +511,8 @@ def main():
                         dsts.append(method_of(fmod, fn))
                 elif obj == "this":
                     dst = node_of(mod, fn, d["klass"]) or node_of(mod, fn)
-                    if not dst and mod in PROTOTYPE:
-                        for other in PROTOTYPE:
+                    if not dst and mod in PROTO_OF:
+                        for other in PROTO_OF[mod]:
                             if other == mod:
                                 continue
                             dst = node_of(other, fn)

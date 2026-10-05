@@ -48,12 +48,16 @@ MOD = {
     "eng": "fac", "erp": "fac", "ovl": "fac", "sel": "fac", "sco": "fac",
     "fil": "fac", "ins": "fac", "rmt": "fac", "mix": "fac", "now": "fac",
     "ejb": "fac", "eds": "fac", "ewc": "fac", "rep": "fac",
-    # space, the store, the saved form, and the scene index
-    "cam": "spc", "lm": "spc", "ts": "spc", "rnd": "spc", "fl": "spc",
-    "per": "spc", "f2": "spc", "opl": "spc",
+    "eru": "fac", "cde": "fac", "dvl": "fac",
+    # space, the store, the saved form, the scene, and the scene index
+    "cam": "spc", "lm": "spc", "fgc": "spc", "ts": "spc", "rnd": "spc", "fl": "spc",
+    "stg": "spc", "plm": "spc",
+    "per": "spc", "f2": "spc", "opl": "spc", "lv1": "spc",
     "six": "spc", "scc": "spc", "swc": "spc",
-    # the raster renderer: the paper
-    "rr": "ras", "pic": "ras", "pls": "ras", "ovy": "ras", "mvp": "ras",
+    # the raster renderer: the paper, and the SVG pieces both renderers share
+    "rr": "ras", "pyr": "ras", "pys": "ras", "lvl": "ras", "jbq": "ras",
+    "pft": "ras", "lsl": "ras", "svl": "ras", "svo": "ras", "sva": "ras",
+    "ovy": "ras", "mvp": "ras",
     "anp": "ras", "plt": "ras", "rco": "ras", "rjb": "ras", "rpk": "ras",
     "rpf": "ras", "rwc": "ras", "rwk": "ras",
     # the objects themselves, and the ink pipeline
@@ -75,11 +79,22 @@ MOD = {
     "col": "ui", "cmp": "ui", "sci": "ui", "btn": "ui", "inp": "ui",
     "brd": "ui", "cpp": "ui", "fam": "ui", "sdd": "ui", "sdb": "ui",
     "sup": "ui", "syc": "ui", "wop": "ui", "aps": "ui", "cka": "ui",
+    "dvs": "ui", "erc": "ui", "shd": "ui",
     "reportWebVitals": "ui",
     # NOT RUNNING: the oracles the tests compare against.
     "v0": "ded", "cvp": "ded", "sks": "ded", "bks": "ded", "ced": "ded",
-    "ers": "ded", "cov": "ded", "sor": "ded",
+    "ers": "ded", "cov": "ded", "sor": "ded", "rls": "ded",
 }
+# The frozen pre-C1 model, `__oracles__/model-v1/` (A1 §14): one key per file.
+M1 = {"m1eng": "KobinEngine", "m1erp": "erasePipeline", "m1ovl": "overlays",
+      "m1sel": "selection", "m1sco": "sceneOps", "m1fil": "files",
+      "m1eds": "eraseDescent", "m1ewc": "eraseWorkerClient", "m1cde": "cede",
+      "m1lm": "LevelMap", "m1gc": "frameGc", "m1ts": "TileStore", "m1rnd": "Renderer",
+      "m1stg": "Stage", "m1plm": "placementModel", "m1doc": "Document",
+      "m1per": "persist", "m1f2": "format2", "m1opl": "oplog", "m1off": "offsets",
+      "m1scc": "sceneClient", "m1shm": "rasterShim"}
+for _k in M1:
+    MOD[_k] = "ded"
 MODNAME = {
     "eng": "KobinEngine", "cam": "Camera", "lm": "LevelMap", "ts": "TileStore",
     "rnd": "Renderer", "doc": "Document", "shp": "arcShape",
@@ -90,11 +105,14 @@ MODNAME = {
     "sco": "sceneOps", "fil": "files", "ins": "instruments",
     "rmt": "rectMath", "mix": "mixin", "now": "now",
     "ejb": "eraseJob", "eds": "eraseDescent", "ewc": "eraseWorkerClient",
-    "rep": "report",
+    "rep": "report", "eru": "eraseRule", "cde": "cede", "dvl": "devLevers",
+    "fgc": "frameGc", "stg": "Stage", "plm": "placementModel", "lv1": "legacy/modelV1",
     "cvo": "curveOutline", "per": "persist", "f2": "format2", "opl": "oplog",
     "six": "sceneIndex", "scc": "sceneClient", "swc": "sceneWorkerClient",
-    "rr": "raster/RasterRenderer", "pic": "raster/PictureLayer",
-    "pls": "raster/PlateStore", "ovy": "raster/OverlayLayer",
+    "rr": "raster/RasterRenderer", "pyr": "raster/PicturePyramid",
+    "pys": "raster/PyramidStore", "lvl": "raster/level", "jbq": "raster/jobQueue",
+    "pft": "raster/prefetch", "lsl": "raster/LiveStrokeLayer", "svl": "raster/SvgLayer",
+    "svo": "raster/svgOverlay", "sva": "raster/svgAnchors", "ovy": "raster/OverlayLayer",
     "mvp": "raster/MovePlane", "anp": "raster/antPaint", "plt": "raster/plate",
     "rco": "raster/rasterCore", "rjb": "raster/rasterJob",
     "rpk": "raster/rasterPack", "rpf": "raster/rasterPerf",
@@ -121,10 +139,13 @@ MODNAME = {
     "sdb": "ScaleDragBar", "sup": "ScaleUnitPicker", "syc": "SyncChip",
     "wop": "WidthOpacityPanel", "aps": "useAnchorPopoverStyle",
     "cka": "useClickAway", "reportWebVitals": "reportWebVitals",
+    "dvs": "DevStats", "erc": "EraseChip", "shd": "ScaleHud",
     "v0": "KobinEngineV0", "cvp": "curvePerimeter", "sks": "strokeShape",
-    "bks": "bakeStrategies", "ced": "cede", "ers": "erase",
-    "cov": "coverageOracle", "sor": "sceneOracle",
+    "bks": "bakeStrategies", "ced": "__oracles__/cede", "ers": "erase",
+    "cov": "coverageOracle", "sor": "sceneOracle", "rls": "renderList",
 }
+for _k, _f in M1.items():
+    MODNAME[_k] = "model-v1/" + _f
 GROUPNAME = {
     "fac": "facade", "spc": "space & view", "ras": "paper (raster)",
     "obj": "objects & ink", "hlp": "geometry helpers", "sca": "scale bar",

@@ -76,14 +76,23 @@ ARTICLES = [
     # ---- the saved form (layer: Truth) --------------------------------------
     ("tr-format2", "format2.js", _R, "ob", ["f2"], "truth"),
     ("tr-oplog", "oplog.js", _R, "ob", ["opl"], "truth"),
+    ("tr-legacy", "legacy/modelV1.js", _R, "ob", ["lv1"], "truth"),
     # ---- the stored loop, the displacement table, chord arithmetic (Ink) ---
     ("in-loop", "geometry/loop.js", _R, "ob", ["lop"], "ink"),
     ("in-offsets", "geometry/offsets.js", _R, "ob", ["off"], "ink"),
     ("in-chordmath", "geometry/chordMath.js", _R, "ob", ["chm"], "ink"),
+    # ---- space: the lattice kept small ------------------------------------
+    ("sp-framegc", "frameGc.js", _R, "sp", ["fgc"], "space"),
+    # ---- views: the scene both renderers draw -----------------------------
+    ("vw-stage", "Stage.js", _R, "sp", ["stg"], "views"),
+    ("vw-placement", "placementModel.js", _R, "sp", ["plm"], "views"),
     # ---- the paper: the raster renderer -----------------------------------
     ("pa-raster", "raster/RasterRenderer.js", _R, "sp", ["rr"], "paper"),
-    ("pa-picture", "raster/PictureLayer.js", _R, "sp", ["pic"], "paper"),
-    ("pa-plates", "raster/PlateStore.js", _R, "sp", ["pls"], "paper"),
+    ("pa-pyramid", "raster/PicturePyramid.js", _R, "sp", ["pyr"], "paper"),
+    ("pa-pyrstore", "raster/PyramidStore.js", _R, "sp", ["pys"], "paper"),
+    ("pa-level", "raster/level.js", _R, "sp", ["lvl"], "paper"),
+    ("pa-queue", "raster/jobQueue.js", _R, "sp", ["jbq"], "paper"),
+    ("pa-prefetch", "raster/prefetch.js", _R, "sp", ["pft"], "paper"),
     ("pa-plate", "raster/plate.js", _R, "sp", ["plt"], "paper"),
     ("pa-pack", "raster/rasterPack.js", _R, "sp", ["rpk"], "paper"),
     ("pa-job", "raster/rasterJob.js", _R, "sp", ["rjb"], "paper"),
@@ -91,6 +100,10 @@ ARTICLES = [
     ("pa-workers", "raster/rasterWorkerClient.js · worker/rasterWorker.js", _R, "sp",
      ["rwc", "rwk"], "paper"),
     ("pa-move", "raster/MovePlane.js", _R, "sp", ["mvp"], "paper"),
+    ("pa-live", "raster/LiveStrokeLayer.js", _R, "sp", ["lsl"], "paper"),
+    ("pa-svglayer", "raster/SvgLayer.js", _R, "sp", ["svl"], "paper"),
+    ("pa-svgoverlay", "raster/svgOverlay.js", _R, "sp", ["svo"], "paper"),
+    ("pa-anchors", "raster/svgAnchors.js", _R, "sp", ["sva"], "paper"),
     ("pa-overlay", "raster/OverlayLayer.js", _R, "sp", ["ovy"], "paper"),
     ("pa-ants", "raster/antPaint.js", _R, "sp", ["anp"], "paper"),
     ("pa-perf", "raster/rasterPerf.js", _R, "mu", ["rpf"], "paper"),
@@ -100,6 +113,9 @@ ARTICLES = [
     ("fa-erasejob", "eraseJob.js", _R, "ob", ["ejb"], "facade"),
     ("fa-descent", "eraseDescent.js", _R, "ob", ["eds"], "facade"),
     ("fa-eraseworker", "eraseWorkerClient.js", _R, "ob", ["ewc"], "facade"),
+    ("fa-eraserule", "eraseRule.js", _R, "ob", ["eru"], "facade"),
+    ("fa-cede", "cede.js", _R, "ob", ["cde"], "facade"),
+    ("fa-levers", "devLevers.js", _R, "mu", ["dvl"], "facade"),
     ("fa-report", "report.js", _R, "mu", ["rep"], "facade"),
     # ---- features: the scene index -----------------------------------------
     ("sc-index", "sceneIndex.js", _R, "mu", ["six"], "scenes"),
@@ -165,7 +181,8 @@ ARTICLES = [
     ("sh-components", "Components",
      "The interface primitives. There is no component library here — everything visual is one stylesheet.",
      "mu", ["brd", "btn", "inp", "sci", "cmp", "cpp", "fam", "sdd", "sdb",
-            "sup", "syc", "wop", "aps", "cka", "col", "reportWebVitals"], "shell"),
+            "sup", "syc", "wop", "aps", "cka", "dvs", "erc", "shd", "col",
+            "reportWebVitals"], "shell"),
     # ---- not running -------------------------------------------------------
     ("nr-v0", "KobinEngineV0.js",
      "The retired pre-lattice engine, kept as the golden oracle the current one is compared against. Not on any route.",
@@ -187,7 +204,19 @@ ARTICLES = [
      "mu", ["ers"], "dead"),
     ("nr-coverage", "__oracles__/coverageOracle.js", _R, "mu", ["cov"], "dead"),
     ("nr-sceneoracle", "__oracles__/sceneOracle.js", _R, "mu", ["sor"], "dead"),
+    ("nr-renderlist", "__oracles__/renderList.js", _R, "mu", ["rls"], "dead"),
 ]
+# The frozen pre-C1 model: one article per file, in the order of the live files'.
+M1FILES = (("m1eng", "KobinEngine"), ("m1erp", "erasePipeline"), ("m1ovl", "overlays"),
+           ("m1sel", "selection"), ("m1sco", "sceneOps"), ("m1fil", "files"),
+           ("m1eds", "eraseDescent"), ("m1ewc", "eraseWorkerClient"), ("m1cde", "cede"),
+           ("m1lm", "LevelMap"), ("m1gc", "frameGc"), ("m1ts", "TileStore"),
+           ("m1rnd", "Renderer"), ("m1stg", "Stage"), ("m1plm", "placementModel"),
+           ("m1doc", "Document"), ("m1per", "persist"), ("m1f2", "format2"),
+           ("m1opl", "oplog"), ("m1off", "offsets"), ("m1scc", "sceneClient"),
+           ("m1shm", "rasterShim"))
+for _k, _f in M1FILES:
+    ARTICLES.append(("nr-" + _k, "__oracles__/model-v1/%s.js" % _f, _R, "mu", [_k], "dead"))
 
 # Entries for a module the pristine page documents article by article are
 # appended to that article rather than given one of their own. One article per
@@ -257,12 +286,22 @@ def role_of(article):
     return " ".join(parts)
 
 
+def _source_line():
+    import json
+    uni = json.load(open(os.path.join(HERE, "data", "graphdata.json")))["universe"]
+    return {m + "." + n: d["lo"] for m, names in uni.items() for n, d in names.items()}
+
+
+_LINE = _source_line()
+
+
 def entries_for(mods):
-    """Every entry whose key is in one of these modules, in insertion order."""
-    out = []
-    for k, v in E.items():
-        if k.split(".", 1)[0] in mods:
-            out.append((k, v))
+    """Every entry whose key is in one of these modules: module by module in the
+    order given, each in source order (an entry the source no longer has last),
+    so an entry's place on the page does not depend on which area file holds it."""
+    out = [(k, v) for k, v in E.items() if k.split(".", 1)[0] in mods]
+    out.sort(key=lambda kv: (mods.index(kv[0].split(".", 1)[0]),
+                             _LINE.get(kv[0], 10 ** 9)))
     return out
 
 
