@@ -660,6 +660,7 @@
   "m1sco.SceneOps",
   "m1sel.Selection",
   "m1stg.changesSince",
+  "m1stg.itemsTopDown",
   "m1stg.landedAt",
   "mem.ceilingUnit",
   "mem.floorUnit",
@@ -702,6 +703,7 @@
   "sks._asc0",
   "sks.strokeShape",
   "stg.changesSince",
+  "stg.itemsTopDown",
   "stg.landedAt",
   "v0.KobinEngineV0",
   "val.validateScaleDef"

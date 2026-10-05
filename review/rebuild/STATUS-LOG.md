@@ -3327,3 +3327,20 @@ injection does not reach it there.
 **Questions asked:** none.
 WHERE I AM: the review's timings while the CPU is free (bake profile pre vs cur, the city lasso, R-DRAG's delete and
 `setBatch`), then Chromium 3/4, then the final 500+500 / 200+200 runs and the suites.
+
+## 2026-10-05 22:40 UTC — orchestrator (Opus) — the sixth stop (~09:15–13:50); the three agents retired for fresh successors
+**Why:** the last three windows gave 13–23 minutes of work each. Measured from the agents' own usage records: every
+step re-read the agent's whole context — R-MODEL-C34 729k tokens a call (73 calls 08:52–09:13, 51.8M; one cache rewrite
+of 698k after a 10-minute wait), B-PYRAMID-5 642k (44 calls, 27.3M), B-DOCMAPS 500k after one hour of reading code (194
+calls, 62.4M). Their work is all in the tree (snapshot d438a5d) and this log, so each is replaced by a successor that
+starts small: **R-MODEL-C34b** (the review's timings, the review by reading, Chromium 3/4, the final runs, docs, the
+report for both), **B-PYRAMID-5b** (item 6 — the drop's member table grew 1,045 → 1,046 in the traced browser run, so
+the kept decision was refused; the drawn-ink check in progress in `overlays.js` — then R-PYRAMID-34's skipped
+measurements, the full measurement, the report for both), **B-DOCMAPS-2** (item 2's rest only: ~330 new functions in
+files that existed at 56e36b3; items 3, 4 and 5–8 go to later fresh runs, one at a time).
+**Measured:** as above. The code map's lenient chain: the remaining gaps are the oracles (~900), ~330 new functions in
+existing files, 27 stale pristine rows, 46 + 84 hand edges, 90 Call Map problems.
+**Decisions made:** bounded runs with fresh contexts; long waits run in the background (a wait over 5 minutes re-reads
+the whole context at full price).
+**Questions asked:** none.
+WHERE I AM: launching the three successors.

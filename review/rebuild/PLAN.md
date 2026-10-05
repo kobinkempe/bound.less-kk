@@ -1091,3 +1091,9 @@ orchestrator's dry run on fba12b4: 153 files and 3,649 functions inventoried (2,
 1,616 added (895 in the frozen `__oracles__/model-v1/`), 264 deleted; `extract.py` stops on 42 unkeyed files and 2 deleted
 ones. Done is `rebuild.py` to its end (coverage OK, stale 0, the Call Map's calls checked) and the pages' prose true; the
 orchestrator publishes the pages after its report, and gives it the two agents' final diffs for a last pass.
+
+Third addendum, 2026-10-05 22:40 — fresh successors. Three usage windows in a row gave 13–23 minutes of work each: the
+agents' contexts had grown to 500–730k tokens, and every step re-read all of it (R-MODEL-C34 51.8M tokens in 73 calls,
+B-PYRAMID-5 27.3M in 44, B-DOCMAPS 62.4M in 194, one 20-minute window). Each is replaced by a successor with the same
+scope left and a short hand-over (R-MODEL-C34b, B-PYRAMID-5b, B-DOCMAPS-2); the code map is cut into bounded runs (item
+2's rest; item 3; item 4; items 5–8), one fresh agent each.
