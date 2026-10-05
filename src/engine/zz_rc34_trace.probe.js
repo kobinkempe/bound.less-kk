@@ -86,6 +86,30 @@ for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
         return r;
     };
 }
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const pd = K.prototype.pointerDown;
+    K.prototype.pointerDown = function (x, y, ...rest) {
+        if (watch && process.env.DBG_PRESS) {
+            const s = this.selection, m = this.doc.getById(17);
+            lines.push(tag + " press " + x.toFixed(1) + "," + y.toFixed(1) + " tool " + this.tool + " sel " + JSON.stringify(s && { ids: s.ids, frames: s.frames }) + " frameUnder " + (this._frameUnderPoint ? this._frameUnderPoint(x, y) : "?")
+                + " hit " + (this._hitTest ? this._hitTest(x, y) : "?") + " mark17@" + (m ? m.level + " place " + placeOf(this, m.level) + " underSel " + !!(s && s.frames.length && this._underFrames(m.level, s.frames)) : "-")
+                + " frame place " + (s && s.frames[0] ? placeOf(this, s.frames[0]) : "-"));
+        }
+        return pd.call(this, x, y, ...rest);
+    };
+}
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const eb = K.prototype._eraseBarrier;
+    if (eb) K.prototype._eraseBarrier = function (kind, pairsOf, then, follow) {
+        if (watch && process.env.DBG_PRESS) lines.push(tag + " barrier " + kind + " follow " + JSON.stringify(follow) + " < " + new Error().stack.split("\n").slice(2, 6).map((x) => x.trim().slice(3, 50)).join(" < "));
+        return eb.call(this, kind, pairsOf, then, follow);
+    };
+}
+for (const [K, tag] of [[KE, "LIVE"], [OKE, "ORAC"]]) {
+    const bs = K.prototype._beginSelectDrag, al = K.prototype._applyLasso;
+    K.prototype._beginSelectDrag = function (P, sx, sy) { const r = bs.call(this, P, sx, sy); if (watch && process.env.DBG_PRESS) lines.push(tag + " beginSelectDrag hit " + P.hit + " ctrl " + P.ctrl + " lasso " + !!this._lasso + " dragSel " + !!this._dragSel + " pressWait " + !!this._pressWait); return r; };
+    if (al) K.prototype._applyLasso = function (...a) { if (watch && process.env.DBG_PRESS) lines.push(tag + " applyLasso pts " + (this._lasso ? this._lasso.pts.length : "?") + " " + JSON.stringify(this._lasso && this._lasso.pts.slice(0, 4))); return al.apply(this, a); };
+}
 wrapLog(OpLog, "LIVE", decodeEntry); wrapLog(OOpLog, "ORAC", oDecodeEntry);
 test("trace", () => {
     const st = {};

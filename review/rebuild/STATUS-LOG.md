@@ -3297,3 +3297,17 @@ What did change: the "crawl" rows (473–456 ms of a carried decision each, thre
 refused — the selection replaced at the drop, a member's or a frame's displacement, the window).
 **Questions asked:** none.
 WHERE I AM: b5 — the traced copy on :3013, one profiled scenario-4 run that dumps the refusal's reason.
+
+## 2026-10-05 08:58 UTC — B-DOCMAPS (builder) — checkpoint: item 1 (every file keyed) done
+**Working on:** item 1 finished; item 2 next. Files: `tools/docmaps/` only.
+**Measured:** `extract.py` 153 files, 3,649 nodes, 7,054 edges. 42 new articles (19 live files: slots `space`, `views`,
+`paper`, `facade`, `truth`, `sh-components`; 23 oracle files in `dead`, one per model-v1 file), each with a ROLE in six
+new area files (`newdesc_stage/pyramid/pyrparts/svg/model/m1.py`). Deleted: `newdesc_raster2.py` (PictureLayer and
+PlateStore, 123 entries) and 134 more entries of deleted functions in 10 area files (`dmap/prune.py`, by `ast` span;
+every old text kept in `dmap/oldtext.json` for the moved ones); the `ensureOutline` EXTRA. A lenient chain run
+(`dmap/devrun.py`: graph's hand-edge asserts as warnings, in memory only): Code Map missing 1,626 of 3,649; audit_stale
+27 pristine rows naming deleted functions (item 3); graph.py refuses 46 hand edges naming no node (item 5).
+**Decisions made:** rows ordered by source line within an article (`newdesc.entries_for`), so an entry's area file does
+not decide its place; the paper section's lead rewritten (the Stage's items into the pyramid's plates).
+**Questions asked:** none.
+WHERE I AM: item 2 — reading `src/engine/Stage.js` function by function, entries into `newdesc_stage.py`.
