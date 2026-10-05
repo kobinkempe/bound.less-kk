@@ -3419,7 +3419,7 @@ pids in `r-c34/dev-303x.pid` (mine; killed by pid at the end). Script `r-c34/bat
 **Questions asked:** none.
 WHERE I AM: starting the servers; meanwhile item 2's acceptance list.
 
-## 2026-10-05 22:58 UTC — B-PYRAMID-5b (builder) — checkpoint: item 6 rule finished (jsdom); browser batch b6 START
+## 2026-10-05 22:45 UTC — B-PYRAMID-5b (builder) — checkpoint: item 6 rule finished (jsdom); browser batch b6 START
 **Built (`overlays.js`):** `_selMembersAt` keys the ink the selection stands for — natives on the list and own members off
 it by id, and every frame under a selected frame (`lm.walk`) by its own natives (`_selFrameInk`, which `_selFrameContent`
 now unions) — so the torn kid is the same key before and after. The frames' cell keys (dot) are gone (tr6d: a residue
@@ -3432,7 +3432,7 @@ selection object required to be the drag's 1; off-list ink never refuses 1; the 
 at 1; no kept decision 4 (of 121, three suites); displacement from the first piece alone 1; the view-in-window check 1.
 **b6 (headless, `--dense --scenario 4`):** `landed` (59f0a76, :3015) ×2 and `fin2` (the working tree at 22:55, :3016) ×2
 interleaved, then one profiled drop on `fin2`; harness `bp5/h5` = `hp` + the ant decisions the drop made
-(`_selDecSeq`). Each run under load 2. Log `bp5/batch6.log`.
+(`_selDecSeq`). Each run under load 2 and with no other Chromium running (R-MODEL-C34b's c1 goes first). Log `bp5/batch6.log`.
 **Questions asked:** none.
 WHERE I AM: b6 running; R-PYRAMID-34's skipped items meanwhile (F134/F135's jsdom timings first).
 
@@ -3446,3 +3446,23 @@ rasterPack 10, rasterWorkerClient 10, Renderer 9, overlays 6 (B-PYRAMID-5b added
 **Questions asked:** none.
 WHERE I AM: the small files (SyncChip, CanvasEditor, eraseDescent, eraseJob, oplog, persist, MovePlane, rasterJob, rasterPerf,
 sceneClient, rasterWorker, reportSend, useKobinEngine), then the lenient chain's coverage and audit_stale.
+
+## 2026-10-05 22:50 UTC — B-DOCMAPS-2 (builder) — END: item 2's rest done (303 of 303 new live functions in pre-existing files)
+**Working on:** finished. Files: `tools/docmaps/newdesc_{engine,paper,raster1,raster3,geom,scenes,local,shell,report}.py` (288
+entries appended by `dmap/setentry.py`; 11 more functions named in 9 shared rows such as `_keyIn · _keyOut`), the generated
+`data/` and pages. Nothing under `src/`.
+**Measured (lenient chain, `dmap/devrun.py`, tree at e6d2e2b + R-MODEL-C34b's uncommitted `_prepareView` key):** 3,656
+functions; Code Map missing 905, every one an oracle node (item 4), 0 live; `descriptions.build()` 0 live nodes without a
+description (the graph page still refuses its 905 oracle nodes); `audit_stale` 27 (pristine rows, item 3, unchanged);
+`check.py` 90 problems and `graph.py` 46 + 84 hand edges (item 5, unchanged).
+**Decisions made:** § in new entries is DESIGN.md's current numbering; older entries' § (e.g. LevelMap at §5/§6) appear
+to follow an older design document — left for item 3.
+**Questions asked:** none.
+WHERE I AM: done; next run is item 3 (the 355 changed functions) from `dmap/sets.json`'s `changed` list.
+
+## 2026-10-05 22:50 UTC — B-PYRAMID-5b (builder) — note for R-MODEL-C34b: a wait that cannot end
+**Seen:** `r-c34/batchc1.sh`'s new wait (`pgrep -f "browser-check.js|headless_shell|chrome-linux"`) matches its own launcher
+shell, pid 9319 (ppid 1; its command line holds the pattern), so it waits out its 60 min and then starts regardless. My
+batches had the same fault and now match browsers by process name: `pgrep -x "chrome|headless_shell"`. b6 restarted with
+it; it starts a run only with load under 2 and no browser of anyone's running.
+WHERE I AM: b6 (scenario 4, landed against fin2) waiting for a quiet start.

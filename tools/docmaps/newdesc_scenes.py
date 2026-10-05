@@ -683,7 +683,7 @@ add("six.gridCompact", "gridCompact(G)",
     ["-"], "§11")
 add("six.padInk", "padInk(r, wmin)",
     "An ink box as a scene's frame: at least `wmin` (one stroke) each way, padded by FRAME_PAD of its longer side.",
-    ["DESIGN.md §11: a frame is the ink and 10 %, with no minimum."], "§11")
+    ["FRAME_PAD is 10 % (DESIGN.md §11: a frame is the ink and 10 %); the one-stroke floor gives a dot or a straight line a frame."], "§11")
 add("six.cutParts", "cutParts(pts, limit)",
     "A wide scene's parts: its chunk boxes cut in two at the emptiest line across the long axis — a mass histogram over the middle 60 % — the widest piece first, until each fits `limit` or there are MAX_PARTS (12).",
     ["Returns the parts' boxes in the order of the cut tree. A piece is not cut past depth 12 or below two chunks."],
@@ -718,3 +718,12 @@ add("six._unfiled", "_unfiled(S, x)",
 add("six._keyCheck", "_keyCheck(S)",
     "A restored scene whose frame or parts differ from the saved ones — a framing rule changed since the save — gets a new version, so its thumbnails are made again.",
     ["-"], "§11")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("scc._recSlot", "_recSlot()",
+    "A record slot in the scene client's per-object columns — width, translation, home — reused from the free list or grown by doubling.",
+    ["The main thread keeps three numbers an object in typed columns (DESIGN.md §11)."], "§11")
+add("scc._homeIx", "_homeIx(home)",
+    "The index of a home frame in the client's home table, added on first use.", ["-"], "§11")
+add("scc._sameFrame", "_sameFrame(r, f)",
+    "Whether the frame record last sent to the scene worker is still frame f, field by field — a string key per frame per tick was the cost (SC-2).", ["-"], "§11")

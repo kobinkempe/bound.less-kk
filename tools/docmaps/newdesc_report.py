@@ -246,3 +246,9 @@ FIX = {
 # Functions that looked mid-edit (another agent is writing them): described as they stand.
 FLUX = [
 ]
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rps.sendReport", "sendReport(E, opts)",
+    "The in-app diagnostic report's send, behind `sendDevReport`: built, its identity scrubbed, gzipped and posted to the report server in parts, then the whole drawing when asked; on a failure the gzip is saved as a file unless told not to.",
+    ["Returns what happened with each stage's timing (build, stringify, gzip, send) and the longest task. The report's `reportBytes` hole carries the body's size."],
+    "§14")

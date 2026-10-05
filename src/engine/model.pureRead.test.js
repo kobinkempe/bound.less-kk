@@ -17,6 +17,7 @@ import { SceneClient } from "./sceneClient";
 import { rectLoop } from "./geometry/arcShape";
 import { buildReport } from "./report";
 import { renderList } from "./__oracles__/renderList";
+import { collectFrames } from "./frameGc";
 
 useEngines();
 
@@ -115,4 +116,23 @@ test("report() leaves the document and the lattice as they were, a subtree's shi
     for (const k of ["rev", "offRev", "epoch", "natives"]) expect([k, after[k]]).toEqual([k, before[k]]);
     for (const [id, v] of before.lattice) expect([id, after.lattice.get(id)]).toEqual([id, v]);
     expect([...after.lattice.keys()].filter((id) => !before.lattice.has(id))).toEqual([]);
+});
+
+test("a frame GC forget and a mint before the next render move the prepared view's key: the picture's source is there at the render", () => {
+    const E = mkEngine(800, 600);
+    E.lm.ensureSpine(2);
+    E.cam.set({ activeLevel: 2, frame: "2", inScale: 1, inPanX: 400, inPanY: 300 });
+    E._render();
+    drawStroke(E, [[300, 300], [500, 320]], 10);
+    const had = new Set(E.lm.frames.keys());
+    E.doc.setFrameShift("2", [1.3 * W, 0]);                       // the camera's frame's ink drawn a cell over
+    E._render();                                                  // the action's end: the picture's source frame minted
+    const src = [...E.lm.frames.keys()].find((id) => !had.has(id));
+    expect(src).toBeTruthy();
+    E._gcCand.add(src);
+    collectFrames(E);                                             // as at an undo's end: the empty source is forgotten
+    expect(E.lm.frame(src)).toBeUndefined();
+    E.lm.cellChild("1", 9, 9);                                    // and a frame minted elsewhere: the lattice's size as it was
+    E._render();
+    expect(E.lm.frame(src)).toBeTruthy();                         // prepared at the render, not left to idle (OPEN-FLAGS F111's shape)
 });

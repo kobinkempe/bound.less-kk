@@ -414,3 +414,13 @@ FIX = {
 # Functions that looked mid-edit (another agent is writing them): described as they stand.
 FLUX = [
 ]
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("opl.snapshotRule", "snapshotRule(frameSeq, listed)",
+    "The replay's test whether the stored snapshots already hold a log entry at `seq` touching some frames: every such frame's snapshot is at or past it, and a frame the header does not list was empty at that write, so it holds every entry.",
+    ["F98: a container a later drop emptied had lost its seq, and its entries replayed over newer snapshots. Replay and `foldStore`'s log tail share this one rule."],
+    "§13")
+add("opl._aside", "_aside(records)",
+    "The natives a subtree delete took out with their frames, kept aside by id: no longer in the document, still their own add's record (F115).", ["-"], "§13")
+add("opl.subtreeFile", "subtreeFile(records)",
+    "A deleted subtree's records in file form: each frame's natives and its address (A1 C3).", ["-"], "§13")

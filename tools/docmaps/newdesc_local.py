@@ -480,3 +480,15 @@ FIX = {
 # Functions that looked mid-edit (another agent is writing them): described as they stand.
 FLUX = [
 ]
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("syc.bannerClearance", "bannerClearance({bar, notices, rail, gap})",
+    "Where the banner stack and the tool rail go: the stack a gap under the top bar, and the rail a gap under the stack when they share columns (a phone), else the rail left centred (a desktop's pill is clear of it).",
+    ["Kobin 2026-09-23: on the phone the banner met the rail. Rects in the editor's coordinates; `railTop` null means centred."], "")
+add("syc.useBannerClearance", "useBannerClearance(rootRef)",
+    "Keeps `bannerClearance` applied to the editor — the `--bl-notices-top` and `--bl-rail-top` variables and the rail's below class — as the top bar, the banner stack or the rail change size.",
+    ["Measured, not assumed: the bar is 40 or 44 px, a banner grows with an error line, and a phone's 100vh counts its hidden URL bar."], "")
+add("edt.DevLevers", "DevLevers({engine, dbgBtn})",
+    "The Dev panel's renderer levers (A3 §8): the level step with the view's stretch band for this screen, the plate budget, the rest render's quiet and inline switch, the compose path — taking effect at once on the raster path.",
+    ["Stored per device through the engine hook; a URL parameter of the same name wins at load."],
+    "§14")

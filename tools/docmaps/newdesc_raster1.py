@@ -521,3 +521,16 @@ add("rwc.poolBroken", "poolBroken()",
     ["-"], "§9")
 add("rwc.freeSlots", "freeSlots()",
     "The free slots now: idle workers, a transport's spare capacity, or the one inline slot when nothing is in flight.", ["-"], "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("mvp.farLevels", "farLevels()",
+    "The drag plane's levels whose plates overhang the camera's table — more than two octaves coarser, so one packed from the table would hold paper where ink is (REVIEWER-4 P-2); each gets its own table over its cover, read at idle.",
+    ["The camera's table reads four view cells past the screen (A3 §4.2) and a plate k octaves coarser spans 2^k of them. Until its table is in (`listPending`) the level is left out of the plane's requests (`_farList`)."],
+    "§9")
+add("mvp.coverOf", "coverOf(lvl)",
+    "The rectangle, in frame units, a plane level's plates cover.", ["-"], "§9")
+add("mvp._key", "_key(tag, pZq, i, j)",
+    "A plane plate's store key at the level's Zp (`planeKey`, A3 §6).", ["-"], "§9")
+add("rwk.runCut", "runCut(kind, job)",
+    "One erase cut or descent in the raster worker: its wired job in, its wired result out; the inline path (a broken pool) runs this same function on the main thread.",
+    ["So every erase suite checks the same geometry whether its cuts run in workers or inline (DESIGN.md §7: one cut is a job)."], "§7")

@@ -8290,645 +8290,637 @@
 "eng._beginHold",
 "rr.planeAccepts",
 [
-"src/engine/KobinEngine.js:579"
+"src/engine/KobinEngine.js:580"
 ]
 ],
 [
 "eng._beginHold",
 "sel._selectionMembers",
 [
-"src/engine/KobinEngine.js:577"
+"src/engine/KobinEngine.js:578"
 ]
 ],
 [
 "eng._beginHold",
 "stg.hold",
 [
-"src/engine/KobinEngine.js:581"
+"src/engine/KobinEngine.js:582"
 ]
 ],
 [
 "eng._camToLattice",
 "lm._ancestors",
 [
-"src/engine/KobinEngine.js:288"
+"src/engine/KobinEngine.js:289"
 ]
 ],
 [
 "eng._camToLattice",
 "lm.chainFrom",
 [
-"src/engine/KobinEngine.js:289"
+"src/engine/KobinEngine.js:290"
 ]
 ],
 [
 "eng._camToLattice",
 "lm.ensureSpine",
 [
-"src/engine/KobinEngine.js:295"
+"src/engine/KobinEngine.js:296"
 ]
 ],
 [
 "eng._camToLattice",
 "lm.frame",
 [
-"src/engine/KobinEngine.js:286",
-"src/engine/KobinEngine.js:294"
+"src/engine/KobinEngine.js:287",
+"src/engine/KobinEngine.js:295"
 ]
 ],
 [
 "eng._camToLattice",
 "lm.frameAtChain",
 [
-"src/engine/KobinEngine.js:294"
+"src/engine/KobinEngine.js:295"
 ]
 ],
 [
 "eng._camToLattice",
 "pys.dropFrames",
 [
-"src/engine/KobinEngine.js:300"
+"src/engine/KobinEngine.js:301"
 ]
 ],
 [
 "eng._camToLattice",
 "stg.forgetFrame",
 [
-"src/engine/KobinEngine.js:299"
+"src/engine/KobinEngine.js:300"
 ]
 ],
 [
 "eng._camToLattice",
 "ts.forgetFrame",
 [
-"src/engine/KobinEngine.js:298"
+"src/engine/KobinEngine.js:299"
 ]
 ],
 [
 "eng._camToResident",
 "lm.residentOf",
 [
-"src/engine/KobinEngine.js:305"
+"src/engine/KobinEngine.js:306"
 ]
 ],
 [
 "eng._debugTileRects",
 "lm.tileRect",
 [
-"src/engine/KobinEngine.js:1218"
+"src/engine/KobinEngine.js:1219"
 ]
 ],
 [
 "eng._debugTileRects",
 "ts._tileKeys",
 [
-"src/engine/KobinEngine.js:1215"
+"src/engine/KobinEngine.js:1216"
 ]
 ],
 [
 "eng._dropHold",
 "eng._releaseMove",
 [
-"src/engine/KobinEngine.js:652"
+"src/engine/KobinEngine.js:653"
 ]
 ],
 [
 "eng._dropHold",
 "rr.endMove",
 [
-"src/engine/KobinEngine.js:653"
+"src/engine/KobinEngine.js:654"
 ]
 ],
 [
 "eng._effectiveZoom",
 "cam.effectiveZoom",
 [
-"src/engine/KobinEngine.js:1206"
+"src/engine/KobinEngine.js:1207"
 ]
 ],
 [
 "eng._emit",
 "cam.effectiveZoom",
 [
-"src/engine/KobinEngine.js:1187"
+"src/engine/KobinEngine.js:1188"
 ]
 ],
 [
 "eng._emit",
 "doc.canRedo",
 [
-"src/engine/KobinEngine.js:1193"
+"src/engine/KobinEngine.js:1194"
 ]
 ],
 [
 "eng._emit",
 "doc.canUndo",
 [
-"src/engine/KobinEngine.js:1193"
+"src/engine/KobinEngine.js:1194"
 ]
 ],
 [
 "eng._emit",
 "erp._eraseStatus",
 [
-"src/engine/KobinEngine.js:1194"
+"src/engine/KobinEngine.js:1195"
 ]
 ],
 [
 "eng._emit",
 "sel._selectionStatus",
 [
-"src/engine/KobinEngine.js:1192"
+"src/engine/KobinEngine.js:1193"
 ]
 ],
 [
 "eng._endMove",
 "eng._releaseMove",
 [
-"src/engine/KobinEngine.js:638"
+"src/engine/KobinEngine.js:639"
 ]
 ],
 [
 "eng._endMove",
 "eng._render",
-[
-"src/engine/KobinEngine.js:645"
-]
-],
-[
-"eng._endMove",
-"fgc.collectFrames",
 [
 "src/engine/KobinEngine.js:646"
 ]
 ],
 [
 "eng._endMove",
-"rr.endMove",
+"fgc.collectFrames",
 [
-"src/engine/KobinEngine.js:641"
+"src/engine/KobinEngine.js:647"
 ]
 ],
 [
 "eng._endMove",
-"rr.noteUserEdit",
+"rr.endMove",
 [
 "src/engine/KobinEngine.js:642"
 ]
 ],
 [
 "eng._endMove",
+"rr.noteUserEdit",
+[
+"src/engine/KobinEngine.js:643"
+]
+],
+[
+"eng._endMove",
 "sel._dropMove",
 [
-"src/engine/KobinEngine.js:637"
+"src/engine/KobinEngine.js:638"
 ]
 ],
 [
 "eng._endMove",
 "sel._repairSelection",
 [
-"src/engine/KobinEngine.js:644"
+"src/engine/KobinEngine.js:645"
 ]
 ],
 [
 "eng._endMove",
 "stg.batch",
 [
-"src/engine/KobinEngine.js:636"
+"src/engine/KobinEngine.js:637"
 ]
 ],
 [
 "eng._fatOnScreen",
 "rnd._fatOnScreen",
 [
-"src/engine/KobinEngine.js:1210"
+"src/engine/KobinEngine.js:1211"
 ]
 ],
 [
 "eng._frame",
 "eng._panStep",
+[
+"src/engine/KobinEngine.js:795"
+]
+],
+[
+"eng._frame",
+"eng._pend",
+[
+"src/engine/KobinEngine.js:798"
+]
+],
+[
+"eng._frame",
+"eng._zoomStep",
 [
 "src/engine/KobinEngine.js:794"
 ]
 ],
 [
 "eng._frame",
-"eng._pend",
-[
-"src/engine/KobinEngine.js:797"
-]
-],
-[
-"eng._frame",
-"eng._zoomStep",
-[
-"src/engine/KobinEngine.js:793"
-]
-],
-[
-"eng._frame",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:790"
+"src/engine/KobinEngine.js:791"
 ]
 ],
 [
 "eng._frame",
 "rnd.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:801"
+"src/engine/KobinEngine.js:802"
 ]
 ],
 [
 "eng._frame",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:800"
+"src/engine/KobinEngine.js:801"
 ]
 ],
 [
 "eng._frame",
 "rr.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:801"
+"src/engine/KobinEngine.js:802"
 ]
 ],
 [
 "eng._frame",
 "rr.update",
 [
-"src/engine/KobinEngine.js:800"
+"src/engine/KobinEngine.js:801"
 ]
 ],
 [
 "eng._frame",
 "sel._dragSelection",
 [
-"src/engine/KobinEngine.js:792"
+"src/engine/KobinEngine.js:793"
 ]
 ],
 [
 "eng._frameWindow",
 "cam.frameWindow",
 [
-"src/engine/KobinEngine.js:1211"
+"src/engine/KobinEngine.js:1212"
 ]
 ],
 [
 "eng._history",
 "eng._render",
-[
-"src/engine/KobinEngine.js:1167"
-]
-],
-[
-"eng._history",
-"erp._cancelBarrier",
-[
-"src/engine/KobinEngine.js:1160"
-]
-],
-[
-"eng._history",
-"erp._scheduleBake",
-[
-"src/engine/KobinEngine.js:1165"
-]
-],
-[
-"eng._history",
-"fgc.collectFrames",
 [
 "src/engine/KobinEngine.js:1168"
 ]
 ],
 [
 "eng._history",
-"rr.noteUserEdit",
-[
-"src/engine/KobinEngine.js:1166"
-]
-],
-[
-"eng._history",
-"sel._opUnder",
-[
-"src/engine/KobinEngine.js:1162"
-]
-],
-[
-"eng._history",
-"sel._repairSelection",
-[
-"src/engine/KobinEngine.js:1164"
-]
-],
-[
-"eng._history",
-"sel.cancelSelectGesture",
+"erp._cancelBarrier",
 [
 "src/engine/KobinEngine.js:1161"
 ]
 ],
 [
 "eng._history",
-"stg.batch",
+"erp._scheduleBake",
+[
+"src/engine/KobinEngine.js:1166"
+]
+],
+[
+"eng._history",
+"fgc.collectFrames",
+[
+"src/engine/KobinEngine.js:1169"
+]
+],
+[
+"eng._history",
+"rr.noteUserEdit",
+[
+"src/engine/KobinEngine.js:1167"
+]
+],
+[
+"eng._history",
+"sel._opUnder",
 [
 "src/engine/KobinEngine.js:1163"
+]
+],
+[
+"eng._history",
+"sel._repairSelection",
+[
+"src/engine/KobinEngine.js:1165"
+]
+],
+[
+"eng._history",
+"sel.cancelSelectGesture",
+[
+"src/engine/KobinEngine.js:1162"
+]
+],
+[
+"eng._history",
+"stg.batch",
+[
+"src/engine/KobinEngine.js:1164"
 ]
 ],
 [
 "eng._levelPointToScreen",
 "cam.levelPointToScreen",
 [
-"src/engine/KobinEngine.js:1207"
+"src/engine/KobinEngine.js:1208"
 ]
 ],
 [
 "eng._listWin",
 "cam.frameWindow",
 [
-"src/engine/KobinEngine.js:703"
+"src/engine/KobinEngine.js:704"
 ]
 ],
 [
 "eng._listWin",
 "rr.listMargin",
 [
-"src/engine/KobinEngine.js:705"
+"src/engine/KobinEngine.js:706"
 ]
 ],
 [
 "eng._panStep",
 "eng._emit",
-[
-"src/engine/KobinEngine.js:822"
-]
-],
-[
-"eng._panStep",
-"eng._noteFast",
-[
-"src/engine/KobinEngine.js:824"
-]
-],
-[
-"eng._panStep",
-"eng._perf",
 [
 "src/engine/KobinEngine.js:823"
 ]
 ],
 [
 "eng._panStep",
-"eng._render",
+"eng._noteFast",
 [
-"src/engine/KobinEngine.js:821"
+"src/engine/KobinEngine.js:825"
 ]
 ],
 [
 "eng._panStep",
-"eng._tableStep",
-[
-"src/engine/KobinEngine.js:820"
-]
-],
-[
-"eng._panStep",
-"eng._visibleChanged",
-[
-"src/engine/KobinEngine.js:821"
-]
-],
-[
-"eng._panStep",
-"now.perfNow",
+"eng._perf",
 [
 "src/engine/KobinEngine.js:824"
 ]
 ],
 [
 "eng._panStep",
-"rnd.needsReorigin",
+"eng._render",
+[
+"src/engine/KobinEngine.js:822"
+]
+],
+[
+"eng._panStep",
+"eng._tableStep",
 [
 "src/engine/KobinEngine.js:821"
+]
+],
+[
+"eng._panStep",
+"eng._visibleChanged",
+[
+"src/engine/KobinEngine.js:822"
+]
+],
+[
+"eng._panStep",
+"now.perfNow",
+[
+"src/engine/KobinEngine.js:825"
+]
+],
+[
+"eng._panStep",
+"rnd.needsReorigin",
+[
+"src/engine/KobinEngine.js:822"
 ]
 ],
 [
 "eng._panStep",
 "rnd.needsWindowChop",
 [
-"src/engine/KobinEngine.js:821"
+"src/engine/KobinEngine.js:822"
 ]
 ],
 [
 "eng._panStep",
 "rnd.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:822"
+"src/engine/KobinEngine.js:823"
 ]
 ],
 [
 "eng._panStep",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:822"
+"src/engine/KobinEngine.js:823"
 ]
 ],
 [
 "eng._panStep",
 "rr.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:822"
+"src/engine/KobinEngine.js:823"
 ]
 ],
 [
 "eng._panStep",
 "rr.update",
 [
-"src/engine/KobinEngine.js:822"
+"src/engine/KobinEngine.js:823"
 ]
 ],
 [
 "eng._pend",
 "eng._frame",
 [
-"src/engine/KobinEngine.js:764"
+"src/engine/KobinEngine.js:765"
 ]
 ],
 [
 "eng._perf",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:490"
+"src/engine/KobinEngine.js:491"
 ]
 ],
 [
 "eng._planeLost",
 "stg.setDragDelta",
 [
-"src/engine/KobinEngine.js:591"
+"src/engine/KobinEngine.js:592"
 ]
 ],
 [
 "eng._planeState",
 "doc.getById",
 [
-"src/engine/KobinEngine.js:612"
+"src/engine/KobinEngine.js:613"
 ]
 ],
 [
 "eng._planeState",
 "ovl._selTable",
 [
-"src/engine/KobinEngine.js:606"
+"src/engine/KobinEngine.js:607"
 ]
 ],
 [
 "eng._planeState",
 "sel._underFrames",
 [
-"src/engine/KobinEngine.js:613"
+"src/engine/KobinEngine.js:614"
 ]
 ],
 [
 "eng._pointerDown",
 "cam.screenToFrame",
 [
-"src/engine/KobinEngine.js:962",
-"src/engine/KobinEngine.js:1000"
+"src/engine/KobinEngine.js:963",
+"src/engine/KobinEngine.js:1001"
 ]
 ],
 [
 "eng._pointerDown",
 "doc.Document.add",
 [
-"src/engine/KobinEngine.js:971",
-"src/engine/KobinEngine.js:1013"
+"src/engine/KobinEngine.js:972",
+"src/engine/KobinEngine.js:1014"
 ]
 ],
 [
 "eng._pointerDown",
 "doc.allocId",
 [
-"src/engine/KobinEngine.js:965",
-"src/engine/KobinEngine.js:1005"
+"src/engine/KobinEngine.js:966",
+"src/engine/KobinEngine.js:1006"
 ]
 ],
 [
 "eng._pointerDown",
 "eng._emit",
 [
-"src/engine/KobinEngine.js:1018"
+"src/engine/KobinEngine.js:1019"
 ]
 ],
 [
 "eng._pointerDown",
 "eng._pointerUp",
 [
-"src/engine/KobinEngine.js:946"
+"src/engine/KobinEngine.js:947"
 ]
 ],
 [
 "eng._pointerDown",
 "eng._startPen",
 [
-"src/engine/KobinEngine.js:969",
-"src/engine/KobinEngine.js:1011"
+"src/engine/KobinEngine.js:970",
+"src/engine/KobinEngine.js:1012"
 ]
 ],
 [
 "eng._pointerDown",
 "eng.flush",
 [
-"src/engine/KobinEngine.js:933"
+"src/engine/KobinEngine.js:934"
 ]
 ],
 [
 "eng._pointerDown",
 "erp._cancelBarrier",
 [
-"src/engine/KobinEngine.js:935"
+"src/engine/KobinEngine.js:936"
 ]
 ],
 [
 "eng._pointerDown",
 "erp._marksUnlanded",
 [
-"src/engine/KobinEngine.js:936"
+"src/engine/KobinEngine.js:937"
 ]
 ],
 [
 "eng._pointerDown",
 "erp.eraseAt",
 [
-"src/engine/KobinEngine.js:956"
+"src/engine/KobinEngine.js:957"
 ]
 ],
 [
 "eng._pointerDown",
 "erp.flushBakes",
 [
-"src/engine/KobinEngine.js:936"
+"src/engine/KobinEngine.js:937"
 ]
 ],
 [
 "eng._pointerDown",
 "rnd.addLive",
 [
-"src/engine/KobinEngine.js:972",
-"src/engine/KobinEngine.js:1014"
-]
-],
-[
-"eng._pointerDown",
-"rnd.refreshSelection",
-[
-"src/engine/KobinEngine.js:952"
-]
-],
-[
-"eng._pointerDown",
-"rnd.setLiveArcs",
-[
 "src/engine/KobinEngine.js:973",
 "src/engine/KobinEngine.js:1015"
 ]
 ],
 [
 "eng._pointerDown",
-"rnd.update",
+"rnd.refreshSelection",
+[
+"src/engine/KobinEngine.js:953"
+]
+],
+[
+"eng._pointerDown",
+"rnd.setLiveArcs",
 [
 "src/engine/KobinEngine.js:974",
 "src/engine/KobinEngine.js:1016"
+]
+],
+[
+"eng._pointerDown",
+"rnd.update",
+[
+"src/engine/KobinEngine.js:975",
+"src/engine/KobinEngine.js:1017"
 ]
 ],
 [
 "eng._pointerDown",
 "rr.addLive",
 [
-"src/engine/KobinEngine.js:972",
-"src/engine/KobinEngine.js:1014"
-]
-],
-[
-"eng._pointerDown",
-"rr.refreshSelection",
-[
-"src/engine/KobinEngine.js:952"
-]
-],
-[
-"eng._pointerDown",
-"rr.setLiveArcs",
-[
 "src/engine/KobinEngine.js:973",
 "src/engine/KobinEngine.js:1015"
 ]
 ],
 [
 "eng._pointerDown",
-"rr.update",
+"rr.refreshSelection",
+[
+"src/engine/KobinEngine.js:953"
+]
+],
+[
+"eng._pointerDown",
+"rr.setLiveArcs",
 [
 "src/engine/KobinEngine.js:974",
 "src/engine/KobinEngine.js:1016"
@@ -8936,1438 +8928,1446 @@
 ],
 [
 "eng._pointerDown",
+"rr.update",
+[
+"src/engine/KobinEngine.js:975",
+"src/engine/KobinEngine.js:1017"
+]
+],
+[
+"eng._pointerDown",
 "sel._hitTest",
 [
-"src/engine/KobinEngine.js:997"
+"src/engine/KobinEngine.js:998"
 ]
 ],
 [
 "eng._pointerMove",
 "bia.BiarcPen",
 [
-"src/engine/KobinEngine.js:1065"
+"src/engine/KobinEngine.js:1066"
 ]
 ],
 [
 "eng._pointerMove",
 "cam.screenToFrame",
 [
-"src/engine/KobinEngine.js:1053"
+"src/engine/KobinEngine.js:1054"
 ]
 ],
 [
 "eng._pointerMove",
 "eng._pend",
 [
-"src/engine/KobinEngine.js:1047",
-"src/engine/KobinEngine.js:1073"
+"src/engine/KobinEngine.js:1048",
+"src/engine/KobinEngine.js:1074"
 ]
 ],
 [
 "eng._pointerMove",
 "eng.panBy",
 [
-"src/engine/KobinEngine.js:1023"
+"src/engine/KobinEngine.js:1024"
 ]
 ],
 [
 "eng._pointerMove",
 "erp.eraseAt",
 [
-"src/engine/KobinEngine.js:1025"
+"src/engine/KobinEngine.js:1026"
 ]
 ],
 [
 "eng._pointerMove",
 "rnd.refreshSelection",
 [
-"src/engine/KobinEngine.js:1034"
+"src/engine/KobinEngine.js:1035"
 ]
 ],
 [
 "eng._pointerMove",
 "rnd.setLiveArcs",
 [
-"src/engine/KobinEngine.js:1072"
+"src/engine/KobinEngine.js:1073"
 ]
 ],
 [
 "eng._pointerMove",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:1074"
+"src/engine/KobinEngine.js:1075"
 ]
 ],
 [
 "eng._pointerMove",
 "rr.refreshSelection",
 [
-"src/engine/KobinEngine.js:1034"
+"src/engine/KobinEngine.js:1035"
 ]
 ],
 [
 "eng._pointerMove",
 "rr.setLiveArcs",
 [
-"src/engine/KobinEngine.js:1072"
+"src/engine/KobinEngine.js:1073"
 ]
 ],
 [
 "eng._pointerMove",
 "rr.update",
 [
-"src/engine/KobinEngine.js:1074"
+"src/engine/KobinEngine.js:1075"
 ]
 ],
 [
 "eng._pointerMove",
 "sel._beginSelectDrag",
 [
-"src/engine/KobinEngine.js:1043"
+"src/engine/KobinEngine.js:1044"
 ]
 ],
 [
 "eng._pointerMove",
 "sel._dragSelection",
 [
-"src/engine/KobinEngine.js:1048"
+"src/engine/KobinEngine.js:1049"
 ]
 ],
 [
 "eng._pointerUp",
 "doc.finalize",
 [
-"src/engine/KobinEngine.js:1121"
+"src/engine/KobinEngine.js:1122"
 ]
 ],
 [
 "eng._pointerUp",
 "doc.pushUndo",
 [
-"src/engine/KobinEngine.js:1128",
-"src/engine/KobinEngine.js:1132"
+"src/engine/KobinEngine.js:1129",
+"src/engine/KobinEngine.js:1133"
 ]
 ],
 [
 "eng._pointerUp",
 "eng._emit",
 [
-"src/engine/KobinEngine.js:1104"
+"src/engine/KobinEngine.js:1105"
 ]
 ],
 [
 "eng._pointerUp",
 "eng._endMove",
 [
-"src/engine/KobinEngine.js:1108"
+"src/engine/KobinEngine.js:1109"
 ]
 ],
 [
 "eng._pointerUp",
 "eng._note",
 [
-"src/engine/KobinEngine.js:1112"
+"src/engine/KobinEngine.js:1113"
 ]
 ],
 [
 "eng._pointerUp",
 "eng._queueIdleFits",
+[
+"src/engine/KobinEngine.js:1141"
+]
+],
+[
+"eng._pointerUp",
+"eng._render",
 [
 "src/engine/KobinEngine.js:1140"
 ]
 ],
 [
 "eng._pointerUp",
-"eng._render",
-[
-"src/engine/KobinEngine.js:1139"
-]
-],
-[
-"eng._pointerUp",
 "eng._thin",
 [
-"src/engine/KobinEngine.js:1116"
+"src/engine/KobinEngine.js:1117"
 ]
 ],
 [
 "eng._pointerUp",
 "eng.flush",
 [
-"src/engine/KobinEngine.js:1089"
+"src/engine/KobinEngine.js:1090"
 ]
 ],
 [
 "eng._pointerUp",
 "erp._queueBake",
 [
-"src/engine/KobinEngine.js:1122"
+"src/engine/KobinEngine.js:1123"
 ]
 ],
 [
 "eng._pointerUp",
 "erp._scheduleBake",
 [
-"src/engine/KobinEngine.js:1123",
-"src/engine/KobinEngine.js:1130"
+"src/engine/KobinEngine.js:1124",
+"src/engine/KobinEngine.js:1131"
 ]
 ],
 [
 "eng._pointerUp",
 "rnd.endLive",
 [
-"src/engine/KobinEngine.js:1119"
+"src/engine/KobinEngine.js:1120"
 ]
 ],
 [
 "eng._pointerUp",
 "rnd.refreshSelection",
 [
-"src/engine/KobinEngine.js:1103"
+"src/engine/KobinEngine.js:1104"
 ]
 ],
 [
 "eng._pointerUp",
 "rr.endLive",
 [
-"src/engine/KobinEngine.js:1119"
+"src/engine/KobinEngine.js:1120"
 ]
 ],
 [
 "eng._pointerUp",
 "rr.refreshSelection",
 [
-"src/engine/KobinEngine.js:1103"
+"src/engine/KobinEngine.js:1104"
 ]
 ],
 [
 "eng._pointerUp",
 "sel._applyLasso",
 [
-"src/engine/KobinEngine.js:1097"
+"src/engine/KobinEngine.js:1098"
 ]
 ],
 [
 "eng._pointerUp",
 "sel._selectTap",
 [
-"src/engine/KobinEngine.js:1092"
+"src/engine/KobinEngine.js:1093"
 ]
 ],
 [
 "eng._prepareView",
 "eng._render",
 [
-"src/engine/KobinEngine.js:276"
+"src/engine/KobinEngine.js:277"
 ]
 ],
 [
 "eng._prepareView",
 "eng.idleHop",
 [
-"src/engine/KobinEngine.js:272"
+"src/engine/KobinEngine.js:273"
 ]
 ],
 [
 "eng._prepareView",
 "ts.prepare",
 [
-"src/engine/KobinEngine.js:269"
+"src/engine/KobinEngine.js:270"
 ]
 ],
 [
 "eng._prepareView",
 "ts.prepareWanted",
 [
-"src/engine/KobinEngine.js:269",
-"src/engine/KobinEngine.js:274"
+"src/engine/KobinEngine.js:270",
+"src/engine/KobinEngine.js:275"
 ]
 ],
 [
 "eng._prepareView",
 "ts.wanted",
 [
-"src/engine/KobinEngine.js:270"
+"src/engine/KobinEngine.js:271"
 ]
 ],
 [
 "eng._queueIdleFits",
 "cvo.strokeLoops",
 [
-"src/engine/KobinEngine.js:888"
+"src/engine/KobinEngine.js:889"
 ]
 ],
 [
 "eng._queueIdleFits",
 "doc.cellList",
 [
-"src/engine/KobinEngine.js:883"
+"src/engine/KobinEngine.js:884"
 ]
 ],
 [
 "eng._queueIdleFits",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:893"
+"src/engine/KobinEngine.js:894"
 ]
 ],
 [
 "eng._queueIdleFits",
 "eng._render",
 [
-"src/engine/KobinEngine.js:895"
+"src/engine/KobinEngine.js:896"
 ]
 ],
 [
 "eng._queueIdleFits",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:874",
-"src/engine/KobinEngine.js:887"
+"src/engine/KobinEngine.js:875",
+"src/engine/KobinEngine.js:888"
 ]
 ],
 [
 "eng._queueIdleFits",
 "stg.touch",
 [
-"src/engine/KobinEngine.js:890"
+"src/engine/KobinEngine.js:891"
 ]
 ],
 [
 "eng._readIdle",
 "eng._listWin",
 [
-"src/engine/KobinEngine.js:734",
-"src/engine/KobinEngine.js:742"
-]
-],
-[
-"eng._readIdle",
-"eng._perf",
-[
+"src/engine/KobinEngine.js:735",
 "src/engine/KobinEngine.js:743"
 ]
 ],
 [
 "eng._readIdle",
-"eng.idleHop",
-[
-"src/engine/KobinEngine.js:737"
-]
-],
-[
-"eng._readIdle",
-"now.perfNow",
-[
-"src/engine/KobinEngine.js:736",
-"src/engine/KobinEngine.js:740",
-"src/engine/KobinEngine.js:741"
-]
-],
-[
-"eng._readIdle",
-"rnd.syncCameraOnly",
-[
-"src/engine/KobinEngine.js:745"
-]
-],
-[
-"eng._readIdle",
-"rr.syncCameraOnly",
-[
-"src/engine/KobinEngine.js:745"
-]
-],
-[
-"eng._readIdle",
-"stg.Stage.covers",
-[
-"src/engine/KobinEngine.js:734"
-]
-],
-[
-"eng._readIdle",
-"stg.items",
+"eng._perf",
 [
 "src/engine/KobinEngine.js:744"
 ]
 ],
 [
 "eng._readIdle",
+"eng.idleHop",
+[
+"src/engine/KobinEngine.js:738"
+]
+],
+[
+"eng._readIdle",
+"now.perfNow",
+[
+"src/engine/KobinEngine.js:737",
+"src/engine/KobinEngine.js:741",
+"src/engine/KobinEngine.js:742"
+]
+],
+[
+"eng._readIdle",
+"rnd.syncCameraOnly",
+[
+"src/engine/KobinEngine.js:746"
+]
+],
+[
+"eng._readIdle",
+"rr.syncCameraOnly",
+[
+"src/engine/KobinEngine.js:746"
+]
+],
+[
+"eng._readIdle",
+"stg.Stage.covers",
+[
+"src/engine/KobinEngine.js:735"
+]
+],
+[
+"eng._readIdle",
+"stg.items",
+[
+"src/engine/KobinEngine.js:745"
+]
+],
+[
+"eng._readIdle",
 "stg.sync",
 [
-"src/engine/KobinEngine.js:742"
+"src/engine/KobinEngine.js:743"
 ]
 ],
 [
 "eng._releaseMove",
 "stg.release",
 [
-"src/engine/KobinEngine.js:658"
+"src/engine/KobinEngine.js:659"
 ]
 ],
 [
 "eng._render",
 "eng._camToLattice",
 [
-"src/engine/KobinEngine.js:666"
+"src/engine/KobinEngine.js:667"
 ]
 ],
 [
 "eng._render",
 "eng._emit",
-[
-"src/engine/KobinEngine.js:688"
-]
-],
-[
-"eng._render",
-"eng._listWin",
-[
-"src/engine/KobinEngine.js:677"
-]
-],
-[
-"eng._render",
-"eng._perf",
 [
 "src/engine/KobinEngine.js:689"
 ]
 ],
 [
 "eng._render",
-"eng._prepareView",
-[
-"src/engine/KobinEngine.js:669"
-]
-],
-[
-"eng._render",
-"eng._readIdle",
-[
-"src/engine/KobinEngine.js:679"
-]
-],
-[
-"eng._render",
-"fgc.collectFrames",
-[
-"src/engine/KobinEngine.js:668"
-]
-],
-[
-"eng._render",
-"fgc.noteCameraFrame",
-[
-"src/engine/KobinEngine.js:668"
-]
-],
-[
-"eng._render",
-"ins.poke",
-[
-"src/engine/KobinEngine.js:694"
-]
-],
-[
-"eng._render",
-"lm.tileRange",
-[
-"src/engine/KobinEngine.js:684"
-]
-],
-[
-"eng._render",
-"now.perfNow",
-[
-"src/engine/KobinEngine.js:665",
-"src/engine/KobinEngine.js:674",
-"src/engine/KobinEngine.js:683"
-]
-],
-[
-"eng._render",
-"rnd.render",
-[
-"src/engine/KobinEngine.js:685"
-]
-],
-[
-"eng._render",
-"rnd.update",
-[
-"src/engine/KobinEngine.js:687"
-]
-],
-[
-"eng._render",
-"rr.render",
-[
-"src/engine/KobinEngine.js:685"
-]
-],
-[
-"eng._render",
-"rr.update",
-[
-"src/engine/KobinEngine.js:687"
-]
-],
-[
-"eng._render",
-"stg.items",
-[
-"src/engine/KobinEngine.js:682"
-]
-],
-[
-"eng._render",
-"stg.sync",
+"eng._listWin",
 [
 "src/engine/KobinEngine.js:678"
 ]
 ],
 [
 "eng._render",
+"eng._perf",
+[
+"src/engine/KobinEngine.js:690"
+]
+],
+[
+"eng._render",
+"eng._prepareView",
+[
+"src/engine/KobinEngine.js:670"
+]
+],
+[
+"eng._render",
+"eng._readIdle",
+[
+"src/engine/KobinEngine.js:680"
+]
+],
+[
+"eng._render",
+"fgc.collectFrames",
+[
+"src/engine/KobinEngine.js:669"
+]
+],
+[
+"eng._render",
+"fgc.noteCameraFrame",
+[
+"src/engine/KobinEngine.js:669"
+]
+],
+[
+"eng._render",
+"ins.poke",
+[
+"src/engine/KobinEngine.js:695"
+]
+],
+[
+"eng._render",
+"lm.tileRange",
+[
+"src/engine/KobinEngine.js:685"
+]
+],
+[
+"eng._render",
+"now.perfNow",
+[
+"src/engine/KobinEngine.js:666",
+"src/engine/KobinEngine.js:675",
+"src/engine/KobinEngine.js:684"
+]
+],
+[
+"eng._render",
+"rnd.render",
+[
+"src/engine/KobinEngine.js:686"
+]
+],
+[
+"eng._render",
+"rnd.update",
+[
+"src/engine/KobinEngine.js:688"
+]
+],
+[
+"eng._render",
+"rr.render",
+[
+"src/engine/KobinEngine.js:686"
+]
+],
+[
+"eng._render",
+"rr.update",
+[
+"src/engine/KobinEngine.js:688"
+]
+],
+[
+"eng._render",
+"stg.items",
+[
+"src/engine/KobinEngine.js:683"
+]
+],
+[
+"eng._render",
+"stg.sync",
+[
+"src/engine/KobinEngine.js:679"
+]
+],
+[
+"eng._render",
 "ts.framesLeft",
 [
-"src/engine/KobinEngine.js:681"
+"src/engine/KobinEngine.js:682"
 ]
 ],
 [
 "eng._startPen",
 "bia.BiarcPen",
 [
-"src/engine/KobinEngine.js:1085"
+"src/engine/KobinEngine.js:1086"
 ]
 ],
 [
 "eng._syncStep",
 "eng._listWin",
-[
-"src/engine/KobinEngine.js:719"
-]
-],
-[
-"eng._syncStep",
-"eng._readIdle",
 [
 "src/engine/KobinEngine.js:720"
 ]
 ],
 [
 "eng._syncStep",
-"rnd.syncCameraOnly",
-[
-"src/engine/KobinEngine.js:723"
-]
-],
-[
-"eng._syncStep",
-"rr.syncCameraOnly",
-[
-"src/engine/KobinEngine.js:723"
-]
-],
-[
-"eng._syncStep",
-"stg.items",
+"eng._readIdle",
 [
 "src/engine/KobinEngine.js:721"
 ]
 ],
 [
 "eng._syncStep",
+"rnd.syncCameraOnly",
+[
+"src/engine/KobinEngine.js:724"
+]
+],
+[
+"eng._syncStep",
+"rr.syncCameraOnly",
+[
+"src/engine/KobinEngine.js:724"
+]
+],
+[
+"eng._syncStep",
+"stg.items",
+[
+"src/engine/KobinEngine.js:722"
+]
+],
+[
+"eng._syncStep",
 "stg.sync",
 [
-"src/engine/KobinEngine.js:719"
+"src/engine/KobinEngine.js:720"
 ]
 ],
 [
 "eng._tableStep",
 "eng._emit",
 [
-"src/engine/KobinEngine.js:714"
+"src/engine/KobinEngine.js:715"
 ]
 ],
 [
 "eng._tableStep",
 "eng._render",
 [
-"src/engine/KobinEngine.js:713"
+"src/engine/KobinEngine.js:714"
 ]
 ],
 [
 "eng._tableStep",
 "eng._syncStep",
 [
-"src/engine/KobinEngine.js:714"
+"src/engine/KobinEngine.js:715"
 ]
 ],
 [
 "eng._tableStep",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:714"
+"src/engine/KobinEngine.js:715"
 ]
 ],
 [
 "eng._tableStep",
 "rr.update",
 [
-"src/engine/KobinEngine.js:714"
+"src/engine/KobinEngine.js:715"
 ]
 ],
 [
 "eng._visibleChanged",
 "eng._listWin",
 [
-"src/engine/KobinEngine.js:750"
+"src/engine/KobinEngine.js:751"
 ]
 ],
 [
 "eng._visibleChanged",
 "lm.tileRange",
 [
-"src/engine/KobinEngine.js:750"
+"src/engine/KobinEngine.js:751"
 ]
 ],
 [
 "eng._zoomBy",
 "cam.zoomFactorAt",
 [
-"src/engine/KobinEngine.js:839"
-]
-],
-[
-"eng._zoomBy",
-"eng._pend",
-[
 "src/engine/KobinEngine.js:840"
 ]
 ],
 [
 "eng._zoomBy",
-"eng._zoomStep",
+"eng._pend",
 [
 "src/engine/KobinEngine.js:841"
 ]
 ],
 [
 "eng._zoomBy",
+"eng._zoomStep",
+[
+"src/engine/KobinEngine.js:842"
+]
+],
+[
+"eng._zoomBy",
 "ins.poke",
 [
-"src/engine/KobinEngine.js:837"
+"src/engine/KobinEngine.js:838"
 ]
 ],
 [
 "eng._zoomBy",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:835"
+"src/engine/KobinEngine.js:836"
 ]
 ],
 [
 "eng._zoomBy",
 "rr.noteAttention",
 [
-"src/engine/KobinEngine.js:838"
+"src/engine/KobinEngine.js:839"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._emit",
 [
-"src/engine/KobinEngine.js:856"
+"src/engine/KobinEngine.js:857"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._noteFast",
 [
-"src/engine/KobinEngine.js:858"
+"src/engine/KobinEngine.js:859"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:857"
+"src/engine/KobinEngine.js:858"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._queueIdleFits",
 [
-"src/engine/KobinEngine.js:860"
+"src/engine/KobinEngine.js:861"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._render",
 [
-"src/engine/KobinEngine.js:855"
+"src/engine/KobinEngine.js:856"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._tableStep",
 [
-"src/engine/KobinEngine.js:853"
+"src/engine/KobinEngine.js:854"
 ]
 ],
 [
 "eng._zoomStep",
 "eng._visibleChanged",
 [
-"src/engine/KobinEngine.js:854"
+"src/engine/KobinEngine.js:855"
 ]
 ],
 [
 "eng._zoomStep",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:858"
+"src/engine/KobinEngine.js:859"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.hasPendingNearFat",
 [
-"src/engine/KobinEngine.js:860"
+"src/engine/KobinEngine.js:861"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.needsFadeFlip",
 [
-"src/engine/KobinEngine.js:855"
+"src/engine/KobinEngine.js:856"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.needsFatFlip",
 [
-"src/engine/KobinEngine.js:854"
+"src/engine/KobinEngine.js:855"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.needsReorigin",
 [
-"src/engine/KobinEngine.js:855"
+"src/engine/KobinEngine.js:856"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.needsWindowChop",
 [
-"src/engine/KobinEngine.js:855"
+"src/engine/KobinEngine.js:856"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:856"
+"src/engine/KobinEngine.js:857"
 ]
 ],
 [
 "eng._zoomStep",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:856"
+"src/engine/KobinEngine.js:857"
 ]
 ],
 [
 "eng._zoomStep",
 "rr.syncCameraOnly",
 [
-"src/engine/KobinEngine.js:856"
+"src/engine/KobinEngine.js:857"
 ]
 ],
 [
 "eng._zoomStep",
 "rr.update",
 [
-"src/engine/KobinEngine.js:856"
+"src/engine/KobinEngine.js:857"
 ]
 ],
 [
 "eng.cancelStroke",
 "doc.removeById",
 [
-"src/engine/KobinEngine.js:1147"
+"src/engine/KobinEngine.js:1148"
 ]
 ],
 [
 "eng.cancelStroke",
 "eng._render",
 [
-"src/engine/KobinEngine.js:1148"
+"src/engine/KobinEngine.js:1149"
 ]
 ],
 [
 "eng.cancelStroke",
 "rnd.endLive",
 [
-"src/engine/KobinEngine.js:1146"
+"src/engine/KobinEngine.js:1147"
 ]
 ],
 [
 "eng.cancelStroke",
 "rr.endLive",
 [
-"src/engine/KobinEngine.js:1146"
+"src/engine/KobinEngine.js:1147"
 ]
 ],
 [
 "eng.clear",
 "cam.set",
 [
-"src/engine/KobinEngine.js:1176",
-"src/engine/KobinEngine.js:1180"
+"src/engine/KobinEngine.js:1177",
+"src/engine/KobinEngine.js:1181"
 ]
 ],
 [
 "eng.clear",
 "cam.state",
 [
-"src/engine/KobinEngine.js:1175"
+"src/engine/KobinEngine.js:1176"
 ]
 ],
 [
 "eng.clear",
 "doc.clear",
 [
-"src/engine/KobinEngine.js:1178"
+"src/engine/KobinEngine.js:1179"
 ]
 ],
 [
 "eng.clear",
 "eng._render",
 [
-"src/engine/KobinEngine.js:1182"
+"src/engine/KobinEngine.js:1183"
 ]
 ],
 [
 "eng.clear",
 "lm.load",
 [
-"src/engine/KobinEngine.js:1176"
+"src/engine/KobinEngine.js:1177"
 ]
 ],
 [
 "eng.clear",
 "lm.reset",
 [
-"src/engine/KobinEngine.js:1179"
+"src/engine/KobinEngine.js:1180"
 ]
 ],
 [
 "eng.clear",
 "lm.serialize",
 [
-"src/engine/KobinEngine.js:1175"
+"src/engine/KobinEngine.js:1176"
 ]
 ],
 [
 "eng.clear",
 "rnd.clear",
 [
-"src/engine/KobinEngine.js:1181"
+"src/engine/KobinEngine.js:1182"
 ]
 ],
 [
 "eng.destroy",
 "ins.EventLatency.stop",
 [
-"src/engine/KobinEngine.js:437"
+"src/engine/KobinEngine.js:438"
 ]
 ],
 [
 "eng.destroy",
 "ins.FrameMeter.stop",
 [
-"src/engine/KobinEngine.js:435"
+"src/engine/KobinEngine.js:436"
 ]
 ],
 [
 "eng.destroy",
 "ins.LongFrames.stop",
 [
-"src/engine/KobinEngine.js:436"
+"src/engine/KobinEngine.js:437"
 ]
 ],
 [
 "eng.destroy",
 "pys.destroy",
 [
-"src/engine/KobinEngine.js:442"
+"src/engine/KobinEngine.js:443"
 ]
 ],
 [
 "eng.destroy",
 "rnd.destroy",
 [
-"src/engine/KobinEngine.js:439"
+"src/engine/KobinEngine.js:440"
 ]
 ],
 [
 "eng.destroy",
 "rr.destroy",
 [
-"src/engine/KobinEngine.js:439"
+"src/engine/KobinEngine.js:440"
 ]
 ],
 [
 "eng.destroy",
 "scc.destroy",
 [
-"src/engine/KobinEngine.js:438"
+"src/engine/KobinEngine.js:439"
 ]
 ],
 [
 "eng.destroy",
 "stg.destroy",
 [
-"src/engine/KobinEngine.js:439"
+"src/engine/KobinEngine.js:440"
 ]
 ],
 [
 "eng.destroy",
 "ts.destroy",
 [
-"src/engine/KobinEngine.js:439"
+"src/engine/KobinEngine.js:440"
 ]
 ],
 [
 "eng.flush",
 "eng._frame",
 [
-"src/engine/KobinEngine.js:778"
+"src/engine/KobinEngine.js:779"
 ]
 ],
 [
 "eng.notePerf",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:456"
+"src/engine/KobinEngine.js:457"
 ]
 ],
 [
 "eng.panBy",
 "cam.panBy",
-[
-"src/engine/KobinEngine.js:811"
-]
-],
-[
-"eng.panBy",
-"eng._panStep",
-[
-"src/engine/KobinEngine.js:813"
-]
-],
-[
-"eng.panBy",
-"eng._pend",
 [
 "src/engine/KobinEngine.js:812"
 ]
 ],
 [
 "eng.panBy",
+"eng._panStep",
+[
+"src/engine/KobinEngine.js:814"
+]
+],
+[
+"eng.panBy",
+"eng._pend",
+[
+"src/engine/KobinEngine.js:813"
+]
+],
+[
+"eng.panBy",
 "ins.poke",
 [
-"src/engine/KobinEngine.js:810"
+"src/engine/KobinEngine.js:811"
 ]
 ],
 [
 "eng.panBy",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:808"
+"src/engine/KobinEngine.js:809"
 ]
 ],
 [
 "eng.pinchUpdate",
 "cam.panBy",
 [
-"src/engine/KobinEngine.js:830"
+"src/engine/KobinEngine.js:831"
 ]
 ],
 [
 "eng.pinchUpdate",
 "eng._zoomBy",
 [
-"src/engine/KobinEngine.js:830"
+"src/engine/KobinEngine.js:831"
 ]
 ],
 [
 "eng.pointerDown",
 "eng._noteFast",
 [
-"src/engine/KobinEngine.js:917"
+"src/engine/KobinEngine.js:918"
 ]
 ],
 [
 "eng.pointerDown",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:917"
+"src/engine/KobinEngine.js:918"
 ]
 ],
 [
 "eng.pointerDown",
 "eng._pointerDown",
 [
-"src/engine/KobinEngine.js:916"
+"src/engine/KobinEngine.js:917"
 ]
 ],
 [
 "eng.pointerDown",
 "ins.poke",
 [
-"src/engine/KobinEngine.js:914"
+"src/engine/KobinEngine.js:915"
 ]
 ],
 [
 "eng.pointerDown",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:913",
-"src/engine/KobinEngine.js:917"
+"src/engine/KobinEngine.js:914",
+"src/engine/KobinEngine.js:918"
 ]
 ],
 [
 "eng.pointerDown",
 "rr.noteAttention",
 [
-"src/engine/KobinEngine.js:915"
+"src/engine/KobinEngine.js:916"
 ]
 ],
 [
 "eng.pointerMove",
 "eng._noteFast",
 [
-"src/engine/KobinEngine.js:924"
+"src/engine/KobinEngine.js:925"
 ]
 ],
 [
 "eng.pointerMove",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:924"
+"src/engine/KobinEngine.js:925"
 ]
 ],
 [
 "eng.pointerMove",
 "eng._pointerMove",
 [
-"src/engine/KobinEngine.js:923"
+"src/engine/KobinEngine.js:924"
 ]
 ],
 [
 "eng.pointerMove",
 "ins.poke",
 [
-"src/engine/KobinEngine.js:921"
+"src/engine/KobinEngine.js:922"
 ]
 ],
 [
 "eng.pointerMove",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:920",
-"src/engine/KobinEngine.js:924"
+"src/engine/KobinEngine.js:921",
+"src/engine/KobinEngine.js:925"
 ]
 ],
 [
 "eng.pointerMove",
 "rr.noteAttention",
 [
-"src/engine/KobinEngine.js:922"
+"src/engine/KobinEngine.js:923"
 ]
 ],
 [
 "eng.pointerUp",
 "eng._noteFast",
 [
-"src/engine/KobinEngine.js:930"
+"src/engine/KobinEngine.js:931"
 ]
 ],
 [
 "eng.pointerUp",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:930"
+"src/engine/KobinEngine.js:931"
 ]
 ],
 [
 "eng.pointerUp",
 "eng._pointerUp",
 [
-"src/engine/KobinEngine.js:929"
+"src/engine/KobinEngine.js:930"
 ]
 ],
 [
 "eng.pointerUp",
 "ins.poke",
 [
-"src/engine/KobinEngine.js:928"
+"src/engine/KobinEngine.js:929"
 ]
 ],
 [
 "eng.pointerUp",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:927",
-"src/engine/KobinEngine.js:930"
+"src/engine/KobinEngine.js:928",
+"src/engine/KobinEngine.js:931"
 ]
 ],
 [
 "eng.redo",
 "doc.redo",
 [
-"src/engine/KobinEngine.js:1156"
+"src/engine/KobinEngine.js:1157"
 ]
 ],
 [
 "eng.redo",
 "eng._history",
 [
-"src/engine/KobinEngine.js:1156"
+"src/engine/KobinEngine.js:1157"
 ]
 ],
 [
 "eng.reportFamilies",
 "doc.editKey",
 [
-"src/engine/KobinEngine.js:539"
+"src/engine/KobinEngine.js:540"
 ]
 ],
 [
 "eng.reportFamilies",
 "doc.levels",
 [
-"src/engine/KobinEngine.js:536"
+"src/engine/KobinEngine.js:537"
 ]
 ],
 [
 "eng.reportFamilies",
 "doc.list",
 [
-"src/engine/KobinEngine.js:537"
+"src/engine/KobinEngine.js:538"
 ]
 ],
 [
 "eng.reportFamilies",
 "erp._familyComponents",
 [
-"src/engine/KobinEngine.js:546"
+"src/engine/KobinEngine.js:547"
 ]
 ],
 [
 "eng.reportFamilies",
 "shp.loopsArea",
 [
-"src/engine/KobinEngine.js:554"
+"src/engine/KobinEngine.js:555"
 ]
 ],
 [
 "eng.reportFamilies",
 "shp.loopsBBox",
 [
-"src/engine/KobinEngine.js:550"
+"src/engine/KobinEngine.js:551"
 ]
 ],
 [
 "eng.resize",
 "eng._perf",
 [
-"src/engine/KobinEngine.js:427"
+"src/engine/KobinEngine.js:428"
 ]
 ],
 [
 "eng.resize",
 "eng._render",
 [
-"src/engine/KobinEngine.js:426"
+"src/engine/KobinEngine.js:427"
 ]
 ],
 [
 "eng.resize",
 "lm.resize",
 [
-"src/engine/KobinEngine.js:425"
+"src/engine/KobinEngine.js:426"
 ]
 ],
 [
 "eng.resize",
 "now.perfNow",
 [
-"src/engine/KobinEngine.js:423"
+"src/engine/KobinEngine.js:424"
 ]
 ],
 [
 "eng.resize",
 "rnd.setSize",
 [
-"src/engine/KobinEngine.js:425"
+"src/engine/KobinEngine.js:426"
 ]
 ],
 [
 "eng.resize",
 "rr.setSize",
 [
-"src/engine/KobinEngine.js:425"
+"src/engine/KobinEngine.js:426"
 ]
 ],
 [
 "eng.screenToFrame",
 "cam.screenToFrame",
 [
-"src/engine/KobinEngine.js:900"
+"src/engine/KobinEngine.js:901"
 ]
 ],
 [
 "eng.setDebug",
 "eng._render",
 [
-"src/engine/KobinEngine.js:348"
+"src/engine/KobinEngine.js:349"
 ]
 ],
 [
 "eng.setDebug",
 "rnd.setDebug",
 [
-"src/engine/KobinEngine.js:348"
+"src/engine/KobinEngine.js:349"
 ]
 ],
 [
 "eng.setEraseDebug",
 "doc.getById",
 [
-"src/engine/KobinEngine.js:409"
+"src/engine/KobinEngine.js:410"
 ]
 ],
 [
 "eng.setEraseDebug",
 "eng._render",
 [
-"src/engine/KobinEngine.js:418"
+"src/engine/KobinEngine.js:419"
 ]
 ],
 [
 "eng.setEraseDebug",
 "lm.depthOf",
 [
-"src/engine/KobinEngine.js:413",
-"src/engine/KobinEngine.js:413"
+"src/engine/KobinEngine.js:414",
+"src/engine/KobinEngine.js:414"
 ]
 ],
 [
 "eng.setEraseDebug",
 "ovl._eraseDebugOverlay",
 [
-"src/engine/KobinEngine.js:396"
+"src/engine/KobinEngine.js:397"
 ]
 ],
 [
 "eng.setEraseDebug",
 "rnd.setEraseDebug",
 [
-"src/engine/KobinEngine.js:394"
+"src/engine/KobinEngine.js:395"
 ]
 ],
 [
 "eng.setEraseDebug",
 "rr.setEraseDebug",
 [
-"src/engine/KobinEngine.js:394"
+"src/engine/KobinEngine.js:395"
 ]
 ],
 [
 "eng.setLazyOutlines",
 "eng._queueIdleFits",
 [
-"src/engine/KobinEngine.js:378"
+"src/engine/KobinEngine.js:379"
 ]
 ],
 [
 "eng.setLazyOutlines",
 "eng._render",
 [
-"src/engine/KobinEngine.js:377"
+"src/engine/KobinEngine.js:378"
 ]
 ],
 [
 "eng.setLazyOutlines",
 "rnd.setLazyOutlines",
 [
-"src/engine/KobinEngine.js:376"
+"src/engine/KobinEngine.js:377"
 ]
 ],
 [
 "eng.setLevelStep",
 "eng.setLevers",
 [
-"src/engine/KobinEngine.js:364"
+"src/engine/KobinEngine.js:365"
 ]
 ],
 [
 "eng.setLevers",
 "dvl.cleanLevers",
 [
-"src/engine/KobinEngine.js:360"
+"src/engine/KobinEngine.js:361"
 ]
 ],
 [
 "eng.setLevers",
 "eng._render",
 [
-"src/engine/KobinEngine.js:361"
+"src/engine/KobinEngine.js:362"
 ]
 ],
 [
 "eng.setLevers",
 "rr.onLevers",
 [
-"src/engine/KobinEngine.js:361"
+"src/engine/KobinEngine.js:362"
 ]
 ],
 [
 "eng.setOpacityGroups",
 "eng._render",
 [
-"src/engine/KobinEngine.js:345"
+"src/engine/KobinEngine.js:346"
 ]
 ],
 [
 "eng.setOpacityGroups",
 "rnd.clear",
 [
-"src/engine/KobinEngine.js:344"
+"src/engine/KobinEngine.js:345"
 ]
 ],
 [
 "eng.setOpacityGroups",
 "rnd.setOpacityGroups",
 [
-"src/engine/KobinEngine.js:342"
+"src/engine/KobinEngine.js:343"
 ]
 ],
 [
 "eng.setOpacityGroups",
 "ts.setOpacityGroups",
 [
-"src/engine/KobinEngine.js:343"
+"src/engine/KobinEngine.js:344"
 ]
 ],
 [
 "eng.setPlateBudget",
 "eng.setLevers",
 [
-"src/engine/KobinEngine.js:367"
+"src/engine/KobinEngine.js:368"
 ]
 ],
 [
 "eng.setRetainScenes",
 "eng._render",
 [
-"src/engine/KobinEngine.js:354"
+"src/engine/KobinEngine.js:355"
 ]
 ],
 [
 "eng.setRetainScenes",
 "rnd.setRetainScenes",
 [
-"src/engine/KobinEngine.js:354"
+"src/engine/KobinEngine.js:355"
 ]
 ],
 [
 "eng.setTileDebug",
 "eng._debugTileRects",
 [
-"src/engine/KobinEngine.js:381"
+"src/engine/KobinEngine.js:382"
 ]
 ],
 [
 "eng.setTileDebug",
 "rnd.setTileDebug",
 [
-"src/engine/KobinEngine.js:381"
+"src/engine/KobinEngine.js:382"
 ]
 ],
 [
 "eng.setTileDebug",
 "rnd.update",
 [
-"src/engine/KobinEngine.js:381"
+"src/engine/KobinEngine.js:382"
 ]
 ],
 [
 "eng.setTileDebug",
 "rr.setTileDebug",
 [
-"src/engine/KobinEngine.js:381"
+"src/engine/KobinEngine.js:382"
 ]
 ],
 [
 "eng.setTileDebug",
 "rr.update",
 [
-"src/engine/KobinEngine.js:381"
+"src/engine/KobinEngine.js:382"
 ]
 ],
 [
 "eng.setTool",
 "erp._cancelBarrier",
 [
-"src/engine/KobinEngine.js:332"
+"src/engine/KobinEngine.js:333"
 ]
 ],
 [
 "eng.setTool",
 "sel.deselect",
 [
-"src/engine/KobinEngine.js:333"
+"src/engine/KobinEngine.js:334"
 ]
 ],
 [
 "eng.tiles",
 "ts._tileKeys",
 [
-"src/engine/KobinEngine.js:322"
+"src/engine/KobinEngine.js:323"
 ]
 ],
 [
 "eng.undo",
 "doc.undo",
 [
-"src/engine/KobinEngine.js:1155"
+"src/engine/KobinEngine.js:1156"
 ]
 ],
 [
 "eng.undo",
 "eng._history",
 [
-"src/engine/KobinEngine.js:1155"
+"src/engine/KobinEngine.js:1156"
 ]
 ],
 [
 "eng.zoomAt",
 "eng.zoomFactorAt",
 [
-"src/engine/KobinEngine.js:826"
+"src/engine/KobinEngine.js:827"
 ]
 ],
 [
 "eng.zoomFactorAt",
 "eng._zoomBy",
 [
-"src/engine/KobinEngine.js:832"
+"src/engine/KobinEngine.js:833"
 ]
 ],
 [
@@ -54546,500 +54546,500 @@
 "_prepareView": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 267,
-"hi": 279
+"lo": 268,
+"hi": 280
 },
 "_camToLattice": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 284,
-"hi": 302
+"lo": 285,
+"hi": 303
 },
 "_camToResident": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 304,
-"hi": 309
+"lo": 305,
+"hi": 310
 },
 "activeLevel": {
-"kind": "method",
-"klass": "KobinEngine",
-"lo": 312,
-"hi": 312
-},
-"inScale": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 313,
 "hi": 313
 },
-"inPanX": {
+"inScale": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 314,
 "hi": 314
 },
-"inPanY": {
+"inPanX": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 315,
 "hi": 315
 },
-"nativesByLevel": {
+"inPanY": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 317,
-"hi": 317
+"lo": 316,
+"hi": 316
 },
-"crossings": {
+"nativesByLevel": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 318,
 "hi": 318
 },
-"levelObjects": {
+"crossings": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 319,
 "hi": 319
 },
-"tiles": {
+"levelObjects": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 320,
-"hi": 324
+"hi": 320
+},
+"tiles": {
+"kind": "method",
+"klass": "KobinEngine",
+"lo": 321,
+"hi": 325
 },
 "_hasFat": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 325,
-"hi": 325
+"lo": 326,
+"hi": 326
 },
 "setTool": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 331,
-"hi": 335
-},
-"setPenType": {
-"kind": "method",
-"klass": "KobinEngine",
-"lo": 336,
+"lo": 332,
 "hi": 336
 },
-"setColor": {
+"setPenType": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 337,
 "hi": 337
 },
-"setWidth": {
+"setColor": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 338,
 "hi": 338
 },
-"setOpacity": {
+"setWidth": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 339,
 "hi": 339
 },
-"setOpacityGroups": {
+"setOpacity": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 340,
-"hi": 346
+"hi": 340
+},
+"setOpacityGroups": {
+"kind": "method",
+"klass": "KobinEngine",
+"lo": 341,
+"hi": 347
 },
 "setDebug": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 348,
-"hi": 348
+"lo": 349,
+"hi": 349
 },
 "setTrace": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 350,
-"hi": 353
+"lo": 351,
+"hi": 354
 },
 "setRetainScenes": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 354,
-"hi": 354
+"lo": 355,
+"hi": 355
 },
 "setLevers": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 359,
-"hi": 362
+"lo": 360,
+"hi": 363
 },
 "setLevelStep": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 364,
-"hi": 364
+"lo": 365,
+"hi": 365
 },
 "setPlateBudget": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 366,
-"hi": 369
+"lo": 367,
+"hi": 370
 },
 "setScaleDef": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 370,
-"hi": 372
+"lo": 371,
+"hi": 373
 },
 "setLazyOutlines": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 374,
-"hi": 379
+"lo": 375,
+"hi": 380
 },
 "setTileDebug": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 381,
-"hi": 381
+"lo": 382,
+"hi": 382
 },
 "setEraseDebug": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 391,
-"hi": 419
+"lo": 392,
+"hi": 420
 },
 "resize": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 421,
-"hi": 428
+"lo": 422,
+"hi": 429
 },
 "destroy": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 429,
-"hi": 443
+"lo": 430,
+"hi": 444
 },
 "notePerf": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 456,
-"hi": 456
+"lo": 457,
+"hi": 457
 },
 "_noteFast": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 462,
-"hi": 473
+"lo": 463,
+"hi": 474
 },
 "fastStats": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 475,
-"hi": 488
+"lo": 476,
+"hi": 489
 },
 "_perf": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 489,
-"hi": 502
+"lo": 490,
+"hi": 503
 },
 "_note": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 512,
-"hi": 518
+"lo": 513,
+"hi": 519
 },
 "_thin": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 521,
-"hi": 528
+"lo": 522,
+"hi": 529
 },
 "reportFamilies": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 534,
-"hi": 565
+"lo": 535,
+"hi": 566
 },
 "_beginHold": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 573,
-"hi": 582
+"lo": 574,
+"hi": 583
 },
 "_planeLost": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 587,
-"hi": 593
+"lo": 588,
+"hi": 594
 },
 "_planeState": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 599,
-"hi": 618
+"lo": 600,
+"hi": 619
 },
 "_dragState": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 620,
-"hi": 625
+"lo": 621,
+"hi": 626
 },
 "_endMove": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 633,
-"hi": 647
+"lo": 634,
+"hi": 648
 },
 "_dropHold": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 649,
-"hi": 654
+"lo": 650,
+"hi": 655
 },
 "_releaseMove": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 656,
-"hi": 659
+"lo": 657,
+"hi": 660
 },
 "_render": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 661,
-"hi": 695
+"lo": 662,
+"hi": 696
 },
 "_listWin": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 702,
-"hi": 707
+"lo": 703,
+"hi": 708
 },
 "_tableStep": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 712,
-"hi": 715
+"lo": 713,
+"hi": 716
 },
 "_syncStep": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 717,
-"hi": 724
+"lo": 718,
+"hi": 725
 },
 "_readIdle": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 732,
-"hi": 748
+"lo": 733,
+"hi": 749
 },
 "_visibleChanged": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 749,
-"hi": 753
+"lo": 750,
+"hi": 754
 },
 "_pend": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 761,
-"hi": 774
+"lo": 762,
+"hi": 775
 },
 "flush": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 776,
-"hi": 779
+"lo": 777,
+"hi": 780
 },
 "_frame": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 786,
-"hi": 803
+"lo": 787,
+"hi": 804
 },
 "panBy": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 806,
-"hi": 814
+"lo": 807,
+"hi": 815
 },
 "_panStep": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 816,
-"hi": 825
+"lo": 817,
+"hi": 826
 },
 "zoomAt": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 826,
-"hi": 826
+"lo": 827,
+"hi": 827
 },
 "pinchUpdate": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 828,
-"hi": 831
+"lo": 829,
+"hi": 832
 },
 "zoomFactorAt": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 832,
-"hi": 832
+"lo": 833,
+"hi": 833
 },
 "_zoomBy": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 833,
-"hi": 842
+"lo": 834,
+"hi": 843
 },
 "_zoomStep": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 844,
-"hi": 861
+"lo": 845,
+"hi": 862
 },
 "_queueIdleFits": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 866,
-"hi": 897
+"lo": 867,
+"hi": 898
 },
 "screenToFrame": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 900,
-"hi": 900
+"lo": 901,
+"hi": 901
 },
 "pointerDown": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 912,
-"hi": 918
+"lo": 913,
+"hi": 919
 },
 "pointerMove": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 919,
-"hi": 925
+"lo": 920,
+"hi": 926
 },
 "pointerUp": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 926,
-"hi": 931
+"lo": 927,
+"hi": 932
 },
 "_pointerDown": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 932,
-"hi": 1019
+"lo": 933,
+"hi": 1020
 },
 "_pointerMove": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1020,
-"hi": 1076
+"lo": 1021,
+"hi": 1077
 },
 "_startPen": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1083,
-"hi": 1087
+"lo": 1084,
+"hi": 1088
 },
 "_pointerUp": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1088,
-"hi": 1143
+"lo": 1089,
+"hi": 1144
 },
 "cancelStroke": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1144,
-"hi": 1149
+"lo": 1145,
+"hi": 1150
 },
 "undo": {
-"kind": "method",
-"klass": "KobinEngine",
-"lo": 1155,
-"hi": 1155
-},
-"redo": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 1156,
 "hi": 1156
 },
+"redo": {
+"kind": "method",
+"klass": "KobinEngine",
+"lo": 1157,
+"hi": 1157
+},
 "_history": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1158,
-"hi": 1170
+"lo": 1159,
+"hi": 1171
 },
 "sweepFrames": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1172,
-"hi": 1172
+"lo": 1173,
+"hi": 1173
 },
 "clear": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1173,
-"hi": 1183
+"lo": 1174,
+"hi": 1184
 },
 "_emit": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1186,
-"hi": 1197
+"lo": 1187,
+"hi": 1198
 },
 "onZoom": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1202,
-"hi": 1205
-},
-"_effectiveZoom": {
-"kind": "method",
-"klass": "KobinEngine",
-"lo": 1206,
+"lo": 1203,
 "hi": 1206
 },
-"_levelPointToScreen": {
+"_effectiveZoom": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 1207,
 "hi": 1207
 },
-"_objs": {
+"_levelPointToScreen": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 1208,
 "hi": 1208
 },
-"_fatOnScreen": {
+"_objs": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1210,
-"hi": 1210
+"lo": 1209,
+"hi": 1209
 },
-"_frameWindow": {
+"_fatOnScreen": {
 "kind": "method",
 "klass": "KobinEngine",
 "lo": 1211,
 "hi": 1211
 },
+"_frameWindow": {
+"kind": "method",
+"klass": "KobinEngine",
+"lo": 1212,
+"hi": 1212
+},
 "_debugTileRects": {
 "kind": "method",
 "klass": "KobinEngine",
-"lo": 1213,
-"hi": 1221
+"lo": 1214,
+"hi": 1222
 },
 "KobinEngine": {
 "kind": "class",

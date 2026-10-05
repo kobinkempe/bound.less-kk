@@ -969,7 +969,7 @@ add("eng.idleHop", "idleHop(fn)",
     "Runs `fn` at idle (`requestIdleCallback` with no forced timeout), else after 30 ms.", ["-"], "§9")
 add("eng._prepareView", "_prepareView()",
     "Mints the camera view's picture sources (`TileStore.prepare`) at the first render after a placement, address or camera-frame change — the end of the action that moved them — so no read mints (A1 C3); views a read found wanting are minted then too, or at idle.",
-    ["Keyed on the camera's frame, the table revision, the address epoch and the frame count, so a render with none of them changed costs nothing. A view still wanting after the render is prepared at idle and rendered again (DESIGN.md §8: no read settles, mints or changes a table)."],
+    ["Keyed on the camera's frame, the table revision, the address epoch and the lattice's frame set, so a render with none of them changed costs nothing. A view still wanting after the render is prepared at idle and rendered again (DESIGN.md §8: no read settles, mints or changes a table)."],
     "§8")
 add("eng._camToLattice", "_camToLattice()",
     "The camera's frame deleted with a subtree (A1 C3: it left the lattice): the camera goes to a fresh frame at the same cell — its chain as the last render read it — with the same coordinates; else the chain is noted. True when it moved.",
@@ -1046,3 +1046,18 @@ add("ovl._selMovedBy", "_selMovedBy(at, table, F, sc, win, vp)",
     "Whether a drag's indicator decision still stands at the drop or a cancel: every piece of ink in both the start's set and now moved by one displacement (to 0.01 px), and the view inside the kept window moved by it and cut short of the ink that entered or left the list; `{d, win}`, else null.",
     ["Ink that entered or left the list — a moved frame's tile pieces at its edges — may not meet the view. Else the decision is remade: re-deciding in the dense scene's drop frame was 338–803 ms (B-PYRAMID-5, DESIGN.md §10)."],
     "§10")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("eds.frameShift", "frameShift(lm, id)",
+    "A frame's shift in the descent's lattice copy, or null.", ["-"], "§7")
+add("eds.kidHome", "kidHome(lm, Fn, from)",
+    "Where a kid ceded from a piece homed in `from` into cell Fn lives (A1 C4): the private frame of its family at that cell — contained by `from` when that is Fn's parent cell (the family's chain), else by Fn's parent — so no shared frame holds a family's kids.",
+    ["The family key is the id of the public frame its chain hangs from, carried down through private frames (`LevelMap.privateFrame`; DESIGN.md §7)."],
+    "§7")
+add("ejb.dustBoxes", "dustBoxes(groups, keep)",
+    "The boxes of the components the dust cull left out of a cut, in their own coordinates, or null: dust can lie outside the eraser's box, so a cut's dirt names it (A2 §4.5).",
+    ["What an erase step dirties includes the boxes of the dust it dropped (DESIGN.md §7)."], "§7")
+add("per.latticeNeedsV3", "latticeNeedsV3(crossings)",
+    "Whether a serialized lattice must be written as version 3: a frame with a non-zero shift, a co-resident or a private frame — so a build that cannot read them refuses the file (\"saved by a newer version\").",
+    ["A build before A1 C3/C4 would merge a co-resident into its resident at the load and read a private frame as a shared one; a lattice with none of them is written exactly as before, byte for byte (DESIGN.md §13)."],
+    "§13")

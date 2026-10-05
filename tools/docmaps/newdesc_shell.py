@@ -186,3 +186,9 @@ add("usr.useUser", "useUser()", "Live sign-in state: { user, ready }.",
 add("usr.signInWithGoogle", "signInWithGoogle()", "Signs in, with a redirect fallback.",
     ["Tries a popup, and falls back to a full-page redirect when the browser blocks it - which phones and strict settings do routinely. The auth listener picks the result up on return either way."])
 add("usr.signOutUser", "signOutUser()", "Signs out.", ["-"])
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("hok.leverStorage", "leverStorage()",
+    "This device's localStorage for the Dev levers, or null where the page may not use it (a private window, a sandbox).", ["-"], "§14")
+add("hok.leversOf", "leversOf(E)",
+    "The levers in force on an engine, read from its config, for the Dev panel.", ["-"], "§14")

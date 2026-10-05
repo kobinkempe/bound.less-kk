@@ -261,11 +261,12 @@ export default class KobinEngine {
 
     /**
      * The camera view's picture sources, minted at the end of the action that moved them or the camera — the first
-     * render after a placement, address or camera-frame change — so no read mints (A1 C3, PLAN §3 row 8). Views a
-     * snapshot found wanting are minted then too, or at idle.
+     * render after a placement, address, frame-set or camera-frame change — so no read mints (A1 C3, PLAN §3 row 8).
+     * Views a snapshot found wanting are minted then too, or at idle. The key counts GC's forgets beside the frame
+     * count: a forget and a mint between two renders leave the count as it was (OPEN-FLAGS F111's shape).
      */
     _prepareView() {
-        const key = () => this.cam.frame + "|" + this.doc.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size;
+        const key = () => this.cam.frame + "|" + this.doc.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size + "|" + this._gcStats.forgotten;
         if (key() !== this._prepKey) { this.store.prepare(this.cam.frame); this.store.prepareWanted(); this._prepKey = key(); }
         if (this.store.wanted() && !this._prepIdle) {
             this._prepIdle = true;

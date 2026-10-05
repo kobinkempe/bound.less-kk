@@ -484,3 +484,9 @@ ROLE = {
         "RASTERISER, TRANSFER, BROWSER, OVERLAY) with a one-word verdict, and the `raster` section of the "
         "dev report. It imports only `now.js` (DESIGN.md §14).",
 }
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rpf.noteCore", "noteCore(c)",
+    "The raster core ran on the main thread — the pyramid's inline executor (A3 §2.3, §2.5): its clip, edges, union and accum go into the open perf row, flagged `rasOnMain`, so they count inside the frame's main-thread time.",
+    ["The executor runs in camera steps and commits, never in a job's arrival row, whose phases are the worker's. An add with no open row is counted as an orphan."],
+    "§14")

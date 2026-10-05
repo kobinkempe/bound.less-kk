@@ -414,7 +414,7 @@ add("rco.resolveMask", "resolveMask(k, y0, y1)",
     ["The slot's plane is a whole plate, cleared on first use in a plate and written and read inside the clip only. Marks share up to 16 slots exactly (DESIGN.md §7)."],
     "§7")
 add("rco.mergeCrossings", "mergeCrossings(n)",
-    "A bottom-up merge sort of a sub-scanline's crossing pairs by x, for more than 32 crossings, where the insertion sort went quadratic (F130); counted in `sortStats`.",
+    "A bottom-up merge sort of a sub-scanline's crossing pairs by x, for more than 32 crossings: as stable as the insertion sort, so the picture is the same to the byte, where the insertion sort made a wide scribble's plate 4–16 s (F130); counted in `sortStats`.",
     ["-"], "§9")
 add("rco.sortCrossingsForTest", "sortCrossingsForTest(pairs)",
     "For the tests: sorts crossing pairs through the shipped path and returns them.", ["-"], "§9")
@@ -454,3 +454,8 @@ add("rpk.familyTraits", "familyTraits(items, cfg)",
     "A family's union routing, union sign, colour and alpha as `packJob` decides them over its items in paint order — what a change of membership can flip for every item of the family (PLAN §5.1 Q15); null for a family holding a stroke.",
     ["The Stage reads it (`_traitsOf`) to tell whether a family's membership change damages all of its items' plates. A stroke family's band winding is decided per zoom quantum, hence null."],
     "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rjb.pastePatch", "pastePatch(plate, patch, clip)",
+    "Writes a clipped result's pixels into a whole plate's, in place — the patch merge where there is no canvas to merge on (jsdom keeps raw pixels; A3 §3.2).",
+    ["-"], "§9")
