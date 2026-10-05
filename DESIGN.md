@@ -1047,9 +1047,11 @@ the ink under it, TESTER-2 2026-09-24).
 **The indicator shows what is drawn.** Ants run along the scene's items (`stage.placed`; the
 decision is remade when G moves; a drag keeps the decision made at rest, read through
 `stage.atRest`, and moves it with the pointer from the drag's start; the drop, or a cancel, keeps it too, moved by the
-displacement the drop wrote, when every selected member and frame is drawn exactly that far from where it was at the
-drag's start and the view stays inside the kept window — else it is remade: re-deciding in the dense scene's drop
-frame was 548–803 ms, B-PYRAMID-5),
+displacement the drop wrote, when the ink the selection stands for — its natives on the list and its own members off
+it, and every frame under a selected frame by its own natives — is drawn exactly that far from where it was at the
+drag's start, whichever frames the repair above made its entries (a kid the rest tears off joins as a frame and keeps
+its ink), and the view stays inside the kept window, cut short of any ink that entered or left the list off the view
+— else it is remade: re-deciding in the dense scene's drop frame was 338–803 ms, B-PYRAMID-5),
 so a magnified shape that the browser could not hold as arcs is shown from the
 tile pieces that hold it, and a frame whose selected content is under 2 px on
 screen is one dot with none of its members visited — the frame's box bounds

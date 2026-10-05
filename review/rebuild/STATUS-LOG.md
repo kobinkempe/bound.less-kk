@@ -3393,3 +3393,19 @@ layout assertion (not item 2's; noted for the report).
 in one row where the one-liner covers both (`_keyIn · _keyOut`, `_lineageAdd · _lineageDelete`); § = DESIGN.md's numbering.
 **Questions asked:** none.
 WHERE I AM: selection.js (10), then KobinEngine.js (20), RasterRenderer.js (40).
+
+## 2026-10-05 22:44 UTC — R-MODEL-C34b (reviewer) — checkpoint: item 1 (the review's timings) done; item 2 read
+**Measured (jsdom; the probes `r-c34/zz_rc34_bakeprof`, `src/engine/zz_rc34_*`, `zz_rc34b_*`):** bake profile, the zoom
+out and back on the dense drawing, raster path, 3 runs × 3 passes per tree (load 0.1–2.1): pass ms pre-C3/C4 mean 3,171
+(2,314–3,973), current 3,284 (2,694–3,688), +3.6 %; the one `_bakeUp` a pass 2,920 → 3,012 ms (+3.2 %), C3/C4's helpers
+1 ms (`sameCell` 1,413 calls). A1 §16's +12/+24 % is not reproduced: within the run-to-run spread. City lasso (F108):
+16 frames, 0 ids, 12 ms (the oracle 48 ids, 9.2 ms). Census, drop on an inked cell: live 9/9/9 frames, 3 co-resident
+groups; oracle 9/6/6. Seed 777 et al. after the drop's GC: live 5/14/4, oracle 5/15/5 (as A1 §16). R-DRAG: the 5,000-native
+delete raster 588–642 ms, SVG 1,716–1,758; its undo 697–719 / 2,862–3,075 (load 2.1); the drop's `setBatch` wrap 211–387 ms
+vs 209–385 without, 2 of 4 cached tiles dropped instead of patched.
+**Found by reading + probe (pre-existing, both trees):** frame GC forgets the picture sources `_prepareView` minted
+(`lm.minted` = GC candidates; `_history`/`_endMove` collect after their render): per undo or redo with a shifted frame's
+ink in view, 1 frame forgotten and re-minted, 2 tile bakes, 1 plate drop (pre-C3/C4: the same, 2.3 bakes). A keep rule:
+design question.
+**Questions asked:** none yet (in the report).
+WHERE I AM: item 3 — frozen copies of 59f0a76 and HEAD, dev servers on 3030/3031, the batch announced before it starts.

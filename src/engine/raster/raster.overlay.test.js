@@ -999,6 +999,27 @@ describe("G14 — a drop keeps the drag's decision, moved by the selection's dis
         expect(E._selDecSeq).toBe(seq0 + 1);
     });
 
+    test("ink that left or entered the list: kept with the window cut short of it when it is off the view, else decided again", () => {
+        // A moved frame's tile pieces at its edges leave or enter the scene's list at the drop; stood for by a key of
+        // the drag's start (`at`) the list no longer has, or one the list has that `at` lacks.
+        for (const kase of ["left, off the view", "left, in the view", "entered, in the view"]) {
+            const { E, press } = selected();
+            E._selectionAnts();
+            E.pointerDown(press[0], press[1]);
+            for (let k = 1; k <= 6; k++) E.pointerMove(press[0] + 9 * k, press[1]);
+            E._selectionAnts();
+            const dec = E._selDec, vp = E.cam.frameWindow(0), px = 1 / E.cam.inScale;
+            const x0 = kase === "left, off the view" ? vp.right + 100 * px : (vp.left + vp.right) / 2;
+            if (kase.startsWith("left")) dec.at.set("gone", { left: x0, top: vp.top + 10 * px, right: x0 + 20 * px, bottom: vp.top + 30 * px });
+            else dec.at.delete([...dec.at.keys()][0]);
+            const seq0 = E._selDecSeq;
+            E.pointerUp();
+            E._selectionAnts();
+            expect([kase, E._selDecSeq - seq0]).toEqual([kase, kase === "left, off the view" ? 0 : 1]);
+            if (kase === "left, off the view") expect(Math.abs(E._selDec.win.right - (x0 + 54 * px)) / px).toBeLessThan(0.01);   // cut at the piece, moved by d
+        }
+    });
+
     test("a kid the drop's rest tears off a selected frame joins the selection as a frame: the same ink, nothing decided", () => {
         // `select.inkless` I6's fixture: a selected frame, its kid near its edge; a 12 px drag's rest re-homes the kid
         // under the next cell and `_repairSelection` adds it (DESIGN.md §10). The dense scene's drop: 1,045 → 1,046 entries.

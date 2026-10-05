@@ -377,3 +377,147 @@ ROLE = {
         "`rasterCore.renderPlate` into one reused scratch and posts back the pixels, per-plate timings and counts, "
         "painted-id sets, guard words and the job's buffers. `runJob` is also the inline path.",
 }
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rr.idle", "idle(fn)",
+    "Runs `fn` at idle within a second (`requestIdleCallback`), else after 30 ms.", ["-"], "§9")
+add("rr._sizeEdges", "_sizeEdges(w, h)",
+    "Sizes FC1's z 3, the selection's edge layer, to the screen; nothing while no selection shows.", ["-"], "§10")
+add("rr.setLasso", "setLasso(fn) · setTileDebug(v, fn) · setEraseDebug(v, fn)",
+    "The lasso's loop and the tile and erase debug overlays, handed to the SVG overlays (`svgOverlay.js`).", ["-"], "§9")
+add("rr.refreshSelection", "refreshSelection()",
+    "Redraws the lasso alone — what a lasso drag calls, not `syncWorld`.", ["-"], "§10")
+add("rr.setSelectionAnts", "setSelectionAnts(fn)",
+    "The engine's selection-indicator decision (`overlays._selectionAnts`), pulled at each camera step.", ["-"], "§10")
+add("rr.setDragState", "setDragState(fn)",
+    "The engine's live drag, pulled here because the raster renderer draws the dragged ink itself (PAPER-PLAN R3).", ["-"], "§9")
+add("rr.update", "update()", "The SVG layer's update: the live stroke and the overlays follow.", ["-"], "§9")
+add("rr._farList", "_farList(pl, lvl)",
+    "A far plane level's own items (F122): the Stage's snapshot of its rectangle, read at idle a budget at a time; the level is posted when its snapshot is in, packed at the snapshot's G, and a re-cut level is forgotten.",
+    ["Read in the aim, it was a 0.2–0.6 s frame after every select and every drop (TESTER-3). A read that runs out leaves the level with no list and is counted (`farListFallbacks`)."],
+    "§9")
+add("rr._readIdle", "_readIdle(frameId, rectOf, stale, done, tries)",
+    "An off-camera table read at idle, IDLE_READ_MS at a time, up to IDLE_READ_TRIES: `done(snapshot)`, or `done(null)` when the rectangle is gone or the reads ran out; nothing once `stale()` holds.",
+    ["A read past its budget keeps the tiles it baked, so the next try goes further."], "§9")
+add("rr.setLiveArcs", "setLiveArcs(gaps)",
+    "The live stroke's arcs handed to the live layer (`LiveStrokeLayer.arcs`).", ["-"], "§9")
+add("rr._origin", "_origin()",
+    "The world transform's origin: the live layer's (FC6) — `overlays._selDecide` caches on its identity.", ["-"], "§9")
+add("rr._sceneList", "_sceneList()",
+    "The Stage's items that packs paint — a stroke pending its shape skipped (PLAN §1.5) — one array per table version and G.", ["-"], "§9")
+add("rr._pumpSoon", "_pumpSoon()",
+    "Dispatches the job queue in a microtask, for a request made outside a camera step — the rest's quiet, a commit's group — since nothing else pumps while the camera is still and nothing is in flight.",
+    ["-"], "§9")
+add("rr._noteCore", "_noteCore(s)",
+    "An inline render's core phases, into the frame's perf row and out of the view's time around it.", ["-"], "§14")
+add("rr._pyrBuild", "_pyrBuild(container, dpr, opts)",
+    "Builds the picture pyramid's parts (A3 §1, §4): the plate store, the pyramid (the layer) and the job queue over the raster pool; this renderer packs, measures, posts and lands for them (FC3).",
+    ["It also subscribes to the Stage's commits: a shape that landed in a commit opens its group first, before any patch step could publish its plates while the live path is still up (A3 §3.6), and the commit's patch step is made due in its task. A slot an orphaned answer frees pumps the queue."],
+    "§9")
+add("rr._pyrCommitStep", "_pyrCommitStep()",
+    "A commit's patch step that no compose or camera step ran in its task, in a `settle` perf row of its own when none is open; not while the tab is hidden — it stays due (PLAN §5.22 item 3).",
+    ["-"], "§9")
+add("rr.onLevers", "onLevers()",
+    "A Dev lever changed (A3 §8): the plate budget is applied in one eviction pass; a step change is the next view's.", ["-"], "§14")
+add("rr.noteUserEdit", "noteUserEdit()",
+    "The user's own action just committed (an undo, a redo, a drop): its patch gets the user's budget (A3 §3.3).", ["-"], "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rr.setBusy", "setBusy(fn)",
+    "Whether the engine is busy sending a report: the prefetch plans nothing meanwhile (A3 §4.3).", ["-"], "§9")
+add("rr.noteAttention", "noteAttention(sx, sy)",
+    "The attention point (A3 §1.5, §4.4) — the last pointer, wheel focus or pinch centre — handed to the pyramid in device pixels: the plan's and the queue's nearest-first.",
+    ["-"], "§9")
+add("rr._pyrMotion", "_pyrMotion(v)",
+    "The queue's motion (A3 §4.4): moving iff the published view's affine changed since the last step in the same frame, with its pan and zoom velocity, the attention point and the view.",
+    ["The velocity drives the queue's velocity rule — skipping cells the camera will have left by a strip's arrival — and the re-aim of a view strip at the level the camera is heading to (DESIGN.md §9)."],
+    "§9")
+add("rr._pyrPrefetch", "_pyrPrefetch(v)",
+    "The prefetch, at idle — the camera still and nothing of the view's or a patch's queued or in flight — once a view revision and a generation: a change stales the cached coarser levels, and a zoom's stand-in must be fresh (blurrier, never older).",
+    ["The scene must be idle too: the plan waits for the rest's quiet after the last commit, because a bake commits every few frames and a plan per commit re-rendered the coarser levels each step (P5). A new plan supersedes the queued one by generation. Its off-camera tile reads are warm, so they survive crossings (F83: the zoom back in baked 19–22 tiles without it, 9–10 with it). A report being sent plans nothing."],
+    "§9")
+add("rr.listMargin", "listMargin(inScale)",
+    "The margin the camera's table window is grown by: four view cells, so the near prefetch's ℓv − 1 packs from the camera's table (A3 §4.2); at least a view while a selection is on the plane's path, whose SEL cells reach a view past the screen (A3 §6 D1).",
+    ["-"], "§9")
+add("rr._tableList", "_tableList(tab)",
+    "A snapshot table's items that packs paint — a stroke pending its shape skipped — one array per table, so the pack's prepass memoised on the list's identity is reused.",
+    ["-"], "§9")
+add("rr._pyrPack", "_pyrPack(job, jobId, bufPool)",
+    "Packs a typed job (A2 §3.1): from its own table (the prefetch's off-camera snapshot) at that table's G, else from the Stage at its G keeping only the cells the camera's table covers; a refused cell is un-asked, to be asked again once covered (F119).",
+    ["A plane layer packs its own members (`only`) or everything but them (`omit`); any other pack leaves the dragged selection out while the plane draws the move. A clipped job packs only what meets its clips (PLAN §5.18). The pack's prepass and item costs calibrate the pyramid's estimate (A3 §2.2). `jobId` null: the inline executor's."],
+    "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rr._pyrMeasure", "_pyrMeasure(job)",
+    "The estimate's inputs over a job's cells at its Z, or over their clips (A3 §2.2, §3.3): the visible chords, the item-box pixels, the union items' rows, the cells an item meets, the items the pack keeps, the list's items.",
+    ["For a clipped patch each item's chords count by its rows' share inside the clips — the rows a clipped render deposits (A3 §3.1). The pyramid prices an inline render from these against its calibration, which decides an inline patch, a coarser level or the workers (DESIGN.md §9)."],
+    "§9")
+add("rr._pyrSubmit", "_pyrSubmit(st, pool)",
+    "The queue's pool face over the worker client (A3 §4.4): a strip packed and posted now, or refused; a cut posts its own entry. A dispatch outside a step or an arrival opens a `settle` perf row, the rest's.",
+    ["-"], "§9")
+add("rr._pyrPost", "_pyrPost(st, pool)",
+    "Posts one strip to the raster pool: its plates, a pack callback run at dispatch, and the result, drop and requeue handlers; the post less the pack is timed as `xfer.out`.",
+    ["The strip's queued-at goes to `rasterPerf`, where an arrival's wall time starts (every phase of the frame in a bucket)."], "§9")
+add("rr._pyrRequeue", "_pyrRequeue(st, jobId)",
+    "The pool failed under a strip — a worker's error or silence (RW-1): its job id ended and the strip put back at the head of its priority (H7).",
+    ["-"], "§9")
+add("rr._pyrResult", "_pyrResult(st, res, info)",
+    "A strip's result: one plate record per cell — a whole plate's pixels made an image bitmap first where the scope can, a clip kept as the patch — then landed in an `arrival` perf row.",
+    ["When any bitmap has to be made, the landing waits for them all, so the strip lands at once."], "§9")
+add("rr._pyrLand", "_pyrLand(st, recs, res, info)",
+    "Lands a strip's plate records in the pyramid (a late plate of a dropped layer is refused by the store), ends its job, calibrates the estimate, pumps the queue, moves the drag plane on, and composes once.",
+    ["The plane composes on its own plates' arrival; a landing plane ends on the last fresh plate under it; a dragging plane picks its best level again (DESIGN.md §9)."],
+    "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rr._pyrPlaneOf", "_pyrPlaneOf(pl, lvl)",
+    "The drag plane as the pyramid draws it (A3 §6): the drawn level's Zp and layers, with the plane's state, partial flag, frame and offset read live.",
+    ["-"], "§9")
+add("rr._pyrStopgap", "_pyrStopgap(pl)",
+    "No whole plane level at a drag step (A3 §6, H4): a small selection's own layers of the quick level, with what lies below and over them on its start footprint, rendered on this thread now and landed as plane plates; true when it ran.",
+    ["Bounded by STOPGAP_OBJECTS selected objects and STOPGAP_PLATES plates; its time is counted in the plane's stats."], "§9")
+add("rr._pyrDrop", "_pyrDrop(st, d)",
+    "A strip that will not land: its job id ended, its slot freed, and its cells asked for again at the next step.",
+    ["A drop the queue's own pump made (`before`) is counted there; a failure gives the velocity rule no arrival sample."], "§9")
+add("rr._pyrUnask", "_pyrUnask(st, why)",
+    "Forgets a dropped strip's own asks — those made at or before its own — so its cells are asked for again; a newer ask, and every other cell's, stands, since its job brings them. A strip whose cells were exact asks for nothing.",
+    ["-"], "§9")
+add("rr._pyrLive", "_pyrLive(v)",
+    "The pen-up rule (PLAN §1.5, A3 §3.6): a held live path stays while its stroke is pending, with no limit; once its shape has landed, one group commit publishes the drawn cells under its box and takes the path down in the same task.",
+    ["An undo or a cancel (the stroke left the document) takes it down now; a crossing carries it (`_liveCross`); while the new frame's table lacks the stroke the document says whether it is pending; a group past LIVE_HOLD_MS commits what it has. Run at every Stage commit and every step; returns how many paths came down."],
+    "§9")
+add("rr._liveCross", "_liveCross(F)",
+    "A frame crossing with held live paths: each carried into the new frame — its root scaled by R^Δdepth and moved, its box and a waiting group's rectangle mapped — so it stays where its stroke is drawn until its group commits; one with no map comes down.",
+    ["Never neither the path nor the stroke's plates (PLAN §1.5)."], "§9")
+add("rr._pyrTakeDown", "_pyrTakeDown(h, handoff)",
+    "Takes one held live path down — `handoff`: its plates published in this task — with the hold's length counted; false when it was already gone.",
+    ["-"], "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rwc.setOnSlotFreed", "setOnSlotFreed(fn)",
+    "Registers the hook called when an abandoned job's answer frees its worker slot — nothing else reports that capacity, so the renderer pumps the job queue there.",
+    ["-"], "§9")
+add("rwc.freed", "freed(released)", "Calls the slot-freed hook when a release freed a slot.", ["-"], "§9")
+add("rwc.failPool", "failPool(e, respawn, silent)",
+    "Every job in flight handed back and the pool terminated: a strip goes back to the head of its priority (H7), a request with no requeue is dropped; a new pool while respawns are left, else the inline path for the session.",
+    ["The re-pack mints a new job id, so the caller ends the old one. `silent`: the record the watchdog found silent, whose requeue hears \"watchdog\"; every other hears \"worker\" (RW-1)."],
+    "§9")
+add("rwc.armWatchdog", "armWatchdog()",
+    "While a worker holds a job, a check every half WATCHDOG_MS.", ["-"], "§9")
+add("rwc.checkWatchdog", "checkWatchdog()",
+    "A job held past WATCHDOG_MS is marked, and the pool replaced only if it is still unanswered at the next check, since an answer queued behind a long main-thread task lands before then (RW-1).",
+    ["-"], "§9")
+add("rwc._checkWatchdogForTests", "_checkWatchdogForTests()",
+    "For the tests: one watchdog check now.", ["-"], "§9")
+add("rwc.dispatchCut", "dispatchCut(entry, slot)",
+    "Posts an erase cut or descent (PLAN §1.6) into a worker slot of the raster pool, through a transport when one is set, or — with no worker, a broken pool — runs the worker's own `runCut` on this thread a turn later.",
+    ["The cut's message is built at dispatch (`req.wire()`); a build that throws is dropped before it is posted. The cuts share the pool with the plates (DESIGN.md §7, §9)."],
+    "§7")
+add("rwc.onCutMessage", "onCutMessage(slot, data)",
+    "A cut's answer: its record ended and its `onResult` called; a job that threw in the worker fails; an answer for an abandoned record frees the slot.",
+    ["-"], "§7")
+add("rwc.poolBroken", "poolBroken()",
+    "Whether the pool is broken — no transport and no worker: the script did not load, or the pool failed past its respawns — so the erase runs its jobs inline.",
+    ["-"], "§9")
+add("rwc.freeSlots", "freeSlots()",
+    "The free slots now: idle workers, a transport's spare capacity, or the one inline slot when nothing is in flight.", ["-"], "§9")

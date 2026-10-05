@@ -392,3 +392,65 @@ ROLE = {
         "routing and sign, colour and quantised fade. It also gives the visible chord estimate the "
         "main-thread-or-worker switch reads (DESIGN.md §9).",
 }
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rco.setOcclusion", "setOcclusion(on)",
+    "Turns the occlusion cull on or off — on unless a test turns it off.", ["-"], "§9")
+add("rco.depositFamily", "depositFamily(job, it, last, ox, oy, Zq, y0, y1)",
+    "One family's coverage into the accumulator over rows [y0, y1): its fast-path items' edges, then the union pass for its union items, signed by the family's own orientation; returns the edges deposited.",
+    ["The sign must not depend on which of the family's items a plate happens to see, or one plate paints ink where its neighbour cuts a hole (D64): it is the packer's sign over every union item of the family (D90), else the shoelace summed over them all, drawn or not. So a union item and a fast-path item of one family add where they meet instead of cancelling."],
+    "§9")
+add("rco.coverCandidate", "coverCandidate(job, it, last, ox, oy, Zq)",
+    "Whether a family could hide the whole clip: opaque, not a mark, under no live mark, its drawn boxes spanning the clip — a candidate for the occlusion cull.",
+    ["-"], "§9")
+add("rco.fillsPlate", "fillsPlate()",
+    "Whether the coverage in the accumulator fills every pixel of the clip to COVER_MIN — the test that makes a candidate family the plate's occluder.",
+    ["-"], "§9")
+add("rco.keepAt", "keepAt(bits, i)",
+    "What several pending marks' masks leave of pixel `i`: Π(1 − mask) over the slots in `bits`.",
+    ["The core multiplies a masked family's coverage by it (DESIGN.md §7: the raster renderer draws a pending mark as nothing)."], "§7")
+add("rco.resolveMask", "resolveMask(k, y0, y1)",
+    "A pending mark's family resolved into mask slot `k` instead of onto the plate: its coverage as bytes, the max over its items and over the marks sharing the slot (A2 §4.4).",
+    ["The slot's plane is a whole plate, cleared on first use in a plate and written and read inside the clip only. Marks share up to 16 slots exactly (DESIGN.md §7)."],
+    "§7")
+add("rco.mergeCrossings", "mergeCrossings(n)",
+    "A bottom-up merge sort of a sub-scanline's crossing pairs by x, for more than 32 crossings, where the insertion sort went quadratic (F130); counted in `sortStats`.",
+    ["-"], "§9")
+add("rco.sortCrossingsForTest", "sortCrossingsForTest(pairs)",
+    "For the tests: sorts crossing pairs through the shipped path and returns them.", ["-"], "§9")
+add("rco.setClip", "setClip(c)",
+    "Takes a plate's clip box; one that is not integral or not inside the plate would write other rows, so it throws.",
+    ["A clipped render deposits only the clip's rows — the patch rule's dirty rectangles (A3 §3.1)."], "§9")
+add("rco.paintPlate", "paintPlate(job, plateIndex, out, counts, timings)",
+    "Paints one plate of a packed job: the items whose pixel box misses the plate pruned, the families listed in paint order, then pass 0 resolves the pending marks into their masks and pass 1 paints the rest, masked, from the topmost family that covers the whole clip opaquely.",
+    ["The occlusion cull hides everything under an opaque family covering the clip (Kobin, 2026-09-23: 41 whole-plate backdrops a plate under the Magnum Opus's nucleus); a candidate that falls short is painted normally and its counts taken back. A family whose box misses the clip grown by 2 px is skipped whole; the pruning of items is exact, since an item missing the plate deposits nothing the resolve can read. Returns the counts (edges, families, occluded)."],
+    "§9")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("rpk.outsideWin", "outsideWin(item, win)",
+    "Whether an item cannot draw inside a window, read off its cached drawn box without building its pack entry — conservative: a stroke's box widened by half its width and a quarter of its extent for the curve's overshoot.",
+    ["A scan that built every entry of a table larger than the memo rebuilt them all each time (the dense drawing thrashed the 10 MiB memo, B-PYRAMID-2 P5)."],
+    "§9")
+add("rpk.itemChordsAt", "itemChordsAt(item, Z, cfg)",
+    "One item's chords at zoom Z as `visibleChords` counts them, memoised on its entry — a patch estimate's term.", ["-"], "§9")
+add("rpk.recFor", "recFor(r, o, fade, cfg, offset)",
+    "An item's prepass record: the old one when its entry is live and its fade, z, family, erase flag and residual are those it was built with, else a new one.",
+    ["A kept record does not touch the memo's LRU: a delete and a set per list item was most of a 26 ms prepass on the dense drawing."], "§9")
+add("rpk.entryLive", "entryLive(e, o)",
+    "Whether a memo entry is still the item's: not evicted, built from its current geometry version and outline.", ["-"], "§9")
+add("rpk.sameRes", "sameRes(a, b) · sameRecs(a, b)",
+    "Two residuals equal by value; two families' record lists the same records in the same order — so a family's union routing and sign are reused from the last prepass.",
+    ["-"], "§9")
+add("rpk.famAdd", "famAdd(f, r, o, fade, idx)",
+    "Adds an item's record to its family's drawn list, or counts its rejection: a non-finite coordinate paints nothing, and one past the coordinate bound is counted and logged once.",
+    ["-"], "§9")
+add("rpk.withOffset", "withOffset(own, offset)",
+    "An item's residual with the pack's offset added, in frame units; the residual itself when there is none.", ["-"], "§9")
+add("rpk.maskSlots", "maskSlots(items, marks)",
+    "The job's mask slots (A2 §4.4): each item's masking marks by the erase rule, and each mark's slot — marks share a slot only where that is exact per family; past MASKS_MAX a mark joins the slot it over-hides the fewest families in.",
+    ["The core masks a family whole, by all its items' bits, so no family whose box meets both marks may have one and not the other. A family under two marks sharing a slot reads 1 − max for (1 − a)(1 − b), which differ only where the edges overlap. Over-hiding is counted (`maskOverflow`) and never white ink, which would hide what the rule says shows (DESIGN.md §7). Returns item → its masking marks."],
+    "§7")
+add("rpk.familyTraits", "familyTraits(items, cfg)",
+    "A family's union routing, union sign, colour and alpha as `packJob` decides them over its items in paint order — what a change of membership can flip for every item of the family (PLAN §5.1 Q15); null for a family holding a stroke.",
+    ["The Stage reads it (`_traitsOf`) to tell whether a family's membership change damages all of its items' plates. A stroke family's band winding is decided per zoom quantum, hence null."],
+    "§9")

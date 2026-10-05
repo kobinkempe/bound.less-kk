@@ -927,3 +927,101 @@ add("erp._lassoBarrier", "_lassoBarrier(poly, then)",
 add("erp._eraseStatus", "_eraseStatus()",
     "The erase part of the engine's status: the pending marks, whether a gesture is parked on their cuts (the editor's \"Finishing the erase…\" chip) and how many bakes were aborted.",
     ["-"], "§7")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("sel._opUnder", "_opUnder(op)",
+    "What an action applying `op` can carry out of the selection, read before it runs: the op's frames under a selected frame, and its per-object members listed or under one (A1 C2: the selection is repaired from the op, never from events).",
+    ["-"], "§10")
+add("sel._repairSelection", "_repairSelection(under)",
+    "After a drop, an undo or a redo: what `_opUnder` read before the action is repaired into the selection, quietly — the caller renders.",
+    ["-"], "§10")
+add("sel._lassoWalk", "_lassoWalk(visit)",
+    "The lasso's frame walk: the camera's frame and everything under it, then out through each ancestor at its scale and offset, skipping the branch already walked.",
+    ["-"], "§10")
+add("sel._familyBounded", "_familyBounded(o, found, frames)",
+    "Whether the loop bounds native o's family: every member found, a pending mark, or under an enclosed frame (a piece homed there is taken through it).",
+    ["-"], "§10")
+add("sel._tornUnder", "_tornUnder(frames, found)",
+    "The enclosed frames that may not stand for themselves whole: the path from each keyed native under one whose family the loop does not bound — a ceded kid of a stroke outside — up to the enclosed frame.",
+    ["Reads only the keyed natives under enclosed frames (`Document.keyedIn`), never their other ink (REVIEWER-3 LASSO-1: a drag then tore the kid out of its stroke). Since A1 C4 a cede's kids live in private frames under their family's chain, so this is the backstop for kids in shared frames: content from before C4, a kid ceded across its chain's parent cell, a member moved per object."],
+    "§10")
+add("sel._lassoMoved", "_lassoMoved(poly, box, ink, found, frames)",
+    "Judges every displaced native where it is drawn, since a moved native is indexed at its stored bits and the frames' indexes never see its picture (F69); returns the frames a native with its own table drawn outside the loop keeps from being taken whole (H6).",
+    ["Under an enclosed frame, the union box already covers what the frame's shift displaces, so only a native with an own table is judged there; elsewhere a displaced native inside the loop joins `found` (DESIGN.md §10, A1 C1)."],
+    "§10")
+add("sel._judgeLasso", "_judgeLasso(L, poly)",
+    "A finished loop's verdict: what it finds becomes the selection; with ctrl, a loop that catches nothing new subtracts what it catches, and one that catches anything new adds.",
+    ["A ctrl loop catching nothing new is one drawn purely inside the selection, so it subtracts — one rule that reads the same way round as a group-level toggle."],
+    "§10")
+add("sel._dropMove", "_dropMove(d)",
+    "The drop — a drag's one write (A1 C2): the selected frames re-addressed from their addresses at the press, then each member placed once per (home frame, picture table), and the move recorded as one op.",
+    ["Every member of a frame with one table takes the same answer, which registration rests on (DESIGN.md §8): `_displaceMember` puts whole cells into the address and the rest into the member's own table, less the target frame's shift. Frames go first, because a member re-homed into a selected frame's start cell would be moved again by that frame's re-address; the members are listed at the press, because a frame carried out from under a selected one moves its natives itself (F138 seed 70). The store's batch mode is on for the write; the Stage's hold stands, so the table takes the whole displacement at the release. A member the drag could not move is journaled with why (F35). Returns the op pushed (`move`, `moveMany` or `moveFrames`), or null."],
+    "§8")
+add("sel._tinyHit", "_tinyHit(b, slack)",
+    "Whether a mark is smaller than the reach, so it is picked anywhere its box is within reach — the eight probes sit on the reach's ring and missed a sub-pixel dot between them (TESTER-2).",
+    ["-"], "§10")
+add("sel._marksAt", "_marksAt(items, p0)",
+    "The landed marks whose ink covers a frame point, or null: a pick skips their masked targets there, so a press takes what shows (DESIGN.md §7).",
+    ["Each mark is read where the Stage places it."], "§10")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("eng.idleHop", "idleHop(fn)",
+    "Runs `fn` at idle (`requestIdleCallback` with no forced timeout), else after 30 ms.", ["-"], "§9")
+add("eng._prepareView", "_prepareView()",
+    "Mints the camera view's picture sources (`TileStore.prepare`) at the first render after a placement, address or camera-frame change — the end of the action that moved them — so no read mints (A1 C3); views a read found wanting are minted then too, or at idle.",
+    ["Keyed on the camera's frame, the table revision, the address epoch and the frame count, so a render with none of them changed costs nothing. A view still wanting after the render is prepared at idle and rendered again (DESIGN.md §8: no read settles, mints or changes a table)."],
+    "§8")
+add("eng._camToLattice", "_camToLattice()",
+    "The camera's frame deleted with a subtree (A1 C3: it left the lattice): the camera goes to a fresh frame at the same cell — its chain as the last render read it — with the same coordinates; else the chain is noted. True when it moved.",
+    ["What the deleted frame's id cached goes — the store's tiles, the Stage's items, the plates — as frame GC's forget does, because an undo brings the id back (F111). With no chain to follow, the camera goes to the spine at its level."],
+    "§10")
+add("eng._camToResident", "_camToResident()",
+    "A camera whose frame became a co-resident is handed to its cell's resident, with the same coordinates (A1 C3); true when it moved.",
+    ["-"], "§8")
+add("eng.setLevers", "setLevers(patch)",
+    "The Dev levers (A3 §8, `devLevers.js`): the valid fields of `patch` into the engine's config, anything else ignored; on the raster path they take effect at once — the plate budget in one eviction pass, a level-step change at this render's view.",
+    ["-"], "§14")
+add("eng.setLevelStep", "setLevelStep(s)",
+    "Sets the pyramid's level step S — 1, 2 or 3, the Dev panel's toggle — through the levers; returns the step in force.", ["-"], "§14")
+add("eng.setPlateBudget", "setPlateBudget({views, ceilingMiB})",
+    "Sets the plate store's budget — `views` screens (1–8) under `ceilingMiB` (64–512) — through the levers; returns the pair in force.", ["-"], "§14")
+add("eng._listWin", "_listWin()",
+    "The window the Stage's table (and the SVG path's list) reads: the camera's frame window, on the raster path grown by the renderer's margin of four view cells, so a plate reaching past the squares the table read is not rendered without that ink (REVIEWER-4 P-1).",
+    ["-"], "§9")
+add("eng._tableStep", "_tableStep(crossed)",
+    "The raster path's camera step (A2 §2.11): the table synced to the window — a window change reads and drops tiles, nothing is rebuilt — then the renderer's step; a frame crossing renders instead.",
+    ["-"], "§9")
+add("eng._syncStep", "_syncStep()",
+    "A camera step without a render: on the raster path the Stage's table is synced to the window from the cache alone and the rest left to `_readIdle`, then the renderer follows the camera.",
+    ["-"], "§9")
+add("eng._readIdle", "_readIdle()",
+    "Reads the tiles a camera step left unread, once the camera has been still for the rest's quiet, a slice at a time at idle (READ_SLICE_MS, shorter on a phone); each slice steps the renderer, whose plan asks for the cells now covered.",
+    ["A camera step reads the cache alone, so a tile not read is absent that frame: its cells are drawn from stand-ins and never packed (`covers`, F119). A move during the wait starts the quiet again; a bake is not recalled, as a posted job is not (A3 §2.1)."],
+    "§9")
+add("eng._pend", "_pend()",
+    "The step the next animation frame takes (\"raf\" frames): asked for at the first event and filled by every event until it runs (A3 §5).",
+    ["The camera moves at each event, so hit tests and the float arithmetic are what they were; only the consequences wait for the frame."],
+    "§9")
+add("eng.flush", "flush()",
+    "Takes the pending frame step now, if there is one — for a press or a release, the suites and the harness.", ["-"], "§9")
+add("eng._frame", "_frame()",
+    "One animation frame's step, once: the drag's at the last pointer, then the camera's — a zoom's consequences, else a pan's; else the live stroke's SVG update; else one compose for the plates that arrived.",
+    ["The drag recomputes its move from the drag's start (M-4). Stillness is seen only on a frame (A3 §2.1), so the raster path takes one more frame after a camera step to notice the camera is still."],
+    "§9")
+add("eng._panStep", "_panStep(crossed, t0)",
+    "A pan's consequences, once a call or once a frame: on the raster path the table step; on the SVG path a render when the view crossed a cell, changed its visible set or left its window's inner half (F40, REVIEWER-3 CAM-1), else a camera-only update.",
+    ["-"], "§9")
+add("eng._zoomBy", "_zoomBy(sx, sy, factor, crossedBefore)",
+    "Zooms the camera about a screen point: the attention point moved there (the wheel focus or the pinch centre), the camera zoomed, and its consequences taken now or at the next frame.",
+    ["The camera's last move is stamped so the bake's slices keep off this frame (`_camBusy`)."], "§9")
+add("eng._zoomStep", "_zoomStep(crossed, t0)",
+    "A zoom's consequences, once a call or once a frame: on the raster path the table step; on the SVG path a render when a crossing, the visible set, a fat or fade flip, a re-origin or the window demands it, else a camera-only update.",
+    ["Outlines are pre-fitted at idle when a stroke nears the gate or a new level activates."], "§9")
+add("eng._history", "_history(stack, step)",
+    "An undo or a redo: a parked gesture cancelled, the op applied as one commit, the selection repaired from it (A1 C2), the renderer told a user's edit is coming, one render, then frame GC.",
+    ["GC runs after the render because a plate drop's mapping can mint a frame. False in a read-only tab or when there was nothing to apply."], "§10")
+add("eng.sweepFrames", "sweepFrames()",
+    "Frame GC over every frame, called by the saver once a restored store is in (F94); 0 in a read-only tab.", ["-"], "§8")
+add("eng.onZoom", "onZoom(cb)",
+    "Subscribes `cb(effectiveZoom)` to every status emit that finds the zoom changed — once a frame — so the scale HUD follows a zoom without re-rendering the page (A3 §5, R25 W1); returns the unsubscribe.",
+    ["-"], "§12")
