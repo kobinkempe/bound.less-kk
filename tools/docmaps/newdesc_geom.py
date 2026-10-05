@@ -662,3 +662,25 @@ add("off.composeShift", "composeShift(below, shift)",
     "A native's picture table (A1 C1): its own table with its home frame's shift added at k = 0, without a carry, so the sum may reach a frame and a half; the table itself when the frame has no shift.",
     ["Exact: both terms are multiples of 2^-10 under 2^18. The shift is placement, composed on read and never written into the table (DESIGN.md §8)."],
     "§8")
+
+# ---- 2026-10-05, the rebuilt tree ----
+add("arc.sameCircle", "sameCircle(p, q, tol)",
+    "Whether two arcs lie on one circle, to `tol` in centre and radius; lines never do.", ["-"], "§5")
+add("arc.samePiece", "samePiece(p, q, tol)",
+    "Whether two fragments between the same two vertices are the same curve travelled the same way — so an exact retrace's overlap is kept once.",
+    ["-"], "§5")
+add("arc.verdict", "Oracle.verdict(x, y, r, margin, src)",
+    "The burial test's three-way answer for a point of the perimeter: 2 when it is inside the pen by more than the margin (buried); 1 when it sits within the margin of r from a stretch of the centreline other than its own arc and its neighbours (a tie: an exact retrace, or a copy peeling off tangentially); else 0.",
+    ["A tie is kept for now and pruned later if it dead-ends (`_pruneTies`, OPEN-FLAGS F89; DESIGN.md §5)."], "§5")
+add("arc._overlapCuts", "ArcBakeJob._overlapCuts(i, j, eps)",
+    "Two arcs on one circle — a stroke retracing itself exactly (F89): each is cut at the other's ends that fall inside it, at those ends' own vertices, so the overlap splits into identical fragments the classification keeps once.",
+    ["-"], "§5")
+add("arc._pruneTies", "ArcBakeJob._pruneTies()",
+    "Marks used every kept tie that dead-ends at both its vertices — the far side of a copy that peels off tangentially inside the other lap by less than the margin — so the restitch never takes it and leaves no open chain (F89).",
+    ["O(kept), and run only when a tie was kept at all. So the union has winding 1 everywhere (DESIGN.md §5)."], "§5")
+add("shp.insideTester", "insideTester(loops)",
+    "`insideShape` for many points of one shape: its pieces indexed once, each point one bucket scan (EFF-2).", ["-"], "§6")
+add("bia.closeLoop", "BiarcPen.closeLoop()",
+    "A stroke that ends exactly where it began is periodic: its seam gets the handle an interior sample would, so the first and last gaps leave and arrive with one tangent and the rails' seam arcs end on their own circles (F117); returns whether it changed anything.",
+    ["The live pen treats the stroke as open; the resolve calls this once. The two one-sided tangents differed by ~3e-4 rad and left four seam arcs up to 0.039 units off their circles, which the inside test read as two crossings (DESIGN.md §5)."],
+    "§5")

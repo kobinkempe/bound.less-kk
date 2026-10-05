@@ -3435,3 +3435,14 @@ interleaved, then one profiled drop on `fin2`; harness `bp5/h5` = `hp` + the ant
 (`_selDecSeq`). Each run under load 2. Log `bp5/batch6.log`.
 **Questions asked:** none.
 WHERE I AM: b6 running; R-PYRAMID-34's skipped items meanwhile (F134/F135's jsdom timings first).
+
+## 2026-10-05 22:46 UTC — B-DOCMAPS-2 (builder) — checkpoint: item 2's rest, 17 files of 30 done
+**Working on:** the new live functions in pre-existing files; `tools/docmaps/newdesc_{engine,paper,raster1,raster3,geom,scenes}.py` (appended
+under the "2026-10-05, the rebuilt tree" header by `dmap/setentry.py`).
+**Measured:** described from their bodies since the last entry: selection 10, KobinEngine 20, RasterRenderer 40, rasterCore 10,
+rasterPack 10, rasterWorkerClient 10, Renderer 9, overlays 6 (B-PYRAMID-5b added `_selFrameInk` meanwhile; re-extracted:
+3,656 functions), offsets 6, arcPerimeter 5, arcShape 1, biarc 1 — 278 of 303 so far. Small files left: 25 functions in 13.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: the small files (SyncChip, CanvasEditor, eraseDescent, eraseJob, oplog, persist, MovePlane, rasterJob, rasterPerf,
+sceneClient, rasterWorker, reportSend, useKobinEngine), then the lenient chain's coverage and audit_stale.
