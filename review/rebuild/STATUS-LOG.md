@@ -3344,3 +3344,14 @@ existing files, 27 stale pristine rows, 46 + 84 hand edges, 90 Call Map problems
 the whole context at full price).
 **Questions asked:** none.
 WHERE I AM: launching the three successors.
+
+## 2026-10-05 22:31 UTC — R-MODEL-C34b (reviewer) — start (successor of R-MODEL-C34; tree at d438a5d)
+**Working on:** items 1–6 of the hand-over, in order: the review's timings (bake profile pre vs cur, the city lasso,
+R-DRAG's `setBatch` and subtree delete, seed 777 after GC), the review by reading (brief §2, B-MODEL-C34 §3), Chromium
+scenario 4 and the round trip, the final runs, docs, the report. Files: the model files and suites (brief §4),
+`__testkit__/modelFuzz.js`, the model docs; the `src/engine/zz_*` probes (mine to delete at the end). Not mine: raster
+files, `overlays.js`, `tools/docmaps/`. Scratch `r-c34/`; ports 3030–3039.
+**Measured:** load 0.09 at start.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: comparing `r-c34/bp-pre-{1,2}.log` against `bp-cur-{1,2}.log`.
