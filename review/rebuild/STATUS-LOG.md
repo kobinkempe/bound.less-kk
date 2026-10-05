@@ -3230,3 +3230,20 @@ WHERE I AM: b4 running; R-PYRAMID-34's items meanwhile (jsdom, light).
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: reading DESIGN.md §8–§10, §13 and PLAN §5.24, then a dry `inventory.py`/`extract.py` on the tree.
+
+## 2026-10-05 04:14 UTC — R-MODEL-C34 (reviewer) — checkpoint: the 500-seed differences classified; final runs launched
+**Measured (jsdom, each seed alone, load 0.2–1.8):** the nine 500+500 walks — none a live defect: C3/C4 222, 241: the
+oracle's per-event frame drag landed a carried kid a cell off (F136, fixed live by A1 C2; worked by hand for 241: the
+live engine puts K under R's neighbour as the arithmetic does) → the oracle drags a selection with frames in one event;
+451, 213, 231, 341: the selections differed only by ids the oracle's drop carried or merged out of a dragged frame
+(select 34/73's `held`) → the tile fuzz deselects both there (`heldDeselect`, opt-in); 476: the oracle's pen-up walk had
+moved the cut native's stored numbers by W, so its pieces round apart (7.6e-6 home units at a vertex) → pieces of a walked
+family compared by drawn box within 1e-4 (`walkedCut`); plain 296, 386: a carried native 2 ulp above its home (seed 20's
+two roundings) → 2 ulp in both lanes. All nine green alone.
+**Break-checks (copy `bc3`):** the live-rode camera branch — a camera riding a move the oracle never made (BK_RIDE): red
+at 416 step 13; `mergedAlike` — a frame dropped from the live repair: red at 73 step 17; a live merge (BK_MERGE) is the
+oracle's own behaviour, invisible to the selection fuzz by construction, red in `lattice.coresident` (3 tests, one the new
+pin "a frame dropped on an inked frame's cell stays selected as itself").
+**Decisions made:** each new rule counted in the probe's line, narrowed to its named difference.
+**Questions asked:** none.
+WHERE I AM: tile 500+500 and selection 200+200 running on the final harness (`r-c34/fuzz500c.log`, `sel200c.log`).
