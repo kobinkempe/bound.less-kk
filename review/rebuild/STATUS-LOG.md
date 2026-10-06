@@ -3764,3 +3764,18 @@ idempotent and refuses a second run); 811 entries and 191 of 269 pristine rows m
 (oracle §17 → §15, scale bar §14 → §12); the scale-bar rule rows keep their bible rung in the one-liner.
 **Questions asked:** none.
 WHERE I AM: done; item 4 (the oracles) and items 5–8 are the next runs'.
+
+## 2026-10-06 14:43 UTC — B-PYRAMID-5b (builder) — end (B-PYRAMID-5 items 1–6, R-PYRAMID-34's skipped items, the measurement)
+**F140 filed** (OPEN-FLAGS): by reading, `jobQueue.pump` stops at the 4-ms pack budget and schedules its next task only
+when `motion.moving` is false, and `moving` is the last camera step's; at rest only `_frameStep` resets the budget, so
+strips pumped after a moving last step wait for the next step. Pre-existing: `jobQueue.js`, `_pyrMotion`, `_frameStep` and
+the pump callers unchanged since 59f0a76. 1 stall in 5 tree runs, 0 in 5 landed. Fix proposed, not made.
+**Load-sensitive tests (`raster.pyramid`, all P1/row 1):** "the still frame…" red 2 in 10 whole-file runs beside 6–8 busy loops
+("level" for "rest": the rest's inline decision by the calibrated estimate or a heavy mark) → `restInlineMs` 1e9 before the
+scene (RV4's lever), 0 in 12 after. "supersedes the queued one" red in 2 multi-file runs at load 6.5–8.4, 0 in 16 alone
+or in-file beside loops: assertion not captured. Row 1's pen-up groups fuzz (`seen.joins` 0) red 1 in 12 loaded runs and
+in my second quick suite (started at load 5.2). Neither cause established.
+**Quick suite:** 2,209 passed, 1 failed, 12 skipped twice (load 3.8→8.4: the supersede test; 5.2→3.4: the row-1 fuzz).
+typecheck 0; lint 0 errors. Browser numbers in the entries above; nothing in Kobin's Chrome.
+**Questions asked:** in the report (item 6's reading of DESIGN §10; F140's fix; the drop's `eng.list`).
+WHERE I AM: done — the report to the orchestrator.

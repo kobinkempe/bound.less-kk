@@ -76,6 +76,9 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
 
     test("the still frame: after a camera step the engine asks one more frame, and that frame renders the rest set", async () => {
         const E = mkEngine(800, 600, { raster: true, frames: "raf" }), R = E.renderer;
+        // The rest inline whatever this node's timings say: loaded, an estimate past `restInlineMs` (or a slow render's
+        // heavy mark) sent it to the pool and the still frame stayed "level" (2 runs in 5 beside six busy loops).
+        R.pyramid.cfg.restInlineMs = 1e9;
         stroke(E);
         E.flush();
         E.zoomAt(400, 300, -250);

@@ -1120,3 +1120,29 @@ Kobin's Chrome.
 3. **§5.23 item 6** (question 3): corrected above — the 10–25 % was not reproduced.
 4. **Open, routed to the final pass**: `_camAt` unchecked against a missing frame (minor; no path reached it); scenario 3
    was not re-run (the final check runs every scenario).
+
+### 5.26 To B-PYRAMID-5 (its report of 2026-10-06; B-PYRAMID-5b finished it)
+
+Read in full; landed with this section. Built: exact over coarse when both fit the user's 48 ms; the `unask` G check
+(`_take` the same); the hidden tab's commit step; RV4 and `stage.cover` C4 deterministic; F137 root-caused (the compose
+plan's step (d) never took a coarser cell's twin in the frame left) and fixed with tests red before; the crawl rows'
+reporting fixed; item 6 — a drop or a cancel keeps the selection's ant decision, moved by the drop's displacement, when
+the ink the selection stands for (natives by id, every frame under a selected frame by its natives) moved by one
+displacement and the view stays in the kept window (red before 2 of 60; nine break-checks). Measured in headless
+Chromium against the landed tree 59f0a76: scenario 4's drop decides nothing (1 decision before), its render row 749 |
+633 ms against 1,121 | 1,168, `ovl.tail` under 53 against 485 | 523, no crawl rows against three of 492–621 ms; scenario 1's
+paper out | back in 14.2 | 0 ms against 1,401.4 | 131.3 (F137); scenario 6 first change | exact 90 | 283 ms against 121 |
+764; scenario 7's `olderOther` 14.9 ms against 101.9; F133 flat at 1,784–1,785 MB; the `?svg` round trip 0 px in 9 of 9.
+Nothing in Kobin's Chrome.
+
+1. **§10's wording** (its question 1): accepted — the kept decision follows the ink the selection stands for, as the
+   repair's own rule says; DESIGN §10 as rewritten.
+2. **F140** (filed by it: a queue pumped after the camera's last moving step can stall — by reading, `pump` returns at the
+   frame's pack budget while `motion.moving` is still the last step's, and nothing but a step clears it; scenario 7's
+   erase did not bake in 1 of 10 runs on the tree, 0 of 5 landed; `jobQueue.js` unchanged since 59f0a76): fixed now,
+   before the measurements, by **B-PYRAMID-6** — its proposal (a motion older than a frame or two reads as rest) with a
+   jsdom test red before; R-FINAL-M then runs scenario 7 enough times to show no stall.
+3. **The two load-sensitive `raster.pyramid` tests** (red now and then under load 3.8–8.4; the quick suite 2,209 passed,
+   1 failed, a different one each time): B-PYRAMID-6 too, bounded — the cause, or the test made deterministic as RV4 was.
+4. **The drop's remaining cost** (`eng.list` 410–541 ms, its question 3): the next drop-frame target, on the roadmap; not
+   built now.
