@@ -69,12 +69,11 @@ L = {
 
 # ---- Renderer -------------------------------------------------------------
 "rnd.render": [
- "The per-frame difference. Rebuilds only what actually changed.",
- "Groups the display list by object — or by **family**, when every member of a family is fully present rather than fading, so a multi-level object draws as one path and its pieces do not seam.",
- "Builds a signature per group and compares it with the last one. Same signature means identical geometry, so the existing paths are reused and only the opacity is reapplied.",
- "Rebuilt groups are inserted at their drawing-order position; vanished ids are removed.",
- "Reports whether anything was reordered, and records how many groups were rebuilt — zero means a fully cached crossing.",
-],
+    'The per-frame difference. Rebuilds only what actually changed.',
+    'Groups the display list by object — or by **family**, when every member of a family is fully present rather than fading, so a multi-level object draws as one path and its pieces do not seam.',
+    'Builds a signature per group and compares it with the last one. Same signature means identical geometry, so the existing paths are reused and only the opacity is reapplied. A group drawn at opacity 0 is not rebuilt: its signature is cleared, and `needsFadeFlip` asks for a render when it is about to show.',
+    'A landed pending mark (`landedMarks`) is not drawn as ink: each group with a member under one gets an SVG mask of the marks\' shapes (`_setMask`, the erase rule on the SVG path, DESIGN.md §7); a mark gone from the list takes its mask definition with it.',
+    'Rebuilt groups are inserted at their drawing-order position; vanished ids are removed. Reports whether anything was reordered, and records how many groups were rebuilt — zero means a fully cached crossing.'],
 "rnd.syncCameraOnly": [
  "A camera move with no geometry rebuild: write the world transform, and refresh opacity for the groups that fade, because fade depends on the live zoom.",
 ],

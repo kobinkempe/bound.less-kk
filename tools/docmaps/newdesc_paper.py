@@ -14,37 +14,31 @@ def add(key, fn, what, long, ref=""):
 
 # ---- src/engine/KobinEngine.js ----
 add("eng._beginHold", "_beginHold()",
-    "At a drag's start, records the members and selected frames whose plate events wait until the drop.",
-    ["Raster path only, and only when the renderer's drag plane accepts the selection (`planeAccepts`, which also aims the plane); otherwise `_holdMove` stays null and the drag re-rasters each step. Records each member's id, home frame and table, the selected frame roots, and the roots' footprints in every frame the plate cache holds (`_framesFootIn`).",
-     "Taken once, from `_beginSelectDrag`; released once, by `_releaseMove` (PAPER-PLAN R3)."],
-    "§9")
+    "At a drag's start, takes the hold: the Stage draws the selection's members and selected frames at the drag's delta and holds their events until the drop.",
+    ["Taken once at `_beginSelectDrag`: `stage.hold` takes the members (`_selectionMembers`) and the selected frames' roots, and nothing is written until the drop (A1 C2). `plane` records whether the renderer's drag plane draws them (`planeAccepts`, which also aims the plane and posts what it lacks); when it does not, the view's plates draw the drag at the same delta (A2 §2.7)."],
+    "§8")
 add("eng._planeLost", "_planeLost()",
-    "The renderer's drag plane can no longer draw the drag: releases the hold once, so each step renders.",
-    ["Called by `RasterRenderer` when the camera leaves the plane's frame or the view leaves plates under a live drag. Runs `_releaseMove` and clears the drag's `listAt`, so the ants decide from the list as it stands, which now holds the move. Returns the plates dropped."],
+    "The renderer's drag plane can no longer draw the live drag: the view's plates draw it from here, at the same delta.",
+    ["Called by `RasterRenderer` when the camera leaves the plane's frame or a sync frame takes the drag. Clears the hold's `plane` and hands the Stage the drag's delta with `viewDraws`, so the drag goes on in the view's plates; returns 1, or 0 when the plane was not drawing it."],
     "§9")
 add("eng._planeState", "_planeState()",
     "The selection's ids in the current render list, for the raster renderer's drag plane; null with nothing selected.",
-    ["Collects the members' ids (`_selectionMembers`) and adds every listed piece homed under a selected frame, found by its home, so a selected subtree costs the list's length rather than its object count. Memoised on the selection object and the list; returns `{ key, ids }`.",
-     "Pulled by `RasterRenderer` each camera step, so the plane is ready before a drag starts (PAPER-PLAN §10 S4). Null on the SVG path."],
+    ["Takes the members from the indicator's table for this selection (`_selTable(s).ids`, its families already expanded: 0.24 s when done again here on a 29k-id lasso, REVIEWER-4) and every listed piece homed under a selected frame, found by its home, so a selected subtree costs the list's length rather than its object count. Memoised on the list and the selection; raster path only."],
     "§9")
 add("eng._dragState", "_dragState()",
-    "The live drag as the renderer pulls it each frame: the gesture, the held ids and frame roots, and the pointer at the first read.",
-    ["Null unless a drag is under way and a plate hold was taken. `RasterRenderer._planeStep` moves its plane by the gesture's `last - start`."],
+    "The live drag as the renderer pulls it each frame: the gesture, the held ids and frame roots, and the pointer at the first read — while the drag plane draws it.",
+    ["Null unless a drag is under way with a hold whose `plane` is set; once the view's plates draw the drag (`_planeLost`), null. `RasterRenderer._planeStep` moves its plane by the gesture's `last - start`."],
     "§9")
 add("eng._endMove", "_endMove(why)",
-    "The one exit of a drag (drop, cancel, delete, deselect, undo): releases everything the drag held, renders once, and keeps selected what the drag moved out of the selection.",
-    ["Takes the drag and its carried ids, runs `_dropHold`, then `_render` with `_dropping` set, so the carries that render's settles make join the drag's. Then, on a drop or when anything was carried, `_reselect`s the carried natives and, on a drop, the dragged frames no selected frame holds any more (`_outsideSelection`) (DESIGN.md §10, F93).",
-     "On a drop it runs after the move's undo entry is pushed, so a shadow merge the render triggers is recorded on that entry (DESIGN.md §8)."],
-    "§6")
+    "The one exit of a drag (drop, cancel, delete, deselect, undo): a drop writes the move and releases the hold as one commit; any other exit writes nothing. Then the renderer is told, one render, and the selection repaired.",
+    ["In one Stage batch: on a drop that moved, `_dropMove` writes the drag's one op (A1 C2: a drag writes nothing until its drop), and `_releaseMove` ends the hold. Then the gesture is cleared, the renderer told (`endMove`, and `noteUserEdit` when the drop wrote), and what the drop moved out of a selected frame is kept selected (`_repairSelection` from the op's frames, DESIGN.md §10) before the one render; the frames the drop minted or emptied are collected (F94)."],
+    "§8")
 add("eng._dropHold", "_dropHold(why)",
-    "`_endMove` without the render, for a document event where rendering would re-enter.",
-    ["Clears the drag gesture and its carried ids, turns off the tile cache's batch mode and the Document's merge hold, releases the plate hold (`_releaseMove`), and tells the renderer (`endMove(why, dropped)`) if a drag or a hold was live. The selection's document subscription uses it on a reset or when the last member goes."],
-    "§6")
+    "`_endMove` without the write or the render: the hold released and the renderer told, for a document event (a reset) where a render would re-enter.",
+    ["-"], "§8")
 add("eng._releaseMove", "_releaseMove()",
-    "Releases a drag's held plate events as one collapsed invalidation.",
-    ["Drops every plate painting a member, then every plate under the members' drawn boxes at their start and end addresses (`_movedRectsIn`). When frames moved, removes every plate of a moved frame or one under it and stales the subtrees' start and end footprints in the other frames. Clears `_holdMove` first, so it runs once; returns the plates dropped.",
-     "PAPER-PLAN §5.4's rules 1-4, applied once per drag instead of once per event."],
-    "§9")
+    "The hold's end: the Stage applies what it held as one commit, dirtying where the drag started, where it ends and where the view drew it.",
+    ["`stage.release()`; 0 when no hold was taken (A2 §2.7)."], "§8")
 add("eng.screenToFrame", "screenToFrame(sx, sy)",
     "A screen point in the camera frame's own units; a pass-through to the camera.",
     ["-"], "")
@@ -197,10 +191,9 @@ GONE_BAKE = ("Went with the windowed fat-stroke display bake, deleted 2026-09-14
              "A camera-only frame is now promoted to a full render by `needsReorigin` and `needsWindowChop`.")
 FIX = {
     "eng.redo": {
-        "why": "the undo · redo row's text does not say redo runs inside `_keepingSelection`",
+        "why": "redo is `_history` over the redo stack",
         "what": None,
-        "long": ["The mirror of `undo`: cancels a live drag, runs `Document.redo` inside `_keepingSelection`, re-schedules the bake and renders. Returns false when nothing was redone."],
-    },
+        "long": ["The mirror of `undo`: `_history` over the redo stack. Returns false when nothing was redone."]},
     "fil.loadDrawing": {
         "why": "the serializeDrawing · loadDrawing row's text does not mention `{ render: false }`, the restore path (STALL 2026-09-23)",
         "what": None,
@@ -220,34 +213,33 @@ FIX = {
                  "Five files are mixed onto the prototype by `mixin.js` (erasePipeline, overlays, selection, files, sceneOps); their methods run with `this` bound to the engine, and `mixin` throws if two claim one name. The quasi-private surface is pinned by `KobinEngine.contract.test.js`."],
     },
     "eng.setTool": {
-        "why": "calls the setters plumbing except trace; setTool also drops the selection when leaving the select tool",
+        "why": "calls the setters plumbing except trace; setTool also cancels a parked gesture and drops the selection",
         "what": None,
-        "long": ["Tool and diagnostic settings, mostly plumbing. `setTool` drops the selection when the tool leaves select, so the indicator cannot linger over a drawing being edited; `setTrace` clears the operation log so a trace starts clean."],
-    },
+        "long": ["Tool and diagnostic settings, mostly plumbing. `setTool` cancels a gesture parked at an erase barrier when the tool changes (`_cancelBarrier`: a parked gesture goes with its tool, A2 §4.11) and drops the selection when the tool leaves select, so the indicator cannot linger over a drawing being edited; `setTrace` clears the operation log so a trace starts clean. The SVG renderer's settings (opacity groups, debug, retained scenes, lazy outlines) reach only a renderer that has them."]},
     "eng.setOutlineMode": {"why": "gone", "what": None, "long": ["Went with the renderer's windowed fat-stroke bake (ROADMAP S7). Nothing replaced it; `setLazyOutlines` remains."]},
     "eng.setKDebug": {"why": "gone", "what": None, "long": ["Nothing replaced it. The engine's debug views are `setDebug`, `setTileDebug` and `setEraseDebug`."]},
     "eng._outlinePad": {"why": "gone", "what": None, "long": ["Went with the windowed fat-stroke bake (ROADMAP S7); nothing replaced it."]},
     "eng.pointerDown": {
-        "why": "names the logged op `pointerDown`; it is `ptrDown`, and the time also goes to the `_noteFast` distribution",
+        "why": "names the logged op `pointerDown`; it is `ptrDown`, and the time also goes to the `_noteFast` distribution; the press is also the renderer's attention point",
         "what": None,
-        "long": ["The public entry for a press: times `_pointerDown` and records it as `ptrDown` in the operation log (past the 8 ms floor, or always in trace mode) and in the `_noteFast` distribution.",
-                 "Input handlers are where a user feels cost, so the boundary is what is measured."],
-    },
+        "long": [
+            "The public entry for a press: hands the renderer the attention point (`noteAttention`: the pyramid's plan and its queue work nearest-first from it, A3 §4.4), then times `_pointerDown` and records it as `ptrDown` in the operation log (past the 8 ms floor, or always in trace mode) and in the `_noteFast` distribution.",
+            "Input handlers are where a user feels cost, so the boundary is what is measured."]},
     "eng._pointerDown": {
-        "why": "says the select tool hit-tests and starts a move or a lasso on the way down; it only records the press, and a later move or pen-up decides",
+        "why": "says the select tool hit-tests and starts a move or a lasso on the way down; it only records the press, and a later move or pen-up decides; a press also takes the pending frame, cancels a parked gesture and lands unlanded marks",
         "what": None,
-        "long": ["Starts the gesture, by tool. First a stroke still open (its pen-up never arrived) is finished as a pen-up would, and a select press or lasso left behind by a tool change is dropped.",
-                 "**Pan**, or any press while `readOnly` (another tab or device has the pen): remember the point. **Whole-object eraser**: delete what is under the point. **Area eraser**: start a background-coloured stroke through the pen pipeline; the cut happens later, in the background.",
-                 "**Select**: nothing changes on the way down. The press is recorded with what lies under it (`_selPress`); `_pointerMove` turns it into a lasso or a move once it travels SELECT_DRAG_PX, `_pointerUp` treats it as a tap if it never did, and a pinch forgets it (`cancelSelectGesture`).",
-                 "**Pen**: allocate an id, build the stroke at the pen width over the zoom, attach its live arc chain (`_startPen`), add it to the document as live (unindexed while it grows), and hand it to the renderer."],
-    },
+        "long": [
+            "Starts the gesture, by tool. First the pending frame step is taken (`flush`), so the press hit-tests the picture the last move left; a gesture parked at an erase barrier is cancelled (`_cancelBarrier`); a select or erase press lands every mark whose shape has not landed (`flushBakes`); a stroke still open (its pen-up never arrived) is finished as a pen-up would, and a select press or lasso left behind by a tool change is dropped.",
+            "**Pan**, or any press while `readOnly` (another tab or device has the pen): remember the point. **Whole-object eraser**: delete what is under the point. **Area eraser**: start a background-coloured stroke through the pen pipeline; the cut happens later, in the background.",
+            "**Select**: nothing changes on the way down. The press is recorded with what lies under it (`_selPress`); `_pointerMove` turns it into a lasso or a move once it travels SELECT_DRAG_PX, `_pointerUp` treats it as a tap if it never did, and a pinch forgets it (`cancelSelectGesture`).",
+            "**Pen**: allocate an id, build the stroke at the pen width over the zoom, attach its live arc chain (`_startPen`), add it to the document as live and fresh (unindexed while it grows), and hand it to the renderer."]},
     "eng._pointerMove": {
-        "why": "omits the select press, which becomes a lasso or a move only past SELECT_DRAG_PX (`_beginSelectDrag`)",
+        "why": "omits the select press, which becomes a lasso or a move only past SELECT_DRAG_PX (`_beginSelectDrag`); with \"raf\" frames the drag step and the SVG update wait for the frame, and a parked drag only records the finger",
         "what": None,
-        "long": ["Extends what `_pointerDown` started. Pan (or read-only) moves the camera; the whole-object eraser erases under the point; the area eraser falls through to the pen path, because it is a stroke.",
-                 "Select: a lasso appends a point once the pointer has moved more than a pixel; a press waits until it has travelled SELECT_DRAG_PX, then `_beginSelectDrag` decides lasso or move; a move in progress takes one `_dragSelection` step.",
-                 "Pen: the sample goes into the stroke and its live arc chain, which rebuilds only the last two gaps, O(1) a point; the line tool replaces its second point and re-seeds a two-sample pen instead."],
-    },
+        "long": [
+            "Extends what `_pointerDown` started. Pan (or read-only) moves the camera; the whole-object eraser erases under the point; the area eraser falls through to the pen path, because it is a stroke.",
+            "Select: a drag parked on its erase barrier only records the finger, for its start; a lasso appends a point once the pointer has moved more than a pixel; a press waits until it has travelled SELECT_DRAG_PX, then `_beginSelectDrag` decides lasso or move; a move in progress takes one `_dragSelection` step — with \"raf\" frames the frame's step reads the last pointer instead (`_pend`).",
+            "Pen: the sample goes into the stroke and its live arc chain, which rebuilds only the last two gaps, O(1) a point; the line tool replaces its second point and re-seeds a two-sample pen instead. The renderer updates now, or with \"raf\" frames at the frame."]},
     "eng._startPen": {
         "why": "says the straight-line tool gets no live chain; every stroke gets one, the line tool re-seeding a two-sample pen on each move (the Code Map row's `straight` parameter is gone too)",
         "what": None,
@@ -255,41 +247,37 @@ FIX = {
                  "Every stroke gets one, the line tool included. The swap from the live chain to the resolved shape is the only moment their difference could show, and at this tolerance it is sub-pixel there."],
     },
     "eng._pointerUp": {
-        "why": "says a drag re-homes every moved object and misses the tap; the drag re-homes only members whose bbox centre left their cell, records tables and frames, and ends through `_endMove`",
+        "why": "the drop no longer builds the move op here: `_endMove('drop')` writes it through `_dropMove`; a release also takes the pending frame, and a parked drag applies when its barrier ends",
         "what": None,
-        "long": ["Ends the gesture. **Tap**: a select press that never moved goes to `_selectTap`. **Lasso**: apply the loop if it moved and has three points, then always redraw the selection layer, or the loop stays on screen.",
-                 "**Drag**: if anything moved, each member whose stored bbox centre has left its cell is re-homed by whole frames (`_normalizeHome`, the one case a move writes coordinates, so its entry keeps geometry snapshots); the move is journaled and pushed as one undo entry, `moveFrames` when frames moved, else `move` or `moveMany`, each member's frames and tables either side. Then `_endMove('drop')`, after the op is on the stack.",
-                 "**Stroke**: journal it before its samples go, end the live path, finalise it in the document, queue its perimeter resolve and schedule the bake. An eraser pushes one `eraseCommit` entry its background cuts append to; anything else one `add`. Then the one render a pen-up makes."],
-    },
+        "long": [
+            "Ends the gesture. The pending frame step is taken first (`flush`), so a drop, a tap or a pen-up comes after the last move's step; a drag parked on its erase barrier is marked released instead, and applies whole when the barrier ends.",
+            "**Tap**: a select press that never moved goes to `_selectTap`. **Lasso**: apply the loop if it moved and has three points, then always redraw the selection layer, or the loop stays on screen.",
+            "**Drag**: `_endMove('drop')`, whose `_dropMove` writes the drag's one op — a drag writes nothing until its drop (A1 C2).",
+            "**Stroke**: journal it before its samples go, end the live path, finalise it in the document, queue its perimeter resolve and schedule the bake. An eraser pushes one `eraseCommit` entry its background cuts append to; anything else one `add`. Then the one render a pen-up makes."]},
     "eng.zoomFactorAt": {
-        "why": "lists five questions that force a full render; there are six (the chop window is missing), and the ladder timer restarts",
+        "why": "the zoom and its render decision moved to `_zoomBy`",
         "what": None,
-        "long": ["Zoom about a point; wheel and pinch both arrive here. The camera applies it, possibly crossing a level or stepping into a neighbouring cell.",
-                 "A full render when the level was crossed, the visible tile set changed, a pending fat stroke must flip to its outline, a piece crossed the fully-present line, the view drifted past the re-origin budget, or it left the chop window's budget. **Otherwise one transform is written and nothing is rebuilt.** On the raster path the last three are always false.",
-                 "Then the crossing prebake at idle, the ladder's quiet timer restarted, and idle outline fits queued after a crossing or when fat strokes near the gate."],
-    },
+        "long": ["Zoom about a point (the wheel): `_zoomBy` with no pan. A pinch comes through `pinchUpdate`, which pans the camera first and hands `_zoomBy` whether that pan crossed a cell, so a pinch step is one camera step."]},
     "eng.panBy": {
-        "why": "says only the visible tile set and re-anchoring can force a render; leaving the chop window's inner half does too",
+        "why": "the render decision moved to `_panStep`, and the ladder is gone",
         "what": None,
-        "long": ["Pan by a pixel delta. A full render when the visible tile set changed, the view drifted past the re-origin budget, or it left the chop window's inner half; otherwise one transform. Restarts the ladder's quiet timer."],
-    },
+        "long": ["Pan by a pixel delta: the camera pans, and its consequences (`_panStep`) are taken now — or, with \"raf\" frames, at the next animation frame (`_pend`), which gathers every pan until it runs."]},
     "eng.undo": {
-        "why": "says undo, redo and clear each re-schedule the background worker; clear does not, undo and redo cancel a live drag, run inside `_keepingSelection`, and are refused while read-only",
+        "why": "undo and redo now go through `_history`: a parked gesture cancelled, one commit, the selection repaired from the op; `_keepingSelection` is gone",
         "what": None,
-        "long": ["Undo and redo cancel a live drag first (its start records describe the document about to change), run the document's undo or redo inside `_keepingSelection`, so the natives and frames it moves out of the selected frames stay selected, then re-schedule the background bake and render, because reversing an action can leave strokes unresolved or erases unapplied. Clear drops the bake jobs and resets the document, the lattice, the camera and the renderer. All three do nothing while `readOnly`."],
-    },
+        "long": ["Undo and redo go through `_history`: refused while `readOnly`; a parked gesture is cancelled and a live drag cancelled first (its start records describe the document about to change); the op is applied as one Stage commit and the selection repaired from it, so what it moves out of a selected frame stays selected (A1 C2, DESIGN.md §10); then the background bake is re-scheduled — reversing an action can leave strokes unresolved or erases unapplied —, the renderer told of a user's edit, one render, and frame GC. Clear drops the bake jobs and resets the document, the lattice, the camera and the renderer; it too does nothing while `readOnly`."]},
     "eng.KobinEngine.constructor": {
-        "why": "the Code Map row (constructor · resize · destroy) covers only the stale-selection subscription; the constructor also queues document events for the plate drain, tagging a bake step's as neutral (F90), follows settle carries so carried ink stays selected (F93), and re-renders when a hidden tab is shown",
+        "why": "the Code Map row (constructor · resize · destroy) says only what the document subscription does; the constructor builds the Stage and wires the renderer's plate cache to its commits",
         "what": None,
-        "long": ["Builds the lattice, the document, the camera, the tile cache and a renderer (with `raster`, a `PlateStore` and a `RasterRenderer`, and a document subscription that queues every event for `_drainPlates`, tagged `neutral` during an erase bake step that changes no pixel, unless the mark's step passes ink it left uncut that now lies above it: `_uncut`, dropped on a reset or when the mark goes), then the tool state, bake queues, instruments, journal and scene index.",
-                 "Keeps the selection true: settle carries out of a selected frame go to `_followCarries`; a document event drops a member that vanished, turns a merged selected frame into its ids plus its kids that hold ink, and during an undo or a redo records what moves out of the selection for `_keepingSelection`."],
-    },
+        "long": [
+            "Builds the configuration (the defaults, the device's lever defaults, the levers passed in; `frames` picks rAF or sync frames), the lattice, the document — whose frame shifts are its natives' placement, composed on read (A1 C1) —, frame collection (F94), the camera, the tile cache, and the Stage over a placement model. With `raster`, a `RasterRenderer` drawing from the Stage, whose plate cache (`PyramidStore`) the Stage's commits invalidate: a reset drops every plate, a commit the frames it names. Otherwise the SVG `Renderer`.",
+            "Then the tool state, the bake queues, the erase state (`_initErase`), the instruments, the journal and the scene index; the renderer's hooks (the ants, the lasso — a parked one stays drawn —, the drag and plane states, a busy flag that stops prefetch while a report sends); the camera moved to the resident frame when a frame is refiled or added (`_camToResident`); and a document subscription that drops the selection on a reset. The selection is repaired where a drop or an undo commits (`_repairSelection`), not here."]},
     "eng._render": {
-        "why": "misses what a render now does beyond list, draw and status: the plate drain, the raster perf row opened before the list build, and the carries its settles made applied to the selection at its end (F93)",
+        "why": "a render now syncs the Stage's table and draws its items: no list build, no plate drain, no carries, no ladder",
         "what": None,
-        "long": ["A full render: on the raster path the frame's perf row opens first; then `_buildList`, `_drainPlates` (after the build, which itself emits), the renderer's render and update, and status. Carries queued by this render's settles are applied to the selection at its end (`_flushCarried`, F93). Ends by poking the frame meter and restarting the ladder's quiet timer.",
-                 "The frame meter is poked here as well as in gestures: the worst stall seen was a cold one, opening a drawing at a deep camera."],
-    },
+        "long": [
+            "A full render: the camera's frame checked against the lattice (`_camToLattice`), frame collection on a camera-frame change, the view's picture sources minted where an action moved them (`_prepareView`), and on the raster path the frame's perf row opened. Then the Stage syncs its table to the camera's frame and window (`stage.sync`, reading at most `readMs`: a camera step reads nothing and leaves the rest to `_readIdle`), the tile cache is told of a frame the camera left, and the Stage's items are what the renderer draws; then update, status and the perf row. `_renderedG` records the Stage generation this render drew, which `flushBakes` reads.",
+            "The frame meter is poked here as well as in gestures: the worst stall seen was a cold one, opening a drawing at a deep camera."]},
     "sel._applyLasso": {
         "why": "misses the erase barrier: the pending eraser marks the loop meets are baked out before the find (`_settleLassoErases`)",
         "what": None,

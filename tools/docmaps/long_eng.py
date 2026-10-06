@@ -8,9 +8,8 @@ L = {
  "The timing wrapper is deliberate: input handlers are where a user feels cost, so the boundary is measured rather than the internals guessed at.",
 ],
 "eng.pointerMove": [
- "The public entry for a drag. Times the call and delegates to `_pointerMove`.",
- "This fires many times a second, so everything inside is designed to be cheap — the pen appends one sample, the drag recomputes one displacement.",
-],
+    'The public entry for a drag. Hands the renderer the attention point (`noteAttention`), times the call and delegates to `_pointerMove`.',
+    'This fires many times a second, so everything inside is designed to be cheap — the pen appends one sample, the drag recomputes one displacement.'],
 "eng.pointerUp": [
  "The public entry for a release. Times the call and delegates to `_pointerUp`.",
  "Also called indirectly by the camera: crossing a level finalises any live stroke first, through a hook, so a stroke is never left half-written across two coordinate systems.",
@@ -47,9 +46,9 @@ L = {
  "This is what turns a bug report from a snapshot of wreckage into a sequence of gestures that produced it.",
 ],
 "eng._perf": [
- "Records one operation in the rolling performance log, with the level, the in-level zoom, a wall-clock timestamp, and any extra fields the caller supplies.",
- "Below an 8 ms floor an entry is dropped unless the caller insists or trace mode is on. The floor exists because the log holds 300 entries and a single pinch would otherwise evict everything else — but it is also what once hid a session with 62 seconds elapsed and 157 ms recorded, which is why trace mode can remove it.",
-],
+    'Records one operation in the rolling performance log, with the level, the in-level zoom, a wall-clock timestamp, and any extra fields the caller supplies.',
+    'Below an 8 ms floor an entry is dropped unless the caller insists or trace mode is on. The floor exists because the log holds 300 entries and a single pinch would otherwise evict everything else — but it is also what once hid a session with 62 seconds elapsed and 157 ms recorded, which is why trace mode can remove it.',
+    'An operation of 200 ms or more is also kept in `perfLong` (the last 100), which a report carries: the rolling log turns over in a minute or two of work.'],
 "eng._noteFast": [
  "Aggregates a high-frequency operation instead of logging each one.",
  "Zoom and pan steps happen hundreds of times per gesture. Keeping a count, a total and a worst case costs nothing and survives in the log, where individual entries would be evicted within seconds.",
@@ -231,6 +230,5 @@ L = {
  "Gives a newly drawn stroke a provisional scene assignment immediately, so it belongs somewhere before the next full scene pass runs.",
 ],
 "eng._emit": [
- "Publishes the status the interface reads: level, in-level zoom, absolute zoom, whether a crossing is near, and the object count.",
-],
+    "Publishes the status the interface reads: level, in-level zoom, absolute zoom, whether a crossing is near, the object count, undo and redo, and the erase status (the pending marks, and a gesture finishing its erase: the editor's chip). Then tells the zoom's subscribers (`onZoom`) when the zoom changed, so the scale HUD follows a zoom without a page render."],
 }

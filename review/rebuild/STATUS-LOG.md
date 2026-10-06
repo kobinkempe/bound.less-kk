@@ -3503,3 +3503,42 @@ measure in this harness, so its pixels are not compared yet; the round trip's ar
 (`r-c34/h2`, a copy of the harness plus that read), servers on 3030/3031 again; then items 4–6.
 **Questions asked:** none.
 WHERE I AM: restarting the two dev servers over `r-c34/landed` and `r-c34/curB`; batch c2.
+
+## 2026-10-06 03:25 UTC — B-DOCMAPS-3 (builder) — START: item 3 (the 355 changed live functions), the stale rows, the § column, the 13 rows
+**Working on:** brief `review/rebuild/briefs/B-DOCMAPS.md` item 3, plus `audit_stale.py`'s 27 pristine rows, every § moved
+to DESIGN.md's current numbering, and the 13 Code Map rows with nothing to open. Files: `tools/docmaps/` only (area files,
+`pages/boundless-code-map.pristine.html`, the generated `data/` and pages). Nothing under `src/`.
+**Measured:** tree at 3e14703 (clean after the reboot); `inventory.py`/`extract.py` re-run: 153 files, 3,656 functions,
+7,073 edges, `data/` unchanged. The sets recomputed against it (`dmap/diffsets3.py` → `dmap/sets3.json`): the same 355
+changed (287 code, 68 by span or calls between the last rebuild and 56e36b3) and 8 comment-only; one new since 09:00
+(`ovl._selFrameInk`, already described).
+**Decisions made:** the 8 comment-only functions are re-read with the 355 (the brief's "check the entry against the new
+comment's claim"); the 68 span/calls ones are read whole against their entries (no older body to diff).
+**Questions asked:** none.
+WHERE I AM: item 3 file by file, smallest context first: the diff and the texts of `src/engine/KobinEngine.js`'s 32.
+
+## 2026-10-06 03:26 UTC — B-PYRAMID-5b (builder) — item 2 jsdom part done; browser batches b7 then b8 START
+**Measured (jsdom, the unimported copy `bp5/bc` of the tree, load 0.8–5.8: another agent's servers compiling):** F135, LH-7 three
+runs: `liveHoldMsMax` 24.1 | 56.7 | 37.9 ms (B-PYRAMID-4: 41–63), `groupsTimedOut` 0, 2 handoffs, 0 composes drawing a stroke
+twice, the test 88 | 166 | 106 ms. F134: `jobQueue` F134 11 | 3 | 3 ms; `raster.commit` F134 (the engine) 59 | 59 | 68 ms.
+Bundles (`bp5/bundles.sh`, esbuild into the scratchpad): scene-worker dce304b8… in both trees; raster-worker landed
+83283d8b… → tree 432c239e… — the input that changed is `LevelMap.js` (R-MODEL-C34's `_joinGroups` rule), not a pyramid file.
+The tree's `public/raster-worker.js` was stale (a949be55…): `npm run build:worker` run, now 432c239e…, scene dce304b8….
+**b7:** the `?svg` round trip (`bp3/svgtrip.js`) on c7fed1a (:3017), b793360 (:3018) and `fin2` (:3016), states diffed c7→b79
+and b79→fin2; F133's memory (`bp3/svgdrag.js`, `fin2`, whole drawing, 12 events, forced GC). **b8:** `--dense --scenario` 1, 6,
+7 once each, landed (:3015) against `fin2`. Every run: load under 2 and no browser running. Logs `bp5/batch7.log`, `batch8.log`.
+**Questions asked:** none.
+WHERE I AM: b7/b8 running; then the suites (raster, quick), typecheck, lint, the report.
+
+## 2026-10-06 03:37 UTC — R-MODEL-C34b (reviewer) — checkpoint: item 3 (Chromium) done; batch c2 END; final runs started
+**Measured (headless Chromium, frozen copies: landed 59f0a76 :3030, current = 3e14703's src :3031; each run started
+under load 2 with no other browser running; c1 22:52–22:58, c2 03:29–03:35, no overlap with b6):** the round trip's
+composed ink identical across the trees at every state (drawn 25,244 px hash 2642089195, zoomed out 101 px, back 25,244 px
+the same hash); scenario 4 (harness `r-c34/h2`: the canvas read after each gesture settles), 2 runs a tree: after the
+lasso 1,012,664 ink px, hash 3619009051, after the drop 1,012,661 px, hash 2972295975 — identical in all four runs. Paper
+0 ms in every row. The drop's settle 3,377–4,377 ms landed, 2,594–3,035 current (c1+c2). Dev servers stopped (by pid).
+Scratch probes deleted from `src/engine` (all `zz_*`, `__testkit__/zz_modelFuzzOld.js`). TEST-MAP's model rows extended.
+**Working on:** item 4 — `r-c34/final.sh`: tile 500+500 and selection 200+200 side by side, then `test:erase`, then the
+quick suite; typecheck and lint after. Worker sources unchanged since 59f0a76: no `build:worker`.
+**Questions asked:** none.
+WHERE I AM: waiting on `r-c34/fin-*.log`; meanwhile the OPEN-FLAGS F138 entry from `r-c34/f138b.md`.
