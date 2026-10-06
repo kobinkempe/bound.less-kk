@@ -3479,3 +3479,27 @@ sixth of the window).
 **Questions asked:** to Kobin: the code map's scope against the usage windows (the oracles' 900 descriptions; the model
 for the description runs).
 WHERE I AM: waiting for the agents' reports.
+
+## 2026-10-06 03:24 UTC — B-PYRAMID-5b (builder) — resumed after the stop and reboot; b6 END (item 6 measured in the browser)
+**b6 had finished before the stop** (`bp5/batch6.log`, 22:51–23:02; five runs, exit 0, each started with load under 2 and no
+browser running: 0.43–1.93 at the start, 1.48–2.36 at the end). Headless Chromium, `--dense --scenario 4`, harness `bp5/h5`.
+**Measured:** landed (59f0a76): one ant decision at the drop; the drop's render row 1,121 | 1,168 ms, `ovl.tail` 485 | 523;
+three "crawl" rows after it, 492–621 ms each (`ovl.decide` 469 | 503 carried). The tree (`fin2`, 22:47): no decision at
+the drop (`_selDecSeq` unchanged; the kept one shifted by (240, 120)); the drop's row 749 | 633 ms (764 profiled), its
+top three `eng.list` 410–541, `eng.view` 118–163, `eng.pack` 53–60 — `ovl.tail` under 53; no crawl rows. The profile
+(100 µs, 4 s from the drop): `_selectionAnts` 9.7 ms inclusive, `_selMovedBy` 5.9 (`_selMembersAt` 5.4), `_selTable` 2.5
+(b4: `_selDecide` 338.7 at the drop). Load now 0.47.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: item 2 — the jsdom timings (F134/F135) now, then b7 (`?svg` round trips, F133) and b8 (scenarios 1, 6, 7).
+
+## 2026-10-06 03:25 UTC — R-MODEL-C34b (reviewer) — resumed after the session-limit stop and reboot (tree at 3e14703)
+**Done before the stop (in the tree):** `_prepareView`'s key counts frame GC's forgets (`KobinEngine.js`): a forget and a
+mint between two renders left `frames.size` as it was and the view unprepared (F111's shape); `model.pureRead` "a frame GC
+forget and a mint before the next render…" red before (the source frame missing at the render), file 3/3 green after.
+Batch c1 finished at 22:58 (6 runs, exit 0, load at start 1.25–1.67, no overlap with b6's runs): scenario 4 gives no ink
+measure in this harness, so its pixels are not compared yet; the round trip's are.
+**Working on:** item 3's rest — scenario 4 once per tree with the composed canvas's ink read after each gesture settles
+(`r-c34/h2`, a copy of the harness plus that read), servers on 3030/3031 again; then items 4–6.
+**Questions asked:** none.
+WHERE I AM: restarting the two dev servers over `r-c34/landed` and `r-c34/curB`; batch c2.
