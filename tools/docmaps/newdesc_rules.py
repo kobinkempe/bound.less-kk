@@ -28,21 +28,21 @@ def add(key, fn, what, long, ref="§14"):
 add("lrl.autoShowUnit", "autoShowUnit(ladderId, mpp, discard)",
     "What would this ladder show here, asked of a clean session?",
     ["A probe on a hypothetical session, with the user range and the incumbent discarded, so the answer is what the LADDER would do rather than what the current state happens to be doing.",
-     "This is what makes the first rung of the picker useful: the most valuable alternatives to the unit you are looking at are the units the neighbouring ladders would have chosen for the same view."])
+     "This is what makes the first rung of the picker useful: the most valuable alternatives to the unit you are looking at are the units the neighbouring ladders would have chosen for the same view."], "§12")
 add("lrl.ladderUnitsReadingBetween", "ladderUnitsReadingBetween(ladderId, mpp, lo, hi)",
     "Units whose reading here would fall inside a numeric range.",
-    ["A rung expressed as 'anything that would read between 0.1 and 500'. It catches useful units that no adjacency rule reaches, because a ladder's spacing is uneven and 'two rungs away' means very different things in different parts of it."])
+    ["A rung expressed as 'anything that would read between 0.1 and 500'. It catches useful units that no adjacency rule reaches, because a ladder's spacing is uneven and 'two rungs away' means very different things in different parts of it."], "§12")
 add("lrl.unitsBetween", "unitsBetween(names, loUnit, hiUnit)",
     "The units between two named sizes, inclusive.",
-    ["How the set-scale dialog's first rung is written - 'millimetre to mile' rather than a list that would have to be maintained."])
+    ["How the set-scale dialog's first rung is written - 'millimetre to mile' rather than a list that would have to be maintained."], "§12")
 add("lrl.allLadderUnion", "allLadderUnion()",
     "Every unit on any ladder.",
-    ["The last rung, and the honest end of pressing 'more'."])
+    ["The last rung, and the honest end of pressing 'more'."], "§12")
 
 add("lrl.LogicRule", "LogicRule<br>evaluate(ctx)",
     "The base of a membership rule: evaluate(ctx) returns unit names.",
     ["Rungs are DATA - ordered lists of these objects, in `rungs.js` - so a rule can be moved between rungs, or retuned by changing a constructor argument, without touching either the rule classes or the level machinery.",
-     "The context a rule is given is small on purpose: the current unit, the current ladder, the metres per pixel, and the session. A rule that needed more than that would be reaching past its own job."])
+     "The context a rule is given is small on purpose: the current unit, the current ladder, the metres per pixel, and the session. A rule that needed more than that would be reaching past its own job."], "§12")
 E["lrl.LogicRule.evaluate"] = E["lrl.LogicRule"]
 
 # ---- rung 6a: the immediate neighbourhood ----------------------------------

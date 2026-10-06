@@ -47,12 +47,12 @@ add("eng.screenToFrame", "screenToFrame(sx, sy)",
 add("sel.everyNth", "everyNth(pts, max)",
     "Thins a point list to at most `max` points, for the lasso's hand-precision tests.",
     ["The list itself when it is short enough; otherwise every ceil(n / max)-th point, the last not necessarily included."],
-    "§12")
+    "§10")
 add("sel._selectTap", "_selectTap(P)",
     "A select press that never moved: select, ctrl-toggle, or clear, decided at pen-up.",
     ["On paper a plain tap deselects and a ctrl tap keeps the selection. On ink a ctrl tap toggles the object; a plain tap on a member keeps the whole selection, and anywhere else selects the object under the point (`select`, which applies pending erases over it first).",
      "Nothing changes on the way down: a press may turn out to be the first finger of a pinch (DESIGN.md §10)."],
-    "§12")
+    "§10")
 add("sel._beginSelectDrag", "_beginSelectDrag(P, sx, sy)",
     "A select press that has travelled SELECT_DRAG_PX: decides between a lasso and a move, and starts it.",
     ["A press off the selection selects what lies under it first. The move then waits on its erase barrier (`_dragBarrier`: the marks whose cuts its members wait for), parked as `_pressWait`, which keeps the finger's last point and a release; then it takes the hold (`_beginHold`: the Stage draws the drag, nothing is written until the drop, A1 C2) and its first step, and a release while parked drops at once. If the cuts took the object away, a lasso starts instead."],
@@ -68,11 +68,11 @@ add("sel._underFrames", "_underFrames(level, frames)",
 add("sel._inkedFrames", "_inkedFrames()",
     "Every frame with a native in its subtree: each frame that holds one, and its ancestors.",
     ["Stops climbing at an ancestor already seen. The lasso skips frames outside it and the selection drops them, because a visited cell with nothing under it stands for nothing: a selection holding such cells drew a dot each on blank paper (50 in one report, F93)."],
-    "§12")
+    "§10")
 add("sel._outsideSelection", "_outsideSelection(ids)",
     "Of a set of frame ids, those no selected frame holds any more, coarsest first and none under another.",
     ["The frames a subtree drag or an undo moved out of the selected subtrees (a sub-cell rest re-homed them next door), so they can join the selection as frames."],
-    "§12")
+    "§10")
 add("sel._reselect", "_reselect(ids, torn, quiet)",
     "Keeps the selection standing for the same ink after a drop's rest or an undo re-addressed it: re-homed natives join as ids, re-parented frames as frames, removed ids go, empty frames leave.",
     ["The frames are the selection's plus `torn`. A native no selected frame holds joins the ids; one held by a selected frame again leaves them. An id the action removed goes, and its family's first member takes its place when nothing else is left. Frames with no native under them (`_inkedFrames`) are dropped. Nothing is set when all that already holds; otherwise `_setSelection`, `quiet` when the caller renders (`_repairSelection`; DESIGN.md §10)."],
@@ -84,7 +84,7 @@ add("sel._inkInsidePolygon", "_inkInsidePolygon(o, level, ink)",
     "Whether an object's ink, not only its box, lies wholly inside the lasso; asked of objects whose box straddles the loop.",
     ["First the points the object already has (a stroke's samples, a fill's vertices, a shape's piece ends; a few hundred at most), mapped where the picture is and tested one by one; any outside answers no. Only then is the outline flattened at 3 screen px (LASSO_INK_TOL_PX), capped at 3,000 points a ring, and each ring tested against the prepared loop.",
      "The cheap reject is where most crossed objects leave: flattening a scribble of twenty thousand arcs costs 14 ms even coarsely (measured). An outline that throws answers no."],
-    "§12")
+    "§10")
 add("sel._dragFramesStart", "_dragFramesStart(d, camDepth)",
     "Records, at the drop, the start address and shift of every frame the drop moves as a frame: each selected root's subtree within three levels of the camera, at the addresses the drag started from (nothing moved meanwhile, A1 C2).",
     ["An empty leaf container is left out: it has nothing to move."], "§8")
@@ -96,7 +96,7 @@ add("sel._dragFrames", "_dragFrames(d, camDepth, tx, ty)",
 add("sel._frameUnderPoint", "_frameUnderPoint(sx, sy)",
     "The selected frame whose mark is within 8 px of a screen point, or null.",
     ["The mark is the frame's origin on screen. A press there drags the selection, as a press on selected ink does."],
-    "§12")
+    "§10")
 add("sel._displaceMember", "_displaceMember(from, T, camDepth, tx, ty)",
     "Where one member goes for a drag displacement: its new home frame and table, or why it cannot move.",
     ["Homed at or above the camera's depth: the displacement enters the table at the camera's depth (`addOffset`). Deeper: `LevelMap.displaceFrame` turns the whole-cell digits into a new home and the rest enters the home-level entry. A carry out of the home level moves the member to the neighbour cell. Stored coordinates are never touched (DESIGN.md §8).",
@@ -105,7 +105,7 @@ add("sel._displaceMember", "_displaceMember(from, T, camDepth, tx, ty)",
 add("sel._subtreeCount", "_subtreeCount(f)",
     "How many natives a selected frame stands for (its list, its subtree's and its shadows'), for the status count.",
     ["O(frames): sums `Document.count` over `LevelMap.walk`, reading no native."],
-    "§12")
+    "§10")
 
 # ---- src/engine/files.js ----
 
@@ -113,7 +113,7 @@ add("sel._subtreeCount", "_subtreeCount(f)",
 add("ts.flattenAll", "flattenAll(objs)",
     "Turns derived pieces' loops into stored Loops, so a cached tile holds eight doubles a piece.",
     ["In place, and returns the list. The freeze and the chop hand over transient piece arrays; the cache keeps the `Loop` form the document's natives use."],
-    "§7")
+    "§9")
 add("ts._rerouteGroups", "_rerouteGroups(F, mint)",
     "The moved objects to be read from another frame at F, grouped by source frame and remainder; memoised.",
     ["Skips objects drawn live in F's cell and groups the rest by the source frame and remainder `LevelMap.objShift` names; objects sharing both form one group, so each tile is scanned once a group, and a shifted frame's natives share one placement (one `objShift` a table). With `mint` false — a read's — a source frame never minted is not minted: its objects are listed as missing and drawn nowhere until it is (no read mints, A1 C3).",
@@ -132,7 +132,7 @@ add("ts._downSources", "_downSources(F, rect)",
 add("ts.chainSeq", "chainSeq(F)",
     "The sum of the address sequence numbers of F and its ancestors, stamped on every tile built at F.",
     ["A tile built under an older sum read its content through an address a subtree move has since changed, and is rebuilt on its next lookup; no walk over the moved subtree is needed. Memoised per frame for one lattice `addrEpoch`."],
-    "§6")
+    "§8")
 add("ts._onFrameEvent", "_onFrameEvent(ev)",
     "A frame moved, was deleted or came back: drops every cached tile its footprint touches, at the old address and the new.",
     ["The footprint is the frame's cell grown by its subtree's reach (invariant 2), in the parent's units, at its current address (the recorded one for a deleted frame) and, for a `refile`, its previous one; mapped into each cached tile's frame and tested against the tile padded by the seam pad.",

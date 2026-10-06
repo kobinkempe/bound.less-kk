@@ -16,19 +16,19 @@ add("lm.LevelMap.constructor", "LevelMap.constructor(cfg, width, height)",
     "Starts a lattice holding only the root frame `0`, with an empty route cache and address epoch 0.",
     ["Keeps `cfg` (the edge constants `frameFactor` reads) and the canvas size (read by `_viewCell`, never by geometry). `frames` maps an id to its frame, `_spine` a depth to the origin chain's frame.",
      "`addrEpoch` is bumped by every re-address; the tile cache keys its stamps on it."],
-    "§5")
+    "§2")
 add("lm.walk", "walk(rootId, fn)",
     "Calls `fn` on every frame of a subtree: the root, its children — a cell's co-residents under the same parent among them (A1 C3) — and theirs.",
     ["-"], "§3")
 add("lm._adopt", "_adopt(f, p, cell)",
     "Makes a parentless frame cell `cell` of `p`, its edge and centre derived from the cell.",
     ["Wires `p`'s child map and drops the route cache. Used by `_growRoot` and `ensureSpine` when the root gains a parent, and by `merge` when another lattice gave a local root one."],
-    "§5")
+    "§2")
 add("lm.readdress", "readdress(id, parentId, i, j)",
     "Moves one frame to cell (i, j) of a parent one depth up; its id and every descendant's stay as they are.",
     ["Returns the frame, `{ occupied }` when another frame holds that cell, or null for a bad request (wrong depth, a digit out of range). The subtree follows through its parent pointer; the route cache is dropped, `addrEpoch` bumped and the spine rebuilt.",
      "Only the tests call it; a drag re-addresses through `readdressMany`, which makes a shadow instead of refusing an occupied cell."],
-    "§6")
+    "§8")
 add("lm._leave", "_leave(f)",
     "Takes a frame out of its cell: its co-residents regroup without it and the kids they shared are split (`_splitKids`); the parent's child map passes the cell to a co-resident under the same parent, or forgets it.",
     ["-"], "§3")
@@ -38,28 +38,28 @@ add("lm._take", "_take(f, p, i, j, empty)",
 add("lm._rebuildSpine", "_rebuildSpine()",
     "Recomputes the origin chain: climbs to the true root, then follows the (0, 0) cells down.",
     ["Called after every re-address, merge and load, because `_spine`, not a frame's id, says which frame is the origin at a depth. It climbs first because `merge` can give the recorded root a parent without updating `_rootId`."],
-    "§5")
+    "§2")
 add("lm.subtreeStart", "subtreeStart(rootId, atDepth)",
     "Records a subtree's addresses at a drag's start, down to three levels below the camera's depth.",
     ["Returns id -> `{ parent, i, j, depth }` for the root, its shadows and every descendant to `atDepth + 3`; deeper frames take zero digits from any displacement, so the walk stops there.",
      "Every target of the drag is computed from this one record, never from the current addresses, which is what makes a slow drag land where a fast one does (DESIGN.md §8)."],
-    "§6")
+    "§8")
 add("lm.moveSubtreeTargets", "moveSubtreeTargets(rootId, atDepth, dx, dy, start)",
     "Where every frame of a moving subtree ends up, by `displaceFrame`'s digit arithmetic on the start addresses.",
     ["For each frame, coarsest first: its start chain up to the frame at the camera's depth, the displacement expanded into base-R digits and added with carries, a coarse carry taken by the anchor's neighbour, then the chain resolved from the anchor down. A step a mover is headed for resolves to that mover; any other is found or minted in the live lattice.",
      "Returns one entry per frame, `{ id, depth, parent, i, j, rest }` or `{ id, why }`, deepest first. `rest` is the sub-cell remainder in the frame's own units, non-zero only one and two levels below the camera.",
      "A native under these frames lands exactly where the per-object path would put it; `move.subtree.test.js` checks it native for native."],
-    "§6")
+    "§8")
 add("lm.readdressMany", "readdressMany(targets, opts)",
     "Applies a subtree move in two phases: every mover leaves its cell, then each takes its target, coarsest first.",
     ["Two phases so movers never collide with one another; coarsest first so a moving parent holds its new cell before its children ask who holds theirs. An occupied target makes a shadow (`_take`), the resident yielding when `opts.empty(id)` says it holds nothing.",
      "Returns `{ moved, shadowed: [{ id, of }] }`; drops the route cache, bumps `addrEpoch` and rebuilds the spine. Used by the drag and by the undo of `moveFrames`."],
-    "§6")
+    "§8")
 add("lm.merge", "merge(data)",
     "Adds the frames another lattice minted, given in `serialize()`'s shape, parents first (F67).",
     ["A worker's descent runs on a copy of the lattice, and a kid it homes a cell over from any visited frame names a frame this lattice has never seen. Frames are added in depth order; one already here is left alone unless it was a root the other lattice gave a parent, which it adopts; one whose parent is missing is skipped.",
      "Returns how many were added. `_applyDescent` calls it before minting a kid."],
-    "§6")
+    "§8")
 add("lm.ensureId", "ensureId(id)",
     "The frame an id names, minted along its birth chain when missing; null for an id no frame can have (F67).",
     ["Parses `<depth>/i,j/...`, grows the spine to the depth, then walks `cellChild` down the segments. Returns null unless the frame reached carries exactly that id, so a `#n` twin id, or a cell now held by a frame with another id, is not minted.",
@@ -76,36 +76,36 @@ add("lm.objShift", "objShift(below, homeId, F, mint)",
 add("lm.frameShifted", "frameShifted(F0, hd, sh)",
     "The inverse of `objShift`: the frame at F0's depth where a picture read from F0 is drawn.",
     ["Adds the table's cell digits and carry to F0's address. Nothing calls it."],
-    "§6")
+    "§8")
 add("lm._homeToX", "_homeToX(fromId, toId, homeId, toHome)",
     "Decides which way an object-table mapping runs: out from the home to a view, or back into the home.",
     ["True when `fromId` is the home, unless both ends are the home and the caller passed `toHome`: an input made in the object's own frame names the direction itself (F72)."],
-    "§6")
+    "§8")
 add("lm.mapPointObj", "mapPointObj(p, fromId, toId, below, homeId, toHome)",
     "`mapPointF` between an object's home and a frame where its picture is seen, through its displacement table.",
     ["Home to X: the exact chain to X's unmoved frame F0, then plus the remainder, which is the point as drawn in X. X to home: the remainder off first, then the exact chain back from F0, which is what an input in X means in the stored coordinates.",
      "With no table it is `mapPointF`, bit for bit (DESIGN.md §8, F55)."],
-    "§6")
+    "§8")
 add("lm.mapRectObj", "mapRectObj(rect, fromId, toId, below, homeId, toHome)",
     "A rect through an object's displacement table: two corners by `mapPointObj`, re-normalised.",
     ["Exact as a rect, because every hop and the remainder are a uniform scale plus a translation. Every rect that reaches a moved object's geometry goes through it: an eraser's box, a selection box, a seam window (F68-F72)."],
-    "§6")
+    "§8")
 add("lm.projectLoops", "projectLoops(loops, fromId, toId)",
     "Arc loops carried across frames one edge at a time: what `projectF` does to a shape, without the tile phase.",
     ["Up an edge: scale by 1/R and add the cell centre; down: subtract the centre, then scale by R (`transformLoopsAbout`), so an arc stays an arc. Null when the two frames share no ancestor. Called by `projectLoopsObj`."],
-    "§5")
+    "§2")
 add("lm.projectLoopsObj", "projectLoopsObj(loops, fromId, toId, below, homeId, toHome)",
     "Loops through an object's displacement table: how an eraser reaches the coordinates a moved object is stored in.",
     ["`mapPointObj` for whole loops: the exact chain to or from the unmoved frame, with the remainder as a translation on the frame's side. With no table it is `projectLoops`.",
      "The erase passes `toHome` (`_eraserLoopsInto`), so a mark drawn in the object's own frame still comes back through the remainder (F72)."],
-    "§10")
+    "§2")
 
 # ---- src/engine/Document.js ----
 add("doc.flattenLoops", "flattenLoops(o)",
     "Turns a shape's plain piece-array loops into stored Loops, in place, at the door of the document.",
     ["Every way a shape enters or changes in the document calls it (`add`, `insertAt`, the geometry edits, `insertFrameSubtree`); builders hand over piece arrays and never see them again (DESIGN.md §3). A loop that already is a Loop is left as it is.",
      "Not `curveOutline.flattenLoops`, which flattens arcs to polygons."],
-    "§7")
+    "§5")
 add("doc.nativeFromRecord", "nativeFromRecord(o)",
     "A stored record, kobin-1 JSON or a kobin-2 span, as a live native: retired fields stripped, the table decoded, damaged loops repaired.",
     ["Drops `windows`, `srcId` and `paths`; decodes `below`, dropping a malformed one rather than refusing; keeps header fields this build does not know as `_extra` so they are written back. A well-formed encoding is wrapped as Loops with no copy; only a damaged one is decoded, repaired and rebuilt.",
@@ -114,7 +114,7 @@ add("doc.nativeFromRecord", "nativeFromRecord(o)",
 add("doc._noteBelow", "_noteBelow(o)",
     "Keeps the set of moved objects (`_offsetIds`) in step with one object's displacement table.",
     ["An object with a non-empty table is added; one without is removed and its empty `below` key deleted. Called wherever a table can change or an object enters."],
-    "§6")
+    "§8")
 add("doc.hasOffsets", "hasOffsets()",
     "Does any native carry a displacement table, or any frame holding natives a shift? Asked by the tile store on every bake.",
     ["The tables' answer is O(1); the frames' is memoised on the offsets revision, the address epoch and the frame count."],
@@ -122,7 +122,7 @@ add("doc.hasOffsets", "hasOffsets()",
 add("doc.offsetIds", "offsetIds()",
     "The ids of every native with a displacement table, for the scans that must judge moved objects where their picture is.",
     ["The live set, not a copy. The tile store's reroute, the lasso's moved-object pass and the report read it; the erase's candidate scan reads `_offsetIds` directly."],
-    "§6")
+    "§8")
 add("doc.subscribeOps", "subscribeOps(fn)",
     "Subscribes to the op channel: what the user did, as opposed to the change events' what moved on screen.",
     ["Carries every fresh undo op, every bake step appended to one, every undo and redo, every settle and every shadow merge, in order. The op log (the saver), the scene client and the editor hook subscribe. Returns the unsubscribe function."],
@@ -133,45 +133,45 @@ add("doc._notifyOps", "_notifyOps(ev)",
 add("doc.recordBake", "recordBake(op, step)",
     "Appends a bake step to a gesture's eraseCommit op and announces it on the op channel; the one way steps are appended.",
     ["A step is `{ removed, pieces }`, `{ rekey }` or `{ frames }`; undo runs them newest first. The announcement is what puts the step in the op log."],
-    "§10")
+    "§7")
 add("doc.noteId", "noteId(id)",
     "Keeps the id counter above an id a replayed log entry brought in, so no id is handed out twice.",
     ["-"], "§13")
 add("doc.noteRefile", "noteRefile(frameId, from, to)",
     "Announces that a subtree move re-addressed a frame, so the tile cache can re-file its tiles.",
     ["Emits a `refile` change event with the old and new `{ parent, i, j }`. No native changes."],
-    "§6")
+    "§8")
 add("doc.keysChanged", "keysChanged(ids)",
     "Marks the family index stale after an editId changed in place, bumps the revision, and tells the subscribers which ids were re-keyed (`rekey`).",
     ["-"], "§3")
 add("doc.count", "count(level)",
     "A frame's native count as stored, with no shadow merged and no shift settled.",
     ["For scans that only need a number (the selection's status, the tile store, the report); `at` would pay a settle on every frame it counted (DESIGN.md §8)."],
-    "§6")
+    "§8")
 add("doc.list", "list(level)",
     "A frame's list as stored, for scans that need identity or flags only; never for positions.",
     ["No shadow merged and no shift settled, so a walk over every frame does no per-native work on frames nobody has looked at. The erase's mark and family scans, the overlays and the report read it (DESIGN.md §8)."],
-    "§6")
+    "§8")
 add("doc.setFrameShift", "setFrameShift(frameId, shift)",
     "Sets a frame's shift — its natives' placement after a subtree move (A1 C1) — and bumps the offsets revision; a zero shift clears it.",
     ["-"], "§8")
 add("doc.maxZUnder", "maxZUnder(rootId)",
     "An upper bound on the z of everything under a frame subtree: the erase's test for taking a frame whole.",
     ["The largest `maxZ` of the subtree's indexes (which only grow) and the z of any pending stroke homed there. `maxZUnder(F) < z` means nothing under F is drawn above z (DESIGN.md §7)."],
-    "§10")
+    "§7")
 add("doc.setZById", "setZById(id, z)",
     "Changes one object's z alone; the eraser mark's z steps down this way as its bake proceeds.",
     ["Raises the frame index's `maxZ` bound if needed and emits a `change` with `attrOnly`, which the tile store ignores; the next render re-sorts. Returns the previous z (DESIGN.md §7)."],
-    "§10")
+    "§7")
 add("doc.setOffsetsById", "setOffsetsById(id, below)",
     "A move: replaces an object's displacement table and touches no coordinate.",
     ["No cache is stale, so nothing is re-indexed; the `change` event says `offsetsOnly`, and the picture is read from the unmoved tiles at its new address on the next render (DESIGN.md §8, F55)."],
-    "§6")
+    "§8")
 add("doc.rehomeManyById", "rehomeManyById(ids, toLevel)",
     "`rehomeById` for many natives at once: each source list compacted in one pass instead of spliced per object.",
     ["Every frame it touches is settled before the groups are formed, because a settle's carry can re-home a native. Ends in the same lists, indexes and events as one `rehomeById` per id; only the events' interleaving differs. Returns how many moved.",
      "The per-object splice made a whole-frame drag quadratic in the list's length (DESIGN.md §8)."],
-    "§6")
+    "§8")
 add("doc.removeFrameSubtree", "removeFrameSubtree(rootId, {by})",
     "Deletes a frame subtree that holds natives: its frames leave the lattice (`LevelMap.removeSubtree`, A1 C3), each frame's list and index go into the returned records for the undo, and its natives leave the id map.",
     ["Returns the records `{ frame, natives, index, at }`, or null when no frame of the subtree holds a native. Each removed frame with natives announces `removeFrame` with where the subtree's root stood; `by` marks a frame a mark covers whole, taken at its landing (A2 §4.2). The delete of a selected frame and the frame-covering erase use it (DESIGN.md §7, §10)."],
@@ -203,32 +203,32 @@ add("fl.TileGrid", "TileGrid",
     "One value type for the three W-wide partitions: a frame's own square, an object's tile grid, and the cache's squares.",
     ["A grid is its phase `(px, py)`: an object's is `TileGrid.at(o.tile)`, the cache's is `TileGrid.CACHE` (phase 0), and a frame's own square is that grid's (0, 0). Squares are centred on their index.",
      "Two range rules, named: `range` is half-open (the chop and the cede cut on it), `touching` is closed (the cache reads by it). Each keeps its callers' arithmetic to the bit, because a saved drawing's deep picture depends on both (DESIGN.md §2)."],
-    "§8")
+    "§1")
 add("fl.TileGrid.constructor", "TileGrid.constructor(px, py)",
     "A grid with phase (px, py); callers use `TileGrid.at`, so a zero phase is the shared cache grid.",
-    ["-"], "§8")
+    ["-"], "§1")
 add("fl.at", "at(phase)",
     "The grid with an object's phase, or the shared cache grid when the phase is absent or zero.",
-    ["-"], "§8")
+    ["-"], "§1")
 add("fl.rect", "rect(i, j)",
     "Square (i, j): [p + iW - W/2, p + iW + W/2) on each axis, centred on its index.",
-    ["-"], "§8")
+    ["-"], "§1")
 add("fl.range", "range(rect)",
     "Every square a rect reaches, half-open: a rect ending exactly on a boundary belongs to the square below.",
     ["The rule the chop and the cede cut on. Rounding both ends the same way turns one square into three per axis, nine times the area clipped per square: measured, a level-1 render went from 49 ms to 258 ms."],
-    "§8")
+    "§1")
 add("fl.touching", "touching(rect)",
     "Every square a rect touches, boundaries included: the cache's read rule.",
     ["A window ending on a boundary reads the square above it too. `TileStore.content`, a child square's pre-image and `LevelMap.tileRange` read with it; for a single point it agrees with `range`."],
-    "§9")
+    "§1")
 add("fl.span", "span(cells)",
     "The rect a window of whole squares spans, so its boundary is grid lines and nothing else.",
     ["What geometry is clipped to: every cut in the engine lands on a line of the object's own grid, so two tiles holding the same stretch of curve hold bit-identical pieces of it."],
-    "§8")
+    "§1")
 add("fl.child", "child(c, f)",
     "The same grid one level down, through the edge with centre `c` and factor `f`.",
     ["`childTilePhase` on each axis. The grids nest, so the decomposition is a fixed property of the object at every level."],
-    "§8")
+    "§1")
 
 # ---- src/engine/erasePipeline.js (mixed onto KobinEngine; `this` is the engine) ----
 add("erp._candidatesUnder", "_candidatesUnder(Erec, exclude)",
@@ -254,7 +254,7 @@ add("erp._applyCut", "_applyCut(Erec, target, r)",
 add("erp._descentWorld", "_descentWorld()",
     "What a descent job reads from the engine: the lattice, the config, the canvas width and the opacity groups.",
     ["The world `eraseDescent.descentJob` runs in on the main thread; the worker gets the same fields with the lattice serialised. Tests replace it to watch or fault the square ink."],
-    "§10")
+    "§7")
 add("erp._applyDescent", "_applyDescent(Erec, target, r)",
     "The document side of a descent: the target's family swapped for the one the job built.",
     ["Adds the seal and dust tallies. A refusal is recorded (`_refuse`, which marks an `inkless` target handled, F109), and so is a descent with a piece whose frame is missing. Nothing if the target was replaced or the mark has gone.",
@@ -264,20 +264,20 @@ add("erp._applyDescent", "_applyDescent(Erec, target, r)",
 add("erp._removedArea", "_removedArea(subject, clip)",
     "The area an erase removes, measured as the area of the intersection (F46). Nothing calls it.",
     ["`eraseJob.cutJob` measures the removal the same way inside the job. The intersection's pieces are no longer than the eraser, so its area is exact to the eraser's own ulps where before-minus-after is not."],
-    "§10")
+    "§7")
 add("erp._boolOpts", "_boolOpts()",
     "The boolean's one option, the freeze radius at this engine's tolerance, passed to every cut and descent job.",
     ["So an erase stands in for an arc by its chord exactly where the tile chain would have frozen it, and nowhere else (DESIGN.md §5)."],
-    "§11")
+    "§6")
 
 # ---- src/engine/overlays.js (mixed onto KobinEngine; `this` is the engine) ----
 add("ovl.mergeClose", "mergeClose(rects, gap)",
     "Unions rects lying within `gap` of each other, so several specks on one pixel become one dot.",
     ["One greedy pass: each rect grows the first kept rect it is near, or is kept. Used on the dots of selected objects too small to trace (F73), with a 2 px gap."],
-    "§12")
+    "§10")
 add("ovl.clipRect", "clipRect(r)",
     "A clip or attach rect as `{ rect, eps }` for the ants' seam test, the tolerance from `rectTol`.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ovl.asLTRB", "asLTRB(r)",
     "A rect in either spelling, as left/top/right/bottom.",
     ["An `x0/y0/x1/y1` rect is converted; any other is returned as it is. `eraseDescent.asLTRB` is the same one-liner."],
@@ -286,7 +286,7 @@ add("ovl._selTable", "_selTable(s)",
     "The selection's members grouped by frame, with each frame's union boxes, one per displacement table (F68).",
     ["Each selected id expands to its family, erased marks dropped, each object once. A member of a family spanning several frames is listed but adds no box: it is drawn through its pieces. A selected frame is one box, its own cell, and its natives are never read.",
      "Returns `{ byLevel, ids, levelOf, cross, frames, count }`, cached against the selection object and the document's revision."],
-    "§12")
+    "§10")
 add("ovl._selFrameRect", "_selFrameRect(info, L, F)",
     "Where a frame's selected members are drawn, as one rect in the active frame's units.",
     ["The union of the frame's boxes, each mapped through its member's placement (`placeNative(nat, F).fromStored`) or exactly — a selected frame's own box already shifted by the frame's shift; null when none reaches F. The frame-dot decision reads it (F68)."],
@@ -299,7 +299,7 @@ add("ovl._selDecide", "_selDecide(s, table)",
 add("ovl._selPieceLoops", "_selPieceLoops(piece)",
     "A render-list piece as loops of arcs and lines: the geometry its ink is drawn from.",
     ["A shape's own loops; a fill's rings as line loops; a stroke's capsule outline, as the renderer draws it. Cached on the piece against the array it was made from, because a native in the list is the document's own object and an edit replaces its loops."],
-    "§12")
+    "§10")
 add("ovl._selSeamRects", "_selSeamRects(piece, off, table, F, cache)",
     "The rects a piece may have been cut on, its own clip and its family's attach windows, where the piece is drawn.",
     ["A straight run lying along one is a seam and gets no ants: both 'no ants on a tile edge' and the F37 join rule. Family windows are mapped into F through each member's placement (`placeNative`) or exactly and shifted by the piece's placement offset `off`; cached per piece id, with the piece's own clip added on each call."],
@@ -307,7 +307,7 @@ add("ovl._selSeamRects", "_selSeamRects(piece, off, table, F, cache)",
 add("ovl._selEdges", "_selEdges(dec, off)",
     "Where the selected ink meets the sides of the screen, recomputed on every step as the view moves.",
     ["Only pieces straddling the view are scanned (`edgeSpans`), the view shifted back by a drag's offset. Spans become screen coordinates, merge across 1.5 px gaps, drop under 2 px, and take a chevron from a fifth of their side. Returns `{ list, covered }`; a selection wholly in view gives none."],
-    "§12")
+    "§10")
 
 # ---- src/engine/files.js (mixed onto KobinEngine; `this` is the engine) ----
 add("fil._mintNamedFrames", "_mintNamedFrames(natives)",
@@ -319,12 +319,12 @@ add("fil._mintNamedFrames", "_mintNamedFrames(natives)",
 add("ejb.dustBarFor", "dustBarFor(bakePx, f)",
     "The dust bar: a quarter pixel at the zoom the mark was drawn at, in the subject's units.",
     ["`DUST_PX / bakePx`, scaled by `f` (the mark's units into the subject's). Undefined when the mark recorded no zoom, and then the pen rule decides (DESIGN.md §7, F66)."],
-    "§10")
+    "§7")
 add("ejb.cutJob", "cutJob(j)",
     "The geometry of one cut: the boolean, the removal measured locally, the graze rule, the components and the dust cull.",
     ["Subtracts the clip from the subject and measures what went as the area of subject ∩ clip (F46). Graze rule `cut` refuses a removal at or under the smaller of 1e-4·rE² and 1e-6 of the subject's area; `cede` refuses under 1e-4·rE² alone, rE being half the eraser's box. Then the result's components, less dust (`dropDust` against the pen and `dustBar`).",
      "Returns `{ kind: grazed | removed | cut, regions?, stats, removed, dust }`, regions as Loops. Imports geometry only and touches no document: the same function runs on the main thread, in the erase worker, and in a descent's last link (DESIGN.md §7)."],
-    "§10")
+    "§7")
 add("ejb.own", "own(l)",
     "A loop as a copied `{ buf, idx }` pair, ready to transfer to a worker; the caller's Loop stays usable.",
     ["-"], "")
@@ -333,16 +333,16 @@ add("ejb.wrap", "wrap(x)",
     ["-"], "")
 add("ejb.wireJob", "wireJob(j)",
     "A cut job as a worker message plus the buffers to transfer: copies, so the document keeps its own.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("ejb.unwireJob", "unwireJob(m)",
     "A cut job back from a message, its loops wrapped as Loops.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("ejb.wireResult", "wireResult(r)",
     "A cut result as a message; a cut's regions are transferred, not copied, since nothing else holds them.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("ejb.unwireResult", "unwireResult(m)",
     "A cut result back from a message, a cut's regions wrapped as Loops.",
-    ["-"], "§10")
+    ["-"], "§7")
 
 # ---- src/engine/eraseDescent.js ----
 add("eds.asLTRB", "asLTRB(r)",
@@ -351,30 +351,30 @@ add("eds.asLTRB", "asLTRB(r)",
 add("eds.VirtualDoc", "VirtualDoc",
     "The objects a descent reads and mints, kept apart from the document.",
     ["The target is its one real object; everything a virtual cede mints takes a negative id. Implements the few `Document` calls the descent needs (`getById`, `add`, `removeById`, `editKey`) with the same record shape."],
-    "§10")
+    "§7")
 add("eds.VirtualDoc.constructor", "VirtualDoc.constructor(seed)",
     "Seeds the virtual document with `{ obj, level }` records, the level as a string; virtual ids start at -1.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.allocId", "allocId()",
     "The next virtual id, -1, -2, ..., so a virtual object can never be taken for a real one.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.getById", "getById(id)",
     "A virtual record `{ obj, level }` by id, or null.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.add", "add(obj, level)",
     "Puts an object in the virtual document at a frame; returns the object.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.removeById", "removeById(id)",
     "Takes an object out of the virtual document; returns its record, or null.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.editKey", "editKey(o)",
     "An object's family key: its editId, else its id, as `Document.editKey` has it.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.squareInkOf", "squareInkOf(world, vdoc, id, F, i, j)",
     "The tile store's piece for one object in square (i, j) of frame F, derived from the level above as the store derives it.",
     ["Runs `classifyUp`, then `solidQuad` or `deriveStep`, on the one object and on the same numbers `TileStore._bakeUp` uses, so the kid a cede mints is the store's piece bit for bit (F42). An object homed in a cell around the parent is first projected into the parent's coordinates, if its box meets the square's pre-image.",
      "Returns `{ loops, clip, tile }` (shape loops, or a covering fill's clip as a rect loop), or null when the square holds none of the object's ink."],
-    "§10")
+    "§7")
 add("eds.descentJob", "descentJob(world, input)",
     "The whole rehome descent for one target, on a virtual document: every cede down to the erase level, the last link cut by `cutJob`.",
     ["Refuses unless the route from the target's frame to the mark's is a pure descent. At each crossing, for each object the step above minted: the frame F0 holding its picture (through its picture table, the frame's shift composed in), the eraser's box grown by half its size and widened to cover the cell the next crossing enters, and at most a 2x2 block of F0's squares, the square under the box's centre first and alone when its window covers the box. Each square's ink (`squareInkOf`) is ceded into a kid one level down through `cede` (cede.js, on the virtual document; the kid's table its frame's own); at the last link the kid is `cutJob`'s result under the `cede` graze rule.",
@@ -395,29 +395,29 @@ add("eds.objIn", "objIn(o)",
 add("eds.wireDescent", "wireDescent(world, input)",
     "A descent job as a worker message: the target and the eraser copied, the lattice as `LevelMap.serialize()`.",
     ["Carries the canvas size, config, opacity groups, freeze radius and the mark's frame beside them; the mark's zoom (`bakePx`) rides for the dust bar."],
-    "§10")
+    "§7")
 add("eds.unwireDescent", "unwireDescent(m)",
     "In the worker: the world and input rebuilt, with a LevelMap loaded from the serialised lattice.",
     ["The descent runs on this copy, so any frame it mints comes back in `minted` for the engine to merge."],
-    "§10")
+    "§7")
 add("eds.wireDescentResult", "wireDescentResult(r)",
     "A descent result as a message: each step's objects copied out and their buffers transferred; a refusal as it is.",
-    ["-"], "§10")
+    ["-"], "§7")
 add("eds.unwireDescentResult", "unwireDescentResult(m)",
     "A descent result back from a message, every step object's loops wrapped as Loops.",
-    ["-"], "§10")
+    ["-"], "§7")
 
 # ---- src/engine/eraseWorkerClient.js ---- (rewritten 2026-09-29, B-PYRAMID-2b P6: the cuts in the shared pool)
 add("ewc.cutQueue", "cutQueue()",
     "A `JobQueue` over the raster pool for cuts alone: the SVG path's (the raster renderer's queue carries plates and cuts together).",
-    ["-"], "§7")
+    ["-"], "§5")
 add("ewc.cutSlots", "cutSlots(queue)",
     "How many more cuts the bake's lookahead may send: the pool's size less the cuts queued or out; 0 when the pool is broken.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("ewc.submit", "submit(queue, {kind, barrier, job})",
     "One cut or descent as a `JobQueue` job of kind \"cut\" at `PRIO.cut`, posted to a raster worker (`runCut`): a promise of its result, or null when the pool is broken (the pipeline runs the job inline).",
     ["While any cut is pending the queue keeps one worker for cuts. A barrier's jobs go first. A job a worker error lost goes back to the head of its priority once (`requeue`); the one the watchdog found silent, a second loss, or a job that threw rejects with `err.why`, and the pipeline refuses the pair over ink — never inline, where the same job would stall the page (PLAN §5.9 item 1)."],
-    "§7")
+    "§5")
 add("ewc.resetEraseWorkerClient", "resetEraseWorkerClient()",
     "Tests only: the counters back to zero.",
     ["-"], "")
@@ -628,7 +628,7 @@ add("lm.retire", "retire(id)",
 add("lm.privateFrame", "privateFrame(parentId, i, j, key)",
     "The private frame of family `key` at child cell (i, j) of `parentId`'s cell, made on first use (A1 C4): a co-resident there flagged `private` with the id of the public frame the family's chain hangs from. A cede's kids live in it, so no shared frame holds a family's piece.",
     ["Its container is `parentId`; the selection never takes a private frame whole but judges its natives one by one, so the lasso can take every other frame whole (DESIGN.md §7, §10). Called by the erase descent's `kidHome`; null for a cell digit out of range."],
-    "§7")
+    "§2")
 add("lm.restoreFrame", "restoreFrame(rec, empty)",
     "Puts a removed frame back at its address — the undo of a subtree delete or of a legacy merge: a co-resident where a frame holds the cell, or the cell's resident when that one holds nothing and contains no frame.",
     ["Its kids come back after it, each joining its cell's group as it is added. Its `addrSeq` is bumped so the caches keyed on its chain read it afresh; a private flag regroups the cell; the address epoch moves and the spine is rebuilt. Null when its parent is gone (DESIGN.md §10: an undo puts the subtree back, a co-resident where new ink holds a cell)."],

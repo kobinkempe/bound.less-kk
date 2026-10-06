@@ -104,13 +104,13 @@ add("svo.SvgOverlays", "SvgOverlays",
     "The lasso and the two debug overlays, drawn into `SvgLayer`'s groups from what the engine's functions give; both renderers own one and call it from their overlay tail.", ["-"], "§9")
 add("svo.SvgOverlays.constructor", "SvgOverlays.constructor(layer, cam)", "The overlays over a renderer's `SvgLayer` and the engine's camera, all off.", ["-"], "§9")
 add("svo.setLasso", "setLasso · setTileDebug · setEraseDebug",
-    "Set what the lasso, the tile-debug and the erase-debug overlays read from; turning a debug overlay off clears its group.", ["-"], "§15")
+    "Set what the lasso, the tile-debug and the erase-debug overlays read from; turning a debug overlay off clears its group.", ["-"], "§10")
 add("svo.render", "render()", "All three overlays, in paint order: tiles, erase, lasso.", ["-"], "§9")
 add("svo.lasso", "lasso()",
     "The lasso in progress, in screen coordinates — a gesture, not geometry — dashed terracotta like the ants; the lasso is all this group draws (F39).", ["-"], "§10")
-add("svo.tiles", "tiles()", "The cached tiles' rectangles in red, in screen space (the tile-debug overlay).", ["-"], "§15")
+add("svo.tiles", "tiles()", "The cached tiles' rectangles in red, in screen space (the tile-debug overlay).", ["-"], "§14")
 add("svo.erase", "erase()",
-    "The erase-debug overlay over the ink: orange a shape's own boundary, green where it touches a parent or child across their shared tile edge — the relation severance is decided on — and yellow an eraser mark.", ["-"], "§15")
+    "The erase-debug overlay over the ink: orange a shape's own boundary, green where it touches a parent or child across their shared tile edge — the relation severance is decided on — and yellow an eraser mark.", ["-"], "§14")
 add("svo.mkSelLayer", "mkSelLayer(svg, host, cls)",
     "One indicator layer — its own `<svg>`, laid exactly over the drawing's — built once and only updated afterwards, because a CSS animation restarts whenever its element is replaced.", ["-"], "§10")
 add("svo.buildSelOverlay", "buildSelOverlay(svg)",

@@ -11,7 +11,7 @@ def add(key, fn, what, long, ref=""):
 
 # ---- src/engine/raster/RasterRenderer.js ----
 add("rr.resetRasterStats", "resetRasterStats()",
-    "Zeroes every counter in `rasterStats`, the renderer's own report counters.", ["-"], "§15")
+    "Zeroes every counter in `rasterStats`, the renderer's own report counters.", ["-"], "§14")
 add("rr.RasterRenderer", "RasterRenderer",
     "The raster renderer: paints the Stage's items into the picture pyramid's plates on a canvas instead of into SVG.",
     ["No longer a `Renderer` subclass: it owns one Two.js `<svg>` (`SvgLayer`) for the stroke under the pen (`LiveStrokeLayer`), the lasso and the debug overlays (`SvgOverlays`), and the chevrons; the ink goes through the `PicturePyramid` (the plan and the compose), the `PyramidStore` (the plates and their freshness against the Stage's generation) and the job queue to the worker pool (A3 §1, §4).",
@@ -29,7 +29,7 @@ add("rr._buildSelOverlay", "_buildSelOverlay(svg)",
 add("rr.antPainter", "antPainter (getter)",
     "True: tells `overlays._selDecide` to keep each ant run's pieces for the canvas painter instead of building an SVG path string.",
     ["The code records 8.3 ms and 345 KB taken off a decision at F39's density."],
-    "§12")
+    "§10")
 add("rr._renderSelOverlay", "_renderSelOverlay(view)",
     "Draws the selection indicator on the raster path: the ants on the overlay canvas, the chevrons in SVG, both at the published view.",
     ["Asks the engine for its decision (`_selAntsFn`), timing it as the overlay's `decideMs`; with nothing to show it drops the overlay. Otherwise it sizes `bl-sel-edges`, builds the `OverlayLayer` on first use, hands it the decision, the view and `_edgeShift`, draws the chevrons with `renderSelChevrons` (`raster/svgOverlay.js`) and keeps the edge layer last in the host.",
@@ -38,21 +38,21 @@ add("rr._renderSelOverlay", "_renderSelOverlay(view)",
 add("rr._dropSelOverlay", "_dropSelOverlay()",
     "Hides the ant canvas and removes the SVG chevron layer when the selection goes.",
     ["The overlay's buffer is kept, so the next selection does not reallocate it."],
-    "§12")
+    "§10")
 add("rr._makeOverlay", "_makeOverlay()",
     "Creates the `OverlayLayer` for the ants on the first selection decision and adds it to the renderer's list of screen layers.",
     ["Never at construction: a tool change must not cost the plane's 10.48 MiB. Joining `_layers` is what has it resized, released and destroyed with the ink layer. It also arms the reduced-motion listener."],
-    "§12")
+    "§10")
 add("rr._edgeShift", "_edgeShift(view)",
     "The CSS-px difference between the published view's snapped translation and the camera's pan, applied to the screen-edge ant spans.",
     ["The edge spans are computed in the camera's screen px while the ink is composed at the view's whole-pixel translation; the overlay adds this to the spans only. One two-element array, reused."],
-    "§12")
+    "§10")
 add("rr._armReducedMotion", "_armReducedMotion()",
     "Listens to `prefers-reduced-motion` and passes it to the ant overlay, which owns the crawl clock.",
     ["A CSS rule cannot stop the canvas crawl; the chevrons keep the stylesheet's own rule. A no-op without `matchMedia` (jsdom), which is what lets a raster engine construct there."],
-    "§12")
+    "§10")
 add("rr._dropReducedMotion", "_dropReducedMotion()",
-    "Removes the reduced-motion listener.", ["-"], "§12")
+    "Removes the reduced-motion listener.", ["-"], "§10")
 add("rr.setSize", "setSize(w, h)",
     "Resizes every screen layer at the current devicePixelRatio, sets the store's budget for the new screen (A3 §4.5) and re-arms the dpr listener.",
     ["The layers take `(w, h, dpr)`, so this is the one place that reads `devicePixelRatio`."], "§9")
@@ -151,9 +151,9 @@ add("rr.syncWorld", "syncWorld(view)",
 add("rr.beginRender", "beginRender()",
     "Opens the frame's perf row before the engine builds its list, so the list build counts inside the frame.",
     ["`render` finds the row open and does not open a second; a caller that skips this gets the row opened in `render`."],
-    "§15")
+    "§14")
 add("rr.noteList", "noteList(ms)",
-    "Charges the engine's own list-build time to the `eng.list` slot.", ["-"], "§15")
+    "Charges the engine's own list-build time to the `eng.list` slot.", ["-"], "§14")
 add("rr.render", "render(list, frame)",
     "A full frame on the raster path: reads the Stage's items (`_sceneList`), runs the camera step (the plan, the compose, the posts) and syncs the SVG world and overlays.",
     ["The list the engine passes is not read: the packs read the Stage's items at its generation (A2 §3). Inert once destroyed, since the next engine shares the host (F101). The fat gate is the SVG renderer's (A3 §7.2), so nothing is recorded for an idle fitter here. Returns false: there are no ink groups to reorder."],
@@ -167,17 +167,17 @@ add("rr._frameStep", "_frameStep()",
     ["In order: `_liveCross` (before the retarget, which reads a group's rectangle); `PicturePyramid.frameFor(cam)`, timed into `SLOT.view` without the packs and the core work done inside it; the queue's motion (`_pyrMotion`), frame and pump; `_planeStep`; `compose` (counted in images); `_pyrLive`; and `_pyrPrefetch` when not moving. There is no sync path and no want-and-post of misses any more: the pyramid's plan asks for what the view lacks (A3 §4)."],
     "§9")
 add("rr._beginFrame", "_beginFrame(kind)",
-    "Advances `frameSeq` (from the engine's counter when given), counts the frame, and opens its perf row.", ["-"], "§15")
+    "Advances `frameSeq` (from the engine's counter when given), counts the frame, and opens its perf row.", ["-"], "§14")
 add("rr._endFrame", "_endFrame()",
-    "Closes the frame's perf row and marks the engine's row closed.", ["-"], "§15")
+    "Closes the frame's perf row and marks the engine's row closed.", ["-"], "§14")
 add("rr._openRow", "_openRow(seq, kind, backMs)",
     "Opens a perf row and marks one as live, so `_post` and `_pack` can tell whether to open their own; `backMs` is main-thread time the task spent before the row could open.",
     ["-"], "§14")
 add("rr._closeRow", "_closeRow()",
-    "Closes the live perf row.", ["-"], "§15")
+    "Closes the live perf row.", ["-"], "§14")
 add("rr._add", "_add(name, ms)",
     "Adds a duration to one named perf slot, through `rasterPerf`'s slot index or the name itself for a test recorder.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rr._endJob", "_endJob(jobId)",
     "Ends a job id in the store, freeing its in-flight keys.", ["-"], "§9")
 add("rr.snapshotJob", "snapshotJob(o)",
@@ -191,7 +191,7 @@ add("rr.report", "report()",
 
 # ---- src/engine/raster/MovePlane.js ----
 add("mvp.resetPlaneStats", "resetPlaneStats()",
-    "Zeroes the drag plane's counters.", ["-"], "§15")
+    "Zeroes the drag plane's counters.", ["-"], "§14")
 add("mvp.rangeOf", "rangeOf(cells)",
     "The bounding plate range of a cell list, or null when it is empty.", ["-"], "§9")
 add("mvp.MovePlane", "MovePlane",
@@ -259,7 +259,7 @@ add("plt.plateRange", "plateRange(win, Zq)",
 
 # ---- src/engine/raster/rasterWorkerClient.js ----
 add("rwc.named", "named(names, a)",
-    "Turns a totals array into an object keyed by the given names, for the report.", ["-"], "§15")
+    "Turns a totals array into an object keyed by the given names, for the report.", ["-"], "§14")
 add("rwc.now", "now()",
     "The main thread's clock: `performance.now()`, or `Date.now()` where there is none.", ["-"], "")
 add("rwc.setRasterTransport", "setRasterTransport(t)",

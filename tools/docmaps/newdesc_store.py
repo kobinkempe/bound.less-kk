@@ -186,185 +186,185 @@ V = "§17"
 add("v0.KobinEngineV0.constructor", "KobinEngineV0.constructor(container, opts)",
     "Builds the retired engine: a Two.js scene of three groups, the camera, per-level natives, crossing records, tile caches and tool state.",
     ["Level 0 holds the originals; `levelObjects` is each level's render list; `crossings` pin each level's frame on first entry; `tiles` caches each level's derived content per grid cell. It also keeps a perf ring and a projection cache, and puts the Clipper and polyline helpers on `geom` for scripted tests."],
-    V)
-add("v0.setTool", "setTool(t)", "Sets the active tool: pen, erase or pan.", ["-"], V)
-add("v0.setPenType", "setPenType(t)", "Sets the pen variant: freehand, highlight or straight.", ["-"], V)
+    "§15")
+add("v0.setTool", "setTool(t)", "Sets the active tool: pen, erase or pan.", ["-"], "§15")
+add("v0.setPenType", "setPenType(t)", "Sets the pen variant: freehand, highlight or straight.", ["-"], "§15")
 add("v0._perf", "_perf(op, t0, always, extra)",
     "Logs an operation slower than 8 ms, or any when `always`, to a 300-entry ring with the level and in-level scale.",
-    ["-"], V)
-add("v0.setColor", "setColor(c)", "Sets the colour of the next stroke.", ["-"], V)
-add("v0.setWidth", "setWidth(w)", "Sets the width of the next stroke, in screen pixels.", ["-"], V)
-add("v0.setOpacity", "setOpacity(o)", "Sets the opacity of the next stroke.", ["-"], V)
+    ["-"], "§15")
+add("v0.setColor", "setColor(c)", "Sets the colour of the next stroke.", ["-"], "§15")
+add("v0.setWidth", "setWidth(w)", "Sets the width of the next stroke, in screen pixels.", ["-"], "§15")
+add("v0.setOpacity", "setOpacity(o)", "Sets the opacity of the next stroke.", ["-"], "§15")
 add("v0.setOpacityGroups", "setOpacityGroups(b)",
     "Toggles one opacity group per object, drops every cached tile so fills rebake with or without the seam pad, and re-renders.",
     ["With groups on, an object's pieces render opaque inside a group that carries its opacity, so overlapping pieces and the deliberate overlap at tile seams do not double-darken."],
-    V)
-add("v0.setDebug", "setDebug(b)", "Toggles red outlines on filled paths and re-renders.", ["-"], V)
+    "§15")
+add("v0.setDebug", "setDebug(b)", "Toggles red outlines on filled paths and re-renders.", ["-"], "§15")
 add("v0.setTileDebug", "setTileDebug(b)",
-    "Toggles red squares at the edges of the cached tiles at and below the active level.", ["-"], V)
+    "Toggles red squares at the edges of the cached tiles at and below the active level.", ["-"], "§15")
 add("v0.resize", "resize(w, h)",
     "Resizes the renderer, faults in the tiles the new window needs and re-renders; a same-size call does nothing.",
-    ["The tile grids stay as their crossing records captured them, so cached tiles remain valid across a resize."], V)
+    ["The tile grids stay as their crossing records captured them, so cached tiles remain valid across a resize."], "§15")
 add("v0.destroy", "destroy()", "Stops the Two.js loop and removes its SVG from the DOM.",
-    ["Without it a remount leaves the old SVG stacked behind the new one."], V)
+    ["Without it a remount leaves the old SVG stacked behind the new one."], "§15")
 add("v0.clear", "clear()",
-    "Empties the document and resets the camera, pushing the whole prior state as one undoable op.", ["-"], V)
+    "Empties the document and resets the camera, pushing the whole prior state as one undoable op.", ["-"], "§15")
 add("v0.snapshot", "snapshot()",
     "The document and camera as dev-0 JSON: each level's natives, the crossing records with their grids, the camera.",
-    ["Not a durable save format; it existed so a reload could restore the session."], V)
+    ["Not a durable save format; it existed so a reload could restore the session."], "§15")
 add("v0.loadSnapshot", "loadSnapshot(snap)",
     "Restores a dev-0 snapshot's natives, crossings and camera, with both undo stacks cleared.",
-    ["Advances the module's id counter past the largest id loaded, so a new stroke never reuses one."], V)
+    ["Advances the module's id counter past the largest id loaded, so a new stroke never reuses one."], "§15")
 add("v0.screenToFrame", "screenToFrame(sx, sy)",
-    "A screen point in the active level's frame, through the in-level scale and pan.", ["-"], V)
-add("v0._objs", "_objs()", "The active level's render list.", ["-"], V)
+    "A screen point in the active level's frame, through the in-level scale and pan.", ["-"], "§15")
+add("v0._objs", "_objs()", "The active level's render list.", ["-"], "§15")
 add("v0.pointerDown", "pointerDown(sx, sy)",
     "Starts a pan, an erase or a stroke; a stroke becomes a native at once, drawn live as a Two.js path.",
     ["Its width is the pen width over the in-level scale, 2.5 times that for the highlighter, whose opacity is capped at 0.45; the straight pen draws an uncurved two-point path."],
-    V)
+    "§15")
 add("v0.pointerMove", "pointerMove(sx, sy)",
     "Pans, erases under the pointer, or extends the live stroke; the straight pen moves its end point instead.",
-    ["-"], V)
+    ["-"], "§15")
 add("v0.pointerUp", "pointerUp()",
     "Finishes the stroke: renders it, drops the deeper levels' cached tiles and pushes an `add` op.",
     ["A new stroke is the only thing that changes derived tiles, and only deeper ones: this level, shallower levels and every native stay as they were."],
-    V)
+    "§15")
 add("v0.cancelStroke", "cancelStroke()",
-    "Removes the live stroke with no undo entry, for a second touch that makes the gesture a pinch.", ["-"], V)
+    "Removes the live stroke with no undo entry, for a second touch that makes the gesture a pinch.", ["-"], "§15")
 add("v0.eraseAt", "eraseAt(sx, sy)",
     "Deletes the topmost object under the pointer from the level its native lives at and pushes an `erase` op.",
     ["Derived and projected copies carry their source's id, so hitting a copy at any level removes the one native everywhere. This eraser removes whole objects; it never cuts."],
-    V)
+    "§15")
 add("v0._hitTest", "_hitTest(sx, sy)",
     "The id of the topmost object under a screen point: winding for fills, distance to the centerline for strokes.",
     ["A stroke hits within half its width plus 6 screen px; on a curved level the chords of its displayed spline are tested rather than the raw samples."],
-    V)
+    "§15")
 add("v0.undo", "undo()",
-    "Pops an op, applies its inverse, pushes that onto the redo stack and refreshes.", ["-"], V)
+    "Pops an op, applies its inverse, pushes that onto the redo stack and refreshes.", ["-"], "§15")
 add("v0.redo", "redo()",
-    "Pops a redo op, applies it, pushes its inverse back onto the undo stack and refreshes.", ["-"], V)
+    "Pops a redo op, applies it, pushes its inverse back onto the undo stack and refreshes.", ["-"], "§15")
 add("v0._invert", "_invert(op)",
     "Applies an op's inverse and returns the op that re-applies it: add and absent, erase and present, clear and clear.",
-    ["-"], V)
+    ["-"], "§15")
 add("v0.panBy", "panBy(dx, dy)",
     "Pans by screen pixels, faulting in tiles, and rebakes fat outlines only when the view leaves their padded window.",
-    ["-"], V)
+    ["-"], "§15")
 add("v0.zoomAt", "zoomAt(sx, sy, deltaY)",
-    "A wheel zoom about the pointer, by 2 to the power of minus `deltaY` over 1000.", ["-"], V)
+    "A wheel zoom about the pointer, by 2 to the power of minus `deltaY` over 1000.", ["-"], "§15")
 add("v0.pinchUpdate", "pinchUpdate(mx, my, factor, dx, dy)",
-    "One pinch step: pans by the midpoint's movement, then zooms about the midpoint.", ["-"], V)
+    "One pinch step: pans by the midpoint's movement, then zooms about the midpoint.", ["-"], "§15")
 add("v0.zoomFactorAt", "zoomFactorAt(sx, sy, factor)",
     "Zooms about a screen point, crosses levels as needed, faults in tiles, and rebakes fat outlines once the scale has moved about 25 %.",
-    ["A live stroke is finished first, since a crossing changes the frame under its coordinates."], V)
+    ["A live stroke is finished first, since a crossing changes the frame under its coordinates."], "§15")
 add("v0._maybeCross", "_maybeCross()",
     "Crosses up while the in-level scale is past `enter` and down while it is under `exit`, then bakes and renders once.",
     ["No floor: zooming out past level 0 makes negative levels as zooming in makes deeper ones. A step that crosses several levels bakes only the one it settles at."],
-    V)
+    "§15")
 add("v0._crossUp", "_crossUp()",
     "Enters the next deeper level, pinning its crossing record and tile grid on first entry and reusing them from then on.",
     ["The record is defined as if the crossing happened at exactly `enter`, so every re-entry lands near `base` and an overshooting zoom step cannot invert the hysteresis band."],
-    V)
+    "§15")
 add("v0._crossDown", "_crossDown()",
     "Returns to the coarser level, defining its record on the first exit below, and keeps the deeper level's tiles for a return.",
     ["Only the rendered paths are removed; the tiles, the frame and the natives stay, so coming back re-bakes nothing and does not drift."],
-    V)
+    "§15")
 add("v0._frameWindow", "_frameWindow(margin)",
-    "The visible screen rectangle in the active level's frame, grown by a margin.", ["-"], V)
+    "The visible screen rectangle in the active level's frame, grown by a margin.", ["-"], "§15")
 add("v0._outlinePad", "_outlinePad()",
-    "Half a screen width in frame units: the pad a fat outline is baked with.", ["-"], V)
+    "Half a screen width in frame units: the pad a fat outline is baked with.", ["-"], "§15")
 add("v0._windowCovered", "_windowCovered()",
     "Whether the view still fits inside the window the last fat or outline bake was made for.",
-    ["Panning inside it needs no rebake."], V)
+    ["Panning inside it needs no rebake."], "§15")
 add("v0._fatOnScreen", "_fatOnScreen(o)",
     "Whether a stroke is wider on screen than the polygonise gate, and so rendered as a filled outline instead of a browser stroke.",
     ["The gate is a third of the page width. Past it the browser's float32 stroker misplaces the band edge (measured 220 px at 284x in-level zoom), and painting the band the next crossing bakes keeps the swap seamless."],
-    V)
+    "§15")
 add("v0._levelPointToScreen", "_levelPointToScreen(level, x, y)",
     "A point in any level's frame mapped to current screen pixels, through the crossing chain and the camera.",
-    ["The tile-debug squares use it, and `KobinEngineV0.test.js` measures zoom round-trip drift with it."], V)
+    ["The tile-debug squares use it, and `KobinEngineV0.test.js` measures zoom round-trip drift with it."], "§15")
 add("v0._renderTileDebug", "_renderTileDebug()",
-    "Redraws the tile-edge debug squares for every cached tile at and below the active level.", ["-"], V)
+    "Redraws the tile-edge debug squares for every cached tile at and below the active level.", ["-"], "§15")
 add("v0._emit", "_emit()",
-    "Reports level, in-level scale, effective zoom, object count and modes to the status callback.", ["-"], V)
+    "Reports level, in-level scale, effective zoom, object count and modes to the status callback.", ["-"], "§15")
 add("v0._effectiveZoom", "_effectiveZoom()",
-    "The total zoom relative to level 0: the in-level scale times every crossing's factor in between.", ["-"], V)
+    "The total zoom relative to level 0: the in-level scale times every crossing's factor in between.", ["-"], "§15")
 add("v0.distToPolyline", "distToPolyline(pts, p)",
-    "The distance from a point to a polyline, or to its only point.", ["-"], V)
+    "The distance from a point to a polyline, or to its only point.", ["-"], "§15")
 add("v0.windingOfPoint", "windingOfPoint(rings, p)",
-    "The nonzero winding number of a point across a fill's rings, so holes cancel.", ["-"], V)
+    "The nonzero winding number of a point across a fill's rings, so holes cancel.", ["-"], "§15")
 
 # ---- src/engine/__oracles__/curvePerimeter.js ----
 add("cvp.DistOracle.constructor", "DistOracle.constructor(cubics, r, tol)",
     "Flattens every centerline cubic to chords within `tol` and files each in a grid of pen-radius cells.",
     ["Each chord is filed in every cell within r of it, so a burial query reads one cell. It takes no cubics for the bakers that grow it one cubic at a time with `addCubic`."],
-    V)
+    "§15")
 add("cvp.VertexSet", "VertexSet",
     "Crossing points registered once and handed to both pieces cut there, so a junction's two ends are the same coordinates.",
     ["A point within `tol` of one already registered returns that one. The cut step of `curvePerimeter` and the incremental schedule use it; the arc pipeline has its own (`arcPerimeter.VertexSet`), and this one is kept independent of it."],
-    V)
+    "§15")
 add("cvp.VertexSet.constructor", "VertexSet.constructor(tol)",
-    "Starts an empty set with its weld tolerance and a grid of cells twice that size.", ["-"], V)
+    "Starts an empty set with its weld tolerance and a grid of cells twice that size.", ["-"], "§15")
 add("cvp.at", "at(x, y)",
     "The registered vertex within `tol` of a point, or the point itself, newly registered.",
-    ["Searches the 3 by 3 cells round the point, since a rounded key alone splits pairs that straddle a cell edge."], V)
+    ["Searches the 3 by 3 cells round the point, since a rounded key alone splits pairs that straddle a cell edge."], "§15")
 add("cvp.now", "now()",
-    "The clock for the resolve's phase timings: `performance.now()` where it exists.", ["-"], V)
+    "The clock for the resolve's phase timings: `performance.now()` where it exists.", ["-"], "§15")
 add("cvp.dropHairlines", "dropHairlines(loops, minWidth)",
     "Removes loops whose mean width, twice the area over the perimeter, is under the burial test's resolution.",
     ["A doubled-back strip paints nothing, so dropping it changes no pixel. Exported so the batch and incremental schedules filter the same way; the perimeter is measured on four chords a cubic."],
-    V)
+    "§15")
 add("cvp.PieceGrid.constructor", "PieceGrid.constructor(pieces, cell)",
-    "Files every piece in each grid cell its box touches, and gives each a slot for the query stamp.", ["-"], V)
+    "Files every piece in each grid cell its box touches, and gives each a slot for the query stamp.", ["-"], "§15")
 
 # ---- src/engine/__oracles__/strokeShape.js ----
 add("sks.Crumb.constructor", "Crumb.constructor(cellSize)",
-    "An empty occupancy grid: per cell, how many capsules cover it whole and the first one that did.", ["-"], V)
+    "An empty occupancy grid: per cell, how many capsules cover it whole and the first one that did.", ["-"], "§15")
 add("sks.SegGrid.constructor", "SegGrid.constructor(segs, r, cell)",
     "Files each segment in every cell within r of it, with a stamp array for duplicate-free queries.",
     ["De-duplication is by stamp rather than a Set: building a Set per query dominated the whole computation on a dense stroke."],
-    V)
-add("sks._key", "_key(i, j)", "A grid cell's map key.", ["-"], V)
+    "§15")
+add("sks._key", "_key(i, j)", "A grid cell's map key.", ["-"], "§15")
 add("sks.add", "add(seg, r, id)",
     "Records one capsule: each cell whose four corners all lie within r of the segment counts it, and keeps it if it was first.",
     ["Whole-cell coverage only, so a cell covered by several capsules between them still reads as uncovered: the grid can over-include candidates but never loses boundary."],
-    V)
+    "§15")
 
 # ---- src/engine/__oracles__/bakeStrategies.js ----
 add("bks.now", "now()",
-    "The clock for the schedules' timings: `performance.now()` where it exists.", ["-"], V)
+    "The clock for the schedules' timings: `performance.now()` where it exists.", ["-"], "§15")
 add("bks.BaseBaker.constructor", "BaseBaker.constructor(width, opts)",
-    "Records the width, radius and options and starts the sample list and the per-sample timings.", ["-"], V)
+    "Records the width, radius and options and starts the sample list and the per-sample timings.", ["-"], "§15")
 add("bks.CrumbBaker.constructor", "CrumbBaker.constructor(width, opts)",
     "Adds an empty crumb and an empty distance oracle at the tolerance the batch resolve would use.",
     ["The tolerance comes from `oracleTolFor`, so the oracle handed to `curvePerimeter` at pen-up is the one it would have built itself."],
-    V)
+    "§15")
 add("bks.IncrementalBaker.constructor", "IncrementalBaker.constructor(width, opts)",
     "Sets up the live perimeter with the batch path's build, cut and burial tolerances, an empty oracle, a shared vertex set and a bucket grid.",
     ["Every tolerance matches the batch path's; a private value makes B cut or bury in different places from A."],
-    V)
+    "§15")
 add("bks.addSample", "addSample(p)",
     "Appends one pen sample, runs the schedule's per-sample hook and records how long it took.",
     ["`drawMs` and the per-sample distribution are what the schedules are compared on; the tail matters more than the mean."],
-    V)
+    "§15")
 
 # ---- src/engine/__oracles__/coverageOracle.js ----
 add("cov.coverRings", "coverRings(rings, TW, TH, K)",
     "Each pixel's coverage by a set of rings under the nonzero rule, by K sub-scanlines a row walking integer winding.",
     ["Exact in x and quantised to 1/K in y: a pixel is within 1/K, a shape's total within about P/K² for a boundary of P pixels. Walking winding numbers makes it exact for any winding and any overlap, which signed-area accumulation is not.",
      "The raster suites compare `raster/rasterCore.js` against it. It shares the idea of the core's union pass and none of its code."],
-    V)
+    "§15")
 add("cov.addRun", "addRun(cov, base, xa, xb, w, TW)",
     "Adds one sub-scanline's covered run to its row pixel by pixel, clipped to the plate.",
     ["Naive on purpose: the rasteriser deposits a run's two ends and lets a running sum fill the interior, and the oracle must not share that step."],
-    V)
+    "§15")
 add("cov.ringsArea", "ringsArea(rings)",
     "The exact signed area of a set of rings, by the shoelace formula.",
     ["Positive is clockwise on a y-down screen; a ring `strokeStripNear` emits comes out negative."],
-    V)
+    "§15")
 add("cov.ringsFromLoops", "ringsFromLoops(loops, tol)",
     "Rings from loops in the stored grammar, arcs sampled from their own centre and angles within `tol`, for the two functions above.",
     ["Reads the raw numbers (a `Loop`'s `buf` or an array), all four piece codes. Sampling from the centre is allowed here and forbidden to the rasteriser, which is why this is not the reference for a far-centre arc: the arc suite checks those against the exact contour."],
-    V)
+    "§15")
 
 
 # Existing descriptions of functions in this batch's files that are now FALSE.

@@ -113,7 +113,7 @@ add("ovy.step", "step()",
     "§9")
 add("ovy._note", "_note()",
     "Hands the layer's `report()` to `rasterPerf.noteCrawl`, which records the tick as a crawl row of its own.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("ovy._uncoveredPx", "_uncoveredPx()",
     "Device pixels of the screen that the transformed plane no longer covers.",
     ["The plane is exactly the screen, so a pan or a zoom-out delta uncovers a strip whose ants it never held. Computed from the last transform written."],
@@ -149,11 +149,11 @@ add("ovy.setReducedMotion", "setReducedMotion(v)",
     "§9")
 add("ovy.noteDecide", "noteDecide(ms)",
     "Records the selection decision's time, which the renderer measures, as the report's `decideMs`.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("ovy.report", "report()",
     "The layer's one report object, mutated in place: per-tick paint, blit and dash numbers and cumulative repaint, uncovered and allocation counters.",
     ["`bytes` is the plane's alone and `stripBytes` the strips'. `rasterPerf.noteCrawl` reads it every tick, and the dev report's `raster.overlay` section reads it once."],
-    "§15")
+    "§14")
 
 # ---- src/engine/raster/antPaint.js ----
 add("anp.chordStep", "chordStep(rPx)",
@@ -293,7 +293,7 @@ add("anp.paintPhase", "paintPhase(buf, dec, view, phase, css)",
 add("anp.resetAntStats", "resetAntStats()",
     "Zeroes the painter's counters, `antStats`.",
     ["Only the suites call it. The renderer hands `antStats` to `rasterPerf.attach` as its `ants` source, so the report carries them."],
-    "§15")
+    "§14")
 
 # ---- src/engine/raster/rasterPerf.js ----
 add("rpf.wall", "wall()",
@@ -302,21 +302,21 @@ add("rpf.wall", "wall()",
 add("rpf.ensure", "ensure()",
     "Allocates the ring (timers, counts, wall stamps) and the job and drop record pools on the first note.",
     ["Once only, so an SVG-only session pays nothing: 400 rows × 40 slots, 131.2 KB in all. `reset` is the only thing that frees it."],
-    "§15")
+    "§14")
 add("rpf.mkJobRec", "mkJobRec()",
-    "One empty worst-job record, filled in place by `takeJob`.", ["-"], "§15")
+    "One empty worst-job record, filled in place by `takeJob`.", ["-"], "§14")
 add("rpf.mkDropRec", "mkDropRec()",
-    "One empty drop record, filled in place by `noteDrop`.", ["-"], "§15")
+    "One empty drop record, filled in place by `noteDrop`.", ["-"], "§14")
 add("rpf.attach", "attach(s)",
     "Takes the sources the report reads (picture layer, plate store, worker, packer, core and ant stats), the engine's perf-log hook and optional clocks.",
     ["Called in `RasterRenderer`'s constructor. The module imports only `now.js`, so these arrive here rather than being imported."],
-    "§15")
+    "§14")
 add("rpf.detach", "detach()",
     "Forgets the sources; the ring and its rows are kept, so a report sent after a teardown still has them.",
-    ["Called from `RasterRenderer.destroy`."], "§15")
+    ["Called from `RasterRenderer.destroy`."], "§14")
 add("rpf.reset", "reset()",
     "Frees the ring, zeroes every total, histogram, pending patch, submit stamp, drop tally and statistic, and restores the default clocks.",
-    ["The suites' reset; no app code calls it."], "§15")
+    ["The suites' reset; no app code calls it."], "§14")
 add("rpf.beginFrame", "beginFrame(frameSeq, kind, backMs)",
     "Opens a row for one main-thread task: clears its slots, stamps both clocks — backdated by `backMs`, main time the task spent before the row could open — and writes its `frameSeq` and kind.",
     ["A row still open is closed first and flagged `truncated`. `RasterRenderer._openRow` is the caller, for render, camera, arrival and settle tasks."],
@@ -324,26 +324,26 @@ add("rpf.beginFrame", "beginFrame(frameSeq, kind, backMs)",
 add("rpf.endFrame", "endFrame()",
     "Closes the open row with `mainMs` as the bracket's own time, and sends a render row of 8 ms or more (any, in trace mode) to the engine's perf log.",
     ["Returns the row, or null with `orphanEnds` counted when no row was open."],
-    "§15")
+    "§14")
 add("rpf.add", "add(slot, ms)",
     "Adds milliseconds to one timer slot of the open row; a negative or non-finite value is ignored.",
     ["With no row open it counts `orphanAdds` and records nothing. `RasterRenderer._add` maps a slot name to its index through `T`."],
-    "§15")
+    "§14")
 add("rpf.bump", "bump(slot, n)",
     "Adds to one count slot of the open row, or counts an orphan when none is open.",
-    ["No app code calls it; the suites do."], "§15")
+    ["No app code calls it; the suites do."], "§14")
 add("rpf.noteView", "noteView(view)",
     "Records the published view (mode, quantum, stretch, dpr, revision, frame) and writes its quantum, mode and stretch onto the open row.",
     ["A `sync` view flags the row `rasOnMain`, so the rasteriser's phases count inside `mainMs`. The last view is kept for crawl rows, which have none of their own."],
-    "§15")
+    "§14")
 add("rpf.closeRow", "closeRow(extraFlags, endAt)",
     "Finishes the open row: its wall span, both residuals, the running totals and histograms, and a place in the queue for the next rAF patch.",
     ["`residualMain` is `mainMs` less the main-part timers (and the worker-part ones in sync mode); `residualWall` is the queued-to-blitted `wallMs` less the wall-part timers. Worker rows' phases also go to `workerT`, so `ras.plateResidual` comes from one set of rows and cannot go negative on a sync frame.",
      "A truncated row takes `mainMs` and its wall span at the moment it is closed. Up to 64 rows wait for a rAF delta; past that they count as `pendingLost`."],
-    "§15")
+    "§14")
 add("rpf.perfExtra", "perfExtra(row)",
     "The fields a slow render row sends to the engine's perf log: `frameSeq`, kind, `mainMs` and the main residual.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.noteSubmit", "noteSubmit(req, nPlates, nStrips, at)",
     "Stamps a request's queued-at time (now, or `at`) before it is posted, with how many strips will arrive against it, and counts its plates as misses on the open row.",
     ["Kept in a 64-deep ring of parallel arrays, with no allocation per post. `platesWanted` is these misses plus the hits `noteCompose` adds, so no plate counts twice."],
@@ -351,23 +351,23 @@ add("rpf.noteSubmit", "noteSubmit(req, nPlates, nStrips, at)",
 add("rpf.queuedAtFor", "queuedAtFor(seq, postedAt)",
     "The queued-at stamp an arriving job claims: the newest submit of its `frameSeq`, at or before its post, with strips still unclaimed.",
     ["When every such submit is claimed it takes the newest one at or before the post, and -1 when there is none. One frame can post at more than one quantum under one `frameSeq`; the strip counts and the post time are what tell those posts apart."],
-    "§15")
+    "§14")
 add("rpf.noteJob", "noteJob(info, res)",
     "Records a worker job's arrival on the open row: queue wait, transfer times, bytes, and the worker's per-plate phase timings and counts.",
     ["Reads durations only, because the worker's clock has its own origin. The earliest claimed queued-at opens the row's queued-to-blitted span. The job goes to the worst-jobs list, and one of 8 ms wall or more (any, in trace mode) to the engine's perf log as `rasterJob`. With no row open the job is counted and nothing else.",
      "The per-plate stride is read off the arrays; the suite pins it against `rasterJob.js`'s exports."],
-    "§15")
+    "§14")
 add("rpf.noteBitmap", "noteBitmap(ms)",
     "Adds `createImageBitmap`'s time to `br.bitmap`, a wall duration because the decode runs off the main thread.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.noteCompose", "noteCompose(ms, plates, blits)",
     "Adds a compose's time to `br.blit` and its blits to the row; on a non-arrival row its plates count as cache hits.",
     ["On an arrival row the plates composed are the ones that arrived, which `noteJob` has counted. On the arrival path the timed span is the whole plate-batch handler: store puts, paper fill, blits and re-post."],
-    "§15")
+    "§14")
 add("rpf.noteDrop", "noteDrop(req, d)",
     "Records a stale or dropped job: a drop on the open row, a full record in an 8-deep log, a count by reason, and a `rasterStale` perf-log entry.",
     ["Every drop is tallied by its `why` (`tallyDrop`), so a session that dropped hundreds keeps the distribution beyond the last eight."],
-    "§15")
+    "§14")
 add("rpf.noteCrawl", "noteCrawl(rep)",
     "Records one overlay crawl tick as a row of its own, kind `crawl`, from `OverlayLayer.report()`.",
     ["Closes a still-open row as truncated first. Crawl rows take negative `frameSeq`s, so they never collide with a render's. The tick's paint, blit and live times fill the OVERLAY timers (its decide time is not counted: 0) and its dashes, stamps, pixels, blit pixels and repaints the ant counts; `mainMs` is their sum unless the report gives one. The last published view supplies the row's mode, and `bytes` becomes the report's `overlayBytes`."],
@@ -376,63 +376,63 @@ add("rpf.onFrame", "onFrame(deltaMs, ts)",
     "The frame meter's rAF hook: patches the interval onto every row waiting for it and writes `br.inferred = rafDelta − Σ mainMs` onto the last of them.",
     ["BROWSER time is attributed by that subtraction, never measured. The interval's other rows are flagged `shared`; flags also mark a task longer than its interval and a remainder clamped at 0, and a row the ring has overwritten counts as `pendingLost`. A row no tick reaches reports `br.inferred` as null.",
      "`useKobinEngine` sets it as `frameMeter.onFrame`."],
-    "§15")
+    "§14")
 add("rpf.growth", "growth()",
     "What the growth log samples on the raster path: the plate cache's count and bytes and the packer's memo bytes, or null with nothing attached.",
     ["`packedBytes` is the packer's memo, not the bytes transferred. Read by `instruments.js`'s growth log and by the report."],
-    "§15")
+    "§14")
 add("rpf.report", "report(opts)",
     "The dev report's `raster` section: ring shape, slot names and parts, totals, histograms, up to 50 rows with verdicts, the worst jobs, the drops, memory and each source's report.",
     ["Bounded by construction (F58): at most 50 rows, 25 jobs and 8 drops, histograms rather than samples, and a `notes` object that explains the counters. Rows are joined to the `LongFrames` instrument's entries by wall-clock overlap when it is passed. `size.sectionBytes` is the section's own size; `reportBytes` is left null for `reportSend.js` to patch in after its one stringify.",
      "Read by `report.js` (`raster.perf`) and in the console as `E.renderer.perf.report()`."],
-    "§15")
+    "§14")
 add("rpf.byteLen", "byteLen(s)",
     "A string's UTF-8 size in bytes, for the report's size bar (F58), because `length` counts characters.",
     ["`TextEncoder` where there is one (measured: 92 MB in 32–38 ms); otherwise a scan that allocates nothing (204–277 ms on the same 92 MB), which is what jsdom takes. A lone surrogate counts 3 bytes. `reportSend.js` measures the whole report body with it."],
-    "§15")
+    "§14")
 add("rpf.firstNamed", "firstNamed(o, first)",
     "A copy of a counters object with the named keys first, in order, then the rest as they stand.",
     ["Puts the counters that mean a record was refused at the top of the `pack`, `core` and worker-guard sections."],
-    "§15")
+    "§14")
 add("rpf.workerOut", "workerOut()",
     "The worker pool's own report with its guard counters put refusals first; null with no pool source.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.pickRows", "pickRows()",
     "The ring rows the report keeps: the 25 worst by `mainMs` and the last 25, deduplicated and in time order.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.rowOut", "rowOut(row, loaf)",
     "One ring row as report JSON: identity, `mainMs`, residuals, non-zero timers and counts, flag names, its verdict and any overlapping long frame.",
     ["`br.inferred` is null unless a rAF delta reached the row, never 0. `wallMs` appears only on a row with a queued-to-blitted span."],
-    "§15")
+    "§14")
 add("rpf.loafFor", "loafFor(t, mainMs, loaf)",
     "The long-animation-frame entry that overlaps a row's interval most, with the overlap, or null.",
     ["Only the `LongFrames` instrument's kept worst entries are searched, so a row that joins none is not evidence of anything."],
-    "§15")
+    "§14")
 add("rpf.verdictFor", "verdictFor(base)",
     "A row's one-word verdict: the bucket holding at least half its main-thread time, or `BROWSER`, `trivial` or `ambiguous`, with why.",
     ["`trivial` at or under 1 ms. `ambiguous` when the residual exceeds max(1 ms, 10 % of `mainMs`) or no bucket reaches half. `BROWSER` when a known rAF interval over 50 ms has `br.inferred` above `mainMs`, whatever the task's own split; `top` still names the largest main-thread bucket. A rAF delta shorter than the task leaves the bucket named with `corroborated: false`.",
      "The 50 ms floor on the BROWSER clause is there because under it `rafDelta − mainMs` is mostly vsync idle (D267)."],
-    "§15")
+    "§14")
 add("rpf.takeJob", "takeJob(info, res, workerMs, staleN, q)",
     "Keeps an arrived job in the 25-slot worst-jobs list when its posted-to-arrived time beats the smallest kept.",
     ["Its queue wait comes from the stamp `noteJob` already claimed, never a second claim."],
-    "§15")
+    "§14")
 add("rpf.jobsOut", "jobsOut()",
     "The kept worst jobs as report JSON, slowest first.",
     ["`postedToArrivedMs` is the client's posted-to-arrived span, narrower than the row's queued-to-blitted `wallMs`; `postMs` and `recvMs` sit beside it and are not added in."],
-    "§15")
+    "§14")
 add("rpf.tallyDrop", "tallyDrop(why)",
     "Counts one drop by its reason; past 12 distinct reasons a new one counts as `other`.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.dropsOut", "dropsOut()",
-    "The last 8 drop records as report JSON, newest first.", ["-"], "§15")
+    "The last 8 drop records as report JSON, newest first.", ["-"], "§14")
 add("rpf.totalsOf", "totalsOf()",
     "Session totals per timer, plus `ras.plateResidual`: the worker's job span less the four phases inside it, from worker rows only.",
     ["The residual is what a plate's start-to-finish holds beyond its phases: the paper fill before the first clock read and the loop's own overhead."],
-    "§15")
+    "§14")
 add("rpf.countsOf", "countsOf()",
     "Session totals per count slot, from `platesWanted` on; the identity slots are skipped.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.histLabels", "histLabels()",
     "The histogram bucket names, `<=1` to `<=500` and `>500` ms.", ["-"])
 add("rpf.namedInts", "namedInts(names, arr)",
@@ -445,17 +445,17 @@ add("rpf.bucketOf", "bucketOf(hist, ms)",
     "Counts one duration in its millisecond histogram bucket.", ["-"])
 add("rpf.kindCode", "kindCode(kind)",
     "A row kind's index in `KINDS` (render, camera, arrival, crawl, settle); an unknown kind reads as render.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.qCode", "qCode(q)",
     "Encodes a view's quantum as an integer for the ring: a number rounded, `s` (sync) and `e` (settle) as reserved negatives, anything else as unknown.",
-    ["-"], "§15")
+    ["-"], "§14")
 add("rpf.qOf", "qOf(code)",
-    "Decodes a ring quantum back to its number, `s`, `e` or an empty string.", ["-"], "§15")
+    "Decodes a ring quantum back to its number, `s`, `e` or an empty string.", ["-"], "§14")
 add("rpf.pick", "pick(d, req, key, dflt)",
     "A field from the drop record, else from the request, else the default.", ["-"])
 add("rpf.traceOn", "traceOn()",
     "Is the engine in trace mode, per the attached `trace` source? False without one.",
-    ["In trace mode a render or a job under 8 ms still reaches the perf log."], "§15")
+    ["In trace mode a render or a job under 8 ms still reaches the perf log."], "§14")
 add("rpf.ms3", "ms3(ms)",
     "Rounds milliseconds to three decimals for the report; a non-number reads 0.", ["-"])
 

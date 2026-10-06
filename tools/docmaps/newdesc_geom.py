@@ -15,28 +15,28 @@ add("shp.segmentTerm", "segmentTerm(theta)",
     "`θ − sin θ`, the circular-segment factor of an arc's area, without the cancellation that turns it into noise for a deep arc's tiny sweep.",
     ["Literal above 1e-2 rad; below it, three terms of the series, exact to double precision there. `loopArea` and the scene index's area walk read it.",
      "A level-3 arc sweeps about 2e-8 rad, whose cubic term is below one ulp of the sweep: written literally, `sweep − sin(sweep)` times r²/2 was ±60 units² of noise, and the erase's grazing test read a 12-px nick as having added ink (F46)."],
-    "§7")
+    "§5")
 add("shp.RayIndex", "RayIndex",
     "One shape's pieces bucketed per ray direction, so a winding query visits only the pieces whose box straddles the ray's line.",
     ["Built by the boolean over each operand's `flatPieces`; a direction is indexed the first time a query uses it. The answer is `rayCross`'s own, piece for piece.",
      "Measured on the same cuts (DESIGN.md §7): 2,630 → 175 ms and 2,377 → 143 ms, results identical. Under 32 pieces the index is skipped and the flat scan runs."],
-    "§11")
+    "§6")
 add("shp.RayIndex.constructor", "RayIndex.constructor(flat)",
     "Hold the piece list, and switch the buckets on only for 32 pieces or more and while the probe switch allows it.",
     ["Below 32 pieces the buckets cost more than they save (the fuzz suite's 20–80-piece cuts ran 9 ms with them); `stamp` then stays null and `winding` is `windingOfFlat`."],
-    "§11")
+    "§6")
 add("shp._index", "_index(k)",
     "Build, once, the buckets for ray direction `k`: each piece's box projected onto the ray's normal, in up to 512 equal slots.",
     ["A piece is registered in every bucket its projected extent spans. The extent is padded by 1e-12 of the coordinates and the radius, because an arc's box comes through its centre and at a radius of 1e13 is a few thousandths off (F44): no piece that could cross a ray may be left out."],
-    "§11")
+    "§6")
 add("shp._candidates", "_candidates(k, p)",
     "The pieces a ray from `p` in direction `k` could cross: the bucket its line falls in and the two either side, without repeats.",
     ["A line falling more than one bucket outside the shape's extent gets nothing. The neighbouring buckets are a margin far wider than `rayCross`'s grazing band; a stamp per piece removes duplicates without a set."],
-    "§11")
+    "§6")
 add("shp.winding", "winding(p)",
     "The shape's winding number about `p`, trying each ray direction until one does not graze; null if every one does.",
     ["The loop `windingOfFlat` runs, over the candidates only. With the index off it is `windingOfFlat` itself."],
-    "§11")
+    "§6")
 add("shp._setRayIndex", "_setRayIndex(on)",
     "Probe switch: off makes every `RayIndex` built afterwards the flat scan, to compare the index against it.",
     ["Read when a `RayIndex` is constructed. Only `erase.report.probe.js` calls it (`RAY_INDEX=0`)."],
@@ -44,15 +44,15 @@ add("shp._setRayIndex", "_setRayIndex(on)",
 add("shp.mapArc", "mapArc(p, pt, f)",
     "An arc through a similarity: centre and ends mapped, radius scaled, angles untouched; a cut arc's canonical ends are mapped with it.",
     ["A cut arc (F43) keeps its canonical angles and its positions `ua`, `ub`; only `K`'s end points move."],
-    "§8")
+    "§5")
 add("shp.mapLine", "mapLine(p, pt)",
     "A line through a similarity; a cut line maps its canonical points and recomputes its ends from their positions on them.",
     ["Recomputed rather than mapped: an end an erase made carries that erase's rounding, which mapping would magnify 4096× per level. From `P`, `Q`, `sa`, `sb` the end is on the line to each level's own precision (F43)."],
-    "§10")
+    "§7")
 add("shp.shareCutEnds", "shareCutEnds(loop)",
     "Write each cut line's recomputed ends into its neighbours, so a transformed loop still closes bit for bit.",
     ["Consecutive pieces must share their end points exactly; the file format and the stitch rely on it. Where two cut lines meet, the later one's start wins. Mutates and returns the loop."],
-    "§10")
+    "§7")
 add("shp.arrayLike", "arrayLike(a)",
     "Is this an encoded loop: a plain array (kobin-1) or a Float64Array view of a frame's geometry (kobin-2)?",
     ["-"], "§13")
@@ -90,59 +90,59 @@ add("shp.reanchorCutLines", "reanchorCutLines(loops, edges)",
     "After a window clip, clip each cut line's canonical segment to the window too, so the level below sees the numbers the uncut line would have sent.",
     ["The crossings of P→Q with the window come from `lineCrossSeg` on the rect loop's own edges, the boolean's arithmetic in the same order. The ends' positions are re-expressed on the clipped segment; a piece whose ends are both clip vertices becomes a plain line, the chain's own piece (F43).",
      "A line wholly inside, or one with no crossing found, is left as it is; an unchanged loop is returned as the same array."],
-    "§10")
+    "§7")
 add("shp.reanchorCutArcs", "reanchorCutArcs(loops, edges, weld)",
     "After a window clip, re-anchor each cut arc's canonical arc to the fragment the chain's own clip of it would have made.",
     ["Finds the canonical circle's crossings with the four edges (`circleCrossSeg`), accepts them with the boolean's own `weld` (a retry may have changed it) and drops any that weld onto K's ends or each other; the fragment holding the middle of the piece's stretch becomes K, the positions re-expressed on it.",
      "Does nothing without a positive `weld`. A piece that is the whole fragment, travelling K's way, comes out with no K (`arcPieceOf`)."],
-    "§10")
+    "§7")
 
 # ---- src/engine/geometry/arcPerimeter.js ----
 add("arc.canonOf", "canonOf(p)",
     "The two points a piece is cut along as a line: a cut line's `P`, `Q`, a cut arc's canonical ends, or its own ends.",
     ["The intersectors cut a line along this segment (`pieceIntersections`), so a line an erase shortened is still cut where the whole line would have been (F43)."],
-    "§10")
+    "§5")
 add("arc.canonAt", "canonAt(P, Q, t)",
     "The point at position `t` on the line P→Q, the expression the intersectors use; a `t` of 0 or 1 copies the end exactly.",
     ["`mapLine` recomputes a cut line's ends with it after every transform."],
-    "§10")
+    "§5")
 add("arc.canonPos", "canonPos(P, Q, pt)",
     "Where a point projects on the line P→Q, as a position; 0 for a zero-length line.",
     ["Used wherever a piece becomes a cut line on a chord: `cutLine` for a straightened cut arc, the chop's `settleCut`, and `straighten`."],
-    "§10")
+    "§5")
 add("arc.cutLine", "cutLine(p, s0, s1, A, B, ta, tb)",
     "`subPiece` for a subject line the boolean cut: the fragment keeps the line it was cut from (`P`, `Q`) and its ends' positions on it.",
     ["`ta`, `tb` are the positions the intersector computed the crossing at (the third element of its point); otherwise they are interpolated from the parent's positions. A cut arc the boolean straightened is cut along its canonical chord (F43)."],
-    "§10")
+    "§5")
 add("arc.canonArc", "canonArc(p)",
     "A cut arc as the uncut arc it was cut from: its centre and radius with K's angles and ends. An uncut piece is returned as it is.",
     ["Every deeper cut — the chop, the freeze, the window clip, the next erase — is computed on this, so a nick moves nothing but the nick (F43)."],
-    "§10")
+    "§5")
 add("arc.arcDir", "arcDir(p)",
     "+1 when a piece travels its canonical arc the way K does, −1 the other way.",
     ["K is never reversed: a reversed piece says so with the sign of its own sweep, and its positions stay in K's direction."],
-    "§10")
+    "§5")
 add("arc.arcSpan", "arcSpan(p)",
     "A piece's extent on its canonical arc, `[ua, ub]`, or `[0, 1]` for an uncut arc.",
-    ["-"], "§10")
+    ["-"], "§5")
 add("arc.arcPos", "arcPos(k, pt)",
     "Where a point of the circle sits along arc `k`, as a position clamped to [0, 1]: `paramOf`'s arithmetic, never null.",
     ["The boolean records it for each crossing on a subject arc, from the raw crossing before welding."],
-    "§10")
+    "§5")
 add("arc.arcPieceOf", "arcPieceOf(k, lo, hi, Plo, Phi, dir)",
     "The piece covering positions [lo, hi] of arc `k`, travelling `dir`, with its end points supplied.",
     ["The whole of `k` in `k`'s direction comes back as the chain's own piece with no K, so an arc cut back to its full extent is indistinguishable from one never cut."],
-    "§10")
+    "§5")
 add("arc.cutArc", "cutArc(p, s0, s1, A, B, u0, u1)",
     "`subPiece` for a subject arc the boolean cut: the fragment keeps the arc it was cut from and its stretch as positions on it.",
     ["`u0`, `u1` are the cut ends' positions on the canonical arc; an end that is the piece's own keeps that end's position. The end points are the ones the erase made, carried as points and never recomputed through a far centre (F44)."],
-    "§10")
+    "§5")
 add("arc.lineCrossSeg", "lineCrossSeg(P, Q, C, D)",
     "Where the line P→Q meets the segment C→D, as `[x, y, t]` on P→Q — the boolean's own `segSeg`, exported for `reanchorCutLines`.",
-    ["-"], "§10")
+    ["-"], "§5")
 add("arc.circleCrossSeg", "circleCrossSeg(C, r, A, B)",
     "Where the circle (C, r) meets the segment A→B, as `[x, y, t]` — the boolean's own `circleSegment`, exported for `reanchorCutArcs`.",
-    ["-"], "§10")
+    ["-"], "§5")
 add("arc.now", "now()",
     "The bake's clock: `performance.now()` where there is one, else `Date.now()`.",
     ["-"], "")
@@ -152,51 +152,51 @@ add("frz.freezeRadius", "freezeRadius(tol)",
     "The one freeze gate: the radius whose bow over a tile's diagonal is exactly `tol`; an arc at or above it is straight within `tol` anywhere in a tile.",
     ["r = ((c/2)² + tol²)/(2·tol) with c = TILE·√2. A tile is TILE units at every level and the radius maps down exactly, so it is one number everywhere — about 8.8e12 units at the engine's quarter pixel (DESIGN.md §5).",
      "The chop, the tile clip and every boolean use it, so an erase never re-decides a freeze. `DEFAULT_FREEZE_R` is it at the default tolerance."],
-    "§8")
+    "§5")
 add("frz.chordFrame", "chordFrame(p)",
     "An arc written from its chord, never its centre: midpoint, chord direction, the normal towards the bulge, half-chord, radius and d = √(r² − (L/2)²).",
     ["For a positive sweep the arc bulges to the right of the chord. Null for a zero chord or a radius no larger than the half-chord.",
      "The chop uses it for arcs at or over the freeze radius, `rayCross` for minor arcs whose radius is at least the chord."],
-    "§8")
+    "§5")
 add("frz.chordPt", "chordPt(f, a, axis, k)",
     "The chop's cut point at chord abscissa `a`, with the cut coordinate set to the grid line `k` exactly.",
     ["The height is h(a) = ((L/2)² − a²)/(d + √(r² − a²)), which has no cancellation. Setting the axis coordinate to `k` puts the fragment's end on the line it was cut on."],
-    "§8")
+    "§5")
 add("frz.chordLineRoots", "chordLineRoots(f, nx, ny, c, steps)",
     "Chord abscissae where an arc meets the line ν·X = c, each polished by Newton steps on the exact height and returned with its residual.",
     ["A first-order quadratic in the stable form, then `steps` Newton steps. The chop asks with an axis and 3 steps, and 3 it stays: where its cuts land is a saved drawing's deep picture.",
      "A ray can miss the arc and still get roots; `rayCross` asks for more steps and drops any root whose residual is not small against the chord."],
-    "§8")
+    "§5")
 add("frz.chordHit", "chordHit(f, a)",
     "The arc at chord abscissa `a`: the point, the tangent in the direction of travel, and the chord fraction.",
     ["For the winding query's crossings (`rayCross`); the chop places its points with `chordPt`."],
-    "§11")
+    "§6")
 add("frz.chordCuts", "chordCuts(f, k, axis, out)",
     "Chord abscissae where an arc meets the grid line `axis = k`, strictly inside the piece.",
     ["`chordLineRoots` with the axis as the normal, so the products are exact. A root within 1e-12 of an end, as a chord fraction, is dropped: it would make a zero-length piece."],
-    "§8")
+    "§5")
 
 # ---- src/engine/geometry/derive.js ----
 add("der.freezeR", "freezeR(cfg)",
     "The freeze radius at the engine's tolerance — the gate the chop, the tile clip and every boolean share.",
     ["`freezeRadius(freezeTol(cfg))`. Handed to the boolean by the erase (`_boolOpts`) and by the tile store's shape clip, so a cut stands in for an arc by its chord exactly when the chain would freeze it."],
-    "§8")
+    "§5")
 
 # ---- src/engine/geometry/connect.js ----
 add("con.Groups.constructor", "Groups.constructor(n)",
     "A union-find over `n` ids, each its own class.",
-    ["-"], "§10")
+    ["-"], "§7")
 
 # ---- src/engine/geometry/lasso.js ----
 add("las.loopTester", "loopTester(poly)",
     "The lasso loop, prepared once to answer 'is this point inside?' and 'is this ring wholly inside?' many times.",
     ["A ring is inside when its first vertex is inside (even-odd) and no ring segment crosses a loop edge. The loop's edges are bucketed into a 32 × 32 grid over its box, so a segment tests only the edges in the cells it touches; asking every pair cost 30 ms an object.",
      "`_lassoFind` builds one per lasso for the ink test an object gets when its box fails (F32). A loop of under three points answers no to everything."],
-    "§12")
+    "§10")
 add("las.polygonMissesRect", "polygonMissesRect(poly, rect)",
     "Does a closed polygon's boundary stay out of a rectangle: no edge crossing a side and no vertex inside?",
     ["With one corner inside, that makes the rectangle wholly enclosed (`rectInsidePolygon`). The erase uses it to find frames lying inside a mark's flattened ink, which it takes whole (`_eraseFramesPass`)."],
-    "§12")
+    "§10")
 
 # ---- src/engine/geometry/polyline.js ----
 add("ply.strokeStripRound", "strokeStripRound(pts, width, opts)",
@@ -241,15 +241,15 @@ add("cvo.cubicLoopsBBox", "cubicLoopsBBox(loops)",
 # ---- src/engine/geometry/loop.js ----
 add("lop.widthOf", "widthOf(code)",
     "How many numbers a piece record holds: 3 for a line, 8 an arc, 9 a cut line, 16 a cut arc; an unknown code reads as an arc.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.indexLoop", "indexLoop(buf)",
     "The record offsets of a loop's pieces, found by walking the records by their codes.",
     ["Under five numbers is an empty loop. It does not validate: a buffer that ends mid-record is indexed as if the last record were whole."],
-    "§7")
+    "§5")
 add("lop.decodePiece", "decodePiece(a, o, A)",
     "One piece as the geometry code reads it, from the record at offset `o`, with `A` its start point.",
     ["Code 2 gives a line with its canonical `P`, `Q`, `sa`, `sb`; code 3 an arc with `K`, `ua`, `ub`. The caller passes the previous piece's `B` as `A`, so consecutive decoded pieces share the point."],
-    "§7")
+    "§5")
 add("lop.encodeLoopInto", "encodeLoopInto(loop, out)",
     "Append one loop's numbers to anything with a `push`: a plain array for a kobin-1 file, `format2.F64Builder` for a kobin-2 span.",
     ["A Loop copies its buffer; piece objects are encoded, an arc with a non-finite radius as a line. One grammar, one implementation for both formats."],
@@ -257,18 +257,18 @@ add("lop.encodeLoopInto", "encodeLoopInto(loop, out)",
 add("lop.shiftLoopNumbers", "shiftLoopNumbers(a, dx, dy)",
     "Move every point in a loop's numbers by (dx, dy), in place: ends, centres, a cut line's `P` and `Q`, a cut arc's canonical ends.",
     ["Radii, angles and positions are untouched."],
-    "§7")
+    "§5")
 add("lop.Loop", "Loop",
     "One closed loop of arc and line pieces, stored as a single Float64Array with a Uint32Array of record offsets.",
     ["The stored form of every shape's loops (DESIGN.md §3): the file's own numbers, `ax, ay` then one record per piece. A piece read is a transient view shaped like the piece objects the builders make; nothing writes through one, so a move is `translate`, which returns a new Loop.",
      "Measured on the 12,844-object canvas: an arc piece as an object was 344 B for 56 B of numbers; here it is 64 B and a 4-byte index entry."],
-    "§7")
+    "§5")
 add("lop.Loop.constructor", "Loop.constructor(buf, idx)",
     "Wrap a loop's numbers, building the record index when none is given.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.is", "is(x)",
     "Is this a Loop? Only the tests ask.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.wrap", "wrap(enc)",
     "A Loop over encoded numbers: a Float64Array is used as it is, with no copy (a snapshot's span); anything else is copied.",
     ["The Document wraps a loaded native's loops with it."],
@@ -276,84 +276,84 @@ add("lop.wrap", "wrap(enc)",
 add("lop.from", "from(pieces)",
     "A Loop from a builder's piece array, in one counting pass and one pass filling the buffer and index together; a Loop passes through.",
     ["Every bake and every derived tile comes through here at the storage boundaries (Document, TileStore, the erase job's results). The push-then-copy form cost the fuzz suite's cede path a third of its render time."],
-    "§7")
+    "§5")
 add("lop.length", "length (getter)",
     "The number of pieces.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.at", "at(i)",
     "Piece `i` as a fresh view (negative counts from the end), or undefined out of range.",
     ["Its `A` is read from the previous record's last two numbers, or the loop's start for the first piece."],
-    "§7")
+    "§5")
 add("lop.toPieces", "toPieces()",
     "Every piece as a fresh view, in a plain array.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.map", "map(fn)",
     "Array-style `map` over the pieces, called with (piece, i, loop).",
     ["Each piece is a fresh view; nothing a callback writes into one reaches the loop."],
-    "§7")
+    "§5")
 add("lop.forEach", "forEach(fn)",
     "Array-style `forEach` over the pieces.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.some", "some(fn)",
     "Array-style `some`, stopping at the first true.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.every", "every(fn)",
     "Array-style `every`, stopping at the first false.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.filter", "filter(fn)",
     "The pieces a predicate keeps, as a plain array of views.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.reduce", "reduce(fn, init)",
     "Array-style `reduce` over the pieces; the initial value is not optional.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.slice", "slice(a, b)",
     "Pieces `a` to `b` as a plain array of views, not a Loop.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.translate", "translate(dx, dy)",
     "The same loop moved by (dx, dy): a new Loop over a shifted copy of the numbers, sharing the index.",
-    ["-"], "§7")
+    ["-"], "§5")
 add("lop.toArray", "toArray()",
     "The numbers as a plain array. Only the tests call it; a kobin-1 file is written through `encodeLoopInto`.",
     ["-"], "§13")
 add("lop.byteLength", "byteLength (getter)",
     "Bytes held by the numbers and the index, for the memory census.",
     ["Read by `memory.census.probe.js`."],
-    "§7")
+    "§5")
 
 # ---- src/engine/geometry/offsets.js ----
 add("off.snapDisplacement", "snapDisplacement(v)",
     "Snap a displacement to 2^-10 of the move level's unit — a quarter pixel at its deepest zoom — before it enters the table.",
     ["Exact: a multiply and a divide by a power of two. Snapped, an entry is whole cells from three levels below the move, so the paint-time remainder lives on two levels only (DESIGN.md §8). The drag calls it."],
-    "§6")
+    "§8")
 add("off.offsetAt", "offsetAt(below, k)",
     "The table's entry at depth `k` below the home, or null when it is absent or zero.",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.hasOffsets", "hasOffsets(below)",
     "Does this table hold any non-zero entry?",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.cloneBelow", "cloneBelow(below)",
     "A detached copy of a table's non-zero entries, or undefined when there are none.",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.tidy", "tidy(out)",
     "Drop a table's zero entries, in place; undefined when nothing is left.",
     ["So an empty table has one form, undefined, never `[]`."],
-    "§6")
+    "§8")
 add("off.carryOf", "carryOf(v)",
     "How many whole frames to carry so a remainder lands in [−W/2, W/2).",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.addOffset", "addOffset(below, k, dx, dy)",
     "Add a displacement at depth `k` and carry whole frames upward; returns the new table and the whole home frames that left depth 0.",
     ["A frame at depth m is exactly G units at depth m − 1, so every carry is integer arithmetic. The carry out of the home level (`cellX`, `cellY`) is a change of address — the native is re-homed to the neighbour cell, and nothing is ever added to a stored coordinate (F41, F55). The input table is not touched."],
-    "§6")
+    "§8")
 add("off.shiftAt", "shiftAt(below, k0)",
     "The table's translation at depth `k0` below the home, split into whole cells per depth, whole home frames, and the sub-frame remainder.",
     ["Returns `{ digits, carry, rem }`: `digits[m]` the cells at depth m (1 to `k0`), `carry` the home frames, `rem` in [−W/2, W/2) at `k0` — what paint applies and inputs subtract. Above the home (`k0` < 0) only `rem` is set.",
      "Digits and remainders from entries at or above `k0` are exact (the snap); deeper entries add exact power-of-two fractions, and only their sum can round, in paint's own precision."],
-    "§6")
+    "§8")
 add("off.hasDigits", "hasDigits(sh)",
     "Does a `shiftAt` result move the picture by any whole frame?",
     ["When it does not, `LevelMap` reads the picture from the object's own frame and applies only the remainder."],
-    "§6")
+    "§8")
 add("off.residual", "residual(below, k0)",
     "A table's displacement of an object's picture at depth `k0`: its whole-cell carry and its sub-frame remainder there, or null when both are zero.",
     ["The carry is the whole-cell part, which `LevelMap.objShift` turns into the frame the picture is read from; the remainder is the translation paint applies (`piece.res`)."],
@@ -361,17 +361,17 @@ add("off.residual", "residual(below, k0)",
 add("off.shiftDown", "shiftDown(below, k)",
     "The table of a kid `k` levels below its parent: the parent's entries at or above the kid's level folded into its `below[0]`, the deeper ones moved up by `k`.",
     ["Only the folded entries' remainder enters the table; their whole frames are the kid's address. Folding the deeper entries into `below[0]` too counted the displacement twice — measured as an erase at the drag's level missing the moved ink by exactly the remainder. Used by the cede and by scaling down."],
-    "§6")
+    "§8")
 add("off.shiftUp", "shiftUp(below)",
     "The table of the same object promoted one level up: every entry one depth deeper, the home level's included.",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.sameShift", "sameShift(a, b)",
     "Are two frame shifts (`[x, y]` or null) equal?",
     ["A shift is the k = 0 entry a moved frame owes its natives (DESIGN.md §8); the subtree drag and the pointer-up compare them."],
-    "§6")
+    "§8")
 add("off.sameBelow", "sameBelow(a, b)",
     "Do two tables hold the same non-zero entries, absent and zero counting as equal?",
-    ["-"], "§6")
+    ["-"], "§8")
 add("off.encodeBelow", "encodeBelow(below)",
     "A table in its file form, `[[k, ox, oy], ...]`, or undefined when it is empty.",
     ["The form the snapshot, the op log and the phone report carry."],
@@ -385,131 +385,131 @@ add("off.decodeBelow", "decodeBelow(raw)",
 add("chm.bulgeK", "bulgeK(sweep)",
     "The bulge coefficient of a sweep, `tan(sweep/4)/2`: an arc's sagitta is its chord's length times this.",
     ["Each bisection halves the sweep exactly, so the rasteriser's flattener computes one `tan` per depth for every pair at that depth. `tan(sweep/2)/2` has the same shape and twice the bulge — the error `chordMath.test.js` M1 catches."],
-    "§9")
+    "§4")
 add("chm.chordMidK", "chordMidK(ax, ay, bx, by, k, out)",
     "An arc's midpoint from its two ends and the bulge coefficient of its sweep, written into `out`: the chord's midpoint pushed off the chord by the sagitta.",
     ["A positive sweep is anticlockwise and bulges to the right of the chord, n̂ = (u_y, −u_x); reversed, every arc bulges the wrong way. Allocates nothing, because the flattener calls it once per chord in the worker's inner loop."],
-    "§9")
+    "§4")
 add("chm.chordMidXY", "chordMidXY(ax, ay, bx, by, sweep, out)",
     "An arc's midpoint from its ends and its sweep: `chordMidK` at `bulgeK(sweep)`.",
     ["The expression `arcShape.chordArcMid` uses for a piece object."],
-    "§9")
+    "§4")
 add("chm.sagittaOf", "sagittaOf(ax, ay, bx, by, sweep)",
     "How far an arc bulges from its own chord, `(|chord|/2)·|tan(sweep/4)|`, with no centre and no radius.",
     ["0 for a zero sweep; Infinity over half a turn rather than a tangent about to change sign. Shared by the chop's box (`freeze.pieceSagitta`) and the rasteriser's flattener and packer."],
-    "§9")
+    "§4")
 add("chm.segRatio", "segRatio(theta)",
     "`(θ − sin θ)/(1 − cos θ)` without either cancellation: a series below 1e-2 rad, and the denominator written as 2·sin²(θ/2).",
     ["Written literally, `1 − cos θ` rounds to 0 near a whole turn and the ratio comes back Infinity. Measured against the radius form at r = 40: 5.4e-16 relative at worst for 2π − |θ| from 0.1 down to 1e-15, where the literal form is 0.08 % out at 1e-7 and Infinity below 1.5e-8 (M3)."],
-    "§9")
+    "§4")
 add("chm.arcAreaTerm", "arcAreaTerm(ax, ay, bx, by, sweep)",
     "What one arc adds to a ring's shoelace sum beyond its chord, `r²(θ − sin θ)`, written from the chord and the sweep alone.",
     ["`(|chord|²/2)·segRatio(θ)`. A whole turn returns 0, because its ends coincide and the chord carries no radius: a caller summing a ring must take a full circle from its centre, `2πr²` signed by the sweep, or the ring has no area and no winding sign (`rasterCore.itemShoelace`, D60)."],
-    "§9")
+    "§4")
 
 # ---- src/engine/geometry/antRuns.js ----
 add("ant.isCubic", "isCubic(p)",
     "Is this piece a cubic `[p0, p1, p2, p3]` — the capsule outline of a stroke not yet resolved?",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.isLine", "isLine(p)",
     "Is this piece straight: a line, or an arc with a non-finite or non-positive radius?",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.startOf", "startOf(p)",
     "A piece's first point, cubic or not.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.pieceLength", "pieceLength(p)",
     "One piece's length: a hypot for a line, r·|sweep| for an arc, the mean of chord and control polygon for a cubic.",
     ["The canvas ant painter walks runs by this length too (`antPaint.paintRun`), so its dash phase and the lengths decided here agree."],
-    "§12")
+    "§10")
 add("ant.runLength", "runLength(pieces)",
     "The length of a run or a whole loop.",
     ["The decision drops a run under half a pixel on screen by it."],
-    "§12")
+    "§10")
 add("ant.onRectEdge", "onRectEdge(p, rect, eps)",
     "Does a straight piece lie along one side of `rect`, within `eps`? Then it is a cut — a tile seam or a cede window — not an edge the ink has.",
     ["Only a line can: an arc crosses or grazes a line and never runs along one. `loopRuns` stops the ants there, and the Renderer never splits such a line by length."],
-    "§12")
+    "§10")
 add("ant.loopRuns", "loopRuns(loop, rects)",
     "Split one loop into runs at its seam pieces, so the ants stop at a tile cut and pick up on the next piece.",
     ["`rects` is `[{ rect, eps }]`: the tile that clipped the piece and its family's attach windows. A loop with no seam is one closed run; otherwise the runs are open, each the free edge between two cuts. Reads the loop through `at`, so a Loop or an array will do."],
-    "§12")
+    "§10")
 add("ant.runPathData", "runPathData(run, ox, oy, k, plan)",
     "SVG path data for a run, relative to `(ox, oy)` and scaled by `k`, with arcs planned exactly as the ink's are.",
     ["The fold the renderer applies, so the numbers reaching the browser are screen-sized at any depth. Arcs go through `planArc` (the arc command, or `chordCubic` cubics), planned at `k` × 1.25, the drift a decision may make before it is redone. Two decimals, `-0.00` written `0.00`.",
      "Only the SVG renderer asks for it; the canvas painter keeps the pieces. Measured at F39's density: the string cost 8.24–8.92 ms and 278.1 KB a decision, the pieces 0.33–0.65 ms."],
-    "§12")
+    "§10")
 add("ant.loopsBounds", "loopsBounds(loops)",
     "The axis-aligned bounds of loops — arcs exact at the cardinal angles their sweep passes, cubics by their control points; null for nothing.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.norm", "norm(a)",
     "An angle into [0, 2π).",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.arcOffset", "arcOffset(p, th)",
     "How far along an arc's sweep the angle `th` falls, from 0 at its start to |sweep| at its end, or −1 when the arc does not pass it.",
     ["An angle a rounding error short of the start (1e-9 rad) reads as the start, not as a full turn away."],
-    "§12")
+    "§10")
 add("ant.arcHasAngle", "arcHasAngle(p, th)",
     "Does the arc pass the angle `th`?",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.edgeSpans", "edgeSpans(loops, rect, inside, inset)",
     "Where the ink meets each side of the view: its crossings with a line just inside each side, walked by winding into intervals.",
     ["Returns `{ left, right, top, bottom, covered }`, each side's spans clipped to it. The line runs `inset` inside the side because a boundary lying along the side is degenerate for a winding scan.",
      "`covered` is the view flooded: no crossing and `inside` true at the centre, or every side spanned end to end. `overlays._selEdges` draws the edge ants and chevrons from it."],
-    "§12")
+    "§10")
 add("ant.spansOf", "spansOf(cross, lo, hi)",
     "Crossings `[pos, dir]` along one line, sorted and walked into the intervals of non-zero winding within [lo, hi].",
     ["Sorts `cross` in place; intervals that touch are merged."],
-    "§12")
+    "§10")
 add("ant.above", "above(v, line)",
     "The half-open side test: a point exactly on the line counts as the low side, so a vertex on the line is crossed by exactly one of its two pieces.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.crossVertical", "crossVertical(p, X, out)",
     "A piece's crossings with the vertical line x = X, pushed as `[y, dir]`.",
     ["Lines by interpolation under the half-open rule, arcs analytically with `arcCrossCounts` deciding the ends, cubics by `crossCubic`."],
-    "§12")
+    "§10")
 add("ant.arcCrossCounts", "arcCrossCounts(p, th, v)",
     "The half-open rule for an arc meeting a line at angle `th` with velocity `v` across it: does this crossing count?",
     ["Grazing never counts. At the arc's start it counts if the arc leaves to the high side, at its end if it arrived from it, and in between always — what the line rule says of a vertex, so a vertex is counted once whichever pieces meet there."],
-    "§12")
+    "§10")
 add("ant.crossCubic", "crossCubic(c, axis, V, out)",
     "A cubic's crossings with the line `coord = V`: 24 samples along it, each sign change bisected 40 times.",
     ["Pushes `[other coordinate, dir]`. Only the capsule outline of an unresolved stroke has cubics, and few are ever on screen."],
-    "§12")
+    "§10")
 add("ant.crossHorizontal", "crossHorizontal(p, Y, out)",
     "A piece's crossings with the horizontal line y = Y, pushed as `[x, dir]`.",
     ["The counterpart of `crossVertical`; `insideLoops` runs its ray through it."],
-    "§12")
+    "§10")
 add("ant.insideLoops", "insideLoops(loops, pt)",
     "Is a point inside the ink? Non-zero winding from the crossings of the ray from the point towards +x.",
     ["The crossing code the edge scan uses, so lines, arcs and cubics are all answered; `edgeSpans`' covered test asks it at the view's centre."],
-    "§12")
+    "§10")
 add("ant.samePt", "samePt(a, b)",
     "Are two points the same, within 1e-9 relative?",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.endOf", "endOf(p)",
     "A piece's last point, cubic or not.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.inRect", "inRect(q, r)",
     "Is a point inside a rectangle, edges included?",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.arcSideOffsets", "arcSideOffsets(p, axis, V, out)",
     "The offsets along an arc, strictly between its ends, where it crosses the line `axis = V`.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.clipPiece", "clipPiece(p, rect)",
     "The parts of one piece inside `rect`, in order: a line by Liang–Barsky, an arc cut where it crosses the sides, a cubic kept whole if its hull meets the rect.",
     ["An arc part is kept when its midpoint is inside and keeps the piece's own end point wherever it ends at one. A piece wholly inside comes back as itself."],
-    "§12")
+    "§10")
 add("ant.clipRunToRect", "clipRunToRect(run, rect)",
     "A run cut to the window the indicator retains, as the runs of its pieces inside it; a closed run that leaves and returns is opened, its two ends joined.",
     ["The render list's pieces are cut to tiles, which can be many screens across, and the rasteriser must never be asked to dash off-screen ink: measured, 350,958 dashes on one rectangle of which a few hundred were on screen. A cut of the boundary, not of the ink, so no boolean.",
      "A closed run wholly inside stays closed."],
-    "§12")
+    "§10")
 add("ant.circleLoop", "circleLoop(cx, cy, r)",
     "A circle as a loop of two half-turn arcs — the dot drawn for a frame or object too small to trace.",
-    ["-"], "§12")
+    ["-"], "§10")
 add("ant.rectLoopOf", "rectLoopOf(rect)",
     "A rectangle as a loop of four lines. Only the tests call it.",
-    ["-"], "§12")
+    ["-"], "§10")
 
 
 # The article heading for each file that is new to the pages.

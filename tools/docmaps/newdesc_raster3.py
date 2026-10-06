@@ -15,7 +15,7 @@ def add(key, fn, what, long, ref=""):
 add("rco.setDebugChecks", "setDebugChecks(on)",
     "Turns the core's debug checks on or off: an edge outside its family's declared rows throws, and so does an arc sweep past a whole turn.",
     ["Off in the shipped path. With it on, `addEdge` throws when an edge reaches rows outside the ones `beginFamily` declared (the bounded clear would miss them), and `emitArc` throws on an over-turn sweep instead of drawing its chord."],
-    "§15")
+    "§14")
 add("rco.useAccumPrecision", "useAccumPrecision(kind)",
     "Swaps the accumulation buffer between Float32 and Float64, for the bench and the precision test only.",
     ["Reallocates only when the kind changes. The shipped path allocates the buffer once as `ACC_F32` says (Float32: half the memory traffic, worst error recorded as 6e-5 of coverage at 1,000 edges in a row) and never calls this."],
@@ -55,7 +55,7 @@ add("rco.clearFamily", "clearFamily(y0, y1)",
     ["The bounded clear is what makes a family cost its ink rather than its area: a whole-buffer clear per family was 100–200 ms a plate at 800 families. A forced full clear is counted in `coreStats.fullClears`."],
     "§9")
 add("rco.rowsTouched", "rowsTouched(y0, y1)",
-    "Counts the family's rows that received a deposit, for the plate's `rowsTouched` count.", ["-"], "§15")
+    "Counts the family's rows that received a deposit, for the plate's `rowsTouched` count.", ["-"], "§14")
 add("rco.pushUnionEdge", "pushUnionEdge(ax, ay, bx, by, yb0, yb1)",
     "Loads one edge, clipped to the row band [yb0, yb1), into the union pass's edge buffer; false when the buffer is full.",
     ["Stores the clipped top and bottom, the x at the top and dx/dy, with a direction sign. A non-finite edge is counted and dropped (and forces the full clear); a horizontal edge or one outside the band is skipped.",
@@ -129,7 +129,7 @@ add("rco.loadUnionBand", "loadUnionBand(job, meta, attr, first, last, ox, oy, Zq
 add("rco.loadBandCounted", "loadBandCounted(job, meta, attr, first, last, ox, oy, Zq, yb0, yb1)",
     "`loadUnionBand`, keeping the guard counters' increase from the family's first load that fits.",
     ["A family's geometry is re-read once per band, per halving and per buffer-full, and each read counts the same refused records again. The first load that fits enumerates every record, so `unionPass` sets `arcOverTurn`, `nonFinite` and `arcClamped` from that load's increase and the guards count records, not passes."],
-    "§15")
+    "§14")
 add("rco.walkRowChunked", "walkRowChunked(job, meta, attr, first, last, ox, oy, Zq, y)",
     "Walks one pixel row whose union edges do not fit the buffer even alone, gathering each sub-scanline's crossings over successive buffer-fulls.",
     ["For each of the 16 sub-scanlines the family's edges for the row are loaded one buffer-full at a time (`uSkip` advancing), the crossings of every fill gathered, and `emitRuns` run once on the whole row's winding, so no ink is lost (OPEN-FLAGS F75). Depositing each buffer-full's union on its own would count their overlap twice.",
@@ -184,21 +184,21 @@ add("rjb.copyPlate", "copyPlate(rgba, clip)",
     "Copies one plate's pixels — or only its clip rect's — out of the worker's RGBA scratch, for the path without ImageBitmap.",
     ["-"], "§9")
 add("rjb.jobBytes", "jobBytes(job)",
-    "The bytes of a job's typed arrays, the size of what one post transfers; the worker client records it per job.", ["-"], "§15")
+    "The bytes of a job's typed arrays, the size of what one post transfers; the worker client records it per job.", ["-"], "§14")
 add("rjb.resultBytes", "resultBytes(res)",
     "The bytes a result carries back: a bitmap plate counted at its clip's size (512 × 512 × 4 whole) and a pixel block at its own length.",
     ["-"], "§14")
 
 # ---- src/engine/raster/rasterPack.js ----
 add("rpk.resetPackStats", "resetPackStats()",
-    "Zeroes the packer's counters, keeping the memo's live byte and entry counts.", ["-"], "§15")
+    "Zeroes the packer's counters, keeping the memo's live byte and entry counts.", ["-"], "§14")
 add("rpk.logOnce", "logOnce(what, detail)",
-    "Warns on the console once per distinct fault a session, counting every occurrence in `packStats.logs`.", ["-"], "§15")
+    "Warns on the console once per distinct fault a session, counting every occurrence in `packStats.logs`.", ["-"], "§14")
 add("rpk.setPackBudget", "setPackBudget(bytes)",
     "Sets the pack memo's byte budget and evicts down to it.",
     ["The default is 10 MiB; only the tests change it."], "")
 add("rpk.packMemoBytes", "packMemoBytes()",
-    "The bytes the pack memo holds now.", ["-"], "§15")
+    "The bytes the pack memo holds now.", ["-"], "§14")
 add("rpk.clearPackCaches", "clearPackCaches()",
     "Drops every memoised entry, parsed colour and pre-pass, and the logged-once set, so the next pack starts cold.",
     ["Each entry is marked dropped, so a family still holding one refills. The tests and the bench probes call it between runs."],
