@@ -123,10 +123,10 @@ add("ovy._maybeUncovered", "_maybeUncovered()",
     ["Records `uncoveredPx`, counts `uncoveredFrames` and keeps the worst uncovered fraction in `uncoveredWorst`, the numbers the constant is to be judged by. It runs on frozen ticks and on `show` calls that did not repaint."],
     "§9")
 add("ovy.show", "show(dec, view, shift)",
-    "The entry per camera step or decision change: mounts and attaches the layer, then repaints in the same turn or writes the delta transform alone.",
-    ["A missing or empty decision, or no view, hides the layer. It repaints when the decision key, the thin-mark scale (`selAntScale(dec.inkPx)`), the view's quantum (`q`, `Zq`) or mode changed, or the plane is dirty; otherwise it writes the transform from the paint view. Then it freezes the crawl, arms the clock, paints the edge strips and, when it did not repaint, checks for an uncovered screen.",
-     "`view` is `PictureLayer.view()`, the published mapping, never the camera. The caller is `RasterRenderer._renderSelOverlay`."],
-    "§9")
+    "The entry per camera step or decision change: mounts and attaches the layer, then repaints in the same turn or writes the transform.",
+    ["A missing or empty decision, or no view, hides the layer. It repaints when the decision key, the thin-mark scale (`selAntScale(dec.inkPx)`), the view's grid zoom (`Zq`) or mode changed, or the plane is dirty; otherwise it writes the transform from the paint view. Then it freezes the crawl, arms the clock, paints the edge strips and, when it did not repaint, checks for an uncovered screen.",
+     "`view` is the pyramid's published view, the mapping the ink was composed with, never the camera. The caller is `RasterRenderer._renderSelOverlay`."],
+    "§10")
 add("ovy.hide", "hide()",
     "The selection went away or the tool changed: stops the clocks, detaches the canvases and forgets the decision, keeping the plane.",
     ["Keeping the plane means a tool change does not reallocate it; `onStoreRelease` and `destroy` are what free it."],

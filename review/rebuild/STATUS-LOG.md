@@ -3640,3 +3640,10 @@ code map pauses after B-DOCMAPS-3's run until the check is done.
 **Decisions made:** the check split in two so each agent's context stays small.
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-5b's report and B-DOCMAPS-3's.
+
+## 2026-10-06 09:31 UTC — R-FINAL-D (reviewer) — start: the final design audit (tree at d16c7d4+)
+**Working on:** brief `briefs/R-FINAL-D.md`: 1.1 targets, 1.2 acceptance list, 1.3 deletions, 1.4 docs, 1.5 10-STATUS.
+Files mine: `review/rebuild/FINAL-AUDIT.md` (new), DESIGN.md §7–§10/§13, `docs/ai/10-,20-,30-,40-`, `docs/OPEN-FLAGS.md`
+(flag rows only). Not touching `src/`, `tools/`. B-PYRAMID-5's raster reading and its 10-STATUS entry left for last.
+**Questions asked:** none.
+WHERE I AM: reading PLAN §0–§3.

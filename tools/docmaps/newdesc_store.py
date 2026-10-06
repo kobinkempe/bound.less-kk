@@ -45,7 +45,7 @@ add("f2.slice", "slice()",
     "§13")
 add("f2.objectHeader", "objectHeader(o, geo)",
     "A native's serialisable fields apart from its geometry: the one header kobin-1 and kobin-2 both write.",
-    ["Writes `type`, `origin`, `id`, then `geo` when given (kobin-1's geometry fields, where the JSON has them), colour and opacity, and only the fields that differ from their defaults: `w` above 0, `z` when it is not the id, a non-zero `tile`, the displacement table through `encodeBelow`, the erase flag with its `bakePx`. Fields named in `_extra` are copied through.",
+    ["Writes `type`, `origin`, `id`, then `geo` when given (kobin-1's geometry fields, where the JSON has them), colour and opacity, and only the fields that differ from their defaults: `w` above 0, `z` when it is not the id, a non-zero `tile`, the displacement table through `encodeBelow`, the erase flag with its `bakePx`, and the erase lineage (`targets`, `targetOf`, `handledBy`, A2 §4.5) when present. Fields named in `_extra` are copied through.",
      "`Document.serializeNatives` (kobin-1) and `encodeObjects`/`encodeEntry` (kobin-2) all call it, so the two forms agree field for field (DESIGN.md §13)."],
     "§13")
 add("f2.extraFields", "extraFields(h)",
