@@ -3466,3 +3466,16 @@ shell, pid 9319 (ppid 1; its command line holds the pattern), so it waits out it
 batches had the same fault and now match browsers by process name: `pgrep -x "chrome|headless_shell"`. b6 restarted with
 it; it starts a run only with load under 2 and no browser of anyone's running.
 WHERE I AM: b6 (scenario 4, landed against fin2) waiting for a quiet start.
+
+## 2026-10-06 03:23 UTC — orchestrator (Opus) — the seventh stop (~22:52–03:20); all three resumed
+**Measured (the agents' usage records):** the fresh successors' window, 22:30–22:52: 817 calls at ~170k context each
+(141.6M tokens; the old agents' window was 311 calls at ~650k), and the orchestrator 98 calls (28.4M). Done in it: item
+2's rest of the code map (303 functions), R-MODEL-C34b's items 1–2, B-PYRAMID-5b's item 6 rule with its tests and
+break-checks — about three times the work of the windows before, in the same ~20–25 minutes.
+**Working on:** R-MODEL-C34b (item 3, the browser batch, onwards), B-PYRAMID-5b (batch b6 onwards) and B-DOCMAPS-3 (item
+3 of the code map) resumed by message; the container rebooted, the tree clean at 3e14703.
+**Decisions made:** the orchestrator's monitor narrowed to end entries, questions and notes (its own wake-ups cost a
+sixth of the window).
+**Questions asked:** to Kobin: the code map's scope against the usage windows (the oracles' 900 descriptions; the model
+for the description runs).
+WHERE I AM: waiting for the agents' reports.
