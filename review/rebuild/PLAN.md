@@ -1059,7 +1059,8 @@ more reviewers) the orchestrator landed it, without a review:
    census as A1 §16 says; headless Chromium against the tree before C3/C4 with the same raster code: scenario 1 no
    worse (paper 173 | 264 → 100 | 0 ms), scenarios 3 and 4 no paper and no stale draw, the round trip's ink identical.
    The list build the R-PYRAMID-34 review saw doubled (PLAN §5.22 item 1) is not doubled on the landed tree in the
-   browser; in jsdom the raster path's tile bakes are 10–25 % slower.
+   browser; in jsdom the raster path's tile bakes are 10–25 % slower (not reproduced by R-MODEL-C34b: +3.6 %, inside the
+   run-to-run spread of 2,314–3,973 ms a pass; A1 §16, "Reviewed").
 7. **Not clean — OPEN-FLAGS F138**: the tile fuzz at 200 + 200 seeds finds 11 walks where a native is drawn
    differently from the oracle (3 new with C3c/C4, 8 already on the C3b tree, never run there at that size), and the
    selection fuzz one of C3b's age. One traced (seed 131: a store reload replays an undone cede under a private frame
@@ -1097,3 +1098,25 @@ agents' contexts had grown to 500–730k tokens, and every step re-read all of i
 B-PYRAMID-5 27.3M in 44, B-DOCMAPS 62.4M in 194, one 20-minute window). Each is replaced by a successor with the same
 scope left and a short hand-over (R-MODEL-C34b, B-PYRAMID-5b, B-DOCMAPS-2); the code map is cut into bounded runs (item
 2's rest; item 3; item 4; items 5–8), one fresh agent each.
+
+### 5.25 To the R-MODEL-C34 review (its report of 2026-10-06; R-MODEL-C34b finished it)
+
+Read in full; landed with this section. F138 FIXED: every difference of the 200- and 500-seed runs root-caused — four
+live defects fixed with tests red before (a subtree delete's tile events, the drop's member list taken at the press, a
+private frame never keeping a cell from a public one, a load's parentless "0"), the designed differences named and
+counted in the fuzz with each allowance break-checked red by an injected live defect of its shape, the fuzz's store made
+to write as the app's saver does, and the oracle's per-event frame drag (F136's shape) replaced by one event where its
+press is on the selection. The review's minor, fixed: `_prepareView`'s key also counts GC's forgets (F111's shape;
+`model.pureRead`, red before). Measured: tile 500+500 green (40,000 checks, 276,313 items), selection 200+200 green, the
+quick suite 2,210 passed and 0 failed, `test:erase` 303, typecheck 0, lint 0 errors; headless Chromium: the round trip's
+and scenario 4's ink identical to the landed tree, paper 0 ms, the drop's settle 2.6–3.0 s against 3.4–4.4 s. Nothing in
+Kobin's Chrome.
+
+1. **The GC churn** (its question 1): filed as **F139** — an undo or redo with a moved frame's ink in view forgets a
+   picture-source frame and mints it again (2 bakes and a plate drop a step; the same before C3/C4). Measured in headless
+   Chromium in the final check (paper or not at the first render after the undo) before any keep rule.
+2. **The drop's `setBatch` wrap** (question 2): no measured benefit with this cache (211–387 ms with, 209–385 without);
+   measured once with a fuller cache in the final check, deleted if still none.
+3. **§5.23 item 6** (question 3): corrected above — the 10–25 % was not reproduced.
+4. **Open, routed to the final pass**: `_camAt` unchecked against a missing frame (minor; no path reached it); scenario 3
+   was not re-run (the final check runs every scenario).

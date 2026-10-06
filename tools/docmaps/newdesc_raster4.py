@@ -317,10 +317,10 @@ add("rpf.detach", "detach()",
 add("rpf.reset", "reset()",
     "Frees the ring, zeroes every total, histogram, pending patch, submit stamp, drop tally and statistic, and restores the default clocks.",
     ["The suites' reset; no app code calls it."], "§15")
-add("rpf.beginFrame", "beginFrame(frameSeq, kind)",
-    "Opens a row for one main-thread task: clears its slots, stamps both clocks and writes its `frameSeq` and kind.",
+add("rpf.beginFrame", "beginFrame(frameSeq, kind, backMs)",
+    "Opens a row for one main-thread task: clears its slots, stamps both clocks — backdated by `backMs`, main time the task spent before the row could open — and writes its `frameSeq` and kind.",
     ["A row still open is closed first and flagged `truncated`. `RasterRenderer._openRow` is the caller, for render, camera, arrival and settle tasks."],
-    "§15")
+    "§14")
 add("rpf.endFrame", "endFrame()",
     "Closes the open row with `mainMs` as the bracket's own time, and sends a render row of 8 ms or more (any, in trace mode) to the engine's perf log.",
     ["Returns the row, or null with `orphanEnds` counted when no row was open."],
@@ -344,10 +344,10 @@ add("rpf.closeRow", "closeRow(extraFlags, endAt)",
 add("rpf.perfExtra", "perfExtra(row)",
     "The fields a slow render row sends to the engine's perf log: `frameSeq`, kind, `mainMs` and the main residual.",
     ["-"], "§15")
-add("rpf.noteSubmit", "noteSubmit(req, nPlates, nStrips)",
-    "Stamps a request's queued-at time before it is posted, with how many strips will arrive against it, and counts its plates as misses on the open row.",
+add("rpf.noteSubmit", "noteSubmit(req, nPlates, nStrips, at)",
+    "Stamps a request's queued-at time (now, or `at`) before it is posted, with how many strips will arrive against it, and counts its plates as misses on the open row.",
     ["Kept in a 64-deep ring of parallel arrays, with no allocation per post. `platesWanted` is these misses plus the hits `noteCompose` adds, so no plate counts twice."],
-    "§15")
+    "§14")
 add("rpf.queuedAtFor", "queuedAtFor(seq, postedAt)",
     "The queued-at stamp an arriving job claims: the newest submit of its `frameSeq`, at or before its post, with strips still unclaimed.",
     ["When every such submit is claimed it takes the newest one at or before the post, and -1 when there is none. One frame can post at more than one quantum under one `frameSeq`; the strip counts and the post time are what tell those posts apart."],
@@ -370,8 +370,8 @@ add("rpf.noteDrop", "noteDrop(req, d)",
     "§15")
 add("rpf.noteCrawl", "noteCrawl(rep)",
     "Records one overlay crawl tick as a row of its own, kind `crawl`, from `OverlayLayer.report()`.",
-    ["Closes a still-open row as truncated first. Crawl rows take negative `frameSeq`s, so they never collide with a render's. The tick's decide, paint, blit and live times fill the OVERLAY timers and its dashes, stamps, pixels, blit pixels and repaints the ant counts; `mainMs` is their sum unless the report gives one. The last published view supplies the row's quantum and mode, and `bytes` becomes the report's `overlayBytes`."],
-    "§15")
+    ["Closes a still-open row as truncated first. Crawl rows take negative `frameSeq`s, so they never collide with a render's. The tick's paint, blit and live times fill the OVERLAY timers (its decide time is not counted: 0) and its dashes, stamps, pixels, blit pixels and repaints the ant counts; `mainMs` is their sum unless the report gives one. The last published view supplies the row's mode, and `bytes` becomes the report's `overlayBytes`."],
+    "§14")
 add("rpf.onFrame", "onFrame(deltaMs, ts)",
     "The frame meter's rAF hook: patches the interval onto every row waiting for it and writes `br.inferred = rafDelta − Σ mainMs` onto the last of them.",
     ["BROWSER time is attributed by that subtraction, never measured. The interval's other rows are flagged `shared`; flags also mark a task longer than its interval and a remainder clamped at 0, and a row the ring has overwritten counts as `pendingLost`. A row no tick reaches reports `br.inferred` as null.",

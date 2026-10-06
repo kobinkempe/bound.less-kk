@@ -289,21 +289,21 @@ add("ovl._selTable", "_selTable(s)",
     "§12")
 add("ovl._selFrameRect", "_selFrameRect(info, L, F)",
     "Where a frame's selected members are drawn, as one rect in the active frame's units.",
-    ["The union of the frame's boxes, each mapped through its members' displacement table (`mapRectObj`) or exactly; null when none reaches F. The frame-dot decision reads it (F68)."],
-    "§12")
+    ["The union of the frame's boxes, each mapped through its member's placement (`placeNative(nat, F).fromStored`) or exactly — a selected frame's own box already shifted by the frame's shift; null when none reaches F. The frame-dot decision reads it (F68)."],
+    "§10")
 add("ovl._selDecide", "_selDecide(s, table)",
-    "Decides the ants: which frames are one dot, and which pieces of the render list get runs, in retained coordinates.",
-    ["A frame whose selected content is under 2 px on screen is one dot and none of its members is visited. Every other selected piece in `_lastList` (its own id, or homed under a selected frame) is traced: its loops, shifted by `piece.res`, cut into runs at its seam rects, clipped to the retained window, runs under half a pixel dropped. A member too small to trace, under 8 px, is a dot where its picture is; dots on one pixel merge (F73).",
-     "Kept for the whole of a drag; otherwise reused while the list, selection, revision, frame and origin stand, the view is inside the retained window and the zoom is within 1.25x of the decision's. The SVG renderer gets path strings (`runPathData`), the canvas painter the pieces themselves (DESIGN.md §10)."],
-    "§12")
+    "Decides the ants: which frames are one dot, and which of the Stage's items get runs, in retained coordinates.",
+    ["A frame whose selected content is under 2 px on screen is one dot and none of its members is visited. Every other selected piece among the Stage's items (its own id, or homed under a selected frame) is traced: its loops, shifted by its placement's offset, cut into runs at its seam rects, clipped to the retained window, runs under half a pixel dropped. A member too small to trace, under 8 px, is a dot where its picture is; dots on one pixel merge (F73).",
+     "Reused while the selection, the Stage's generation, the revision, the frame and the origin stand, the view is inside the retained window and the zoom is within 1.25x of the decision's. A decision taken for a drag records where the selection's ink was (`_selMembersAt`); at the drop or a cancel it is kept, shifted, when that ink moved by one delta (`_selMovedBy`), else decided again. The SVG renderer gets path strings (`runPathData`), the canvas painter the pieces themselves (DESIGN.md §10)."],
+    "§10")
 add("ovl._selPieceLoops", "_selPieceLoops(piece)",
     "A render-list piece as loops of arcs and lines: the geometry its ink is drawn from.",
     ["A shape's own loops; a fill's rings as line loops; a stroke's capsule outline, as the renderer draws it. Cached on the piece against the array it was made from, because a native in the list is the document's own object and an edit replaces its loops."],
     "§12")
-add("ovl._selSeamRects", "_selSeamRects(piece, table, F, cache)",
+add("ovl._selSeamRects", "_selSeamRects(piece, off, table, F, cache)",
     "The rects a piece may have been cut on, its own clip and its family's attach windows, where the piece is drawn.",
-    ["A straight run lying along one is a seam and gets no ants: both 'no ants on a tile edge' and the F37 join rule. Family windows are mapped into F through each member's table (`mapRectObj`) or exactly and shifted by the piece's residual; cached per piece id, with the piece's own clip added on each call."],
-    "§12")
+    ["A straight run lying along one is a seam and gets no ants: both 'no ants on a tile edge' and the F37 join rule. Family windows are mapped into F through each member's placement (`placeNative`) or exactly and shifted by the piece's placement offset `off`; cached per piece id, with the piece's own clip added on each call."],
+    "§10")
 add("ovl._selEdges", "_selEdges(dec, off)",
     "Where the selected ink meets the sides of the screen, recomputed on every step as the view moves.",
     ["Only pieces straddling the view are scanned (`edgeSpans`), the view shifted back by a drag's offset. Spans become screen coordinates, merge across 1.5 px gaps, drop under 2 px, and take a chevron from a fifth of their side. Returns `{ list, covered }`; a selection wholly in view gives none."],
@@ -491,10 +491,9 @@ FIX = {
         "long": ["Maps points through the object's own picture (`_objPointInActive`), drops sub-pixel chords, and keeps only runs that cover some ground."],
     },
     "ovl._selectionAnts": {
-        "why": "The row calls the ants the silhouette clipped to the view with joins dropped; they now run along the render list's pieces, decided rarely and moved by a transform.",
+        "why": "The row calls the ants the silhouette clipped to the view with joins dropped; they now run along the Stage's items, decided rarely and moved by a transform; a drag's decision is made at rest.",
         "what": "The selection indicator handed to the renderer: ant runs and dots in retained space, a transform, and the screen-edge spans.",
-        "long": ["Builds or reuses a decision (`_selTable`, `_selDecide`) and adds the edge spans (`_selEdges`) per step. During a drag the first decision is kept and moved by the pointer's travel. Null when nothing is selected, the tool is not select, or nothing traces (DESIGN.md §10)."],
-    },
+        "long": ["Builds or reuses a decision (`_selTable`, `_selDecide`) and adds the edge spans (`_selEdges`) per step. During a drag the decision is made at rest (`stage.atRest`: a drag writes nothing until its drop, A1 C2) and moved by the pointer's travel, plus any shift a decision kept across a drop carries. Null when nothing is selected, the tool is not select, or nothing traces (DESIGN.md §10)."]},
     "ovl._selEdgeSpans": {"why": "gone", "what": None, "long": ["The screen-edge spans are `_selEdges` now."]},
     "ovl._selInkRings": {"why": "gone", "what": None, "long": ["The ants read render-list pieces as loops (`_selPieceLoops`)."]},
     "ovl._emitAntRing": {"why": "gone", "what": None, "long": ["The runs are built in `_selDecide`."]},

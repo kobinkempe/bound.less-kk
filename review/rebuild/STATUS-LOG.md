@@ -3610,3 +3610,22 @@ past the 03:50 checkpoint, sceneClient (14 kept), rasterPack (14, 9 corrected), 
 **Questions asked:** none.
 WHERE I AM: item 3, `src/engine/report.js` (9), then overlays, rasterPerf, rasterJob, rasterWorkerClient, MovePlane,
 eraseDescent and the small files; then the stale rows, the § pass, the 13 rows.
+
+## 2026-10-06 09:26 UTC — B-PYRAMID-5b (builder) — resumed after the eighth stop and reboot (tree at d2b139c+)
+**Done before the stop:** b7's round trips (0 px, 9 of 9, both pairs), the raster suites, typecheck 0, lint 0 errors; the
+quick suite at load 3.8 → 8.4 beside R-MODEL-C34b's fuzz: 2,209 passed, 1 failed, 12 skipped — the red is `raster.pyramid`
+"a new prefetch plan supersedes the queued one…" (P1), red in 2 of 6 contended runs, green in 5 runs alone (281–300 ms;
+not the 5-s timeout). Cause being traced next, under synthetic load, after the browser work.
+**Now:** b7's F133 run, then b8 (scenarios 1, 6, 7, landed against `fin2`), servers on 3015/3016; load 0.23 at the start.
+**Questions asked:** none.
+WHERE I AM: b9 = F133 then b8 running; then the P1 test under busy loops (the failing assertion), the quick suite, the report.
+
+## 2026-10-06 09:30 UTC — R-MODEL-C34b (reviewer) — end: the review done, F138 closed, report handed back
+**Done:** OPEN-FLAGS F138 FIXED (the classified table, the final numbers, its index row); A1 §16 "Reviewed" bullet;
+TEST-MAP's model rows (the 500-seed rules, the new `model.pureRead` case); DESIGN unchanged by this pass (the
+predecessor's §8/§10/§13 edits stand; `_prepareView`'s key is a code-level fact). Files across the review:
+`KobinEngine.js` (`_prepareView`'s key), `model.pureRead.test.js`, the `zz_*` probes and `zz_modelFuzzOld.js` deleted.
+**Open, in the report:** frame GC forgets the picture sources `_prepareView` mints (a keep rule: design question);
+`_camAt` unchecked against the missing frame (minor, unreached); PLAN §5.23 item 6's "10–25 % slower" not reproduced.
+**Questions asked:** in the report.
+WHERE I AM: done; the orchestrator lands the review from the report.

@@ -80,13 +80,12 @@ add("rep.countsOf", "countsOf(E)",
     ["One pass over every frame's list; `byFrame` is the 40 most populated frames and `listed` the last render list's length."],
     D)
 add("rep.rasterOf", "rasterOf(E, sub)",
-    "The renderer's section: the raster perf ring, plate store, picture layer, move plane, overlay, ladder and drain queues; for SVG only its group count.",
-    ["`perf` is `rasterPerf.report`, a module singleton attached to the last renderer built; `plates` is this engine's own store. The layer's uncovered cells are what the headline's paper figure reads."],
-    D)
+    "The renderer's section: the raster perf ring, the plate store, the layer's report (the pyramid), the move plane, the overlay and the Stage's generation and counters; for SVG only its group count.",
+    ["`perf` is `rasterPerf.report`, a module singleton attached to the last renderer built; `plates` is this engine's store (the renderer's `PyramidStore`)."],
+    "§14")
 add("rep.instrumentsOf", "instrumentsOf(E, sub)",
-    "The engine's instruments: the last 300 perfLog entries, the fast-path stats, frame meter, long frames, event latency and growth.",
-    ["DESIGN.md §14 says what each measures."],
-    D)
+    "The engine's instruments: the last 300 perfLog entries and the long operations kept apart (`perfLong`), the fast-path stats, frame meter, long frames, event latency and growth.",
+    ["DESIGN.md §14 says what each measures."], "§14")
 add("rep.memoryOf", "memoryOf(E, sub)",
     "Memory: the JS heap where the browser exposes it, the plate store's bytes, a census of the tile cache and the undo stack's length.",
     ["`performance.memory` is Chrome's; elsewhere `heap` is null. Without a plate store the plate figures are `rasterPerf.growth()`."],
@@ -96,13 +95,13 @@ add("rep.tileCensus", "tileCensus(store)",
     ["-"],
     D)
 add("rep.movesOf", "movesOf(E, sub)",
-    "The move state: the selection and its first 50 members, a drag or hold in progress, the shifted and shadow frames, and the last ten move ops.",
-    ["Members carry level, type, z, editId, displacement table (file form) and box; shifted and shadow frames are capped at 50 each; the recent ops are the undo stack's `move`, `moveMany` and `moveFrames`, `brief`ed."],
-    D)
+    "The move state: the selection and its first 50 members, a drag (its delta and depth) or hold (whether the plane draws it) in progress, the shifted frames and the co-residents (`shadows`), and the last ten move ops.",
+    ["Members carry level, type, z, editId, displacement table (file form) and box; shifted frames and co-residents are capped at 50 each; the recent ops are the undo stack's `move`, `moveMany` and `moveFrames`, `brief`ed."],
+    "§14")
 add("rep.eraseOf", "eraseOf(E, sub)",
-    "The erase state: pending marks and their bake progress, the bake queue, the cut in flight, the seal, repair and failure counters, and the worker's stats.",
-    ["Each of the first 50 marks carries its level, z, bake px, box, how many ids its bake has done and whether it is committed; `heldMs` is how long the bake has been held back."],
-    D)
+    "The erase state: pending marks with their targets, the bake queue, the cuts in flight and buffered, a parked gesture's barrier, the seal, repair, refusal and abort counters, and the worker's stats.",
+    ["Each of the first 50 marks carries its level, z, bake px, box, its target count and whether it is committed; `heldMs` is how long the bake has been held back."],
+    "§14")
 add("rep.scenesOf", "scenesOf(E, sub)",
     "The scenes: their count, the first 60 `brief`ed, and the scene index's own report where the engine has `sceneReport`.",
     ["-"],
@@ -129,9 +128,8 @@ add("rep.buildExtract", "buildExtract(E, opts, run)",
 add("rep.scorer", "scorer(E, zoomOut, minPx)",
     "Sets up the extract's scoring: per-frame work lists a slice at a time can `consider`, and a `finish` that adds the selection wherever it is.",
     ["A native's score is its size in screen px at the zoom-out that first brings it on screen (1 when it is on screen). Its tier is 0 on screen (in the last render list and meeting the view), 1 selected, 2 in the render list (the tile window), 3 around; a tier-3 native past `zoomOut` (4,096) or under `minPx` (0.25 px) is left out.",
-     "A frame that cannot be mapped to the camera's is counted `unreachable`; one whose largest native is under `minPx` and holds nothing on screen or selected is skipped (`tinyFrames`). Otherwise its candidates are a rect query around the view plus its moved natives, or its whole list when the frame has a pending shift.",
-     "A moved native is judged where its picture is: `shiftAt(below, 0)` in its home's units, plus the frame's pending shift."],
-    D)
+     "A frame that cannot be mapped to the camera's is counted `unreachable`; one whose largest native is under `minPx` and holds nothing on screen or selected is skipped (`tinyFrames`). Otherwise its candidates are a rect query around the view plus its moved natives, or its whole list when the frame has a shift. A moved native is judged where its picture is: its picture table's translation (`tableOf`, `homeTranslation`), its frame's shift composed in (A1 C1)."],
+    "§14")
 add("rep.chooseNatives", "chooseNatives(list, maxBytes)",
     "Picks the extract's natives: sorted by tier then score, each taken while the estimated bytes still fit.",
     ["Past the cap the scan goes on, since a smaller native further down may still fit. Every one left out is counted (on-screen ones separately), and one over a quarter of the budget is named in `tooBig` (up to 20). Returns the chosen ids by frame and the set of their frames."],
