@@ -3779,3 +3779,14 @@ in my second quick suite (started at load 5.2). Neither cause established.
 typecheck 0; lint 0 errors. Browser numbers in the entries above; nothing in Kobin's Chrome.
 **Questions asked:** in the report (item 6's reading of DESIGN §10; F140's fix; the drop's `eng.list`).
 WHERE I AM: done — the report to the orchestrator.
+
+## 2026-10-06 14:52 UTC — orchestrator (Opus) — B-PYRAMID-5 landed; B-PYRAMID-6 (F140) launched; R-FINAL-D's last pass
+**Working on:** B-PYRAMID-5 (with 5b) landed as f58d820, PLAN §5.26. F140 (filed by 5b: by reading, `pump` returns at
+the pack budget while the last camera step's `moving` holds, and nothing but a step clears it — scenario 7's erase did
+not bake in 1 run of 10) and the two load-sensitive `raster.pyramid` tests go to **B-PYRAMID-6** before the
+measurements. R-FINAL-D resumed for its last pass (B-PYRAMID-5's 10-STATUS entry, F137's status, its raster changes
+against PLAN §5.22). R-FINAL-M waits for B-PYRAMID-6; its brief now runs scenario 7 ten times on the final tree.
+**Measured:** nothing.
+**Decisions made:** F140 fixed before Kobin's check, not after: an erase that never bakes is the eraser failing.
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-6 and R-FINAL-D.
