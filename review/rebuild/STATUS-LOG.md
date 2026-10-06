@@ -3591,3 +3591,22 @@ resumed by message.
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for the reports.
+
+## 2026-10-06 09:27 UTC — R-MODEL-C34b (reviewer) — resumed after the stop and reboot (tree at d2b139c); item 4 done
+**Measured (the final runs, jsdom):** tile 500+500 green alone (955 s; the first attempt beside `test:erase` was killed
+out of memory): 40,000 checks, 276,313 items, 275,533 exact, 780 carried (154 within 2 ulp), `latticeBreach` after every
+op; counts camSynced 2, unitApart 11, dropDeselect 83, heldDeselect 19, rerouted 31 (≤ 9.3e-10), oracleSlip 6, walkedCut 9
+(≤ 2.3e-6), normalised 536 (≤ 1.5e-8). Selection 200+200 green (16,000 checks, 3,188 selections, held 41). Quick suite
+2,210 passed, 0 failed, 12 skipped; `test:erase` 303 passed, 1 skipped; typecheck 0; lint 0 errors (5 warnings, none
+mine). Worker sources unchanged since 59f0a76 (no rebuild; raster 432c239e…, scene dce304b8…).
+**Working on:** item 5 — the numbers into OPEN-FLAGS F138 and A1 §16; then the report.
+**Questions asked:** none.
+WHERE I AM: filling `RUNS`/`ROWRUNS` in `docs/OPEN-FLAGS.md` and `TILE` in A1 §16.
+
+## 2026-10-06 09:27 UTC — B-DOCMAPS-3 (builder) — resumed after the session-limit stop (tree at d2b139c)
+**Working on:** item 3 from the tree and `dmap/` (both intact): 269 of 363 re-read on disk (129 corrected, 140 kept) —
+past the 03:50 checkpoint, sceneClient (14 kept), rasterPack (14, 9 corrected), rasterCore (11, 4), oplog (9, 6).
+`src/` changed since 3e14703 only by a deleted testkit file, so the changed set stands.
+**Questions asked:** none.
+WHERE I AM: item 3, `src/engine/report.js` (9), then overlays, rasterPerf, rasterJob, rasterWorkerClient, MovePlane,
+eraseDescent and the small files; then the stale rows, the § pass, the 13 rows.

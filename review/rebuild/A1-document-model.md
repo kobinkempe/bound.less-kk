@@ -893,7 +893,8 @@ Dated notes where building C3 and C4 changed or sharpened §4.4, §5 and §8. js
   `_bakeUp` 2,920 → 3,012 ms, inside the runs' 2,314–3,973 ms spread; `sameCell`'s 1,413 calls 1 ms. City lasso 16 frames,
   0 ids, 12 ms; the census and seed 777's frames as above; the 5,000-native delete 588–642 ms raster, 1,716–1,758 SVG,
   its undo 697–719 / 2,862–3,075 (load 2.1); the drop's `setBatch` wrap no faster at 2,000 natives (211–387 vs
-  209–385 ms). Final runs: the tile fuzz 500 + 500 TILE; the selection fuzz 200 + 200 green (16,000 checks, 3,188
+  209–385 ms). Final runs: the tile fuzz 500 + 500 green (40,000 checks, 276,313 items; the
+  lattice invariant after every op; every exception counted as OPEN-FLAGS F138 lists); the selection fuzz 200 + 200 green (16,000 checks, 3,188
   selections, `held` 41); the quick suite 2,210 passed, 0 failed, 12 skipped; `test:erase` 303 passed, 1 skipped;
   typecheck 0; lint 0 errors. Headless Chromium against the landed tree (59f0a76): scenario 4's ink after the lasso and
   after the drop identical (hashes equal, 2 runs a tree), the round trip's identical at every state.
