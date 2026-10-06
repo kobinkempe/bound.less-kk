@@ -3895,3 +3895,40 @@ question (note `_camAt` at every crossing so a deleted frame's camera keeps its 
 **Decisions made:** as above.
 **Questions asked:** none.
 WHERE I AM: waiting for both reports; then R-FINAL-M.
+
+## 2026-10-06 21:35 UTC — B-TIDY (builder) — resumed after the stop (tree at aa34dd1, my edits in 7f30fa1)
+**Working on:** what is left: item 4 (quick suite at load < 2, typecheck, lint, `build:worker` md5s), then the report.
+**Measured (before the stop, scratch copy, output survived the reboot):** (a) the `_camAt.F === F` guard undone: 1 of
+18 red (detachedFrame + coresident; unbroken 18/18); (b) item 3, `rasterCore.renderPlate`'s family grouping (the
+`while … === fam) last++` line) removed: `raster.familyUlp` 5 of 7 red (unbroken 7/7) — green: the whole-pixel edge and
+the opaque overlap/gap, where two families composite to the same bytes. Recorded in TEST-MAP's row (in 7f30fa1).
+Pre-stop: typecheck 0, lint 0 errors (5 warnings, none in my lines). Load 0.37 at resume.
+**Decisions made:** the onCross note is a follow-up (orchestrator's answer), not built.
+**Questions asked:** none.
+WHERE I AM: naming (a)'s red test on the copy, then the quick suite.
+
+## 2026-10-06 21:37 UTC — B-PYRAMID-6 (builder) — checkpoint: item 2, both causes named, both tests levered
+**Measured (probes on the copy `bp6/bc`):** row-1 join fuzz — 49 pen-ups unloaded: 40 patch inline (T median 1.15 ms
+against `patchUserMs` 16) and close their group at once; joins 8 come only from the ~9 groups left open (to the workers
+or waiting for missing cells); 4 loaded runs (3 busy loops, 1.6–3.9): joins 8, 6, 9, 4, the path different each run.
+With `patchUserMs` 0 around the pair: joins 22, 25, 22 (load 4.0–5.1). Supersede — the rest posted at once
+(`restInline` never, quiet 0): red at "planned again" (`pushed` 12, wanted > 12; 2 rest strips queued); the base run
+ends its loop with the rest's 100-ms timer still pending; `restInlineMs` 1e9: green, gen 0 → 5.
+**Decisions made:** test levers, not code: the prefetch waiting for the rest and an inline group patch are designed.
+**Questions asked:** none.
+WHERE I AM: whole-file runs of raster.pyramid (loaded, 3 loops), then item 3 (quick suite, typecheck, lint, docs).
+
+## 2026-10-06 21:38 UTC — B-TIDY (builder) — END: FINAL-AUDIT m1, m3, m4 done
+**Working on:** done. Item 1: the stale comments rewritten (`KobinEngine.js` 586, 629; `selection.js` 609;
+`erasePipeline.js` 510; `rasterPack.js` 7, 15, 163, 261, 517, 613, 714, 717, 729, 947, 1287, 1308; `OverlayLayer.js` 22,
+490; `CanvasEditor.js` 85). Item 2: `_camToLattice` guarded (`KobinEngine.js:295`), `select.detachedFrame` DF-5 (red
+before: the camera at `"0/13,9"`, the frame it left); A1's camera paragraph and PLAN §5.25 item 4 corrected. Item 3: in
+TEST-MAP (`raster.familyUlp`'s row; DF-5 added to `select.detachedFrame`'s).
+**Measured:** break-checks on a scratch copy: the guard undone, 1 of 18 red (DF-5, named by a verbose re-run); the
+family grouping removed, `raster.familyUlp` 5 of 7 red. Quick suite (start load 0.67; 1-min load 1.2–5.3 during it,
+jest processes 5–12, so B-PYRAMID-6 may have overlapped at two samples): 196 of 201 suites passed (5 skipped), 2,213
+passed + 12 skipped of 2,225, 189.9 s. Typecheck 0 errors; lint 0 errors (5 warnings, none mine). `build:worker`
+exit 0; md5s unchanged, as expected for comment-only edits: raster-worker 432c239e…88738d, scene-worker dce304b8…2d93.
+**Decisions made:** the fallback stays the depth-0 spine; `packJob`'s `q` documented as unread, not removed.
+**Questions asked:** none open. Follow-up (orchestrator's answer): note `_camAt` at every crossing (`onCross`).
+WHERE I AM: done; report sent.

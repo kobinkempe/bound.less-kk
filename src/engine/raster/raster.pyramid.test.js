@@ -147,6 +147,9 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         setRasterWorkerCount(1);
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.cfg.prefetchQuietMs = 0;
+        // The rest inline at the still frame: in the workers after its 100-ms quiet, a loaded run's loop outlasts the
+        // quiet, and the rest's priority-0 strips hold the prefetch's idle at the commit (nothing planned again).
+        R.pyramid.cfg.restInlineMs = 1e9;
         stroke(E);
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
@@ -614,9 +617,13 @@ describe("PLAN §3 row 1 through the renderer's results path (the B-PYRAMID revi
         const { bad, seen } = await row1Fuzz([7, 19, 31], 18, (E, rnd, pt, seen) => {
             const R = E.renderer, op = rnd();
             if (op < 0.3) {                                              // two pen-ups over the same cells before the first group commits
-                const a = pt(), w = 6 + rnd() * 18;
+                const a = pt(), w = 6 + rnd() * 18, um = R.pyramid.cfg.patchUserMs;
+                // The first group waits for the workers, so the second joins it: inline (T ≈ 1 ms against 16) it closes
+                // at once, and only the few groups the calibration sent to the workers were joined — 0 in a loaded run.
+                R.pyramid.cfg.patchUserMs = 0;
                 drawStroke(E, [a, [a[0] + 50, a[1] + 12], [a[0] + 100, a[1] - 6]], w);
                 drawStroke(E, [[a[0] + 8, a[1] + 6], [a[0] + 60, a[1] + 20], [a[0] + 110, a[1] + 2]], w);
+                R.pyramid.cfg.patchUserMs = um;
             } else if (op < 0.55) {                                      // commits and composes in one task
                 const a = pt();
                 fill(E, a, 30 + rnd() * 80, "rgb(" + Math.floor(rnd() * 255) + ",90,140)");
