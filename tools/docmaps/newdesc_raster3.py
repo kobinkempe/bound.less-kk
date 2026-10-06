@@ -171,23 +171,23 @@ add("rjb.wireJob", "wireJob(job)",
 add("rjb.unwireJob", "unwireJob(msg)",
     "Rebuilds the job a worker reads from its message, the arrays being the transferred bytes, and validates it.", ["-"], "§9")
 add("rjb.validateJob", "validateJob(job)",
-    "Throws on a job whose layout would paint a wrong picture silently: short arrays, a bad kind, spans past the data, families out of paint order, sub-chains not ascending.",
-    ["Checks the item count, each array's length against it, one epoch per plate, and per item its kind, its geometry and `subs` spans, at least one sub-chain, family indices ascending, and every sub-chain offset ascending and inside the item's span. The core reads a sub-chain's end from the next entry, so a short or unordered table reads a length as an offset and the ink disappears with no error. O(items + sub-chains); no geometry is read."],
+    "Throws on a job whose layout would paint a wrong picture silently: short arrays, a bad kind, spans past the data, families out of paint order, sub-chains not ascending, a clip outside its plate.",
+    ["Checks the item count, each array's length against it, one integral clip box inside its plate per plate (when the job has clips), and per item its kind, its geometry and `subs` spans, at least one sub-chain, family indices ascending, and every sub-chain offset ascending and inside the item's span. The core reads a sub-chain's end from the next entry, so a short or unordered table reads a length as an offset and the ink disappears with no error. O(items + sub-chains); no geometry is read."],
     "§9")
 add("rjb.wireResult", "wireResult(res)",
-    "Packs a worker's result as the message to post with its transfer list: plate bitmaps or pixels, the id sets, timings, counts, guards and the job's buffers handed back.",
+    "Packs a worker's result as the message to post with its transfer list: plate bitmaps or pixels, the clips, the Stage generation `G`, timings, counts, guards and the job's buffers handed back.",
     ["Nulls, an empty plate's bitmap, are skipped, and each buffer is listed once. An ImageBitmap is serialisable as well as transferable, so one left out of the list is copied, 1.05 MB a plate, instead of moved."],
     "§9")
 add("rjb.unwireResult", "unwireResult(msg)",
     "The result the main thread reads from a worker's message, with defaults for the recycled list and the serialisation time.", ["-"], "§9")
-add("rjb.copyPlate", "copyPlate(rgba)",
-    "Copies one plate's pixels out of the worker's RGBA scratch, for the path without ImageBitmap.",
-    ["It has to be a copy: the scratch is reused by the next plate, `new ImageData` aliases rather than copies, and a transferred buffer is detached. 1.05 MB a plate."],
-    "§9")
+add("rjb.copyPlate", "copyPlate(rgba, clip)",
+    "Copies one plate's pixels — or only its clip rect's — out of the worker's RGBA scratch, for the path without ImageBitmap.",
+    ["-"], "§9")
 add("rjb.jobBytes", "jobBytes(job)",
     "The bytes of a job's typed arrays, the size of what one post transfers; the worker client records it per job.", ["-"], "§15")
 add("rjb.resultBytes", "resultBytes(res)",
-    "The bytes a result carries back, a bitmap plate counted at 512 × 512 × 4 and a pixel block at its own length.", ["-"], "§15")
+    "The bytes a result carries back: a bitmap plate counted at its clip's size (512 × 512 × 4 whole) and a pixel block at its own length.",
+    ["-"], "§14")
 
 # ---- src/engine/raster/rasterPack.js ----
 add("rpk.resetPackStats", "resetPackStats()",

@@ -3629,3 +3629,14 @@ predecessor's §8/§10/§13 edits stand; `_prepareView`'s key is a code-level fa
 `_camAt` unchecked against the missing frame (minor, unreached); PLAN §5.23 item 6's "10–25 % slower" not reproduced.
 **Questions asked:** in the report.
 WHERE I AM: done; the orchestrator lands the review from the report.
+
+## 2026-10-06 09:45 UTC — orchestrator (Opus) — R-MODEL-C34 landed; the final design check started (R-FINAL-D)
+**Working on:** R-MODEL-C34 (with C34b) landed as d16c7d4, PLAN §5.25 (F138 fixed, F139 filed: frame GC re-mints a
+picture source at every undo or redo with a moved frame's ink in view). The final design check is two agents
+(`briefs/R-FINAL-D.md`, the design audit and the documents; `briefs/R-FINAL-M.md`, the measurements on the final
+tree): R-FINAL-D starts now (documents only), R-FINAL-M after B-PYRAMID-5 lands. Per the default given to Kobin, the
+code map pauses after B-DOCMAPS-3's run until the check is done.
+**Measured:** nothing.
+**Decisions made:** the check split in two so each agent's context stays small.
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-5b's report and B-DOCMAPS-3's.

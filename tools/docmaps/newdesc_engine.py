@@ -376,10 +376,10 @@ add("eds.squareInkOf", "squareInkOf(world, vdoc, id, F, i, j)",
      "Returns `{ loops, clip, tile }` (shape loops, or a covering fill's clip as a rect loop), or null when the square holds none of the object's ink."],
     "§10")
 add("eds.descentJob", "descentJob(world, input)",
-    "The whole rehome descent for one target, on a virtual document: every cede down to the erase level, then the last link's cut.",
-    ["Refuses unless the route from the target's frame to the mark's is a pure descent. At each crossing, for each object the step above minted: the frame F0 holding its picture (through its table), the eraser's box grown by half its size and widened to cover the cell the next crossing enters, and at most a 2x2 block of F0's squares, the square under the box's centre first and alone when its window covers the box. Each square's ink (`squareInkOf`) is ceded into a kid one level down; at the last link the kid is `cutJob`'s result under the `cede` graze rule.",
-     "Nothing touches the document. The result is `{ steps, stats, minted }`, each step `{ removedId, parents, kids }`, or `{ refused, stats, inkless }` when no square was ceded or the last link refused, so a refusal needs no unwinding. `inkless` says the link it stopped at found none of the target's ink near the eraser (none, dust or a graze) and read every square it needed: the engine's mark then holds nothing whole there (F109). `minted` lists the frames the job added or re-parented on the lattice it ran on (F67). The same function runs on the main thread and in the erase worker (DESIGN.md §7)."],
-    "§10")
+    "The whole rehome descent for one target, on a virtual document: every cede down to the erase level, the last link cut by `cutJob`.",
+    ["Refuses unless the route from the target's frame to the mark's is a pure descent. At each crossing, for each object the step above minted: the frame F0 holding its picture (through its picture table, the frame's shift composed in), the eraser's box grown by half its size and widened to cover the cell the next crossing enters, and at most a 2x2 block of F0's squares, the square under the box's centre first and alone when its window covers the box. Each square's ink (`squareInkOf`) is ceded into a kid one level down through `cede` (cede.js, on the virtual document; the kid's table its frame's own); at the last link the kid is `cutJob`'s result under the `cede` graze rule.",
+     "Nothing touches the document. The result is `{ steps, stats, minted }`, each step `{ removedId, parents, kids, dust }`, or `{ refused, stats, inkless }` when no square was ceded or the last link refused, so a refusal needs no unwinding. `inkless` says the link it stopped at found none of the target's ink near the eraser (none, dust or a graze) and read every square it needed: the engine's mark then holds nothing whole there (F109). `minted` lists the frames the job added or re-parented on the lattice it ran on (F67), private frames with their flag. The same function runs on the main thread and in the erase worker (DESIGN.md §7)."],
+    "§7")
 add("eds.own", "own(l)",
     "A loop as a copied `{ buf, idx }` pair, ready to transfer; the caller's Loop stays usable.",
     ["The same helper as `eraseJob`'s `own`."], "")
@@ -517,11 +517,11 @@ FIX = {
     },
     # ---- Document.js ----
     "doc.cedeTileById": {
-        "why": "Says it works local to the rectangle; it cuts in the parent's own coordinates (F42). Nothing in the product calls it any more, and the cut is `cede.js`'s.",
+        "why": "Says it works local to the rectangle; it cuts in the parent's own coordinates (F42). Nothing in the product calls it any more, and the cut is `cede.js`'s, which the descent also runs on its virtual document.",
         "what": "Cedes a tile: cuts the rect out of the parent exactly and mints the ink inside as kids one level down (`cede.js`). Only the tests call it.",
         "long": ["Converts a legacy fill first and refuses anything but a shape. The rect is subtracted in the parent's own coordinates, so every piece it does not cut stays bit for bit (F42); slivers along the rect are dropped against the pen.",
                  "Remnant pieces keep the parent's frame, attach rect, grid phase and table; kids go to `level` with the caller's window, phase and table — by default the parent's shifted one level down and made the kid frame's own (`ownFor`). All keep the parent's z, colour, opacity, pen and family key.",
-                 "The product's descent runs its virtual twin, `eraseDescent.cedeVirtual`, and `_applyDescent` mints the result in the order `cede` gives; `KobinEngine.edit.test.js` calls this one."]},
+                 "The product's descent runs the same `cede` on its virtual document (`eraseDescent.descentJob`), and `_applyDescent` mints the result in the order it gives; `KobinEngine.edit.test.js` calls this one."]},
     "doc.setGeometryById": {
         "why": "Says a drag needs it to recompute from where it started; a drag changes displacement tables and never geometry. It now serves promotion to the parent level and the undo and replay of a member the pen-up walked back into its cell.",
         "what": "Replaces an object's geometry outright, with its attach rect, grid phase and table when the snapshot carries them.",

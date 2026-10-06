@@ -202,36 +202,37 @@ add("mvp.MovePlane", "MovePlane",
 add("mvp.MovePlane.constructor", "MovePlane.constructor()",
     "Points `stats` at the module's counters and starts the plane empty and idle.", ["-"], "§9")
 add("mvp._reset", "_reset()",
-    "Empties the plane — selection, list, both levels, the drawn level, the stopgap, layers, tags, keys, ranges, offset, landing times — sets it idle and bumps `gen`.",
-    ["The caller compares `gen` to know it must free the old layers' plates. `layers`, `r` and `selR` mirror the main level; `tags` and `keys` cover both levels."],
+    "Empties the plane — selection, list, both levels, the drawn level, layers, tags, keys, ranges, offset, landing times — sets it idle and bumps `gen`.",
+    ["The caller compares `gen` to know it must free the old layers' plates. `layers`, `r` and `selR` mirror the main level; `tags` and `keys` cover both levels. A small selection's stopgap is the renderer's (`_pyrStopgap`), not the plane's."],
     "§9")
 add("mvp.showing", "showing (getter)",
     "Whether the plane is drawn this compose: while it is dragging or landing.", ["-"], "§9")
 add("mvp.cellCount", "cellCount()",
     "The number of plates the plane pins.", ["-"], "§9")
-add("mvp.aim", "aim(st, list, view, cfg, max, dpr, live)",
+add("mvp.aim", "aim(st, list, view, cfg, max, dpr)",
     "(Re)aims the plane at a selection, a list and a view; true while it is valid for them.",
-    ["Does nothing while dragging or landing. A new selection key, frame, quantum or zoom resets it, and with no selected ids it is refused; a new list, id set or cap under the same selection re-cuts it, so a pan keeps the plates of every layer whose members are unchanged. The zoom is compared as well as the quantum because a settled view is `q` \"e\" at any exact zoom."],
+    ["Does nothing while dragging or landing. A new selection key, frame or zoom resets it, and with no selected ids it is refused; a new list, id set, cap or plate range under the same selection re-cuts it, so a pan keeps the plates of every layer whose members are unchanged."],
     "§9")
 add("mvp.idsHash", "idsHash(ids)",
     "A short FNV-1a hash of an id set, the same for the same ids in any order: the part of a layer's tag that names its members.",
     ["-"], "§9")
-add("mvp._cut", "_cut(list, ids, view, cfg, max, dpr, live)",
-    "Cuts the plane: groups the pack's on-screen families in paint order into selected and unselected runs, merges runs past the layer cap, and picks a main level that fits the plate cap and a quick level under it.",
-    ["Families come from `rasterPack.paintFamilies`, so the layers split exactly where the pack paints; a family with no item box on the view's plates is skipped, and unselected families below the first selected run stay in BELOW. Past `MOVE_PLANE_LAYERS` the smallest unselected run sandwiched between two selected ones is merged away, so it is drawn under the selection (counted in `merged`).",
-     "The main level is the first of 0 to 3 octaves coarser (`_level`) whose plates fit the cap — at most 16 for a level drawn magnified, that is coarser or with the view between quanta — else the coarsest (counted in `overCap`). A plane of more than 4 plates also gets a quick level 2 octaves under the main, kept when it has fewer plates, fits the cap together with the main, and is within 16. Refused only when no selected ink is on screen."],
+add("mvp._cut", "_cut(list, ids, view, cfg, max, dpr)",
+    "Cuts the plane: groups the pack's families in paint order into selected and unselected runs, merges runs past the layer cap, and picks a main level that fits the plate cap and a quick level under it.",
+    ["Families come from `rasterPack.paintFamilies`, so the layers split exactly where the pack paints; a family with no item box on the view's plates is skipped — a selected one counts on the view grown by its own size each way, so a drag across the screen still has its plates — and unselected families below the first selected run stay in BELOW. Past `MOVE_PLANE_LAYERS` the smallest unselected run sandwiched between two selected ones is merged away, so it is drawn under the selection (counted in `merged`).",
+     "The main level is the first of 0 to 3 octaves coarser (`_level`) whose plates fit the cap — at most 16 for a level drawn magnified — else the coarsest (counted in `overCap`). A plane of more than 4 plates also gets a quick level 2 octaves under the main, kept when it has fewer plates, fits the cap together with the main, and is within 16. Refused only when no selected ink is on screen."],
     "§9")
 add("mvp._level", "_level(runs, view, k)",
     "Builds the plane's layers at `k` octaves coarser than the view: each layer's cells, tag and keys, the plate count, the bounding ranges and BELOW's cell set.",
-    ["The level's quantum is the view's less 4k (derived from the zoom when the view is a settle) and the view's plate range is mapped onto its grid. A run's cells are its item boxes on that grid; BELOW covers the union of every run's cells and omits every run's ids.",
-     "A layer's tag is `z<n>_<quantum>_<members hash>`, so a re-cut that changes a run's members is a new layer and never reuses the old plates. BELOW's cell set is what `PictureLayer` reads to skip the view's own plates under a whole BELOW mid-drag."],
+    ["The level's zoom is the view's over 2^k (A3 §6), and the view's plate range — grown by its own size each way for a selected run — is mapped onto its grid. A run's cells are its item boxes on that grid; BELOW covers the union of every run's cells and omits every run's ids.",
+     "A layer's tag is `z<n>_<k>_<members hash>`, so a re-cut that changes a run's members is a new layer and never reuses the old plates."],
     "§9")
-add("mvp.requests", "requests(list)",
-    "One store request per layer, the quick level's first — BELOW with its omitted ids, the others with only their own ids on transparent paper — or null when refused or landing.",
-    ["Each is off camera, priority 2, mode `plane`, at its level's zoom, and carries its cell list instead of a range."],
+add("mvp.requests", "requests()",
+    "One request per layer, the quick level's first — BELOW with its omitted ids, the others with only their own ids on transparent paper — or null when refused or landing.",
+    ["Each carries its level's zoom, its tag and its cell list instead of a range, and a far level's own table (`list`, at the Stage generation `G` it was read at) when it has one; a level whose list is still being read is skipped."],
     "§9")
 add("mvp._whole", "_whole(lvl, store, selOnly)",
-    "Whether every plate of a level, or of its selected layers only, is cached and live.", ["-"], "§9")
+    "Whether every plate of a level, or of its selected layers only, is cached, live and exact (`store.exact`).",
+    ["-"], "§9")
 add("mvp.checkReady", "checkReady(store)",
     "Whether the main level is cached and live; once true it stays true for this plane.",
     ["`pick` falls back to the quick level or the selected layers until it is."],
@@ -308,7 +309,7 @@ add("rwc.freeSlot", "freeSlot()",
     ["A transport takes as many jobs as the pool would and the inline path takes one; both count abandoned slotless jobs as held. Spawns the pool late if needed."],
     "§9")
 add("rwc.dispatch", "dispatch(entry, slot)",
-    "Mints a job id, has the caller pack the strip, records it in flight and posts it to its worker, the transport, or the inline `runJob`.",
+    "Mints a job id, has the caller pack the strip, records it in flight and posts it to its worker, the transport, or the inline `runJob`; an erase cut goes to `dispatchCut`. Returns whether a job went out.",
     ["A pack that throws or returns null is reported dropped with the new id (`pack`, `empty`). The posted-at time is the main thread's; the wire and post time goes to `postMs`.",
      "The inline path runs the worker's own `runJob` on a later microtask, so both paths draw the same pixels and jsdom checks the shipped code."],
     "§9")
@@ -316,21 +317,20 @@ add("rwc.onFailed", "onFailed(jobId, err, slot)",
     "A job's terminal failure: frees its slot, reports it dropped with the error, and pumps; an unknown id only releases an abandoned hold.",
     ["-"], "§9")
 add("rwc.onMessage", "onMessage(slot, data)",
-    "A worker's answer: frees the slot, returns the job's buffers to the pool, derives the timings, totals the guards and counts, checks staleness, then calls `onDrop` for stale plates and `onResult`.",
-    ["Queueing time is the main thread's wall time minus the phases the worker reports, since the worker returns durations only. A `raster-error` message goes to `onFailed`. A result with no record is ignored except to release an abandoned hold. A stale arrival fires both `onDrop` (naming the stale plates) and `onResult`; the caller ends the id once."],
+    "A worker's answer: a cut's result goes to `onCutMessage`; otherwise frees the slot, returns the job's buffers to the pool, derives the timings, totals the guards and counts, and calls `onResult`.",
+    ["Queueing time is the main thread's wall time minus the phases the worker reports, since the worker returns durations only. A `raster-error` message goes to `onFailed`. A result with no record is ignored except to release an abandoned hold. Freshness is not judged here: the result carries the Stage generation `G` it was packed at, and the store decides."],
     "§9")
 add("rwc.plateBitmap", "plateBitmap(px)",
     "Converts one plate's raw RGBA to an `ImageBitmap`, or null where the scope has no `createImageBitmap`.",
     ["The layer composes bitmaps only; where this is null (jsdom) the caller puts the raw pixels."],
     "§9")
 add("rwc.rasterWorkerReport", "rasterWorkerReport()",
-    "The worker client's report: mode, worker counts, queue and in-flight sizes, held slots, live quanta, job totals, bytes, timings, the guard and count totals and the buffer pool.",
-    ["`heldSlots` is the capacity abandoned jobs still hold; `liveRequests` counts the quanta with a newest frame on record, and falls only at the next submit or drop."],
-    "§15")
+    "The worker client's report: mode, worker counts, in-flight size, held slots, job and cut totals, bytes, timings, the guard and count totals and the buffer pool.",
+    ["`heldSlots` is the capacity abandoned jobs still hold. The queue is `jobQueue`'s, which reports itself."],
+    "§14")
 add("rwc.resetRasterWorkerClient", "resetRasterWorkerClient()",
-    "The suite's reset: empties the queue and the in-flight map, terminates the workers, and clears the broken flag, ids, overrides, buffer pool and counters.",
-    ["It reports nothing in flight; the live teardown is `destroyRasterPool`."],
-    "")
+    "The suite's reset: empties the in-flight map, terminates the workers, and clears the broken flag, ids, overrides, buffer pool and counters.",
+    ["It reports nothing in flight; the live teardown is `destroyRasterPool`."], "§9")
 
 # ---- src/engine/worker/rasterWorker.js ----
 add("rwk.resetGuards", "resetGuards()",
