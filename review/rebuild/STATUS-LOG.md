@@ -3717,3 +3717,18 @@ pre-stop s7 run baked): 40 strips queued [25,0,0,3,12,0], none in flight, the po
 kick: `frame()` + `pump()`), the tree and landed alternating, three each. Log `bp5/batch10.log`.
 **Questions asked:** none.
 WHERE I AM: b10 running; then the P1 test under busy loops, the quick suite, the report.
+
+## 2026-10-06 14:23 UTC — R-FINAL-D (reviewer) — resumed after the session-limit stop (tree at 82603a4)
+**State:** every edit through the 09:42 checkpoint is in the tree (FINAL-AUDIT, PLAN §3, A2 §2.11, OPEN-FLAGS, docs/ai).
+B-PYRAMID-5 not landed; per the orchestrator, its part is a short last pass after §5.26.
+WHERE I AM: the report without B-PYRAMID-5's part.
+
+## 2026-10-06 14:24 UTC — orchestrator (Opus) — the ninth stop (~09:55–14:20); all three resumed
+**Working on:** B-PYRAMID-5b (its b8 saw scenario 7's erase not bake in 60 s once on the tree — 40 strips queued, none in
+flight, the pool idle; b10's six runs did not repeat it: told to read the queue's pump for the path, file F140, then its
+last test, quick suite and report), R-FINAL-D (the audit, all but B-PYRAMID-5's part) and B-DOCMAPS-3 (the § column and
+the rows; the code map pauses after it). The container rebooted (uptime 0 at 14:22); the tree clean at 82603a4.
+**Measured:** nothing.
+**Decisions made:** no more browser runs on the stall before the report.
+**Questions asked:** none.
+WHERE I AM: waiting for the three reports; R-FINAL-M after B-PYRAMID-5 lands.
