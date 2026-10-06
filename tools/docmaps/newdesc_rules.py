@@ -14,13 +14,15 @@ E = {}
 def rule(cls, fn, what, long, rung):
     """A rule class and its evaluate, as one Code Map row and two graph nodes."""
     key = "lrl." + cls
-    E[key] = {"fn": cls + "<br>evaluate(ctx)", "what": what, "ref": rung,
+    # The § column is DESIGN.md's (§12, the scale bar); `rung` names the scale-bar bible's constraint.
+    what = "%s (the scale-bar bible's constraint %s)" % (what.rstrip("."), rung.replace("§14 rung ", "").strip())
+    E[key] = {"fn": cls + "<br>evaluate(ctx)", "what": what, "ref": "§12",
               "long": long}
     E[key + ".evaluate"] = {"fn": cls + ".evaluate(ctx)", "what": what,
-                            "ref": rung, "long": long}
+                            "ref": "§12", "long": long}
 
 
-def add(key, fn, what, long, ref="§14"):
+def add(key, fn, what, long, ref="§12"):
     E[key] = {"fn": fn, "what": what, "ref": ref, "long": long}
 
 

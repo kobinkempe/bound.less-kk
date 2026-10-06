@@ -3752,3 +3752,15 @@ write, an inserted ref did not parse — nothing written). Done before the stop:
 stale rows (`audit_stale` 0) and the rows with nothing to open (2,383 of 2,383 open).
 **Questions asked:** none.
 WHERE I AM: fixing `secmap.py`'s insertion, then its run, the lenient chain, and the report.
+
+## 2026-10-06 14:28 UTC — B-DOCMAPS-3 (builder) — END: item 3, the stale rows, the § column, the rows with nothing to open
+**Working on:** finished. Files: `tools/docmaps/newdesc_*.py`, `long_*.py`, `pages/boundless-code-map.pristine.html`, the
+generated pages. Nothing under `src/`.
+**Measured (lenient chain, `dmap/devrun.py`):** item 3 363 of 363 re-read, 172 corrected, 191 kept; `audit_stale` 0
+(was 27); rows with nothing to open 0 (2,383 of 2,383 open; was 13); Code Map missing 905, all oracles (item 4);
+`build_graph_page.py` refuses those 905; `graph.py` 46 hand edges naming no node and 84 not calls, `check.py` 90 (item 5).
+**Decisions made:** § by what the function does, through a module → section table (`dmap/secmap.py`, run once: it is not
+idempotent and refuses a second run); 811 entries and 191 of 269 pristine rows moved; the files' default refs moved too
+(oracle §17 → §15, scale bar §14 → §12); the scale-bar rule rows keep their bible rung in the one-liner.
+**Questions asked:** none.
+WHERE I AM: done; item 4 (the oracles) and items 5–8 are the next runs'.

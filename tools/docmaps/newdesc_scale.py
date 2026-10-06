@@ -15,7 +15,7 @@ documents cannot drift apart.
 E = {}
 
 
-def add(key, fn, what, long, ref="§14"):
+def add(key, fn, what, long, ref="§12"):
     E[key] = {"fn": fn, "what": what, "ref": ref, "long": long}
 
 

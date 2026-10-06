@@ -15,7 +15,7 @@ for k, cls in [("lad.Ladder.constructor", "Ladder"),
                ("prng.StandardPreferenceRange.constructor", "StandardPreferenceRange"),
                ("prng.UserPreferenceRange.constructor", "UserPreferenceRange")]:
     add(k, cls + ": constructor", "Builds one " + cls + ".",
-        ["Covered by the row for `" + cls + "` - the constructor is where its fields are fixed and it does nothing else."], "§14")
+        ["Covered by the row for `" + cls + "` - the constructor is where its fields are fixed and it does nothing else."], "§12")
 
 # ------------------------------------------------------- hooks/useKobinEngine
 add("hok.now", "now()", "Monotonic time, falling back to the wall clock.",
