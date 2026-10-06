@@ -3805,3 +3805,13 @@ further step (red before), then the fix in `jobQueue.pump`. Files: `src/engine/r
 **Decisions made:** none yet.
 **Questions asked:** none.
 WHERE I AM: writing the red-before test in `jobQueue.test.js`.
+
+## 2026-10-06 15:00 UTC — orchestrator (Opus) — R-FINAL-D done; B-TIDY launched beside B-PYRAMID-6
+**Working on:** R-FINAL-D's audit is complete (`FINAL-AUDIT.md`: no major; every PLAN §1 target built, every §3 row's
+test present, every named mechanism gone; the documents corrected; F137 marked fixed). Its source minors (stale comments
+naming deleted mechanisms, `_camToLattice`'s unchecked `_camAt`, no recorded break-check for PLAN §3 row 4) go to
+**B-TIDY**, in files disjoint from B-PYRAMID-6's. R-FINAL-M starts when both land.
+**Measured:** nothing.
+**Decisions made:** CLAUDE.md's stale test counts are left for Kobin (his file).
+**Questions asked:** none.
+WHERE I AM: waiting for B-PYRAMID-6 and B-TIDY.
