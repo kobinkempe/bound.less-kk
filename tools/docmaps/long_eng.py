@@ -67,12 +67,10 @@ L = {
  "This is timed because it was once the largest piece of untimed main-thread work in the engine: a slice is budgeted at 8 ms but one object can cost far more, and until it was instrumented none of that reached a report.",
 ],
 "erp._bakeTickInner": [
- "One slice of background work, then re-arms itself if anything is left.",
- "**Stands aside** while the pointer is down or a drag is in progress, and for a short window after the camera moves — but never for more than about a second and a half in total, so a restless camera cannot starve the queue.",
- "**Resolves outlines first.** An eraser cannot be subtracted until it has a resolved outline, and neither can the ink beneath it.",
- "**Then folds erasers into ink**, object by object, charging the next object at what the last one actually cost so a slice sitting at 7.9 ms does not start another expensive one. A single object costing more than the whole budget still runs, or it would be refused forever.",
- "When every object under a mark has been handled, the white mark is removed silently — undo goes through its commit entry, not through the mark.",
-],
+    'One slice of background work, then re-arms itself if anything is left.',
+    '**Stands aside** while the pointer is down or a drag is in progress, and for a short window after the camera moves — but never for more than about a second and a half in total, so a restless camera cannot starve the queue.',
+    '**Resolves outlines first.** An eraser cannot be subtracted until it has a resolved outline, and neither can the ink beneath it.',
+    "**Then registers and bakes.** Every landed mark is registered (`_registerLanded`). While a gesture is parked at an erase barrier nothing more runs: the parked gesture drives the cuts it waits on, and its end resumes the tick. Otherwise `_bakeRun` works to the slice's deadline — the serial head applied when its job has landed, a spent mark removed, the lookahead dispatched to the workers (A2 §4.7) —; a spent mark renders at once, any other change soon after."],
 "erp._camBusy": [
  "True if the camera moved recently enough that a background slice would land on a frame the user is watching.",
  "A simple timestamp comparison against a fixed idle window. Being wrong in the cautious direction only delays work; being wrong the other way drops a frame.",
@@ -148,9 +146,8 @@ L = {
  "A refusal is otherwise invisible: the object is already in the eraser's done set, so the erase never returns to it, and if nothing else was under the gesture the mark is consumed having done nothing. That is exactly what 'I erase and then it just disappears' looks like from the outside.",
 ],
 "erp._noteSpent": [
- "When a mark is about to be consumed having cut nothing, records what it considered.",
- "The done set is the list of everything the gesture looked at and dismissed, so writing it down turns 'the eraser did nothing' from a mystery into a list of objects with a reason beside each.",
-],
+    'When a mark is about to be consumed having cut nothing, records what it considered: its targets (the first 24 and the count), the refusals, and how many marks are still pending.',
+    "Writing it down turns 'the eraser did nothing' from a mystery into a list of objects with a reason beside each."],
 "erp._forceBake": [
  "Resolves one stroke's perimeter immediately, cancelling any queued job for it.",
  "Used where an erase has reached an object that has not resolved yet — the boolean needs both operands as outlines and cannot wait for the queue.",
@@ -179,15 +176,13 @@ L = {
  "Schedules outline fitting for wide strokes during idle time, so a stroke that is approaching the display gate has its outline ready before it needs it.",
 ],
 "sel._hitTest": [
- "What is under this point? Returns the topmost object, or nothing.",
- "Walks the display list from the top down, testing resolved shapes by inside-ness and raw strokes by distance to their centreline with the pen width as slack.",
-],
+    'What is under this point? Returns the topmost object, or nothing.',
+    "Walks the Stage's items from the top down, each at its placement's offset, testing resolved shapes by inside-ness and raw strokes by distance to their centreline with the pen width as slack. A native under a landed mark's mask (`_marksAt`) is passed over: what the mark erases is not there to hit."],
 "sel._shapeHit": [
  "Is this point inside a resolved outline, allowing a little slack?",
 ],
 "sel.select": [
- "Selects whatever is under a point, replacing the current selection.",
-],
+    "Selects whatever is under a point, replacing the current selection. When marks over the hit are still pending it waits on their erase barrier (`_tapBarrier`) and hit-tests again what shows there then, at most 8 rounds; `after` runs once it is decided."],
 "sel._setSelection": [
  "Installs a set of ids as the selection and pulls in the rest of each object's family, so a multi-level object selects as one thing.",
  "Also records the primary id and edit key, which the selection indicator and the drag both read.",
@@ -199,9 +194,7 @@ L = {
  "The candidate objects for a lasso, with their rectangles in the active frame.",
 ],
 "sel._rectInActive": [
- "One object's bounding rectangle, mapped into the active frame's coordinates.",
- "Returns nothing when the two frames have no path between them, which silently drops the object from consideration.",
-],
+    "One native's drawn box in the active frame: the Stage's placement of it there (`placeNative(o, F).box()`), its table and its frames' shifts composed (A1 C1)."],
 "sel._lassoFind": [
  "Finds every object fully enclosed by a lasso, by walking the box tree rather than testing every object.",
  "Each box gets one of three answers: **out of reach** — skip it and its whole subtree; **enclosed** — take everything under it with no per-object test at all; **straddling** — ask its own spatial index and recurse.",

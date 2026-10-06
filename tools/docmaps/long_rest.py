@@ -33,10 +33,9 @@ L = {
 
 # ---- LevelMap -------------------------------------------------------------
 "lm._addFrame": [
- "Mints one box: its id, parent, depth, index, derived edge and centre.",
- "Wires it into its parent's child map and drops the route cache, which is the only time the tree changes shape.",
- "The centre is stored rather than derived at use, because transforms subtract it before scaling and it must be the same number everywhere.",
-],
+    'Mints one box: its id, parent, depth, index, derived edge and centre.',
+    "Wires it into its parent's child map and drops the route cache. Added at a cell another frame already holds, it joins that frame's co-residents (A1 C3); the child map keeps the cell's first frame.",
+    'The centre is stored rather than derived at use, because transforms subtract it before scaling and it must be the same number everywhere.'],
 "lm.frame": ["Plain tree reads: a box by id, its depth, its parent, its children, the origin box at a depth, and the box on a given path at a depth. No side effects."],
 "lm._isSpine": [
  "Id minting. The origin chain keeps the historical id — the depth as a string — and everything else is its parent's id plus its index.",

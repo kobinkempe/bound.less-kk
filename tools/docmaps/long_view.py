@@ -18,8 +18,7 @@ L = {
  "For a minify tile: append if the object is non-ancestor and at or below this depth.",
 ],
 "ts._removeObject": [
- "Filters an object's pieces out of every cached tile, or in drag mode drops off-screen tiles outright.",
-],
+    "Filters a native's pieces out of the tiles that hold them — found by the id → tiles index, not a scan of the cache — and tells the tile listeners (`onTile`); in a drag's batch mode an off-screen tile is dropped outright (`_tileLive`)."],
 "ts._appendUp": [
  "Adds one object to one already-built magnify tile, using the same classify-and-derive path a full bake uses.",
 ],

@@ -883,3 +883,20 @@ Dated notes where building C3 and C4 changed or sharpened §4.4, §5 and §8. js
   is no op to repair around (`select.remote.test.js`); a live follow, if one is built, wraps its apply in
   `_opUnder`/`_repairSelection`.
 - **Measured** (2026-10-04, at the landing, by the orchestrator: the builder stopped at the weekly limit before its measurement pass; jsdom unless said). Break-checks on an unimported copy, one rule at a time, each red: the group lookup (2 tests), no read mints (1), kids linked all the way down (1, a test added: the builder's linked one level), the camera hand-over (3), a deleted subtree out of the lattice (6), a cede's kid in a private frame (3), the lasso never taking a private frame whole (1), severance by cell (1, an assertion added), each version-3 clause (1, and 1 for a private frame alone, a check added). The city lasso: 16 frames and 0 ids against the oracle's 48 ids. The drop census: frames minted during a drag 0/0/0, left after GC 14/5/4 (the oracle 15/5/5). The list build over the dense drawing out and back (the builder's probes): the SVG path warm 7,051 → 6,872 ms; the raster path cold 6,056 → 6,790 and warm 4,965 → 6,156 ms, the difference in tile bakes. Headless Chromium against the tree before C3/C4 with the same raster code, one run each, load 1.7–3.1: scenario 1's paper 173 | 264 → 100 | 0 ms and its worst frame 865 | 876 → 821 | 645 ms; scenarios 3 and 4 no paper and no stale draw on either tree; the round trip's ink hashes identical at all four states. **Not clean:** the tile fuzz at 200 plain and 200 C3/C4 seeds finds 11 walks where a native is drawn differently from the oracle, 3 of them new with C3c/C4 and 8 already on the C3b tree, and the selection fuzz at 50 + 50 one difference of C3b's age (OPEN-FLAGS F138; seed 131 traced to a replay that brings back an undone cede under a private frame id GC freed). Nothing in Kobin's Chrome.
+- **Reviewed** (R-MODEL-C34 and C34b, 2026-10-04/06, jsdom unless said). F138 closed: four live defects fixed with tests
+  red before (a subtree delete's events carry the root's address; a drop lists its members at the press; a private frame
+  never takes nor keeps a cell from a public one; a load adds "0" only to an empty lattice), every other difference named
+  and counted in the fuzzes, each exception break-checked red (OPEN-FLAGS F138). `_prepareView`'s key counts frame GC's
+  forgets: a forget and a mint between two renders left the frame count as it was and the view unprepared
+  (`model.pureRead`, red before). The list build's slower tile bakes are not reproduced: the zoom out and back on the
+  dense drawing, raster path, 3 runs × 3 passes per tree at load 0.1–2.1, 3,171 → 3,284 ms a pass (+3.6 %), its one
+  `_bakeUp` 2,920 → 3,012 ms, inside the runs' 2,314–3,973 ms spread; `sameCell`'s 1,413 calls 1 ms. City lasso 16 frames,
+  0 ids, 12 ms; the census and seed 777's frames as above; the 5,000-native delete 588–642 ms raster, 1,716–1,758 SVG,
+  its undo 697–719 / 2,862–3,075 (load 2.1); the drop's `setBatch` wrap no faster at 2,000 natives (211–387 vs
+  209–385 ms). Final runs: the tile fuzz 500 + 500 TILE; the selection fuzz 200 + 200 green (16,000 checks, 3,188
+  selections, `held` 41); the quick suite 2,210 passed, 0 failed, 12 skipped; `test:erase` 303 passed, 1 skipped;
+  typecheck 0; lint 0 errors. Headless Chromium against the landed tree (59f0a76): scenario 4's ink after the lasso and
+  after the drop identical (hashes equal, 2 runs a tree), the round trip's identical at every state.
+  Frame GC forgets an empty picture source `_prepareView` minted at an undo's or a redo's end (a
+  drop's end runs the same order, not measured), and the next render mints it again: 1 frame, 2 tile bakes, 1 plate drop a step, the same before C3/C4; a keep rule is a
+  design question. Nothing in Kobin's Chrome.

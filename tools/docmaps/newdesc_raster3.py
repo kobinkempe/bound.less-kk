@@ -45,10 +45,10 @@ add("rco.addEdge", "addEdge(x0, y0, x1, y1)",
 add("rco.beginFamily", "beginFamily(y0, y1)",
     "Starts a family over rows [y0, y1): resets those rows' touched-column ranges and records the rows for the debug check.",
     ["-"], "§9")
-add("rco.resolveFamily", "resolveFamily(out, r, g, b, alpha, y0, y1)",
-    "Turns a family's accumulation into coverage and blends its colour onto the plate; returns the pixels it painted.",
-    ["Per touched row, a running sum over the touched columns gives coverage min(|sum|, 1). Times the family's alpha, a pixel that reaches 1 is written outright and one below it is blended source-over on the 8-bit bytes (the alpha byte too on a transparent plate). A row whose sum is still past `TAIL_EPS` after its range is painted on to the plate's right edge.",
-     "`TAIL_EPS` (1/2048) sits above the Float32 residue of a closed loop; at 1e-9 that residue painted the rest of every row of a thin shape and added 15 % to its coverage. A row clamped at the right edge is painted to it by its touched range reaching TW − 1, not by this tail."],
+add("rco.resolveFamily", "resolveFamily(out, r, g, b, alpha, y0, y1, maskBits)",
+    "Turns a family's accumulation into coverage and blends its colour onto the plate, inside the core's clip; returns the pixels it painted.",
+    ["Per touched row, a running sum over the touched columns gives coverage min(|sum|, 1), carried across the columns before the clip and written only inside it. Times the family's alpha, a pixel that reaches 1 is written outright and one below it is blended source-over on the 8-bit bytes (the alpha byte too on a transparent plate). With `maskBits`, each pixel's coverage is multiplied by what the family's pending marks' masks leave there (`keepAt`): the erase rule, a pending mark drawn as nothing (DESIGN.md §7). A row whose sum is still past `TAIL_EPS` after its range is painted on to the clip's right edge.",
+     "`TAIL_EPS` (1/2048) sits above the Float32 residue of a closed loop; at 1e-9 that residue painted the rest of every row of a thin shape and added 15 % to its coverage."],
     "§9")
 add("rco.clearFamily", "clearFamily(y0, y1)",
     "Zeroes exactly what the family touched, each row's touched columns plus the two spill columns, or the whole buffer after a non-finite coordinate.",
@@ -79,12 +79,12 @@ add("rco.walkUnion", "walkUnion(yb0, yb1)",
     ["Edges are bucketed by the row they start in and join an active list when the walk reaches it; each sub-scanline, at y + (k + ½)/16, goes through `gatherCrossings` and `emitRuns` at weight 1/16 times the family's union sign, and the edges that end inside the row are dropped before the next.",
      "Sixteen sub-scanlines put an edge within 1/32 device px of its true y (`UNION_K`)."],
     "§9")
-add("rco.fillPaper", "fillPaper(out, r, g, b, a)",
-    "Paints the whole plate the paper colour before any family, or transparent black for a drag-plane plate.",
-    ["A full-sized, aligned plate is filled as 32-bit words from one written pixel. An opaque plate makes a blit a copy; a transparent one (`a` 0) is un-premultiplied by `unpremultiply` at the end of the plate."],
+add("rco.fillPaper", "fillPaper(out, r, g, b, a, rect)",
+    "Paints the plate — or only its clip rect — the paper colour before any family, or transparent black for a drag-plane plate.",
+    ["The plate is filled as 32-bit words from one written pixel, row by row inside a clip. An opaque plate makes a blit a copy; a transparent one (`a` 0) is un-premultiplied by `unpremultiply` at the end of the plate."],
     "§9")
-add("rco.unpremultiply", "unpremultiply(out)",
-    "Divides a transparent plate's colour by its alpha, because the resolve accumulated premultiplied colour and `ImageData` is straight alpha.",
+add("rco.unpremultiply", "unpremultiply(out, rect)",
+    "Divides a transparent plate's colour by its alpha (inside the clip rect when given), because the resolve accumulated premultiplied colour and `ImageData` is straight alpha.",
     ["Pixels at alpha 0 or 255 are left alone. Without it every antialiased edge of a drag-plane plate darkens."],
     "§9")
 add("rco.widthOf", "widthOf(code)",
@@ -140,12 +140,9 @@ add("rco.unionPass", "unionPass(job, first, last, ox, oy, Zq, y0, y1)",
     ["Tries the family's whole row range and, while its edges do not fit, halves the band (counted in `unionSplits`). A band that fits goes to `walkUnion`; a single row that still does not fit goes to `walkRowChunked`; then the next band.",
      "At the end the three record guards are set from the first complete load, so a record refused once is counted once."],
     "§9")
-add("rco.renderPlate", "renderPlate(job, plateIndex, out, counts, timings)",
-    "Paints one plate of a packed job into an RGBA buffer: paper, the prune, then every family in paint order through the deposit, the union pass, the resolve and the clear.",
-    ["Fills the paper (transparent when the job's paper alpha is 0) and marks each item whose box, scaled by `Zq`, reaches the plate; an item that misses could deposit nothing the resolve reads, so the prune is exact. Families are runs of `meta[1]` and must ascend (it throws otherwise). A family with a drawn item gets a row range from its drawn items' boxes, rounded outward with 1e-6 px of slack; its fast-path items go through `emitItem`, its union items through `unionPass`, and `resolveFamily` blends it with its first drawn item's colour and alpha before `clearFamily`.",
-     "The union deposit's sign comes from `attr[8]`, the packer's family sign summed over all its union items drawn or not (`itemShoelace` when that is 0), so every plate of a family agrees on ink against hole, and a union item and a fast-path item of one family add where they meet. `counts` receives the plate's eight counts and `timings` its phase clocks when given.",
-     "Called by the raster worker for each plate of a strip, and by `RasterRenderer`'s sync path on the main thread."],
-    "§9")
+add("rco.renderPlate", "renderPlate(job, plateIndex, out, counts, timings, clip)",
+    "Paints one plate of a packed job into an RGBA buffer — only the clip's rows and columns when `clip` is given (the patch rule's dirty rectangles, A3 §3.1): `paintPlate` with the core's clip set, and reset after.",
+    ["-"], "§9")
 
 # ---- src/engine/raster/rasterJob.js ----
 add("rjb.BYTES", "BYTES(a)",
@@ -222,8 +219,8 @@ add("rpk.build", "build(item, cfg)",
     "Builds an item's pack entry by walking its geometry once: its box, each sub-chain's box and signed area, and whether its own rings need the union pass.",
     ["Hands the item to `buildShape`, `buildFill` or `buildStroke`; a shape or fill not refused then gets `e.union` from `ringsNeedUnion` and `e.area`, the sum of its rings' signed areas, which `unionSignOf` weighs the family's sign with. No coordinate is copied here; that is `flattenGeom`, on the first plate that keeps the item. The entry records `_ver`, the geometry array and `_outline` as its identity."],
     "§9")
-add("rpk.scanNums", "scanNums(nums, e)",
-    "Checks that an item's own numbers are all finite and records their largest magnitude, copying none.", ["-"], "")
+add("rpk.scanNums", "scanNums(nums)",
+    "Whether every number of an item's own geometry is finite, copying none.", ["-"], "§9")
 add("rpk.buildShape", "buildShape(item, e)",
     "Fills a shape's entry: each loop's box (arc bulges included) and signed area, its numbers checked finite, the whole box and the geometry length.",
     ["Refused (`e.bad`) when it has no loops, a loop has no box, or a number is not finite. The box must carry each arc's bulge and not only its endpoints, or the family's row range misses rows the arc reaches and the bounded clear leaves them for the next family; `loopBBox` and `loopsBBox` are exact about bulges."],
@@ -258,8 +255,8 @@ add("rpk.pairNeedsUnion", "pairNeedsUnion(ba, i, sa, bb, j, sb)",
     ["Accumulation is exact for a hole nested in its body (the winding stays 0 or 1), which is most of what the boolean emits; sending those to the union pass was measured at 61 % of a screen's raster time at the phone camera. A zero-area ring has no winding to read and counts as wound alike."],
     "§9")
 add("rpk.entryFor", "entryFor(item, cfg)",
-    "An item's memoised pack entry, rebuilt when its `_ver`, its geometry array or its `_outline` has changed.",
-    ["The render list carries the Document's own natives, which an edit mutates in place with a `_ver` bump, while the idle fitter sets `_outline` with none, so all three make the identity. A move must not rebuild: `_buildList` writes `o.res` without a bump (OPEN-FLAGS F55), which is why the box is memoised without `res`. A replaced entry is marked dropped and its bytes subtracted; a hit moves to the young end of the LRU order."],
+    "An item's memoised pack entry — keyed by its piece when it is a Stage item —, rebuilt when its `_ver`, its geometry array or its `_outline` has changed.",
+    ["The Stage's items carry the Document's own natives, which an edit mutates in place with a `_ver` bump, while the idle fitter sets `_outline` with none, so all three make the identity. A move must not rebuild: the placement's offset changes without a bump (OPEN-FLAGS F55), which is why the box is memoised without `res`. A replaced entry is marked dropped and its bytes subtracted; a hit moves to the young end of the LRU order."],
     "§9")
 add("rpk.itemBox", "itemBox(item, cfg)",
     "An item's box in frame units without `res`, or null when it has no drawable geometry.",
@@ -272,9 +269,9 @@ add("rpk.itemChords", "itemChords(item, Z, cfg, e)",
     "One item's estimated chords at zoom Z, memoised on its entry per zoom quantum.",
     ["A banded stroke is priced without building its band: a raw native stroke that `strokeCurved` accepts at 8 chords a point of its flattened curve (`CURVE_CHORD_MULT`, `flattenCurve` at the zoom's tolerance), any other at 12 a centreline point (`STROKE_CHORD_MULT`, near the top of the 6.75–14.74 measured); a shape sums its pieces, a line as one and an arc through `arcChords`; a fill counts its ring points. A refused entry is 0."],
     "§9")
-add("rpk.visibleChords", "visibleChords(list, win, Z, cfg, cap, live)",
-    "The chords the items in the viewport would cost at the exact zoom, stopping at `cap + 1`: what decides between rastering on the main thread and in the workers.",
-    ["Skips the live stroke and refused items, tests each box with `res` against the viewport in frame units, and sums `itemChords`. The early exit keeps a dense screen to a few dozen items: walking all 77,317 pieces of one measured screen was 8–15 ms against a 4 ms budget. The caller's `cap` must be above `PictureLayer`'s own switch threshold (twice its sync budget), or the exit value reads as a light screen."],
+add("rpk.visibleChords", "visibleChords(list, win, Z, cfg, cap)",
+    "The chords the items in the viewport would cost at the exact zoom, stopping at `cap + 1`.",
+    ["Skips refused items and those outside the window, tests each box with `res` against the viewport in frame units, and sums `itemChords`. The early exit keeps a dense screen to a few dozen items: walking all 77,317 pieces of one measured screen was 8–15 ms against a 4 ms budget."],
     "§9")
 add("rpk.bandFor", "bandFor(item, q, Zq, cfg)",
     "A stroke's fillable rings at one zoom quantum, flat and wound positive, memoised on its entry by the quantum of `Zq`.",
@@ -308,12 +305,12 @@ add("rpk.PlateBinner", "PlateBinner",
     "A grid of per-plate item lists over one strip's plates; filing an item's box answers whether it touches any plate of the strip.",
     ["`packJob` uses `add`'s answer as its cull; `itemsFor` reads one plate's list, which the tests do."],
     "§9")
-add("rpk.PlateBinner.constructor", "PlateBinner.constructor(plates, Zq)",
-    "Creates an empty list for each plate of the strip and records the strip's index extent.", ["-"], "")
+add("rpk.PlateBinner.constructor", "PlateBinner.constructor(plates, Zq, clips)",
+    "Creates an empty list for each plate of the strip, records the strip's index extent, and keeps each plate's clip rect when it is drawn only in part.",
+    ["-"], "§9")
 add("rpk.add", "add(index, box)",
-    "Files an item index into every plate of the strip its box touches; returns whether it touched any.",
-    ["The box is in frame units with `res` added, and scaling it by `Zq / 512` gives plate indices. A plate inside the strip's extent but not in it is skipped."],
-    "§9")
+    "Files an item index into every plate of the strip its box touches — within the plate's clip when it has one; returns whether it touched any.",
+    ["-"], "§9")
 add("rpk.itemsFor", "itemsFor(i, j)",
     "The item indices filed into one plate, in the order they were added.", ["-"], "")
 add("rpk.alloc", "alloc(pool, ctor, len)",
@@ -321,24 +318,24 @@ add("rpk.alloc", "alloc(pool, ctor, len)",
 add("rpk.idOf", "idOf(x)",
     "A small per-object number for the pre-pass key, 0 for null.",
     ["Held in a WeakMap, so the key names the cfg, the live stroke and the `only`/`omit` sets by identity."], "")
-add("rpk.prepassFor", "prepassFor(list, q, Zq, dpr, cfg, live, only, omit, offset)",
-    "The strip-independent half of a pack for one render list and zoom: its families in paint order, each item with its fade, entry and box.",
-    ["Skips the live stroke, applies `only`/`omit`, drops fully faded items (counted), groups the rest by `renderIdOf`, sorts the families by (z, render id) as the SVG renderer stacks them, and fills each with `famFill`. Memoised in a WeakMap per list, at most four keys a list (zoom, dpr, cfg, live, only, omit, offset), so the strips of one request walk the families once; before it a strip cost 25 ms before its first plate on the Magnum Opus's 15,192 pieces (jsdom)."],
+add("rpk.prepassFor", "prepassFor(list, q, Zq, dpr, cfg, only, omit, offset)",
+    "The strip-independent half of a pack for one render list and zoom: its families in paint order, each item with its fade and record (entry and box).",
+    ["Applies `only`/`omit`, drops fully faded items (counted), groups the rest by `renderIdOf`, sorts the families by (z, render id) as the SVG renderer stacks them, and fills each (`famAdd`). Each item's record (`recFor`) is kept per render key (zoom, dpr, cfg, offset) and reused by the next list, a subset (`only`/`omit`) reading the whole list's; a family whose records are the same takes its union rule and sign from the last list (`sameRecs`). Memoised per list as well, so the strips of one request walk the families once; before it a strip cost 25 ms before its first plate on the Magnum Opus's 15,192 pieces (jsdom)."],
     "§9")
-add("rpk.famFill", "famFill(f, cfg, offset)",
-    "Fills a family's drawable items, each with its entry and its box with `res` (plus any pack offset), and resets its union rule and sign.",
-    ["A refused entry is counted in `f.rejected` and logged; one whose coordinates pass `COORD_BOUND` is counted and logged but still drawn. The union rule and sign are left for `packJob` to take on the first strip that draws the family."],
+add("rpk.famFill", "famFill(f, pre, cfg)",
+    "Refills a stale family's drawable items from fresh records (`recFor`, kept in the pre-pass's map) and resets its union rule and sign.",
+    ["A refused record is counted in `f.rejected`; one whose coordinates pass `COORD_BOUND` is counted but still drawn (`famAdd`). The union rule and sign are left for `packJob` to take on the first strip that draws the family."],
     "§9")
-add("rpk.paintFamilies", "paintFamilies(list, q, Zq, dpr, cfg, live)",
+add("rpk.paintFamilies", "paintFamilies(list, q, Zq, dpr, cfg)",
     "The render list's families in the pack's own paint order at one zoom, each with its items' boxes, for a caller that splits a picture by z.",
     ["The pre-pass `packJob` uses, with stale families refilled. `MovePlane` cuts the drag plane's layers on it, so the layers split exactly where the pack paints."],
     "§9")
 add("rpk.famStale", "famStale(f)",
     "Whether any item of a family has been edited, fitted, evicted from the memo or given a new `res` since `famFill`.", ["-"], "§9")
 add("rpk.packJob", "packJob(list, opts)",
-    "Packs one strip of plates into the typed-array job the core paints: the families that touch the strip, with their items' geometry, boxes, colour, alpha, flags and union sign.",
-    ["From the pre-pass, each family is refilled if stale, its items culled by the binner (no coordinate copied for one that misses), and, for a family with anything on the strip, its union rule (`familyUnion`) and sign (`unionSignOf`) taken once over all its items. Then each kept item's geometry is found (`geomOf`: the band for a stroke, the copied loops or rings otherwise), the arrays are allocated once from the pool, and each item is written: family index, spans, flags (covers, erase, union), box with `res`, `res`, pen width, alpha, and in `attr[8]` the family's union sign on a union item.",
-     "A family paints with its first drawn item's colour and alpha; an item that disagrees is counted and logged. Every array is the job's own copy, because `wireJob` transfers and so detaches them. `opts.offset` shifts every item's `res` to put an arbitrary rectangle on one plate (the Scenes pictures) without touching a memo. A strip nothing reaches gets an empty job."],
+    "Packs one strip of plates into the typed-array job the core paints: the families that touch the strip, with their items' geometry, boxes, colour, alpha, flags and union sign, and the landed marks as masks.",
+    ["From the pre-pass, each family is refilled if stale, its items culled by the binner (no coordinate copied for one that misses; a plate's clip honoured), and, for a family with anything on the strip, its union rule (`familyUnion`) and sign (`unionSignOf`) taken once over all its items. A landed pending mark is not painted as ink: it becomes a mask slot, and every item under it carries the slot's bit (`maskSlots`), so the core erases what the rule says (DESIGN.md §7). Then each kept item's geometry is found (`geomOf`), the arrays are allocated once from the pool, and each item is written: family index, spans, flags, box with `res`, `res`, pen width, alpha, and the family's union sign on a union item.",
+     "A family paints with its first drawn item's colour and alpha; an item that disagrees is counted and logged. Every array is the job's own copy, because `wireJob` transfers and so detaches them. The job carries the Stage generation `G` it was packed at. `opts.offset` shifts every item's `res` to put an arbitrary rectangle on one plate (the Scenes pictures) without touching a memo. A strip nothing reaches gets an empty job."],
     "§9")
 add("rpk.emptyJob", "emptyJob(opts, plates, paper, pool)",
     "A job with the strip's plates and paper and no items, for a strip nothing reaches.", ["-"], "§9")

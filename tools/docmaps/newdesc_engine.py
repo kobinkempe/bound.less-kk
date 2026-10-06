@@ -18,10 +18,8 @@ add("lm.LevelMap.constructor", "LevelMap.constructor(cfg, width, height)",
      "`addrEpoch` is bumped by every re-address; the tile cache keys its stamps on it."],
     "§5")
 add("lm.walk", "walk(rootId, fn)",
-    "Calls `fn` on every frame a subtree stands for: the root, its shadows, their kids and theirs.",
-    ["Depth-first on an explicit stack, in no promised order. Shadows are included because they share their resident's cell and belong to its subtree for the selection and the erase (DESIGN.md §8).",
-     "Read by `Document.maxZUnder`, `Document.removeFrameSubtree` and the selection's status count."],
-    "§6")
+    "Calls `fn` on every frame of a subtree: the root, its children — a cell's co-residents under the same parent among them (A1 C3) — and theirs.",
+    ["-"], "§3")
 add("lm._adopt", "_adopt(f, p, cell)",
     "Makes a parentless frame cell `cell` of `p`, its edge and centre derived from the cell.",
     ["Wires `p`'s child map and drops the route cache. Used by `_growRoot` and `ensureSpine` when the root gains a parent, and by `merge` when another lattice gave a local root one."],
@@ -32,14 +30,11 @@ add("lm.readdress", "readdress(id, parentId, i, j)",
      "Only the tests call it; a drag re-addresses through `readdressMany`, which makes a shadow instead of refusing an occupied cell."],
     "§6")
 add("lm._leave", "_leave(f)",
-    "Takes a frame out of its cell: a shadow leaves its resident's set; a resident hands the cell to one of its shadows.",
-    ["The shadow that takes the cell inherits the other shadows. The first half of every re-address (`readdress`, `readdressMany`)."],
-    "§6")
+    "Takes a frame out of its cell: its co-residents regroup without it and the kids they shared are split (`_splitKids`); the parent's child map passes the cell to a co-resident under the same parent, or forgets it.",
+    ["-"], "§3")
 add("lm._take", "_take(f, p, i, j, empty)",
-    "Gives a frame cell (i, j) of `p`, making a shadow when another frame already holds the cell.",
-    ["Sets the frame's address (parent, cell, edge, centre), bumps its `addrSeq` and drops its record view. A free cell is taken. A resident with no kids that `empty(id)` reports as holding nothing yields the cell and becomes the newcomer's shadow, its own shadows with it; any other resident keeps the cell and the newcomer shadows it.",
-     "Returns `[shadow, resident]` when a shadow was made, else null. A resident with kids keeps the cell even when its whole subtree is empty (DESIGN.md §8, F80)."],
-    "§6")
+    "Gives a frame cell (i, j) of `p`; where another frame already holds the cell, the two become co-residents (`_joinGroups`, A1 C3) and their kids are linked. Returns `[co-resident, resident]`, or null when the cell was free.",
+    ["-"], "§3")
 add("lm._rebuildSpine", "_rebuildSpine()",
     "Recomputes the origin chain: climbs to the true root, then follows the (0, 0) cells down.",
     ["Called after every re-address, merge and load, because `_spine`, not a frame's id, says which frame is the origin at a depth. It climbs first because `merge` can give the recorded root a parent without updating `_rootId`."],
@@ -71,14 +66,13 @@ add("lm.ensureId", "ensureId(id)",
      "Called for every frame key a loaded file's natives name, before the natives are added (`Files._mintNamedFrames`)."],
     "§13")
 add("lm.isUnder", "isUnder(aId, bId)",
-    "Is frame b what frame a stands for in a selection: a itself, a descendant, or a shadow of either?",
-    ["Walks up from b, true at a frame that is a or shadows a. Tiles use `isAncestor`, which excludes a itself and knows nothing of shadows (DESIGN.md §10)."],
-    "§12")
-add("lm.objShift", "objShift(below, homeId, F)",
+    "Is frame b what frame a stands for in a selection: a itself or a descendant by its own parent links — a co-resident is its own subtree (A1 C3).",
+    ["-"], "§10")
+add("lm.objShift", "objShift(below, homeId, F, mint)",
     "Where a moved object's picture comes from in frame F: the unmoved frame F0 holding its pieces, and the sub-frame remainder.",
-    ["The object's table at F's depth (`shiftAt`) is walked back from F's address as negated cell digits with carries, from the frame on F's path at the home's depth; F0 is minted if it was never visited. At or above the home, or with no cell digits, F0 is F and only `rem` applies.",
+    ["The object's table at F's depth (`shiftAt`) is walked back from F's address as negated cell digits with carries, from the frame on F's path at the home's depth. At the home's own depth F0 is F's neighbour by the shift's carry; above the home, or with no cell digits, F0 is F; at the home's depth a frame sharing the home's cell is the home itself. F0 is minted if it was never visited — unless `mint` is false, the read path's (no read mints, A1 C3): then a missing frame returns `{ F0: null, missing: true }`.",
      "F0's pieces are drawn in F translated by `rem` (`piece.res`), and an input made in F is translated back by it before it reaches the geometry (DESIGN.md §8, F55). Returns `{ F0, rem, sh }`, or null when the chain cannot be formed."],
-    "§6")
+    "§8")
 add("lm.frameShifted", "frameShifted(F0, hd, sh)",
     "The inverse of `objShift`: the frame at F0's depth where a picture read from F0 is drawn.",
     ["Adds the table's cell digits and carry to F0's address. Nothing calls it."],
@@ -122,8 +116,9 @@ add("doc._noteBelow", "_noteBelow(o)",
     ["An object with a non-empty table is added; one without is removed and its empty `below` key deleted. Called wherever a table can change or an object enters."],
     "§6")
 add("doc.hasOffsets", "hasOffsets()",
-    "Does any native carry a displacement table? O(1), asked by the tile store on every bake.",
-    ["-"], "§6")
+    "Does any native carry a displacement table, or any frame holding natives a shift? Asked by the tile store on every bake.",
+    ["The tables' answer is O(1); the frames' is memoised on the offsets revision, the address epoch and the frame count."],
+    "§8")
 add("doc.offsetIds", "offsetIds()",
     "The ids of every native with a displacement table, for the scans that must judge moved objects where their picture is.",
     ["The live set, not a copy. The tile store's reroute, the lasso's moved-object pass and the report read it; the erase's candidate scan reads `_offsetIds` directly."],
@@ -146,10 +141,9 @@ add("doc.noteRefile", "noteRefile(frameId, from, to)",
     "Announces that a subtree move re-addressed a frame, so the tile cache can re-file its tiles.",
     ["Emits a `refile` change event with the old and new `{ parent, i, j }`. No native changes."],
     "§6")
-add("doc.keysChanged", "keysChanged()",
-    "Marks the family index stale after an editId changed in place, and bumps the revision.",
-    ["Emits no change event: a re-key moves no ink. Severance and its undo call it."],
-    "§12")
+add("doc.keysChanged", "keysChanged(ids)",
+    "Marks the family index stale after an editId changed in place, bumps the revision, and tells the subscribers which ids were re-keyed (`rekey`).",
+    ["-"], "§3")
 add("doc.count", "count(level)",
     "A frame's native count as stored, with no shadow merged and no shift settled.",
     ["For scans that only need a number (the selection's status, the tile store, the report); `at` would pay a settle on every frame it counted (DESIGN.md §8)."],
@@ -159,9 +153,8 @@ add("doc.list", "list(level)",
     ["No shadow merged and no shift settled, so a walk over every frame does no per-native work on frames nobody has looked at. The erase's mark and family scans, the overlays and the report read it (DESIGN.md §8)."],
     "§6")
 add("doc.setFrameShift", "setFrameShift(frameId, shift)",
-    "Sets the shift a frame's natives owe after a subtree move; a zero shift clears it.",
-    ["Nothing is applied here; the first read of the frame's list settles it (`_settleIfPending`)."],
-    "§6")
+    "Sets a frame's shift — its natives' placement after a subtree move (A1 C1) — and bumps the offsets revision; a zero shift clears it.",
+    ["-"], "§8")
 add("doc.maxZUnder", "maxZUnder(rootId)",
     "An upper bound on the z of everything under a frame subtree: the erase's test for taking a frame whole.",
     ["The largest `maxZ` of the subtree's indexes (which only grow) and the z of any pending stroke homed there. `maxZUnder(F) < z` means nothing under F is drawn above z (DESIGN.md §7)."],
@@ -179,14 +172,14 @@ add("doc.rehomeManyById", "rehomeManyById(ids, toLevel)",
     ["Every frame it touches is settled before the groups are formed, because a settle's carry can re-home a native. Ends in the same lists, indexes and events as one `rehomeById` per id; only the events' interleaving differs. Returns how many moved.",
      "The per-object splice made a whole-frame drag quadratic in the list's length (DESIGN.md §8)."],
     "§6")
-add("doc.removeFrameSubtree", "removeFrameSubtree(rootId)",
-    "Sets a frame subtree aside by reference: each frame's list and index detached, with no per-object work.",
-    ["Returns the records `{ frame, natives, index }` the op holds, or null when no frame under the root has a list. The delete of a selected frame and the frame-covering erase use it; O(frames) (DESIGN.md §7, §10)."],
-    "§12")
+add("doc.removeFrameSubtree", "removeFrameSubtree(rootId, {by})",
+    "Deletes a frame subtree that holds natives: its frames leave the lattice (`LevelMap.removeSubtree`, A1 C3), each frame's list and index go into the returned records for the undo, and its natives leave the id map.",
+    ["Returns the records `{ frame, natives, index, at }`, or null when no frame of the subtree holds a native. Each removed frame with natives announces `removeFrame` with where the subtree's root stood; `by` marks a frame a mark covers whole, taken at its landing (A2 §4.2). The delete of a selected frame and the frame-covering erase use it (DESIGN.md §7, §10)."],
+    "§3")
 add("doc.insertFrameSubtree", "insertFrameSubtree(records)",
-    "Puts set-aside frame lists and indexes back by reference: the undo of a subtree delete or a frame-covering erase.",
-    ["A record rebuilt from the op log has no index; its natives are registered, homed and indexed here."],
-    "§12")
+    "Puts a deleted subtree back — the undo of a subtree delete or a frame-covering erase: its frames restored to the lattice where they stood, each frame's list and index by reference, its natives back in the id map.",
+    ["A frame's list is joined with what was placed there since, and then indexed afresh; a record rebuilt from the op log has no index, so its natives are registered, homed and indexed here."],
+    "§3")
 add("doc.frameExtent", "frameExtent(level)",
     "What a frame holds, as a bound: the union box with line width and the largest object size, pending strokes included.",
     ["From the index's `ext` and `maxSize`, which only grow. The tile store's down-bake skips a frame whole when the bound is under the cull or off the tile; null for an empty frame."],
@@ -238,40 +231,36 @@ add("fl.child", "child(c, f)",
     "§8")
 
 # ---- src/engine/erasePipeline.js (mixed onto KobinEngine; `this` is the engine) ----
-add("erp._candidatesUnder", "_candidatesUnder(Erec)",
-    "The objects still to handle under a mark, top-down by z, from the spatial index; cached on the mark.",
-    ["For every level with a route to the mark's frame, that level's index is queried with the mark's box mapped there; every reachable moved object is added too, since it is indexed at its stored bits and drawn elsewhere. Marks, handled ids and anything at or above the mark's z are skipped; the list is sorted by z, then id, highest first.",
-     "Cached on the mark (`_zScan`) with a cursor, rebuilt when the document's revision or the mark's z changes. Each candidate is checked again when its turn comes (DESIGN.md §7)."],
-    "§10")
+add("erp._candidatesUnder", "_candidatesUnder(Erec, exclude)",
+    "The registration's scan: every reachable native under a mark's box and below its z that the eraser's box may reach (`_rectMayTouch`), less `exclude`, as ascending ids; once per mark.",
+    ["From each frame's index for a native drawn at its stored bits; a displaced one (F41/F55, a shifted frame's, A1 C1) through its picture table, the box mapped once per (home, table) — mapped per object, 19,547 moved natives took 300 ms on the Magnum Opus (TESTER-2). The result is the mark's `targets` (A2 §4.2); each target is checked again when its turn comes (DESIGN.md §7)."],
+    "§7")
 add("erp._eraseFramesPass", "_eraseFramesPass(Erec)",
-    "Before a mark's first target: takes whole the frames its ink covers and that hold nothing drawn above it.",
+    "At a mark's registration: takes whole the frames its ink covers and that hold nothing drawn above it.",
     ["Walks frames as the lasso does, out from the mark's frame one hop at a time, skipping a subtree whose box misses the mark. A frame other than the mark's own is taken when its cell grown by the content's reach (invariant 2) and the flatten tolerance lies inside the mark's ink (a corner inside, no flattened chord touching it) and `Document.maxZUnder` is below the mark's z; a taken frame is not descended into.",
-     "Each subtree is set aside by reference (`removeFrameSubtree`) as one `{ frames }` bake step on the gesture's op, with a journal note; no cut. Runs once per mark per session (`_framesPassed`); after a reload it runs again and finds the frames already gone. Returns how many went (DESIGN.md §7)."],
-    "§10")
-add("erp._eraserRectInto", "_eraserRectInto(rect, HE, o, HO)",
-    "A mark's rect, drawn in frame HE, in the coordinates object `o` is stored in at its home HO.",
-    ["With no table it is `mapRectF`, bit for bit; a moved object's table is undone on the way in (`LevelMap.mapRectObj` with `toHome`). The erase prefilter's box goes through it."],
-    "§10")
-add("erp._eraserLoopsInto", "_eraserLoopsInto(loops, HE, o, HO)",
-    "The mark's loops in the coordinates object `o` is stored in: the clip of an in-place cut.",
-    ["`LevelMap.projectLoopsObj` with `toHome`: the exact chain, through the object's table when it has one."],
-    "§10")
-add("erp._applyCut", "_applyCut(Erec, target, r, ctx)",
+     "Each subtree is deleted (`removeFrameSubtree`, `by` the mark: its frames leave the lattice, its lists held by reference in the step) as one `{ frames }` bake step on the gesture's op, with a journal note; no cut. Runs once per mark, from `_registerMark`. Returns how many went (DESIGN.md §7)."],
+    "§7")
+add("erp._eraserRectInto", "_eraserRectInto(rect, HE, o)",
+    "A mark's rect, drawn in frame HE, in the coordinates object `o` is stored in: the Stage's placement of `o` in HE, inverted (`toStored`).",
+    ["-"], "§7")
+add("erp._eraserLoopsInto", "_eraserLoopsInto(loops, HE, o)",
+    "The mark's loops in the coordinates object `o` is stored in (the Stage's placement, `toStored`): the clip of an in-place cut.",
+    ["-"], "§7")
+add("erp._applyCut", "_applyCut(Erec, target, r)",
     "The document side of one cut: `cutJob`'s verdict applied and recorded on the gesture's op.",
-    ["Nothing if the mark or the target has gone. Adds the seal and dust tallies; a graze changes nothing and takes the target out of the mark's `_uncutOf` set (no ink under the mark, F109). A cut replaces the target with the surviving regions (`eraseReplaceById`) and puts the pieces in the done set; a removal takes the target out. Each is one bake step, with a journal note.",
-     "The replacement or removal runs inside `_neutralUnder`, so while the mark is above the target the raster plates are kept (its white already paints what went); the target then leaves the mark's `_uncutOf` set, so the mark's step past it is neutral too (F90).",
+    ["Nothing if the mark or the target has gone. Adds the seal and dust tallies. A graze changes nothing but marks the target handled by the mark as inkless (`setHandledById`: no ink under the mark, F109). A cut replaces the target with the surviving regions (`eraseReplaceById`, the pieces inheriting the target's erase lineage, A2 §4.5); a removal takes the target out, `by` the mark. Each is one bake step on the gesture's op (`_eraseOp`), with a journal note.",
      "A cut that left several regions inside a multi-level family asks `_resplitFamily` whether the object came apart. Returns true when the document changed."],
-    "§10")
+    "§7")
 add("erp._descentWorld", "_descentWorld()",
     "What a descent job reads from the engine: the lattice, the config, the canvas width and the opacity groups.",
     ["The world `eraseDescent.descentJob` runs in on the main thread; the worker gets the same fields with the lattice serialised. Tests replace it to watch or fault the square ink."],
     "§10")
-add("erp._applyDescent", "_applyDescent(Erec, target, r, ctx)",
+add("erp._applyDescent", "_applyDescent(Erec, target, r)",
     "The document side of a descent: the target's family swapped for the one the job built.",
-    ["Adds the seal and dust tallies; a refusal is recorded on the gesture's note (`_rehomeBail`), and one the job marks `inkless` takes the target out of the mark's `_uncutOf` set (F109). Nothing if the target was replaced or the mark has gone. The frames the job minted are merged into the lattice first (F67).",
-     "Then each step in order: its removed object (the target, or one minted a step earlier) taken out, its parents and kids added with real ids in the job's order, virtual ids mapped as it goes, every piece put in the done set. The swap runs inside `_neutralUnder`: the pieces land where the ink was, so under the mark's white no pixel moves (F90).",
-     "The steps go on the op newest last, so undo unwinds the chain bottom up; the target leaves the mark's `_uncutOf` set; then `_resplitFamily` asks whether the family is still one object."],
-    "§10")
+    ["Adds the seal and dust tallies. A refusal is recorded (`_refuse`, which marks an `inkless` target handled, F109), and so is a descent with a piece whose frame is missing. Nothing if the target was replaced or the mark has gone.",
+     "Then each step in order: its removed object (the target, or one minted a step earlier) taken out `by` the mark, its parents and kids added with real ids in the job's order — each inheriting the target's erase lineage (A2 §4.5) —, virtual ids mapped as it goes.",
+     "The steps go on the op newest last, so undo unwinds the chain bottom up; then `_resplitFamily` asks whether the family is still one object."],
+    "§7")
 add("erp._removedArea", "_removedArea(subject, clip)",
     "The area an erase removes, measured as the area of the intersection (F46). Nothing calls it.",
     ["`eraseJob.cutJob` measures the removal the same way inside the job. The intersection's pieces are no longer than the eraser, so its area is exact to the eraser's own ulps where before-minus-after is not."],
@@ -470,19 +459,16 @@ FIX = {
         "long": ["A shape is flattened, a fill is its own rings, a stroke is outlined first. The family connectivity walk (`_familyComponents`), the erase-debug join notes (`_familyJoinNotes`) and the lasso's ink test (`_inkInsidePolygon`) read it."],
     },
     "erp._stepShapeBakes": {
-        "why": "Says it triggers one render if anything changed. It renders when a stroke was promoted a level, or on a raster engine when a stroke homed outside the camera's frame resolved; otherwise it sets `_renderPending`, and a raster engine takes a camera step so the drain re-posts the plates still holding the raw band.",
+        "why": "Says it triggers one render if anything changed. It renders when a stroke was promoted a level; otherwise the shape waits for the next render, and a raster engine takes a table step; a mark lands in one commit with its registration.",
         "what": None,
         "long": ["Runs perimeter resolves for up to a time budget and reports whether more remain.",
-                 "For each queued job: skip it if its object is gone or no longer a raw stroke, step it with the time left, and when it finishes install the result: seal an unclosed outline (`_sealed`), bake the stroke into its shape in place, and promote it a level if it is now wider than a frame (`_promoteOversize`).",
-                 "A promotion renders at once (the object changed frames). Otherwise the resolved shape waits for the next render (`_renderPending`, honoured by `flushBakes`): two renders a pen-up were 185 s of a 203 s jsdom session at 1,000 strokes.",
-                 "On a raster engine the plates hold the raw band until re-rastered. A stroke homed in the camera's frame is its own list item, so a camera step re-posts them and no list is built; one homed elsewhere is a projected copy the old list still holds raw, so it takes a render (OPEN-FLAGS F92)."],
-    },
+                 "For each queued job: skip it if its object is gone or no longer a raw stroke, step it with the time left, and when it finishes install the result: seal an unclosed outline (`_sealed`), bake the stroke into its shape in place, and promote it a level if it is now wider than a frame (`_promoteOversize`). An eraser mark lands in one Stage batch with its registration (`_registerMark`: its targets, and its mask reaching the plates with its shape, A2 §4.2).",
+                 "A promotion renders at once (the object changed frames). Otherwise the resolved shape waits for the next render (`flushBakes` renders on the SVG path when the Stage changed since the last one): two renders a pen-up were 185 s of a 203 s jsdom session at 1,000 strokes. On a raster engine a table step (`_syncStep`) re-reads it, so the plates still holding the raw band are re-rastered."]},
     "erp.flushErases": {
-        "why": "Says it runs the background erase worker to completion. There is a real erase worker and this never uses it: pending marks (all, or those in `only`) are baked synchronously on the main thread, the cut in flight landed first. It is also the lasso's and the selected-frame drag's barrier, not only the tests' settle point.",
-        "what": "Bakes pending marks to completion now, every one or those whose ids are in `only`, synchronously on the main thread.",
-        "long": ["Resolves every pending stroke, lands the cut in flight first when its mark is included (a mark with its last cut in flight looks spent), then bakes each mark's targets, oldest mark first, with `_bakeOne` in sync mode and consumes the mark when nothing is left under it. Never uses the worker; only the landed cut in flight steps a mark down.",
-                 "The tests' settle point, and the barriers': a lasso (`_settleLassoErases`, the marks it meets) and a drag holding a selected frame (every mark)."],
-    },
+        "why": "Says it runs the background erase worker to completion. There is a real erase worker and this never uses it: pending marks (all, or those in `only`) are baked inline on the main thread, pair by pair in the serial order.",
+        "what": None,
+        "long": ["Resolves every pending mark (all, or those in `only`) on the main thread, never through the worker: oldest mark first, its head pair (`_headOf`) dispatched inline — a cut of that pair in flight dropped first —, and a mark with nothing left spent (`_spendMark`).",
+                 "The tests' settle point; a thumbnail settles the document with it before it draws."]},
     # ---- overlays.js (the engine-select row `_outlineInView · _splitOnJoins _familyJoinNotes · _selectionAnts _selEdgeSpans · _selInkRings _emitAntRing · _emitOutlineRing`) ----
     "ovl._outlineInView": {
         "why": "The row and the long call it the marching-ants geometry, with edge marks and arrows. The ants are now built from the render list's pieces (`_selectionAnts`, `_selDecide`); this is the erase-debug view's outline of one stored object.",
@@ -532,12 +518,11 @@ FIX = {
     },
     # ---- Document.js ----
     "doc.cedeTileById": {
-        "why": "Says it works local to the rectangle; it cuts in the parent's own coordinates (F42). Nothing in the product calls it any more: the descent cedes on a virtual document (`eraseDescent.cedeVirtual`) and `_applyDescent` mints the result in this function's order.",
-        "what": "Cedes a tile: cuts the rect out of the parent exactly and mints the ink inside as kids one level down. Only the tests call it.",
+        "why": "Says it works local to the rectangle; it cuts in the parent's own coordinates (F42). Nothing in the product calls it any more, and the cut is `cede.js`'s.",
+        "what": "Cedes a tile: cuts the rect out of the parent exactly and mints the ink inside as kids one level down (`cede.js`). Only the tests call it.",
         "long": ["Converts a legacy fill first and refuses anything but a shape. The rect is subtracted in the parent's own coordinates, so every piece it does not cut stays bit for bit (F42); slivers along the rect are dropped against the pen.",
-                 "Remnant pieces keep the parent's frame, attach rect, grid phase and table; kids go to `level` with the caller's window, phase and table (the parent's shifted one level down by default). All keep the parent's z, colour, opacity, pen and family key.",
-                 "The product's descent runs its virtual twin, `eraseDescent.cedeVirtual`, and `_applyDescent` mints the result in the order this function gives; `KobinEngine.edit.test.js` calls this one."],
-    },
+                 "Remnant pieces keep the parent's frame, attach rect, grid phase and table; kids go to `level` with the caller's window, phase and table — by default the parent's shifted one level down and made the kid frame's own (`ownFor`). All keep the parent's z, colour, opacity, pen and family key.",
+                 "The product's descent runs its virtual twin, `eraseDescent.cedeVirtual`, and `_applyDescent` mints the result in the order `cede` gives; `KobinEngine.edit.test.js` calls this one."]},
     "doc.setGeometryById": {
         "why": "Says a drag needs it to recompute from where it started; a drag changes displacement tables and never geometry. It now serves promotion to the parent level and the undo and replay of a member the pen-up walked back into its cell.",
         "what": "Replaces an object's geometry outright, with its attach rect, grid phase and table when the snapshot carries them.",
@@ -556,16 +541,13 @@ FIX = {
         "long": ["Each step is independent, so a normalised member carries both pairs. An entry with only `dx`/`dy` is from before F41 and is undone by the inverse translation. `_invertMove` swaps each pair for the redo (DESIGN.md §8)."],
     },
     "doc.getById": {
-        "why": "Says it scans the buckets; it is one lookup in the `_byId` map, and answers null for a native whose frame a subtree removal has set aside.",
+        "why": "Says it scans the buckets; it is one lookup in the `_byId` map. A deleted subtree's natives leave the map (no set-aside frames any more).",
         "what": None,
-        "long": ["One lookup in the id map, kept in step by every add, insert, removal and replace; the record's `level` is the object's home frame (`_home`).",
-                 "Null for a native of a frame set aside by a subtree removal: it stays in the map by reference and comes back with the frame."],
-    },
+        "long": ["One lookup in the id map, kept in step by every add, insert, removal and replace; the record's `level` is the object's home frame (`_home`). A deleted subtree's natives leave the map with it and come back with its undo."]},
     "doc.at": {
-        "why": "Says it is a plain array read (and the row calls it plumbing); it first merges the frame's shadows and settles its pending shift, O(those natives).",
-        "what": "A frame's natives for anything that reads positions: its shadows merged in and its pending shift settled first.",
-        "long": ["The first read of a frame after a subtree move pays for it: shadows merge (`_mergeShadows`, held while a drag is in progress) and the shift is settled into every native's table (`_settleIfPending`). Scans that need only identity use `list` or `count`, which do neither (DESIGN.md §8)."],
-    },
+        "why": "the row says `at` merges shadows and settles a pending shift first; since A1 C1 it is `list` under its old name: no read merges, settles or mints",
+        "what": "A frame's natives as stored: `list` under its old name.",
+        "long": ["A plain read since A1 C1: no read merges, settles or mints. A frame's shift is its natives' placement, composed where they are drawn (DESIGN.md §8)."]},
     "doc.LevelIndex.add": {
         "why": "The long is Document.add's text (a bucket, an announcement, live strokes). LevelIndex.add indexes one object by its painted extent and grows the frame's bounds; it takes no level.",
         "what": "Indexes an object by its painted extent and grows the frame's bounds: union box, largest size, highest z.",
@@ -574,12 +556,11 @@ FIX = {
     },
     # ---- LevelMap.js ----
     "lm.serialize": {
-        "why": "Says the tree is four fields per box with no coordinate in it; each frame also writes its pending `shift` (a sub-cell offset in its units) and `shadowOf`, and `load` restores both and rebuilds the spine.",
-        "what": "Writes the lattice (id, parent, depth, cell, and a moved frame's pending shift and shadow link) and reads it back.",
-        "long": ["The edge is derived from the cell and the grid is a constant, so neither is stored. Frames are written in depth, then id, order. Every kobin-2 write carries it beside its entries (DESIGN.md §13).",
+        "why": "Says the tree is four fields per box with no coordinate in it; each frame also writes its shift, its co-residency link and a family's private frame, and `load` restores them through `_loadFrames`.",
+        "what": "Writes the lattice (id, parent, depth, cell, and a moved frame's shift, its co-residency link and a family's private frame) and reads it back.",
+        "long": ["The edge is derived from the cell and the grid is a constant, so neither is stored. A frame's shift is its natives' placement (A1 C1). Frames are written in depth, then id, order. Every kobin-2 write carries it beside its entries (DESIGN.md §13).",
                  "**A pre-lattice file is refused**, never converted: converting would rewrite stored coordinates, the one operation the design exists to avoid.",
-                 "`load` adds parents before children, mints a root `0` if none came, re-attaches each shadow to its resident (the resident keeps the cell) and rebuilds the spine."],
-    },
+                 "`load` builds the frames through `_loadFrames` (parents first, a root `0` minted if none came, the shifts, private frames and each shared cell's resident restored) with frame collection's minted set suspended, so a load mints nothing to collect; it forgets the retired ids."]},
     "lm._recOf": {
         "why": "Says snapshots and scenes speak this record view; snapshots and files carry `serialize()`, and scenes.js is gone. Only the engine's `crossings` getter reads `records`.",
         "what": "The spine's legacy per-depth `{ s, t, grid }` records, read through the engine's `crossings` getter.",

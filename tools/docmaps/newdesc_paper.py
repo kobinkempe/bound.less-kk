@@ -55,19 +55,16 @@ add("sel._selectTap", "_selectTap(P)",
     "§12")
 add("sel._beginSelectDrag", "_beginSelectDrag(P, sx, sy)",
     "A select press that has travelled SELECT_DRAG_PX: decides between a lasso and a move, and starts it.",
-    ["A lasso when the press was on paper (and not on a selected frame's mark), with ctrl, or with nothing selected. Otherwise a move: an unselected object under the press is selected alone first, then every pending eraser mark over the selection is applied (`_settleSelectionErases`); if that took the selection away, it lassoes instead.",
-     "A move sets up `_dragSel`, turns on the tile cache's batch mode, takes the plate hold (`_beginHold`) and applies the first step.",
-     "The erase barrier covers every member, not only the one pressed: ink dragged from under an unapplied mark leaves the mark behind to cut whatever arrives there."],
-    "§12")
+    ["A press off the selection selects what lies under it first. The move then waits on its erase barrier (`_dragBarrier`: the marks whose cuts its members wait for), parked as `_pressWait`, which keeps the finger's last point and a release; then it takes the hold (`_beginHold`: the Stage draws the drag, nothing is written until the drop, A1 C2) and its first step, and a release while parked drops at once. If the cuts took the object away, a lasso starts instead."],
+    "§10")
 add("sel.cancelSelectGesture", "cancelSelectGesture(commitIfMoved)",
-    "Forgets the select gesture in progress when a pinch starts; a drag that moved is put back, or finished if asked.",
-    ["Drops an unmoved press and any lasso. A moved drag is finished as a pen-up when `commitIfMoved` (the shell passes it once the press is old enough to have been deliberate); otherwise each member goes back to its start frame and start table and the dragged frames are restored (`_restoreFrames`). Ends through `_endMove('cancel')`.",
-     "Undo and redo call it first when a drag is live: the drag's start records describe the document the undo is about to change."],
-    "§12")
+    "Forgets the select gesture in progress when a pinch starts; a drag ends writing nothing, or is finished as a pen-up if asked.",
+    ["Drops an unmoved press, any lasso, and a gesture parked at its erase barrier. A moved drag is finished as a pen-up when `commitIfMoved` (the shell passes it once the press is old enough to have been deliberate); otherwise it ends through `_endMove('cancel')`, which writes nothing: a drag writes nothing until its drop (A1 C2), so the document is as it was at the press.",
+     "Undo and redo call it first when a drag is live, so the hold is released before the document changes."],
+    "§10")
 add("sel._underFrames", "_underFrames(level, frames)",
-    "Whether a frame is one of `frames`, under one, or a shadow of either: the selection's frame rule.",
-    ["Uses `LevelMap.isUnder`, which counts shadows; the tile cache uses `isAncestor` instead."],
-    "§12")
+    "Whether a frame is one of `frames` or under one by its own parent links (`isUnder`): the selection's frame rule, memoised per selection until the lattice's addresses change.",
+    ["-"], "§10")
 add("sel._inkedFrames", "_inkedFrames()",
     "Every frame with a native in its subtree: each frame that holds one, and its ancestors.",
     ["Stops climbing at an ancestor already seen. The lasso skips frames outside it and the selection drops them, because a visited cell with nothing under it stands for nothing: a selection holding such cells drew a dot each on blank paper (50 in one report, F93)."],
@@ -76,38 +73,35 @@ add("sel._outsideSelection", "_outsideSelection(ids)",
     "Of a set of frame ids, those no selected frame holds any more, coarsest first and none under another.",
     ["The frames a subtree drag or an undo moved out of the selected subtrees (a sub-cell rest re-homed them next door), so they can join the selection as frames."],
     "§12")
-add("sel._reselect", "_reselect(ids, torn)",
-    "Keeps the selection standing for the same ink after ink crossed cell edges: carried natives join as ids, torn frames as frames, empty frames leave.",
-    ["The frames are the selection's plus `torn`. A native no selected frame holds joins the ids; one listed and held by a selected frame again leaves them. Frames with no native under them (`_inkedFrames`) are dropped. Nothing is set when all that already holds; otherwise `_setSelection` (DESIGN.md §10, F93)."],
-    "§12")
-add("sel._objPointInActive", "_objPointInActive(o, level, p)",
-    "A point of a native, mapped into the active frame where its picture is drawn.",
-    ["Through the native's displacement table when it has one (`mapPointObj`), else a plain frame-to-frame map. Null when the frames have no path between them."],
-    "§12")
+add("sel._reselect", "_reselect(ids, torn, quiet)",
+    "Keeps the selection standing for the same ink after a drop's rest or an undo re-addressed it: re-homed natives join as ids, re-parented frames as frames, removed ids go, empty frames leave.",
+    ["The frames are the selection's plus `torn`. A native no selected frame holds joins the ids; one held by a selected frame again leaves them. An id the action removed goes, and its family's first member takes its place when nothing else is left. Frames with no native under them (`_inkedFrames`) are dropped. Nothing is set when all that already holds; otherwise `_setSelection`, `quiet` when the caller renders (`_repairSelection`; DESIGN.md §10)."],
+    "§10")
+add("sel._objPointInActive", "_objPointInActive(o, p)",
+    "A point of a native, mapped into the active frame where its picture is drawn (the Stage's placement, `placeNative`).",
+    ["-"], "§10")
 add("sel._inkInsidePolygon", "_inkInsidePolygon(o, level, ink)",
     "Whether an object's ink, not only its box, lies wholly inside the lasso; asked of objects whose box straddles the loop.",
     ["First the points the object already has (a stroke's samples, a fill's vertices, a shape's piece ends; a few hundred at most), mapped where the picture is and tested one by one; any outside answers no. Only then is the outline flattened at 3 screen px (LASSO_INK_TOL_PX), capped at 3,000 points a ring, and each ring tested against the prepared loop.",
      "The cheap reject is where most crossed objects leave: flattening a scribble of twenty thousand arcs costs 14 ms even coarsely (measured). An outline that throws answers no."],
     "§12")
 add("sel._dragFramesStart", "_dragFramesStart(d, camDepth)",
-    "Records, once per drag, the start address and shift of every frame the drag moves as a frame.",
-    ["For each selected root not under another: its subtree to three levels below the camera (`LevelMap.subtreeStart`; deeper frames follow their parent pointer), leaving out empty childless containers. Each gets an entry `{ from, to, shiftBefore, shiftAfter, settled, merged }`, which becomes part of the `moveFrames` undo op.",
-     "Sets `Document.holdMerges`: a shadow the drag makes is merged only once the op is pushed."],
-    "§6")
+    "Records, at the drop, the start address and shift of every frame the drop moves as a frame: each selected root's subtree within three levels of the camera, at the addresses the drag started from (nothing moved meanwhile, A1 C2).",
+    ["An empty leaf container is left out: it has nothing to move."], "§8")
 add("sel._dragFrames", "_dragFrames(d, camDepth, tx, ty)",
-    "One drag step for the frames: re-addresses each from its start address, the sub-cell rest kept as a shift on the frame.",
-    ["Targets come from the start record (`LevelMap.moveSubtreeTargets`, `displaceFrame`'s arithmetic frame for frame). A frame's new shift is its starting shift plus this step's rest; a frame a render settled mid-drag is unsettled first. The targets are applied in one two-phase `readdressMany`; each changed address is noted (`noteRefile`), the shift set, and the frame's entry recorded as the owner of later settles. Returns whether anything moved.",
-     "No native is touched: a frame's shift is settled into its natives' tables at the first read of its list (DESIGN.md §8)."],
-    "§6")
+    "The drop's move of the frames: re-addresses each from its start address, the sub-cell rest kept as a shift on the frame.",
+    ["Targets come from the start record (`LevelMap.moveSubtreeTargets`, `displaceFrame`'s arithmetic frame for frame). A frame's new shift is its starting shift plus the drop's rest. The targets are applied in one two-phase `readdressMany`; each changed address or shift is noted (`noteRefile`) and the shift set; a frame landing on an occupied cell becomes a co-resident there (A1 C3), recorded on the drag. Returns whether anything moved.",
+     "No native is touched: a frame's shift is its natives' placement, composed where they are drawn (A1 C1; DESIGN.md §8)."],
+    "§8")
 add("sel._frameUnderPoint", "_frameUnderPoint(sx, sy)",
     "The selected frame whose mark is within 8 px of a screen point, or null.",
     ["The mark is the frame's origin on screen. A press there drags the selection, as a press on selected ink does."],
     "§12")
-add("sel._displaceMember", "_displaceMember(from, below, camDepth, tx, ty)",
+add("sel._displaceMember", "_displaceMember(from, T, camDepth, tx, ty)",
     "Where one member goes for a drag displacement: its new home frame and table, or why it cannot move.",
     ["Homed at or above the camera's depth: the displacement enters the table at the camera's depth (`addOffset`). Deeper: `LevelMap.displaceFrame` turns the whole-cell digits into a new home and the rest enters the home-level entry. A carry out of the home level moves the member to the neighbour cell. Stored coordinates are never touched (DESIGN.md §8).",
-     "Pure in the lattice's state, so `_dragSelection` asks once per (home frame, starting table) and every member sharing those takes the same answer; registration rests on that."],
-    "§6")
+     "Pure in the lattice's state, so `_dropMove` asks once per (home frame, picture table `T`) and every member sharing those takes the same answer; registration rests on that."],
+    "§8")
 add("sel._subtreeCount", "_subtreeCount(f)",
     "How many natives a selected frame stands for (its list, its subtree's and its shadows'), for the status count.",
     ["O(frames): sums `Document.count` over `LevelMap.walk`, reading no native."],
@@ -120,11 +114,11 @@ add("ts.flattenAll", "flattenAll(objs)",
     "Turns derived pieces' loops into stored Loops, so a cached tile holds eight doubles a piece.",
     ["In place, and returns the list. The freeze and the chop hand over transient piece arrays; the cache keeps the `Loop` form the document's natives use."],
     "§7")
-add("ts._rerouteGroups", "_rerouteGroups(F)",
+add("ts._rerouteGroups", "_rerouteGroups(F, mint)",
     "The moved objects to be read from another frame at F, grouped by source frame and remainder; memoised.",
-    ["Skips objects homed at F (natives, rendered live) and those homed deeper than F, which the residual draws. For the rest `LevelMap.objShift` names the source frame and remainder; objects sharing both form one group, so each tile is scanned once a group.",
-     "Memoised per frame on the document's `rev`, the lattice's `addrEpoch` and its frame count, for the last four frames; a key that changed during the walk is not kept. Measured: the walk was 70 ms of a 113-140 ms list build on the Magnum Opus (16,889 tables, jsdom)."],
-    "§6")
+    ["Skips objects drawn live in F's cell and groups the rest by the source frame and remainder `LevelMap.objShift` names; objects sharing both form one group, so each tile is scanned once a group, and a shifted frame's natives share one placement (one `objShift` a table). With `mint` false — a read's — a source frame never minted is not minted: its objects are listed as missing and drawn nowhere until it is (no read mints, A1 C3).",
+     "Memoised per frame on the document's offsets revision, the lattice's `addrEpoch` and its frame count; a change to fewer than half the tables is patched into the memo rather than rebuilt. Measured: the walk was 70 ms of a 113-140 ms list build on the Magnum Opus (16,889 tables, jsdom)."],
+    "§8")
 add("ts._upPiecesOver", "_upPiecesOver(parentId, pr, only)",
     "The parent's magnified pieces over a rectangle, one square's copy of each object when the rectangle straddles squares.",
     ["Inside one parent cache square: that square's up pieces. Across several: the square holding the rectangle's centre, and another square's piece of an object only when the centre square's clip does not cover the rectangle. `only` limits it to one object id; its one caller passes null.",
@@ -140,14 +134,14 @@ add("ts.chainSeq", "chainSeq(F)",
     ["A tile built under an older sum read its content through an address a subtree move has since changed, and is rebuilt on its next lookup; no walk over the moved subtree is needed. Memoised per frame for one lattice `addrEpoch`."],
     "§6")
 add("ts._onFrameEvent", "_onFrameEvent(ev)",
-    "A frame moved, was set aside, came back or merged: drops every cached tile its footprint touches, at the old address and the new.",
-    ["The footprint is the frame's cell grown by its subtree's reach (invariant 2), in the parent's units, at its current address (the recorded one for a merged frame) and, for a `refile`, its previous one; mapped into each cached tile's frame and tested against the tile padded by the seam pad. A merged frame's own tiles are deleted outright.",
+    "A frame moved, was deleted or came back: drops every cached tile its footprint touches, at the old address and the new.",
+    ["The footprint is the frame's cell grown by its subtree's reach (invariant 2), in the parent's units, at its current address (the recorded one for a deleted frame) and, for a `refile`, its previous one; mapped into each cached tile's frame and tested against the tile padded by the seam pad.",
      "Tiles of the moved subtree itself go stale through `chainSeq`; a table change drops nothing (F55)."],
-    "§6")
+    "§9")
 add("ts.framesLeft", "framesLeft(F)",
-    "The camera has moved to frame F: drops every cached tile except F's ancestors', those just pinned by the camera's read, and the ladder's warm ones.",
-    ["Called by `_buildList` after its read, so the tiles `_reroute` read from other frames survive. Returns the count dropped.",
-     "Keeping the warm tiles is F83: dropping them re-baked cold the tiles the zoom that followed needed (measured 440 -> 64 ms for the first list in jsdom)."],
+    "The camera has moved to frame F: drops every cached tile except F's ancestors', those just pinned by the camera's read, and those the prefetch read ahead (`_warm`).",
+    ["Called by the engine's render after the Stage's read of F, so a moved object's tiles the reroute read from another frame survive. Returns the count dropped.",
+     "Keeping the read-ahead tiles is F83: dropping them re-baked cold the tiles the zoom that followed needed (measured 440 -> 64 ms for the first list in jsdom)."],
     "§9")
 
 # ---- src/engine/Renderer.js ----
@@ -279,11 +273,10 @@ FIX = {
             "A full render: the camera's frame checked against the lattice (`_camToLattice`), frame collection on a camera-frame change, the view's picture sources minted where an action moved them (`_prepareView`), and on the raster path the frame's perf row opened. Then the Stage syncs its table to the camera's frame and window (`stage.sync`, reading at most `readMs`: a camera step reads nothing and leaves the rest to `_readIdle`), the tile cache is told of a frame the camera left, and the Stage's items are what the renderer draws; then update, status and the perf row. `_renderedG` records the Stage generation this render drew, which `flushBakes` reads.",
             "The frame meter is poked here as well as in gestures: the worst stall seen was a cold one, opening a drawing at a deep camera."]},
     "sel._applyLasso": {
-        "why": "misses the erase barrier: the pending eraser marks the loop meets are baked out before the find (`_settleLassoErases`)",
+        "why": "the erase barrier is no longer a bake-out before the find: the loop waits, parked, until the marks it meets have landed (`_lassoBarrier`)",
         "what": None,
-        "long": ["Turns a finished loop into a selection change. First every pending eraser mark whose box meets the loop is applied (`_settleLassoErases`), so the lasso finds the cut-outs rather than the ink under an unapplied mark.",
-                 "Plain: replace the selection, or deselect when the loop caught nothing. Ctrl with the loop catching anything new: add. Ctrl with the loop catching nothing new (drawn inside the selection): remove."],
-    },
+        "long": ["Turns a finished loop into a selection change once the loop's erase barrier is clear: the pending marks whose box meets the loop land first (`_lassoBarrier`), so the lasso finds the cut-outs rather than the ink under an unapplied mark. Until then the loop is parked (`_lassoParked`, still drawn) and judged when the barrier ends.",
+                 "`_judgeLasso` applies the rules: plain replaces the selection, or deselects when the loop caught nothing; ctrl with the loop catching anything new adds; ctrl with the loop catching nothing new (drawn inside the selection) removes."]},
     # ---- selection.js ----
     "sel._selectableRects": {
         "why": "calls it the lasso's candidates; nothing in the engine uses it, `_lassoFind` walks the frame tree, and it stays as the ground truth the suites check the walk against",
@@ -291,41 +284,33 @@ FIX = {
         "long": ["Walks every frame's natives through `Document.at` (which settles pending shifts) and maps each box with `_rectInActive`. No production caller."],
     },
     "sel._lassoFind": {
-        "why": "says an enclosed box's objects are taken; an enclosed frame is one entry of the selection with nothing under it read, a frame with no ink under it is skipped, and the result is `{ ids, frames }`",
+        "why": "says an enclosed box's objects are taken; an enclosed frame is one entry of the selection with nothing under it read — never a private frame, nor one the loop's moved ink was found away from",
         "what": None,
-        "long": ["Finds what a lasso fully encloses by walking the frame tree outward from the active frame, one hop at a time: **out of reach** skips a frame and its subtree; **enclosed** makes the frame one entry of the selection, nothing under it read; **straddling** asks the frame's index and tests each candidate's box, then its ink (`_inkInsidePolygon`) where the box meets the loop's box. A frame with no native in its subtree (`_inkedFrames`) is skipped, so an empty visited cell is never selected (F93).",
+        "long": ["Finds what a lasso fully encloses by walking the frame tree outward from the active frame, one hop at a time: **out of reach** skips a frame and its subtree; **enclosed** makes the frame one entry of the selection, nothing under it read — except a family's private frame (A1 C4) or a frame whose moved ink `_lassoMoved` found away from it, which are read like a straddling one; **straddling** asks the frame's index and tests each candidate's box, then its ink (`_inkInsidePolygon`) where the box meets the loop's box. A frame with no native in its subtree (`_inkedFrames`) is skipped, so an empty visited cell is never selected (F93).",
                  "Objects with a displacement table are indexed at their stored bits and drawn elsewhere, so each one the active frame can reach is judged again where its picture is (F69). A family is taken only when every piece is in; a keyless native is a family of one. Returns `{ ids, frames }`.",
-                 "The prune rests on invariant 2: a frame's subtree lies inside its cell grown by one (DESIGN.md §10)."],
-    },
+                 "The prune rests on invariant 2: a frame's subtree lies inside its cell grown by one (DESIGN.md §10)."]},
     "sel._setSelection": {
-        "why": "says it pulls in each object's family; it stores the live ids and existing frames as given, and families are resolved by `_isSelected` and `_selectionMembers`",
+        "why": "says it pulls in each object's family; it stores the live ids and existing frames as given, and families are resolved by `_isSelected`; it redraws through a table step unless `quiet`",
         "what": None,
         "long": ["Installs ids and frames as the selection, keeping only live ids and frames the lattice still has; with neither it deselects. The primary member (id, edit key, level, object) is the first live id, or the first frame when there are no ids.",
-                 "Families are not expanded here; `_isSelected` and `_selectionMembers` resolve them. Redraws the overlays with a camera-only sync and emits status."],
-    },
+                 "Families are not expanded here; `_isSelected` and `_selectionMembers` resolve them. Redraws through one table step (`_syncStep`) and emits status, unless `quiet` (the caller renders)."]},
     "sel._selectionRect": {
-        "why": "says it is in screen coordinates, is the drag's anchor and is what the Renderer draws; it is in the active frame's units, has no production caller, and the drag measures from the press point",
+        "why": "says it is in screen coordinates, is the drag's anchor and is what the Renderer draws; it is in the active frame's units and read only by the suites; it unions the Stage's items",
         "what": "The visible union of the selection's families in the active frame; read only by the suites.",
-        "long": ["Unions the drawn boxes (bbox, half the line width, the residual) of every listed piece whose family is selected. With none drawn: the primary member's box where its picture is (F68), or failing that its box in its own frame."],
-    },
+        "long": ["Unions the drawn boxes (bbox, half the line width, the placement's offset) of every Stage item whose family is selected. With none drawn: the primary member's box where its picture is (F68), or failing that its box in its own frame."]},
     "sel._dragSelection": {
-        "why": "says members translate their coordinates or add the sub-box remainder to them; no stored coordinate is touched: whole cells re-home, the rest enters the displacement table, and selected frames are re-addressed",
-        "what": "One drag step: each member's new home and displacement table from the displacement since the drag started, and the selected frames re-addressed.",
-        "long": ["Recomputed from where the drag started. The displacement is snapped to 2^-10 of the camera level's unit (F55); each member's new home and table is computed once per (home frame, starting table) (`_displaceMember`); re-homes are one `rehomeManyById` a target frame, table changes one `setOffsetsById` each. **No stored coordinate is touched** (DESIGN.md §8).",
-                 "Selected frames move as frames (`_dragFramesStart`, `_dragFrames`). With the raster drag plane drawing the move, the step is a camera-only sync and no list is built; otherwise it renders.",
-                 "Members sharing a home frame and a table take one answer, so their relative positions cannot drift. A member it could not move is recorded with why and journaled at pen-up (F35)."],
-    },
+        "why": "a drag step writes nothing (A1 C2): it hands the Stage the held natives' delta; the members' homes and tables are computed once, at the drop (`_dropMove`)",
+        "what": "One drag step: the displacement since the drag started, snapped to the camera level's grid, handed to the Stage as the held natives' delta; nothing is written until the drop.",
+        "long": ["Recomputed from where the drag started (M-4), never from the previous event, and snapped to 2^-10 of the camera level's unit (F55). The Stage draws the held natives at that delta (`setDragDelta`): no table, address or frame is written (A1 C2) — the drop writes every member once (`_dropMove`).",
+                 "A drag always holds. When the raster drag plane draws the move the step is a camera-only sync and no list is built (120–240 ms a step on the Magnum Opus); otherwise the view's plates draw the held natives at the delta, a render a step."]},
     "sel._selectionMembers": {
-        "why": "says every object the selection covers; selected frames are not expanded, so it returns the selected ids and their families only",
+        "why": "says every object the selection covers; selected frames are not expanded, so it returns the selected ids and their families only, less those a selected frame moves",
         "what": None,
-        "long": ["The selected ids plus the rest of each one's family, de-duplicated, as document records. Selected frames are not expanded: the drag moves them as frames and delete sets them aside as containers."],
-    },
+        "long": ["The selected ids plus the rest of each one's family, de-duplicated, as document records, less any member under a selected frame (that frame moves it, once). Selected frames are not expanded: the drop moves them as frames and delete removes their subtrees."]},
     "sel.deleteSelection": {
-        "why": "covers objects only; selected frames are deleted too, as containers, the op is `eraseMany`, `removeFrames` or `deleteMany`, and pending carries and a live drag's torn-out frames join the selection first",
+        "why": "covers objects only; selected frames are deleted too, their subtrees leaving the lattice, the op is `eraseMany`, `removeFrames` or `deleteMany`, all in one Stage batch",
         "what": None,
-        "long": ["First brings the selection up to date: pending carries are applied (`_flushCarried`), and mid-drag the carried natives and the frames the drag tore out join it (`_reselect`).",
-                 "Then removes every selected id and its family one by one, and every selected frame's subtree as containers (`Document.removeFrameSubtree`, O(frames)), skipping a frame under another selected one. One undo entry: `eraseMany`, `removeFrames`, or `deleteMany` holding both. Ends a live drag through `_endMove('delete')`, then deselects and renders."],
-    },
+        "long": ["Removes every selected id and its family, and every selected frame's subtree (`Document.removeFrameSubtree`: it leaves the lattice, A1 C3), skipping a frame under another selected one — all in one Stage batch, so one commit. One undo entry: `eraseMany`, `removeFrames`, or `deleteMany` holding both. Ends a live drag through `_endMove('delete')` (the hold, holding the removals, released), then deselects and renders."]},
     # ---- TileStore.js ----
     "ts.setOpacityGroups": {
         "why": "says the epoch moves instead of the cache being cleared; `bumpEpoch` moves the epoch and clears the cache",
@@ -338,16 +323,14 @@ FIX = {
         "long": ["`_depth` is a frame's depth, 0 when unknown. `_minContentDepth` is the shallowest depth any frame with natives has, which lets `_bakeUp` return nothing when the parent is coarser than all content."],
     },
     "ts._ensureUp": {
-        "why": "rebuilds only on a miss or an epoch change; it also rebuilds when `chainSeq` changed (a subtree move), and bakes through `_bakeSettled`",
+        "why": "rebuilds only on a miss or an epoch change; it also rebuilds when `chainSeq` changed (a subtree move); no settle runs under a bake any more",
         "what": None,
-        "long": ["Returns a magnify tile, building it when the cache misses, the epoch moved, or the address sequence of the frame and its ancestors (`chainSeq`) changed. The bake runs through `_bakeSettled`, so a settle under it re-runs it (F78).",
-                 "Pins the tile before baking, so the recursion through the parent's tiles cannot evict it."],
-    },
+        "long": ["Returns a magnify tile, building it when the cache misses, the epoch moved, or the address sequence of the frame and its ancestors (`chainSeq`) changed; a tile's parents are baked with it.",
+                 "Pins the tile before baking, so the recursion through the parent's tiles cannot evict it."]},
     "ts._ensureDown": {
-        "why": "builds only on a miss; it also rebuilds on an epoch or `chainSeq` change, and bakes through `_bakeSettled`",
+        "why": "builds only on a miss; it also rebuilds on an epoch or `chainSeq` change",
         "what": None,
-        "long": ["Returns a minify tile, building it when the cache misses, the epoch moved or `chainSeq` changed. The bake runs through `_bakeSettled` (F78)."],
-    },
+        "long": ["Returns a minify tile, building it when the cache misses, the epoch moved or `chainSeq` changed."]},
     "ts._bakeDown": {
         "why": "says every content-bearing non-ancestor frame is gathered and a size test stops early; candidates come from the tree walk `_downSources`, and frames are skipped, not stopped at, by a size bound and their index's extent",
         "what": None,
@@ -358,9 +341,8 @@ FIX = {
     "ts._onDoc": {
         "why": "says an edit patches out and in; a change that only moves the table or an attribute is ignored, frame events go to `_onFrameEvent`, and a reset clears the cache",
         "what": None,
-        "long": ["Routes a document event to the cache: a reset clears it; a frame event (`refile`, `removeFrame`, `addFrame`, `mergeFrame`, `splitFrame`) goes to `_onFrameEvent`; a removal filters pieces out; an add or finalise patches pieces in, a live add waiting for its finalise.",
-                 "A change marked `offsetsOnly` or `attrOnly` is ignored: a move changes nothing a tile is made of (F55). Any other change removes and re-adds."],
-    },
+        "long": ["Routes a document event to the cache: a reset clears it; a frame event (`refile`, `removeFrame`, `addFrame`) goes to `_onFrameEvent`; a removal filters pieces out; an add or finalise patches pieces in, a live add waiting for its finalise.",
+                 "A change marked `offsetsOnly` or `attrOnly` is ignored: a move changes nothing a tile is made of (F55). Any other change removes and re-adds."]},
     # ---- Renderer.js ----
     "rnd.Renderer": {
         "why": "calls it the only class that touches Two.js and the app's renderer; `RasterRenderer` extends it and imports Two.js too, and this SVG renderer is behind `?svg`",

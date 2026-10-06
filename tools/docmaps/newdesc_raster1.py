@@ -13,29 +13,28 @@ def add(key, fn, what, long, ref=""):
 add("rr.resetRasterStats", "resetRasterStats()",
     "Zeroes every counter in `rasterStats`, the renderer's own report counters.", ["-"], "§15")
 add("rr.RasterRenderer", "RasterRenderer",
-    "The raster renderer: a `Renderer` subclass that paints the render list into cached plates on a canvas instead of into SVG.",
-    ["It keeps the base class's Two.js `<svg>` for the live stroke and the selection chevrons only; the ink goes through `PictureLayer` (the mapping and the compose), `PlateStore` (the cache and its invalidation) and `rasterWorkerClient` (the queue and the workers). It is the only module that posts raster jobs.",
+    "The raster renderer: paints the Stage's items into the picture pyramid's plates on a canvas instead of into SVG.",
+    ["No longer a `Renderer` subclass: it owns one Two.js `<svg>` (`SvgLayer`) for the stroke under the pen (`LiveStrokeLayer`), the lasso and the debug overlays (`SvgOverlays`), and the chevrons; the ink goes through the `PicturePyramid` (the plan and the compose), the `PyramidStore` (the plates and their freshness against the Stage's generation) and the job queue to the worker pool (A3 §1, §4).",
      "The app's default renderer since 2026-09-22; the SVG renderer is behind `?svg`. The engine's own `raster` option defaults to off, so the suites and the one-off engines are SVG (DESIGN.md §9)."],
     "§9")
 add("rr.RasterRenderer.constructor", "RasterRenderer.constructor(container, camera, cfg, opts)",
-    "Builds the SVG base, the `PictureLayer`, the drag plane and the counters, attaches the perf recorder and spawns the worker pool.",
-    ["Positions the Two.js `<svg>` absolutely at z-index 1 (ink canvas 0, ant canvas 2, chevrons 3), reads the dpr, builds the layer with its `onPlates` and `onRepost` callbacks routed to `_post`, hooks the store's `onRelease`, creates the `MovePlane`, attaches `rasterPerf` to its seven sources, arms the dpr listener and calls `ensureRasterPool`.",
-     "It also forwards the store's `onShow` (the tab visible again) to the engine's `onShown`, and sets `forcePerStepDrag`, a test hook that turns the drag plane off so every drag renders each step.",
-     "The camera must be the same object the engine later hands `frameFor`: the settle's publish and the quantum switch read the injected one outside the animation-frame cycle. The engine constructs the `PlateStore` and owns its lifetime."],
+    "Builds the SVG layer, the live stroke, the SVG overlays, the pyramid with its store and queue, the drag plane and the counters, attaches the perf recorder and spawns the worker pool.",
+    ["Positions the one Two.js `<svg>` (`SvgLayer`) absolutely at z-index 1 over the pyramid's canvas (0); the ants' `OverlayLayer` (2) comes with the first selection and the chevrons' `bl-sel-edges` (3) while one shows — one list of screen layers (`_layers`) that `setSize`, `destroy` and the store's release walk. Reads the dpr and builds the store, the pyramid and the queue (`_pyrBuild`); hooks the store's `onRelease` and `onShow` (the tab visible again: a commit step, or the engine's `onShown` after a release); halves the pack memo's budget on a phone; notes the Stage's commits; creates the `MovePlane`; attaches `rasterPerf` to its sources; arms the dpr listener and calls `ensureRasterPool`.",
+     "It draws from the engine's Stage (`opts.stage`): packs read its items at its generation, and the store's freshness is measured against it (A2 §3). `forcePerStepDrag` is a test hook that turns the drag plane off, so every drag renders each step."],
     "§9")
 add("rr._buildSelOverlay", "_buildSelOverlay(svg)",
     "Builds the one SVG selection layer the raster path needs, `bl-sel-edges` for the chevrons, at z-index 3.",
-    ["The ants are painted on `OverlayLayer`'s canvas, so `bl-sel-layer` is never created. `_selOv` and `_selEls` keep the base class's shape, so `Renderer._dropSelOverlay` and `_renderSelChevrons` run unchanged."],
-    "§12")
+    ["The ants are painted on `OverlayLayer`'s canvas, so `bl-sel-layer` is never created; `_selOv` and `_selEls` have the shape `svgOverlay`'s functions read (`renderSelChevrons`, `dropSelOverlay`)."],
+    "§10")
 add("rr.antPainter", "antPainter (getter)",
     "True: tells `overlays._selDecide` to keep each ant run's pieces for the canvas painter instead of building an SVG path string.",
     ["The code records 8.3 ms and 345 KB taken off a decision at F39's density."],
     "§12")
 add("rr._renderSelOverlay", "_renderSelOverlay(view)",
     "Draws the selection indicator on the raster path: the ants on the overlay canvas, the chevrons in SVG, both at the published view.",
-    ["Asks the engine for its decision (`_selAntsFn`), timing it as the overlay's `decideMs`; with nothing to show it drops the overlay. Otherwise it sizes `bl-sel-edges`, builds the `OverlayLayer` on first use, hands it the decision, the view and `_edgeShift`, draws the chevrons with `Renderer._renderSelChevrons` and keeps the edge layer last in the host.",
+    ["Asks the engine for its decision (`_selAntsFn`), timing it as the overlay's `decideMs`; with nothing to show it drops the overlay. Otherwise it sizes `bl-sel-edges`, builds the `OverlayLayer` on first use, hands it the decision, the view and `_edgeShift`, draws the chevrons with `renderSelChevrons` (`raster/svgOverlay.js`) and keeps the edge layer last in the host.",
      "It takes the published view, never the camera, so the ants and the ink share one mapping. With no view published yet it leaves what is drawn."],
-    "§12")
+    "§10")
 add("rr._dropSelOverlay", "_dropSelOverlay()",
     "Hides the ant canvas and removes the SVG chevron layer when the selection goes.",
     ["The overlay's buffer is kept, so the next selection does not reallocate it."],
@@ -55,9 +54,8 @@ add("rr._armReducedMotion", "_armReducedMotion()",
 add("rr._dropReducedMotion", "_dropReducedMotion()",
     "Removes the reduced-motion listener.", ["-"], "§12")
 add("rr.setSize", "setSize(w, h)",
-    "Resizes the SVG base and every screen layer at the current devicePixelRatio, and re-arms the dpr listener.",
-    ["The base `setSize` carries no dpr and the layers take `(w, h, dpr)`, so this is the one place that reads `devicePixelRatio`."],
-    "§9")
+    "Resizes every screen layer at the current devicePixelRatio, sets the store's budget for the new screen (A3 §4.5) and re-arms the dpr listener.",
+    ["The layers take `(w, h, dpr)`, so this is the one place that reads `devicePixelRatio`."], "§9")
 add("rr._armDpr", "_armDpr(dpr)",
     "Listens for a devicePixelRatio change, which fires no `resize`, and resizes the layers when one happens.",
     ["`matchMedia(\"(resolution: Ndppx)\")` matches one ratio, so the query is re-armed at the new ratio on each `setSize`. The case is a window dragged to a second monitor. A no-op without `matchMedia`."],
@@ -73,12 +71,12 @@ add("rr.setPlaneState", "setPlaneState(fn)",
     ["The engine's `_planeState`, memoised on the list and the selection; a selected frame's natives are found by their home."],
     "§9")
 add("rr.planeAccepts", "planeAccepts()",
-    "At a drag's start: aims the drag plane at the selection and posts what it lacks; false sends the drag down the per-step render path.",
-    ["Ends a plane still landing from the last drop first. False with no store, a view that is neither plates nor a settle, no selected ink on screen, or `forcePerStepDrag` set; a large or interleaved selection is not refused, the plane merges runs or cuts coarser instead (`MovePlane._cut`). The refusal is kept in `_noPlaneDrag`, which stops `_planeIdle` aiming a plane under that drag.",
-     "Called from the engine's `_beginHold`; on false the engine takes no hold."],
+    "At a drag's start: aims the drag plane at the selection and posts what it lacks; false leaves the drag to the view's plates, which draw it each step at the Stage's delta.",
+    ["Ends a plane still landing from the last drop first. False with a view that is neither the pyramid's level view nor its rest view, no selected ink on screen, or `forcePerStepDrag` set; a large or interleaved selection is not refused, the plane merges runs or cuts coarser instead (`MovePlane._cut`). The refusal is kept in `_noPlaneDrag`, which stops `_planeIdle` aiming a plane under that drag.",
+     "Called from the engine's `_beginHold`, which takes the hold either way and records the answer as the hold's `plane`."],
     "§9")
 add("rr._planeViewOk", "_planeViewOk(v)",
-    "Whether a view can carry a drag plane: plates mode, or a settled view.", ["-"], "§9")
+    "Whether a view can carry a drag plane: the pyramid's level view or its rest view.", ["-"], "§9")
 add("rr.dragLight", "dragLight()",
     "Whether a drag step may skip the list build: the plane has layers, the view carries it, and it is not landing.",
     ["`selection.js` asks it on each drag step while the engine holds the move; true means the step is a camera frame only (the list build it skips is 120–240 ms on the Magnum Opus, per the caller's comment)."],
@@ -87,38 +85,36 @@ add("rr.planeCap", "planeCap (getter)",
     "The most plates a drag plane may pin, both its levels together: 40 on a desktop, 24 on a phone, or a test's override.", ["-"], "§9")
 add("rr._aimPlane", "_aimPlane(v)",
     "Keeps the drag plane aimed at the current selection and view, re-pins its plates in the store and posts what they lack; false when the plane is refused.",
-    ["Under the `forcePerStepDrag` test hook it ends any plane and returns false. Otherwise it pulls the selection through `_planeFn` and calls `MovePlane.aim`; every old tag the plane no longer carries — all of them after a reset or a refusal, a renamed layer after a re-cut — is dropped from the queue and the store. Pins the plane's keys with `setPlanePins`, or clears them on a refusal. After a post it calls `onPlaneAimed` (the engine's ladder check), because the new pins can push the ladder's plates out."],
+    ["Under the `forcePerStepDrag` test hook it ends any plane and returns false. Otherwise it pulls the selection through `_planeFn` and calls `MovePlane.aim`; every old tag the plane no longer carries — all of them after a reset or a refusal, a renamed layer after a re-cut — is dropped from the queue and the store. Pins the plane's keys with `setPlanePins`, or clears them on a refusal; lists its far levels and posts what the plane lacks (`_postPlane`)."],
     "§9")
 add("rr._postPlane", "_postPlane(pl)",
-    "Posts the plates each plane layer lacks, one post per layer, skipping cells already fresh or in flight.",
-    ["A layer's cells are a list, not a range, so each missing cell is asked of the store as a one-cell unpinned `want`. Fresh and in-flight cells are checked directly and never reach `want`, which evicts: this runs on every drag step. Returns the strips posted."],
+    "Posts the plates each plane layer lacks to the job queue, one job per layer, each cell asked once per change.",
+    ["A layer's cells are a list, not a range. A cell is asked when the store wants it, the pyramid covers it (or the layer carries its own list), and it was not asked since it was last dirtied (`_pyrPlaneAsked` holds the Stage generation it was asked at, against the store's `dirtySince`). The jobs go to the queue at the plane's priority and are pumped at once; returns how many."],
     "§9")
 add("rr._dropPlaneTags", "_dropPlaneTags(tags)",
-    "Removes a plane's layer tags from the queue and the store.",
-    ["Each tag is a pseudo-quantum (`z<n>_<quantum>_<members hash>`) no other request reads, so its queued strips go through `dropQueued` and its plates through `dropQuantum`."],
+    "Removes a plane's layer tags' plates from the store and bumps the pyramid's plane generation.",
+    ["Each tag names one cut of the plane's layers, which no other request reads, so its plates go by tag (`dropWhere`); the asked set is cleared, so the next aim asks again."],
     "§9")
 add("rr._planeStep", "_planeStep(v)",
-    "Each camera step: follows a live drag with the plane, ends a landing that is done, or keeps an idle plane ready; then picks the level to draw and tells the layer.",
-    ["Under a drag, a plane with no layers, at another frame, or in a view that cannot carry it is lost (`_losePlane`); otherwise it moves by the pointer's displacement from the drag's start and re-posts any plane plate staled mid-drag.",
-     "The drawn level is `MovePlane.pick`'s: the main level whole, else the quick one whole, else the selected layers of either alone (partial). Under a drag with none of those and no stopgap yet, `_planeStopgap` rasters a small selection here. Only a whole level sets `_dragOmit`, which makes every other pack leave the selection out; while partial the plates still show the ink where it was. Counts the steps drawn not ready, partial and from the quick level."],
+    "Each camera step: follows a live drag with the plane, ends a landing that is done, or keeps an idle plane ready; then picks the level to draw and hands it to the pyramid.",
+    ["Under a drag, a plane with no layers, at another frame, or in a view that cannot carry it is lost (`_losePlane`); otherwise it moves by the pointer's displacement from the drag's start and re-posts any plane plate a change staled mid-drag.",
+     "The drawn level is `MovePlane.pick`'s: the main level whole, else the quick one whole, else the selected layers of either alone (partial). Under a drag with no whole level, `_pyrStopgap` rasters a small selection here and the level is picked again. Only a whole level sets `_dragOmit`, which makes every other pack leave the selection out; while partial the plates still show the ink where it was. The pyramid draws the plane through `setPlane` (`_pyrPlaneOf`). Counts the steps drawn not ready, partial and from the quick level."],
     "§9")
 add("rr._losePlane", "_losePlane()",
-    "Ends the plane under a live drag and tells the engine, which releases its hold so the drag renders each step.",
-    ["Counted in `planeStats.lost`; sets `_noPlaneDrag` so no new plane is aimed under that drag."],
-    "§9")
+    "Ends the plane under a live drag and tells the engine (`onPlaneLost`), whose view plates then draw the drag at its delta.",
+    ["Counted in `planeStats.lost`; sets `_noPlaneDrag` so no new plane is aimed under that drag."], "§9")
 add("rr._planeIdle", "_planeIdle()",
-    "With nothing dragged, aims the plane at the view once the published view has stayed unchanged for 150 ms and the layer is not holding a zoom.",
-    ["Unchanged means the same frame, quantum, zoom and view revision, a pan included, with no settle about to publish and no quantum hold; the code records 938 plates posted over a 60-step pan in Kobin's Chrome when each pan step re-cut the layers. A plane aimed at another frame or quantum is ended at once, and so is any plane while the layer holds a zoom, whose hold pins its own set. Otherwise one timer re-checks after `PLANE_QUIET_MS`.",
-     "Does nothing under `forcePerStepDrag`, after a refused drag, or during a drag. Also called from `_deliver`, since a settle's publish arrives without a camera step."],
+    "With nothing dragged, aims the plane at the view once the published view has stayed unchanged for 150 ms with no Stage commit in that time.",
+    ["Unchanged means the same frame, zoom quantum and view revision, a pan included; the code records 938 plates posted over a 60-step pan in Kobin's Chrome when each pan step re-cut the layers. A commit in the last `PLANE_QUIET_MS` (`_commitAt`) means a change is still settling. A plane aimed at another frame or zoom quantum is ended at once; otherwise one timer re-checks after `PLANE_QUIET_MS`.",
+     "Does nothing under `forcePerStepDrag`, after a refused drag, or during a drag. Also called from `_pyrLand`, since landed plates arrive without a camera step."],
     "§9")
 add("rr._planeLanded", "_planeLanded(v)",
     "Whether a landing plane can go: every cell it covers has a fresh plate again, the camera left its frame or quantum, or `MOVE_HOLD_MS` passed.",
     ["A timeout is counted in `planeStats.landTimeouts`."],
     "§9")
 add("rr._endPlane", "_endPlane()",
-    "Takes the plane down: records the landing's length, clears its timer, drops its plates and pins, resets it and tells the layer.",
-    ["The next camera step or `_planeIdle` aims a new one."],
-    "§9")
+    "Takes the plane down: records the landing's length, clears its timer, drops its plates and pins, resets it and tells the pyramid.",
+    ["The next camera step or `_planeIdle` aims a new one."], "§9")
 add("rr.endMove", "endMove(why)",
     "The engine's end of a drag: a drop lands the plane until the plates under it are fresh; any other end takes it down.",
     ["Clears `_noPlaneDrag` and `_dragOmit` first, so the drop's render packs the moved ink. A drop lands the plane only when it was drawing the drag from a whole level (`cur` set and not partial, the quick level included); a timer ends the landing at `MOVE_HOLD_MS` + 20 ms and recomposes. A drop drawn partial or from the stopgap, a cancel, a delete or a deselect ends it at once.",
@@ -129,27 +125,27 @@ add("rr._abandon", "_abandon(why)",
     ["It frees no worker capacity: an abandoned job holds its slot until its own answer arrives (`rasterWorkerReport().heldSlots`). Not on the render path, because a quantum change already bumps the dead keys' epochs, and freeing them there would re-post plates the camera has just left."],
     "§9")
 add("rr.destroy", "destroy()",
-    "Tears down the raster path: abandons in-flight jobs, empties the queue, clears the timers, stops the pool and listeners, destroys the layers, then the SVG base.",
-    ["The abandon comes first: a job never reported leaves its keys in the store's in-flight map and `want` reads them as in flight rather than missing, a permanent hole."],
+    "Tears down the raster path: empties the job queue, unhooks the pyramid and the Stage, clears the timers, abandons in-flight jobs, stops the pool and the perf recorder, then destroys the live stroke and every screen layer.",
+    ["Every job still in flight is reported so its end runs: a job never reported would leave its keys in flight for ever — a permanent hole with every suite green. The SVG layer is one of the screen layers (`_layers`), and the chevrons' slot drops the indicator."],
     "§9")
 add("rr.endLive", "endLive()",
-    "Pen-up: releases the live stroke's model now and keeps its SVG path on screen until the plates under it are fresh.",
-    ["On the plates or settle path, with a store, a live path and points, it records the stroke's box (half its width added), its frame and a limit of `LIVE_HOLD_MS` (3,000 ms, extended while its plates are on the way) in `_liveHeld`, and arms the timer; every later pack paints the stroke. Anywhere else the base `endLive` removes the path at once: the sync path rasters the stroke in the pen-up frame itself."],
+    "Pen-up: keeps the stroke's SVG path on screen, held, until the plates under it are published; without a path or a published view it goes at once.",
+    ["With a live path, points and a published view, `LiveStrokeLayer.hold` keeps the path with its frame, its box (half its width added) and a limit of `LIVE_HOLD_MS` (3,000 ms), and the timer is armed: the path stays until the group commit publishes the plates that hold the stroke (A3 §3.6, §7.2). Otherwise `cancel` removes it."],
     "§9")
 add("rr._armLiveTimer", "_armLiveTimer()",
     "Arms one timer for all held live paths, at the earliest limit; it releases what it can and re-arms while any path is held.",
     ["A release is followed by `update()`, so Two redraws without the path."],
     "§9")
 add("rr.addLive", "addLive(o)",
-    "Starts the live stroke's SVG path, first re-centring the overlay origin on the view and re-syncing the world transform if it moved.",
-    ["The origin is one object with one writer, this method, and a new choice is a new object, because `_selDecide` caches on the origin's identity. Re-syncing here is what puts a stroke begun after a pan or zoom under the pen instead of offset by the origin's move until pen-up."],
+    "Starts the live stroke's SVG path at the view's centre, re-syncing the world transform when that moved the live stroke's origin.",
+    ["The origin is one object with one writer, `LiveStrokeLayer.begin`, and a new choice is a new object, because `_selDecide` caches on the origin's identity. Re-syncing here is what puts a stroke begun after a pan or zoom under the pen instead of offset by the origin's move until pen-up."],
     "§9")
 add("rr._syncWorldTransform", "_syncWorldTransform(view)",
-    "Sets the SVG world group's scale and translation from the published view, with the overlay origin folded in, so the live stroke sits on the composed ink.",
-    ["The view maps a frame point to `p·k + tx` in device px and the SVG is in CSS px, so both are divided by the view's dpr. Without a view (or its dpr) it falls back to the base's camera transform."],
+    "Sets the SVG world group's scale and translation from the published view, with the live stroke's origin folded in, so the live stroke sits on the composed ink.",
+    ["The view maps a frame point to `p·k + tx` in device px and the SVG is in CSS px, so both are divided by the view's dpr. Without a view (or its dpr) it uses the camera's in-level transform."],
     "§9")
 add("rr.syncWorld", "syncWorld(view)",
-    "The base world sync and overlay tail, timed into the `ovl.tail` slot.",
+    "The world transform, the lasso and debug overlays (`SvgOverlays.render`) and the selection indicator, timed into the `ovl.tail` slot.",
     ["Both `render` and `syncCameraOnly` reach the tail here, so one bracket times both and neither counts twice."],
     "§9")
 add("rr.beginRender", "beginRender()",
@@ -159,24 +155,24 @@ add("rr.beginRender", "beginRender()",
 add("rr.noteList", "noteList(ms)",
     "Charges the engine's own list-build time to the `eng.list` slot.", ["-"], "§15")
 add("rr.render", "render(list, frame)",
-    "A full frame on the raster path: records the list, runs the camera step (mapping, plates, compose, posts) and syncs the SVG world and overlays.",
-    ["The document-event drain is the engine's and runs just before this call, because `_buildList` itself emits events the drain must see. Records the widest unfitted fat stroke for the idle fitter and sets `_hasFat`. Returns false: there are no ink groups to reorder."],
+    "A full frame on the raster path: reads the Stage's items (`_sceneList`), runs the camera step (the plan, the compose, the posts) and syncs the SVG world and overlays.",
+    ["The list the engine passes is not read: the packs read the Stage's items at its generation (A2 §3). Inert once destroyed, since the next engine shares the host (F101). The fat gate is the SVG renderer's (A3 §7.2), so nothing is recorded for an idle fitter here. Returns false: there are no ink groups to reorder."],
     "§9")
 add("rr.syncCameraOnly", "syncCameraOnly()",
-    "A camera-only frame: drains document events, then maps, composes and posts from the last list, and moves the SVG overlay.",
-    ["The drain is called here rather than at the engine's call sites because `selection.js` calls this method too, and a compose there would otherwise use plates a queued event has invalidated. No list build and no overlay rebuild."],
+    "A camera-only frame: reads the Stage's items, runs the camera step (the plan, the compose, the posts) and syncs the SVG world and overlays.",
+    ["There is no document-event drain any more: a plate's freshness is read against the Stage's generation, and its commits drop the plates they stale. Inert once destroyed. No list build and no overlay rebuild."],
     "§9")
-add("rr._frameStep", "_frameStep(list)",
-    "One camera step: culls for the chord estimate, gets the published view, drops dead quanta's strips, then either rasters in sync mode or wants, composes and posts plates.",
-    ["Plates path, in order: `store.want(view)` (the visible pins, after `frameFor` has added its own), the plane step, `compose(hits)`, the held-live release, and a post of the misses. The sync path ends or loses the plane, rasters on this thread, releases held paths and gives the layer the measured core time.",
-     "`frameFor` can post inside itself; that time is subtracted from `eng.view` because it is already counted in `eng.pack` and `xfer.out`. Returns the published view, which the overlays are handed."],
+add("rr._frameStep", "_frameStep()",
+    "One camera step: the live stroke's crossing, the pyramid's view of the camera, the job queue told the motion and pumped, the plane step, the pyramid's compose, the held live strokes released, and a prefetch when the camera is still.",
+    ["In order: `_liveCross` (before the retarget, which reads a group's rectangle); `PicturePyramid.frameFor(cam)`, timed into `SLOT.view` without the packs and the core work done inside it; the queue's motion (`_pyrMotion`), frame and pump; `_planeStep`; `compose` (counted in images); `_pyrLive`; and `_pyrPrefetch` when not moving. There is no sync path and no want-and-post of misses any more: the pyramid's plan asks for what the view lacks (A3 §4)."],
     "§9")
 add("rr._beginFrame", "_beginFrame(kind)",
     "Advances `frameSeq` (from the engine's counter when given), counts the frame, and opens its perf row.", ["-"], "§15")
 add("rr._endFrame", "_endFrame()",
     "Closes the frame's perf row and marks the engine's row closed.", ["-"], "§15")
-add("rr._openRow", "_openRow(seq, kind)",
-    "Opens a perf row and marks one as live, so `_post` and `_pack` can tell whether to open their own.", ["-"], "§15")
+add("rr._openRow", "_openRow(seq, kind, backMs)",
+    "Opens a perf row and marks one as live, so `_post` and `_pack` can tell whether to open their own; `backMs` is main-thread time the task spent before the row could open.",
+    ["-"], "§14")
 add("rr._closeRow", "_closeRow()",
     "Closes the live perf row.", ["-"], "§15")
 add("rr._add", "_add(name, ms)",
@@ -185,13 +181,13 @@ add("rr._add", "_add(name, ms)",
 add("rr._endJob", "_endJob(jobId)",
     "Ends a job id in the store, freeing its in-flight keys.", ["-"], "§9")
 add("rr.snapshotJob", "snapshotJob(o)",
-    "Rasters one plate of any frame and rect off camera, for the Scenes panel, and resolves with its bitmap; the plate cache is never touched.",
-    ["Each call has its own quantum string (`t1`, `t2`, …), so no cached plate is reused at a zoom it was not rastered at, and snapshots never drop each other's queued strips. The rect lands on plate (0, 0) through an `offset` folded into each item at pack time; an offset at or past the coordinate bound is rejected before any work.",
-     "Priority 4. Resolves null for an empty plate and the raw pixels where there is no `createImageBitmap`; rejects on a drop or an abort, and an abort also drops the queued strip. Called by `sceneOps.snapshotView`."],
-    "§14")
+    "Rasters one plate of any frame and rect off camera, for the Scenes panel, and resolves with its bitmap; never stored.",
+    ["Reads the frame's table at idle, a budget at a time (`_readIdle`), then goes through the job queue at `PRIO.thumb` (A3 §4.1) with a key of its own (`t1`, `t2`, …), so no snapshot is reused at a zoom it was not rastered at. The rect lands on the plate's own origin through an `offset` folded into each item at pack time; an offset at or past the coordinate bound is rejected before any work.",
+     "Resolves null for an empty plate or a table the reads could not finish, and the raw pixels where there is no `createImageBitmap`; rejects on an abort (one while queued also takes the job out of the queue) or a failure. Called by `sceneOps.snapshotView`."],
+    "§11")
 add("rr.report", "report()",
-    "The renderer's flat report: frame seq, view mode, the plane's state and plate count, every `rasterStats` counter, and the pack's packed and culled counts.",
-    ["-"], "§15")
+    "The renderer's flat report: frame seq, view mode, the plane's state and plate count, every `rasterStats` counter, the pack's packed and culled counts, and the job queue's report.",
+    ["-"], "§14")
 
 # ---- src/engine/raster/MovePlane.js ----
 add("mvp.resetPlaneStats", "resetPlaneStats()",

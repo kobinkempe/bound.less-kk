@@ -96,10 +96,10 @@ add("six.chunkRuns", "chunkRuns(n, loops, f)",
     "The maximal runs of chunks for which `f(k)` holds: along the sequence, or around each closed loop, so a run crossing a loop's start is one run.",
     ["`loops` is the first chunk of each closed loop. The stray rule and the insert rule's groups read their runs through it, so an outline's first and last chunks are neighbours."],
     "§14")
-add("six.fileIn", "fileIn(bands, b, i0, i1, j0, j1, e, add)",
-    "Add a chunk entry to, or remove it from, every cell a box covers in band b of a grid map.",
-    ["A cell is a Set of entries `slot·MAX_CHUNKS + k`; an emptied cell, and an emptied band, are deleted."],
-    "§14")
+add("six.fileIn", "fileIn(G, bands, b, i0, i1, j0, j1, e, add)",
+    "Add a chunk entry to, or remove it from, every cell a box covers in band b of a grid's `all` or `own` table.",
+    ["A band is a cell table (`CellTab`: open addressing from a cell key to a segment of the grid's pool `G.P`); a segment holds its capacity, its length and its entries `slot·MAX_CHUNKS + k`. A full segment is copied to one twice the size, the old one counted as waste; a removal closes the gap in place."],
+    "§11")
 add("six.SceneIndex", "SceneIndex",
     "The scene index: every indexed object as an item, every scene with its members, grids, anchor and origin; one `apply(batch)` touches only the scenes the batch reaches.",
     ["Pure: frames and items arrive as records and nothing reads a document, so the one class runs in the scene worker and inline (DESIGN.md §11; the rules and their order: docs/reference/scenes-v3-design-bible.md).",
@@ -147,10 +147,10 @@ add("six._near", "_near(S, x0, y0, x1, y1, T, b, fn, G, full)",
     "Visit every chunk of a scene within reach of a box: `all[b]`, then `own` of the five coarser bands; `fn(item, k)` returning true stops the search.",
     ["Reach is the larger of the query's `T` and the chunk's own, so two inks join at `max(T_a, T_b)`. `full` (from `_components`) skips cells whose entries were all visited. Counted in `stats.queries`."],
     "§14")
-add("six._scan", "_scan(g, bb, x0, y0, x1, y1, T, fn, seen)",
+add("six._scan", "_scan(G, t, bb, x0, y0, x1, y1, T, fn, seen)",
     "One band's cells around a box, padded by one cell side, testing each entry's chunk against the reach; a cell `seen` already covers is skipped.",
     ["The cell side `2^(bb+1)` exceeds every reach filed in that band, so one cell of padding finds every chunk in reach. Counts cells and entries in `stats`."],
-    "§14")
+    "§11")
 add("six._valid", "_valid(S, m, k)",
     "Is chunk k of member m outside a stray run? Always, for a member of under three chunks or in a one-member scene; computed per member when first read.",
     ["Stray chunks are not framed and never bridge (DESIGN.md §11)."],
@@ -257,9 +257,9 @@ add("six._components", "_components(S)",
     "§14")
 add("six._bbExact", "_bbExact(S)", "Recompute a scene's bounding box from its members' filed chunks.", ["-"], "§14")
 add("six._frameOf", "_frameOf(S)",
-    "A scene's frame in its anchor's coordinates: its valid ink (stray runs left out), padded FRAME_PAD, at least MIN_FRAME_PX at the zoom where its thickest stroke is REF_STROKE_PX.",
+    "A scene's frame in its anchor's coordinates: its valid ink (stray runs left out), padded by FRAME_PAD and at least one thickest width each way; no minimum size (Kobin 2026-09-23).",
     ["Also refreshes the scene's bounding box. A one-member scene is framed on all its ink; null for a scene with no chunks."],
-    "§14")
+    "§11")
 add("six._itemsTouch", "_itemsTouch(items, B)",
     "Does a valid chunk of these items, filed in their own scene, come within reach of a valid chunk of scene B?",
     ["Stray runs bridge nothing here, as at an insert. Maps each chunk from its scene's anchor into B's. `_rejoin`'s chunk test."],
@@ -278,9 +278,9 @@ add("six._heirs", "_heirs(heirs)",
     "A scene emptied by members that moved away passes its id and name to the scene holding most of their ink, when that scene was born this batch (tie: the one holding the smallest of their ids); otherwise the name is kept aside.",
     ["Run after the inserts and re-joins, in the emptied scenes' id order; the id is not given when a live scene already holds it."],
     "§14")
-add("six._translated", "_translated(a, b, wa, wb)",
-    "Are chunk records `b` those of `a` shifted by one displacement: same count, lengths and width, within 1e-6 of a reach?",
-    ["-"], "§14")
+add("six._translated", "_translated(x, b, wb)",
+    "Are a record's chunks `b` item `x`'s chunks shifted by one displacement: same count, lengths and width, within 1e-6 of a reach?",
+    ["-"], "§11")
 add("six._placeScenes", "_placeScenes(placed, movedFrames, removeFrom, inserts, rejoin, fullSplit, leave)",
     "Items placed anew, per scene: every member that stays moved by one displacement is a rigid move (the origin follows, the moved ink re-joins where it lands); otherwise the moved members leave and are inserted again.",
     ["Displacements are measured in `_staticRef`'s frame, the nearest at or above the anchor that neither went nor moved: the old position through the pre-batch tree, the new through the current one.",

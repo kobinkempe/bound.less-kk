@@ -3542,3 +3542,40 @@ Scratch probes deleted from `src/engine` (all `zz_*`, `__testkit__/zz_modelFuzzO
 quick suite; typecheck and lint after. Worker sources unchanged since 59f0a76: no `build:worker`.
 **Questions asked:** none.
 WHERE I AM: waiting on `r-c34/fin-*.log`; meanwhile the OPEN-FLAGS F138 entry from `r-c34/f138b.md`.
+
+## 2026-10-06 03:41 UTC — B-DOCMAPS-3 (builder) — checkpoint: item 3, 3 files of 45 (91 of 363 re-read)
+**Working on:** item 3. Files: `tools/docmaps/newdesc_{paper,raster1}.py`, `long_{eng,view}.py`,
+`pages/boundless-code-map.pristine.html` (rows), nothing under `src/`.
+**Measured:** `KobinEngine.js` 32 re-read, 22 corrected (the hold, the drop, the render, undo/redo through `_history`,
+the constructor's FIX naming `PlateStore`/`_drainPlates`/`_followCarries`); `Renderer.js` 29, 6 corrected (`render`'s
+masks; four rows naming moved functions); `RasterRenderer.js` 30, 24 corrected (no longer a `Renderer` subclass; no
+sync path, no drain; the pyramid, the queue, the Stage). Plus `rr._losePlane` (unchanged body, made false by the
+engine's `_planeLost`). Lenient chain: Code Map missing 905 (the oracles), 13 rows with nothing to open, stale 27.
+**Decisions made:** each correction's § is DESIGN.md's current section (§8 the drag's hold and drop, §9 the
+renderer, §10 the indicator, §14 the perf rows); tools `dmap/rev3.py` (diff + texts), `setfix.py` (FIX items),
+`rowfn.py`, `tally3.py`; decisions marked `# K`/`# C` in `dmap/c3_*.py`; false src comments in `dmap/srcnotes3.txt`.
+**Questions asked:** none.
+WHERE I AM: item 3, `src/engine/LevelMap.js` (26), then Document.js, selection.js, sceneIndex.js, TileStore.js.
+
+## 2026-10-06 03:45 UTC — B-PYRAMID-5b (builder) — checkpoint: b7's round trips done; suites; b7's F133 run and b8 waiting for quiet
+**Measured (headless, `?svg` round trip, `bp3/svgtrip.js`, one run a tree, load 0.89–1.67 at the starts):** all three mounted
+the SVG renderer, no page errors; 9 of 9 states 0 px differing c7fed1a → b793360 and b793360 → the tree (`fin2`), the
+screenshots 37–80 KB each (B-PYRAMID-3's claim, 0 px in 9 of 9, holds; the tree changed nothing on the SVG path).
+**Suites:** the raster suites + `selection.indicator`, `move.drop`, `stage.cover`, `select.inkless` (39 files): 666 of 667
+(load 2.8 → 6.5 beside R-MODEL-C34b's fuzz); the one red, in `raster.pyramid`, green alone 38/38 at load 5.5–6.1 — named
+in the quick suite's run, now running. typecheck 0 errors; lint 0 errors, 5 warnings (none in my files).
+**Waiting:** b7's F133 run and b8 start only under load 2 with no browser; R-MODEL-C34b's final fuzz runs hold the load at 3–6.
+**Questions asked:** none.
+WHERE I AM: the quick suite; then b7's F133 run and b8 when the machine is quiet; then the report.
+
+## 2026-10-06 03:50 UTC — B-DOCMAPS-3 (builder) — checkpoint: item 3, 10 files of 45 (222 of 363 re-read)
+**Working on:** item 3. Files: `tools/docmaps/newdesc_{paper,raster1,engine,scenes}.py`, `long_{eng,view,space,rest}.py`,
+the pristine page's rows; nothing under `src/`.
+**Measured:** 222 re-read, 110 corrected, 112 kept: LevelMap 26/10 (shadows → co-residents, `objShift`'s `mint`),
+Document 26/9 (`at` a plain read again, subtrees leave the lattice), selection 22/18 (barriers, the drag writes
+nothing), sceneIndex 20/4 (checked by signature, names and constants: `dmap/sigcheck.py`), TileStore 19/7,
+erasePipeline 18/11 (registration, `_bakeRun`, no `_neutralUnder`/`_uncutOf`/`_bakeOne`).
+**Decisions made:** sceneIndex's 16 kept entries were not read line by line (no older body exists: the file is new in
+56e36b3); their names, signatures and constants match the source.
+**Questions asked:** none.
+WHERE I AM: item 3, `src/engine/sceneClient.js` (14), then rasterPack, rasterCore, oplog, report, overlays, rasterPerf.

@@ -48,10 +48,10 @@ L = {
 
 # ---- LevelMap -------------------------------------------------------------
 "lm.cellChild": [
- "Returns the child box at a given index, creating it if this is its first visit.",
- "**Carries out-of-range indices.** An index outside the balanced range names a box this parent does not own, so it carries up to a sibling of the parent and recurses — the same arithmetic a long addition uses.",
- "That carry was a hope rather than an invariant until it bit: a camera that crossed while its centre sat just half a percent outside the parent's square minted a box at an illegal index. The session carried on fine; the damage showed on **reload**, where the file was refused outright and the drawing could not be opened at all.",
-],
+    'Returns the child box at a given index, creating it if this is its first visit.',
+    "The cell's resident is returned unless it is a family's private frame (A1 C4): then a public frame is minted beside it, its co-resident, and the cell's frames regrouped.",
+    '**Carries out-of-range indices.** An index outside the balanced range names a box this parent does not own, so it carries up to a sibling of the parent and recurses — the same arithmetic a long addition uses.',
+    'That carry was a hope rather than an invariant until it bit: a camera that crossed while its centre sat just half a percent outside the parent\'s square minted a box at an illegal index. The session carried on fine; the damage showed on **reload**, where the file was refused outright and the drawing could not be opened at all.'],
 "lm.findCellChild": [
  "The child box at an index, if it already exists. No side effects.",
  "Refuses out-of-range indices outright rather than carrying, because resolving a carry would have to create boxes and this is required not to.",
@@ -263,6 +263,5 @@ L = {
  "The edit counter matters more than it looks: the renderer's signature rounds coordinates, and at the deepest in-level zoom a whole pixel of drag is below that rounding. Without the counter a dragged object would keep its old path and sit still while the pointer moved.",
 ],
 "doc.pushUndo": [
- "Records an action, caps the history, and clears the redo branch — a fresh action forks history.",
-],
+    'Records an action, caps the history, and clears the redo branch — a fresh action forks history. The ops it drops go to `onOpsDropped`, since frames they named may then be collected (F94).'],
 }
