@@ -3579,3 +3579,15 @@ erasePipeline 18/11 (registration, `_bakeRun`, no `_neutralUnder`/`_uncutOf`/`_b
 56e36b3); their names, signatures and constants match the source.
 **Questions asked:** none.
 WHERE I AM: item 3, `src/engine/sceneClient.js` (14), then rasterPack, rasterCore, oplog, report, overlays, rasterPerf.
+
+## 2026-10-06 09:27 UTC — orchestrator (Opus) — the eighth stop (~03:55–08:20); all three resumed
+**Working on:** R-MODEL-C34b's final runs finished before the reboot, all green (tile 500+500, 40,000 checks; selection
+200+200; `test:erase` 303 passed; the quick suite 2,210 passed, 0 failed; typecheck 0; lint 0 errors) — its docs and
+report left. B-PYRAMID-5b: item 6 measured in the browser, the `?svg` round trips 0 px in 9 of 9 — F133's run, scenarios 1,
+6, 7, its quick suite and the report left; one `raster.pyramid` test red under load 2.8–6.5 (green alone) to be named.
+B-DOCMAPS-3: item 3 at 222 of 363. The container rebooted (uptime 0 at 09:25); the tree clean at d2b139c. All three
+resumed by message.
+**Measured:** nothing new.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for the reports.
