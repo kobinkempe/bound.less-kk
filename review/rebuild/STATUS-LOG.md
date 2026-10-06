@@ -3875,3 +3875,23 @@ depth, so it is the depth-0 spine — a bigger jump than the old wrong one when 
 **Questions asked:** should `_camAt` be noted at every crossing (the Camera's `onCross` hook, a no-op today) so the
 camera keeps its cell, as A1 says? Recommendation: yes, a later small task; not built (the brief names the guard).
 WHERE I AM: break-checks (a) the guard, (b) rasterCore's family grouping for `raster.familyUlp`, on a scratch copy.
+
+## 2026-10-06 21:33 UTC — B-PYRAMID-6 (builder) — resumed after the session-limit stop (container rebooted)
+**Working on:** item 2. Tree at 7f30fa1 holds item 1 (F140 fix, tests, DESIGN §9 sentence). Before the stop: 3+3 loaded
+runs (3 busy loops, raster.pyramid + PicturePyramid.patch + raster.engine): neither target test red; a third
+load-sensitive test red once at load 4.8 — `raster.engine` "§8.4 rule 2" residual 4.6 ms against its 1-ms bar (a
+synchronous render row: preemption, not the queue). Reading: the row-1 join needs the first pen-up group open at the
+second pen-up — an inline patch (`patchPlan`: T <= budget, the calibrated estimate) closes it at once.
+**Measured:** load 0.4 at resume. **Decisions made:** none new. **Questions asked:** none.
+WHERE I AM: reading `patchPlan` budget/estimate for the row-1 join, then loaded runs of raster.pyramid alone.
+
+## 2026-10-06 21:34 UTC — orchestrator (Opus) — the tenth stop (~15:05–19:20); B-PYRAMID-6 and B-TIDY resumed
+**Working on:** B-PYRAMID-6 (F140 fixed in `jobQueue.js` with tests red before and four break-checks; the two
+load-sensitive tests next) and B-TIDY (the comments done; `_camToLattice`'s frame check fixed — reachable in the app: a
+crossing and a Delete inside one animation frame put the camera at the parent's chain with the child's coordinates, DF-5
+red before; the break-checks next). The container rebooted (uptime 0 at 21:31); snapshot 7f30fa1. Both resumed. B-TIDY's
+question (note `_camAt` at every crossing so a deleted frame's camera keeps its cell): a later small task, recorded.
+**Measured:** nothing.
+**Decisions made:** as above.
+**Questions asked:** none.
+WHERE I AM: waiting for both reports; then R-FINAL-M.
