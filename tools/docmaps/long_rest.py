@@ -107,9 +107,8 @@ L = {
 ],
 "per.decodeCamera": ["Reads the camera state, which the engine then settles into a legal one — a saved camera need not be inside the legal zoom band, and a converted one can land outside it too."],
 "per.decodeNatives": [
- "Validates every object: known type, finite numbers, well-formed geometry.",
- "**Hard-fails on anything that would crash or corrupt** and stays lenient about everything else — unknown fields are preserved untouched, so an older build can open a file written by a newer one that only added fields.",
-],
+    'Validates every object: known type, finite numbers, well-formed geometry. The erase lineage (`targets`, `targetOf`, `handledBy`) is kept as sorted unique positive ids, or dropped when malformed.',
+    '**Hard-fails on anything that would crash or corrupt** and stays lenient about everything else — unknown fields are preserved untouched, so an older build can open a file written by a newer one that only added fields.'],
 
 # ---- biarc ----------------------------------------------------------------
 "bia.distinctSamples": ["Drops repeated pen samples, which a stationary pointer produces in quantity and which would otherwise give the spline zero-length gaps to fit."],

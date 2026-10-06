@@ -3647,3 +3647,62 @@ Files mine: `review/rebuild/FINAL-AUDIT.md` (new), DESIGN.md §7–§10/§13, `d
 (flag rows only). Not touching `src/`, `tools/`. B-PYRAMID-5's raster reading and its 10-STATUS entry left for last.
 **Questions asked:** none.
 WHERE I AM: reading PLAN §0–§3.
+
+## 2026-10-06 09:33 UTC — R-FINAL-D (reviewer) — checkpoint: 1.3 done
+**Done:** `review/rebuild/FINAL-AUDIT.md` created with the 1.3 table (every named mechanism gone or legacy-only; two
+minors: "zoom quantum"/"sync path" stale wording in raster comments; `syncCameraOnly` kept as the camera step's name).
+**Questions asked:** none.
+WHERE I AM: 1.1 — the design targets table (Stage, pyramid, erase, move, SVG, pool, model, kept).
+
+## 2026-10-06 09:34 UTC — R-FINAL-D (reviewer) — checkpoint: 1.1 done
+**Done:** FINAL-AUDIT 1.1 table: every target built; differences found are recorded (mask overflow's raise in A2 §4.4's
+as-built note; the patch budgets in PLAN §5.20/§5.22). No major.
+**Questions asked:** none.
+WHERE I AM: 1.2 — the acceptance list's ten rows against `review/rebuild/TEST-MAP.md` and the test files.
+
+## 2026-10-06 09:50 UTC — B-DOCMAPS-3 (builder) — checkpoint: item 3 done (363 of 363 re-read: 172 corrected, 191 kept)
+**Working on:** item 3 finished; the stale rows next. Files: `tools/docmaps/newdesc_*.py`, `long_*.py`, the pristine page.
+**Measured:** 355 changed + 8 comment-only re-read; corrected where false, clustered in RasterRenderer 24/30, KobinEngine
+22/32, selection 18/22, LevelMap 10/26, erasePipeline 10/18, rasterPack 9/14, Document 9/26; sceneClient 0/14. Three
+outside the set made false by others' changes (`rr._losePlane`, `doc.cedeTileById`'s FIX and row: `eraseDescent.cedeVirtual`
+is gone). Lenient chain: Code Map missing 905 (the oracles), rows with nothing to open 12 (was 13), `audit_stale` 16 (was
+27; the Renderer article's four fixed with item 3).
+**Decisions made:** an entry kept when the change left its claim true, even when a new behaviour is unmentioned; amended
+only where cheap and the omission would mislead (e.g. `setTool`'s parked-gesture cancel).
+**Questions asked:** none.
+WHERE I AM: the 16 stale rows (TileStore 2, Renderer 3, engine-life 3, engine-erase 7, engine-select 1), then the § pass.
+
+## 2026-10-06 09:35 UTC — R-FINAL-D (reviewer) — checkpoint: 1.2 done
+**Done:** FINAL-AUDIT 1.2: every row's test present; rows 7 and 9 are probes (R-MODEL-C34b's 09:27 runs); row 2's oracle
+is `__oracles__/renderList` (listFor gone). PLAN §3 rows 8 and 9 wording stale — to correct.
+**Questions asked:** none.
+WHERE I AM: 1.4 — PLAN §3 rows 8/9, then DESIGN §7–§10/§13 against the code (grep for deleted names first).
+
+## 2026-10-06 09:37 UTC — R-FINAL-D (reviewer) — checkpoint: 1.4 in progress
+**Done:** PLAN §3 rows 2/8/9 annotated as built; OPEN-FLAGS: F138/F139 anchors fixed (F139's section sat under F138's
+anchor; `#f139` had no target), F80 and F111 dated notes for C3 and R-MODEL-C34b. DESIGN §7–§10/§13 and docs/ai 20/30/40
+grepped for every deleted name: current (builders kept them), nothing false found so far.
+**Questions asked:** none.
+WHERE I AM: 1.4 — F94/F107/F108/F133–F137 index rows vs sections; then 10-STATUS (1.5).
+
+## 2026-10-06 09:38 UTC — R-FINAL-D (reviewer) — checkpoint: 1.4 flags and 1.5 mostly done
+**Done:** OPEN-FLAGS F107/F108 index rows' "where" (deleted names out, C3/C4's in). 10-STATUS: header updated 2026-10-06;
+"Where the tree is" rewritten (branch pushed on rasteriser 56e36b3 — verified: origin/rasteriser = 56e36b3, 0 commits
+unpushed at eee8db1; nothing deployed since 2026-09-08); entries R-DRAG, B-PYRAMID-4 + R-PYRAMID-34, C3/C4 + R-MODEL-C34.
+**Left:** the B-PYRAMID-5 entry and its raster reading (after its landing, §5.26); F137's status then; FINAL-AUDIT's
+corrections list and findings.
+WHERE I AM: FINAL-AUDIT corrections + findings sections; then wait for the B-PYRAMID-5 landing message.
+
+## 2026-10-06 09:40 UTC — R-FINAL-D (reviewer) — checkpoint: all but B-PYRAMID-5 done
+**Done:** FINAL-AUDIT's corrections list and findings (no major; m1 stale comments, m2 `syncCameraOnly`, m3 `_camAt`,
+m4 row 4's break-check unrecorded). A2 §2.11 as-built note; 00-START-HERE's branch line.
+**Questions asked:** none.
+WHERE I AM: waiting for the B-PYRAMID-5 landing (PLAN §5.26): then its 10-STATUS entry, F137's status, a read of its
+raster changes against PLAN §5.22 items 2–3, and the report.
+
+## 2026-10-06 09:42 UTC — R-FINAL-D (reviewer) — checkpoint: identifier check of the docs
+**Done:** every backticked identifier in DESIGN §7–§10/§13 and every code-shaped name in docs/ai 20/30/40 checked against
+production code by script: the only absent ones are named as deleted (`PictureLayer`, `_bakeSettled`, `_gone`,
+`_buildList`, `contentOffCamera`). docs/ai 20/30/40 headers dated through the rebuild; 30's test list names the
+rebuild's suites. (My earlier entries' times corrected to the clock: 09:33–09:40.)
+WHERE I AM: waiting for B-PYRAMID-5's landing (PLAN §5.26; a 40-min watcher on PLAN.md).

@@ -516,8 +516,8 @@ add("sco._initScenes", "_initScenes(on)",
 add("sco.snapshotView", "snapshotView(req)",
     "A picture of a rect in a frame, framed by `fitView` at a camera that is never set: one raster job on one plate, for the Scenes panel.",
     ["The world is shifted by the job's pack-time `offset` so the rect lands on plate (0, 0); the picture is the plate's top-left `w × h` device pixels, each capped at PLATE_PX (512). No crossing is made.",
-     "Null off the raster path, for an unknown frame or an unfittable rect. A frame never visited pays its tile bake inside the call, synchronously (F59)."],
-    "§14")
+     "Null off the raster path, for an unknown frame or an unfittable rect. The frame's table is read at idle, a budget at a time (`snapshotJob`), so a frame never visited no longer pays its bake inside the call (F59)."],
+    "§11")
 add("sco.sceneReport", "sceneReport()",
     "The scene client's account for a report: where the index runs, how many objects wait, whether a restore or a batch is under way, and its counters.",
     ["-"], "§15")
@@ -565,8 +565,8 @@ add("sor._newIdn", "_newIdn()",
     ["-"], "§17")
 add("sor._add", "_add(idn, members)", "Register a scene with an identity and a member set.", ["-"], "§17")
 add("sor.frameOf", "frameOf(S)",
-    "A scene's frame in its coarsest home (tie: the lower frame id): valid ink, padded, at least MIN_FRAME_PX of the thickest width.",
-    ["-"], "§17")
+    "A scene's frame in its coarsest home (tie: the lower frame id): valid ink, padded; no minimum size, as the live index (Kobin 2026-09-23).",
+    ["-"], "§11")
 add("sor._tomb", "_tomb(S)",
     "Keep a scene's id and name aside with its frame and range (through `_pushTomb`).",
     ["-"], "§17")

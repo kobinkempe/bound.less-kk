@@ -478,6 +478,11 @@ a frame with no dirt and no camera movement costs one `sync` walk and nothing el
 one-off SVG engines run A3's `cfg.frames = "sync"`, or call `engine.flush()`, where they expect a
 render per API call today (PLAN §5.1 Q10).
 
+*As built (the final design check, 2026-10-06):* there is no `engine.frame()`; the raster path's camera step is
+`KobinEngine._tableStep` (a crossing renders; else `stage.sync` and the renderer's step), and the renderer's step
+without an overlay rebuild keeps the name `syncCameraOnly` (`RasterRenderer.js:707`). The five predicates are gone
+from the raster path and stay on the SVG path (`KobinEngine.js:820–823`, `:855–857`).
+
 ### 2.12 When a full rebuild is still needed, and the window
 
 - **A crossing** (the camera changes frame), a `refile` of F or an ancestor, a merge the camera

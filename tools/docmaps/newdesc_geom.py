@@ -355,9 +355,9 @@ add("off.hasDigits", "hasDigits(sh)",
     ["When it does not, `LevelMap` reads the picture from the object's own frame and applies only the remainder."],
     "§6")
 add("off.residual", "residual(below, k0)",
-    "The translation paint applies to an object's picture at depth `k0` (`piece.res`): the sub-frame remainder, or null when it is zero.",
-    ["The whole-frame part is the object's address at that level (`LevelMap.objShift`), not a translation."],
-    "§6")
+    "A table's displacement of an object's picture at depth `k0`: its whole-cell carry and its sub-frame remainder there, or null when both are zero.",
+    ["The carry is the whole-cell part, which `LevelMap.objShift` turns into the frame the picture is read from; the remainder is the translation paint applies (`piece.res`)."],
+    "§8")
 add("off.shiftDown", "shiftDown(below, k)",
     "The table of a kid `k` levels below its parent: the parent's entries at or above the kid's level folded into its `below[0]`, the deeper ones moved up by `k`.",
     ["Only the folded entries' remainder enters the table; their whole frames are the kid's address. Folding the deeper entries into `below[0]` too counted the displacement twice — measured as an erase at the drag's level missing the moved ink by exactly the remainder. Used by the cede and by scaling down."],
@@ -583,12 +583,11 @@ FIX = {
         "long": ["`windingOfFlat(flatPieces(loops), p)`; null when every ray grazed."],
     },
     "shp.rayCross": {
-        "why": "Says it counts crossings against a flattened boundary; it crosses the ray with each line and arc exactly — a minor arc at least as large as its chord in its chord frame (`chordLineRoots`), other arcs through the centre.",
+        "why": "Says it counts crossings against a flattened boundary; it crosses the ray with each line and arc exactly — a nearly flat minor arc in its chord frame (`chordLineRoots`), other arcs through the centre — and a ray through a piece's end is ambiguous.",
         "what": "Signed crossings of one ray with every piece of a boundary, or null when the ray grazes a vertex, a tangency or the boundary itself.",
-        "long": ["Lines by a determinant. A minor arc whose radius is at least its chord is asked in its chord frame (`chordFrame`, `chordLineRoots`, `chordHit`), so a query about an arc of radius 5e12 never goes through its centre; other arcs through the centre.",
+        "long": ["Lines by a determinant. A minor arc flat enough that its sagitta is under the rounding of its magnitudes is asked in its chord frame (`chordFrame`, `chordLineRoots`, `chordHit`); any other arc through its centre, the centre and the angles taken from the chord form when it has one. A ray passing through either end of a piece is ambiguous (null), as a vertex is.",
                  "The grazing band is a few ulps measured off each piece's own magnitude, never off the scene: taken from the scene, an eraser three crossings down made every query graze and the erase removed nothing.",
-                 "A chord-frame root counts only if it satisfies the line to 1e-12 of the magnitudes: a ray that misses the arc still gets roots from the first-order quadratic."],
-    },
+                 "A chord-frame root counts only if it satisfies the line to 1e-12 of the magnitudes: a ray that misses the arc still gets roots from the first-order quadratic."]},
     "frz.markSeamEnds": {"why": "gone", "what": None, "long": None},   # deleted with the seam marks; the freeze's endpoint guard replaces them
     "frz.arcCuts": {
         "why": "Says reading the centre is safe because a line is never chopped and everything is a line by the third crossing; the chop now sends every arc at or over the freeze radius to `chordCuts` (its chord frame), so `arcCuts` only sees arcs under the gate. The row's [divergence] tag rests on the same claim and should be rechecked against §17.",

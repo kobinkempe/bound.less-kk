@@ -336,7 +336,7 @@ add("rwc.resetRasterWorkerClient", "resetRasterWorkerClient()",
 add("rwk.resetGuards", "resetGuards()",
     "Zeroes the raster core's guard counters, so a job's guards are its own.", ["-"], "§9")
 add("rwk.runJob", "runJob(msg, opts)",
-    "Rasters every plate of one strip into the one RGBA scratch and returns the wired result: bitmaps or pixel copies, ids, timings, counts, guards and the job's buffers.",
+    "Rasters every plate of one strip — each inside its clip when the job has clips — into the one RGBA scratch and returns the wired result: bitmaps or pixel copies, timings, counts, guards and the job's buffers.",
     ["Each plate is serialised (a bitmap awaited, or the bytes copied) before the next is drawn, because the scratch is reused. A plate no item reached after the prune stays null: nothing is drawn there. Times are durations only; receipt-to-start, start-to-finish and serialisation partition the worker's time, so the main thread's queueing subtraction cannot hide a phase.",
      "Exported because `rasterWorkerClient`'s inline path runs it on the main thread; jsdom always takes that path."],
     "§9")

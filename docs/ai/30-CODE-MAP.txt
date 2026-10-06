@@ -2,8 +2,8 @@
 BOUND.LESS - CODE MAP
 Every production file, what it owns, and the parts worth knowing about.
 Written 2026-08-28; files added through 2026-09-22 (the raster renderer, the
-scenes work, the erase jobs). Test files (*.test.js) are listed at the end by
-subject.
+scenes work, the erase jobs) and through the renderer rebuild to 2026-10-06.
+Test files (*.test.js) are listed at the end by subject.
 
 MARKERS
     [DEV]    reachable only from the dev panel (?dev) or a dev route
@@ -963,7 +963,13 @@ useKobinEngine.raster), moves (move.subtree, move.f78, move.twin,
 move.hold, move.below, move.registration, reroute.memo, tileEviction), scenes
 (scenes.cap, storage/thumbnails.live), the store (format2, oplog,
 persist.ids), the eraser (eraseJob, erase.worker, erase.rule, erase.moved,
-raster.eraseRule, select.eraseBarrier).
+raster.eraseRule, select.eraseBarrier); the renderer rebuild's (2026-09-26
+to 2026-10-06; the quick suite 2,210 passed, 12 skipped on 2026-10-06): the
+scene (stage.*), the pyramid (PyramidStore.*, PicturePyramid.*, jobQueue,
+prefetch.*, level.*, rasterCore.clip), the model (model.pureRead,
+lattice.coresident, erase.privateCede, move.drop, select.inkless,
+select.remote) and the probes model.equivalence, select.stands, move.hold and
+stage.equiv; review/rebuild/TEST-MAP.md maps each to PLAN.md §3.
 
     the lattice          frameLattice, LevelMap, digitRange, move.deep,
                          chain.exact, objectTiles, frameLattice, frameLeak

@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-09-23. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-10-06. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -25,10 +25,53 @@ WHERE THE BUILD IS
     conflict keeps both copies, and a dev build writes its own collection
     (dev-canvases), never the deployed app's.
 
-    Where the tree is: main is 4c99a8a (2026-09-15, not pushed; origin/main is
-    0732252). Everything below from 2026-09-15 on is UNCOMMITTED on branch
-    rasteriser. Last deployed 2026-09-08 from 0732252 (SVG only).
+    Where the tree is: the renderer rebuild (review/rebuild/PLAN.md) is on
+    branch claude/hopeful-dirac-iotb9n, pushed, on top of rasteriser at 56e36b3
+    (2026-09-25: the work from 2026-09-15 on, committed and pushed as
+    origin/rasteriser; main's 4c99a8a is inside it; origin/main is 0732252).
+    Nothing has been deployed since 2026-09-08 (0732252, SVG only), and none of
+    the rebuild has been seen by Kobin.
 
+2026-10-06 - C3 AND C4: A FRAME KEEPS ITS IDENTITY; A CEDE'S KIDS LIVE IN PRIVATE FRAMES
+    (review/rebuild/A1-document-model.md §4.4 C3-C4 and §16; B-MODEL-C34, built 2026-09-30,
+    landed 2026-10-04 without a review after the builder's weekly-limit stop; reviewed by
+    R-MODEL-C34 and R-MODEL-C34b, 2026-10-06; PLAN §5.23, §5.25). No merges: a frame landing on
+    an occupied cell stays a co-resident, its own selection unit, and readers read the cell
+    (Document.cellList, LevelMap.cellFrames / sameCell); no read mints (TileStore.prepare mints
+    a picture's source frame at the action's end); a deleted subtree leaves the lattice and its
+    undo puts it back (F107's revival sets gone); a cede's kids live in private frames of their
+    family (LevelMap.privateFrame), so the lasso takes every other frame whole (F108's torn walk
+    gone for new cedes: the city lasso 16 frames and 0 ids, the oracle 48 ids). Version 3 of
+    the header covers co-residents and private frames. Landing it, the 200-seed model fuzz
+    found 11 walks drawn differently from the frozen oracle (F138); the review root-caused
+    every one and fixed four live defects with red-before tests (a subtree delete's tile
+    events, the drop's member list taken at the press, a private frame never keeping a cell
+    from a public one, a load's parentless "0"), and _prepareView's key counts GC's forgets.
+    Measured (jsdom): the tile fuzz 500+500 seeds green (40,000 checks, 276,313 items, every
+    allowance named, counted and break-checked), the selection fuzz 200+200 green, the quick
+    suite 2,210 passed, 0 failed; headless Chromium: the round trip's and scenario 4's ink
+    identical to the tree before, paper 0 ms. Filed: F139 (an undo with a moved frame's ink
+    in view forgets and re-mints a picture source; open). Not seen by Kobin.
+2026-09-30 - THE PYRAMID'S USER PATCHES (review/rebuild/A3-pyramid.md; B-PYRAMID-4, then the
+    R-PYRAMID-34 review; PLAN §5.20, §5.22). The patch step runs in the commit's task; the
+    pack is priced from every pack (packItemUs / packListUs) and its records kept by
+    geometry; the clip cull; F134 fixed (a fast zoom's strips aimed within two levels of the
+    view's and never under the frame's floor: the 2.6-2.9 s, 1.5 GB plate gone); F135 fixed
+    (a joined pen-up group: 3.05-3.08 s with 12 doubled composes -> 41-63 ms with 0). The review:
+    the coarse search stops at the first level with no records, and an undo, a redo or a
+    drop admits a coarse level within three frames (48 ms). Measured in headless Chromium on
+    the dense scene: scenario 4's drag olderPatch 1,040 | 937 -> 567 | 575 ms; scenario 6's
+    undo exact at 432 ms with the change on screen in the commit's task; scenario 7's
+    olderOther 1.4-1.6 s -> 62.5 ms (covered stale plates never asked); never-both held (0
+    both-composes). Open: F137 (scenario 1's zoom back in shows paper; bisected, not
+    attributed). Not seen by Kobin.
+2026-09-30 - THE DROP MOVED A MEMBER TWICE (the R-DRAG review; PLAN §5.21). A drop of a
+    selected frame with a per-object member homed in its neighbour moved the member twice
+    (38.4 px for a 19.2 px drop): the drop now re-addresses the frames first and runs the
+    members against the lattice they left (move.drop D2b, red before). Added
+    move.hold.probe.js: 42 drags, 291 events, with hit tests, lassos, resizes and crossings
+    between them; the document byte-equal at every event and every held native at +delta.
+    Measured in jsdom. Not seen by Kobin.
 2026-09-30 - A DRAG WRITES NOTHING UNTIL ITS DROP (review/rebuild/A1-document-model.md §4.4 C2 and
     §15, B-DRAG). The Stage holds the selection's natives (stage.hold) and draws, hits and
     lassoes them at the pointer's delta (stage.setDragDelta; the plane draws them, or the view's

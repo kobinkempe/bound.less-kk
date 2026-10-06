@@ -224,4 +224,10 @@ L = {
 ],
 "eng._emit": [
     "Publishes the status the interface reads: level, in-level zoom, absolute zoom, whether a crossing is near, the object count, undo and redo, and the erase status (the pending marks, and a gesture finishing its erase: the editor's chip). Then tells the zoom's subscribers (`onZoom`) when the zoom changed, so the scale HUD follows a zoom without a page render."],
+    'erp.setEraserSize': [
+        "Sets the area eraser's width in screen pixels, clamped to 2–200 (16 when not a number)."
+    ],
+    'erp._zOf': [
+        "An object's paint-order key: its z, or its id when it has none."
+    ],
 }

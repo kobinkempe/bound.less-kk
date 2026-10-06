@@ -102,11 +102,10 @@ L = {
  "Then two more sliced sub-phases that were themselves dropping frames — inserting every survivor into the broad-phase grid, and registering its two endpoints — because a dense stroke leaves ten thousand survivors and that is tens of thousands of operations with nowhere to yield.",
 ],
 "arc._cut": [
- "Phase 5. Splits the chain wherever it crosses itself.",
- "For each piece, asks the grid for nearby pieces and intersects them in closed form.",
- "**Skips immediate neighbours.** Consecutive pieces share a point and a direction, which makes their circles tangent — and two tangent circles meet at exactly the one point they already share. A neighbour has nothing to contribute and everything to confuse. Judged cyclically and within a rail.",
- "Each crossing gets **one** vertex identity, so both pieces are cut at the very same point rather than at two roundings of it.",
-],
+    'Phase 5. Splits the chain wherever it crosses itself.',
+    'For each piece, asks the grid for nearby pieces and intersects them in closed form. Two pieces on one circle are cut where they overlap (`_overlapCuts`), and two crossings closer than a hundred-thousandth of the radius are one tangency, cut once at their midpoint.',
+    '**Skips immediate neighbours.** Consecutive pieces share a point and a direction, which makes their circles tangent — and two tangent circles meet at exactly the one point they already share. A neighbour has nothing to contribute and everything to confuse. Judged cyclically and within a rail.',
+    'Each crossing gets **one** vertex identity, so both pieces are cut at the very same point rather than at two roundings of it.'],
 "arc.pieceIntersections": [
  "The crossing points of two pieces, dispatched by kind: line against line, line against arc, or arc against arc.",
 ],
@@ -133,10 +132,9 @@ L = {
  "Carries the chain position along with the fragment. Without it an uncut piece keeps its position and a cut one silently loses it, so any later adjacency test compares a number against nothing and quietly answers false.",
 ],
 "arc._classify": [
- "Phase 6. Splits each piece at its crossings and keeps the fragments the pen does not cover.",
- "A crossing that resolved to one of the piece's own endpoints is not a cut — and dropping it **by vertex identity** drops it on the other piece too, because both saw the same vertex.",
- "Each surviving fragment is tested at its midpoint, which is decisive because the cuts are exactly where the coverage can change.",
-],
+    'Phase 6. Splits each piece at its crossings and keeps the fragments the pen does not cover.',
+    "A crossing that resolved to one of the piece's own endpoints is not a cut — and dropping it **by vertex identity** drops it on the other piece too, because both saw the same vertex.",
+    "Each surviving fragment is judged at its midpoint, which is decisive because the cuts are exactly where the coverage can change: buried fragments go, a tie is kept and settled afterwards (`_pruneTies`), and a fragment the same as one already kept between the same two vertices (one circle) goes as its twin."],
 "arc._stitch": [
  "Phase 7. Walks the surviving fragments into closed loops.",
  "Indexes fragments by their start vertex, then follows each chain: take a fragment, look up what leaves its end vertex, and continue until the loop closes or nothing unused leaves.",
@@ -157,10 +155,9 @@ L = {
 
 # ---- arcShape -------------------------------------------------------------
 "shp.shapeBoolean": [
- "The boolean, with one retry.",
- "Pairing ends at a vertex is a discrete decision made from continuous coordinates: which ends are the same point, and in what angular order. A configuration landing exactly on that boundary — an eraser running tangent to the edge it cuts, three arcs meeting at one point — can pair ends into chains that do not close, and then a real stretch of boundary is simply lost.",
- "Perturbing the welding radius moves the decision off the boundary. A tenth and ten times are both still tiny against every feature in play, and the retry only runs when the first attempt lost something, so nothing normal pays for it.",
-],
+    'The boolean, retried when it lost something.',
+    'Pairing ends at a vertex is a discrete decision made from continuous coordinates: which ends are the same point, and in what angular order. A configuration landing exactly on that boundary — an eraser running tangent to the edge it cuts, three arcs meeting at one point — can pair ends into chains that do not close, and then a real stretch of boundary is simply lost.',
+    'Perturbing the welding radius moves the decision off the boundary: a tenth, ten times and a hundredth are tried in turn, each still tiny against every feature in play, and the first that closes every chain is kept (`retriedAt`). For `both`, the difference and the intersection are retried separately, one run per scale shared. The retry only runs when the first attempt left chains open, and never with a weld the caller fixed, so nothing normal pays for it.'],
 "shp.shapeBooleanOnce": [
  "One pass of the exact boolean. Six steps.",
  "**Normalise and straighten.** One handedness for both shapes, and any arc bulging less than its own coordinates can express becomes a line — only one of the two can be computed with.",

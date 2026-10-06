@@ -23,8 +23,9 @@ WHAT THIS IS
 WHERE THINGS ARE
     repository      C:\Users\Surface\Documents\bound.less-kk
                     github.com/kobinkempe/bound.less-kk
-    working branch  rasteriser - from main at 4c99a8a (2026-09-15, not pushed);
-                    everything since is UNCOMMITTED on it
+    working branch  claude/hopeful-dirac-iotb9n (the renderer rebuild, pushed),
+                    on top of rasteriser at 56e36b3 (pushed; main's 4c99a8a
+                    and the work from 2026-09-15 on, committed 2026-09-25)
     main branch     main (origin/main is 0732252, 2026-09-08)
     deployed        https://bound-less-kk.web.app   (Firebase Hosting)
                     deploy: firebase deploy --only hosting   (config firebase.json)

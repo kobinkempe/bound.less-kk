@@ -213,4 +213,13 @@ L = {
  "An object's on-screen size at a level's deepest in-level zoom.",
  "View-independent by design: this is the cull and fade measure, and a measure that moved with the camera would make content flicker in and out as you zoomed.",
 ],
+    'rnd._buildOutlineInto': [
+        "The loops come from `strokeLoops`, fitted once and cached on the stroke (`_outline`) — lazily, at the idle fitter's turn or when the stroke nears the gate — and become Two.js anchors, each arc by the plan made once per piece (DESIGN.md §9)."
+    ],
+    'rnd.setLasso': [
+        "Hands the shared overlays (`SvgOverlays`) the engine's lasso source: the loop's screen points while one is drawn or parked."
+    ],
+    'rnd.refreshSelection': [
+        'Redraws the lasso loop and flushes the SVG.'
+    ],
 }

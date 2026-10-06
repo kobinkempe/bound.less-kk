@@ -189,10 +189,10 @@ FIX = {
         "what": None,
         "long": ["The mirror of `undo`: `_history` over the redo stack. Returns false when nothing was redone."]},
     "fil.loadDrawing": {
-        "why": "the serializeDrawing · loadDrawing row's text does not mention `{ render: false }`, the restore path (STALL 2026-09-23)",
+        "why": "the serializeDrawing · loadDrawing row's text does not mention `{ render: false }`, the restore path (STALL 2026-09-23); the erase state is derived from the file, and the camera put in its cell's resident",
         "what": None,
-        "long": ["In order: decode (it throws first), load the lattice, mint every frame the natives name, drop the bake queue, load the natives (the reset event clears the tiles, the selection and, on the raster path, the plate memo and the carried picture), set and settle the camera into a legal zoom, clear the erase bookkeeping and any cut in flight, reschedule the bake, take the file's name, scale bar and scenes, clear the renderer, render, and queue idle outline fits.", "`{ render: false }` skips the render: the store restore (`useKobinEngine.restoreFrom`) and `foldStore` load the snapshots this way, replay the op log, and render once, a task later (on the Magnum Opus the load and a cold render were one 5-7 s task, STALL 2026-09-23)."],
-    },
+        "long": ["In order: decode (it throws first), load the lattice, mint every frame the natives name, drop the bake queue, load the natives (the reset event clears the tiles and the selection, and the Stage's reset drops every plate), set and settle the camera into a legal zoom and its cell's resident (`_camToResident`, A1 C3), derive the marks' lineage and register them (`_eraseLoaded`; only the lineage, `_deriveTargetOf`, without a render), reschedule the bake, take the file's name, scale bar and scenes, clear the renderer, render, and queue idle outline fits.",
+                 "`{ render: false }` skips the render: the store restore (`useKobinEngine.restoreFrom`) and `foldStore` load the snapshots this way, replay the op log, and render once, a task later (on the Magnum Opus the load and a cold render were one 5-7 s task, STALL 2026-09-23)."]},
     "sel._selectionStatus": {
         "why": "the row's text does not say a frame under another selected frame is counted once",
         "what": None,

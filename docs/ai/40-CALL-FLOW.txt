@@ -1,7 +1,8 @@
 ================================================================================
 BOUND.LESS - CALL FLOW
 What calls what, from a finger on the glass to pixels. Written 2026-08-28; the
-raster path, the erase jobs, the saves and the loads brought to 2026-09-22.
+raster path, the erase jobs, the saves and the loads brought to 2026-09-22, and
+the renderer rebuild's paths to 2026-10-06.
 Indentation is the call chain. [HOT] marks a per-event or per-frame path.
 ================================================================================
 

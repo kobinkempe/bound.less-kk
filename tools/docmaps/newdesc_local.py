@@ -271,9 +271,10 @@ add("loc.forkCanvas", "forkCanvas(id, name)",
 
 
 # ---- src/storage/foldStore.js ----
-add("fld.logTail", "logTail(entries, frameSeq)",
-    "The log entries the frame snapshots do not hold yet: all but those whose every touched frame has a snapshot at or past the entry's seq.",
-    ["`OpLog.replay`'s rule inverted; an entry that touches no frame is always kept. `docFromStore` makes an engine only when it is non-empty."])
+add("fld.logTail", "logTail(entries, frameSeq, listed)",
+    "The log entries the frame snapshots do not hold yet: all but those whose every touched frame has a snapshot at or past the entry's seq (a frame the header does not list counting as empty then).",
+    ["`OpLog.replay`'s rule inverted; an entry that touches no frame is always kept. `docFromStore` makes an engine only when it is non-empty."],
+    "§13")
 add("fld.plainRecords", "plainRecords(objects, geo)",
     "A kobin-2 frame decoded to kobin-1 records whose loops are plain arrays.",
     ["A decoded loop is a view into the frame's geometry buffer; a document bound for JSON, the bin or a backup must not carry one."])
@@ -286,10 +287,10 @@ add("fld.docFromStore", "docFromStore(res)",
 
 # ---- src/storage/thumbnails.js ----
 add("thm.withSvgEngine", "withSvgEngine(doc, w, h, fn)",
-    "Runs `fn(engine, host)` on a one-off SVG engine over a copy of the document, off screen, and destroys it after.",
-    ["Always the SVG engine (raster off, scenes off, outlines built at once), because a thumbnail or an export is made by serialising its `<svg>` and the raster path's ink is on a canvas no serialiser sees (DESIGN.md §9). The document is deep-copied through JSON and loaded, so the camera is the file's.",
+    "Runs `fn(engine, host)` on a one-off SVG engine over a copy of the document, off screen, with every pending mark applied, and destroys it after.",
+    ["Always the SVG engine (raster off, scenes off, outlines built at once), because a thumbnail or an export is made by serialising its `<svg>` and the raster path's ink is on a canvas no serialiser sees (DESIGN.md §9). The document is deep-copied through JSON and loaded, so the camera is the file's; its pending marks are baked first (`flushErases`), since a serialised `<svg>` carries no mask the erase rule would apply.",
      "Once `fn` settles the engine is destroyed (its renderer detaches the `<svg>` and clears its scene) and the host removed; what `fn` returns outlives them. Used by `renderThumbs` and by the SVG export in raster mode."],
-    "§9")
+    "§13")
 add("thm.renderThumbsLive", "renderThumbsLive(engine, scenes, existing, opts)",
     "Scene thumbnails from the live raster engine: one `snapshotView` per scene whose hash changed, a few at a time, each landing as it is made.",
     ["Scenes whose stored hash still matches are skipped. Up to `opts.limit` lanes (4) run; each job waits for an idle callback, snapshots the scene's rect at 320×240 and encodes it with `scaleToDataUrl`. `opts.onThumb` fires per thumbnail so the panel fills progressively; `opts.signal` stops what has not started.",
@@ -345,8 +346,9 @@ add("syc.StatusIcon", "StatusIcon({ icon, size })",
 add("syc.CheckIcon", "CheckIcon({ size })",
     "A tick in the sync green, for the details card's 'saved' headline and the 'You have the pen' banner.", ["-"], "")
 add("syc.SyncDetails", "SyncDetails({ ... })",
-    "The details card the status button opens: the state's headline and icon, the one-device-draws-at-a-time note, this device's name and Rename this device.",
-    ["A dialog that takes the focus when it opens; a click outside (`useClickAway`) or Escape closes it, Escape handing the focus back to the button. Rename closes the card and calls `onRenameDevice`, which the editor answers with a prompt and `setDeviceName`."])
+    "The details card the status button opens: the state's headline and icon, the one-device-draws-at-a-time note, and this device's name.",
+    ["A dialog that takes the focus when it opens; a click outside (`useClickAway`) or Escape closes it, Escape handing the focus back to the button."],
+    "§13")
 add("syc.SyncStatus", "SyncStatus({ ... })",
     "The save state as a button inside the title chip: its icon, plus the short label on a desktop; it opens the details card.",
     ["`compact` (a phone) shows the icon alone; the accessible name is `syncName` either way, and `data-sync` carries the status key."])

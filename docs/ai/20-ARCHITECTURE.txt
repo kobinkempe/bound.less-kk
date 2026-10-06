@@ -1,7 +1,8 @@
 ================================================================================
 BOUND.LESS - THE ARCHITECTURE, IN ONE PASS
 Written 2026-08-28, updated 2026-09-22 (moving, erasing and rendering brought
-to DESIGN.md sections 7-9).
+to DESIGN.md sections 7-9) and through the renderer rebuild to 2026-10-06
+(review/rebuild/PLAN.md).
 
 DESIGN.md AT THE REPOSITORY ROOT IS THE SAME MATERIAL, AND IT IS THE ONE THAT
 IS MAINTAINED. It was distilled from this file and from the design bibles on
