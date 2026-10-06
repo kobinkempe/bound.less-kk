@@ -3745,3 +3745,10 @@ WHERE I AM: reading `jobQueue.pump`/`_nextTask` and the renderer's pump callers 
 **Done:** FINAL-AUDIT.md (1.1, 1.2, 1.3 tables, the corrections, findings: no major, minors m1–m4). No suite run.
 **Left:** after PLAN §5.26: B-PYRAMID-5's 10-STATUS entry, F137's status and index row, a read of its raster changes.
 WHERE I AM: waiting for the orchestrator's §5.26 message.
+
+## 2026-10-06 14:23 UTC — B-DOCMAPS-3 (builder) — resumed after the second stop (tree at 82603a4)
+**Working on:** the § column (`dmap/secmap.py`: by module, DESIGN.md's current sections; its first real run refused to
+write, an inserted ref did not parse — nothing written). Done before the stop: item 3 (363: 172 corrected, 191 kept), the
+stale rows (`audit_stale` 0) and the rows with nothing to open (2,383 of 2,383 open).
+**Questions asked:** none.
+WHERE I AM: fixing `secmap.py`'s insertion, then its run, the lenient chain, and the report.
