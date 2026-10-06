@@ -1148,3 +1148,27 @@ Nothing in Kobin's Chrome.
    1 failed, a different one each time): B-PYRAMID-6 too, bounded — the cause, or the test made deterministic as RV4 was.
 4. **The drop's remaining cost** (`eng.list` 410–541 ms, its question 3): the next drop-frame target, on the roadmap; not
    built now.
+
+### 5.27 To B-PYRAMID-6 and B-TIDY (their reports of 2026-10-06)
+
+Read in full; landed in 7f30fa1 and 5da1395. **F140 fixed** (jsdom): `pump`, stopping at the frame's pack budget, now
+always asks for the next task — at rest at once, while the camera moves a task 50 ms (`MOTION_STALE_MS`) after the last
+step that starts the budget again only if no moving step came since; the proposal alone (a stale motion read as rest)
+missed a pump inside the window with nothing after it. `jobQueue.test`: a zoom's three moving steps then a landing's pump
+sent 3 of 6 strips and no cut in 1,006 ms before, all 6 at 51 ms after; four break-checks red (the renderer suites were
+0 of 79 red with the old branch, which is why F140 never showed). The two load-sensitive `raster.pyramid` tests: the
+pen-up groups fuzz needed the first group open at the second pen-up and an inline patch closes it (lever: `patchUserMs`
+0 around the pair); "supersedes the queued one" passed only while the loop ended inside the rest's 100-ms quiet (lever:
+`restInlineMs` 1e9) — 50 of 50 under load 5.0–5.7. **B-TIDY**: the comments naming deleted mechanisms rewritten;
+`_camToLattice` refuses a `_camAt` noted for another frame (DF-5 red before; reachable: a crossing and a Delete inside one
+animation frame); PLAN §3 row 4 break-checked (5 of 7 red). The quick suite 2,213 passed, 0 failed (both agents'
+runs); typecheck 0; lint 0 errors; the worker md5s unchanged. Nothing in a browser yet.
+
+1. **Scenario 7, ten runs, and the velocity rule's stale aim** (B-PYRAMID-6's question 1: `_admit` projects the camera
+   from the time since its last step, so a view strip pumped long after a stop is aimed far off): R-FINAL-M measures both
+   — every run's erase bake and the `offscreen` drops.
+2. **`raster.engine` "§8.4 rule 2"** failed once at load 4.8 (a 4.6 ms residual against its 1 ms bar; preemption during a
+   synchronous render): noted, no flag; the quick suite at load under 2 is the record.
+3. **F141** (filed: the fallback after B-TIDY's fix is the depth-0 spine; noting `_camAt` at every crossing would keep
+   the cell) and the last stale comments (`Stage.js`, `TileStore.js`, `curveOutline.js`, `RasterRenderer.noteUserEdit`;
+   `packJob`'s unread `q`): a later small pass.

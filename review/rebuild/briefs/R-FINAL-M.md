@@ -30,7 +30,9 @@ each gesture (identical across trees where the scenario's result should be), and
 
 **Scenario 7 and F140** (a queue pumped after the camera's last moving step could stall: the erase never baked in 1 run
 of 10 before B-PYRAMID-6's fix, PLAN §5.26 item 2): on `final`, scenario 7 ten times (each under load 2, no other
-browser); every run's `eraseBakeMs` and the queue's state if one does not bake. A stall in any run is the finding.
+browser); every run's `eraseBakeMs` and the queue's state if one does not bake. A stall in any run is the finding. Also
+every run's view strips dropped as `offscreen` after the wheel stops (the velocity rule aims from the time since the
+last step, PLAN §5.27 item 1).
 
 ## 2. Three measurements the reviews left for this check
 

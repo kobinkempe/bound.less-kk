@@ -3932,3 +3932,19 @@ exit 0; md5s unchanged, as expected for comment-only edits: raster-worker 432c23
 **Decisions made:** the fallback stays the depth-0 spine; `packJob`'s `q` documented as unread, not removed.
 **Questions asked:** none open. Follow-up (orchestrator's answer): note `_camAt` at every crossing (`onCross`).
 WHERE I AM: done; report sent.
+
+## 2026-10-06 21:40 UTC — B-PYRAMID-6 (builder) — checkpoint: item 3 running
+**Measured:** raster.pyramid + jobQueue whole files under 3 busy loops: 50 of 50 passed in 3 runs (load 5.0–5.7).
+typecheck 0 errors; lint 0 errors (5 warnings, none in my files). Docs done: OPEN-FLAGS F140 (fixed, row + entry),
+TEST-MAP (jobQueue and raster.pyramid rows), DESIGN §9 (the 50-ms rule, in 7f30fa1).
+**Decisions made:** none new. **Questions asked:** none.
+WHERE I AM: the quick suite started 21:39 at load 1.6 (`bp6/quick.log`); then the end entry and the report.
+
+## 2026-10-06 21:43 UTC — B-PYRAMID-6 (builder) — end: F140 fixed, the two load-sensitive tests levered
+**Measured:** the quick suite 2,213 passed, 0 failed, 12 skipped, 196 suites (21:39–21:42, load 1.6 → 3.5, nothing
+else running); typecheck 0; lint 0 errors. Item 1 and 2 numbers in the entries above (14:53, 14:57, 21:37, 21:40).
+**Decisions made:** F140 by a timed task, not the staleness reading alone (why in OPEN-FLAGS F140); both tests by
+levers already used elsewhere (`restInlineMs` 1e9, `patchUserMs` 0), since the code paths they hit are designed.
+A third load-sensitive test seen once: `raster.engine` "§8.4 rule 2" (residual 4.6 ms against 1 ms, load 4.8) — reported.
+**Questions asked:** in the report.
+WHERE I AM: done — the report to the orchestrator.
