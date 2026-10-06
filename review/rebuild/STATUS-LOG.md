@@ -3732,3 +3732,16 @@ the rows; the code map pauses after it). The container rebooted (uptime 0 at 14:
 **Decisions made:** no more browser runs on the stall before the report.
 **Questions asked:** none.
 WHERE I AM: waiting for the three reports; R-FINAL-M after B-PYRAMID-5 lands.
+
+## 2026-10-06 14:23 UTC — B-PYRAMID-5b (builder) — resumed after the ninth stop and reboot (tree at 82603a4)
+**b10 END (before the stop):** six s7 runs with `bp5/h7`, load 0.25–1.69 at the starts: no stall — the tree's erase baked in
+4,512 | 4,276 | 3,935 ms, landed 4,155 | 4,417 | 4,426. The b8 stall: 1 of 7 tree runs, 0 of 4 landed.
+**Now (per the orchestrator):** no more browser runs on it — the queue's pump and frame conditions read for a path that
+leaves strips queued with no pump scheduled, filed as F140; then the P1 test under busy loops, the quick suite, the report.
+**Questions asked:** none.
+WHERE I AM: reading `jobQueue.pump`/`_nextTask` and the renderer's pump callers for F140.
+
+## 2026-10-06 14:23 UTC — R-FINAL-D (reviewer) — partial: report sent without B-PYRAMID-5's part
+**Done:** FINAL-AUDIT.md (1.1, 1.2, 1.3 tables, the corrections, findings: no major, minors m1–m4). No suite run.
+**Left:** after PLAN §5.26: B-PYRAMID-5's 10-STATUS entry, F137's status and index row, a read of its raster changes.
+WHERE I AM: waiting for the orchestrator's §5.26 message.
