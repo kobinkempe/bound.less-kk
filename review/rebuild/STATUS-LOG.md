@@ -3948,3 +3948,12 @@ levers already used elsewhere (`restInlineMs` 1e9, `patchUserMs` 0), since the c
 A third load-sensitive test seen once: `raster.engine` "§8.4 rule 2" (residual 4.6 ms against 1 ms, load 4.8) — reported.
 **Questions asked:** in the report.
 WHERE I AM: done — the report to the orchestrator.
+
+## 2026-10-06 22:00 UTC — orchestrator (Opus) — every build landed; R-FINAL-M launched on the final tree a0b0ed4
+**Working on:** B-TIDY landed (5da1395; F141 filed for the camera's fallback) and B-PYRAMID-6 (F140 fixed; a0b0ed4),
+PLAN §5.27. The final tree is a0b0ed4: R-FINAL-M measures it against 59f0a76 and 56e36b3 (`briefs/R-FINAL-M.md`; scenario
+7 ten times, the `offscreen` drops after the wheel stops). No other agent runs beside it.
+**Measured:** nothing.
+**Decisions made:** none.
+**Questions asked:** none.
+WHERE I AM: waiting for R-FINAL-M; then the summary for Kobin.
