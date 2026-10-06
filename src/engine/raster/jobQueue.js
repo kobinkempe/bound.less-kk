@@ -12,8 +12,10 @@
  *     `requeue` find it by that identity (a copy leaked a thumbnail's slot for the session).
  *   - A frame packs at most PACK_MS_PER_FRAME while the camera moves, and a task at most that while it is still (the
  *     pack runs in `pool.submit`, on this thread: 14–45 ms a job on a dense drawing mid-zoom, PP §10.14, and 171–480
- *     ms a prefetch strip at rest, P6); the strip that crosses it is the last, the rest wait for the next frame, or
- *     for the next task, which the queue asks for (`defer`), so input runs between two strips.
+ *     ms a prefetch strip at rest, P6); the strip that crosses it is the last, and the rest wait for the next task,
+ *     which the queue asks for (`defer`), so input runs between two strips. While the camera moves, a step starts the
+ *     budget (`frame`) and the task waits until MOTION_STALE_MS after the last step: a camera that stopped steps no
+ *     more, and nothing else would start it (F140).
  *   - Pure: a pool `{ size(), free(), submit(strip) }` (`rasterWorkerClient.rasterPool` behind the renderer's face), a
  *     clock, the store's `wants(key)`. The caller calls `done(id, ms)` for every strip `submit` took.
  */
@@ -31,6 +33,8 @@ export const PRIO = Object.freeze({ rest: 0, patch: 0, view: 1, plane: 2, cut: 3
 export const STRIPS_PER_WORKER = 2;
 /** Pack milliseconds one animation frame may spend while the camera moves, and one task while it is still (A3 §4.4). */
 export const PACK_MS_PER_FRAME = 4;
+/** A moving camera steps every frame; a motion this old with no step since has stopped, and a task starts the budget (F140). */
+export const MOTION_STALE_MS = 50;
 /** The mean job ms before any job has come back. */
 const JOB_MS0 = 30;
 /**
@@ -46,9 +50,9 @@ export default class JobQueue {
      * @param {()=>number} [o.clock] ms @param {{wants:(key:string)=>boolean}} [o.store] the plate store
      * @param {object} [o.gens] live purpose generations (`PicturePyramid.gens`): a strip older than its purpose's is dropped
      * @param {(strip:object, why:string)=>void} [o.onDrop] a strip dropped before dispatch
-     * @param {(fn:()=>void)=>void} [o.defer] runs `fn` in a later task (the budget's task at rest)
+     * @param {(fn:()=>void, ms:number)=>void} [o.defer] runs `fn` in a task at least `ms` later (the budget's next task)
      */
-    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null, defer = (fn) => setTimeout(fn, 0) } = {}) {
+    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null, defer = (fn, ms) => setTimeout(fn, ms) } = {}) {
         this.pool = pool;
         this.clock = clock;
         this.store = store;
@@ -60,7 +64,7 @@ export default class JobQueue {
         this._id = 0;
         this._packMs = 0;              // this frame's pack time, or this task's at rest
         this._defer = defer;
-        this._task = false;            // at rest: a later task is asked for, which starts the budget again
+        this._task = false;            // a later task is asked for, which starts the budget again (`_nextTask`)
         this.motion = null;            // { moving, view, vel: { px: [x, y] /ms, zoom: log2 Z /ms }, attention }
         this.jobMs = JOB_MS0;
         this.s = { pushed: 0, strips: 0, dispatched: 0, deferred: 0, reaimed: 0, skippedCells: 0, offscreenCells: 0, done: 0,
@@ -126,7 +130,7 @@ export default class JobQueue {
             if (this.pool.free() <= 0) return n;
             const moving = this.motion && this.motion.moving;
             if (this._packMs >= PACK_MS_PER_FRAME) {
-                if (this.queue.length) { this.s.deferred++; if (!moving) this._nextTask(); }
+                if (this.queue.length) { this.s.deferred++; this._nextTask(); }
                 return n;
             }
             const k = this._best();
@@ -161,11 +165,22 @@ export default class JobQueue {
         return true;
     }
 
-    /** At rest the pack budget is a task's: a later task starts it again and pumps what waits. */
+    /**
+     * A later task starts the budget again and pumps what waits: the next one at rest; while the camera moves, the one
+     * MOTION_STALE_MS after the last step, which a newer moving step re-arms — that step started the budget (F140).
+     */
     _nextTask() {
         if (this._task) return;
         this._task = true;
-        this._defer(() => { this._task = false; this._packMs = 0; if (this.queue.length) this.pump(); });
+        const m = this.motion, moving = !!(m && m.moving);
+        const ms = !moving ? 0 : m.at != null ? Math.max(0, m.at + MOTION_STALE_MS - this.clock()) : MOTION_STALE_MS;
+        this._defer(() => {
+            this._task = false;
+            const n = this.motion;
+            if (n !== m && n && n.moving) { if (this.queue.length) this._nextTask(); return; }
+            this._packMs = 0;
+            if (this.queue.length) this.pump();
+        }, ms);
     }
 
     /** A queued strip taken out before dispatch (an aborted snapshot); false when it is not queued. */

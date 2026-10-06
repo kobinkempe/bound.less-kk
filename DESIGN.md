@@ -768,7 +768,8 @@ its G ≥ its cell's `dirtySince` (rule 2). `jobQueue.js` cuts typed jobs into s
 patches 0, the view 1, the plane 2, cuts 3 (one worker kept for cuts while any is pending), the prefetch 4,
 thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; it packs at most 4 ms
 a frame while the camera moves and 4 ms a task while it is still (the strip that crosses it ends the task, the rest
-go in the next, so input runs between two 171–480 ms prefetch packs), and while moving skips cells the camera will
+go in the next, so input runs between two 171–480 ms prefetch packs; a camera with no step for `MOTION_STALE_MS` 50 ms
+has stopped, and a task starts the budget — F140: strips waited for a step that never came), and while moving skips cells the camera will
 have left by the strip's arrival (the velocity rule) and re-aims a view strip at the level the camera is heading to — at
 most `AIM_LEVELS` 2 levels from the view's and never under the frame's `ownFloor` (F134: unbounded, a fast zoom-out in
 jsdom re-aimed strips 15–20 octaves out, and one strip's cover check alone took 2.6–2.9 s and 1.5 GB at ℓ −19). The pack

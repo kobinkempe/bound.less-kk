@@ -866,7 +866,9 @@ Dated notes where building C3 and C4 changed or sharpened §4.4, §5 and §8. js
   (`store.want`) until the engine mints it at idle (`prepareWanted`). Measured (the builder's minting-callers probe over a fuzz run and the engine's renders): every `objShift` call that minted came from `TileStore.prepare` — at a zoom's end (291), a render after an action (149), an undo or redo (57), a pan (6), the fuzz's idle step (232) — or from the descent's write (9); none from a read.
 - **The camera.** A camera whose frame becomes a co-resident is handed to the cell's resident, same coordinates
   (`_camToResident`, at the frame events and a load); a camera whose frame was deleted goes to a fresh frame at the
-  chain the last render read (`_camToLattice`), its cached tiles, table and plates dropped (the id may come back).
+  chain a render noted for that frame (`_camToLattice`), its cached tiles, table and plates dropped (the id may come
+  back). With none noted for it — a crossing and the delete inside one "raf" frame — it goes to the depth-0 spine,
+  never the frame it left (FINAL-AUDIT m3; `select.detachedFrame.test.js` DF-5).
 - **A deleted subtree leaves the lattice.** `removeFrameSubtree` returns records `{frame, natives, index, at}`, parents
   first, and retires the ids; `insertFrameSubtree` puts them back (`restoreFrame`: a co-resident where a frame holds
   the cell, its resident when that one is empty and childless); the redo deletes again in place (`detachFrames`). The

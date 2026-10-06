@@ -280,7 +280,8 @@ export default class KobinEngine {
     }
     /**
      * The camera's frame deleted with a subtree (A1 C3: it left the lattice): the camera goes to a fresh frame at the
-     * same cell — its chain as the last render read it — with the same coordinates. Else its chain is noted.
+     * same cell — the chain a render noted for that frame — with the same coordinates. With none noted for it (a
+     * crossing and the delete inside one "raf" frame), to the depth-0 spine, never the frame it left. Else its chain is noted.
      */
     _camToLattice() {
         const F = String(this.cam.frame);
@@ -291,7 +292,7 @@ export default class KobinEngine {
             }
             return false;
         }
-        const at = this._camAt;
+        const at = this._camAt && this._camAt.F === F ? this._camAt : null;
         const f = at && at.chain && this.lm.frame(at.root) ? this.lm.frameAtChain(at.root, at.chain) : null;
         this.cam.frame = f ? f.id : this.lm.ensureSpine(this.cam.activeLevel || 0);
         this._camAt = null;
@@ -582,8 +583,8 @@ export default class KobinEngine {
         this.stage.hold({ ids, frames });
     }
     /**
-     * The renderer's plane can no longer draw the live drag (the camera left its frame, the sync path):
-     * the view's plates draw it from here, at the same delta (review major 2).
+     * The renderer's drag plane can no longer draw the live drag (the camera left the plane's frame, or it
+     * has no layers): the view's plates draw it from here, at the same delta. Acts once a hold (review major 2).
      */
     _planeLost() {
         const h = this._holdMove, d = this._dragSel;
@@ -626,10 +627,9 @@ export default class KobinEngine {
     }
     /**
      * The ONE exit of a drag — the drop, a cancel, a delete, a deselect, an undo. A drop is the drag's one
-     * write (`_dropMove`); with the hold's release and the merges its re-addresses made (recorded on its
-     * op) it is one commit, and its patch has a user's budget like an undo's (PLAN §5.15 item 2). Any
-     * other exit writes nothing: the document is as it was at the press. Then the renderer is told, one
-     * render, and the selection repaired from the op.
+     * write (`_dropMove`); with the hold's release it is one commit, and its patch has a user's budget like
+     * an undo's (PLAN §5.15 item 2). Any other exit writes nothing: the document is as it was at the press.
+     * Then the renderer is told, the selection repaired from the op, and one render.
      */
     _endMove(why) {
         const d = this._dragSel, live = d || this._holdMove;

@@ -144,4 +144,25 @@ describe("DF — a deleted frame subtree leaves the lattice; ink where it was, a
         expect(E.doc.cellList(F2).map((o) => o.id)).toEqual([B.id]);
         expect(readable(E)).toEqual([]);
     });
+
+    test("DF-5 the camera crosses into a selected frame and it is deleted before a render read its chain: not put at the frame it left (FINAL-AUDIT m3)", () => {
+        const E = mkEngine();
+        zoom(E, 16, 3);
+        const G = E.cam.frame;                                        // depth 1
+        zoom(E, 16, 3);
+        const F = E.cam.frame;                                        // depth 2, G's child
+        drawStroke(E, [[380, 300], [400, 280], [420, 310]], 8);
+        zoom(E, 1 / 16, 3);
+        expect(E.cam.frame).toBe(G);                                  // the last render read G's chain
+        E._setSelection([], [F]);
+        E.cfg.frames = "raf";                                         // the app's: a crossing's render waits for the frame
+        zoom(E, 16, 3);
+        expect(E.cam.frame).toBe(F);
+        const at = [E.cam.inScale, E.cam.inPanX, E.cam.inPanY];
+        E.deleteSelection();                                          // inside the same frame: no render read F's chain
+        expect(E.lm.frame(F)).toBeUndefined();
+        expect(E.cam.frame).not.toBe(G);                              // red: G's chain, with F's coordinates
+        expect(E.lm.frame(E.cam.frame)).toBeTruthy();
+        expect([E.cam.inScale, E.cam.inPanX, E.cam.inPanY]).toEqual(at);
+    });
 });

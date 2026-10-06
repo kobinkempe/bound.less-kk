@@ -1118,8 +1118,10 @@ Kobin's Chrome.
 2. **The drop's `setBatch` wrap** (question 2): no measured benefit with this cache (211–387 ms with, 209–385 without);
    measured once with a fuller cache in the final check, deleted if still none.
 3. **§5.23 item 6** (question 3): corrected above — the 10–25 % was not reproduced.
-4. **Open, routed to the final pass**: `_camAt` unchecked against a missing frame (minor; no path reached it); scenario 3
-   was not re-run (the final check runs every scenario).
+4. **Open, routed to the final pass**: `_camAt` unchecked against a missing frame — fixed 2026-10-06 (B-TIDY,
+   FINAL-AUDIT m3): reachable in the app after all (a "raf" crossing and a Delete inside one frame put the camera at
+   the frame it left), now the depth-0 spine; `select.detachedFrame.test.js` DF-5. Scenario 3 was not re-run (the
+   final check runs every scenario).
 
 ### 5.26 To B-PYRAMID-5 (its report of 2026-10-06; B-PYRAMID-5b finished it)
 

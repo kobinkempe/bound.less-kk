@@ -83,7 +83,8 @@ const TOOL_BY_ID = new Map(TOOL_SECTIONS.flatMap((s) => s.items).map((t) => [t.i
 /**
  * The renderer levers (A3 §8; PLAN §1.2): the level step with the view's stretch band for this screen, the
  * plate budget, the rest render's quiet and inline switch, the compose path. Stored per device through the
- * hook (a URL parameter of the same name wins at load); until B-PYRAMID reads them they change no picture.
+ * hook (a URL parameter of the same name wins at load); `engine.setLevers` applies a change at once on the
+ * raster path.
  */
 function DevLevers({ engine, dbgBtn }) {
     const lv = engine.levers;

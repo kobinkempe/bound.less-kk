@@ -5,9 +5,10 @@
  * AIM_LEVELS away and never past the frame's floor: F134), cancellation by purpose generation, dedupe against the
  * store, and a failed strip keeping its priority.
  */
-import JobQueue, { PRIO, STRIPS_PER_WORKER, PACK_MS_PER_FRAME, AIM_LEVELS } from "./jobQueue";
+import JobQueue, { PRIO, STRIPS_PER_WORKER, PACK_MS_PER_FRAME, AIM_LEVELS, MOTION_STALE_MS } from "./jobQueue";
 import { levelCell } from "./PyramidStore";
 import { ownFloor, zOf } from "./level";
+import { perfNow } from "../now";
 
 function rig(W = 4, packMs = 0) {
     const clock = { t: 0 };
@@ -18,7 +19,7 @@ function rig(W = 4, packMs = 0) {
         free: () => W - q.inFlight.size,
         submit: (st) => { sent.push(st); clock.t += packMs; return true; },
     };
-    q = new JobQueue({ pool, clock: () => clock.t, gens: {}, defer: (fn) => tasks.push(fn) });
+    q = new JobQueue({ pool, clock: () => clock.t, gens: {}, defer: (fn, ms) => { fn.ms = ms; tasks.push(fn); } });
     return { q, sent, clock, tasks, finish: (st) => q.done(st.id, 10) };
 }
 const job = (kind, prio, n = 1, o = {}) => ({
@@ -59,7 +60,7 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         expect(sent.length).toBe(Math.ceil(PACK_MS_PER_FRAME / 1.5));
         q.pump();
         expect(sent.length).toBe(3);
-        expect(tasks.length).toBe(0);                                    // moving: the next frame's step pumps
+        expect(tasks.length).toBe(1);                                    // moving: the next frame's step pumps, or the task at the motion's staleness (F140)
         q.frame(); q.pump();
         expect(sent.length).toBe(6);
         q.setMotion({ moving: false });
@@ -87,6 +88,44 @@ describe("jobQueue (A3 §4.1, §4.4)", () => {
         expect(tasks.length).toBe(1);                                   // a task's budget, even with nothing left to send
         tasks.shift()();
         expect(tasks.length).toBe(0);
+    });
+
+    test("F140: a zoom that ends with strips behind a spent budget and no step after it still dispatches them (the renderer's clock and timers)", async () => {
+        let skew = 0, q = null;
+        const sent = [];
+        const clock = () => perfNow() + skew;                              // a pack costs 5 ms of the queue's clock
+        const pool = { size: () => 8, free: () => 8 - q.inFlight.size, submit: (st) => { sent.push(st); skew += 5; return true; } };
+        q = new JobQueue({ pool, clock, gens: {} });
+        const cut = () => ({ kind: "cut", prio: PRIO.cut, cells: [] });
+        q.push([job("rest", PRIO.rest, 4), cut(), cut()]);
+        for (let k = 0; k < 3; k++) {                                       // the zoom's steps (`_frameStep`): one strip spends each frame's budget
+            q.setMotion({ moving: true, at: clock(), vel: { px: [0, 0], zoom: 0.01 } });
+            q.frame(); q.pump();
+        }
+        expect(sent.length).toBe(3);
+        q.done(sent[0].id); q.pump();                                      // a landing pumps without a step
+        const t0 = perfNow();
+        while (sent.length < 6 && perfNow() - t0 < 1000) await new Promise((r) => setTimeout(r, 5));
+        expect([sent.length, sent.filter((st) => st.kind === "cut").length]).toEqual([6, 2]);
+    });
+
+    test("F140: at the budget while the camera moves, a task is asked for at the motion's staleness; a newer step re-arms it with the frame's budget kept", () => {
+        const { q, sent, clock, tasks } = rig(16, 5);
+        q.push([job("view", PRIO.view, 8)]);
+        q.setMotion({ moving: true, at: 0 });
+        q.frame(); q.pump();                                                // one strip spends the frame's budget
+        expect([sent.length, tasks.length, tasks[0] && tasks[0].ms]).toEqual([1, 1, MOTION_STALE_MS - 5]);
+        clock.t = 20;
+        q.setMotion({ moving: true, at: 20 });
+        q.frame(); q.pump();                                                // the next step pumps its own
+        expect([sent.length, tasks.length]).toEqual([2, 1]);
+        tasks.shift()();                                                    // a newer step came: re-armed, nothing sent
+        expect([sent.length, tasks.length, tasks[0] && tasks[0].ms]).toEqual([2, 1, MOTION_STALE_MS - 5]);
+        clock.t = 20 + MOTION_STALE_MS;                                     // no step since: the camera stopped
+        tasks.shift()();
+        expect(sent.length).toBe(3);                                        // the budget starts again
+        while (tasks.length) tasks.shift()();
+        expect([sent.length, q.queue.length]).toEqual([8, 0]);
     });
 
     test("cells sorted from the attention point and dealt round-robin into workers × STRIPS_PER_WORKER strips", () => {

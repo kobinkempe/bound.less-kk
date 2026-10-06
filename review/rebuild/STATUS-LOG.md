@@ -3815,3 +3815,63 @@ naming deleted mechanisms, `_camToLattice`'s unchecked `_camAt`, no recorded bre
 **Decisions made:** CLAUDE.md's stale test counts are left for Kobin (his file).
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-6 and B-TIDY.
+
+## 2026-10-06 14:48 UTC — B-TIDY (builder) — start: FINAL-AUDIT m1, m3, m4 (stale comments, `_camAt`'s frame, PLAN §3 row 4)
+**Working on:** item 1, the comments naming deleted mechanisms (`KobinEngine.js`, `selection.js`, `erasePipeline.js`,
+`rasterPack.js`, `OverlayLayer.js`, `CanvasEditor.js`), each rewritten whole after reading its code; then m3's jsdom test
+(red before) and fix in `_camToLattice`; then m4's break-check of `raster.familyUlp.test.js`; then the quick suite,
+typecheck, lint, `build:worker`. Not in `RasterRenderer.js`, `jobQueue.js` or the raster suites (B-PYRAMID-6's).
+**Measured:** nothing yet. Load 0.05 at start (container clock 14:48; the orchestrator's last entry says 15:00).
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: reading `KobinEngine.js` ~585 and `_endMove` ~629.
+
+## 2026-10-06 14:53 UTC — B-TIDY (builder) — checkpoint: item 1 (m1's comments) done
+**Working on:** item 1, done. Rewritten after reading the code under each: `KobinEngine.js` `_planeLost` (no "sync path":
+the plane is lost when the camera leaves its frame or it has no layers, `RasterRenderer._planeStep`) and `_endMove` (no
+merges: `_dropMove` records `frames` and `moves` only, A1 C3); `selection.js` `deselect` ("the hold released, nothing
+written"); `erasePipeline.js` `_registerMark` (covered frames leave the lattice, `Document.removeFrameSubtree`, one bake
+step each); `rasterPack.js` the quantum wording (memo per quarter octave of the job's `Zq`; also "Four rules" → five, the
+F130 line's "sync path", "Two quanta", `Renderer.js:579`); `OverlayLayer.js` 22/491 (repaint on `Zq`/`mode` change, as
+`show()` does); `CanvasEditor.js` DevLevers (`setLevers` applies at once: every lever is read from `cfg` on the raster path).
+**Measured:** nothing (comments only).
+**Decisions made:** long comments whose reasoning is still true keep it; only the false phrase is rewritten, so each
+reads as written for today's code. `packJob`'s `q` is documented as carried and unread (no code change: out of brief).
+**Questions asked:** none. Not mine, seen: `Stage.js:698,1210` and `TileStore.js:602` "set aside"; `curveOutline.js:428`
+"zoom quantum".
+WHERE I AM: item 2, finding the model test file that owns the camera's lattice rules and reading `_camToLattice`.
+
+## 2026-10-06 14:53 UTC — B-PYRAMID-6 (builder) — checkpoint: F140 fixed in jobQueue (tests red before)
+**Working on:** item 1. Files: `src/engine/raster/jobQueue.js`, `jobQueue.test.js`.
+**Measured:** two new `jobQueue.test` tests red before (the real-timer one: 3 of 6 sent, no cut, after 1,006 ms; the
+fake-clock one: no task asked for while moving), green after (the stalled strips go 51 ms after the zoom ends).
+**Decisions made:** not the proposal alone (a motion read as rest once old): a pump that stops at the budget *inside*
+the window (a cut landing 10 ms after the last step) with nothing after it still stalls. Instead the budget always asks
+for the next task; while moving it is timed `MOTION_STALE_MS` (50) after the last step and starts the budget only if no
+moving step came since (a newer one re-arms it; the step started the budget). The old budget test expected no task while
+moving: now 1 (the backstop).
+**Questions asked:** none.
+WHERE I AM: raster suites, then break-checks on a copy (scratchpad), then item 2.
+
+## 2026-10-06 14:57 UTC — B-PYRAMID-6 (builder) — checkpoint: F140 break-checks; item 2 starts
+**Measured:** raster suites 35 suites, 592 passed (load 1.3–2.5). Break-checks on the unimported copy `bp6/bc`
+(`bp6/bc.py`, `jobQueue.test`): no backstop (the old budget branch) 3 red of 12 — and 0 of 79 in `raster.pyramid`,
+`raster.engine`, `raster.snapshot` (why F140 was invisible); the task starts the budget despite a newer moving step 1 red;
+no re-arm 2 red (the real-timer test too: its 3 quick steps); no delay (`ms = 0`) 1 red.
+**Decisions made:** none new.
+**Questions asked:** none.
+WHERE I AM: item 2 — the supersede test (raster.pyramid:145) under 3 busy loops; docs for F140 at the end.
+
+## 2026-10-06 15:00 UTC — B-TIDY (builder) — checkpoint: item 2 (m3, `_camAt`'s frame) fixed, break-checks running
+**Working on:** m3. Test `select.detachedFrame.test.js` DF-5 (the file owning "a deleted subtree leaves the lattice"
+and the camera's fresh frame, DF-3): camera in G (depth 1, noted by a render), F = G's child with ink, F selected,
+`cfg.frames = "raf"` (the app's), a zoom crossing into F, `deleteSelection()` inside the same frame. Red before:
+`Expected: not "0/13,9"` (the camera put at G with F's coordinates) — so the path IS reachable in the app (a crossing
+and a Delete inside one animation frame), not "no known path". Fix `KobinEngine.js:295`, the audit's line (fields `F`,
+`root`, `chain` as named); the doc comment rewritten whole. Green after: detachedFrame 5/5, coresident 13/13.
+**Measured:** the two files above, 18/18 after the fix.
+**Decisions made:** the fallback stays the existing one, `ensureSpine(activeLevel || 0)`: a deleted frame has no
+depth, so it is the depth-0 spine — a bigger jump than the old wrong one when G is deep (question below).
+**Questions asked:** should `_camAt` be noted at every crossing (the Camera's `onCross` hook, a no-op today) so the
+camera keeps its cell, as A1 says? Recommendation: yes, a later small task; not built (the brief names the guard).
+WHERE I AM: break-checks (a) the guard, (b) rasterCore's family grouping for `raster.familyUlp`, on a scratch copy.

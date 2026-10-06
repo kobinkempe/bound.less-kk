@@ -19,7 +19,7 @@
  *   - **The plane is painted at the view of the MOMENT and the element carries the DELTA.**
  *     `S = k/k0`, `T = (t − t0·S)/dpr` in CSS px with `transform-origin: 0 0`, so paint-time view
  *     ∘ CSS transform is the published `k, tx, ty` to the bit (G2, §15.3 Q1). At a repaint the
- *     delta is identity; at a quantum boundary it is exactly FC2's `(s, dx, dy)`.
+ *     delta is identity; a change of the view's level or grid (`Zq`, `mode`) repaints (G3).
  *   - **A drag is the transform, not a repaint** (G5): the offset enters the paint-time view once
  *     and is ROUNDED to whole device pixels, so the translate between repaints cannot resample.
  *   - **The plane is exactly the screen, so a pan uncovers ants.** Today's SVG paths extend half
@@ -488,7 +488,8 @@ export default class OverlayLayer {
 
     /**
      * One camera step or one decision change. Repaints in the SAME TURN when the decision, the
-     * ants' scale or the quantum moved (G3, G4) and otherwise writes the delta transform alone.
+     * ants' scale or the view's level or grid (`Zq`, `mode`) changed (G3, G4), or the plane is
+     * dirty; otherwise writes the delta transform alone.
      *
      * @param {object|null} dec `_selectionAnts`' object in raster form — `{key, runs, marks,
      *        edges, inkPx, off}` with the runs' pieces in FRAME units (§10 stage 5d's one

@@ -4,7 +4,7 @@
  * the plate binner, the ring packer, the stroke band, the union flag, family grouping, colour,
  * and the §3.3 layout filled from a buffer pool.
  *
- * Four rules a reader has to hold on to:
+ * Five rules a reader has to hold on to:
  *   - the item box is memoised WITHOUT `res` and `res` is added at the point of use, because
  *     a move changes an item's `res` with no `_ver` bump (F55) and a box memoised with it folded in
  *     culls a moved object out of the plates it has just arrived in;
@@ -12,8 +12,9 @@
  *     own natives at the active frame and `_afterEdit` mutates them in place, bumping `_ver`
  *     (`Document.js:1012`), while the idle fitter sets `_outline` and bumps nothing
  *     (`KobinEngine._queueIdleFits`), so the entry's identity is all three (D96, D98);
- *   - the stroke band is built here, once per item per zoom quantum, never per plate: two plates
- *     that band the same stroke against their own rectangles disagree at the boundary (§4.8);
+ *   - the stroke band is built here, once per item per quarter octave of the job's `Zq` (`bandFor`),
+ *     never per plate: two plates that band the same stroke against their own rectangles disagree
+ *     at the boundary (§4.8);
  *   - nothing here copies a coordinate for an item that does not touch the job's plates, which
  *     is the whole of the cull (§5.2, edge case 4.4) — with one exception, and the family's union
  *     sign is what forces it: a culled STROKE in a family that IS drawn still builds its band,
@@ -159,7 +160,7 @@ function build(item, cfg) {
         box: null, subBox: null, subSign: null, geom: null, subs: null, geomLen: 0,
         bands: null, union: false, bad: false, maxAbs: 0, area: 0, bytes: 0,
         ver: item._ver, src: geomRef(item), outline: item._outline, dropped: false,
-        // §6.5's chord estimate, memoised per zoom quantum; the entry's own identity (the
+        // §6.5's chord estimate, memoised per quarter octave of Z (`itemChords`); the entry's own identity (the
         // object, `_ver`, the geometry array and `_outline`) is what makes it safe (D96, D98).
         chordQ: null, chordN: 0,
     };
@@ -257,7 +258,7 @@ function buildFill(item, e) {
 /**
  * A stroke's cull box: the centreline box inflated by half the pen and the outline fit's own
  * tolerance, UNIONED with `_outline`'s control-point box once the fitter has set one. The BAND is
- * not built here — it depends on the zoom quantum and the cull must cost four comparisons (§5.2,
+ * not built here — it depends on the job's zoom (`bandFor`) and the cull must cost four comparisons (§5.2,
  * D96) — but the inflated centreline box does NOT contain a fitted band and the union is what
  * makes the cull sound (D100): the miter ribbon puts a vertex `half / max(0.5, dot)` from its
  * centreline vertex, up to 2·`half` at a near-reversal (`polyline.js:364`), and a native stroke's
@@ -512,8 +513,8 @@ function itemChords(item, Z, cfg, e) {
         // §4.8's band, priced not built; a raw native stroke along its flattened curve (`bandFor`)
         if (!item._outline && strokeCurved(item)) n = flattenCurve(item.pts, ARC_TOL / Z).length * CURVE_CHORD_MULT;
         else n = (item.pts ? item.pts.length : 0) * STROKE_CHORD_MULT;
-        // A band's rings are as tall as the pen: each crosses that many sub-scanlines. A 337 px pen priced
-        // by length alone stayed on the sync path at pen-up and rastered for 20 s on the main thread (F130).
+        // A band's rings are as tall as the pen: each crosses that many sub-scanlines. Priced by length
+        // alone, a 337 px pen's pen-up band was a 20 s raster priced as a small one (F130).
         n *= Math.max(1, ((item.lwFrame || 0) * Z) / 32);
     } else if (e.kind === KIND_LOOPS) {
         const tol = ARC_TOL / Z;                                    // device px → frame units
@@ -609,7 +610,7 @@ export function bandFor(item, q, Zq, cfg) {
     }
     if (!band) return null;
     packStats.bandsBuilt++;
-    // Two quanta an item: the one in force and the one a gesture just left. More than that is
+    // Two bands an item: the zoom in force and the one a gesture just left. More than that is
     // memory spent on zooms nobody is coming back to inside one gesture.
     if (e.bands.size >= 2) {
         const oldest = e.bands.keys().next().value;
@@ -710,10 +711,10 @@ export function parseColour(css) {
 const clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
 
 // ---------------------------------------------------------------------------
-// The fade and the family key (§4.5), both evaluated at the plate's QUANTISED zoom (D12).
+// The fade and the family key (§4.5), both evaluated at the job's zoom `Zq` (D12).
 // ---------------------------------------------------------------------------
 
-/** `Renderer._fade` at the quantum: `inScaleQ = Zq / dpr`, because `Zq` is device px per unit. */
+/** `Renderer._fade` at the job's zoom: `inScale = Zq / dpr`, because `Zq` is device px per unit. */
 export function fadeQ(item, Zq, dpr, cfg) {
     if (item.fadeTag == null) return 1;
     const px = (item.fadeTag * (Zq / dpr)) / cfg.enter;
@@ -725,7 +726,7 @@ export function fadeQ(item, Zq, dpr, cfg) {
     return Math.max(0, Math.min(1, (px - lo) / (hi - lo)));
 }
 
-/** `Renderer.js:579` verbatim, on the quantised fade: the tag's presence is not the test. */
+/** `Renderer`'s render id verbatim, on the job's fade: the tag's presence is not the test. */
 export function renderIdOf(item, fade) {
     return item.editId != null && fade >= 1 ? item.editId : item.id;
 }
@@ -943,8 +944,9 @@ function famStale(f) {
  * @param {object[]} list the render list, already sorted by (z ?? id, id)
  * @param {object} opts
  *   plates    Int32Array [i, j, …] — this job's plates
- *   q, Zq     the zoom quantum and its device px per frame unit
- *   dpr       devicePixelRatio, for the quantised fade only
+ *   Zq        the job's device px per frame unit: a pyramid level's Z, or the rest's
+ *   q         carried onto the job as is (default 0); nothing reads it
+ *   dpr       devicePixelRatio, for the fade only (`fadeQ`)
  *   cfg       the engine cfg (enter, cullPx, fadeLoPx, arcTolerancePx)
  *   paper     [r, g, b]
  *   G         the scene's generation the list was read at (A2 §3.1): every plate of the job carries it
@@ -1282,7 +1284,7 @@ function unionSignOf(all, f, q, Zq, cfg) {
  * A family's union routing, union sign, colour and alpha as `packJob` decides them, over `items` (the
  * family's items in paint order, render-list shaped): what a change of membership can flip for every
  * item of the family (PLAN §5.1 Q15). Null for a family holding a stroke, whose band's winding is
- * decided per zoom quantum.
+ * decided at each job's zoom (`bandFor`).
  */
 export function familyTraits(items, cfg) {
     const all = [];
@@ -1303,7 +1305,8 @@ export function familyTraits(items, cfg) {
  * for a stroke the BAND it ships, whose winding a fitted outline decides and no formula predicts
  * (D102). A culled stroke in a drawn family is banded here for that number alone, which is the one
  * thing this file does for an item the cull rejected: the sign must be the same on every plate,
- * and `bandFor` memoises, so the band is built once per item per quantum however many strips ask.
+ * and `bandFor` memoises per quarter octave of `Zq`, so the band is built once per item per zoom
+ * however many strips ask.
  */
 function unionAreaOf(d, q, Zq, cfg) {
     if (!d.e.bands) return d.e.area;

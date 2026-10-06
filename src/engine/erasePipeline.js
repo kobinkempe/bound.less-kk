@@ -507,13 +507,14 @@ class ErasePipeline {
     }
     // ---- registration (A2 §4.2) ----
     /**
-     * A landed mark's targets, once: the frames its ink covers whole set aside as one step, then
-     * every reachable native under it below its z, in `targets` and in each target's `targetOf`.
-     * Nothing can have moved under the mark before this runs: every gesture that moves ink resolves
-     * pending perimeters first (the barriers' `flushBakes`), and the mark's op is on top of the undo
-     * stack until its shape lands (raster.eraseRule.test.js (c)). A mark from before `targets` (A2
-     * §4.9) registers by the same scan under its stepped z, less what its op's steps name — their
-     * pieces are its handled lineage. In the caller's commit: its mask reaches the plates with its shape.
+     * A landed mark's targets, once: the frames its ink covers whole leave the lattice with their subtrees,
+     * one bake step each (`_eraseFramesPass`); then every reachable native under it below its z goes in
+     * `targets` and in each target's `targetOf`. Nothing can have moved under the mark before this runs:
+     * every gesture that moves ink resolves pending perimeters first (the barriers' `flushBakes`), and the
+     * mark's op is on top of the undo stack until its shape lands (raster.eraseRule.test.js (c)). A mark
+     * from before `targets` (A2 §4.9) registers by the same scan under its stepped z, less what its op's
+     * steps name — their pieces are its handled lineage. In the caller's commit: its mask reaches the
+     * plates with its shape.
      */
     _registerMark(Erec) {
         const E = Erec.obj;
