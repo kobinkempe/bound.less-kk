@@ -3706,3 +3706,14 @@ production code by script: the only absent ones are named as deleted (`PictureLa
 `_buildList`, `contentOffCamera`). docs/ai 20/30/40 headers dated through the rebuild; 30's test list names the
 rebuild's suites. (My earlier entries' times corrected to the clock: 09:33–09:40.)
 WHERE I AM: waiting for B-PYRAMID-5's landing (PLAN §5.26; a 40-min watcher on PLAN.md).
+
+## 2026-10-06 09:43 UTC — B-PYRAMID-5b (builder) — b8 END: scenario 7 stalled once on the tree; browser batch b10 START (the stall)
+**b8 (quiet, load 1.56–1.69 at each start, one run each):** s1 out paper landed 1,401.4 | tree 14.2 ms, back in 131.3 | 0;
+s6 committed 121 | 90 ms, exact 764 | 283, the inline pack coarse ℓ−1 21.8 ms | the full patch 33.8 ms; s7 `olderOther` 101.9 |
+14.9 ms, `olderPatch` 1,086 | 791 — but the tree's s7 erase did not bake in 60 s (`eraseBakeMs` −1; landed 3,790 ms; the tree's
+pre-stop s7 run baked): 40 strips queued [25,0,0,3,12,0], none in flight, the pool idle. jobQueue.js is unchanged since
+59f0a76. F133 (`?svg`, whole drawing, forced GC): 12 events at 1,784–1,785 MB, flat; loaded 2,001, dropped 2,126; no errors.
+**b10:** s7 with `bp5/h7` (the queue's `_packMs`, motion, task, free slots when the erase has not baked in 20 s, then one
+kick: `frame()` + `pump()`), the tree and landed alternating, three each. Log `bp5/batch10.log`.
+**Questions asked:** none.
+WHERE I AM: b10 running; then the P1 test under busy loops, the quick suite, the report.
