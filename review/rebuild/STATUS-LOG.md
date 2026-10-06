@@ -3790,3 +3790,18 @@ against PLAN §5.22). R-FINAL-M waits for B-PYRAMID-6; its brief now runs scenar
 **Decisions made:** F140 fixed before Kobin's check, not after: an erase that never bakes is the eraser failing.
 **Questions asked:** none.
 WHERE I AM: waiting for B-PYRAMID-6 and R-FINAL-D.
+
+## 2026-10-06 14:46 UTC — R-FINAL-D (reviewer) — end: B-PYRAMID-5's part done
+**Done:** 10-STATUS's B-PYRAMID-5 entry (PLAN §5.26); OPEN-FLAGS F137 FIXED (heading, dated note, index row; pipes in
+the row's numbers written as "/" so the table holds); FINAL-AUDIT's B-PYRAMID-5 section (§5.22 items 2–3 and §1.2: as
+designed). F140 left to B-PYRAMID-6. Nothing committed.
+WHERE I AM: done.
+
+## 2026-10-06 14:47 UTC — B-PYRAMID-6 (builder) — start: F140 (the queue stall), the two load-sensitive raster.pyramid tests
+**Working on:** item 1 first — a jsdom test that ends a zoom with strips queued behind a spent pack budget and no
+further step (red before), then the fix in `jobQueue.pump`. Files: `src/engine/raster/jobQueue.js` (+ its test),
+`raster.pyramid.test.js`; `RasterRenderer.js` only if the fix needs it; OPEN-FLAGS F140, TEST-MAP, DESIGN §9 at the end.
+**Measured:** nothing yet. Load 0.15 at start.
+**Decisions made:** none yet.
+**Questions asked:** none.
+WHERE I AM: writing the red-before test in `jobQueue.test.js`.

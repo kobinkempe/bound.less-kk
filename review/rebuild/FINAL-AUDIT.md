@@ -108,3 +108,18 @@ No major. Minors (source, reported, not fixed — documents only):
 
 Carried to R-FINAL-M (measurements, not this audit): F139's paper at the first render after an undo (PLAN §5.25 item 1);
 the drop's `setBatch` wrap with a fuller cache (item 2); scenario 3 (item 4); F137 after B-PYRAMID-5.
+
+## B-PYRAMID-5 (landed f58d820, PLAN §5.26): its raster changes against the design
+
+Read by grep and line ranges of `raster/PicturePyramid.js` and `raster/RasterRenderer.js`; no run.
+
+- **§5.22 item 2 (exact over coarse within 48 ms)**: as designed — `PicturePyramid.js:1284–1288`: an action's budget is
+  `USER_COARSE_FRAMES × patchUserMs`, the exact patch is inline whenever `T ≤ budget`, and the coarse search runs only past it.
+- **§5.22 item 3 (the `unask` G check; the hidden tab)**: as designed — `unask(cells, G)` keeps a newer ask (`:966–969`),
+  `_take` answers an ask only at or below the result's `askG`/G (`:1177–1178`); the commit's patch step returns while the
+  store is hidden and stays due (`RasterRenderer.js:804–807`).
+- **§1.2 (freshness before resolution; the integer map across a crossing)**: as designed, extended — F137's fix
+  (`_coarserExact`, `:546–551`, used by step (d) and the coarsest reserve, `:389,443`) takes a coarser cell's exact record,
+  else its mapped twin in another frame, which §1.2 gave only at the view's own level. DESIGN §9 says so (B-PYRAMID-5).
+- OPEN-FLAGS F137 marked FIXED (heading, a dated note, the index row); `10-STATUS.txt` has B-PYRAMID-5's entry. F140 is
+  B-PYRAMID-6's.

@@ -32,6 +32,21 @@ WHERE THE BUILD IS
     Nothing has been deployed since 2026-09-08 (0732252, SVG only), and none of
     the rebuild has been seen by Kobin.
 
+2026-10-06 - THE PYRAMID'S LAST STEPS AND THE DROP'S ANTS (review/rebuild/A3-pyramid.md;
+    B-PYRAMID-5 and B-PYRAMID-5b; PLAN §5.26). For an undo, a redo or a drop the exact patch is
+    taken whenever it fits the action's 48 ms, the coarse level only past it; an older job's
+    dropped strip no longer erases a newer patch's ask (unask and _take check its G); a commit's
+    patch step waits while the tab is hidden; RV4 and stage.cover C4 are deterministic. F137
+    fixed: the compose plan took a coarser cell's exact picture only in its own frame, so past a
+    crossing on the way back in it drew paper while the store held the frame left's plates of
+    that place (PicturePyramid._coarserExact; tests red before). A drop or a cancel keeps the
+    selection's ant decision, moved by the drop's displacement, when the selected ink moved by
+    that one displacement (overlays.js; DESIGN.md §10). Measured in headless Chromium against
+    the landed tree 59f0a76: scenario 1's paper out | back in 14.2 | 0 ms (1,401.4 | 131.3);
+    scenario 4's drop decides nothing and its render row is 749 | 633 ms (1,121 | 1,168);
+    scenario 6's first change | exact 90 | 283 ms (121 | 764); scenario 7's olderOther 14.9 ms
+    (101.9); F133 flat; the ?svg round trip 0 px in 9 of 9. Filed: F140 (a queue pumped after
+    the camera's last moving step can stall; being fixed). Not seen by Kobin.
 2026-10-06 - C3 AND C4: A FRAME KEEPS ITS IDENTITY; A CEDE'S KIDS LIVE IN PRIVATE FRAMES
     (review/rebuild/A1-document-model.md §4.4 C3-C4 and §16; B-MODEL-C34, built 2026-09-30,
     landed 2026-10-04 without a review after the builder's weekly-limit stop; reviewed by
