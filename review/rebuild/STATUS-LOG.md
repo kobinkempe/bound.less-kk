@@ -3957,3 +3957,96 @@ PLAN §5.27. The final tree is a0b0ed4: R-FINAL-M measures it against 59f0a76 an
 **Decisions made:** none.
 **Questions asked:** none.
 WHERE I AM: waiting for R-FINAL-M; then the summary for Kobin.
+
+## 2026-10-06 21:44 UTC — R-FINAL-M (reviewer) — start: the final tree's measurements
+**Working on:** `briefs/R-FINAL-M.md`: `final` a0b0ed4, `landed` 59f0a76, `pre` 56e36b3 as `git archive` copies under
+`<scratch>/fin-m/`, dev servers on 3060–3062 (Node 14); the seven dense scenarios ×2 per tree interleaved, the two round
+trips, scenario 7 ×10 on `final`, then F139, the drop's `setBatch` wrap (jsdom) and the headless-blind list. Files: only
+`review/rebuild/FINAL-MEASUREMENTS.md` (new) and this log. No source edits.
+**Measured:** nothing yet. Load 0.57, no browser running.
+**Decisions made:** none. **Questions asked:** none.
+WHERE I AM: making the three archive copies and starting their dev servers.
+
+## 2026-10-06 21:51 UTC — R-FINAL-M (reviewer) — checkpoint: the browser batch starts
+**Working on:** `fin-m/batch.sh` (background, own session; one line a run in `fin-m/batch.log`, outputs `fin-m/logs/`):
+B scenario 7 ×10 on final (harness copy `fin-m/h7`: drops after the wheel, the queue's state on a stall); A the seven
+dense scenarios ×2 on final/landed/pre interleaved (`fin-m/h` = final's harness + the settled ink and `_selDecSeq`); C the
+plain and `?svg` round trips per tree, screenshots diffed. Dev servers 3060 final, 3061 landed, 3062 pre (pids in
+`fin-m/dev-<port>.pid`). The final harness's dense mode runs on `pre` (probe: scenario 3, exit 0, flushBakes 30 s).
+**Measured:** h7 smoke run on final: erase baked in 3,941 ms, 0 view strips dropped offscreen after the wheel.
+**Decisions made:** ink and ant counts added to harness copies only (the tree's harness untouched).
+WHERE I AM: batch running (~2 h, pid 5403); the F139 page script and the setBatch jsdom timing written meanwhile, run
+after the batch (both would load the machine).
+
+## 2026-10-06 22:01 UTC — R-FINAL-M (reviewer) — checkpoint: batches chained; setBatch first numbers
+**Working on:** three background scripts, chained by pid (`fin-m/batch.pid` 5403 → `batch2.pid` 7174 → `batch3.pid`
+7321), all logging to `fin-m/batch.log` (one line a run, outputs `fin-m/logs/<tag>.log`): batch.sh B (scenario 7 ×10,
+final) → A (7 scenarios ×2 ×3 trees) → C (round trips + diffs); batch2.sh F139 (`fin-m/h139`, scenario `f139`: scenario
+4's subtree drag, a stroke, undo/redo ×3 — forgets, mints, bakes, plate drops, each compose's share after the key) on
+final ×2 and landed ×1, then the setBatch probe (`fin-m/jsd`, a0b0ed4 copy, `zz_finm_setbatch.test.js`); batch3.sh
+B7-final-11, replacing B7-final-5 (it overlapped my jsdom runs 21:57–21:59: contended, excluded).
+**Measured:** scenario 7 runs 1–4 baked 3,778–4,261 ms, 0 view strips dropped offscreen after the wheel. setBatch
+(load 2.9, rough): the cache at the drop stays 4 tiles whatever views came before — `TileStore.framesLeft` drops every
+tile but the camera chain's, the pins and the warm set at each camera change; a camera in K after "0" and "1" holds 54
+tiles, 50 pinned, and the drop drops 0 with or without the wrap (11–17 ms both).
+WHERE I AM: waiting on the batches; next, read `fin-m/batch.log` and summarize per scenario (scripts to write: sum.js).
+
+## 2026-10-06 22:06 UTC — R-FINAL-M (reviewer) — checkpoint: scenario 7 ×10 on final done (batch B)
+**Measured** (`fin-m/logs/B7-final-<n>.log`, harness `fin-m/h7`, load at start 0.44–1.67): the erase baked in all 10 —
+3,531–4,859 ms; no stall (F140's fix holds in 10 of 10; run 5 overlapped my jsdom run, B7-final-11 queued to replace
+it). After the wheel stops: 0 view strips dropped `offscreen`, 0 offscreen cells, 0 re-aims in every run; the queue reads
+the last tick's moving motion until a still one 149–422 ms later; the drops in that window are patches (`exact`, 3–13
+under the moving motion). During the gesture 0–6 view strips `offscreen` and 109–149 prefetch `gen`. Paper 0 | 0 | 0 in
+all 10; both-composes 3 and 4 in runs 2 and 6. The settled ink: 508,144 px in 9 of 10 (508,287 once) with 6 distinct
+hashes over 10 runs on the one tree — scenario 7's settled picture is not run-to-run stable.
+WHERE I AM: batch A running (~55 min from 22:04); then C, F139, setBatch, B7-final-11. Next: `node fin-m/sum.js A-`.
+
+## 2026-10-06 22:23 UTC — R-FINAL-M (reviewer) — checkpoint: batch A pass 1 at scenario 5
+**Measured** (`node fin-m/sum.js A-sN`): pass 1, scenarios 1–4, the settled ink hashes identical on final, landed and pre
+in every row (1, 2, 3, 4 lasso, 4 drag). Scenario 1 back in: paper 0 final, 646.7 ms landed (F137), 0 pre (pre's gesture
+30–39 s, 140+ long frames). Scenario 4's drop: final decides 0 ants, render row 582 ms (eng.list 376), no crawl row;
+landed 1 decision, render 1,115 (ovl.tail 494), three crawls ~500 ms; pre render 1,673.
+**Decisions made:** batch3 relaunched (pid in `fin-m/batch3.pid`) as B7-final-11..13 saving the settled canvas, to
+diff scenario 7's run-to-run hash change.
+WHERE I AM: waiting on A (pass 2 from ~22:35), then C, batch2 (F139, setBatch), batch3; then FINAL-MEASUREMENTS.md.
+
+## 2026-10-06 22:40 UTC — R-FINAL-M (reviewer) — checkpoint: batch A pass 1 done; scenario 6 cannot run on pre
+**Measured:** pass 1, scenarios 5–7: the settled ink identical on the three trees in 5 and 6; scenario 7's differs on pre
+(508,144 px both, hash 708402118 against 2045006333) — but 7's hash varies run to run on final too (above). Scenario 6
+fails on pre (`R._pyrPack` undefined; pre has no Stage either): run instead on **d45fdb4** (the earliest landed commit with
+the pyramid as the only raster path; copy `fin-m/early`, dev server :3063): commit 598, exact 1,021 ms (final 87 | 352,
+landed 102 | 171). Scenario 5's `exact` on pre is not comparable (the harness reads exact from the pyramid's `_share`).
+**Decisions made:** batch4.sh (pid in `fin-m/batch4.pid`) runs scenario 6 on early once more after batch3.
+WHERE I AM: waiting on A pass 2 (from 22:38), C, batch2–4; then the tables and FINAL-MEASUREMENTS.md.
+
+## 2026-10-06 23:04 UTC — R-FINAL-M (reviewer) — checkpoint: batch A done (42 runs; `fin-m/sumA.txt`)
+**Measured:** every run started at load 0.97–1.86 with no browser. Ink hashes identical across final/landed/pre in
+scenarios 1–6 (both passes); scenario 7 varies run to run on final and landed, stable on pre. Paper 0 on final in every
+row; landed's scenario 1 back in 646.7 and 125.2 ms (F137). Scenario 4's drop: final 0 ant decisions, render 513–582 ms,
+no crawl; landed 1, render 992–1,115, 3 crawls ~480–500; pre render 1,673–1,966. Scenario 6: final commit 82–87, exact
+352 | 852 (inline full patch 29–34 ms); landed 77–102, 171 | 332 (coarse ℓ−1); pre fails both runs (no `_pyrPack`/Stage),
+d45fdb4 598 | 1,021. Scenario 7 bake: final 3,935 | 4,249, landed 4,182 | 3,992, pre 14,028 | 14,081.
+WHERE I AM: C (round trips) running, then batch2 (F139, setBatch), batch3 (B7-11..13), batch4 (early s6 #2).
+
+## 2026-10-06 23:13 UTC — R-FINAL-M (reviewer) — checkpoint: FINAL-MEASUREMENTS.md drafted; F139 and setBatch measured
+**Measured:** F139 in the dense subtree-drag shape (`fin-m/h139`, final ×2, landed ×1): 0 forgets, 0 mints, 0 bakes, 0
+plate drops, no paper over undo/redo ×3 — the shape does not reach F139's path; C34b's own shape (the camera in "2",
+frame "2" shifted 1.3 W) queued as `f139b` (batch5). setBatch at load 1.17: wrap 369–482 vs none 386–423 ms (4 tiles, 2
+dropped); camera deep: 54 tiles, 50 pinned, 0 dropped either way; the browser's scenario-4 drop has 2 tiles, both pinned.
+Round trips: plain 0 px in 4 of 4 states against both trees; `?svg` 0-live 18 px and 1 px at (139,148) in 3 states.
+**Files:** `review/rebuild/FINAL-MEASUREMENTS.md` (new; PENDING_ markers for B7 ×10, the svg diffs, F139, anomalies).
+WHERE I AM: waiting on batch3 (B7-11..13 + canvas diffs), batch4 (early s6 #2), batch5 (f139b ×3, svg landed→pre);
+then fill the PENDING_ sections.
+
+## 2026-10-06 23:22 UTC — R-FINAL-M (reviewer) — end: FINAL-MEASUREMENTS.md written
+**Measured** (all in `review/rebuild/FINAL-MEASUREMENTS.md`, logs under `fin-m/`): 69 headless runs (and 2 smoke runs), each started at load
+under 2 with no browser. F140: erase baked in 14 of 14 valid scenario-7 runs on final (3,681–4,859 ms), no stall; 0 view
+strips `offscreen` after the wheel (the stale-motion window 149–422 ms). F139 (C34b's shifted-camera shape, final ×2,
+landed ×1): 1 forget, 1 re-mint, 2 bakes, 1 plate drop a step, no paper — but 384–636 ms to the first compose after each
+undo/redo past the first (`eng.list` 378–629); the dense subtree drag from "0" does not reach it (0 forgets, 15–36 ms).
+setBatch: no benefit (4 tiles max at a drop in the C34b shape, 2 dropped; 54 with 50 pinned deep, 0 dropped; the browser's
+drop 2 tiles, both pinned). Scenario 6 on pre impossible (no `_pyrPack`/Stage): d45fdb4 instead. Anomalies: scenario 7's
+ink unstable run to run (~100 px on the erase edge); scenario 6's exact later on final than landed (2 runs).
+**Decisions made:** measurement only; no source edits. Dev servers 3060–3063 stopped (my pgids); nothing else running.
+**Questions asked:** in the report (F139's stall: a keep rule?; the setBatch wrap's deletion; scenario 6's exact).
+WHERE I AM: done — the report to the orchestrator.
