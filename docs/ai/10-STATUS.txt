@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-10-06. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-10-07. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -32,6 +32,18 @@ WHERE THE BUILD IS
     Nothing has been deployed since 2026-09-08 (0732252, SVG only), and none of
     the rebuild has been seen by Kobin.
 
+2026-10-07 - THE FINAL CHECK (review/rebuild/FINAL-SUMMARY.md, FINAL-AUDIT.md, FINAL-MEASUREMENTS.md).
+    F140 fixed: a pump stopping at the frame's pack budget now always asks for its next
+    task (at rest at once, while the camera moves 50 ms after the last step) - an erase's
+    cuts could wait forever after a zoom (1 run in 10); 14 of 14 erases baked after it.
+    _camToLattice refuses a _camAt noted for another frame (a Delete inside a crossing's
+    frame; F141 open for the fallback). The audit: no major; every design target built,
+    every acceptance row tested, every named mechanism gone. Headless Chromium, the final
+    tree a0b0ed4 against 59f0a76 and 56e36b3: paper 0 ms in every scenario; the picture
+    after scenarios 1-6 identical on the three trees; scenario 4's drop 513-582 ms
+    against 992-1,115. Open: F139 (an undo or redo in a moved frame's view waits
+    384-636 ms for its first picture, as before this round), scenario 6's exact picture
+    to re-measure. Quick suite 2,213 passed, 0 failed. Not seen by Kobin.
 2026-10-06 - THE PYRAMID'S LAST STEPS AND THE DROP'S ANTS (review/rebuild/A3-pyramid.md;
     B-PYRAMID-5 and B-PYRAMID-5b; PLAN §5.26). For an undo, a redo or a drop the exact patch is
     taken whenever it fits the action's 48 ms, the coarse level only past it; an older job's

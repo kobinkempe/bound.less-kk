@@ -4050,3 +4050,13 @@ ink unstable run to run (~100 px on the erase edge); scenario 6's exact later on
 **Decisions made:** measurement only; no source edits. Dev servers 3060–3063 stopped (my pgids); nothing else running.
 **Questions asked:** in the report (F139's stall: a keep rule?; the setBatch wrap's deletion; scenario 6's exact).
 WHERE I AM: done — the report to the orchestrator.
+
+## 2026-10-07 02:40 UTC — orchestrator (Opus) — the final check done; FINAL-SUMMARY.md for Kobin
+**Working on:** R-FINAL-M's measurements committed (e8b2d88). The summary for Kobin is `review/rebuild/FINAL-SUMMARY.md`:
+where the tree is, what the rebuild changed, the audit's and the measurements' results, what is still open (F139's
+0.4–0.6 s pause after an undo in a moved frame's view; scenario 6's exact to re-measure; F141), the decisions that are
+his, and what to try in his Chrome. `docs/ai/10-STATUS.txt` carries the final check's entry.
+**Measured:** nothing new.
+**Decisions made:** none; the decisions listed are Kobin's.
+**Questions asked:** to Kobin, in the summary.
+WHERE I AM: done; waiting for Kobin. The code map is paused at items 4–8.
