@@ -17,6 +17,8 @@ log and is a different thing.
 Read this file at the start of any session about baking, erasing, or stroke geometry.
 When summarising status for a handoff, point at this file by path.
 
+**2026-10-07:** Kobin's first Chrome session on the rebuilt renderer (reports R1–R6, 2026-10-06) filed as F142–F150, with F139 widened (every drop) and F57 updated; the review's files are in `.claude/REVIEW-2026-10-06/` (gitignored).
+
 Last updated **2026-09-22** by the docs pass: every index row checked against its section and
 the code — F60's row closed (its section and `boundless-ui.css` already said fixed), F81 closed by
 Kobin's decision, F29/F30/F34/F23's rows brought to their 2026-09-07 closures, rows added for
@@ -63,7 +65,7 @@ is the one dev surface left.
 | [F55](#f55) | ~~a move loses registration with detail three or more levels below the level it is made at~~ — **FIXED 2026-09-05, unverified by Kobin.** His "star in a corner": a small stroke drawn against a coarse object's edge four crossings down, both moved together from above. The small one moved by exact address digits; the coarse one's coordinates took the displacement with ONE float rounding at the move level, and the chain magnified that rounding by 4096 per level below: 3.25 units four levels below a home-level move, 1,229 four levels below a level-1 move. Now a move never touches a stored coordinate at any level: the displacement, snapped to 2^-10 units at the move level, lives in the object's table (`below[k]`, k ≥ 0), the tiles are unmoved space, the table's whole-frame digits say which frame a moved object's pieces are read from and its remainder is applied at paint and subtracted from every input. Measured in jsdom (`move.registration.test.js`): the coarse object's pieces four levels below the move are the same bits in the new frame, the star's bits untouched, their gap unchanged to 1e-9 | `selection.js` `_dragSelection`, `geometry/offsets.js`, `LevelMap.objShift`, `TileStore._reroute`, `derive.js deriveStep` | **fixed, unverified** |
 | [F56](#f56) | ~~an erase below two moved objects flooded one of them over the whole tile~~ — **FIXED 2026-09-06, unverified by Kobin.** His reports 06-16-21/24: two objects homed at level 1, dragged at level 10, a 4-px eraser at level 10 on one of them; the other, whose ink the eraser never reached, was ceded nine levels down and its level-10 kid was a solid square where the render's piece is a wedge. Since F55 the square a link reads is the erase less the remainder, which lands in the NEIGHBOUR of the unmoved frame as often as not; the kid was homed in the camera-path frame with its ink in cell (i, j), and its child tiles were derived through the store's ring projection (an up-then-down hop that loses low bits) while the chain derived the same ink by the exact direct hop. Measured: the level-7 kid's edge 2.5 units from the chain's, 2% more ink one level down, a solid square three down. The kid is now homed in the frame that OWNS the square, holding that frame's own piece for its own cell. Replayed: the untouched object is refused at the last link and unwound (F47), the erased one's kids are the chain's pieces at every level | `erasePipeline.js` `_bakeRehomeInner` (the square's owner) | **fixed, unverified** |
 | [F54](#f54) | ~~a wheel tick during a stroke ends the stroke and drops the rest of the gesture~~ — **CLOSED 2026-09-07 by Kobin's decision, not a bug**: *"It can just end like it does today. Eventually, we'd want it to keep drawing as you zoom even past a level, but that's a future feature."* `Camera.zoomFactorAt` finalizes the live stroke on every zoom; the rest of the gesture draws nothing. Drawing through a zoom, crossings included, is on the roadmap's UX list | `Camera.zoomFactorAt` | closed — by design |
-| [F57](#f57) | **an eraser at depth on a big drawing never finishes, and the tab locks while it tries** — measured 2026-09-07 on Kobin's 11,497-object canvas: twelve eraser marks pending; a hand-driven bake loop ran 81 steps in 20 s at 0.64–2.5 s a step (each a `rehome` descent, 1.99 s the worst) and finished none of them; with the timers running the tab stayed unresponsive past 45 s. The slice budget is 8 ms but one target is indivisible. His "eraser bakes failing". **Built 2026-09-08** (section below, DESIGN.md §7): targets from the spatial index top-down by z, `RayIndex` in the boolean (2.6 s → 175 ms a cut), the cut and the whole descent as jobs in `public/erase-worker.js`; the shape bake, the apply and `_removedArea`'s second boolean stay on the main thread; not re-measured on that canvas. **Kobin, 2026-09-22:** still an issue, mixed in with the renderer — picked up after the PAPER agent reports (WORKLIST item 3) | `erasePipeline._bakeOne` / `_bakeRehomeInner`, `eraseJob.js`, `eraseDescent.js` | **high — open** |
+| [F57](#f57) | **an eraser at depth on a big drawing never finishes, and the tab locks while it tries** — measured 2026-09-07 on Kobin's 11,497-object canvas: twelve eraser marks pending; a hand-driven bake loop ran 81 steps in 20 s at 0.64–2.5 s a step (each a `rehome` descent, 1.99 s the worst) and finished none of them; with the timers running the tab stayed unresponsive past 45 s. The slice budget is 8 ms but one target is indivisible. His "eraser bakes failing". **Built 2026-09-08** (section below, DESIGN.md §7): targets from the spatial index top-down by z, `RayIndex` in the boolean (2.6 s → 175 ms a cut), the cut and the whole descent as jobs in `public/erase-worker.js`; the shape bake, the apply and `_removedArea`'s second boolean stay on the main thread; not re-measured on that canvas. **Kobin, 2026-09-22:** still an issue, mixed in with the renderer — picked up after the PAPER agent reports (WORKLIST item 3); **Kobin, 2026-10-06 (R2):** cuts of 12–13 s of worker time, a 10.9 s lasso barrier, 0.2–0.56 s bake ticks for ~4 min, and a 6.7 s select press (likely the pending mark's resolve) | `erasePipeline._bakeOne` / `_bakeRehomeInner`, `eraseJob.js`, `eraseDescent.js` | **high — open** |
 | [F58](#f58) | ~~**a diagnostic report of a big drawing cannot be sent**~~ — **FIXED 2026-09-22, unverified by Kobin** (the app's own button on his canvas is owed). The report no longer carries the document: the instruments, the recent history and a LOCAL EXTRACT capped at 4 MB of JSON — the natives on screen and around it, with the lattice — gzipped off the main thread and posted in parts; the whole drawing is an opt-in (`+Drawing`) in 1 MB kobin-2 parts. Measured on the Magnum Opus in a second engine: 3.99 MB → 1.08 MB, built in 52 tasks, the longest 60.5 ms; the whole drawing 35 parts, 35.0 → 15.5 MB, and it loads back to the same render list | `engine/report.js`, `hooks/reportSend.js`, `tools/report-server.js`, `tools/report-read.js` | **fixed, unverified** |
 | [F59](#f59) | **a cold render of a busy view takes seconds** — the load-time render of the canvas above: 7,987 ms for 882 pieces; a warm render of the same list 87 ms (list 4, groups 69, update 14). The cost is building Two.js paths, ~9 ms a group, and every crossing into an unvisited scene pays it again. The other session measured 949 ms at 2,545 pieces | `Renderer._buildPieces` | medium — open |
 | [F60](#f60) | ~~the scale-bar dialog's Length field was a full-width bar at the bottom of the window~~ — **FIXED 2026-09-08** in 0732252, where it was labelled F74 by mistake: the dangling `.bl-scale-field .bl-input,` selector fell through to the `.bl-toast` rule; it now closes its own rule (`box-sizing: border-box; width: 100%`, `boundless-ui.css` ~429, checked 2026-09-22). Measured in Kobin's Chrome: the input inside the dialog | `src/Stylesheets/boundless-ui.css` | fixed |
@@ -94,9 +96,18 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F150](#f150) | **the Magnum Opus's steady state is not attributed: ~40 select taps of 300–358 ms, a 3.8 s click, crossings 0.3–0.7 s, camera steps whose `eng.list` is 10–108 ms at depth 10** — Kobin's report 2026-10-07T03-39-00 (R6, 43,135 natives, 24,900 moved): 7 % of frames 50–250 ms (≈ 137 s of 442 s sampled). Inferred candidates: the table's per-step sync over 24,900 displaced natives (`_watchGroup` per group per step, `_rerouteGroups` per new frame), a tap's `flushBakes()` walking every native, the ants' decision | `Stage._setWindow` / `_watchGroup`, `TileStore._rerouteGroups`, `KobinEngine._tapBarrier` | open — needs a Chrome profile (10 s of zooming at depth 10; one tap) |
+| [F149](#f149) | **zooming with a selection re-decides and repaints the ants every few frames: `ovl.tail` 4–56 ms a camera frame** — Kobin's reports R3/R6 (2026-10-06): 41.8 and 55.9 ms at 03:19:16–17 UTC, 4.3–17.8 ms on the Magnum Opus, 26.7 s over the session. The kept decision is dropped whenever the Stage's G moves, and every tile read that installs items commits a G | `overlays.js` `_selDecide` keep test (~682–708), `Stage.js` ~661, `OverlayLayer.js` ~501–524 | open (inferred split; profile first) |
+| [F148](#f148) | **after a drop the view shows the pre-drop picture while the moved family's tiles are unread, and better pictures go unused** — Kobin's report 2026-10-07T03-24-11 (R4): "blurrage, whitespace, pieces jumping … I am skeptical that the right temporary pictures were being shown". R3 → R4 (277 s): 27 % of the screen-time not exact — blur 12.7 %, older-while-unread 13.6 %, paper 0.7 %. The exact post-drop rest set is discarded at every crossing; rule (c) never reads the frame left's plates; far plates do not stay | `PicturePyramid._planCell` / `_kids` / `_discardRest`, `PyramidStore` ranks, `prefetch.js` | open |
+| [F147](#f147) | **a white flash: after drops of a screen-covering family, a fast zoom-out across a crossing drew whole frames of paper** — Kobin's report 2026-10-07T03-26-51 (R5): two composes drew no plate at all (03:26:48.557 and .847 UTC), the whole screen white for 0.29–0.84 s, partly white to ~49.3. Stale plates are evicted first, the frame left keeps every plate it had, far plates are evicted on landing, and a stale finer plate is never a source | `PyramidStore.rankOf` / `_evict`, `PicturePyramid._planCell` (c)/(f), `prefetch.js` far set | open (mechanism modelled in jsdom, shape matched) |
+| [F146](#f146) | **a phantom dashed circle beside a lassoed cut family** — Kobin's report 2026-10-07T03-17-06 (R2) and screenshot: F103's fallback dot drawn for a selected frame whose natives are traced as ids (so the frame never counts as shown), with no size cap (r 26.6 px), placed by the frame's shift without the natives' own tables (11, 22 px off) | `overlays.js` `_selDecide` (~763–834), `_selFrameInk` (~670–675) | open (reproduced in jsdom at the report's camera) |
+| [F145](#f145) | **a dragged object is drawn at ⅛ to 1/32 of the screen's resolution, and the drag plane is rebuilt from nothing at every drag** — Kobin's report 2026-10-07T03-19-33 (R3): "way fuzzier than they should be … once I move it it loses all of that information". R3's selection: main level 3 octaves under the view, quick level 5; set by D1 (the selected runs cut over the view grown by a view each way) and `PLANE_SCALED_MAX` 16, not by the 40-plate cap (k = 3 at every cap 40–144) | `MovePlane._cut` / `_level` (~184), `RasterRenderer._endPlane` | open |
+| [F144](#f144) | **a multi-object drag draws an unselected object under the selection (wrong z) past the drag plane's 5-layer cap** — Kobin's report 2026-10-07T02-57-59 (R1): "strange interleaving behavior … corrected themselves when I deselected". R1's 3-object drag: the orange band drawn under the black disc; R2's interval needed 167 layers (≈ 81 merges a cut). The merge picks the smallest run by BOX COUNT, so a screen-wide band (one box) goes first | `MovePlane._cut` (~171–180) | open (by design since 2026-09-23; Kobin's 2026-09-24 decision on the cap never answered) |
+| [F143](#f143) | **after a drop's frame GC, a camera step can put moved objects back at their old places in the table** — found by the 2026-10-07 review (jsdom, R3): after the GC of F139 and a 3 px pan, 17 moved natives whose picture-source frame is gone were drawn from the camera frame's own up tile at their unmoved place, with no dirt logged; the next render removes them | `Stage._roleOf` (~1284) against `TileStore._rerouteGroups` (~253, "drawn nowhere until its frame is minted") | open — a hazard R3's data does not exercise: 3 of the 17 ghost cells reached a plate in jsdom, identical to the settled picture, and stay marked exact (no dirt logged) |
+| [F142](#f142) | **the up-tile bake never culls a shape: every up tile magnifies every shape of its parent cell** — found by the 2026-10-07 review from Kobin's drop stalls (R3–R5): `classifyUp` and `deriveStep` read `o.lwFrame`, which `bakeShapeById` deletes, so their margins are NaN and no comparison culls. jsdom: 22 up tiles 4.6–5.2 s as built, 0.18 s with the margin 0, pieces identical in 22 of 22 (and in 105 + 76 tiles of R4 and R6). Since 2026-08-26, deployed too | `geometry/derive.js` ~455, ~568; `Document.js` ~1009 | **high — open**; any change on this path is a compatibility event (`derive.js` ~513–542): Kobin's call |
 | [F141](#f141) | **a Delete in the same animation frame as a zoom crossing into the deleted frame puts the camera on the depth-0 spine** — found by B-TIDY (2026-10-06, jsdom, `select.detachedFrame` DF-5): before its fix the camera went to the frame it had left with the child's coordinates; now `_camToLattice` refuses a `_camAt` noted for another frame and falls back to `ensureSpine(activeLevel || 0)`, and `activeLevel` reads 0 once the frame is gone | `_camAt` is noted at a render, not at a crossing (the Camera's `onCross` hook is a no-op) | open, minor: note `_camAt` at every crossing so the camera keeps its cell (A1's rule); not seen by Kobin |
 | [F140](#f140) | ~~**scenario 7's erase never baked: 40 strips queued, none in flight, the pool idle, for 80 s**~~ — **FIXED 2026-10-06 by B-PYRAMID-6 (unverified by Kobin; scenario 7 not yet re-measured)**: in jsdom the stalled strips dispatch 51 ms after the zoom ends, none in 1 s before — found by B-PYRAMID-5b (2026-10-06, headless Chromium, `--dense --scenario 7`: 1 run of 5 on the tree, 0 of 5 on 59f0a76) | `jobQueue.pump` stops at the frame's pack budget (`PACK_MS_PER_FRAME`, 4 ms) and schedules its next task only when `motion.moving` is false; `moving` is the last camera step's (`_pyrMotion`), and at rest only a camera step or a render resets the budget (`_frameStep`'s `q.frame()`), so strips pumped after a moving last step wait for the next one; pre-existing (`jobQueue.js` unchanged since 59f0a76, `_pyrMotion` and `_frameStep` too) | **fixed** |
-| [F139](#f139) | **an undo or redo with a moved frame's ink in view forgets a picture-source frame, and the next render mints it again** — found by R-MODEL-C34b (2026-10-05, jsdom, by reading and a probe; the same before and after C3/C4): 1 frame forgotten and re-minted, 2 tile bakes and 1 plate drop per step (2.3 bakes before C3/C4) | frame GC's candidates (`lm.minted`) include the empty frames `_prepareView` mints as the view's picture sources, and `_history` collects after its render | open: whether the first render after the undo shows paper is not measured — headless Chromium first (the final check), then a keep rule (keep the view's reroute sources) if it does |
+| [F139](#f139) | **the frame clean-up forgets the view's picture-source frames after every gesture — every drop, undo, redo and Delete — and the next render mints and re-bakes them cold** — found by R-MODEL-C34b (2026-10-05) for undo/redo; **seen by Kobin on every drop, 2026-10-06** (reports R1–R6): each select-tool drop at camera depth ≥ 1 costs 575–730 ms of main thread (× F142), a drag pressed on the still-selected object moves only the ants until the release (every pack refused until the next Stage sync), refused patches leave stale cells and hold the landing 3 s, and F143's ghosts | `KobinEngine._endMove` (render, then `collectFrames`), `frameGc.collectFrames` keep set, `lm.minted` | **high — open**: a keep rule for the frames the camera view's reroute groups read (small, low risk) |
 | [F138](#f138) | ~~**the model fuzz at 200 seeds: 11 of 400 walks draw a native differently from the frozen oracle**~~ — **FIXED 2026-10-05 by R-MODEL-C34 (unverified by Kobin)**, found landing C3/C4 (2026-10-04, jsdom): every difference root-caused — four live defects fixed with tests red before (a subtree delete's events, the drop's member list, a private frame keeping a public cell, a parentless "0" at load), the rest designed differences, the harness's store and oracle faults, each named, counted and break-checked; the tile fuzz at 500 + 500 and the selection fuzz at 200 + 200 green | `Document.removeFrameSubtree`, `selection._dropMove`, `LevelMap._joinGroups`/`_loadFrames`, `__testkit__/modelFuzz.js` | fixed |
 | [F137](#f137) | ~~**the dense drawing's zoom back in (harness scenario 1) showed paper after B-PYRAMID-4**~~ — **FIXED 2026-10-06 by B-PYRAMID-5 (unverified by Kobin)**: paper out/back in 14.2/0 ms against 1,401.4/131.3 (headless Chromium) — found by B-PYRAMID-4 in headless Chromium (2026-09-30): `paperMs` 743, 88 and 765 ms in its three after runs (the whole screen at one compose in two), 0 and 0 in the two before runs on a copy with the old raster sources; not seen in Chrome, not attributed | not B-PYRAMID-4's (the before copy 3 of 3, B-PYRAMID-5); traced: step (d) never took a coarser cell's twin in the frame left, which the store held | **fixed** |
 | [F136](#f136) | ~~**a long subtree drag could land a torn-off kid of the dragged frame a cell off where the move puts it**~~ — **FIXED 2026-09-30 by A1 C2 (unverified by Kobin)**, found by B-DRAG measuring A1 §1.4's census: the same 40-step walk applied to a selected frame and to every native per object disagreed for 400 of 1,250 natives by 32 units (one cell of the camera's frame; seed 777), and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 after the drop (sub-pixel ink: the screenshots matched). Each drag event re-addressed the subtree against the lattice the previous event had left, where the moving root could sit in the cell a carried kid's chain named. A drag now writes nothing until its drop, which computes once against the lattice as it stood at the press: 0 of 1,250 at seeds 777/12345/99 (`move.drop.test.js` D2, red on d206cd3) | `selection._dropMove`, `_dragFrames` | fixed |
@@ -1245,6 +1256,16 @@ feature: the live stroke would have to change frames mid-gesture.
 
 <a id="f57"></a>
 ### F57 — OPEN, high. An eraser at depth on a big drawing never finishes, and the tab locks while it tries.
+
+**2026-10-07 — Kobin's report 2026-10-07T03-17-06 (R2, 2,664 natives; the review's PERF agent):** two cut jobs of
+**13,098 and 12,117 ms of worker time**; a lasso's erase barrier waited **10,863 ms** (03:05:55 UTC); their applies
+(`cutApply` 478 + 338 ms) ran in one 1,190 ms `Worker.onmessage` task; for ~4 minutes after (03:09–03:13) the bake ticks
+ran 210–560 ms each (`cutApply` up to 506 ms, `descentApply` up to 446 ms). During the cuts 2 of the 4 workers were held
+plus the cut reservation, and raster jobs waited 467–1,584 ms. A select press at 03:05:34 ran **6,670 ms** in its handler
+(the pointer-up after it waited 5,546 ms): not attributed by the report (its rings had rolled over); by the code a select
+press spends time only in `flushBakes()` — a pending mark's perimeter resolve and registration — or the bbox-first hit
+test, so the pending mark is the likely cost (inferred, low–medium). Next: a Chrome profile of a select press right after
+a large eraser stroke on that canvas.
 
 Kobin, 2026-09-22: still an issue, but mixed in with the renderer, so it is picked up after
 the PAPER agent reports (`.claude/WORKLIST.md` item 3). Nothing below has been re-measured on
@@ -4490,6 +4511,212 @@ Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision
 
 **Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
 
+<a id="f150"></a>
+### F150 — OPEN, found by the 2026-10-07 review (PERF) in Kobin's report R6. The Magnum Opus's steady state is not attributed.
+
+Report 2026-10-07T03-39-00 (UTC; the Magnum Opus, 43,135 natives, 24,900 moved, camera depth 10, a frame selected). The
+engine's frame meter, 442.6 s sampled: 19,085 frames, 78 % at vsync, **1,256 of 50–250 ms (≈ 137 s)**, 77 over 250 ms.
+What fills them, read from the 50 kept ring rows and LoAF: camera steps whose `eng.list` is 9.6–108.5 ms, ~40 select
+pointer-ups of 300–358 ms (03:33–03:38; only two moves in the journal there, so taps or lasso ends), a 3,803 ms click
+handler (03:30:42), crossings 296–702 ms (`crossStep` median 197.5, p90 374 ms), arrival tasks of ~100 ms (one strip's
+pack is indivisible), plus the drops (F139). Inferred candidates, none measured: the table's sync per camera step over
+24,900 displaced natives (`_setWindow` → `_watchGroup` for every reroute group; `_rerouteGroups` walks every displaced
+native for a new frame, `TileStore.js` ~285–292), a tap's `_tapBarrier` → `flushBakes()` walking all natives
+(`_ensureShapeBakes`), the selection's ant decision, and F142 inside every tile read. Next: a Chrome profile of 10 s of
+zooming at depth 10 and of one tap, after F139 and F142 (they shorten every tile read). Detail: `.claude/REVIEW-2026-10-06/perf.md`
+Q2/Q3(e).
+
+<a id="f149"></a>
+### F149 — OPEN, found by the 2026-10-07 review (PERF) in Kobin's reports R3/R6. Zooming with a selection re-decides the ants every few frames.
+
+Measured (raster ring rows, the `ovl.tail` slot): R3 03:19:16–17 UTC 41.8 and 55.9 ms on single camera frames (the
+15-member family with cell-sized pieces), R6 4.3–17.8 ms a camera frame with a frame selected; 26.7 s of `ovl.tail` over
+the session (11 % of all raster main-thread time). By reading: `syncWorld` (`RasterRenderer.js` ~671–678) runs
+`_selectionAnts()` and `OverlayLayer.show` every camera step; the kept decision stands only while the Stage's G, the
+document, the frame, the kept window and a 1.25× zoom drift all stand (`overlays.js` ~682–708, `SEL_REDECIDE_DRIFT`
+~87), and any tile read that installs items commits a G (`Stage.js` ~661) — so during a zoom with reads the ants are
+re-decided although the selected ink did not change; the layer repaints at every `Zq` change and paints the edge strips
+every step (`OverlayLayer.js` ~501–524). Which of decide, repaint and edges dominates is not split. Levers: key the kept
+decision on the selected ink's own changes rather than the global G; hold the transformed ants through a continuous zoom
+and decide once it rests. Profile first. Detail: `.claude/REVIEW-2026-10-06/perf.md` Q3(d) and the ranked list's row 4.
+
+<a id="f148"></a>
+### F148 — OPEN, found by the 2026-10-07 review (PICTURE) in Kobin's report R4. After a drop the pre-drop picture shows while tiles are unread.
+
+Kobin (report 2026-10-07T03-24-11): "These moves and stuff I was doing caused a lot of blurrage, whitespace, and even
+pieces jumping around a bit. If I gave it a second, it always became accurate, but I am skeptical that the right
+temporary pictures were being shown." He dragged the purple family 3472 (12–15 members over 7 depths) 15+ times at depths
+1–6, crossing between almost every pair of drags.
+
+**Measured, R3 → R4 (277 s of one engine):** blur +35.2 s (12.7 % of the screen-time), older while the cell's tiles are
+unread +37.8 s (13.6 %), older while a patch is pending +1.6 s, paper +2.0 s — **27 % of the interval's screen-time
+not exact**; `standInCells` +18,180, `restDiscards` +291, `patchCoarse` +21; evictions by rank STALE 1,887, OFF_PATH
+2,560, FINER 1,552, LEVELS 2,611, FAR 387, LEFT 497, NEAR 26; prefetch 4,382 of 7,228 jobs (61 %).
+
+**The mechanism (inferred from the code):** a drop stales every level's plate under the family's footprint; while the
+camera zooms the step reads the tile cache with budget 0, so the cells stay unread until 100 ms of stillness and an idle
+slice (`tileRead` 46–91 ms); the patch step cannot pack them and the plan falls to rule (f), **the stale plate — the
+family where it was before the drop** — and when the fresh plate lands the family jumps to where it is. Given the store,
+(f) over paper is the rule list's right choice. Where a better source existed and was not used: (1) **the exact
+post-drop rest set is discarded at every crossing** (`frameFor` → `_discardRest("frame")`); (2) rule (c) reads only the
+frame's own grid one level finer (`_kids`), never the frame left's plates (its twins) and never two levels finer; (3)
+coarser levels above NEAR are evicted farthest-first and a far plate is evicted as it lands (F147); (4) the prefetch that
+would re-render them is priority 4. With 3 `plateViews` (144 plates at Kobin's 2,258 × 1,338 device px) the protected
+classes alone can exceed the budget: FAR and LEFT were evicted 387 + 497 times. Also behind his symptoms: F139's gap
+(drags drawing nothing, then the object jumping at the drop; patches refused) and F143's ghosts; F145's level switches
+(quick → main → landing → exact, each a visible resolution step). Not found: the drag plane's far-level fallback putting
+paper where ink is (MOVES measured R3/R4's levels: the cover check refuses, so a level never completes instead). Levers:
+F147's S4–S8; keep the rest set across a crossing through the frame affine. More memory alone is not the fix: in F147's
+model a 240 MiB budget (`setPlateBudget({ views: 5 })`, a Dev-panel switch already) left the paper at 58 % against 61 %,
+though PERF expects it to cut the LEVELS evictions behind the blur of zoom cycles (not measured). Detail: `.claude/REVIEW-2026-10-06/picture.md` Q4, moves.md Q4.
+
+<a id="f147"></a>
+### F147 — OPEN, found by the 2026-10-07 review (PICTURE) in Kobin's report R5. A white flash after drops and a fast zoom-out across a crossing.
+
+Kobin (report 2026-10-07T03-26-51): "after a big white flash, a bunch of white paper showing". **Measured from the
+report's ring rows:** rows 18866 (03:26:48.557 UTC) and 18870 (48.847) drew **no plate** — the whole screen paper — for
+0.29–0.84 s; the row before drew 8 images, the row after 18 with 9 cells just asked, then 24–25 by 49.31. At that camera
+the true picture is mostly the purple family's ink (two shapes span the screen), so white is as visible as it gets. The
+path: three drops of the family at depth 6 (03:26:27, 32, 39; each drop's render 590–690 ms, F139), then a fast zoom-out
+that **crossed out to depth 5 at 03:26:47.83**; the white rows are the first frames at ℓ5. Ruled out by the counters:
+`releases` 0, `dropsAll` 0, `dropsFrames` unchanged, no resize or dpr change, `overCapPinned` 0.
+
+**Why, by the rules (inferred, then modelled in jsdom on R5's extract with the desktop budget):** a cell of the new frame
+at ℓ5 had nothing at any level, fresh or stale. (1) The drops staled every level under the family, and a stale record is
+rank STALE, the first evicted (`PyramidStore.rankOf`, `_evict`); (2) nothing re-rendered the new frame's coarser levels
+before the zoom-out (the prefetch is priority 4, idle-only, and plans the current frame's levels); (3) far plates do not
+stay: a far plate that lands is rank FAR and the next eviction's first victim, while LEFT protects every plate of the
+frame left (98 of 144 in the model); (4) rule (c) reads only own-grid exact children one level finer (no twins, never two
+levels), (f′) only coarser and within 8 levels, so **a stale finer plate is never a source**; the rest stand-in goes at
+every frame change. Model: three drops, then the zoom-out → paper on 25 of 27 steps after the crossing, mean 53 %, worst
+87 % of the screen, images 16 → 3 → 2 at ℓ7 → ℓ5 (Kobin's rows' shape); with no wait after the drops, 20 steps of
+whole-screen paper while 28 stale plates covering that very screen sat in the store. Without the drops: no paper after
+the crossing. Levers (PICTURE's S4–S8): stale beats paper for cells on the view's path (rank them with their fresh class);
+bound LEFT to the twin levels ±2; keep the far set cumulatively and never evict a far plate on its own landing; rule (c)
+through twins and two levels finer during a zoom-out; after a drop, re-render ℓv − 1 and ℓv − 2 at priority 1. The same
+model with one lever at a time, paper share of the screen after the crossing: shipped 61 % (worst compose 87 %); a 240 MiB
+budget 58 %; the far set kept 58 %; LEFT not protected 34 %; **stale plates ranked with their fresh class 0 %** (8 %
+older instead). Kobin's "never older" preference decides S4. Detail: `.claude/REVIEW-2026-10-06/picture.md` Q2.
+
+<a id="f146"></a>
+### F146 — OPEN, found by the 2026-10-07 review (PICTURE) in Kobin's report R2. A phantom dashed circle beside a lassoed cut family.
+
+Kobin (report 2026-10-07T03-17-06, with a screenshot): "there is a phantom circle selected" — a dashed ant circle of
+~30 px touching the lower edge of a selected purple cut piece, on paper. **Reproduced in jsdom** (R2's whole drawing,
+the report's camera and selection: ids 3287, 3257–3260 and frames `-1/-6,-2/1424,1352`, `-1/-6,-2/1425,1351/736,-356`):
+`_selDecide` gives 12 runs, every one on a drawn piece's edge, and two marks — a legitimate 0.25 px dot for the sub-pixel
+depth-2 frame and **a circle of radius 26.64 px at (345.2, 394.25)**: F103's fallback dot for the frame
+`-1/-6,-2/1424,1352`. Without that frame entry, or with the fallback answering null, the circle goes and the runs stay.
+Three defects compound, any one removing this circle:
+1. The frame's two natives (3288, 3289) are in `table.ids` — `_selTable` expands every selected id to its edit group, and
+   a lasso over erased ink takes the frame whole and the family's other members as ids (F100/F108) — so they are traced
+   as `own` (`overlays.js` ~763–764) and the frame is never counted in `shownFrames` (~798, ~804): **F103's fallback fires
+   for a frame whose content is on screen with ants on it.**
+2. The fallback's radius is `max(SEL_MIN_TRACE_PX, span) / 2` with no cap (~830–834), where the member-dot rule above it
+   refuses past `SEL_OBJECT_DOT_PX` 8 px.
+3. `_selFrameInk` (~670–675) maps the frame's index extent through the FRAME's shift only; these natives carry their own
+   tables, so the dot sits (6.82, 13.54) units = (11.3, 22.5) px off the ink — half on the piece, half on paper.
+Not an eraser mark (0 marks), not F124/F125 (every run is on ink). Item 3287's "3.28e+5 frame units" warning (03:09:51)
+is a precision note, unrelated. Fixes: count an own item toward `shownFrames` when it is under a selected frame; cap the
+fallback like the member dot; map the extent through the natives' tables. Detail: `.claude/REVIEW-2026-10-06/picture.md` Q1.
+
+<a id="f145"></a>
+### F145 — OPEN, found by the 2026-10-07 review (MOVES) in Kobin's report R3. A dragged object is drawn at ⅛–1/32 resolution, and the plane is rebuilt every drag.
+
+Kobin (report 2026-10-07T03-19-33): "some moves that seem way fuzzier than they should be — the object has already been
+rendered at full resolution, but once I move it it loses all of that information. Is there a reason it has to do that?"
+
+**Why the screen's pixels cannot be carried:** a view plate is every family on it composited in z order over paper into
+one opaque image; the selection's own pixels do not exist apart from what is under and over it. The drag plane splits the
+picture by z (BELOW, the selected runs, OVER) and must rasterise each layer anew, at whatever resolution its caps allow.
+
+**Measured (jsdom, R3's whole drawing at R3's camera; R4's at R4's):** R3's selection 3287 expands to its edit family
+1317 (15 natives, some frame-sized, ~80 screens across): **main level k = 3 (⅛), quick level k = 5 (1/32)**; k = 3 at
+every plate cap 40, 64, 96, 144; with D1 off (the selected runs cut over the on-screen view only) k = 2. R4's [3326]:
+k = 2 shipped; cap 144 → k = 0 (114 plates); **D1 off → k = 0 at the shipped cap 40** (30 plates). So two rules set the
+blur, not the 40-plate cap: D1 (a selected run is cut over the view grown by one view each way — 9 screens for an object
+bigger than the screen) and `PLANE_SCALED_MAX` 16, which caps every level at k ≥ 1 (`MovePlane.js` ~184). One drag of
+R3's selection: `- Q5 Q5 M3 … M3` (one step with nothing, two at 1/32, then ⅛). The drop: 24 stale cells, estimate T 441 ms
+against the 48 ms user budget, no coarser level fits → all to the workers, the ⅛ landing held ~1–1.8 s. Every picture the
+object goes through, press to exact: nothing or the stopgap → quick 1/32 → main ⅛ → the landing at ⅛ (to `MOVE_HOLD_MS`
+3 s) → the drop's patch (coarse inline when it fits, else workers) → exact. Counters (one page R1–R6): `coarse` 380,
+`quickSteps` 326, R3 → R4 `quickSteps` +183 over 23 drags (~8 steps a drag).
+
+**The plane is rebuilt from nothing at every drag:** `_endPlane` (`RasterRenderer.js` ~544) drops every plate when a
+landing ends and `planeAccepts` ends a landing still on; measured with F139's GC made inert, a plane with no quick level
+over the stopgap's 8 plates ([36, 27] on R1, 38 plates) shows only the ants for **281–492 ms** when the second drag starts
+within ~0.3–0.6 s of the drop. (With the GC on, F139, the whole drag.)
+
+Levers (not built): cut the SEL layer's on-screen cells at the view's level and the D1 margin coarser; let
+`PLANE_SCALED_MAX` bind only where it guards the scaled-image cliff (a k = 0 SEL beside a k ≥ 1 BELOW); keep the SEL
+layer's plates across a drop, translated by the drop's offset, as the next drag's first picture; one resolution per drag
+when the main level is late; an exact drop patch for a small changed area. Raising `MOVE_PLANE_PLATES` alone does nothing
+for R3. Detail: `.claude/REVIEW-2026-10-06/moves.md` Q3, Q2 ("The orchestrator's hypothesis").
+
+<a id="f144"></a>
+### F144 — OPEN, found by the 2026-10-07 review (MOVES) in Kobin's report R1. Past the plane's 5-layer cap a multi-object drag draws an unselected run under the selection.
+
+Kobin (report 2026-10-07T02-57-59): "moving multiple objects. I was getting some strange interleaving behavior, but they
+corrected themselves when I deselected the objects." R1's drawing: three overlapping translucent strokes (black z 1,
+orange z 3 at 0.45, green z 4 at 0.2) with a disc erased through all three into the private frame `…#2` (36 black,
+31 orange, 27 green). **Measured (jsdom, desktop cap 40):** [27, 31, 36] (his first multi-object drag, 02:56:19 UTC) cuts
+to BELOW | SEL [36] | OVER [30] | SEL [31] | OVER [26] | SEL [27] = 6 layers > `MOVE_PLANE_LAYERS` 5, so one merge: the
+orange band (30) goes under the selection, and during the drag and the landing the black disc is drawn **over** the
+orange band it lies under — 3 of 144 sample points wrong, e.g. (1057, 457) drawn (22, 32, 25) against (68, 63, 38)
+settled. This is R1's `merged` 1 and `maxLayers` 6. [36, 27] (the selection at the report) cuts to 4 layers, no merge,
+right. R2's interval needed **167 layers** (`merged` 713 ≈ 81 merges a cut, ~9 cuts): ~83 selected runs alternating with
+~83 unselected ones in paint order — a lasso of erase cut-outs, each in its own edit family beside its unselected remnant
+(the selection is not in R2's journal; lassos are not journaled). Each merge draws the smallest sandwiched run under
+the WHOLE selection, chosen by box count (`MovePlane.js` ~171–180), so a screen-wide band (one box) goes first.
+
+Why it lasted until the deselect (measured): F139's gap refuses the drop's worker patches, the landing runs to its 3 s
+limit with the plane's (merged) picture, and the refused cells stay stale until the next Stage sync — the deselect
+(`deselect` → `_syncStep` → `stage.sync`) patches them at once. DESIGN.md §9 states the cap as the design ("over 5 layers
+the smallest run between two selected ones is drawn under them", 2026-09-23); a decision put to Kobin on 2026-09-24
+(raise the cap vs merge by overlap) was not answered. Levers: merge by the pixels a run covers on screen, not its box
+count; prefer merging a translucent run above the selection; past the cap draw small selected runs from the stopgap at
+their true depth; end a landing whose patches were refused. Detail: `.claude/REVIEW-2026-10-06/moves.md` Q1.
+
+<a id="f143"></a>
+### F143 — OPEN (unverified in a browser), found by the 2026-10-07 review (PERF). After a drop's frame GC a camera step draws moved natives at their old places.
+
+Measured (jsdom, `review1006.perf.gcgap.probe.js`, R3's drawing, camera and selection): after a drop, F139's GC leaves
+**802 displaced natives whose picture-source frame is gone** (`_rerouteGroups` `miss`; groups 39 → 17). A 3 px pan that
+does not cross re-diffs the reroute (`Stage._settle` → `_rerouteDiff`, the lattice key changed) and the table grows from
+11 to 28 items: **17 displaced natives drawn from the camera frame's own up tile with offset [0, 0] — at their stored,
+unmoved place** (1 of the 17 on screen at R3's zoom). No dirt is logged either way, and the next render (the re-mint)
+removes them again. By reading: `Stage._roleOf` (`Stage.js` ~1284–1288) draws a piece whose native is in no reroute
+group in the window role, while `TileStore._rerouteGroups` (~253) says such a native is "drawn nowhere until its frame is
+minted": the Stage does not consult the model's `moved` set for tile pieces. MOVES on R1: the same pan left 0 of 1,500
+screen points wrong (R1's displaced strokes are off screen). PLATES: **Measured (PICTURE, `review1006.picture.ghostplate.probe.js`):** in the gap state 14 of the 17 ghost cells were refused by the pack (F119's cover check); the 3 that landed equal the settled picture (0 px differ) and, after the re-mint, stay marked exact because no dirt was logged — so on R3's data nothing wrong is painted, but a ghost over a cell whose settled picture differs would stay until something else dirties it (not exercised by this data). Inferred consequence: a plate packed in the gap
+(a cell panned in, a rest set at a new zoom, a prefetch level) shows moved objects where they were, and nothing dirties
+it when they go — one candidate for Kobin's R4 "pieces jumping around a bit". F139's keep rule removes the gap; a local
+fix is `_roleOf` returning undefined for a native the model lists as moved. Detail: `.claude/REVIEW-2026-10-06/perf.md` ("Added"),
+moves.md ("Against PERF's findings").
+
+<a id="f142"></a>
+### F142 — OPEN, high, found by the 2026-10-07 review (PERF) from Kobin's drop stalls. The up-tile bake never culls a shape.
+
+`classifyUp`'s EMPTY test reads `half = (o.lwFrame * f) / 2` (`geometry/derive.js` ~455) and `deriveStep`'s bbox cull
+`m = o.lwFrame * (s / base) + …` (~568–570). A resolved stroke is a `shape`, and `Document.bakeShapeById` **deletes
+`lwFrame`** (`Document.js` ~1009, since `f92c1d1`, 2026-08-26 — in the deployed build too; the `half` line predates
+shapes). `undefined * f` is NaN, every comparison with NaN is false, so **no shape is ever EMPTY and none is culled**:
+every up-tile bake (`TileStore._bakeUp`) runs the full magnify path (`transformLoopsAbout`, `chopFreezeLoops`,
+`shapeLoopsInRect`) on every shape of the parent cell, however far from the tile. Every other reader takes
+`lwFrame || 0` (`TileStore._reaches`, `projectedSizePx`, `Document.js` ~86).
+
+**Measured (jsdom, ratios only; `review1006.perf.cull.probe.js`):** R3's camera view (39 reroute groups, 22 up tiles;
+parents of 2,034 and 588 natives, all shapes, none with `lwFrame`): `classifyUp` tiers on one tile 588 edge as built,
+578 empty + 10 edge with the margin 0; **the 22 up tiles 4,578–5,203 ms as built, 177–181 ms with the margin 0, pieces
+identical in 22 of 22** (id, type, origin, every coordinate). Whole chains: R4 at its camera 105 tiles identical,
+5,355 ms against 564 ms; R6's extract 76 tiles identical. With F139 every drop at depth ≥ 1 re-bakes such tiles cold:
+R3 drop 6.7–9.5 s as built, 0.33–0.39 s culled; R4 5.2–5.6 s, 0.65–0.73 s. The same bake sits in every crossing's idle
+read, every prefetch snapshot and every cut/descent apply's tile patch; `eng.list` was 47 % (110.5 s) of the session's
+raster main-thread time. **Not built:** the fix is `(o.lwFrame || 0)` in both places, but `derive.js` ~513–542 makes any
+change on this path a compatibility event (the deploy gate's 1.0 decision); it needs the deep-picture suites
+(`tile.patch`, the fidelity and depth suites) and a randomised old-against-new tile comparison first. Evidence for safety
+so far, not a proof: 203 tiles identical over R3, R4 and R6's extract. Detail: `.claude/REVIEW-2026-10-06/perf.md` Q1.
+
 <a id="f141"></a>
 ### F141 — OPEN (minor), found by B-TIDY (2026-10-06). A Delete in the same frame as a crossing into the deleted frame.
 
@@ -4539,7 +4766,39 @@ budget's branch schedules `_nextTask`; a jsdom test that ends a zoom with strips
 further step (red before: nothing dispatched in 1 s).
 
 <a id="f139"></a>
-### F139 — OPEN, found by R-MODEL-C34b (2026-10-05). An undo or redo with a moved frame's ink in view re-mints a picture source.
+### F139 — OPEN, high, found by R-MODEL-C34b (2026-10-05); seen by Kobin on every drop (2026-10-06). The frame clean-up forgets the view's picture-source frames after every gesture.
+
+**2026-10-07 — Kobin's session (reports R1–R6, 2026-10-06) shows it on EVERY drop, not only undo/redo** (the review's
+MOVES and PERF agents, jsdom on the reports' own drawings; `.claude/REVIEW-2026-10-06/`). `_endMove` renders and then
+collects (`KobinEngine.js` ~646–647); the empty frames `_prepareView` mints so moved natives' pictures can be read
+(`TileStore.prepare` → `_rerouteGroups(F, true)`) are `lm.minted`, frame GC's candidates; the keep set is the camera's
+path, its trail and the frames history names (`frameGc.collectFrames` ~82–90) — not the frames the camera view's
+reroute groups read. So every drop forgets them with their tiles, and the next document render mints them again and
+re-bakes their tiles cold, synchronously (`readMs` Infinity). What it does:
+1. **The drop stall.** Every select-tool drop at camera depth ≥ 1 on his 2,664-native canvas cost **575–730 ms of main
+   thread** (perfLog `ptrUp` → `render` → `rasterRender`; R4's ring row 17645: `eng.list` 653.5 of 685.7 ms, pack
+   0.4 ms); the report's growth samples show +54, +54, +86 frames minted at three drops and ~50 forgotten after each.
+   jsdom: R3's drop 3.8–9.5 s as built against 0.22–0.32 s with the GC forgetting nothing; R4 5.2–5.6 s against
+   0.03–0.14 s. Each re-bake magnifies every shape of its parent cell (F142). The same render follows a Delete
+   (2.1 s for 83 natives on the Magnum Opus, R6 03:37:00 UTC) and an undo or redo.
+2. **A drag shows only the ants (Kobin's "if I moved it again … it only moved the ants, and the part wouldn't move until I
+   released").** Between the GC and the next `stage.sync` the Stage still watches the forgotten frames' groups, whose
+   tiles are unread, so `Stage.covers` is false for the whole view and every pack is refused — the plane's jobs, the
+   stopgap, the drop's worker patches. A drag pressed on the still-selected object starts no sync (a plane step never
+   syncs, `selection.js` ~668–669), so it draws nothing for the whole drag while `viewDraws: false` keeps the view from
+   drawing the held natives; a select, a deselect or a pan closes the window (`_settle` → `_rerouteDiff`). jsdom on R1:
+   the second drag 20 of 20 steps `notReady` in 8 of 8 runs (gaps 0–1,000 ms); his own 13 moves replayed: the first
+   draws, the next 12 draw nothing until the drop. His tab's counters fit: `stopgaps` 312 with `stopgapMsMax` 0.2 ms
+   (never a plate rastered), `notReady` 710 over 30 drags, 4 refused strips after every drop, and neither source frame in
+   the report's lattice. With the GC made inert every second drag moves.
+3. **Stale cells and a 3 s landing after the drop:** the refused patches never make their cells exact, so the landing
+   holds the plane (F144's merged picture included) to `MOVE_HOLD_MS` and the old plates stay until the next Stage sync —
+   his "corrected themselves when I deselected".
+4. **F143's ghosts** once a sync drops the forgotten groups; inferred: the snapshots behind the plane's
+   `farListFallbacks` (`Stage.snapshot` null with 798 sources missing on R3).
+Lever (not built; PERF's A): keep the frames the camera view's reroute groups read (their F0s and chains) in
+`collectFrames` — small, low risk; it relaxes F94's "a frame holds something" for frames in use, which DESIGN §8 must then
+say. Or mint at idle when `covers` fails on a group's missing frame (a mint/forget ping-pong unless the GC keeps them).
 
 jsdom, by reading and a probe, on the tree and on the tree before C3/C4 alike. `_prepareView` mints the empty frames the
 view reads a shifted frame's picture through; they are in `lm.minted`, which is frame GC's candidate set, and `_history`

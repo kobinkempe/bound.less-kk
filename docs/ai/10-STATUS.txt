@@ -29,9 +29,27 @@ WHERE THE BUILD IS
     branch claude/hopeful-dirac-iotb9n, pushed, on top of rasteriser at 56e36b3
     (2026-09-25: the work from 2026-09-15 on, committed and pushed as
     origin/rasteriser; main's 4c99a8a is inside it; origin/main is 0732252).
-    Nothing has been deployed since 2026-09-08 (0732252, SVG only), and none of
-    the rebuild has been seen by Kobin.
+    Nothing has been deployed since 2026-09-08 (0732252, SVG only). Kobin pulled
+    the rebuild as branch rasteriser-reviewed (= the private remote's main,
+    cb6bfce) on 2026-10-06 and tried it in his Chrome: the 2026-10-07 entry.
 
+2026-10-07 - KOBIN'S FIRST CHROME SESSION ON THE REBUILD (six reports of 2026-10-06, R1-R6;
+    the review: .claude/REVIEW-2026-10-06/, gitignored - CONTEXT, moves, picture, perf). His
+    words: "looking pretty good and fairly accurate - much less brittle than before; the
+    performance is not quite where it needs to be." Filed: F142 (the up-tile bake never culls
+    a shape: lwFrame is NaN for a shape, every up tile magnifies every shape of its parent;
+    jsdom 22 tiles 5.2 s against 0.18 s, pieces identical), F143 (moved natives drawn at their
+    old place after the GC gap), F144 (the drag plane's 5-layer cap puts an unselected run
+    under the selection), F145 (the plane at 1/8-1/32 resolution; rebuilt every drag), F146
+    (F103's fallback dot as a phantom circle), F147 (a white flash: drops, then a zoom-out
+    across a crossing), F148 (the pre-drop picture while tiles are unread), F149 (ants
+    re-decided while zooming), F150 (the Magnum Opus steady state, unattributed). F139 widened:
+    the frame GC forgets the view's picture-source frames after EVERY drop - the 575-730 ms
+    drop stall (with F142) and the second drag that moves only the ants. F57 updated (12-13 s
+    cuts, a 10.9 s lasso barrier, a 6.7 s press). The rebuild's "paper 0" is contradicted on
+    his canvases (4.3-8.4 s on the 2,664-native one, 37 s on the Magnum Opus). "Everything
+    green" (R6): the camera sits inside an ancestor's dark-green band - no defect found. Nothing
+    fixed (Kobin: analysis first).
 2026-10-07 - THE FINAL CHECK (review/rebuild/FINAL-SUMMARY.md, FINAL-AUDIT.md, FINAL-MEASUREMENTS.md).
     F140 fixed: a pump stopping at the frame's pack budget now always asks for its next
     task (at rest at once, while the camera moves 50 ms after the last step) - an erase's
