@@ -386,7 +386,15 @@ describe("selection indicator (engine)", () => {
         E._render();                                         // nothing changed: no commit (A2 §2.11)
         expect(E.stage.generation).toBe(G0);
         expect(E._selectionAnts().key).toBe(a.key);
-        // A commit with no document change (the idle fitter's outline; a tile read): decided again.
+        // A commit with no document change that touches no selected piece (a tile read of other ink): it stands (F149).
+        const other = drawStroke(E, [[500, 420], [560, 450]]);
+        E.setTool("select");
+        E._setSelection([o.id]);
+        const k0 = E._selectionAnts().key, G1 = E.stage.generation;
+        E.stage.touch(other.id);
+        expect(E.stage.generation).toBeGreaterThan(G1);
+        expect(E._selectionAnts().key).toBe(k0);
+        // One that touches a selected piece (the idle fitter's outline): decided again.
         const rev = E.doc.rev, k1 = E._selectionAnts().key;
         E.stage.touch(o.id);
         expect(E.doc.rev).toBe(rev);

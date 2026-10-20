@@ -40,9 +40,11 @@ describe("the levers' own rules", () => {
             .toEqual({ levelStep: 2, plateViews: 5, plateCeilingMiB: 128, restQuietMs: 0, restInline: "never", compose: "surface" });
         expect(cleanLevers({ levelStep: 4, plateViews: 9, plateCeilingMiB: 32, restQuietMs: 1.5, restInline: "always", compose: "gpu", other: 1 })).toEqual({});
         expect(cleanLevers(null)).toEqual({});
-        expect(leverDefaults(false)).toEqual({ levelStep: 1, plateViews: 3, plateCeilingMiB: 256, restQuietMs: 100, restInline: "auto", compose: "auto" });
-        expect(leverDefaults(true)).toMatchObject({ plateViews: 2, plateCeilingMiB: 96 });
-        expect(Object.keys(LEVERS).sort()).toEqual(["compose", "levelStep", "plateCeilingMiB", "plateViews", "restInline", "restQuietMs"]);
+        expect(leverDefaults(false)).toEqual({ levelStep: 1, plateViews: 3, plateCeilingMiB: 256, plateRamMiB: 64, restQuietMs: 100, restInline: "auto", netMs: 0, compose: "auto" });
+        expect(leverDefaults(true)).toMatchObject({ plateViews: 2, plateCeilingMiB: 96, plateRamMiB: 24 });
+        expect(cleanLevers({ plateRamMiB: "0" })).toEqual({ plateRamMiB: 0 });         // 0 turns the RAM tier off (F161)
+        expect(cleanLevers({ netMs: "120" })).toEqual({ netMs: 120 });                 // the net over paper's budget (F166)
+        expect(Object.keys(LEVERS).sort()).toEqual(["compose", "levelStep", "netMs", "plateCeilingMiB", "plateRamMiB", "plateViews", "restInline", "restQuietMs"]);
     });
 
     test("a URL names them in the hash route's query or in the search; the URL wins over what is stored", () => {

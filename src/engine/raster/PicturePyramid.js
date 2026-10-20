@@ -33,11 +33,21 @@ export const LIVE_HOLD_MS = 3000;
 export const USER_COARSE_FRAMES = 3;
 /** The surface is freed after this long unused. */
 export const SURFACE_IDLE_MS = 10000;
+/** A plane layer of more drawn plates than this is drawn from one surface: one image a frame, under the compose cliff (F145). */
+export const PLANE_SURFACE_MIN = 2;
+/** The most plates a plane layer's surface spans (its cells' bounding box); past it the layer draws its plates. */
+export const PLANE_SURFACE_MAX = 64;
+/** Texels of a plane surface's edge copied into a cell another layer draws (bilinear reads one). */
+const PLANE_EDGE_TEXELS = 2;
+/** A cell's eight neighbours, the sides first: a corner's texel is the diagonal neighbour's. */
+const EDGE_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
 /** The estimate's constants (A3 §2.2, §3.3), each overridable in cfg and calibrated online. */
 export const EST_DEFAULTS = Object.freeze({
     restEdgeUs: 0.73, restPxNs: 34, restCellMs: 0.15, patchUnionUs: 73, patchMergeMs: 0.3, packItemUs: 20, packListUs: 1,
-    restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100,
+    restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100, netMs: 0,
 });
+/** Octaves under the view's level the net renders at, and the most plates one net renders (F166). */
+const NET_OCT = 3, NET_PLATES = 6;
 const EWMA = 0.2;
 const WHOLE = Object.freeze([0, 0, PLATE_PX, PLATE_PX]);
 
@@ -95,6 +105,7 @@ export default class PicturePyramid {
      * @param {(sample:object)=>void} [opts.onSample] an inline job's core timings (`calibrate`'s shape): the renderer
      *        feeds them, with the workers' (`sampleOf`), to `calibrate`
      * @param {boolean} [opts.pixels] keep raw pixels (jsdom) instead of bitmaps
+     * @param {(entries:object[])=>void} [opts.restore] the store's RAM-tier entries (`restorable`) to restore (F161)
      */
     constructor(host, opts = {}) {
         this.host = host || null;
@@ -105,6 +116,7 @@ export default class PicturePyramid {
         this.paper = opts.paper || "#ffffff";
         this._paperRGB = parseHex(this.paper);
         this._onRequest = opts.onRequest || null;
+        this._restore = opts.restore || null;
         this._pack = opts.pack || null;
         this._measure = opts.measure || null;
         this._onSample = opts.onSample || null;
@@ -143,6 +155,7 @@ export default class PicturePyramid {
         this._attn = null;
         this._surface = null;
         this._surfaceTimer = null;
+        this._planeSurf = new Map();   // "frameId|pZq|tag" -> a plane layer's surface (`_planeSurface`)
         this._scratch = null;
         this._oc = null;
         this._counts = new Float64Array(COUNTS_PER_PLATE);
@@ -158,12 +171,12 @@ export default class PicturePyramid {
         this.lastPlan = null;
         this.lastPatch = null;         // the last patch decision: cells, T against the budget, inline or coarse (`patchPlan`)
         this.s = {
-            composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0,
+            composes: 0, direct: 0, surface: 0, surfaceRecomposes: 0, surfaceAllocs: 0, surfaceFrees: 0, planeSurfAllocs: 0, planeSurfCells: 0,
             composeMs: 0, composeMsMax: 0, maxImagesPerCompose: 0, lastImages: 0,
             paperMs: 0, blurMs: 0, olderPatchMs: 0, olderUnreadMs: 0, olderOtherMs: 0,
-            restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0, standInCells: 0,
+            restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0, standInCells: 0, nets: 0, netPlates: 0, netMs: 0,
             patchInline: 0, patchCoarse: 0, patchWorker: 0, patchMs: 0, merges: 0, mergeMisses: 0,
-            groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0,
+            groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0, ramRestores: 0,
         };
         this._canvas = null; this._ctx = null;
         if (opts.context) { this._ctx = opts.context; } else if (this.host) this._mount();
@@ -196,6 +209,7 @@ export default class PicturePyramid {
         }
         this._discardRest("resize");
         this._freeSurface();
+        this._freePlaneSurfaces();
         this._sized();
         this._cam0.sized = true;
         return true;
@@ -219,7 +233,14 @@ export default class PicturePyramid {
     /** The commit a user's own action just made (an undo, a redo, a drop): its patch has the user's budget (`patchPlan`). */
     noteUserEdit() { this._userG = this.stage ? this.stage.generation : 0; }
     /** The prefetch's far zoom-out keys (`prefetch.js`): protected in the store, evicted first among the protected. */
-    setFar(keys) { const v = this.store && this.store.view; if (v) v.far = new Set(keys); }
+    /** The far set the store protects (rank FAR); `keep` adds to it (a retry's reads, F166). */
+    setFar(keys, keep = false) {
+        const v = this.store && this.store.view;
+        if (!v) return;
+        const out = new Set(keys);
+        if (keep && v.far) for (const k of v.far) out.add(k);
+        v.far = out;
+    }
 
     // ---- the view (FC2, A3 §1.3) ----
 
@@ -567,7 +588,7 @@ export default class PicturePyramid {
      * the screen or the plate, the larger) and clipped to `cb`, `{ bbox, area }`; null when the log does not reach.
      */
     _dirtyIn(F, rec, padded, cb) {
-        const rs = this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(F, rec.G) : null;
+        const rs = this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(F, rec.G, padded) : null;
         if (!rs) return null;
         let bb = null;
         for (const r of rs) {
@@ -660,47 +681,184 @@ export default class PicturePyramid {
     /**
      * The plane's layers for this view: records to draw after the base, and the base cells BELOW replaces. Partial
      * (the SEL layers whole, the rest not): H4, never both — the selection is drawn moved only when BELOW covers its
-     * start footprint (with OVER there), which hides it where it was; else nothing is drawn and it stays in place.
+     * start footprint (with OVER there, each layer's `foot`), which hides it where it was; else nothing is drawn and it
+     * stays in place. BELOW's `paper` cells hold none of its own ink: drawn as paper, with no plate. A layer of more than
+     * PLANE_SURFACE_MIN drawn plates is drawn from one surface (`surf`), so it counts one image (F145).
      */
     _planePlan(v) {
         const p = this._plane, st = this.store;
         const out = { images: 0, layers: [], skip: null };
         if (!p || !p.showing || String(p.frameId) !== v.frameId || !p.layers || !p.layers.length) return out;
-        const get = (L, i, j) => { const r = st.get(planeKey(p.frameId, p.Zp, L.tag, i, j)); return r && !r.dead ? r : null; };
-        let foot = null;
+        const get = (L, i, j) => { const r = st.get(planeKey(p.frameId, L.pZq, L.tag, i, j)); return r && !r.dead ? r : null; };
         if (p.partial) {
-            foot = new Set();
-            for (const L of p.layers) if (L.kind === "sel") for (const [i, j] of L.cells) foot.add(i + "," + j);
             for (const L of p.layers) {
                 if (L.kind === "sel") continue;
-                for (const [i, j] of L.cells) if (foot.has(i + "," + j) && !get(L, i, j)) return out;   // the selection stays in place
+                for (const [i, j] of L.cells) if (L.foot.has(i + "," + j) && !get(L, i, j)) return out;   // the selection stays in place
             }
             if (!p.layers.some((L) => L.kind === "below")) return out;
         }
-        const seen = new Set();
+        const surfaces = this.planeSurfaces;
         for (const L of p.layers) {
             const recs = [];
+            let n = 0;
             for (const [i, j] of L.cells) {
-                if (foot && L.kind !== "sel" && !foot.has(i + "," + j)) continue;
+                if (p.partial && L.kind !== "sel" && !L.foot.has(i + "," + j)) continue;
                 const r = get(L, i, j);
                 if (!r) continue;
                 recs.push(r);
-                if (r.bitmap || r.pixels) seen.add(r);
+                if (r.bitmap || r.pixels) n++;
             }
-            out.layers.push({ L, recs });
+            if (L.paper) for (const [i, j] of L.paper) if (!p.partial || L.foot.has(i + "," + j)) recs.push({ i, j, paper: true });
+            const b = cellBounds(L), surf = surfaces && surfaceable(L, n, b);
+            out.layers.push({ L, recs, surf, b });
+            out.images += surf ? 1 : n;
         }
-        out.images = seen.size;
         const below = p.layers.find((L) => L.kind === "below");
         if (p.state === "drag" && !p.partial && below) {
-            const ratio = v.Zq / p.Zp, e = Math.log2(ratio);
+            const ratio = v.Zq / below.pZq, e = Math.log2(ratio);
             if (ratio >= 1 && Number.isInteger(e)) {
                 out.skip = new Set();
-                for (const [bi, bj] of below.cells) {
-                    for (let b = 0; b < ratio; b++) for (let a = 0; a < ratio; a++) out.skip.add((bi * ratio + a) + "," + (bj * ratio + b));
+                for (const cells of [below.cells, below.paper || []]) {
+                    for (const [bi, bj] of cells) {
+                        for (let b = 0; b < ratio; b++) for (let a = 0; a < ratio; a++) out.skip.add((bi * ratio + a) + "," + (bj * ratio + b));
+                    }
                 }
             }
         }
         return out;
+    }
+
+    /** Can the plane's layers be drawn from surfaces here: a 2D canvas can be made (jsdom: a soft one only). */
+    get planeSurfaces() {
+        if (this.cfg.planeSurfaces === false) return false;
+        if (this._canSurfMk !== this._mk) {
+            this._canSurfMk = this._mk;
+            const c = this._mk(1, 1);
+            this._canSurf = !!(c && c.getContext && c.getContext("2d"));
+            if (c) { c.width = 0; c.height = 0; }
+        }
+        return this._canSurf;
+    }
+
+    /**
+     * Layer L's surface over its bounding cells `b`, its cells brought up to `recs`: a cell whose record changed or went is
+     * cleared, then each new one drawn at the layer's own grid 1:1 (a BELOW paper cell or empty plate as paper). A re-cut
+     * keeps a layer's tag over other cells (a pan): new bounds, a new surface. Null when no canvas can be made. Magnified,
+     * a texel beside one the layer leaves transparent would be blended with it — a seam where another layer or the view's
+     * plates draw that cell: BELOW's, and a margin's inside its hole (Kobin 2026-10-19). So their edges are copied into
+     * those cells (`_planeEdges`); the hole is clipped, and BELOW drawn only on its own cells (`_paintPlane`).
+     */
+    _planeSurface(p, L, recs, b) {
+        const key = p.frameId + "|" + L.pZq + "|" + L.tag;
+        let sf = this._planeSurf.get(key);
+        if (sf && (sf.i0 !== b.i0 || sf.i1 !== b.i1 || sf.j0 !== b.j0 || sf.j1 !== b.j1)) { sf.canvas.width = 0; sf.canvas.height = 0; this._planeSurf.delete(key); sf = null; }
+        if (!sf) {
+            const w = (b.i1 - b.i0 + 1) * PLATE_PX, h = (b.j1 - b.j0 + 1) * PLATE_PX;
+            const c = this._mk(w, h), x = c && c.getContext ? c.getContext("2d") : null;
+            if (!x) return null;
+            x.imageSmoothingEnabled = false;                         // every draw into it is whole texels
+            sf = { canvas: c, ctx: x, i0: b.i0, j0: b.j0, i1: b.i1, j1: b.j1, w, h, drawn: new Map(), edge: new Set(), hole: null, usedAt: 0 };
+            this._planeSurf.set(key, sf);
+            this.s.planeSurfAllocs++;
+        }
+        sf.usedAt = this._now();
+        const want = new Map(), moved = [];
+        for (const r of recs) want.set(r.i + "," + r.j, r);
+        const same = (d, r) => (r.paper ? d.r === "paper" : d.r === r && d.b === (r.bitmap || r.pixels || null));
+        for (const [c, d] of sf.drawn) {
+            const r = want.get(c);
+            if (r && same(d, r)) continue;
+            sf.ctx.clearRect((d.i - sf.i0) * PLATE_PX, (d.j - sf.j0) * PLATE_PX, PLATE_PX, PLATE_PX);
+            sf.drawn.delete(c);
+            moved.push(d.i, d.j);
+        }
+        for (const [c, r] of want) {
+            if (sf.drawn.has(c)) continue;
+            const x = (r.i - sf.i0) * PLATE_PX, y = (r.j - sf.j0) * PLATE_PX, bm = r.paper ? null : r.bitmap || r.pixels || null;
+            if (sf.edge.delete(c)) sf.ctx.clearRect(x, y, PLATE_PX, PLATE_PX);   // its neighbours' edges, copied in
+            if (bm) sf.ctx.drawImage(r.bitmap || r, x, y);
+            else if (L.kind === "below") { sf.ctx.fillStyle = this.paper; sf.ctx.fillRect(x, y, PLATE_PX, PLATE_PX); }
+            sf.drawn.set(c, { r: r.paper ? "paper" : r, b: bm, i: r.i, j: r.j });
+            moved.push(r.i, r.j);
+            this.s.planeSurfCells++;
+        }
+        if (L.kind === "below" || L.hole) {
+            const hk = L.hole ? L.hole.i0 + "," + L.hole.i1 + "," + L.hole.j0 + "," + L.hole.j1 : "";
+            if (sf.hole !== hk) {                                    // a re-cut over other view cells moved the hole: every edge again
+                for (const c of sf.edge) { const [i, j] = c.split(",").map(Number); sf.ctx.clearRect((i - sf.i0) * PLATE_PX, (j - sf.j0) * PLATE_PX, PLATE_PX, PLATE_PX); }
+                sf.edge.clear(); sf.hole = hk; moved.length = 0;
+                for (const d of sf.drawn.values()) moved.push(d.i, d.j);
+            }
+            if (moved.length) this._planeEdges(sf, L, moved);
+        }
+        return sf;
+    }
+
+    /**
+     * The cells around those that changed (`moved`, i, j pairs) that L leaves to another layer or the view's plates, each
+     * given its drawn neighbours' edge texels, PLANE_EDGE_TEXELS deep: a magnified texel next to it then blends with its own
+     * edge, as a plate drawn alone is clamped at its own.
+     */
+    _planeEdges(sf, L, moved) {
+        const P = PLATE_PX, T = PLANE_EDGE_TEXELS, e = 2 ** L.k, h = L.hole, x = sf.ctx;
+        const theirs = (i, j) => (h ? i * e >= h.i0 && (i + 1) * e - 1 <= h.i1 && j * e >= h.j0 && (j + 1) * e - 1 <= h.j1 : true);
+        const seen = new Set();
+        for (let n = 0; n < moved.length; n += 2) {
+            for (let dj = -1; dj <= 1; dj++) {
+                for (let di = -1; di <= 1; di++) {
+                    const i = moved[n] + di, j = moved[n + 1] + dj, c = i + "," + j;
+                    if (i < sf.i0 || i > sf.i1 || j < sf.j0 || j > sf.j1 || seen.has(c) || sf.drawn.has(c) || !theirs(i, j)) continue;
+                    seen.add(c);
+                    const cx = (i - sf.i0) * P, cy = (j - sf.j0) * P;
+                    if (sf.edge.delete(c)) x.clearRect(cx, cy, P, P);
+                    for (const [ox, oy] of EDGE_DIRS) {
+                        const d = sf.drawn.get(i + ox + "," + (j + oy));
+                        if (!d) continue;
+                        // the neighbour's texels facing this cell, repeated T deep along its side (a corner: one texel)
+                        const sx = ox < 0 ? P - 1 : 0, sy = oy < 0 ? P - 1 : 0, sw = ox ? 1 : P, sh = oy ? 1 : P;
+                        const tx = ox > 0 ? cx + P - T : cx, ty = oy > 0 ? cy + P - T : cy, tw = ox ? T : P, th = oy ? T : P;
+                        if (d.b) x.drawImage(d.r.bitmap || d.r, sx, sy, sw, sh, tx, ty, tw, th);
+                        else if (L.kind === "below") { x.fillStyle = this.paper; x.fillRect(tx, ty, tw, th); }
+                        else continue;
+                        sf.edge.add(c);
+                    }
+                }
+            }
+        }
+    }
+
+    /** With a plane shown, the surfaces no layer drew for a second go (a quick level's once the plane's own is whole). */
+    _idlePlaneSurfaces() {
+        const t = this._now() - 1000;
+        for (const [k, sf] of this._planeSurf) if (sf.usedAt < t) { sf.canvas.width = 0; sf.canvas.height = 0; this._planeSurf.delete(k); }
+    }
+
+    /**
+     * Between drags: the whole plane `p` (or null) has its layers' surfaces built now and kept, so a drag's first frame
+     * draws them (built there, 25–38 ms in Chrome, F145); every other surface goes.
+     */
+    prepPlane(p) {
+        const keep = new Set();
+        if (p && p.layers && this.planeSurfaces) {
+            for (const L of p.layers) {
+                const recs = [];
+                let n = 0;
+                for (const [i, j] of L.cells) {
+                    const r = this.store.get(planeKey(p.frameId, L.pZq, L.tag, i, j));
+                    if (r && !r.dead) { recs.push(r); if (r.bitmap || r.pixels) n++; }
+                }
+                const b = cellBounds(L);
+                if (!surfaceable(L, n, b)) continue;
+                if (L.paper) for (const [i, j] of L.paper) recs.push({ i, j, paper: true });
+                if (this._planeSurface(p, L, recs, b)) keep.add(p.frameId + "|" + L.pZq + "|" + L.tag);
+            }
+        }
+        for (const [k, sf] of this._planeSurf) if (!keep.has(k)) { sf.canvas.width = 0; sf.canvas.height = 0; this._planeSurf.delete(k); }
+    }
+
+    _freePlaneSurfaces() {
+        for (const sf of this._planeSurf.values()) { sf.canvas.width = 0; sf.canvas.height = 0; }
+        this._planeSurf.clear();
     }
 
     /** The view cells a landing plane still covers: those whose own source is not exact yet. */
@@ -723,7 +881,8 @@ export default class PicturePyramid {
         this.patchIfDue();
         const t0 = this._now(), v = this._v;
         this._checkGroups();
-        const P = this.plan(v);
+        let P = this.plan(v);
+        if (this._net(v, P)) P = this.plan(v);
         this.lastPlan = P;
         this.store.setDrawn(P.keys);
         const force = this.cfg.compose;
@@ -749,6 +908,42 @@ export default class PicturePyramid {
     }
 
     /**
+     * A plan with paper (F166; Kobin 2026-10-20: "I'd prefer blurry images or slow framerate to this much paper"):
+     * frame F's cells NET_OCT octaves under ℓv over the paper's box, at most NET_PLATES and each in the camera's table,
+     * rendered on this thread when their estimate fits `netMs` (0, off, until measured in Chrome). They are exact, so (d)
+     * draws them blurred until the view reaches their level. True when one landed.
+     */
+    _net(v, P) {
+        const ms = cfgOr(this.cfg, "netMs");
+        if (!(ms > 0) || !this._pack || v.frameId == null) return false;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const c of P.cells) {
+            for (const d of c.draws) {
+                if (d.cls !== "paper") continue;
+                x0 = Math.min(x0, d.x0); y0 = Math.min(y0, d.y0); x1 = Math.max(x1, d.x1); y1 = Math.max(y1, d.y1);
+            }
+        }
+        if (!(x1 > x0 && y1 > y0)) return false;
+        const S = v.S, l = Math.max(ownFloor(S), v.level - Math.max(1, Math.round(NET_OCT / S)));
+        const box = l < v.level ? inter({ left: x0 / v.Zq, top: y0 / v.Zq, right: x1 / v.Zq, bottom: y1 / v.Zq }, this._win) : null;
+        if (!box) return false;
+        const Z = zOf(l, S), r = plateRange(box, Z), cells = [];
+        if ((r.i1 - r.i0 + 1) * (r.j1 - r.j0 + 1) > NET_PLATES) return false;
+        for (let j = r.j0; j <= r.j1; j++) {
+            for (let i = r.i0; i <= r.i1; i++) {
+                const c = levelCell(v.frameId, l, S, i, j);
+                if (this.store.wants(c.key) && this.covered(c)) cells.push(c);
+            }
+        }
+        if (!cells.length) return false;
+        const job = this._job("view", 1, { frame: v.frameId, level: l, S, Z, cells, purpose: "net" });
+        if (!(this.estimate(job) <= ms)) return false;
+        const t0 = this._now(), recs = this.renderNow(job);
+        this.s.nets++; this.s.netPlates += recs.length; this.s.netMs += this._now() - t0;
+        return recs.length > 0;
+    }
+
+    /**
      * One draw into the ink canvas (`toSurface` false) or the surface, destination edges rounded to the nearest
      * device px: neighbours share an edge; a patch's box is grown by a pixel first (`_dirtyIn`), so it still covers.
      */
@@ -762,7 +957,13 @@ export default class PicturePyramid {
         ctx.drawImage(r.bitmap || r, d.sx, d.sy, d.sw, d.sh, x0, y0, x1 - x0, y1 - y0);
     }
 
-    /** The plane after the base, in paint order: BELOW, the selection translated by the drag, OVER; landing, only where the base is not exact. */
+    /**
+     * The plane after the base, in paint order: BELOW, the selection translated by the drag, OVER; landing, only where the
+     * base is not exact. A layer is drawn from its surface where the plan says so, else plate by plate, none off the
+     * screen (the compose cliff counts the images drawn); a SEL run's D1 margin only outside its near layer's view cells
+     * (`hole`), which move with it (F145), and with a held drag's refine whole (`p.refine`), every SEL layer coarser than
+     * it only outside the screen it was cut for.
+     */
     _paintPlane(ctx, P, v) {
         const p = this._plane, pl = P.plane;
         if (!pl.layers.length) return;
@@ -779,17 +980,53 @@ export default class PicturePyramid {
             ctx.clip();
             clipped = true;
         }
-        for (const { L, recs } of pl.layers) {
+        const W = this.wDev, H = this.hDev, ref = p.refine;
+        const X = (x, o) => Math.round((x - v.ox) * v.s + v.dx) + o, Y = (y, o) => Math.round((y - v.oy) * v.s + v.dy) + o;
+        for (const { L, recs, surf, b: lb } of pl.layers) {
             const off = L.kind === "sel" && p.off ? p.off : [0, 0];
-            for (const r of recs) {
-                const g = gBox(p.Zp, r.i, r.j, v.Zq);
-                const x0 = Math.round((g[0] - v.ox) * v.s + v.dx) + off[0], y0 = Math.round((g[1] - v.oy) * v.s + v.dy) + off[1];
-                const x1 = Math.round((g[2] - v.ox) * v.s + v.dx) + off[0], y1 = Math.round((g[3] - v.oy) * v.s + v.dy) + off[1];
-                if (r.bitmap || r.pixels) ctx.drawImage(r.bitmap || r, 0, 0, PLATE_PX, PLATE_PX, x0, y0, x1 - x0, y1 - y0);
-                else if (L.kind === "below") { ctx.fillStyle = this.paper; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); }
+            // the view cells another layer draws this one's run over: its near layer's (`hole`), a whole refine's screen
+            const cut = [];
+            if (L.hole) cut.push(L.hole);
+            if (ref && L.kind === "sel" && !L.refine && L.k > ref.k) cut.push(ref.R);
+            let holes = null;
+            if (cut.length) {
+                holes = cut.map((h) => { const a = gBox(p.Zq, h.i0, h.j0, v.Zq), b = gBox(p.Zq, h.i1, h.j1, v.Zq); return [X(a[0], off[0]), Y(a[1], off[1]), X(b[2], off[0]), Y(b[3], off[1])]; });
+                let rs = [[0, 0, W, H]];
+                for (const c of holes) rs = rectsMinus(rs, c);
+                if (!rs.length) continue;                                         // the screen is all theirs
+                ctx.save(); ctx.beginPath();
+                for (const r of rs) ctx.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+                ctx.clip();
             }
+            const sf = surf ? this._planeSurface(p, L, recs, lb) : null;
+            if (sf) {
+                const a = gBox(L.pZq, sf.i0, sf.j0, v.Zq), b = gBox(L.pZq, sf.i1, sf.j1, v.Zq);
+                const x0 = X(a[0], off[0]), y0 = Y(a[1], off[1]), x1 = X(b[2], off[0]), y1 = Y(b[3], off[1]);
+                const own = L.kind === "below" && sf.edge.size > 0;      // BELOW's edges copied past its cells: drawn on its cells only
+                if (own) {
+                    ctx.save(); ctx.beginPath();
+                    for (const [i0, i1, j] of rowsOf(sf)) {
+                        const g = gBox(L.pZq, i0, j, v.Zq), q = gBox(L.pZq, i1, j, v.Zq), rx = X(g[0], 0), ry = Y(g[1], 0);
+                        ctx.rect(rx, ry, X(q[2], 0) - rx, Y(q[3], 0) - ry);
+                    }
+                    ctx.clip();
+                }
+                if (x1 > 0 && y1 > 0 && x0 < W && y0 < H) ctx.drawImage(sf.canvas, 0, 0, sf.w, sf.h, x0, y0, x1 - x0, y1 - y0);
+                if (own) ctx.restore();
+            } else {
+                for (const r of recs) {
+                    const g = gBox(L.pZq, r.i, r.j, v.Zq);
+                    const x0 = X(g[0], off[0]), y0 = Y(g[1], off[1]), x1 = X(g[2], off[0]), y1 = Y(g[3], off[1]);
+                    if (x1 <= 0 || y1 <= 0 || x0 >= W || y0 >= H) continue;
+                    if (holes && holes.some((c) => x0 >= c[0] && y0 >= c[1] && x1 <= c[2] && y1 <= c[3])) continue;
+                    if (r.bitmap || r.pixels) ctx.drawImage(r.bitmap || r, 0, 0, PLATE_PX, PLATE_PX, x0, y0, x1 - x0, y1 - y0);
+                    else if (L.kind === "below") { ctx.fillStyle = this.paper; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); }
+                }
+            }
+            if (holes) ctx.restore();
         }
         if (clipped) ctx.restore();
+        this._idlePlaneSurfaces();
     }
 
     /** The surface path: the plan drawn once at the view's grid 1:1 whenever it changes, blitted scaled by σ each frame. */
@@ -1050,7 +1287,7 @@ export default class PicturePyramid {
         const cells = job.packedCells || job.cells, clips = job.packedCells ? job.packedClips : job.clips;
         for (let p = 0; p < cells.length; p++) {
             const c = cells[p], clip = clips && !isWhole(clips[p]) ? clips[p] : null;
-            const rec = { ...c, G, jobId: null, bitmap: null, pixels: null, bytes: 0 };
+            const rec = { ...c, G, jobId: null, bitmap: null, pixels: null, bytes: 0, omitHeld: job.omitHeld || 0 };
             if (packed && packed.nItems > 0) {
                 counts.fill(0); tm.fill(0);
                 renderPlate(packed, p, sc, counts, tm, clip);
@@ -1121,6 +1358,7 @@ export default class PicturePyramid {
             this.store.discard(rec);
             return "discarded";
         }
+        if (this.store.heldStale(rec)) return this._heldStale(rec);
         const g = this._groups.get(this._groupOf.get(rec.key));
         if (g && g.need.has(rec.key)) {
             if (rec.G >= g.G || rec.G >= this.store.fresh.dirtySince(rec.key)) {
@@ -1139,6 +1377,40 @@ export default class PicturePyramid {
             }
         }
         return this._take(rec);
+    }
+
+    /**
+     * A result packed without a drag's held ink, landing after that drag (F153): never held, put or merged. Its ask is
+     * answered, and a group waiting for its cell asks again, so the group's path stays up until a valid plate lands.
+     */
+    _heldStale(rec) {
+        this.s.heldStale = (this.s.heldStale || 0) + 1;
+        this.store.discard(rec);
+        const a = this._asked.get(rec.key), by = rec.askG != null ? rec.askG : rec.G != null ? rec.G : Infinity;
+        if (a != null && a <= by) this._asked.delete(rec.key);
+        const g = this._groups.get(this._groupOf.get(rec.key));
+        if (g && g.need.has(rec.key)) { const cur = this.store.get(rec.key); if (cur) this._askGroup(g, [cur], []); else this._askGroup(g, [], [cellOf(rec)]); }
+        return "stale";
+    }
+
+    /** Results group `g` holds that a drag's end made stale (F153): back to its need and asked for again. Returns how many. */
+    _reaskHeldStale(g) {
+        const stale = [], missing = [];
+        for (let n = g.held.length - 1; n >= 0; n--) {
+            const r = g.held[n];
+            if (!this.store.heldStale(r)) continue;
+            g.held.splice(n, 1); this._unhold(g, r);
+            g.need.add(r.key); this._groupOf.set(r.key, g.id);
+            const cur = this.store.get(r.key);
+            if (cur) stale.push(cur); else missing.push(cellOf(r));
+        }
+        if (stale.length || missing.length) this._askGroup(g, stale, missing);
+        return stale.length + missing.length;
+    }
+
+    /** A drag ended (`PyramidStore.endHeld`): what every open group holds of its packs without the held ink is asked for again. */
+    heldEnded() {
+        for (const g of [...this._groups.values()]) if (this._groups.has(g.id)) this._reaskHeldStale(g);
     }
 
     /**
@@ -1177,6 +1449,7 @@ export default class PicturePyramid {
     _take(rec) {
         const a = this._asked.get(rec.key), by = rec.askG != null ? rec.askG : rec.G != null ? rec.G : Infinity;
         if (a != null && a <= by) this._asked.delete(rec.key);
+        if (this.store.heldStale(rec)) { this.s.mergeMisses++; this.store.discard(rec); return "stale"; }
         if (rec.clip && isWhole(rec.clip)) {
             const px = rec.patch || rec.pixels;
             rec = { ...rec, clip: null, patch: null, pixels: this._pixels ? px || null : null, bitmap: rec.bitmap || (px && !this._pixels ? this._bitmapOf(px) : null), bytes: PLATE_BYTES };
@@ -1192,15 +1465,15 @@ export default class PicturePyramid {
         const covers = this._covers(old, rec.clip);
         const m = this.merge(old, patch, rec.clip);
         if (rec.bitmap && rec.bitmap.close) rec.bitmap.close();
-        this.store.patch(rec.key, { bitmap: m.bitmap || null, pixels: m.pixels || null, G: rec.G, covers });
+        this.store.patch(rec.key, { bitmap: m.bitmap || null, pixels: m.pixels || null, G: rec.G, covers, omitHeld: rec.omitHeld || 0 });
         return covers ? "patched" : "patched-stale";
     }
 
     /** Does plate-local `clip` hold every dirty rectangle since the record's G, over the plate grown by a pixel (A3 §3.2)? */
     _covers(rec, clip) {
-        const rs = this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(rec.frame, rec.G) : null;
+        const pad = cellBox(rec), rs = this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(rec.frame, rec.G, pad) : null;
         if (!rs) return clip[0] === 0 && clip[1] === 0 && clip[2] === PLATE_PX && clip[3] === PLATE_PX;
-        const Z = rec.Z, pad = cellBox(rec), cb = boxOf(Z, rec.i, rec.j);
+        const Z = rec.Z, cb = boxOf(Z, rec.i, rec.j);
         const cx = { left: (rec.i * PLATE_PX + clip[0]) / Z, top: (rec.j * PLATE_PX + clip[1]) / Z, right: (rec.i * PLATE_PX + clip[2]) / Z, bottom: (rec.j * PLATE_PX + clip[3]) / Z };
         for (const r of rs) {
             if (!meets(r, pad)) continue;
@@ -1256,15 +1529,15 @@ export default class PicturePyramid {
      * × `patchUserMs` (48 ms) for a user's action — an undo, a redo or a drop (`noteUserEdit`), paid once, so the exact
      * patch is taken whenever it fits (PLAN §5.22 item 2); `patchUserMs` for a pen-up's group, which waits for full
      * resolution (A3 §3.6) and searches no coarser level; `patchInlineMs` for the patches the bake issues at every step.
-     * @param {object[]} cells records @param {(F, G)=>object[]|null} [dirtyRects] the Stage's, by default
+     * @param {object[]} cells records @param {(F, G, box)=>object[]|null} [dirtyRects] the Stage's, by default (asked with the padded cell)
      * @param {boolean} [user] a pen-up's group
      */
     patchPlan(cells, dirtyRects = null, user = false) {
-        const dr = dirtyRects || ((F, G) => (this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(F, G) : null));
+        const dr = dirtyRects || ((F, G, box) => (this.stage && this.stage.dirtyRects ? this.stage.dirtyRects(F, G, box) : null));
         const v = this._v, S = v.S, N = Math.ceil(8 / S), floor = ownFloor(S);
         const items = [], rects = [];
         for (const r of cells) {
-            const rs = dr(r.frame, r.G), pad = cellBox(r), cb = boxOf(r.Z, r.i, r.j);
+            const pad = cellBox(r), rs = dr(r.frame, r.G, pad), cb = boxOf(r.Z, r.i, r.j);
             let clip = null;
             if (rs) {
                 let bb = null;
@@ -1516,14 +1789,20 @@ export default class PicturePyramid {
         return g;
     }
 
-    /** Every held result put (or merged) at once, one compose, then `onCommit` — one task, so no frame shows both or neither. */
+    /**
+     * Every held result put (or merged) at once, one compose, then `onCommit` — one task, so no frame shows both or neither.
+     * Not while it holds a result a drag's end made stale (F153): that cell is asked for again first; `committed` counts
+     * the results published.
+     */
     _commitGroup(g, timedOut = false) {
+        if (!timedOut && this._reaskHeldStale(g)) return;
         this._groups.delete(g.id);
         for (const [k, id] of [...this._groupOf]) if (id === g.id) this._groupOf.delete(k);
         this.store.holdBytes(-g.bytes);
-        for (const r of g.held) this._take(r);
+        let committed = 0;
+        for (const r of g.held) { const out = this._take(r); if (out !== "stale" && out !== "refused") committed++; }
         if (timedOut) this.s.groupsTimedOut++; else this.s.groupsCommitted++;
-        if (g.onCommit) g.onCommit({ id: g.id, committed: g.held.length, missing: g.need.size, timedOut });
+        if (g.onCommit) g.onCommit({ id: g.id, committed, missing: g.need.size, timedOut });
         this.compose();
     }
 
@@ -1545,20 +1824,28 @@ export default class PicturePyramid {
 
     // ---- requests ----
 
-    /** The view's missing cells at its level (level mode), or under the rest cells the rest set lacks: priority 1, centre-out. */
+    /**
+     * The view's missing cells at its level (level mode), or under the rest cells the rest set lacks: priority 1,
+     * centre-out. One the store's RAM tier holds exact is restored instead (F161): no pack and no tiles, so a cell the
+     * camera's table does not cover yet takes one too.
+     */
     _requestView() {
         const v = this._v, st = this.store;
         if (v.frameId == null) return;
-        const Zl = zOf(v.level, v.S), cells = [];
+        const Zl = zOf(v.level, v.S), cells = [], ram = [];
         const range = v.mode === "rest" ? this._bareRange(v) : { i0: v.i0, i1: v.i1, j0: v.j0, j1: v.j1 };
         if (!range) return;
         for (let j = range.j0; j <= range.j1; j++) {
             for (let i = range.i0; i <= range.i1; i++) {
                 const c = levelCell(v.frameId, v.level, v.S, i, j);
-                if (st.get(c.key) || !this._wanted(c)) continue;
+                if (st.get(c.key)) continue;
+                const e = this._restore && !this._groupOf.has(c.key) ? st.restorable(c.key) : null;
+                if (e) { ram.push(e); continue; }
+                if (!this._wanted(c)) continue;
                 cells.push(c);
             }
         }
+        if (ram.length) this.restore(ram);
         if (!cells.length) return;
         this._ask(this._job("view", 1, { frame: v.frameId, level: v.level, S: v.S, Z: Zl, cells, purpose: "view", gen: this.gens.view }), cells);
     }
@@ -1585,6 +1872,13 @@ export default class PicturePyramid {
         const v = this._v, a = this._attn || [this.wDev / 2, this.hDev / 2];
         if (v.k > 0 && String(o.frame) === v.frameId) job.attention = [((a[0] - v.tx) / v.k) * o.Z, ((a[1] - v.ty) / v.k) * o.Z];
         return job;
+    }
+
+    /** RAM-tier entries (`store.restorable`) out to the renderer's restore: each lands through `onResult` as a job's plate would (F161). */
+    restore(entries) {
+        if (!this._restore || !entries.length) return;
+        this.s.ramRestores += entries.length;
+        this._restore(entries);
     }
 
     /** `job` requested for `cells` at the Stage's G, which the job carries (`askG`): `unask` and `_take` forget no ask made after it. */
@@ -1624,6 +1918,7 @@ export default class PicturePyramid {
         this._patchDue = false;
         this._onMove();
         this._freeSurface();
+        this._freePlaneSurfaces();
         for (const id of [...this._groups.keys()]) this._dropGroup(id);
         const c = this._canvas;
         if (c && c.parentNode && c.parentNode.removeChild) c.parentNode.removeChild(c);
@@ -1650,6 +1945,36 @@ export function sampleOf(res, U = 0) {
     }
     return s;
 }
+
+/** A plane layer's bounding cells, its plates' and its paper cells'. */
+function cellBounds(L) {
+    let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
+    for (const cells of [L.cells, L.paper || []]) {
+        for (const [i, j] of cells) { if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j; }
+    }
+    return { i0, i1, j0, j1 };
+}
+/** Rectangles `rs` ([x0, y0, x1, y1]) less rectangle `c`: each split into the parts above, below, left and right of it. */
+function rectsMinus(rs, c) {
+    const out = [];
+    for (const r of rs) {
+        if (c[2] <= r[0] || c[0] >= r[2] || c[3] <= r[1] || c[1] >= r[3]) { out.push(r); continue; }
+        const y0 = Math.max(r[1], c[1]), y1 = Math.min(r[3], c[3]);
+        if (c[1] > r[1]) out.push([r[0], r[1], r[2], c[1]]);
+        if (c[3] < r[3]) out.push([r[0], c[3], r[2], r[3]]);
+        if (c[0] > r[0]) out.push([r[0], y0, c[0], y1]);
+        if (c[2] < r[2]) out.push([c[2], y0, r[2], y1]);
+    }
+    return out;
+}
+/** A plane surface's drawn cells as row runs [i0, i1, j]. */
+function rowsOf(sf) {
+    const out = [], ds = [...sf.drawn.values()].sort((a, b) => a.j - b.j || a.i - b.i);
+    for (const d of ds) { const r = out[out.length - 1]; if (r && r[2] === d.j && r[1] === d.i - 1) r[1] = d.i; else out.push([d.i, d.i, d.j]); }
+    return out;
+}
+/** A layer of more than PLANE_SURFACE_MIN drawn plates over at most PLANE_SURFACE_MAX cells, 32 a side (Chrome's canvas: 32,767 px). */
+const surfaceable = (L, n, b) => n > PLANE_SURFACE_MIN && b.i1 >= b.i0 && (b.i1 - b.i0 + 1) * (b.j1 - b.j0 + 1) <= PLANE_SURFACE_MAX && b.i1 - b.i0 < 32 && b.j1 - b.j0 < 32;
 
 /** A cell (i, j) at grid zoom Zc as view-grid pixels at Zq: `[x0, y0, x1, y1]`. Exact when Zq/Zc is a power of two. */
 function gBox(Zc, i, j, Zq) {

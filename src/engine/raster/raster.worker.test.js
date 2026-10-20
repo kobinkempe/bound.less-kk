@@ -22,6 +22,7 @@ import * as core from "./rasterCore";
 import * as pack from "./rasterPack";
 import { wireJob, unwireResult, GUARD_NAMES, COUNT_NAMES, GUARDS_PER_JOB, TIMINGS_PER_PLATE, COUNTS_PER_PLATE } from "./rasterJob";
 import { runJob, runCut } from "../worker/rasterWorker";
+import { encodePlate } from "./plateCodec";
 import * as client from "./rasterWorkerClient";
 import JobQueue, { PRIO } from "./jobQueue";
 import PyramidStore, { levelCell } from "./PyramidStore";
@@ -1010,4 +1011,41 @@ describe("the pool through the queue (§3.6, §8.4; A3 §4.4)", () => {
         }
     });
 
+});
+
+describe("RAM-tier restores (F161)", () => {
+    test("a restore takes no slot: an idle worker first, else one drawing a strip, never one in a cut; a teardown fails it", async () => {
+        const made = [];
+        global.Worker = class {
+            constructor(url) { this.url = url; this.posted = []; made.push(this); }
+            postMessage(msg) { this.posted.push(msg); }
+            terminate() { this.dead = true; }
+        };
+        try {
+            client.setRasterWorkerCount(3);
+            expect(client.ensureRasterPool()).toBe(3);
+            const strip = () => ({ req: { prio: 1, pack: (p, jobId) => packStrip([shapeItem(1, [rect(10, 10, 300, 300)])], p, { jobId }), onResult() {}, onDrop() {} },
+                plates: Int32Array.from([0, 0]) });
+            const kinds = () => made.map((w) => w.posted.map((m) => m.kind).join(","));
+            expect(client.rasterPool.submit(strip())).toBe(true);
+            expect(client.rasterPool.submit({ req: { cut: "cut", wire: () => ({ msg: {}, transfer: [] }), onResult() {}, onDrop() {} }, plates: null })).toBe(true);
+            expect(kinds()).toEqual(["raster-job", "cut-job", ""]);
+            const words = encodePlate(new Uint8ClampedArray(512 * 512 * 4));
+            const p1 = client.restorePlate(words);
+            expect(kinds()[2]).toBe("ram-restore");                                     // the idle worker
+            expect(client.rasterPool.submit(strip())).toBe(true);                       // now none is idle
+            const p2 = client.restorePlate(words), p3 = client.restorePlate(words);
+            expect(made[1].posted.filter((m) => m.kind === "ram-restore").length).toBe(0);   // never behind the cut
+            const r1 = made[2].posted.find((m) => m.kind === "ram-restore");
+            made[2].onmessage({ data: { kind: "ram-result", id: r1.id, ok: true, pixels: new Uint8ClampedArray(4) } });
+            expect((await p1).pixels.length).toBe(4);
+            expect(client.rasterWorkerReport().ram).toMatchObject({ restores: 3, failed: 0, waiting: 2 });
+            client.destroyRasterPool();                                                 // the restores waiting fail: their cells are asked for again
+            await expect(p2).rejects.toThrow(/terminated/);
+            await expect(p3).rejects.toThrow(/terminated/);
+            expect(client.rasterWorkerReport().ram.waiting).toBe(0);
+        } finally {
+            delete global.Worker;
+        }
+    });
 });

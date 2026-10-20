@@ -164,10 +164,10 @@ describe("job.clips on the wire", () => {
         const job = twoPlates([0, 0, 512, 512, 10, 20, 30, 40]);
         const { msg, transfer } = wireJob(job);
         expect(transfer).toContain(job.clips.buffer);
-        expect(transfer.length).toBe(8);
+        expect(transfer.length).toBe(10);                    // the seven, the row runs' two (F154) and the clips
         expect(Array.from(unwireJob(msg).clips)).toEqual([0, 0, 512, 512, 10, 20, 30, 40]);
         const plain = wireJob(twoPlates(null));
-        expect(plain.transfer.length).toBe(7);
+        expect(plain.transfer.length).toBe(9);
         expect(unwireJob(plain.msg).clips).toBeUndefined();
     });
 

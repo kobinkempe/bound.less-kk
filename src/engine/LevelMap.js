@@ -1107,6 +1107,37 @@ export default class LevelMap {
         if (!a || !b) return null;
         return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
     }
+    /**
+     * `mapPointObj` for many points (OPEN-FLAGS F153): the shift and the frame path resolved once, then each point taken
+     * through the same steps, bit for bit. `fn(x, y, out)` writes `out` and returns it; null where `mapPointObj` is null.
+     */
+    mapperObj(fromId, toId, below, homeId, toHome) {
+        let a = fromId, b = toId, pre = null, post = null;
+        if (hasOffsets(below)) {
+            if (this._homeToX(fromId, toId, homeId, toHome)) {
+                const s = this.objShift(below, fromId, toId);
+                if (!s) return null;
+                b = s.F0; post = s.rem;
+            } else {
+                const s = this.objShift(below, toId, fromId);
+                if (!s) return null;
+                a = s.F0; pre = s.rem;
+            }
+        }
+        const path = this.framePath(a, b);
+        if (!path) return null;
+        const up = [], down = [];
+        for (const id of path.up) { const c = this.frames.get(id).centre; if (!c) return null; up.push(c.x, c.y); }
+        for (const id of path.down) { const c = this.frames.get(id).centre; if (!c) return null; down.push(c.x, c.y); }
+        return (x, y, out) => {
+            if (pre) { x = x - pre[0]; y = y - pre[1]; }
+            for (let k = 0; k < up.length; k += 2) { x = x / R + up[k]; y = y / R + up[k + 1]; }
+            for (let k = 0; k < down.length; k += 2) { x = (x - down[k]) * R; y = (y - down[k + 1]) * R; }
+            if (post) { x = x + post[0]; y = y + post[1]; }
+            out[0] = x; out[1] = y;
+            return out;
+        };
+    }
     /** Loops through the exact chain from one frame to another — what `projectF` does to a shape's loops. */
     projectLoops(loops, fromId, toId) {
         const path = this.framePath(fromId, toId);

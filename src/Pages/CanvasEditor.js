@@ -113,6 +113,7 @@ function DevLevers({ engine, dbgBtn }) {
                 {LEVERS.restInline.values.map((v) => (
                     <button key={v} {...dbgBtn(lv.restInline === v)} onClick={() => engine.setLevers({ restInline: v })}>{v}</button>
                 ))}
+                <b> net</b> {num("netMs", lv.netMs, (v) => engine.setLevers({ netMs: v }))} ms
             </div>
             <div>
                 <b>compose</b>{LEVERS.compose.values.map((v) => (

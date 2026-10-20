@@ -276,15 +276,15 @@ describe("PyramidStore — PLAN §3 row 1 (monotone G; exact iff no later change
     test("the budget: views × one view, never under the pinned bound (the floor) nor over the ceiling, itself never under the floor", async () => {
         const { budgetBytes, viewUnit, ownBound } = await import("./PyramidStore");
         const MiB = 1024 * 1024;
-        expect([viewUnit(2256, 1218), ownBound(2256, 1218), pinnedBound(2256, 1218, false)]).toEqual([40, 40, 110]);   // Kobin's desktop: 40 + 30 + 40
+        expect([viewUnit(2256, 1218), ownBound(2256, 1218), pinnedBound(2256, 1218, false)]).toEqual([40, 40, 134]);   // Kobin's desktop: 40 + 30 + 64
         expect([viewUnit(1079, 1969), ownBound(1079, 1969), pinnedBound(1079, 1969, true)]).toEqual([35, 35, 89]);     // A3's phone: 35 + 30 + 24
         expect([viewUnit(1170, 2532), ownBound(1170, 2532), pinnedBound(1170, 2532, true)]).toEqual([45, 45, 99]);     // 390×844@3
-        expect([viewUnit(5120, 2880), ownBound(5120, 2880), pinnedBound(5120, 2880, false)]).toEqual([54, 77, 147]);   // 2560×1440@2: the rest set's 77
-        expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 2256, 1218, false)).toBe(120 * MiB);
-        expect(budgetBytes({ plateViews: 8, plateCeilingMiB: 64 }, 2256, 1218, false)).toBe(110 * MiB);   // the ceiling raised to the floor
+        expect([viewUnit(5120, 2880), ownBound(5120, 2880), pinnedBound(5120, 2880, false)]).toEqual([54, 77, 171]);   // 2560×1440@2: the rest set's 77
+        expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 2256, 1218, false)).toBe(134 * MiB);  // three views under the floor
+        expect(budgetBytes({ plateViews: 8, plateCeilingMiB: 64 }, 2256, 1218, false)).toBe(134 * MiB);   // the ceiling raised to the floor
         expect(budgetBytes({ plateViews: 2, plateCeilingMiB: 96 }, 1079, 1969, true)).toBe(89 * MiB);     // two views under the floor
         expect(budgetBytes({ plateViews: 4, plateCeilingMiB: 96 }, 1079, 1969, true)).toBe(96 * MiB);     // the ceiling
         expect(budgetBytes({ plateViews: 2, plateCeilingMiB: 96 }, 1170, 2532, true)).toBe(99 * MiB);     // PLAN §5.6 Q3: max(96, 99)
-        expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 5120, 2880, false)).toBe(162 * MiB);
+        expect(budgetBytes({ plateViews: 3, plateCeilingMiB: 256 }, 5120, 2880, false)).toBe(171 * MiB);
     });
 });

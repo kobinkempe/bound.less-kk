@@ -84,10 +84,11 @@ describe("the phone's drag plane (report 08-11-20: the beige object under the gr
         await quiet();                                             // the pre-aim waits for the quiet and its idle read
         for (let t = 0; t < 3000 && (E.renderer._planeTimer != null || !pl.tags.length); t += 10) await new Promise((r) => setTimeout(r, 10));
         await flush();
-        // The report's case: BELOW, the selection and what is over it — 16 plates, as the beige object's.
+        // The report's case: BELOW, the selection and what is over it — 16 cells, as the beige object's; BELOW's are paper
+        // (nothing under it), so no plate (F145).
         expect(planeStats.coarse + planeStats.overCap).toBe(0);    // at its own zoom: red at the old cap of 12 (refused then)
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over"]);
-        expect(pl.keys.length).toBeGreaterThan(12);
+        expect(pl.keys.length + pl.layers[0].paper.length).toBeGreaterThan(12);
         expect(pl.keys.length).toBeLessThanOrEqual(MOVE_PLANE_PLATES_PHONE);
         const lists = jest.spyOn(E, "_render");
         E.pointerDown(80, 150);

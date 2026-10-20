@@ -11,8 +11,10 @@ export const LEVERS = Object.freeze({
     levelStep: { values: LEVEL_STEPS, desktop: 1, phone: 1 },
     plateViews: { min: 1, max: 8, desktop: 3, phone: 2 },
     plateCeilingMiB: { min: 64, max: 512, desktop: 256, phone: 96 },
+    plateRamMiB: { min: 0, max: 512, desktop: 64, phone: 24 },   // the plate store's RAM tier (F161); 0 turns it off
     restQuietMs: { min: 0, max: 2000, desktop: 100, phone: 100 },
     restInline: { values: ["auto", "never"], desktop: "auto", phone: "auto" },
+    netMs: { min: 0, max: 1000, desktop: 0, phone: 0 },          // the inline net over paper (F166): its budget, 0 off
     compose: { values: ["auto", "direct", "surface"], desktop: "auto", phone: "auto" },
 });
 /** The localStorage key this device's levers live under. */

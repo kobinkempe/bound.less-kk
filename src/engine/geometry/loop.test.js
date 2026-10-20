@@ -61,7 +61,8 @@ describe("Loop", () => {
         const L = Loop.from(pieces());
         const T = L.translate(100, -50);
         expect(T).not.toBe(L);
-        expect(T.idx).toBe(L.idx);
+        expect(T.idx).toEqual(L.idx);                           // built at first use, so not shared here
+        expect(L.translate(1, 1).idx).toBe(L.idx);             // shared once built
         const a = L.toPieces(), b = T.toPieces();
         for (let i = 0; i < a.length; i++) {
             expect(b[i].A).toEqual([a[i].A[0] + 100, a[i].A[1] - 50]);

@@ -59,11 +59,13 @@ describe("prefetch (A3 §4.3)", () => {
             expect(j.cells.length).toBeGreaterThanOrEqual(1);
             expect(j.cells.length).toBeLessThanOrEqual(12);
         }
-        // The first far step is in the view's own frame at levelFor(Z / 4 / 8), over 2.5 screens zoomed out 4×, about the centre.
+        // The first far step is in the view's own frame at levelFor(Z / 4 / 8), over 2.5 screens zoomed out 4×, about the
+        // centre; its table is read over all of every cell it packs (F163: a read of less left a cell's far side out).
         expect([far[0].frame, far[0].level]).toEqual([String(t.B), levelFor(t.view.Z / 4 / 8, 1)]);
-        const r0 = t.reads[0].rect;
-        expect([r0.right - r0.left, r0.bottom - r0.top]).toEqual([(W / 2) * 4 * 2.5, (H / 2) * 4 * 2.5]);
-        expect([(r0.left + r0.right) / 2, (r0.top + r0.bottom) / 2]).toEqual([(300 + W / 2) / 2, (200 + H / 2) / 2]);
+        const r0 = t.reads[0].rect, P0 = 512 / zOf(far[0].level, 1);
+        const cx = (300 + W / 2) / 2, cy = (200 + H / 2) / 2, hw = ((W / 2) * 4 * 2.5) / 2, hh = ((H / 2) * 4 * 2.5) / 2;
+        expect(r0).toEqual({ left: Math.floor((cx - hw) / P0) * P0, top: Math.floor((cy - hh) / P0) * P0, right: Math.ceil((cx + hw) / P0) * P0, bottom: Math.ceil((cy + hh) / P0) * P0 });
+        for (const c of far[0].cells) expect(c.i * P0 >= r0.left && (c.i + 1) * P0 <= r0.right && c.j * P0 >= r0.top && (c.j + 1) * P0 <= r0.bottom).toBe(true);
         // In the parent the level is the child's + 12: the same picture.
         const inA = far.find((j) => j.frame === String(t.A));
         const k = 1 + far.indexOf(inA);

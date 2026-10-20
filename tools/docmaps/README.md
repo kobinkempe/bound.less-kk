@@ -6,9 +6,9 @@ hand-maintained, so that they cannot quietly stop being true.
 
 | page | what it is | published at |
 |---|---|---|
-| `pages/boundless-code-map.html` | Every function in `src/`, in the file that defines it, each with a one-line "what it does in the design" and an expandable full explanation. | https://claude.ai/code/artifact/2d3a3acd-0a89-4e2b-a161-3445bdd19756 |
-| `pages/boundless-call-graph.html` | The same functions as a graph: who calls whom, drawn inside file blocks. Click a function for its explanation, its callers, and what it reaches. | https://claude.ai/code/artifact/ee3012b4-86a3-4b0a-b232-8c73b73bd7b0 |
-| `pages/boundless-call-map.html` | Seven flows from the entry points as call *trees* — the reading version of the graph. Every call in them is checked against the source at build. | https://claude.ai/code/artifact/d6ac1f2b-d7b1-4b47-a8f4-d1ca1be5dcba |
+| `pages/boundless-code-map.html` | Every function in `src/`, in the file that defines it, each with a one-line "what it does in the design" and an expandable full explanation. | https://claude.ai/artifact/9z4MfJs946VR8Gjag3Quth |
+| `pages/boundless-call-graph.html` | The same functions as a graph: who calls whom, drawn inside file blocks. Click a function for its explanation, its callers, and what it reaches. | https://claude.ai/artifact/R8K96tqmcZ7fWcVWzEPjt5 |
+| `pages/boundless-call-map.html` | Seven flows from the entry points as call *trees* — the reading version of the graph. Every call in them is checked against the source at build. | https://claude.ai/artifact/DGvhvcjTXVMZQ2XHLw6r6Q |
 | `pages/boundless-logical-design.html` | The design argument, not the code. Written by hand; no generator. Corrected on 2026-09-22 where the code had made a statement false. | https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56 |
 
 The plain-text version of all of this, for an agent with no context, is
@@ -22,9 +22,9 @@ that is not in the source.** `verify_coverage.py` proves the first half and
 it draws is one the source makes. Run `rebuild.py` after any change to `src/`;
 a failure in any check is a page telling a reader something false.
 
-As of 2026-09-23: **2,282 functions across 113 files, 4,168 calls, 0 missing,
+As of 2026-10-20: **3,772 functions across 155 files, 7,298 calls, 0 missing,
 0 stale**, every Code Map row opening into an explanation, and the Call Map's
-269 calls in 7 flows all calls the source makes.
+323 calls in 7 flows all calls the source makes.
 
 ### What the 2026-09-22 rebuild found and changed
 
@@ -64,10 +64,31 @@ than the failure message said:
   functions it added and re-read the 73 it changed; a last one took in the
   follow-up fixes (2 new, 13 changed).
 
+### What the 2026-10-20 pass changed
+
+The pages had last been built on 2026-10-06 (the graph on 2026-09-23), before the end of the
+renderer and model rebuild and the `performance` branch. `graph.py` refused 84 hand edges — 46
+naming functions the rebuild renamed or deleted (`_bakeOne`, `listFor`, `ts.content`,
+`_normalizeHome`), 38 no longer calls: 70 were moved to where the call now is (the erase through
+`_bakeRun` and `_dispatchPair`, the render through `stage.sync` and `readTiles`, the camera through
+`_zoomBy` and `_tableStep`, the drag through `stage.hold` to `_dropMove`) and 14 removed, their calls
+gone. One more, `eng.zoomFactorAt → cam.zoomFactorAt`, had passed `is_call` only because the callee's
+name is the caller's own, and was moved too. Six of the Call Map's seven flows were rewritten along
+the same paths, four of the paper's callbacks listed in `INDIRECT`. `newdesc_perf.py` describes the
+110 functions the branch added (`plateCodec.js` and `plateRam.js` among them) and corrects 91 of the
+111 whose bodies changed since 6efaaf4; `newdesc_rb_m1.py` covers the 905 oracle functions the
+rebuild had left undescribed, 721 carrying the entry of an identical live body and 184 read.
+
+Published 2026-10-20: the Call Map only. The Code Map (2.3 MB) and the Call Graph (4.1 MB) were
+rebuilt and pass every check but were not republished — too large to review in full before
+publishing — so their links still show the 2026-10-06 and 2026-09-23 builds; the current pages are
+`pages/` here (the `docmaps` launch entry serves them on :3003). Later that day `internBelow`, the lazy loop
+index, `_buildGroups`, the shared index box and `sharedString` (F164) were described and the pages regenerated; the Call Map's flows did not change, so it was not republished.
+
 ## Two traps in the graph page, both measured in Chrome
 
 **Do not put `will-change: transform` on the SVG.** It promotes the whole
-drawing (4,210 × 4,822 px now) into one composited layer, which Chrome rasterises at
+drawing (4,235 × 6,919 px now) into one composited layer, which Chrome rasterises at
 the current zoom — at 2x on a 2x display that is well over 100 megapixels of
 texture for a single layer, and the compositor drops tiles rather than allocate
 it. The symptom is whole file blocks rendering as empty rectangles while their
@@ -90,19 +111,19 @@ or a three-function file 90px wide draws its name straight across its neighbour.
 
 ## "A lot of these functions look unused"
 
-Mostly they are not. **480 of the 2,282 have nothing calling them in the graph,
-and every one of them is named somewhere else in `src/`.** A call is drawn only when it resolves to
+Mostly they are not. **779 of the 3,765 have nothing calling them in the graph,
+and all but 3 of them are named somewhere else in `src/`.** A call is drawn only when it resolves to
 a definite target, so no incoming line means *not proven*, never *not there*:
 
 | why nothing calls it | n | what it means |
 |---|---|---|
-| called via an object | 244 | `eng.pointerDown()`, `eng.eventLatency.report()` — the receiver's type is not resolvable from source. These ARE called. |
-| passed as a value | 104 | exported, passed as a callback, or held somewhere |
-| test only | 71 | nothing in the running app reaches it; a suite or a probe does |
-| getter | 30 | `get inScale()` is *read*, so no call syntax exists anywhere |
-| React component | 30 | rendered as `<Component/>`, never called by name |
+| called via an object | 420 | `eng.pointerDown()`, `eng.eventLatency.report()` — the receiver's type is not resolvable from source. These ARE called. |
+| passed as a value | 152 | exported, passed as a callback, or held somewhere |
+| test only | 60 | nothing in the running app reaches it; a suite or a probe does |
+| getter or setter | 109 | `get inScale()` is *read*, so no call syntax exists anywhere |
+| React component | 34 | rendered as `<Component/>`, never called by name |
 | language protocol | 1 | `toJSON`, which `JSON.stringify` invokes by protocol |
-| **no reference at all** | **0** | The 14 this row listed (`db.deleteBackup`, `db.getCanvas`, `db.getFrames2`, `db.getLogFrom`, `erp._cull`, `ewc.eraseWorkerAvailable`, `fl.objTilesRect`, `las.polylineInsidePolygon`, `lm.shadowsOf`, `lzw._resetLzWorkerForTests`, `rnd._dAll`, `swc.sceneWorkerStats`, and the oracle's `v0.setKDebug` and `v0.setOutlineMode`) were checked by hand and deleted on 2026-09-23. |
+| **no reference at all** | **2** | in the frozen model-v1 copies `m1eng.setPreBake` and `m1ewc._checkEraseWatchdogForTests`: nothing names them (`loc.setDeviceName` deleted 2026-10-20 at Kobin's word). The 14 this row listed (`db.deleteBackup`, `db.getCanvas`, `db.getFrames2`, `db.getLogFrom`, `erp._cull`, `ewc.eraseWorkerAvailable`, `fl.objTilesRect`, `las.polylineInsidePolygon`, `lm.shadowsOf`, `lzw._resetLzWorkerForTests`, `rnd._dAll`, `swc.sceneWorkerStats`, and the oracle's `v0.setKDebug` and `v0.setOutlineMode`) were checked by hand and deleted on 2026-09-23. |
 
 **Ask in-degree, not degree.** The first version of `audit_isolated.py` looked
 for nodes with no edges *at all*, which silently skips every function that
@@ -118,13 +139,13 @@ invisible to any static call graph, not just this one.
 
 | mark | n | meaning |
 |---|---|---|
-| filled box | 40 | **entry point** — the browser, React, or a person reaches the code here. 7 from a pointer or wheel event, 3 from a key press, 26 from a control in the interface, 4 components React mounts for a route. |
-| grey box | 69 | **test-only** — no production caller anywhere; a suite or a probe is the only thing that depends on it. |
-| struck through | 0 | **unreferenced** — nothing in `src/` names it, tests included. None since the 14 were deleted on 2026-09-23. |
-| dashed outline | 480 | nothing calls it *in the graph*. Usually a limit of reading calls from source, not a finding — see the table above. |
+| filled box | 44 | **entry point** — the browser, React, or a person reaches the code here. 7 from a pointer or wheel event, 3 from a key press, 30 from a control in the interface, 4 components React mounts for a route. |
+| grey box | 58 | **test-only** — no production caller anywhere; a suite or a probe is the only thing that depends on it. |
+| struck through | 3 | **unreferenced** — nothing in `src/` names it, tests included: the three in the table above. |
+| dashed outline | 779 | nothing calls it *in the graph*. Usually a limit of reading calls from source, not a finding — see the table above. |
 
 **The not-running blocks are HIDDEN by default**, behind a *hide not running*
-checkbox in the toolbar: the 212 functions of `src/engine/__oracles__/`.
+checkbox in the toolbar: the 1,117 functions of `src/engine/__oracles__/`.
 `layout_mod.py` pushes every `ded` module below every live one, so they form a
 contiguous TAIL: hiding them leaves no holes, and `data-live-h` on the root SVG
 is what Fit uses while they are hidden. Nothing is removed from the page —
@@ -203,19 +224,20 @@ open `file://`).
 **The data**
 
 - `graph.py` — the node set, the module colour groups (`MOD`; `ras` is the
-  paper, `src/engine/raster/`), and `E`: the union of 383 hand-read edges and
+  paper, `src/engine/raster/`), and `E`: the union of 414 hand-read edges and
   the extracted ones. The hand list is kept because it is *ordered* — it walks
   a gesture from the pointer down into the ink — and because it carries the
   edges an extractor will not guess at. It is checked at import: every hand
   edge must name two nodes, and must be found by the extractor, or name its
   callee in the caller's body, or be listed in `INDIRECT` with how the call is
   made (a listener, a hook). `is_call` is that test; the Call Map uses it too.
-  Run it to print the counts and the agreement rate (364 of 383).
+  Run it to print the counts and the agreement rate (390 of 414).
 - `newdesc.py` + `newdesc_*.py` — the per-function entries, each carrying the
   Code Map's one-liner (`what`) and the full explanation (`long`), so the pages
   cannot drift apart. One file per area; the 2026-09-22 ones are `geom`,
-  `engine`, `store`, `paper`, `raster1`–`raster4`, `scenes`, `local`, `cloud`
-  and `report`. An area file may carry `ROLE` (a file's article heading) and
+  `engine`, `store`, `paper`, `raster1`, `raster3`, `raster4`, `scenes`, `local`,
+  `cloud` and `report`, the rebuild's `rb_stage`, `rb_pyramid`, `rb_pyrparts`,
+  `rb_svg`, `rb_model` and `rb_m1` (the oracles), and 2026-10-20's `perf`. An area file may carry `ROLE` (a file's article heading) and
   `FIX` (a correction to a text the code has made false; `newdesc` and
   `longdesc` apply it, and a false pristine row is corrected in the pristine
   page). `newdesc.py` also holds the one map from article to modules,
@@ -259,7 +281,7 @@ open `file://`).
   `testonly.json`: every function with no production caller at all.
 - `audit_entries.py` — where the outside world comes in. A call inside a
   registered listener, inside a JSX handler prop, inside an effect the
-  interface drives, or a component React mounts for a route. 40 of them.
+  interface drives, or a component React mounts for a route. 44 of them.
 - `rebuild.py` — the whole chain above, in order.
 - `fix_stale_rows.py` — the 2026-08-28 corrections to the pristine page, kept
   as a record of what was wrong and why. It refuses to run twice.

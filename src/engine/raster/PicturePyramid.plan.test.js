@@ -11,11 +11,11 @@ import LevelMap from "../LevelMap";
 import { ENTER, BASE, EXIT } from "../frameLattice";
 import PyramidStore, { levelCell, restCell, planeCell, ownBound, viewUnit, PLATE_BYTES } from "./PyramidStore";
 import PicturePyramid, { PATCH_MAX, SURFACE_IDLE_MS } from "./PicturePyramid";
-import { COMPOSE_IMAGES, zOf, levelKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
+import { COMPOSE_IMAGES, zOf, levelKey, planeKey, mapCell, coarser, LEVEL_HYST, SIGMA_MIN } from "./level";
 import { packJob } from "./rasterPack";
 import { renderPlate } from "./rasterCore";
 import { fakeStage, meets } from "../__testkit__/fakeStage";
-import { softCtx } from "../__testkit__/softCanvas";
+import { softCtx, softCanvas } from "../__testkit__/softCanvas";
 import { lcg, LIST_CFG } from "../__testkit__/rasterLists";
 
 const P = 512, S = 1;
@@ -50,12 +50,12 @@ function setup(W, H, S = 1, dpr = 1) {
     return { lm, A, stage, store, ctx, pyr, colour, put };
 }
 /** The surface on a software canvas of its own size (jsdom has no 2D canvas). */
-const surfaceOn = (t) => { t.pyr._mk = (w, h) => ({ width: w, height: h, getContext: () => softCtx(w, h, P, { scaled: true }) }); };
+const surfaceOn = (t) => { t.pyr._mk = (w, h) => softCanvas(softCtx(w, h, P, { scaled: true })); };
 /** A drag plane of `n` images (OVER, off the view's cells): the compose's stand-in cap becomes COMPOSE_IMAGES − n. */
 function planeOf(t, F, Zp, n) {
     const cells = [];
     for (let k = 0; k < n; k++) { t.put(planeCell(F, Zp, "o", 1000 + k, 0), 0); cells.push([1000 + k, 0]); }
-    t.pyr.setPlane({ showing: true, state: "drag", partial: false, frameId: F, Zp, off: [0, 0], layers: [{ kind: "over", tag: "o", cells }] });
+    t.pyr.setPlane({ showing: true, state: "drag", partial: false, frameId: F, Zq: Zp, off: [0, 0], layers: [{ kind: "over", tag: "o", pZq: Zp, cells, foot: new Set() }] });
 }
 const paperCells = (P0) => P0.cells.filter((c) => c.draws.some((d) => !d.rec)).length;
 
@@ -403,6 +403,7 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         expect([P1.own, P1.scaled, P1.images]).toEqual([19, 2, 21]);
         expect(drawn.size).toBe(P1.images);
         expect(t.pyr.s.direct).toBe(1);
+        t.pyr.cfg.planeSurfaces = false;                                  // the plane drawn plate by plate
         planeOf(t, F, zOf(l, S), 28);                                     // the plane's 28 images leave two stand-ins: both fit
         const P2 = t.pyr.compose();
         expect([P2.plane.images, P2.scaled, paperCells(P2)]).toEqual([28, 2, 0]);
@@ -410,6 +411,54 @@ describe("PicturePyramid — the plan per cell (A3 §1.4, §1.5)", () => {
         const P3 = t.pyr.compose();
         expect([P3.plane.images, P3.scaled, paperCells(P3)]).toEqual([29, 1, 6]);
         expect(t.pyr.s.surface).toBe(3);
+        delete t.pyr.cfg.planeSurfaces;                                   // a layer from one surface is one image (F145): both stand-ins back
+        const P4 = t.pyr.compose();
+        expect([P4.plane.images, P4.scaled, paperCells(P4), t.pyr.s.planeSurfAllocs]).toEqual([1, 2, 0, 1]);
+    });
+
+    test("a plane layer drawn from one surface follows its records: a replaced plate is redrawn, a gone one cleared (F145)", () => {
+        const W = 1600, H = 1200, t = setup(W, H), F = String(t.A);
+        surfaceOn(t);
+        t.pyr.frameFor(cam(t.A, 8, -100, -100, W, H));
+        const v = t.pyr._v, Zp = v.Zq;
+        const cells = [[v.i0, v.j0], [v.i0 + 1, v.j0], [v.i0, v.j0 + 1], [v.i0 + 1, v.j0 + 1]];
+        for (const [i, j] of cells) t.put(planeCell(F, Zp, "o", i, j), 0);
+        t.pyr.setPlane({ showing: true, state: "drag", partial: false, frameId: F, Zq: Zp, off: [0, 0], layers: [{ kind: "over", tag: "o", pZq: Zp, cells, foot: new Set() }] });
+        const at = ([i, j]) => t.ctx.at(((i + 0.5) * P - v.ox) * v.s + v.dx, ((j + 0.5) * P - v.oy) * v.s + v.dy);
+        const col = ([i, j]) => t.colour.get(planeKey(F, Zp, "o", i, j));
+        const P0 = t.pyr.compose();
+        expect([P0.plane.images, t.pyr.s.planeSurfAllocs]).toEqual([1, 1]);
+        for (const c of cells) expect(at(c)).toEqual(col(c));
+        t.put(planeCell(F, Zp, "o", ...cells[0]), 1);                      // re-rastered: a new record, a new colour
+        t.store.dropWhere((r) => r.key === planeKey(F, Zp, "o", ...cells[1]));
+        t.pyr.compose();
+        expect(at(cells[0])).toEqual(col(cells[0]));                      // red with the surface never redrawn: the old colour
+        expect(at(cells[1])).toEqual([255, 255, 255]);                    // red with a gone cell kept: the old plate
+        expect([at(cells[2]), t.pyr.s.planeSurfAllocs]).toEqual([col(cells[2]), 1]);
+    });
+
+    test("a margin's surface copies its cells' edges into the hole's cells beside them, again when a re-cut moves the hole; BELOW's paper cells too (F145)", () => {
+        const t = setup(1600, 1200), F = String(t.A), Zp = 4, O = [0, 0, 0, 0];
+        surfaceOn(t);
+        const rec = (tag, i, j) => { const c = planeCell(F, Zp, tag, i, j); t.put(c, 0); return t.store.get(c.key); };
+        const col = (tag, i, j) => [...t.colour.get(planeKey(F, Zp, tag, i, j)), 1];
+        const recs = [rec("m", 0, 0), rec("m", 0, 1), rec("m", 1, 1), rec("m", 2, 1)], b = { i0: 0, i1: 2, j0: 0, j1: 1 };
+        const L = { kind: "sel", k: 1, pZq: Zp, tag: "m", hole: { i0: 2, i1: 5, j0: 0, j1: 1 } };   // (1, 0) and (2, 0) wholly inside it
+        const sf = t.pyr._planeSurface({ frameId: F }, L, recs, b), at = (x, y) => sf.ctx.rgba(x, y);
+        expect([at(P + 100, P - 1), at(P + 100, P - 2), at(P + 100, P - 3)]).toEqual([col("m", 1, 1), col("m", 1, 1), O]);   // (1, 0)'s last rows: (1, 1)'s first
+        expect([at(P, 100), at(P + 1, 100), at(P + 2, 100)]).toEqual([col("m", 0, 0), col("m", 0, 0), O]);   // its first columns: (0, 0)'s last
+        expect(at(P, P - 1)).toEqual(col("m", 0, 1));                      // its corner: the diagonal's
+        expect([at(2 * P + 100, P - 1), at(2 * P, 100)]).toEqual([col("m", 2, 1), O]);   // (2, 0): (1, 0) beside it is no plate
+        expect(t.pyr._planeSurface({ frameId: F }, { ...L, hole: { i0: 4, i1: 5, j0: 0, j1: 1 } }, recs, b)).toBe(sf);   // a pan's re-cut
+        expect([at(P + 100, P - 1), at(P, 100)]).toEqual([O, O]);          // red with the old hole's edges kept: (1, 0) is past it now
+        expect(at(2 * P + 100, P - 1)).toEqual(col("m", 2, 1));
+        t.pyr._planeSurface({ frameId: F }, L, recs, b);                   // the hole back: (1, 0)'s edges again
+        expect(at(P + 100, P - 1)).toEqual(col("m", 1, 1));
+        t.pyr._planeSurface({ frameId: F }, { ...L, hole: { i0: 4, i1: 5, j0: 0, j1: 1 } }, [...recs, rec("m", 1, 0)], b);   // past it, with a plate
+        expect([at(P + 100, 100), at(P + 100, P - 1)]).toEqual([col("m", 1, 0), col("m", 1, 0)]);   // red with its copied edges not cleared first
+        const B = { kind: "below", k: 0, pZq: Zp, tag: "b" };
+        const sb = t.pyr._planeSurface({ frameId: F }, B, [rec("b", 0, 0), { i: 1, j: 0, paper: true }], { i0: 0, i1: 1, j0: 0, j1: 1 });
+        expect([sb.ctx.rgba(100, P), sb.ctx.rgba(P + 100, P), sb.ctx.rgba(P, P), sb.ctx.rgba(P - 1, P)]).toEqual([col("b", 0, 0), [255, 255, 255, 1], col("b", 0, 0), [255, 255, 255, 1]]);
     });
 
     test("a translucent family split across ℓ and ℓ − 1 never composes darker than either source", () => {
@@ -657,8 +706,9 @@ describe("PicturePyramid — the view, the requests, the plane, the integrals, t
         for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) t.put(levelCell(F, 4, S, i, j), 0);
         const below = planeCell(F, 16, "b", 0, 0), sel = planeCell(F, 16, "s", 0, 0), over = planeCell(F, 16, "o", 1, 1);
         for (const c of [below, sel, over]) t.put(c, 0);
-        const plane = { showing: true, state: "drag", partial: false, frameId: F, Zp: 16, off: [100, 40],
-            layers: [{ kind: "below", tag: "b", cells: [[0, 0]] }, { kind: "sel", tag: "s", cells: [[0, 0]] }, { kind: "over", tag: "o", cells: [[1, 1]] }] };
+        const plane = { showing: true, state: "drag", partial: false, frameId: F, Zq: 16, off: [100, 40], layers: [
+            { kind: "below", tag: "b", pZq: 16, cells: [[0, 0]], foot: new Set(["0,0"]) }, { kind: "sel", tag: "s", pZq: 16, cells: [[0, 0]] },
+            { kind: "over", tag: "o", pZq: 16, cells: [[1, 1]], foot: new Set() }] };
         t.pyr.setPlane(plane);
         const P0 = t.pyr.compose();
         expect(P0.cells.find((c) => c.i === 0 && c.j === 0)).toBeUndefined();  // BELOW draws cell (0, 0) instead

@@ -51,15 +51,18 @@ export default class JobQueue {
      * @param {object} [o.gens] live purpose generations (`PicturePyramid.gens`): a strip older than its purpose's is dropped
      * @param {(strip:object, why:string)=>void} [o.onDrop] a strip dropped before dispatch
      * @param {(fn:()=>void, ms:number)=>void} [o.defer] runs `fn` in a task at least `ms` later (the budget's next task)
+     * @param {(cells:object[])=>object[]} [o.restore] restores the cells the store's RAM tier holds, returns the rest (F161)
      */
-    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null, defer = (fn, ms) => setTimeout(fn, ms) } = {}) {
+    constructor({ pool, clock = () => Date.now(), store = null, gens = null, onDrop = null, defer = (fn, ms) => setTimeout(fn, ms), restore = null } = {}) {
         this.pool = pool;
         this.clock = clock;
         this.store = store;
         this.gens = gens || {};
         this.onDrop = onDrop;
+        this.restore = restore;
         this.queue = [];               // strips, in arrival order; dispatch picks the lowest prio, oldest first
         this.inFlight = new Map();     // id -> strip
+        this._restoring = 0;           // RAM-tier restores the renderer has in flight (F161): the view's, in `report`
         this._seq = 0;
         this._id = 0;
         this._packMs = 0;              // this frame's pack time, or this task's at rest
@@ -67,7 +70,7 @@ export default class JobQueue {
         this._task = false;            // a later task is asked for, which starts the budget again (`_nextTask`)
         this.motion = null;            // { moving, view, vel: { px: [x, y] /ms, zoom: log2 Z /ms }, attention }
         this.jobMs = JOB_MS0;
-        this.s = { pushed: 0, strips: 0, dispatched: 0, deferred: 0, reaimed: 0, skippedCells: 0, offscreenCells: 0, done: 0,
+        this.s = { pushed: 0, strips: 0, dispatched: 0, deferred: 0, reaimed: 0, skippedCells: 0, offscreenCells: 0, done: 0, ramCells: 0,
             drops: { gen: 0, exact: 0, offscreen: 0, empty: 0 }, byPrio: [0, 0, 0, 0, 0, 0] };   // byPrio: strips dispatched
     }
 
@@ -250,6 +253,12 @@ export default class JobQueue {
                 if (st.clips) st.clips = keep.map((k) => st.clips[k]);
             }
         }
+        // What the RAM tier holds is restored now, not packed (F161): a re-aimed strip's cells were never offered to it.
+        if (this.restore && !st.clips && st.cells.length) {
+            const n = st.cells.length;
+            st.cells = this.restore(st.cells);
+            this.s.ramCells += n - st.cells.length;
+        }
         if (!st.cells.length) { this._drop(st, "exact"); return false; }
         return true;
     }
@@ -303,12 +312,16 @@ export default class JobQueue {
         if (this.onDrop) this.onDrop(st, why);
     }
 
+    /** A RAM-tier restore begun (+1) or landed or failed (−1): it takes no slot, but it is the view's work in flight (F161). */
+    restoring(n) { this._restoring = Math.max(0, this._restoring + n); }
+
     // ---- the report ----
 
     report() {
         const queued = [0, 0, 0, 0, 0, 0], flying = [0, 0, 0, 0, 0, 0];
         for (const st of this.queue) queued[st.prio]++;
         for (const st of this.inFlight.values()) flying[st.prio]++;
+        flying[PRIO.view] += this._restoring;
         return { queued, inFlight: flying, jobMs: this.jobMs, packMsFrame: this._packMs, ...this.s, drops: { ...this.s.drops }, byPrio: this.s.byPrio.slice() };
     }
 }

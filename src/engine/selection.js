@@ -21,7 +21,7 @@ import { distToPolyline, windingOfPoint } from "./geometry/hittest";
 import { flattenCurve } from "./geometry/polyline";
 import { insideTester, loopsBBox } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
-import { addOffset, sameBelow, snapDisplacement, sameShift, cloneBelow, encodeBelow } from "./geometry/offsets";
+import { addOffset, sameBelow, snapDisplacement, sameShift, internBelow, encodeBelow } from "./geometry/offsets";
 import { underMask } from "./eraseRule";
 
 // How close to a selected frame's mark a press counts as pressing the frame.
@@ -702,7 +702,7 @@ class Selection {
                 let put = seen.get(key);
                 if (!put) {
                     put = this._displaceMember(from, T, camDepth, tx, ty);
-                    if (!put.why) put.own = this.doc.ownFor(put.table, put.frame);   // less the target frame's shift
+                    if (!put.why) put.own = internBelow(this.doc.ownFor(put.table, put.frame));   // less the target frame's shift; one table a key
                     seen.set(key, put);
                 }
                 // A member the drag could not move, and why (F35): journaled with the move.
@@ -715,7 +715,7 @@ class Selection {
                     ids.push(o.id);
                 }
                 if (tableMoved) offsets.push([o.id, put.own]);
-                moves.push({ id: o.id, dx: tx, dy: ty, from, to: put.frame, belowBefore: before, belowAfter: cloneBelow(put.own) });
+                moves.push({ id: o.id, dx: tx, dy: ty, from, to: put.frame, belowBefore: before, belowAfter: put.own });
             }
             for (const [frame, ids] of rehomes) this.doc.rehomeManyById(ids, frame);
             for (const [id, table] of offsets) this.doc.setOffsetsById(id, table);
@@ -725,9 +725,11 @@ class Selection {
         const frames = [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
             || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter)));
         if (!moves.length && !frames.length) return null;
+        // The journal's bound (KobinEngine._note): 120 members and the count, not 5,771 records a drag.
         this._note({
             kind: "move",
-            moves: moves.map((m) => {
+            members: moves.length > 120 ? moves.length : undefined,
+            moves: moves.slice(0, 120).map((m) => {
                 const rec = this.doc.getById(m.id);
                 const b = rec && rec.obj.loops ? loopsBBox(rec.obj.loops) : null;
                 return { id: m.id, level: rec ? rec.level : null, from: m.from, to: m.to,

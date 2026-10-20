@@ -130,6 +130,7 @@ test("a frame GC forget and a mint before the next render move the prepared view
     const src = [...E.lm.frames.keys()].find((id) => !had.has(id));
     expect(src).toBeTruthy();
     E._gcCand.add(src);
+    E.stage.sourceFrames = () => new Set();                       // as once the table no longer reads it (F139 keeps it while it does)
     collectFrames(E);                                             // as at an undo's end: the empty source is forgotten
     expect(E.lm.frame(src)).toBeUndefined();
     E.lm.cellChild("1", 9, 9);                                    // and a frame minted elsewhere: the lattice's size as it was

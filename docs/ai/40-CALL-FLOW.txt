@@ -1,8 +1,10 @@
 ================================================================================
 BOUND.LESS - CALL FLOW
 What calls what, from a finger on the glass to pixels. Written 2026-08-28; the
-raster path, the erase jobs, the saves and the loads brought to 2026-09-22, and
-the renderer rebuild's paths to 2026-10-06.
+raster path, the erase jobs, the saves and the loads brought to 2026-09-22,
+the renderer rebuild's paths to 2026-10-06, and the performance round's
+(branch performance: the drag plane, the drop's dirt, the bakes, the pack and
+the plate tiers) to 2026-10-19.
 Indentation is the call chain. [HOT] marks a per-event or per-frame path.
 ================================================================================
 
@@ -199,9 +201,11 @@ SELECTING AND MOVING
                                             §10 S4, S4z, §10.14; normally cached since the selection
                                             was made): layers by z, "z<n>_<q>" - the ink below the
                                             selection, each selected run on transparent plates, each
-                                            run above it in place - at the plane's own level and at a
-                                            quick one two octaves under it; runs merged past 5, the
-                                            level coarser past the plate cap; accepted -> hold.plane
+                                            run above it in place - each cut at its own resolution,
+                                            what the selection moves over sharpest first (F145), and a
+                                            quick level two octaves under the coarsest on screen; past
+                                            5 layers the least visible swap of a selected run (F144),
+                                            a layer coarser past the plate cap; accepted -> hold.plane
     on paper:
       _lasso = { pts, ctrl }
   pointermove
@@ -217,7 +221,9 @@ SELECTING AND MOVING
       renderer.syncCameraOnly() alone with the plane live (no list): _planeStep picks what the
         compose draws, the selection translated by the pointer: the plane's own level whole,
         else the quick one, else a level's selected layers alone, else a stopgap rastered here
-        (a selection of <= 500 objects); without it, _render()
+        (a selection of <= 500 objects); without it, _render(). Held still PLANE_REFINE_MS:
+        _refine -> plane.refineAt (what of the selection is on screen, cut sharper inside the cap),
+        drawn in place of its coarser layers once whole (F145)
       (the plane lost - _planeLost: the camera left its frame - hands the drag to the view's plates)
   pointerup
     _endMove("drop")                        the one exit; one stage.batch:
@@ -226,21 +232,24 @@ SELECTING AND MOVING
           _displaceMember(from, pictureTable, d.depth, tx, ty)   once per (frame, table)
             depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
             depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
-          own table = doc.ownFor(picture table, target frame) (less its shift, A1 C1)
+          own table = internBelow(doc.ownFor(picture table, target frame)) (less its shift, A1 C1; one shared table a key, F164)
         store.setBatch(true); doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per
           changed table; the selected FRAMES (2026-09-15), never per object:
           _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
           _dragFrames: lm.moveSubtreeTargets -> lm.readdressMany (two-phase; a held cell makes a co-resident, A1 C3)
             -> doc.setFrameShift (the rest, D+1/D+2; before the refile) -> doc.noteRefile per change;
           store.setBatch(false)
-        doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member
+        _note({kind:"move"})                  the first 120 members and their count (F164)
+        doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member, tables shared
           or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter}
-      _releaseMove -> stage.release()       the held events applied: one commit, start ∪ end
+      _releaseMove -> stage.release()       the held events applied: one commit, start ∪ end; a
+                                            moved shape's or fill's footprint is its boundary's
+                                            swept hulls (sweepBoxes), dirt asked per cell (F153)
       (a refile hands the camera to its cell's resident: _camToResident)
     renderer.endMove -> the plane LANDS (stays, clipped per cell, until each cell's own plate is fresh;
       MOVE_HOLD_MS); renderer.noteUserEdit() (the drop's patch: patchUserMs)
     _repairSelection(op's frames)           torn kids join the selection, quietly (A1 C2)
-    one _render(); collectFrames
+    one _render(); collectFrames (keeps stage.sourceFrames, the view's picture sources, F139)
   a cancel (a pinch, an undo mid-drag, a deselect): _endMove(why) releases the hold, writes nothing
 
   undo of a moveFrames (Document._invert)
@@ -268,8 +277,11 @@ RENDERING   [HOT]
       commits (G + 1) only when something changed.
       a tile not cached is baked, for each tile, both directions:
           _ensureUp(F,i,j)   -> _bakeUp: chain through the parent's up-tiles,
-                                plus doc.at(parent), plus _ringNatives(parent);
-                                classifyUp -> empty | solid | edge;
+                                plus _cellNatives(parent) (each co-resident's
+                                spatial index over the padded pre-image, F156),
+                                plus _ringNatives(parent);
+                                classifyUp -> empty | solid | edge (a shape's
+                                margin culls since F142);
                                 deriveStep for the edge tier
           _ensureDown(F,i,j) -> _bakeDown: candidates from _downSources (the
                                 tree, subtrees pruned by cell + REACH), a frame
@@ -294,19 +306,27 @@ RENDERING   [HOT]
           frame while moving, a task while still: the rest in a later task; a cut or a snapshot's plate is one
           strip queued as pushed, one worker kept for cuts while any is pending) ->
           _pyrSubmit -> _pyrPack (a cell the table does not cover refused and unasked; packJob at G: the
-          prepass's records kept by geometry across lists, a clipped job only the items meeting its clips, its
+          prepass's records kept by geometry across lists, a clipped job only the items meeting its clips,
+          what lies under every plate's provable opaque cover left out (F157), each geometry's row runs
+          shipped with it (rowRuns, F154; the core skips the runs that miss a plate's rows), its
           time calibrating the estimate's pack terms;
           store.beginJob) -> rasterPool -> the worker (res.G = job.G) -> _pyrResult -> _pyrLand ->
-          pyramid.onResult -> store.put: rule 1 (newer G replaces), rule 2 (exact iff G >= dirtySince)
+          pyramid.onResult -> store.put: rule 1 (newer G replaces), rule 2 (exact iff G >= dirtySince);
+          a level plate evicted later is kept packed in RAM (plateRam) and, needed again, restored by a
+          worker ("ram-restore") instead of packed and rastered (F161)
           (a group's results held aside until its last lands: packed at or after its G, or exact at landing;
           pen-up groups over the same cells one group, one commit for every member's path, F135) -> one compose
           (deferCompose in "raf")
         _planeStep                          the drag plane: follow the drag, land, or keep it aimed
         pyramid.compose()                   the plan per cell (A3 §1.4) drawn: direct or the surface;
+                                            paper first gets the coarse net, `_net` (F166);
+                                            each plane layer from one surface (_planeSurface), its
+                                            edges copied where another layer draws (_planeEdges);
                                             the integrals charged forward
         _pyrLive                            the pen-up handoff: a group commit, live.release(id) in its task
         _pyrPrefetch (the camera still)     prefetchPlan at idle: near levels, far snapshots, the ring;
-                                            its tile reads warm (store.warmReads)
+                                            its tile reads warm (store.warmReads); an incomplete read
+                                            is tried again PREFETCH_RETRY_MS later (F166)
       syncWorld(view)                       the SvgLayer world's transform (the live stroke), then
                                             overlays.render() and _renderSelOverlay(view)
     renderer.render(list, frame)            ?svg - the SVG renderer:

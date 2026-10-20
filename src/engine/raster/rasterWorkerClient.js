@@ -2,7 +2,8 @@
  * rasterWorkerClient.js — the worker pool and the inline fallback, behind `rasterPool` (`{size, free, submit}`): the
  * face `jobQueue.js` dispatches through, one strip or one cut at a time (A3 §4.4, PLAN §1.6). RASTERISER-PLAN §3.6
  * (the buffer pool) and §8.2 (the queueing subtraction). Packing is the caller's, at dispatch — a strip superseded
- * while it waited costs no packing at all (357–598 ms for a screen, §8.6 measurement 4).
+ * while it waited costs no packing at all (357–598 ms for a screen, §8.6 measurement 4). A RAM-tier restore
+ * (`restorePlate`, F161) goes to any worker and holds no slot.
  *
  * Five things a reader needs in order not to break it:
  *  - THE PACK CALLBACK IS WHERE `beginJob` GOES. It is handed the strip's plates and the job id, and the job it returns
@@ -22,10 +23,11 @@
  */
 
 import {
-    wireJob, unwireResult, jobBytes, resultBytes, BufferPool,
+    wireJob, unwireResult, jobBytes, resultBytes, BufferPool, META_WORDS,
     GUARD_NAMES, COUNT_NAMES, GUARDS_PER_JOB, COUNTS_PER_PLATE, TIMINGS_PER_PLATE,
 } from "./rasterJob";
-import { runJob, runCut } from "../worker/rasterWorker";
+import { rowRuns } from "./rasterCore";
+import { runJob, runCut, runRestore } from "../worker/rasterWorker";
 import { PLATE_PX } from "./plate";
 
 /** §6.6's one rule for the worker count, and the ceiling that makes a strip half a worker's share. */
@@ -37,6 +39,7 @@ export const WATCHDOG_MS = 30000;
 
 let workers = [];            // { w, jobId } — `jobId` non-null while it holds one (the cap is 1)
 let broken = false;          // the script did not load, or the pool failed past its respawns
+let badRunsFirst = null;     // the first job sent without its row runs, described (`wireChecked`)
 let answered = false;        // a worker has answered: the script loads, so a later failure is the worker's
 let respawns = 0;
 let watchdog = null;
@@ -52,10 +55,17 @@ const inFlight = new Map();  // jobId -> { req, plates, postedAt, slot, bytesOut
 let heldNoSlot = 0;
 let onFreed = null;          // the queue's pump, for a slot an abandoned job's own answer frees (`releaseAbandoned`)
 const pool = new BufferPool(8 << 20);
+/** A RAM-tier restore unanswered this long fails, so its cell is asked for again (F161). */
+export const RAM_RESTORE_MS = 5000;
+let ramSeq = 0;
+let ramNext = 0;             // the worker the next restore goes to, round robin
+const ramWaits = new Map();  // restore id -> { resolve, reject, at, timer }
+const ramStats = { restores: 0, failed: 0, ms: 0 };
 
 const stats = {
     jobs: 0, plates: 0, failed: 0,
     dropsBefore: 0,
+    badRuns: 0,                 // jobs whose row runs did not tile a loop, sent without them (below)
     bytesOut: 0, bytesIn: 0,
     workerMs: 0, poolReadyMs: 0,
     // §8.1's two main-thread transfer timers. `postMs` is the wire and the post; `recvMs` is the
@@ -83,6 +93,9 @@ export function setRasterWorkerCount(n) { countOverride = n == null ? null : Mat
 
 /** Called when an abandoned job's answer frees its slot: nothing else reports that capacity, so the queue pumps here. */
 export function setOnSlotFreed(fn) { onFreed = fn || null; }
+/** A renderer's teardown lets go of the pump it set (module state: it held a closed canvas's renderer and engine). */
+export function clearOnSlotFreed(fn) { if (onFreed === fn) onFreed = null; }
+export function _slotFreedForTests() { return onFreed; }
 /** A released hold pumps the queue in front. */
 const freed = (released) => { if (released && onFreed) onFreed(); };
 
@@ -153,11 +166,71 @@ function spawnPool(late) {
     return workers.length;
 }
 
-/** Terminate every worker and forget the pool. Nothing is reported: `destroyRasterPool` does that. */
+/** Terminate every worker and forget the pool. Nothing is reported: `destroyRasterPool` does that. Restores waiting fail. */
 function terminateWorkers() {
     for (const s of workers) { try { s.w.terminate(); } catch (err) { /* already gone */ } }
     workers = [];
     spawned = false;
+    for (const [id, w] of [...ramWaits]) ramFail(id, w, "terminated");
+}
+
+/**
+ * One RAM-tier plate unpacked (F161): its words go to a worker (`ramWorker`; a restore takes no slot: it has its own
+ * scratch and runs one at a time there) or, with no worker, to this thread a turn later. Resolves
+ * `{ bitmap }` or `{ pixels }`; rejects on a failure or after RAM_RESTORE_MS. The words are copied, not transferred:
+ * the plate it stores keeps them for its next eviction.
+ * @param {ArrayBuffer} bytes `plateCodec.encodePlate`'s words
+ */
+export function restorePlate(bytes) {
+    const id = ++ramSeq, msg = { kind: "ram-restore", id, bytes };
+    ramStats.restores++;
+    if (!transport && !broken) spawnPool(true);
+    return new Promise((resolve, reject) => {
+        const w = { resolve, reject, at: now(), timer: null };
+        ramWaits.set(id, w);
+        w.timer = setTimeout(() => ramFail(id, w, "restore timed out"), RAM_RESTORE_MS);
+        if (transport || !workers.length) {
+            Promise.resolve().then(() => runRestore(msg)).then((out) => onRamMessage(out.msg), (err) => ramFail(id, w, err));
+            return;
+        }
+        try { ramWorker().w.postMessage(msg); } catch (err) { ramFail(id, w, err); }
+    });
+}
+
+/**
+ * The worker a restore goes to, round robin: one holding no job, else one drawing a strip (the restore runs between its
+ * plates), a cut's only when every worker holds one — a cut runs to its end before its worker reads another message.
+ */
+function ramWorker() {
+    const n = workers.length;
+    let strip = null;
+    for (let k = 0; k < n; k++) {
+        const s = workers[(ramNext + k) % n];
+        if (s.jobId == null) { ramNext = (ramNext + k + 1) % n; return s; }
+        const f = inFlight.get(s.jobId);
+        if (!strip && !(f && f.req.cut)) strip = s;
+    }
+    ramNext = (ramNext + 1) % n;
+    return strip || workers[ramNext];
+}
+
+function ramFail(id, w, err) {
+    if (ramWaits.get(id) !== w) return;
+    ramWaits.delete(id);
+    clearTimeout(w.timer);
+    ramStats.failed++;
+    w.reject(err instanceof Error ? err : new Error(String(err)));
+}
+
+/** A restore's answer; one nobody waits for any more (it timed out) closes its bitmap. */
+function onRamMessage(data) {
+    const w = ramWaits.get(data.id);
+    if (!w) { if (data.bitmap && data.bitmap.close) data.bitmap.close(); return; }
+    if (!data.ok) { ramFail(data.id, w, data.err || "restore failed"); return; }
+    ramWaits.delete(data.id);
+    clearTimeout(w.timer);
+    ramStats.ms += now() - w.at;
+    w.resolve(data);
 }
 
 /**
@@ -293,6 +366,36 @@ function freeSlot() {
     return inFlight.size + heldNoSlot === 0 ? null : undefined;   // inline: one at a time, here
 }
 
+/**
+ * `wireJob`, or null when the job's check refuses it. A job whose row runs do not tile a loop (F154) is wired without
+ * them: the core walks every piece, the same pixels. A refusal thrown here once left the strip neither posted nor
+ * dropped, so its cells stayed paper (Kobin's Magnum Opus report, 2026-10-20 15:54).
+ */
+function wireChecked(job) {
+    try { return wireJob(job); } catch (err) {
+        if (!(job.runs && /\(F154\)/.test(err.message))) return null;
+        stats.badRuns++;
+        if (!badRunsFirst) badRunsFirst = describeBadRuns(job, err);
+        job.runs = null; job.subRun = null;
+        try { return wireJob(job); } catch (err2) { return null; }
+    }
+}
+/** The refused item, for the report: its id and kind, its loops' offsets, the runs it carried and its own. */
+function describeBadRuns(job, err) {
+    const out = { msg: String(err.message).slice(0, 140), t: Math.round(now()) };
+    const m = /item (\d+) sub (\d+)/.exec(err.message);
+    if (!m) return out;
+    const it = +m[1], k = +m[2], mm = it * META_WORDS, kind = job.meta[mm];
+    const gAt = job.meta[mm + 2], gl = job.meta[mm + 3], ss = job.meta[mm + 4], sc = job.meta[mm + 5];
+    const nR = job.runs.length / 3, r0 = job.subRun[ss + k], r1 = ss + k + 1 < job.subRun.length ? job.subRun[ss + k + 1] : nR;
+    const offs = (runs, a, b) => { const o = []; for (let r = a; r < b && o.length < 24; r++) o.push(runs[3 * r + 2]); return o; };
+    const own = rowRuns(kind, job.geom.subarray(gAt, gAt + gl), job.subs.subarray(ss, ss + sc));
+    const o0 = own.subRun[k], o1 = k + 1 < sc ? own.subRun[k + 1] : own.runs.length / 3;
+    out.item = { id: job.ids ? job.ids[it] : null, kind, items: job.nItems, gl, subs: Array.from(job.subs.subarray(ss, ss + Math.min(sc, 8))),
+        carried: offs(job.runs, r0, r1), own: offs(own.runs, o0, o1), runsCarried: nR };
+    return out;
+}
+
 /** Pack and post one entry into `slot`. False when the pack declined or threw (`onDrop` has fired with the id). */
 function dispatch(entry, slot) {
     if (entry.req.cut) return dispatchCut(entry, slot);
@@ -315,7 +418,13 @@ function dispatch(entry, slot) {
     const bytesOut = jobBytes(job);
     const postedAt = now();
     job.postedAt = postedAt;
-    const { msg, transfer } = wireJob(job);
+    const wired = wireChecked(job);
+    if (!wired) {
+        stats.failed++;
+        if (entry.req.onDrop) entry.req.onDrop({ jobId, plates: entry.plates, why: "invalid", before: true });
+        return false;
+    }
+    const { msg, transfer } = wired;
     const rec = { req: entry.req, plates: entry.plates, postedAt, slot, jobId, bytesOut, postMs: 0 };
     inFlight.set(jobId, rec);
     stats.jobs++;
@@ -437,6 +546,7 @@ function onFailed(jobId, err, slot) {
 
 function onMessage(slot, data) {
     if (data.kind === "cut-result") { onCutMessage(slot, data); return; }
+    if (data.kind === "ram-result") { if (slot) answered = true; onRamMessage(data); return; }   // a restore holds no slot
     const arrivedAt = now();                           // the main thread's own clock, first (§8.2)
     if (slot) answered = true;
     if (data.kind === "raster-error") {
@@ -516,13 +626,14 @@ export function rasterWorkerReport() {
         workers: workers.length, wanted: rasterWorkerCount(), broken, respawns: stats.respawns, silent: stats.silent,
         inFlight: inFlight.size, heldSlots: held,
         jobs: stats.jobs, plates: stats.plates, failed: stats.failed, cuts: stats.cuts, cutMs: stats.cutMs,
-        dropsBefore: stats.dropsBefore,
+        dropsBefore: stats.dropsBefore, badRuns: stats.badRuns, badRunsFirst,
         bytesOut: stats.bytesOut, bytesIn: stats.bytesIn,
         workerMs: stats.workerMs, poolReadyMs: stats.poolReadyMs,
         postMs: stats.postMs, recvMs: stats.recvMs, spawnedLate: stats.spawnedLate,
         guards: named(GUARD_NAMES, guardTotals),
         counts: named(COUNT_NAMES, countTotals),
         pool: { takes: pool.takes, hits: pool.hits, allocBytes: pool.allocBytes, bytes: pool.bytes },
+        ram: { ...ramStats, waiting: ramWaits.size },
     };
 }
 
@@ -543,6 +654,9 @@ export function resetRasterWorkerClient() {
     pool.clear();
     pool.takes = 0; pool.hits = 0; pool.allocBytes = 0;
     for (const k of Object.keys(stats)) stats[k] = 0;
+    badRunsFirst = null;
+    for (const k of Object.keys(ramStats)) ramStats[k] = 0;
+    ramSeq = 0; ramNext = 0;
     guardTotals.fill(0);
     countTotals.fill(0);
 }

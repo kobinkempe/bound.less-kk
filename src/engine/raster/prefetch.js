@@ -9,11 +9,12 @@
  *   - The near levels pack from the live table, the cells it covers only (A3 §4.2: the camera's window, read at
  *     idle); the far levels and the crossing target read off camera through `stage.snapshot` within
  *     `cfg.prefetchReadMs`, and a job carries its table. A read past its budget is skipped this time; its tiles stay
- *     cached for the next.
+ *     cached, and the renderer tries again while the camera stays still (`unread`, `cfg.retry`: on the Magnum Opus
+ *     no far read completed in one try, F166).
  *   - Pure but for those reads: it posts nothing and changes no record; `farKeysOf(jobs)` is what the store protects.
  */
 import { PLATE_PX, plateRange } from "./plate";
-import { levelFor, ownFloor, zOf } from "./level";
+import { levelFor, levelKey, ownFloor, zOf } from "./level";
 import { levelCell, PLATE_BYTES, RANK } from "./PyramidStore";
 import { cellOf } from "../frameLattice";
 import { perfNow } from "../now";
@@ -26,13 +27,23 @@ export const FAR_OCTAVES = 3;
 export const FAR_MARGIN = 2.5;
 /** Milliseconds of off-camera reads one plan may spend. */
 export const PREFETCH_READ_MS = 8;
+/** How soon a plan that left a read incomplete is tried again while the camera stays still (F166). */
+export const PREFETCH_RETRY_MS = 100;
+
+/** The level-Z cells `rect` meets, as one rect: an off-camera table read over it holds every piece they draw (F163). */
+function cellsOf(rect, Z) {
+    const r = plateRange(rect, Z), u = PLATE_PX / Z;
+    return { left: r.i0 * u, top: r.j0 * u, right: (r.i1 + 1) * u, bottom: (r.j1 + 1) * u };
+}
 
 /**
  * @param {object} view the published view (`PicturePyramid`'s FC2 object)
  * @param {object} stage the Stage: `lm`, `snapshot(frameId, rect, budgetMs)`
  * @param {object} store the `PyramidStore`
- * @param {object} cfg `enter`, `exit`, `levelStep`; `atRest`, `reportBusy`, `focus` ([x, y] device px), `gens`, `prefetchReadMs`, `now`
- * @returns {object[]} typed jobs, priority 4
+ * @param {object} cfg `enter`, `exit`, `levelStep`; `atRest`, `reportBusy`, `focus` ([x, y] device px), `gens`, `prefetchReadMs`, `now`;
+ *   `retry` (the off-camera reads only)
+ * @returns {object[]} typed jobs, priority 4; `far` every far cell the plan covers, cached or asked; `unread` the reads it
+ *   left incomplete
  */
 export function prefetchPlan(view, stage, store, cfg = {}) {
     if (cfg.reportBusy || !view || view.frameId == null || !stage) return [];
@@ -41,13 +52,17 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     const win = { left: -view.tx / view.k, top: -view.ty / view.k, right: (wDev - view.tx) / view.k, bottom: (hDev - view.ty) / view.k };
     const cx = (win.left + win.right) / 2, cy = (win.top + win.bottom) / 2;
     const gen = cfg.gens && cfg.gens.prefetch != null ? cfg.gens.prefetch : 0;
-    let room = roomOf(store);
-    const jobs = [];
+    let room = roomOf(store), unread = 0;
+    const jobs = [], far = new Set();
+    // A plate the RAM tier holds needs no table: the renderer restores it instead of packing it (F161).
+    const inRam = typeof store.ramHas === "function" ? (key) => store.ramHas(key) : () => false;
     const take = (frame, l, rect, purpose, table, extra = null) => {
-        if (room <= 0) return;
         const r = plateRange(rect, zOf(l, S)), u = PLATE_PX / zOf(l, S), cells = [];
+        // The store protects every far cell the plan covers, cached ones too: a new plan never unprotects them (F166).
+        if (purpose === "prefetch:far") for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) far.add(levelKey(frame, l, S, i, j));
+        if (room <= 0) return;
         const covered = (i, j) => table || !stage.covers || stage.covers(frame, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u });
-        const keep = (i, j) => { const c = levelCell(frame, l, S, i, j); if (store.wants(c.key) && covered(i, j)) cells.push(c); };
+        const keep = (i, j) => { const c = levelCell(frame, l, S, i, j); if (store.wants(c.key) && (covered(i, j) || inRam(c.key))) cells.push(c); };
         for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) if (!extra || !extra(i, j)) keep(i, j);
         if (!cells.length) return;
         const Z = zOf(l, S);
@@ -58,7 +73,7 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     };
 
     // 1. Near: ℓv − 1 and ℓv − 2 over the screen and a one-cell margin, from the live table.
-    for (const d of [1, 2]) {
+    for (const d of cfg.retry ? [] : [1, 2]) {
         const l = lv - d;
         if (l < floor) break;
         const m = PLATE_PX / zOf(l, S);
@@ -67,6 +82,17 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
 
     // 2. Far: the view zoomed out 4^k about its centre, three octaves under that view's level, over 2.5 of its screens.
     const now = cfg.now || perfNow, t0 = now(), budget = cfg.prefetchReadMs != null ? cfg.prefetchReadMs : PREFETCH_READ_MS;
+    /** Every cell of `rect` at level ℓ that is wanted is in the RAM tier (or none is wanted): nothing to read off camera. */
+    const allInRam = (frame, l, rect) => {
+        const r = plateRange(rect, zOf(l, S));
+        for (let j = r.j0; j <= r.j1; j++) {
+            for (let i = r.i0; i <= r.i1; i++) {
+                const key = levelKey(frame, l, S, i, j);
+                if (store.wants(key) && !inRam(key)) return false;
+            }
+        }
+        return true;
+    };
     const hw = (win.right - win.left) / 2, hh = (win.bottom - win.top) / 2;
     const seen = new Set([F + "|" + (lv - 1), F + "|" + (lv - 2)]);
     for (let k = 1; k <= FAR_STEPS && room > 0; k++) {
@@ -83,10 +109,12 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
         if (l == null) break;
         if (seen.has(frame + "|" + l)) continue;
         seen.add(frame + "|" + l);
+        rect = cellsOf(rect, zOf(l, S));
+        if (allInRam(frame, l, rect)) { take(frame, l, rect, "prefetch:far", null); continue; }   // no read needed
         const left = budget - (now() - t0);
-        if (left <= 0) break;
+        if (left <= 0) { unread++; break; }
         const table = stage.snapshot(frame, rect, left);
-        if (!table) continue;
+        if (!table) { unread++; continue; }
         take(frame, l, rect, "prefetch:far", table);
     }
 
@@ -96,10 +124,10 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     const f = lm && lm.frame ? lm.frame(F) : null;
     if (f && cfg.exit != null && inScale < cfg.exit * 1.25 && f.parent != null && room > 0) {
         const grown = { left: win.left - 2 * hw, top: win.top - 2 * hh, right: win.right + 2 * hw, bottom: win.bottom + 2 * hh };
-        const rect = lm.mapRectF(grown, F, f.parent);
+        const lp = lv + 12 / S - 1, mapped = lm.mapRectF(grown, F, f.parent), rect = mapped && cellsOf(mapped, zOf(lp, S));
         const left = budget - (now() - t0);
         const table = rect && left > 0 ? stage.snapshot(f.parent, rect, left) : null;
-        if (table) take(String(f.parent), lv + 12 / S - 1, rect, "prefetch:cross", table);
+        if (table) take(String(f.parent), lp, rect, "prefetch:cross", table); else if (rect) unread++;
     } else if (f && cfg.enter != null && inScale > cfg.enter * 0.8 && room > 0) {
         const a = cfg.focus || [wDev / 2, hDev / 2];
         const px = (a[0] - view.tx) / view.k, py = (a[1] - view.ty) / view.k;
@@ -108,25 +136,26 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
         const l = lv - 12 / S + 1;
         if (p && l >= floor) {
             const m = PLATE_PX / zOf(l, S);                                  // the focus's cell and its neighbours
-            const rect = { left: p[0] - m, top: p[1] - m, right: p[0] + m, bottom: p[1] + m };
+            const rect = cellsOf({ left: p[0] - m, top: p[1] - m, right: p[0] + m, bottom: p[1] + m }, zOf(l, S));
             const left = budget - (now() - t0);
             const table = left > 0 ? stage.snapshot(child.id, rect, left) : null;
-            if (table) take(String(child.id), l, rect, "prefetch:cross", table);
+            if (table) take(String(child.id), l, rect, "prefetch:cross", table); else unread++;
         }
     }
 
     // 4. The ring at ℓv, only at rest and only with the room left.
-    if (cfg.atRest && room > 0) {
+    if (cfg.atRest && !cfg.retry && room > 0) {
         const r = plateRange(win, zOf(lv, S)), m = PLATE_PX / zOf(lv, S);
         take(F, lv, { left: win.left - m, top: win.top - m, right: win.right + m, bottom: win.bottom + m }, "prefetch:ring", null,
             (i, j) => i >= r.i0 && i <= r.i1 && j >= r.j0 && j <= r.j1);
     }
+    jobs.far = far; jobs.unread = unread;
     return jobs;
 }
 
-/** The far levels' keys: the store's FAR protection class (`PicturePyramid.setFar`). */
+/** The far levels' keys, cached or asked: the store's FAR protection class (`PicturePyramid.setFar`). */
 export function farKeysOf(jobs) {
-    const out = new Set();
+    const out = new Set(jobs.far || []);
     for (const j of jobs) if (j.purpose === "prefetch:far") for (const c of j.cells) out.add(c.key);
     return out;
 }

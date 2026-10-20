@@ -27,15 +27,19 @@
 const WIDTH = { 0: 3, 1: 8, 2: 9, 3: 16 };
 const widthOf = (code) => WIDTH[code] || 8;   // an unknown code reads as an arc, as decodeLoops always did
 
-/** The record offsets of a loop's pieces. Throws on a loop that does not end on a record boundary. */
-export function indexLoop(buf) {
+/** The number of pieces in a loop's numbers. */
+function countLoop(buf) {
     const n = buf.length;
-    if (n < 5) return new Uint32Array(0);
+    if (n < 5) return 0;
     let count = 0;
     for (let i = 2; i < n; i += widthOf(buf[i])) count++;
-    const idx = new Uint32Array(count);
+    return count;
+}
+/** The record offsets of a loop's pieces. Throws on a loop that does not end on a record boundary. */
+export function indexLoop(buf) {
+    const idx = new Uint32Array(countLoop(buf));
     let k = 0;
-    for (let i = 2; i < n; i += widthOf(buf[i])) idx[k++] = i;
+    for (let i = 2; k < idx.length; i += widthOf(buf[i])) idx[k++] = i;
     return idx;
 }
 /** One piece as the geometry code reads it, from the record at `o`; `A` is its start point. */
@@ -83,8 +87,19 @@ export function shiftLoopNumbers(a, dx, dy) {
 }
 
 export class Loop {
-    /** @param {Float64Array} buf the numbers @param {Uint32Array} [idx] the record offsets (built when absent) */
-    constructor(buf, idx) { this.buf = buf; this.idx = idx || indexLoop(buf); }
+    /**
+     * @param {Float64Array} buf the numbers @param {Uint32Array|null} [idx] the record offsets @param {number} [n] the
+     * piece count. The offsets are built at the first `at(i)` past the first piece: most loops are only walked, and
+     * an index each cost a Uint32Array and its store (memory-chrome-2026-10-20.md, lever 2).
+     */
+    constructor(buf, idx, n) {
+        this.buf = buf;
+        /** @type {Uint32Array|null} */
+        this._idx = idx || null;
+        this._n = idx ? idx.length : n !== undefined && n >= 0 ? n : -1;
+    }
+    /** The record offsets of the pieces. */
+    get idx() { return this._idx || (this._idx = indexLoop(this.buf)); }
     static is(x) { return x instanceof Loop; }
     /** A Loop over a loop's numbers: a Float64Array is used as it is (a snapshot span), anything else copied. */
     static wrap(enc) { return new Loop(enc instanceof Float64Array ? enc : Float64Array.from(enc)); }
@@ -97,15 +112,14 @@ export class Loop {
     static from(pieces) {
         if (pieces instanceof Loop) return pieces;
         const n = pieces.length;
-        if (!n) return new Loop(new Float64Array(0), new Uint32Array(0));
+        if (!n) return new Loop(new Float64Array(0), null, 0);
         let len = 2;
         for (let i = 0; i < n; i++) { const p = pieces[i]; len += p.line ? (p.P ? 9 : 3) : !isFinite(p.r) ? 3 : p.K ? 16 : 8; }
-        const buf = new Float64Array(len), idx = new Uint32Array(n);
+        const buf = new Float64Array(len);
         buf[0] = pieces[0].A[0]; buf[1] = pieces[0].A[1];
         let o = 2;
         for (let i = 0; i < n; i++) {
             const p = pieces[i];
-            idx[i] = o;
             if (p.line && p.P) { buf[o] = 2; buf[o + 1] = p.P[0]; buf[o + 2] = p.P[1]; buf[o + 3] = p.Q[0]; buf[o + 4] = p.Q[1]; buf[o + 5] = p.sa; buf[o + 6] = p.sb; buf[o + 7] = p.B[0]; buf[o + 8] = p.B[1]; o += 9; }
             else if (p.line || !isFinite(p.r)) { buf[o] = 0; buf[o + 1] = p.B[0]; buf[o + 2] = p.B[1]; o += 3; }
             else if (p.K) {
@@ -114,35 +128,39 @@ export class Loop {
                 buf[o + 12] = p.ua; buf[o + 13] = p.ub; buf[o + 14] = p.B[0]; buf[o + 15] = p.B[1]; o += 16;
             } else { buf[o] = 1; buf[o + 1] = p.C[0]; buf[o + 2] = p.C[1]; buf[o + 3] = p.r; buf[o + 4] = p.a0; buf[o + 5] = p.sweep; buf[o + 6] = p.B[0]; buf[o + 7] = p.B[1]; o += 8; }
         }
-        return new Loop(buf, idx);
+        return new Loop(buf, null, n);
     }
     /** The number of pieces. */
-    get length() { return this.idx.length; }
+    get length() { return this._n >= 0 ? this._n : (this._n = countLoop(this.buf)); }
     /** Piece `i` as a fresh view (negative from the end), or undefined. */
     at(i) {
-        const n = this.idx.length;
+        const n = this.length, b = this.buf;
         if (i < 0) i += n;
         if (!(i >= 0 && i < n)) return undefined;
-        const o = this.idx[i], b = this.buf;
-        return decodePiece(b, o, i === 0 ? [b[0], b[1]] : [b[o - 2], b[o - 1]]);
+        if (i === 0) return decodePiece(b, 2, [b[0], b[1]]);
+        const o = this.idx[i];
+        return decodePiece(b, o, [b[o - 2], b[o - 1]]);
     }
     *[Symbol.iterator]() {
-        const b = this.buf, idx = this.idx;
+        const b = this.buf, end = b.length;
+        if (end < 5) return;
         let A = [b[0], b[1]];
-        for (let i = 0; i < idx.length; i++) { const p = decodePiece(b, idx[i], A); A = p.B; yield p; }
+        for (let o = 2; o < end; o += widthOf(b[o])) { const p = decodePiece(b, o, A); A = p.B; yield p; }
     }
     toPieces() { return [...this]; }
-    map(fn) { const out = new Array(this.idx.length); let i = 0; for (const p of this) { out[i] = fn(p, i, this); i++; } return out; }
+    map(fn) { const out = new Array(this.length); let i = 0; for (const p of this) { out[i] = fn(p, i, this); i++; } return out; }
     forEach(fn) { let i = 0; for (const p of this) fn(p, i++, this); }
     some(fn) { let i = 0; for (const p of this) if (fn(p, i++, this)) return true; return false; }
     every(fn) { let i = 0; for (const p of this) if (!fn(p, i++, this)) return false; return true; }
     filter(fn) { const out = []; let i = 0; for (const p of this) if (fn(p, i++, this)) out.push(p); return out; }
     reduce(fn, init) { let acc = init, i = 0; for (const p of this) acc = fn(acc, p, i++, this); return acc; }
-    slice(a = 0, b = this.idx.length) { return this.toPieces().slice(a, b); }
-    /** The same loop with every point moved by (dx, dy): a new Loop over a copy; the index is shared. */
-    translate(dx, dy) { return new Loop(shiftLoopNumbers(this.buf.slice(), dx, dy), this.idx); }
+    slice(a = 0, b = this.length) { return this.toPieces().slice(a, b); }
+    /** The same loop with every point moved by (dx, dy): a new Loop over a copy; the index, if built, is shared. */
+    translate(dx, dy) { return new Loop(shiftLoopNumbers(this.buf.slice(), dx, dy), this._idx, this._n); }
     /** The numbers as a plain array (kobin-1 JSON). */
     toArray() { return Array.from(this.buf); }
     /** Bytes held, for the memory instruments. */
-    get byteLength() { return this.buf.byteLength + this.idx.byteLength; }
+    get byteLength() { return this.buf.byteLength + (this._idx ? this._idx.byteLength : 0); }
+    /** The JSON a Loop always had, its numbers and their offsets, whether or not the index is built yet. */
+    toJSON() { return { buf: this.buf, idx: this.idx }; }
 }

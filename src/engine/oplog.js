@@ -29,7 +29,7 @@
  * entry (before C3) are replayed by result through `legacy/modelV1.js`.
  */
 import { encodeEntry, decodeEntry } from "./format2";
-import { encodeBelow, decodeBelow } from "./geometry/offsets";
+import { encodeBelow, decodeBelow, internBelow } from "./geometry/offsets";
 import { nativeFromRecord, UNDO_CAP } from "./Document";
 import { applySettle, unsettle, mergeLive, mergeReplay, unmergeReplay } from "./legacy/modelV1";
 
@@ -399,7 +399,7 @@ export class OpLog {
         const applyMoves = (fileMoves, seq) => {
             const moves = fileMoves.map((m) => {
                 const out = { id: m.id, dx: m.dx, dy: m.dy, from: m.from, to: m.to };
-                if ("belowBefore" in m) { out.belowBefore = decodeBelow(m.belowBefore); out.belowAfter = decodeBelow(m.belowAfter); }
+                if ("belowBefore" in m) { out.belowBefore = internBelow(decodeBelow(m.belowBefore)); out.belowAfter = internBelow(decodeBelow(m.belowAfter)); }
                 if (m.base || m.after) { out.base = geomLive(m.base); out.after = geomLive(m.after); }
                 return out;
             });

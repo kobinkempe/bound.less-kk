@@ -348,7 +348,7 @@ export default class TileStore {
         // and the object's own grid; where a moved object's picture is read
         // from is decided at read time, from its table (`_rerouteGroups`). The parent's cell is every
         // frame sharing it (A1 C3).
-        for (const o of this.doc.cellList(parentId)) parentObjs.push(o);
+        for (const o of this._cellNatives(parentId, pr, rec)) parentObjs.push(o);
         for (const o of this._ringNatives(parentId, pr)) parentObjs.push(o);
         const objs = [];
         const edges = [];
@@ -412,6 +412,22 @@ export default class TileStore {
             }
         }
         return parentObjs;
+    }
+
+    /**
+     * The natives of the parent's cell (every frame sharing it, A1 C3) whose boxes meet pre-image `pr`, padded past the
+     * seam pad: a superset of what `classifyUp` keeps, which still decides (OPEN-FLAGS F156). The spatial index's boxes
+     * carry a stroke's half width, as `classifyUp`'s band does.
+     */
+    _cellNatives(parentId, pr, rec) {
+        const pad = (2 * seamPadFor(this.cfg) * this.cfg.base) / rec.s
+            + 1e-9 * (1 + Math.abs(pr.left) + Math.abs(pr.right) + Math.abs(pr.top) + Math.abs(pr.bottom));
+        const q = padRect(pr, pad);
+        const fs = this.lm.cellFrames(String(parentId));
+        if (!fs || fs.length < 2) return this.doc.queryRect(parentId, q);
+        const out = [];
+        for (const g of fs) for (const o of this.doc.queryRect(g.id, q)) out.push(o);
+        return out;
     }
 
     /**
@@ -650,13 +666,15 @@ export default class TileStore {
      * it go — its own, and each whose group reads its tiles: the memo's key counts frames, so a later
      * mint restores the key and the group would read a frame that is gone (the native not drawn;
      * R-MODEL-C1, 6 of 8,000 fuzz renders). A later read can mint the same id again, and its old tiles
-     * would be served without what changed since (REVIEWER-3 RENDER-1).
+     * would be served without what changed since (REVIEWER-3 RENDER-1). Its camera pins stay: they are the
+     * Stage's, which sends them only when its keys change, so a frame minted again would lose them for good
+     * and a drop's batch write would drop its tiles (OPEN-FLAGS F151).
      */
     forgetFrame(frame) {
         const F = String(frame);
         for (const [key, tile] of this.cache) {
             if (String(tile.level) !== F) continue;
-            this._dropTile(key); this._pins.delete(key);
+            this._dropTile(key);
         }
         if (this._rrMemo) for (const [k, m] of this._rrMemo) if (k === F || [...m.groups.values()].some((g) => g.F0 === F)) this._rrMemo.delete(k);
         this._chainSeq.delete(F);

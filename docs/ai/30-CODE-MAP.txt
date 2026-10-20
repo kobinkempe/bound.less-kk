@@ -2,7 +2,8 @@
 BOUND.LESS - CODE MAP
 Every production file, what it owns, and the parts worth knowing about.
 Written 2026-08-28; files added through 2026-09-22 (the raster renderer, the
-scenes work, the erase jobs) and through the renderer rebuild to 2026-10-06.
+scenes work, the erase jobs), through the renderer rebuild to 2026-10-06, and
+the performance round's (branch performance) to 2026-10-19.
 Test files (*.test.js) are listed at the end by subject.
 
 MARKERS
@@ -300,7 +301,9 @@ worker/rasterWorker.js  the raster worker's entry, bundled by `npm run build:wor
                     before start and build: one strip of plates a message
                     (rasterCore.renderPlate per plate; each plate's pixels, a
                     bitmap or a pixel block, timings, counts and the job's guard
-                    words go back), or one cut or descent ("cut-job": runCut).
+                    words go back; a `ram` job's whole plates also packed,
+                    plateCodec), one cut or descent ("cut-job": runCut), or one
+                    RAM-tier restore ("ram-restore": runRestore, F161).
                     Knows no document, camera or canvas.
 
 THE RASTER RENDERER - src/engine/raster/  (2026-09-15..22; the app's default
@@ -319,7 +322,9 @@ RasterRenderer.js   The raster renderer. It extends nothing (B-PYRAMID-3): FC1's
                     (_pyrResult/_pyrLand), steps the view (_frameStep: frameFor,
                     the queue's motion with the attention point, the plane, the
                     compose, the pen-up groups, the prefetch at idle), the drag
-                    plane (_aimPlane/_planeStep/_endPlane), the pen-up handoff
+                    plane (_aimPlane/_planeStep/_endPlane; a drag held still
+                    PLANE_REFINE_MS is cut again sharper, _armRefine/_refine,
+                    F145), the pen-up handoff
                     (_pyrLive: LiveStrokeLayer.hold at pen-up, release(id) in the group
                     commit's task; _liveCross carries a held path across a crossing) and
                     snapshotJob (one plate of any rect: an idle budgeted read, the
@@ -327,7 +332,9 @@ RasterRenderer.js   The raster renderer. It extends nothing (B-PYRAMID-3): FC1's
                     view while a selection is on the plane's path (D1).
 PicturePyramid.js   The layer: the view (frameFor: the level with its stretch band,
                     the rest set when still), the plan per cell (A3 §1.4's rules;
-                    the rest plan; the plane's layers), the compose (direct under
+                    the rest plan; the plane's layers, each drawn from one
+                    surface, _planeSurface, its edges copied into the cells
+                    another layer draws, _planeEdges, F145), the compose (direct under
                     COMPOSE_IMAGES 30, else the surface), the rest render (inline
                     or a worker group), the patch step and patchPlan (inline,
                     coarse-first, workers), the pen-up group commit, the inline
@@ -339,7 +346,13 @@ PyramidStore.js     The plate store: records by level/rest/plane key, a record's
                     G replaces), rule 2 exact (G >= dirtySince), patches merged,
                     jobs tracked per key; LRU with the drawn set, the plane's pins
                     and the rest set protected (RANK), the budget (plateViews
-                    screens, never under the pinned bound), the hidden-tab release.
+                    screens, never under the pinned bound), the hidden-tab release;
+                    a second tier in RAM (plateRam.js): evicted level plates kept
+                    packed and restored by a worker instead of re-rastered (F161).
+plateRam.js         The RAM tier's entries (F161): packed plates, LRU by bytes under
+                    RAM_ENTRIES_MAX; an entry is still the store's to judge exact.
+plateCodec.js       One plate's RGBA packed losslessly (runs and stretches of 32-bit
+                    words), encodePlate/decodePlate, both ends of the RAM tier.
 jobQueue.js         Typed jobs into strips dealt from the attention point; PRIO
                     (rest/patch 0, view 1, plane 2, cut 3, prefetch 4, thumb 5);
                     one worker kept for cuts; drops by purpose generation and by
@@ -349,31 +362,40 @@ jobQueue.js         Typed jobs into strips dealt from the attention point; PRIO
 prefetch.js         The prefetch plan at idle: ℓv − 1 and ℓv − 2 from the live
                     table, the far levels through budgeted snapshots, a crossing's
                     target, the ring at rest; nothing while a report sends. Its tile
-                    reads are warm (RasterRenderer._pyrPrefetch sets TileStore.warmReads).
+                    reads are warm (RasterRenderer._pyrPrefetch sets TileStore.warmReads);
+                    a read past its budget is tried again (`unread`, F166).
 rasterPack.js       Items into a job (one G a job): bands for fat strokes (memo keyed
                     on the zoom, F77), the per-list pre-pass (each item's record
                     kept by its geometry across lists), only/omit for the drag, a
                     clipped job's cull by its clips (PLAN §5.18), the pack-time
-                    offset snapshotView uses.
+                    offset snapshotView uses; pack-time occlusion (Covers: what
+                    lies under every plate's provable opaque cover is left out,
+                    budgeted per plate, F157); each geometry's row runs, memoised
+                    with it and shipped in the job (rowRuns, F154).
 rasterCore.js       The rasteriser: float64 edges, centre-free arc flattening to
                     1/16 device px, one nonzero union per family, transparent
                     plates for the drag, and a clip box (renderPlate's `clip`:
                     rows restricted, x unfolded, byte-identical to the whole
-                    plate inside it; A3 §3.1). Imports chordMath and nothing else.
+                    plate inside it; A3 §3.1); row runs (rowRuns: a plate skips
+                    the runs of an outline that miss its rows, byte-identical,
+                    F154). Imports plate and chordMath, nothing else.
 rasterJob.js        The job and result wire formats; `job.clips` (a clipped
-                    plate comes back as its rectangle), copyPlate/pastePatch.
+                    plate comes back as its rectangle), `job.runs`/`subRun` (the
+                    row runs, checked to tile their loops), copyPlate/pastePatch.
 level.js            The picture pyramid's level arithmetic (A3 §1.2, §1.6):
                     levelFor and the stretch band, viewPlates/sigmaMinFor, the
                     level/rest/plane keys, mapCell (a plate between frames by
                     integer digits) and coarser.
 rasterWorkerClient.js  The worker pool (min(4, cores-1), ?rasterWorkers=N):
                     rasterPool {size, free, submit}, RW-1 (respawns, the watchdog),
-                    poolBroken, the cut dispatch, the inline executor where there
-                    is no pool.
-MovePlane.js        The drag plane's state (not a canvas): its z layers at its own
-                    level and a quick one, the caps (40 plates, 24 on a phone:
-                    past them coarser; 5 layers: past them runs merged), pick()
-                    (what a drag step draws), MOVE_HOLD_MS.
+                    poolBroken, the cut dispatch, the RAM tier's restores (F161),
+                    the inline executor where there is no pool.
+MovePlane.js        The drag plane's state (not a canvas): its z layers (BELOW,
+                    SEL, OVER), each cut at its own resolution, and a quick level
+                    (F145); the caps (level.js MOVE_PLANE_PLATES 64, 24 on a
+                    phone: past them coarser; MOVE_PLANE_LAYERS 5: past them the
+                    least visible swap of a selected run, F144); refineAt (a held
+                    drag cut sharper); pick() (what a drag step draws), MOVE_HOLD_MS.
 OverlayLayer.js     The selection ants on a screen-space canvas plane, moved by
 antPaint.js         a delta transform; antPaint paints the dashes on arcs.
 rasterPerf.js       The ring: five buckets per frame and a verdict (DESIGN.md §14).
@@ -552,7 +574,10 @@ Stage.js            THE SCENE (A2 §2-§3, PLAN §1.1). The camera frame's items
                     family rule) set dirtySince on every tracked plate cell;
                     sync(frame, window, budget), covers, items, placed,
                     placeNative, changesSince, snapshot, track/untrack/
-                    dirtySince/dirtyRects, hold/release/batch, onCommit. Item: a
+                    dirtySince/dirtyRects, hold/release/batch, onCommit. A moved
+                    piece's footprint is its boundary's swept hulls (sweepBoxes,
+                    _sweepCells, F153); sourceFrames, the frames the view's
+                    reroute groups read, kept by frame GC (F139). Item: a
                     piece with z, erase and family read from the live native.
 placementModel.js   The document model as the Stage reads it (A1 §6's
                     PlacementModel): nativesIn, placement, displaced,
@@ -594,7 +619,8 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     one whose parent is still there). F55
                     stands: a table change drops nothing. A cell's co-residents
                     are one cell to the tiles (A1 C3): the up bake's parent and
-                    ring read cellList, a down tile leaves out its own cell's
+                    ring query every co-resident's spatial index (the parent over
+                    its padded pre-image, _cellNatives, F156), a down tile leaves out its own cell's
                     frames (drawn live); prepare/want/prepareWanted mint the
                     reroute's missing source frames outside a read.
                     (_bakeSettled, F78's re-run of a bake a settle moved under,
@@ -686,7 +712,9 @@ frameGc.js          FRAME GC (F94, 2026-09-23): a frame holds something. Forgets
                     a frame with no natives or kids (a resident hands its cell
                     to a co-resident, A1 C3) at a gesture's end
                     or a camera-frame change, unless the camera's chain, its
-                    last CAM_TRAIL frames or history (opFrames) names it;
+                    last CAM_TRAIL frames, history (opFrames) or the view's
+                    picture sources (Stage.sourceFrames, F139) name it; a forget
+                    leaves the tile store's pins (F151);
                     sweepFrames once a restored store is in (useKobinEngine).
                     LevelMap.forget, Document.forgetFrame / noteForgotten.
                     frame.gc.test.js; hooks/store.subtree.test.js.
@@ -756,7 +784,8 @@ types.js            The geometry vocabulary as JSDoc typedefs (S3, 2026-09-07):
 loop.js             A STORED LOOP (2026-09-08, WORKLIST memory step 2): one
                     Float64Array in the snapshot grammar (ax, ay, then a record
                     a piece: code 0 line, 1 arc, 2 cut line, 3 cut arc; widths
-                    3/8/9/16) plus a Uint32Array of record offsets. at(i),
+                    3/8/9/16) plus a Uint32Array of record offsets, built at
+                    the first at(i) past piece 0 (F164). at(i),
                     iteration and map hand back TRANSIENT piece views shaped
                     like the piece objects the geometry has always read;
                     nothing retains or writes through one. Loop.from(pieces)
@@ -824,8 +853,9 @@ offsets.js          An object's DISPLACEMENT TABLE (F41, rebuilt for F55):
                     (the drag), shiftAt (the table read at a depth: whole-frame
                     digits plus the remainder paint applies), shiftDown /
                     shiftUp (a ceded kid, a promotion), encode / decode (the
-                    file). The header is the design in full, with Kobin's
-                    words for it.
+                    file), internBelow (equal tables share one frozen array:
+                    what natives and undo records keep, F164). The header is
+                    the design in full, with Kobin's words for it.
 antRuns.js          The selection indicator's geometry on ARCS - nothing
                     flattened. pieceLength (r·sweep), onRectEdge (a straight
                     piece lying on the rectangle that cut it is a seam),

@@ -45,12 +45,13 @@ import {
     repairLoops, validEncodedLoops,
 } from "./geometry/arcShape";
 import { tilePhase, childTilePhase } from "./frameLattice";
-import { cloneBelow, shiftDown, shiftUp, hasOffsets, decodeBelow, pictureTable, ownTableOf, ownTableFor } from "./geometry/offsets";
+import { cloneBelow, internBelow, shiftDown, shiftUp, decodeBelow, pictureTable, ownTableOf, ownTableFor } from "./geometry/offsets";
 import { unsettle, unmerge } from "./legacy/modelV1";
 import { objectHeader, extraFields } from "./format2";
 import { inheritErase, withId } from "./eraseRule";
 import { cede } from "./cede";
 import { Loop } from "./geometry/loop";
+import { bboxOf, EMPTY_SHAPE_BOX } from "./geometry/derive";
 
 // Stored loops are Loops (geometry/loop.js): a piece read is a transient view, a piece
 // kept is eight doubles. Every way a shape enters the document or changes goes through
@@ -85,12 +86,16 @@ class LevelIndex {
         // A resolved shape needs no margin at all: its bbox already IS the ink.
         const m = (o.type === "fill" || o.type === "shape") ? 0 : (o.lwFrame || 0) / 2;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-        const scan = (pts) => { for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; } };
-        if (o.type === "shape") {
-            const bb = loopsBBox(o.loops);
-            if (bb) { x0 = bb.x0; y0 = bb.y0; x1 = bb.x1; y1 = bb.y1; }
-        } else if (o.type === "fill") { for (const poly of o.polys) scan(poly); } else scan(o.pts);
-        const b = { x0: x0 - m, y0: y0 - m, x1: x1 + m, y1: y1 + m };
+        // With no margin the box is the object's cached one, shared, not copied (F164); a shape with no
+        // finite piece stays the empty box, in no cell.
+        let b = m === 0 ? bboxOf(o) : null;
+        if (b === EMPTY_SHAPE_BOX) b = null;
+        if (b) ({ x0, y0, x1, y1 } = b);
+        else {
+            const scan = (pts) => { for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; } };
+            if (o.type === "fill") { for (const poly of o.polys) scan(poly); } else if (o.type !== "shape") scan(o.pts);
+            b = { x0: x0 - m, y0: y0 - m, x1: x1 + m, y1: y1 + m };
+        }
         const lw = o.lwFrame || 0;
         if (!this.ext) this.ext = { x0: x0 - lw, y0: y0 - lw, x1: x1 + lw, y1: y1 + lw };
         else { const e = this.ext; if (x0 - lw < e.x0) e.x0 = x0 - lw; if (y0 - lw < e.y0) e.y0 = y0 - lw; if (x1 + lw > e.x1) e.x1 = x1 + lw; if (y1 + lw > e.y1) e.y1 = y1 + lw; }
@@ -156,6 +161,19 @@ class LevelIndex {
     }
 }
 
+// A parsed header gives every native its own "shape", "native" and colour strings (memory-chrome-2026-10-20.md,
+// lever 5: 0.82 MB each for type and origin on the Magnum Opus); a load shares one of each. Bounded: a cleared pool
+// only stops the sharing.
+const SHARED_FIELDS = ["type", "origin", "color"];
+const STRINGS = new Map();
+function sharedString(s) {
+    const hit = STRINGS.get(s);
+    if (hit !== undefined) return hit;
+    if (STRINGS.size >= 4096) STRINGS.clear();
+    STRINGS.set(s, s);
+    return s;
+}
+
 /**
  * A stored record (kobin-1 JSON or a kobin-2 span) as a live native. Also the
  * log replay's way in (format2.decodeEntry hands back records).
@@ -174,8 +192,9 @@ class LevelIndex {
  */
 export function nativeFromRecord(o) {
     const { windows, srcId, paths, ...keep } = o;
+    for (const f of SHARED_FIELDS) if (typeof keep[f] === "string") keep[f] = sharedString(keep[f]);
     if (keep.below != null) {
-        try { keep.below = decodeBelow(keep.below); } catch (err) { delete keep.below; }
+        try { keep.below = internBelow(decodeBelow(keep.below)); } catch (err) { delete keep.below; }
         if (!keep.below) delete keep.below;
     }
     const extra = extraFields(o);
@@ -266,9 +285,10 @@ export default class Document {
         this.lm = null;
         this._keyedIn = new Map();         // frame -> Set of its natives with a family key: the lasso's family test under an enclosed frame (LASSO-1)
     }
-    /** Keep `_offsetIds` in step with one object's `below`. */
+    /** Keep `_offsetIds` in step with one object's `below`, made the shared value (`internBelow`). */
     _noteBelow(o) {
-        if (hasOffsets(o.below)) this._offsetIds.add(o.id);
+        const t = internBelow(o.below);
+        if (t) { if (o.below !== t) o.below = t; this._offsetIds.add(o.id); }
         else { if (o.below !== undefined) delete o.below; this._offsetIds.delete(o.id); }
     }
     /** Is any native drawn away from its stored bits: a table of its own, or a frame with a shift (A1 C1)? */
@@ -314,7 +334,7 @@ export default class Document {
     }
     /** Does native `o` carry a table of its own (not only its frame's shift)? */
     hasOwnTable(o) { return this._offsetIds.has(o.id); }
-    /** A copy of native `o`'s own table, as an undo entry records it (undefined when it has none). */
+    /** Native `o`'s own table as an undo entry records it: the shared value (undefined when it has none). */
     ownTable(o) { return ownTableOf(o); }
     /** The own table of native `o` promoted from `from` to its parent `to`: its picture table one level down there (A1 C1). */
     promotedTable(o, from, to) { return this.ownFor(shiftUp(this.tableOf(o, from)), to); }
@@ -504,20 +524,36 @@ export default class Document {
         const rec = typeof idOrObj === "object" ? { obj: idOrObj } : this.getById(idOrObj);
         const key = rec ? this.editKey(rec.obj) : idOrObj;
         if (key == null) return [];
-        if (!this._groups) {
-            const g = new Map();
-            for (const level of Object.keys(this.nativesByLevel)) {
-                for (const obj of this.nativesByLevel[level] || []) {
-                    const k = this.editKey(obj);
-                    let a = g.get(k);
-                    if (!a) { a = []; g.set(k, a); }
-                    a.push({ obj, level });
-                }
-            }
-            this._groups = g;
-        }
+        if (!this._groups) this._groups = this._buildGroups();
         const a = this._groups.get(key);
-        return a ? a.slice() : [];
+        if (a) return a.slice();
+        const own = this.getById(key);                   // a keyless native alone: not in the map
+        return own && own.obj.editId == null ? [own] : [];
+    }
+    /**
+     * `editGroup`'s map, in level then list order, of the groups that can hold more than one native: every family
+     * key's, and a keyless native's whose id is a family key or another native's id too. The rest (43,031 of the
+     * Magnum Opus's 43,135 natives) are each alone, read from `_byId` (memory-chrome-2026-10-20.md, lever 3).
+     */
+    _buildGroups() {
+        const keys = new Set();
+        for (const level of Object.keys(this.nativesByLevel)) {
+            for (const obj of this.nativesByLevel[level] || []) {
+                if (obj.editId != null) keys.add(obj.editId);
+                else if (this._byId.get(obj.id) !== obj) keys.add(obj.id);
+            }
+        }
+        const g = new Map();
+        for (const level of Object.keys(this.nativesByLevel)) {
+            for (const obj of this.nativesByLevel[level] || []) {
+                const k = this.editKey(obj);
+                if (obj.editId == null && !keys.has(k)) continue;
+                let a = g.get(k);
+                if (!a) { a = []; g.set(k, a); }
+                a.push({ obj, level });
+            }
+        }
+        return g;
     }
 
     // Remove a native by id from whichever frame holds it (derived copies carry
@@ -620,7 +656,7 @@ export default class Document {
         // them, a drag writes them, undo restores them. Only a snapshot that
         // KNOWS about them (has the key) may change them.
         const had = o.below;
-        if ("below" in geom) { o.below = cloneBelow(geom.below); this._noteBelow(o); }
+        if ("below" in geom) { o.below = internBelow(geom.below); this._noteBelow(o); }
         this._afterEdit(o, rec.level, oldBbox, o.lwFrame, had !== undefined && o.below === undefined ? had : undefined);
         return rec;
     }
@@ -688,7 +724,7 @@ export default class Document {
         if (!rec) return null;
         const o = rec.obj;
         const oldBelow = o.below;
-        o.below = cloneBelow(below);
+        o.below = internBelow(below);
         this._noteBelow(o);
         o._ver = (o._ver || 0) + 1;
         this._emit({ kind: "change", id: o.id, level: rec.level, obj: o, offsetsOnly: true, oldBelow });
@@ -704,7 +740,7 @@ export default class Document {
         const tile = o.tile ? [o.tile[0], o.tile[1]] : null;
         // ...and so are the offsets below the home (F41): where the object's
         // picture sits at every level below its own is part of where it is.
-        const below = cloneBelow(o.below);
+        const below = internBelow(o.below);
         if (o.type === "shape") return { loops: o.loops, tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
         if (o.type === "fill") return { polys: o.polys.map((p) => p.map((q) => [q[0], q[1]])), tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
         return { pts: o.pts.map((q) => [q[0], q[1]]), tile, attachRect: o.attachRect ? { ...o.attachRect } : null, below };
@@ -952,7 +988,7 @@ export default class Document {
             if (src.w > 0) obj.w = src.w;
             // Cutting an object up does not move its picture at any level
             // either: every piece keeps the offsets below the home (F41).
-            const below = cloneBelow(src.below);
+            const below = internBelow(src.below);
             if (below) obj.below = below;
             // Pieces of something that was already part of a multi-level object
             // stay in its family; whether the family is still ONE object is a

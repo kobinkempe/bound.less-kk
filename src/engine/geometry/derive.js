@@ -48,21 +48,24 @@ import { childTilePhase, tilePhase, TileGrid } from "../frameLattice";
 // calls for a shape; `Document._bboxNow` is the same arithmetic UNCACHED, for
 // the edit path that needs the box the object had before the edit invalidated
 // this cache. None of them is wrong; only this one may be stale on the live
-// stroke, which is why `live` is excluded from the cache.
+// stroke, which is why `live` is excluded from the cache. A cached box is
+// frozen: the spatial index shares it (Document's LevelIndex, F164).
+/** What `bboxOf` reads for a shape with no finite piece: one object, so the spatial index tells it apart. */
+export const EMPTY_SHAPE_BOX = Object.freeze({ x0: 0, y0: 0, x1: 0, y1: 0 });
 export function bboxOf(o, live) {
     if (o._bbox) return o._bbox;
     let b;
     if (o.type === "shape") {
         // Exact, arc bulges included — a chord bbox would understate a half-turn
         // cap by the whole pen radius.
-        b = loopsBBox(o.loops) || { x0: 0, y0: 0, x1: 0, y1: 0 };
+        b = loopsBBox(o.loops) || EMPTY_SHAPE_BOX;
     } else {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         const scan = (pts) => { for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; } };
         if (o.type === "fill") { for (const poly of o.polys) scan(poly); } else scan(o.pts);
         b = { x0, y0, x1, y1 };
     }
-    if (o !== live) o._bbox = b;
+    if (o !== live) o._bbox = Object.freeze(b);
     return b;
 }
 
@@ -452,7 +455,7 @@ export function classifyUp(o, s, t, rect, cfg, live, off) {
     const base = cfg.base;
     const f = s / base;
     const b = bboxOf(o, live);
-    const half = o.type === "fill" ? 0 : (o.lwFrame * f) / 2;
+    const half = o.type === "fill" ? 0 : ((o.lwFrame || 0) * f) / 2;   // a shape has no lwFrame: its box is its ink (F142)
     const pad = seamPadFor(cfg);
     const prect = padRect(rect, pad);
     // `off`: the object's offset at this hop (F41), in the child's units.
@@ -565,7 +568,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
         // Cull on the transformed bbox before any geometry work (the clip operates
         // on raw points, so the point bbox plus the stroke-width margin is safe).
         const b = bboxOf(o, live);
-        const m = o.type === "fill" ? pad : o.lwFrame * (s / base) + (seams.centerlines ? pad : 0);
+        const m = o.type === "fill" ? pad : (o.lwFrame || 0) * (s / base) + (seams.centerlines ? pad : 0);
         if ((b.x1 * s + t.x) / base + ox < rect.left - m || (b.x0 * s + t.x) / base + ox > rect.right + m ||
             (b.y1 * s + t.y) / base + oy < rect.top - m || (b.y0 * s + t.y) / base + oy > rect.bottom + m) continue;
         const tag = (piece) => {

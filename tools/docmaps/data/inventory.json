@@ -13,121 +13,929 @@
 "class": null
 }
 ],
-"src/hooks/reportSend.js": [
+"src/cloud/canvasSession.js": [
 {
-"name": "msg",
+"name": "editorFromHook",
+"kind": "function",
+"class": null
+},
+{
+"name": "withTimeout",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "installConsoleTap",
-"kind": "function",
-"class": null
-},
-{
-"name": "consoleTail",
-"kind": "function",
-"class": null
-},
-{
-"name": "safeJson",
-"kind": "function",
-"class": null
-},
-{
-"name": "scrubIdentity",
-"kind": "function",
-"class": null
-},
-{
-"name": "encodeText",
-"kind": "function",
-"class": null
-},
-{
-"name": "reportId",
+"name": "perfNow",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "baseUrl",
+"name": "who",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "post",
+"name": "shownName",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "isNetwork",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "CanvasSession",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "start",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "stop",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "markDirty",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "onLocalSaved",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "onRefused",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "onVisibility",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "pushNow",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "takeOver",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_openChannel",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_post",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_onMessage",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_requestLock",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_drop",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_letGoOfLock",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_lockLost",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_stealLock",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_tabFollower",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_live",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_holdDevice",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_handToTab",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_stopCloud",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_openCloud",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_blocked",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_reconcile",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_pull",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_keepStore",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_pullLz1",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_keepUnsaved",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_edit",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "discard",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_readOnlyDevice",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_offline",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_beat",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_watch",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_onManifest",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_maybeTake",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_lose",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_handToDevice",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_takeLease",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_promote",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_followCloud",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_reloadFollow",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_scheduleFollow",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_push",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_set",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_serial",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_after",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_every",
+"kind": "method",
+"class": "CanvasSession"
+}
+],
+"src/cloud/canvasSync.js": [
+{
+"name": "isDevBuild",
 "kind": "function",
 "class": null
 },
 {
-"name": "sendDevReport",
+"name": "canvasesCol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "canvasDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "partDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "realCanvasDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "realPartDoc2",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "chunk",
 "kind": "function",
 "class": null
 },
 {
-"name": "sendReport",
+"name": "encodeCanvasPayload",
 "kind": "function",
 "class": null
 },
 {
-"name": "sendDrawing",
+"name": "encodeCanvasPayloadAsync",
 "kind": "function",
 "class": null
 },
 {
-"name": "saveFile",
+"name": "decodeCanvasPayload",
 "kind": "function",
 "class": null
 },
 {
-"name": "replayReport",
+"name": "decodeCanvasPayloadAsync",
+"kind": "function",
+"class": null
+},
+{
+"name": "boundedThumbs",
+"kind": "function",
+"class": null
+},
+{
+"name": "perfNow",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cloudSaveCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "saveCanvasLz1",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudListCanvases",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudGetCanvasMeta",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudLoadCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudTrashCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudRestoreCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudRenameCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudDeleteCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "partDoc2",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "chunkKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "SyncConflict",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "SyncConflict"
+},
+{
+"name": "LeaseLost",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LeaseLost"
+},
+{
+"name": "commitAll",
+"kind": "function",
+"class": null
+},
+{
+"name": "inLane",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushDead",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "chunksOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "partsOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cloudPushCanvas2",
+"kind": "function",
+"class": null
+},
+{
+"name": "pushCanvas2",
+"kind": "function",
+"class": null
+},
+{
+"name": "sweep",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudPullCanvas2",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudLoadCanvas2",
+"kind": "function",
+"class": null
+},
+{
+"name": "leaseFor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cloudTakeLease",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudRenewLease",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudReleaseLease",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudAskLease",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudWatchManifest",
 "kind": "function",
 "class": null
 }
 ],
-"src/hooks/useKobinEngine.js": [
+"src/cloud/firebaseApp.js": [
 {
-"name": "now",
+"name": "getFirebaseApp",
+"kind": "function",
+"class": null
+},
+{
+"name": "getFirebaseAuth",
+"kind": "function",
+"class": null
+},
+{
+"name": "getDb",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/gzip.js": [
+{
+"name": "pipe",
+"kind": "function",
+"class": null
+},
+{
+"name": "compression",
+"kind": "function",
+"class": null
+},
+{
+"name": "setCompression",
+"kind": "function",
+"class": null
+},
+{
+"name": "gunzipAs",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/lzWorker.js": [
+{
+"name": "workerUrl",
+"kind": "function",
+"class": null
+},
+{
+"name": "getWorker",
+"kind": "function",
+"class": null
+},
+{
+"name": "run",
+"kind": "function",
+"class": null
+},
+{
+"name": "unavailable",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "rasterFromUrl",
+"name": "compressToUint8Array",
 "kind": "function",
 "class": null
 },
 {
-"name": "hrefWithRaster",
+"name": "decompressFromUint8Array",
 "kind": "function",
 "class": null
-},
+}
+],
+"src/cloud/storageLocks.js": [
 {
-"name": "leverStorage",
-"kind": "function",
-"class": null
-},
-{
-"name": "leversOf",
+"name": "abortError",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "signCursor",
+"name": "sleep",
 "kind": "arrow",
 "class": null
 },
 {
-"name": "useKobinEngine",
+"name": "makeStorageLocks",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/store2.js": [
+{
+"name": "packFrameChunk",
 "kind": "function",
 "class": null
 },
 {
-"name": "fmtZoom",
+"name": "unpackFrameChunk",
 "kind": "function",
 "class": null
 },
 {
-"name": "zoomLabel",
+"name": "packLogChunk",
+"kind": "function",
+"class": null
+},
+{
+"name": "unpackLogChunk",
+"kind": "function",
+"class": null
+},
+{
+"name": "splitParts",
+"kind": "function",
+"class": null
+},
+{
+"name": "joinParts",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/syncCore.js": [
+{
+"name": "newEpoch",
+"kind": "function",
+"class": null
+},
+{
+"name": "headOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "sameHead",
+"kind": "function",
+"class": null
+},
+{
+"name": "leaseState",
+"kind": "function",
+"class": null
+},
+{
+"name": "chunkNames",
+"kind": "function",
+"class": null
+},
+{
+"name": "intentLanded",
+"kind": "function",
+"class": null
+},
+{
+"name": "decideOpen",
+"kind": "function",
+"class": null
+},
+{
+"name": "sameFrames",
+"kind": "function",
+"class": null
+},
+{
+"name": "conflictName",
+"kind": "function",
+"class": null
+},
+{
+"name": "defaultDeviceName",
+"kind": "function",
+"class": null
+}
+],
+"src/cloud/useUser.js": [
+{
+"name": "useUser",
+"kind": "function",
+"class": null
+},
+{
+"name": "signInWithGoogle",
+"kind": "function",
+"class": null
+},
+{
+"name": "signOutUser",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/BrandLogo.js": [
+{
+"name": "BrandLogo",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ColorPickerPopover.js": [
+{
+"name": "ColorPickerPopover",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/DevStats.js": [
+{
+"name": "readStats",
+"kind": "function",
+"class": null
+},
+{
+"name": "f1",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "DevStats",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/EraseChip.js": [
+{
+"name": "EraseChip",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/FileActionsMenu.js": [
+{
+"name": "FileActionsMenu",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/SaveDrawingDialog.js": [
+{
+"name": "SaveDrawingDialog",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ScaleDragBar.js": [
+{
+"name": "ScaleDragBar",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ScaleHud.js": [
+{
+"name": "ScaleHud",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/ScaleUnitPicker.js": [
+{
+"name": "membershipTableRows",
+"kind": "function",
+"class": null
+},
+{
+"name": "ScaleUnitPicker",
+"kind": "function",
+"class": null
+},
+{
+"name": "ScaleUnitButtonGrid",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/SyncChip.js": [
+{
+"name": "syncLabel",
+"kind": "function",
+"class": null
+},
+{
+"name": "syncStatus",
+"kind": "function",
+"class": null
+},
+{
+"name": "syncSentence",
+"kind": "function",
+"class": null
+},
+{
+"name": "syncName",
+"kind": "function",
+"class": null
+},
+{
+"name": "showsNotice",
+"kind": "function",
+"class": null
+},
+{
+"name": "useNarrow",
+"kind": "function",
+"class": null
+},
+{
+"name": "svg",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "StatusIcon",
+"kind": "function",
+"class": null
+},
+{
+"name": "CheckIcon",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "SyncDetails",
+"kind": "function",
+"class": null
+},
+{
+"name": "SyncStatus",
+"kind": "function",
+"class": null
+},
+{
+"name": "bannerClearance",
+"kind": "function",
+"class": null
+},
+{
+"name": "useBannerClearance",
+"kind": "function",
+"class": null
+},
+{
+"name": "bannerOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "SyncBanner",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/WidthOpacityPanel.js": [
+{
+"name": "WidthOpacityPanel",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/useAnchorPopoverStyle.js": [
+{
+"name": "useAnchorPopoverStyle",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/editor/useClickAway.js": [
+{
+"name": "useClickAway",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Button.js": [
+{
+"name": "Button",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Dialog.js": [
+{
+"name": "Dialog",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogHeader",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogTitle",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogDescription",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogFooter",
+"kind": "function",
+"class": null
+},
+{
+"name": "DialogContent",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/Input.js": [
+{
+"name": "Input",
+"kind": "function",
+"class": null
+}
+],
+"src/Components/ui/SciText.js": [
+{
+"name": "SciText",
 "kind": "function",
 "class": null
 }
@@ -274,6 +1082,11 @@
 "name": "query",
 "kind": "method",
 "class": "LevelIndex"
+},
+{
+"name": "sharedString",
+"kind": "function",
+"class": null
 },
 {
 "name": "nativeFromRecord",
@@ -477,6 +1290,11 @@
 },
 {
 "name": "editGroup",
+"kind": "method",
+"class": "Document"
+},
+{
+"name": "_buildGroups",
 "kind": "method",
 "class": "Document"
 },
@@ -1560,6 +2378,11 @@
 "class": "LevelMap"
 },
 {
+"name": "mapperObj",
+"kind": "method",
+"class": "LevelMap"
+},
+{
 "name": "projectLoops",
 "kind": "method",
 "class": "LevelMap"
@@ -2184,7 +3007,17 @@
 "class": null
 },
 {
+"name": "sameRange",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "meets",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "inside",
 "kind": "arrow",
 "class": null
 },
@@ -2200,6 +3033,26 @@
 },
 {
 "name": "tableKey",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "geomOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "lookOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "sweepBoxes",
+"kind": "function",
+"class": null
+},
+{
+"name": "sweepBytesOf",
 "kind": "arrow",
 "class": null
 },
@@ -2260,6 +3113,11 @@
 },
 {
 "name": "changesSince",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "touchedSince",
 "kind": "method",
 "class": "Stage"
 },
@@ -2379,6 +3237,16 @@
 "class": "Stage"
 },
 {
+"name": "_groupBox",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "sourceFrames",
+"kind": "method",
+"class": "Stage"
+},
+{
 "name": "forgetFrame",
 "kind": "method",
 "class": "Stage"
@@ -2449,6 +3317,41 @@
 "class": "Stage"
 },
 {
+"name": "_entryRects",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_meetsIn",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_sweepMap",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_unmap",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_hull",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_sweepIn",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_sweepCells",
+"kind": "method",
+"class": "Stage"
+},
+{
 "name": "_mapState",
 "kind": "method",
 "class": "Stage"
@@ -2465,6 +3368,11 @@
 },
 {
 "name": "_dirt",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_trimSweeps",
 "kind": "method",
 "class": "Stage"
 },
@@ -2550,6 +3458,11 @@
 },
 {
 "name": "_tileKeys",
+"kind": "method",
+"class": "Stage"
+},
+{
+"name": "_rangeKeys",
 "kind": "method",
 "class": "Stage"
 },
@@ -2852,6 +3765,11 @@
 },
 {
 "name": "_upPiecesOver",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_cellNatives",
 "kind": "method",
 "class": "TileStore"
 },
@@ -4298,6 +5216,11 @@
 "class": "Overlays"
 },
 {
+"name": "_selUntouched",
+"kind": "method",
+"class": "Overlays"
+},
+{
 "name": "_selFrameOf",
 "kind": "method",
 "class": "Overlays"
@@ -5689,703 +6612,6 @@
 "name": "_hitTest",
 "kind": "method",
 "class": "Selection"
-}
-],
-"src/engine/worker/rasterWorker.js": [
-{
-"name": "resetGuards",
-"kind": "function",
-"class": null
-},
-{
-"name": "runJob",
-"kind": "function",
-"class": null
-},
-{
-"name": "runCut",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/catalog.js": [
-{
-"name": "buildRungs",
-"kind": "function",
-"class": null
-},
-{
-"name": "safeLog10Meters",
-"kind": "function",
-"class": null
-},
-{
-"name": "registerUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "repairLogFactors",
-"kind": "function",
-"class": null
-},
-{
-"name": "getUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "unitMeters",
-"kind": "function",
-"class": null
-},
-{
-"name": "unitLog10Meters",
-"kind": "function",
-"class": null
-},
-{
-"name": "allCatalogUnits",
-"kind": "function",
-"class": null
-},
-{
-"name": "prefixNameForShort",
-"kind": "function",
-"class": null
-},
-{
-"name": "capitalizeWord",
-"kind": "function",
-"class": null
-},
-{
-"name": "unitFullName",
-"kind": "function",
-"class": null
-},
-{
-"name": "allUnitsTableRows",
-"kind": "function",
-"class": null
-},
-{
-"name": "hasSiPrefix",
-"kind": "function",
-"class": null
-},
-{
-"name": "isNoSiPrefix",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/format.js": [
-{
-"name": "formatUnitSymbol",
-"kind": "function",
-"class": null
-},
-{
-"name": "formatScaleLabel",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/index.js": [
-{
-"name": "computeScale",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/ladder.js": [
-{
-"name": "Ladder",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "relatedIds",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "names",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "has",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "rankOf",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "floorUnit",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "ceilingUnit",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "neighbors",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "unitsWithinFactor",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "bandFor",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "extraNiceFor",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "preferenceFor",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "candidatesAt",
-"kind": "method",
-"class": "Ladder"
-},
-{
-"name": "ladder",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/logMath.js": [
-{
-"name": "log10",
-"kind": "function",
-"class": null
-},
-{
-"name": "safeExp10",
-"kind": "function",
-"class": null
-},
-{
-"name": "targetLogLen",
-"kind": "function",
-"class": null
-},
-{
-"name": "logLenFromNice",
-"kind": "function",
-"class": null
-},
-{
-"name": "mppFromDef",
-"kind": "function",
-"class": null
-},
-{
-"name": "barPxFromLogLen",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/logicRule.js": [
-{
-"name": "autoShowUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "ladderUnitsReadingBetween",
-"kind": "function",
-"class": null
-},
-{
-"name": "unitsBetween",
-"kind": "function",
-"class": null
-},
-{
-"name": "allLadderUnion",
-"kind": "function",
-"class": null
-},
-{
-"name": "LogicRule",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "LogicRule"
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "LogicRule"
-},
-{
-"name": "RelatedLadderAutoShow",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "RelatedLadderAutoShow"
-},
-{
-"name": "CurrentLadderAuto",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderAuto"
-},
-{
-"name": "CurrentLadderWithinFactor",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderWithinFactor"
-},
-{
-"name": "AnyLadderAuto",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "AnyLadderAuto"
-},
-{
-"name": "RelatedWithinFactor",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "RelatedWithinFactor"
-},
-{
-"name": "CurrentLadderReadingBand",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderReadingBand"
-},
-{
-"name": "AnyLadderReadingBand",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "AnyLadderReadingBand"
-},
-{
-"name": "CurrentLadderNeighbors",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderNeighbors"
-},
-{
-"name": "RelatedLadderNeighbors",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "RelatedLadderNeighbors"
-},
-{
-"name": "AllUltraStandard",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "AllUltraStandard"
-},
-{
-"name": "NamedUnits",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "NamedUnits"
-},
-{
-"name": "NoSiPrefixUnits",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "NoSiPrefixUnits"
-},
-{
-"name": "AllUnits",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "AllUnits"
-},
-{
-"name": "UltraStandardBetween",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "UltraStandardBetween"
-},
-{
-"name": "AllLaddersBetween",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "AllLaddersBetween"
-},
-{
-"name": "CurrentLadderNoSiPrefix",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderNoSiPrefix"
-},
-{
-"name": "CurrentLadderSiPrefixedMeters",
-"kind": "class",
-"class": null
-},
-{
-"name": "evaluate",
-"kind": "method",
-"class": "CurrentLadderSiPrefixedMeters"
-}
-],
-"src/engine/scaleBar/membership.js": [
-{
-"name": "rungsFromNames",
-"kind": "function",
-"class": null
-},
-{
-"name": "rungsFromBuilt",
-"kind": "function",
-"class": null
-},
-{
-"name": "ladderForStack",
-"kind": "function",
-"class": null
-},
-{
-"name": "unitRank",
-"kind": "function",
-"class": null
-},
-{
-"name": "laddersOwning",
-"kind": "function",
-"class": null
-},
-{
-"name": "stackForUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "highestPriorityLadder",
-"kind": "function",
-"class": null
-},
-{
-"name": "floorUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "ceilingUnit",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/nice.js": [
-{
-"name": "formatSciValue",
-"kind": "function",
-"class": null
-},
-{
-"name": "formatScaleNumber",
-"kind": "function",
-"class": null
-},
-{
-"name": "formFor",
-"kind": "function",
-"class": null
-},
-{
-"name": "niceValuesForUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "bestInBoundsNice",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/pick.js": [
-{
-"name": "autoSpanForUnit",
-"kind": "function",
-"class": null
-},
-{
-"name": "applyUnitPick",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/preference.js": [
-{
-"name": "bandFor",
-"kind": "function",
-"class": null
-},
-{
-"name": "bandLogInterval",
-"kind": "function",
-"class": null
-},
-{
-"name": "extraNiceFor",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/preferenceRange.js": [
-{
-"name": "PreferenceRange",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "PreferenceRange"
-},
-{
-"name": "contains",
-"kind": "method",
-"class": "PreferenceRange"
-},
-{
-"name": "claims",
-"kind": "method",
-"class": "PreferenceRange"
-},
-{
-"name": "kind",
-"kind": "method",
-"class": "PreferenceRange"
-},
-{
-"name": "StandardPreferenceRange",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "StandardPreferenceRange"
-},
-{
-"name": "claims",
-"kind": "method",
-"class": "StandardPreferenceRange"
-},
-{
-"name": "kind",
-"kind": "method",
-"class": "StandardPreferenceRange"
-},
-{
-"name": "UserPreferenceRange",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "UserPreferenceRange"
-},
-{
-"name": "claims",
-"kind": "method",
-"class": "UserPreferenceRange"
-},
-{
-"name": "shouldClear",
-"kind": "method",
-"class": "UserPreferenceRange"
-},
-{
-"name": "toJSON",
-"kind": "method",
-"class": "UserPreferenceRange"
-},
-{
-"name": "kind",
-"kind": "method",
-"class": "UserPreferenceRange"
-},
-{
-"name": "toUserRange",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/resolve.js": [
-{
-"name": "pastIncumbentEnterEdge",
-"kind": "function",
-"class": null
-},
-{
-"name": "candidatesOnLadder",
-"kind": "function",
-"class": null
-},
-{
-"name": "extremeCandidates",
-"kind": "function",
-"class": null
-},
-{
-"name": "readingFromStop",
-"kind": "function",
-"class": null
-},
-{
-"name": "resolveReading",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/rungs.js": [
-{
-"name": "evaluateRung",
-"kind": "function",
-"class": null
-},
-{
-"name": "sortBySize",
-"kind": "function",
-"class": null
-},
-{
-"name": "effectiveRungs",
-"kind": "function",
-"class": null
-},
-{
-"name": "popoverUnits",
-"kind": "function",
-"class": null
-},
-{
-"name": "setScaleUnits",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/session.js": [
-{
-"name": "createSession",
-"kind": "function",
-"class": null
-},
-{
-"name": "clearUserBandIfExited",
-"kind": "function",
-"class": null
-},
-{
-"name": "clearDisplayPrefs",
-"kind": "function",
-"class": null
-},
-{
-"name": "withReading",
-"kind": "function",
-"class": null
-},
-{
-"name": "shouldApplyScaleSessionWriteBack",
-"kind": "function",
-"class": null
-}
-],
-"src/engine/scaleBar/validate.js": [
-{
-"name": "validateScaleDef",
-"kind": "function",
-"class": null
 }
 ],
 "src/engine/geometry/antRuns.js": [
@@ -7794,6 +8020,11 @@
 "class": null
 },
 {
+"name": "countLoop",
+"kind": "function",
+"class": null
+},
+{
 "name": "indexLoop",
 "kind": "function",
 "class": null
@@ -7820,6 +8051,11 @@
 },
 {
 "name": "constructor",
+"kind": "method",
+"class": "Loop"
+},
+{
+"name": "idx",
 "kind": "method",
 "class": "Loop"
 },
@@ -7902,6 +8138,11 @@
 "name": "byteLength",
 "kind": "method",
 "class": "Loop"
+},
+{
+"name": "toJSON",
+"kind": "method",
+"class": "Loop"
 }
 ],
 "src/engine/geometry/offsets.js": [
@@ -7922,6 +8163,11 @@
 },
 {
 "name": "cloneBelow",
+"kind": "function",
+"class": null
+},
+{
+"name": "internBelow",
 "kind": "function",
 "class": null
 },
@@ -8148,6 +8394,43 @@
 "class": null
 }
 ],
+"src/engine/legacy/modelV1.js": [
+{
+"name": "applySettle",
+"kind": "function",
+"class": null
+},
+{
+"name": "unsettle",
+"kind": "function",
+"class": null
+},
+{
+"name": "mergeLive",
+"kind": "function",
+"class": null
+},
+{
+"name": "setTables",
+"kind": "function",
+"class": null
+},
+{
+"name": "mergeReplay",
+"kind": "function",
+"class": null
+},
+{
+"name": "unmergeReplay",
+"kind": "function",
+"class": null
+},
+{
+"name": "unmerge",
+"kind": "function",
+"class": null
+}
+],
 "src/engine/raster/LiveStrokeLayer.js": [
 {
 "name": "viewCenter",
@@ -8232,6 +8515,16 @@
 "class": null
 },
 {
+"name": "colours",
+"kind": "function",
+"class": null
+},
+{
+"name": "unionRange",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "MovePlane",
 "kind": "class",
 "class": null
@@ -8257,12 +8550,27 @@
 "class": "MovePlane"
 },
 {
+"name": "pins",
+"kind": "method",
+"class": "MovePlane"
+},
+{
 "name": "aim",
 "kind": "method",
 "class": "MovePlane"
 },
 {
 "name": "_cut",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "_cells",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "_count",
 "kind": "method",
 "class": "MovePlane"
 },
@@ -8283,6 +8591,31 @@
 },
 {
 "name": "requests",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "refineAt",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "setRefine",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "refineWhole",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "dropQuick",
+"kind": "method",
+"class": "MovePlane"
+},
+{
+"name": "drawLayers",
 "kind": "method",
 "class": "MovePlane"
 },
@@ -8756,6 +9089,36 @@
 "class": "PicturePyramid"
 },
 {
+"name": "planeSurfaces",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_planeSurface",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_planeEdges",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_idlePlaneSurfaces",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "prepPlane",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_freePlaneSurfaces",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
 "name": "_landClip",
 "kind": "method",
 "class": "PicturePyramid"
@@ -8767,6 +9130,11 @@
 },
 {
 "name": "compose",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_net",
 "kind": "method",
 "class": "PicturePyramid"
 },
@@ -8877,6 +9245,21 @@
 },
 {
 "name": "onResult",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_heldStale",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_reaskHeldStale",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "heldEnded",
 "kind": "method",
 "class": "PicturePyramid"
 },
@@ -9026,6 +9409,11 @@
 "class": "PicturePyramid"
 },
 {
+"name": "restore",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
 "name": "_ask",
 "kind": "method",
 "class": "PicturePyramid"
@@ -9063,6 +9451,26 @@
 {
 "name": "sampleOf",
 "kind": "function",
+"class": null
+},
+{
+"name": "cellBounds",
+"kind": "function",
+"class": null
+},
+{
+"name": "rectsMinus",
+"kind": "function",
+"class": null
+},
+{
+"name": "rowsOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "surfaceable",
+"kind": "arrow",
 "class": null
 },
 {
@@ -9153,6 +9561,11 @@
 "class": null
 },
 {
+"name": "ramBudgetBytes",
+"kind": "function",
+"class": null
+},
+{
 "name": "levelCell",
 "kind": "function",
 "class": null
@@ -9213,6 +9626,11 @@
 "class": "PyramidStore"
 },
 {
+"name": "heldStale",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
 "name": "records",
 "kind": "method",
 "class": "PyramidStore"
@@ -9234,6 +9652,26 @@
 },
 {
 "name": "discard",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "ramHas",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "restorable",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "beginRestore",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "setRamBudget",
 "kind": "method",
 "class": "PyramidStore"
 },
@@ -9279,6 +9717,11 @@
 },
 {
 "name": "setBudget",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "endHeld",
 "kind": "method",
 "class": "PyramidStore"
 },
@@ -9329,6 +9772,11 @@
 },
 {
 "name": "_untrackIfIdle",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "_toRam",
 "kind": "method",
 "class": "PyramidStore"
 },
@@ -9506,6 +9954,16 @@
 },
 {
 "name": "_planeStep",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_armRefine",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_refine",
 "kind": "method",
 "class": "RasterRenderer"
 },
@@ -9731,6 +10189,26 @@
 },
 {
 "name": "_pyrLand",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_ramRestore",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_ramLand",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_ramCells",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "_ramSplit",
 "kind": "method",
 "class": "RasterRenderer"
 },
@@ -10111,6 +10589,11 @@
 "class": "JobQueue"
 },
 {
+"name": "restoring",
+"kind": "method",
+"class": "JobQueue"
+},
+{
 "name": "report",
 "kind": "method",
 "class": "JobQueue"
@@ -10190,7 +10673,81 @@
 "class": null
 }
 ],
+"src/engine/raster/plateCodec.js": [
+{
+"name": "encodePlate",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodePlate",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/raster/plateRam.js": [
+{
+"name": "PlateRam",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "size",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "has",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "get",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "put",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "dropWhere",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "setBudget",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "clear",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "report",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "_fit",
+"kind": "method",
+"class": "PlateRam"
+}
+],
 "src/engine/raster/prefetch.js": [
+{
+"name": "cellsOf",
+"kind": "function",
+"class": null
+},
 {
 "name": "prefetchPlan",
 "kind": "function",
@@ -10374,6 +10931,26 @@
 "class": null
 },
 {
+"name": "rowRuns",
+"kind": "function",
+"class": null
+},
+{
+"name": "pieceRows",
+"kind": "function",
+"class": null
+},
+{
+"name": "runMeets",
+"kind": "function",
+"class": null
+},
+{
+"name": "runEnd",
+"kind": "arrow",
+"class": null
+},
+{
 "name": "emitItem",
 "kind": "function",
 "class": null
@@ -10476,6 +11053,11 @@
 "class": null
 },
 {
+"name": "checkRuns",
+"kind": "function",
+"class": null
+},
+{
 "name": "wireResult",
 "kind": "function",
 "class": null
@@ -10535,6 +11117,16 @@
 {
 "name": "touch",
 "kind": "function",
+"class": null
+},
+{
+"name": "weakOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "sameRef",
+"kind": "arrow",
 "class": null
 },
 {
@@ -10703,6 +11295,11 @@
 "class": "PlateBinner"
 },
 {
+"name": "touches",
+"kind": "method",
+"class": "PlateBinner"
+},
+{
 "name": "itemsFor",
 "kind": "method",
 "class": "PlateBinner"
@@ -10728,7 +11325,12 @@
 "class": null
 },
 {
-"name": "entryLive",
+"name": "recLive",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "sameObj",
 "kind": "arrow",
 "class": null
 },
@@ -10778,6 +11380,91 @@
 "class": null
 },
 {
+"name": "setPackOcclusion",
+"kind": "function",
+"class": null
+},
+{
+"name": "setRowRuns",
+"kind": "function",
+"class": null
+},
+{
+"name": "marksMeet",
+"kind": "function",
+"class": null
+},
+{
+"name": "Covers",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Covers"
+},
+{
+"name": "drawn",
+"kind": "method",
+"class": "Covers"
+},
+{
+"name": "visible",
+"kind": "method",
+"class": "Covers"
+},
+{
+"name": "cover",
+"kind": "method",
+"class": "Covers"
+},
+{
+"name": "familyCovers",
+"kind": "function",
+"class": null
+},
+{
+"name": "plateWinding",
+"kind": "function",
+"class": null
+},
+{
+"name": "proofAt",
+"kind": "function",
+"class": null
+},
+{
+"name": "proofWinding",
+"kind": "function",
+"class": null
+},
+{
+"name": "chordAngle",
+"kind": "function",
+"class": null
+},
+{
+"name": "proofLine",
+"kind": "function",
+"class": null
+},
+{
+"name": "proofArc",
+"kind": "function",
+"class": null
+},
+{
+"name": "loopEdges",
+"kind": "function",
+"class": null
+},
+{
+"name": "ringEdges",
+"kind": "function",
+"class": null
+},
+{
 "name": "emptyJob",
 "kind": "function",
 "class": null
@@ -10815,6 +11502,11 @@
 {
 "name": "geomOf",
 "kind": "function",
+"class": null
+},
+{
+"name": "rowBytes",
+"kind": "arrow",
 "class": null
 }
 ],
@@ -11092,6 +11784,16 @@
 "class": null
 },
 {
+"name": "clearOnSlotFreed",
+"kind": "function",
+"class": null
+},
+{
+"name": "_slotFreedForTests",
+"kind": "function",
+"class": null
+},
+{
 "name": "freed",
 "kind": "arrow",
 "class": null
@@ -11128,6 +11830,26 @@
 },
 {
 "name": "terminateWorkers",
+"kind": "function",
+"class": null
+},
+{
+"name": "restorePlate",
+"kind": "function",
+"class": null
+},
+{
+"name": "ramWorker",
+"kind": "function",
+"class": null
+},
+{
+"name": "ramFail",
+"kind": "function",
+"class": null
+},
+{
+"name": "onRamMessage",
 "kind": "function",
 "class": null
 },
@@ -11178,6 +11900,16 @@
 },
 {
 "name": "freeSlot",
+"kind": "function",
+"class": null
+},
+{
+"name": "wireChecked",
+"kind": "function",
+"class": null
+},
+{
+"name": "describeBadRuns",
 "kind": "function",
 "class": null
 },
@@ -11391,39 +12123,709 @@
 "class": null
 }
 ],
-"src/engine/legacy/modelV1.js": [
+"src/engine/scaleBar/catalog.js": [
 {
-"name": "applySettle",
+"name": "buildRungs",
 "kind": "function",
 "class": null
 },
 {
-"name": "unsettle",
+"name": "safeLog10Meters",
 "kind": "function",
 "class": null
 },
 {
-"name": "mergeLive",
+"name": "registerUnit",
 "kind": "function",
 "class": null
 },
 {
-"name": "setTables",
+"name": "repairLogFactors",
 "kind": "function",
 "class": null
 },
 {
-"name": "mergeReplay",
+"name": "getUnit",
 "kind": "function",
 "class": null
 },
 {
-"name": "unmergeReplay",
+"name": "unitMeters",
 "kind": "function",
 "class": null
 },
 {
-"name": "unmerge",
+"name": "unitLog10Meters",
+"kind": "function",
+"class": null
+},
+{
+"name": "allCatalogUnits",
+"kind": "function",
+"class": null
+},
+{
+"name": "prefixNameForShort",
+"kind": "function",
+"class": null
+},
+{
+"name": "capitalizeWord",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitFullName",
+"kind": "function",
+"class": null
+},
+{
+"name": "allUnitsTableRows",
+"kind": "function",
+"class": null
+},
+{
+"name": "hasSiPrefix",
+"kind": "function",
+"class": null
+},
+{
+"name": "isNoSiPrefix",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/format.js": [
+{
+"name": "formatUnitSymbol",
+"kind": "function",
+"class": null
+},
+{
+"name": "formatScaleLabel",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/index.js": [
+{
+"name": "computeScale",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/ladder.js": [
+{
+"name": "Ladder",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "relatedIds",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "names",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "has",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "rankOf",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "floorUnit",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "ceilingUnit",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "neighbors",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "unitsWithinFactor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "bandFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "extraNiceFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "preferenceFor",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "candidatesAt",
+"kind": "method",
+"class": "Ladder"
+},
+{
+"name": "ladder",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/logMath.js": [
+{
+"name": "log10",
+"kind": "function",
+"class": null
+},
+{
+"name": "safeExp10",
+"kind": "function",
+"class": null
+},
+{
+"name": "targetLogLen",
+"kind": "function",
+"class": null
+},
+{
+"name": "logLenFromNice",
+"kind": "function",
+"class": null
+},
+{
+"name": "mppFromDef",
+"kind": "function",
+"class": null
+},
+{
+"name": "barPxFromLogLen",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/logicRule.js": [
+{
+"name": "autoShowUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "ladderUnitsReadingBetween",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitsBetween",
+"kind": "function",
+"class": null
+},
+{
+"name": "allLadderUnion",
+"kind": "function",
+"class": null
+},
+{
+"name": "LogicRule",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "LogicRule"
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "LogicRule"
+},
+{
+"name": "RelatedLadderAutoShow",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedLadderAutoShow"
+},
+{
+"name": "CurrentLadderAuto",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderAuto"
+},
+{
+"name": "CurrentLadderWithinFactor",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderWithinFactor"
+},
+{
+"name": "AnyLadderAuto",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AnyLadderAuto"
+},
+{
+"name": "RelatedWithinFactor",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedWithinFactor"
+},
+{
+"name": "CurrentLadderReadingBand",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderReadingBand"
+},
+{
+"name": "AnyLadderReadingBand",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AnyLadderReadingBand"
+},
+{
+"name": "CurrentLadderNeighbors",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderNeighbors"
+},
+{
+"name": "RelatedLadderNeighbors",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "RelatedLadderNeighbors"
+},
+{
+"name": "AllUltraStandard",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllUltraStandard"
+},
+{
+"name": "NamedUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "NamedUnits"
+},
+{
+"name": "NoSiPrefixUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "NoSiPrefixUnits"
+},
+{
+"name": "AllUnits",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllUnits"
+},
+{
+"name": "UltraStandardBetween",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "UltraStandardBetween"
+},
+{
+"name": "AllLaddersBetween",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "AllLaddersBetween"
+},
+{
+"name": "CurrentLadderNoSiPrefix",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderNoSiPrefix"
+},
+{
+"name": "CurrentLadderSiPrefixedMeters",
+"kind": "class",
+"class": null
+},
+{
+"name": "evaluate",
+"kind": "method",
+"class": "CurrentLadderSiPrefixedMeters"
+}
+],
+"src/engine/scaleBar/membership.js": [
+{
+"name": "rungsFromNames",
+"kind": "function",
+"class": null
+},
+{
+"name": "rungsFromBuilt",
+"kind": "function",
+"class": null
+},
+{
+"name": "ladderForStack",
+"kind": "function",
+"class": null
+},
+{
+"name": "unitRank",
+"kind": "function",
+"class": null
+},
+{
+"name": "laddersOwning",
+"kind": "function",
+"class": null
+},
+{
+"name": "stackForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "highestPriorityLadder",
+"kind": "function",
+"class": null
+},
+{
+"name": "floorUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "ceilingUnit",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/nice.js": [
+{
+"name": "formatSciValue",
+"kind": "function",
+"class": null
+},
+{
+"name": "formatScaleNumber",
+"kind": "function",
+"class": null
+},
+{
+"name": "formFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "niceValuesForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "bestInBoundsNice",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/pick.js": [
+{
+"name": "autoSpanForUnit",
+"kind": "function",
+"class": null
+},
+{
+"name": "applyUnitPick",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/preference.js": [
+{
+"name": "bandFor",
+"kind": "function",
+"class": null
+},
+{
+"name": "bandLogInterval",
+"kind": "function",
+"class": null
+},
+{
+"name": "extraNiceFor",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/preferenceRange.js": [
+{
+"name": "PreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "contains",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "PreferenceRange"
+},
+{
+"name": "StandardPreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "StandardPreferenceRange"
+},
+{
+"name": "UserPreferenceRange",
+"kind": "class",
+"class": null
+},
+{
+"name": "constructor",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "claims",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "shouldClear",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "toJSON",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "kind",
+"kind": "method",
+"class": "UserPreferenceRange"
+},
+{
+"name": "toUserRange",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/resolve.js": [
+{
+"name": "pastIncumbentEnterEdge",
+"kind": "function",
+"class": null
+},
+{
+"name": "candidatesOnLadder",
+"kind": "function",
+"class": null
+},
+{
+"name": "extremeCandidates",
+"kind": "function",
+"class": null
+},
+{
+"name": "readingFromStop",
+"kind": "function",
+"class": null
+},
+{
+"name": "resolveReading",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/rungs.js": [
+{
+"name": "evaluateRung",
+"kind": "function",
+"class": null
+},
+{
+"name": "sortBySize",
+"kind": "function",
+"class": null
+},
+{
+"name": "effectiveRungs",
+"kind": "function",
+"class": null
+},
+{
+"name": "popoverUnits",
+"kind": "function",
+"class": null
+},
+{
+"name": "setScaleUnits",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/session.js": [
+{
+"name": "createSession",
+"kind": "function",
+"class": null
+},
+{
+"name": "clearUserBandIfExited",
+"kind": "function",
+"class": null
+},
+{
+"name": "clearDisplayPrefs",
+"kind": "function",
+"class": null
+},
+{
+"name": "withReading",
+"kind": "function",
+"class": null
+},
+{
+"name": "shouldApplyScaleSessionWriteBack",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/scaleBar/validate.js": [
+{
+"name": "validateScaleDef",
+"kind": "function",
+"class": null
+}
+],
+"src/engine/worker/rasterWorker.js": [
+{
+"name": "resetGuards",
+"kind": "function",
+"class": null
+},
+{
+"name": "runJob",
+"kind": "function",
+"class": null
+},
+{
+"name": "runRestore",
+"kind": "function",
+"class": null
+},
+{
+"name": "restoreOne",
+"kind": "function",
+"class": null
+},
+{
+"name": "runCut",
 "kind": "function",
 "class": null
 }
@@ -17075,6 +18477,125 @@
 "class": "Selection"
 }
 ],
+"src/hooks/reportSend.js": [
+{
+"name": "msg",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "installConsoleTap",
+"kind": "function",
+"class": null
+},
+{
+"name": "consoleTail",
+"kind": "function",
+"class": null
+},
+{
+"name": "safeJson",
+"kind": "function",
+"class": null
+},
+{
+"name": "scrubIdentity",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodeText",
+"kind": "function",
+"class": null
+},
+{
+"name": "reportId",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "baseUrl",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "post",
+"kind": "function",
+"class": null
+},
+{
+"name": "sendDevReport",
+"kind": "function",
+"class": null
+},
+{
+"name": "sendReport",
+"kind": "function",
+"class": null
+},
+{
+"name": "sendDrawing",
+"kind": "function",
+"class": null
+},
+{
+"name": "saveFile",
+"kind": "function",
+"class": null
+},
+{
+"name": "replayReport",
+"kind": "function",
+"class": null
+}
+],
+"src/hooks/useKobinEngine.js": [
+{
+"name": "now",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "rasterFromUrl",
+"kind": "function",
+"class": null
+},
+{
+"name": "hrefWithRaster",
+"kind": "function",
+"class": null
+},
+{
+"name": "leverStorage",
+"kind": "function",
+"class": null
+},
+{
+"name": "leversOf",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "signCursor",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "useKobinEngine",
+"kind": "function",
+"class": null
+},
+{
+"name": "fmtZoom",
+"kind": "function",
+"class": null
+},
+{
+"name": "zoomLabel",
+"kind": "function",
+"class": null
+}
+],
 "src/Pages/CanvasEditor.js": [
 {
 "name": "DevLevers",
@@ -17119,240 +18640,6 @@
 "src/Pages/NotFoundPage.js": [
 {
 "name": "NotFoundPage",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/BrandLogo.js": [
-{
-"name": "BrandLogo",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/ColorPickerPopover.js": [
-{
-"name": "ColorPickerPopover",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/DevStats.js": [
-{
-"name": "readStats",
-"kind": "function",
-"class": null
-},
-{
-"name": "f1",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "DevStats",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/EraseChip.js": [
-{
-"name": "EraseChip",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/FileActionsMenu.js": [
-{
-"name": "FileActionsMenu",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/SaveDrawingDialog.js": [
-{
-"name": "SaveDrawingDialog",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/ScaleDragBar.js": [
-{
-"name": "ScaleDragBar",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/ScaleHud.js": [
-{
-"name": "ScaleHud",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/ScaleUnitPicker.js": [
-{
-"name": "membershipTableRows",
-"kind": "function",
-"class": null
-},
-{
-"name": "ScaleUnitPicker",
-"kind": "function",
-"class": null
-},
-{
-"name": "ScaleUnitButtonGrid",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/SyncChip.js": [
-{
-"name": "syncLabel",
-"kind": "function",
-"class": null
-},
-{
-"name": "syncStatus",
-"kind": "function",
-"class": null
-},
-{
-"name": "syncSentence",
-"kind": "function",
-"class": null
-},
-{
-"name": "syncName",
-"kind": "function",
-"class": null
-},
-{
-"name": "showsNotice",
-"kind": "function",
-"class": null
-},
-{
-"name": "useNarrow",
-"kind": "function",
-"class": null
-},
-{
-"name": "svg",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "StatusIcon",
-"kind": "function",
-"class": null
-},
-{
-"name": "CheckIcon",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "SyncDetails",
-"kind": "function",
-"class": null
-},
-{
-"name": "SyncStatus",
-"kind": "function",
-"class": null
-},
-{
-"name": "bannerClearance",
-"kind": "function",
-"class": null
-},
-{
-"name": "useBannerClearance",
-"kind": "function",
-"class": null
-},
-{
-"name": "bannerOf",
-"kind": "function",
-"class": null
-},
-{
-"name": "SyncBanner",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/WidthOpacityPanel.js": [
-{
-"name": "WidthOpacityPanel",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/useAnchorPopoverStyle.js": [
-{
-"name": "useAnchorPopoverStyle",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/editor/useClickAway.js": [
-{
-"name": "useClickAway",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/ui/Button.js": [
-{
-"name": "Button",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/ui/Dialog.js": [
-{
-"name": "Dialog",
-"kind": "function",
-"class": null
-},
-{
-"name": "DialogHeader",
-"kind": "function",
-"class": null
-},
-{
-"name": "DialogTitle",
-"kind": "function",
-"class": null
-},
-{
-"name": "DialogDescription",
-"kind": "function",
-"class": null
-},
-{
-"name": "DialogFooter",
-"kind": "function",
-"class": null
-},
-{
-"name": "DialogContent",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/ui/Input.js": [
-{
-"name": "Input",
-"kind": "function",
-"class": null
-}
-],
-"src/Components/ui/SciText.js": [
-{
-"name": "SciText",
 "kind": "function",
 "class": null
 }
@@ -17604,11 +18891,6 @@
 },
 {
 "name": "getDeviceName",
-"kind": "function",
-"class": null
-},
-{
-"name": "setDeviceName",
 "kind": "function",
 "class": null
 },
@@ -17881,699 +19163,6 @@
 },
 {
 "name": "renderThumbs",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/canvasSession.js": [
-{
-"name": "editorFromHook",
-"kind": "function",
-"class": null
-},
-{
-"name": "withTimeout",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "perfNow",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "who",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "shownName",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "isNetwork",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "CanvasSession",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "start",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "stop",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "markDirty",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "onLocalSaved",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "onRefused",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "onVisibility",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "pushNow",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "takeOver",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_openChannel",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_post",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_onMessage",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_requestLock",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_drop",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_letGoOfLock",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_lockLost",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_stealLock",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_tabFollower",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_live",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_holdDevice",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_handToTab",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_stopCloud",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_openCloud",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_blocked",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_reconcile",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_pull",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_keepStore",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_pullLz1",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_keepUnsaved",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_edit",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "discard",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_readOnlyDevice",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_offline",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_beat",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_watch",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_onManifest",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_maybeTake",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_lose",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_handToDevice",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_takeLease",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_promote",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_followCloud",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_reloadFollow",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_scheduleFollow",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_push",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_set",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_serial",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_after",
-"kind": "method",
-"class": "CanvasSession"
-},
-{
-"name": "_every",
-"kind": "method",
-"class": "CanvasSession"
-}
-],
-"src/cloud/canvasSync.js": [
-{
-"name": "isDevBuild",
-"kind": "function",
-"class": null
-},
-{
-"name": "canvasesCol",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "canvasDoc",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "partDoc",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "realCanvasDoc",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "realPartDoc2",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "chunk",
-"kind": "function",
-"class": null
-},
-{
-"name": "encodeCanvasPayload",
-"kind": "function",
-"class": null
-},
-{
-"name": "encodeCanvasPayloadAsync",
-"kind": "function",
-"class": null
-},
-{
-"name": "decodeCanvasPayload",
-"kind": "function",
-"class": null
-},
-{
-"name": "decodeCanvasPayloadAsync",
-"kind": "function",
-"class": null
-},
-{
-"name": "boundedThumbs",
-"kind": "function",
-"class": null
-},
-{
-"name": "perfNow",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "cloudSaveCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "saveCanvasLz1",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudListCanvases",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudGetCanvasMeta",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudLoadCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudTrashCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudRestoreCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudRenameCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudDeleteCanvas",
-"kind": "function",
-"class": null
-},
-{
-"name": "partDoc2",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "chunkKey",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "SyncConflict",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "SyncConflict"
-},
-{
-"name": "LeaseLost",
-"kind": "class",
-"class": null
-},
-{
-"name": "constructor",
-"kind": "method",
-"class": "LeaseLost"
-},
-{
-"name": "commitAll",
-"kind": "function",
-"class": null
-},
-{
-"name": "inLane",
-"kind": "function",
-"class": null
-},
-{
-"name": "pushDead",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "chunksOf",
-"kind": "function",
-"class": null
-},
-{
-"name": "partsOf",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "cloudPushCanvas2",
-"kind": "function",
-"class": null
-},
-{
-"name": "pushCanvas2",
-"kind": "function",
-"class": null
-},
-{
-"name": "sweep",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudPullCanvas2",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudLoadCanvas2",
-"kind": "function",
-"class": null
-},
-{
-"name": "leaseFor",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "cloudTakeLease",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudRenewLease",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudReleaseLease",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudAskLease",
-"kind": "function",
-"class": null
-},
-{
-"name": "cloudWatchManifest",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/firebaseApp.js": [
-{
-"name": "getFirebaseApp",
-"kind": "function",
-"class": null
-},
-{
-"name": "getFirebaseAuth",
-"kind": "function",
-"class": null
-},
-{
-"name": "getDb",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/gzip.js": [
-{
-"name": "pipe",
-"kind": "function",
-"class": null
-},
-{
-"name": "compression",
-"kind": "function",
-"class": null
-},
-{
-"name": "setCompression",
-"kind": "function",
-"class": null
-},
-{
-"name": "gunzipAs",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/lzWorker.js": [
-{
-"name": "workerUrl",
-"kind": "function",
-"class": null
-},
-{
-"name": "getWorker",
-"kind": "function",
-"class": null
-},
-{
-"name": "run",
-"kind": "function",
-"class": null
-},
-{
-"name": "unavailable",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "compressToUint8Array",
-"kind": "function",
-"class": null
-},
-{
-"name": "decompressFromUint8Array",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/storageLocks.js": [
-{
-"name": "abortError",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "sleep",
-"kind": "arrow",
-"class": null
-},
-{
-"name": "makeStorageLocks",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/store2.js": [
-{
-"name": "packFrameChunk",
-"kind": "function",
-"class": null
-},
-{
-"name": "unpackFrameChunk",
-"kind": "function",
-"class": null
-},
-{
-"name": "packLogChunk",
-"kind": "function",
-"class": null
-},
-{
-"name": "unpackLogChunk",
-"kind": "function",
-"class": null
-},
-{
-"name": "splitParts",
-"kind": "function",
-"class": null
-},
-{
-"name": "joinParts",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/syncCore.js": [
-{
-"name": "newEpoch",
-"kind": "function",
-"class": null
-},
-{
-"name": "headOf",
-"kind": "function",
-"class": null
-},
-{
-"name": "sameHead",
-"kind": "function",
-"class": null
-},
-{
-"name": "leaseState",
-"kind": "function",
-"class": null
-},
-{
-"name": "chunkNames",
-"kind": "function",
-"class": null
-},
-{
-"name": "intentLanded",
-"kind": "function",
-"class": null
-},
-{
-"name": "decideOpen",
-"kind": "function",
-"class": null
-},
-{
-"name": "sameFrames",
-"kind": "function",
-"class": null
-},
-{
-"name": "conflictName",
-"kind": "function",
-"class": null
-},
-{
-"name": "defaultDeviceName",
-"kind": "function",
-"class": null
-}
-],
-"src/cloud/useUser.js": [
-{
-"name": "useUser",
-"kind": "function",
-"class": null
-},
-{
-"name": "signInWithGoogle",
-"kind": "function",
-"class": null
-},
-{
-"name": "signOutUser",
 "kind": "function",
 "class": null
 }

@@ -18,6 +18,7 @@ import { renderPlate } from "./rasterCore";
 import { lcg } from "../__testkit__/rasterLists";
 import { planeStats } from "./MovePlane";
 import { W } from "../frameLattice";
+import { STEP_READ_MS } from "../KobinEngine";
 
 useEngines();
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -256,7 +257,7 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         expect(E.plates.exact(E.plates.get(c.key))).toBe(true);         // asked for again (red before: asked once, for ever)
     });
 
-    test("the camera's read (A3 §4.2): a step reads the cache alone, its missing tiles are read at idle after the quiet, and only then are their cells asked for", async () => {
+    test("the camera's read (A3 §4.2): a step reads the cache alone while covered and a STEP_READ_MS slice while not, the rest at idle; only covered cells are asked for", async () => {
         const g = gate();
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         stroke(E);
@@ -277,14 +278,18 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         const cellsAsked = () => [...R.queue.queue, ...R.queue.inFlight.values()].flatMap((st) => st.cells).filter((x) => x.frame === F);
         expect(cellsAsked().every((x) => E.stage.covers(F, box(x)))).toBe(true);
         for (let t = 0; t < 300; t += 20) { E.panBy(1, 0); await new Promise((r) => setTimeout(r, 20)); }
-        expect(budgets.every((b) => b === 0)).toBe(true);                // nothing baked while the camera keeps moving
+        // A moving camera reads its window's missing tiles a slice a step (red before: 0, and a crossing's new frame
+        // stayed unread, every cell refused, for the whole zoom).
+        expect(budgets).toContain(STEP_READ_MS);
+        expect(budgets.every((b) => b === 0 || b === STEP_READ_MS || b === Infinity || b > STEP_READ_MS)).toBe(true);
+        const coveredMoving = E.stage.covers(E.cam.frame, E._listWin());
         let steps = 0;
         const step = R.syncCameraOnly.bind(R);
         R.syncCameraOnly = () => { steps++; return step(); };
         for (let t = 0; t < 3000 && !E.stage.covers(E.cam.frame, E._listWin()); t += 10) await new Promise((r) => setTimeout(r, 10));
-        expect(E.stage.covers(E.cam.frame, E._listWin())).toBe(true);    // read at idle, a slice at a time
+        expect(E.stage.covers(E.cam.frame, E._listWin())).toBe(true);    // read a slice at a time, moving or at idle
         expect(budgets.some((b) => b > 0 && b !== Infinity)).toBe(true);
-        expect(steps).toBeGreaterThan(0);                                // a slice that changed the table stepped the renderer
+        if (!coveredMoving) expect(steps).toBeGreaterThan(0);           // what the motion left, read at idle, stepped the renderer
         await settle(E, 2);
         expect(await drain(E, g)).toBe(0);
         expect(planCls(R).every((x) => x === "sharp")).toBe(true);

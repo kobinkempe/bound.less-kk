@@ -95,7 +95,8 @@ the whole representation rests on, and it is why a fill never leaks at a seam.
 
 What a stored loop **is**, since 2026-09-08, is one `Float64Array` — the same
 numbers the file holds (§13's grammar: `ax, ay`, then a record per piece) with a
-`Uint32Array` of record offsets — wrapped as a `Loop` (`geometry/loop.js`). A
+`Uint32Array` of record offsets, built at the first random access (most loops are
+only walked, F164) — wrapped as a `Loop` (`geometry/loop.js`). A
 piece read (`at(i)`, iteration, `map`) is a transient view shaped as above;
 nothing retains a view and nothing writes through one — a move is `translate`,
 a new Loop. Builders (the boolean, the freeze, the pen, the transforms) still
@@ -624,7 +625,8 @@ carried kid's chain named: the kid landed a cell off (F136). Frames at the camer
 and + 2 also take the sub-cell rest: it stays on the frame as its **shift**, and the
 shift is **placement, composed on read** (A1 C1, 2026-09-29): a native's picture table
 is its own table with its home frame's shift added at k = 0 (`Document.tableOf`), never
-written into it. `LevelMap.objShift` reads a composed table as it reads any table —
+written into it. A table is a value: nothing writes one in place, and equal tables share one
+frozen array (`internBelow`, F164). `LevelMap.objShift` reads a composed table as it reads any table —
 whole frames name the frame the pieces are read from, the remainder is painted — and
 honours a carry at the home depth: a native the shift puts past its cell is drawn live
 in the neighbour (`placementModel.nativesIn`) and stays homed where it is. No read
@@ -747,7 +749,8 @@ release walk — and draws the ink into **plates**: 512-device-pixel
 squares of the screen, measured in **pixels** — a tile, a cell and a cache square are
 measured in frame units, and calling two of them one thing once froze an arc to two
 chords (F36). Our own float64 coverage rasteriser fills them (`rasterCore.js`: arcs
-flattened centre-free to 1/16 device px, a family filled as one nonzero union) in a pool
+flattened centre-free to 1/16 device px, a family filled as one nonzero union, an outline's runs of 16 pieces that
+cannot reach a plate's rows skipped — the job carries each run's rows, `rowRuns`, F154) in a pool
 of workers (`public/raster-worker.js`; the erase cuts run in the same pool), from jobs `rasterPack.js` packs off the scene's items.
 The plates form the **picture pyramid** (`review/rebuild/A3-pyramid.md`; built by B-PYRAMID-2 and
 B-PYRAMID-2b, 2026-09-29): a plate is a cell of a **level**, zoom Z(ℓ) = 2^(ℓS) with S the `levelStep`
@@ -763,18 +766,25 @@ draws at most `COMPOSE_IMAGES` 30 distinct images directly (Chrome's 2D canvas p
 any scaled) and goes through one view-sized surface past it. `PyramidStore` holds the plates by key, LRU with
 the drawn set, the plane's pins and the rest set protected, in a budget of `plateViews` screens (3 on a desktop, 2
 on a phone) never under the pinned bound; a result lands iff its G is newer (rule 1), and a plate is exact iff
-its G ≥ its cell's `dirtySince` (rule 2). `jobQueue.js` cuts typed jobs into strips dealt round-robin from the
+its G ≥ its cell's `dirtySince` (rule 2). An evicted (or hidden-released) level plate that is exact goes into the
+store's **RAM tier**, packed losslessly by the worker that rastered it (`plateCodec`, ~100× smaller; 64 MiB on a
+desktop, 24 on a phone): its key stays tracked, so a commit stales it as it stales a stored plate, and a view,
+prefetch or dispatched cell the tier holds exact is restored by a worker instead of packed — with no tiles needed
+(F161). `jobQueue.js` cuts typed jobs into strips dealt round-robin from the
 **attention point** (the last pointer, wheel focus or pinch centre) and dispatches them by priority — rest and
 patches 0, the view 1, the plane 2, cuts 3 (one worker kept for cuts while any is pending), the prefetch 4,
 thumbnails 5 — dropping a strip whose purpose's generation moved on or whose cells are exact; it packs at most 4 ms
 a frame while the camera moves and 4 ms a task while it is still (the strip that crosses it ends the task, the rest
 go in the next, so input runs between two 171–480 ms prefetch packs; a camera with no step for `MOTION_STALE_MS` 50 ms
 has stopped, and a task starts the budget — F140: strips waited for a step that never came), and while moving skips cells the camera will
-have left by the strip's arrival (the velocity rule) and re-aims a view strip at the level the camera is heading to — at
+have left by the strip's arrival (the velocity rule: its pan is the translation the zoom about the attention point does
+not explain — counted in it too, every view strip of a 2 octave/s zoom-out was aimed a screen away and dropped, F152)
+and re-aims a view strip at the level the camera is heading to — at
 most `AIM_LEVELS` 2 levels from the view's and never under the frame's `ownFloor` (F134: unbounded, a fast zoom-out in
 jsdom re-aimed strips 15–20 octaves out, and one strip's cover check alone took 2.6–2.9 s and 1.5 GB at ℓ −19). The pack
 refuses a cell whose tiles the table does not cover (F119) and it is asked again once
-covered. A still camera renders the rest set inline when its estimate fits `restInlineMs` (8 ms; the estimate is
+covered; `covers` asks only the reroute groups whose natives are drawn in the rect (every group's during a drag's hold),
+since a group drawing nothing there holds no piece of it (F152: 49 of a crossing's 50 unread keys). A still camera renders the rest set inline when its estimate fits `restInlineMs` (8 ms; the estimate is
 calibrated from the core's own timings), else in the workers after `restQuietMs` (100 ms) as one group shown
 when all are in. A zoom keeps the rest set's records as a stand-in at their own Z — exact there, they beat a stale
 level plate, drawn scaled where their resolution ranks among the coarser levels — until the next zoom's set replaces
@@ -823,17 +833,22 @@ is the one read of where it is drawn. One integer **G** moves once a commit (an 
 batch; a drop, an undo, a delete, a load as one batch). A change dirties every plate cell its
 drawn footprint meets, before and after (the event carries the old box, width and table;
 a merge or an inkless refusal carries none; a union family whose routing flips dirties
-its whole box); the plate store tracks every cell it holds or has a job for. A job carries the G
+its whole box); the plate store tracks every cell it holds, has a job for or keeps in its RAM tier. A job carries the G
 it was packed at, a result replaces the stored plate iff its G is newer, and a plate is exact iff
 its G ≥ its cell's `dirtySince` — no epochs, no painted-id sets, no queued events drained at a
 frame. A drag writes nothing (A1 C2): the Stage holds its natives (`stage.hold`) at the pointer's
 delta (`setDragDelta`) — the plane draws them, or the view's plates do when there is none — and the
-drop's one write is one commit that dirties where the selection started and where it ended. A stroke is pending
+drop's one write is one commit that dirties where the selection started and where it ended — a shape or fill the drop
+only moved just its boundary's sweep (each piece boxed where it was and where it is, cut to the native's own boxes, asked
+per cell: OPEN-FLAGS F153), and the plates packed without the held ink while the plane drew go at the drag's end. A stroke is pending
 from pen-down until its shape lands: packs skip it and the pick sees it.
 
 What keeps paper off the screen is the plan's order above: a stale plate is shown until its replacement lands, a
 replacement that lands still behind but newer than the stale pixels takes their place (F106), and a missing cell is
-drawn from the nearest fresh source the store holds, blurrier before older. The pyramid's own integrals say how
+drawn from the nearest fresh source the store holds, blurrier before older. A plan that still shows paper renders a
+coarse net first (F166; Kobin 2026-10-20: blur or a slow frame over paper): the view's cells 3 octaves coarser over
+the paper, at most 6, each in the camera's table, on the main thread when estimated within `netMs` (a Dev panel
+lever, off until measured in Chrome). The far prefetch tries its off-camera reads again every 100 ms while the camera is still. The pyramid's own integrals say how
 much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`, and older by
 cause — `olderPatchMs`, a stale picture while the worker job that makes its cell exact is asked or in flight (a patch
 no level does inline, or the last resort's own job); `olderUnreadMs`, a stale own plate or the plan's last resort (a
@@ -848,9 +863,18 @@ patch step skips (`covered` false) and `_older` does not tell as unread (unverif
 plates only after five minutes
 hidden (a phone at once). A drag draws the selection from plates made when it was selected, split by z so the
 drag keeps its true depth: the ink below the selection, the selected runs on transparent plates (moved with the
-pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers the smallest
-run between two selected ones is drawn under them; over `MOVE_PLANE_PLATES` 40 plates, 24 on a phone, the layers
-are cut coarser; a quick level two octaves coarser is drawn until the plane's own is whole, a level coarser than
+pointer), and the ink above them on transparent plates, drawn in place (`MovePlane.js`; over 5 layers a selected run is
+drawn on the other side of an unselected run beside it, the pair whose swap shows least — area × area × opacity × opacity ×
+colour difference, so one colour swaps unseen — F144; each layer is cut at its own
+resolution — what the selection moves over sharpest first, then the selection on screen, then the selection past the
+screen, drawn only outside its on-screen part — inside `MOVE_PLANE_PLATES` 64 plates, 24 on a phone, nothing on screen
+coarser than one resolution for all; each layer is drawn from one surface built while the selection waits, one image a
+frame, so the compose cliff does not bind (plate by plate, where no canvas can be made, `COMPOSE_IMAGES` images a frame
+with a layer magnified), its edges copied into the cells another layer or the view's plates draw, so magnified it meets
+them without a seam; a BELOW cell with none of its own ink is paper, with no plate, F145; a drag held still 250 ms has
+what of the selection is then on screen cut again sharper inside the same cap, drawn in place of its coarser layers once
+whole; a quick level two octaves
+under the coarsest layer on screen is drawn until the plane's own is whole, a level coarser than
 the table's margin reading a snapshot over its plates at idle, F122; the selected runs reach one view past the
 screen and the camera's table is read that far while a selection is on the plane's path, D1; never the selection
 twice, H4; a small selection's stopgap rastered on the main thread: a drag always moves); at the drop each cell
@@ -885,7 +909,12 @@ once, and one `_frame()` a frame runs the camera step, the drag's step at the la
 stroke's SVG update and one compose for arrived plates; the scale HUD follows the zoom through
 `engine.onZoom`, so a zoom no longer re-renders the editor (A3 §5). On the raster path the camera
 step is the table's: `stage.sync(frame, window)` reads and drops tiles as the window moves, and
-the renderer steps; only a crossing renders (a pinch's pan crossing a cell edge counts as one).
+the renderer steps; only a crossing renders (a pinch's pan crossing a cell edge counts as one). A step reads the
+tile cache alone while its window is covered, and `STEP_READ_MS` (4 ms, at least one tile) of what it lacks while it
+is not; the idle read takes the rest. Until 2026-10-13 a moving camera read nothing, so a crossing's new frame stayed
+unread for the whole zoom and every cell was paper (F152; measured in Chrome on R4, a 2 octave/s zoom across a crossing:
+paper 2,236 → 121 ms, blur 4,133 → 916 ms, at the price of 4 frames of 50–83 ms in 12 s while the bakes stay
+O(parent shapes), F142).
 
 Measured in Kobin's Chrome on 2026-09-22: the Magnum Opus (42,857 natives) loads in 1.4 s
 against the SVG renderer's 6.2 s, and the two agree on 20 views to 0.001–0.98 % of pixels,
@@ -1346,7 +1375,7 @@ way, and throws if two files claim the same name.
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache; the Stage reads it (`read`, `readTiles`), and the prefetch's reads are warm (F83) |
 | `Renderer.js` | the SVG renderer (`?svg`, the export); the raster one extends nothing since B-PYRAMID-3 |
-| `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore`, `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; the SVG layer both renderers draw with: `SvgLayer`, `LiveStrokeLayer`, `svgOverlay`, `svgAnchors`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
+| `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore` (with `plateRam`, its RAM tier, and `plateCodec`), `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; the SVG layer both renderers draw with: `SvgLayer`, `LiveStrokeLayer`, `svgOverlay`, `svgAnchors`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
 | `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
 | `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |
 

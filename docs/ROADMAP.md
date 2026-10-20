@@ -7,8 +7,9 @@ will be done. Edit in place; when an item finishes, move its line to the **Ledge
 bottom with the date.
 
 Order set by Kobin on 2026-09-02; the working order since 2026-09-08 is `.claude/WORKLIST.md`
-(gitignored), with his rulings of 2026-09-22 at its top. Last updated **2026-09-22** (the docs
-pass: every row checked against the code and OPEN-FLAGS).
+(gitignored), with its current state at its top. Last updated **2026-10-20**: the performance
+round (§3's first table), the deploy section's branches and the ledger since 2026-09-22; the rows
+below that table were last checked against the code and OPEN-FLAGS in the 2026-09-22 docs pass.
 
 > This page replaced `docs/ai/50-TODO.txt`, `60-RECOMMENDATIONS.txt` and `70-RELEASES.txt`
 > on 2026-09-02, because the todos had spread across three files plus the README and the
@@ -102,14 +103,17 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       working branch from then on**; the 88 paths were committed on it and pushed the same
       evening, at Kobin's word. 2026-09-08: 121fc1f and 0732252 committed and pushed.
       2026-09-15: 4c99a8a (the subtree move, S7, S8) committed on `main`, **not pushed**.
-      Since then the work is on branch `rasteriser` (from 4c99a8a), **uncommitted**.
+      2026-09-25: the rasteriser work committed and pushed to the private remote; the renderer
+      rebuild followed on top of it. **2026-10-12: `main` is b2291ce (the rebuild), pushed to
+      origin at Kobin's word.** This round's work is on branch `performance` (from b2291ce),
+      **uncommitted**.
 - [x] `npm run build`, then `firebase deploy --only hosting`. `public/` holds only the app
       shell since 2026-09-02 and a clean build is 6.5 MB. **Deployed 2026-09-03** from the
       working tree (the F39 third design, budget off, 2 px frame dots; the commit above is
       still pending), at Kobin's word. **Deployed again 2026-09-08, ~21:54 MDT, from 0732252**:
       `.firebase/hosting.YnVpbGQ.cache` and `build/` are dated a minute after that commit, and
       OPEN-FLAGS F65 records Kobin's "after the F67–F73 deploy". Nothing deployed since
-      (checked 2026-09-22).
+      (checked 2026-10-19: `.firebase/hosting.YnVpbGQ.cache` is still dated 2026-09-08).
 - [x] Small things worth doing with it — **two of three done 2026-09-07**: the manifest
       `theme_color` and `background_color` are the paper (`#f7f2e9`, the sRGB fallback of
       `--paper`); `window.__kobinEngine` is set only in a dev build or behind `?dev`
@@ -142,6 +146,28 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       renderer, neither of which changes the tile chain's arithmetic.
 
 ## 3. Performance and bugs
+
+**The performance round, 2026-10-12 →** (branch `performance`, uncommitted; the analysis and its levers are
+`.claude/PERF-DEEP-2026-10-12/SUMMARY.md`, gitignored, whose STATUS block is kept current; each flag's state is its
+OPEN-FLAGS row). Kobin's go-ahead 2026-10-13: every suggested fix except the ants hold.
+
+| item | flags | state |
+|---|---|---|
+| the drop's re-bake | F139, F151 | built 2026-10-13, measured in his Chrome |
+| the zoom-out's paper | F152 | built 2026-10-13, measured in his Chrome |
+| the ants re-decided while zooming | F149 | built in part 2026-10-13; the hold not built (his word) |
+| the up-tile shape cull | F142 | built 2026-10-13, tile for tile identical; rides the deploy gate (§2) |
+| query-by-rect up bakes; the Stage's per-step keys | F156, F150 | built 2026-10-13 |
+| a closed canvas kept in memory | F160 | built 2026-10-13 |
+| the plate RAM tier; the pack walk | F161, F162 | built 2026-10-14, measured in his Chrome |
+| the worker geometry cache | F155 | deferred 2026-10-14 by measurement |
+| pack-time occlusion; the far prefetch | F157, F163 | built 2026-10-15 (jsdom) |
+| a drop's dirt per moved piece | F153 | built 2026-10-19, measured in his Chrome |
+| the drag plane at full resolution, its seam, the held blur | F145 | built and reworked 2026-10-19, measured in his Chrome |
+| the plane's 5-layer merge | F144 | built 2026-10-19 (jsdom); the cap his call (register row below) |
+| the core's row index | F154 | built 2026-10-19/20, measured in his Chrome |
+| the document's and the undo history's memory layout | — | measured 2026-10-20 in his Chrome snapshot (the Magnum Opus's document 64 MB, its undo 18.5 MB); lever 1 BUILT 2026-10-20 (equal offset tables share one frozen array, `internBelow`; jsdom, five drops of 6,000 selected shapes: undo 363 → 126 B a moved object, the natives' tables 6,000 → 1) and a drag's journal entry bounded at 120 members (8.06 → 0.17 MB over those drops); lever 2 BUILT too (a loop's record index built at its first random access; R6 loaded in jsdom: none of 44,550 loops indexed, the engine 128–130 → 119–122 MB); lever 3 BUILT too (the family map keeps families only: R6 448 groups in 0.11 MB, was 43,031 in 10.95 MB, jsdom); lever 4 BUILT too (the spatial index shares a shape's and a fill's cached box: R6's 43,135 copies, 5.27 MB in jsdom, gone); lever 5 BUILT too (a load shares its natives' type, origin and colour strings: 43,135 records from a structured clone 15.14 → 12.18 MB in plain Node, the JSON path's figure; JSON.parse shared them already) — all five built; Chrome needs his next heap snapshot |
+| what a cold bake still spends | F158 | his call (on the derivation path) |
 
 **Recommended order, 2026-09-07** (Kobin asked for it as a list: each item, what it
 fixes, what the fix is). Everything above the line is jsdom-only until he has seen it.
@@ -652,7 +678,7 @@ decision is recorded, what it was, and whether the 2026-09-07 measurements on th
 | **Drawing through a zoom, crossings included** | §4, from F54's closure | future feature | unchanged |
 | **Per-object z-order and the Z-order UI; erase only selected** | §4, 2026-09-07 | not started | new |
 | **The O(1) subtree move** — frame identity separate from address, a per-frame shift, shadow-then-merge | .claude/SUBTREE-O1-PLAN.md (2026-09-14) | decided by Kobin 2026-09-14 (undo per action, frozen frame selection, erase covering cell + reach as one record, snapshot reliance, bookmarks follow) | built 2026-09-15 (jsdom), the erase covering a frame included; committed 4c99a8a. Kobin used it on the Magnum Opus on 2026-09-22: F78, F80 and F82 found and fixed. Not built: §2.2's shift normalisation (F78's open note) |
-| **The drag plane's merged runs pop at the drop** — past `MOVE_PLANE_LAYERS` (5: below, selected, between, selected, above) the smallest unselected run sandwiched between two selected ones is drawn UNDER the selection for the drag, so it jumps back over the moved ink at pen-up | `.claude/PAPER-PLAN.md` §10 ("A drag that always moves", item 1); `raster/MovePlane.js` | **accepted for now by Kobin, 2026-09-23 — revisit** | the trade was a drag that never refuses (ERASE-TEST's reading of his report: 48 of 65 drags refused before it). How often a merge shows on a real drawing is not measured (`planeStats.merged` counts them). Levers when it is picked up: more layers under the plate cap, or the occlusion cull PAPER-PLAN R1 left unbuilt |
+| **The drag plane's merged runs pop at the drop** — past `MOVE_PLANE_LAYERS` (5: below, selected, between, selected, above) a selected run is drawn on the other side of an unselected run beside it for the drag, so where their colours differ that pair's order flips back at pen-up | `.claude/PAPER-PLAN.md` §10 ("A drag that always moves", item 1); `raster/MovePlane.js`; OPEN-FLAGS F144 | **accepted for now by Kobin, 2026-09-23 — revisit**; the pair is the swap that shows least since 2026-10-19 (F144); the cap stays 5 (Kobin, 2026-10-20) | the trade was a drag that never refuses (ERASE-TEST's reading of his report: 48 of 65 drags refused before it). F144 (2026-10-19, Kobin: opaque layers first): the swap costs area × area × opacity × opacity × colour difference, so one colour swaps unseen; R1's drag exact at 5 layers (40 plates; 57 at 6 or 7). Raising the cap stays Kobin's call: each layer is an image a frame and a share of the 64 plates. Levers: more layers under the plate cap, or the occlusion cull PAPER-PLAN R1 left unbuilt |
 
 Read this table before proposing anything large: if it is here, the reasons it was
 deferred are in the column that names them, and the question is whether the standing has
@@ -679,7 +705,10 @@ lacked, including the raster, scenes, sync, storage and report work, and all fou
 republished to their existing links; rebuilt again 2026-09-23 on the settled scene index
 and sync work, once more after the 14 unreferenced functions were deleted, and again at the
 end of the day's round: 2,282 functions in 113 files, 4,168 calls, 0 missing, 0 stale, the
-Call Map's 269 calls all calls.
+Call Map's 269 calls all calls. **Rebuilt 2026-10-20** after the renderer rebuild and the
+performance round: 3,765 functions in 155 files, 7,284 calls, 0 missing, 0 stale, the Call Map's
+323 calls all calls; the Call Map republished, the Code Map and the Call Graph rebuilt locally
+only (`tools/docmaps/README.md`).
 
 **Deliberately not built** (moved here from `docs/ai/10-STATUS.txt` on 2026-09-02):
 
@@ -1388,6 +1417,22 @@ something"
 
 Newest first. Recorded so nothing is re-investigated. Each block is the text that used to
 sit at the top of `50-TODO.txt`, unchanged.
+
+### 2026-10-12 to 2026-10-20 - the performance round (branch `performance`, uncommitted)
+
+    Kobin's analysis request and go-ahead (.claude/PERF-DEEP-2026-10-12/SUMMARY.md). Built:
+    F139 + F151, F152, F149 in part, F142, F156, the Stage's per-step key strings (F150), F160
+    (2026-10-12/13); F161, F162 in part (2026-10-14); F157, F163 (2026-10-15); F153, F145 with
+    its seam and held-blur fixes, F144 (2026-10-19); F154 (2026-10-19/20); F164 in part, the memory layout (2026-10-20); F165's dispatch (2026-10-20); F166 in part, the zoom-out net and far retries (2026-10-20). Deferred: F155. Each flag's OPEN-FLAGS
+    entry holds the measurements; docs/ai/10-STATUS.txt has the dated steps. The reference pages
+    (tools/docmaps) rebuilt on the branch 2026-10-20, every check passing.
+
+### 2026-09-24 to 2026-10-12 - the renderer rebuild
+
+    Built on top of the rasteriser (review/rebuild/PLAN.md; its final check
+    review/rebuild/FINAL-SUMMARY.md, 2026-10-07); Kobin pulled it as rasteriser-reviewed on
+    2026-10-06 and tried it in his Chrome (F142-F150 filed 2026-10-07); main set to it
+    (b2291ce) and pushed to origin on 2026-10-12. The steps are dated in docs/ai/10-STATUS.txt.
 
 ### 2026-09-22
 

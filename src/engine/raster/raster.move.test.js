@@ -12,10 +12,10 @@
  */
 import KobinEngine from "../KobinEngine";
 import { planeStats, resetPlaneStats, MOVE_PLANE_LAYERS, MOVE_HOLD_MS } from "./MovePlane";
-import { MOVE_PLANE_PLATES, levelKey, restKey } from "./level";
+import { COMPOSE_IMAGES, MOVE_PLANE_PLATES, levelKey, restKey } from "./level";
 import { PLATE_PX } from "./plate";
 import { resetRasterWorkerClient, setRasterWorkerCount, setRasterTransport } from "./rasterWorkerClient";
-import { softCtx } from "../__testkit__/softCanvas";
+import { softCtx, softCanvas, over } from "../__testkit__/softCanvas";
 
 const engines = [];
 function mkEngine(w = 800, h = 600) {
@@ -69,13 +69,14 @@ const tagOf = (pl, kind) => { const L = pl.layers.find((x) => x.kind === kind); 
 
 /** A view cell's own key: the rest set's at rest, else the view level's. */
 const viewKey = (v, i, j) => (v.mode === "rest" ? restKey(v.frameId, v.Z, i, j) : levelKey(v.frameId, v.level, v.S, i, j));
-/** The RGBA under a CSS screen point of the plane layer `tag`'s plate (its level's grid), or of the view's own (`tag` null); null for no plate. */
+/** The RGBA under a CSS screen point of the plane layer `tag`'s plate (its own grid), or of the view's own (`tag` null); null for no plate. */
 function rgbaAt(E, tag, sx, sy) {
-    const v = E.renderer._view, pl = E.renderer._plane, lvl = tag ? [pl.main, pl.quick].find((l) => l && l.tags.includes(tag)) : null;
-    const f = lvl ? lvl.pZq / v.Zq : 1;
+    const v = E.renderer._view, pl = E.renderer._plane;
+    const L = tag ? [pl.main, pl.quick].flatMap((l) => (l ? l.layers : [])).find((x) => x.tag === tag) : null;
+    const f = L ? L.pZq / v.Zq : 1;
     const X = Math.floor(((sx * v.dpr - v.dx) / v.s + v.ox) * f), Y = Math.floor(((sy * v.dpr - v.dy) / v.s + v.oy) * f);
     const i = Math.floor(X / PLATE_PX), j = Math.floor(Y / PLATE_PX);
-    const e = E.plates.get(lvl ? pl._key(tag, lvl.pZq, i, j) : viewKey(v, i, j));
+    const e = E.plates.get(L ? pl._key(tag, L.pZq, i, j) : viewKey(v, i, j));
     if (!e) return null;
     if (!e.pixels) return "empty";
     const o = ((Y - j * PLATE_PX) * PLATE_PX + (X - i * PLATE_PX)) * 4;
@@ -95,10 +96,9 @@ describe("the drag plane (PAPER-PLAN §10 S4)", () => {
         expect(rgbaAt(E, tagOf(pl, "sel"), p[0], p[1])).toEqual([200, 30, 30, 255]);
         const oi = rgbaAt(E, tagOf(pl, "sel"), other[0], other[1]);
         expect(oi === null || oi === "empty" || oi[3] === 0).toBe(true);
-        // BELOW: paper under both, the selection and what is over it (an empty plate IS paper)
-        const paper = (x) => x === "empty" || (Array.isArray(x) && x.join() === "255,255,255,255");
-        expect(paper(rgbaAt(E, tagOf(pl, "below"), p[0], p[1]))).toBe(true);
-        expect(paper(rgbaAt(E, tagOf(pl, "below"), other[0], other[1]))).toBe(true);
+        // BELOW: paper under both, the selection and what is over it — none of its own ink, so paper cells and no plate (F145)
+        const B = pl.layers[0];
+        expect([B.cells.length, B.paper.length > 0, rgbaAt(E, B.tag, p[0], p[1]), rgbaAt(E, B.tag, other[0], other[1])]).toEqual([0, true, null, null]);
         // OVER: the blue square, opaque, on a transparent plate
         expect(rgbaAt(E, tagOf(pl, "over"), other[0], other[1])).toEqual([30, 30, 200, 255]);
         const oo = rgbaAt(E, tagOf(pl, "over"), p[0], p[1]);
@@ -284,7 +284,7 @@ function selLeftDrawn(E) {
     const sel = pl.layers.find((L) => L.kind === "sel");
     let minX = Infinity;
     for (const [i, j] of sel.cells) {
-        const e = E.plates.get(pl._key(sel.tag, (pl.cur || pl.main).pZq, i, j));
+        const e = E.plates.get(pl._key(sel.tag, sel.pZq, i, j));
         if (!e || !e.pixels) continue;
         for (let y = 0; y < PLATE_PX; y += 4) {
             for (let x = 0; x < PLATE_PX; x++) if (e.pixels[(y * PLATE_PX + x) * 4 + 3] > 128) { if (i * PLATE_PX + x < minX) minX = i * PLATE_PX + x; break; }
@@ -398,26 +398,27 @@ describe("the review's reproductions (PAPER-PLAN §10, review of S1–S7)", () =
 /**
  * An engine whose pyramid composites into `softCtx` (the pyramid draws with the nine-argument `drawImage`, so the soft
  * context runs its scaled form; `magnified` counts the draws whose size changes), every raw-pixel plate given a bitmap.
+ * `opts` go to every soft context (`bilinear`: a surface magnified as Chrome does).
  */
-function mkSoftEngine() {
-    const E = mkEngine();
+function mkSoftEngine(w, h, opts = {}) {
+    const E = mkEngine(w, h);
     const L = E.renderer.layer;
     const soft = (w, h) => {
-        const c = softCtx(w, h, PLATE_PX, { scaled: true }), di = c.drawImage;
+        const c = softCtx(w, h, PLATE_PX, { scaled: true, ...opts }), di = c.drawImage;
         c.magnified = 0;
         c.drawImage = (bm, ...a) => { if (a.length === 8 && (a[6] !== a[2] || a[7] !== a[3])) c.magnified++; return di.call(c, bm, ...a); };
         return c;
     };
     L._ctx = soft(L._canvas.width, L._canvas.height);
-    L._mk = (w, h) => ({ width: w, height: h, getContext: () => soft(w, h) });
+    L._mk = (w, h) => softCanvas(soft(w, h));
     const put = E.plates.put.bind(E.plates);
     E.plates.put = (rec) => { if (rec.pixels && !rec.bitmap) rec.bitmap = { pixels: rec.pixels }; return put(rec); };
     return E;
 }
 
 const RED = [200, 30, 30], GREEN = [30, 160, 30], BLUE = [30, 30, 200], YELLOW = [220, 200, 20];
-const box = (E, x, y, w, h, color) => E.doc.add({
-    type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(" + color.join(",") + ")", opacity: 1,
+const box = (E, x, y, w, h, color, a = 1) => E.doc.add({
+    type: "fill", origin: "native", id: E.doc.allocId(), color: "rgb(" + color.join(",") + ")", opacity: a,
     polys: [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]],
 }, "0");
 /** Wait, a macrotask at a time, until `pred` holds or `ms` pass: the plane's quiet timer is late under load. */
@@ -632,7 +633,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
 
     test("R1 a re-cut (a pan: a new list, the same selection) is not whole until its new cells are in", async () => {
         const E = mkSoftEngine();
-        box(E, 20, 20, 760, 560, BLUE);
+        box(E, 20, 20, 2000, 560, BLUE);                              // under the selection past the screen too: BELOW's new cells hold ink
         const s = box(E, 600, 250, 1400, 100, RED);                   // past the screen's right edge
         E._render(); await flush();
         await selectIds(E, [s.id]);
@@ -676,7 +677,7 @@ describe("a drag always moves (PAPER-PLAN §10.14)", () => {
         R._aimPlane(R._view);
         expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel"]);
         expect(pl.layers[1].tag).not.toBe(selTag);                    // red before: "z1_<q>" both times, the old {A, B} plates drawn as {A}
-        expect([...E.plates.cache.keys()].some((k) => k.split("|")[1] === selTag)).toBe(false);
+        expect([...E.plates.cache.keys()].some((k) => k.split("|")[2] === selTag)).toBe(false);
     });
 
     test("V9b dragging with the plane whole, the view's own plates under BELOW are not drawn (review 9)", async () => {
@@ -786,5 +787,515 @@ describe("the drop of a selected frame, the landing's limit", () => {
         E.renderer.syncCameraOnly();
         expect(pl.state).toBe("land");                                // red at 600: back to the stale picture
         setRasterTransport(null);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// F145: each layer cut at its own resolution.
+// ---------------------------------------------------------------------------
+
+/** Every plane plate or layer surface drawn on the ink canvas from here: [tag, magnified]. */
+function drawLog(E) {
+    const ctx = E.renderer.layer._ctx, log = [], di = ctx.drawImage;
+    const tags = () => {
+        const m = new Map();
+        for (const [, e] of E.plates.cache) if (e.kind === "plane" && e.bitmap) m.set(e.bitmap, e.tag);
+        for (const [k, sf] of E.renderer.layer._planeSurf) m.set(sf.canvas, k.split("|")[2]);
+        return m;
+    };
+    let byBm = tags();
+    ctx.drawImage = (bm, ...a) => {
+        if (!byBm.has(bm)) byBm = tags();
+        if (byBm.has(bm)) log.push([byBm.get(bm), a.length === 8 && (a[6] !== a[2] || a[7] !== a[3])]);
+        return di.call(ctx, bm, ...a);
+    };
+    return log;
+}
+
+/** Each compose from here: the distinct images it drew on the ink canvas, the draws magnified, and those wholly off the canvas. */
+function composeImages(E) {
+    const L = E.renderer.layer, ctx = L._ctx, per = [], di = ctx.drawImage, co = L.compose.bind(L);
+    let cur = null;
+    ctx.drawImage = (bm, ...a) => {
+        if (cur) {
+            cur.all.add(bm);
+            if (a.length === 8 && (a[6] !== a[2] || a[7] !== a[3])) cur.scaled++;
+            if (a.length === 8 && (a[4] + a[6] <= 0 || a[5] + a[7] <= 0 || a[4] >= L.wDev || a[5] >= L.hDev)) cur.off++;
+        }
+        return di.call(ctx, bm, ...a);
+    };
+    L.compose = (...x) => {
+        cur = { all: new Set(), scaled: 0, off: 0 };
+        try { return co(...x); } finally { per.push({ images: cur.all.size, scaled: cur.scaled, off: cur.off }); cur = null; }
+    };
+    return per;
+}
+
+describe("each layer at its own resolution (F145)", () => {
+    test("F145a past the cap, what the selection moves over keeps the view's resolution first, then the selection on screen", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const s = box(E, -900, 250, 2600, 100, RED);                  // past the screen both ways: most of it in the D1 margin
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 5;                                              // all of it at the view's resolution is 8 plates; at k = 1, 4
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        // red with the selection on screen first: [below 1, sel 1 (margin), sel 0]
+        expect(pl.layers.map((L) => [L.kind, L.k, !!L.hole])).toEqual([["below", 0, false], ["sel", 1, false]]);
+        expect([...pl.layers[0].foot].sort()).toEqual(["0,0", "1,0"]); // BELOW's plates under the selection's start
+        const log = drawLog(E);
+        E.pointerDown(400, 300);
+        for (let dy = 10; dy <= 60; dy += 10) E.pointerMove(400, 300 + dy);
+        expect(pl.cur).toBe(pl.main);
+        const [B, N] = pl.layers, ctx = R.layer._ctx;
+        expect(log.some(([t]) => t === B.tag)).toBe(true);
+        expect(log.filter(([t, m]) => t === B.tag && m)).toEqual([]); // what it moves over 1:1
+        expect(log.some(([t, m]) => t === N.tag && m)).toBe(true);    // the selection at ½
+        expect(ctx.at(400, 280)).toEqual(BLUE);                       // vacated: what was under it
+        expect(ctx.at(400, 380)).toEqual(RED);                        // and moved
+        E.pointerUp();
+    });
+
+    test("F145b a selection past the view: sharp on the view, its D1 margin coarser and drawn only outside the view's cells", async () => {
+        const E = mkSoftEngine(1200, 600);
+        box(E, 20, 20, 1160, 560, BLUE);
+        const s = box(E, -2900, -1900, 4003, 2250, RED);             // its right edge at x 1103: half a pixel of a k = 1 plate
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 13;                                             // all of it at the view's resolution is 21 plates
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        expect(pl.layers.map((L) => [L.kind, L.k, !!L.hole])).toEqual([["below", 0, false], ["sel", 1, true], ["sel", 0, false]]);
+        const log = drawLog(E);
+        E.pointerDown(600, 300);
+        for (let dx = 10; dx <= 40; dx += 10) E.pointerMove(600 + dx, 300);
+        expect(pl.cur).toBe(pl.main);
+        const ctx = R.layer._ctx, [, M, N] = pl.layers;
+        expect(ctx.at(20, 300)).toEqual(RED);                         // slid in from past the screen: the margin
+        expect(ctx.at(1142, 300)).toEqual(RED);                       // the edge, moved 40 px
+        expect(ctx.at(1143, 300)).toEqual(BLUE);                      // red with the margin unclipped: its coarse edge pixel over BLUE
+        expect(log.filter(([t, m]) => t === N.tag && m)).toEqual([]); // the near layer 1:1
+        expect(log.some(([t, m]) => t === M.tag && m)).toBe(true);
+        E.pointerUp();
+    });
+
+    test("F145c drawn plate by plate, a cut past the compose cliff is coarser; from one surface a layer it is not, and a frame draws a few images", async () => {
+        const E = mkSoftEngine(2600, 1600);
+        box(E, 20, 20, 2560, 1560, BLUE);
+        const s = box(E, -1500, -700, 3000, 2400, RED);              // half the screen, and past its left and top edges
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 40;
+        E.cfg.planeSurfaces = false;                                  // each layer plate by plate: the cliff binds
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        // [0, 0, 1] is 32 plates, inside the cap, but 32 images a frame with its margin magnified
+        expect(pl.layers.map((L) => [L.kind, L.k])).toEqual([["below", 0], ["sel", 2], ["sel", 0]]);
+        expect(pl.main.frame).toBeLessThanOrEqual(COMPOSE_IMAGES);
+        let per = composeImages(E);
+        E.pointerDown(1000, 800);
+        for (let dx = 20; dx <= 400; dx += 20) E.pointerMove(1000 + dx, 800 + dx / 2);
+        expect(pl.cur).toBe(pl.main);
+        const scaled = per.filter((c) => c.scaled);
+        expect(scaled.length).toBeGreaterThan(0);
+        for (const c of scaled) expect(c.images).toBeLessThanOrEqual(COMPOSE_IMAGES + 1);   // the plane's and the base's one surface
+        expect(per.reduce((n, c) => n + c.off, 0)).toBe(0);           // no plate drawn off the canvas: the margin's far plates
+        E.cancelSelectGesture(false);
+        delete E.cfg.planeSurfaces;                                   // one surface a layer: no cliff to cut for
+        R._aimPlane(R._view);
+        await until(() => pl.checkReady(E.plates));
+        expect(pl.layers.map((L) => [L.kind, L.k])).toEqual([["below", 0], ["sel", 1], ["sel", 0]]);   // red without surfaces: the margin at ¼
+        per = composeImages(E);
+        E.pointerDown(1000, 800);
+        for (let dx = 20; dx <= 200; dx += 20) E.pointerMove(1000 + dx, 800 + dx / 2);
+        expect(pl.cur).toBe(pl.main);
+        expect(R.layer.lastPlan.plane.images).toBe(3);                // one a layer
+        for (const c of per) expect(c.images).toBeLessThanOrEqual(15); // and the 12 view plates beside the selection
+        expect(per.reduce((n, c) => n + c.off, 0)).toBe(0);
+        E.pointerUp();
+    });
+
+    test("F145d a far layer's own table covers its plates, the selection's margin with BELOW's", async () => {
+        const E = mkSoftEngine(1200, 600);
+        box(E, 20, 20, 1160, 560, BLUE);
+        const s = box(E, -2900, -1900, 4003, 2250, RED);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 2;                                              // nothing fits: the coarsest cut, k = 3
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        expect(pl.main.k).toBe(3);
+        const r = pl.coverOf(pl.main);
+        for (const L of pl.main.layers) {
+            const u = PLATE_PX / L.pZq;
+            for (const [i, j] of L.cells) {
+                const inside = i * u >= r.left && (i + 1) * u <= r.right && j * u >= r.top && (j + 1) * u <= r.bottom;
+                expect([L.kind, i, j, inside]).toEqual([L.kind, i, j, true]);   // red before: BELOW's plates only
+            }
+        }
+    });
+
+    test("F145e BELOW's and OVER's foot is where the selection starts: a partial level is drawn once those plates are in, and only those", async () => {
+        const E = mkSoftEngine(1200, 600);
+        box(E, 20, 20, 760, 560, BLUE);                               // not under the third column: BELOW's paper cells there
+        const s = box(E, -2900, -1900, 4003, 2250, RED);
+        box(E, 600, 530, 100, 50, GREEN);                             // drawn after it, off its start: OVER, at cell (1, 1)
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 15;                                             // [0, 0, 1], and no room for a quick level
+        await selectIds(E, [s.id]);
+        const pl = R._plane, B = pl.layers[0], O = pl.layers.find((L) => L.kind === "over");
+        expect(pl.layers.map((L) => [L.kind, L.k])).toEqual([["below", 0], ["sel", 1], ["sel", 0], ["over", 0]]);
+        expect(pl.quick).toBeNull();
+        expect([...B.foot].sort()).toEqual(["0,0", "1,0", "2,0"]);    // not (1, 1): GREEN's alone
+        expect([...O.foot]).toEqual([]);
+        expect(B.paper.map(([i, j]) => i + "," + j)).toEqual(["2,0"]);
+        E.pointerDown(600, 300);
+        E.pointerMove(600, 290); E.pointerMove(600, 280);
+        E.plates._remove(pl._key(B.tag, B.pZq, 1, 1));                // BELOW not whole, off the foot
+        pl.ready = false;
+        E.pointerMove(600, 270);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, true]);
+        const P = R.layer.lastPlan.plane;
+        expect(P.layers.length).toBeGreaterThan(0);                   // red when the foot is all of BELOW: the selection left in place
+        expect(P.layers.find((x) => x.L === B).recs.map((r) => r.i + "," + r.j).sort()).toEqual(["0,0", "1,0", "2,0"]);
+        const ctx = R.layer._ctx;
+        expect(ctx.at(1050, 340)).toEqual([255, 255, 255]);           // vacated over a paper cell: red with the paper not drawn (the old place)
+        expect(ctx.at(500, 340)).toEqual(BLUE);
+        expect(ctx.at(1050, 310)).toEqual(RED);                       // moved
+        E.pointerUp();
+    });
+
+    test("F145f a screen-filling selection behind everything: BELOW is paper with no plate, and what is over it stays at the view's resolution", async () => {
+        const E = mkSoftEngine(1200, 600);
+        const s = box(E, -3000, -2000, 7200, 4600, RED);              // the first ink: nothing under it, past the grown view everywhere
+        box(E, 300, 200, 200, 200, GREEN); box(E, 700, 100, 100, 300, YELLOW);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 12;                                             // [0, 0, 3]: BELOW's six paper cells as plates would make it 18
+        await selectIds(E, [s.id]);
+        const pl = R._plane, B = pl.layers[0];
+        // red with BELOW's paper cells as plates: [0, 3, 3]; red before (the selection first): [1, 1, 2]
+        expect(pl.layers.map((L) => [L.kind + (L.hole ? "m" : ""), L.k])).toEqual([["below", 0], ["selm", 3], ["sel", 0], ["over", 0]]);
+        expect([B.cells.length, B.paper.length]).toEqual([0, 6]);
+        const log = drawLog(E), own = new Set(), base = [];
+        for (const [, e] of E.plates.cache) if (e.kind !== "plane" && e.bitmap) own.add(e.bitmap);
+        const di = R.layer._ctx.drawImage;
+        R.layer._ctx.drawImage = (bm, ...a) => { if (own.has(bm)) base.push(bm); return di(bm, ...a); };
+        E.pointerDown(600, 500);
+        for (let dx = 10; dx <= 80; dx += 10) E.pointerMove(600 + dx, 500);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect(base.length).toBe(0);                                  // the view's own plates under BELOW's paper are not drawn
+        const [, , N, O] = pl.layers, ctx = R.layer._ctx;
+        expect(log.filter(([t, m]) => (t === N.tag || t === O.tag) && m)).toEqual([]);   // the selection on screen and what is over it 1:1
+        expect(log.some(([t]) => t === O.tag)).toBe(true);
+        expect(ctx.at(400, 300)).toEqual(GREEN);
+        expect(ctx.at(750, 250)).toEqual(YELLOW);
+        expect(ctx.at(1000, 500)).toEqual(RED);                       // the moved selection still under everything
+        E.pointerUp();
+    });
+
+    test("F145g each layer is drawn from one surface: a drag frame draws one image a layer, and a pan's re-cut over other cells draws a new one", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const s = box(E, -900, 100, 2600, 450, RED);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [s.id]);
+        const pl = R._plane, L = R.layer;
+        expect(pl.layers.map((x) => [x.kind, x.k, x.cells.length])).toEqual([["below", 0, 4], ["sel", 0, 12]]);
+        expect(L._planeSurf.size).toBe(2);                            // built at rest, before the drag: red built in its first frame
+        let per = composeImages(E);
+        E.pointerDown(400, 300);
+        for (let dy = 10; dy <= 60; dy += 10) E.pointerMove(400, 300 + dy);
+        expect(pl.cur).toBe(pl.main);
+        for (const c of per) expect(c.images).toBeLessThanOrEqual(2);  // red plate by plate: 16
+        expect(L.s.planeSurfAllocs).toBe(2);
+        expect(L._ctx.at(400, 130)).toEqual(BLUE);                    // vacated
+        expect(L._ctx.at(400, 570)).toEqual(RED);                     // moved
+        E.cancelSelectGesture(false);
+        E.panBy(-300, 0);                                             // BELOW over a third column: its tag kept, its cells not
+        E._render();
+        R._aimPlane(R._view);
+        await until(() => pl.checkReady(E.plates));
+        expect(pl.layers[0].paper.length).toBe(2);                    // the column past the blue: paper, in BELOW's surface
+        per = composeImages(E);
+        E.pointerDown(400, 300);
+        for (let dy = 10; dy <= 60; dy += 10) E.pointerMove(400, 300 + dy);
+        expect(pl.cur).toBe(pl.main);
+        for (const c of per) expect(c.images).toBeLessThanOrEqual(2);
+        expect(L.s.planeSurfAllocs).toBeGreaterThan(2);               // red with the old surface kept: the third column not drawn
+        expect(L._ctx.at(1000 - 300, 130)).toEqual([255, 255, 255]);  // vacated over the paper column
+        expect(L._ctx.at(400, 130)).toEqual(BLUE);
+        expect(L._ctx.at(700, 570)).toEqual(RED);
+        E.pointerUp();
+    });
+
+    test("F145h the quick level is two octaves under the plane's coarsest layer on screen, not under its margin", async () => {
+        const E = mkSoftEngine(1200, 600);
+        box(E, 20, 20, 1160, 560, BLUE);
+        const s = box(E, -2900, -1900, 4003, 2250, RED);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 18;                                             // the main level's 13 plates and the quick level's 5
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        expect(pl.layers.map((L) => [L.kind + (L.hole ? "m" : ""), L.k])).toEqual([["below", 0], ["selm", 1], ["sel", 0]]);
+        expect([pl.main.k, pl.main.kOn]).toEqual([1, 0]);
+        expect(pl.quick.layers.map((L) => L.k)).toEqual([2, 2]);      // red two octaves under the margin: [3, 3]
+    });
+
+    test("F145i a selection dragged in from past the screen: no seam where its magnified margin meets the near layer's cells", async () => {
+        const E = mkSoftEngine(800, 1000, { bilinear: true });
+        box(E, 20, 20, 760, 960, BLUE);
+        const s = box(E, -600, 500, 1300, 1300, RED);                 // past the left and the bottom: margin cells beside the view's
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 12;                                             // [0, 0, 1], 11 plates; at the view's resolution, 20
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        expect(pl.layers.map((L) => [L.kind + (L.hole ? "m" : ""), L.k, L.cells.length])).toEqual([["below", 0, 4], ["selm", 1, 3], ["sel", 0, 4]]);
+        E.pointerDown(400, 700);
+        for (let k = 1; k <= 6; k++) E.pointerMove(400 + 20 * k, 700 - 50 * k);   // right 120, up 300 (Kobin 2026-10-19)
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        const ctx = R.layer._ctx;
+        // The view's cells end at x 0 and y 1024, a margin cell's edge both ways: now at x 120 and y 724.
+        expect(ctx.at(400, 723)).toEqual(RED);                        // the near layer
+        expect(ctx.at(400, 724)).toEqual(RED);                        // red: a quarter blue, the margin's texel blended with the transparent one past its edge
+        expect(ctx.at(119, 500)).toEqual(RED);
+        expect(ctx.at(119, 724)).toEqual(RED);                        // the corner
+        expect(ctx.at(120, 500)).toEqual(RED);
+        E.pointerUp();
+    });
+
+    test("F145j BELOW coarser than the view and drawn from one surface: no seam where it meets the cells it does not hold", async () => {
+        const E = mkSoftEngine(2600, 1600, { bilinear: true });
+        box(E, 20, 20, 2560, 1560, BLUE);
+        box(E, 1100, 1024, 900, 476, GREEN);                          // under the selection, past BELOW's cells: the view's own plates
+        const a = box(E, 100, 100, 2400, 300, RED), b = box(E, 100, 100, 300, 1400, RED);   // an L: BELOW's cells at ½ lack (1, 1), (2, 1)
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 8;                                              // [1, 1, 1], 8 plates; every cut with BELOW at the view's, 11 or more
+        await selectIds(E, [a.id, b.id]);
+        const pl = R._plane;
+        expect(pl.layers.map((L) => [L.kind, L.k, L.cells.length])).toEqual([["below", 1, 4], ["sel", 1, 4]]);
+        E.pointerDown(250, 250);
+        for (let k = 1; k <= 5; k++) E.pointerMove(250 + 20 * k, 250 + 20 * k);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        const ctx = R.layer._ctx;
+        expect(ctx.at(1500, 1023)).toEqual(BLUE);                     // red: lighter, BELOW's last texel blended with a transparent one over the paper
+        expect(ctx.at(1023, 1300)).toEqual(BLUE);
+        expect(ctx.at(1500, 1024)).toEqual(GREEN);                    // red: a quarter blue
+        expect(ctx.at(1500, 1026)).toEqual(GREEN);                    // red with BELOW's edge copied past it and drawn unclipped: blue
+        E.pointerUp();
+    });
+
+    test("F145k a drag held still: what slid in from the coarse margin is cut again sharp, drawn in its place once whole; the quick level's pins are its room", async () => {
+        const E = mkSoftEngine(800, 1000);
+        box(E, 20, 20, 760, 960, BLUE);
+        const s = box(E, -600, 500, 1300, 1300, RED), g = box(E, -500, 1300, 1100, 1, GREEN);   // a hairline in the margin: blurred at ½
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 14;                                             // [0, 0, 1], 11 plates, and the quick level's 3
+        await selectIds(E, [s.id, g.id]);
+        const pl = R._plane, ctx = R.layer._ctx;
+        expect(pl.layers.map((L) => [L.kind + (L.hole ? "m" : ""), L.k])).toEqual([["below", 0], ["selm", 1], ["sel", 0]]);
+        expect(pl.quick.plates).toBe(3);
+        const log = drawLog(E);
+        E.pointerDown(400, 700);
+        for (let k = 1; k <= 4; k++) E.pointerMove(400, 700 - 100 * k);   // up 400: the hairline at y 900
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect(ctx.at(400, 900)).not.toEqual(GREEN);                 // the margin's ½
+        await until(() => pl.refine && pl.refine.whole);
+        await flush();
+        expect([planeStats.refines, planeStats.refinesWhole, pl.quick, pl.refine.k, pl.refine.layers[0].cells.length]).toEqual([1, 1, null, 0, 2]);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect([ctx.at(400, 899), ctx.at(400, 900), ctx.at(400, 901)]).toEqual([RED, GREEN, RED]);   // red: the margin's ½ until the drop
+        const F = pl.refine.layers[0];
+        expect(log.some(([t, m]) => t === F.tag && !m)).toBe(true);
+        expect(E.plates.isPinned(pl._key(F.tag, F.pZq, 0, 2))).toBe(true);
+        E.pointerUp();
+    });
+
+    test("F145l a held drag's refine of a translucent selection composites once where it replaces the margin", async () => {
+        const E = mkSoftEngine(800, 1000);
+        box(E, 20, 20, 760, 960, BLUE);
+        const s = box(E, -600, 500, 1300, 1300, RED, 0.5);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 14;
+        await selectIds(E, [s.id]);
+        const pl = R._plane, ctx = R.layer._ctx, want = over(BLUE, [[RED, 0.5]]);
+        E.pointerDown(400, 700);
+        E.pointerMove(400, 650); E.pointerMove(400, 600);            // up 100: the margin on screen from y 924
+        await until(() => pl.refine && pl.refine.whole);
+        await flush();
+        const px = ctx.at(400, 950);
+        expect(close(px, want) ? want : px).toEqual(want);           // red with the margin drawn under it: twice, darker
+        E.pointerUp();
+    });
+
+    test("F145m a held drag with no room under the cap for a sharper cut keeps its margin", async () => {
+        const E = mkSoftEngine(800, 1000);
+        box(E, 20, 20, 760, 960, BLUE);
+        const s = box(E, -600, 500, 1300, 1300, RED);
+        E._render(); await flush();
+        const R = E.renderer;
+        R._planeCap = 11;                                             // [0, 0, 1] fills it, no quick level
+        await selectIds(E, [s.id]);
+        const pl = R._plane;
+        expect([pl.main.plates, pl.quick]).toEqual([11, null]);
+        const log = drawLog(E), M = pl.layers[1];
+        E.pointerDown(400, 700);
+        E.pointerMove(400, 600); E.pointerMove(400, 500);
+        await new Promise((r) => setTimeout(r, 400));
+        await flush();
+        expect([planeStats.refines, pl.refine, pl.cur === pl.main, pl.partial]).toEqual([0, null, true, false]);
+        expect(log.some(([t]) => t === M.tag)).toBe(true);
+        E.pointerUp();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// F144: past the layer cap, a selected run is drawn on the other side of the unselected run beside it whose swap shows least.
+// ---------------------------------------------------------------------------
+
+const close = (a, b, tol = 3) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+const BLACK = [0, 0, 0], ORANGE = [240, 140, 20];
+
+describe("the merge past the layer cap (F144)", () => {
+    test("F144a a screen-wide translucent band stays over the translucent square under it; two small squares go under instead", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const s1 = box(E, 100, 150, 100, 100, RED, 0.6);             // selected, under the band
+        const band = box(E, 20, 280, 760, 60, YELLOW, 0.5);          // one box across the screen
+        const s2 = box(E, 600, 60, 60, 60, GREEN);
+        box(E, 680, 480, 16, 16, GREEN); box(E, 700, 480, 16, 16, GREEN);   // one run of two boxes
+        const s3 = box(E, 500, 440, 40, 40, GREEN);
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [s1.id, s2.id, s3.id]);
+        const pl = E.renderer._plane, ctx = E.renderer.layer._ctx;
+        expect(planeStats.merged).toBe(1);
+        expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel"]);
+        expect(pl.layers[2].ids.has(band.id)).toBe(true);            // red before: the band went under, by box count
+        E.pointerDown(150, 200);
+        for (let dy = 10; dy <= 130; dy += 10) E.pointerMove(150, 200 + dy);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        const want = over(BLUE, [[RED, 0.6], [YELLOW, 0.5]]), px = ctx.at(150, 310);   // the moved square under the band
+        expect(close(px, want) ? want : px).toEqual(want);
+        E.pointerUp();
+    });
+
+    test("F144b twelve selected squares interleaved with twelve unselected runs: a translucent band among them survives every merge", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const ids = [];
+        let band = null;
+        for (let k = 0; k < 12; k++) {
+            ids.push(box(E, 40 + k * 60, 100, 30, 30, RED).id);
+            if (k === 5) band = box(E, 20, 200, 760, 60, YELLOW, 0.5);
+            else box(E, 40 + k * 60, 500, 20, 20, GREEN);
+        }
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, ids);
+        const pl = E.renderer._plane, ctx = E.renderer.layer._ctx;
+        expect([planeStats.maxLayers, planeStats.merged]).toEqual([25, 10]);
+        expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel", "over"]);
+        expect(pl.layers[2].ids.has(band.id)).toBe(true);            // red before: merged sixth, by box count
+        E.pointerDown(55, 115);
+        for (let dy = 10; dy <= 130; dy += 10) E.pointerMove(55, 115 + dy);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        const under = over(BLUE, [[RED, 1], [YELLOW, 0.5]]);
+        for (let k = 0; k < 12; k++) {
+            const px = ctx.at(55 + k * 60, 245), want = k <= 5 ? under : RED;   // drawn before the band: under it
+            expect([k, ...(close(px, want) ? want : px)]).toEqual([k, ...want]);
+        }
+        E.pointerUp();
+    });
+
+    test("F144c the area is the one on the view: a band mostly past the screen goes under before a square wholly on it", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const s1 = box(E, 100, 100, 60, 60, RED);
+        box(E, 700, -3000, 20, 7000, YELLOW);                        // 20 x 768 on the view's cells, 20 x 7,000 in all
+        const s2 = box(E, 300, 100, 60, 60, RED);
+        const sq = box(E, 400, 300, 150, 150, GREEN);
+        const s3 = box(E, 200, 400, 60, 60, RED);
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [s1.id, s2.id, s3.id]);
+        const pl = E.renderer._plane;
+        expect(planeStats.merged).toBe(1);
+        expect([...pl.layers.find((L) => L.kind === "over").ids]).toEqual([sq.id]);   // red with the boxes unclipped
+    });
+
+    test("F144d the swap that shows least is taken: a cut-out lifted over its own remnant, not the disc over the band it lies under", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const a = box(E, 100, 100, 120, 120, BLACK);                 // selected, under the band
+        const band = box(E, 60, 150, 300, 30, ORANGE);               // the smallest unselected run between two selected ones
+        const b = box(E, 400, 100, 80, 80, RED), c = box(E, 480, 100, 150, 150, RED);   // a cut-out and its remnant: one colour
+        const d = box(E, 400, 350, 80, 80, GREEN);
+        box(E, 480, 350, 150, 150, GREEN);
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [a.id, b.id, d.id]);
+        const pl = E.renderer._plane, ctx = E.renderer.layer._ctx;
+        expect([planeStats.maxLayers, planeStats.merged]).toEqual([7, 1]);
+        expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel", "over"]);
+        expect([...pl.layers[2].ids].sort()).toEqual([band.id, c.id].sort());   // red by the least area: the band under the selection
+        E.pointerDown(160, 120);
+        for (let dx = 10; dx <= 100; dx += 10) E.pointerMove(160 - dx, 120);   // left 100: the cut-out onto the band's end
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect(ctx.at(90, 165)).toEqual(ORANGE);                      // red: black, the moved disc over the band
+        expect(ctx.at(330, 165)).toEqual(RED);                        // red by area alone: the cut-out dropped under the band
+        E.pointerUp();
+    });
+
+    test("F144e a cut-out above its remnant in z is dropped under it, the selected run below kept under the remnant", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const a = box(E, 100, 100, 120, 120, BLACK), band = box(E, 60, 150, 300, 30, ORANGE);
+        const d = box(E, 420, 200, 50, 50, GREEN);                   // selected, partly under the remnant
+        const c = box(E, 450, 100, 200, 200, RED), b = box(E, 380, 120, 70, 70, RED);   // the remnant, then its cut-out
+        const e = box(E, 650, 450, 100, 100, YELLOW);
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [a.id, d.id, b.id]);
+        const pl = E.renderer._plane, ctx = E.renderer.layer._ctx;
+        expect([planeStats.maxLayers, planeStats.merged]).toEqual([7, 1]);
+        expect(pl.layers.map((L) => L.kind)).toEqual(["below", "sel", "over", "sel", "over"]);
+        expect([[...pl.layers[2].ids], [...pl.layers[4].ids].sort()]).toEqual([[band.id], [c.id, e.id].sort()]);
+        E.pointerDown(160, 120);
+        for (let dx = 10; dx <= 100; dx += 10) E.pointerMove(160 + dx, 120);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect(ctx.at(545, 225)).toEqual(RED);                        // red with lifts only: green, the square over the remnant
+        expect(ctx.at(260, 165)).toEqual(ORANGE);
+        expect(ctx.at(515, 155)).toEqual(RED);                        // the cut-out under its remnant: red either way
+        E.pointerUp();
+    });
+
+    test("F144f a translucent band's swap is taken before an opaque square's: the square stays over the selected one it covers", async () => {
+        const E = mkSoftEngine();
+        box(E, 20, 20, 760, 560, BLUE);
+        const a = box(E, 100, 100, 100, 100, RED), band = box(E, 20, 120, 760, 60, YELLOW, 0.2);
+        const b = box(E, 400, 300, 100, 100, RED), sq = box(E, 380, 280, 140, 140, GREEN), c = box(E, 600, 430, 100, 100, RED);
+        E._render(); await flush();
+        E.renderer._planeCap = MOVE_PLANE_PLATES;
+        await selectIds(E, [a.id, b.id, c.id]);
+        const pl = E.renderer._plane, ctx = E.renderer.layer._ctx;
+        expect(planeStats.merged).toBe(1);
+        expect(pl.layers.some((L) => L.ids && L.ids.has(band.id))).toBe(false);   // under the selection, BELOW's
+        expect([...pl.layers.find((L) => L.kind === "over").ids]).toEqual([sq.id]);
+        E.pointerDown(150, 150);
+        E.pointerMove(155, 150); E.pointerMove(160, 150);
+        expect([pl.cur === pl.main, pl.partial]).toEqual([true, false]);
+        expect(ctx.at(455, 350)).toEqual(GREEN);                      // red by area and colour alone (no opacity): red, over the square
+        expect(ctx.at(150, 150)).toEqual(RED);                        // the band's swap: a fifth of the difference, the approximation
+        E.pointerUp();
     });
 });

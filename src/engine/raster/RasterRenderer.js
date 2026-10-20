@@ -23,22 +23,24 @@ import { SvgOverlays, mkSelLayer, dropSelOverlay, renderSelChevrons, ensureSelSt
 import { arcPlanOf } from "./svgAnchors";
 import { perfNow } from "../now";
 import { PLATE_PX } from "./plate";
-import { packJob, parseColour, visibleChords, itemChordsAt, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE } from "./rasterPack";
+import { packJob, parseColour, visibleChords, itemChordsAt, packStats, COORD_BOUND, entryFor, itemBox, outsideWin, setPackBudget, PACK_BUDGET_PHONE, clearPackCaches } from "./rasterPack";
 import { coreStats } from "./rasterCore";
 import { antStats, selAntScale } from "./antPaint";
 import OverlayLayer from "./OverlayLayer";
 import MovePlane, { MOVE_HOLD_MS, planeStats } from "./MovePlane";
 import * as rasterPerf from "./rasterPerf";
-import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool, setOnSlotFreed } from "./rasterWorkerClient";
-import PyramidStore, { planeCell } from "./PyramidStore";
+import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool, setOnSlotFreed, clearOnSlotFreed, restorePlate } from "./rasterWorkerClient";
+import PyramidStore, { planeCell, ramBudgetBytes, PLATE_BYTES } from "./PyramidStore";
 import PicturePyramid, { sampleOf, EST_DEFAULTS, LIVE_HOLD_MS } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
-import { prefetchPlan, farKeysOf } from "./prefetch";
-import { LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
+import { prefetchPlan, farKeysOf, PREFETCH_RETRY_MS } from "./prefetch";
+import { COMPOSE_IMAGES, LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
 import { R } from "../frameLattice";
 
 /** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-render it every step. */
 const PLANE_QUIET_MS = 150;
+/** A drag held this long still has the selection on screen cut sharper (`MovePlane.refineAt`, Kobin 2026-10-19). */
+export const PLANE_REFINE_MS = 250;
 /** The stopgap's bounds: a selection this small, over this few plates, is rendered on the main thread. */
 const STOPGAP_OBJECTS = 500;
 const STOPGAP_PLATES = 8;
@@ -64,6 +66,8 @@ export const rasterStats = {
     batches: 0, batchPlates: 0, bitmapWaits: 0,
     liveHolds: 0, liveHandoffs: 0, liveHoldMsMax: 0,   // the pen-up handoff (A3 §3.6)
     snapshots: 0, snapshotPlates: 0, snapshotAborts: 0, snapshotFails: 0, snapshotOverBound: 0,
+    // The RAM tier (F161): plates restored (empty ones need no worker), failures, and post-to-landing ms summed.
+    ramRestores: 0, ramEmpty: 0, ramFailed: 0, ramMs: 0, ramMsMax: 0,
 };
 
 export function resetRasterStats() {
@@ -102,6 +106,7 @@ export default class RasterRenderer {
         this._selAntsFn = null;        // () -> the indicator's decision | null (`setSelectionAnts`)
         this._selOv = null; this._selEls = null;
         this._dragStateFn = null;      // the engine's live drag (`setDragState`)
+        this._refineTimer = null;      // a drag step's wait for the hold that refines the plane
         this._hasFat = false;          // the fat gate is the SVG renderer's (A3 §7.2)
         /** The scene (the engine's Stage, A2 §3): packs read its items at its generation; it is the store's freshness source. */
         this.stage = opts.stage;
@@ -412,10 +417,11 @@ export default class RasterRenderer {
         if (this.forcePerStepDrag) { if (pl.tags.length) this._endPlane(); return false; }
         const gen = pl.gen, was = pl.tags.slice();
         const st = this._planeFn && this._planeViewOk(v) ? this._planeFn() : null;
-        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr);
+        // a compose that draws each layer from one surface has no image cliff to cut for (F145)
+        const ok = pl.aim(st, this._lastList, v, this.cfg, this.planeCap, this.layer.dpr, this.pyramid.planeSurfaces ? Infinity : COMPOSE_IMAGES);
         const gone = was.filter((t) => pl.gen !== gen || !ok || !pl.tags.includes(t));   // a re-cut's renamed layers too
         if (gone.length) this._dropPlaneTags(gone);
-        this.store.setPlanePins(ok ? pl.keys : null);
+        this.store.setPlanePins(ok ? pl.pins() : null);
         if (!ok) return false;
         for (const lvl of pl.farLevels()) this._farList(pl, lvl);
         this._postPlane(pl);
@@ -462,8 +468,9 @@ export default class RasterRenderer {
             // hands the drag back to a render a step (review major 2).
             if (!pl.layers.length || pl.frameId !== v.frameId || !this._planeViewOk(v)) this._losePlane();
             else {
-                const s = d.drag.start, l = d.drag.last || s;
+                const s = d.drag.start, l = d.drag.last || s, ox = pl.off[0], oy = pl.off[1];
                 pl.dragTo(l[0] - s[0], l[1] - s[1], this.layer.dpr);
+                if (pl.off[0] !== ox || pl.off[1] !== oy) this._armRefine();
                 this._postPlane(pl);           // a plane plate a change staled mid-drag
             }
         } else if (pl.state === "land") {
@@ -473,6 +480,7 @@ export default class RasterRenderer {
         // over the plates that still hold the ink where it was (H4), else a stopgap rendered here.
         let lvl = pl.showing ? pl.pick(this.store) : null;
         if (pl.state === "drag" && (!lvl || pl.partial) && this._pyrStopgap(pl)) lvl = pl.pick(this.store);
+        if (pl.refine) pl.refineWhole(this.store);
         const whole = !!lvl && !pl.partial;
         if (pl.state === "drag") {
             if (!lvl) planeStats.notReady++;
@@ -483,6 +491,30 @@ export default class RasterRenderer {
         // mid-drag (a cut landing, a crossing's render) would bake it at home, where a held item paints (A2 §2.7; RV4).
         this._dragOmit = whole && pl.state === "drag" ? pl.selIds : null;
         this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
+    }
+
+    /** A drag step moved the plane: its refine waits for the drag to hold PLANE_REFINE_MS. */
+    _armRefine() {
+        if (this._refineTimer != null) clearTimeout(this._refineTimer);
+        this._refineTimer = setTimeout(() => { this._refineTimer = null; this._refine(); }, PLANE_REFINE_MS);
+    }
+
+    /**
+     * The drag held: the selection on screen cut sharper (`MovePlane.refineAt`), posted, drawn once whole. Only over a whole
+     * main level, the quick level let go first (its pins are the refine's room).
+     */
+    _refine() {
+        const pl = this._plane, v = this._view;
+        if (this._destroyed || pl.state !== "drag" || !v || v.frameId !== pl.frameId || v.Zq !== pl.Zq || !pl.checkReady(this.store)) return;
+        if (pl.refine && pl.refine.at === pl.off[0] + "," + pl.off[1]) return;
+        if (pl.quick) this._dropPlaneTags(pl.dropQuick());
+        pl.setRefine(pl.refineAt(v, this.layer.wDev, this.layer.hDev, this.planeCap));
+        this.store.setPlanePins(pl.pins());
+        this._postPlane(pl);
+        if (pl.refineWhole(this.store)) {
+            this.pyramid.setPlane(this._pyrPlaneOf(pl, pl.cur || pl.main));
+            if (this.layer.deferCompose) this.layer.deferCompose(); else this.pyramid.compose();
+        }
     }
 
     /** The plane is lost under a live drag: the engine releases the hold once and the drag renders each step. */
@@ -501,6 +533,8 @@ export default class RasterRenderer {
     _planeIdle() {
         const pl = this._plane, v = this._view;
         if (!v || pl.showing || this._noPlaneDrag || this.forcePerStepDrag || (this._dragStateFn && this._dragStateFn())) return;
+        // A whole plane's layer surfaces are built at rest, on its last plate's arrival, not in the next drag's first frame (F145).
+        this.pyramid.prepPlane(pl.layers.length && pl.checkReady(this.store) ? this._pyrPlaneOf(pl, pl.main) : null);
         // Quiet is the published view unchanged — a pan too: re-cutting the layers each pan step
         // posted 938 plates over a 60-step pan in Kobin's Chrome (a selection under a full-screen fill).
         const key = v.frameId + "|" + v.Zq + "|" + v.rev;
@@ -548,6 +582,7 @@ export default class RasterRenderer {
             if (ms > planeStats.landMsMax) planeStats.landMsMax = ms;
         }
         if (this._landTimer != null) { clearTimeout(this._landTimer); this._landTimer = null; }
+        if (this._refineTimer != null) { clearTimeout(this._refineTimer); this._refineTimer = null; }
         this._dropPlaneTags(pl.tags);
         this.store.setPlanePins(null);
         pl._reset();
@@ -563,6 +598,9 @@ export default class RasterRenderer {
         const pl = this._plane;
         this._noPlaneDrag = false;
         this._dragOmit = null;             // before the drop's render: its plates must hold the moved ink
+        const gone = this.store ? this.store.endHeld() : [];   // and those packed without it go before its patch step (F153)
+        if (gone.length && this.pyramid) this.pyramid.unask(gone);   // their cells asked for again
+        if (this.pyramid) this.pyramid.heldEnded();                    // and what an open pen-up group holds of them
         if (why === "drop" && pl.state === "drag" && pl.cur && !pl.partial) {
             pl.land(perfNow());
             this._landTimer = setTimeout(() => {
@@ -586,12 +624,15 @@ export default class RasterRenderer {
         if (this._pyrOff) { this._pyrOff(); this._pyrOff = null; }
         if (this._commitOff) { this._commitOff(); this._commitOff = null; }
         if (this._pyrPrefetchTimer != null) { clearTimeout(this._pyrPrefetchTimer); this._pyrPrefetchTimer = null; }
+        if (this._pyrRetryTimer != null) { clearTimeout(this._pyrRetryTimer); this._pyrRetryTimer = null; }
         this._abandon("destroy");
         this._destroyed = true;
         if (this._liveTimer != null) { clearTimeout(this._liveTimer); this._liveTimer = null; }
         if (this._landTimer != null) { clearTimeout(this._landTimer); this._landTimer = null; }
         if (this._planeTimer != null) { clearTimeout(this._planeTimer); this._planeTimer = null; }
         destroyRasterPool();
+        if (this._onFreed) { clearOnSlotFreed(this._onFreed); this._onFreed = null; }
+        clearPackCaches();             // the memo is module state: it held a closed canvas's pieces and, through its records, its Stage
         this._dropDpr();
         this._dropReducedMotion();
         this.perf.detach();
@@ -773,6 +814,7 @@ export default class RasterRenderer {
         const store = this.store = new PyramidStore({
             fresh: this.stage, cfg: this.cfg, wDev: Math.round(this.width * dpr), hDev: Math.round(this.height * dpr),
         });
+        store.setRamBudget(ramBudgetBytes(this.cfg, store.phone));
         const pyr = this.pyramid = new PicturePyramid(container, {
             store, stage: this.stage, lm: this.stage.lm, cfg: this.cfg, width: this.width, height: this.height, dpr,
             paper: this.paper, makeCanvas: opts.makeCanvas, context: opts.context,
@@ -780,14 +822,19 @@ export default class RasterRenderer {
             pack: (job) => this._pyrPack(job, null, null),
             measure: (job) => this._pyrMeasure(job),
             onSample: (s) => { pyr.calibrate(s); this._noteCore(s); },
+            restore: (entries) => this._ramRestore(entries),
         });
         const base = opts.pool || rasterPool;
         const pool = { size: () => base.size(), free: () => base.free(), submit: (st) => this._pyrSubmit(st, base) };
         pyr.gens.plane = 1;                              // the drag plane's purpose: bumped when its layers go
         this._pyrPlaneAsked = new Map();                 // plane key -> the G it was asked at
-        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: (st, why) => this._pyrUnask(st, why) });
+        this.queue = new JobQueue({ pool, clock: perfNow, store, gens: pyr.gens, onDrop: (st, why) => this._pyrUnask(st, why),
+            restore: (cells) => this._ramCells(cells) });
         this.layer = pyr;
-        if (base === rasterPool) setOnSlotFreed(() => { if (!this._destroyed) this._pumpSoon(); });   // an orphan's answer frees a slot
+        if (base === rasterPool) {                       // an orphan's answer frees a slot
+            this._onFreed = () => { if (!this._destroyed) this._pumpSoon(); };
+            setOnSlotFreed(this._onFreed);
+        }
         this._pyrMot = { t: 0, k: 0, tx: 0, ty: 0, frame: null, moving: false };
         this._pyrPrefetchKey = null;
         // A commit: a shape that landed in it opens its group first, before any patch step could publish its plates
@@ -810,8 +857,11 @@ export default class RasterRenderer {
         try { this.pyramid.patchIfDue(); } finally { if (own) this._closeRow(); }
     }
 
-    /** A lever changed (A3 §8): the budget is one eviction pass; a step change is the next `frameFor`'s. */
-    onLevers() { this.store.setBudget(this.pyramid.budgetBytes()); }
+    /** A lever changed (A3 §8): the budgets are one eviction pass each; a step change is the next `frameFor`'s. */
+    onLevers() {
+        this.store.setBudget(this.pyramid.budgetBytes());
+        this.store.setRamBudget(ramBudgetBytes(this.cfg, this.store.phone));
+    }
 
     /** The user's own action just committed (an undo, a redo): its patch has one frame's budget (A3 §3.3). */
     noteUserEdit() { this.pyramid.noteUserEdit(); }
@@ -851,13 +901,20 @@ export default class RasterRenderer {
         this.pyramid.setAttention(sx * d, sy * d);
     }
 
-    /** The queue's motion (A3 §4.4): moving iff the published affine changed since the last step, and its velocity. */
+    /**
+     * The queue's motion (A3 §4.4): moving iff the published affine changed since the last step, and its velocity —
+     * `px` the pan alone: the translation a zoom about the attention point makes is the zoom's, and the velocity rule
+     * applies it from `zoom` (counted in `px` too, a 2 octave/s zoom-out aimed every view strip a screen away and
+     * dropped it as off screen).
+     */
     _pyrMotion(v) {
         const m = this._pyrMot, t = perfNow(), pyr = this.pyramid;
         const same = m.frame === v.frameId && m.k > 0;
         const moving = same && (v.k !== m.k || v.tx !== m.tx || v.ty !== m.ty);
         const dt = Math.max(1, t - m.t);
-        const vel = moving ? { px: [(v.tx - m.tx) / dt, (v.ty - m.ty) / dt], zoom: Math.log2(v.k / m.k) / dt } : { px: [0, 0], zoom: 0 };
+        const a = this._attn || [pyr.wDev / 2, pyr.hDev / 2], f = moving ? v.k / m.k : 1;
+        const vel = moving ? { px: [(v.tx - (a[0] - (a[0] - m.tx) * f)) / dt, (v.ty - (a[1] - (a[1] - m.ty) * f)) / dt], zoom: Math.log2(f) / dt }
+            : { px: [0, 0], zoom: 0 };
         m.t = t; m.k = v.k; m.tx = v.tx; m.ty = v.ty; m.frame = v.frameId; m.moving = moving;
         return {
             moving, vel, attention: this._attn, at: t,
@@ -868,14 +925,16 @@ export default class RasterRenderer {
     /**
      * At idle — the camera still and nothing of the view's or a patch's queued or in flight — the prefetch, once a view
      * revision and a generation: a change stales the cached coarser levels, and a zoom's stand-in must be fresh
-     * (decision 2: blurrier, never older).
+     * (decision 2: blurrier, never older). A plan that left an off-camera read incomplete is tried again
+     * PREFETCH_RETRY_MS later, reads only and in the same generation, while the key holds (`retry`, F166).
      */
-    _pyrPrefetch(v) {
+    _pyrPrefetch(v, retry = false) {
         if (!v || v.frameId == null) return;
         const q = this.queue, r = q.report(), gens = this.pyramid.gens;
         for (let p = 0; p < PRIO.prefetch; p++) if (r.queued[p] || r.inFlight[p]) return;
         const key = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
-        if (this._pyrPrefetchKey === key) return;
+        if (retry && this._pyrRetryKey !== key) retry = false;
+        if (this._pyrPrefetchKey === key && !retry) return;
         // At idle means the scene too: a bake commits every few frames, and a plan a commit re-rendered the coarser
         // levels each step (P5). The plan waits for the rest's quiet after the last commit.
         const quiet = this.cfg.prefetchQuietMs != null ? this.cfg.prefetchQuietMs : EST_DEFAULTS.restQuietMs;
@@ -891,7 +950,7 @@ export default class RasterRenderer {
         }
         // A new plan supersedes the queued one: its strips drop at dispatch by generation (a bake's commits re-plan
         // each step, and the queue grew by a plan a step without this). A report sending plans nothing and keeps the key.
-        gens.prefetch++;
+        if (!retry) gens.prefetch++;
         const reportBusy = !!(this._busyFn && this._busyFn());
         if (!reportBusy) this._pyrPrefetchKey = v.rev + ":" + gens.prefetch + ":" + this.stage.generation;
         // Its off-camera reads are tile reads (`eng.list`), in the step's row or a row of their own (§8.4 rule 2).
@@ -902,10 +961,20 @@ export default class RasterRenderer {
         const tiles = this.stage.store;
         let jobs;
         tiles.warmReads = true;
-        try { jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn }); }
+        try { jobs = prefetchPlan(v, this.stage, this.store, { ...this.cfg, atRest: v.mode === "rest", gens, reportBusy, focus: this._attn, retry }); }
         finally { tiles.warmReads = false; this._add(SLOT.list, perfNow() - t0); if (own) this._closeRow(); }
+        if (jobs.unread && !reportBusy && this._pyrRetryTimer == null) {
+            this._pyrRetryKey = this._pyrPrefetchKey;
+            this._pyrRetryTimer = setTimeout(() => {
+                this._pyrRetryTimer = null;
+                if (!this._destroyed && !this._pyrMot.moving) this._pyrPrefetch(this._view, true);
+            }, PREFETCH_RETRY_MS);
+        }
+        const far = farKeysOf(jobs);
+        if (far.size) this.pyramid.setFar(far, retry);
         if (!jobs.length) return;
-        this.pyramid.setFar(farKeysOf(jobs));
+        jobs = this._ramSplit(jobs);                    // what the RAM tier holds is restored, not packed (F161)
+        if (!jobs.length) return;
         q.push(jobs);
         q.pump();
     }
@@ -966,16 +1035,21 @@ export default class RasterRenderer {
         if (jobId != null) this.store.beginJob(jobId, cells, G);
         const t0 = perfNow(), pre0 = packStats.prepassMs, built0 = packStats.recsBuilt;
         // A plane layer packs its own members (`only`, transparent) or everything but them (`omit`); any other pack leaves
-        // the selection out while the plane draws the move. A clipped job packs only what meets its clips (PLAN §5.18).
+        // the selection out while the plane draws the move, and is marked so (`omitHeld`: it goes at the drag's end, F153).
+        // A clipped job packs only what meets its clips (PLAN §5.18).
+        const held = !job.omit && !job.only ? this._dragOmit : null;
+        job.omitHeld = held ? this.store.heldEra : 0;
         const packed = packJob(list, {
             plates, Zq: job.Z, dpr: this.pyramid.dpr, cfg: this.cfg, paper: job.paper || this._paperRgb, G, jobId, frameSeq: this.frameSeq,
-            pool: bufPool, only: job.only || null, omit: job.omit || (job.only ? null : this._dragOmit), clips,
+            pool: bufPool, only: job.only || null, omit: job.omit || held, clips,
         });
         if (clips) {
             const cl = new Int32Array(clips.length * 4);
             for (let k = 0; k < clips.length; k++) cl.set(clips[k], k * 4);
             packed.clips = cl;
         }
+        // Whole level plates come back packed too, for the RAM tier (F161).
+        packed.ram = !clips && !held && this.store.ram.maxBytes > 0 && cells.length > 0 && cells[0].kind === "level";
         job.packedCells = cells; job.packedClips = clips;
         const ms = perfNow() - t0, pre = packStats.prepassMs - pre0, built = packStats.recsBuilt - built0;
         this._packMs += ms;
@@ -1086,7 +1160,8 @@ export default class RasterRenderer {
                 const clip = clips ? clips[p] : null;
                 const whole = !clip || (clip[0] === 0 && clip[1] === 0 && clip[2] === PLATE_PX && clip[3] === PLATE_PX);
                 if (px && whole) wait = true;
-                recs.push({ ...c, G: res.G, askG: st.askG, bitmap: bm, pixels: px, jobId: res.jobId, clip: whole ? null : clip, bytes: whole && (bm || px) ? PLATE_PX * PLATE_PX * 4 : 0 });
+                recs.push({ ...c, G: res.G, askG: st.askG, bitmap: bm, pixels: px, jobId: res.jobId, clip: whole ? null : clip, bytes: whole && (bm || px) ? PLATE_PX * PLATE_PX * 4 : 0,
+                    packed: res.packed && !clip ? res.packed[p] : null, omitHeld: st.omitHeld || 0 });
             }
             if (!wait) { this._pyrLand(st, recs, res, info); return null; }
             rasterStats.bitmapWaits++;
@@ -1113,6 +1188,7 @@ export default class RasterRenderer {
             if (pl.state === "land" && this._planeLanded(this._view)) this._endPlane();
             else if (pl.state === "drag" && st.kind === "plane") {
                 const lvl = pl.pick(this.store);
+                if (pl.refine) pl.refineWhole(this.store);
                 this._dragOmit = lvl && !pl.partial ? pl.selIds : null;
                 this.pyramid.setPlane(lvl ? this._pyrPlaneOf(pl, lvl) : null);
             }
@@ -1121,15 +1197,79 @@ export default class RasterRenderer {
         if (!this._pyrMot.moving) this._pyrPrefetch(this._view);
     }
 
-    /** The plane as the pyramid draws it (A3 §6): its drawn level's Zp and layers; the state, the partial flag and the offset live. */
+    /**
+     * RAM-tier entries restored (F161): each leaves the tier in flight under its own G (`beginRestore`) and lands through
+     * `onResult` as a job's plate — an empty plate in a microtask, a packed one once a worker has unpacked it
+     * (`restorePlate`). A failure only ends the job: the cell is asked for at the next step.
+     */
+    _ramRestore(entries) {
+        const st = this.store, q = this.queue, askG = this.stage.generation, empty = [];
+        for (const e of entries) {
+            const id = st.beginRestore(e);
+            const rec = { key: e.key, frame: e.frame, kind: e.kind, level: e.level, S: e.S, Z: e.Z, tag: e.tag, i: e.i, j: e.j,
+                G: e.G, askG, jobId: id, bitmap: null, pixels: null, bytes: 0, packed: e.packed };
+            rasterStats.ramRestores++;
+            q.restoring(1);
+            if (!e.packed) { rasterStats.ramEmpty++; empty.push(rec); continue; }
+            const t0 = perfNow();
+            restorePlate(e.packed).then((out) => {
+                const ms = perfNow() - t0;
+                rasterStats.ramMs += ms;
+                if (ms > rasterStats.ramMsMax) rasterStats.ramMsMax = ms;
+                rec.bitmap = out.bitmap || null; rec.pixels = out.pixels || null; rec.bytes = PLATE_BYTES;
+                this._ramLand([rec]);
+            }, () => { rasterStats.ramFailed++; q.restoring(-1); st.endJob(id); });
+        }
+        if (empty.length) Promise.resolve().then(() => this._ramLand(empty));
+    }
+
+    _ramLand(recs) {
+        this.queue.restoring(-recs.length);
+        if (this._destroyed) { for (const r of recs) { this.store.discard(r); this.store.endJob(r.jobId); } return; }
+        const own = !this._rowLive;
+        if (own) this._openRow(this.frameSeq, "arrival");
+        try {
+            for (const r of recs) { this.pyramid.onResult(r); this.store.endJob(r.jobId); }
+            // An arrival's tail (`_pyrLand`): a restored cell can end a drop's landing; the prefetch waits for the view's work.
+            const pl = this._plane;
+            if (pl.showing) { if (pl.state === "land" && this._planeLanded(this._view)) this._endPlane(); } else this._planeIdle();
+            if (this.layer.deferCompose) this.layer.deferCompose(); else this.pyramid.compose();
+            if (!this._pyrMot.moving) this._pyrPrefetch(this._view);
+        } finally { if (own) this._closeRow(); }
+    }
+
+    /** Level cells the RAM tier holds exact out of `cells`, restored now; the rest returned (F161). */
+    _ramCells(cells) {
+        if (!this.store.ram.maxBytes || !cells.length || cells[0].kind !== "level") return cells;
+        const keep = [], ram = [];
+        for (const c of cells) { const e = this.store.restorable(c.key); if (e) ram.push(e); else keep.push(c); }
+        if (ram.length) this.pyramid.restore(ram);
+        return keep;
+    }
+
+    /** The RAM tier's cells out of typed jobs before they are queued (F161); a job left with none goes. */
+    _ramSplit(jobs) {
+        const out = [];
+        for (const job of jobs) {
+            if (!job.clips) job.cells = this._ramCells(job.cells);
+            if (job.cells.length) out.push(job);
+        }
+        return out;
+    }
+
+    /**
+     * The plane as the pyramid draws it (A3 §6): its drawn level's layers, each at its own Zp, with a whole refine's over the
+     * main level's (`refine`: its k and screen); the state, the partial flag and the offset live.
+     */
     _pyrPlaneOf(pl, lvl) {
         if (!this._pyrPlane) {
             this._pyrPlane = {
                 get showing() { return pl.showing; }, get state() { return pl.state; }, get partial() { return pl.partial; },
-                get frameId() { return pl.frameId; }, get off() { return pl.off; }, Zp: 1, layers: null,
+                get frameId() { return pl.frameId; }, get Zq() { return pl.Zq; }, get off() { return pl.off; }, layers: null, refine: null,
             };
         }
-        this._pyrPlane.Zp = lvl.pZq; this._pyrPlane.layers = lvl.layers;
+        this._pyrPlane.layers = pl.drawLayers(lvl);
+        this._pyrPlane.refine = lvl === pl.main && pl.refine && pl.refine.whole ? pl.refine : null;
         return this._pyrPlane;
     }
 
@@ -1176,20 +1316,19 @@ export default class RasterRenderer {
     _pyrStopgap(pl) {
         const lvl = pl.quick || pl.main;
         if (!lvl || !pl.selIds || !pl.selIds.size || pl.selIds.size > STOPGAP_OBJECTS) return false;
-        const foot = new Set();
-        for (const L of lvl.layers) if (L.kind === "sel") for (const [i, j] of L.cells) foot.add(i + "," + j);
         const jobs = [];
         let n = 0;
         for (const L of lvl.layers) {
             const cells = [];
             for (const [i, j] of L.cells) {
-                if (L.kind !== "sel" && !foot.has(i + "," + j)) continue;
-                const c = planeCell(pl.frameId, lvl.pZq, L.tag, i, j), e = this.store.get(c.key);
+                if (L.kind !== "sel" && !L.foot.has(i + "," + j)) continue;
+                const c = planeCell(pl.frameId, L.pZq, L.tag, i, j), e = this.store.get(c.key);
                 if (!e || !this.store.exact(e)) cells.push(c);
             }
             if (!cells.length) continue;
             n += cells.length;
-            jobs.push({ kind: "plane", frame: pl.frameId, Z: lvl.pZq, cells, clips: null, table: lvl.list ? { items: () => lvl.list, generation: lvl.G } : null,
+            const list = L.k > 2 ? lvl.list : null;   // a far layer packs from its level's own table (`MovePlane.farLevels`)
+            jobs.push({ kind: "plane", frame: pl.frameId, Z: L.pZq, cells, clips: null, table: list ? { items: () => list, generation: lvl.G } : null,
                 only: L.kind === "below" ? null : L.ids, omit: L.kind === "below" ? L.omit : null, paper: L.kind === "below" ? null : [0, 0, 0, 0] });
         }
         if (!n || n > STOPGAP_PLATES) return false;

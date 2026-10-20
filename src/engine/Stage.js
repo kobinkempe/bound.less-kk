@@ -12,8 +12,9 @@
  *     and applied at its end, and every handler is idempotent against the document as it is — a
  *     piece is in the table once, keyed by its object;
  *   - dirt is the changed native's drawn footprint before and after, taken from the event itself
- *     (`oldBbox`, `oldBelow`, the removed object) and mapped into every frame with tracked cells:
- *     a plate is exact iff `plate.G >= dirtySince(key)` (A2 §3.1, PLAN §3 row 1);
+ *     (`oldBbox`, `oldBelow`, the removed object) — a dropped shape's or fill's its boundary pieces'
+ *     sweep, asked per cell or rectangle (`_sweepIn`, OPEN-FLAGS F153) — mapped into every frame with
+ *     tracked cells: a plate is exact iff `plate.G >= dirtySince(key)` (A2 §3.1, PLAN §3 row 1);
  *   - membership and placement come from the `PlacementModel` (placementModel.js) and nothing
  *     else: never `o.below`, a frame's shift or the lattice's `*Obj` functions;
  *   - a drag writes nothing until its drop (A1 C2): `hold` and `setDragDelta` draw, hit and lasso
@@ -21,12 +22,14 @@
  */
 import { perfNow } from "./now";
 import { drawnBox, ZERO } from "./placementModel";
-import { translateLoops } from "./geometry/arcShape";
+import { translateLoops, pieceBBox } from "./geometry/arcShape";
 import { familyTraits } from "./raster/rasterPack";
 import { inLineage } from "./eraseRule";
 
 /** Items a chunk holds before it splits in two (A2 §2.2: 24–26 µs to replace one item by three at 45k items). */
 const CHUNK_MAX = 512;
+/** `touchedSince`'s reach: the natives whose last touch is remembered. */
+const TOUCHED_MAX = 256;
 /** `changesSince`'s reach: deltas kept before the log is cut (A2 §2.4). */
 const LOG_MAX = 4096;
 /** `dirtyRects`' reach: commits whose footprints are kept (A2 §3.4). */
@@ -39,6 +42,12 @@ const DIRS = ["up", "down"];
 const EVERYWHERE = Object.freeze({ left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity });
 /** An erase step that changes no pixel (`_stepOf`). */
 const NO_DIRT = Object.freeze({ none: true });
+/** Bytes of boundary boxes the dirt log keeps for drops' sweeps (F153); past it the oldest sweeps become their two boxes. */
+const SWEEP_BYTES_MAX = 32 << 20;
+/** Frames a sweep keeps its placement mappers and mapped hulls for. */
+const SWEEP_MAPS = 8;
+/** (commit, frame) pairs whose mapped footprints are kept for the queries after the commit. */
+const RECTS_KEPT = 256;
 
 let uidSeq = 0;
 
@@ -166,11 +175,56 @@ class ChunkList {
 const sameOff = (a, b) => a === b || (a[0] === b[0] && a[1] === b[1]);
 const shifted = (r, off) => (off[0] || off[1]
     ? { left: r.left - off[0], top: r.top - off[1], right: r.right - off[0], bottom: r.bottom - off[1] } : r);
+const sameRange = (a, b) => !!a && !!b && a.i0 === b.i0 && a.i1 === b.i1 && a.j0 === b.j0 && a.j1 === b.j1;
+const RANGE_MEMO_MAX = 512;   // `_rangeKeys`' arrays kept: the window's, each group's, the plates' `covers` asks about
 /** Touching counts as meeting: invalidation is conservative (the plate store's own rule). */
 const meets = (a, b) => !(b.right < a.left || b.left > a.right || b.bottom < a.top || b.top > a.bottom);
+const inside = (a, b) => a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom;
 const unionOf = (a, b) => (a ? { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) } : { ...b });
 const sameTraits = (a, b) => !!a && !!b && a.union === b.union && a.sign === b.sign && a.colour === b.colour && a.alpha === b.alpha;
 const tableKey = (b) => (b ? b.map((e) => (e ? e[0] + "," + e[1] : "")).join(";") : "");
+/** The array a shape's or fill's boundary is read from (replaced, never changed in place, when it changes); null for a stroke. */
+const geomOf = (o) => (o.type === "shape" ? o.loops : o.type === "fill" ? o.polys : null);
+/** What a native is drawn with besides its geometry and placement: a sweep needs it unchanged (F153). */
+const lookOf = (o) => o.color + "|" + o.opacity + "|" + o.z + "|" + o.editId + "|" + !!o.erase;
+
+/**
+ * A shape's or fill's boundary pieces boxed in loop order, home units (F153): `[level0, level1, …]`, level 0 one box a
+ * piece, each next level the pairs of the one before merged, the last one box — the tree `_sweepIn` descends. Null when
+ * it has no piece.
+ */
+function sweepBoxes(o) {
+    const geom = geomOf(o);
+    if (!geom) return null;
+    const pb = [];
+    if (o.type === "shape") {
+        for (const loop of geom) for (const p of loop) { const b = pieceBBox(p); pb.push(b[0], b[1], b[2], b[3]); }
+    } else {
+        for (const ring of geom) {
+            for (let k = 0; k < ring.length; k++) {
+                const a = ring[k], b = ring[(k + 1) % ring.length];
+                pb.push(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]));
+            }
+        }
+    }
+    if (!pb.length) return null;
+    let L = Float64Array.from(pb);
+    const v = [L];
+    while (L.length > 4) {
+        const h = Math.ceil(L.length / 8), N = new Float64Array(h * 4);
+        for (let c = 0; c < h; c++) {
+            const p = c * 8, q = p + 4 < L.length ? p + 4 : p;
+            N[c * 4] = Math.min(L[p], L[q]); N[c * 4 + 1] = Math.min(L[p + 1], L[q + 1]);
+            N[c * 4 + 2] = Math.max(L[p + 2], L[q + 2]); N[c * 4 + 3] = Math.max(L[p + 3], L[q + 3]);
+        }
+        v.push(N);
+        L = N;
+    }
+    return v;
+}
+
+/** The bytes of a commit's sweeps' piece trees. */
+const sweepBytesOf = (states) => { let n = 0; for (const s of states) if (s.kind === "sweep") n += s.bytes; return n; };
 
 export default class Stage {
     /**
@@ -200,7 +254,9 @@ export default class Stage {
         this._keysVer = 0;            // bumped when a key is watched or retired: the tile store's camera pins follow it
         this._pinnedVer = -1;
         this._winKeys = new Set();
-        this._groups = new Map();     // group key -> { gk, F0, rem, ids, keys }
+        this._winRange = null;        // the tile range `_winKeys` were made from
+        this._rangeMemo = new Map();  // "F|i0,i1,j0,j1" -> that range's tile keys (`_rangeKeys`)
+        this._groups = new Map();     // group key -> { gk, F0, rem, ids, keys, range }
         this._gOf = new Map();        // native id -> its group key
         this._missing = new Set();    // watched keys to read at the next sync
         this._pending = new Set();    // native ids from pen-down until their shape lands
@@ -222,16 +278,20 @@ export default class Stage {
         this._quiet = 0;              // events applied without footprints (a hold's release)
         this._landing = [];           // pending natives whose shape landed in this commit
         this._landed = new Map();     // native id -> the G its shape landed at
-        // Freshness (A2 §2.5, §3.1): the cells the plate store holds or has in flight.
-        this._cells = new Map();      // key -> { key, frame, box, dirty }
+        // Freshness (A2 §2.5, §3.1): the cells the plate store holds, has in flight or keeps in its RAM tier.
+        this._cells = new Map();      // key -> { key, frame, box, dirty, from }: `dirty` is complete for commits after `from`
         this._cellsByFrame = new Map();
         this._dirtLog = [];           // { G, states }, oldest first
+        this._sweepBytes = 0;         // its sweeps' piece trees and mapped hulls (SWEEP_BYTES_MAX)
+        this._rectsMemo = new Map();  // "G|frame" -> a commit's mapped footprints there (`_entryRects`)
+        this._touchLog = new Map();   // native id -> the G its last `touch` commits at, oldest first (TOUCHED_MAX)
         this._dirtFloor = 0;          // the log holds every commit after this G
         // The family rule (PLAN §5.1 Q15).
         this._famTraits = new Map();  // family key -> the traits plates were packed with
         this._famBefore = new Map();  // family key -> { traits, box } before this commit touched it
         // The drag's hold (A2 §2.7) and its delta.
         this._hold = null;
+        this.sweepOff = false;        // a measurement lever (F153): every drop dirties its natives' boxes
         this._atRest = 0;             // `atRest`: reads ignore the drag's delta
         this._dragVer = 0;            // one per `setDragDelta`: the key of an item's cached paint offset
         // `changesSince` (A2 §2.4).
@@ -239,7 +299,7 @@ export default class Stage {
         this._logFloor = 0;
         this._logCur = null;
         this.stats = { commits: 0, rebuilds: 0, syncs: 0, reads: 0, missed: 0, queued: 0, items: 0, rerouteDiffs: 0,
-            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, tracked: 0 };
+            dirtied: 0, familyFlips: 0, neutral: 0, held: 0, swept: 0, tracked: 0 };
         this._unsubDoc = doc.subscribe((ev) => this._onDoc(ev));
         this._unsubTile = store.onTile((ev) => this._onTile(ev));
     }
@@ -279,7 +339,11 @@ export default class Stage {
         try { return fn(); } finally { this._atRest--; }
     }
 
-    /** Whether every tile under `rect` (the frame's units) is read into the table. */
+    /**
+     * Whether every tile under `rect` (the frame's units) is read into the table: the camera frame's own, and each
+     * reroute group's whose natives are drawn there (a group drawing nothing in `rect` holds no piece of it; 49 of a
+     * crossing's 50 unread keys were such groups', every cell refused for them); every group's during a drag's hold.
+     */
     covers(frameId, rect) {
         if (!this.frame || String(frameId) !== this.frame || this._need) return false;
         for (const key of this._tileKeys(this.frame, rect)) {
@@ -287,6 +351,8 @@ export default class Stage {
             if (!k || !k.tile || this._missing.has(key)) return false;
         }
         for (const g of this._groups.values()) {
+            const b = this._hold ? undefined : this._groupBox(g);       // a drag places held natives at its delta: no skip
+            if (b !== undefined && (!b || !meets(b, rect))) continue;
             for (const key of this._tileKeys(g.F0, shifted(rect, g.rem))) {
                 const k = this._keys.get(key);
                 if (!k || !k.tile || this._missing.has(key)) return false;
@@ -316,6 +382,14 @@ export default class Stage {
             for (const [it, prev] of e.changed) if (!added.has(it) && !changed.has(it)) changed.set(it, prev);
         }
         return { added: [...added], removed: [...removed], changed: [...changed].map(([item, prev]) => ({ item, off: prev.off })) };
+    }
+
+    /** Natives touched (`touch`) at a G after G0, or null when the record does not reach back that far. */
+    touchedSince(G0) {
+        const out = [];
+        let oldest = Infinity;
+        for (const [id, G] of this._touchLog) { if (G < oldest) oldest = G; if (G > G0) out.push(id); }
+        return this._touchLog.size >= TOUCHED_MAX && oldest > G0 ? null : out;
     }
 
     /** The G at which native `id`'s shape landed (a plate at or past it paints the shape), or undefined. */
@@ -413,16 +487,18 @@ export default class Stage {
         const F = String(frameId);
         let c = this._cells.get(key);
         if (!c) {
-            c = { key, frame: F, box, dirty: 0 };
+            c = { key, frame: F, box, dirty: 0, from: this.generation };
             this._cells.set(key, c);
             let s = this._cellsByFrame.get(F);
             if (!s) this._cellsByFrame.set(F, (s = new Set()));
             s.add(c);
             this.stats.tracked = this._cells.size;
         }
-        if (sinceG != null && sinceG < this.generation) {
+        // `dirty` holds every commit after `from`: only an older `sinceG` reads the log (a RAM-tier key, F161, is re-tracked often).
+        if (sinceG != null && sinceG < c.from) {
             const d = this._dirtIn(F, sinceG, box);
             if (d > c.dirty) c.dirty = d;
+            c.from = sinceG;
         }
     }
 
@@ -440,13 +516,18 @@ export default class Stage {
     dirtySince(key) { const c = this._cells.get(key); return c ? c.dirty : 0; }
 
     /**
-     * The footprints, in `frameId`'s units, of the commits after `sinceG`: what a partial re-render
-     * clips to. Null when the log no longer reaches `sinceG` (re-render the whole cell).
+     * The footprints, in `frameId`'s units, of the commits after `sinceG` that meet `box` (everywhere by default): what
+     * a partial re-render clips to. A drop's sweep comes cut to `box`, so ask with the cell (F153). Null when the log no
+     * longer reaches `sinceG` (re-render the whole cell).
      */
-    dirtyRects(frameId, sinceG) {
+    dirtyRects(frameId, sinceG, box = EVERYWHERE) {
         if (sinceG < this._dirtFloor) return null;
         const F = String(frameId), out = [];
-        for (const e of this._dirtLog) if (e.G > sinceG) for (const r of this._rectsIn(e.states, F)) out.push(r);
+        for (const e of this._dirtLog) {
+            if (e.G <= sinceG) continue;
+            for (const r of this._entryRects(e, F)) if (meets(r, box)) out.push(r);
+            for (const s of e.states) if (s.kind === "sweep") { const r = this._sweepIn(s, F, box); if (r) out.push(r); }
+        }
         return out;
     }
 
@@ -454,10 +535,7 @@ export default class Stage {
     _dirtIn(F, sinceG, box) {
         if (sinceG < this._dirtFloor) return this.generation;
         let g = 0;
-        for (const e of this._dirtLog) {
-            if (e.G <= sinceG || e.G <= g) continue;
-            for (const r of this._rectsIn(e.states, F)) if (meets(r, box)) { g = e.G; break; }
-        }
+        for (const e of this._dirtLog) if (e.G > sinceG && e.G > g && this._meetsIn(e, F, box)) g = e.G;
         return g;
     }
 
@@ -465,6 +543,9 @@ export default class Stage {
     touch(id) {
         const rec = this.doc.getById(id);
         if (!rec) return;
+        this._touchLog.delete(id);
+        this._touchLog.set(id, this.generation + 1);
+        if (this._touchLog.size > TOUCHED_MAX) this._touchLog.delete(this._touchLog.keys().next().value);
         this._after(id, this._stateOf(rec.obj, rec.level));
         this._events++;
         if (!this._batch && !this._sync) this._commit();
@@ -480,11 +561,11 @@ export default class Stage {
      */
     hold({ ids, frames = [] }) {
         if (this._hold) this.release();
-        const h = { ids: new Set(ids), frames: frames.map(String), start: [], queue: [],
+        const h = { ids: new Set(ids), frames: frames.map(String), start: [], nat: new Map(), queue: [],
             d: null, dFrame: null, view: false, dVer: 0, dIn: new Map(), homes: new Map() };
         for (const id of h.ids) {
             const rec = this.doc.getById(id);
-            if (rec) h.start.push(this._stateOf(rec.obj, rec.level));
+            if (rec) h.nat.set(id, { s: this._stateOf(rec.obj, rec.level), geom: geomOf(rec.obj), look: lookOf(rec.obj) });
         }
         for (const f of h.frames) { const s = this._frameState(f, null); if (s) h.start.push(s); }
         this._hold = h;
@@ -515,13 +596,23 @@ export default class Stage {
         if (!this._batch && !this._sync) this._commit();
     }
 
-    /** The hold's end (a drop, a cancel, a delete): one commit — where it started, where it ends, and where the view drew it. */
+    /**
+     * The hold's end (a drop, a cancel, a delete): one commit — where it started, where it ends, and where the view drew
+     * it. A held native the view did not draw at a delta, moved by its offsets alone with the geometry it was held with,
+     * dirties its boundary pieces' sweep (`_sweepIn`, F153); the rest their boxes before and after.
+     */
     release() {
         const h = this._hold;
         if (!h) return 0;
         const drawn = h.view && h.d ? this._heldStates(this._deltaIn(this.frame)) : [];
         this._hold = null;
         this.stats.held += h.queue.length;
+        // Past RECTS_MAX natives `_grouped` boxes every sweep, so none is made. A native the drop only moved — its offsets or
+        // its home — sweeps; one another event changed keeps its boxes.
+        const sweeps = !this.sweepOff && !drawn.length && h.ids.size <= RECTS_MAX, moved = new Map();
+        for (const { ev } of h.queue) {
+            if (h.ids.has(ev.id)) moved.set(ev.id, moved.get(ev.id) !== false && (ev.kind === "change" ? !!ev.offsetsOnly : ev.kind === "remove" || ev.kind === "add"));
+        }
         this.batch(() => {
             for (const s of drawn) this._foot.push(s);
             this._quiet++;
@@ -529,8 +620,17 @@ export default class Stage {
             for (const s of h.start) this._foot.push(s);
             for (const id of h.ids) {
                 this._touched.add(id);
-                const rec = this.doc.getById(id);
-                if (rec) this._foot.push(this._stateOf(rec.obj, rec.level));
+                const rec = this.doc.getById(id), was = h.nat.get(id);
+                const now = rec ? this._stateOf(rec.obj, rec.level) : null;
+                const boxes = sweeps && was && now && moved.get(id) !== false && was.geom && geomOf(rec.obj) === was.geom && lookOf(rec.obj) === was.look
+                    ? sweepBoxes(rec.obj) : null;
+                if (boxes) {
+                    this._foot.push({ kind: "sweep", s0: was.s, s1: now, boxes, bytes: boxes.reduce((n, L) => n + L.byteLength, 0), maps: null });
+                    this.stats.swept++;
+                } else {
+                    if (was) this._foot.push(was.s);
+                    if (now) this._foot.push(now);
+                }
                 // The held pieces are the drag's start; the tiles hold its end.
                 for (const it of this.itemsOf(id)) if (it.key !== "own") this._removeItem(it);
                 const tiles = this.store.tilesOf(id);
@@ -671,6 +771,28 @@ export default class Stage {
     batch(fn) {
         this._batch++;
         try { return fn(); } finally { if (--this._batch === 0 && !this._sync) this._commit(); }
+    }
+
+    /** Where group `g`'s natives are drawn in the camera frame, their boxes' union (null: none is); kept until a member changes (`_reconcile`). */
+    _groupBox(g) {
+        if (g.box !== undefined) return g.box;
+        let b = null;
+        for (const id of g.ids) {
+            const rec = this.doc.getById(id);
+            const r = rec && this.placeNative(rec.obj, this.frame).box();
+            if (!r) continue;
+            b = b ? { left: Math.min(b.left, r.left), top: Math.min(b.top, r.top), right: Math.max(b.right, r.right), bottom: Math.max(b.bottom, r.bottom) }
+                : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        }
+        g.box = b;
+        return b;
+    }
+
+    /** The frames the table's reroute groups read moved natives' pictures from: frame GC keeps them (OPEN-FLAGS F139). */
+    sourceFrames() {
+        const out = new Set();
+        for (const g of this._groups.values()) out.add(String(g.F0));
+        return out;
     }
 
     /** Frame GC forgot a frame (A2 §2.8): its tracked cells go; its tiles went with events; the reroute is re-diffed at the next commit. */
@@ -849,29 +971,159 @@ export default class Stage {
         }
     }
 
-    /** Past RECTS_MAX states, one union state per (home, table): natives moved together map as one box. */
+    /** Past RECTS_MAX states, one union state per (home, table): natives moved together map as one box; a sweep is its two boxes. */
     _grouped(states) {
         if (states.length <= RECTS_MAX) return states;
         const out = [], groups = new Map();
-        for (const s of states) {
-            if (s.kind === "frame" || s.clip) { out.push(s); continue; }
+        const add = (s) => {
             const k = s.home + "|" + tableKey(s.table);
             const g = groups.get(k);
             if (!g) groups.set(k, { home: s.home, table: s.table, rect: { ...s.rect } });
             else g.rect = unionOf(g.rect, s.rect);
+        };
+        for (const s of states) {
+            if (s.kind === "sweep") { add(s.s0); add(s.s1); continue; }
+            if (s.kind === "frame" || s.clip) { out.push(s); continue; }
+            add(s);
         }
         for (const g of groups.values()) out.push(g);
         return out;
     }
 
-    /** A commit's footprint states in frame G's units; past RECTS_MAX rectangles, their one union box. */
+    /** A commit's footprint states but its sweeps (asked per box, `_sweepIn`) in frame G's units; past RECTS_MAX, their one union box. */
     _rectsIn(states, G) {
         const out = [];
-        for (const s of states) { const r = this._mapState(s, G); if (r) out.push(r); }
+        for (const s of states) { if (s.kind === "sweep") continue; const r = this._mapState(s, G); if (r) out.push(r); }
         if (out.length <= RECTS_MAX) return out;
         let u = null;
         for (const r of out) u = unionOf(u, r);
         return [u];
+    }
+
+    /** Logged commit `e`'s footprints but its sweeps in frame F (`_rectsIn`), kept for the lattice they were mapped in. */
+    _entryRects(e, F) {
+        const k = e.G + "|" + F, lat = this._latKey(), memo = this._rectsMemo;
+        let v = memo.get(k);
+        if (v && v.lat === lat && v.states === e.states) { memo.delete(k); memo.set(k, v); return v.rects; }
+        v = { lat, states: e.states, rects: this._rectsIn(e.states, F) };
+        memo.delete(k);
+        memo.set(k, v);
+        if (memo.size > RECTS_KEPT) memo.delete(memo.keys().next().value);
+        return v.rects;
+    }
+
+    /** Whether logged commit `e`'s footprint meets `box` in frame F. */
+    _meetsIn(e, F, box) {
+        for (const r of this._entryRects(e, F)) if (meets(r, box)) return true;
+        for (const s of e.states) if (s.kind === "sweep" && this._sweepIn(s, F, box, true)) return true;
+        return false;
+    }
+
+    /**
+     * Sweep `s`'s placement mappers into frame G, before and after, its whole boxes there, and its tree's hulls there as
+     * queries map them (`H`, a level each); kept for the lattice they were made in, for SWEEP_MAPS frames.
+     */
+    _sweepMap(s, G) {
+        const lat = this._latKey(), maps = s.maps || (s.maps = new Map());
+        let m = maps.get(G);
+        if (m && m.lat === lat) return m;
+        if (m) this._unmap(s, m);
+        const m0 = this.model.footprintMapper(s.s0, G), m1 = this.model.footprintMapper(s.s1, G), a = s.s0.rect, b = s.s1.rect;
+        m = { lat, m0, m1, A: m0 && m0(a.left, a.top, a.right, a.bottom), B: m1 && m1(b.left, b.top, b.right, b.bottom), H: [], P: {}, Q: {} };
+        maps.delete(G);
+        maps.set(G, m);
+        if (maps.size > SWEEP_MAPS) { const k0 = maps.keys().next().value; this._unmap(s, maps.get(k0)); maps.delete(k0); }
+        return m;
+    }
+
+    /** A sweep's mapping into one frame let go: its hulls' bytes. */
+    _unmap(s, m) {
+        let n = 0;
+        for (const Hk of m.H) if (Hk) n += Hk.byteLength;
+        s.bytes -= n; this._sweepBytes -= n;
+    }
+
+    /** Node (k, i) of sweep `s`'s tree in the frame `m` maps into, where it was and where it is, the two united: into `out` (kept in `m.H`). */
+    _hull(s, m, k, i, out) {
+        const L = s.boxes[k], o = i * 4;
+        let Hk = m.H[k];
+        if (!Hk && this._sweepBytes + L.byteLength <= SWEEP_BYTES_MAX) {
+            Hk = m.H[k] = new Float64Array(L.length).fill(NaN);
+            s.bytes += L.byteLength; this._sweepBytes += L.byteLength;
+        }
+        if (Hk && !Number.isNaN(Hk[o])) { out.left = Hk[o]; out.top = Hk[o + 1]; out.right = Hk[o + 2]; out.bottom = Hk[o + 3]; return out; }
+        const P = m.m0(L[o], L[o + 1], L[o + 2], L[o + 3], m.P), Q = m.m1(L[o], L[o + 1], L[o + 2], L[o + 3], m.Q);
+        out.left = Math.min(P.left, Q.left); out.top = Math.min(P.top, Q.top); out.right = Math.max(P.right, Q.right); out.bottom = Math.max(P.bottom, Q.bottom);
+        if (Hk) { Hk[o] = out.left; Hk[o + 1] = out.top; Hk[o + 2] = out.right; Hk[o + 3] = out.bottom; }
+        return out;
+    }
+
+    /**
+     * A dropped native's dirt in frame G that meets `box` (F153): each boundary piece boxed where it was and where it is,
+     * the two united — between two scale-and-translate placements every changed pixel lies in the boundary's sweep — and
+     * cut to the native's whole box before or after (a far move: those boxes). The piece tree is descended from its root,
+     * so only the pieces near `box` are mapped. Returns the union of what meets `box`, cut to it, or null — a node inside
+     * `box` taken whole, its pieces' cuts lying in its own (more, never less) — and with `any`, exactly whether anything
+     * does. A side that does not map into G is its whole box.
+     */
+    _sweepIn(s, G, box, any = false) {
+        const m = this._sweepMap(s, G), { m0, m1, A, B } = m;
+        const inA = !!A && meets(A, box), inB = !!B && meets(B, box);
+        if (!inA && !inB) return any ? false : null;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        const take = (h, X) => {
+            const u0 = Math.max(h.left, X.left, box.left), v0 = Math.max(h.top, X.top, box.top);
+            const u1 = Math.min(h.right, X.right, box.right), v1 = Math.min(h.bottom, X.bottom, box.bottom);
+            if (u0 > u1 || v0 > v1) return false;
+            if (u0 < x0) x0 = u0;
+            if (v0 < y0) y0 = v0;
+            if (u1 > x1) x1 = u1;
+            if (v1 > y1) y1 = v1;
+            return true;
+        };
+        let hit = false;
+        if (!m0 || !m1) hit = !!((inA && take(EVERYWHERE, A)) | (inB && take(EVERYWHERE, B)));
+        else {
+            const lv = s.boxes, h = {}, stack = [lv.length - 1, 0];
+            while (stack.length) {
+                const i = stack.pop(), k = stack.pop();
+                if (!meets(this._hull(s, m, k, i, h), box)) continue;
+                if (k > 0 && (any || !inside(h, box))) {
+                    if (i * 2 + 1 < lv[k - 1].length / 4) stack.push(k - 1, i * 2 + 1);
+                    stack.push(k - 1, i * 2);
+                    continue;
+                }
+                if ((inA && take(h, A)) | (inB && take(h, B))) {
+                    if (any) return true;
+                    hit = true;
+                }
+            }
+        }
+        if (any) return hit;
+        return hit ? { left: x0, top: y0, right: x1, bottom: y1 } : null;
+    }
+
+    /** `_sweepIn(s, G, c.box, true)` for each cell of `cells` not hit yet, in one descent of the tree (a commit's dirt): sets `hit[k]`. */
+    _sweepCells(s, G, cells, hit) {
+        const m = this._sweepMap(s, G), { m0, m1, A, B } = m, near = [];
+        for (let k = 0; k < cells.length; k++) if (!hit[k] && ((A && meets(A, cells[k].box)) || (B && meets(B, cells[k].box)))) near.push(k);
+        if (!near.length) return;
+        if (!m0 || !m1) { for (const k of near) hit[k] = 1; return; }
+        const lv = s.boxes, h = {}, stack = [[lv.length - 1, 0, near]];
+        const cut = (X, b) => !!X && Math.max(h.left, X.left, b.left) <= Math.min(h.right, X.right, b.right)
+            && Math.max(h.top, X.top, b.top) <= Math.min(h.bottom, X.bottom, b.bottom);
+        while (stack.length) {
+            const [k, i, ks] = stack.pop();
+            this._hull(s, m, k, i, h);
+            const on = ks.filter((c) => !hit[c] && meets(h, cells[c].box));
+            if (!on.length) continue;
+            if (k > 0) {
+                if (i * 2 + 1 < lv[k - 1].length / 4) stack.push([k - 1, i * 2 + 1, on]);
+                stack.push([k - 1, i * 2, on]);
+                continue;
+            }
+            for (const c of on) if (cut(A, cells[c].box) || cut(B, cells[c].box)) hit[c] = 1;
+        }
     }
 
     _mapState(s, G) {
@@ -932,22 +1184,37 @@ export default class Stage {
         for (const key of refresh) this._refreshKey(key);
     }
 
-    /** Set `dirtySince` on every tracked cell the commit's footprints meet, and log them. */
+    /** Set `dirtySince` on every tracked cell the commit's footprints meet (a sweep's asked for each cell), and log them. */
     _dirt(G, states, frames) {
         states = this._grouped(states);
-        this._dirtLog.push({ G, states });
-        while (this._dirtLog.length > DIRT_LOG_MAX) this._dirtFloor = this._dirtLog.shift().G;
+        const entry = { G, states };
+        this._dirtLog.push(entry);
+        this._sweepBytes += sweepBytesOf(states);
+        while (this._dirtLog.length > DIRT_LOG_MAX) { const e = this._dirtLog.shift(); this._dirtFloor = e.G; this._sweepBytes -= sweepBytesOf(e.states); }
+        if (this._sweepBytes > SWEEP_BYTES_MAX) this._trimSweeps();
+        const sweeps = states.filter((s) => s.kind === "sweep");
         for (const [F, cells] of this._cellsByFrame) {
-            const rects = this._rectsIn(states, F);
-            if (!rects.length) continue;
-            for (const c of cells) {
-                for (const r of rects) {
-                    if (!meets(r, c.box)) continue;
-                    if (c.dirty < G) { c.dirty = G; this.stats.dirtied++; }
-                    frames.add(F);
-                    break;
-                }
+            const rects = this._entryRects(entry, F);
+            if (!rects.length && !sweeps.length) continue;
+            const cs = [...cells], hit = new Uint8Array(cs.length);
+            for (let k = 0; k < cs.length; k++) if (rects.some((r) => meets(r, cs[k].box))) hit[k] = 1;
+            for (const s of sweeps) this._sweepCells(s, F, cs, hit);
+            for (let k = 0; k < cs.length; k++) {
+                if (!hit[k]) continue;
+                if (cs[k].dirty < G) { cs[k].dirty = G; this.stats.dirtied++; }
+                frames.add(F);
             }
+        }
+    }
+
+    /** Past SWEEP_BYTES_MAX the oldest commits' sweeps become their boxes before and after: more dirt for questions about them, never less. */
+    _trimSweeps() {
+        for (const e of this._dirtLog) {
+            if (this._sweepBytes <= SWEEP_BYTES_MAX) return;
+            const n = sweepBytesOf(e.states);
+            if (!n) continue;
+            this._sweepBytes -= n;
+            e.states = e.states.flatMap((s) => (s.kind === "sweep" ? [s.s0, s.s1] : [s]));
         }
     }
 
@@ -1023,6 +1290,7 @@ export default class Stage {
         this._byId.clear(); this._byKey.clear(); this._byPiece.clear(); this._byHome.clear(); this._homeOf.clear();
         this._byFam.clear(); this._famTraits.clear(); this._famBefore.clear();
         this._own.clear(); this._keys.clear(); this._keysVer++; this._winKeys.clear(); this._groups.clear(); this._gOf.clear();
+        this._winRange = null;
         this._missing.clear();
     }
 
@@ -1045,7 +1313,8 @@ export default class Stage {
         const batch = [];
         this._fillTo = batch;
         try {
-            for (const key of this._tileKeys(F, window)) { this._watch(key).win = true; this._winKeys.add(key); this._missing.add(key); }
+            this._winRange = this.lm.tileRange(F, window);
+            for (const key of this._rangeKeys(F, this._winRange)) { this._watch(key).win = true; this._winKeys.add(key); this._missing.add(key); }
             for (const g of this._groups.values()) this._watchGroup(g);
             this._readMissing(budgetMs);
             for (const nat of this.model.nativesIn(F)) if (!this._byPiece.has(nat)) this._setOwn(nat);
@@ -1057,28 +1326,38 @@ export default class Stage {
         if (this._cells.size) for (const [fk, s] of this._byFam) this._famTraits.set(fk, this._traitsOf(s));
     }
 
-    /** A window change: tiles that left go, tiles that entered are read (A2 §2.12). */
+    /**
+     * A window change: tiles that left go, tiles that entered are read (A2 §2.12). A tile range that did not change has
+     * the same keys, so it is skipped: a step changes none of them unless it crosses a tile line (OPEN-FLAGS F150).
+     */
     _setWindow(window) {
         this.window = { ...window };
-        const next = new Set(this._tileKeys(this.frame, window));
-        for (const key of this._winKeys) {
-            if (next.has(key)) continue;
-            const ks = this._keys.get(key);
-            if (ks) { ks.win = false; this._retire(ks); }
+        const r = this.lm.tileRange(this.frame, window);
+        if (!sameRange(r, this._winRange)) {
+            this._winRange = r;
+            const next = new Set(this._rangeKeys(this.frame, r));
+            for (const key of this._winKeys) {
+                if (next.has(key)) continue;
+                const ks = this._keys.get(key);
+                if (ks) { ks.win = false; this._retire(ks); }
+            }
+            for (const key of next) {
+                if (this._winKeys.has(key)) continue;
+                const ks = this._watch(key);
+                ks.win = true;
+                if (ks.tile) this._refreshKey(key); else this._missing.add(key);
+            }
+            this._winKeys = next;
         }
-        for (const key of next) {
-            if (this._winKeys.has(key)) continue;
-            const ks = this._watch(key);
-            ks.win = true;
-            if (ks.tile) this._refreshKey(key); else this._missing.add(key);
-        }
-        this._winKeys = next;
         for (const g of this._groups.values()) this._watchGroup(g);
     }
 
     /** A group's tiles over the window shifted back by its remainder; the ones it no longer needs are let go. */
     _watchGroup(g) {
-        const next = new Set(this._tileKeys(g.F0, shifted(this.window, g.rem)));
+        const r = this.lm.tileRange(g.F0, shifted(this.window, g.rem));
+        if (sameRange(r, g.range)) return;
+        g.range = r;
+        const next = new Set(this._rangeKeys(g.F0, r));
         for (const key of g.keys) {
             if (next.has(key)) continue;
             const ks = this._keys.get(key);
@@ -1146,9 +1425,10 @@ export default class Stage {
         if (nat && this.model.drawnLive(nat, this.frame)) {
             if (!own || own.piece !== nat) { if (own) this._removeItem(own); this._setOwn(nat); }
         } else if (own) this._removeItem(own);
-        // Its group.
+        // Its group (whose box it is part of).
         const was = this._gOf.get(id);
         const now = nat && d ? d.groupOf(id) : undefined;
+        for (const gk of [was, now]) { const g = gk !== undefined && this._groups.get(gk); if (g) g.box = undefined; }
         if (was !== now) {
             if (was !== undefined) {
                 this._gOf.delete(id);
@@ -1164,7 +1444,7 @@ export default class Stage {
                 let g = this._groups.get(now);
                 if (!g) {
                     const src = d.groups.get(now);
-                    g = { gk: now, F0: String(src.F0), rem: src.rem, ids: new Set(), keys: new Set() };
+                    g = { gk: now, F0: String(src.F0), rem: src.rem, ids: new Set(), keys: new Set(), box: undefined };
                     this._groups.set(now, g);
                     g.ids.add(id);
                     this._watchGroup(g);
@@ -1200,6 +1480,7 @@ export default class Stage {
             this._retire(ks);
         }
         g.keys = new Set();
+        g.range = null;
     }
 
     /** Frames under a re-addressed frame: their watched tiles are stale by `chainSeq`, read again. */
@@ -1216,9 +1497,17 @@ export default class Stage {
 
     // ---- tiles ----
 
-    _tileKeys(F, rect) {
-        const r = this.lm.tileRange(F, rect), out = [];
+    _tileKeys(F, rect) { return this._rangeKeys(F, this.lm.tileRange(F, rect)); }
+
+    /** The tile keys of range `r` of frame F, both directions: one array per (F, r), never to be changed by a caller. */
+    _rangeKeys(F, r) {
+        const mk = F + "|" + r.i0 + "," + r.i1 + "," + r.j0 + "," + r.j1;
+        let out = this._rangeMemo.get(mk);
+        if (out) return out;
+        out = [];
         for (let i = r.i0; i <= r.i1; i++) for (let j = r.j0; j <= r.j1; j++) for (const dir of DIRS) out.push(F + "|" + dir + "|" + i + "," + j);
+        if (this._rangeMemo.size >= RANGE_MEMO_MAX) this._rangeMemo.delete(this._rangeMemo.keys().next().value);
+        this._rangeMemo.set(mk, out);
         return out;
     }
 

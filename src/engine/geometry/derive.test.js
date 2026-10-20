@@ -10,6 +10,7 @@ import {
 } from "./derive";
 import purple from "../__fixtures__/bug02-purple.json";
 import { windingOfPoint } from "./hittest";
+import { Loop } from "./loop";
 import { cedeRect } from "../__oracles__/cede";
 
 jest.setTimeout(30000);
@@ -218,6 +219,17 @@ describe("classifyUp — the symmetric magnify size policy (new)", () => {
         // a covering quad stays SOLID one more step up (self-propagation)
         expect(classifyUp(q, s, t, { left: 0, top: 0, right: 24000 * 3000 + 1, bottom: 18000 * 3000 }, cfg, null)).toBe("edge"); // tile pokes past the quad's image
         expect(classifyUp(q, s, t, { left: 100, top: 100, right: 200, bottom: 200 }, cfg, null)).toBe("solid"); // inside image of quad
+    });
+    test("a shape that cannot reach the tile is EMPTY, and deriveStep culls it before its loops (F142)", () => {
+        const c = [[100, 100], [110, 100], [110, 110], [100, 110]];
+        const far = { type: "shape", origin: "native", id: 9, color: "#123456", opacity: 1,
+            loops: [Loop.from(c.map((A, i) => ({ line: true, A, B: c[(i + 1) % 4] })))] };
+        expect(classifyUp(far, s, { x: -1e6, y: -1e6 }, rect, cfg, null)).toBe("empty");
+        const out = deriveStep([{ ...far, loops: null }], s, { x: -1e6, y: -1e6 }, rect, 1, {
+            cfg: { base: 0.1, enter: 300, arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, lineModeLevel: 2, scale: 1000 },
+            width: 800, opacityGroups: true, live: null, parentCurved: true, childCurved: false,
+        }, []);   // `loops: null` throws if the shape path runs; the box is read from `_bbox`
+        expect(out).toHaveLength(0);
     });
     test("band edge crossing the tile is EDGE, and deriveStep is its exact backstop", () => {
         const o = mkStroke(3, [[-20, 6], [20, 6]], 2); // half 3000: band [15000..21000] horizontal strip edge in tile

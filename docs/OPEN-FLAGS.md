@@ -19,6 +19,44 @@ When summarising status for a handoff, point at this file by path.
 
 **2026-10-07:** Kobin's first Chrome session on the rebuilt renderer (reports R1–R6, 2026-10-06) filed as F142–F150, with F139 widened (every drop) and F57 updated; the review's files are in `.claude/REVIEW-2026-10-06/` (gitignored).
 
+**2026-10-20, night:** F166 filed and BUILT IN PART (jsdom): Kobin's zoom-out paper on the Magnum Opus, replayed; the far plan retries its reads and keeps its cached cells protected, and a plan with paper renders a coarse net on the main thread (`netMs`). The cause is open: the tile reads after a crossing (327 derivations, 7.4 s in jsdom at depth 10). Kobin: F158's levers are fine if the tiles stay bit-identical; tier 3 of the plate store if needed.
+
+**2026-10-20, evening:** F165 filed: in Kobin's Magnum Opus report a refused raster job was thrown out of the dispatch and its cells stayed paper; the dispatch FIXED (dropped and asked again, or sent without its row runs), and the cause found and FIXED — the row runs' array was sized one short for multi-ring items (F154). Kobin: the drag plane's cap stays 5 (F144); the ants during a zoom stay as they are (decision 4); commit after the zoom-out paper is looked at; `setDeviceName` deleted.
+
+**2026-10-20:** F164 filed and BUILT IN PART (jsdom): the memory layout, measured in Kobin's Chrome heap snapshot of the Magnum Opus (the document 64 MB, its undo 18.5 MB). Equal offset tables now share one frozen array, and a drag's journal entry keeps 120 members, not every one (5,771 a drag there). Five drops of 6,000 selected shapes: undo 363 → 126 B a member, journal 8.06 → 0.17 MB. Then lever 2: a loop's record index is built at its first random access (R6 loaded: none of 44,550 built, the engine −8 MB in jsdom); lever 3: the family map keeps families only (R6: 0.11 MB, was 10.95); lever 4: the spatial index shares a shape's cached box (R6: −5.3 MB); lever 5: a load shares its natives' header strings. All five built; Chrome needs his next heap snapshot.
+
+**2026-10-19:** Codex's review of F153, F157 and F163 (2026-10-15) taken in: its one finding fixed (F153: a pen-up group could take a plate packed without the held ink and take its live path down over no plate); its F157 cover cases and stronger RAM checks are permanent tests; F157's evidence and its cost where nothing covers recorded. F153 BUILT per piece, damage asked per cell: R4's drop dirties 5 of the view level's 24 cells (was 24), nothing missed at any level, 64 cells it leaves exact checked unchanged (jsdom); in Chrome on R4 the drop's re-render work about halved and the stale picture's screen time −80 %. Later: F145 BUILT (jsdom): each drag-plane layer is cut at its own resolution,
+so R4's selection is drawn at the view's resolution on screen while it is dragged (was ¼) and R3's at ½ (was ¼), nothing
+coarser than before. F157's cost re-measured interleaved — Test eraserisms +1 to +4 %, not +5 to +12 % — and a per-plate
+budget of failed cover proofs built (the same jobs on both saved canvases). Then Kobin's two reports that afternoon (still
+blurry: dragging an object drew the rest of the drawing at ¼; dragging a massive object behind everything drew everything
+over it at ¼): F145 REWORKED — what a selection moves over is cut sharpest first, each layer is drawn from one surface (no
+compose cliff), paper under the selection needs no plates, the desktop cap is 64; in Chrome both drags draw everything on
+screen at the view's resolution, at 60 fps. F144 BUILT IN PART (the merge takes the run with the least area on screen).
+Kobin's next message ("way better"; a line through a part dragged in from past the screen, gone at the drop; that part
+blurry for as long as he held it; F144's cap and whether the swap's error depends on which layer is on top): the line
+FIXED (a magnified layer surface blended its edge with the transparent cell beside it; edges are copied into the cells
+another layer draws — Chrome, the edge pixel 158,30,72 → 200,30,30) and the held blur FIXED (a drag held 250 ms has what
+came on screen cut again sharper — Chrome, 14:35's: whole 0.28 s into the hold, the edges that came in 2.9 px wide against
+3.7, as sharp as the rest of the screen); F144 BUILT (a selected run swaps past the unselected run beside it whose swap
+shows least, area × area × opacity × opacity × colour difference; R1's drag exact at the 5-layer cap, jsdom). Then F154
+BUILT (2026-10-19/20): the core skips an outline's runs of pieces that cannot reach a plate's rows, the same bytes; jsdom
+R4's 18 screen plates 2.4× faster; in Kobin's Chrome on R4 the rest plates' worker time −23 %, the view's −29 %, the screen redrawn 20 % sooner after a full drop, edges identical.
+
+**2026-10-15:** F153 BUILT IN PART (a drop dirties its moved boundaries' sweep, not their boxes — sound, but on R4 still every cell: per-piece hulls merged per cell are next; plates packed mid-drag without the held ink go at the drag's end); F163 found by F153's new test and BUILT (the far prefetch packed cells from a snapshot of less than them); F157 BUILT exact with a polygon-contains-plate test and a top-down walk (the Magnum Opus's deep views: the pack −80 to −88 %). None of it measured in Chrome yet.
+
+**2026-10-14:** F161 BUILT (Kobin's tiered plate cache, tier 2: evicted plates kept packed in RAM and restored; on the
+Magnum Opus a minute of zoom/pan cycles showed a third of the paper and blur and of the main thread's packing); F159
+widened (four quick `raster.pyramid` tests red on main too). Later: F155 measured and deferred (the geometry and the
+job's arrays are 9 % of the pack); F162 filed and BUILT in part (every strip walked every family; the Magnum Opus's
+packing 1,424 → 1,006 ms a minute); F157 built, measured and taken out (its covers are not boxes on the Magnum Opus).
+
+**2026-10-13, later:** Kobin's go-ahead on the analysis's fixes (all but the ants hold): F142 BUILT, checked tile for tile against HEAD's derivation on R4, R6 and his two live canvases; F156 BUILT; the Stage's per-step key strings gone (F150's row); F160 found from his heap snapshots and BUILT (a closed canvas stayed in memory); F158 (what a cold bake still spends: a surviving shape's whole perimeter clipped per tile) and F159 (five slow tests red on main) filed. Still to build from the analysis: F153, F145, F157, F154, F155.
+
+**2026-10-13:** the deep performance analysis (Kobin's Chrome + two agents; `.claude/PERF-DEEP-2026-10-12/`: chrome.md, audit.md, research.md, SUMMARY.md): F139 and F151 BUILT (drop 0.83–0.91 s → 57–78 ms in Chrome), F149 partly built, F152 found and BUILT (zoom-out paper), F153–F157 filed from the audit, F145 and F147 updated.
+
+**2026-10-12:** Kobin's memory question ("would the keep rule make memory worse?"): F151 filed (frame GC strips the tile store's camera pins), F139's lever corrected (the keep rule alone is not enough), F150's memory evidence added; detail in `.claude/REVIEW-2026-10-06/mem.md`.
+
 Last updated **2026-09-22** by the docs pass: every index row checked against its section and
 the code — F60's row closed (its section and `boundless-ui.css` already said fixed), F81 closed by
 Kobin's decision, F29/F30/F34/F23's rows brought to their 2026-09-07 closures, rows added for
@@ -96,18 +134,34 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
-| [F150](#f150) | **the Magnum Opus's steady state is not attributed: ~40 select taps of 300–358 ms, a 3.8 s click, crossings 0.3–0.7 s, camera steps whose `eng.list` is 10–108 ms at depth 10** — Kobin's report 2026-10-07T03-39-00 (R6, 43,135 natives, 24,900 moved): 7 % of frames 50–250 ms (≈ 137 s of 442 s sampled). Inferred candidates: the table's per-step sync over 24,900 displaced natives (`_watchGroup` per group per step, `_rerouteGroups` per new frame), a tap's `flushBakes()` walking every native, the ants' decision | `Stage._setWindow` / `_watchGroup`, `TileStore._rerouteGroups`, `KobinEngine._tapBarrier` | open — needs a Chrome profile (10 s of zooming at depth 10; one tap) |
-| [F149](#f149) | **zooming with a selection re-decides and repaints the ants every few frames: `ovl.tail` 4–56 ms a camera frame** — Kobin's reports R3/R6 (2026-10-06): 41.8 and 55.9 ms at 03:19:16–17 UTC, 4.3–17.8 ms on the Magnum Opus, 26.7 s over the session. The kept decision is dropped whenever the Stage's G moves, and every tile read that installs items commits a G | `overlays.js` `_selDecide` keep test (~682–708), `Stage.js` ~661, `OverlayLayer.js` ~501–524 | open (inferred split; profile first) |
+| [F166](#f166) | **zooming out on the Magnum Opus showed paper: its far set was never built (every off-camera read ran past its budget and nothing tried again), and after each crossing the new frame's tiles took seconds to derive, so nothing could be asked or drawn** — Kobin's report 2026-10-20 15:54 ("tons of white space … I'd prefer blurry images or slow framerate to this much paper"), replayed in jsdom (`zoomout.paper.probe.js`: his bursts of ~4.2 octaves in 7 frames with ~400 ms still between, from depth 11 to the root, the workers answering 3 jobs a frame 2 frames after posting) | `prefetch.js`, `RasterRenderer._pyrPrefetch`, `PicturePyramid.setFar` / `_net` / `compose`, `TileStore.readTiles`, `Stage.covers` | **BUILT IN PART 2026-10-20 (jsdom)**: the far plan tries its reads again every 100 ms while the camera is still, and protects its cached cells too; the net — a plan with paper renders at most 6 cells 3 octaves coarser on the main thread when estimated within `netMs` (a Dev panel lever, off by default until measured in Chrome; the replay ran it at 120 ms). Replay: paper 2,047 → 1,808 ms, blur 3,525 → 3,422 ms in ~16.5 s. **Open, the cause: tile reads** — after a crossing 327 tile derivations at depth 10 (7.4 s in jsdom), 169 at depth 8 (4.5 s); one far step 1–4 s; ~95 moved-object groups each read their own tiles. Levers: F158 (Kobin 2026-10-20: yes, if tiles stay bit-identical), a tile memory tier (his idea), reads scoped to a group |
+| [F165](#f165) | **a raster job the pool's check refused was thrown out of the dispatch, neither posted nor dropped, so its cells stayed paper; and Magnum Opus jobs carried row runs that do not tile a loop** — Kobin's report 2026-10-20 15:54 (the Magnum Opus, a realistic zoom-out from level 7): 17 page errors "rasterJob: item N sub 1's run 11 does not tile its loop (F154)", the first 33 ms after the canvas opened at level 7; the session showed 17.9 s of paper against 2.5 s of blur in ~11 min; 5,016 jobs posted, 4,994 arrived | `rasterWorkerClient.dispatch` (`wireJob` outside the pack's try), the row runs' source (unknown) | **the dispatch FIXED 2026-10-20**: a refused job is dropped (`invalid`) and its cells asked for again; one whose row runs alone are wrong is sent without them (the core walks every piece, the same pixels), counted and its first item described in the worker report (`badRuns`, `badRunsFirst`); `raster.badruns.test.js` (2), both breaks red. **The cause FOUND and FIXED the same evening**, from the item the new report field named in his own tab: `rowRuns` sized its runs from the item's length alone (its points ÷ 16, or numbers ÷ 3 ÷ 16, rounded up once), but every loop over 16 pieces rounds up on its own: the Magnum Opus's item 47060, three rings of 276, 182 and 4 points, needs 18 + 12 = 30 runs in room for 29; the 30th was dropped (a typed array ignores a write past its end) and the job read the next item's first run as ring 2's twelfth. Now counted exactly before they are written; two sizing tests, both red on the old size. His tab at the opening view (level 7): 10 of 148 jobs refused before, 0 of 74 after. Quick suite: the 4 known reds |
+| [F164](#f164) | **the undo history and the gesture journal kept a full record per moved object, and every native its own copy of its offset table** — found 2026-10-20 in Kobin's Chrome heap snapshot of the Magnum Opus (2026-10-13): the document 64 MB of a 222 MB heap, its undo 18.5 MB — 9 drags of the 5,771-member group, ~2 MB each (two table copies a member; 200 such drags could hold ~400 MB); 24,901 tables of ~95 values. Measuring the fix found a drag's journal entry listing every member (40 gestures kept) | `geometry/offsets.js` (`internBelow`), `Document.js` (`_noteBelow`, `nativeFromRecord`, `setOffsetsById`), `selection.js` (`_dropMove`), `oplog.js` | **BUILT IN PART 2026-10-20** (jsdom): equal tables share one frozen array; a drag's journal entry keeps 120 members and the count. Five drops of 6,000 selected shapes: undo 10.4 → 3.6 MB (363 → 126 B a member), journal 8.06 → 0.17 MB, the natives' tables 6,000 → 1. Lever 2: a loop's record index is built at its first random access — R6 loaded: none of 44,550 loops indexed, the engine 128–130 → 119–122 MB, load time unchanged. Lever 3: the family map keeps families only — R6: 448 groups in 0.11 MB, was 43,031 in 10.95 MB. Lever 4: the spatial index shares a shape's and a fill's cached box (frozen) — R6: 43,135 copies, 5.27 MB, gone. Lever 5: a load shares its natives' type, origin and colour strings — 43,135 records from a structured clone 15.14 → 12.18 MB (plain Node; JSON.parse shared them already). `memory.layout.test.js` (9); 21 of 22 breaks red. Not yet: Chrome (his next heap snapshot, `.claude/PERF-DEEP-2026-10-12/memory-chrome-2026-10-20.md`) |
+| [F163](#f163) | **a far prefetch plate could miss what lies past its snapshot: the snapshot was over 2.5 zoomed-out screens, its cells up to 4× wider** — found 2026-10-15 by F153's soundness test (jsdom): at Z 2⁻⁷ a moved square's piece from the next cache square, shifted into the cell, was missing (1,536 px) from a plate the store called exact | `prefetch.js` | **BUILT 2026-10-15**: the far and crossing snapshots read over every cell they pack (`cellsOf`); `prefetch.test.js` far levels, `raster.dropdirt` D5 seed 41 |
+| [F162](#f162) | **every strip's pack walked every family of the list: on the Magnum Opus ~2 ms a strip before its first plate, 65 % of the main thread's packing** — found 2026-10-14 (Kobin's Chrome, measuring F155: the geometry and the job's arrays were 9 % of the pack) | `rasterPack.js` (`recLive`, `prepassFor`) | **BUILT in part 2026-10-14**: the pack 1,424 → 1,006 ms a minute of zoom/pan cycles; the walk itself stays (lever in the section) |
+| [F161](#f161) | **a plate evicted from the store and needed again was made from scratch: 68 % (Magnum Opus) and 72 % (Test eraserisms) of the plates made in zoom/pan cycles, every one of them exact** — measured 2026-10-13 for Kobin's tiered-plate-cache idea (`.claude/PERF-DEEP-2026-10-12/plate-cache.md`) | `PyramidStore` (its RAM tier, `plateRam.js`), `plateCodec.js`, `worker/rasterWorker.js`, `rasterWorkerClient.restorePlate`, `RasterRenderer._ramRestore`, `PicturePyramid._requestView`, `prefetch.js`, `jobQueue._admit`, `Stage.track` | **BUILT 2026-10-14 (tier 2 of his three)**: in his Chrome, a minute of zoom/pan cycles on the Magnum Opus with the tier against without: paper 64 vs 204 ms, blur 445 vs 1,600 ms, main-thread pack 1.3 vs 4.0 s, 496 vs 1,742 plates rastered (1,355 restored); the tier held 321 plates in 3.2 MB |
+| [F160](#f160) | **a closed canvas stayed in memory, its whole engine and drawing, until the next canvas replaced it; and the pack memo pinned every piece it had packed** — found 2026-10-13 from Kobin's heap snapshots: after leaving the Magnum Opus the tab kept ~700 MB–1 GB (918 MB, 361 MB once the memo was cleared by hand), held by `window.__kobinSaver` (a dev handle never cleared), the worker client's slot-freed pump, and the pack memo (a Map keyed by pieces; ~560 MB for its 64 MiB count) | `useKobinEngine` cleanup, `RasterRenderer.destroy`, `rasterWorkerClient.setOnSlotFreed`, `rasterPack` MEMO | **BUILT 2026-10-13**: the engine is collected after every visit (WeakRef check); the gallery after one and two Magnum Opus visits 40 and 85 MB |
+| [F159](#f159) | **five slow tests are red on main (b2291ce), all five also red on the `performance` branch; and four quick `raster.pyramid` tests (2026-10-14)** — found 2026-10-13 (the first slow run on this machine with `.kobin-reports` present): SC-2 (half a composition dragged far away never arrives), NB-2 ×2 (a level-4 detail moved from level 0 does not move: Δ 0 for 100 px), persist's real-report round trip (3 old reports, 08-15 ×2 and 08-26, whose shapes' loops the load repairs), perf.bench on `dense-screen.json` (`this._objs is not a function`) | `scenes.erase.slow`, `neighborhood.slow`, `persist.slow`, `perf.bench.slow` | open — not investigated; the cloud's slow runs skip the report-based two (no `.kobin-reports`) |
+| [F158](#f158) | **with F142's cull, a cold bake's time is a surviving shape's whole perimeter clipped once per tile** — found 2026-10-13 (jsdom, R4's 5,130 tiles, 32.0 s): `deriveStep` 78 %, of it `clipShapeToRect` 15.9 s (15.5 ms a call for ~13 pieces out), `insideShape` 4.3 s (a flat scan of ~790 pieces), the chop 2.2 s; the 2,417 shapes that survive carry 447 pieces each on average and every visited child tile transforms, chops, boxes, welds and classifies all of them — Kobin's "complex in the background, simple on screen" | `geometry/derive.js` `deriveStep` shape branch, `shapeLoopsInRect`; `arcShape.shapeBooleanOnce` | open — levers in the section; each is on the derivation path (a compatibility event, like F142) |
+| [F157](#f157) | **every family under an opaque one is still baked, packed and shipped to the workers** — found 2026-10-13 (audit, jsdom): on the Magnum Opus at depth 10, 51 of 72 on-screen families are fully hidden | `rasterPack.js` | **BUILT 2026-10-15** (jsdom only): a plate's cover is an opaque family whose outline provably holds the plate; what lies under every plate's cover is left out and the walk stops once every plate of the strip has one. Byte-identical on 24 camera × level rows of R4 and R6 and (Codex's review) 40 rows, 521 plates of Kobin's saved Test eraserisms and Magnum Opus; `raster.occlusion.test.js` P1–P22 (27 cases), five breaks red. R6's pack −80 to −88 %. Re-measured interleaved (2026-10-19, 15 rounds, order rotated): Test eraserisms +1 to +4 % (no proof is ever tried there; the review's +5 to +12 % packed off first), the Magnum Opus ±2 % with its proofs remembered and +13 % on new plates (1,085 proofs a sweep, all needed for its 250 covers), −31 % bytes. **Budgeted 2026-10-19:** a plate stops proving after 64 failed proofs or 16,384 proof nodes (`COVER_TRIES`, `COVER_NODES`): the same jobs on all 354 strips of the two saved canvases and R6; a dense plate with no cover ×10–17 → ×1.9–2.1 on new plates (jsdom); B1–B6, nine breaks red. Not yet: Chrome (the Magnum Opus's +13 % on new plates first) |
+| [F156](#f156) | **an up-tile bake scans its whole parent cell** — found 2026-10-13 (audit): `TileStore._bakeUp` takes `doc.cellList(parent)` whole (~351) where the ring uses `doc.queryRect` (~447); on R4 16 up tiles each scanned all 2,034 natives (91 % of 35,765 cull calls, 79 of 106 tiles empty); on R6 423,504 calls over 87 % of the drawing for 16,223 pieces | `TileStore._bakeUp` | **BUILT 2026-10-13**: `TileStore._cellNatives` queries the cell's spatial index over the pre-image padded past the seam pad, and `classifyUp` still decides; identical tiles on both of Kobin's live canvases (11,538), cold bakes −5 to −6 % (with F142 in, the scan was ~3.5 % of a bake; the rest is F158) |
+| [F155](#f155) | **the same geometry is re-sent to the workers ~21× a zoom cycle** — found 2026-10-13 (audit + Chrome): 99.8 % of job bytes are geometry; R4's zoom cycle posted 5.1 MB for 237 KB of distinct items (jsdom), and 100–120 MB a fast cycle in Chrome — most of the ~300 MB a cycle allocates | `rasterPack.js`, `rasterWorkerClient`, the worker | open, **deferred 2026-10-14 by measurement**: on the Magnum Opus a per-worker cache would cut a minute's 87 MB of jobs to ~30 MB but only ~0.1 s of the main thread's 1.0 s of packing (the pack's time was F162) — lever: a worker-resident geometry cache keyed by memo entry + version (a protocol change) |
+| [F154](#f154) | **the raster core visits every piece of every item whose box meets the plate** — found 2026-10-13 (audit): on R4's view 61,456 piece visits over 18 plates, 20 % in the plate's rows, 8 % meeting it — 83–86 % of core time; an early arc prune changed nothing (the cost is the visit) | `rasterCore.js` (`rowRuns`, `emitItem`, `loadUnionItem`), `rasterPack.js` (`geomOf`), `rasterJob.js` (`runs`, `subRun`) | **BUILT 2026-10-19/20**: each geometry's loops cut into runs of 16 pieces with the rows they can reach (an arc's bulge, major arc or whole turn in), memoised in the pack and shipped in the job; a plate skips the runs that miss its rows, so every sum is the whole walk's to the bit. jsdom: R4's 18 screen plates 200–258 → 84–106 ms, 0 bytes different; the Magnum Opus unchanged (84.6 → 84.2 ms: its pieces lie in their rows). Chrome on R4: the rest plates' worker time −23 %, the view's −29 %, the screen redrawn 20 % sooner after a full drop, edges identical. `rasterCore.runs.test.js` (9); 20 breaks red. Its runs' array was one short for multi-ring items until 2026-10-20 (F165) |
+| [F153](#f153) | **a drop dirties every plate cell at every level, so unchanged ink is re-rendered and shown blurred meanwhile** — found 2026-10-13 (audit, jsdom, R4): one commit of 24 native-box footprints dirtied 128 of 128 tracked cells | `Stage` footprints (`release`, `_sweepIn`, `_sweepCells`), `PyramidStore.endHeld`, `PicturePyramid._heldStale` | **BUILT 2026-10-19** (jsdom; Chrome on R4): a shape or fill the drop only moved — its offsets or its home, with the geometry and look it was held with — dirties each boundary piece boxed where it was and where it is, cut to its whole boxes before and after, asked per cell (`dirtyRects(F, sinceG, box)`); plates packed without the held ink go at the drag's end, and a pen-up group never takes one (Codex's review). R4's drop: 5 of 24 view-level cells (was 24), 56–58 tracked cells (was 126–128), no changed pixel missed at any level, 64 cells left exact checked unchanged; `dirtyRects` median 0.08 ms, the drop's `_dirt` 5.3 ms. Chrome (R4, second engine, sweep off → on): 126 → 56 cells dirtied, 20 → 13 plates re-rendered, worker 118–147 → 62–79 ms, the older picture shown 23–41 → 5–7 ms, landing 26–56 → 26–32 ms. `raster.dropdirt.test.js` (sound, unmasked where left exact, tight), `stage.hold.test.js`, `PicturePyramid.patch.test.js`, `PyramidStore.ram.test.js`; break-checked. Not yet: the prefetch's stale coarser levels patched by clip |
+| [F152](#f152) | **zooming out showed white paper for 1.5–2 s after every crossing, with the workers idle** — found 2026-10-13 (Chrome, R4, a 2 octave/s zoom): three gates in a row — the velocity rule counted the zoom's own translation as pan and dropped every view strip as off screen (185 drops, none dispatched); a moving camera read no tiles, so the new frame's stayed unread; and `covers` waited on reroute groups drawing nothing in the window (49 of 50 unread keys) | `RasterRenderer._pyrMotion`, `KobinEngine._syncStep`, `Stage.covers` | **BUILT 2026-10-13**: paper 2,236 → 121 ms, blur 4,133 → 916 ms (34 / 540 ms with F142's cull), 96 % of cells sharp while zooming out; 4 frames of 50–83 ms in 12 s until F142 |
+| [F151](#f151) | **frame GC strips the tile store's camera pins and the Stage never sends them again, so a drop throws away the tiles the view reads and re-bakes them** — found 2026-10-12 (jsdom, report R4): of the 56 tiles R4's view reads through its reroute groups 2 were pinned; each drop's batch write dropped 54 of them (+49 chain parents) and the drop's render re-baked 103 tiles: 3.7–4.4 s and ~1.37 GB allocated a drop (× F142). With F139's keep rule and the pins sent again: 21–83 ms, ~13 MB | `TileStore.forgetFrame` (deletes the pins), `Stage.sync` (~660, pins only when its key set changes), `selection._dropMove` `setBatch(true)`, `TileStore._tileLive` | **BUILT 2026-10-13**: `TileStore.forgetFrame` leaves the pins (they are the Stage's; `frame.gc.test.js` G15) |
+| [F150](#f150) | **the Magnum Opus's steady state is not attributed: ~40 select taps of 300–358 ms, a 3.8 s click, crossings 0.3–0.7 s, camera steps whose `eng.list` is 10–108 ms at depth 10** — Kobin's report 2026-10-07T03-39-00 (R6, 43,135 natives, 24,900 moved): 7 % of frames 50–250 ms (≈ 137 s of 442 s sampled). Inferred candidates: the table's per-step sync over 24,900 displaced natives (`_watchGroup` per group per step, `_rerouteGroups` per new frame), a tap's `flushBakes()` walking every native, the ants' decision | `Stage._setWindow` / `_watchGroup`, `TileStore._rerouteGroups`, `KobinEngine._tapBarrier` | open — needs a Chrome profile (10 s of zooming at depth 10; one tap). 2026-10-13: the per-step key strings are gone — `_setWindow` and `_watchGroup` skip an unchanged integer tile range, `covers` reuses one key array per (frame, range) (`stage.window.test.js`, break-checked) |
+| [F149](#f149) | **zooming with a selection re-decides and repaints the ants every few frames: `ovl.tail` 4–56 ms a camera frame** — Kobin's reports R3/R6 (2026-10-06): 41.8 and 55.9 ms at 03:19:16–17 UTC, 4.3–17.8 ms on the Magnum Opus, 26.7 s over the session. The kept decision is dropped whenever the Stage's G moves, and every tile read that installs items commits a G | `overlays.js` `_selDecide` keep test (~682–708), `Stage.js` ~661, `OverlayLayer.js` ~501–524 | **partly built 2026-10-13**: a G whose deltas touch no selected item keeps the decision (`overlays._selUntouched`, `Stage.touchedSince`; `selection.indicator.test.js`); a zoom still re-decides at every 1.25× of drift (`SEL_REDECIDE_DRIFT`), ~3.6 ms a decision on R4 in Chrome, ~1 s a fast zoom cycle — a retained overlay is the lever (`.claude/PERF-DEEP-2026-10-12/research.md` item 2) |
 | [F148](#f148) | **after a drop the view shows the pre-drop picture while the moved family's tiles are unread, and better pictures go unused** — Kobin's report 2026-10-07T03-24-11 (R4): "blurrage, whitespace, pieces jumping … I am skeptical that the right temporary pictures were being shown". R3 → R4 (277 s): 27 % of the screen-time not exact — blur 12.7 %, older-while-unread 13.6 %, paper 0.7 %. The exact post-drop rest set is discarded at every crossing; rule (c) never reads the frame left's plates; far plates do not stay | `PicturePyramid._planCell` / `_kids` / `_discardRest`, `PyramidStore` ranks, `prefetch.js` | open |
-| [F147](#f147) | **a white flash: after drops of a screen-covering family, a fast zoom-out across a crossing drew whole frames of paper** — Kobin's report 2026-10-07T03-26-51 (R5): two composes drew no plate at all (03:26:48.557 and .847 UTC), the whole screen white for 0.29–0.84 s, partly white to ~49.3. Stale plates are evicted first, the frame left keeps every plate it had, far plates are evicted on landing, and a stale finer plate is never a source | `PyramidStore.rankOf` / `_evict`, `PicturePyramid._planCell` (c)/(f), `prefetch.js` far set | open (mechanism modelled in jsdom, shape matched) |
+| [F147](#f147) | **a white flash: after drops of a screen-covering family, a fast zoom-out across a crossing drew whole frames of paper** — Kobin's report 2026-10-07T03-26-51 (R5): two composes drew no plate at all (03:26:48.557 and .847 UTC), the whole screen white for 0.29–0.84 s, partly white to ~49.3. Stale plates are evicted first, the frame left keeps every plate it had, far plates are evicted on landing, and a stale finer plate is never a source | `PyramidStore.rankOf` / `_evict`, `PicturePyramid._planCell` (c)/(f), `prefetch.js` far set | open (mechanism modelled in jsdom, shape matched) — 2026-10-13: probably F152 (a zoom-out's strips dropped as off screen), built; check again in Chrome |
 | [F146](#f146) | **a phantom dashed circle beside a lassoed cut family** — Kobin's report 2026-10-07T03-17-06 (R2) and screenshot: F103's fallback dot drawn for a selected frame whose natives are traced as ids (so the frame never counts as shown), with no size cap (r 26.6 px), placed by the frame's shift without the natives' own tables (11, 22 px off) | `overlays.js` `_selDecide` (~763–834), `_selFrameInk` (~670–675) | open (reproduced in jsdom at the report's camera) |
-| [F145](#f145) | **a dragged object is drawn at ⅛ to 1/32 of the screen's resolution, and the drag plane is rebuilt from nothing at every drag** — Kobin's report 2026-10-07T03-19-33 (R3): "way fuzzier than they should be … once I move it it loses all of that information". R3's selection: main level 3 octaves under the view, quick level 5; set by D1 (the selected runs cut over the view grown by a view each way) and `PLANE_SCALED_MAX` 16, not by the 40-plate cap (k = 3 at every cap 40–144) | `MovePlane._cut` / `_level` (~184), `RasterRenderer._endPlane` | open |
-| [F144](#f144) | **a multi-object drag draws an unselected object under the selection (wrong z) past the drag plane's 5-layer cap** — Kobin's report 2026-10-07T02-57-59 (R1): "strange interleaving behavior … corrected themselves when I deselected". R1's 3-object drag: the orange band drawn under the black disc; R2's interval needed 167 layers (≈ 81 merges a cut). The merge picks the smallest run by BOX COUNT, so a screen-wide band (one box) goes first | `MovePlane._cut` (~171–180) | open (by design since 2026-09-23; Kobin's 2026-09-24 decision on the cap never answered) |
+| [F145](#f145) | **a dragged object is drawn at ⅛ to 1/32 of the screen's resolution, and the drag plane is rebuilt from nothing at every drag** — Kobin's report 2026-10-07T03-19-33 (R3): "way fuzzier than they should be … once I move it it loses all of that information". R3's selection: main level 3 octaves under the view, quick level 5; set by D1 (the selected runs cut over the view grown by a view each way) and `PLANE_SCALED_MAX` 16, not by the 40-plate cap (k = 3 at every cap 40–144) | `MovePlane._cut` / `_level`, `PicturePyramid._planePlan` / `_planeSurface` / `prepPlane`, `RasterRenderer._endPlane` | **REWORKED 2026-10-19** after Kobin's two reports that afternoon (dragging [3326] drew the rest of the drawing at ¼; dragging a massive object behind everything drew everything over it at ¼): what the selection moves over is cut sharpest first (PERF-DEEP decision 2), then the selection on screen, then its margin; nothing on screen coarser than one resolution for all; each layer drawn from one surface built at rest (one image a frame: the compose cliff no longer binds); BELOW's cells with none of its own ink are paper, with no plate; desktop cap 40 → 64. Chrome, both reports: everything on screen at the view's resolution (was ¼), frames 16.4–16.7 ms median, none over 33, compose ≤ 0.9 ms, 2–3 images a frame (was 11–25), the plane whole 0.1–0.16 s after a select. `raster.move.test.js` F145a–h, `PicturePyramid.plan.test.js`; 15 breaks red. Then Kobin's next message: the **seam** (a line across a part dragged in from past the screen) FIXED — a magnified surface's edge texels are copied into the cells another layer or the view's plates draw (`_planeEdges`), BELOW then drawn on its own cells only; Chrome: the edge pixel 200,30,30 (was 158,30,72, a quarter of what is under it); and a **held drag refined** — still 250 ms, what of the selection is on screen is cut again at the sharpest k the cap leaves (`MovePlane.refineAt`, the quick level let go for room), drawn in place of its coarser layers once whole; Chrome on 14:35: whole 0.28 s into the hold (9 plates at 1:1), frames 16.7 ms, the edges that came in 2.9 px wide (3.7 without; the rest of the screen 3.0). F145i–m, `PicturePyramid.plan.test.js`; 14 breaks red. Not yet: the plane kept across a drop; a quick level beside a 52–62-plate cut |
+| [F144](#f144) | **a multi-object drag draws an unselected object under the selection (wrong z) past the drag plane's 5-layer cap** — Kobin's report 2026-10-07T02-57-59 (R1): "strange interleaving behavior … corrected themselves when I deselected". R1's 3-object drag: the orange band drawn under the black disc; R2's interval needed 167 layers (≈ 81 merges a cut). The merge picks the smallest run by BOX COUNT, so a screen-wide band (one box) goes first | `MovePlane._cut` (the merge), `colours` | **BUILT 2026-10-19** (jsdom): a selected run is drawn on the other side of an unselected run beside it — lifted over it or dropped under it — the pair whose swap shows least, Σ area × area × α × α × \|ΔC\| over their colours on the view (Kobin: congruence for opaque layers first; two layers' orders differ by αa·αb·(Cb − Ca), nothing in one colour). R1's 3-object drag exact at the 5-layer cap: 0 of 144 points wrong (was 3), 40 plates against 57 at 6 or 7 layers. F144a–f; 7 breaks red. Not yet: Chrome; R2 (its lasso is not journaled); the cap: Kobin 2026-10-20, keep 5 for now |
 | [F143](#f143) | **after a drop's frame GC, a camera step can put moved objects back at their old places in the table** — found by the 2026-10-07 review (jsdom, R3): after the GC of F139 and a 3 px pan, 17 moved natives whose picture-source frame is gone were drawn from the camera frame's own up tile at their unmoved place, with no dirt logged; the next render removes them | `Stage._roleOf` (~1284) against `TileStore._rerouteGroups` (~253, "drawn nowhere until its frame is minted") | open — a hazard R3's data does not exercise: 3 of the 17 ghost cells reached a plate in jsdom, identical to the settled picture, and stay marked exact (no dirt logged) |
-| [F142](#f142) | **the up-tile bake never culls a shape: every up tile magnifies every shape of its parent cell** — found by the 2026-10-07 review from Kobin's drop stalls (R3–R5): `classifyUp` and `deriveStep` read `o.lwFrame`, which `bakeShapeById` deletes, so their margins are NaN and no comparison culls. jsdom: 22 up tiles 4.6–5.2 s as built, 0.18 s with the margin 0, pieces identical in 22 of 22 (and in 105 + 76 tiles of R4 and R6). Since 2026-08-26, deployed too | `geometry/derive.js` ~455, ~568; `Document.js` ~1009 | **high — open**; any change on this path is a compatibility event (`derive.js` ~513–542): Kobin's call |
+| [F142](#f142) | **the up-tile bake never culls a shape: every up tile magnifies every shape of its parent cell** — found by the 2026-10-07 review from Kobin's drop stalls (R3–R5): `classifyUp` and `deriveStep` read `o.lwFrame`, which `bakeShapeById` deletes, so their margins are NaN and no comparison culls. jsdom: 22 up tiles 4.6–5.2 s as built, 0.18 s with the margin 0, pieces identical in 22 of 22 (and in 105 + 76 tiles of R4 and R6). Since 2026-08-26, deployed too | `geometry/derive.js` ~455, ~568; `Document.js` ~1009 | **BUILT 2026-10-13** (Kobin's decision 1, under the deploy gate): `(o.lwFrame \|\| 0)` in both; every tile of R4, R6 and Kobin's two live canvases identical to HEAD's (23,868 tiles); their cold bakes −75 to −92 % |
 | [F141](#f141) | **a Delete in the same animation frame as a zoom crossing into the deleted frame puts the camera on the depth-0 spine** — found by B-TIDY (2026-10-06, jsdom, `select.detachedFrame` DF-5): before its fix the camera went to the frame it had left with the child's coordinates; now `_camToLattice` refuses a `_camAt` noted for another frame and falls back to `ensureSpine(activeLevel || 0)`, and `activeLevel` reads 0 once the frame is gone | `_camAt` is noted at a render, not at a crossing (the Camera's `onCross` hook is a no-op) | open, minor: note `_camAt` at every crossing so the camera keeps its cell (A1's rule); not seen by Kobin |
 | [F140](#f140) | ~~**scenario 7's erase never baked: 40 strips queued, none in flight, the pool idle, for 80 s**~~ — **FIXED 2026-10-06 by B-PYRAMID-6 (unverified by Kobin; scenario 7 not yet re-measured)**: in jsdom the stalled strips dispatch 51 ms after the zoom ends, none in 1 s before — found by B-PYRAMID-5b (2026-10-06, headless Chromium, `--dense --scenario 7`: 1 run of 5 on the tree, 0 of 5 on 59f0a76) | `jobQueue.pump` stops at the frame's pack budget (`PACK_MS_PER_FRAME`, 4 ms) and schedules its next task only when `motion.moving` is false; `moving` is the last camera step's (`_pyrMotion`), and at rest only a camera step or a render resets the budget (`_frameStep`'s `q.frame()`), so strips pumped after a moving last step wait for the next one; pre-existing (`jobQueue.js` unchanged since 59f0a76, `_pyrMotion` and `_frameStep` too) | **fixed** |
-| [F139](#f139) | **the frame clean-up forgets the view's picture-source frames after every gesture — every drop, undo, redo and Delete — and the next render mints and re-bakes them cold** — found by R-MODEL-C34b (2026-10-05) for undo/redo; **seen by Kobin on every drop, 2026-10-06** (reports R1–R6): each select-tool drop at camera depth ≥ 1 costs 575–730 ms of main thread (× F142), a drag pressed on the still-selected object moves only the ants until the release (every pack refused until the next Stage sync), refused patches leave stale cells and hold the landing 3 s, and F143's ghosts | `KobinEngine._endMove` (render, then `collectFrames`), `frameGc.collectFrames` keep set, `lm.minted` | **high — open**: a keep rule for the frames the camera view's reroute groups read (small, low risk) |
+| [F139](#f139) | **the frame clean-up forgets the view's picture-source frames after every gesture — every drop, undo, redo and Delete — and the next render mints and re-bakes them cold** — found by R-MODEL-C34b (2026-10-05) for undo/redo; **seen by Kobin on every drop, 2026-10-06** (reports R1–R6): each select-tool drop at camera depth ≥ 1 costs 575–730 ms of main thread (× F142), a drag pressed on the still-selected object moves only the ants until the release (every pack refused until the next Stage sync), refused patches leave stale cells and hold the landing 3 s, and F143's ghosts | `KobinEngine._endMove` (render, then `collectFrames`), `frameGc.collectFrames` keep set, `lm.minted` | **BUILT 2026-10-13** with F151: `Stage.sourceFrames` kept by `collectFrames`, left as candidates (`frame.gc.test.js` G14); Chrome, R4: a drop 828–908 → 57–78 ms, stale pictures after it 0.8–2.3 s → 0, the next drag's ants-only steps 18 → 0 |
 | [F138](#f138) | ~~**the model fuzz at 200 seeds: 11 of 400 walks draw a native differently from the frozen oracle**~~ — **FIXED 2026-10-05 by R-MODEL-C34 (unverified by Kobin)**, found landing C3/C4 (2026-10-04, jsdom): every difference root-caused — four live defects fixed with tests red before (a subtree delete's events, the drop's member list, a private frame keeping a public cell, a parentless "0" at load), the rest designed differences, the harness's store and oracle faults, each named, counted and break-checked; the tile fuzz at 500 + 500 and the selection fuzz at 200 + 200 green | `Document.removeFrameSubtree`, `selection._dropMove`, `LevelMap._joinGroups`/`_loadFrames`, `__testkit__/modelFuzz.js` | fixed |
 | [F137](#f137) | ~~**the dense drawing's zoom back in (harness scenario 1) showed paper after B-PYRAMID-4**~~ — **FIXED 2026-10-06 by B-PYRAMID-5 (unverified by Kobin)**: paper out/back in 14.2/0 ms against 1,401.4/131.3 (headless Chromium) — found by B-PYRAMID-4 in headless Chromium (2026-09-30): `paperMs` 743, 88 and 765 ms in its three after runs (the whole screen at one compose in two), 0 and 0 in the two before runs on a copy with the old raster sources; not seen in Chrome, not attributed | not B-PYRAMID-4's (the before copy 3 of 3, B-PYRAMID-5); traced: step (d) never took a coarser cell's twin in the frame left, which the store held | **fixed** |
 | [F136](#f136) | ~~**a long subtree drag could land a torn-off kid of the dragged frame a cell off where the move puts it**~~ — **FIXED 2026-09-30 by A1 C2 (unverified by Kobin)**, found by B-DRAG measuring A1 §1.4's census: the same 40-step walk applied to a selected frame and to every native per object disagreed for 400 of 1,250 natives by 32 units (one cell of the camera's frame; seed 777), and in the harness's scenario 4 frame "1/-1,1"'s 100 natives sat at x 271.99 instead of 239.99 after the drop (sub-pixel ink: the screenshots matched). Each drag event re-addressed the subtree against the lattice the previous event had left, where the moving root could sit in the cell a carried kid's chain named. A drag now writes nothing until its drop, which computes once against the lattice as it stood at the press: 0 of 1,250 at seeds 777/12345/99 (`move.drop.test.js` D2, red on d206cd3) | `selection._dropMove`, `_dragFrames` | fixed |
@@ -4511,6 +4565,568 @@ Binning ERASE-TEST's scratch canvas `muduvgimvff1u9os` at Kobin's word (decision
 
 **Closed the same day:** the mushroom-and-fern picture is the gallery's PLACEHOLDER — `src={covers[c.id] || cloudCovers[c.id] || placeholderThumb}` with `placeholderThumb` = `Images/ui/canvas-botanical.jpg` (`CanvasesV2.js`) — so every canvas without a saved cover shows it (`mu4kzn6e5nhwpu1y` too). The scratch canvas never got one: covers are written by the editor's Save and the Scenes panel (`ensureThumbs`), and its `thumbs` rows were 0. Kobin guessed this before it was checked.
 
+<a id="f151"></a>
+### F151 — OPEN, high, found 2026-10-12 (Kobin's memory question; jsdom on report R4). Frame GC strips the tile store's camera pins, and the Stage never sends them again.
+
+`TileStore.forgetFrame` drops a forgotten frame's tiles and deletes their keys from the camera pin set (`TileStore.js`
+~655–663). The Stage keeps watching the same keys and sends its pins only when its key set changes (`Stage.sync`,
+`Stage.js` ~660), so once the frame is minted again and its tiles read again, they stay unpinned. A drop writes in batch
+mode (`selection.js` ~691), which drops every unpinned tile a moved native touches instead of patching it
+(`TileStore._tileLive` ~666), and the drop's render re-bakes them. R4's drop (camera depth 3, the family of 3326), jsdom:
+the view's 39 reroute groups watch 56 tiles, 2 of them pinned; each drop dropped 54 of them and 49 unwatched chain
+parents, then re-baked 76 up and 27 down tiles — 3.7–4.4 s and ~1.37 GB allocated a drop (GC 2–3 % of it), each up bake
+magnifying every shape of its parent (F142). By the replay, Kobin's drops at depth ≥ 1 (575–730 ms in Chrome) are this re-bake.
+
+| R4's drop, jsdom (`review1006.mem.dropdiag.probe.js`, `review1006.mem.keep.probe.js`, untracked) | drop | allocated |
+|---|---|---|
+| as built | 3,750–4,430 ms | 1.37 GB |
+| F139's keep rule, from after the load's sweep (the pins already lost) | 3,690–4,340 ms | 1.37 GB |
+| F139's keep rule, the load's sweep included (2 of the 56 pins lost before it: 5 tiles re-baked a drop) | 444–616 ms | — |
+| the Stage sends its pins again after a forget, frame GC as built | 77 ms, then 3.8 s (each drop's GC forgets the frames; the next drop mints and re-bakes them) | — |
+| both | 21–83 ms | 11–17 MB |
+| the shape cull alone (F142's lever) | 673–771 ms | 147–169 MB |
+| both and the cull | 53–181 ms | 12–26 MB |
+
+Lever (not built): the Stage sends its pin set again when frame GC forgets a frame it watches (`Stage.forgetFrame` bumps
+`_keysVer`), or the tile store keeps a forgotten frame's pins for its re-mint. With F139's keep rule it removes the drop's
+re-bake. Memory: keeping the view's frames and their pinned tiles costs nothing measurable (R4: +70 empty frames, +49 small
+tiles, retained heap the same within 1 MB; plates stay inside their 144 MiB budget). Detail:
+`.claude/REVIEW-2026-10-06/mem.md`.
+
+<a id="f163"></a>
+### F166 — BUILT IN PART 2026-10-20 (jsdom). Zooming out on the Magnum Opus showed paper; the cause is its tile reads.
+
+Kobin's report 2026-10-20T15-54-32 (the Magnum Opus, ~11 min): 17.9 s of paper against 2.5 s of blur. Its perfLog's last
+4 s are the shape of the zoom: bursts of 6–7 frames zooming ~4.2 octaves (up to 1.1 octaves a frame), ~400 ms still
+between them. `src/engine/zoomout.paper.probe.js` replays that from the deepest native frame on his undo path (depth 11)
+to the root, the workers answering 3 jobs a frame 2 frames after posting, the pyramid on a simulated clock. Shipped:
+paper 2,047 ms and blur 3,525 ms in ~16.5 s; about two thirds of the paper in the bursts that cross a frame, which drew
+whole-screen paper for 5–7 frames and more.
+
+Two causes, both tile reads (`zoomout.reads.probe.js`):
+- The far set (the zoomed-out levels the plan blurs from) was never built: every far step's off-camera read ran past its
+  8 ms budget (12 of 12 at the start view), and a plan ran once a view, so nothing tried again. Unbounded, one far
+  step's read took 1–4 s in jsdom: ~95 groups of moved natives each read their own tiles of their home frame.
+- After a crossing the new frame's window is not covered until its tiles and every group's are derived: 327 tile
+  derivations at depth 10 (7.4 s in jsdom), 169 at depth 8 (4.5 s), 102 at depth 6 (2.0 s), a few below depth 4. A
+  moving camera reads at least one tile a 4 ms step; until the window is covered nothing is asked, and the net cannot
+  draw (its cells must be covered too).
+
+Built: the far plan tries its reads again every 100 ms while the camera is still (reads only, the same generation;
+`PREFETCH_RETRY_MS`), and every far cell it covers is protected, cached ones too (a new plan used to unprotect them);
+the net (Kobin: "blurry images or slow framerate" over paper) — a plan with paper renders on the main thread the
+view's cells 3 octaves coarser over the paper's box, at most 6, each in the camera's table, when the estimate fits
+`netMs` (a Dev panel lever, off by default until measured in Chrome; the replay ran it at 120 ms), and plans again: they are exact, so (d) draws them blurred. Replay: paper
+2,047 → 1,871 ms with the far retry, → 1,808 ms with the net too (it ran 6 times, 7 plates; jsdom's estimates are
+slower than Chrome's); blur 3,422 ms. On by default it moved the job and render counts seven suite tests read, so it ships
+off; no suite test of its own yet. Not yet measured in Chrome.
+
+Open: the reads. F158's levers (Kobin 2026-10-20: approved if the tiles stay bit-identical), a memory tier for tiles
+(his idea: evicted tiles kept compact, as the plates' RAM tier keeps plates; GLOBAL_CAP 512, 64 a frame), and reads
+scoped to a group's own natives (each group now derives whole tiles of its home frame).
+
+### F165 — FIXED 2026-10-20 (the dispatch and the cause). A refused raster job left its cells paper.
+
+Kobin's report 2026-10-20T15-54-32 (the Magnum Opus; "tons of white space … it resolves quickly"): 17 page errors
+`rasterJob: item N sub 1's run 11 does not tile its loop (F154)` (items 25–39), the first at 15:43:23 UTC, 33 ms after
+the canvas opened at level 7 (inScale 22.6), the rest at ~15:43:30. `rasterWorkerClient.dispatch` packs inside a try
+(a throw is a `pack` drop) but called `wireJob` — whose `validateJob` threw — outside it: the strip was neither posted
+nor dropped, the queue's pump stopped there, and the strip's cells stayed paper until something asked again. The
+session: `paperMs` 17,850 against `blurMs` 2,492 over ~11 minutes; 5,016 jobs posted, 4,994 arrived.
+
+Fixed: `wireChecked` — a job whose row runs alone fail is sent without them (the core walks every piece: the same
+pixels, slower), counted in `badRuns` and its first item described in `badRunsFirst` (id, kind, the loop offsets, the
+run offsets it carried and the ones `rowRuns` gives its own geometry); any other refusal is a dropped strip
+(`invalid`), whose cells are asked for again. `raster.badruns.test.js` (2); two breaks (no fallback; refuse
+everything) red.
+
+The cause, found the same evening from `badRunsFirst` read in his own tab (the Magnum Opus reloaded at its opening
+view, level 7: 10 of 148 jobs refused): `rowRuns` sized its runs from the item's length alone (its points ÷ 16, or numbers ÷ 3 ÷ 16, rounded up once), but every loop over 16 pieces rounds up on its own: the Magnum Opus's item 47060, three rings of 276, 182 and 4 points, needs 18 + 12 = 30 runs in room for 29; the 30th was dropped (a typed array ignores a write past its end) and the job read the next item's first run as ring 2's twelfth — the check's "sub 1's run 11" is that twelfth run. jsdom had not
+reproduced it (the shapes and tile pieces it derived had no such multi-ring item in view; their runs all tiled), so
+the read in Chrome was what found it. Fixed: `rowRuns` counts each loop's runs first and allocates exactly. Tests in
+`raster.badruns.test.js` (item 47060's rings: 30 runs; two loops of 17 line pieces: 4, where the length alone has room
+for 3), red on the old size. His tab after the fix, same view: 0 of 74 jobs refused. Not a damaged drawing: every stored
+shape's runs tile.
+
+### F164 — BUILT IN PART 2026-10-20 (jsdom), found 2026-10-20 (Kobin's Chrome heap snapshot). The undo history and the journal kept a full record per moved object.
+
+Kobin's heap snapshot with the Magnum Opus open (2026-10-13, 222 MB of JS heap), read by
+`.claude/PERF-DEEP-2026-10-12/tools/memcensus.js`: the document retains 64.25 MB (jsdom's census said 98: Node has no
+pointer compression). Its undo history is 18.5 MB, 13.8 of it nine drags of the 5,771-member group: each member's record
+kept two fresh copies of its offset table (~357 B a member, ~2 MB a drag; at `UNDO_CAP` 200 such drags ~400 MB). The
+natives held 24,901 tables of about 95 values. Full census and the five levers: `memory-chrome-2026-10-20.md`.
+
+Built (lever 1): `internBelow` (`geometry/offsets.js`) gives one frozen array a table value, from a WeakRef pool, and
+every site where a table becomes state stores it: the load (`nativeFromRecord`), `_noteBelow` (add, insertAt,
+setGeometryById, setOffsetsById), `snapGeometry`, a split's pieces, `ownTableOf`, the drop (`put.own` once a (frame,
+table) key; `belowAfter` is it, `belowBefore` the member's own shared table) and the journal decode (`oplog.js`). No
+production code writes a table in place (`addOffset` and the rest copy first); the freeze makes a write throw.
+
+Found measuring it: `_dropMove` journaled every member of a drag (`_note` keeps 40 gestures and says it is bounded at
+120 samples each), 5,771 records a Magnum Opus drag. It now keeps the first 120 and `members`, the count.
+
+jsdom A/B (`src/engine/mem.tables.probe.js`, `tools/memtables-ab.py`), five drops of 6,000 selected shapes: undo 10.4 →
+3.61 MB (363 → 126 B a member), journal 8.06 → 0.17 MB, the natives' distinct tables 6,000 → 1; no pixel or stored
+number changes.
+
+Lever 2 (2026-10-20): a `Loop` keeps its piece count and builds its record index (`idx`) at the first `at(i)` past
+piece 0; walking, `length` and `at(0)` read the numbers by record width. `Loop.from` no longer fills an index.
+`toJSON` keeps the JSON a Loop always had, whether or not the index is built (tests compare loops by it). R6 loaded
+in jsdom (`mem.tables.probe.js`, `tools/memloops-ab.py`, twice a side): none of 44,550 loops indexed (was all, 2.39 MB
+of offsets outside the JS heap), the engine 128.1–130.4 → 119.2–122.5 MB, load 8.4–8.6 s either way.
+
+Lever 3 (2026-10-20): `editGroup`'s map (`Document._buildGroups`) holds only the groups that can hold more than one
+native — every family key's, and a keyless native's whose id is a family key or another native's id too (an erase's
+rekey leaves a member keyless on its own id); a native alone is answered from `_byId`. Every group reads as before, in
+the same order (`memory.layout.test.js` checks each against the old builder). R6: 448 groups in 0.11 MB, was 43,031
+in 10.95 MB (jsdom; Chrome measured 5.47 MB for the old map).
+
+Lever 4 (2026-10-20): with no margin (a shape, a fill) `LevelIndex.add` keeps the object's own cached box
+(`bboxOf`), not a copy; `bboxOf` freezes what it caches, and a shape with no finite piece reads one constant,
+`EMPTY_SHAPE_BOX`, which the index keeps in no cell as before. Every edit clears the cache before it re-indexes
+(`_afterEdit`), so the index never takes a stale box. R6 after every box was read: 43,135 boxes shared, none of the
+index's own; the copies it kept before were 5.27 MB (jsdom; Chrome measured the index's boxes at 3.98 MB).
+
+Lever 5 (2026-10-20): `nativeFromRecord` gives every native the one string of its `type`, `origin` and `color`
+values (`sharedString`, a pool bounded at 4,096). JSON.parse already shares short strings (V8), so R6 from its JSON
+report showed nothing; a structured clone (IndexedDB, a worker's message) makes each anew, which is what Kobin's
+Chrome held (0.82 MB each for type and origin). Plain Node, 43,135 records cloned (v8.serialize), each side in its own
+process after a warm-up build, twice: 15.14 → 12.18 MB, the JSON path's own figure. The same A/B inside jest moved
+with the order of the builds (12.18–19.42 MB for one variant), so it is not the measure. A string's identity cannot be
+seen from JS: the test checks the values and that a missing field stays missing.
+
+Tests: `memory.layout.test.js` (9); `tools/breakcheck-mem1.py`: 21 of 22 breaks red (the copy in `setOffsetsById` is
+covered again by `_noteBelow`). Quick suite: the 4 known `raster.pyramid` reds (F159); in two of three full runs
+after lever 2 one or two `raster.engine` tests that wait on plates in flight (E2b, §15.3 Q4, §8.4 rule 2) failed
+under load — each passes alone and the third full run passed; after lever 3 the full run had only the 4, after levers 4 and 5 those and the S5 load flake (it passes alone). Chrome smoke, 2026-10-20 ~14:35 UTC (a second engine in his tab, no hook): 2,000 shapes, five drops, two undos and a redo — no error, no console error; every member on one frozen table through undo and redo; the journal entry 120 members and the count; the index box the frozen cached box; no family group; no loop index built. His own Test eraserisms tab runs the new code (595 family groups for 2,671 natives). Memory in Chrome still needs his next heap snapshot. `tools/memcensus.js` reads
+the snapshot.
+
+### F163 — BUILT 2026-10-15, found the same day by F153's soundness test (jsdom). A far prefetch plate could miss what lay past its snapshot.
+
+`prefetchPlan`'s far step reads a snapshot over 2.5 of the view's screens zoomed out 4^k and packs every cell at the far
+level that rectangle meets, but those cells are up to four times wider than it: whatever a cell draws from cache squares the
+snapshot did not read was missing, and the store called the plate exact. Seen at Z 2⁻⁷ (cells half a frame wide, on the
+frame's cache-square seams): a moved huge square's piece from the next square, shifted into the cell by its offset, was
+absent (1,536 px of one plate; the camera's own table lacked it the same way). Built: the far and the crossing snapshots read
+over the union of the cells they pack (`cellsOf`). Tests: `prefetch.test.js` "far levels" (the read is every packed cell's
+rectangle), `raster.dropdirt.test.js` D5 seed 41. The reads are larger at far levels near a seam; their budget
+(`PREFETCH_READ_MS`) still bounds them. Not measured in Chrome.
+
+<a id="f162"></a>
+### F162 — BUILT in part 2026-10-14, found 2026-10-14 (Kobin's Chrome, measuring F155). Every strip's pack walked the whole list.
+
+Measured on the Magnum Opus (ramrun's minute of zoom/pan cycles, the RAM tier on, from a fresh load; tool
+`.claude/PERF-DEEP-2026-10-12/tools/packsplit.js`; `packStats.cullMs`, `geomMs` and `copyMs` are new): the main thread
+packed for 1,424 ms — the prepass 346 (24 %), the cull and union rule 936 (65 %), bands and flat copies 44 (3 %), the
+job's arrays 87 (6 %) — and posted for 201 more. The view's list is ~9,400 items in ~9,200 families, and every strip,
+whatever its size, walked them all: the staleness check `famStale` over every family (1.75 ms in a replica, ~60 % of it
+the memo entries' WeakRef derefs) and the binner over every record (0.4 ms). A zoom met first rebuilt every record of
+its prepass (11.7 ms against 7.9 at a known zoom), though 209 of the 9,406 items fade with the zoom.
+
+**Built:**
+- A record keeps strong references to the version, geometry and outline it was built from, and the check (`recLive`)
+  compares those: it decides what the memo entry's own check decides, without the derefs. The record's key, the
+  piece, already holds both.
+- A zoom met first borrows the last zoom's records (same dpr, cfg and offset); `recFor` checks the fade with the rest.
+  Families are not borrowed: a stroke's band weighs the union sign at each zoom.
+
+Measured after, the same run: the pack 1,006 ms (cull 631, prepass 250; records built 228,353 → 85,210), the post 145,
+frames over 50 ms 2 → 0. Tests: `raster.job` J4h (a stroke fitted between two strips of one list is culled by its
+outline) and J4i (a new zoom rebuilds only the item whose fade moved), beside J4b, J4f and J4g; five breaks checked
+(`breakcheck-f162.py`: staleness never seen, geometry ignored, outline ignored, nothing borrowed, the fade unchecked),
+each red.
+
+Left: the walk itself, ~1.5 ms a strip over every family. From a fresh load, view strips waited with a worker idle in
+50 of the first cycle's 600 frames (none once warm), so the queue's 4 ms of packing a frame still gates first visits.
+Levers: check a prepass once per stamp (the Stage's generation and drag version) and index its records by plate cell —
+sound only if every in-place change of an item shows in the stamp, and a fit's `_outline` set outside `stage.touch`
+does not; and the prepass's own rebuild for each new list (~8 ms, 31 a minute).
+
+<a id="f161"></a>
+### F161 — BUILT 2026-10-14 (tier 2), found 2026-10-13 (measured for Kobin's tiered plate cache). An evicted plate was made from scratch again.
+
+Kobin's idea (a side chat, 2026-10-13): keep evicted plates compressed in RAM (tier 2), and optionally on disk across
+sessions (tier 3), instead of rastering them again — measured first (`.claude/PERF-DEEP-2026-10-12/plate-cache.md`): in
+three zoom/pan cycles, 68 % (Magnum Opus) and 72 % (Test eraserisms) of the plates made were re-makes of evicted plates,
+every one exact; a 512-plate tier would have served all of them; a plate packs 82–166× (median). He chose tier 2
+(2026-10-14).
+
+**Built:**
+- The worker packs each whole level plate of a `ram` job from the RGBA it already holds (`plateCodec`: runs and stretches
+  of 32-bit pixels, lossless, never longer than the plate plus a word; no GPU readback) and returns the words with the
+  bitmap.
+- An evicted or hidden-released level plate that is exact goes into the store's RAM tier (`plateRam.js`: LRU by bytes,
+  64 MiB on a desktop and 24 on a phone, at most 4,096 entries; lever `plateRamMiB`, 0 = off). Its key stays tracked by
+  the Stage, so a commit that meets its cell stales it exactly as it stales a stored plate (Kobin's rule: a stored plate
+  is exact only for its generation). A stale entry is dropped when found and never drawn, not even as an older
+  stand-in. A newer plate or a hard drop (frames whose id now means another place, another document, a step change)
+  takes an entry out; a patched plate never goes in (its words are the old pixels).
+- A view cell, a prefetch cell, or a strip's cell at dispatch that the tier holds exact is restored instead of packed:
+  the words go to a worker (an idle one, else one drawing a strip — never behind a cut; a restore takes no slot), which
+  unpacks them into its own scratch and makes the bitmap, and the plate lands as a job's would, under its own G. A
+  restore needs no tiles, so a cell the camera's table does not cover yet is restored too, and a far prefetch level the
+  tier holds whole skips its off-camera read. Restores in flight count as the view's work in the queue's report (the
+  prefetch and the suites' idle waits read it).
+- `Stage.track` reads the dirt log only for a `sinceG` older than what the key's tracking already covers (`from`).
+
+**Measured in Kobin's Chrome** (my tab, 1806×1014 @1.25; plate-cache.md's minute of three cycles — zoom out 240 frames
+at 33 wheel units, back in, a 900 px pan and back, with pauses — from a fresh load each time; `?plateRamMiB=0` for off):
+
+| | Magnum Opus, tier on | off | Test eraserisms, on | off |
+|---|---|---|---|---|
+| paper (ms) | 64 | 204 | 24 | 18 |
+| blur (ms) | 445 | 1,600 | 440 | 1,391 |
+| plates rastered by the workers | 496 | 1,742 | 489 | 1,817 |
+| plates restored from the tier | 1,355 | 0 | 1,317 | 0 |
+| main-thread pack (ms) | 1,315 | 3,990 | 47 | 100 |
+| worker time (ms) | 3,514 | 10,848 | 3,016 | 10,766 |
+| frames over 50 ms (max frame) | 0 (35 ms) | 0 (47 ms) | 0 (45 ms) | 0 (45 ms) |
+| the tier at the end | 321 plates, 3.2 MB (largest 87 KB) | — | 309 plates, 1.7 MB | — |
+
+A restore took 6.3 ms (MO) and 5.5 ms (TE) from post to landing on average, at most 23–25 ms; none failed; no entry
+went stale (no edits in the runs); the Stage tracked ~440 keys at the end (120 without the tier).
+
+Tests: `plateCodec` (lossless on uniform, empty, anti-aliased and noise plates; the size bound; words that do not make
+one plate throw), `PyramidStore.ram` (7), `raster.ram` (3: the return restores every evicted view plate with no strip
+posted and the same pixels; a cell an edit touched is made again, never restored; the lever at 0), `raster.worker`'s
+restore routing — six breaks checked (staleness ignored, keys untracked, nothing stored, a patch keeping its words, a
+hard drop keeping the tier, a flipped bit in the decode), each red.
+
+Left: a patched plate stays out of the tier (the worker could merge the patch into the old words); tier 3 (OPFS across
+sessions, keyed by a per-cell version that survives reloads and synced edits).
+
+<a id="f160"></a>
+### F160 — BUILT 2026-10-13, found 2026-10-13 (Kobin's heap snapshots). A closed canvas stayed in memory.
+
+Kobin's four snapshots (dev build, his Chrome; `.claude/PERF-DEEP-2026-10-12/*.heapsnapshot`, read with a dominator-tree
+script):
+- **With the Magnum Opus open:** 222 MB reachable. The document is 64 MB, of which 18.5 MB is undo history (each move
+  entry lists 24,900 natives, ~2.1 MB); the tile cache 24 MB (two tiles hold 8.7 and 7.1 MB of pieces); a 12 MB Firestore
+  stream string; the worker buffer pool 8 MB; the pack memo 6 MB.
+- **After leaving it:** the whole engine was still there (a 251 MB snapshot) until another canvas was opened.
+
+Three holders, found by cutting each retaining path in turn:
+1. `window.__kobinSaver`, the dev handle `useKobinEngine` sets (dev builds and `?dev`) and never cleared: its closures
+   hold the engine. The next canvas overwrote it, so exactly one closed engine stayed.
+2. The raster worker client's slot-freed pump (`setOnSlotFreed`), set by every renderer and never cleared: it held the
+   renderer, and through it the engine.
+3. The pack memo (`rasterPack` MEMO), never cleared at teardown. A Map keyed by the pieces it packed, each entry holding
+   the geometry it was built from, so its 64 MiB count left out everything it pinned: in my tab, a hand-cleared memo took
+   the heap from 918 to 361 MB.
+
+**Built:** the cleanup clears `__kobinSaver`; `RasterRenderer.destroy` lets go of its own pump (`clearOnSlotFreed`) and
+clears the pack caches; the memo finds an entry through a WeakMap and evicts from an LRU of entries, and an entry knows
+its geometry by weak reference, so it never keeps a piece alive. Measured in Chrome: the engine is collected after every
+visit (a WeakRef with a control object collected beside it); the gallery settles at 40 MB after one Magnum Opus visit and
+85 MB after two, where before the fixes 0.7–1 GB stayed. Tests: `CanvasEditor.sync` "a closed canvas leaves no dev
+handle", `raster.teardown` (the memo emptied; the pump let go, and only its own) — break-checked; the raster suites pass
+(591; the 3 known `raster.pyramid` timing reds). Left as it is: the undo history's per-native move lists and Firestore's
+stream string.
+
+<a id="f159"></a>
+### F159 — OPEN, found 2026-10-13 (the slow suite on Kobin's machine). Five slow tests are red on main.
+
+The first slow run on this machine with `.kobin-reports` present (branch `performance`, 2026-10-13): 650 pass, 5 fail. A
+clean worktree of main (b2291ce) with the same reports fails the same five. The cloud's runs had no `.kobin-reports`, so
+the two report-based tests skipped there.
+- `scenes.erase.slow` SC-2, "dragging one half far away DOES make it its own scene": no ink where the half went (line 119).
+- `neighborhood.slow` NB-2, "moved from up here, level 0 does not change and the detail moves exactly": the level-4
+  detail moved 0 for an expected 100 / inScale (line 144); "a hundred one-pixel steps land where one hundred-pixel step
+  does": the move is 0 (line 178).
+- `persist.slow`, "real report snapshots load as drawings": three old reports (08-15T07-43-40, 08-15T07-44-34,
+  08-26T23-54-04) come back with 4, 18 and 1,216 shapes' loops changed. The load repairs damaged loops
+  (`nativeFromRecord`'s `repairLoops`), so the round trip is not byte-stable on them (`review1013.persistcheck.probe.js`).
+- `perf.bench.slow`, "dense-screen.json render is not badly slower": `TypeError: this._objs is not a function or its
+  return value is not iterable`.
+
+Not investigated. NB-2 and SC-2 are moves of details far below or across the view, so the subtree move (A1 C1–C4) is
+the first suspect.
+
+**2026-10-14: four quick tests too.** `raster.pyramid.test.js` fails four on main (b2291ce, a clean worktree) as on the
+branch, run alone: "the prefetch waits …" (`E.plates.view.far` empty, line 110), "a cell the camera's table does not
+cover …" and "the camera's read …" (5 s timeouts), and "a cell whose tiles left the table after it was asked for is
+refused at the pack and asked for again once covered" (the cell never lands: `E.plates.get(c.key)` undefined, line 257).
+The first three were the "3 known timing reds"; the fourth was not, but it is red on main too. Not investigated.
+Under a full parallel run, four more `raster` tests have each gone red once and then passed (D271's live stroke, E2b,
+S5's one snapshot job, the "rule 2" residual against its 1 ms bar), with the RAM tier on and off alike (F161's runs):
+they wait on wall-clock quiets or a fixed number of rounds.
+
+<a id="f158"></a>
+### F158 — OPEN, found 2026-10-13 (jsdom, after F142). A cold bake clips each surviving shape's whole perimeter, once per tile.
+
+With F142's cull in, R4's 5,130 tiles (285 frames, i, j ∈ [-1, 1]², up and down; `review1013.bakeprof.probe.js`) bake in
+32.0 s (jsdom, under load):
+- `deriveStep` 24.9 s, of it `clipShapeToRect` 15.9 s (1,027 calls, 15.5 ms each, ~13 pieces out), `insideShape` 4.3 s
+  (1,095 calls, a flat ray scan over ~790 pieces), `chopFreezeLoops` 2.2 s, `loopsBBox` 1.2 s, the transforms 1.4 s;
+- `classifyUp` 1.1 s (F156), `_bakeDown` 4.6 s.
+
+The 2,417 shapes that survive the cull carry 447 pieces each on average; a CPU profile of 80 frames puts `rayCross` at
+3.4 s self, `pieceBBox` 3.0 s, `VertexSet.id` 1.5 s. Every visited child tile of a shape's home frame transforms all of
+its pieces (`transformLoopsAbout`), chops them on the object's grid, copies them twice (`transformLoops`, local and back),
+boxes them, welds every end, classifies every fragment and indexes all of them for the winding queries, to keep the
+dozen pieces inside the tile. Below that first hop a tile's pieces are already the tile's, so the cost is the first
+crossing under any large or busy shape: Kobin's "shapes complex in the background but simple on screen going slowly".
+
+Levers. All are on the derivation path (bits inherited ×4096 a level, `derive.js` ~513–542), so each is a compatibility
+event and needs F142's old-against-new tile check:
+1. `insideShape` at the tile centre, for a tile no piece reaches: a ray index cached on the parent shape, asked in the
+   parent's units. The winding of a point half a tile from every piece is the same in either frame; the answer differs
+   only if all 8 ray directions graze in one frame and not in the other.
+2. A per-loop cull before the transform (F156's note): a loop whose box misses the padded clip rect adds no piece and no
+   winding inside it. The boolean's weld radius reads the whole subject's box (`shapeBooleanOnce` ~1301–1308), so that
+   box must be passed in, not recomputed from what is left.
+3. Windowing the hot loops: only the runs of pieces whose boxes meet the rect go through the boolean, in loop order, with
+   the winding asked of an index over the whole loop. The deepest change: the fragment walk, `stitch`'s start and vertex
+   identity must come out bit for bit.
+
+<a id="f157"></a>
+### F157 — BUILT 2026-10-15 (jsdom only), found 2026-10-13 (the audit, jsdom). Hidden families are packed and shipped.
+
+On the Magnum Opus (R6) at depth 10, 51 of the 72 families on screen are fully hidden under opaque ones (18 full-screen
+backdrops under opaque bands, 49 % of the pieces walked). The core's occlusion cull already resolves only the visible
+families' pixels, but every hidden one is baked, packed (~36 items a plate for ~1–2 visible families), shipped and
+cover-tested. Lever: occlusion at pack time from the items' `covers` flag and box — exact for an opaque, unfaded, unmasked
+cover. Detail: `.claude/PERF-DEEP-2026-10-12/audit.md` Q3/Q4.
+
+**BUILT 2026-10-15 (jsdom only), by the occl agent in a worktree.** A plate's cover is a family whose drawn items are all
+opaque, none of whose pieces comes within a device pixel of the plate (arcs by sagitta boxes, split no deeper than the
+core's own bisection — its constants imported, not copied), and whose coverage at the plate's centre is non-zero, computed as
+the core computes it; an item is left out when its family lies under the cover of every plate it is drawn in (a family
+partly only when all its items share one colour), the walk goes top-down and stops once every plate of the strip has a cover,
+and nothing is left out when a mark is in the strip. Byte-identical against the pack without it on all 24 camera × level rows
+of R4 and R6 (report camera, zoomed out 6 and in 4). R6: pack 7.16 → 1.07 ms at ℓ3 (items 333 → 29, 198 → 112 KB), −80 to −88 %
+at every row. R4's small lists: +0.1–0.3 ms where little is hidden, −24 % and −70 % of the bytes zoomed in. Its phase-1 run on
+Kobin's live Magnum Opus (perfect covers): the zoom/pan minute's views −0 to −5 % time, −20 to −61 % bytes. Probes in the
+worktree `../bl-occl` (`review1014.f157v2*.probe.js`, with their measurement copies of the packer and the core).
+
+**Reviewed 2026-10-15 (Codex, jsdom).** 27 cases, the pack with the test on against off and the core's cull off so it
+cannot hide a wrong proof — enclosure, an edge crossing, a hole inside and one around the plate, winding cancelling and
+union, both circle orientations, translucent and faded items, a pending mark, a family partly left out (its colour and
+alpha), legacy fills, a transparent plate, a residual and negative origins, clips, clamped 1e15 arcs — all identical RGBA;
+now `raster.occlusion.test.js` P1–P22. Each of five breaks turns 1–2 of them red (break-checked again 2026-10-19 on the
+ported tests): no edge-crossing rejection, no centre winding, no colour rule for a family partly left out, no mark
+exclusion, no early stop. Kobin's saved Test eraserisms and Magnum Opus (the 2026-10-13 reports) at the report camera,
+three zoom-outs and a 900 px pan, four grids each: 40 rows, 521 plates, 0 differing bytes, twice. Sampled strip packs (the
+minimum of five, summed; not a minute of interaction): Test eraserisms 295 → 331 ms (+12 %; the repeat +5 %), no cover
+found (off always packed first; interleaved it is +1 to +4 %, below); the Magnum Opus 1,138 → 1,116 ms (−2 %; −1 %),
+its bytes 94.6 → 65.1 MB (−31 %). 1,024 opaque circles crossing one plate, no cover: median pack 1.45 → 3.29 ms warm,
+15.6 → 29.0 ms cold. R6's −80 to −88 % is that deep view's.
+
+**Budgeted 2026-10-19 (jsdom; the follow-up agent's probes, results and log in
+`src/engine/__review__/f157-admission-2026-10-19/`).** A plate is given 64 failed cover proofs and 16,384 proof nodes (an
+edge, an arc node) a pack; past either, the families under it are packed. A remembered proof charges the nodes it walked
+(memo entries `{ w, n }`), so a job never depends on the memo or the clock. Re-measured interleaved, 15 rounds, order
+rotated: Test eraserisms 225.9 → 228.3 ms (+1.1 %; a round's median +3.7 %, IQR +0.4 to +5.1 %) — it runs no proof on any
+of its 265 plates, so that is the walk's bookkeeping; the Magnum Opus with its proofs remembered 1,106.9 → 1,094.3 ms
+(−1.1 %), 94.6 → 65.1 MB, but +13.4 % with the memo dropped before each pack, as a pan or a zoom meets new plates: 1,085
+proofs a sweep, its 250 covers and the 835 failures above them, all needed (skipping families past 256 numbers costs
++4 % but loses 7 covers and half the bytes saved). Per plate it needs at most 13 failed proofs and 1,778 nodes before its
+cover, R6 1 and 17. A failed circle proof walks 11 nodes, ~14 µs on a new plate in jsdom (an arc node ~1 µs; `perfNow`
+~0.9 µs), ~3 µs in plain node. Rejected: a box margin (the Magnum Opus's covers come within 2 px of the plate; 18 lost),
+a per-strip cap and a piece count (both lose covers). The budget packs the old jobs array for array on all 354 strips
+(Test eraserisms 134, the Magnum Opus 140, R6 80), 0 differing bytes; on new plates 1,024 crossing circles ×10.3 → ×1.9
+and 128 failing strokes ×17 → ×2.1, cold ×1.84 → ×1.05; a cover under more than 64 failing families is not found (bytes,
+never pixels). `raster.occlusion.test.js` B1–B6 (8 cases); nine breaks red. Chrome decides whether the Magnum Opus's
++13 % on new plates holds there; if it does, the lever is a cheaper proof for large families, not an admission rule.
+
+**Measured 2026-10-14, built and taken out (deferred).** Built exact: a plate's cover was the topmost family whose one
+item drawn there is one opaque loop or ring of straight pieces tracing its own box, off the union pass, the box
+containing the plate (the core deposits it at coverage 1, so its cull stops there or higher); an item under the covers
+of every plate it is drawn in was left out; off with a mark in the strip. Byte-identical on R6's 24 plates and in four
+tests, six breaks red. But the Magnum Opus's covers are tile-chopped shape loops (six straight pieces, not a box):
+`review1014.f157.probe.js` at R6's camera finds 872 of the 917 packed items (222 KB of 239) under the core's covers, and
+the box test caught 2 items a plate; in Kobin's zoom/pan minute (level 4) the core skips one family a plate, and the run
+left out nothing. The core already skips the hidden families' pixels, so what is left is ~0.2 MB a screen at depth 10.
+Worth it only with a test that a polygon contains the plate (no piece crossing it, the centre's winding non-zero).
+
+<a id="f156"></a>
+### F156 — BUILT 2026-10-13, found 2026-10-13 (the audit, jsdom). An up-tile bake scanned its whole parent cell.
+
+**Built:** `TileStore._cellNatives` asks each frame sharing the parent's cell for its natives whose boxes meet the tile's
+pre-image, padded by twice the seam pad (in the parent's units) and a relative 1e-9; the index's boxes carry a stroke's
+half width, as `classifyUp`'s band does, so the query is a superset and `classifyUp` still decides. Checked against the
+whole-cell scan (`review1013.cullcompat.probe.js`, `COMPAT_MODE=cellquery`): every tile of Kobin's live "Test
+eraserisms" (3,996) and "Local Magnum Opus" (7,542) identical; their cold bakes 12.7 → 11.9 s and 31.2 → 29.7 s.
+`TileStore.test.js` "an up tile's parent natives (F156)" (the same pieces, a fifth of the culls; break-checked). As found:
+
+`TileStore._bakeUp` takes the parent's natives as `doc.cellList(parentId)` whole (~351), where the ring's pickup uses
+`doc.queryRect` (~447). On R4's view re-read: 106 tiles (79 empty), 35,765 cull calls over 2,643 natives for 125 pieces,
+32,544 of them from 16 up tiles each scanning the 2,034-native parent cell. R6: 311 tiles, 423,504 calls over 37,499
+natives for 16,223 pieces. With F142's NaN cull every one of those natives is also magnified. Lever: `queryRect` over the
+padded square (exact); a per-loop cull before `deriveStep` is the compatibility-sensitive next step (`derive.js` ~513–542).
+
+<a id="f155"></a>
+### F155 — OPEN, found 2026-10-13 (the audit + Kobin's Chrome). The workers are sent the same geometry again and again.
+
+99.8 % of a job's bytes are geometry, and shapes do not change with the zoom. R4's zoom cycle (jsdom): 33 jobs, 5.1 MB
+posted, 9 distinct items / 237 KB of distinct geometry — a re-send factor of 21.5 (the top items in 33, 29, 27 of the 33
+jobs). Chrome, a fast zoom cycle on R4: 100–120 MB posted, most of the ~300 MB the cycle allocates. Lever: a
+worker-resident geometry cache (an item sent once per worker, keyed by its memo entry and version; jobs carry indices),
+which is also where F154's row-band index belongs. A protocol change: Kobin's call.
+
+**Measured 2026-10-14, deferred** (Kobin's Chrome, the Magnum Opus, ramrun's minute with the RAM tier on, F162's run;
+`packsplit.js`): 370 jobs posted 87 MB, 68 MB of it geometry for 5.1 MB distinct (13×). Per-worker caches would have
+sent 14.8 MB of geometry (a 4 MiB LRU each is enough); the per-item records stay (14.8 MB). But the geometry is not
+where the main thread's time goes: bands and flat copies 40 ms and the job's arrays 75 ms of the pack's 1,006 ms, the
+post 145 ms, most of it `postMessage`'s cost per message, which a cache keeps; the buffer pool already serves 99 % of
+takes. So ~0.1 s a minute and a third of the bytes, for per-worker state in the protocol. Still the place for F154's
+index if that is built.
+
+<a id="f154"></a>
+### F154 — BUILT 2026-10-19/20 (jsdom; Chrome on R4), found 2026-10-13 (the audit, jsdom). The raster core visited every piece of every item.
+
+The core's edge stage is 83–86 % of its time on R4, and it walks every piece of every item whose box meets the plate:
+61,456 visits over 18 plates, 12,085 in the plate's row band (20 %), 4,992 meeting the plate (8 %). At R4's report camera
+a view job walks 41,120 pieces and none meets a plate (the screen lies inside two big shapes). Testing an arc's chord box
+and sagitta before `arcDepth` gave byte-identical plates and no speedup: most arcs are depth 0; the cost is the visit.
+Lever: a per-item row-band index (exact: an off-band piece deposits nothing), 5.1× fewer visits on R4 and 1.24× on R6.
+
+**Built 2026-10-19/20.** In the pack, not the worker (F155's cache is deferred): each geometry's loops of more than 16
+pieces are cut into runs of 16 consecutive pieces, each with the lowest and highest y its pieces can deposit at in frame
+units (`rasterCore.rowRuns`: a line's ends; an arc's chord box grown by its sagitta's y to a half turn, 2R about its start
+past one, a whole turn its centre's radius plus the chord; the loop's closing edge in its last run; anything non-finite
+every row), memoised with the geometry or the band and charged to the memo; the job carries them (`runs`, three doubles
+a run, and `subRun`, each loop's first; `validateJob` checks that they tile their loops). `emitItem` and
+`loadUnionItem` skip a run whose rows, widened by 1 device px, miss the clip's (a union band's) rows; a run starts at
+the record before it, so the walked pieces are the whole walk's in its order and every sum is the same to the bit. A
+loop with no runs (16 pieces or fewer, or a record code the core does not know) is walked whole. What changes is what
+the core counts for pieces it never walks: `counts[5]` (chords) and the arc guards count the runs a plate walks.
+Measured: jsdom (`review1019.f154.probe.js`, one plate a job) R4's 18 screen plates 200–258 → 84–106 ms (2.2–2.6× at run
+lengths 4–32), 47,050 → 13,090 pieces walked, 0 bytes different, runs 71 KB on 2.2 MB of geometry; the Magnum Opus's 24
+plates 84.6 → 84.2 ms (every piece in its plate's rows). Chrome on R4 (`tools/f154chrome.js`, every plate dropped and
+the screen drawn again, ten rounds alternating; `.claude/PERF-DEEP-2026-10-12/f154/chrome-2026-10-20.md`): the rest
+plates' worker time median 318.8 → 244.7 ms (−23 %), the view's 254.7 → 179.6 ms (−29 %), settled 115 → 92 ms, the
+edges deposited identical. `rasterCore.runs.test.js`: random loops of every record kind on nine plates, the fast path
+and the union pass, a mark, clips, transparent paper, a residual, run lengths 1–16, the reach cases, a non-finite
+piece's guard, the wire's check, the pack and the worker; 20 breaks red.
+
+<a id="f153"></a>
+### F153 — BUILT 2026-10-19 (jsdom; Chrome on R4), found 2026-10-13 (the audit, jsdom on R4). A drop dirtied every cell at every level.
+
+**Built 2026-10-19, per piece (the review's contract below).** A held shape or fill that the drop only moved — its offsets
+or its home changed (`change` offsets, `remove`, `add`), with the geometry array and the look (`lookOf`: colour, opacity, z,
+family, erase) it was held with, and not drawn by the view at a delta — commits one swept state: its boundary's pieces boxed
+in loop order, one box a piece, under a tree of merged pairs (`sweepBoxes`). A question about a box in a frame
+(`dirtyRects(F, sinceG, box)`, `_dirtIn`; `_dirt` asks for all of a frame's tracked cells in one descent, `_sweepCells`)
+descends the tree from its root: each node mapped where it was and where it is (`model.footprintMapper`, bit for bit
+`mapPointObj`) and the two united — between two uniform scale-and-translate placements every changed pixel lies in the
+boundary's sweep, whatever the homes — and each piece's hull cut to the native's whole box before or after, so a far move
+dirties those boxes and not the way between. A yes-or-no question is exact; the clip's question unites what meets its box,
+cut to it, a node inside the box taken whole (more, never less). The mapped hulls are kept per (sweep, frame) for the
+lattice they were mapped in, a commit's other footprints per (commit, frame) (`RECTS_KEPT` 256), and the trees and hulls the
+log holds stay under `SWEEP_BYTES_MAX` (32 MiB; past it the oldest sweeps become their two boxes). Past `RECTS_MAX` held
+natives none is made: `_grouped` would box them. The patch's callers ask with the padded cell (`_dirtyIn`, `_covers`,
+`patchPlan`). A stroke, a view-drawn hold, a native another event changed and frames keep their boxes.
+
+R4's drop (`review1012.audit.q1.probe.js`, plane; jsdom, with jest beside it):
+
+| R4's drop | runs (2026-10-15) | per piece |
+|---|---:|---:|
+| view-level cells dirtied | 24 of 24 | 5 |
+| their damage / changed pixels | 6,291,456 / 63,882 | 609,526 / 63,882 (9.5×) |
+| tracked cells dirtied, every level | 126–128 | 56–58 |
+| changed pixels outside the dirt, any level | 0 | 0 |
+| cells left exact, checked unchanged | none (nothing left) | 64, none changed |
+| `dirtyRects` a call: median, p95, max | 0.42–0.73, 1.43 ms | 0.078, 0.39, 3.9 ms |
+| the drop's `_dirt` | — | 5.3 ms |
+
+**Chrome 2026-10-19** (Kobin's, visible tab, dpr 1.25; R4 in a second engine at the drop camera, the report's 12 members
+dragged (60, 40) px over 20 frames and back, six drops a mode alternating with `stage.sweepOff`, the first drop left out as
+warm-up):
+
+| R4's drop in Chrome | boxes (`sweepOff`) | per piece |
+|---|---:|---:|
+| cells dirtied | 126 | 56 |
+| plates re-rendered after the drop | 20 | 13 |
+| worker time | 118–147 ms | 62–79 ms |
+| the patch's estimate | 178–268 ms | 74–108 ms |
+| older picture on screen (stale plates awaiting their patch) | 23–41 ms | 5–7 ms |
+| blur on screen (a coarser exact level drawn meanwhile) | 0 | 3–4 ms |
+| the landing, drop to fresh | 26–56 ms | 26–32 ms |
+| the drop's own task | 27–41 ms | 34–40 ms |
+
+No frame over 50 ms in either. On this machine the landing was already short after F139/F151, so the gain is the work
+(about half) and the stale picture's time (−80 %), not a visible wait; a slower machine or a busier drop scales both.
+
+The first build boxed runs of 2–8 pieces (up to 256 a native): the members are homed 1–5 levels above the camera, each
+piece 1e10–1e12 px at the view, so a run near it boxed the whole view (615 of 824 rects over 2,000 px). Six of the twelve
+members are re-homed by the drop (removed and added again, same geometry): the sweep holds for them as for an offset move.
+
+**Built 2026-10-15 and kept: the trap.** While the plane draws a drag, packs leave the held ink out; such a plate is marked
+(`omitHeld`, the drag's era), never goes to the RAM tier, and goes at the drag's end (`PyramidStore.endHeld`, before the
+drop's patch step), its cell asked for again (`PicturePyramid.unask`); a result of one landing later is refused, a patch too.
+
+**Tests.** `raster.dropdirt.test.js` — every plate the store calls exact equals its cell rendered from a snapshot, right
+after the drop and once every job landed (plane, no plane, plates re-rendered mid-drag, a cancel, six seeded random scenes;
+pixels within the seam pad of a cache square's edge excepted, where the two routes differ by a pixel), every plate the drop
+left exact shows its cell's truth from before it (one route both sides, nothing masked), and the cells a huge square's moved
+edge leaves unchanged keep their plates (red with boxes: 22 of 22 dirtied); `stage.hold.test.js` "a drop's dirt" (a geometry
+replaced, an event or a look changed in the hold, 257 natives, a stroke, the rect budget, per cell, a far move and its clip,
+a re-addressed frame, 400 random cells in one descent against each alone, a snapshot and a cell tracked late);
+`lattice.mapper.test.js`; `PyramidStore.ram.test.js`, `PicturePyramid.patch.test.js`. With the sweep and without the trap's
+fix, the mid-drag tests drew white where the square is. Break-checked 2026-10-19 on copies: every guard of the per-piece
+build turns a test red but two the others cover — the same-geometry check (a geometry change raises an event, which the
+only-moved rule refuses) and `_sweepCells`' cut of a piece to the boxes (a cell meeting neither box was left out first).
+
+**Reviewed 2026-10-15 (Codex, jsdom); its finding fixed 2026-10-19.** A pen-up group took a result packed without the held
+ink as received: `_take` then refused it, yet the group committed and its live path came down over no plate (a pen-up
+whose cells are still in flight when a drag ends; the group state reproduced, no hole seen in Chrome). Now such a result
+never completes a group (`PicturePyramid._heldStale`); what a group holds of them goes back to its need at the drag's end
+(`heldEnded`, from `RasterRenderer.endMove`) and before it commits (`_reaskHeldStale`); `committed` counts what was
+published. The RAM test's evidence was erased by a second put at the same key: it now checks an evicted and a released
+plate. Tests: `PicturePyramid.patch.test.js` (four), `PyramidStore.ram.test.js`, `stage.hold.test.js` "a drop's dirt" (a
+geometry replaced in the hold, 257 shapes, a stroke, the rect budget, a snapshot and a cell tracked late). The review's R4
+run agrees with the one above: 24 of 24 main-level cells dirtied, 4 with a changed pixel; 6.29 M pixels of damage for
+63,882 changed; the per-piece hulls 537,716 px over 5 cells; nothing missed by either. Its `undirtied` check saw no cell
+left exact, so it proves nothing yet. `dirtyRects` there: 40 calls by the drop's end, 36 ms, median 0.73 ms (the probe's
+164: median 0.42, p95 1.43) — past the ~0.1 ms the plan allowed before caching. Break-checked 2026-10-19 on copies: each
+guard removed turns a test red, but for two — `_take`'s refusal (the arrival guard and the store's put refuse the same
+results first) and `endMove`'s `unask` (a cell asked again mid-drag whose plate the drag's end drops is asked again
+anyway once its in-flight result is refused, a round trip later).
+
+**The contract it is built to (from the review).** Damage is asked per cell or rectangle (`dirtyRects(F, sinceG, box)`),
+and `_dirt` tests each tracked cell against the uncropped hulls: a coarse cell's merged hull of a square's opposite edges,
+handed out frame-wide, would dirty every finer cell inside it. Questions about any rectangle later (`snapshot().fresh`,
+`track(…, sinceG)`) must still be answered, so the cache holds the uncropped hulls mapped per (commit, frame) — 5,652
+boxes ≈ 181 KB a frame on R4, and the log keeps 2,048 commits: a byte bound and eviction, and dropped when a frame is
+re-addressed or forgotten. A hold whose natives change only their attributes falls back to whole boxes (no caller
+today). Still open: deep chains, frozen arcs and erase dust under the selective invalidation (the drop tests move huge
+squares, discs, fills and a square a level down, no erase cuts), the Chrome cost of dropping every omitted plate after a
+pan or zoom mid-drag, `prefetch.js`'s stale coarser levels patched by their clips, and Chrome.
+
+As found:
+
+Kobin: "lines that are already there being blurred when I move something unrelated". After R4's drop one commit of 24
+native-box footprints dirtied 128 of the 128 tracked cells at every level; 20 of the 24 view cells had no changed pixel
+(truth: snapshot renders before/after through the shipped core, equal to the stored plates in 104 of 104 cells).
+Re-rendered/changed pixels: 98.5× at the view's level, 30× the rest set, 69–613× coarser. Eight of the twelve members draw
+nothing in the view, yet their boxes (up to 7e12 px) dirty everything; the patch clip is then the whole cell, and every
+stale coarser level is re-rendered whole by the prefetch (`prefetch.js`, `clips: null`; 53 jobs after the drop). Lever:
+each moved piece's box before ∪ after (the swept box; plain piece boxes miss up to 35 % of the change), mapped once per
+(native, frame) by its affine: 0 changed pixels missed at any level, 4–8× the true change, 5 view cells instead of 24.
+Merge per native per cell before the log (`RECTS_MAX` 256 collapses to one union box). The drag's own blur is F145's.
+
+<a id="f152"></a>
+### F152 — BUILT 2026-10-13, found by the deep performance analysis (Kobin's Chrome, R4). Zooming out drew paper after every crossing.
+
+A 2 octave/s zoom out of R4's depth-3 view and back (one crossing each way): 100 % of the cells paper for ~1 s of zooming
+after the crossing up and 0.5 s after it stopped; paper 2,236 ms and blur 4,133 ms in all, while the four workers were ~4 %
+busy. Three gates, each enough to block the view's plates:
+1. The velocity rule (`jobQueue._aim`) predicts the view at a strip's arrival from `vel.zoom` about the attention point
+   plus `vel.px`, and `RasterRenderer._pyrMotion` set `px` to the raw translation velocity — which during a zoom about a
+   point IS the zoom's translation, counted twice: every view strip was aimed 1–2 screens away and dropped as off screen
+   (185 drops, 0 dispatched in one zoom-out).
+2. A camera step read the tile cache alone (A3 §4.2) and the idle read waits for the camera to stop
+   (`KobinEngine._readIdle`), so a crossing's new frame stayed unread for the whole zoom and its cells were never asked.
+3. `Stage.covers` required every reroute group's tiles over every rect: 49 of the 50 unread keys belonged to groups whose
+   natives draw nothing in the window.
+Built: `_pyrMotion`'s `px` is the pan alone (`raster.motion.test.js`); a step reads `STEP_READ_MS` (4 ms) while its window
+is not covered (`raster.pyramid.test.js` "the camera's read" updated); `covers` skips a group whose drawn box (`Stage._groupBox`,
+reset in `_reconcile`) misses the rect, every group during a drag's hold. Measured in Chrome, the same zoom: paper 121 ms,
+blur 916 ms, 96 % of the cells sharp while zooming out, no strip dropped; the price is 4 frames of 50–83 ms in 12 s (a
+step bakes at least one tile chain, O(parent shapes) until F142); with F142's cull as a runtime experiment: paper 34 ms, blur
+540 ms, no long frame. F147's white flash after drops is probably this (a fast zoom-out across a crossing): check it again.
+
 <a id="f150"></a>
 ### F150 — OPEN, found by the 2026-10-07 review (PERF) in Kobin's report R6. The Magnum Opus's steady state is not attributed.
 
@@ -4525,6 +5141,19 @@ native for a new frame, `TileStore.js` ~285–292), a tap's `_tapBarrier` → `f
 (`_ensureShapeBakes`), the selection's ant decision, and F142 inside every tile read. Next: a Chrome profile of 10 s of
 zooming at depth 10 and of one tap, after F139 and F142 (they shorten every tile read). Detail: `.claude/REVIEW-2026-10-06/perf.md`
 Q2/Q3(e).
+
+**2026-10-12 — memory (Kobin: "more related to memory than processing?").** R6's growth samples: with no edits (undo
+unchanged) the JS heap climbs 20–40 MB every 2 s, from 1,401 to 3,146 MB of its 4,192 MB limit, and each major
+collection frees 1,014–1,745 MB (floor 723–1,554 MB). An 832 ms long frame with no script at all (03:28:35 UTC, ~20 s after
+the canvas opened) and a 594 ms render frame inside the 2 s in which the heap fell 1,601 MB (03:34:16) look like collections; Chrome
+counts a collection inside a script as that script's time, so the rest cannot be split from the report. jsdom
+(`review1006.mem.mo.probe.js`: the whole drawing at the report's camera, 31 camera steps, each a full document render):
+105 s and 36.3 GB allocated as built, 25.4 s and 9.0 GB with the shape cull (F142); GC 2–3 % of the time either way. The
+engine holds ~64–76 MB for the whole drawing there (~10 MB for R2–R5's 2,664-native canvas, whose floor in his tab was
+~310–380 MB): most of the tab's live heap is neither the drawing nor its caches. Candidates, unmeasured: the undo history,
+the save and cloud layers, the packer's memo (64 MB). Next: a heap snapshot in Kobin's Chrome after a session.
+**2026-10-13:** the snapshot named the floor — closed canvases kept alive and the pack memo pinning every piece it had
+packed (F160, built); with the Magnum Opus open the tab holds ~200–220 MB.
 
 <a id="f149"></a>
 ### F149 — OPEN, found by the 2026-10-07 review (PERF) in Kobin's reports R3/R6. Zooming with a selection re-decides the ants every few frames.
@@ -4651,10 +5280,98 @@ Levers (not built): cut the SEL layer's on-screen cells at the view's level and 
 `PLANE_SCALED_MAX` bind only where it guards the scaled-image cliff (a k = 0 SEL beside a k ≥ 1 BELOW); keep the SEL
 layer's plates across a drop, translated by the drop's offset, as the next drag's first picture; one resolution per drag
 when the main level is late; an exact drop patch for a small changed area. Raising `MOVE_PLANE_PLATES` alone does nothing
-for R3. Detail: `.claude/REVIEW-2026-10-06/moves.md` Q3, Q2 ("The orchestrator's hypothesis").
+for R3. The landing shows the plane's layers until the cells under them are fresh (or `MOVE_HOLD_MS`), so sharper layers
+help the landing too, while F153 shortens the rebuild under it. Detail: `.claude/REVIEW-2026-10-06/moves.md` Q3, Q2
+("The orchestrator's hypothesis").
+
+**Built 2026-10-19 (jsdom), the first lever.** `MovePlane._cut` tries resolutions [BELOW and OVER, a selected run on the
+view, its D1 margin] in octaves under the view — the selection on screen sharpest first, then what it moves over, then its
+margin — and takes the first whose plates fit the cap and, when any plate is drawn magnified (or the view is between
+quanta), whose frame draws at most `COMPOSE_IMAGES` distinct images: in Kobin's tab 33 scaled bitmaps cost 1.7 ms a frame,
+34 cost 264 ms, and 4 scaled with 32 at 1:1 37 ms (PAPER-PLAN §10.14). `_paintPlane` no longer draws a plate off the
+screen, so a selected layer counts a screen's plates at most. No layer is cut coarser than one resolution for all would
+be (`ku`, the old rule with that cliff in place of `PLANE_SCALED_MAX` 16), so nothing is blurrier than before. A run cut
+finer on the view than its margin is two layers: the margin, drawn only outside the near layer's view cells (`hole`,
+clipped as the drag moves it — without the clip its coarse edge pixels show round the sharp one), then the near one. Each
+layer carries its own Zp (`pZq`) and `foot` (the BELOW and OVER plates over the selection's start, which a partial level
+and the stopgap draw). A far layer's own table (k > 2) now covers the selection's margin too: it covered BELOW's cells
+only, so a far margin plate could lack the tile pieces outside them. Probes at the reports' cameras: R4's drag cuts
+[½, 1:1, ¼] — the selection's 16 on-screen plates at the view's resolution, BELOW 6, the margin 12, 34 plates, ≤ 28 images
+a frame (was 16 plates, all ¼); R3's [½, ½, ¼], 32 plates (was all ¼). A selection filling the screen with ink over it
+stays at ½ or coarser: its on-screen layer alone is 24 plates 1:1, and with BELOW, OVER and one plate magnified a frame
+passes the cliff; drawing each layer from one surface would lift that (a structural change). Cells from piece boxes (the
+audit's 12 against 16 on R4) were not taken: a cell inside a filled shape holds no piece, so it needs the cover test's
+winding. `raster.move.test.js` F145a–e (the cut, the near layer 1:1, the margin's clip, the frame bound and no plate drawn
+off the canvas, the far table's cover, the foot in a partial level); seven breaks each turn one or two red. The soft
+canvas now intersects a clip inside a clip, as a canvas does.
+
+**Chrome 2026-10-19** (my tab, R4 in a second engine on the gallery page, `.claude/PERF-DEEP-2026-10-12/tools/f145drag.js`:
+each round a 60-frame drag out and one back, per-layer against one resolution for all — the old cut, forced by refusing
+every mixed one — alternating, 2 rounds): every frame 16.6–16.7 ms median, worst 17–20.8 ms, none over 33 ms either way;
+the compose 0.5–0.6 against 0.2–0.3 ms median, worst 2.7–6.4 against 0.4–1.1 ms; 25–27 distinct images a frame (at most
+10 scaled) against 8. A crop of the held mid-drag frame: the moved shape's edges and the thin stroke under it sharp, with
+one resolution soft.
+
+**Reworked 2026-10-19, after Kobin's two reports that afternoon** ("still seeing a good bit of blur … just moving an
+object, and what was already rendered on screen became blurry … moving a massive object behind everything else, and
+everything that was already rendered on screen became blurry, even though the image wasn't even changing at all").
+Replayed (jsdom, `review1019.blur.probe.js`: his screen, 1806 × 1070 at 1.25, the desktop cap): at 14:35 [3326]'s family
+covers all 20 view cells and 180 of D1's, and the cut took [¼, 1:1, ¼] — the selection sharp, everything else at ¼; at 14:38
+[2344] covers all 24 view cells, BELOW holds no ink of its own (24 plates of paper), and the cut took [¼, ½, ¼] — all that
+is over it at ¼. Three rules made those: the order (the selection on screen first, against decision 2's "BELOW and OVER
+at full resolution"), the image cliff (every layer 1:1 needs more than 30 images a frame once one is magnified), and `ku`
+bounding the margin too (a larger cap made BELOW coarser: `ku` fell to ½, and every cut with BELOW 1:1 needs the margin
+at ¼). Built: CUTS tries BELOW and OVER first; `ku` bounds what is on screen only; BELOW's cells with none of its own ink
+(the families no run takes) are `paper`, drawn as paper with no plate and the view's plates under them skipped; a layer of
+more than two plates is drawn from one surface (`PicturePyramid._planeSurface`: its bounding cells at the layer's grid, a
+cell redrawn when its record changes and cleared when it goes, a new surface when a re-cut moves its bounds), so a frame
+draws one image a layer and the cut no longer counts the cliff (`aim`'s `cliff` is Infinity where a canvas can be made;
+plate by plate, as in jsdom, it binds as before); the surfaces are built when the plane is whole at rest (`prepPlane`,
+0.5–1.3 ms; built in the drag's first frame that compose took 18–38 ms) and kept while their layers are; the quick level is
+two octaves under the coarsest layer on screen, not under the margin; `MOVE_PLANE_PLATES` 40 → 64 (the pinned bound +24
+MiB). The cuts now: 14:35 [1:1, 1:1, ¼] 52 plates; 14:38 [1:1 paper, 1:1, ⅛] 54; R3 [1:1 paper, 1:1, ¼] 62; R4 [1:1, 1:1,
+¼] 44. **Chrome** (my tab, both reports in a second engine on the gallery page, `.claude/PERF-DEEP-2026-10-12/tools/f145b.js`;
+against the cut his tab took, forced and drawn plate by plate): frames 16.4–16.7 ms median, worst 24–29 ms, none over 33
+(one of 40 ms before `prepPlane`); the compose 0.2–0.4 ms median, ≤ 0.9 ms on a drag's first frame; 2–3 images a frame
+(23–25 and 11–14 at the old cuts); the plane whole 0.09–0.16 s after a select, 0.11 s with its plates dropped from the
+store and the RAM tier first, and a drag begun 0.15 s after selecting drew the plane's own level from its first frame.
+Mid-drag crops: the unrelated ink's edges and the stroke over the massive object sharp, soft at the old cuts.
+`raster.move.test.js` F145a–h (F145f the massive object behind everything, F145g one surface a layer and a pan's new
+bounds, F145h the quick level), `PicturePyramid.plan.test.js` (a surface follows its records; a surfaced plane is one image
+in the budget); 15 breaks red. The soft canvas now draws a soft canvas as an image, with its alpha, and clears rectangles.
+Costs: the surfaces are a second copy of the plane's pixels (at most its 64 plates' worth; about 70 MB on Kobin's screen);
+a 52–62-plate plane leaves no room for a quick level, so a drag begun before its plates are in on a heavy drawing draws the
+selection's layers alone, or only the ants, until they are.
+
+**The seam and the held blur, 2026-10-19 evening** (Kobin: "I dragged this item up, and a part of the shape that was
+previously off-screen now has a line through it, which disappears on the drop"; "as I held it the blur never went away").
+The line: a layer drawn from one surface is magnified with bilinear filtering, and a texel beside a cell the surface does
+not hold blends with that cell's transparent texels. The margin's surface leaves out the cells wholly inside its hole (the
+near layer draws them), so where the hole's edge falls on a margin cell's edge (in Kobin's case the view's bottom) the
+margin's first row outside the hole was a quarter what is under it; plate by plate each plate was clamped at its own edge.
+BELOW's surface did the same where its cells meet the view's plates, a quarter paper (magnified or between quanta only).
+Built: a surface's drawn cells have their edge texels copied two deep into the cells another layer or the view's plates
+draw (`PicturePyramid._planeEdges`: BELOW's undrawn cells and a margin's hole cells; corners from the diagonal; again when
+a re-cut moves the hole), and BELOW, its edges copied past its cells, is drawn clipped to its own cells. Chrome (a red
+selection past the screen's left and bottom, the view's cells ending on a margin cell's edge, `tools/f145seam.js`, the
+fix off and on alternately): the margin's pixel beside the hole 158,30,72 off, 200,30,30 on, both edges, two runs each.
+The held blur: a drag's plane is cut once, so what slid in from past the screen stayed at the margin's resolution. Built:
+a drag held still `PLANE_REFINE_MS` 250 ms (`RasterRenderer._refine`), over a whole main level, has each SEL run's cells on
+the screen at that offset cut again at the sharpest k under its coarsest layer that fits the cap beside the main level
+(`MovePlane.refineAt`; the quick level let go first, its pins the room), but those its near layer draws; once every
+plate is in it is drawn after its run's near layer and every coarser SEL layer is clipped out of the screen it was cut
+for, so a translucent run composites once; pinned with the plane, gone with it; the landing draws it too. Chrome
+(`tools/f145hold.js`, the refine off and on alternately, two runs each): on 14:35 the refine is cut 0.26 s and whole 0.28 s
+into the hold, 9 plates at 1:1, 61 pins; frames 16.7 ms median, worst 21 ms, as with it off; the edges in the strip that
+came on screen 2.87 px wide on average, p90 4 (off: 3.70, p90 6; the rest of the screen 3.01); on 14:38 whole 0.27–0.28 s,
+5 plates (the massive object behind everything has no edges in that strip, so no difference to measure). jsdom:
+`raster.move.test.js` F145i (the margin's seam, bilinear), F145j (BELOW's), F145k (a hairline that came in from the margin
+sharp once held; the quick level let go), F145l (a translucent selection composited once), F145m (no room: the margin
+kept); `PicturePyramid.plan.test.js` (the copied edges, a moved hole, BELOW's paper); 14 breaks red. The soft canvas
+samples a magnified surface bilinearly on request (`opts.bilinear`).
 
 <a id="f144"></a>
-### F144 — OPEN, found by the 2026-10-07 review (MOVES) in Kobin's report R1. Past the plane's 5-layer cap a multi-object drag draws an unselected run under the selection.
+### F144 — BUILT 2026-10-19 (jsdom), found by the 2026-10-07 review (MOVES) in Kobin's report R1. Past the plane's 5-layer cap a multi-object drag drew an unselected run under the selection.
 
 Kobin (report 2026-10-07T02-57-59): "moving multiple objects. I was getting some strange interleaving behavior, but they
 corrected themselves when I deselected the objects." R1's drawing: three overlapping translucent strokes (black z 1,
@@ -4675,7 +5392,27 @@ limit with the plane's (merged) picture, and the refused cells stay stale until 
 the smallest run between two selected ones is drawn under them", 2026-09-23); a decision put to Kobin on 2026-09-24
 (raise the cap vs merge by overlap) was not answered. Levers: merge by the pixels a run covers on screen, not its box
 count; prefer merging a translucent run above the selection; past the cap draw small selected runs from the stopgap at
-their true depth; end a landing whose patches were refused. Detail: `.claude/REVIEW-2026-10-06/moves.md` Q1.
+their true depth; end a landing whose patches were refused. Merging by covered pixels lessens the damage but does not by
+itself put the layers in order: a repair is tested on translucent and many-times interleaved selections (Codex's
+review, 2026-10-15). Detail: `.claude/REVIEW-2026-10-06/moves.md` Q1.
+
+**Built 2026-10-19.** First the merge by the area a run covers on the view (boxes clipped to the view's cells), in part.
+Then Kobin ("prioritizing layer congruence for fully opaque layers — for translucent layers, if they are switched it
+doesn't seem to matter much … is the math different depending on which one is on top?"): two layers' orders differ by
+αa·αb·(Cb − Ca) a channel — nothing in one colour at any opacity, little between two translucent ones, the whole
+difference between opaque ones. Built: past the cap a selected run is drawn on the other side of an unselected run beside
+it — lifted over it into the selected run above, or dropped under it into the one below — and the unselected run joins its
+own neighbour at its depth (the first, lifted past, becomes BELOW's). Only that pair's order changes, so the pair taken is
+the one whose swap shows least: Σ area × area × α × α × |ΔC| over the two runs' colours (each item's colour and opacity,
+its box's area on the view's cells, a selected run's over D1's grown view). Sinking the run under the whole selection
+drew R1's disc over the band it lies under. Measured (jsdom, `review1006.moves.r1.probe.js` Q1 at `MOVE_PLANE_LAYERS` 5,
+6 and 7 on copies, `capprobe.py`; the desktop cap 64): [27, 31, 36] at 5 layers: one merge, BELOW | SEL [36, 31] | OVER
+[30, 26] | SEL [27], 40 plates, 0 of 144 points wrong during the drag and the landing (3 before); at 6 or 7 layers no
+merge, 57 plates, 0 wrong; [36, 27] 4 layers, 38 plates, 0 wrong at every cap. So R1 needs no larger cap; heavier
+interleavings (R2's 167 layers) still merge, by the least visible swaps. `raster.move.test.js` F144a–c (updated), F144d (a
+cut-out lifted over its own remnant, not the disc over the band it lies under), F144e (a cut-out above its remnant dropped
+under it), F144f (a translucent band's swap before an opaque square's); 7 breaks red. Not measured in Chrome; R2 cannot be
+replayed with its selection (lassos are not journaled).
 
 <a id="f143"></a>
 ### F143 — OPEN (unverified in a browser), found by the 2026-10-07 review (PERF). After a drop's frame GC a camera step draws moved natives at their old places.
@@ -4695,9 +5432,23 @@ fix is `_roleOf` returning undefined for a native the model lists as moved. Deta
 moves.md ("Against PERF's findings").
 
 <a id="f142"></a>
-### F142 — OPEN, high, found by the 2026-10-07 review (PERF) from Kobin's drop stalls. The up-tile bake never culls a shape.
+### F142 — BUILT 2026-10-13 (Kobin's decision 1), found by the 2026-10-07 review (PERF) from Kobin's drop stalls. The up-tile bake never culled a shape.
 
-`classifyUp`'s EMPTY test reads `half = (o.lwFrame * f) / 2` (`geometry/derive.js` ~455) and `deriveStep`'s bbox cull
+**Built 2026-10-13:** `(o.lwFrame || 0)` in `classifyUp` and in `deriveStep`'s cull: a shape's box is its ink, and its
+margin is the seam pad. Only a piece lying wholly outside the padded tile can differ — one an object's own tile grid
+reaches past the pad when the object's phase is not zero — and such a piece draws nothing in the tile and reaches no child.
+**Checked old against new** (`review1013.cullcompat.probe.js`; side A runs HEAD's derivation by wrapping derive.js's
+exports, which every caller reads — `TileStore` and `eraseDescent`): every tile (i, j ∈ [-1, 1]², up and down) of every
+frame sampled, compared piece for piece (id, type, origin, z, every coordinate, covers): R4 285 frames, 5,130 tiles; R6
+400 frames, 7,200 tiles; Kobin's live "Test eraserisms" (all 222 frames, 3,996 tiles) and "Local Magnum Opus" (all 419,
+7,542 tiles), from reports sent from his canvases that day. **Identical, all 23,868.** Those samples' cold bakes: 69.0 →
+13.1 s, 275.5 → 68.5 s, 88.7 → 20.5 s, 644.6 → 49.6 s (jsdom). Nothing derived is stored in a saved canvas (its stores are
+natives, frames, the op log, backups and scene thumbnails, renders of identical pieces), so his canvases needed no
+migration; both open under the fix, render, and log no error. Tests: `derive.test.js` (a far shape is EMPTY, and
+`deriveStep` culls it before its loops; both halves break-checked); the deep-picture suites; the slow suite 650 pass (its
+5 reds are red on main too: F159). Workers rebuilt (`raster-worker.js`). What a cold bake still spends: F158.
+
+As found: `classifyUp`'s EMPTY test reads `half = (o.lwFrame * f) / 2` (`geometry/derive.js` ~455) and `deriveStep`'s bbox cull
 `m = o.lwFrame * (s / base) + …` (~568–570). A resolved stroke is a `shape`, and `Document.bakeShapeById` **deletes
 `lwFrame`** (`Document.js` ~1009, since `f92c1d1`, 2026-08-26 — in the deployed build too; the `half` line predates
 shapes). `undefined * f` is NaN, every comparison with NaN is false, so **no shape is ever EMPTY and none is culled**:
@@ -4712,10 +5463,8 @@ identical in 22 of 22** (id, type, origin, every coordinate). Whole chains: R4 a
 5,355 ms against 564 ms; R6's extract 76 tiles identical. With F139 every drop at depth ≥ 1 re-bakes such tiles cold:
 R3 drop 6.7–9.5 s as built, 0.33–0.39 s culled; R4 5.2–5.6 s, 0.65–0.73 s. The same bake sits in every crossing's idle
 read, every prefetch snapshot and every cut/descent apply's tile patch; `eng.list` was 47 % (110.5 s) of the session's
-raster main-thread time. **Not built:** the fix is `(o.lwFrame || 0)` in both places, but `derive.js` ~513–542 makes any
-change on this path a compatibility event (the deploy gate's 1.0 decision); it needs the deep-picture suites
-(`tile.patch`, the fidelity and depth suites) and a randomised old-against-new tile comparison first. Evidence for safety
-so far, not a proof: 203 tiles identical over R3, R4 and R6's extract. Detail: `.claude/REVIEW-2026-10-06/perf.md` Q1.
+raster main-thread time. `derive.js` ~513–542 makes any change on this path a compatibility event (the deploy gate's 1.0
+decision). Detail: `.claude/REVIEW-2026-10-06/perf.md` Q1.
 
 <a id="f141"></a>
 ### F141 — OPEN (minor), found by B-TIDY (2026-10-06). A Delete in the same frame as a crossing into the deleted frame.
@@ -4799,6 +5548,14 @@ re-bakes their tiles cold, synchronously (`readMs` Infinity). What it does:
 Lever (not built; PERF's A): keep the frames the camera view's reroute groups read (their F0s and chains) in
 `collectFrames` — small, low risk; it relaxes F94's "a frame holds something" for frames in use, which DESIGN §8 must then
 say. Or mint at idle when `covers` fails on a group's missing frame (a mint/forget ping-pong unless the GC keeps them).
+
+**2026-10-12 — the lever corrected (F151).** The "R4 5.2–5.6 s against 0.03–0.14 s" above was measured with frame GC off
+from the load on, which also kept the tile store's camera pins right. The keep rule alone, the load's sweep included,
+leaves R4's drop at 444–616 ms (jsdom, from 3.8 s): 2 of the 56 tiles the view reads had already lost their pin, and the
+drop's batch write drops and re-bakes them (F151). With F151's pin fix as well: 21–83 ms, and a drop allocates ~13 MB
+instead of ~1.37 GB. Two conditions on the rule: it must cover `sweepFrames` (it does if it lives in `collectFrames`), and
+a kept frame must stay a candidate — `collectFrames` clears the candidate set, so a frame kept once is not looked at
+again unless an event names it, or until a reload's sweep. Keeping the frames costs nothing measurable in memory (F151's section).
 
 jsdom, by reading and a probe, on the tree and on the tree before C3/C4 alike. `_prepareView` mints the empty frames the
 view reads a shifted frame's picture through; they are in `lm.minted`, which is frame GC's candidate set, and `_history`

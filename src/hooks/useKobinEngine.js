@@ -752,6 +752,8 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             window.removeEventListener("pagehide", flush);
             if (LOCAL_AUTOSAVE) flush();   // last chance before this engine goes away; the write outlives the component
             disposed = true;
+            // The dev handle's closures hold the engine: left set, a closed canvas stayed in memory (its whole drawing).
+            if (window.__kobinSaver === saverRef.current) window.__kobinSaver = null;
             saverRef.current = null;
             window.removeEventListener("error", onErr);
             window.removeEventListener("unhandledrejection", onErr);

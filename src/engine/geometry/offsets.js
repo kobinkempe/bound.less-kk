@@ -1,3 +1,4 @@
+/* global WeakRef, FinalizationRegistry */
 /**
  * offsets.js — an object's DISPLACEMENT TABLE: where its picture is, at every
  * level, without its stored geometry ever changing (F41, then F55).
@@ -97,6 +98,30 @@ export function cloneBelow(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
     for (let k = 0; k < below.length; k++) { const e = offsetAt(below, k); if (e) out[k] = [e[0], e[1]]; }
+    return out;
+}
+
+// Equal tables share one frozen array (memory-chrome-2026-10-20.md: 24,901 tables of ~95 values on the Magnum
+// Opus, two copies a member in a drag's undo record). Nothing writes a table in place — `addOffset` and the rest
+// copy first — and the freeze makes a write throw. Weak: a value nothing holds is collected.
+const SHARED = new WeakSet();
+const POOL = typeof WeakRef === "function" && typeof FinalizationRegistry === "function" ? new Map() : null;
+const REAP = POOL && new FinalizationRegistry((key) => { const r = POOL.get(key); if (r && r.deref() === undefined) POOL.delete(key); });
+
+/** The shared, frozen table equal to `below` (zero entries dropped), or undefined when it has no offset. */
+export function internBelow(below) {
+    if (!below) return undefined;
+    if (SHARED.has(below)) return below;
+    let key = "";
+    for (let k = 0; k < below.length; k++) { const e = offsetAt(below, k); if (e) key += k + ":" + e[0] + "," + e[1] + ";"; }
+    if (!key) return undefined;
+    const ref = POOL && POOL.get(key), hit = ref && ref.deref();
+    if (hit) return hit;
+    const out = cloneBelow(below);
+    for (const e of out) if (e) Object.freeze(e);
+    Object.freeze(out);
+    SHARED.add(out);
+    if (POOL) { POOL.set(key, new WeakRef(out)); REAP.register(out, key); }
     return out;
 }
 
@@ -227,8 +252,8 @@ export function ownTranslation(o) { return homeTranslation(o.below); }
 /** Native `o`'s picture table given its home frame's shift: `composeShift` of its own (A1 C1). */
 export function pictureTable(o, shift) { return composeShift(o.below, shift); }
 
-/** A copy of native `o`'s own table, as a piece cut from it or an undo entry keeps it (undefined when none). */
-export function ownTableOf(o) { return cloneBelow(o.below); }
+/** Native `o`'s own table as a piece cut from it or an undo entry keeps it: the shared value (undefined when none). */
+export function ownTableOf(o) { return internBelow(o.below); }
 
 /**
  * The own table a native homed in a frame with `shift` carries to be drawn with picture table `T`: `T` less the
