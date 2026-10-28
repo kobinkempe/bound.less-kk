@@ -7,7 +7,7 @@ import KobinEngine from "./KobinEngine";
 
 const fs = require("fs");
 const v8 = require("v8");
-const FILE = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const FILE = (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 jest.setTimeout(30 * 60 * 1000);
 const log = (...a) => console.log("[scene-memory]", ...a);   // eslint-disable-line no-console
 v8.setFlagsFromString("--expose_gc");

@@ -24,7 +24,7 @@ IDs are stable handles; use them in test names.
 
 Sections: [§0 traps](#0-methodology-traps) · [F fidelity](#f--erase-fidelity) ·
 [P polygonization](#p--polygonization-and-the-curve-generalization) · [S seams](#s--seams-and-tile-overlap) ·
-[W cede](#w--windows-and-nesting) · [V severance](#v--severance-and-connectivity) ·
+[W cede](#w--ceding-a-tile-and-nesting) · [V severance](#v--severance-and-connectivity) ·
 [C composition](#c--composition-many-erases-many-objects) · [M move](#m--move-anchoring-and-offsets) ·
 [L lasso](#l--selection-and-multi-select) · [D determinism](#d--determinism-and-persistence) ·
 [U undo](#u--undo-and-redo) · [X budgets](#x--performance-budgets)

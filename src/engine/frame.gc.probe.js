@@ -95,7 +95,7 @@ test("report 08-16-23: load sweep, a 40-step drag, a delete, undo/redo, reload",
     log(`GC stats ${JSON.stringify(E._gcStats)}`);
 });
 
-const OPUS = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const OPUS = (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 (fs.existsSync(OPUS) ? test : test.skip)("the Magnum Opus export: frames at load, and after the sweep", () => {
     const E = mkEngine(1504, 868);
     const raw = JSON.parse(fs.readFileSync(OPUS, "utf8"));

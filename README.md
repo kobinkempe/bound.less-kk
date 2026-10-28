@@ -2,10 +2,10 @@
 
 An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the room inside — then keep going.
 
-**Live demo: <https://bound-less-kk.web.app>**
+**Live demo: <https://bound-less-kk.web.app>** · [Read the case study](https://kobinkempe.pages.dev/case-studies/boundless/)
 
-> **Built with AI tools — [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com), and [Lovable](https://lovable.dev).**
-> This project was an exercise in modern AI-assisted engineering — the v2 zoom engine, its test harness, and the current UI were designed, debugged, and shipped in collaboration with these tools.
+> **Built with AI: [Claude Code](https://claude.com/claude-code), [Codex](https://openai.com/codex/), [Cursor](https://cursor.com) and [Lovable](https://lovable.dev).**
+> This project is my test of how far AI can take complex software. I direct and review the work, and AI agents write all of the code: about 165,000 lines so far, including the v2 zoom engine, its test harness and the current UI.
 
 ![Ink sketch of a treehouse village on an infinite canvas](src/Images/ui/canvas-main.jpg)
 

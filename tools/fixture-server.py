@@ -3,9 +3,9 @@ to a page in Chrome (the upload tool caps at 10 MB; Magnum Opus is 64 MB). Read-
 only. launch.json's `fixtures` entry and tools/launch.js run this on :3002. Do not repoint it at
 another folder: the browser harness (.claude/rasteriser/browser-harness.js) fetches
 /Magnum%20Opus.boundless.json."""
-import http.server, sys
+import http.server, os, sys
 
-ROOT = r"C:\Users\Surface\Documents\Claude projects"
+ROOT = os.environ.get("BOUNDLESS_FIXTURE_DIR", os.path.join(os.path.expanduser("~"), "Documents", "Claude projects"))
 PORT = 3002
 
 class H(http.server.SimpleHTTPRequestHandler):

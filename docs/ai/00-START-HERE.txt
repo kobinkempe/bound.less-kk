@@ -21,7 +21,7 @@ WHAT THIS IS
     below.
 
 WHERE THINGS ARE
-    repository      C:\Users\Surface\Documents\bound.less-kk
+    repository      your local clone of
                     github.com/kobinkempe/bound.less-kk
     working branch  claude/hopeful-dirac-iotb9n (the renderer rebuild, pushed),
                     on top of rasteriser at 56e36b3 (pushed; main's 4c99a8a

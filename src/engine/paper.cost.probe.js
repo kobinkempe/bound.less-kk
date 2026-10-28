@@ -18,7 +18,7 @@ import { LEVEL_STEP, levelFor, zOf } from "./raster/level";
 const levelAt = (inScale, dpr) => { const l = levelFor(inScale * dpr, LEVEL_STEP); return { q: l, Zq: zOf(l, LEVEL_STEP) }; };
 
 const fs = require("fs");
-const FILE = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const FILE = (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 const W = 1504, H = 868, DPR = 1.5;
 
 jest.setTimeout(30 * 60 * 1000);

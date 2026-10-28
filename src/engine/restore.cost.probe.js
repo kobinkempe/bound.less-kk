@@ -12,7 +12,7 @@ import { OpLog } from "./oplog";
 import { docFromStore } from "../storage/foldStore";
 
 const fs = require("fs");
-const FILE = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const FILE = (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 const W = 1504, H = 812;
 
 jest.setTimeout(30 * 60 * 1000);

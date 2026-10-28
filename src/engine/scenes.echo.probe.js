@@ -9,7 +9,7 @@ import KobinEngine from "./KobinEngine";
 import { ZOOM_SPREAD } from "./sceneIndex";
 
 const fs = require("fs");
-const FILE = process.env.ECHO_FILE || "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const FILE = process.env.ECHO_FILE || (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 jest.setTimeout(30 * 60 * 1000);
 const lines = [];
 const out = (s) => lines.push(s);

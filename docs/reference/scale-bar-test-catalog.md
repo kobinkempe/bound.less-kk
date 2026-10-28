@@ -14,13 +14,13 @@ Automated Jest tests under `boundless/src/engine/scaleBar/` exercise the **real*
 
 | File | Covers (locked L + catalog) | Focus |
 |------|-----------------------------|--------|
-| [`membership.test.js`](../src/engine/scaleBar/membership.test.js) | bible §2 / Q2; **L9** owner priority | Five ladders; ultra omit `yd`/`mil`/`ld`/`R☉`/`R⊕`; related table; `stackForUnit(Qpc)` → SM |
-| [`nice.test.js`](../src/engine/scaleBar/nice.test.js) | constraint 3 / 3a; T-IN-* | 1/32 inch fractions; 1/2/5; plain↔sci thresholds |
-| [`resolve.test.js`](../src/engine/scaleBar/resolve.test.js) | **L1**, **L3**, **L4**, **L8**, **L9**; **I-01** prefer-≥1 promote; **L2 enter**; **ZS-02** m↔km / yd↔0.5 mi; ultra absorption; **ZS-01** dm session round-trip | Absolute `resolveReading`; handoffs; sticky `Qpc`; `computeScale` façade |
-| [`userRange.test.js`](../src/engine/scaleBar/userRange.test.js) | **L5**, **L6**, **L7**, **L12**; **I-02/I-08/I-15** | `applyUnitPick` user bands; teardown; L6 highestPriority; no `pinMode` |
-| [`rungs.test.js`](../src/engine/scaleBar/rungs.test.js) | **L10**; T-POP / T-SET; **I-03/I-04** membership tables | Related auto-show; popover/set-scale membership ≠ full catalog |
-| [`logLength.test.js`](../src/engine/scaleBar/logLength.test.js) | **L11** | Log-length round-trip; extreme mpp no-throw; bar bounds |
-| [`testSupport.js`](../src/engine/scaleBar/testSupport.js) | (helpers) | Cold/probe sessions, `mppForReading`, overlap mpp |
+| [`membership.test.js`](../../src/engine/scaleBar/membership.test.js) | bible §2 / Q2; **L9** owner priority | Five ladders; ultra omit `yd`/`mil`/`ld`/`R☉`/`R⊕`; related table; `stackForUnit(Qpc)` → SM |
+| [`nice.test.js`](../../src/engine/scaleBar/nice.test.js) | constraint 3 / 3a; T-IN-* | 1/32 inch fractions; 1/2/5; plain↔sci thresholds |
+| [`resolve.test.js`](../../src/engine/scaleBar/resolve.test.js) | **L1**, **L3**, **L4**, **L8**, **L9**; **I-01** prefer-≥1 promote; **L2 enter**; **ZS-02** m↔km / yd↔0.5 mi; ultra absorption; **ZS-01** dm session round-trip | Absolute `resolveReading`; handoffs; sticky `Qpc`; `computeScale` façade |
+| [`userRange.test.js`](../../src/engine/scaleBar/userRange.test.js) | **L5**, **L6**, **L7**, **L12**; **I-02/I-08/I-15** | `applyUnitPick` user bands; teardown; L6 highestPriority; no `pinMode` |
+| [`rungs.test.js`](../../src/engine/scaleBar/rungs.test.js) | **L10**; T-POP / T-SET; **I-03/I-04** membership tables | Related auto-show; popover/set-scale membership ≠ full catalog |
+| [`logLength.test.js`](../../src/engine/scaleBar/logLength.test.js) | **L11** | Log-length round-trip; extreme mpp no-throw; bar bounds |
+| [`testSupport.js`](../../src/engine/scaleBar/testSupport.js) | (helpers) | Cold/probe sessions, `mppForReading`, overlap mpp |
 
 **Run (from `boundless/`):**
 

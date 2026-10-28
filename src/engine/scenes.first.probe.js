@@ -9,7 +9,7 @@ import KobinEngine from "./KobinEngine";
 import { SceneIndex } from "./sceneIndex";
 
 const fs = require("fs");
-const FILE = "C:/Users/Surface/Documents/Claude projects/Magnum Opus.boundless.json";
+const FILE = (process.env.BOUNDLESS_FIXTURE || require("path").join(require("os").homedir(), "Documents", "Claude projects", "Magnum Opus.boundless.json"));
 jest.setTimeout(30 * 60 * 1000);
 const med = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const log = (...a) => console.log("[scenes]", ...a);   // eslint-disable-line no-console
