@@ -40,3 +40,6 @@ yarn-error.log*
 
 # comment-stripped live-code dumps (review aid)
 /live-code/
+
+# Python bytecode
+__pycache__/
