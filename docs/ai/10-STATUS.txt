@@ -31,7 +31,7 @@ WHERE THE BUILD IS
     pulled as rasteriser-reviewed on 2026-10-06 and tried in his Chrome (the
     2026-10-07 entry). The performance round since (.claude/PERF-DEEP-2026-10-12/,
     gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
-    been deployed since 2026-09-08 (0732252, SVG only); the deploy gate stands.
+    been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
 2026-10-29 - THE BETA'S CLOUD LIMIT (Kobin): 200 MB an account, recycle bin included (cloud/cloudLimits.js),
     checked before a push writes any part; the owner's account exempt; his message in the save bar and the
