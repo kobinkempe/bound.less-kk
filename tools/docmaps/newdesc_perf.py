@@ -895,3 +895,205 @@ FIX.update({
     "pft.farKeysOf": {"why": "the plan's covered far cells too (F166)",
                       "long": ["The FAR protection class: every far cell the plan covers (`jobs.far`) and every far job's cell."]},
 })
+
+
+# 2026-10-20 late (F158 lever 1): a tile no piece reaches, answered from the parent's pieces.
+add("der.rectRing", "rectRing(rect)",
+    "The four corners of `rect` as one ring: what a tile wholly inside a shape is filled with (both clips and `farWinding` use it).",
+    [], "§5")
+add("der.farIndex", "farIndex(loops)",
+    "A big shape's piece boxes in its own units, each padded by RayIndex's margin, in a 16 x 16 grid over their extent; built once and kept with the loops (a WeakMap); null under 32 pieces.",
+    ["F158 lever 1. The pad is far past what the hop's rounding, a chop or a huge arc's centre can move a box, so a tile none of them meets "
+     "is untouched in the child too."], "§5")
+add("der.farWinding", "farWinding(o, b, rect, cx, cy, f)",
+    "Whether a child tile lies inside shape `o` whole when none of its pieces reaches the tile: the tile mapped into the parent's units, the index asked, and the winding at its centre from the parent's own pieces; null when a piece might reach it, or the shape is no bigger than the tile.",
+    ["F158 lever 1: the transform, the chop and both copies are skipped for such a tile. Every tile identical on R4, R6, Test eraserisms "
+     "and the Magnum Opus's zoom-out (f158.probe.js); the zoom-out's derivation 7.8 → 6.6 s in jsdom."], "§5")
+FIX.update({
+    "der.deriveStep": {"why": "a tile no piece of a shape reaches is answered from the parent's pieces (F158 lever 1)",
+                       "long": ["The edge tier: each parent object transformed into the child frame, chopped on its own tile grid, frozen where "
+                                "straight, clipped to its own tile grown by the seam pad, and emitted. A big shape none of whose pieces reaches "
+                                "the tile is a whole quad or nothing (`farWinding`), with no transform at all."]},
+})
+
+
+# 2026-10-26 (F166, the zoom-out): a group's box mapped once a run; the tile RAM tier.
+add("ts.tileBytes", "tileBytes(tile)",
+    "A tile's size estimate for the RAM tier: 200 bytes, 240 a piece, 72 a loop piece, 48 a ring or polyline point.",
+    [], "§9")
+add("ts._spill", "_spill(key)",
+    "An evicted tile that is still current (its epoch and chain sequence) goes to the RAM tier, oldest out past `ramBytes`; then out of the cache, a drop for every listener.",
+    ["Every eviction goes through it: the LRU (`_evict`, `_evictPerLevel`) and a camera leaving frames (`framesLeft`). A drop for "
+     "a change (an edit, frame GC) does not: those tiles are no longer right."], "§9")
+add("ts._ramTake", "_ramTake(key, seq)",
+    "The RAM tier's tile for `key` when it is still current, taken out either way; `_ensureUp`/`_ensureDown` restore it instead of deriving it.",
+    [], "§9")
+add("ts._ramDrop", "_ramDrop(key)", "One key out of the RAM tier (the cache is taking it).", [], "§9")
+add("ts._ramClear", "_ramClear()",
+    "Every tile out of the RAM tier: a change to what tiles are made of (an add, a remove, a change other than a move, a frame event, a reset) would miss them.",
+    [], "§9")
+FIX.update({
+    "stg._groupBox": {"why": "members with one home and one own table are united first and mapped once (F166)",
+                      "long": ["Where a reroute group's natives are drawn in the camera frame, their boxes' union, kept until a member changes. "
+                               "Members with one home and one own table map alike through steps monotone per axis, so their stored boxes are "
+                               "united first and mapped once: the same box bit for bit (1,000 groups checked on the Magnum Opus's zoom-out), "
+                               "452 ms where a map per member took 6,570 (jsdom)."]},
+    "ts._ensureUp": {"why": "a miss restores the RAM tier's tile before deriving (F166)",
+                     "long": ["Returns a magnify tile: the cache's if current, else the RAM tier's if current, else built (`_bakeUp`). "
+                              "Pins the tile before recursing, so building it cannot evict its own ancestors mid-build."]},
+    "ts._ensureDown": {"why": "a miss restores the RAM tier's tile before deriving (F166)",
+                       "long": ["Returns a direct-projection tile: the cache's if current, else the RAM tier's if current, else built (`_bakeDown`)."]},
+    "ts._evict": {"why": "evicted tiles spill to the RAM tier (F166)",
+                  "long": ["Evicts least-recently-used tiles down to the global cap, never a pinned one, each into the RAM tier (`_spill`), "
+                           "then applies the per-frame cap."]},
+    "ts._evictPerLevel": {"why": "evicted tiles spill to the RAM tier (F166)",
+                          "long": ["The per-frame half of eviction, so one busy frame cannot consume the whole cache; each tile into the RAM tier."]},
+    "ts.framesLeft": {"why": "the tiles of frames left behind spill to the RAM tier (F166)",
+                      "long": ["The camera has moved to frame F: every cached tile goes except F's ancestors', the camera's pins and the "
+                               "prefetch's warm reads — into the RAM tier, from which a return restores them."]},
+})
+
+
+# 2026-10-26 (F168, F169): a selected frame at or above the camera's depth.
+FIX.update({
+    "sel._dragFramesStart": {"why": "a root at or above the camera's depth gives its natives there per object (F168)",
+                             "long": ["Records, at the drop, the start address and shift of every frame the drop moves as a frame: each selected "
+                                      "root's subtree within three levels of the camera, at the addresses the drag started from (nothing moved "
+                                      "meanwhile, A1 C2); an empty leaf container is left out. A root at or above the camera's depth has no frame "
+                                      "at that depth above it to anchor the move (F168): its natives homed at or above that depth go per object "
+                                      "(`d.natives`), its frames one level under the camera as frames, so the frame the camera is in never moves."]},
+    "sel._dropMove": {"why": "a selected frame's natives at or above the camera's depth move per object; refused frames journaled (F168)",
+                      "long": ["Every member of a frame with one table takes the same answer, which registration rests on (DESIGN.md §8): "
+                               "`_displaceMember` puts whole cells into the address and the rest into the member's own table, less the target "
+                               "frame's shift. The members include a selected frame's natives at or above the camera's depth (`d.natives`, "
+                               "F168). Frames go first, because a member re-homed into a selected frame's start cell would be moved again by "
+                               "that frame's re-address; the members are listed at the press, because a frame carried out from under a "
+                               "selected one moves its natives itself (F138 seed 70). The store's batch mode is on for the write; the Stage's "
+                               "hold stands, so the table takes the whole displacement at the release. A member or frame the drag could not "
+                               "move is journaled with why (F35, F168). Returns the op pushed (`move`, `moveMany` or `moveFrames`), or null."]},
+    "eng._endMove": {"why": "the selection repair takes the natives the drop moved per object (F168)",
+                     "long": ["In one Stage batch: on a drop that moved, `_dropMove` writes the drag's one op (A1 C2: a drag writes nothing "
+                              "until its drop), and `_releaseMove` ends the hold. Then the gesture is cleared, the renderer told (`endMove`, "
+                              "and `noteUserEdit` when the drop wrote), and what the drop moved out of a selected frame is kept selected "
+                              "(`_repairSelection` from the op's frames and the natives it moved per object, DESIGN.md §10, F168) before the "
+                              "one render; the frames the drop minted or emptied are collected (F94)."]},
+})
+
+
+# 2026-10-29 (F166): the memory stack.
+add("pys.farBudgetBytes", "farBudgetBytes(cfg, phone)",
+    "The far zoom-out levels' own share in bytes: `cfg.plateFarMiB` (0 shares the one budget), else 96 MiB on a desktop and 64 on a phone.",
+    [], "§9")
+add("pys.setFarBudget", "setFarBudget(bytes)", "A new cap for the far share (0: one budget, as before F166), and one eviction pass.", [], "§9")
+add("pys.wasEvicted", "wasEvicted(key)", "Whether `key` is among the last 4,096 evictions: the paper log's \"evicted\".", [], "§9")
+add("pys.roomFor", "roomFor(far)",
+    "Plates a plan may still add to the far share (`far`) or to the general budget, beside what is pinned or protected there; one room for both when there is no far share.",
+    [], "§9")
+add("pys._evictOne", "_evictOne(r)", "One eviction: counted by rank, the record into the RAM tier, its key remembered for the paper log.", [], "§9")
+add("pyr._ramStandIn", "_ramStandIn(F, l, S, i, j, seen)",
+    "The finest coarser cell over a view cell that the RAM tier holds exact while no exact coarser plate is held: its entry to restore, else null.",
+    ["A plan draws held plates only, so a stand-in packed in the RAM tier was paper until something restored it (F166's replay: most paper over ink)."], "§9")
+add("pyr._ramAhead", "_ramAhead(v, out, seen)",
+    "Zooming out: ℓv − 1 and ℓv − 2 over the window and a cell around, then the far set, restored from the RAM tier before the zoom reaches them, at most 16 a step.",
+    [], "§9")
+add("pyr._paperWhy", "_paperWhy(c, d, v, a, why)",
+    "Why one paper draw is paper, for the report: the cause read off its cell and the eight coarser ones, its place on the screen (inner or the outer 40 %), and the motion (still, moving, a gesture's first 100 ms).",
+    ["Causes, first that holds: a coarser plate held but over the stand-in cap (budget), one in the RAM tier (ram), one evicted, its own job in flight, its tiles unread, asked, a coarser in flight, never made."], "§9")
+FIX.update({
+    "pys._evict": {"why": "the far levels' own share, the zoom's direction (F166)",
+                   "long": ["Evicts until the caps hold. The general budget: by rank, then (among other levels) the farthest from ℓv, then LRU; "
+                            "zooming in, finer levels after the other levels. The far share apart: its own records, oldest first. Never a pinned record."]},
+    "pys.rankOf": {"why": "the frame a crossing left is finer past the view's level (F166)",
+                   "long": ["The eviction rank of an unpinned record (A3 §4.5): stale, off the path, finer than ℓv, other levels, the far set, the frame a "
+                            "crossing left (at the view's level and coarser; finer it ranks finer), ℓv − 1 and ℓv − 2, the rest set, the ring."]},
+    "pft.prefetchPlan": {"why": "the far levels first, in the store's far share (F166)",
+                         "long": ["The prefetch plan at idle: the far levels first (the zoom-out's buffer), read off camera within the read budget and "
+                                  "retried while still; then ℓv − 1 and ℓv − 2 from the live table; the crossing target; the ring at rest. Each kind "
+                                  "within its room: the far share for the far levels, the general budget for the rest."]},
+    "pyr._requestView": {"why": "a stand-in and the levels ahead out of the RAM tier during a gesture (F166)",
+                         "long": ["Asks for the view's missing cells (covered ones only, priority 1): a cell the RAM tier holds exact is restored, "
+                                  "else its finest coarser cell the tier holds is restored as its stand-in meanwhile; zooming out, ℓv − 1, ℓv − 2 "
+                                  "and the far set are restored ahead."]},
+    "pyr._charge": {"why": "the paper log by cause, place and motion (F166)",
+                    "long": ["§9.1's integrals, charged forward: the last compose's paper, blur and older shares of the screen times the time it "
+                             "stayed up, and the paper's causes, places and motion (`paperWhy`); then this compose's shares."]},
+    "pyr._onMove": {"why": "a move after 150 ms still starts a gesture (the paper log)",
+                    "long": ["The camera moved: the rest timer is cleared; a move after 150 ms still starts a gesture (the paper log's first 100 ms)."]},
+    "pyr._publishView": {"why": "the frame left's level offset (F166)",
+                         "long": ["The eviction order's context (A3 §4.5): the view, its ring, the rest set, the path of frames, the frame a crossing "
+                                  "left and its level offset when it is the view frame's parent or child, the far set."]},
+    "rr._pyrMotion": {"why": "the zoom's direction to the store (F166)",
+                      "long": ["The queue's motion: moving iff the published affine changed, its velocity about the attention point; the last "
+                               "zoom's direction, kept 2 s past it, to the store's eviction order."]},
+    "rr.onLevers": {"why": "the far share follows its lever (F166)",
+                    "long": ["A lever changed: the plate budget, the RAM tier's and the far share's, one eviction pass each."]},
+})
+
+
+# 2026-10-29 (F166): the first-view pictures and the wait.
+ROLE["src/engine/raster/firstView.js"] = (
+    "The first-view pictures (OPEN-FLAGS F166): a canvas's last view as level plates, packed, saved beside its cloud copy "
+    "so the next open restores them from the RAM tier instead of packing and rastering them; a set is used only where it "
+    "draws exactly what a fresh plate would (the same document, build and render inputs).")
+add("fvw.parseLevelKey", "parseLevelKey(key)", "A level plate's key read back into its frame, level, step and cell, or null when it is not one.", [], "§9")
+add("fvw.renderPrint", "renderPrint(R)",
+    "The render inputs a plate's pixels read beside the document: the pixel ratio (the fade), the paper and the derivation's levers, as one string.",
+    [], "§9")
+add("fvw.printTag", "printTag(print)", "A print's short name (FNV-1a), the set's document id: a phone and a desktop each keep their own set.", [], "§9")
+add("fvw.captureSig", "captureSig(cells)", "A set's contents in a word, whatever its order: its keys and their sizes.", [], "§9")
+add("fvw.setBuildId", "setBuildId(id)", "A suite's build id (a test has neither the dev server's hash nor a hashed chunk); null restores the page's.", [], "§9")
+add("fvw.buildId", "buildId()",
+    "This build: the dev server's hash, else the hashed main chunk's name; empty when neither is known, and a set stamped empty is never used.",
+    [], "§9")
+add("fvw.captureFirstView", "captureFirstView(store, maxBytes)",
+    "The set to save: every exact level plate whose words are known (a whole plate packed at its job, an empty one, a RAM-tier entry), the view's cells first, then the far levels and the near ones nearest first, then the rest of the path, up to the cap.",
+    [], "§9")
+add("fvw.encodeFirstView", "encodeFirstView(cells, partBytes)", "A set as parts of at most 700 KiB: a header of keys and word counts, then the words.", [], "§9")
+add("fvw.decodeFirstView", "decodeFirstView(parts)",
+    "A set's cells read back as level-cell descriptors with their words; null when any part does not read whole.", [], "§9")
+add("fvw.costOf", "costOf(c)", "A cell's bytes in a part: its words, its key and its header entry.", [], "§9")
+add("fvw.ascii", "ascii(s)", "Whether a key is plain ASCII (the header is written a byte a character).", [], "§9")
+add("fvw.fromAscii", "fromAscii(u8)", "A part's header bytes as a string, in slices.", [], "§9")
+add("fvw.packPart", "packPart(cells)", "One part: the magic word, the version, the header's length, the header, then every cell's words.", [], "§9")
+add("prm.entries", "entries()", "Every entry of the RAM tier, oldest first.", [], "§9")
+add("pys.seedRam", "seedRam(cells, G)",
+    "First-view pictures into the RAM tier as entries exact at `G`, their keys tracked from `G` so a commit after it outdates them; least wanted first, a key already held left alone.",
+    [], "§9")
+add("rr.firstViewCapture", "firstViewCapture(maxBytes)", "The first-view set to save from this view's plates, up to the cap.", [], "§9")
+add("rr.firstViewSeed", "firstViewSeed(cells, G, step)",
+    "A first-view set loaded at an open, exact at `G`, into the RAM tier; with `step`, a camera step so the view's cells and the prefetch take it now.",
+    [], "§9")
+add("pyr._held", "_held(P, v, t)",
+    "Kobin's lag over paper: a moved view whose plan leaves paper on screen keeps the last picture up while its plates come, at most `holdMs`, then a timer composes again; never without a clean picture, under a drag's plane or for a still camera.",
+    [], "§9")
+add("pyr._endHold", "_endHold(t)", "A wait ends: its timer cleared, its length counted (holds, holdMs, holdMsMax).", [], "§9")
+add("pyr.visibleArea", "visibleArea(P, v, W, H)",
+    "A plan's draw's area on the screen in device px, a base draw counted only outside the rest cells drawn over it: the integrals' and the wait's one test.",
+    [], "§9")
+add("cld.cloudSaveViews", "cloudSaveViews(uid, id, tag, set, opts)",
+    "Saves a first-view set beside a canvas in the page's push lane: each part with the set's nonce, then the head (stamp, parts, nonce), then the old set's extra parts deleted.",
+    [], "§13")
+add("cld.cloudLoadViews", "cloudLoadViews(uid, id, tag)",
+    "The first-view set saved for a print: its stamp and parts, or null when there is none or a part carries another write's nonce.",
+    [], "§13")
+add("cld.viewsCol", "viewsCol(uid, id)", "The canvas's `views` collection: its first-view sets.", [], "§13")
+add("cld.viewDoc", "viewDoc(uid, id, name)", "One document of a canvas's first-view sets: a head or a part.", [], "§13")
+add("css._viewsNow", "_viewsNow()", "The editor's first-view set now, or null (none, signed out, a discarded canvas).", [], "§13")
+add("css._pushViews", "_pushViews(set, head, why)",
+    "Uploads a first-view set stamped with the cloud head its document is, unless it went up last; the background sync's at most every 2 min, only by the editor holding the pen.",
+    [], "§13")
+FIX.update({
+    "pyr.compose": {"why": "a moved view's paper waits (Kobin 2026-10-29)",
+                    "long": ["A commit's patch step if due, then plan and pin; a moved view whose plan leaves paper keeps the last picture up "
+                             "(`_held`); else draw — directly under COMPOSE_IMAGES, else through the surface — and charge the integrals."]},
+    "pyr._charge": {"why": "the paper log by cause, place and motion (F166)",
+                    "long": ["§9.1's integrals, charged forward: the last compose's paper, blur and older shares of the screen times the time it "
+                             "stayed up, and the paper's causes, places and motion (`paperWhy`); then this compose's shares (`visibleArea`)."]},
+    "cld.cloudDeleteCanvas": {"why": "the first-view sets go with the canvas (F166)",
+                              "long": ["Deletes a canvas's parts, its first-view sets, then its parent document."]},
+    "css._push": {"why": "the first-view set after the push (F166)",
+                  "long": ["One push at a time: the store's frames and entries up, the first-view set captured at its start and uploaded "
+                           "once it lands (`_pushViews`); a refused push loses the pen, a failed one backs off."]},
+    "css.onVisibility": {"why": "a hide with nothing to push saves the first-view set (F166)",
+                         "long": ["Hidden: a push when dirty, else this view's first-view set; shown: the owed follow and a beat."]},
+})

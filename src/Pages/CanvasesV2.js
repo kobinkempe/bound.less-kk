@@ -21,6 +21,9 @@ import {
     cloudListCanvases, cloudSaveCanvas, cloudLoadCanvas, cloudPushCanvas2, isDevBuild,
     cloudTrashCanvas, cloudRestoreCanvas, cloudRenameCanvas, cloudDeleteCanvas,
 } from "../cloud/canvasSync";
+import {
+    ACCOUNT_BYTES, limitedAccount, accountBytes, limitMessage, formatMB,
+} from "../cloud/cloudLimits";
 
 export default function CanvasesV2() {
     const history = useHistory();
@@ -40,6 +43,7 @@ export default function CanvasesV2() {
     const [trashOpen, setTrashOpen] = useState(false);
     const [trashItems, setTrashItems] = useState([]);
     const [purgeConfirm, setPurgeConfirm] = useState(null); // trash items pending permanent delete
+    const [cloudUsed, setCloudUsed] = useState(null);       // this account's stored bytes, null when not limited
     const [toast, setToast] = useState(null); // { msg, undoId }
 
     const refresh = useCallback(async () => {
@@ -91,6 +95,7 @@ export default function CanvasesV2() {
             };
             show(cloud);
             setSyncNote(null);
+            setCloudUsed(limitedAccount(user.uid) ? accountBytes(cloud) : null);
             // One-way catch-up: local canvases the account doesn't know yet, one at a time, a
             // kobin-2 store as its chunks (never its JSON: F64). Tombstoned ids count as known — a
             // stale device must not resurrect a canvas deleted elsewhere. Not in a development
@@ -101,12 +106,13 @@ export default function CanvasesV2() {
             for (const entry of missing) {
                 try {
                     const source = await cloudPushSource(entry.id);
-                    if (source) await cloudPushCanvas2(user.uid, entry, source, { deviceId: getDeviceId() });
+                    const limit = limitedAccount(user.uid) ? { others: accountBytes(cloud) } : null;
+                    if (source) await cloudPushCanvas2(user.uid, entry, source, { deviceId: getDeviceId(), limit });
                     else {
                         const doc = await loadCanvasDoc(entry.id);
                         if (doc) await cloudSaveCanvas(user.uid, entry, JSON.stringify(doc));
                     }
-                } catch (err) { /* stays local this visit; the next one tries again */ }
+                } catch (err) { if (err && err.name === "CloudLimit") { setSyncNote(limitMessage(err)); break; } /* else stays local this visit; the next one tries again */ }
             }
             if (missing.length) show(await cloudListCanvases(user.uid));
         } catch (err) {
@@ -395,6 +401,11 @@ export default function CanvasesV2() {
 
                 {usage && (
                     <p className="bl-text-sm bl-text-muted" style={{ marginTop: "2rem" }}>{usage.label}</p>
+                )}
+                {cloudUsed != null && (
+                    <p className="bl-text-sm bl-text-muted">
+                        Using {formatMB(cloudUsed)} of {formatMB(ACCOUNT_BYTES)} of cloud storage (the recycle bin counts too)
+                    </p>
                 )}
             </main>
 

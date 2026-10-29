@@ -1,11 +1,12 @@
 /**
  * prefetch.js — what the pyramid fetches before the view needs it (A3 §4.3; PLAN §1.2), as priority-4 jobs in
- * this order: the near coarser levels ℓv − 1 and ℓv − 2 over the screen and a one-cell margin; the far levels —
- * the view zoomed out 4^k about its centre (k = 1 … 11), three octaves under that view's level, over 2.5 of its
- * screens, in the parent and grandparent frames once the level is coarser than the frame's own (ℓS < −8); the
- * crossing target near a crossing; the ring at ℓv only at rest. Nothing while a report is sending.
+ * this order: the far levels first, the zoom-out's buffer (F166) — the view zoomed out 4^k about its centre (k = 1 … 11),
+ * three octaves under that view's level, over 2.5 of its screens, in the parent and grandparent frames once the level is
+ * coarser than the frame's own (ℓS < −8); then the near coarser levels ℓv − 1 and ℓv − 2 over the screen and a one-cell
+ * margin; the crossing target near a crossing; the ring at ℓv only at rest. Nothing while a report is sending.
  *
- *   - Budget-gated: at most the plates the cache can hold beside what is pinned and already protected.
+ *   - Budget-gated: at most the plates the cache can hold beside what is pinned and already protected — the far levels
+ *     in the store's far share, the rest in its general budget (`roomFor`; one room when there is no far share).
  *   - The near levels pack from the live table, the cells it covers only (A3 §4.2: the camera's window, read at
  *     idle); the far levels and the crossing target read off camera through `stage.snapshot` within
  *     `cfg.prefetchReadMs`, and a job carries its table. A read past its budget is skipped this time; its tiles stay
@@ -52,35 +53,30 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     const win = { left: -view.tx / view.k, top: -view.ty / view.k, right: (wDev - view.tx) / view.k, bottom: (hDev - view.ty) / view.k };
     const cx = (win.left + win.right) / 2, cy = (win.top + win.bottom) / 2;
     const gen = cfg.gens && cfg.gens.prefetch != null ? cfg.gens.prefetch : 0;
-    let room = roomOf(store), unread = 0;
+    const split = typeof store.roomFor === "function" && store.farMaxBytes > 0;
+    let room = split ? store.roomFor(false) : roomOf(store), roomFar = split ? store.roomFor(true) : null, unread = 0;
     const jobs = [], far = new Set();
     // A plate the RAM tier holds needs no table: the renderer restores it instead of packing it (F161).
     const inRam = typeof store.ramHas === "function" ? (key) => store.ramHas(key) : () => false;
     const take = (frame, l, rect, purpose, table, extra = null) => {
         const r = plateRange(rect, zOf(l, S)), u = PLATE_PX / zOf(l, S), cells = [];
+        const isFar = purpose === "prefetch:far", have = isFar && roomFar != null ? roomFar : room;
         // The store protects every far cell the plan covers, cached ones too: a new plan never unprotects them (F166).
-        if (purpose === "prefetch:far") for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) far.add(levelKey(frame, l, S, i, j));
-        if (room <= 0) return;
+        if (isFar) for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) far.add(levelKey(frame, l, S, i, j));
+        if (have <= 0) return;
         const covered = (i, j) => table || !stage.covers || stage.covers(frame, { left: i * u, top: j * u, right: (i + 1) * u, bottom: (j + 1) * u });
         const keep = (i, j) => { const c = levelCell(frame, l, S, i, j); if (store.wants(c.key) && (covered(i, j) || inRam(c.key))) cells.push(c); };
         for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) if (!extra || !extra(i, j)) keep(i, j);
         if (!cells.length) return;
         const Z = zOf(l, S);
         const mid = [((rect.left + rect.right) / 2) * Z, ((rect.top + rect.bottom) / 2) * Z];
-        jobs.push({ kind: "prefetch", prio: 4, frame, level: l, S, Z, cells: cells.slice(0, room), clips: null, purpose, gen,
+        jobs.push({ kind: "prefetch", prio: 4, frame, level: l, S, Z, cells: cells.slice(0, have), clips: null, purpose, gen,
             attention: mid, group: null, table: table || null });
-        room -= Math.min(room, cells.length);
+        if (isFar && roomFar != null) roomFar -= Math.min(roomFar, cells.length); else room -= Math.min(room, cells.length);
     };
 
-    // 1. Near: ℓv − 1 and ℓv − 2 over the screen and a one-cell margin, from the live table.
-    for (const d of cfg.retry ? [] : [1, 2]) {
-        const l = lv - d;
-        if (l < floor) break;
-        const m = PLATE_PX / zOf(l, S);
-        take(F, l, { left: win.left - m, top: win.top - m, right: win.right + m, bottom: win.bottom + m }, "prefetch:near");
-    }
-
-    // 2. Far: the view zoomed out 4^k about its centre, three octaves under that view's level, over 2.5 of its screens.
+    // 1. Far, first (F166: the zoom-out's buffer): the view zoomed out 4^k about its centre, three octaves under that view's
+    //    level, over 2.5 of its screens.
     const now = cfg.now || perfNow, t0 = now(), budget = cfg.prefetchReadMs != null ? cfg.prefetchReadMs : PREFETCH_READ_MS;
     /** Every cell of `rect` at level ℓ that is wanted is in the RAM tier (or none is wanted): nothing to read off camera. */
     const allInRam = (frame, l, rect) => {
@@ -95,7 +91,7 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
     };
     const hw = (win.right - win.left) / 2, hh = (win.bottom - win.top) / 2;
     const seen = new Set([F + "|" + (lv - 1), F + "|" + (lv - 2)]);
-    for (let k = 1; k <= FAR_STEPS && room > 0; k++) {
+    for (let k = 1; k <= FAR_STEPS && (roomFar != null ? roomFar : room) > 0; k++) {
         const Zk = view.Z / 4 ** k;
         let l = levelFor(Zk / 2 ** FAR_OCTAVES, S), frame = F;
         let rect = { left: cx - hw * 4 ** k * FAR_MARGIN, top: cy - hh * 4 ** k * FAR_MARGIN, right: cx + hw * 4 ** k * FAR_MARGIN, bottom: cy + hh * 4 ** k * FAR_MARGIN };
@@ -116,6 +112,14 @@ export function prefetchPlan(view, stage, store, cfg = {}) {
         const table = stage.snapshot(frame, rect, left);
         if (!table) { unread++; continue; }
         take(frame, l, rect, "prefetch:far", table);
+    }
+
+    // 2. Near: ℓv − 1 and ℓv − 2 over the screen and a one-cell margin, from the live table.
+    for (const d of cfg.retry ? [] : [1, 2]) {
+        const l = lv - d;
+        if (l < floor) break;
+        const m = PLATE_PX / zOf(l, S);
+        take(F, l, { left: win.left - m, top: win.top - m, right: win.right + m, bottom: win.bottom + m }, "prefetch:near");
     }
 
     // 3. The crossing target, within 1.25 × exit of a crossing: the parent's ℓv + 12/S − 1 over the screen and a screen of

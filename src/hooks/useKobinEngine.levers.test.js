@@ -40,11 +40,12 @@ describe("the levers' own rules", () => {
             .toEqual({ levelStep: 2, plateViews: 5, plateCeilingMiB: 128, restQuietMs: 0, restInline: "never", compose: "surface" });
         expect(cleanLevers({ levelStep: 4, plateViews: 9, plateCeilingMiB: 32, restQuietMs: 1.5, restInline: "always", compose: "gpu", other: 1 })).toEqual({});
         expect(cleanLevers(null)).toEqual({});
-        expect(leverDefaults(false)).toEqual({ levelStep: 1, plateViews: 3, plateCeilingMiB: 256, plateRamMiB: 64, restQuietMs: 100, restInline: "auto", netMs: 0, compose: "auto" });
-        expect(leverDefaults(true)).toMatchObject({ plateViews: 2, plateCeilingMiB: 96, plateRamMiB: 24 });
+        expect(leverDefaults(false)).toEqual({ levelStep: 1, plateViews: 3, plateCeilingMiB: 256, plateRamMiB: 64, plateFarMiB: 96, restQuietMs: 100, restInline: "auto", netMs: 0, prefetchReadMs: 30, tileRamMiB: 48, firstViewKiB: 2048, holdMs: 1000, compose: "auto" });
+        expect(leverDefaults(true)).toMatchObject({ plateViews: 2, plateCeilingMiB: 96, plateRamMiB: 24, plateFarMiB: 64, prefetchReadMs: 16, tileRamMiB: 24, firstViewKiB: 2048, holdMs: 1000 });
         expect(cleanLevers({ plateRamMiB: "0" })).toEqual({ plateRamMiB: 0 });         // 0 turns the RAM tier off (F161)
         expect(cleanLevers({ netMs: "120" })).toEqual({ netMs: 120 });                 // the net over paper's budget (F166)
-        expect(Object.keys(LEVERS).sort()).toEqual(["compose", "levelStep", "netMs", "plateCeilingMiB", "plateRamMiB", "plateViews", "restInline", "restQuietMs"]);
+        expect(cleanLevers({ prefetchReadMs: "60", tileRamMiB: "0" })).toEqual({ prefetchReadMs: 60, tileRamMiB: 0 });   // the far reads, the tile tier (F166)
+        expect(Object.keys(LEVERS).sort()).toEqual(["compose", "firstViewKiB", "holdMs", "levelStep", "netMs", "plateCeilingMiB", "plateFarMiB", "plateRamMiB", "plateViews", "prefetchReadMs", "restInline", "restQuietMs", "tileRamMiB"]);
     });
 
     test("a URL names them in the hash route's query or in the search; the URL wins over what is stored", () => {

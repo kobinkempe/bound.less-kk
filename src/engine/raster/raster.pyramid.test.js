@@ -21,6 +21,7 @@ import { W } from "../frameLattice";
 import { STEP_READ_MS } from "../KobinEngine";
 
 useEngines();
+jest.setTimeout(60000);   // the camera's read waits up to 3 s for its slices; two of these run 5.5-6 s in jsdom
 const tick = () => new Promise((r) => setTimeout(r, 0));
 async function settle(E, frames = 6) {
     for (let k = 0; k < frames; k++) { E.renderer.syncCameraOnly(); for (let n = 0; n < 4; n++) await tick(); }
@@ -97,13 +98,19 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         R.cfg.prefetchQuietMs = 0;                                      // the scene's quiet is the next test's
+        R.cfg.prefetchReadMs = 1000;                                    // jsdom reads the far levels' tiles slower than a phone's 16 ms
         stroke(E);
         E.zoomAt(400, 300, -600);
         await settle(E, 2);
         expect(R.queue.report().inFlight[1] + R.queue.report().queued[1]).toBeGreaterThan(0);
         expect(R.queue.report().queued[4] + R.queue.report().inFlight[4]).toBe(0);
-        await g.run();
-        await settle(E, 2);
+        // The view's and the pen-up's jobs answered until none is left (the stroke's group asks again at the new level).
+        const before4 = () => { const r = R.queue.report(); let n = 0; for (let p = 0; p < 4; p++) n += r.queued[p] + r.inFlight[p]; return n; };
+        for (let k = 0; k < 20 && (k === 0 || before4()); k++) {
+            expect(R.queue.report().queued[4] + R.queue.report().inFlight[4]).toBe(0);    // nothing prefetched meanwhile
+            await g.run();
+            await settle(E, 1);
+        }
         await g.run();
         const q = R.queue.report();
         expect(q.pushed).toBeGreaterThan(1);
@@ -233,6 +240,7 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         setRasterWorkerCount(1);
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
+        R.pyramid.cfg.restQuietMs = 1e9;   // no rest set: a loaded run outlasts the 100-ms quiet, and the rest plates drawing the view leave cell c unwanted
         R._pyrPrefetch = () => {};
         R.queue._aim = () => {};   // no velocity re-aim: it reads wall-clock frame times and could drop the zoom's strips as offscreen
         stroke(E);

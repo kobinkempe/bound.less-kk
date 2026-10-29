@@ -22,7 +22,7 @@ that is not in the source.** `verify_coverage.py` proves the first half and
 it draws is one the source makes. Run `rebuild.py` after any change to `src/`;
 a failure in any check is a page telling a reader something false.
 
-As of 2026-10-20: **3,772 functions across 155 files, 7,298 calls, 0 missing,
+As of 2026-10-29: **3,815 functions across 156 files, 7,399 calls, 0 missing,
 0 stale**, every Code Map row opening into an explanation, and the Call Map's
 323 calls in 7 flows all calls the source makes.
 

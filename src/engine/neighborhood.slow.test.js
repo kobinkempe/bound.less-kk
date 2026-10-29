@@ -135,7 +135,7 @@ describe("NB-2 — moving a level-4 detail while standing at level 0", () => {
         E._setSelection([fine.id]);
         E._dragSel = { start: [400, 300], moves: new Map(), moved: false };
         E._dragSelection(500, 360);
-        E._dragSel = null;
+        E._endMove("drop");                               // a drag writes only at its drop (A1 C2)
         expect(rasterDiff(before, raster(E, 48)).total).toBe(0);   // level 0: unchanged
         // 100 px right and 60 down AT LEVEL 0 — measured in the world, because
         // that is where the move happened. The detail's own coordinates barely
@@ -171,7 +171,7 @@ describe("NB-2 — moving a level-4 detail while standing at level 0", () => {
             E._setSelection([fine.id]);
             E._dragSel = { start: [400, 300], moves: new Map(), moved: false };
             for (let i = 1; i <= steps; i++) E._dragSelection(400 + (100 * i) / steps, 300);
-            E._dragSel = null;
+            E._endMove("drop");
             return worldOfId(E, fine.id)[0] - a0[0];
         };
         const fast = run(1), slow = run(100);

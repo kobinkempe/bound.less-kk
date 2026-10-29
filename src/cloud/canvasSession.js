@@ -28,8 +28,9 @@
  */
 import {
     CANVAS_COLLECTION, cloudGetCanvasMeta, cloudPushCanvas2, cloudPullCanvas2, cloudLoadCanvas,
-    cloudTakeLease, cloudRenewLease, cloudReleaseLease, cloudAskLease, cloudWatchManifest,
+    cloudTakeLease, cloudRenewLease, cloudReleaseLease, cloudAskLease, cloudWatchManifest, cloudSaveViews, cloudListCanvases,
 } from "./canvasSync";
+import { limitedAccount, accountBytes, limitMessage } from "./cloudLimits";
 import {
     getStoreHeader, setSyncState, applyPulledStore, forkCanvas, saveCanvasDoc, stashCanvasStore, claimStore,
     saveThumbs, upsertIndexEntry, readIndex, statsFromDoc, newCanvasId,
@@ -49,6 +50,7 @@ export const SESSION_DEFAULTS = {
     pushDeadlineMs: 5 * 60000,      // the push's reported failure; busy holds until the SDK settles
     followMinMs: 2000,              // a follow reload at most this often...
     followCostFactor: 10,           // ...or ten times what the last reload cost, whichever is longer
+    viewsMinMs: 2 * 60000,          // the first-view pictures after a background sync push at most this often
 };
 
 /** The session's `editor` from the hook's API (`get()` returns the latest; it is a new object each render). */
@@ -64,6 +66,7 @@ export function editorFromHook(get) {
         refreshMeta: () => (h().refreshMetaFromStore ? h().refreshMetaFromStore() : Promise.resolve(false)),
         hasUnsaved: () => !!(h().hasUnsaved && h().hasUnsaved()),
         keepUnsaved: (name) => (h().keepUnsaved ? h().keepUnsaved(name) : Promise.resolve(null)),
+        firstView: () => (h().firstViewSet ? h().firstViewSet() : null),
         knownSeq: () => (h().knownSeq ? h().knownSeq() : null),
         pushSource: () => (h().cloudPushSource ? h().cloudPushSource() : Promise.resolve(null)),
         stats: () => (h().stats ? h().stats() : {}),
@@ -166,6 +169,7 @@ export class CanvasSession {
         if (this._queued) { this._queued.ac.abort(); this._queued = null; }
         const epoch = this.epoch;
         const last = this.hasLock && this.state.mode === "editing" && this.dirty && !this.discarded ? this._push({ why: "leave", force: true }) : Promise.resolve();
+        if (this.hasLock && !this.dirty) this._pushViews(this._viewsNow(), this.lastHead, "leave");
         if (this.uid && epoch) last.then(() => cloudReleaseLease(this.uid, this.id, epoch)).catch(() => {});
         try { await withTimeout(this.editor.idle(), 10000, "idle"); } catch (err) { /* released anyway */ }
         this._letGoOfLock();
@@ -209,6 +213,7 @@ export class CanvasSession {
             return;
         }
         if (this.state.mode === "editing" && this.dirty) this._push({ why: "hide" });
+        else this._pushViews(this._viewsNow(), this.lastHead, "hide");
     }
     /** An explicit Save: push now. `{ ok, busy, err }`. */
     async pushNow({ thumbs = null } = {}) {
@@ -806,6 +811,7 @@ export class CanvasSession {
                 if (!entry0) { this._set({ cloud: "local" }); return { ok: false, skipped: "never saved" }; }   // an unsaved scratch canvas stays local
                 const source = await this.editor.pushSource();
                 if (!source) return { ok: false, skipped: "nothing on disk" };
+                const views = this._viewsNow();     // the document as it is now: what this push sends, if nothing comes meanwhile
                 const t0 = perfNow();
                 this.dirty = false;
                 this._set({ cloud: "saving" });
@@ -815,8 +821,9 @@ export class CanvasSession {
                 let started;
                 const began = new Promise((r) => { started = r; });
                 const creating = this.epoch ? null : this.createLease;
+                const limit = await this._limit();
                 raw = cloudPushCanvas2(this.uid, entry, source, {
-                    deviceId: this.deviceId, epoch: this.epoch, lease: creating,
+                    deviceId: this.deviceId, epoch: this.epoch, lease: creating, limit,
                     thumbs, dropBelow: source.dropBelow || 0, laneMs: this.o.pushDeadlineMs, onStart: started,
                 });
                 raw.then(done, done);
@@ -833,9 +840,17 @@ export class CanvasSession {
                     this.fail = { count: 0, until: 0 };
                     this._set({ cloud: this.dirty ? "saving" : "saved", error: null });
                     this.onPerf("cloudSave", t0, { where: why, ...r, head: undefined });
+                    this._pushViews(views, r && r.head, why);
                     return { ok: true, r };
                 } catch (err) {
                     this.dirty = true;
+                    if (err && err.name === "CloudLimit") {
+                        this.fail = { count: this.fail.count + 1, until: this.env.now() + 10 * 60000 };
+                        this._others = null;                 // listed again at the next try: space may have been freed
+                        this._set({ cloud: "error", error: limitMessage(err) });
+                        this.onPerf("cloudSaveLimit", t0, { where: why, bytes: err.bytes });
+                        return { ok: false, err };
+                    }
                     if (err && (err.name === "SyncConflict" || err.name === "LeaseLost")) {
                         this.onPerf("cloudSaveRefused", t0, { where: why, err: err.name });
                         this._serial(() => this._lose(err.holder || null));
@@ -856,6 +871,43 @@ export class CanvasSession {
             }
         })();
         return run;
+    }
+
+    /** The account limit's input for a push, `{ others }` (the other canvases' stored bytes, listed every 10 min), or null: the owner's, or no listing. */
+    async _limit() {
+        if (!limitedAccount(this.uid)) return null;
+        const now = this.env.now();
+        if (!this._others || now - this._others.at > 10 * 60000) {
+            try { this._others = { at: now, bytes: accountBytes(await cloudListCanvases(this.uid), this.id) }; }
+            catch (err) { return null; }
+        }
+        return { others: this._others.bytes };
+    }
+
+    // ---- the first-view pictures (OPEN-FLAGS F166): the view's plates for the next open ----
+
+    /** The editor's set now, `{ seq, tag, stamp, parts, sig }` (engine/raster/firstView.js), or null. */
+    _viewsNow() {
+        if (!this.uid || this.discarded) return null;
+        try { return this.editor.firstView(); } catch (err) { return null; }
+    }
+    /**
+     * Upload `set` stamped with `head` when that cloud head is its document (`head.seq` its seq) and it is not the set
+     * that went up last. One at a time, in the push lane; after the background sync at most every viewsMinMs.
+     */
+    _pushViews(set, head, why) {
+        if (!set || !head || (head.seq || 0) !== set.seq || this._viewsBusy || !this.uid || this.discarded) return;
+        if (this.state.mode !== "editing" && this.state.mode !== "handing") return;
+        const sig = `${head.epoch}|${head.seq || 0}|${set.tag}|${set.sig}`;
+        if (sig === this._viewsSig) return;
+        if (why === "sync" && this._viewsAt != null && this.env.now() - this._viewsAt < this.o.viewsMinMs) return;
+        this._viewsBusy = true;
+        const t0 = perfNow();
+        const stamp = { ...set.stamp, head: { epoch: head.epoch, seq: head.seq || 0 } };
+        cloudSaveViews(this.uid, this.id, set.tag, { stamp, parts: set.parts }, { laneMs: this.o.pushDeadlineMs })
+            .then((r) => { this._viewsSig = sig; this._viewsAt = this.env.now(); this.onPerf("cloudViews", t0, { where: why, cells: set.cells, ...r }); },
+                (err) => this.onPerf("cloudViewsFail", t0, { where: why, err: String((err && (err.code || err.name)) || err).slice(0, 60) }))
+            .then(() => { this._viewsBusy = false; });
     }
 
     // ---- plumbing ----

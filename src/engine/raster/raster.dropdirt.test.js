@@ -321,10 +321,12 @@ describe("a drop's dirt is tight (F153)", () => {
         const F = String(s.F), cells = [];
         for (const r of E.plates.records()) if (r.kind !== "plane" && String(r.frame) === F && E.plates.exact(r)) cells.push({ c: descr(r), px: truth(E, r) });
         const G0 = await dragDrop(E, 60, 40);
-        // Everything moved lies left of x = −200 before and after: no cell from x = −150 on changes.
+        // Everything moved lies left of x = −200 or past ±59,900 (the huge square's other edges, inside a far level's
+        // cell) before and after: no cell between changes.
+        const inside = (rc) => rc.left >= -150 && rc.right <= 59900 && rc.top >= -59900 && rc.bottom <= 59900;
         const kept = [], dirtied = [];
         for (const { c, px } of cells) {
-            if (cellRect(c).left < -150) continue;
+            if (!inside(cellRect(c))) continue;
             expect(differs(px, truth(E, c))).toBe(0);
             (E.stage.dirtySince(c.key) > G0 ? dirtied : kept).push(`${c.kind} l${c.level} (${c.i},${c.j})`);
         }

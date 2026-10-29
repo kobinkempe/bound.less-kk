@@ -113,7 +113,7 @@ describe("SC-2 — severing does not scatter a composition", () => {
         expect(E.selection).toBeTruthy();
         E._dragSel = { start: [250, 300], moves: new Map(), moved: false };
         E._dragSelection(250 + 900000, 300);
-        E._dragSel = null;
+        E._endMove("drop");                             // a drag writes only at its drop (A1 C2)
         expect(inkAt(E, 250, 300)).toBe(false);         // it really left
         pan(E, -900000, 0);
         expect(inkAt(E, 250, 300)).toBe(true);          // ...and arrived

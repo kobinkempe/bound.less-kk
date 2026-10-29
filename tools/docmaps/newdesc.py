@@ -96,6 +96,7 @@ ARTICLES = [
     ("pa-pyramid", "raster/PicturePyramid.js", _R, "sp", ["pyr"], "paper"),
     ("pa-pyrstore", "raster/PyramidStore.js", _R, "sp", ["pys"], "paper"),
     ("pa-plateram", "raster/plateRam.js", _R, "sp", ["prm"], "paper"),
+    ("pa-firstview", "raster/firstView.js", _R, "sp", ["fvw"], "paper"),
     ("pa-platecodec", "raster/plateCodec.js", _R, "sp", ["pcd"], "paper"),
     ("pa-level", "raster/level.js", _R, "sp", ["lvl"], "paper"),
     ("pa-queue", "raster/jobQueue.js", _R, "sp", ["jbq"], "paper"),

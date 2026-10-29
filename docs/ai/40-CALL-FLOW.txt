@@ -228,18 +228,22 @@ SELECTING AND MOVING
   pointerup
     _endMove("drop")                        the one exit; one stage.batch:
       _dropMove(d)                          the drag's ONE write, from the start to d.t:
-        for each member of the selection's edit families (listed at the press, before the frames move: F138 seed 70):
+        for each member of the selection's edit families (listed at the press, before the frames move: F138 seed 70),
+        and each native homed at or above the camera's depth under a selected frame (d.natives, F168):
           _displaceMember(from, pictureTable, d.depth, tx, ty)   once per (frame, table)
             depth <= camera:  addOffset at (camDepth - depth); a carry is a neighbour cell
             depth >  camera:  lm.displaceFrame -> the frame; the rest into the home entry
           own table = internBelow(doc.ownFor(picture table, target frame)) (less its shift, A1 C1; one shared table a key, F164)
         store.setBatch(true); doc.rehomeManyById(ids, frame) per target frame; doc.setOffsetsById per
           changed table; the selected FRAMES (2026-09-15), never per object:
-          _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out)
+          _dragFramesStart: lm.subtreeStart per root (three levels under the camera; empty leaf containers left out);
+            a root at or above the camera's depth: its natives there into the members (d.natives), its frames one
+            level under the camera as roots (F168)
           _dragFrames: lm.moveSubtreeTargets -> lm.readdressMany (two-phase; a held cell makes a co-resident, A1 C3)
             -> doc.setFrameShift (the rest, D+1/D+2; before the refile) -> doc.noteRefile per change;
           store.setBatch(false)
-        _note({kind:"move"})                  the first 120 members and their count (F164)
+        _note({kind:"move"})                  the first 120 members and their count (F164); skipped: the members
+                                              and frames refused (F35, F168)
         doc.pushUndo({op:"move"|"moveMany"})   {id, dx, dy, from, to, belowBefore, belowAfter} per member, tables shared
           or {op:"moveFrames", frames, moves}  the frame entries {id, from, to, shiftBefore, shiftAfter}
       _releaseMove -> stage.release()       the held events applied: one commit, start ∪ end; a
@@ -248,7 +252,8 @@ SELECTING AND MOVING
       (a refile hands the camera to its cell's resident: _camToResident)
     renderer.endMove -> the plane LANDS (stays, clipped per cell, until each cell's own plate is fresh;
       MOVE_HOLD_MS); renderer.noteUserEdit() (the drop's patch: patchUserMs)
-    _repairSelection(op's frames)           torn kids join the selection, quietly (A1 C2)
+    _repairSelection(op's frames, d.natives)  torn kids and natives carried out of a selected frame join the
+                                            selection, quietly (A1 C2, F168)
     one _render(); collectFrames (keeps stage.sourceFrames, the view's picture sources, F139)
   a cancel (a pinch, an undo mid-drag, a deselect): _endMove(why) releases the hold, writes nothing
 
@@ -275,14 +280,17 @@ RENDERING   [HOT]
       a crossing or a re-address rebuilds the table; a window change reads and drops
       tiles (store.readTiles, the camera's tiles pinned); queued events applied;
       commits (G + 1) only when something changed.
-      a tile not cached is baked, for each tile, both directions:
+      a tile not cached comes back from the RAM tier while still current (_ramTake,
+      F166), else is baked, for each tile, both directions:
           _ensureUp(F,i,j)   -> _bakeUp: chain through the parent's up-tiles,
                                 plus _cellNatives(parent) (each co-resident's
                                 spatial index over the padded pre-image, F156),
                                 plus _ringNatives(parent);
                                 classifyUp -> empty | solid | edge (a shape's
                                 margin culls since F142);
-                                deriveStep for the edge tier
+                                deriveStep for the edge tier (a big shape
+                                none of whose pieces reaches the tile:
+                                farWinding, F158)
           _ensureDown(F,i,j) -> _bakeDown: candidates from _downSources (the
                                 tree, subtrees pruned by cell + REACH), a frame
                                 skipped whole by doc.frameExtent, else per
@@ -299,7 +307,9 @@ RENDERING   [HOT]
         pyramid.frameFor(cam)              the view (FC2): the level ℓv and σ, or the rest set when still;
                                            _onStill (the rest render: inline if the estimate fits, else a
                                            worker group after the quiet); _patchStep (inline, coarse-first
-                                           or the workers); _requestView (the missing cells, covered ones
+                                           or the workers); _requestView (the missing cells, covered ones;
+                                           a stand-in the RAM tier holds and, zooming out, the levels ahead
+                                           restored: _ramStandIn, _ramAhead, F166; the rest
                                            only, priority 1) -> onRequest -> queue.push (+ a microtask pump)
         queue.setMotion (the velocity, the attention point, `at`: _aim re-aims a view strip at most AIM_LEVELS 2
           from the view's level, never under ownFloor, F134); queue.frame(); queue.pump() (4 ms of packs a
@@ -320,11 +330,14 @@ RENDERING   [HOT]
         _planeStep                          the drag plane: follow the drag, land, or keep it aimed
         pyramid.compose()                   the plan per cell (A3 §1.4) drawn: direct or the surface;
                                             paper first gets the coarse net, `_net` (F166);
+                                            a moved view's paper keeps the last picture up,
+                                            at most holdMs (_held, Kobin 2026-10-29);
                                             each plane layer from one surface (_planeSurface), its
                                             edges copied where another layer draws (_planeEdges);
                                             the integrals charged forward
         _pyrLive                            the pen-up handoff: a group commit, live.release(id) in its task
-        _pyrPrefetch (the camera still)     prefetchPlan at idle: near levels, far snapshots, the ring;
+        _pyrPrefetch (the camera still)     prefetchPlan at idle: far snapshots first (the store's far share,
+                                            F166), near levels, the ring;
                                             its tile reads warm (store.warmReads); an incomplete read
                                             is tried again PREFETCH_RETRY_MS later (F166)
       syncWorld(view)                       the SvgLayer world's transform (the live stroke), then
@@ -428,6 +441,10 @@ SAVING   (the Save button)
       frame chunks newer than the cloud's, log chunks past its seq, gzipped,
       700 KiB parts one a commit, THEN the manifest (the parent doc)
       -> notePerf("cloudSave")
+      _pushViews(set, head)                 the first-view set captured at the push's start
+                                            (editor.firstView), stamped with the head when
+                                            its seq is the pushed one: cloudSaveViews, parts
+                                            then the head, in the push lane (F166)
 
 LOADING
 
@@ -442,6 +459,11 @@ LOADING
                                             a mark from before them registered once,
                                             its targets logged (A2 §4.9)
     _scheduleBake()
+    seedViews                               a first-view set already fetched (CanvasEditor:
+                                            cloudLoadViews as soon as sign-in allows) into
+                                            the RAM tier, exact at the G after the replay,
+                                            when its stamp is this document's head, build
+                                            and print (renderer.firstViewSeed, F166)
     macroYield(); _render()                 once, a task later (renderLoaded): the load
                                             and a cold render were one 5-7 s task (F87)
   a file or a legacy canvas:

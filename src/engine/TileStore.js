@@ -57,6 +57,19 @@ function flattenAll(objs) {
     return objs;
 }
 const PER_LEVEL_CAP = 64; // cached tiles per frame
+// The tile RAM tier: evicted tiles still current, kept whole up to `cfg.tileRamMiB` (an estimate, `tileBytes`) and
+// restored on a miss instead of derived again — what the far prefetch read ahead survives to the crossing (F166).
+const TILE_RAM_MIB = 48;
+function tileBytes(tile) {
+    let b = 200;
+    for (const o of tile.objs) {
+        b += 240;
+        if (o.loops) for (const l of o.loops) b += 72 * (l.length || 0);
+        if (o.polys) for (const r of o.polys) b += 48 * r.length;
+        if (o.pts) b += 48 * o.pts.length;
+    }
+    return b;
+}
 const DOWN_MAX_SIZE = 5e5; // generous upper bound on a native's frame extent (px);
                            // used only to skip a frame whose content is guaranteed
                            // sub-cull at F.
@@ -84,10 +97,14 @@ export default class TileStore {
         this._chainSeqEpoch = -1;
         this._batch = false;    // a drag: many changes to the same objects, per frame
         this._idTiles = new Map();        // native id -> keys of the cached tiles holding its pieces
+        this._ram = new Map();            // the RAM tier: key -> [tile, bytes], oldest first (`_spill`, `_ramTake`)
+        this._ramBytes = 0;
+        this.ramBytes = null;             // a probe's override of the tier's budget (bytes); else `cfg.tileRamMiB`
+        this.ramStats = { puts: 0, restores: 0, stale: 0, flushes: 0, evicted: 0 };
         this._tileSubs = null;            // `onTile` listeners
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
-    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); this._idTiles.clear(); this._tileSubs = null; }
+    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); this._idTiles.clear(); this._ramClear(); this._tileSubs = null; }
 
     // ---- the tile hook (A2 §2.9) ----
     /**
@@ -117,6 +134,7 @@ export default class TileStore {
     _setTile(key, tile) {
         const old = this.cache.get(key);
         if (old) this._unindexTile(key, old);
+        this._ramDrop(key);
         this.cache.set(key, tile);
         this._indexTile(key, tile);
         this._tileEv({ kind: "bake", key, tile });
@@ -131,7 +149,39 @@ export default class TileStore {
         this._tileEv({ kind: "drop", key, tile });
         return true;
     }
-    _clearTiles() { this.cache.clear(); this._warm.clear(); this._idTiles.clear(); this._tileEv({ kind: "clear" }); }
+    _clearTiles() { this.cache.clear(); this._warm.clear(); this._idTiles.clear(); this._ramClear(); this._tileEv({ kind: "clear" }); }
+    /** An evicted tile still current goes to the RAM tier, then out of the cache (a drop for every listener). */
+    _spill(key) {
+        const tile = this.cache.get(key);
+        const cap = this.ramBytes != null ? this.ramBytes : (this.cfg.tileRamMiB != null ? this.cfg.tileRamMiB : TILE_RAM_MIB) * 1048576;
+        if (tile && cap > 0 && tile.epoch === this._epoch && tile.seq === this.chainSeq(tile.level)) {
+            const n = tileBytes(tile);
+            if (n <= cap / 8) {
+                this._ramDrop(key);
+                this._ram.set(key, [tile, n]);
+                this._ramBytes += n;
+                this.ramStats.puts++;
+                for (const [k, e] of this._ram) {
+                    if (this._ramBytes <= cap) break;
+                    this._ram.delete(k); this._ramBytes -= e[1]; this.ramStats.evicted++;
+                }
+            }
+        }
+        return this._dropTile(key);
+    }
+    /** The tier's tile for `key` if it is still current (taken out either way), else null. */
+    _ramTake(key, seq) {
+        const e = this._ram.get(key);
+        if (!e) return null;
+        this._ram.delete(key); this._ramBytes -= e[1];
+        const tile = e[0];
+        if (tile.epoch !== this._epoch || tile.seq !== seq || !this.lm.frame(tile.level)) { this.ramStats.stale++; return null; }
+        this.ramStats.restores++;
+        return tile;
+    }
+    _ramDrop(key) { const e = this._ram.get(key); if (e) { this._ram.delete(key); this._ramBytes -= e[1]; } }
+    /** A change to what tiles are made of: the tier's tiles would miss it, so all go. */
+    _ramClear() { if (this._ram.size) { this._ram.clear(); this.ramStats.flushes++; } this._ramBytes = 0; }
     /** Pieces pushed onto `tile.objs` from index `n0` on: indexed and reported. */
     _appended(tile, n0) {
         if (tile.objs.length <= n0) return;
@@ -328,6 +378,8 @@ export default class TileStore {
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         this._pins.add(key); // protect this tile (and its parents) during recursion
+        const kept = this._ramTake(key, seq);
+        if (kept) { kept.lru = ++this._clock; this._setTile(key, kept); return kept; }
         const objs = this._bakeUp(F, i, j);   // a tile's parents are baked with it
         const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
@@ -486,6 +538,8 @@ export default class TileStore {
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
+        const kept = this._ramTake(key, seq);
+        if (kept) { kept.lru = ++this._clock; this._setTile(key, kept); return kept; }
         const objs = this._bakeDown(F, i, j);
         const tile = { level: F, dir: "down", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
         this._setTile(key, tile);
@@ -650,16 +704,16 @@ export default class TileStore {
     }
     _onDoc(ev) {
         if (ev.kind === "reset") { this._clearTiles(); return; }
-        if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame") { this._onFrameEvent(ev); return; }
+        if (ev.kind === "refile" || ev.kind === "removeFrame" || ev.kind === "addFrame") { this._ramClear(); this._onFrameEvent(ev); return; }
         if (!ev.obj) return;
-        if (ev.kind === "remove") { this._removeObject(ev.id); return; }
+        if (ev.kind === "remove") { this._ramClear(); this._removeObject(ev.id); return; }
         if (ev.kind === "add" && ev.live) return; // still growing; finalize announces
-        if (ev.kind === "add" || ev.kind === "finalize") { this._addObject(ev.obj, ev.level); return; }
+        if (ev.kind === "add" || ev.kind === "finalize") { this._ramClear(); this._addObject(ev.obj, ev.level); return; }
         // A move changes the displacement table and nothing a tile is made of
         // (F55): every tile stays exactly right, and the next render reads the
         // picture from its new address.
         if (ev.kind === "change" && (ev.offsetsOnly || ev.attrOnly)) return;
-        if (ev.kind === "change") { this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
+        if (ev.kind === "change") { this._ramClear(); this._removeObject(ev.id); this._addObject(ev.obj, ev.level); }
     }
     /**
      * A frame the lattice forgot (frame GC): its tiles, its chain sum and every reroute memo that names
@@ -676,6 +730,7 @@ export default class TileStore {
             if (String(tile.level) !== F) continue;
             this._dropTile(key);
         }
+        for (const [key, e] of this._ram) if (String(e[0].level) === F) { this._ram.delete(key); this._ramBytes -= e[1]; }
         if (this._rrMemo) for (const [k, m] of this._rrMemo) if (k === F || [...m.groups.values()].some((g) => g.F0 === F)) this._rrMemo.delete(k);
         this._chainSeq.delete(F);
     }
@@ -844,7 +899,7 @@ export default class TileStore {
         let n = 0;
         for (const [key, tile] of this.cache) {
             if (keep.has(String(tile.level)) || this._pins.has(key) || this._warm.has(key)) continue;
-            this._dropTile(key); n++;
+            this._spill(key); n++;
         }
         return n;
     }
@@ -858,7 +913,7 @@ export default class TileStore {
         for (const [key, tile] of this.cache) if (!this._pins.has(key)) evictable.push([key, tile.lru]);
         evictable.sort((a, b) => a[1] - b[1]);
         let n = this.cache.size - GLOBAL_CAP;
-        for (const [key] of evictable) { if (n-- <= 0) break; this._dropTile(key); }
+        for (const [key] of evictable) { if (n-- <= 0) break; this._spill(key); }
         this._evictPerLevel();
     }
     _evictPerLevel() {
@@ -871,7 +926,7 @@ export default class TileStore {
             if (arr.length <= PER_LEVEL_CAP) continue;
             arr.sort((a, b) => a[1] - b[1]);
             let n = arr.length - PER_LEVEL_CAP;
-            for (const [key] of arr) { if (n-- <= 0) break; if (!this._pins.has(key)) this._dropTile(key); }
+            for (const [key] of arr) { if (n-- <= 0) break; if (!this._pins.has(key)) this._spill(key); }
         }
     }
 

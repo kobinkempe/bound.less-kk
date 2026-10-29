@@ -9,6 +9,7 @@ import * as reportApi from "../engine/report";
 import { macroYield } from "../engine/report";
 import { sendDevReport, installConsoleTap, replayReport, scrubIdentity } from "./reportSend";
 import { LEVERS, readLevers, saveLevers } from "../engine/devLevers";
+import { FIRST_VIEW_VERSION, renderPrint, printTag, buildId, captureSig, encodeFirstView, decodeFirstView } from "../engine/raster/firstView";
 import {
     loadCanvasStore, writeCanvas2, backupCanvasDoc, statsFromNatives, cloudPushSource,
     newCanvasId, saveCanvasDoc, upsertIndexEntry, statsFromDoc, getStoreHeader,
@@ -131,6 +132,7 @@ const SIGN_CURSOR = { "+": signCursor(true), "-": signCursor(false) };
 export default function useKobinEngine({ canvasId = null, onAutosave, gated = false, onRefused = null } = {}) {
     const hostRef = useRef(null);
     const engineRef = useRef(null);
+    const viewsApiRef = useRef(null);      // the first-view pictures' face (F166), the engine effect's
     const errsRef = useRef([]);
     const onAutosaveRef = useRef(null);
     onAutosaveRef.current = onAutosave;
@@ -510,6 +512,43 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         };
 
         if (window.__kobinEngine === engine) window.__kobinSaver = saverRef.current;
+
+        // ---- the first-view pictures (OPEN-FLAGS F166, engine/raster/firstView.js) ----
+        // `set()`: the view's plates for the next open, with the seq of the document they show (every change has its
+        // entry by then; a reset waits for its write). `seed(s)`: a set from the cloud into the RAM tier, exact at the G
+        // right after the restore, when it was made at the cloud head this restored document is and nothing local is past
+        // it; kept, so a pull that makes it this document's seeds it then. The last set is taken before the engine goes.
+        let loaded = null;     // the restored document: { seq, base, G }
+        let views = null;      // the cloud's set: { stamp, parts, cells, fetchMs, usedFor }
+        const viewsSet = () => {
+            const R = engine.renderer, kib = engine.cfg.firstViewKiB;
+            if (!R || !R.firstViewCapture || !(kib > 0) || fullDirty || resetPending || refusedRef.current) return null;
+            const cap = R.firstViewCapture(kib * 1024);
+            if (!cap || !cap.cells.length) return null;
+            const sig = captureSig(cap.cells);
+            if (views && views.seeded && views.sig === sig && views.usedFor && views.usedFor.seq === log.seq) return null;   // the cloud has it
+            const print = renderPrint(R);
+            return { seq: log.seq, tag: printTag(print), stamp: { v: FIRST_VIEW_VERSION, build: buildId(), print },
+                parts: encodeFirstView(cap.cells), sig, cells: cap.cells.length, bytes: cap.bytes };
+        };
+        // `step`: a set that came after the render steps the view to take it; a restore's renders next anyway.
+        const seedViews = (step) => {
+            if (!loaded || !views || views.usedFor === loaded || disposed || !engine.renderer.firstViewSeed) return;
+            views.usedFor = loaded;
+            const st = views.stamp || {}, b = loaded.base, t0 = now();
+            const why = !(engine.cfg.firstViewKiB > 0) ? "off" : st.v !== FIRST_VIEW_VERSION ? "version" : !st.build || st.build !== buildId() ? "build"
+                : st.print !== renderPrint(engine.renderer) ? "print" : !b || loaded.seq !== (b.seq || 0) ? "local"
+                : !st.head || String(st.head.epoch) !== String(b.epoch) || (st.head.seq || 0) !== loaded.seq ? "head" : null;
+            if (!views.cells && !why) { views.cells = decodeFirstView(views.parts) || []; views.sig = captureSig(views.cells); }
+            const n = why ? 0 : engine.renderer.firstViewSeed(views.cells, loaded.G, step);
+            if (n) views.seeded = true;
+            engine.notePerf("firstView", t0, { fetchMs: Math.round(views.fetchMs || 0), bytes: views.bytes || 0, cells: views.cells ? views.cells.length : 0, seeded: n, why: why || (views.cells.length ? "ok" : "decode") });
+        };
+        viewsApiRef.current = {
+            set: viewsSet,
+            seed: (s) => { if (s && !disposed) { views = { ...s, cells: null, usedFor: null }; seedViews(true); } },
+            print: () => (engine.renderer && engine.renderer.firstViewCapture ? printTag(renderPrint(engine.renderer)) : null),
+        };
         // RESTORE. The document comes back asynchronously; `engineReady` waits
         // for it, so nothing in the shell (the cloud pull most of all) compares
         // an empty engine against anything. A canvas still in the v1 store loads
@@ -524,7 +563,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             if (res.legacy) {
                 engine.loadDrawing(camera ? { ...res.legacy, camera } : res.legacy, { render: false });
                 engine._eraseLoaded();   // a mark from before `targets` registers, logged once (A2 §4.9)
-                hasBase = false; fullDirty = true;
+                hasBase = false; fullDirty = true; loaded = null;
                 return true;
             }
             const natives = {};
@@ -542,6 +581,8 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             for (const mid of [...markSeq.keys()]) if (!engine.doc.getById(mid)) markSeq.delete(mid);
             engine._scheduleBake();   // a pending eraser resumes where its log left it
             hasBase = true;
+            loaded = { seq: log.seq, base: base || null, G: engine.stage.generation };
+            seedViews(false);
             return true;
         };
         const renderLoaded = async () => {
@@ -751,6 +792,9 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             document.removeEventListener("visibilitychange", onHide);
             window.removeEventListener("pagehide", flush);
             if (LOCAL_AUTOSAVE) flush();   // last chance before this engine goes away; the write outlives the component
+            let lastViews = null;
+            try { lastViews = viewsSet(); } catch (err) { lastViews = null; }
+            viewsApiRef.current = { set: () => lastViews, seed: () => {}, print: () => null };
             disposed = true;
             // The dev handle's closures hold the engine: left set, a closed canvas stayed in memory (its whole drawing).
             if (window.__kobinSaver === saverRef.current) window.__kobinSaver = null;
@@ -1011,6 +1055,10 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             return entry;
         },
         knownSeq: () => (saverRef.current && saverRef.current.knownSeq ? saverRef.current.knownSeq() : null),
+        // The first-view pictures (F166): this view's set for the session to save, a cloud set to seed, the print's tag.
+        firstViewSet: () => (viewsApiRef.current ? viewsApiRef.current.set() : null),
+        firstViewSeed: (set) => { if (viewsApiRef.current) viewsApiRef.current.seed(set); },
+        firstViewTag: () => (viewsApiRef.current ? viewsApiRef.current.print() : null),
         // Every write this hook started, the tail included, on disk: before the lock goes to another tab.
         idle: async () => {
             if (saverRef.current && saverRef.current.flush) return saverRef.current.flush();

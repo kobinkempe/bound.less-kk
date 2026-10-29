@@ -209,6 +209,10 @@ src/cloud/canvasSync.js        Firestore, under users/{uid}/<col>: `canvases` on
                                in a production build on the deployed app's hosts
                                (REAL_HOSTS), `dev-canvases` everywhere else
                                (isDevBuild; SYNC-PLAN R7).
+                               cloudLimits.js: the beta's 200 MB an account,
+                               checked in cloudPushCanvas2 (`limit`).
+                               The first-view sets beside a canvas (views/{tag},
+                               cloudSaveViews / cloudLoadViews, F166).
                                kobin-2 (2026-09-08): the parent doc is the
                                MANIFEST (frames {fid: chunk, seq}, log chunks,
                                head {epoch, seq}, lease, listing fields) and
@@ -249,6 +253,8 @@ src/cloud/canvasSession.js     One open editor's part in one-editor-at-a-time:
                                at a time with the backoff, the follow (while
                                visible), Edit here, the conflict copy, work that
                                could not be written kept as a new canvas.
+                               After a push lands, this view's first-view set
+                               goes up (_pushViews, F166).
                                editorFromHook adapts the hook. sync.tabs /
                                sync.devices / sync.review tests (real engines).
 src/cloud/storageLocks.js      navigator.locks over localStorage, where there are
@@ -340,27 +346,40 @@ PicturePyramid.js   The layer: the view (frameFor: the level with its stretch ba
                     coarse-first, workers), the pen-up group commit, the inline
                     executor, the estimate and its calibration, and §9.1's
                     integrals (paperMs, blurMs, olderPatchMs, olderUnreadMs,
-                    olderOtherMs); a Stage commit's patch step (noteCommit).
+                    olderOtherMs) and the paper log (paperWhy: cause, place,
+                    motion, F166); a Stage commit's patch step (noteCommit);
+                    a gesture's RAM-tier restores (_ramStandIn, _ramAhead); the
+                    wait (_held: a moved view's paper keeps the last picture up,
+                    at most holdMs).
 PyramidStore.js     The plate store: records by level/rest/plane key, a record's G
                     and the freshness source (the Stage): rule 1 in put (a newer
                     G replaces), rule 2 exact (G >= dirtySince), patches merged,
                     jobs tracked per key; LRU with the drawn set, the plane's pins
                     and the rest set protected (RANK), the budget (plateViews
-                    screens, never under the pinned bound), the hidden-tab release;
+                    screens, never under the pinned bound) and the far levels'
+                    own share (farMaxBytes, roomFor, F166), the eviction by the
+                    zoom's direction (zoomDir), the hidden-tab release;
                     a second tier in RAM (plateRam.js): evicted level plates kept
                     packed and restored by a worker instead of re-rastered (F161).
 plateRam.js         The RAM tier's entries (F161): packed plates, LRU by bytes under
                     RAM_ENTRIES_MAX; an entry is still the store's to judge exact.
 plateCodec.js       One plate's RGBA packed losslessly (runs and stretches of 32-bit
                     words), encodePlate/decodePlate, both ends of the RAM tier.
+firstView.js        The first-view pictures (F166): captureFirstView (the view's
+                    exact level plates with known words: the view's cells, the far
+                    levels, the near ones, under a byte cap), encodeFirstView /
+                    decodeFirstView (parts of at most 700 KiB), the stamp's parts
+                    (renderPrint, printTag, buildId); PyramidStore.seedRam and
+                    RasterRenderer.firstViewSeed put a set into the RAM tier.
 jobQueue.js         Typed jobs into strips dealt from the attention point; PRIO
                     (rest/patch 0, view 1, plane 2, cut 3, prefetch 4, thumb 5);
                     one worker kept for cuts; drops by purpose generation and by
                     exact G; the velocity rule (a re-aim at most AIM_LEVELS 2
                     from the view's level, never under ownFloor: F134) and 4 ms
                     of packs a frame while moving; requeue (H7).
-prefetch.js         The prefetch plan at idle: ℓv − 1 and ℓv − 2 from the live
-                    table, the far levels through budgeted snapshots, a crossing's
+prefetch.js         The prefetch plan at idle: the far levels first, through
+                    budgeted snapshots, in the store's far share (F166); ℓv − 1
+                    and ℓv − 2 from the live table; a crossing's
                     target, the ring at rest; nothing while a report sends. Its tile
                     reads are warm (RasterRenderer._pyrPrefetch sets TileStore.warmReads);
                     a read past its budget is tried again (`unread`, F166).
@@ -463,6 +482,10 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      member's address and TABLE, never into a
                                      coordinate - F41, F55), _displaceMember
                                      (one lookup per (frame, table)),
+                                     _dragFramesStart (the selected frames
+                                     under the camera; one at or above its
+                                     depth moves its natives there per
+                                     object, F168),
                                      _opUnder / _repairSelection (the
                                      selection repaired from an action's op),
                                      _selectionAnts
@@ -577,7 +600,9 @@ Stage.js            THE SCENE (A2 §2-§3, PLAN §1.1). The camera frame's items
                     dirtySince/dirtyRects, hold/release/batch, onCommit. A moved
                     piece's footprint is its boundary's swept hulls (sweepBoxes,
                     _sweepCells, F153); sourceFrames, the frames the view's
-                    reroute groups read, kept by frame GC (F139). Item: a
+                    reroute groups read, kept by frame GC (F139); covers
+                    maps a reroute group's box once a run of members with
+                    one home and one own table (_groupBox, F166). Item: a
                     piece with z, erase and family read from the live native.
 placementModel.js   The document model as the Stage reads it (A1 §6's
                     PlacementModel): nativesIn, placement, displaced,
@@ -631,8 +656,14 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     prefetch's) marks its tiles warm, a dropped tile is not;
                     _rerouteGroups memoises the reroute's grouping per frame
                     and revision; framesLeft runs after the camera's read and
-                    keeps what it pinned (F83).
-Renderer.js         THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 (the
+                    keeps what it pinned (F83). The RAM tier (F166): a tile
+                    evicted while still current (_evict, _evictPerLevel,
+                    framesLeft, through _spill) is kept whole up to
+                    cfg.tileRamMiB (tileBytes estimates) and restored on a
+                    miss (_ramTake, in _ensureUp/_ensureDown); any change
+                    but a move, a frame event or a reset empties it
+                    (_ramClear).
+Renderer.js        THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 (the
                     raster one extends nothing since B-PYRAMID-3). It draws the
                     Stage's items and composes
                     raster/SvgLayer.js (the Two.js instance), LiveStrokeLayer.js
@@ -837,7 +868,10 @@ derive.js           One-step bake math, and the seam policy. deriveStep is the
                     2026-09-05 opts.offsetOf added the F41 offset here once,
                     and that one rounding was 4096x per level below). Its
                     header carries the 1.0 compatibility note: these bits ARE
-                    every saved drawing's deep picture.
+                    every saved drawing's deep picture. farWinding (F158
+                    lever 1): a tile none of a big shape's pieces reaches
+                    is a whole quad or nothing, asked of the parent's own
+                    pieces through farIndex (a WeakMap per loops array).
                     classifyUp is the empty/solid/edge tier. shapeRingsInRect
                     and shapeLoopsInRect are the two clips - one hands back
                     polygons, one hands back ARCS, and the second is the F-A

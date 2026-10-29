@@ -89,6 +89,12 @@ export function ramBudgetBytes(cfg, phone) {
     return Math.max(0, v) * MiB;
 }
 
+/** The far zoom-out levels' own share (F166): `cfg.plateFarMiB` (0 shares the one budget), else 96 MiB on a desktop and 64 on a phone. */
+export function farBudgetBytes(cfg, phone) {
+    const v = cfg && cfg.plateFarMiB != null ? cfg.plateFarMiB : (phone ? 64 : 96);
+    return Math.max(0, v) * MiB;
+}
+
 /** A level plate's cell: frame F at Z(ℓ) for step S. The descriptor `beginJob`, `put` and the plan share. */
 export function levelCell(F, l, S, i, j) {
     return { key: levelKey(F, l, S, i, j), frame: String(F), kind: "level", level: l, S, Z: zOf(l, S), tag: null, i, j };
@@ -129,6 +135,11 @@ export default class PyramidStore {
         this.maxBytes = opts.maxBytes != null ? opts.maxBytes : budgetBytes(opts.cfg, opts.wDev || 1280, opts.hDev || 800, this.phone);
         this.ram = new PlateRam(opts.ramBytes || 0);
         this._ramSeq = 0;
+        // The far levels' own share (F166): counted apart from `maxBytes`, so the screen's records and the zoom-out's
+        // levels never evict each other; 0 keeps the one budget (`setFarBudget`).
+        this.farMaxBytes = opts.farBytes != null ? opts.farBytes : 0;
+        this.zoomDir = 0;             // the last zoom's direction, −1 out, +1 in, 0 none (the renderer's): the eviction's order
+        this._evicted = new Map();    // the last evictions, key -> rank (the paper log's "evicted")
         this.cache = new Map();       // key -> record
         this.inflight = new Map();    // key -> { jobId, key, cell, G, refused }
         this.jobs = new Map();        // jobId -> cell descriptors
@@ -313,8 +324,48 @@ export default class PyramidStore {
         return id;
     }
 
+    /**
+     * First-view pictures (F166, `firstView.js`): level cells another session packed from this document, into the RAM tier
+     * as entries exact at `G` — their keys tracked from `G`, so a commit after it outdates them. Least wanted first: the
+     * tier keeps the newest. A key stored, in flight or already in the tier is left alone. Returns how many went in.
+     */
+    seedRam(cells, G) {
+        if (!this.ram.maxBytes) return 0;
+        let n = 0;
+        for (const c of cells) {
+            if (c.kind !== "level" || this.cache.has(c.key) || this.inflight.has(c.key) || this.ram.has(c.key)) continue;
+            const e = { key: c.key, frame: String(c.frame), kind: "level", level: c.level, S: c.S, Z: c.Z, tag: null, i: c.i, j: c.j, G, packed: c.packed || null };
+            this.fresh.track(e.key, e.frame, cellBox(e) || EVERYWHERE, G);
+            for (const x of this.ram.put(e)) this._untrackIfIdle(x.key);
+            n++;
+        }
+        return n;
+    }
+
     /** A new budget for the RAM tier (0: off). */
     setRamBudget(bytes) { for (const e of this.ram.setBudget(bytes)) this._untrackIfIdle(e.key); }
+
+    /** The far share's cap (F166; 0: one budget), and one eviction pass. */
+    setFarBudget(bytes) { this.farMaxBytes = Math.max(0, bytes || 0); this._evict(); }
+
+    /** `key` was evicted lately (the paper log, F166). */
+    wasEvicted(key) { return this._evicted.has(key); }
+
+    /**
+     * Plates a plan may add to the far share (`far`) or to the general budget, beside what is pinned or protected there;
+     * with no far share, one room for both.
+     */
+    roomFor(far) {
+        const split = this.farMaxBytes > 0;
+        let used = 0;
+        for (const r of this.cache.values()) {
+            const rank = this.rankOf(r);
+            if (split && (rank === RANK.FAR) !== !!far) continue;
+            if (this.isPinned(r.key) || rank >= RANK.FAR) used += r.bytes;
+        }
+        const cap = split && far ? this.farMaxBytes : this.maxBytes - this.heldBytes;
+        return Math.max(0, Math.floor((cap - used) / PLATE_BYTES));
+    }
 
     // ---- the in-flight map (A2 §3.2) ----
 
@@ -444,8 +495,11 @@ export default class PyramidStore {
     report() {
         let stale = 0, staleBytes = 0;
         for (const r of this.cache.values()) if (!this.exact(r)) { stale++; staleBytes += r.bytes; }
+        let farBytes = 0;
+        for (const r of this.cache.values()) if (this.rankOf(r) === RANK.FAR) farBytes += r.bytes;
         return {
             plates: this.cache.size, plateBytes: this.bytes, heldBytes: this.heldBytes, maxBytes: this.maxBytes, phone: this.phone,
+            farBytes, farMaxBytes: this.farMaxBytes, zoomDir: this.zoomDir,
             pinned: this.pinnedCount(), pinnedPlane: this._plane.size, stale, staleBytes,
             inFlight: this.inflight.size, trackedKeys: this.fresh.stats ? this.fresh.stats.tracked : 0,
             ...this.s, evictedByRank: this.s.evictedByRank.slice(), ram: this.ram.report(),
@@ -473,7 +527,11 @@ export default class PyramidStore {
         if (r.kind === "plane") return RANK.OFF_PATH;
         if (r.kind === "rest") return v.rest && r.frame === String(v.rest.frame) && r.Z === v.rest.Z ? RANK.REST : RANK.OFF_PATH;
         if (v.far && v.far.has(r.key)) return RANK.FAR;
-        if (v.left != null && r.frame === String(v.left)) return RANK.LEFT;
+        if (v.left != null && r.frame === String(v.left)) {
+            // The frame a crossing left stands in at the view's level and coarser; finer, it is what the zoom passed (F166).
+            if (v.leftShift != null && r.S === v.S && r.level - v.leftShift > v.level) return RANK.FINER;
+            return RANK.LEFT;
+        }
         const shift = v.path ? v.path.get(r.frame) : (r.frame === String(v.frame) ? 0 : undefined);
         if (shift === undefined || r.S !== v.S) return RANK.OFF_PATH;
         const l = r.level - shift;
@@ -486,25 +544,47 @@ export default class PyramidStore {
         return RANK.LEVELS;
     }
 
-    /** Evict until the cap holds: by rank, then (among other levels) the farthest from ℓv, then LRU. Never a pinned record. */
+    /**
+     * Evict until the caps hold. The general budget: by rank, then (among other levels) the farthest from ℓv, then LRU —
+     * zooming in, finer levels after the other levels. The far share, apart (F166): its own records, oldest first. Never a
+     * pinned record.
+     */
     _evict() {
         if (this.bytes + this.heldBytes <= this.maxBytes) return;
-        const v = this._view, out = [];
+        const v = this._view, split = this.farMaxBytes > 0, gen = [], far = [];
+        let farBytes = 0;
         for (const r of this.cache.values()) {
-            if (this.isPinned(r.key)) continue;
             r._rank = this.rankOf(r);
+            const inFar = split && r._rank === RANK.FAR;
+            if (inFar) farBytes += r.bytes;
+            if (this.isPinned(r.key)) continue;
             const shift = v && v.path ? v.path.get(r.frame) : 0;
-            r._far = r._rank === RANK.LEVELS && v && r.kind === "level" && shift !== undefined ? -Math.abs(r.level - shift - v.level) : 0;
-            out.push(r);
+            r._dist = r._rank === RANK.LEVELS && v && r.kind === "level" && shift !== undefined ? -Math.abs(r.level - shift - v.level) : 0;
+            (inFar ? far : gen).push(r);
         }
-        out.sort((a, b) => (a._rank - b._rank) || (a._far - b._far) || (a.lru - b.lru));
-        for (const r of out) {
-            if (this.bytes + this.heldBytes <= this.maxBytes) break;
-            this.s.evictedByRank[r._rank]++;
-            this._remove(r.key, false, true);
-            this.s.evictions++;
+        const pos = (r) => (r._rank === RANK.FINER && this.zoomDir > 0 ? RANK.LEVELS + 0.5 : r._rank);
+        gen.sort((a, b) => (pos(a) - pos(b)) || (a._dist - b._dist) || (a.lru - b.lru));
+        for (const r of gen) {
+            if (this.bytes - farBytes + this.heldBytes <= this.maxBytes) break;
+            this._evictOne(r);
         }
-        if (this.bytes + this.heldBytes > this.maxBytes) this.s.overCapPinned++;
+        if (this.bytes - farBytes + this.heldBytes > this.maxBytes) this.s.overCapPinned++;
+        if (!split) return;
+        far.sort((a, b) => a.lru - b.lru);
+        for (const r of far) {
+            if (farBytes <= this.farMaxBytes) break;
+            farBytes -= r.bytes;
+            this._evictOne(r);
+        }
+    }
+
+    _evictOne(r) {
+        this.s.evictedByRank[r._rank]++;
+        this._remove(r.key, false, true);
+        this.s.evictions++;
+        this._evicted.delete(r.key);
+        this._evicted.set(r.key, r._rank);
+        if (this._evicted.size > 4096) this._evicted.delete(this._evicted.keys().next().value);
     }
 
     /** Take a record out and close its bitmap — the only path that closes a stored one; `toRam`: an eviction or a release (F161). */

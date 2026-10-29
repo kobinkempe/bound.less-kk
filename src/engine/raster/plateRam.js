@@ -24,6 +24,8 @@ export default class PlateRam {
     get size() { return this.map.size; }
     has(key) { return this.map.has(key); }
     get(key) { return this.map.get(key); }
+    /** Every entry, oldest first. */
+    entries() { return this.map.values(); }
 
     /**
      * Keep entry `e` ({ key, frame, kind, level, S, Z, tag, i, j, G, packed }), newest. Returns the entries evicted to

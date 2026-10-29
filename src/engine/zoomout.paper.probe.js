@@ -103,6 +103,8 @@ test("the Magnum Opus: Kobin's burst zoom-out from the deepest native frame to t
     const rn0 = pyr.renderNow.bind(pyr);
     pyr.renderNow = (job) => { const t0 = Date.now(), out = rn0(job); if (job.purpose === "net") { tally.netReal = (tally.netReal || 0) + Date.now() - t0; tally.netMax = Math.max(tally.netMax || 0, Date.now() - t0); } return out; };
     if (process.env.NET_MS != null) E.cfg.netMs = +process.env.NET_MS;
+    if (process.env.TILE_RAM === "0") E.store.ramBytes = 0;   // the tile RAM tier off, for the comparison
+    if (process.env.PF_READ_MS != null) E.cfg.prefetchReadMs = +process.env.PF_READ_MS;   // the far plan's read budget
     const census = () => {
         const by = {};
         for (const r of E.plates.records()) { const k = r.kind + " d" + E.lm.depthOf(r.frame) + (r.kind === "level" ? " L" + r.level : ""); by[k] = (by[k] || 0) + 1; }

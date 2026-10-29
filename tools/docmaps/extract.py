@@ -72,6 +72,7 @@ MODFILE = {
     "plt": "src/engine/raster/plate.js",
     "pcd": "src/engine/raster/plateCodec.js",
     "prm": "src/engine/raster/plateRam.js",
+    "fvw": "src/engine/raster/firstView.js",
     "rco": "src/engine/raster/rasterCore.js",
     "rjb": "src/engine/raster/rasterJob.js",
     "rpk": "src/engine/raster/rasterPack.js",

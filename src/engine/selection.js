@@ -694,6 +694,7 @@ class Selection {
             d.frames = new Map();
             if (this.selection.frames.length) {
                 this._dragFramesStart(d, camDepth);
+                for (const m of d.natives) members.push(m);
                 if (d.frameStart.size) this._dragFrames(d, camDepth, tx, ty);
             }
             for (const m of members) {
@@ -725,6 +726,7 @@ class Selection {
         const frames = [...d.frames.values()].filter((e) => e.to && (e.to.parent !== e.from.parent
             || e.to.i !== e.from.i || e.to.j !== e.from.j || !sameShift(e.shiftBefore, e.shiftAfter)));
         if (!moves.length && !frames.length) return null;
+        if (d.skipped) skipped.push(...d.skipped);       // a frame the targets refused (F168: none was journaled)
         // The journal's bound (KobinEngine._note): 120 members and the count, not 5,771 records a drag.
         this._note({
             kind: "move",
@@ -750,18 +752,34 @@ class Selection {
      * The frames a drop moves AS FRAMES: each selected root's subtree within three levels of the
      * camera (deeper frames follow their parent pointer), at the addresses the drag started from
      * (nothing moved meanwhile, A1 C2). An empty leaf container is left out: it has nothing to move.
+     * A root at or above the camera's depth has no frame at that depth above it to anchor the move
+     * (OPEN-FLAGS F168): its natives homed at or above that depth go per object (`d.natives`), its
+     * frames one level under the camera as frames, so no frame at the camera's depth moves.
      */
     _dragFramesStart(d, camDepth) {
         d.frameStart = new Map();
+        d.natives = [];
         const all = this.selection.frames;
-        for (const f of all) {
-            if (this._underFrames(f, all.filter((x) => x !== f))) continue;
+        const take = (f) => {
             for (const [id, e] of this.lm.subtreeStart(f, camDepth)) {
                 if (id !== f && !this.lm.childrenOf(id).length && this.doc.count(id) === 0) continue;
                 d.frameStart.set(id, e);
                 const fr = this.lm.frame(id);
                 d.frames.set(id, { id, depth: e.depth, from: { parent: e.parent, i: e.i, j: e.j }, to: null,
                     shiftBefore: fr && fr.shift ? [fr.shift[0], fr.shift[1]] : null, shiftAfter: null });
+            }
+        };
+        for (const f of all) {
+            if (this._underFrames(f, all.filter((x) => x !== f))) continue;
+            if (this.lm.depthOf(f) > camDepth) { take(f); continue; }
+            const stack = [f];
+            while (stack.length) {
+                const id = stack.pop();
+                for (const o of this.doc.list(id)) d.natives.push({ obj: o, level: id });
+                for (const c of this.lm.childrenOf(id)) {
+                    if (c.depth <= camDepth) stack.push(c.id);
+                    else if (this.doc.count(c.id) || this.lm.childrenOf(c.id).length) take(c.id);
+                }
             }
         }
     }

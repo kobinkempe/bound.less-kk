@@ -25,7 +25,7 @@ import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawSt
 import KobinEngine from "./KobinEngine";
 import { loopRuns, runLength, circleLoop, onRectEdge } from "./geometry/antRuns";
 import { rectTol } from "./rectMath";
-import { rectLoop } from "./geometry/arcShape";
+import { rectLoop, subtractShape } from "./geometry/arcShape";
 
 jest.setTimeout(60000);
 
@@ -972,5 +972,47 @@ describe("F125 the ants skip a ceded square's edge under a moved object", () => 
             }
         }
         expect(along).toBe(0);                                           // red before: 256 px, the square's four sides
+    });
+});
+
+/**
+ * F169 (Kobin's phone, 2026-10-21: "the selection shows the tile"): a ceded family's kid homed under a selected frame,
+ * its parent piece selected by id one level up. Four drags with the camera in that frame moved the parent and refused
+ * the frame (F168), so the parent's hole drifted off the kid's window and the hole's four sides drew ants.
+ */
+describe("F169 a drop with the camera in a selected frame keeps a family's join", () => {
+    hUseEngines();
+    test("SJ-1 the parent's hole stays on the kid's window, and no ant runs along it", () => {
+        const E = hMkEngine(800, 600);
+        const K = E.lm.cellChild("0", 2, 1);                               // centre (64, 32) of "0"
+        const key = E.doc.allocId();                                       // a family key names no native in the document
+        const hole = { left: 64, top: 32, right: 65, bottom: 33 };          // in "0"; [0, 4096] square in K
+        const P = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1, w: 8,
+            loops: subtractShape(rectLoop({ left: 60, top: 28, right: 69, bottom: 37 }), rectLoop(hole)).loops };
+        const Q = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1, w: 8,
+            loops: rectLoop({ left: 0, top: 0, right: 4096, bottom: 4096 }), attachRect: { x0: 0, y0: 0, x1: 4096, y1: 4096 } };
+        E.doc.add(P, "0"); E.doc.add(Q, K.id);
+        E.cam.set({ activeLevel: 1, frame: K.id, inScale: 0.05, inPanX: 400 - 2048 * 0.05, inPanY: 300 - 2048 * 0.05 });
+        E.setTool("select");
+        E._setSelection([P.id], [K.id]);
+        Object.defineProperty(E.renderer, "antPainter", { value: true, configurable: true });
+        const alongHole = () => {
+            E._render(); E._selDec = null;
+            const got = E._selectionAnts();
+            const Rw = E.stage.placeNative(P, K.id).fromStored(hole);           // the hole where the parent is drawn
+            const rect = { x0: Rw.left, y0: Rw.top, x1: Rw.right, y1: Rw.bottom }, eps = rectTol(rect);
+            let px = 0;
+            for (const r of got ? got.runs : []) for (const q of r.pieces) if (onRectEdge(q, rect, eps)) px += Math.hypot(q.B[0] - q.A[0], q.B[1] - q.A[1]) * E.cam.inScale;
+            return px;
+        };
+        expect(alongHole()).toBe(0);                                       // joined: the hole's sides are the kid's window
+        const at = (o) => E.stage.placeNative(o, K.id).fromStored([0, 0]);
+        const p0 = at(P), q0 = at(Q);
+        E._dragSel = { start: [400, 300], moved: false };
+        E._dragSelection(440, 324); E.pointerUp();                         // 800, 480 units of K
+        const p1 = at(P), q1 = at(Q);
+        expect([q1[0] - q0[0], q1[1] - q0[1]]).toEqual([p1[0] - p0[0], p1[1] - p0[1]]);   // red: the kid stayed with its refused frame
+        expect([p1[0] - p0[0], p1[1] - p0[1]]).toEqual([800, 480]);
+        expect(alongHole()).toBe(0);                                       // before: 819.2 px, the hole's four sides
     });
 });

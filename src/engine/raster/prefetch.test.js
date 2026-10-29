@@ -29,11 +29,13 @@ function world({ inScale = 2, maxPlates = 400 } = {}) {
 }
 
 describe("prefetch (A3 §4.3)", () => {
-    test("near ℓv − 1 and ℓv − 2 over the screen and a cell of margin, from the live table, first", () => {
+    test("near ℓv − 1 and ℓv − 2 over the screen and a cell of margin, from the live table, right after the far levels (F166)", () => {
         const t = world();
         const jobs = prefetchPlan(t.view, t.stage, t.store, t.cfg);
-        const near = jobs.filter((j) => j.purpose === "prefetch:near");
-        expect(jobs.slice(0, 2)).toEqual(near);
+        const near = jobs.filter((j) => j.purpose === "prefetch:near"), nf = jobs.filter((j) => j.purpose === "prefetch:far").length;
+        expect(nf).toBeGreaterThan(0);
+        expect(jobs.slice(0, nf).every((j) => j.purpose === "prefetch:far")).toBe(true);    // the zoom-out's buffer first
+        expect(jobs.slice(nf, nf + 2)).toEqual(near);
         expect(near.map((j) => j.level)).toEqual([t.view.level - 1, t.view.level - 2]);
         for (const j of near) {
             expect([j.prio, j.table, j.gen, j.frame]).toEqual([4, null, 3, String(t.B)]);
@@ -118,14 +120,21 @@ describe("prefetch (A3 §4.3)", () => {
         expect(prefetchPlan(t.view, t.stage, t.store, t.cfg)[0].cells.length).toBe(near1.cells.length - 1);
     });
 
-    test("the budget gate: no more plates than the cache holds beside pins and protected records, near levels first", () => {
+    test("the budget gate: no more plates than the cache holds beside pins and protected records, far levels first (F166)", () => {
         const t = world({ maxPlates: 10 });
         const jobs = prefetchPlan(t.view, t.stage, t.store, { ...t.cfg, atRest: true });
         const n = jobs.reduce((a, j) => a + j.cells.length, 0);
         expect(n).toBe(10);
-        expect(jobs.every((j) => j.purpose === "prefetch:near")).toBe(true);
+        expect(jobs.every((j) => j.purpose === "prefetch:far")).toBe(true);
         t.store.setView({ frame: String(t.B), level: t.view.level, S: 1, ring: null, rest: null, path: new Map([[String(t.B), 0]]), left: null, far: new Set() });
         for (let i = 0; i < 6; i++) t.store.put({ ...levelCell(t.B, t.view.level - 1, 1, 100 + i, 0), G: 0, bitmap: { close() {} }, jobId: null });
         expect(prefetchPlan(t.view, t.stage, t.store, t.cfg).reduce((a, j) => a + j.cells.length, 0)).toBe(4);
+        // With the store's far share the far levels fill their own room and the near levels the general one.
+        const s = world({ maxPlates: 10 }), free = world();
+        s.store.setFarBudget(8 * PLATE_BYTES);
+        const split = prefetchPlan(s.view, s.stage, s.store, s.cfg);
+        const count = (js, p) => js.filter((j) => j.purpose === p).reduce((a, j) => a + j.cells.length, 0);
+        const nearAll = count(prefetchPlan(free.view, free.stage, free.store, free.cfg), "prefetch:near");
+        expect([count(split, "prefetch:far"), count(split, "prefetch:near")]).toEqual([8, Math.min(10, nearAll)]);
     });
 });

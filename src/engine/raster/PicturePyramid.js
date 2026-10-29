@@ -44,10 +44,16 @@ const EDGE_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [
 /** The estimate's constants (A3 §2.2, §3.3), each overridable in cfg and calibrated online. */
 export const EST_DEFAULTS = Object.freeze({
     restEdgeUs: 0.73, restPxNs: 34, restCellMs: 0.15, patchUnionUs: 73, patchMergeMs: 0.3, packItemUs: 20, packListUs: 1,
-    restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100, netMs: 0,
+    restInlineMs: 8, patchInlineMs: 6, patchUserMs: 16, restQuietMs: 100, netMs: 0, holdMs: 0,
 });
 /** Octaves under the view's level the net renders at, and the most plates one net renders (F166). */
 const NET_OCT = 3, NET_PLATES = 6;
+/** RAM-tier restores one step asks for its stand-ins and, zooming out, the levels ahead (F166). */
+const RAM_STEP_MAX = 16;
+/** A camera still this long ends a gesture: the next move starts one (the paper log, F166). */
+const GESTURE_GAP_MS = 150;
+/** Paper draws a compose classifies (the paper log, F166); the rest are `c:many` (a cold screen is paper whole). */
+const PAPER_WHY_MAX = 12;
 const EWMA = 0.2;
 const WHOLE = Object.freeze([0, 0, PLATE_PX, PLATE_PX]);
 
@@ -177,7 +183,16 @@ export default class PicturePyramid {
             restInline: 0, restWorker: 0, restMs: 0, restDiscards: 0, restHeavy: 0, standInCells: 0, nets: 0, netPlates: 0, netMs: 0,
             patchInline: 0, patchCoarse: 0, patchWorker: 0, patchMs: 0, merges: 0, mergeMisses: 0,
             groupsCommitted: 0, groupsTimedOut: 0, requests: 0, requestedCells: 0, discarded: 0, calibrations: 0, ramRestores: 0,
+            // Paper's screen-ms by why (F166): `c:` its cell's cause, `at:` inner or edge of the screen, `m:` still, moving, or
+            // in a gesture's first 100 ms (`_paperWhy`).
+            paperWhy: {},
+            // The last picture kept up while a moved view's plates come (Kobin 2026-10-29, `_held`): how often, how long.
+            holds: 0, holdMs: 0, holdMsMax: 0,
         };
+        this._paperShare = null;
+        this._painted = null;          // the affine of the picture on the canvas: { frame, k, tx, ty }, null when none
+        this._holdT0 = null; this._holdTimer = null;
+        this._moveT0 = null; this._lastMoveAt = null;
         this._canvas = null; this._ctx = null;
         if (opts.context) { this._ctx = opts.context; } else if (this.host) this._mount();
     }
@@ -210,6 +225,7 @@ export default class PicturePyramid {
         this._discardRest("resize");
         this._freeSurface();
         this._freePlaneSurfaces();
+        this._painted = null;          // a resized canvas is cleared: no picture to keep up
         this._sized();
         this._cam0.sized = true;
         return true;
@@ -315,9 +331,13 @@ export default class PicturePyramid {
         }
         const prevView = this.store.view;
         const left = prevView && prevView.frame !== v.frameId ? prevView.frame : (prevView ? prevView.left : null);
+        // The frame left's level offset when it is the view frame's parent or child: its finer levels rank as finer (F166).
+        let leftShift = null;
+        const fl = left != null && this.lm && this.lm.frame ? this.lm.frame(left) : null, fv = fl ? this.lm.frame(v.frameId) : null;
+        if (fl && fv && (String(fl.parent) === String(v.frameId) || String(fv.parent) === String(left))) leftShift = ((fv.depth - fl.depth) * 12) / v.S;
         this.store.setView({
             frame: v.frameId, level: v.level, S: v.S, ring: { i0: r.i0 - 1, i1: r.i1 + 1, j0: r.j0 - 1, j1: r.j1 + 1 },
-            rest: this._rest ? { frame: this._rest.frame, Z: this._rest.Z } : null, path, left,
+            rest: this._rest ? { frame: this._rest.frame, Z: this._rest.Z } : null, path, left, leftShift,
             far: prevView && prevView.far ? prevView.far : new Set(),
         });
     }
@@ -885,6 +905,7 @@ export default class PicturePyramid {
         if (this._net(v, P)) P = this.plan(v);
         this.lastPlan = P;
         this.store.setDrawn(P.keys);
+        if (this._held(P, v, t0)) return P;
         const force = this.cfg.compose;
         const direct = force === "direct" || (force !== "surface" && P.images <= COMPOSE_IMAGES);
         const ctx = this._ctx;
@@ -898,6 +919,7 @@ export default class PicturePyramid {
             this._paintPlane(ctx, P, v);
         }
         if (direct) { this.s.direct++; this._idleSurface(); } else this.s.surface++;
+        if (ctx) this._painted = { frame: v.frameId, k: v.k, tx: v.tx, ty: v.ty };
         this._charge(P, v);
         const ms = this._now() - t0;
         this.s.composes++; this.s.composeMs += ms; if (ms > this.s.composeMsMax) this.s.composeMsMax = ms;
@@ -905,6 +927,39 @@ export default class PicturePyramid {
         this._images.push(t0, P.images);
         while (this._images.length && this._images[0] < t0 - 10000) this._images.splice(0, 2);
         return P;
+    }
+
+    /**
+     * Kobin 2026-10-29: "if there isn't a plate to show, it just lags until it is ready instead of flashing the paper". A
+     * moved view whose plan leaves paper on screen keeps the last picture up — the canvas waits — while its plates come,
+     * at most `holdMs` (a lever; 0 paints at once), when a timer composes again. Only over a picture with no paper (one
+     * with some, the load's first, shows no less by waiting), never under a drag's plane or for a still camera (a patch).
+     * True while it holds.
+     */
+    _held(P, v, t) {
+        const max = cfgOr(this.cfg, "holdMs"), was = this._painted;
+        const moved = !!was && (was.frame !== v.frameId || was.k !== v.k || was.tx !== v.tx || was.ty !== v.ty);
+        let hold = max > 0 && moved && !!this._ctx && !(this._share.paper > 0) && !P.plane.layers.length;
+        if (hold) {
+            const area = visibleArea(P, v, this.wDev, this.hDev);
+            hold = P.cells.some((c) => c.draws.some((d) => d.cls === "paper" && area(c, d) > 0));
+        }
+        if (hold && this._holdT0 == null) { this._holdT0 = t; this.s.holds++; }
+        const left = hold ? max - (t - this._holdT0) : 0;
+        if (left > 0) {
+            if (this._holdTimer == null) this._holdTimer = this._setTimer(() => { this._holdTimer = null; this.compose(); }, left + 1);
+            return true;
+        }
+        this._endHold(t);
+        return false;
+    }
+
+    _endHold(t) {
+        if (this._holdTimer != null) { this._clearTimer(this._holdTimer); this._holdTimer = null; }
+        if (this._holdT0 == null) return;
+        const ms = t - this._holdT0;
+        this.s.holdMs += ms; if (ms > this.s.holdMsMax) this.s.holdMsMax = ms;
+        this._holdT0 = null;
     }
 
     /**
@@ -1082,31 +1137,63 @@ export default class PicturePyramid {
             const sh = this._share;
             this.s.paperMs += sh.paper * dt; this.s.blurMs += sh.blur * dt;
             this.s.olderPatchMs += sh.olderPatch * dt; this.s.olderUnreadMs += sh.olderUnread * dt; this.s.olderOtherMs += sh.olderOther * dt;
+            const pw = this._paperShare, why = this.s.paperWhy;
+            if (pw) for (const k in pw) why[k] = (why[k] || 0) + pw[k] * dt;
         }
         this._lastCompose = t;
         const area = { paper: 0, blur: 0, olderPatch: 0, olderUnread: 0, olderOther: 0 };
-        const W = this.wDev, H = this.hDev;
-        const devArea = (d) => {
-            const x0 = Math.max(0, (d.x0 - v.ox) * v.s + v.dx), y0 = Math.max(0, (d.y0 - v.oy) * v.s + v.dy);
-            const x1 = Math.min(W, (d.x1 - v.ox) * v.s + v.dx), y1 = Math.min(H, (d.y1 - v.oy) * v.s + v.dy);
-            return x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
-        };
-        // The level plan under a rest cell is drawn over there: a base draw is charged only outside the rest cells.
-        const restBoxes = P.cells.filter((c) => c.rest).map((c) => c.box);
-        const hidden = (d) => {
-            let a = 0;
-            for (const b of restBoxes) a += devArea({ x0: Math.max(d.x0, b[0]), y0: Math.max(d.y0, b[1]), x1: Math.min(d.x1, b[2]), y1: Math.min(d.y1, b[3]) });
-            return a;
-        };
+        const W = this.wDev, H = this.hDev, areaOf = visibleArea(P, v, W, H);
+        let why = null, nWhy = 0;
         for (const c of P.cells) {
             for (const d of c.draws) {
                 if (d.cls === "sharp") continue;
-                const a = devArea(d) - (c.base ? hidden(d) : 0);
+                const a = areaOf(c, d);
                 if (a > 0) area[d.cls === "older" ? (d.wait ? "olderPatch" : d.unread ? "olderUnread" : "olderOther") : d.cls] += a;
+                if (!(a > 0 && d.cls === "paper")) continue;
+                why = why || {};
+                if (nWhy++ < PAPER_WHY_MAX) this._paperWhy(c, d, v, a, why); else why["c:many"] = (why["c:many"] || 0) + a;
             }
         }
         const scr = W * H;
         this._share = { paper: area.paper / scr, blur: area.blur / scr, olderPatch: area.olderPatch / scr, olderUnread: area.olderUnread / scr, olderOther: area.olderOther / scr };
+        if (why) for (const k in why) why[k] /= scr;
+        this._paperShare = why;
+    }
+
+    /**
+     * Why a paper draw is paper (F166's log, for a phone's report): the cause from its cell and the 8 coarser ones — a
+     * coarser plate held but over the stand-in cap, one in the RAM tier, one evicted, its own in flight, its tiles unread,
+     * asked, a coarser in flight, nothing ever made — where it is (the screen's outer 40 % is the edge a zoom-out
+     * uncovers), and whether the camera moves, in a gesture's first 100 ms.
+     */
+    _paperWhy(c, d, v, a, why) {
+        const st = this.store, S = v.S, F = v.frameId;
+        let cause = "rest";
+        if (!c.rest && typeof c.i === "number") {
+            const l = v.level, key = levelKey(F, l, S, c.i, c.j);
+            const inRam = (k) => { const e = st.ram.get(k); return !!e && e.G >= st.fresh.dirtySince(k); };
+            let held = false, ram = inRam(key), evicted = st.wasEvicted(key), coFlight = false;
+            for (let k = 1; k <= Math.ceil(8 / S); k++) {
+                const cc = coarser(this.lm, S, F, l, c.i, c.j, k);
+                if (!cc) break;
+                if (typeof cc.i !== "number") continue;
+                const ck = levelKey(cc.frame, cc.level, S, cc.i, cc.j), r = st.get(ck);
+                if (r && st.exact(r)) held = true;
+                else if (inRam(ck)) ram = true;
+                else if (st.inflight.has(ck)) coFlight = true;
+                else if (st.wasEvicted(ck)) evicted = true;
+            }
+            cause = held ? "budget" : ram ? "ram" : evicted ? "evicted" : st.inflight.has(key) ? "inflight"
+                : !this.covered({ frame: F, Z: zOf(l, S), i: c.i, j: c.j }) ? "unread" : this._asked.has(key) ? "asked"
+                    : coFlight ? "coarserInflight" : "never";
+        }
+        const W = this.wDev, H = this.hDev;
+        const cx = (((d.x0 + d.x1) / 2) - v.ox) * v.s + v.dx, cy = (((d.y0 + d.y1) / 2) - v.oy) * v.s + v.dy;
+        const edge = Math.max(Math.abs(cx - W / 2) / (W / 2), Math.abs(cy - H / 2) / (H / 2)) > 0.6;
+        const t = this._now(), moving = this._lastMoveAt != null && t - this._lastMoveAt < GESTURE_GAP_MS;
+        const add = (k) => { why[k] = (why[k] || 0) + a; };
+        add("c:" + cause); add(edge ? "at:edge" : "at:inner"); add(moving ? "m:moving" : "m:still");
+        if (moving && this._moveT0 != null && t - this._moveT0 < 100) add("m:first100");
     }
 
     // ---- the rest render (A3 §2) ----
@@ -1212,6 +1299,9 @@ export default class PicturePyramid {
 
     _onMove() {
         if (this._restTimer != null) { this._clearTimer(this._restTimer); this._restTimer = null; }
+        const t = this._now();
+        if (this._lastMoveAt == null || t - this._lastMoveAt > GESTURE_GAP_MS) this._moveT0 = t;   // a gesture starts (the paper log)
+        this._lastMoveAt = t;
     }
 
     /**
@@ -1832,7 +1922,7 @@ export default class PicturePyramid {
     _requestView() {
         const v = this._v, st = this.store;
         if (v.frameId == null) return;
-        const Zl = zOf(v.level, v.S), cells = [], ram = [];
+        const Zl = zOf(v.level, v.S), cells = [], ram = [], seen = new Set();
         const range = v.mode === "rest" ? this._bareRange(v) : { i0: v.i0, i1: v.i1, j0: v.j0, j1: v.j1 };
         if (!range) return;
         for (let j = range.j0; j <= range.j1; j++) {
@@ -1841,13 +1931,58 @@ export default class PicturePyramid {
                 if (st.get(c.key)) continue;
                 const e = this._restore && !this._groupOf.has(c.key) ? st.restorable(c.key) : null;
                 if (e) { ram.push(e); continue; }
+                // Its stand-in out of the RAM tier meanwhile (F166: a plan draws held plates only).
+                const se = this._restore && ram.length < RAM_STEP_MAX ? this._ramStandIn(v.frameId, v.level, v.S, i, j, seen) : null;
+                if (se) ram.push(se);
                 if (!this._wanted(c)) continue;
                 cells.push(c);
             }
         }
+        if (this._restore && st.zoomDir < 0) this._ramAhead(v, ram, seen);
         if (ram.length) this.restore(ram);
         if (!cells.length) return;
         this._ask(this._job("view", 1, { frame: v.frameId, level: v.level, S: v.S, Z: Zl, cells, purpose: "view", gen: this.gens.view }), cells);
+    }
+
+    /** The finest coarser cell over (i, j) the RAM tier holds exact while no exact coarser plate is held: its entry, else null (F166). */
+    _ramStandIn(F, l, S, i, j, seen) {
+        const st = this.store, N = Math.ceil(8 / S);
+        for (let k = 1; k <= N; k++) {
+            const c = coarser(this.lm, S, F, l, i, j, k);
+            if (!c) break;
+            if (typeof c.i !== "number") continue;
+            const key = levelKey(c.frame, c.level, S, c.i, c.j);
+            if (seen.has(key)) return null;
+            const r = st.get(key);
+            if (r && st.exact(r)) return null;
+            const e = st.restorable(key);
+            if (e) { seen.add(key); return e; }
+        }
+        return null;
+    }
+
+    /**
+     * Zooming out (F166): ℓv − 1 and ℓv − 2 over the window and a cell around, then the far set, out of the RAM tier before
+     * the zoom reaches them — at most RAM_STEP_MAX restores a step.
+     */
+    _ramAhead(v, out, seen) {
+        const st = this.store, win = this._win, floor = ownFloor(v.S);
+        const add = (key) => {
+            if (out.length >= RAM_STEP_MAX || seen.has(key) || st.get(key)) return;
+            const e = st.restorable(key);
+            if (e) { seen.add(key); out.push(e); }
+        };
+        if (win) {
+            for (const d of [1, 2]) {
+                const l = v.level - d;
+                if (l < floor) break;
+                const Z = zOf(l, v.S), m = PLATE_PX / Z;
+                const r = plateRange({ left: win.left - m, top: win.top - m, right: win.right + m, bottom: win.bottom + m }, Z);
+                for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) add(levelKey(v.frameId, l, v.S, i, j));
+            }
+        }
+        const far = st.view && st.view.far;
+        if (far) for (const key of far) add(key);
     }
 
     /** The level range under the rest cells with no rest plate, or null. */
@@ -1916,6 +2051,7 @@ export default class PicturePyramid {
 
     destroy() {
         this._patchDue = false;
+        this._endHold(this._now());
         this._onMove();
         this._freeSurface();
         this._freePlaneSurfaces();
@@ -1924,6 +2060,25 @@ export default class PicturePyramid {
         if (c && c.parentNode && c.parentNode.removeChild) c.parentNode.removeChild(c);
         this._canvas = null; this._ctx = null;
     }
+}
+
+/**
+ * A plan's draw's area on the screen in device px, `(cell, draw) => px²`: the level plan under a rest cell is drawn over
+ * there, so a base draw counts only outside the rest cells.
+ */
+function visibleArea(P, v, W, H) {
+    const devArea = (d) => {
+        const x0 = Math.max(0, (d.x0 - v.ox) * v.s + v.dx), y0 = Math.max(0, (d.y0 - v.oy) * v.s + v.dy);
+        const x1 = Math.min(W, (d.x1 - v.ox) * v.s + v.dx), y1 = Math.min(H, (d.y1 - v.oy) * v.s + v.dy);
+        return x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
+    };
+    const restBoxes = P.cells.filter((c) => c.rest).map((c) => c.box);
+    const hidden = (d) => {
+        let a = 0;
+        for (const b of restBoxes) a += devArea({ x0: Math.max(d.x0, b[0]), y0: Math.max(d.y0, b[1]), x1: Math.min(d.x1, b[2]), y1: Math.min(d.y1, b[3]) });
+        return a;
+    };
+    return (c, d) => devArea(d) - (c.base ? hidden(d) : 0);
 }
 
 /** The bytes a result held aside for a group counts against the cap. */

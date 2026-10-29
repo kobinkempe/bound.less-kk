@@ -24,6 +24,7 @@
  "fl.objTileRange",
  "frz.tileClipRect",
  "frz.tileWindow",
+ "fvw.setBuildId",
  "gz.setCompression",
  "hit.capsuleTouchesRings",
  "hit.distSegToPolyline",

@@ -198,6 +198,10 @@ test("S5 one job of ONE plate, with the rect moved onto it by the pack-time offs
     const E = mkEngine();
     drawStroke(E, [[120, 120], [400, 320], [640, 180]], 18);
     await paint(E);
+    // Past the camera's idle read (a 30 ms timeout in jsdom): the view's last cell, empty, is asked once it is
+    // covered, which on a fast run came after the paint's flush and was counted here (OPEN-FLAGS F159).
+    await new Promise((r) => setTimeout(r, 40));
+    await flush();
     jobs.length = 0;
 
     const rect = { x: 60, y: 60, w: 400, h: 300 };

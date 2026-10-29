@@ -24,6 +24,8 @@ cell's own small coordinates; and everything shown at any other depth is
 
 Every consequence in this document falls out of that.
 
+**One known limit** (OPEN-FLAGS F167, ROADMAP S9). The camera (a frame and an `inScale`), the cells' digit addresses and the per-level derivation have no depth limit, but `LevelMap.frameFactor` multiplies a whole frame chain into one double, finite only to about 85 levels (4096⁸⁵ ≈ 1.1e307). From there the zoom label, the scale bar, the overlays' pixel sizes and the erase's dust bar read Infinity or 0.
+
 ### The five constants (`src/engine/frameLattice.js`)
 
 | | value | |
@@ -200,6 +202,8 @@ arc by its chord by the **same gate and no other test**: "erasers shouldn't
 need to re-calculate a freeze — if it's frozen it's frozen." The only arcs
 over the gate that reach it unfrozen are an object's home-level pen arcs,
 which no chop has seen.
+
+A tile none of a big shape's pieces reaches is the shape's whole quad or nothing. That is asked of the parent's own pieces at the tile's centre (`farWinding`, OPEN-FLAGS F158), so nothing is transformed for it; the tiles are bit-identical to the clip's.
 
 ---
 
@@ -609,7 +613,10 @@ stood at the press.
 
 **A subtree moves as frames** (2026-09-15; the design and its build record in
 `.claude/SUBTREE-O1-PLAN.md`). A selected frame is one entry of the selection, and
-its drag touches no object. A frame's id is its birth chain and never changes, but
+its drag touches no object, except at or above the camera's depth: no frame at that depth
+above it anchors the move, so there its natives move per object and its frames one level under
+the camera as frames, and the frame the camera is in never moves (F168). A frame's id is its
+birth chain and never changes, but
 its address — parent, cell, edge, centre — is mutable (`LevelMap.readdress`,
 `readdressMany`), so re-addressing the root and its descendants within three levels
 of the camera moves every native under them through the parent pointer. The targets
@@ -765,7 +772,14 @@ only while its worker patch is pending (A3 §3.4, counted as `olderPatchMs`); a 
 draws at most `COMPOSE_IMAGES` 30 distinct images directly (Chrome's 2D canvas pays ~100 ms a frame past 33 with
 any scaled) and goes through one view-sized surface past it. `PyramidStore` holds the plates by key, LRU with
 the drawn set, the plane's pins and the rest set protected, in a budget of `plateViews` screens (3 on a desktop, 2
-on a phone) never under the pinned bound; a result lands iff its G is newer (rule 1), and a plate is exact iff
+on a phone) never under the pinned bound — and beside it the far zoom-out levels' own share (`plateFarMiB`, 96 MiB
+desktop, 64 phone; F166, 2026-10-29): neither evicts the other's records, so a zoom-out's octaves are not traded for
+the screen's plates nor the screen's for them. In the general budget the eviction follows the last zoom's
+direction (zooming in, finer levels after the others), and the frame a crossing left is a stand-in only at the
+view's level and coarser. A canvas opens on the plates its cloud copy saved at its last view (the first-view
+pictures, seeded into the RAM tier only when made from the same document, build and render inputs), and a moved view
+whose plan would show paper keeps the last picture up while its plates come, at most `holdMs` (1 s; Kobin: lag over
+paper). A result lands iff its G is newer (rule 1), and a plate is exact iff
 its G ≥ its cell's `dirtySince` (rule 2). An evicted (or hidden-released) level plate that is exact goes into the
 store's **RAM tier**, packed losslessly by the worker that rastered it (`plateCodec`, ~100× smaller; 64 MiB on a
 desktop, 24 on a phone): its key stays tracked, so a commit stales it as it stales a stored plate, and a view,
@@ -848,7 +862,10 @@ replacement that lands still behind but newer than the stale pixels takes their 
 drawn from the nearest fresh source the store holds, blurrier before older. A plan that still shows paper renders a
 coarse net first (F166; Kobin 2026-10-20: blur or a slow frame over paper): the view's cells 3 octaves coarser over
 the paper, at most 6, each in the camera's table, on the main thread when estimated within `netMs` (a Dev panel
-lever, off until measured in Chrome). The far prefetch tries its off-camera reads again every 100 ms while the camera is still. The pyramid's own integrals say how
+lever, off: in his Chrome it took 10 % of the zoom-out's paper off for 1.8× the long frames). The far prefetch tries its off-camera reads again every 100 ms while the camera
+is still, 30 ms of reads a plan (`prefetchReadMs`, 16 on a phone), and the tile store keeps an evicted tile that is
+still current in a RAM tier (`tileRamMiB`, 48 MiB, 24 on a phone; any change but a move empties it), so what the far
+reads built lives until the crossing that needs it (F166). The pyramid's own integrals say how
 much of the screen was not exact and for how long, charged forward at each compose: `paperMs`, `blurMs`, and older by
 cause — `olderPatchMs`, a stale picture while the worker job that makes its cell exact is asked or in flight (a patch
 no level does inline, or the last resort's own job); `olderUnreadMs`, a stale own plate or the plan's last resort (a
@@ -1033,7 +1050,7 @@ O(frames with natives × depth); F93). An **enclosed frame is one entry** of the
 selection (`selection.frames`, 2026-09-15): nothing under it is read; a native is
 selected when its home is the frame or under it (`_isSelected`, `LevelMap.isUnder`: the
 container chain, so a co-resident is its own unit, A1 C3); the status count sums the subtree's list
-lengths (`walk`); a drag moves it as a frame (§8) and delete takes the subtree out of the
+lengths (`walk`); a drag moves it as a frame, per object at and above the camera's depth (§8), and delete takes the subtree out of the
 lattice with its lists (`Document.removeFrameSubtree`, one `removeFrames` op holding each
 frame's address, O(frames); each frame's `removeFrame` event carries the root's address, the one whose parent is
 still in the lattice, so the tiles and the scene drop the subtree's footprint, F138 seed 51). Ink placed at its cells afterwards goes to fresh frames, and an

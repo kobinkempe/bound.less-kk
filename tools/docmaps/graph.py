@@ -59,7 +59,7 @@ MOD = {
     "pft": "ras", "lsl": "ras", "svl": "ras", "svo": "ras", "sva": "ras",
     "ovy": "ras", "mvp": "ras",
     "anp": "ras", "plt": "ras", "rco": "ras", "rjb": "ras", "rpk": "ras",
-    "rpf": "ras", "rwc": "ras", "rwk": "ras", "pcd": "ras", "prm": "ras",
+    "rpf": "ras", "rwc": "ras", "rwk": "ras", "pcd": "ras", "prm": "ras", "fvw": "ras",
     # the objects themselves, and the ink pipeline
     "doc": "obj", "shp": "obj", "arc": "obj", "bia": "obj", "frz": "obj",
     "lop": "obj", "off": "obj",
@@ -117,7 +117,7 @@ MODNAME = {
     "rco": "raster/rasterCore", "rjb": "raster/rasterJob",
     "rpk": "raster/rasterPack", "rpf": "raster/rasterPerf",
     "rwc": "raster/rasterWorkerClient", "rwk": "worker/rasterWorker",
-    "pcd": "raster/plateCodec", "prm": "raster/plateRam",
+    "pcd": "raster/plateCodec", "prm": "raster/plateRam", "fvw": "raster/firstView",
     "lop": "loop", "off": "offsets", "chm": "chordMath", "ant": "antRuns",
     "sbi": "scaleBar/index", "cat": "scaleBar/catalog",
     "mem": "scaleBar/membership", "pref": "scaleBar/preference",

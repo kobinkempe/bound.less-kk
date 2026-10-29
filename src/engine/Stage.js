@@ -773,16 +773,35 @@ export default class Stage {
         try { return fn(); } finally { if (--this._batch === 0 && !this._sync) this._commit(); }
     }
 
-    /** Where group `g`'s natives are drawn in the camera frame, their boxes' union (null: none is); kept until a member changes (`_reconcile`). */
+    /**
+     * Where group `g`'s natives are drawn in the camera frame, their boxes' union (null: none is); kept until a member
+     * changes (`_reconcile`). Members with one home and one own table map alike, through steps monotone per axis, so
+     * their stored boxes are united first and mapped once: the same box, bit for bit (a map per member was 5.5 s of a
+     * Magnum Opus zoom-out in jsdom). Called only outside a drag's hold.
+     */
     _groupBox(g) {
         if (g.box !== undefined) return g.box;
-        let b = null;
+        const runs = new Map();   // home -> own table -> [a member, its run's stored box]
         for (const id of g.ids) {
             const rec = this.doc.getById(id);
-            const r = rec && this.placeNative(rec.obj, this.frame).box();
-            if (!r) continue;
-            b = b ? { left: Math.min(b.left, r.left), top: Math.min(b.top, r.top), right: Math.max(b.right, r.right), bottom: Math.max(b.bottom, r.bottom) }
-                : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+            if (!rec) continue;
+            const r = drawnBox(rec.obj, this.store.live), home = String(rec.level);
+            let byT = runs.get(home);
+            if (!byT) runs.set(home, (byT = new Map()));
+            const T = this.doc.ownTable(rec.obj);   // shared among equal tables (F164)
+            const run = byT.get(T);
+            if (!run) { byT.set(T, [rec.obj, r]); continue; }
+            const u = run[1];
+            u.left = Math.min(u.left, r.left); u.top = Math.min(u.top, r.top); u.right = Math.max(u.right, r.right); u.bottom = Math.max(u.bottom, r.bottom);
+        }
+        let b = null;
+        for (const byT of runs.values()) {
+            for (const [nat, u] of byT.values()) {
+                const r = this.placeNative(nat, this.frame).fromStored(u);
+                if (!r) continue;
+                b = b ? { left: Math.min(b.left, r.left), top: Math.min(b.top, r.top), right: Math.max(b.right, r.right), bottom: Math.max(b.bottom, r.bottom) }
+                    : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+            }
         }
         g.box = b;
         return b;

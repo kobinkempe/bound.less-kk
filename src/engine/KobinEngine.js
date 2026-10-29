@@ -644,8 +644,10 @@ export default class KobinEngine {
         this._dragSel = null;
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
         if (op && this.renderer.noteUserEdit) this.renderer.noteUserEdit();
-        // What the drop moved out of every selected frame stays selected (DESIGN.md §10), before the one render.
-        if (op && op.frames && this.selection) this._repairSelection({ ids: [], frames: op.frames.map((e) => e.id) });
+        // What the drop moved out of every selected frame stays selected (DESIGN.md §10), before the one render: its
+        // frames, and the natives it moved per object for a frame at or above the camera's depth (F168).
+        const natives = d && d.natives && d.natives.length ? d.natives.map((m) => m.obj.id) : [];
+        if (op && this.selection && (op.frames || natives.length)) this._repairSelection({ ids: natives, frames: op.frames ? op.frames.map((e) => e.id) : [] });
         this._render();
         collectFrames(this);      // the containers the drop minted or emptied (F94)
     }

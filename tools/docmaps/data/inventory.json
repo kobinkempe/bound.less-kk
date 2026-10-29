@@ -275,6 +275,16 @@
 "class": "CanvasSession"
 },
 {
+"name": "_viewsNow",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
+"name": "_pushViews",
+"kind": "method",
+"class": "CanvasSession"
+},
+{
 "name": "_set",
 "kind": "method",
 "class": "CanvasSession"
@@ -403,6 +413,26 @@
 },
 {
 "name": "cloudDeleteCanvas",
+"kind": "function",
+"class": null
+},
+{
+"name": "viewsCol",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "viewDoc",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "cloudSaveViews",
+"kind": "function",
+"class": null
+},
+{
+"name": "cloudLoadViews",
 "kind": "function",
 "class": null
 },
@@ -3619,6 +3649,11 @@
 "class": null
 },
 {
+"name": "tileBytes",
+"kind": "function",
+"class": null
+},
+{
 "name": "TileStore",
 "kind": "class",
 "class": null
@@ -3665,6 +3700,26 @@
 },
 {
 "name": "_clearTiles",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_spill",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ramTake",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ramDrop",
+"kind": "method",
+"class": "TileStore"
+},
+{
+"name": "_ramClear",
 "kind": "method",
 "class": "TileStore"
 },
@@ -7822,6 +7877,21 @@
 "class": null
 },
 {
+"name": "rectRing",
+"kind": "arrow",
+"class": null
+},
+{
+"name": "farIndex",
+"kind": "function",
+"class": null
+},
+{
+"name": "farWinding",
+"kind": "function",
+"class": null
+},
+{
 "name": "shapeLoopsInRect",
 "kind": "function",
 "class": null
@@ -9134,6 +9204,16 @@
 "class": "PicturePyramid"
 },
 {
+"name": "_held",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_endHold",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
 "name": "_net",
 "kind": "method",
 "class": "PicturePyramid"
@@ -9165,6 +9245,11 @@
 },
 {
 "name": "_charge",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_paperWhy",
 "kind": "method",
 "class": "PicturePyramid"
 },
@@ -9399,6 +9484,16 @@
 "class": "PicturePyramid"
 },
 {
+"name": "_ramStandIn",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
+"name": "_ramAhead",
+"kind": "method",
+"class": "PicturePyramid"
+},
+{
 "name": "_bareRange",
 "kind": "method",
 "class": "PicturePyramid"
@@ -9437,6 +9532,11 @@
 "name": "destroy",
 "kind": "method",
 "class": "PicturePyramid"
+},
+{
+"name": "visibleArea",
+"kind": "function",
+"class": null
 },
 {
 "name": "heldBytes",
@@ -9566,6 +9666,11 @@
 "class": null
 },
 {
+"name": "farBudgetBytes",
+"kind": "function",
+"class": null
+},
+{
 "name": "levelCell",
 "kind": "function",
 "class": null
@@ -9671,7 +9776,27 @@
 "class": "PyramidStore"
 },
 {
+"name": "seedRam",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
 "name": "setRamBudget",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "setFarBudget",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "wasEvicted",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "roomFor",
 "kind": "method",
 "class": "PyramidStore"
 },
@@ -9762,6 +9887,11 @@
 },
 {
 "name": "_evict",
+"kind": "method",
+"class": "PyramidStore"
+},
+{
+"name": "_evictOne",
 "kind": "method",
 "class": "PyramidStore"
 },
@@ -10213,6 +10343,16 @@
 "class": "RasterRenderer"
 },
 {
+"name": "firstViewCapture",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
+"name": "firstViewSeed",
+"kind": "method",
+"class": "RasterRenderer"
+},
+{
 "name": "_pyrPlaneOf",
 "kind": "method",
 "class": "RasterRenderer"
@@ -10502,6 +10642,73 @@
 "class": null
 }
 ],
+"src/engine/raster/firstView.js": [
+{
+"name": "parseLevelKey",
+"kind": "function",
+"class": null
+},
+{
+"name": "renderPrint",
+"kind": "function",
+"class": null
+},
+{
+"name": "printTag",
+"kind": "function",
+"class": null
+},
+{
+"name": "captureSig",
+"kind": "function",
+"class": null
+},
+{
+"name": "setBuildId",
+"kind": "function",
+"class": null
+},
+{
+"name": "buildId",
+"kind": "function",
+"class": null
+},
+{
+"name": "captureFirstView",
+"kind": "function",
+"class": null
+},
+{
+"name": "encodeFirstView",
+"kind": "function",
+"class": null
+},
+{
+"name": "decodeFirstView",
+"kind": "function",
+"class": null
+},
+{
+"name": "costOf",
+"kind": "function",
+"class": null
+},
+{
+"name": "ascii",
+"kind": "function",
+"class": null
+},
+{
+"name": "fromAscii",
+"kind": "function",
+"class": null
+},
+{
+"name": "packPart",
+"kind": "function",
+"class": null
+}
+],
 "src/engine/raster/jobQueue.js": [
 {
 "name": "JobQueue",
@@ -10708,6 +10915,11 @@
 },
 {
 "name": "get",
+"kind": "method",
+"class": "PlateRam"
+},
+{
+"name": "entries",
 "kind": "method",
 "class": "PlateRam"
 },

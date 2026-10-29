@@ -34,8 +34,9 @@ import {
 import { strokeOutline } from "./clipperBoolean";
 import {
     loopsBBox, clipShapeToRect, flattenShape, transformLoops, transformLoopsAbout, insideShape,
-    pieceBBox, loopsArea,
+    pieceBBox, loopsArea, flatPieces, insideTester,
 } from "./arcShape";
+import { Grid } from "./arcPerimeter";
 import { chopFreezeLoops, freezeRadius } from "./freeze";
 import { childTilePhase, tilePhase, TileGrid } from "../frameLattice";
 
@@ -124,7 +125,7 @@ export function shapeRingsInRect(loops, rect, tol, opts) {
     const cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
     const local = transformLoops(loops, 1, -cx, -cy);
     const lrect = { left: rect.left - cx, top: rect.top - cy, right: rect.right - cx, bottom: rect.bottom - cy };
-    const quad = () => [[[rect.left, rect.top], [rect.right, rect.top], [rect.right, rect.bottom], [rect.left, rect.bottom]]];
+    const quad = () => rectRing(rect);
 
     // Does any piece of the perimeter actually reach this tile? If none does,
     // the tile is wholly inside the ink or wholly outside it, and ONE winding
@@ -188,12 +189,63 @@ export function shapeRingsInRect(loops, rect, tol, opts) {
  * anywhere along it; that happens once, at paint, against nothing that is
  * stored, so it can never be inherited.
  */
+/** The four corners of `rect` as one ring: what a tile wholly inside a shape is filled with. */
+const rectRing = (rect) => [[[rect.left, rect.top], [rect.right, rect.top], [rect.right, rect.bottom], [rect.left, rect.bottom]]];
+
+// F158 lever 1. A big shape's piece boxes in its own units, each padded by RayIndex's margin (far past what the hop's
+// rounding, a chop or a huge arc's centre can move it), indexed once and kept with its loops.
+const FAR_IX = new WeakMap();
+function farIndex(loops) {
+    if (!loops) return null;
+    let ix = FAR_IX.get(loops);
+    if (ix !== undefined) return ix;
+    ix = null;
+    const flat = flatPieces(loops), n = flat.length;
+    if (n >= 32) {
+        const bx = new Float64Array(n * 4);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (let i = 0; i < n; i++) {
+            const q = flat[i], b = pieceBBox(q);
+            const pad = 1e-12 * (Math.max(Math.abs(b[0]), Math.abs(b[1]), Math.abs(b[2]), Math.abs(b[3])) + (q.line ? 0 : Math.abs(q.r)));
+            bx[i * 4] = b[0] - pad; bx[i * 4 + 1] = b[1] - pad; bx[i * 4 + 2] = b[2] + pad; bx[i * 4 + 3] = b[3] + pad;
+            x0 = Math.min(x0, bx[i * 4]); y0 = Math.min(y0, bx[i * 4 + 1]); x1 = Math.max(x1, bx[i * 4 + 2]); y1 = Math.max(y1, bx[i * 4 + 3]);
+        }
+        const grid = new Grid(Math.max(x1 - x0, y1 - y0) / 16);
+        for (let i = 0; i < n; i++) grid.insert(bx.subarray(i * 4, i * 4 + 4), i);
+        ix = { bx, grid, x0, y0, x1, y1, inside: null };
+    }
+    FAR_IX.set(loops, ix);
+    return ix;
+}
+/**
+ * F158 lever 1: whether the child tile `rect` (child = (p - c)·f) lies inside shape `o` whole, when none of its pieces
+ * reaches the tile; null when one might (then the tile is clipped as before). A point that far from every piece winds
+ * the same in either frame, so the parent's own pieces answer it and nothing is transformed, chopped or copied.
+ */
+function farWinding(o, b, rect, cx, cy, f) {
+    const qx0 = rect.left / f + cx, qx1 = rect.right / f + cx, qy0 = rect.top / f + cy, qy1 = rect.bottom / f + cy;
+    // A shape no wider and no taller than the tile reaches it: no index is built for it.
+    if (!(b.x1 - b.x0 > qx1 - qx0 || b.y1 - b.y0 > qy1 - qy0)) return null;
+    const ix = farIndex(o.loops);
+    if (!ix) return null;
+    const m = 1e-12 * Math.max(Math.abs(qx0), Math.abs(qx1), Math.abs(qy0), Math.abs(qy1), Math.abs(cx), Math.abs(cy)) + 1e-9 * (qx1 - qx0);
+    // Clamped to the boxes' extent, so a query visits at most the grid's 16 x 16 cells.
+    const q = [Math.max(qx0 - m, ix.x0), Math.max(qy0 - m, ix.y0), Math.min(qx1 + m, ix.x1), Math.min(qy1 + m, ix.y1)], bx = ix.bx;
+    let hit = false;
+    ix.grid.near(q, (i) => {
+        if (!hit && bx[i * 4] <= q[2] && bx[i * 4 + 2] >= q[0] && bx[i * 4 + 1] <= q[3] && bx[i * 4 + 3] >= q[1]) hit = true;
+    });
+    if (hit) return null;
+    if (!ix.inside) ix.inside = insideTester(o.loops);
+    return ix.inside([(qx0 + qx1) / 2, (qy0 + qy1) / 2]);
+}
+
 export function shapeLoopsInRect(loops, rect, opts) {
     const cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
     const local = transformLoops(loops, 1, -cx, -cy);
     const lrect = { left: rect.left - cx, top: rect.top - cy, right: rect.right - cx, bottom: rect.bottom - cy };
     const back = (ls) => transformLoops(ls, 1, cx, cy);
-    const quad = () => [[[rect.left, rect.top], [rect.right, rect.top], [rect.right, rect.bottom], [rect.left, rect.bottom]]];
+    const quad = () => rectRing(rect);
 
     let touches = false;
     for (const loop of local) {
@@ -588,7 +640,6 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // opposite sign, losing the low bits before the addition can
             // recover them. c = -t/s is an exact integer here.
             const cx = -t.x / s, cy = -t.y / s, f = s / base;
-            const moved = transformLoopsAbout(o.loops, cx, cy, f, ox, oy);
             // THE CHOP, AND THE FREEZE — on the OBJECT's tile grid, before the
             // cache clip, because a tile is where an arc is cut and a cut is
             // where a curve may become a line (D2/D4). The grid rides with the
@@ -623,8 +674,16 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             // it is the same overhang in every square that holds this tile —
             // still nothing the frame decided.
             const objRect = padRect(grid.span(cells), pad);
-            const chopped = chopFreezeLoops(moved, phase, ftol, cells);
-            const { loops: kept, rings, covered } = shapeLoopsInRect(chopped, objRect, { freezeR: freezeRadius(ftol) });
+            // A tile no piece reaches is inside the shape whole or not at all (F158 lever 1, `farWinding`).
+            const far = farWinding(o, b, objRect, cx, cy, f);
+            let res;
+            if (far !== null) res = far ? { loops: [], rings: rectRing(objRect), covered: true } : { loops: [], rings: [], covered: false };
+            else {
+                const moved = transformLoopsAbout(o.loops, cx, cy, f, ox, oy);
+                const chopped = chopFreezeLoops(moved, phase, ftol, cells);
+                res = shapeLoopsInRect(chopped, objRect, { freezeR: freezeRadius(ftol) });
+            }
+            const { loops: kept, rings, covered } = res;
             // `clip` is the rectangle the piece was cut on. The selection
             // indicator reads it to tell a cut from an edge (F39): a straight
             // piece lying along it is a seam, and the ants skip it.

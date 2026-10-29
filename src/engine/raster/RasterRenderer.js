@@ -30,15 +30,18 @@ import OverlayLayer from "./OverlayLayer";
 import MovePlane, { MOVE_HOLD_MS, planeStats } from "./MovePlane";
 import * as rasterPerf from "./rasterPerf";
 import { abandonInFlight, ensureRasterPool, destroyRasterPool, plateBitmap, rasterWorkerReport, rasterPool, setOnSlotFreed, clearOnSlotFreed, restorePlate } from "./rasterWorkerClient";
-import PyramidStore, { planeCell, ramBudgetBytes, PLATE_BYTES } from "./PyramidStore";
+import PyramidStore, { planeCell, ramBudgetBytes, farBudgetBytes, PLATE_BYTES } from "./PyramidStore";
 import PicturePyramid, { sampleOf, EST_DEFAULTS, LIVE_HOLD_MS } from "./PicturePyramid";
 import JobQueue, { PRIO } from "./jobQueue";
 import { prefetchPlan, farKeysOf, PREFETCH_RETRY_MS } from "./prefetch";
+import { captureFirstView } from "./firstView";
 import { COMPOSE_IMAGES, LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
 import { R } from "../frameLattice";
 
 /** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-render it every step. */
 const PLANE_QUIET_MS = 150;
+/** How long a zoom's direction outlives it: the pauses between a gesture's pinches keep it (the store's eviction, F166). */
+const ZOOM_DIR_MS = 2000;
 /** A drag held this long still has the selection on screen cut sharper (`MovePlane.refineAt`, Kobin 2026-10-19). */
 export const PLANE_REFINE_MS = 250;
 /** The stopgap's bounds: a selection this small, over this few plates, is rendered on the main thread. */
@@ -68,6 +71,7 @@ export const rasterStats = {
     snapshots: 0, snapshotPlates: 0, snapshotAborts: 0, snapshotFails: 0, snapshotOverBound: 0,
     // The RAM tier (F161): plates restored (empty ones need no worker), failures, and post-to-landing ms summed.
     ramRestores: 0, ramEmpty: 0, ramFailed: 0, ramMs: 0, ramMsMax: 0,
+    firstViewSeeded: 0,   // first-view pictures put into the RAM tier at an open (F166)
 };
 
 export function resetRasterStats() {
@@ -815,6 +819,7 @@ export default class RasterRenderer {
             fresh: this.stage, cfg: this.cfg, wDev: Math.round(this.width * dpr), hDev: Math.round(this.height * dpr),
         });
         store.setRamBudget(ramBudgetBytes(this.cfg, store.phone));
+        store.setFarBudget(farBudgetBytes(this.cfg, store.phone));
         const pyr = this.pyramid = new PicturePyramid(container, {
             store, stage: this.stage, lm: this.stage.lm, cfg: this.cfg, width: this.width, height: this.height, dpr,
             paper: this.paper, makeCanvas: opts.makeCanvas, context: opts.context,
@@ -861,6 +866,7 @@ export default class RasterRenderer {
     onLevers() {
         this.store.setBudget(this.pyramid.budgetBytes());
         this.store.setRamBudget(ramBudgetBytes(this.cfg, this.store.phone));
+        this.store.setFarBudget(farBudgetBytes(this.cfg, this.store.phone));
     }
 
     /** The user's own action just committed (an undo, a redo): its patch has one frame's budget (A3 §3.3). */
@@ -916,6 +922,8 @@ export default class RasterRenderer {
         const vel = moving ? { px: [(v.tx - (a[0] - (a[0] - m.tx) * f)) / dt, (v.ty - (a[1] - (a[1] - m.ty) * f)) / dt], zoom: Math.log2(f) / dt }
             : { px: [0, 0], zoom: 0 };
         m.t = t; m.k = v.k; m.tx = v.tx; m.ty = v.ty; m.frame = v.frameId; m.moving = moving;
+        if (moving && vel.zoom) { m.dir = vel.zoom < 0 ? -1 : 1; m.dirAt = t; } else if (m.dir && t - m.dirAt > ZOOM_DIR_MS) m.dir = 0;
+        this.store.zoomDir = m.dir || 0;
         return {
             moving, vel, attention: this._attn, at: t,
             view: { frameId: v.frameId, level: v.level, S: v.S, Z: v.Z, k: v.k, tx: v.tx, ty: v.ty, wDev: pyr.wDev, hDev: pyr.hDev, sigmaMin: pyr.sigmaMin },
@@ -1255,6 +1263,21 @@ export default class RasterRenderer {
             if (job.cells.length) out.push(job);
         }
         return out;
+    }
+
+    /** The first-view pictures to save (F166, `firstView.js`): this view's plates, packed, up to `maxBytes`; null with none. */
+    firstViewCapture(maxBytes) { return this._destroyed ? null : captureFirstView(this.store, maxBytes); }
+
+    /**
+     * First-view pictures loaded at an open (F166), exact at `G`: into the RAM tier, least wanted first; with `step`, a
+     * camera step so the view's cells and the prefetch take them now. Returns how many went in.
+     */
+    firstViewSeed(cells, G, step = true) {
+        if (this._destroyed || !cells || !cells.length) return 0;
+        const n = this.store.seedRam(cells.slice().reverse(), G);
+        rasterStats.firstViewSeeded += n;
+        if (n && step && this._view) { this._pyrPrefetchKey = null; this.syncCameraOnly(); }
+        return n;
     }
 
     /**

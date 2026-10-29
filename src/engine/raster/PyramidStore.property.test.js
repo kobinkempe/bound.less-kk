@@ -250,6 +250,43 @@ describe("PyramidStore — PLAN §3 row 1 (monotone G; exact iff no later change
         expect(order).toEqual(["stale", "off", "finer", "deep", "mid", "outRing", "far", "left", "near", "near2", "ring"]);
     });
 
+    test("F166: the far share — the general budget never evicts a far record; the share evicts only its own, oldest first", () => {
+        const store = new PyramidStore({ fresh: fakeStage(), maxBytes: 4 * PLATE_BYTES, farBytes: 2 * PLATE_BYTES, phone: false, doc: null });
+        const far = [0, 1, 2].map((i) => levelCell("F", 1, 1, i, 9));
+        store.setView({ frame: "F", level: 5, S: 1, ring: null, rest: null, path: new Map([["F", 0]]), left: null, far: new Set(far.map((c) => c.key)) });
+        const put = (c) => store.put({ ...c, G: 0, bitmap: bitmap(), jobId: null });
+        const gen = [0, 1, 2, 3, 4, 5].map((i) => levelCell("F", 2, 1, i, 0));
+        for (const c of [...far, ...gen]) put(c);                          // three far against a share of two, six against four
+        expect(far.map((c) => !!store.get(c.key))).toEqual([false, true, true]);
+        expect(gen.filter((c) => store.get(c.key)).length).toBe(4);        // no general record took a far one's place
+        expect([store.roomFor(true), store.roomFor(false)]).toEqual([0, 4]);
+        expect(store.wasEvicted(far[0].key)).toBe(true);
+        store.setFarBudget(0);                                             // one budget again: the far records compete, ranked
+        expect(store.cache.size).toBe(4);
+        expect(far.slice(1).every((c) => !!store.get(c.key))).toBe(true);
+    });
+
+    test("F166: the frame a crossing left stands in at the view's level and coarser; finer than the view it ranks as finer", () => {
+        const store = new PyramidStore({ maxBytes: 64 * PLATE_BYTES, phone: false, doc: null });
+        store.setView({ frame: "P", level: 5, S: 1, ring: null, rest: null, path: new Map([["P", 0]]), left: "C", leftShift: -12, far: new Set() });
+        const rank = (c) => { store.put({ ...c, G: 0, bitmap: bitmap(), jobId: null }); return store.rankOf(store.get(c.key)); };
+        expect(rank(levelCell("C", -7, 1, 0, 0))).toBe(RANK.LEFT);       // −7 + 12 = 5: the view's level
+        expect(rank(levelCell("C", -9, 1, 0, 0))).toBe(RANK.LEFT);       // coarser
+        expect(rank(levelCell("C", -5, 1, 0, 0))).toBe(RANK.FINER);      // 7: the zoom-out passed it
+    });
+
+    test("F166: zooming in, finer levels go after the other levels; zooming out or still, before them", () => {
+        const kept = (dir) => {
+            const store = new PyramidStore({ maxBytes: 2 * PLATE_BYTES, phone: false, doc: null });
+            store.setView({ frame: "F", level: 5, S: 1, ring: null, rest: null, path: new Map([["F", 0]]), left: null, far: new Set() });
+            store.zoomDir = dir;
+            const finer = levelCell("F", 6, 1, 0, 0);
+            for (const c of [finer, levelCell("F", 1, 1, 0, 0), levelCell("F", 1, 1, 1, 0)]) store.put({ ...c, G: 0, bitmap: bitmap(), jobId: null });
+            return !!store.get(finer.key);
+        };
+        expect([kept(1), kept(-1), kept(0)]).toEqual([true, false, false]);
+    });
+
     test("pins are never evicted; a cap under the pins is counted, not enforced on them", () => {
         const store = new PyramidStore({ maxBytes: 4 * PLATE_BYTES, phone: false, doc: null });
         const cs = [0, 1, 2, 3, 4, 5].map((i) => levelCell("F", 0, 1, i, 0));

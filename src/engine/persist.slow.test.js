@@ -22,12 +22,13 @@ const mkEngine = (w = 800, h = 600) => {
 };
 afterEach(() => { while (engines.length) engines.pop().destroy(); });
 
-// `windows` and `srcId` were retired on 2026-08-06 when the parent started
-// being CUT rather than recording the rect it had ceded. Recordings made before
-// then still carry them and a load is expected to drop them — the one and only
-// difference permitted on the way back out.
+// The differences permitted on the way back out: `windows` and `srcId` (retired 2026-08-06) are dropped, and a file
+// from before the erase rule's fields (A2 §4.9) has its landed marks registered at the load (`_registerLanded`), which
+// adds `targets` to each mark and `targetOf` / `handledBy` to what it covers.
 const RETIRED = ["windows", "srcId"];
-const stripRetired = (natives) => {
+const ERASE_FIELDS = ["targets", "targetOf", "handledBy"];
+const unregistered = (natives) => Object.values(natives).some((arr) => arr.some((o) => o.erase && o.type === "shape" && o.loops && o.targets === undefined));
+const stripRetired = (natives, drop = RETIRED) => {
     const out = {};
     for (const l of Object.keys(natives)) {
         // A frame with no ink in it is not a frame the document keeps. They used
@@ -36,7 +37,7 @@ const stripRetired = (natives) => {
         // written by a build that stranded them is repaired on the way in, so it
         // does not come back out.
         if (!natives[l].length) continue;
-        out[l] = natives[l].map((o) => { const c = { ...o }; for (const k of RETIRED) delete c[k]; return c; });
+        out[l] = natives[l].map((o) => { const c = { ...o }; for (const k of drop) delete c[k]; return c; });
     }
     return out;
 };
@@ -279,8 +280,12 @@ describe("engine serializeDrawing / loadDrawing", () => {
                 doc = convertLegacySnapshot(report.snapshot);
             }
             expect(E.loadDrawing(doc)).toBe(true);
-            // ...and the round trip back out is byte-stable on the natives.
-            expect(E.serializeDrawing().natives).toEqual(stripRetired(doc.natives));
+            // ...and the round trip back out is byte-stable on the natives, less what the load upgrades.
+            const out = E.serializeDrawing().natives;
+            if (unregistered(doc.natives)) {
+                expect(unregistered(out)).toBe(false);
+                expect(stripRetired(out, ERASE_FIELDS)).toEqual(stripRetired(doc.natives, [...RETIRED, ...ERASE_FIELDS]));
+            } else expect(out).toEqual(stripRetired(doc.natives));
         }
     });
     const pixelationReportPath = path.join(reportsDir, "report-2026-07-09T05-56-11-154Z.json");
