@@ -160,6 +160,21 @@ export function createPlacementModel({ doc, lm, store }) {
         footprint(state, G) {
             return lm.mapRectObj(state.rect, state.home, String(G), state.table, state.home, false);
         },
+
+        /**
+         * `footprint` for many rects of one state (F153): `fn(left, top, right, bottom, out)` is its answer for that rect,
+         * bit for bit, written into `out` (a new object without one); null where it is null.
+         */
+        footprintMapper(state, G) {
+            const m = lm.mapperObj(state.home, String(G), state.table, state.home, false);
+            if (!m) return null;
+            const a = [0, 0], b = [0, 0];
+            return (left, top, right, bottom, out = {}) => {
+                m(left, top, a); m(right, bottom, b);
+                out.left = Math.min(a[0], b[0]); out.top = Math.min(a[1], b[1]); out.right = Math.max(a[0], b[0]); out.bottom = Math.max(a[1], b[1]);
+                return out;
+            };
+        },
     };
     function mapObj(x, from, to, below, home, toHome) {
         if (Array.isArray(x)) {

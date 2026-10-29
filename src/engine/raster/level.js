@@ -28,10 +28,11 @@ export const VIEW_PLATES_MAX = 48;
  */
 export const COMPOSE_IMAGES = 30;
 /**
- * Plates a drag plane may pin, its quick level included: 40 desktop, 24 phone (the same share of each cache; at 12 a
- * phone's drag tore a plate at a time, Kobin's report 2026-09-23 08-11-20). Part of the store's pinned bound.
+ * Plates a drag plane may pin, its quick level included: 64 desktop, 24 phone (at 12 a phone's drag tore a plate at a
+ * time, Kobin's report 2026-09-23 08-11-20; at 40 a desktop drag of a screen-filling selection drew it or what it moved
+ * over at ½–¼, his reports 2026-10-19, F145). Part of the store's pinned bound.
  */
-export const MOVE_PLANE_PLATES = 40;
+export const MOVE_PLANE_PLATES = 64;
 export const MOVE_PLANE_PLATES_PHONE = 24;
 
 const CROSS_OCT = Math.log2(R);                       // 12: a crossing is 4096×

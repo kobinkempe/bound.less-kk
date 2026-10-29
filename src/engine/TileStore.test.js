@@ -12,7 +12,7 @@ import { tileContent } from "./__oracles__/renderList";
 
 import { BASE, ENTER, EXIT, HALF_W, REACH, G } from "./frameLattice";
 import { projectedSizePx, bboxOf } from "./geometry/derive";
-import { rectLoop } from "./geometry/arcShape";
+import { rectLoop, encodeLoops } from "./geometry/arcShape";
 
 const CFG = { enter: ENTER, base: BASE, exit: EXIT, bufferScreens: 1, scale: 1000,
     arcTolerancePx: 0.25, polygonizeWidthFrac: 1 / 3, lineModeLevel: 2 };
@@ -43,6 +43,42 @@ const under = (M, coarse, deep) => M.mapPointF([0, 0], String(deep), String(coar
 let stores = [];
 const mkStore = (M, d) => { const s = new TileStore(M, d, CFG); stores.push(s); return s; };
 afterEach(() => { while (stores.length) stores.pop().destroy(); });
+
+describe("an up tile's parent natives (F156)", () => {
+    test("come from the spatial index over the tile's pre-image: the pieces a scan of the whole cell bakes, from far fewer culls", () => {
+        const M = mkMap(-1, 0);
+        const d = new Document();
+        const [ux, uy] = under(M, -1, 0);
+        let seed = 7;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        for (let k = 0; k < 300; k++) {
+            const near = k % 10 === 0;     // a tenth over level 0's tiles, the rest anywhere in the parent's cell
+            const x = near ? ux + (rnd() - 0.5) * 60 : (rnd() - 0.5) * 2 * HALF_W, y = near ? uy + (rnd() - 0.5) * 60 : (rnd() - 0.5) * 2 * HALF_W;
+            if (k % 3 === 0) mkStroke(d, -1, [[x, y], [x + 5 + rnd() * 30, y + rnd() * 10]], 0.5 + rnd() * 8);
+            else if (k % 3 === 1) d.add({ type: "shape", origin: "native", id: d.allocId(), color: "#345", opacity: 1, w: 4,
+                loops: rectLoop({ left: x, top: y, right: x + 3 + rnd() * 40, bottom: y + 2 + rnd() * 30 }) }, -1);
+            else d.add({ type: "fill", origin: "native", id: d.allocId(), color: "#567", opacity: 0.6,
+                polys: [[[x, y], [x + 20, y], [x + 20, y + 15], [x, y + 15]]] }, -1);
+        }
+        const sig = (o) => JSON.stringify([o.id, o.type, o.origin, o.z, o.polys || null, o.pts || null, o.loops ? encodeLoops(o.loops) : null, !!o.covers]);
+        const bake = (ts) => {
+            const out = [];
+            for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) out.push(ts._ensureUp("0", i, j).objs.map(sig).sort());
+            return out;
+        };
+        const D = require("./geometry/derive");
+        const culls = jest.spyOn(D, "classifyUp");
+        const A = bake(mkStore(M, d)), nA = culls.mock.calls.length;
+        culls.mockClear();
+        const whole = mkStore(M, d);
+        whole._cellNatives = (P) => d.cellList(P);             // the scan this replaced
+        const B = bake(whole), nB = culls.mock.calls.length;
+        culls.mockRestore();
+        expect(A).toEqual(B);
+        expect(A.flat().length).toBeGreaterThan(5);             // not vacuous
+        expect(nA * 5).toBeLessThan(nB);                        // red before: every native of the cell culled for every tile
+    });
+});
 
 describe("magnify chain (upContent)", () => {
     test("a coarse stroke reaches a finer level's tiles, bounded (never an exploded polygon)", () => {

@@ -23,6 +23,7 @@ import { compression, gunzipAs } from "./gzip";
 import { packFrameChunk, unpackFrameChunk, packLogChunk, unpackLogChunk, splitParts, joinParts } from "./store2";
 import { docFromStore } from "../storage/foldStore";
 import { headOf, sameHead, leaseState, intentLanded, newEpoch, LEASE_TTL_MS, LEASE_SKEW_MS } from "./syncCore";
+import { ACCOUNT_BYTES, CloudLimit, storedBytes } from "./cloudLimits";
 
 const BIN_CHUNK_BYTES = 700 * 1024; // compressed binary chunk per part doc
 // One part a commit. Six (4.2 MiB a batch, under the 10 MiB request cap) made Firestore's
@@ -258,8 +259,56 @@ export async function cloudDeleteCanvas(uid, id) {
     const refs = [];
     if (m && m.format === FORMAT2_CLOUD) for (const c of chunksOf(m)) for (let i = 0; i < c.parts; i++) refs.push(partDoc2(uid, id, c.chunk, i));
     else for (let i = 0; i < ((m && m.parts) || 0); i++) refs.push(partDoc(uid, id, i));
+    for (const v of (await getDocs(viewsCol(uid, id))).docs) refs.push(v.ref);
     await commitAll(refs, DELETES_PER_COMMIT, (b, ref) => b.delete(ref));
     await deleteDoc(canvasDoc(uid, id));
+}
+
+// ---- the first-view pictures (OPEN-FLAGS F166, engine/raster/firstView.js) ----
+//
+//   users/{uid}/<col>/{id}/views/{tag}     — { stamp, parts, nonce, bytes, savedAt }, written LAST
+//   users/{uid}/<col>/{id}/views/{tag}~{n} — { nonce, data: Bytes }, one part of at most 700 KiB
+//
+// One set per render print (`tag`): a phone and a desktop draw a fading object differently. Overwritten in place; a
+// reader takes the parts only when every one carries the head's nonce, so a set read mid-write is ignored, not mixed.
+const viewsCol = (uid, id) => collection(getDb(), "users", uid, CANVAS_COLLECTION, id, "views");
+const viewDoc = (uid, id, name) => doc(getDb(), "users", uid, CANVAS_COLLECTION, id, "views", name);
+
+/** Save a set (`parts`: Uint8Arrays; `stamp`: what it is exact for) in the page's one push lane, a part a write. */
+export function cloudSaveViews(uid, id, tag, { stamp, parts }, { laneMs = LANE_MS } = {}) {
+    return inLane(async (run) => {
+        const t0 = perfNow();
+        const nonce = Math.random().toString(36).slice(2, 9);
+        const prev = await getDoc(viewDoc(uid, id, tag));
+        const before = prev.exists() ? prev.data().parts || 0 : 0;
+        let bytes = 0;
+        for (let n = 0; n < parts.length; n++) {
+            if (run.dead) throw pushDead();
+            run.tick();
+            await setDoc(viewDoc(uid, id, `${tag}~${n}`), { nonce, data: Bytes.fromUint8Array(parts[n]) });
+            bytes += parts[n].length;
+        }
+        if (run.dead) throw pushDead();
+        run.tick();
+        await setDoc(viewDoc(uid, id, tag), { stamp, parts: parts.length, nonce, bytes, savedAt: new Date().toISOString() });
+        for (let n = parts.length; n < before; n++) await deleteDoc(viewDoc(uid, id, `${tag}~${n}`));
+        return { parts: parts.length, bytes, putMs: +(perfNow() - t0).toFixed(1) };
+    }, { ms: laneMs });
+}
+
+/** The set saved for `tag`: `{ stamp, parts }`, or null when there is none or it does not read whole. */
+export async function cloudLoadViews(uid, id, tag) {
+    const head = await getDoc(viewDoc(uid, id, tag));
+    if (!head.exists()) return null;
+    const h = head.data();
+    const snaps = await Promise.all(Array.from({ length: h.parts || 0 }, (_, n) => getDoc(viewDoc(uid, id, `${tag}~${n}`))));
+    const parts = [];
+    for (const s of snaps) {
+        const d = s.exists() ? s.data() : null;
+        if (!d || d.nonce !== h.nonce || !d.data || typeof d.data.toUint8Array !== "function") return null;
+        parts.push(d.data.toUint8Array());
+    }
+    return { stamp: h.stamp || null, parts, bytes: h.bytes || 0 };
 }
 
 // ---- the kobin-2 cloud copy (DESIGN.md §13; .claude/SAVE-FORMAT-PLAN.md; SYNC-PLAN) ----
@@ -353,7 +402,7 @@ const partsOf = (uid, id, chunks) => {
 export function cloudPushCanvas2(uid, entry, source, opts = {}) {
     return inLane((run) => pushCanvas2(uid, entry, source, opts, run), { ms: opts.laneMs || LANE_MS, onStart: opts.onStart || null });
 }
-async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, lease = null, thumbs = null, dropBelow = 0 } = {}, run = { dead: false }) {
+async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, lease = null, thumbs = null, dropBelow = 0, limit = null } = {}, run = { dead: false }) {
     const t0 = perfNow();
     const setSync = source.setSync || (async () => true);
     const col = CANVAS_COLLECTION;
@@ -418,6 +467,14 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
         bytes += zipped.length;
     }
     if (dropBelow > 0) nextLog = nextLog.filter((c) => c.seqTo >= dropBelow);
+    // The account's limit (cloudLimits.js): refused before any part is written, unless the copy does not grow.
+    if (limit) {
+        let after = 0;
+        for (const f of Object.values(nextFrames)) after += f.bytes || 0;
+        for (const c of nextLog) after += c.bytes || 0;
+        const now = storedBytes(pm ? { ...pm, thumbs: null } : null);
+        if (limit.others + after > ACCOUNT_BYTES && after > now) throw new CloudLimit(limit.others + after);
+    }
     // The head is kept only when nothing went up (a rename, a camera): the history did not move.
     // Anything uploaded at an unchanged seq still gets a head of its own.
     const seq = header.seq || 0;

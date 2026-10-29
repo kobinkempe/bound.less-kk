@@ -64,12 +64,9 @@ export function getDeviceId() {
     }
 }
 
-/** This device's name as other devices see it (SYNC-PLAN R9): set once, default the browser and OS. */
+/** This device's name as other devices see it (SYNC-PLAN R9): a stored name, else the browser and OS. */
 export function getDeviceName() {
     try { return localStorage.getItem("kobin.deviceName") || defaultDeviceName(); } catch (err) { return defaultDeviceName(); }
-}
-export function setDeviceName(name) {
-    try { if (name && String(name).trim()) localStorage.setItem("kobin.deviceName", String(name).trim().slice(0, 40)); } catch (err) { /* quota */ }
 }
 
 // ---- the gallery index (localStorage, synchronous) ----

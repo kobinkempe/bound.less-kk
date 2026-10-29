@@ -42,6 +42,16 @@ function draw(e, x = 100) {
     });
 }
 
+test("a closed canvas leaves no dev handle on its engine (the heap snapshots of 2026-10-13)", async () => {
+    window.__kobinSaver = null;
+    const view = editor();
+    await waitFor(() => expect(window.__kobinSaver).toBeTruthy());
+    expect(window.__kobinEngine).toBeTruthy();
+    act(() => view.unmount());
+    expect(window.__kobinEngine).toBeNull();
+    expect(window.__kobinSaver).toBeNull();      // red before: the saver's closures kept the closed canvas's engine, its drawing and caches
+});
+
 test("the tab is read-only until its session holds the pen, sign-in pending or not (review minor 6)", async () => {
     const view = editor();
     await waitFor(() => expect(window.__kobinEngine).toBeTruthy());

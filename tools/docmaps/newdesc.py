@@ -26,7 +26,9 @@ _NAMES = ("newdesc_scale", "newdesc_scale2", "newdesc_rules", "newdesc_shell",
           "newdesc_report",
           # 2026-10-05, the renderer and document-model rebuild's files
           "newdesc_rb_stage", "newdesc_rb_pyramid", "newdesc_rb_pyrparts", "newdesc_rb_svg",
-          "newdesc_rb_model", "newdesc_rb_m1")
+          "newdesc_rb_model", "newdesc_rb_m1",
+          # 2026-10-19, the performance branch's (the RAM tier, the drag plane's rework, the drop's sweep)
+          "newdesc_perf")
 _SOURCES = []
 for _n in _NAMES:
     if os.path.exists(os.path.join(HERE, _n + ".py")):
@@ -93,6 +95,9 @@ ARTICLES = [
     ("pa-raster", "raster/RasterRenderer.js", _R, "sp", ["rr"], "paper"),
     ("pa-pyramid", "raster/PicturePyramid.js", _R, "sp", ["pyr"], "paper"),
     ("pa-pyrstore", "raster/PyramidStore.js", _R, "sp", ["pys"], "paper"),
+    ("pa-plateram", "raster/plateRam.js", _R, "sp", ["prm"], "paper"),
+    ("pa-firstview", "raster/firstView.js", _R, "sp", ["fvw"], "paper"),
+    ("pa-platecodec", "raster/plateCodec.js", _R, "sp", ["pcd"], "paper"),
     ("pa-level", "raster/level.js", _R, "sp", ["lvl"], "paper"),
     ("pa-queue", "raster/jobQueue.js", _R, "sp", ["jbq"], "paper"),
     ("pa-prefetch", "raster/prefetch.js", _R, "sp", ["pft"], "paper"),

@@ -112,9 +112,9 @@ footer a{color:var(--object)}
     than from the design, and every call in them is checked against the source when the
     page is built.</p>
   <div class="mast-meta">
-    <span>Code at <b>6c6b742</b>, branch <b>claude/hopeful-dirac-iotb9n</b></span>
-    <span>Traced <b>2026-10-06</b></span>
-    <span><b>269</b> calls across <b>7</b> flows</span>
+    <span>Code at <b>cef36c3 + working tree</b>, branch <b>performance</b></span>
+    <span>Traced <b>2026-10-29</b></span>
+    <span><b>323</b> calls across <b>7</b> flows</span>
   </div>
   <div class="legend">
     <div><b><i style="background:var(--k-fac)"></i>The facade</b><p>KobinEngine. Routes input,
@@ -148,12 +148,12 @@ footer a{color:var(--object)}
 <main>
 <section id="pen">
 <h2><span class="num">FIG 1</span> Drawing a stroke</h2>
-<p class="sub">36 calls &middot; 6 levels deep</p>
+<p class="sub">37 calls &middot; 6 levels deep</p>
 <p>Three entry points, one gesture. The thing worth noticing is that
         <strong>the pen builds its arc chain while you draw</strong> — <code>addSample</code> rebuilds only
         the two gaps a new sample disturbs — so what is on screen under the pen is already the
         geometry the resolve will use, and pen-up does not change the shape.</p>
-<div class="figbox"><svg viewBox="0 0 872 744" width="872" role="img" aria-label="Drawing a stroke">
+<div class="figbox"><svg viewBox="0 0 872 764" width="872" role="img" aria-label="Drawing a stroke">
 <path d="M13.5,21.5 V36" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,41.5 V176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
@@ -169,40 +169,42 @@ footer a{color:var(--object)}
 <path d="M55.5,196 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,201.5 V216" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,216 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,241.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,256 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,261.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,276 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,221.5 V236" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,236 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,261.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,276 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,281.5 V436" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,296 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,416 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,301.5 V336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,316 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,316 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,321.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,336 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,341.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,356 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,396 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,361.5 V376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,376 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,441.5 V456" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,456 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,461.5 V716" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,476 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,356 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,361.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,376 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,416 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,381.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,396 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,461.5 V476" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,476 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,481.5 V736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,496 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,516 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,616 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,536 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,636 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,676 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,696 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,716 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,521.5 V536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,536 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,541.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,556 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,561.5 V596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,576 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,736 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,541.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,556 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,561.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,576 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,581.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,596 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,621.5 V636" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,636 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,616 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,641.5 V656" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,656 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="23" y="19.6" class="cm-n">pointerDown(sx, sy)</text>
 <text x="452" y="19.6" class="cm-c">the public entry, timed at the boundary</text>
@@ -225,109 +227,109 @@ footer a{color:var(--object)}
 <rect x="52" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
 <text x="65" y="159.6" class="cm-n">renderer.addLive</text>
 <text x="452" y="159.6" class="cm-c">the live stroke stays SVG on both renderers</text>
-<rect x="52" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<rect x="52" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
 <text x="65" y="179.6" class="cm-n">renderer.setLiveArcs</text>
-<rect x="73" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="199.6" class="cm-n">pushGapAnchors</text>
-<rect x="94" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="219.6" class="cm-n">pushArcPiece</text>
-<text x="452" y="219.6" class="cm-c">an arc command, or kappa cubics from its chord</text>
-<rect x="10" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="23" y="239.6" class="cm-n">pointerMove(sx, sy)</text>
-<rect x="31" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="259.6" class="cm-n">_pointerMove</text>
-<rect x="52" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="279.6" class="cm-n">cam.screenToFrame</text>
-<rect x="52" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="299.6" class="cm-n">o._pen.addSample</text>
-<text x="452" y="299.6" class="cm-c">O(1): only the last two gaps are rebuilt</text>
-<rect x="73" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="86" y="319.6" class="cm-n">controlsFor</text>
-<text x="452" y="319.6" class="cm-c">the same tangents the cardinal spline has</text>
-<rect x="73" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="339.6" class="cm-n">arcsForGap</text>
-<text x="452" y="339.6" class="cm-c">subdivide until the arc pair is in tolerance</text>
-<rect x="94" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="359.6" class="cm-n">biarc</text>
-<text x="452" y="359.6" class="cm-c">two arcs, both end directions fixed</text>
-<rect x="115" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="379.6" class="cm-n">arcThrough</text>
-<rect x="94" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="399.6" class="cm-n">gapError</text>
-<rect x="52" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="419.6" class="cm-n">renderer.setLiveArcs</text>
-<text x="452" y="419.6" class="cm-c">the pen&#x27;s own chain is what gets painted</text>
-<rect x="10" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="23" y="439.6" class="cm-n">pointerUp()</text>
-<rect x="31" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="459.6" class="cm-n">_pointerUp</text>
-<rect x="52" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="479.6" class="cm-n">_note</text>
-<text x="452" y="479.6" class="cm-c">journal the gesture before pts is dropped</text>
-<rect x="52" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="65" y="499.6" class="cm-n">renderer.endLive</text>
-<text x="452" y="499.6" class="cm-c">raster: the SVG path is held until its plates land</text>
-<rect x="52" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="519.6" class="cm-n">doc.finalize</text>
-<text x="452" y="519.6" class="cm-c">geometry is immutable from here</text>
-<rect x="73" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="539.6" class="cm-n">_emit -&gt; TileStore._onDoc</text>
-<text x="452" y="539.6" class="cm-c">a listener, not a call site</text>
-<rect x="94" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="559.6" class="cm-n">_addObject</text>
-<rect x="115" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="579.6" class="cm-n">_appendUp</text>
-<text x="452" y="579.6" class="cm-c">patch tiles that inherit it magnified</text>
+<rect x="73" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="199.6" class="cm-n">live.arcs</text>
+<text x="452" y="199.6" class="cm-c">the tail under the pen; full chunks freeze behind it</text>
+<rect x="94" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="219.6" class="cm-n">pushGapAnchors</text>
+<rect x="115" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="239.6" class="cm-n">pushArcPiece</text>
+<text x="452" y="239.6" class="cm-c">an arc command, or kappa cubics from its chord</text>
+<rect x="10" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="23" y="259.6" class="cm-n">pointerMove(sx, sy)</text>
+<rect x="31" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="279.6" class="cm-n">_pointerMove</text>
+<rect x="52" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="299.6" class="cm-n">cam.screenToFrame</text>
+<rect x="52" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="319.6" class="cm-n">o._pen.addSample</text>
+<text x="452" y="319.6" class="cm-c">O(1): only the last two gaps are rebuilt</text>
+<rect x="73" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="86" y="339.6" class="cm-n">controlsFor</text>
+<text x="452" y="339.6" class="cm-c">the same tangents the cardinal spline has</text>
+<rect x="73" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="359.6" class="cm-n">arcsForGap</text>
+<text x="452" y="359.6" class="cm-c">subdivide until the arc pair is in tolerance</text>
+<rect x="94" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="379.6" class="cm-n">biarc</text>
+<text x="452" y="379.6" class="cm-c">two arcs, both end directions fixed</text>
+<rect x="115" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="128" y="399.6" class="cm-n">arcThrough</text>
+<rect x="94" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="419.6" class="cm-n">gapError</text>
+<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="65" y="439.6" class="cm-n">renderer.setLiveArcs</text>
+<text x="452" y="439.6" class="cm-c">the pen&#x27;s own chain is what gets painted</text>
+<rect x="10" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="23" y="459.6" class="cm-n">pointerUp()</text>
+<rect x="31" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="479.6" class="cm-n">_pointerUp</text>
+<rect x="52" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="499.6" class="cm-n">_note</text>
+<text x="452" y="499.6" class="cm-c">journal the gesture before pts is dropped</text>
+<rect x="52" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="65" y="519.6" class="cm-n">renderer.endLive</text>
+<text x="452" y="519.6" class="cm-c">raster: the SVG path is held until its plates land</text>
+<rect x="52" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="539.6" class="cm-n">doc.finalize</text>
+<text x="452" y="539.6" class="cm-c">geometry is immutable from here</text>
+<rect x="73" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="559.6" class="cm-n">_emit -&gt; TileStore._onDoc</text>
+<text x="452" y="559.6" class="cm-c">a listener, not a call site</text>
+<rect x="94" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="579.6" class="cm-n">_addObject</text>
 <rect x="115" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="599.6" class="cm-n">_appendDown</text>
-<text x="452" y="599.6" class="cm-c">...and the ones that inherit it minified</text>
-<rect x="52" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="619.6" class="cm-n">_queueBake</text>
-<rect x="73" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="639.6" class="cm-n">new ArcBakeJob</text>
-<text x="452" y="639.6" class="cm-c">handed the pen&#x27;s chain: phase 1 already paid</text>
-<rect x="52" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="659.6" class="cm-n">_scheduleBake(0)</text>
-<text x="452" y="659.6" class="cm-c">-&gt; Fig 2, the bake tick</text>
-<rect x="52" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="679.6" class="cm-n">doc.pushUndo</text>
-<text x="452" y="679.6" class="cm-c">one gesture, one action</text>
-<rect x="52" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="699.6" class="cm-n">_render</text>
-<text x="452" y="699.6" class="cm-c">-&gt; Fig 5</text>
+<text x="128" y="599.6" class="cm-n">_appendUp</text>
+<text x="452" y="599.6" class="cm-c">patch tiles that inherit it magnified</text>
+<rect x="115" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="619.6" class="cm-n">_appendDown</text>
+<text x="452" y="619.6" class="cm-c">...and the ones that inherit it minified</text>
+<rect x="52" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="639.6" class="cm-n">_queueBake</text>
+<rect x="73" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="659.6" class="cm-n">new ArcBakeJob</text>
+<text x="452" y="659.6" class="cm-c">handed the pen&#x27;s chain: phase 1 already paid</text>
+<rect x="52" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="679.6" class="cm-n">_scheduleBake(0)</text>
+<text x="452" y="679.6" class="cm-c">-&gt; Fig 2, the bake tick</text>
+<rect x="52" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="699.6" class="cm-n">doc.pushUndo</text>
+<text x="452" y="699.6" class="cm-c">one gesture, one action</text>
 <rect x="52" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="719.6" class="cm-n">_queueIdleFits</text>
-<text x="452" y="719.6" class="cm-c">prefit outlines off the pen-up frame</text>
+<text x="65" y="719.6" class="cm-n">_render</text>
+<text x="452" y="719.6" class="cm-c">-&gt; Fig 5</text>
+<rect x="52" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="739.6" class="cm-n">_queueIdleFits</text>
+<text x="452" y="739.6" class="cm-c">prefit outlines off the pen-up frame</text>
 </svg></div>
 </section>
 <section id="bake">
 <h2><span class="num">FIG 2</span> Resolving strokes, and folding in erasers</h2>
-<p class="sub">31 calls &middot; 5 levels deep</p>
+<p class="sub">35 calls &middot; 5 levels deep</p>
 <p>Nothing here runs on a frame. It is a timer that re-enters until its queues
         drain, standing aside while the camera moves. <strong>Outlines resolve before erasers are
         folded in</strong>, because an eraser cannot be subtracted until it has one — and neither can
         the ink beneath it.</p>
-<div class="figbox"><svg viewBox="0 0 872 644" width="872" role="img" aria-label="Resolving strokes, and folding in erasers">
+<div class="figbox"><svg viewBox="0 0 872 724" width="872" role="img" aria-label="Resolving strokes, and folding in erasers">
 <path d="M13.5,21.5 V36" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,41.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,41.5 V696" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,76 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,116 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,456 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,536 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,556 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,576 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,596 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,616 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,696 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,81.5 V96" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,96 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,121.5 V376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,121.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,136 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,316 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,356 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,376 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,396 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,141.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,156 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,176 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
@@ -339,13 +341,23 @@ footer a{color:var(--object)}
 <path d="M76.5,296 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,321.5 V336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,336 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,381.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,396 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,401.5 V436" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,416 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,461.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,436 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,461.5 V476" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,476 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,496 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,516 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,481.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,496 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,516 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,541.5 V676" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,556 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,576 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,596 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,616 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,676 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,621.5 V656" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,636 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,656 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="23" y="19.6" class="cm-n">_bakeTick</text>
 <text x="452" y="19.6" class="cm-c">a timer, not a frame; re-entered until the queues drain</text>
@@ -399,107 +411,126 @@ footer a{color:var(--object)}
 <text x="86" y="359.6" class="cm-n">doc.bakeShapeById</text>
 <text x="452" y="359.6" class="cm-c">the stroke BECOMES its outline, same id</text>
 <rect x="73" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="379.6" class="cm-n">_promoteOversize</text>
-<text x="452" y="379.6" class="cm-c">invariant 2: too wide -&gt; promote a level</text>
-<rect x="94" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="399.6" class="cm-n">Document.scaleGeometry</text>
-<text x="452" y="399.6" class="cm-c">divide by 4096: a change of units</text>
+<text x="86" y="379.6" class="cm-n">_registerMark</text>
+<text x="452" y="379.6" class="cm-c">an eraser mark registers as its shape lands</text>
+<rect x="73" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="399.6" class="cm-n">_promoteOversize</text>
+<text x="452" y="399.6" class="cm-c">invariant 2: too wide -&gt; promote a level</text>
 <rect x="94" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="419.6" class="cm-n">doc.rehomeById</text>
-<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="439.6" class="cm-n">_eraseStrokes</text>
-<text x="452" y="439.6" class="cm-c">eraser gestures whose own outline has resolved</text>
+<text x="107" y="419.6" class="cm-n">Document.scaleGeometry</text>
+<text x="452" y="419.6" class="cm-c">divide by 4096: a change of units</text>
+<rect x="94" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="439.6" class="cm-n">doc.rehomeById</text>
 <rect x="52" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="459.6" class="cm-n">_nextEraseTarget</text>
-<text x="452" y="459.6" class="cm-c">top-down by z, from the index</text>
+<text x="65" y="459.6" class="cm-n">_registerLanded</text>
+<text x="452" y="459.6" class="cm-c">marks whose shape landed earlier</text>
 <rect x="73" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="479.6" class="cm-n">_eraseFramesPass</text>
-<text x="452" y="479.6" class="cm-c">a frame under the mark&#x27;s ink goes whole</text>
-<rect x="73" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="499.6" class="cm-n">_candidatesUnder</text>
-<text x="452" y="499.6" class="cm-c">every reachable level&#x27;s index, sorted by z</text>
-<rect x="73" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="519.6" class="cm-n">_eraseMayTouch</text>
-<text x="452" y="519.6" class="cm-c">project the eraser&#x27;s BOX, not its geometry</text>
+<text x="86" y="479.6" class="cm-n">_registerMark</text>
+<text x="452" y="479.6" class="cm-c">the mark&#x27;s targets, found once</text>
+<rect x="94" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="499.6" class="cm-n">_eraseFramesPass</text>
+<text x="452" y="499.6" class="cm-c">a frame under the mark&#x27;s ink goes whole</text>
+<rect x="94" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="519.6" class="cm-n">_candidatesUnder</text>
+<text x="452" y="519.6" class="cm-c">every reachable level&#x27;s index, below its z</text>
 <rect x="52" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="539.6" class="cm-n">_bakeOne</text>
-<text x="452" y="539.6" class="cm-c">-&gt; Fig 3</text>
-<rect x="52" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="559.6" class="cm-n">_lowerMark</text>
-<text x="452" y="559.6" class="cm-c">the mark&#x27;s z steps down past what it has handled</text>
-<rect x="52" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="579.6" class="cm-n">_noteSpent</text>
-<text x="452" y="579.6" class="cm-c">nothing left under the mark: record what it saw</text>
-<rect x="52" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="599.6" class="cm-n">doc.removeById</text>
-<text x="452" y="599.6" class="cm-c">the white mark has served its purpose</text>
-<rect x="52" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="619.6" class="cm-n">_render</text>
-<text x="452" y="619.6" class="cm-c">-&gt; Fig 5</text>
+<text x="65" y="539.6" class="cm-n">_bakeRun(deadline)</text>
+<text x="452" y="539.6" class="cm-c">pairs in the serial order, within the slice</text>
+<rect x="73" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="559.6" class="cm-n">_serialHead</text>
+<text x="452" y="559.6" class="cm-c">the oldest mark&#x27;s next pair, top-down by (z, id)</text>
+<rect x="73" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="579.6" class="cm-n">_applyLanded</text>
+<text x="452" y="579.6" class="cm-c">a landed job, applied in its turn  (-&gt; Fig 3)</text>
+<rect x="73" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="599.6" class="cm-n">_dispatchPair</text>
+<text x="452" y="599.6" class="cm-c">the head&#x27;s job built and sent  (-&gt; Fig 3)</text>
+<rect x="73" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="619.6" class="cm-n">_spendMark</text>
+<text x="452" y="619.6" class="cm-c">nothing left under the mark</text>
+<rect x="94" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="639.6" class="cm-n">_noteSpent</text>
+<text x="452" y="639.6" class="cm-c">record what it saw</text>
+<rect x="94" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="659.6" class="cm-n">doc.removeById</text>
+<text x="452" y="659.6" class="cm-c">the white mark has served its purpose</text>
+<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="679.6" class="cm-n">_lookahead</text>
+<text x="452" y="679.6" class="cm-c">the pool&#x27;s free slots, filled ahead of the head</text>
+<rect x="52" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="699.6" class="cm-n">_render / _renderSoon</text>
+<text x="452" y="699.6" class="cm-c">a spent mark now; a cut within ERASE_RENDER_MS</text>
 </svg></div>
 </section>
 <section id="erase">
 <h2><span class="num">FIG 3</span> Erasing: the cut</h2>
-<p class="sub">40 calls &middot; 6 levels deep</p>
+<p class="sub">43 calls &middot; 7 levels deep</p>
 <p>One decision at the top governs everything below it: is the target at or below
         the level the erase was made at, or above it? At or below, the cut happens here. Above, the
         work descends instead (Fig 4). <strong>The cut is one job</strong>, <code>cutJob</code>: the
         same function in the erase worker and inline, with the document side applied on the main
         thread by <code>_applyCut</code>.</p>
-<div class="figbox"><svg viewBox="0 0 872 824" width="872" role="img" aria-label="Erasing: the cut">
-<path d="M13.5,21.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<div class="figbox"><svg viewBox="0 0 872 884" width="872" role="img" aria-label="Erasing: the cut">
+<path d="M13.5,21.5 V596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,76 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,96 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,116 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,136 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,156 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,196 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,216 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,236 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,536 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,576 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,296 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,316 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,336 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,596 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,41.5 V56" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,161.5 V176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,101.5 V116" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,116 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,121.5 V136" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,136 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,161.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,176 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,241.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,256 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,476 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,496 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,516 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,261.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,276 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,281.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,296 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,301.5 V456" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,316 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,336 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,356 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,376 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,396 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,416 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,436 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,456 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,541.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,196 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,216 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,276 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,221.5 V236" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,236 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,241.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,256 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,341.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,356 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,556 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,581.5 V656" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,596 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,576 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,361.5 V376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,376 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,381.5 V536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,396 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,416 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,436 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,456 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,476 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,496 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,516 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,536 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,601.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,616 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,636 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,661.5 V676" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,621.5 V716" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,636 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,656 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,676 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,681.5 V796" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,696 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,716 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,696 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,716 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,721.5 V736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,736 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,776 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,796 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,741.5 V756" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,741.5 V856" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,756 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,776 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,796 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,836 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,856 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,801.5 V816" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,816 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="23" y="19.6" class="cm-n">_bakeOne(Erec, target)</text>
+<text x="23" y="19.6" class="cm-n">_dispatchPair(Erec, target)</text>
+<text x="452" y="19.6" class="cm-c">one pair: its job built, then pooled or run inline</text>
 <rect x="31" y="32.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="44" y="39.6" class="cm-n">_forceBake</text>
 <text x="452" y="39.6" class="cm-c">both operands must be resolved outlines</text>
@@ -509,688 +540,871 @@ footer a{color:var(--object)}
 <text x="44" y="79.6" class="cm-n">doc.fillToShapeById</text>
 <text x="452" y="79.6" class="cm-c">a pre-arc drawing, promoted where it pays</text>
 <rect x="31" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="99.6" class="cm-n">_eraseOp</text>
-<text x="452" y="99.6" class="cm-c">the gesture&#x27;s undo op, before anything is touched</text>
-<rect x="31" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="44" y="119.6" class="cm-n">lm.framePath</text>
-<text x="452" y="119.6" class="cm-c">a pure descent, or a different branch?</text>
-<rect x="31" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="139.6" class="cm-n">_bakeRehome</text>
-<text x="452" y="139.6" class="cm-c">target is COARSER -&gt; descend  (-&gt; Fig 4)</text>
+<text x="44" y="99.6" class="cm-n">_eraseMayTouch</text>
+<text x="452" y="99.6" class="cm-c">project the eraser&#x27;s BOX, not its geometry</text>
+<rect x="52" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="119.6" class="cm-n">_eraserRectInto</text>
+<rect x="73" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="139.6" class="cm-n">stage.placeNative</text>
+<text x="452" y="139.6" class="cm-c">the target&#x27;s placement: its stored units</text>
 <rect x="31" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="159.6" class="cm-n">_eraserLoopsInto</text>
-<text x="452" y="159.6" class="cm-c">otherwise cut in place: the eraser, in the subject&#x27;s stored units</text>
+<text x="44" y="159.6" class="cm-n">_jobFor</text>
+<text x="452" y="159.6" class="cm-c">a descent, or a cut in place</text>
 <rect x="52" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="179.6" class="cm-n">lm.projectLoopsObj</text>
-<text x="452" y="179.6" class="cm-c">through the object&#x27;s displacement table</text>
-<rect x="31" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="199.6" class="cm-n">dustBarFor</text>
-<text x="452" y="199.6" class="cm-c">a quarter pixel at the zoom the mark was drawn at</text>
-<rect x="31" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="219.6" class="cm-n">runCutAsync</text>
-<text x="452" y="219.6" class="cm-c">in the erase worker where there is one</text>
-<rect x="31" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="239.6" class="cm-n">cutJob</text>
-<text x="452" y="239.6" class="cm-c">...or inline: the same function either way</text>
-<rect x="52" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="259.6" class="cm-n">subtractShape</text>
-<rect x="73" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="279.6" class="cm-n">shapeBoolean</text>
-<text x="452" y="279.6" class="cm-c">one retry at a different welding radius</text>
-<rect x="94" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="299.6" class="cm-n">shapeBooleanOnce</text>
-<rect x="115" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="319.6" class="cm-n">normalizeLoops</text>
-<text x="452" y="319.6" class="cm-c">one handedness; solid area positive</text>
-<rect x="115" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="339.6" class="cm-n">straighten</text>
-<text x="452" y="339.6" class="cm-c">an arc over the freeze radius stands in as its chord</text>
-<rect x="115" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="359.6" class="cm-n">pieceIntersections</text>
-<text x="452" y="359.6" class="cm-c">circle-circle: one square root</text>
-<rect x="115" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="379.6" class="cm-n">pieceOverlap</text>
-<text x="452" y="379.6" class="cm-c">boundary lying exactly on boundary</text>
-<rect x="115" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="399.6" class="cm-n">cutLine / cutArc</text>
-<text x="452" y="399.6" class="cm-c">a cut piece keeps what it was cut from</text>
-<rect x="115" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="419.6" class="cm-n">RayIndex</text>
-<text x="452" y="419.6" class="cm-c">the classifier&#x27;s buckets, per ray direction</text>
-<rect x="115" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="439.6" class="cm-n">winding (a RayIndex)</text>
-<text x="452" y="439.6" class="cm-c">inside or out, at each fragment&#x27;s midpoint</text>
-<rect x="115" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="459.6" class="cm-n">stitch</text>
-<text x="452" y="459.6" class="cm-c">pair ends by angle, then walk the cycles</text>
-<rect x="52" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="479.6" class="cm-n">intersectShape</text>
-<text x="452" y="479.6" class="cm-c">the removal, measured LOCALLY</text>
-<rect x="52" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="499.6" class="cm-n">shapeComponents</text>
-<rect x="52" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="519.6" class="cm-n">dropDust</text>
-<rect x="31" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="539.6" class="cm-n">_onCutResult</text>
-<text x="452" y="539.6" class="cm-c">the worker&#x27;s answer: still the same object?</text>
-<rect x="52" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="559.6" class="cm-n">_applyCut</text>
-<rect x="31" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="579.6" class="cm-n">_applyCut</text>
-<text x="452" y="579.6" class="cm-c">the document side, on the main thread</text>
-<rect x="52" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="599.6" class="cm-n">_noteSeal</text>
-<text x="452" y="599.6" class="cm-c">count the booleans that had to be sealed</text>
-<rect x="52" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="619.6" class="cm-n">doc.eraseReplaceById</text>
-<text x="452" y="619.6" class="cm-c">one region keeps the key; several is a split</text>
-<rect x="52" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="639.6" class="cm-n">doc.recordBake</text>
-<text x="452" y="639.6" class="cm-c">the step, on the gesture&#x27;s op</text>
-<rect x="52" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="659.6" class="cm-n">_resplitFamily</text>
-<text x="452" y="659.6" class="cm-c">did the OBJECT come apart?</text>
-<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="679.6" class="cm-n">_familyComponents</text>
-<text x="452" y="679.6" class="cm-c">members are nodes; doorways are the edges</text>
-<rect x="94" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="107" y="699.6" class="cm-n">_inkOutline</text>
-<rect x="94" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="719.6" class="cm-n">lm.mapRectF</text>
-<text x="452" y="719.6" class="cm-c">the doorway, in the other member&#x27;s frame</text>
-<rect x="94" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="739.6" class="cm-n">contactArcs</text>
-<text x="452" y="739.6" class="cm-c">where ink meets the doorway, as intervals</text>
-<rect x="115" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="128" y="759.6" class="cm-n">sidesOf / tOn / merge</text>
-<text x="452" y="759.6" class="cm-c">perimeter 0..4, never wrapped</text>
-<rect x="94" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="779.6" class="cm-n">arcsTouch</text>
-<text x="452" y="779.6" class="cm-c">THE severance test</text>
-<rect x="94" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="799.6" class="cm-n">Groups</text>
-<text x="452" y="799.6" class="cm-c">union-find</text>
+<text x="65" y="179.6" class="cm-n">lm.framePath</text>
+<text x="452" y="179.6" class="cm-c">homed shallower on the mark&#x27;s own chain?</text>
+<rect x="52" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="199.6" class="cm-n">_descentWorld</text>
+<text x="452" y="199.6" class="cm-c">yes: a descent  (-&gt; Fig 4)</text>
+<rect x="52" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="219.6" class="cm-n">_projected</text>
+<text x="452" y="219.6" class="cm-c">no: the eraser in the target&#x27;s stored units, memoised</text>
+<rect x="73" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="239.6" class="cm-n">_eraserLoopsInto</text>
+<rect x="94" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="259.6" class="cm-n">stage.placeNative</text>
+<text x="452" y="259.6" class="cm-c">through the target&#x27;s picture table (F41)</text>
+<rect x="52" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="279.6" class="cm-n">dustBarFor</text>
+<text x="452" y="279.6" class="cm-c">a quarter pixel at the zoom the mark was drawn at</text>
+<rect x="31" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="299.6" class="cm-n">submit</text>
+<text x="452" y="299.6" class="cm-c">to the pool: cuts and plates share one queue</text>
+<rect x="31" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="319.6" class="cm-n">_onLanded</text>
+<text x="452" y="319.6" class="cm-c">the answer, into the reorder buffer</text>
+<rect x="31" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="339.6" class="cm-n">cutJob</text>
+<text x="452" y="339.6" class="cm-c">...or inline: the same function either way</text>
+<rect x="52" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="359.6" class="cm-n">shapeBoolean (both)</text>
+<text x="452" y="359.6" class="cm-c">difference and intersection in one pass</text>
+<rect x="73" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="379.6" class="cm-n">shapeBooleanOnce</text>
+<rect x="94" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="399.6" class="cm-n">normalizeLoops</text>
+<text x="452" y="399.6" class="cm-c">one handedness; solid area positive</text>
+<rect x="94" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="419.6" class="cm-n">straighten</text>
+<text x="452" y="419.6" class="cm-c">an arc over the freeze radius stands in as its chord</text>
+<rect x="94" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="439.6" class="cm-n">pieceIntersections</text>
+<text x="452" y="439.6" class="cm-c">circle-circle: one square root</text>
+<rect x="94" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="459.6" class="cm-n">pieceOverlap</text>
+<text x="452" y="459.6" class="cm-c">boundary lying exactly on boundary</text>
+<rect x="94" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="479.6" class="cm-n">cutLine / cutArc</text>
+<text x="452" y="479.6" class="cm-c">a cut piece keeps what it was cut from</text>
+<rect x="94" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="499.6" class="cm-n">RayIndex</text>
+<text x="452" y="499.6" class="cm-c">the classifier&#x27;s buckets, per ray direction</text>
+<rect x="94" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="519.6" class="cm-n">winding (a RayIndex)</text>
+<text x="452" y="519.6" class="cm-c">inside or out, at each fragment&#x27;s midpoint</text>
+<rect x="94" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="539.6" class="cm-n">stitch</text>
+<text x="452" y="539.6" class="cm-c">pair ends by angle, then walk the cycles</text>
+<rect x="52" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="559.6" class="cm-n">shapeComponents</text>
+<rect x="52" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="579.6" class="cm-n">dropDust</text>
+<rect x="31" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="599.6" class="cm-n">_applyPair</text>
+<text x="452" y="599.6" class="cm-c">the document side, strictly in the serial order</text>
+<rect x="52" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="619.6" class="cm-n">_applyCut</text>
+<rect x="73" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="639.6" class="cm-n">_noteSeal</text>
+<text x="452" y="639.6" class="cm-c">count the booleans that had to be sealed</text>
+<rect x="73" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="659.6" class="cm-n">_eraseOp</text>
+<text x="452" y="659.6" class="cm-c">the gesture&#x27;s undo op, before anything is touched</text>
+<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="679.6" class="cm-n">doc.eraseReplaceById</text>
+<text x="452" y="679.6" class="cm-c">one region keeps the key; several is a split</text>
+<rect x="73" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="699.6" class="cm-n">doc.recordBake</text>
+<text x="452" y="699.6" class="cm-c">the step, on the gesture&#x27;s op</text>
+<rect x="73" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="719.6" class="cm-n">_resplitFamily</text>
+<text x="452" y="719.6" class="cm-c">did the OBJECT come apart?</text>
+<rect x="94" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="739.6" class="cm-n">_familyComponents</text>
+<text x="452" y="739.6" class="cm-c">members are nodes; doorways are the edges</text>
+<rect x="115" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="128" y="759.6" class="cm-n">_inkOutline</text>
+<rect x="115" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="779.6" class="cm-n">lm.mapRectF</text>
+<text x="452" y="779.6" class="cm-c">the doorway, in the other member&#x27;s frame</text>
+<rect x="115" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="128" y="799.6" class="cm-n">contactArcs</text>
+<text x="452" y="799.6" class="cm-c">where ink meets the doorway, as intervals</text>
+<rect x="136" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="149" y="819.6" class="cm-n">sidesOf / tOn / merge</text>
+<text x="452" y="819.6" class="cm-c">perimeter 0..4, never wrapped</text>
+<rect x="115" y="832.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="128" y="839.6" class="cm-n">arcsTouch</text>
+<text x="452" y="839.6" class="cm-c">THE severance test</text>
+<rect x="115" y="852.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="128" y="859.6" class="cm-n">Groups</text>
+<text x="452" y="859.6" class="cm-c">union-find</text>
 </svg></div>
 </section>
 <section id="descent">
 <h2><span class="num">FIG 4</span> Erasing below an object's own level</h2>
-<p class="sub">27 calls &middot; 5 levels deep</p>
+<p class="sub">26 calls &middot; 4 levels deep</p>
 <p>One job for the whole family. Every cede is virtual, each level's square ink
         is derived exactly as the tile store derives it, and nothing touches the document until the
         whole descent has succeeded. Every step hands ink down; <strong>only the last one
         cuts</strong>. Skipping the chain and jumping straight to the erase level makes the ceded tile
         exactly zero units wide at five crossings.</p>
-<div class="figbox"><svg viewBox="0 0 872 564" width="872" role="img" aria-label="Erasing below an object&#x27;s own level">
-<path d="M13.5,21.5 V36" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<div class="figbox"><svg viewBox="0 0 872 544" width="872" role="img" aria-label="Erasing below an object&#x27;s own level">
+<path d="M13.5,21.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,41.5 V436" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,76 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,56 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,76 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,416 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,81.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,96 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,101.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,116 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,136 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,156 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,176 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,116 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,136 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,156 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,176 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,276 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,296 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,316 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,336 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,356 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,181.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,196 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,296 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,316 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,336 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,356 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,201.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,216 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,236 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,256 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,276 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,361.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,376 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,396 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,416 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,441.5 V536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,456 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,476 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,496 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,516 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,536 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,216 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,236 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,256 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,361.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,376 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,396 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,421.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,456 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,476 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,496 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,516 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="23" y="19.6" class="cm-n">_bakeRehome</text>
-<text x="452" y="19.6" class="cm-c">timed</text>
+<text x="23" y="19.6" class="cm-n">_dispatchPair (a descent)</text>
+<text x="452" y="19.6" class="cm-c">the target is homed shallower on the mark&#x27;s chain</text>
 <rect x="31" y="32.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="39.6" class="cm-n">_bakeRehomeInner</text>
-<text x="452" y="39.6" class="cm-c">one job for the whole family</text>
-<rect x="52" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="59.6" class="cm-n">_descentWorld</text>
-<text x="452" y="59.6" class="cm-c">the lattice and the derive parameters</text>
-<rect x="52" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="79.6" class="cm-n">runDescentAsync</text>
-<text x="452" y="79.6" class="cm-c">the worker gets a COPY of the lattice</text>
+<text x="44" y="39.6" class="cm-n">_jobFor -&gt; _descentWorld</text>
+<text x="452" y="39.6" class="cm-c">the lattice and the derive parameters</text>
+<rect x="31" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="59.6" class="cm-n">submit</text>
+<text x="452" y="59.6" class="cm-c">one descent out at a time; the worker gets a COPY of the lattice</text>
+<rect x="31" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="79.6" class="cm-n">descentJob</text>
+<text x="452" y="79.6" class="cm-c">...or inline: nothing touches the document yet</text>
 <rect x="52" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="99.6" class="cm-n">descentJob</text>
-<text x="452" y="99.6" class="cm-c">...or inline: nothing touches the document yet</text>
-<rect x="73" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="119.6" class="cm-n">new VirtualDoc</text>
-<text x="452" y="119.6" class="cm-c">the target is the only real object read</text>
-<rect x="73" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="139.6" class="cm-n">lm.framePath</text>
-<rect x="73" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="159.6" class="cm-n">lm.mapRectF</text>
-<text x="452" y="159.6" class="cm-c">where the erase lands in each frame down</text>
-<rect x="73" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="179.6" class="cm-n">childTilePhase</text>
-<text x="452" y="179.6" class="cm-c">the object&#x27;s grid, one level down</text>
-<rect x="73" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="199.6" class="cm-n">squareInkOf</text>
-<text x="452" y="199.6" class="cm-c">called through world.squareInk</text>
-<rect x="94" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="219.6" class="cm-n">lm.projectF</text>
-<text x="452" y="219.6" class="cm-c">a ring native, one bounded hop</text>
-<rect x="94" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="239.6" class="cm-n">classifyUp</text>
-<text x="452" y="239.6" class="cm-c">empty / solid / edge: the store&#x27;s own rule</text>
-<rect x="94" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="259.6" class="cm-n">solidQuad</text>
-<rect x="94" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="107" y="279.6" class="cm-n">deriveStep</text>
-<text x="452" y="279.6" class="cm-c">the kid IS the store&#x27;s piece, bit for bit (F42)</text>
-<rect x="73" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="299.6" class="cm-n">shapeComponents</text>
-<rect x="73" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="319.6" class="cm-n">dropDust</text>
-<rect x="73" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="339.6" class="cm-n">cutJob</text>
-<text x="452" y="339.6" class="cm-c">LAST level only: eraser and ink now comparable</text>
-<rect x="73" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="359.6" class="cm-n">cedeVirtual</text>
-<text x="452" y="359.6" class="cm-c">cut the square OUT of the parent, exactly</text>
-<rect x="94" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="379.6" class="cm-n">rectLoop</text>
+<text x="65" y="99.6" class="cm-n">new VirtualDoc</text>
+<text x="452" y="99.6" class="cm-c">the target is the only real object read</text>
+<rect x="52" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="119.6" class="cm-n">lm.framePath</text>
+<rect x="52" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="139.6" class="cm-n">lm.mapRectF</text>
+<text x="452" y="139.6" class="cm-c">where the erase lands in each frame down</text>
+<rect x="52" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="159.6" class="cm-n">childTilePhase</text>
+<text x="452" y="159.6" class="cm-c">the object&#x27;s grid, one level down</text>
+<rect x="52" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="179.6" class="cm-n">squareInkOf</text>
+<text x="452" y="179.6" class="cm-c">called through world.squareInk</text>
+<rect x="73" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="199.6" class="cm-n">lm.projectF</text>
+<text x="452" y="199.6" class="cm-c">a ring native, one bounded hop</text>
+<rect x="73" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="86" y="219.6" class="cm-n">classifyUp</text>
+<text x="452" y="219.6" class="cm-c">empty / solid / edge: the store&#x27;s own rule</text>
+<rect x="73" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="86" y="239.6" class="cm-n">solidQuad</text>
+<rect x="73" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="86" y="259.6" class="cm-n">deriveStep</text>
+<text x="452" y="259.6" class="cm-c">the kid IS the store&#x27;s piece, bit for bit (F42)</text>
+<rect x="52" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="279.6" class="cm-n">shapeComponents</text>
+<rect x="52" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="299.6" class="cm-n">dropDust</text>
+<rect x="52" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="319.6" class="cm-n">cutJob</text>
+<text x="452" y="319.6" class="cm-c">LAST level only: eraser and ink now comparable</text>
+<rect x="52" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="339.6" class="cm-n">shiftDown</text>
+<text x="452" y="339.6" class="cm-c">a kid&#x27;s picture table, less its frame&#x27;s shift</text>
+<rect x="52" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="359.6" class="cm-n">cede</text>
+<text x="452" y="359.6" class="cm-c">cut the square OUT of the parent, on the VirtualDoc</text>
+<rect x="73" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="379.6" class="cm-n">rectLoop</text>
 <text x="452" y="379.6" class="cm-c">the doorway, as an outline</text>
-<rect x="94" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="399.6" class="cm-n">subtractShape</text>
-<rect x="94" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="107" y="419.6" class="cm-n">shiftDown</text>
-<text x="452" y="419.6" class="cm-c">the kid&#x27;s displacement table</text>
-<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="439.6" class="cm-n">_applyDescent</text>
-<text x="452" y="439.6" class="cm-c">the family swapped in, with real ids</text>
-<rect x="73" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="459.6" class="cm-n">lm.merge</text>
-<text x="452" y="459.6" class="cm-c">frames the job minted on its copy come back first (F67)</text>
-<rect x="73" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="479.6" class="cm-n">doc.removeById</text>
-<rect x="73" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="499.6" class="cm-n">doc.add</text>
-<rect x="73" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="519.6" class="cm-n">doc.recordBake</text>
-<text x="452" y="519.6" class="cm-c">newest last, so undo unwinds from the bottom</text>
-<rect x="73" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="539.6" class="cm-n">_resplitFamily</text>
-<text x="452" y="539.6" class="cm-c">-&gt; Fig 3</text>
+<rect x="73" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="399.6" class="cm-n">subtractShape</text>
+<rect x="31" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="419.6" class="cm-n">_applyPair -&gt; _applyDescent</text>
+<text x="452" y="419.6" class="cm-c">the family swapped in, with real ids</text>
+<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="439.6" class="cm-n">lm.merge</text>
+<text x="452" y="439.6" class="cm-c">frames the job minted on its copy come back first (F67)</text>
+<rect x="52" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="459.6" class="cm-n">doc.removeById</text>
+<rect x="52" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="479.6" class="cm-n">doc.add</text>
+<rect x="52" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="65" y="499.6" class="cm-n">doc.recordBake</text>
+<text x="452" y="499.6" class="cm-c">newest last, so undo unwinds from the bottom</text>
+<rect x="52" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="519.6" class="cm-n">_resplitFamily</text>
+<text x="452" y="519.6" class="cm-c">-&gt; Fig 3</text>
 </svg></div>
 </section>
 <section id="render">
 <h2><span class="num">FIG 5</span> Rendering a frame</h2>
-<p class="sub">63 calls &middot; 9 levels deep</p>
+<p class="sub">92 calls &middot; 10 levels deep</p>
 <p>The widest tree here, and the one with a cycle in it: <code>_ensureUp</code>
         reaches its parent's tiles one level at a time. <strong>A composed long jump upward cancels
         catastrophically</strong>, which is why the chain exists at all. Both renderers draw the same
         render list; the raster one is the default, the SVG one is behind <code>?svg</code>.</p>
-<div class="figbox"><svg viewBox="0 0 872 1284" width="872" role="img" aria-label="Rendering a frame">
-<path d="M13.5,21.5 V1256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<div class="figbox"><svg viewBox="0 0 872 1864" width="872" role="img" aria-label="Rendering a frame">
+<path d="M13.5,21.5 V1376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,636 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,916 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,1236 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,1256 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,41.5 V76" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,76 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,81.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,96 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,616 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,101.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,116 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,516 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,121.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,136 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,176 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,196 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,256 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,276 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,296 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,141.5 V156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,156 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,201.5 V236" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,216 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,56 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,76 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,116 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,816 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,836 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,1376 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,81.5 V96" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,96 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,121.5 V796" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,136 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,736 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,776 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,796 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,141.5 V176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,156 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,176 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,181.5 V196" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,196 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,201.5 V636" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,216 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,636 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,221.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M118.5,236 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,301.5 V476" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,276 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M118.5,316 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,336 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,356 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,436 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,476 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,361.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,376 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,396 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,416 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,441.5 V456" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,376 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,396 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,416 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,241.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,256 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,281.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,296 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,321.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,336 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,356 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,421.5 V596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,436 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M139.5,456 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,481.5 V496" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,496 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,521.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,536 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,556 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,576 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,581.5 V596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,596 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,641.5 V656" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,661.5 V796" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,676 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,696 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,476 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,556 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,596 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,481.5 V536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,496 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,516 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,536 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,561.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,576 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,601.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,616 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,641.5 V696" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,656 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,676 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,696 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,701.5 V716" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,716 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,741.5 V756" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,756 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,776 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,796 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,701.5 V736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,716 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,736 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,801.5 V816" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,816 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,821.5 V836" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,836 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,841.5 V856" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,856 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,861.5 V876" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,876 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M160.5,881.5 V896" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M160.5,896 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,921.5 V1216" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,936 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,956 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,976 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,996 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,1176 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,1196 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,1216 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,1001.5 V1136" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,1016 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,1136 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,1021.5 V1096" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,841.5 V856" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,856 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,861.5 V1336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,876 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,996 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1216 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1236 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1336 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,881.5 V916" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,896 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,916 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,921.5 V936" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,936 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,941.5 V956" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,956 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,961.5 V976" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,976 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1001.5 V1056" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1016 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,1036 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,1096 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,1041.5 V1056" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,1056 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,1061.5 V1076" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,1076 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,1101.5 V1116" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,1116 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,1141.5 V1156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,1156 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1056 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1061.5 V1076" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1076 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1081.5 V1136" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1096 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1136 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,1101.5 V1116" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,1116 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,1141.5 V1156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,1156 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,1161.5 V1176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,1176 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M181.5,1181.5 V1196" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M181.5,1196 H198" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1241.5 V1316" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1256 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1316 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1261.5 V1276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1276 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1281.5 V1296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1296 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1341.5 V1356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1356 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1381.5 V1676" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1396 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1416 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1456 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1636 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1676 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1461.5 V1596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1476 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1596 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1481.5 V1556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1496 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1556 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1501.5 V1516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1516 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1521.5 V1536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,1536 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1561.5 V1576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1576 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1601.5 V1616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1616 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,1701.5 V1716" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,1716 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1721.5 V1736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,1736 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1741.5 V1836" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1756 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1816 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,1836 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1761.5 V1776" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,1776 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1781.5 V1796" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,1796 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="23" y="19.6" class="cm-n">_render</text>
 <rect x="31" y="32.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="39.6" class="cm-n">_buildList</text>
-<rect x="52" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="59.6" class="cm-n">cam.frameWindow</text>
-<rect x="52" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="79.6" class="cm-n">listFor</text>
-<text x="452" y="79.6" class="cm-c">the one render list both renderers draw</text>
-<rect x="73" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="99.6" class="cm-n">store.content(F, win)</text>
-<text x="452" y="99.6" class="cm-c">every tile covering the view</text>
-<rect x="94" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="119.6" class="cm-n">_ensureUp -&gt; _bakeUp</text>
-<text x="452" y="119.6" class="cm-c">COARSER ink, magnified</text>
-<rect x="115" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="139.6" class="cm-n">_upPiecesOver</text>
-<rect x="136" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="159.6" class="cm-n">_ensureUp (parent)</text>
-<text x="452" y="159.6" class="cm-c">the chain: one level at a time, recursive</text>
-<rect x="115" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="128" y="179.6" class="cm-n">doc.at(parent)</text>
-<text x="452" y="179.6" class="cm-c">settles a frame&#x27;s pending shift on first read</text>
-<rect x="115" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="199.6" class="cm-n">_ringNatives</text>
-<text x="452" y="199.6" class="cm-c">the eight cells around each step</text>
-<rect x="136" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="219.6" class="cm-n">lm.peekRing</text>
-<text x="452" y="219.6" class="cm-c">never mints a frame just from looking</text>
+<text x="44" y="39.6" class="cm-n">_camToLattice</text>
+<text x="452" y="39.6" class="cm-c">the camera&#x27;s frame, if a delete took it, replaced</text>
+<rect x="31" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="59.6" class="cm-n">_prepareView</text>
+<text x="452" y="59.6" class="cm-c">the view&#x27;s picture sources, minted here: no read mints</text>
+<rect x="31" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="79.6" class="cm-n">_listWin</text>
+<text x="452" y="79.6" class="cm-c">the view&#x27;s window, grown by the renderer&#x27;s margin</text>
+<rect x="52" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="99.6" class="cm-n">cam.frameWindow</text>
+<rect x="31" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="44" y="119.6" class="cm-n">stage.sync(F, win)</text>
+<text x="452" y="119.6" class="cm-c">the scene&#x27;s table over the window; one commit</text>
+<rect x="52" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="139.6" class="cm-n">_rebuild</text>
+<text x="452" y="139.6" class="cm-c">a new frame: the table built afresh</text>
+<rect x="73" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="159.6" class="cm-n">lm.tileRange</text>
+<rect x="73" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="179.6" class="cm-n">_readMissing</text>
+<text x="452" y="179.6" class="cm-c">the window&#x27;s tiles, read in one call</text>
+<rect x="94" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="199.6" class="cm-n">store.readTiles</text>
+<text x="452" y="199.6" class="cm-c">a miss is derived now, within the budget</text>
+<rect x="115" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="219.6" class="cm-n">_ensureUp -&gt; _bakeUp</text>
+<text x="452" y="219.6" class="cm-c">COARSER ink, magnified</text>
 <rect x="136" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="239.6" class="cm-n">lm.projectF</text>
-<rect x="115" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="128" y="259.6" class="cm-n">classifyUp</text>
-<text x="452" y="259.6" class="cm-c">empty / solid / edge</text>
-<rect x="115" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="279.6" class="cm-n">_solid</text>
-<text x="452" y="279.6" class="cm-c">a flooding object becomes 4 corners</text>
-<rect x="115" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="128" y="299.6" class="cm-n">deriveStep</text>
-<text x="452" y="299.6" class="cm-c">ONE step of the chain</text>
-<rect x="136" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="149" y="319.6" class="cm-n">transformLoopsAbout</text>
-<text x="452" y="319.6" class="cm-c">cancel against the cell centre, then scale</text>
-<rect x="136" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="339.6" class="cm-n">childTilePhase</text>
-<text x="452" y="339.6" class="cm-c">the object&#x27;s grid, carried down</text>
-<rect x="136" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="149" y="359.6" class="cm-n">chopFreezeLoops</text>
-<text x="452" y="359.6" class="cm-c">THE CHOP AND THE FREEZE</text>
-<rect x="157" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="170" y="379.6" class="cm-n">freezeRadius</text>
-<text x="452" y="379.6" class="cm-c">one radius: frozen wherever it is</text>
-<rect x="157" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="170" y="399.6" class="cm-n">chordCuts</text>
-<text x="452" y="399.6" class="cm-c">cuts in the arc&#x27;s own chord frame</text>
-<rect x="157" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="170" y="419.6" class="cm-n">freezePiece</text>
-<text x="452" y="419.6" class="cm-c">the chord between its OWN ends</text>
-<rect x="136" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="149" y="439.6" class="cm-n">shapeLoopsInRect</text>
-<text x="452" y="439.6" class="cm-c">the clip that hands back arcs</text>
-<rect x="157" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="170" y="459.6" class="cm-n">clipShapeToRect</text>
-<rect x="136" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="149" y="479.6" class="cm-n">bandRings</text>
-<text x="452" y="479.6" class="cm-c">a stroke&#x27;s painted band -&gt; rings</text>
-<rect x="157" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="170" y="499.6" class="cm-n">strokeStripNear</text>
-<text x="452" y="499.6" class="cm-c">analytic, magnification-independent</text>
-<rect x="94" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="519.6" class="cm-n">_ensureDown -&gt; _bakeDown</text>
-<text x="452" y="519.6" class="cm-c">FINER ink, minified in one jump</text>
-<rect x="115" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="539.6" class="cm-n">_downSources</text>
-<text x="452" y="539.6" class="cm-c">the frame tree, pruned by invariant 2</text>
-<rect x="115" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="559.6" class="cm-n">lm.projectF</text>
-<rect x="115" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="579.6" class="cm-n">_downPieces</text>
-<text x="452" y="579.6" class="cm-c">flattens to polygons (safe: it is a leaf)</text>
-<rect x="136" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="149" y="599.6" class="cm-n">shapeRingsInRect</text>
-<text x="452" y="599.6" class="cm-c">clip first, flatten after</text>
-<rect x="73" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="619.6" class="cm-n">store.ownContent</text>
-<text x="452" y="619.6" class="cm-c">THIS frame&#x27;s objects: a plain read</text>
-<rect x="31" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="44" y="639.6" class="cm-n">renderer.render (raster)</text>
-<text x="452" y="639.6" class="cm-c">the default</text>
-<rect x="52" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="65" y="659.6" class="cm-n">_frameStep</text>
-<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="86" y="679.6" class="cm-n">visibleChords</text>
-<text x="452" y="679.6" class="cm-c">light enough to raster here and now?</text>
-<rect x="73" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="86" y="699.6" class="cm-n">_renderSync</text>
-<text x="452" y="699.6" class="cm-c">yes: the sync path, on the main thread</text>
-<rect x="94" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="107" y="719.6" class="cm-n">packJob</text>
-<rect x="94" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="107" y="739.6" class="cm-n">renderPlate</text>
-<text x="452" y="739.6" class="cm-c">our own float64 coverage rasteriser</text>
-<rect x="73" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="86" y="759.6" class="cm-n">store.want</text>
-<text x="452" y="759.6" class="cm-c">no: the cached plates, and the misses</text>
-<rect x="73" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="86" y="779.6" class="cm-n">layer.compose</text>
-<text x="452" y="779.6" class="cm-c">plates onto one canvas, stale ones kept</text>
-<rect x="73" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="86" y="799.6" class="cm-n">_post</text>
-<text x="452" y="799.6" class="cm-c">the misses, as jobs</text>
-<rect x="94" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="107" y="819.6" class="cm-n">_postNow</text>
-<rect x="115" y="832.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="128" y="839.6" class="cm-n">submitPlates</text>
-<text x="452" y="839.6" class="cm-c">strips, to the worker pool</text>
-<rect x="136" y="852.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="149" y="859.6" class="cm-n">pump -&gt; dispatch</text>
-<rect x="157" y="872.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="170" y="879.6" class="cm-n">runJob</text>
-<text x="452" y="879.6" class="cm-c">in the worker (inline where there is none)</text>
-<rect x="178" y="892.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="191" y="899.6" class="cm-n">renderPlate</text>
-<rect x="31" y="912.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="44" y="919.6" class="cm-n">renderer.render (?svg)</text>
-<rect x="52" y="932.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="939.6" class="cm-n">_activateLevel</text>
-<text x="452" y="939.6" class="cm-c">swap in this level&#x27;s retained subtree</text>
-<rect x="52" y="952.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="959.6" class="cm-n">_maybeReorigin</text>
-<text x="452" y="959.6" class="cm-c">re-anchor if the view drifted too far</text>
-<rect x="52" y="972.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="979.6" class="cm-n">_sig</text>
-<text x="452" y="979.6" class="cm-c">same signature -&gt; reuse the paths</text>
-<rect x="52" y="992.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="999.6" class="cm-n">_buildPieces</text>
-<rect x="73" y="1012.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="1019.6" class="cm-n">_buildInto</text>
-<rect x="94" y="1032.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="1039.6" class="cm-n">_pushArea</text>
-<rect x="115" y="1052.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="1059.6" class="cm-n">pushShapeAnchors</text>
-<rect x="136" y="1072.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="1079.6" class="cm-n">pushArcPiece</text>
-<text x="452" y="1079.6" class="cm-c">one plan per piece, never per zoom</text>
-<rect x="94" y="1092.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="1099.6" class="cm-n">_buildOutlineInto</text>
-<text x="452" y="1099.6" class="cm-c">a stroke not yet resolved, as its outline</text>
-<rect x="115" y="1112.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="128" y="1119.6" class="cm-n">ensureOutline -&gt; strokeLoops</text>
-<rect x="73" y="1132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="1139.6" class="cm-n">_addFillPath</text>
-<rect x="94" y="1152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="1159.6" class="cm-n">mkPath</text>
-<text x="452" y="1159.6" class="cm-c">never hand the library an unbounded array</text>
-<rect x="52" y="1172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="1179.6" class="cm-n">_applyThinScale</text>
-<text x="452" y="1179.6" class="cm-c">rescale features too small for the rasteriser</text>
-<rect x="52" y="1192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="1199.6" class="cm-n">_applyOpacity</text>
-<rect x="52" y="1212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="1219.6" class="cm-n">syncWorld</text>
-<text x="452" y="1219.6" class="cm-c">fold the scene origin in, in full precision</text>
-<rect x="31" y="1232.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="1239.6" class="cm-n">_drainPlates</text>
-<text x="452" y="1239.6" class="cm-c">the document&#x27;s changes, to the plate cache</text>
-<rect x="31" y="1252.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="1259.6" class="cm-n">_maybeLadder</text>
-<text x="452" y="1259.6" class="cm-c">coarse plates for the zoomed-out screens, while still</text>
+<text x="149" y="239.6" class="cm-n">_upPiecesOver</text>
+<rect x="157" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="170" y="259.6" class="cm-n">_ensureUp (parent)</text>
+<text x="452" y="259.6" class="cm-c">the chain: one level at a time, recursive</text>
+<rect x="136" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="279.6" class="cm-n">_cellNatives</text>
+<text x="452" y="279.6" class="cm-c">the parent cell&#x27;s natives, co-residents too</text>
+<rect x="157" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="170" y="299.6" class="cm-n">doc.queryRect</text>
+<rect x="136" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="319.6" class="cm-n">_ringNatives</text>
+<text x="452" y="319.6" class="cm-c">the eight cells around each step</text>
+<rect x="157" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="170" y="339.6" class="cm-n">lm.peekRing</text>
+<text x="452" y="339.6" class="cm-c">never mints a frame just from looking</text>
+<rect x="157" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="170" y="359.6" class="cm-n">lm.projectF</text>
+<rect x="136" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="149" y="379.6" class="cm-n">classifyUp</text>
+<text x="452" y="379.6" class="cm-c">empty / solid / edge</text>
+<rect x="136" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="399.6" class="cm-n">_solid</text>
+<text x="452" y="399.6" class="cm-c">a flooding object becomes 4 corners</text>
+<rect x="136" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="149" y="419.6" class="cm-n">deriveStep</text>
+<text x="452" y="419.6" class="cm-c">ONE step of the chain</text>
+<rect x="157" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="170" y="439.6" class="cm-n">transformLoopsAbout</text>
+<text x="452" y="439.6" class="cm-c">cancel against the cell centre, then scale</text>
+<rect x="157" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="170" y="459.6" class="cm-n">childTilePhase</text>
+<text x="452" y="459.6" class="cm-c">the object&#x27;s grid, carried down</text>
+<rect x="157" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="170" y="479.6" class="cm-n">chopFreezeLoops</text>
+<text x="452" y="479.6" class="cm-c">THE CHOP AND THE FREEZE</text>
+<rect x="178" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="191" y="499.6" class="cm-n">freezeRadius</text>
+<text x="452" y="499.6" class="cm-c">one radius: frozen wherever it is</text>
+<rect x="178" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="191" y="519.6" class="cm-n">chordCuts</text>
+<text x="452" y="519.6" class="cm-c">cuts in the arc&#x27;s own chord frame</text>
+<rect x="178" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="191" y="539.6" class="cm-n">freezePiece</text>
+<text x="452" y="539.6" class="cm-c">the chord between its OWN ends</text>
+<rect x="157" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="170" y="559.6" class="cm-n">shapeLoopsInRect</text>
+<text x="452" y="559.6" class="cm-c">the clip that hands back arcs</text>
+<rect x="178" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="191" y="579.6" class="cm-n">clipShapeToRect</text>
+<rect x="157" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="170" y="599.6" class="cm-n">bandRings</text>
+<text x="452" y="599.6" class="cm-c">a stroke&#x27;s painted band -&gt; rings</text>
+<rect x="178" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="191" y="619.6" class="cm-n">strokeStripNear</text>
+<text x="452" y="619.6" class="cm-c">analytic, magnification-independent</text>
+<rect x="115" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="639.6" class="cm-n">_ensureDown -&gt; _bakeDown</text>
+<text x="452" y="639.6" class="cm-c">FINER ink, minified in one jump</text>
+<rect x="136" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="659.6" class="cm-n">_downSources</text>
+<text x="452" y="659.6" class="cm-c">the frame tree, pruned by invariant 2</text>
+<rect x="136" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="679.6" class="cm-n">lm.projectF</text>
+<rect x="136" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="699.6" class="cm-n">_downPieces</text>
+<text x="452" y="699.6" class="cm-c">flattens to polygons (safe: it is a leaf)</text>
+<rect x="157" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="170" y="719.6" class="cm-n">shapeRingsInRect</text>
+<text x="452" y="719.6" class="cm-c">clip first, flatten after</text>
+<rect x="52" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="739.6" class="cm-n">_drainQueue</text>
+<text x="452" y="739.6" class="cm-c">the document&#x27;s and the store&#x27;s events, in order</text>
+<rect x="73" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="759.6" class="cm-n">_applyDoc / _applyTile</text>
+<rect x="52" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="779.6" class="cm-n">store.setCameraPins</text>
+<text x="452" y="779.6" class="cm-c">the tiles it watches are the store&#x27;s pins</text>
+<rect x="52" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="799.6" class="cm-n">_commit</text>
+<text x="452" y="799.6" class="cm-c">G moves only with the table</text>
+<rect x="31" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="44" y="819.6" class="cm-n">stage.items</text>
+<text x="452" y="819.6" class="cm-c">the list both renderers draw</text>
+<rect x="31" y="832.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="44" y="839.6" class="cm-n">renderer.render (raster)</text>
+<text x="452" y="839.6" class="cm-c">the default</text>
+<rect x="52" y="852.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="65" y="859.6" class="cm-n">_frameStep</text>
+<rect x="73" y="872.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="879.6" class="cm-n">pyramid.frameFor</text>
+<text x="452" y="879.6" class="cm-c">the view: frame, zoom and level</text>
+<rect x="94" y="892.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="899.6" class="cm-n">levelFor</text>
+<text x="452" y="899.6" class="cm-c">the level whose stretch lies in the band</text>
+<rect x="94" y="912.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="919.6" class="cm-n">_requestView</text>
+<text x="452" y="919.6" class="cm-c">the view&#x27;s missing plates, asked once</text>
+<rect x="115" y="932.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="939.6" class="cm-n">_ask -&gt; _request</text>
+<rect x="136" y="952.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="149" y="959.6" class="cm-n">onRequest -&gt; queue.push</text>
+<text x="452" y="959.6" class="cm-c">the hook RasterRenderer gives the pyramid</text>
+<rect x="157" y="972.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="170" y="979.6" class="cm-n">strips</text>
+<text x="452" y="979.6" class="cm-c">dealt round-robin from the attention point</text>
+<rect x="73" y="992.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="999.6" class="cm-n">queue.pump</text>
+<text x="452" y="999.6" class="cm-c">within the pack budget</text>
+<rect x="94" y="1012.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1019.6" class="cm-n">_best</text>
+<text x="452" y="1019.6" class="cm-c">the lowest priority; a slot kept for cuts</text>
+<rect x="94" y="1032.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1039.6" class="cm-n">_admit</text>
+<text x="452" y="1039.6" class="cm-c">a strip whose purpose moved on is dropped</text>
+<rect x="94" y="1052.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1059.6" class="cm-n">pool.submit -&gt; _pyrSubmit</text>
+<text x="452" y="1059.6" class="cm-c">the pool RasterRenderer gives the queue</text>
+<rect x="115" y="1072.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="1079.6" class="cm-n">_pyrPost</text>
+<rect x="136" y="1092.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="149" y="1099.6" class="cm-n">_pyrPack</text>
+<text x="452" y="1099.6" class="cm-c">called back by the pool at dispatch</text>
+<rect x="157" y="1112.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="170" y="1119.6" class="cm-n">packJob</text>
+<text x="452" y="1119.6" class="cm-c">the plates&#x27; items, from the Stage&#x27;s table</text>
+<rect x="136" y="1132.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="149" y="1139.6" class="cm-n">rasterPool.submit -&gt; dispatch</text>
+<text x="452" y="1139.6" class="cm-c">a free worker slot</text>
+<rect x="157" y="1152.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="170" y="1159.6" class="cm-n">runJob</text>
+<text x="452" y="1159.6" class="cm-c">in the worker (inline where there is none)</text>
+<rect x="178" y="1172.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="191" y="1179.6" class="cm-n">renderPlate</text>
+<text x="452" y="1179.6" class="cm-c">our own float64 coverage rasteriser</text>
+<rect x="199" y="1192.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="212" y="1199.6" class="cm-n">paintPlate</text>
+<rect x="73" y="1212.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1219.6" class="cm-n">_planeStep</text>
+<text x="452" y="1219.6" class="cm-c">the drag plane, while a selection is held</text>
+<rect x="73" y="1232.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1239.6" class="cm-n">pyramid.compose</text>
+<text x="452" y="1239.6" class="cm-c">the plan&#x27;s plates onto one canvas</text>
+<rect x="94" y="1252.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1259.6" class="cm-n">plan</text>
+<rect x="115" y="1272.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="1279.6" class="cm-n">_planLevel -&gt; _planCells</text>
+<rect x="136" y="1292.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="149" y="1299.6" class="cm-n">_planCell</text>
+<text x="452" y="1299.6" class="cm-c">exact, an older picture, or a stand-in</text>
+<rect x="94" y="1312.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1319.6" class="cm-n">_paint</text>
+<rect x="73" y="1332.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1339.6" class="cm-n">_pyrPrefetch</text>
+<text x="452" y="1339.6" class="cm-c">while the camera is still</text>
+<rect x="94" y="1352.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1359.6" class="cm-n">prefetchPlan</text>
+<text x="452" y="1359.6" class="cm-c">coarser and far levels, at priority 4</text>
+<rect x="31" y="1372.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="44" y="1379.6" class="cm-n">renderer.render (?svg)</text>
+<rect x="52" y="1392.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1399.6" class="cm-n">_activateLevel</text>
+<text x="452" y="1399.6" class="cm-c">swap in this level&#x27;s retained subtree</text>
+<rect x="52" y="1412.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1419.6" class="cm-n">_maybeReorigin</text>
+<text x="452" y="1419.6" class="cm-c">re-anchor if the view drifted too far</text>
+<rect x="52" y="1432.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1439.6" class="cm-n">_sig</text>
+<text x="452" y="1439.6" class="cm-c">same signature -&gt; reuse the paths</text>
+<rect x="52" y="1452.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1459.6" class="cm-n">_buildPieces</text>
+<rect x="73" y="1472.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="1479.6" class="cm-n">_buildInto</text>
+<rect x="94" y="1492.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="1499.6" class="cm-n">_pushArea</text>
+<rect x="115" y="1512.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="1519.6" class="cm-n">pushShapeAnchors</text>
+<rect x="136" y="1532.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="149" y="1539.6" class="cm-n">pushArcPiece</text>
+<text x="452" y="1539.6" class="cm-c">one plan per piece, never per zoom</text>
+<rect x="94" y="1552.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="1559.6" class="cm-n">_buildOutlineInto</text>
+<text x="452" y="1559.6" class="cm-c">a stroke not yet resolved, as its outline</text>
+<rect x="115" y="1572.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="128" y="1579.6" class="cm-n">strokeLoops</text>
+<rect x="73" y="1592.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="1599.6" class="cm-n">_addFillPath</text>
+<rect x="94" y="1612.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1619.6" class="cm-n">mkPath</text>
+<text x="452" y="1619.6" class="cm-c">never hand the library an unbounded array</text>
+<rect x="52" y="1632.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1639.6" class="cm-n">_applyThinScale</text>
+<text x="452" y="1639.6" class="cm-c">rescale features too small for the rasteriser</text>
+<rect x="52" y="1652.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1659.6" class="cm-n">_applyOpacity</text>
+<rect x="52" y="1672.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="1679.6" class="cm-n">syncWorld</text>
+<text x="452" y="1679.6" class="cm-c">fold the scene origin in, in full precision</text>
+<rect x="10" y="1692.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="23" y="1699.6" class="cm-n">onMessage (a plate job&#x27;s answer)</text>
+<text x="452" y="1699.6" class="cm-c">the worker&#x27;s reply, or the inline run&#x27;s</text>
+<rect x="31" y="1712.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="44" y="1719.6" class="cm-n">req.onResult -&gt; _pyrResult</text>
+<text x="452" y="1719.6" class="cm-c">the callback _pyrPost gave the pool</text>
+<rect x="52" y="1732.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="65" y="1739.6" class="cm-n">_pyrLand</text>
+<rect x="73" y="1752.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1759.6" class="cm-n">pyramid.onResult</text>
+<rect x="94" y="1772.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="1779.6" class="cm-n">_take</text>
+<rect x="115" y="1792.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="1799.6" class="cm-n">store.put</text>
+<text x="452" y="1799.6" class="cm-c">rule 1: kept iff its G is newer</text>
+<rect x="73" y="1812.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1819.6" class="cm-n">queue.pump</text>
+<text x="452" y="1819.6" class="cm-c">the slot it freed</text>
+<rect x="73" y="1832.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="86" y="1839.6" class="cm-n">pyramid.compose</text>
+<text x="452" y="1839.6" class="cm-c">the plate on screen</text>
 </svg></div>
 </section>
 <section id="camera">
 <h2><span class="num">FIG 6</span> Zooming and panning</h2>
-<p class="sub">30 calls &middot; 8 levels deep</p>
+<p class="sub">41 calls &middot; 9 levels deep</p>
 <p>Every camera gesture funnels into <code>_settle</code>, which crosses and shifts
         until the camera is in a legal state. The <code>needs*</code> questions afterwards decide the
         only thing that matters for cost: <strong>a new render list, or the same one moved.</strong></p>
-<div class="figbox"><svg viewBox="0 0 872 624" width="872" role="img" aria-label="Zooming and panning">
-<path d="M13.5,21.5 V596" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<div class="figbox"><svg viewBox="0 0 872 844" width="872" role="img" aria-label="Zooming and panning">
+<path d="M13.5,21.5 V36" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,376 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,416 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,436 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,456 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,476 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,496 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,536 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,576 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,596 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,41.5 V76" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,41.5 V416" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,76 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,81.5 V316" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,416 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,81.5 V116" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,96 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,196 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,316 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,101.5 V136" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,116 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,116 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,121.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M76.5,136 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,236 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,356 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,141.5 V176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,156 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,176 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,201.5 V216" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,216 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,221.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,236 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,181.5 V216" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,196 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,216 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,241.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M97.5,256 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M118.5,261.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,261.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M118.5,276 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,281.5 V296" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M139.5,296 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,321.5 V336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,336 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,341.5 V356" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M97.5,356 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,381.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,396 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,501.5 V516" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,516 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,541.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,556 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,296 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,301.5 V316" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M139.5,316 H156" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,321.5 V336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M160.5,336 H177" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,361.5 V376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,376 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,381.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M118.5,396 H135" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,441.5 V476" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,456 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,476 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,501.5 V756" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,516 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,756 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,521.5 V736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,536 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,696 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,716 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,736 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,541.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,556 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,576 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,581.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,596 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,616 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,621.5 V636" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,636 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,661.5 V676" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,676 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,761.5 V816" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,776 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,796 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,816 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="23" y="19.6" class="cm-n">zoomFactorAt(sx, sy, f)</text>
 <text x="452" y="19.6" class="cm-c">zoomAt and pinchUpdate both land here</text>
-<rect x="31" y="32.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="44" y="39.6" class="cm-n">cam.zoomFactorAt</text>
-<rect x="52" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="59.6" class="cm-n">hooks.finalizeLiveStroke</text>
-<text x="452" y="59.6" class="cm-c">the hook the engine gives the camera</text>
+<rect x="31" y="32.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="39.6" class="cm-n">_zoomBy</text>
+<rect x="52" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="65" y="59.6" class="cm-n">renderer.noteAttention</text>
+<text x="452" y="59.6" class="cm-c">the wheel focus or the pinch centre</text>
 <rect x="52" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="79.6" class="cm-n">_maybeCross -&gt; _settle</text>
-<text x="452" y="79.6" class="cm-c">cross and shift until the camera is LEGAL</text>
-<rect x="73" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="99.6" class="cm-n">_maybeShift</text>
-<text x="452" y="99.6" class="cm-c">the view left its cell: step sideways</text>
-<rect x="94" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="119.6" class="cm-n">cam.centre</text>
+<text x="65" y="79.6" class="cm-n">cam.zoomFactorAt</text>
+<rect x="73" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="99.6" class="cm-n">hooks.finalizeLiveStroke</text>
+<text x="452" y="99.6" class="cm-c">the hook the engine gives the camera</text>
+<rect x="73" y="112.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="119.6" class="cm-n">_maybeCross -&gt; _settle</text>
+<text x="452" y="119.6" class="cm-c">cross and shift until the camera is LEGAL</text>
 <rect x="94" y="132.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="139.6" class="cm-n">lm.neighbour</text>
+<text x="107" y="139.6" class="cm-n">_maybeShift</text>
+<text x="452" y="139.6" class="cm-c">the view left its cell: step sideways</text>
 <rect x="115" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="159.6" class="cm-n">carryDigit</text>
-<text x="452" y="159.6" class="cm-c">out of range: carry up to the parent</text>
+<text x="128" y="159.6" class="cm-n">cam.centre</text>
 <rect x="115" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="179.6" class="cm-n">cellChild</text>
-<rect x="73" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="199.6" class="cm-n">_crossUp</text>
-<text x="452" y="199.6" class="cm-c">into the child cell the view centre falls in</text>
-<rect x="94" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="219.6" class="cm-n">lm.ensureChild</text>
-<rect x="115" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="239.6" class="cm-n">_viewCell -&gt; cellOf</text>
-<text x="452" y="239.6" class="cm-c">a ROUND, not a floor</text>
+<text x="128" y="179.6" class="cm-n">lm.neighbour</text>
+<rect x="136" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="199.6" class="cm-n">carryDigit</text>
+<text x="452" y="199.6" class="cm-c">out of range: carry up to the parent</text>
+<rect x="136" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="219.6" class="cm-n">cellChild</text>
+<rect x="94" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="239.6" class="cm-n">_crossUp</text>
+<text x="452" y="239.6" class="cm-c">into the child cell the view centre falls in</text>
 <rect x="115" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="259.6" class="cm-n">cellChild</text>
+<text x="128" y="259.6" class="cm-n">lm.ensureChild</text>
 <rect x="136" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="149" y="279.6" class="cm-n">_addFrame</text>
-<rect x="157" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="170" y="299.6" class="cm-n">cellEdge / cellCentre</text>
-<text x="452" y="299.6" class="cm-c">exact: powers of two</text>
-<rect x="73" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="319.6" class="cm-n">_crossDown</text>
-<text x="452" y="319.6" class="cm-c">into the cell that contains this one</text>
-<rect x="94" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="339.6" class="cm-n">lm.ensureParentEdge</text>
-<rect x="115" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="128" y="359.6" class="cm-n">_growRoot</text>
-<text x="452" y="359.6" class="cm-c">grow a coarser frame above the root</text>
-<rect x="31" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="379.6" class="cm-n">_visibleChanged</text>
-<text x="452" y="379.6" class="cm-c">did the visible tile set change?</text>
-<rect x="52" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="399.6" class="cm-n">lm.tileRange</text>
-<rect x="31" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="44" y="419.6" class="cm-n">renderer.needsFatFlip</text>
-<text x="452" y="419.6" class="cm-c">a wide stroke approaching the gate</text>
-<rect x="31" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="44" y="439.6" class="cm-n">renderer.needsFadeFlip</text>
-<text x="452" y="439.6" class="cm-c">false on the raster path</text>
-<rect x="31" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="44" y="459.6" class="cm-n">renderer.needsReorigin</text>
-<text x="452" y="459.6" class="cm-c">false on the raster path</text>
+<text x="149" y="279.6" class="cm-n">_viewCell -&gt; cellOf</text>
+<text x="452" y="279.6" class="cm-c">a ROUND, not a floor</text>
+<rect x="136" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="299.6" class="cm-n">cellChild</text>
+<rect x="157" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="170" y="319.6" class="cm-n">_addFrame</text>
+<rect x="178" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="191" y="339.6" class="cm-n">cellEdge / cellCentre</text>
+<text x="452" y="339.6" class="cm-c">exact: powers of two</text>
+<rect x="94" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="359.6" class="cm-n">_crossDown</text>
+<text x="452" y="359.6" class="cm-c">into the cell that contains this one</text>
+<rect x="115" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="379.6" class="cm-n">lm.ensureParentEdge</text>
+<rect x="136" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="149" y="399.6" class="cm-n">_growRoot</text>
+<text x="452" y="399.6" class="cm-c">grow a coarser frame above the root</text>
+<rect x="52" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="419.6" class="cm-n">_pend</text>
+<text x="452" y="419.6" class="cm-c">the app&#x27;s frames: the step waits for the animation frame</text>
+<rect x="10" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="23" y="439.6" class="cm-n">panBy(dx, dy)</text>
+<rect x="31" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="44" y="459.6" class="cm-n">cam.panBy -&gt; _settle</text>
 <rect x="31" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="479.6" class="cm-n">_render</text>
-<text x="452" y="479.6" class="cm-c">if anything above said yes  (-&gt; Fig 5)</text>
-<rect x="31" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="44" y="499.6" class="cm-n">renderer.syncCameraOnly</text>
-<text x="452" y="499.6" class="cm-c">otherwise: no new list</text>
-<rect x="52" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="65" y="519.6" class="cm-n">_frameStep</text>
-<text x="452" y="519.6" class="cm-c">raster: the same plates, recomposed</text>
-<rect x="31" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="539.6" class="cm-n">_maybePrebake</text>
-<text x="452" y="539.6" class="cm-c">the next level&#x27;s plates, before the crossing</text>
-<rect x="52" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
-<text x="65" y="559.6" class="cm-n">prebakePlates</text>
-<rect x="31" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="579.6" class="cm-n">_maybeLadder</text>
-<rect x="31" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="599.6" class="cm-n">_queueIdleFits</text>
+<text x="44" y="479.6" class="cm-n">_pend</text>
+<rect x="10" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="23" y="499.6" class="cm-n">_frame</text>
+<text x="452" y="499.6" class="cm-c">one step per animation frame, the latest gesture&#x27;s</text>
+<rect x="31" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="519.6" class="cm-n">_zoomStep / _panStep</text>
+<rect x="52" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="539.6" class="cm-n">_tableStep</text>
+<text x="452" y="539.6" class="cm-c">raster: a crossing renders; else the table is synced</text>
+<rect x="73" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="559.6" class="cm-n">_render</text>
+<text x="452" y="559.6" class="cm-c">-&gt; Fig 5</text>
+<rect x="73" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="579.6" class="cm-n">_syncStep</text>
+<rect x="94" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="599.6" class="cm-n">stage.sync</text>
+<text x="452" y="599.6" class="cm-c">within STEP_READ_MS, unless the window is covered</text>
+<rect x="94" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="107" y="619.6" class="cm-n">renderer.syncCameraOnly</text>
+<text x="452" y="619.6" class="cm-c">no new list: the same plates, recomposed</text>
+<rect x="115" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-ras)"/>
+<text x="128" y="639.6" class="cm-n">_frameStep</text>
+<rect x="52" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="659.6" class="cm-n">_visibleChanged</text>
+<text x="452" y="659.6" class="cm-c">?svg: did the visible tile set change?</text>
+<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="679.6" class="cm-n">lm.tileRange</text>
+<rect x="52" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="699.6" class="cm-n">renderer.needsReorigin</text>
+<text x="452" y="699.6" class="cm-c">?svg: the view drifted too far</text>
+<rect x="52" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="719.6" class="cm-n">_render</text>
+<text x="452" y="719.6" class="cm-c">if anything above said yes</text>
+<rect x="52" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="739.6" class="cm-n">renderer.syncCameraOnly</text>
+<text x="452" y="739.6" class="cm-c">otherwise: no new list</text>
+<rect x="31" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="759.6" class="cm-n">_zoomStep</text>
+<rect x="52" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="779.6" class="cm-n">renderer.needsFatFlip</text>
+<text x="452" y="779.6" class="cm-c">?svg: a wide stroke approaching the gate</text>
+<rect x="52" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="799.6" class="cm-n">renderer.needsFadeFlip</text>
+<rect x="52" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="819.6" class="cm-n">_queueIdleFits</text>
+<text x="452" y="819.6" class="cm-c">after a crossing</text>
 </svg></div>
 </section>
 <section id="select">
 <h2><span class="num">FIG 7</span> Selecting and moving</h2>
-<p class="sub">42 calls &middot; 5 levels deep</p>
+<p class="sub">49 calls &middot; 6 levels deep</p>
 <p>A press changes nothing: a tap selects at pen-up, and a drag starts past
         <code>SELECT_DRAG_PX</code>. <strong>A drag never touches a stored coordinate</strong>: whole
         cells go into the address, the rest into the object's displacement table, and a selected frame
         moves as a frame.</p>
-<div class="figbox"><svg viewBox="0 0 872 864" width="872" role="img" aria-label="Selecting and moving">
+<div class="figbox"><svg viewBox="0 0 872 1004" width="872" role="img" aria-label="Selecting and moving">
 <path d="M13.5,21.5 V36" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,36 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,41.5 V76" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,56 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,76 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,101.5 V236" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,101.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M13.5,116 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,236 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,121.5 V216" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,276 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,121.5 V256" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,136 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,156 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,196 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,216 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,256 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,161.5 V176" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,176 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,241.5 V496" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,256 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,181.5 V196" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,196 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,221.5 V236" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,236 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,281.5 V336" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,296 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,316 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,416 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,336 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,361.5 V576" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,376 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,416 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M13.5,576 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,381.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,396 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,421.5 V456" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,436 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M34.5,456 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,496 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,261.5 V276" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,276 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,321.5 V396" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,336 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,396 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,341.5 V376" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,356 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M76.5,376 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,461.5 V476" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,461.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,476 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,501.5 V556" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,516 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,536 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,556 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,581.5 V836" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,596 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,636 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,756 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,776 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,816 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M13.5,836 H30" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,601.5 V616" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,616 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,641.5 V736" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,656 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,736 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,661.5 V716" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,481.5 V536" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,496 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,516 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,536 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,581.5 V956" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,596 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M34.5,956 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,601.5 V936" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,616 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,636 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,676 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M55.5,696 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <path d="M55.5,716 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,781.5 V796" stroke="var(--k-line)" stroke-width="1" fill="none"/>
-<path d="M34.5,796 H51" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,796 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,896 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,916 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,936 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,641.5 V656" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,656 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,681.5 V696" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,696 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,721.5 V776" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,736 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,756 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,776 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,801.5 V876" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,816 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M76.5,876 H93" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,821.5 V856" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,836 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M97.5,856 H114" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,961.5 V976" stroke="var(--k-line)" stroke-width="1" fill="none"/>
+<path d="M55.5,976 H72" stroke="var(--k-line)" stroke-width="1" fill="none"/>
 <rect x="10" y="12.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
 <text x="23" y="19.6" class="cm-n">_pointerDown (select)</text>
 <text x="452" y="19.6" class="cm-c">records the press; changes nothing</text>
@@ -1198,7 +1412,7 @@ footer a{color:var(--object)}
 <text x="44" y="39.6" class="cm-n">_hitTest</text>
 <text x="452" y="39.6" class="cm-c">pressed on ink?</text>
 <rect x="52" y="52.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="59.6" class="cm-n">_shapeHit -&gt; insideShape</text>
+<text x="65" y="59.6" class="cm-n">_shapeHit -&gt; insideTester</text>
 <rect x="52" y="72.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
 <text x="65" y="79.6" class="cm-n">distToPolyline</text>
 <rect x="10" y="92.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
@@ -1210,104 +1424,124 @@ footer a{color:var(--object)}
 <text x="65" y="139.6" class="cm-n">select</text>
 <text x="452" y="139.6" class="cm-c">pressed on an unselected object</text>
 <rect x="52" y="152.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="159.6" class="cm-n">_settleSelectionErases</text>
+<text x="65" y="159.6" class="cm-n">_dragBarrier</text>
 <text x="452" y="159.6" class="cm-c">never drag out from under an unbaked mark</text>
 <rect x="73" y="172.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="179.6" class="cm-n">_flushErasesFor -&gt; _bakeOne</text>
-<rect x="52" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="65" y="199.6" class="cm-n">store.setBatch(true)</text>
-<text x="452" y="199.6" class="cm-c">off-screen tiles: drop, do not patch</text>
+<text x="86" y="179.6" class="cm-n">_eraseBarrier</text>
+<text x="452" y="179.6" class="cm-c">the gesture parked until its cuts land</text>
+<rect x="94" y="192.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="199.6" class="cm-n">_barrierAdvance -&gt; _dispatchPair</text>
 <rect x="52" y="212.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="219.6" class="cm-n">_dragSelection</text>
-<rect x="31" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="239.6" class="cm-n">_dragSelection</text>
-<text x="452" y="239.6" class="cm-c">recomputed from where the drag STARTED</text>
+<text x="65" y="219.6" class="cm-n">_beginHold</text>
+<text x="452" y="219.6" class="cm-c">the members held by the Stage</text>
+<rect x="73" y="232.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="239.6" class="cm-n">stage.hold</text>
+<text x="452" y="239.6" class="cm-c">drawn, hit and lassoed at placement plus the delta</text>
 <rect x="52" y="252.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="259.6" class="cm-n">_selectionMembers</text>
-<rect x="73" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="279.6" class="cm-n">doc.editGroup</text>
-<text x="452" y="279.6" class="cm-c">the whole family comes too</text>
+<text x="65" y="259.6" class="cm-n">_dragSelection</text>
+<rect x="31" y="272.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="279.6" class="cm-n">_dragSelection</text>
+<text x="452" y="279.6" class="cm-c">from where the drag STARTED; nothing is written</text>
 <rect x="52" y="292.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
 <text x="65" y="299.6" class="cm-n">snapDisplacement</text>
 <text x="452" y="299.6" class="cm-c">2^-10 units at the move level</text>
-<rect x="52" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="319.6" class="cm-n">_displaceMember</text>
-<text x="452" y="319.6" class="cm-c">once per home frame</text>
-<rect x="73" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="339.6" class="cm-n">lm.displaceFrame</text>
-<text x="452" y="339.6" class="cm-c">the move, in base-4096 digits</text>
-<rect x="94" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="359.6" class="cm-n">displacementDigits</text>
-<rect x="94" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="107" y="379.6" class="cm-n">applyDigits</text>
-<text x="452" y="379.6" class="cm-c">add to the address, with carries</text>
-<rect x="73" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="399.6" class="cm-n">addOffset</text>
-<text x="452" y="399.6" class="cm-c">the rest goes in the displacement table</text>
-<rect x="52" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="419.6" class="cm-n">doc.rehomeManyById</text>
-<text x="452" y="419.6" class="cm-c">whole cells: a change of ADDRESS</text>
-<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="439.6" class="cm-n">doc.setOffsetsById</text>
-<text x="452" y="439.6" class="cm-c">no stored coordinate is touched</text>
+<rect x="52" y="312.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="65" y="319.6" class="cm-n">stage.setDragDelta</text>
+<text x="452" y="319.6" class="cm-c">the held natives drawn at the delta</text>
+<rect x="52" y="332.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="339.6" class="cm-n">_render</text>
+<text x="452" y="339.6" class="cm-c">when no drag plane draws them</text>
+<rect x="10" y="352.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="23" y="359.6" class="cm-n">_pointerUp (select)</text>
+<rect x="31" y="372.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="379.6" class="cm-n">_selectTap</text>
+<text x="452" y="379.6" class="cm-c">a press that never moved</text>
+<rect x="52" y="392.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="399.6" class="cm-n">select -&gt; _setSelection</text>
+<rect x="31" y="412.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="419.6" class="cm-n">_applyLasso</text>
+<rect x="52" y="432.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="439.6" class="cm-n">_lassoBarrier</text>
+<text x="452" y="439.6" class="cm-c">its marks&#x27; cuts land before it is judged</text>
 <rect x="52" y="452.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="459.6" class="cm-n">_dragFramesStart</text>
-<text x="452" y="459.6" class="cm-c">a selected frame moves as a frame</text>
-<rect x="73" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="479.6" class="cm-n">lm.subtreeStart</text>
-<rect x="52" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="499.6" class="cm-n">_dragFrames</text>
-<rect x="73" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="519.6" class="cm-n">lm.moveSubtreeTargets</text>
-<text x="452" y="519.6" class="cm-c">displaceFrame&#x27;s arithmetic, frame by frame</text>
-<rect x="73" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
-<text x="86" y="539.6" class="cm-n">lm.readdressMany</text>
-<text x="452" y="539.6" class="cm-c">the parent pointers; no native moves</text>
-<rect x="73" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="559.6" class="cm-n">doc.setFrameShift</text>
-<text x="452" y="559.6" class="cm-c">the sub-cell rest, settled at first read</text>
-<rect x="10" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="23" y="579.6" class="cm-n">_pointerUp (select)</text>
-<rect x="31" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="599.6" class="cm-n">_selectTap</text>
-<text x="452" y="599.6" class="cm-c">a press that never moved</text>
-<rect x="52" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="619.6" class="cm-n">select -&gt; _setSelection</text>
-<rect x="31" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="639.6" class="cm-n">_applyLasso</text>
-<rect x="52" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="659.6" class="cm-n">_lassoFind</text>
-<text x="452" y="659.6" class="cm-c">a TREE walk, outward from the active frame</text>
-<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="86" y="679.6" class="cm-n">doc.queryRect</text>
-<text x="452" y="679.6" class="cm-c">only frames straddling the loop ask per object</text>
-<rect x="73" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
-<text x="86" y="699.6" class="cm-n">rectInsidePolygon</text>
-<text x="452" y="699.6" class="cm-c">the fast accept</text>
+<text x="65" y="459.6" class="cm-n">_judgeLasso</text>
+<rect x="73" y="472.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="479.6" class="cm-n">_lassoFind</text>
+<text x="452" y="479.6" class="cm-c">a TREE walk, outward from the active frame</text>
+<rect x="94" y="492.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="499.6" class="cm-n">doc.queryRect</text>
+<text x="452" y="499.6" class="cm-c">only frames straddling the loop ask per object</text>
+<rect x="94" y="512.5" width="7" height="7" rx="1.5" fill="var(--k-hlp)"/>
+<text x="107" y="519.6" class="cm-n">rectInsidePolygon</text>
+<text x="452" y="519.6" class="cm-c">the fast accept</text>
+<rect x="94" y="532.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="107" y="539.6" class="cm-n">_inkInsidePolygon</text>
+<text x="452" y="539.6" class="cm-c">the ink itself when the box fails</text>
+<rect x="73" y="552.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="559.6" class="cm-n">_setSelection</text>
+<rect x="31" y="572.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="44" y="579.6" class="cm-n">_endMove</text>
+<text x="452" y="579.6" class="cm-c">the drag&#x27;s one exit</text>
+<rect x="52" y="592.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="599.6" class="cm-n">_dropMove</text>
+<text x="452" y="599.6" class="cm-c">the drop: the move written once</text>
+<rect x="73" y="612.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="619.6" class="cm-n">store.setBatch(true)</text>
+<text x="452" y="619.6" class="cm-c">off-screen tiles: drop, do not patch</text>
+<rect x="73" y="632.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="639.6" class="cm-n">_selectionMembers</text>
+<rect x="94" y="652.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="659.6" class="cm-n">doc.editGroup</text>
+<text x="452" y="659.6" class="cm-c">the whole family comes too</text>
+<rect x="73" y="672.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="679.6" class="cm-n">_dragFramesStart</text>
+<text x="452" y="679.6" class="cm-c">a selected frame moves as a frame</text>
+<rect x="94" y="692.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="699.6" class="cm-n">lm.subtreeStart</text>
 <rect x="73" y="712.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="86" y="719.6" class="cm-n">_inkInsidePolygon</text>
-<text x="452" y="719.6" class="cm-c">the ink itself when the box fails</text>
-<rect x="52" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="65" y="739.6" class="cm-n">_setSelection</text>
-<rect x="31" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="759.6" class="cm-n">_homeShift</text>
-<text x="452" y="759.6" class="cm-c">walked out of its cell?</text>
-<rect x="31" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="779.6" class="cm-n">_normalizeHome</text>
-<text x="452" y="779.6" class="cm-c">put it back inside its own cell (invariant 2)</text>
-<rect x="52" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="65" y="799.6" class="cm-n">doc.rehomeById / doc.moveById</text>
-<rect x="31" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
-<text x="44" y="819.6" class="cm-n">doc.pushUndo(move / moveFrames)</text>
-<text x="452" y="819.6" class="cm-c">one drag, one action</text>
-<rect x="31" y="832.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
-<text x="44" y="839.6" class="cm-n">_endMove</text>
-<text x="452" y="839.6" class="cm-c">the drag&#x27;s one exit</text>
+<text x="86" y="719.6" class="cm-n">_dragFrames</text>
+<rect x="94" y="732.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="739.6" class="cm-n">lm.moveSubtreeTargets</text>
+<text x="452" y="739.6" class="cm-c">displaceFrame&#x27;s arithmetic, frame by frame</text>
+<rect x="94" y="752.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="759.6" class="cm-n">lm.readdressMany</text>
+<text x="452" y="759.6" class="cm-c">the parent pointers; no native moves</text>
+<rect x="94" y="772.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="779.6" class="cm-n">doc.setFrameShift</text>
+<text x="452" y="779.6" class="cm-c">the sub-cell rest: the frame&#x27;s shift</text>
+<rect x="73" y="792.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="86" y="799.6" class="cm-n">_displaceMember</text>
+<text x="452" y="799.6" class="cm-c">once per home frame and table</text>
+<rect x="94" y="812.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="107" y="819.6" class="cm-n">lm.displaceFrame</text>
+<text x="452" y="819.6" class="cm-c">the move, in base-4096 digits</text>
+<rect x="115" y="832.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="839.6" class="cm-n">displacementDigits</text>
+<rect x="115" y="852.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="128" y="859.6" class="cm-n">applyDigits</text>
+<text x="452" y="859.6" class="cm-c">add to the address, with carries</text>
+<rect x="94" y="872.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="107" y="879.6" class="cm-n">addOffset</text>
+<text x="452" y="879.6" class="cm-c">the rest goes in the displacement table</text>
+<rect x="73" y="892.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="899.6" class="cm-n">doc.rehomeManyById</text>
+<text x="452" y="899.6" class="cm-c">whole cells: a change of ADDRESS</text>
+<rect x="73" y="912.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="919.6" class="cm-n">doc.setOffsetsById</text>
+<text x="452" y="919.6" class="cm-c">no stored coordinate is touched</text>
+<rect x="73" y="932.5" width="7" height="7" rx="1.5" fill="var(--k-obj)"/>
+<text x="86" y="939.6" class="cm-n">doc.pushUndo(move / moveFrames)</text>
+<text x="452" y="939.6" class="cm-c">one drag, one action</text>
+<rect x="52" y="952.5" width="7" height="7" rx="1.5" fill="var(--k-fac)"/>
+<text x="65" y="959.6" class="cm-n">_releaseMove</text>
+<rect x="73" y="972.5" width="7" height="7" rx="1.5" fill="var(--k-spc)"/>
+<text x="86" y="979.6" class="cm-n">stage.release</text>
+<text x="452" y="979.6" class="cm-c">one commit: where it started and where it ends</text>
 </svg></div>
 </section>
 
 <footer>
-  Traced by reading the source at 6c6b742; every parent-to-child call is checked against
+  Traced by reading the source at cef36c3 + working tree; every parent-to-child call is checked against
   it (<code>tools/docmaps/check.py</code>), not inferred from names.
   Recursion is marked where it happens; a call that leads into another figure says so
   rather than repeating its subtree.<br><br>

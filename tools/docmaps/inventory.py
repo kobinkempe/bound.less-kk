@@ -6,7 +6,8 @@ the function that contains them, and the code map already covers them through
 the row for that function.
 
 Test suites (`*.test.js`), probes (`*.probe.js`, run by the test runner and never
-bundled) and the testkit are not the product and are not inventoried.
+bundled), the testkit and `__review__` (a review's copies, untracked) are not the product
+and are not inventoried.
 """
 import os, re, json
 
@@ -15,7 +16,7 @@ from _mask import mask
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 ROOT = "src"
-SKIP = (".test.", ".probe.", "__testkit__")
+SKIP = (".test.", ".probe.", "__testkit__", "__review__")
 KW = {"if", "for", "while", "switch", "catch", "return", "function", "typeof",
       "new", "do", "else", "try", "await", "yield", "in", "of", "case",
       "default", "delete", "void", "this", "super"}

@@ -43,10 +43,10 @@ export function fakeStage({ logMax = 2048 } = {}) {
         },
         untrack(key) { cells.delete(key); st.stats.tracked = cells.size; },
         dirtySince(key) { const c = cells.get(key); return c ? c.dirty : 0; },
-        dirtyRects(frameId, sinceG) {
+        dirtyRects(frameId, sinceG, box = null) {
             if (sinceG < floor) return null;
             const F = String(frameId), out = [];
-            for (const e of log) if (e.G > sinceG) { const rs = e.foot.get(F); if (rs) out.push(...rs); }
+            for (const e of log) if (e.G > sinceG) { const rs = e.foot.get(F); if (rs) for (const r of rs) if (!box || meets(r, box)) out.push(r); }
             return out;
         },
         /** One commit: `foot` is `{ frameId: rect[] }` or a Map. Returns its G. */

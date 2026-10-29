@@ -56,10 +56,12 @@ export const GUARD_NAMES = ["xsGrown", "unionSplits", "unionRefills", "fullClear
 /**
  * The fields of a job that cross as typed arrays, in the order they are wired. `clips` is optional:
  * 4 integers a plate, [x0, y0, x1, y1] plate-local and half-open, the part of each plate to render
- * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole. The packer's
- * `ids` stay on this thread: the core never reads them (PLAN §5.4).
+ * (`rasterCore.renderPlate`'s clip, A3 §3.1); absent, every plate is rendered whole. `runs` and
+ * `subRun` are optional too: the items' row runs (`rasterCore.rowRuns`, F154), 3 doubles a run, and
+ * each sub's first run; absent, every piece is walked. The packer's `ids` stay on this thread: the
+ * core never reads them (PLAN §5.4).
  */
-const JOB_ARRAYS = ["plates", "paper", "meta", "attr", "rgb", "subs", "geom", "clips"];
+const JOB_ARRAYS = ["plates", "paper", "meta", "attr", "rgb", "subs", "geom", "clips", "runs", "subRun"];
 
 const BYTES = (a) => (a ? a.byteLength : 0);
 
@@ -122,7 +124,7 @@ export function wireJob(job) {
         kind: "raster-job",
         jobId: job.jobId, frameSeq: job.frameSeq, postedAt: job.postedAt, G: job.G,
         q: job.q, Zq: job.Zq, plateW: job.plateW != null ? job.plateW : PLATE_PX,
-        nItems: job.nItems,
+        nItems: job.nItems, ram: !!job.ram,
     };
     const transfer = [];
     for (const k of JOB_ARRAYS) {
@@ -137,7 +139,7 @@ export function wireJob(job) {
 export function unwireJob(msg) {
     const job = {
         jobId: msg.jobId, frameSeq: msg.frameSeq, postedAt: msg.postedAt, G: msg.G,
-        q: msg.q, Zq: msg.Zq, plateW: msg.plateW, nItems: msg.nItems,
+        q: msg.q, Zq: msg.Zq, plateW: msg.plateW, nItems: msg.nItems, ram: !!msg.ram,
     };
     for (const k of JOB_ARRAYS) job[k] = msg[k];
     validateJob(job);
@@ -147,7 +149,8 @@ export function unwireJob(msg) {
 /**
  * The checks a wire bug would otherwise hide: the core reads loop k's end from entry k + 1, so
  * a `subs` table that is not ascending, or one entry short, reads a length as an offset and the
- * ink disappears with no error and no counter (§3.3, D36). O(items + subs), no geometry.
+ * ink disappears with no error and no counter (§3.3, D36); row runs that do not tile their loops
+ * skip ink the same way (F154). O(items + subs + runs), no geometry.
  * Throws, because a job that fails this paints a wrong picture rather than a slow one.
  */
 export function validateJob(job) {
@@ -188,13 +191,43 @@ export function validateJob(job) {
             prev = off;
         }
     }
+    if (job.runs || job.subRun) checkRuns(job, n);
     return job;
+}
+
+/** Each loop's runs start at its first record and ascend inside it; a loop with none is walked whole. */
+function checkRuns(job, n) {
+    const runs = job.runs, subRun = job.subRun;
+    if (!runs || !subRun) throw new Error("rasterJob: runs and subRun travel together");
+    if (runs.length % 3) throw new Error("rasterJob: runs is not 3 numbers a run");
+    if (subRun.length !== job.subs.length) throw new Error("rasterJob: subRun is not one entry a sub");
+    const nRuns = runs.length / 3;
+    for (let it = 0; it < n; it++) {
+        const m = it * META_WORDS;
+        const gl = job.meta[m + 3], ss = job.meta[m + 4], sc = job.meta[m + 5];
+        const scale = job.meta[m] === KIND_LOOPS ? 1 : 2;
+        for (let k = 0; k < sc; k++) {
+            const r0 = subRun[ss + k], r1 = ss + k + 1 < subRun.length ? subRun[ss + k + 1] : nRuns;
+            if (!(r0 <= r1 && r1 <= nRuns)) throw new Error("rasterJob: item " + it + " sub " + k + "'s runs do not ascend (F154)");
+            if (r0 === r1) continue;
+            const len = (k + 1 < sc ? job.subs[ss + k + 1] * scale : gl) - job.subs[ss + k] * scale;
+            let prev = 0;
+            for (let r = r0; r < r1; r++) {
+                const off = runs[3 * r + 2];
+                if (r === r0 ? off !== 2 : !(off > prev && off < len)) {
+                    throw new Error("rasterJob: item " + it + " sub " + k + "'s run " + (r - r0) + " does not tile its loop (F154)");
+                }
+                prev = off;
+            }
+        }
+    }
 }
 
 /**
  * The result as it goes back, with its transfer list (§3.4). `bitmaps` may hold nulls for
  * empty plates; a null is not transferable and is skipped. A clipped job's `clips` come back
- * with it, and each of its plates is only its clip's rectangle.
+ * with it, and each of its plates is only its clip's rectangle. A `ram` job's whole plates also
+ * come back packed (`packed`, `plateCodec.js`; null for an empty plate), for the store's RAM tier (F161).
  * @returns {{ msg: object, transfer: any[] }}
  */
 export function wireResult(res) {
@@ -202,10 +235,10 @@ export function wireResult(res) {
         kind: "raster-result",
         jobId: res.jobId, frameSeq: res.frameSeq, G: res.G,
         plates: res.plates, clips: res.clips || null,
-        bitmaps: res.bitmaps || null, pixels: res.pixels || null,
+        bitmaps: res.bitmaps || null, pixels: res.pixels || null, packed: res.packed || null,
         timings: res.timings, counts: res.counts, guards: res.guards,
         recycled: res.recycled || [],
-        serialiseMs: res.serialiseMs || 0,
+        serialiseMs: res.serialiseMs || 0, encodeMs: res.encodeMs || 0,
     };
     const transfer = [];
     const push = (x) => { if (x && transfer.indexOf(x) < 0) transfer.push(x); };
@@ -214,6 +247,7 @@ export function wireResult(res) {
     }
     if (msg.bitmaps) for (const b of msg.bitmaps) if (b) push(b);
     if (msg.pixels) for (const p of msg.pixels) if (p) push(p.buffer || p);
+    if (msg.packed) for (const p of msg.packed) if (p) push(p);
     for (const r of msg.recycled) push(r.buffer || r);
     return { msg, transfer };
 }
@@ -223,10 +257,10 @@ export function unwireResult(msg) {
     return {
         jobId: msg.jobId, frameSeq: msg.frameSeq, G: msg.G,
         plates: msg.plates, clips: msg.clips || null,
-        bitmaps: msg.bitmaps, pixels: msg.pixels,
+        bitmaps: msg.bitmaps, pixels: msg.pixels, packed: msg.packed || null,
         timings: msg.timings, counts: msg.counts, guards: msg.guards,
         recycled: msg.recycled || [],
-        serialiseMs: msg.serialiseMs || 0,
+        serialiseMs: msg.serialiseMs || 0, encodeMs: msg.encodeMs || 0,
     };
 }
 

@@ -15,7 +15,7 @@ import {
     duplicateCanvas, getDeviceId, getDeviceName, replaceCanvasStore,
 } from "../storage/localCanvases";
 import useUser from "../cloud/useUser";
-import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, isDevBuild } from "../cloud/canvasSync";
+import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, cloudLoadViews, isDevBuild } from "../cloud/canvasSync";
 import { CanvasSession, editorFromHook } from "../cloud/canvasSession";
 import { SyncStatus, SyncBanner, showsNotice, useNarrow, useBannerClearance } from "../Components/editor/SyncChip";
 import { EraseChip } from "../Components/editor/EraseChip";
@@ -113,6 +113,12 @@ function DevLevers({ engine, dbgBtn }) {
                 {LEVERS.restInline.values.map((v) => (
                     <button key={v} {...dbgBtn(lv.restInline === v)} onClick={() => engine.setLevers({ restInline: v })}>{v}</button>
                 ))}
+                <b> net</b> {num("netMs", lv.netMs, (v) => engine.setLevers({ netMs: v }))} ms
+                <b> far</b> {num("prefetchReadMs", lv.prefetchReadMs, (v) => engine.setLevers({ prefetchReadMs: v }))} ms
+                <b> tiles</b> {num("tileRamMiB", lv.tileRamMiB, (v) => engine.setLevers({ tileRamMiB: v }))} MiB
+                <b> octaves</b> {num("plateFarMiB", lv.plateFarMiB, (v) => engine.setLevers({ plateFarMiB: v }))} MiB
+                <b> first view</b> {num("firstViewKiB", lv.firstViewKiB, (v) => engine.setLevers({ firstViewKiB: v }))} KiB
+                <b> wait</b> {num("holdMs", lv.holdMs, (v) => engine.setLevers({ holdMs: v }))} ms
             </div>
             <div>
                 <b>compose</b>{LEVERS.compose.values.map((v) => (
@@ -451,6 +457,18 @@ export default function CanvasEditor() {
         const def = validateScaleDef(E.docMeta && E.docMeta.scaleDef);
         if (JSON.stringify(def || null) !== JSON.stringify(scaleDefRef.current || null)) setScaleDef(def || null);
     };
+    // The first-view pictures (OPEN-FLAGS F166): this device's set from the cloud, as soon as sign-in allows, so the
+    // engine seeds it the moment its document is restored, or at once if it already is (it checks the stamp).
+    useEffect(() => {
+        const tag = user && realId ? engineApiRef.current.firstViewTag() : null;
+        if (!tag) return undefined;
+        let live = true;
+        const t0 = performance.now();
+        cloudLoadViews(user.uid, realId, tag).then((set) => {
+            if (live && set) engineApiRef.current.firstViewSeed({ ...set, fetchMs: performance.now() - t0 });
+        }, () => { /* offline or none: the view renders as before */ });
+        return () => { live = false; };
+    }, [user, realId]);
     // The session starts once the document is restored and sign-in has resolved (SYNC-PLAN R2, R4).
     useEffect(() => {
         if (!sessionReady) return undefined;

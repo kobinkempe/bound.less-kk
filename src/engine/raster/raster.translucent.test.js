@@ -10,7 +10,7 @@ import KobinEngine from "../KobinEngine";
 import { resetPlaneStats } from "./MovePlane";
 import { PLATE_PX } from "./plate";
 import { rasterWorkerReport, resetRasterWorkerClient, setRasterWorkerCount } from "./rasterWorkerClient";
-import { softCtx, over } from "../__testkit__/softCanvas";
+import { softCtx, softCanvas, over } from "../__testkit__/softCanvas";
 
 const engines = [];
 function mkSoftEngine() {
@@ -28,7 +28,7 @@ function mkSoftEngine() {
         return c;
     };
     L._ctx = soft(L._canvas.width, L._canvas.height);
-    L._mk = (w, h) => ({ width: w, height: h, getContext: () => soft(w, h) });
+    L._mk = (w, h) => softCanvas(soft(w, h));
     const put = E.plates.put.bind(E.plates);
     E.plates.put = (rec) => { if (rec.pixels && !rec.bitmap) rec.bitmap = { pixels: rec.pixels }; return put(rec); };
     engines.push({ E, host });

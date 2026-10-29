@@ -99,6 +99,7 @@ describe("the reroute grouping memo", () => {
         expect(F0).toBeTruthy();                                   // an empty frame the read minted: the pieces' source
         const n = E.lm.frames.size;
         E._gcCand.add(F0);
+        E.stage.sourceFrames = () => new Set();                    // as once the table no longer reads it (F139 keeps it while it does)
         collectFrames(E);
         expect(E.lm.frame(F0)).toBeFalsy();
         for (let i = 0; E.lm.frames.size < n; i++) E.lm.cellChild(E.lm.parentOf(F), 900 + i, 900);   // a descent's mints, say

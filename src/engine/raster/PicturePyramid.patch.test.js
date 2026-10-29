@@ -409,4 +409,91 @@ describe("PicturePyramid — partial re-render: the undo of one stroke (A3 §3.5
             expect(pyr.s.merges).toBe(13);
         } finally { global.ImageData = RealImageData; }
     });
+
+    /** A bare pyramid over a store and a fake stage, for the pen-up group's accounting. */
+    const bare = () => {
+        const stage = fakeStage(), store = new PyramidStore({ fresh: stage, doc: null });
+        const pyr = new PicturePyramid(null, { store, stage, width: 800, height: 600, dpr: 1, pixels: true, setTimer: () => null, clearTimer: () => {} });
+        pyr.compose = jest.fn();
+        return { stage, store, pyr };
+    };
+
+    test("a result packed without a drag's held ink, landing after it, never completes a pen-up group (F153, review P2)", () => {
+        const { stage, store, pyr } = bare(), c = levelCell("0", 0, 1, 0, 0), cb = jest.fn();
+        pyr._openGroup("pen", [c.key], cb, "live");
+        const rec = { ...c, G: stage.generation, omitHeld: store.heldEra, pixels: new Uint8ClampedArray(4) };
+        store.endHeld();
+        expect(pyr.onResult(rec)).toBe("stale");
+        expect(store.get(c.key)).toBeUndefined();
+        expect(cb).not.toHaveBeenCalled();                                  // red: the path came down over no plate
+        expect(pyr._groups.get("pen").need.has(c.key)).toBe(true);
+    });
+
+    test("a result a group held when the drag ended is asked for again; the group commits on its replacement (F153, review P2)", () => {
+        const { stage, store, pyr } = bare(), cb = jest.fn();
+        const a = levelCell("0", 0, 1, 0, 0), b = levelCell("0", 0, 1, 1, 0);
+        pyr._openGroup("pen", [a.key, b.key], cb, "live");
+        pyr.onResult({ ...a, G: stage.generation, omitHeld: store.heldEra, pixels: new Uint8ClampedArray(4) });
+        store.endHeld();
+        pyr.onResult({ ...b, G: stage.generation, pixels: new Uint8ClampedArray(4) });
+        expect(store.get(a.key)).toBeUndefined();
+        expect(cb).not.toHaveBeenCalled();                                  // red: two cells "committed", one of them no plate
+        expect(pyr._groups.get("pen").need.has(a.key)).toBe(true);
+        pyr.onResult({ ...a, G: stage.generation, pixels: new Uint8ClampedArray(4) });
+        expect(cb).toHaveBeenCalledTimes(1);
+        expect(cb.mock.calls[0][0]).toMatchObject({ committed: 2, missing: 0, timedOut: false });
+        expect(store.get(a.key)).toBeTruthy();
+        expect(store.get(b.key)).toBeTruthy();
+    });
+
+    test("a group that times out holding a result the drag's end staled publishes the rest, closes it and counts it missing from committed (F153)", () => {
+        let t = 0;
+        const stage = fakeStage(), store = new PyramidStore({ fresh: stage, doc: null });
+        const pyr = new PicturePyramid(null, { store, stage, width: 800, height: 600, dpr: 1, pixels: true, now: () => t, setTimer: () => null, clearTimer: () => {} });
+        pyr.compose = jest.fn();
+        const cb = jest.fn(), a = levelCell("0", 0, 1, 0, 0), b = levelCell("0", 0, 1, 1, 0), c = levelCell("0", 0, 1, 2, 0);
+        const bmp = () => ({ width: 512, height: 512, closed: false, close() { this.closed = true; } });
+        pyr._openGroup("pen", [a.key, b.key, c.key], cb, "live");
+        const held = { ...a, G: stage.generation, omitHeld: store.heldEra, bitmap: bmp(), bytes: PLATE_BYTES };
+        pyr.onResult(held);
+        pyr.onResult({ ...b, G: stage.generation, bitmap: bmp(), bytes: PLATE_BYTES });
+        store.endHeld();
+        t = 4000;                                                           // past LIVE_HOLD_MS, c never landed
+        pyr._checkGroups();
+        expect(cb).toHaveBeenCalledTimes(1);
+        expect(cb.mock.calls[0][0]).toMatchObject({ committed: 1, missing: 1, timedOut: true });   // red: committed 2
+        expect(store.get(a.key)).toBeUndefined();
+        expect(store.get(b.key)).toBeTruthy();
+        expect(held.bitmap.closed).toBe(true);
+        expect(store.heldBytes).toBe(0);
+    });
+
+    test("the drag's end asks at once for what an open group holds of packs without the held ink (F153)", () => {
+        const stage = fakeStage(), store = new PyramidStore({ fresh: stage, doc: null }), posted = [];
+        const pyr = new PicturePyramid(null, { store, stage, width: 800, height: 600, dpr: 1, pixels: true, setTimer: () => null, clearTimer: () => {},
+            onRequest: (jobs) => posted.push(...jobs) });
+        pyr.compose = jest.fn();
+        const cb = jest.fn(), a = levelCell("0", 0, 1, 0, 0), b = levelCell("0", 0, 1, 1, 0);
+        pyr._openGroup("pen", [a.key, b.key], cb, "live");
+        pyr.onResult({ ...a, G: stage.generation, omitHeld: store.heldEra, pixels: new Uint8ClampedArray(4) });
+        store.endHeld();
+        pyr.heldEnded();
+        const g = pyr._groups.get("pen");
+        expect(g.need.has(a.key)).toBe(true);                               // red without it: held until b lands
+        expect(g.held.length).toBe(0);
+        expect(posted.some((j) => j.group === "pen" && j.cells.some((c) => c.key === a.key))).toBe(true);
+        expect(cb).not.toHaveBeenCalled();
+    });
+
+    test("a patch packed without a drag's held ink, landing after the drag, is not merged (F153)", () => {
+        const t = setup(3);
+        const c = levelCell("F", 0, 1, 0, 0), G0 = t.stage.generation;
+        t.store.put({ ...c, G: G0, pixels: whole(t.doc.list, 1, 0, 0) });
+        const era = t.store.heldEra;
+        t.store.endHeld();
+        const clip = [0, 0, 16, 16], patch = new Uint8ClampedArray(16 * 16 * 4);
+        expect(t.pyr.onResult({ ...c, G: G0 + 1, clip, patch, omitHeld: era })).toBe("stale");   // red: merged, its G raised
+        expect(t.store.get(c.key).G).toBe(G0);
+        expect(t.store.get(c.key).omitHeld).toBe(0);
+    });
 });

@@ -263,6 +263,36 @@ describe("the job wire (§3.3, §3.4)", () => {
         expect(same(cold.geom, moved.geom) && same(cold.attr, moved.attr) && same(cold.meta, moved.meta)).toBe(true);
     });
 
+    test("J4i a zoom met first borrows the last zoom's records: only an item whose fade moved is rebuilt (F162)", () => {
+        // fadeTag 51.2 at enter 256: 0.2 px at Zq 1 (fade 1/3), 0.3 px at Zq 1.5 (fade 1)
+        const list = [shapeItem(41, [rect(10, 10, 120, 90)]), shapeItem(42, [rect(200, 40, 330, 150)], { fadeTag: 51.2 })];
+        packOne(list, { Zq: 1 });
+        const b0 = { ...pack.packStats };
+        const zoomed = packOne(list, { Zq: 1.5 });
+        expect([pack.packStats.prepasses - b0.prepasses, pack.packStats.recsBuilt - b0.recsBuilt]).toEqual([1, 1]);
+        expect(zoomed.nItems).toBe(2);
+        pack.clearPackCaches();
+        const cold = packOne(list.slice(), { Zq: 1.5 });
+        expect(same(cold.geom, zoomed.geom) && same(cold.attr, zoomed.attr) && same(cold.meta, zoomed.meta)).toBe(true);
+    });
+
+    test("J4h a stroke fitted between two strips of one list is culled by its outline: the record's check reads `_outline` (F162)", () => {
+        const item = strokeItem(15, [[40, 100], [240, 100]], 12);
+        const list = [item], next = Int32Array.from([1, 0]), far = PLATE_PX + 60;
+        expect(packOne(list, { plates: next }).nItems).toBe(0);         // the raw band ends at x 246
+        item._outline = [[
+            [[40, 94], [110, 94], [far - 70, 94], [far, 94]],
+            [[far, 94], [far, 100], [far, 100], [far, 106]],
+            [[far, 106], [far - 70, 106], [110, 106], [40, 106]],
+            [[40, 106], [40, 100], [40, 100], [40, 94]],
+        ]];
+        const fitted = packOne(list, { plates: next });
+        expect(fitted.nItems).toBe(1);                                  // the fitted band reaches the next plate
+        pack.clearPackCaches();
+        const cold = packOne(list.slice(), { plates: next });
+        expect(same(cold.geom, fitted.geom) && same(cold.attr, fitted.attr) && same(cold.meta, fitted.meta)).toBe(true);
+    });
+
     test("J4c an edited stroke drops its band with its entry, so the next plate bands the new stroke", () => {
         const item = strokeItem(13, [[40, 100], [240, 100]], 12);
         const b1 = pack.bandFor(item, 0, 1, CFG);

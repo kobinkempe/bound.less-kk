@@ -706,6 +706,13 @@ class Overlays {
             if (drag) this._selDragStart(c, drag, table, F);
             return c;
         }
+        // A newer G whose item deltas touch no selected piece leaves it standing: every tile read that installs
+        // other ink commits a G, and a zoom re-decided every few frames (OPEN-FLAGS F149).
+        if (view && c.sel === s && !c.drag && c.rev === this.doc.rev && inside(c.win) && this._selUntouched(c.G, table)) {
+            c.G = G;
+            if (drag) this._selDragStart(c, drag, table, F);
+            return c;
+        }
         // A drag that ended (a drop or a cancel): its decision, moved by the displacement its ink moved by.
         if (view && c.drag && c.drag !== drag && c.at) {
             const k = this._selMovedBy(c.at, table, F, sc, c.win, vp);
@@ -846,6 +853,19 @@ class Overlays {
     _selDragStart(c, drag, table, F) {
         c.drag = drag; c.dragAt = [drag.start[0], drag.start[1]];
         c.at = this._selMembersAt(table, F);
+    }
+
+    /** Whether no item added, removed or moved and no native touched since generation G0 is selected (false when a record is cut). */
+    _selUntouched(G0, table) {
+        const ch = this.stage.changesSince(G0), touched = this.stage.touchedSince(G0);
+        if (!ch || !touched) return false;
+        const memo = new Map();
+        const mine = (id) => table.ids.has(id) || !!this._selFrameOf(id, table, memo);
+        for (const it of ch.added) if (mine(it.id)) return false;
+        for (const it of ch.removed) if (mine(it.id)) return false;
+        for (const c of ch.changed) if (mine(c.item.id)) return false;
+        for (const id of touched) if (mine(id)) return false;
+        return true;
     }
 
     /** The selected frame native `id` is homed under, or null; `memo` caches it by id. */

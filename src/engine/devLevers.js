@@ -11,8 +11,15 @@ export const LEVERS = Object.freeze({
     levelStep: { values: LEVEL_STEPS, desktop: 1, phone: 1 },
     plateViews: { min: 1, max: 8, desktop: 3, phone: 2 },
     plateCeilingMiB: { min: 64, max: 512, desktop: 256, phone: 96 },
+    plateRamMiB: { min: 0, max: 512, desktop: 64, phone: 24 },   // the plate store's RAM tier (F161); 0 turns it off
+    plateFarMiB: { min: 0, max: 512, desktop: 96, phone: 64 },   // the far zoom-out levels' own plate share (F166); 0 shares the one budget
     restQuietMs: { min: 0, max: 2000, desktop: 100, phone: 100 },
     restInline: { values: ["auto", "never"], desktop: "auto", phone: "auto" },
+    netMs: { min: 0, max: 1000, desktop: 0, phone: 0 },          // the inline net over paper (F166): its budget, 0 off
+    prefetchReadMs: { min: 0, max: 200, desktop: 30, phone: 16 }, // the far prefetch's tile reads a plan (F166; 8 before)
+    tileRamMiB: { min: 0, max: 512, desktop: 48, phone: 24 },    // the tile store's RAM tier (F166); 0 turns it off
+    firstViewKiB: { min: 0, max: 8192, desktop: 2048, phone: 2048 }, // the first-view pictures saved with the cloud copy (F166); 0 turns them off
+    holdMs: { min: 0, max: 5000, desktop: 1000, phone: 1000 },   // a moved view waits this long for its plates before paper (Kobin 2026-10-29); 0 paints paper at once
     compose: { values: ["auto", "direct", "surface"], desktop: "auto", phone: "auto" },
 });
 /** The localStorage key this device's levers live under. */

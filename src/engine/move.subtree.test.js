@@ -179,6 +179,58 @@ describe("a selected frame moves as a frame (subtree O(1), 2026-09-15)", () => {
     });
 });
 
+// OPEN-FLAGS F168 (Kobin's phone, 2026-10-21): with the camera inside a selected frame, or under it, no frame at the
+// camera's depth anchors the frame's move, and the drop refused it silently; its ink, drawn at the pointer through the
+// drag, went back at the drop. The per-object path is the reference picture (t2).
+describe("F168 a selected frame at or above the camera's depth moves with the drag", () => {
+    useEngines();
+    const into = (E, id) => { E.cam.set({ activeLevel: E.lm.depthOf(id), frame: id, inScale: 1, inPanX: 400, inPanY: 300 }); E._render(); };
+    for (const [name, at] of [["t14 the camera in the selected frame", (f) => f.R.id], ["t15 the camera in a frame under it", (f) => f.K.id]]) {
+        test(name + ": every native lands where the per-object path puts it; undo is exact", () => {
+            const A = fixture(40), B = fixture(40);
+            into(A.E, at(A)); into(B.E, at(B));
+            const start = state(A.E);
+            const empty = A.E.lm.cellChild(A.R.id, -3, 4);                                 // a visited cell, holding nothing
+            A.E._setSelection([], [A.R.id]);
+            B.E._setSelection(B.all);
+            dragDirect(A.E, [400, 300], 40, 24); A.E.pointerUp();
+            dragDirect(B.E, [400, 300], 40, 24); B.E.pointerUp();
+            for (const id of A.all) expect(canon(A.E, id)).toEqual(canon(B.E, id));   // red: the frame refused, its natives where they were
+            const op = A.E.doc._undo[A.E.doc._undo.length - 1];
+            expect(op.op).toBe("moveFrames");
+            // Only the frames under the camera move as frames; the camera's own frame stays where it is.
+            expect(op.frames.every((e) => A.E.lm.depthOf(e.id) > A.E.cam.activeLevel)).toBe(true);
+            expect(op.frames.map((e) => e.id)).toContain(at(A) === A.R.id ? A.K.id : A.L.id);
+            expect(A.E.cam.frame).toBe(at(A));
+            expect([A.E.selection.ids, A.E.selection.frames]).toEqual([[], [A.R.id]]);
+            expect(A.E.lm.frame(empty.id)).toBeUndefined();                                // not moved, so no op names it: collected (F94)
+            expect(A.E.undo()).toBe(true);
+            expect(state(A.E)).toBe(start);
+        });
+    }
+    test("t16 a native the drop carries out of the camera's frame stays selected", () => {
+        const { E, R, ids } = fixture(40);
+        into(E, R.id);
+        const n = ids.R[0];
+        E.doc.setOffsetsById(n, [[65516, 0]]);                         // drawn 20 units short of R's cell edge
+        E._setSelection([], [R.id]);
+        dragDirect(E, [400, 300], 40, 0); E.pointerUp();
+        expect(E.lm.isUnder(R.id, E.doc.getById(n).level)).toBe(false);  // re-homed in R's neighbour cell
+        expect(E._isSelected(n)).toBe(true);                           // red without the repair: it left the selection
+        expect([E.selection.ids, E.selection.frames]).toEqual([[n], [R.id]]);
+    });
+    test("t17 a frame the drop's targets refuse is journaled with the move", () => {
+        const { E, R } = fixture(10);
+        const loose = rects(E, "1", 1, 9)[0];
+        E._setSelection([loose], [R.id]);
+        E.lm.moveSubtreeTargets = (root, depth, dx, dy, start) => [...start.keys()].map((id) => ({ id, why: "refused" }));
+        dragDirect(E, press(E, R.id), 40, 0); E.pointerUp();
+        const j = E.journal[E.journal.length - 1];
+        expect(j.kind).toBe("move");
+        expect((j.skipped || []).map((s) => s.id)).toContain(R.id);      // red: only per-object refusals reached the journal
+    });
+});
+
 describe("a frame dropped on an occupied cell (subtree O(1), 2026-09-15)", () => {
     useEngines();
     // Two frames a level under the camera at cells (10, 0) and (12, 0), 100 natives each; A has

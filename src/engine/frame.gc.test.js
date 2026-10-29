@@ -10,7 +10,8 @@
  * in it or passed through it lately (its chain and the last few frames it left) or an undo or redo op
  * names it (undo puts things back there by id).
  */
-import { useEngines, mkEngine } from "./__testkit__/harness";
+import { useEngines, mkEngine, drawStroke } from "./__testkit__/harness";
+import { W } from "./frameLattice";
 import { rectLoop } from "./geometry/arcShape";
 import { collectFrames, CAM_TRAIL } from "./frameGc";
 import { OpLog } from "./oplog";
@@ -295,6 +296,47 @@ describe("a frame holds something (frame GC, F94)", () => {
         for (const k of [...E.lm.frames.keys()]) E.doc.at(k);
         expect(bytes(E)).toBe(after);
         expect(E.doc.getById(members[0]).level).toBe(second);
+    });
+
+    // The camera's frame's ink drawn a cell over: the render mints the empty frame its picture is read from.
+    const shiftedSource = () => {
+        const E = mkEngine(800, 600);
+        E.lm.ensureSpine(2);
+        E.cam.set({ activeLevel: 2, frame: "2", inScale: 1, inPanX: 400, inPanY: 300 });
+        E._render();
+        drawStroke(E, [[300, 300], [500, 320]], 10);
+        const had = new Set(E.lm.frames.keys());
+        E.doc.setFrameShift("2", [1.3 * W, 0]);
+        E._render();
+        return { E, src: [...E.lm.frames.keys()].find((id) => !had.has(id)) };
+    };
+
+    test("G14 a frame the camera table reads a moved picture from stays a candidate, not forgotten (F139); it goes once the table stops reading it", () => {
+        const { E, src } = shiftedSource();
+        expect(src).toBeTruthy();
+        expect(E.stage.sourceFrames().has(src)).toBe(true);
+        E._gcCand.add(src);
+        collectFrames(E);
+        expect(E.lm.frame(src)).toBeTruthy();                      // red before: forgotten, and the next render minted and baked it again
+        expect(E._gcCand.has(src)).toBe(true);
+        E.stage.sourceFrames = () => new Set();                    // as once the table stops reading it
+        collectFrames(E);
+        expect(E.lm.frame(src)).toBeUndefined();                   // still a candidate: the next collection takes it
+    });
+
+    test("G15 a forgotten frame's camera pins stay: minted again, its tiles are pinned and a drop's batch write keeps them (F151)", () => {
+        const { E, src } = shiftedSource();
+        const keys = [...E.store.cache.keys()].filter((k) => k.startsWith(src + "|"));
+        expect(keys.length).toBeGreaterThan(0);
+        expect(keys.every((k) => E.store._pins.has(k))).toBe(true);
+        E.stage.sourceFrames = () => new Set();                    // as once the table no longer reads it
+        E._gcCand.add(src);
+        collectFrames(E);
+        expect(E.lm.frame(src)).toBeUndefined();
+        expect(keys.every((k) => E.store._pins.has(k))).toBe(true);   // red before: `TileStore.forgetFrame` deleted them
+        E._render();                                               // minted again, its tiles read again
+        expect(E.lm.frame(src)).toBeTruthy();
+        expect(keys.filter((k) => E.store.cache.has(k)).every((k) => E.store._pins.has(k))).toBe(true);
     });
 
     test("G6 a forgotten moved frame's id is never minted again elsewhere in the session", () => {

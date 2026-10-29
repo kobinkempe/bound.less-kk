@@ -65,6 +65,9 @@ const ERASE_COLOR = "#ffffff";
 // times over after a zoom-out on the Magnum Opus (TESTER-3). A slice ends at the next tile past it.
 const READ_SLICE_MS = 50;
 const READ_SLICE_PHONE_MS = 30;
+// A moving camera's step reads this much of what the window lacks while it is not covered: idle-only reads left a
+// crossing's new frame unread for the whole zoom, every cell refused and paper (1.5-2 s at 2 octaves/s).
+export const STEP_READ_MS = 4;
 // perfLog entries at least this long also go to perfLong (the last PERF_LONG_CAP), which a report carries.
 const PERF_LONG_MS = 200;
 const PERF_LONG_CAP = 100;
@@ -641,8 +644,10 @@ export default class KobinEngine {
         this._dragSel = null;
         if (live && this.renderer.endMove) this.renderer.endMove(why, n);
         if (op && this.renderer.noteUserEdit) this.renderer.noteUserEdit();
-        // What the drop moved out of every selected frame stays selected (DESIGN.md §10), before the one render.
-        if (op && op.frames && this.selection) this._repairSelection({ ids: [], frames: op.frames.map((e) => e.id) });
+        // What the drop moved out of every selected frame stays selected (DESIGN.md §10), before the one render: its
+        // frames, and the natives it moved per object for a frame at or above the camera's depth (F168).
+        const natives = d && d.natives && d.natives.length ? d.natives.map((m) => m.obj.id) : [];
+        if (op && this.selection && (op.frames || natives.length)) this._repairSelection({ ids: natives, frames: op.frames ? op.frames.map((e) => e.id) : [] });
         this._render();
         collectFrames(this);      // the containers the drop minted or emptied (F94)
     }
@@ -717,7 +722,9 @@ export default class KobinEngine {
     /** A step without a render: on the raster path the table is synced first (a tile an event dropped is read again). */
     _syncStep() {
         if (this.raster) {
-            this.stage.sync(this.cam.frame, this._listWin(), 0);   // the cache alone (A3 §4.2): `_readIdle` reads the rest
+            const win = this._listWin();
+            // The cache alone while covered (A3 §4.2); else a slice of the missing tiles too. `_readIdle` reads the rest.
+            this.stage.sync(this.cam.frame, win, this.stage.covers(this.cam.frame, win) ? 0 : STEP_READ_MS);
             this._readIdle();
             this._lastList = this.stage.items();
         }

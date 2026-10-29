@@ -5,7 +5,10 @@
  *   - the camera is in it or above it, or left it within the last CAM_TRAIL frames — a crossing
  *     back composes the plates of the frame it left through the frame affine (PAPER-PLAN R5a);
  *   - an undo or redo op names it (`Document.namedFrames`): history puts things back there by id,
- *     and the frame goes once the op leaves history (the 200-op cap, a dead redo branch).
+ *     and the frame goes once the op leaves history (the 200-op cap, a dead redo branch);
+ *   - the camera table's reroute groups read a moved native's picture from it (`Stage.sourceFrames`,
+ *     OPEN-FLAGS F139): forgotten, the next render mints it and bakes its tiles again. It stays a
+ *     candidate, and goes at the first collection after the table stops reading it.
  * Candidates are the frames something may have emptied or minted — a native's old home, a moved
  * frame and its old parent, a detached list, every frame a gesture adds, the frames the camera left
  * and what dropped ops named — collected at a gesture's end and at a change of the camera's frame,
@@ -81,6 +84,7 @@ export function collectFrames(E, inRender = false) {
     const lm = E.lm, doc = E.doc;
     const keep = new Set(E._camTrail);
     for (let f = lm.frame(E.cam.frame); f; f = f.parent != null ? lm.frame(f.parent) : null) keep.add(f.id);
+    const read = E.stage && E.stage.sourceFrames ? E.stage.sourceFrames() : null;
     const todo = [...cand];
     cand.clear();
     let named = null;
@@ -89,6 +93,7 @@ export function collectFrames(E, inRender = false) {
         const id = String(todo.pop());
         const f = lm.frame(id);
         if (!f || f.parent == null || keep.has(id)) continue;
+        if (read && read.has(id)) { cand.add(id); continue; }
         if (doc.count(id) || (f._kids && f._kids.size)) continue;
         if (!named) named = doc.namedFrames();
         if (named.has(id)) continue;

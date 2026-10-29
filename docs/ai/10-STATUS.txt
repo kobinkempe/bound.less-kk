@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-10-07. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-10-20. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -15,7 +15,8 @@ WHERE THE BUILD IS
     move is arithmetic on an address rather than a translation of geometry, and
     the magnify chain carries exact arcs down instead of a polygon.
 
-    That closed F25, F28, F-A and F-B. It did not close the eraser.
+    That closed F25, F28, F-A and F-B. Kobin closed F5 on 2026-10-29: the erasers
+    mostly work, besides one or two minor bugs.
 
     Cloud sync is live: Google auth, Firestore, the kobin-2 mirror since
     2026-09-08 (gzipped frame and log chunks, the manifest written last; lz1
@@ -25,14 +26,145 @@ WHERE THE BUILD IS
     conflict keeps both copies, and a dev build writes its own collection
     (dev-canvases), never the deployed app's.
 
-    Where the tree is: the renderer rebuild (review/rebuild/PLAN.md) is on
-    branch claude/hopeful-dirac-iotb9n, pushed, on top of rasteriser at 56e36b3
-    (2026-09-25: the work from 2026-09-15 on, committed and pushed as
-    origin/rasteriser; main's 4c99a8a is inside it; origin/main is 0732252).
-    Nothing has been deployed since 2026-09-08 (0732252, SVG only). Kobin pulled
-    the rebuild as branch rasteriser-reviewed (= the private remote's main,
-    cb6bfce) on 2026-10-06 and tried it in his Chrome: the 2026-10-07 entry.
+    Where the tree is: main is b2291ce, pushed to origin on 2026-10-12 at
+    Kobin's word - the renderer rebuild (review/rebuild/PLAN.md), which he
+    pulled as rasteriser-reviewed on 2026-10-06 and tried in his Chrome (the
+    2026-10-07 entry). The performance round since (.claude/PERF-DEEP-2026-10-12/,
+    gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
+    been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
+2026-10-29 - THE BETA'S CLOUD LIMIT (Kobin): 200 MB an account, recycle bin included (cloud/cloudLimits.js),
+    checked before a push writes any part; the owner's account exempt; his message in the save bar and the
+    gallery, which shows the account's cloud use. No per-drawing limit (copies go up in parts). Quick suite
+    2,534 / 2,534, lint 0 errors. Committed on performance; deploy gate: tiles stay as they are for 1.0.
+2026-10-29 - THE FIRST-VIEW PICTURES AND THE WAIT BUILT (F166; uncommitted). A canvas's last view saved with its
+    cloud copy (views/{tag}, per device print; stamped with the push's head, the build and the render inputs) and
+    seeded into the RAM tier at the next open; a moved view whose plates are missing keeps the last picture up, at
+    most holdMs 1 s (Kobin: lag over paper). Replay zooming at the very first frame: 480-517 -> 65-108 ms of paper
+    seeded; with the wait, 0 ms (7 waits, 335 ms in all). His Magnum Opus run uploaded a set of 2.07 MB. Quick
+    tests: F159 closed, all nine reds were the tests: the quick four (timeouts, an answer loop, the rest set
+    landing under load) and the slow five (drags ended without their drop, old reports' marks registered at load,
+    the bench reading a lattice file with the old engine). The four slow files 67/67.
+2026-10-29 - THE MEMORY STACK BUILT (F166; uncommitted). The far levels their own plate share (plateFarMiB
+    96/64, Kobin: generous), built first after the screen; the frame left's finer levels rank finer; eviction
+    by the zoom's direction; RAM-tier stand-ins and levels ahead restored in a gesture; the paper log in the
+    report (paperWhy). Replay: 300 ms after arriving 66 -> 1 ms paper; 4 s rest 0 -> 0, blur 2.1 -> 1.4 s;
+    zooming at the first frame 437 ms (the first-view pictures' case, next).
+    Quick suite 2,516 pass, 4 fail: F159's 4 known reds. raster.dropdirt T1 had gone red alone: the far levels
+    now held (l-7, 65,536-unit cells) reach the huge square's far edges, which the drag moves; its filter now
+    keeps cells away from all four edges, as its title says. Lint 0 errors.
+2026-10-29 - THE PHONE REPORT REPLAYED IN CHROME (F166). Phone-sized second engine, his 161 zoom events: after a 4 s
+    rest 0 ms paper; starting 300 ms after arriving 66 ms, in pinches' first 100 ms at the uncovered margin (queued,
+    in the RAM tier not unpacked, in flight). After crossings the frame just left held 44-46 of 89 plates.
+2026-10-27 - HIS PHONE'S ZOOM-OUT FLASHES (report 19-39-31, "untitled", 199 shapes; F166). The plate cache
+    sat at its 89-plate floor all session: 9,903 evictions, 1,271 of far zoom-out plates; 4,048 restored
+    from the RAM tier (~10 ms each). Status explained to Kobin; no change made yet (his word).
+2026-10-26 - F168 AND F169 FIXED (branch performance, uncommitted; jsdom; unverified by Kobin). One cause:
+    with the camera in a selected frame, or under it, no frame at the camera's depth anchored the frame's
+    move, so the drop refused it silently and its ink went back at the release (F168); those drops moved a
+    family's parent piece (305) but not its kid in that frame (299), so the ants traced the parent's hole
+    (F169). Now such a frame's natives at or above the camera's depth move per object and its frames under
+    the camera as frames; a refused frame is journaled. Tests move.subtree t14-t17, selection.indicator
+    SJ-1 (60/60 in the main tree); probes f168/f169. The canvas "untitled" keeps the tear until undone.
+2026-10-26 - THE ZOOM-OUT'S TILE READS (branch performance, uncommitted; F166). Stage._groupBox maps a
+    run of members once (same boxes, 6,570 -> 452 ms); the tile RAM tier (tileRamMiB 48/24) and the far
+    reads 8 -> 30 ms while still (prefetchReadMs 30/16), which work only together: replay paper 2,047 ->
+    1,203 ms, blur 3,525 -> 4,434; every tile identical. In his Chrome (two runs each): paper 3,127 ->
+    2,787 ms (-11 %), all in the pauses; the bursts' ~2 s unchanged; no more long frames. The net
+    (netMs 120): 10 % more off, 1.8x the long frames - left off.
+    Quick suite 2,505 pass, 5 fail: F159's 4 known reds and raster.snapshot S5 ("one job of ONE
+    plate", 2 posted), which passes alone. S5's cause (F159): the camera's idle read asks the view's last
+    cell after the paint's flush on a fast run, and S5 counted it; S5 now waits past it (11/11 x3).
+    With F168's fix too: 2,510 pass, 5 fail (the same 4 + S5, before S5's wait). Last full run, all
+    of the day in: 2,509 pass, 6 fail = the 4, "rule 2" (1 ms bar) and raster.engine's oldBbox
+    BREAK-CHECK (F159's parallel-run kind; 30/30 alone x3). Lint 0 errors, typecheck 0.
+2026-10-21 - TWO BUGS FILED FROM HIS PHONE (F168, F169; reports 20:24 UTC, a new canvas worked above the
+    root). F168: a move refused; the selection held the camera's own frame and the journal moved only the
+    shapes. F169: the selection showed a tile (like F37/F125, both fixed). Not looked into yet.
+2026-10-20 - F158 LEVER 1 (branch performance, uncommitted). A tile no piece of a big shape reaches is a
+    whole quad or nothing, asked of the parent's own pieces (derive.js farWinding); every tile identical to
+    the committed derivation's on R4, R6, Test eraserisms and the Magnum Opus's zoom-out (f158.probe.js);
+    cold samples -23 to -28 %, the zoom-out's derivations 7.8 -> 6.6 s (jsdom). Its profile: Stage.covers
+    5.5 s a walk; 525 of 1,240 derivations re-derive evicted tiles. Levers 2-3 not built.
+2026-10-20 - THE FRAME-CHAIN SCALARS (F167, ROADMAP S9). Kobin asked whether frameFactor overflows:
+    it does. One double over the whole chain: Infinity from 86 levels down, 0 from 90 up; the zoom
+    number Infinity from depth 85 and its label "1×" (deepzoom.scalars.probe.js). Readers listed in
+    F167; the fix (a level count and a bounded factor) and a deep-document check are S9.
+2026-10-20 - THE ZOOM-OUT PAPER (branch performance; F166). His Magnum Opus zoom-out replayed in
+    jsdom (bursts of ~4.2 octaves, ~400 ms still between): paper 2,047 ms, blur 3,525 ms in ~16.5 s.
+    The cause is the tile reads: after a crossing 327 tile derivations at depth 10 (7.4 s in jsdom)
+    before the window is covered, so nothing is asked or drawn; the far set was never built (its
+    reads never fit their 8 ms). Built: the far reads retried every 100 ms while still; a plan with
+    paper renders a coarse net inline (netMs, a Dev lever, off by default; at 120): paper 1,808 ms. Next: F158 (approved
+    if tiles stay bit-identical), a tile memory tier. Not yet measured in Chrome. The round is
+    committed as cef36c3 on performance (Kobin's word; not pushed, not deployed).
+2026-10-20 - A REFUSED RASTER JOB LEFT PAPER (branch performance; F165). His Magnum Opus report
+    (15:54 UTC): 17 errors "row runs do not tile its loop", thrown out of the worker client's
+    dispatch, so those strips were neither posted nor dropped and their cells stayed paper. Fixed: a
+    refused job is dropped and asked for again; one whose row runs alone are wrong goes without them
+    (same pixels). The cause, found from the item the report now names, read in his own tab: the
+    row runs' array was sized from an item's length alone, one short for a multi-ring item; now
+    counted exactly. His tab at the opening view: 10 of 148 jobs refused before, 0 of 74 after. His decisions: the drag plane's cap stays 5; the zoom ants stay as they are; he
+    leans toward not storing the viewed detail; commit after the zoom-out paper; setDeviceName deleted.
+2026-10-20 - THE MEMORY LAYOUT, FIRST STEP (branch performance; F164). Measured in his Chrome heap
+    snapshot of the Magnum Opus (2026-10-13): the document 64 MB of a 222 MB heap, its undo 18.5 MB
+    (9 drags of the 5,771-member group, ~2 MB each). Built: equal offset tables share one frozen
+    array (offsets.js internBelow), and a drag's journal entry keeps 120 members and the count
+    instead of every member. jsdom, five drops of 6,000 selected shapes: undo 363 -> 126 B a member,
+    journal 8.06 -> 0.17 MB, the natives' tables 6,000 -> 1. Then lever 2: a loop's record index is
+    built at its first random access (R6 loaded in jsdom: none of 44,550 loops indexed, the engine
+    128-130 -> 119-122 MB, load time unchanged). Lever 3: the family map keeps families only (R6:
+    448 groups in 0.11 MB, was 43,031 in 10.95 MB). Lever 4: the spatial index shares a shape's
+    and a fill's cached box (R6: 43,135 copies, 5.27 MB, gone). Lever 5: a load shares its natives'
+    type, origin and colour strings (43,135 records from a structured clone 15.14 -> 12.18 MB in plain
+    Node; JSON.parse shared them already). Quick suite 2,498 pass; the known raster.pyramid reds
+    (F159) and the S5 load flake. In his Chrome (a second engine, 2,000 shapes, five drops, undo
+    and redo): no error, the tables, boxes and journal as built. The memory itself in Chrome: his
+    next heap snapshot (memory-chrome-2026-10-20.md).
+2026-10-20 - THE REFERENCE PAGES REBUILT (branch performance). tools/docmaps/rebuild.py passes
+    end to end on the branch: 3,765 functions in 155 files, 7,284 calls, 0 missing, 0 stale, the
+    Call Map's 323 calls all calls (84 hand edges the rebuild had broken moved or removed; 110 new
+    functions described, 91 changed ones re-described). The Call Map republished; the Code Map and
+    the Call Graph rebuilt locally only (tools/docmaps/README.md).
+2026-10-19 - THE DRAG IN HIS CHROME, AND THE CORE'S ROW INDEX (branch performance). F153
+    BUILT per piece: a drop dirties its moved boundaries' swept hulls, not their boxes - on R4 5
+    of the view level's 24 cells (was 24), no changed pixel outside the dirt at any level (jsdom);
+    in his Chrome the drop's re-render work about halved, the stale picture's screen time -80 %.
+    F145 BUILT, then reworked after his two reports that afternoon: every layer of the drag plane
+    is drawn from one surface at its own resolution, what the selection moves over cut sharpest
+    first, paper under it needs no plates; in his Chrome both drags drew everything on screen at
+    the view's resolution at 60 fps. His next message ("way better"): the line through a part
+    dragged in from past the screen FIXED (a magnified layer's edge blended with the transparent
+    cell beside it; edge pixel 158,30,72 -> 200,30,30 in Chrome) and the held blur FIXED (a drag
+    held 250 ms has what came on screen cut sharper; whole 0.28 s into the hold, edges 2.9 px wide
+    against 3.7). F144 BUILT (jsdom): past 5 layers the plane swaps the pair whose swap shows
+    least (area x area x opacity x opacity x colour difference); R1's drag exact. F157's per-plate
+    proof budget built. F154 BUILT (2026-10-19/20): the raster core skips the runs of an outline that
+    miss a plate's rows - R4's 18 screen plates 2.4x faster with the same pixels (jsdom), the Magnum
+    Opus unchanged; in his Chrome on R4 the workers' drawing time -23 % (rest) and -29 % (view), the
+    screen redrawn 20 % sooner after a full drop. Not seen by Kobin: F144, F154.
+2026-10-15 - F153 IN PART, F163, F157 (branch performance, jsdom). A drop dirties its moved
+    boundaries' sweep; F163 (the far prefetch packed cells from a snapshot of less than them)
+    found by F153's soundness test and BUILT; F157 BUILT exact (a polygon-contains-plate cover,
+    a top-down walk): the Magnum Opus's deep views' pack -80 to -88 %. Codex reviewed the three
+    (its one finding fixed 2026-10-19).
+2026-10-14 - THE PLATE RAM TIER (F161) AND THE PACK WALK (F162), in his Chrome. F161 BUILT
+    (Kobin's tiered plate cache: an evicted plate kept packed in RAM and restored): on the Magnum
+    Opus a minute of zoom/pan cycles showed a third of the paper, blur and packing. F162 BUILT in
+    part: every strip walked every family; packing 1,424 -> 1,006 ms a minute. F155 (the worker
+    geometry cache) measured and DEFERRED: the geometry and the job's arrays are 9 % of the pack.
+    F159 widened: four quick raster.pyramid tests red on main too.
+2026-10-13 - THE DEEP PERFORMANCE ANALYSIS AND KOBIN'S GO-AHEAD (.claude/PERF-DEEP-2026-10-12/
+    SUMMARY.md: his Chrome with heavy tracing, two agents, the ranked waste list). Built and
+    measured in his Chrome on R4: F139 + F151 (frame GC stripped the tile store's camera pins: a
+    drop 0.83-0.91 s -> 57-78 ms), F152 (zoom-out paper 2,236 -> 121 ms), F149 in part. Filed from
+    the audit: F153-F157. His go-ahead the same day on every suggested fix but the ants hold: F142
+    BUILT (the shape cull; every tile identical to HEAD's on R4, R6 and his two live canvases;
+    under the deploy gate), F156 BUILT, the Stage's per-step key strings gone, F160 found from his
+    heap snapshots and BUILT (a closed canvas stayed in memory). Filed: F158, F159.
+2026-10-12 - MAIN PUSHED; THE MEMORY QUESTION. main set to the rebuild (b2291ce) and pushed to
+    origin at Kobin's word. His question "would the keep rule make memory worse?": F151
+    filed, F139's lever corrected (.claude/REVIEW-2026-10-06/mem.md).
 2026-10-07 - KOBIN'S FIRST CHROME SESSION ON THE REBUILD (six reports of 2026-10-06, R1-R6;
     the review: .claude/REVIEW-2026-10-06/, gitignored - CONTEXT, moves, picture, perf). His
     words: "looking pretty good and fairly accurate - much less brittle than before; the

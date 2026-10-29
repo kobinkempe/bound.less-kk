@@ -470,3 +470,17 @@ describe("the push never overwrites (R3)", () => {
         expect(A.header.base.seq).toBe(3);
     });
 });
+
+describe("the account's cloud limit (cloudLimits.js)", () => {
+    test("a push past the limit writes nothing; one that fits, or the owner's (no limit), lands", async () => {
+        const { CloudLimit, ACCOUNT_BYTES, limitedAccount, accountBytes } = require("./cloudLimits");
+        const A = new Mem("A").init();
+        await expect(cloudPushCanvas2(UID, { id: ID, name: "A" }, A.source(), { limit: { others: ACCOUNT_BYTES } })).rejects.toBeInstanceOf(CloudLimit);
+        expect(fake.paths(`users/${UID}/`)).toEqual([]);
+        const r = await cloudPushCanvas2(UID, { id: ID, name: "A" }, A.source(), { limit: { others: 0 } });
+        expect(r.head).toBeTruthy();
+        expect(accountBytes([{ id: ID, ...fake.docs.get(MANIFEST).data }])).toBeGreaterThan(0);
+        expect(limitedAccount("someone")).toBe(true);
+        expect(limitedAccount(null)).toBe(false);
+    });
+});

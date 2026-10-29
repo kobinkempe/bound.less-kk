@@ -17,7 +17,7 @@
  *
  * Timings are also printed so the numbers can go in the design report.
  */
-import { loadFixture } from "./__testkit__/legacyFixture";
+import { loadFixture, isLegacySnapshot } from "./__testkit__/legacyFixture";
 import fs from "fs";
 import path from "path";
 import KobinEngineV0 from "./__oracles__/KobinEngineV0";
@@ -65,12 +65,13 @@ describe("perf: incremental re-render vs full teardown on the BUG-05 scene", () 
 });
 
 describe("perf: new vs old on real snapshots (no bad regression)", () => {
-    const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")) : [];
+    // The oldest reports: V0 reads only the pre-lattice snapshot (other files there sort first: dense-screen.json is a lattice one).
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^report-.*\.json$/.test(f)).sort() : [];
     const pick = files.slice(0, 4); // a representative handful (keeps the suite quick)
     (pick.length ? test : test.skip).each(pick)("%s render is not badly slower", (fileName) => {
         const report = JSON.parse(fs.readFileSync(path.join(dir, fileName), "utf8"));
         const snap = report.snapshot;
-        if (!snap || !snap.natives) return;
+        if (!snap || !snap.natives || !isLegacySnapshot(snap)) return;
         const w = (report.screen && report.screen.w) || 800, h = (report.screen && report.screen.h) || 600;
 
         const A = mk(KobinEngineV0, w, h); engines.push(A);

@@ -10,8 +10,9 @@ you have read anything.
 1. **A green suite is not evidence that a change is good.** A refactor once
    passed 458 tests and was reverted as worse. Every defect that mattered this
    quarter was invisible to the suite and visible only in a browser.
-2. **Do not describe the eraser as working.** Every pass so far has failed in
-   real use. State what was measured.
+2. **Say what was measured.** Do not assume the app works because you fixed one
+   bug: state what was checked, and where (jsdom, headless Chromium, a real
+   browser).
 3. **Measure paint in a real browser.** Rasterising the SVG to a canvas cannot
    see the compositing failures — that mistake cost three wrong diagnoses.
 
@@ -33,8 +34,8 @@ you have read anything.
 
 ```bash
 npm start              # dev server on :3000
-npm run test:quick     # ~100-150 s, ~1,650 tests in 107 suites, no *.slow.test.js and no *.probe.js
-npm run test:slow      # ~500 s (1,320 s beside a dev server and Chrome), 616 tests
+npm run test:quick     # a few minutes, ~2,500 tests in ~215 suites, no *.slow.test.js and no *.probe.js
+npm run test:slow      # ~500 s (1,320 s beside a dev server and Chrome), ~655 tests in 26 suites
 npm run test:erase     # the slow erase suites only
 npm run typecheck      # JSDoc-checked geometry (tsconfig.geometry.json); 0 errors is the bar
 npm run build:worker   # esbuild bundles the workers into public/ (raster-worker.js — plates and cuts —, scene-worker.js; runs before start/build)

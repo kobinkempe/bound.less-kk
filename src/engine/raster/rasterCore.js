@@ -673,17 +673,17 @@ const widthOf = (code) => RECORD_WIDTH[code] || 8;
 /** Device pixels a chord may depart from its arc: a quarter of Kobin's quarter-pixel bar (§4.4). */
 export const ARC_TOL = 1 / 16;
 /** The deepest bisection. A clamp to it is counted, because it breaks ARC_TOL by an unbounded amount. */
-const MAXD = 24;
+export const MAXD = 24;
 const TAU = Math.PI * 2;
 // Within this of a whole turn a record's two ends coincide, so neither the bisection nor the
 // chord-form area can be taken from them: both readers go to the centre instead (D54, D60).
-const WHOLE_TURN = TAU - 1e-9;
+export const WHOLE_TURN = TAU - 1e-9;
 // §4.4's bound on a record: |sweep| is at most a whole turn, which the engine's own arcs are
 // normalised to (`geometry/biarc.js:93`; every later operation only scales a sweep down). Past
 // it the antipode split is not the arc's own midpoint and the picture is wrong, so the record
 // is refused (D67). The 1e-9 slack mirrors WHOLE_TURN, so a record rounded a hair past a turn
 // still draws its circle.
-const MAX_SWEEP = TAU + 1e-9;
+export const MAX_SWEEP = TAU + 1e-9;
 const HALF_PI = Math.PI / 2;
 // A descent that pops one node and pushes both children holds up to D + 1, and a write past
 // a typed array's end is SILENTLY DROPPED — the geometry would vanish with no error anywhere.
@@ -880,6 +880,116 @@ function emitArc(ax, ay, bx, by, sweep, cx, cy, ox, oy, mode, yb0, yb1) {
     return edges;
 }
 
+// ---------------------------------------------------------------------------
+// Row runs (F154): a plate walks only the pieces that can reach its rows.
+// ---------------------------------------------------------------------------
+
+/** Pieces a row run holds: a run is one test a plate, and a run that reaches the plate is walked whole. */
+export const RUN_PIECES = 16;
+/** Device px a run's rows are widened by: the plate is exact to ~1.5e-8 px under §4.6's bound. */
+const RUN_SLACK = 1;
+const RUN_LO = new Float64Array(2);
+
+/**
+ * An item's row runs, from its own geometry (§3.3's `kind`, `geom` and `subs`, offsets from 0): each loop of more than
+ * `per` pieces cut into runs of `per`, three doubles a run — the lowest and highest y its pieces can deposit at, in the
+ * geometry's frame units without `res` (an arc's bulge in; the loop's closing edge in its last run), and its first
+ * record's offset from the loop's start. `subRun` is each loop's first run; a loop with none (`per` pieces or fewer, or a
+ * record code the core does not know) is walked whole. A run's first piece starts at the record before it, as the whole
+ * walk's does, so a plate that skips the runs missing its rows deposits the whole walk's sums to the bit. The runs are
+ * counted before they are written: a size from the item's length alone came one short for the Magnum Opus's three-ring
+ * item 47060 (F165), and the run it dropped was read from the next item's.
+ * @returns {{ runs: Float64Array, subRun: Uint32Array }}
+ */
+export function rowRuns(kind, geom, subs, gl = geom.length, per = RUN_PIECES) {
+    const nSub = subs.length, subRun = new Uint32Array(nSub), pieceCount = new Float64Array(nSub);
+    const start = (k) => (kind === 0 ? subs[k] : 2 * subs[k]);
+    const end = (k) => (k + 1 < nSub ? start(k + 1) : gl);
+    let total = 0;
+    for (let k = 0; k < nSub; k++) {
+        const a = start(k), b = end(k);
+        let pieces = kind === 0 ? 0 : (b - a) / 2 - 1;
+        if (kind === 0) {
+            for (let o = a + 2; o < b; o += widthOf(geom[o])) {
+                const c = geom[o];
+                if (c !== 0 && c !== 1 && c !== 2 && c !== 3) { pieces = 0; break; }
+                pieces++;
+            }
+        }
+        pieceCount[k] = pieces;
+        if (pieces > per) total += Math.ceil(pieces / per);
+    }
+    const runs = new Float64Array(3 * total);
+    let n = 0;
+    for (let k = 0; k < nSub; k++) {
+        subRun[k] = n;
+        if (!(pieceCount[k] > per)) continue;
+        const lo = start(k), hi = end(k), fy = geom[lo + 1];
+        let ax = geom[lo], ay = fy, ylo = Infinity, yhi = -Infinity, count = 0;
+        for (let o = lo + 2; o < hi; o += kind === 0 ? widthOf(geom[o]) : 2) {
+            if (count === per) { runs[3 * n] = ylo; runs[3 * n + 1] = yhi; n++; count = 0; ylo = Infinity; yhi = -Infinity; }
+            if (count === 0) runs[3 * n + 2] = o - lo;
+            let bx, by;
+            if (kind !== 0) { bx = geom[o]; by = geom[o + 1]; pieceRows(ax, ay, bx, by, 0, 0, 0); }
+            else {
+                const code = geom[o];
+                let sweep = 0;
+                if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; }
+                else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; }
+                else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; }
+                else { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; }
+                pieceRows(ax, ay, bx, by, sweep, geom[o + 1], geom[o + 2]);
+            }
+            if (RUN_LO[0] < ylo) ylo = RUN_LO[0];
+            if (RUN_LO[1] > yhi) yhi = RUN_LO[1];
+            count++;
+            ax = bx; ay = by;
+        }
+        pieceRows(ax, ay, geom[lo], fy, 0, 0, 0);
+        if (RUN_LO[0] < ylo) ylo = RUN_LO[0];
+        if (RUN_LO[1] > yhi) yhi = RUN_LO[1];
+        runs[3 * n] = ylo; runs[3 * n + 1] = yhi; n++;
+    }
+    return { runs, subRun };
+}
+
+/**
+ * The y range one piece can deposit at, into RUN_LO: a line's ends; an arc's chord box grown by the sagitta's y (to a
+ * half turn the arc lies between its chord and the sagitta), past a half turn 2R about A, a whole turn its centre's
+ * radius plus the chord about the centre (`emitArc`'s antipode split). A record the core draws as its chord has its
+ * chord's. Anything non-finite: every row.
+ */
+function pieceRows(ax, ay, bx, by, sweep, cx, cy) {
+    let lo = ay < by ? ay : by, hi = ay < by ? by : ay;
+    const a = Math.abs(sweep);
+    if (a > 0 && a <= MAX_SWEEP) {
+        if (a >= WHOLE_TURN) {
+            if (isFinite(cx) && isFinite(cy)) {
+                const R = Math.hypot(ax - cx, ay - cy) + Math.hypot(bx - ax, by - ay);
+                if (cy - R < lo) lo = cy - R;
+                if (cy + R > hi) hi = cy + R;
+            }
+        } else if (a <= Math.PI) {
+            const g = 0.5 * Math.abs(bx - ax) * Math.tan(a / 4);
+            lo -= g; hi += g;
+        } else {
+            const g = Math.hypot(bx - ax, by - ay) / Math.sin(a / 2);
+            if (ay - g < lo) lo = ay - g;
+            if (ay + g > hi) hi = ay + g;
+        }
+    }
+    if (!(isFinite(lo) && isFinite(hi))) { lo = -Infinity; hi = Infinity; }
+    RUN_LO[0] = lo; RUN_LO[1] = hi;
+}
+
+/** Can run `r` (frame units, before `res`) deposit in rows [y0, y1) of the plate at `oy`? NaN reads as yes. */
+function runMeets(runs, r, ry, Zq, oy, y0, y1) {
+    return !((runs[3 * r + 1] + ry) * Zq - oy < y0 - RUN_SLACK || (runs[3 * r] + ry) * Zq - oy > y1 + RUN_SLACK);
+}
+
+/** The run after loop `s`'s last: the next loop's first, or the job's end. */
+const runEnd = (job, s) => (s + 1 < job.subRun.length ? job.subRun[s + 1] : job.runs.length / 3);
+
 /**
  * Every edge of one item, transformed to plate-local device pixels and deposited.
  * §4.6 exactly: px = (x + resX)·Zq − i·PLATE_PX. The residual is added BEFORE the scale and
@@ -891,10 +1001,11 @@ function emitArc(ax, ay, bx, by, sweep, cx, cy, ox, oy, mode, yb0, yb1) {
  * An arc piece keeps the scale-only coordinates and hands them to the flattener, which
  * subtracts the plate origin at each chord it emits: the bisection is then the same
  * arithmetic at every plate (§4.4), not merely the same depth.
+ * With row runs (`job.runs`, F154) a run that misses the clip's rows is skipped.
  * Returns the number of edges deposited.
  */
 function emitItem(job, it, rx, ry, ox, oy, Zq) {
-    const meta = job.meta, geom = job.geom, subs = job.subs;
+    const meta = job.meta, geom = job.geom, subs = job.subs, runs = job.runs;
     const kind = meta[it * 8], gs = meta[it * 8 + 2], gl = meta[it * 8 + 3];
     const ss = meta[it * 8 + 4], sc = meta[it * 8 + 5];
     let edges = 0;
@@ -903,25 +1014,34 @@ function emitItem(job, it, rx, ry, ox, oy, Zq) {
             const lo = gs + subs[ss + k];
             const hi = k + 1 < sc ? gs + subs[ss + k + 1] : gs + gl;
             if (hi - lo < 5) continue;
-            let ax = (geom[lo] + rx) * Zq, ay = (geom[lo + 1] + ry) * Zq;
-            const fx = ax, fy = ay;
-            for (let o = lo + 2; o < hi; o += widthOf(geom[o])) {
-                const code = geom[o];
-                let bx, by, sweep = 0;
-                if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; }
-                else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; }
-                else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; }
-                else { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; }
-                bx = (bx + rx) * Zq; by = (by + ry) * Zq;
-                if (sweep !== 0) {
-                    edges += emitArc(ax, ay, bx, by, sweep, (geom[o + 1] + rx) * Zq, (geom[o + 2] + ry) * Zq,
-                        ox, oy, ARC_EDGE, 0, TH);
-                } else {
-                    edges += addEdge(ax - ox, ay - oy, bx - ox, by - oy);
+            const fx = (geom[lo] + rx) * Zq, fy = (geom[lo + 1] + ry) * Zq;
+            const r0 = runs ? job.subRun[ss + k] : 0, r1 = runs ? runEnd(job, ss + k) : 0;
+            for (let r = r0; r < (r1 > r0 ? r1 : r0 + 1); r++) {          // no runs: the loop whole, once
+                let o = lo + 2, end = hi;
+                if (r1 > r0) {
+                    if (!runMeets(runs, r, ry, Zq, oy, CY0, CY1)) continue;
+                    o = lo + runs[3 * r + 2];
+                    if (r + 1 < r1) end = lo + runs[3 * r + 5];
                 }
-                ax = bx; ay = by;
+                let ax = (geom[o - 2] + rx) * Zq, ay = (geom[o - 1] + ry) * Zq;
+                for (; o < end; o += widthOf(geom[o])) {
+                    const code = geom[o];
+                    let bx, by, sweep = 0;
+                    if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; }
+                    else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; }
+                    else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; }
+                    else { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; }
+                    bx = (bx + rx) * Zq; by = (by + ry) * Zq;
+                    if (sweep !== 0) {
+                        edges += emitArc(ax, ay, bx, by, sweep, (geom[o + 1] + rx) * Zq, (geom[o + 2] + ry) * Zq,
+                            ox, oy, ARC_EDGE, 0, TH);
+                    } else {
+                        edges += addEdge(ax - ox, ay - oy, bx - ox, by - oy);
+                    }
+                    ax = bx; ay = by;
+                }
+                if (end === hi) edges += addEdge(ax - ox, ay - oy, fx - ox, fy - oy);
             }
-            edges += addEdge(ax - ox, ay - oy, fx - ox, fy - oy);
         }
     } else {
         for (let k = 0; k < sc; k++) {
@@ -929,13 +1049,22 @@ function emitItem(job, it, rx, ry, ox, oy, Zq) {
             const hi = k + 1 < sc ? gs + 2 * subs[ss + k + 1] : gs + gl;
             if (hi - lo < 4) continue;
             const fx = (geom[lo] + rx) * Zq - ox, fy = (geom[lo + 1] + ry) * Zq - oy;
-            let ax = fx, ay = fy;
-            for (let o = lo + 2; o < hi; o += 2) {
-                const bx = (geom[o] + rx) * Zq - ox, by = (geom[o + 1] + ry) * Zq - oy;
-                edges += addEdge(ax, ay, bx, by);
-                ax = bx; ay = by;
+            const r0 = runs ? job.subRun[ss + k] : 0, r1 = runs ? runEnd(job, ss + k) : 0;
+            for (let r = r0; r < (r1 > r0 ? r1 : r0 + 1); r++) {          // no runs: the loop whole, once
+                let o = lo + 2, end = hi;
+                if (r1 > r0) {
+                    if (!runMeets(runs, r, ry, Zq, oy, CY0, CY1)) continue;
+                    o = lo + runs[3 * r + 2];
+                    if (r + 1 < r1) end = lo + runs[3 * r + 5];
+                }
+                let ax = (geom[o - 2] + rx) * Zq - ox, ay = (geom[o - 1] + ry) * Zq - oy;
+                for (; o < end; o += 2) {
+                    const bx = (geom[o] + rx) * Zq - ox, by = (geom[o + 1] + ry) * Zq - oy;
+                    edges += addEdge(ax, ay, bx, by);
+                    ax = bx; ay = by;
+                }
+                if (end === hi) edges += addEdge(ax, ay, fx, fy);
             }
-            edges += addEdge(ax, ay, fx, fy);
         }
     }
     return edges;
@@ -1003,47 +1132,65 @@ function itemShoelace(job, it, rx, ry, ox, oy, Zq) {
     return sum;
 }
 
-/** One item's ring/loop segments loaded into the union edge buffer; false when it overflowed. */
+/** One item's ring/loop segments loaded into the union edge buffer, its row runs (F154) missing [yb0, yb1) skipped; false when it overflowed. */
 function loadUnionItem(job, it, rx, ry, ox, oy, Zq, yb0, yb1) {
-    const meta = job.meta, geom = job.geom, subs = job.subs;
+    const meta = job.meta, geom = job.geom, subs = job.subs, runs = job.runs;
     const kind = meta[it * 8], gs = meta[it * 8 + 2], gl = meta[it * 8 + 3];
     const ss = meta[it * 8 + 4], sc = meta[it * 8 + 5];
     for (let k = 0; k < sc; k++) {
         const lo = kind === 0 ? gs + subs[ss + k] : gs + 2 * subs[ss + k];
         const hi = k + 1 < sc ? (kind === 0 ? gs + subs[ss + k + 1] : gs + 2 * subs[ss + k + 1]) : gs + gl;
         if (hi - lo < 4) continue;
+        const r0 = runs ? job.subRun[ss + k] : 0, r1 = runs ? runEnd(job, ss + k) : 0;
+        const rn = r1 > r0 ? r1 : r0 + 1;                              // no runs: the loop whole, once
         if (kind === 0) {
             // scale-only coordinates, as emitItem keeps them: the flattener subtracts the
             // plate origin per chord, so every plate loads the same edges
-            let ax = (geom[lo] + rx) * Zq, ay = (geom[lo + 1] + ry) * Zq;
-            const gfx = ax, gfy = ay;
-            for (let o = lo + 2; o < hi; o += widthOf(geom[o])) {
-                const code = geom[o];
-                let bx, by, sweep = 0;
-                if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; }
-                else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; }
-                else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; }
-                else { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; }
-                bx = (bx + rx) * Zq; by = (by + ry) * Zq;
-                if (sweep !== 0) {
-                    if (emitArc(ax, ay, bx, by, sweep, (geom[o + 1] + rx) * Zq, (geom[o + 2] + ry) * Zq,
-                        ox, oy, ARC_UNION, yb0, yb1) < 0) return false;
-                } else if (!pushUnionEdge(ax - ox, ay - oy, bx - ox, by - oy, yb0, yb1)) {
-                    return false;
+            const gfx = (geom[lo] + rx) * Zq, gfy = (geom[lo + 1] + ry) * Zq;
+            for (let r = r0; r < rn; r++) {
+                let o = lo + 2, end = hi;
+                if (r1 > r0) {
+                    if (!runMeets(runs, r, ry, Zq, oy, yb0, yb1)) continue;
+                    o = lo + runs[3 * r + 2];
+                    if (r + 1 < r1) end = lo + runs[3 * r + 5];
                 }
-                ax = bx; ay = by;
+                let ax = (geom[o - 2] + rx) * Zq, ay = (geom[o - 1] + ry) * Zq;
+                for (; o < end; o += widthOf(geom[o])) {
+                    const code = geom[o];
+                    let bx, by, sweep = 0;
+                    if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; }
+                    else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; }
+                    else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; }
+                    else { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; }
+                    bx = (bx + rx) * Zq; by = (by + ry) * Zq;
+                    if (sweep !== 0) {
+                        if (emitArc(ax, ay, bx, by, sweep, (geom[o + 1] + rx) * Zq, (geom[o + 2] + ry) * Zq,
+                            ox, oy, ARC_UNION, yb0, yb1) < 0) return false;
+                    } else if (!pushUnionEdge(ax - ox, ay - oy, bx - ox, by - oy, yb0, yb1)) {
+                        return false;
+                    }
+                    ax = bx; ay = by;
+                }
+                if (end === hi && !pushUnionEdge(ax - ox, ay - oy, gfx - ox, gfy - oy, yb0, yb1)) return false;
             }
-            if (!pushUnionEdge(ax - ox, ay - oy, gfx - ox, gfy - oy, yb0, yb1)) return false;
             continue;
         }
         const fx = (geom[lo] + rx) * Zq - ox, fy = (geom[lo + 1] + ry) * Zq - oy;
-        let ax = fx, ay = fy;
-        for (let o = lo + 2; o < hi; o += 2) {
-            const bx = (geom[o] + rx) * Zq - ox, by = (geom[o + 1] + ry) * Zq - oy;
-            if (!pushUnionEdge(ax, ay, bx, by, yb0, yb1)) return false;
-            ax = bx; ay = by;
+        for (let r = r0; r < rn; r++) {
+            let o = lo + 2, end = hi;
+            if (r1 > r0) {
+                if (!runMeets(runs, r, ry, Zq, oy, yb0, yb1)) continue;
+                o = lo + runs[3 * r + 2];
+                if (r + 1 < r1) end = lo + runs[3 * r + 5];
+            }
+            let ax = (geom[o - 2] + rx) * Zq - ox, ay = (geom[o - 1] + ry) * Zq - oy;
+            for (; o < end; o += 2) {
+                const bx = (geom[o] + rx) * Zq - ox, by = (geom[o + 1] + ry) * Zq - oy;
+                if (!pushUnionEdge(ax, ay, bx, by, yb0, yb1)) return false;
+                ax = bx; ay = by;
+            }
+            if (end === hi && !pushUnionEdge(ax, ay, fx, fy, yb0, yb1)) return false;
         }
-        if (!pushUnionEdge(ax, ay, fx, fy, yb0, yb1)) return false;
     }
     return true;
 }

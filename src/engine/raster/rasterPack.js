@@ -1,8 +1,9 @@
+/* global WeakRef */
 /**
  * rasterPack.js — the main thread's half of the raster path (RASTERISER-PLAN §4.8, §5.2, §3.3).
  * It turns a render list into the typed-array job the core eats: the item box without `res`,
  * the plate binner, the ring packer, the stroke band, the union flag, family grouping, colour,
- * and the §3.3 layout filled from a buffer pool.
+ * the pack-time occlusion (F157), and the §3.3 layout filled from a buffer pool.
  *
  * Five rules a reader has to hold on to:
  *   - the item box is memoised WITHOUT `res` and `res` is added at the point of use, because
@@ -36,19 +37,17 @@ import { loopBBox, loopsBBox, loopArea } from "../geometry/arcShape";
 import { strokeStripNear, ringSignedArea, flattenCurve, controlsFor } from "../geometry/polyline";
 import { flattenLoops, cubicLoopsBBox } from "../geometry/curveOutline";
 import { underMask } from "../eraseRule";
-import { sagittaOf } from "../geometry/chordMath";
+import { sagittaOf, bulgeK, chordMidK } from "../geometry/chordMath";
 import { bboxOf } from "../geometry/derive";
 import { perfNow } from "../now";
+// The core's flattening constants, read by the bands, the chord estimate and the cover proof (F157). The main bundle
+// already carries the core for the inline renderer (`PicturePyramid`).
+import { ARC_TOL, MAXD, WHOLE_TURN, MAX_SWEEP, rowRuns } from "./rasterCore";
+
+export { ARC_TOL };
 
 /** A band and a chord count are memoised per quarter octave of their zoom (`bandFor`, `itemChords`). */
 const MEMO_STEPS_PER_OCTAVE = 4;
-
-/**
- * The arc flattening tolerance, in device px — the same 1/16 as `rasterCore.ARC_TOL` (§4.4).
- * It is stated again here rather than imported so that packing does not pull the core's
- * 2.81 MB of module-level scratch (§3.5) onto the main thread in a worker-only render.
- */
-export const ARC_TOL = 1 / 16;
 /** §4.6's bound on a render-list coordinate, in frame units: 2W + 48 with `res` on top. */
 export const COORD_BOUND = 2.6e5;
 /**
@@ -77,6 +76,8 @@ export const packStats = {
     bandsBuilt: 0, bandHits: 0, boxWalks: 0, rebuilt: 0,
     prepasses: 0, prepassHits: 0, famRefills: 0, famReused: 0,   // S3: the per-list half built, reused, a family refilled, a family's union rule kept
     recs: 0, recsBuilt: 0, prepassMs: 0,            // the prepass records kept (the last list's at each key), built, its time
+    cullMs: 0, geomMs: 0, copyMs: 0,                // `packJob` after its prepass: the cull and union rule, the bands and flat copies, the job's arrays (F162)
+    occluded: 0, covered: 0, coverTests: 0, coverMs: 0, unwalked: 0, coverSpent: 0,   // F157: items left out under covers, plates covered, cover proofs run and their ms, families under every cover not walked, plates whose failed proofs spent their budget
     masked: 0,                                      // items packed under a pending mark's mask
     maskOverflow: 0,                                // marks past MASKS_MAX sharing a slot they over-hide in (A2 §4.4)
     memoBytes: 0, memoEntries: 0, evictions: 0, logs: 0,
@@ -85,7 +86,7 @@ export const packStats = {
 export function resetPackStats() {
     for (const k of Object.keys(packStats)) packStats[k] = 0;
     packStats.memoBytes = memoBytes;
-    packStats.memoEntries = MEMO.size;
+    packStats.memoEntries = LRU.size;
 }
 
 const LOGGED = new Set();
@@ -100,11 +101,14 @@ function logOnce(what, detail) {
 
 // ---------------------------------------------------------------------------
 // The memo. §3.7 asks for a byte budget with LRU over the item boxes, the packed rings and the
-// stroke bands. It is a Map and not a WeakMap because a WeakMap cannot be walked and so cannot
-// be evicted by a byte cap; the cap is what bounds the retention instead (D92).
+// stroke bands (D92). A WeakMap finds a piece's entry, so no entry keeps its piece alive; a WeakMap
+// cannot be walked, so the byte cap evicts from `LRU`, the entries oldest first. An entry knows the
+// geometry it was built from by weak reference. As a Map keyed by the pieces it held ~560 MB for its
+// 64 MiB count (the heap snapshots of 2026-10-13).
 // ---------------------------------------------------------------------------
 
-const MEMO = new Map();
+let MEMO = new WeakMap();
+const LRU = new Map();       // entry -> true, oldest first
 let memoBytes = 0;
 let budget = DEFAULT_BUDGET;
 
@@ -112,25 +116,27 @@ export function setPackBudget(bytes) { budget = bytes; evict(); }
 export function packMemoBytes() { return memoBytes; }
 /** Drops every memo, and the "logged once" set with them, so a fresh session logs its faults. */
 export function clearPackCaches() {
-    for (const e of MEMO.values()) e.dropped = true;
-    MEMO.clear(); memoBytes = 0; COLOURS.clear(); LOGGED.clear();
+    for (const e of LRU.keys()) e.dropped = true;
+    LRU.clear(); MEMO = new WeakMap(); memoBytes = 0; COLOURS.clear(); LOGGED.clear();
     PREPASS = new WeakMap();
     RECS = new Map(); packStats.recs = 0;
 }
 
-function touch(item, e) { MEMO.delete(item); MEMO.set(item, e); }
+function touch(e) { LRU.delete(e); LRU.set(e, true); }
+/** A weak reference to `x` (null for no object), and whether `w` still names `x`: an entry's identity, held weakly. */
+const weakOf = (x) => (x != null && typeof x === "object" ? (typeof WeakRef === "function" ? new WeakRef(x) : { deref: () => x }) : null);
+const sameRef = (w, x) => (w ? w.deref() === x : x == null);
 
 function evict() {
-    while (memoBytes > budget && MEMO.size > 1) {
-        const first = MEMO.keys().next().value;
-        const e = MEMO.get(first);
-        MEMO.delete(first);
+    while (memoBytes > budget && LRU.size > 1) {
+        const e = LRU.keys().next().value;
+        LRU.delete(e);
         memoBytes -= e.bytes;
         e.dropped = true;
         packStats.evictions++;
     }
     packStats.memoBytes = memoBytes;
-    packStats.memoEntries = MEMO.size;
+    packStats.memoEntries = LRU.size;
 }
 
 /**
@@ -157,9 +163,9 @@ const geomRef = (item) => (item.type === "shape" ? item.loops : item.type === "f
 function build(item, cfg) {
     const e = {
         kind: item.type === "shape" ? KIND_LOOPS : KIND_RINGS,
-        box: null, subBox: null, subSign: null, geom: null, subs: null, geomLen: 0,
+        box: null, subBox: null, subSign: null, geom: null, subs: null, geomLen: 0, rows: null,
         bands: null, union: false, bad: false, maxAbs: 0, area: 0, bytes: 0,
-        ver: item._ver, src: geomRef(item), outline: item._outline, dropped: false,
+        ver: item._ver, src: weakOf(geomRef(item)), outline: weakOf(item._outline), dropped: false,
         // §6.5's chord estimate, memoised per quarter octave of Z (`itemChords`); the entry's own identity (the
         // object, `_ver`, the geometry array and `_outline`) is what makes it safe (D96, D98).
         chordQ: null, chordN: 0,
@@ -417,17 +423,19 @@ export function entryFor(item, cfg) {
     // so a wrapper key rebuilt every snapshot's entries and churned the memo (B-PYRAMID-2 P5). No entry reads `res`.
     const key = item.piece || item;
     let e = MEMO.get(key);
-    if (e && (e.ver !== item._ver || e.src !== geomRef(item) || e.outline !== item._outline)) {
-        MEMO.delete(key);
+    if (e && e.dropped) e = null;         // evicted while its piece lived on
+    if (e && (e.ver !== item._ver || !sameRef(e.src, geomRef(item)) || !sameRef(e.outline, item._outline))) {
+        LRU.delete(e);
         memoBytes -= e.bytes;
         e.dropped = true;                 // its bands go with it: they are the same entry
         packStats.rebuilt++;
         e = null;
     }
-    if (e) { touch(key, e); return e; }
+    if (e) { touch(e); return e; }
     e = build(item, cfg);
     MEMO.set(key, e);
-    packStats.memoEntries = MEMO.size;
+    LRU.set(e, true);
+    packStats.memoEntries = LRU.size;
     evict();
     return e;
 }
@@ -616,7 +624,7 @@ export function bandFor(item, q, Zq, cfg) {
         const oldest = e.bands.keys().next().value;
         const drop = e.bands.get(oldest);
         e.bands.delete(oldest);
-        charge(e, -(drop.geom.byteLength + drop.subs.byteLength));
+        charge(e, -(drop.geom.byteLength + drop.subs.byteLength + rowBytes(drop.rows)));
     }
     e.bands.set(key, band);
     charge(e, band.geom.byteLength + band.subs.byteLength);
@@ -760,7 +768,7 @@ export class PlateBinner {
     /**
      * File an item's box (frame units, `res` already added) into every plate it touches — and, for a plate with a clip,
      * whose clip it touches: the pixels its box's edges fall in, floored as the plate cull floors, so an item ending
-     * inside a clip's edge pixel is filed.
+     * inside a clip's edge pixel is filed. An `index` under 0 files nothing and answers at the first plate (`touches`).
      * @returns {boolean} whether it touched any plate of this grid — the cull's own answer
      */
     add(index, box) {
@@ -781,11 +789,14 @@ export class PlateBinner {
                     const y0 = Math.floor(box[1] * Z) - j * PLATE_PX, y1 = Math.floor(box[3] * Z) - j * PLATE_PX;
                     if (x1 < k[0] || x0 >= k[2] || y1 < k[1] || y0 >= k[3]) continue;
                 }
+                if (index < 0) return true;
                 c.push(index); hit = true;
             }
         }
         return hit;
     }
+    /** Whether `add` would file `box` into any plate, filing nothing. */
+    touches(box) { return this.add(-1, box); }
     /** The item indices filed into one plate, in the order they were added. */
     itemsFor(i, j) { return this.cells.get(i + "," + j) || []; }
 }
@@ -826,10 +837,14 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
     packStats.prepasses++;
     const t0 = perfNow();
     if (m.size >= PREPASS_KEYS) m.delete(m.keys().next().value);
-    const R = RECS.get(rk) || { recs: new Map(), fams: new Map() };
+    const R = RECS.get(rk) || { recs: new Map(), fams: new Map(), tail: rk.slice(rk.indexOf("|")) };
+    // A zoom met first borrows the last one's records (same dpr, cfg and offset): of a record only the fade moves with
+    // Zq, and `recFor` checks it (F162). Not its families: a stroke's band weighs the union sign at each zoom.
+    let near = null;
+    if (!R.recs.size) for (const [k, x] of RECS) if (k !== rk && x.tail === R.tail) near = x.recs;
     RECS.delete(rk); RECS.set(rk, R);
     if (RECS.size > RECS_KEYS) RECS.delete(RECS.keys().next().value);
-    const sub = !!(only || omit), was = R.recs, recs = sub ? was : new Map(), fams = new Map();
+    const sub = !!(only || omit), was = R.recs, recs = sub ? was : new Map(), fams = new Map(), marks = [];
     let faded = 0;
     for (let k = 0; k < list.length; k++) {
         const o = list[k];
@@ -842,11 +857,12 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
         let f = fams.get(rid);
         if (!f) {
             f = { rid, z: o.z != null ? o.z : rid, items: [], all: [], recs: [], isFam: o.editId != null && rid === o.editId,
-                union: null, unionSign: 0, mixed: 0, rejected: 0, over: 0 };
+                union: null, unionSign: 0, mixed: 0, rejected: 0, over: 0, mark: false };
             fams.set(rid, f);
         }
+        if (o.erase && !f.mark) { f.mark = true; marks.push(f); }
         const g = o.piece || o;
-        const r = recFor(sub ? was.get(g) : was.get(g) || recs.get(g), o, fade, cfg, offset);
+        const r = recFor((sub ? was.get(g) : was.get(g) || recs.get(g)) || (near && near.get(g)), o, fade, cfg, offset);
         recs.set(g, r);
         f.items.push({ o, fade, idx: k });
         famAdd(f, r, o, fade, k);
@@ -860,7 +876,7 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
     let n = 0;
     for (const x of RECS.values()) n += x.recs.size;
     packStats.recs = n;
-    const pre = { order, faded, n: list.length, recs, offset };
+    const pre = { order, faded, n: list.length, recs, offset, marks };
     m.set(key, pre);
     packStats.prepassMs += perfNow() - t0;
     return pre;
@@ -873,14 +889,20 @@ function prepassFor(list, q, Zq, dpr, cfg, only, omit, offset) {
  */
 function recFor(r, o, fade, cfg, offset) {
     const own = o.res || null;
-    if (r && r.fade === fade && r.z === o.z && r.editId === o.editId && r.erase === !!o.erase && sameRes(r.own, own) && entryLive(r.e, o)) return r;
+    if (r && r.fade === fade && r.z === o.z && r.editId === o.editId && r.erase === !!o.erase && sameRes(r.own, own) && recLive(r, o)) return r;
     const e = entryFor(o, cfg), res = withOffset(own, offset);
     packStats.recsBuilt++;
-    return { e, fade, z: o.z, editId: o.editId, erase: !!o.erase, own, res, box: e.bad ? null : boxWithRes(e.box, res) };
+    return { e, fade, z: o.z, editId: o.editId, erase: !!o.erase, own, res, box: e.bad ? null : boxWithRes(e.box, res),
+        ver: o._ver, src: geomRef(o), outline: o._outline, cov: null };
 }
 
-/** Is memo entry `e` still item `o`'s: not evicted, its geometry and outline the ones it was built from? */
-const entryLive = (e, o) => !e.dropped && e.ver === o._ver && e.src === geomRef(o) && e.outline === o._outline;
+/**
+ * Is record `r` still item `o`'s: its entry not evicted, and the version, geometry and outline both were built from
+ * still the item's? The memo entry's own check, read off the record's strong references: its weak ones cost 60 % of a
+ * strip's walk on the Magnum Opus (F162). The record's key, the piece, already holds both.
+ */
+const recLive = (r, o) => !r.e.dropped && r.ver === o._ver && sameObj(r.src, geomRef(o)) && sameObj(r.outline, o._outline);
+const sameObj = (a, b) => a === b || (a == null && b == null);
 const sameRes = (a, b) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
 function sameRecs(a, b) {
     if (a.length !== b.length) return false;
@@ -902,7 +924,7 @@ function famAdd(f, r, o, fade, idx) {
         logOnce("a render-list coordinate past the bound", "item id " + o.id + " reaches " + e.maxAbs.toExponential(2)
             + " frame units, over §4.6's " + COORD_BOUND.toExponential(1) + "; the plate stays float64-exact to ~1.5e-8 px below it");
     }
-    f.all.push({ o, e, fade, box: r.box, res: r.res, idx });
+    f.all.push({ o, e, fade, box: r.box, res: r.res, idx, rec: r });
 }
 
 /** An item's residual with the pack's `offset` added (frame units); the residual itself when there is none. */
@@ -933,7 +955,7 @@ export function paintFamilies(list, q, Zq, dpr, cfg) {
 function famStale(f) {
     for (let k = 0; k < f.items.length; k++) {
         const o = f.items[k].o, r = f.recs[k];
-        if (!entryLive(r.e, o) || !sameRes(r.own, o.res || null)) return true;
+        if (!recLive(r, o) || !sameRes(r.own, o.res || null)) return true;
     }
     return false;
 }
@@ -975,11 +997,16 @@ export function packJob(list, opts) {
     const pre = prepassFor(list, q, Zq, dpr, cfg, only, omit, offset);
     packStats.items += pre.n;
     packStats.faded += pre.faded;
+    let t = perfNow();
+    const lap = (k) => { const n = perfNow(); packStats[k] += n - t; t = n; };
 
-    // 2 — the cull and the per-family union rule. Four comparisons an item; no coordinate is
-    //     copied for one that misses the strip (§5.2, edge case 4.4).
-    const kept = [];
-    for (const f of pre.order) {
+    // 2 — the cull and the per-family union rule, from the top family down. Four comparisons an item; no coordinate is
+    //     copied for one that misses the strip (§5.2, edge case 4.4). What a cover hides in every plate it is drawn in is
+    //     left out, and the walk ends once every plate has a cover (F157): the core paints from its cover up.
+    const occ = OCCLUDE && plates.length && !marksMeet(pre, binner, cfg) ? new Covers(plates, Zq) : null;
+    const runs = [];
+    for (let fi = pre.order.length - 1; fi >= 0; fi--) {
+        const f = pre.order[fi];
         if (famStale(f)) { famFill(f, pre, cfg); packStats.famRefills++; }
         packStats.rejected += f.rejected; packStats.nonFinite += f.rejected; packStats.overBound += f.over;
         const all = f.all;
@@ -997,15 +1024,22 @@ export function packJob(list, opts) {
         // fast path where its neighbour took the union pass — or the opposite sign — is the seam
         // class S1–S6 exists to catch (D64, D90). Neither depends on the strip, so both are kept.
         if (!drawn.length) continue;
+        const keep = occ ? occ.visible(drawn) : drawn;
+        if (!keep.length) continue;
         if (f.union === null) { f.union = familyUnion(all); f.unionSign = unionSignOf(all, f, q, Zq, cfg); }
         if (f.union) packStats.familyUnion++;
         packStats.mixedWinding += f.mixed;
-        for (const d of drawn) { d.fam = f; kept.push(d); }
+        for (const d of keep) d.fam = f;
+        runs.push(keep);
+        if (occ && !occ.cover(f, keep, q, cfg)) { packStats.unwalked += fi; break; }
     }
+    const kept = [];
+    for (let r = runs.length - 1; r >= 0; r--) for (const d of runs[r]) kept.push(d);
+    lap("cullMs");
     if (!kept.length) return emptyJob(opts, plates, paper, pool);
 
     // 3 — the sizes, then one allocation per array, then the copy.
-    let nGeom = 0, nSubs = 0;
+    let nGeom = 0, nSubs = 0, nRuns = 0;
     for (const d of kept) {
         const g = geomOf(d, q, Zq, cfg);
         d.skip = !g;                    // the pre-pass's item records are reused: set, never left over
@@ -1013,8 +1047,10 @@ export function packJob(list, opts) {
         d.g = g;
         nGeom += g.geom.length;
         nSubs += g.subs.length;
+        if (g.rows) nRuns += g.rows.runs.length / 3;
     }
     const items = kept.filter((d) => !d.skip);
+    lap("geomMs");
     if (!items.length) return emptyJob(opts, plates, paper, pool);
 
     // Pending eraser marks paint nothing: each masks the items the erase rule names where the boxes
@@ -1039,9 +1075,11 @@ export function packJob(list, opts) {
     const rgb = alloc(pool, Uint8Array, n * RGB_BYTES);
     const subs = alloc(pool, Uint32Array, nSubs);
     const geom = alloc(pool, Float64Array, nGeom);
+    const rowRun = nRuns ? alloc(pool, Float64Array, 3 * nRuns) : null;
+    const subRun = nRuns ? alloc(pool, Uint32Array, nSubs) : null;
     const ids = new Int32Array(n);                   // this thread's (the suites'); not wired, so never the pool's
 
-    let famIndex = -1, lastFam = null, gAt = 0, sAt = 0;
+    let famIndex = -1, lastFam = null, gAt = 0, sAt = 0, rAt = 0;
     for (let k = 0; k < n; k++) {
         const d = items[k], o = d.o, f = d.fam;
         if (f !== lastFam) { famIndex++; lastFam = f; f.rgbv = parseColour(o.color); f.alpha = alphaOf(o, f, d.fade); }
@@ -1086,10 +1124,16 @@ export function packJob(list, opts) {
 
         geom.set(d.g.geom, gAt);
         for (let s = 0; s < d.g.subs.length; s++) subs[sAt + s] = d.g.subs[s];
+        if (rowRun) {
+            const rw = d.g.rows;
+            for (let s = 0; s < d.g.subs.length; s++) subRun[sAt + s] = rAt + (rw ? rw.subRun[s] : 0);
+            if (rw) { rowRun.set(rw.runs, 3 * rAt); rAt += rw.runs.length / 3; }
+        }
         gAt += d.g.geom.length;
         sAt += d.g.subs.length;
         packStats.packed++;
     }
+    lap("copyMs");
 
     return {
         jobId: opts.jobId != null ? opts.jobId : 0,
@@ -1102,7 +1146,7 @@ export function packJob(list, opts) {
         q, Zq, plateW: PLATE_PX,
         plates: Int32Array.from(plates),
         paper: Uint8Array.from(paper),
-        nItems: n, meta, attr, rgb, subs, geom, ids,
+        nItems: n, meta, attr, rgb, subs, geom, ids, runs: rowRun, subRun,
     };
 }
 
@@ -1162,6 +1206,251 @@ function maskSlots(items, marks) {
         K.k = best;
     }
     return maskedBy;
+}
+
+// ---------------------------------------------------------------------------
+// Pack-time occlusion (OPEN-FLAGS F157): what the core's own cull would skip is not packed.
+// ---------------------------------------------------------------------------
+
+/** On unless a test turns it off: `raster.occlusion.test.js` checks the core's cull on whole jobs. */
+let OCCLUDE = true;
+export function setPackOcclusion(on) { OCCLUDE = !!on; }
+/** Row runs in every job (F154), on unless a test or a measurement turns them off. */
+let ROW_RUNS = true;
+export function setRowRuns(on) { ROW_RUNS = !!on; }
+
+/**
+ * Device px every piece of a cover keeps off its plate. The core then deposits the cover only left of the plate's first
+ * column or right of its last, so the coverage is one number over the plate: the winding at its centre.
+ */
+const COVER_PAD = 1;
+/** Cover proofs kept a record, by zoom and plate; past it the record's are dropped. */
+const COVER_MEMO = 64;
+/**
+ * Failed cover proofs a plate is given in one pack, and the proof nodes (edges, arc nodes) they may walk; past either
+ * the families under it are packed. A remembered proof counts as when it was walked, so a job never depends on the
+ * memo. Kobin's saved Magnum Opus needs at most 13 tries and 1,778 nodes a plate before its cover (F157).
+ */
+export const COVER_TRIES = 64, COVER_NODES = 16384;
+
+/** Whether a pending mark touches the strip: the masks and their slots depend on what is packed, so nothing is left out. */
+function marksMeet(pre, binner, cfg) {
+    for (const f of pre.marks) {
+        if (famStale(f)) { famFill(f, pre, cfg); packStats.famRefills++; }
+        for (const d of f.all) if (d.o.erase && binner.touches(d.box)) return true;
+    }
+    return false;
+}
+
+/** One strip's plates, walked from the top family down: which a family above hides, how many are open, what each one's failed proofs spent. */
+class Covers {
+    constructor(plates, Zq) {
+        const n = plates.length / 2;
+        this.Zq = Zq; this.n = n; this.open = n;
+        this.ox = new Float64Array(n); this.oy = new Float64Array(n); this.hid = new Uint8Array(n);
+        this.fails = new Uint16Array(n); this.walked = new Float64Array(n);
+        for (let p = 0; p < n; p++) { this.ox[p] = plates[2 * p] * PLATE_PX; this.oy[p] = plates[2 * p + 1] * PLATE_PX; }
+    }
+    /** `rasterCore`'s DRAWN: box `b` (frame units, `res` in) meets plate `p`, edges included. A stroke's box holds its band's. */
+    drawn(b, p) {
+        const Z = this.Zq, ox = this.ox[p], oy = this.oy[p];
+        return b[2] * Z - ox >= 0 && b[0] * Z - ox <= PLATE_PX && b[3] * Z - oy >= 0 && b[1] * Z - oy <= PLATE_PX;
+    }
+    /**
+     * The family's drawn items an open plate draws; the others are counted out. All of them when only some are and their
+     * colours differ: the copy paints a family with its first packed item's colour.
+     */
+    visible(drawn) {
+        const keep = [];
+        for (const d of drawn) {
+            for (let p = 0; p < this.n; p++) if (!this.hid[p] && this.drawn(d.box, p)) { keep.push(d); break; }
+        }
+        if (keep.length && keep.length < drawn.length) {
+            for (const d of drawn) if (d.o.color !== drawn[0].o.color) return drawn;
+        }
+        packStats.occluded += drawn.length - keep.length;
+        return keep;
+    }
+    /** Hides the open plates family `f` covers (`familyCovers`), proving none whose budget is spent; returns how many are left open. */
+    cover(f, keep, q, cfg) {
+        for (let p = 0; p < this.n; p++) {
+            if (this.hid[p] || this.fails[p] >= COVER_TRIES || this.walked[p] >= COVER_NODES) continue;
+            const c = familyCovers(f, keep, this, p, q, cfg);
+            if (c > 0) { this.hid[p] = 1; this.open--; packStats.covered++; }
+            else if (c < 0) {
+                this.walked[p] += PROOF_NODES;
+                if (++this.fails[p] >= COVER_TRIES || this.walked[p] >= COVER_NODES) packStats.coverSpent++;
+            }
+        }
+        return this.open;
+    }
+}
+
+/**
+ * Does family `f` hide plate `p` where the core's cull would find it (`coverCandidate`, `fillsPlate`)? Every item drawn
+ * there opaque, one boxing the padded plate, and none with a piece in it: the deposit over the plate is then the fast
+ * items' windings plus the union pass's sign where the union items' joint winding is not 0 (a positive-area loop
+ * deposits −1, `rasterCore.depositFamily`), and the plate is covered iff that is not 0. Returns 1 for a cover, −1 for
+ * a proof that failed, 0 for none tried (an item drawn there translucent, or none boxing the plate).
+ */
+function familyCovers(f, keep, C, p, q, cfg) {
+    const Z = C.Zq, ox = C.ox[p], oy = C.oy[p];
+    let boxed = false;
+    for (const d of keep) {
+        if (!C.drawn(d.box, p)) continue;
+        if (!(alphaOf(d.o, f, d.fade) >= 1)) return 0;
+        const b = d.box;
+        if (b[0] * Z - ox <= -COVER_PAD && b[1] * Z - oy <= -COVER_PAD && b[2] * Z - ox >= PLATE_PX + COVER_PAD && b[3] * Z - oy >= PLATE_PX + COVER_PAD) boxed = true;
+    }
+    if (!boxed) return 0;
+    const t0 = perfNow();
+    packStats.coverTests++;
+    let fast = 0, joint = 0, union = false, ok = true;
+    PROOF_NODES = 0;
+    for (const d of keep) {
+        if (!C.drawn(d.box, p)) continue;
+        const w = plateWinding(d, Z, ox, oy, q, cfg);
+        if (Number.isNaN(w)) { ok = false; break; }
+        if (f.union || d.e.union) { joint += w; union = true; } else fast -= w;
+    }
+    packStats.coverMs += perfNow() - t0;
+    return ok && fast + (union && joint !== 0 ? (f.unionSign > 0 ? -1 : 1) : 0) !== 0 ? 1 : -1;
+}
+
+/**
+ * Item `d`'s winding about plate (ox, oy)'s centre in the numbers the job ships (its loops, rings or band), or NaN when a
+ * piece comes within COVER_PAD px of the plate or a record is one the core refuses; the nodes its walk took go to
+ * PROOF_NODES, a remembered walk's too. Memoised on its record by zoom and plate; a stroke's by its band too, which
+ * `bandFor` may swap for a finer one.
+ */
+function plateWinding(d, Z, ox, oy, q, cfg) {
+    const band = d.e.bands ? bandFor(d.o, q, Z, cfg) : null;
+    if (d.e.bands && !band) return 0;                       // ships no band: paints nothing (`geomOf`)
+    const r = d.rec, key = Z + "|" + ox + "|" + oy;
+    if (!r.cov || r.cov.band !== band || r.cov.at.size >= COVER_MEMO) r.cov = { band, at: new Map() };
+    let m = r.cov.at.get(key);
+    if (m === undefined) {
+        if (!band) flattenGeom(d.e, d.o);                   // the copy step's own, for an item that is kept
+        const g = band || d.e, rx = d.res ? d.res[0] : 0, ry = d.res ? d.res[1] : 0, n0 = PNODES;
+        proofAt(ox, oy);
+        const ok = (band ? KIND_RINGS : d.e.kind) === KIND_LOOPS ? loopEdges(g.geom, g.subs, rx, ry, Z) : ringEdges(g.geom, g.subs, rx, ry, Z);
+        m = { w: ok ? proofWinding() : NaN, n: PNODES - n0 };
+        r.cov.at.set(key, m);
+    }
+    PROOF_NODES += m.n;
+    return m.w;
+}
+
+// The proof's padded plate and centre (scale-only device px, as the core keeps an arc), and the angle its edges sweep;
+// the nodes walked (an edge, an arc node), and the current family's proof's.
+let pvX0 = 0, pvY0 = 0, pvX1 = 0, pvY1 = 0, pvCx = 0, pvCy = 0, pvAngle = 0, PNODES = 0, PROOF_NODES = 0;
+const PSTACK = new Float64Array(6 * (MAXD + 4));          // Ax, Ay, Bx, By, sweep, depth: a whole turn's two roots and D + 1
+const PMID = new Float64Array(2);
+
+function proofAt(ox, oy) {
+    pvX0 = ox - COVER_PAD; pvY0 = oy - COVER_PAD; pvX1 = ox + PLATE_PX + COVER_PAD; pvY1 = oy + PLATE_PX + COVER_PAD;
+    pvCx = ox + PLATE_PX / 2; pvCy = oy + PLATE_PX / 2; pvAngle = 0;
+}
+/** The winding the edges' angles add up to, or NaN when they do not close to whole turns. */
+function proofWinding() {
+    const w = pvAngle / (2 * Math.PI), n = Math.round(w);
+    return Math.abs(w - n) < 1e-6 ? n : NaN;
+}
+/** The angle chord AB subtends at the centre, signed. */
+function chordAngle(ax, ay, bx, by) {
+    const ux = ax - pvCx, uy = ay - pvCy, vx = bx - pvCx, vy = by - pvCy;
+    return Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+}
+/** One straight edge: false when it meets the padded plate (its box does and the plate's corners are not all on one side). */
+function proofLine(ax, ay, bx, by) {
+    PNODES++;
+    if (!((ax < pvX0 && bx < pvX0) || (ax > pvX1 && bx > pvX1) || (ay < pvY0 && by < pvY0) || (ay > pvY1 && by > pvY1))) {
+        const dx = bx - ax, dy = by - ay;
+        const s0 = dx * (pvY0 - ay) - dy * (pvX0 - ax), s1 = dx * (pvY0 - ay) - dy * (pvX1 - ax);
+        const s2 = dx * (pvY1 - ay) - dy * (pvX0 - ax), s3 = dx * (pvY1 - ay) - dy * (pvX1 - ax);
+        if (!((s0 > 0 && s1 > 0 && s2 > 0 && s3 > 0) || (s0 < 0 && s1 < 0 && s2 < 0 && s3 < 0))) return false;
+    }
+    pvAngle += chordAngle(ax, ay, bx, by);
+    return true;
+}
+/**
+ * One arc piece, split as `rasterCore.emitArc` splits it: a whole turn at its antipode, then halves. A node whose chord
+ * box grown by its sagitta (which holds the arc and every chord under it) misses the padded plate adds its chord's angle;
+ * one that does not is split only while its sagitta is over 2·ARC_TOL and its depth under MAXD, so it is never deeper
+ * than the core's own chords, which then lie inside the nodes found clear. False otherwise, and for a record the core
+ * refuses and draws as its chord.
+ */
+function proofArc(ax, ay, bx, by, sweep, cx, cy) {
+    if (!isFinite(sweep) || Math.abs(sweep) > MAX_SWEEP) return false;
+    let sp = 6;
+    if (Math.abs(sweep) >= WHOLE_TURN) {
+        if (!(isFinite(cx) && isFinite(cy))) return false;
+        const mx = cx + (cx - ax), my = cy + (cy - ay);
+        PSTACK[0] = ax; PSTACK[1] = ay; PSTACK[2] = mx; PSTACK[3] = my; PSTACK[4] = sweep / 2; PSTACK[5] = 0;
+        PSTACK[6] = mx; PSTACK[7] = my; PSTACK[8] = bx; PSTACK[9] = by; PSTACK[10] = sweep / 2; PSTACK[11] = 0;
+        sp = 12;
+    } else {
+        PSTACK[0] = ax; PSTACK[1] = ay; PSTACK[2] = bx; PSTACK[3] = by; PSTACK[4] = sweep; PSTACK[5] = 0;
+    }
+    while (sp > 0) {
+        sp -= 6;
+        PNODES++;
+        const nax = PSTACK[sp], nay = PSTACK[sp + 1], nbx = PSTACK[sp + 2], nby = PSTACK[sp + 3], s = PSTACK[sp + 4], d = PSTACK[sp + 5];
+        const k = bulgeK(s);
+        if (Math.abs(s) <= Math.PI) {
+            const gx = Math.abs((nby - nay) * k), gy = Math.abs((nbx - nax) * k);
+            if ((nax < nbx ? nax : nbx) - gx > pvX1 || (nax < nbx ? nbx : nax) + gx < pvX0
+                || (nay < nby ? nay : nby) - gy > pvY1 || (nay < nby ? nby : nay) + gy < pvY0) { pvAngle += chordAngle(nax, nay, nbx, nby); continue; }
+            if (!(sagittaOf(nax, nay, nbx, nby, s) > 2 * ARC_TOL)) return false;
+        }
+        if (d >= MAXD || sp + 12 > PSTACK.length) return false;
+        chordMidK(nax, nay, nbx, nby, k, PMID);
+        const mx = PMID[0], my = PMID[1], hs = s * 0.5, nd = d + 1;
+        PSTACK[sp] = mx; PSTACK[sp + 1] = my; PSTACK[sp + 2] = nbx; PSTACK[sp + 3] = nby; PSTACK[sp + 4] = hs; PSTACK[sp + 5] = nd;
+        PSTACK[sp + 6] = nax; PSTACK[sp + 7] = nay; PSTACK[sp + 8] = mx; PSTACK[sp + 9] = my; PSTACK[sp + 10] = hs; PSTACK[sp + 11] = nd;
+        sp += 12;
+    }
+    return true;
+}
+/** Loops in the job's grammar (`subs` in numbers), record by record as `rasterCore.emitItem` reads them. */
+function loopEdges(geom, subs, rx, ry, Z) {
+    for (let k = 0; k < subs.length; k++) {
+        const lo = subs[k], hi = k + 1 < subs.length ? subs[k + 1] : geom.length;
+        if (hi - lo < 5) continue;                              // the core skips it too
+        let ax = (geom[lo] + rx) * Z, ay = (geom[lo + 1] + ry) * Z;
+        const fx = ax, fy = ay;
+        for (let o = lo + 2; o < hi;) {
+            const code = geom[o];
+            let bx, by, sweep = 0, w;
+            if (code === 0) { bx = geom[o + 1]; by = geom[o + 2]; w = 3; }
+            else if (code === 2) { bx = geom[o + 7]; by = geom[o + 8]; w = 9; }
+            else if (code === 1) { bx = geom[o + 6]; by = geom[o + 7]; sweep = geom[o + 5]; w = 8; }
+            else if (code === 3) { bx = geom[o + 14]; by = geom[o + 15]; sweep = geom[o + 5]; w = 16; }
+            else return false;
+            bx = (bx + rx) * Z; by = (by + ry) * Z;
+            const ok = sweep !== 0 ? proofArc(ax, ay, bx, by, sweep, (geom[o + 1] + rx) * Z, (geom[o + 2] + ry) * Z) : proofLine(ax, ay, bx, by);
+            if (!ok) return false;
+            ax = bx; ay = by; o += w;
+        }
+        if (!proofLine(ax, ay, fx, fy)) return false;
+    }
+    return true;
+}
+/** Flat rings (`subs` in points), each closed as the core closes it. */
+function ringEdges(geom, subs, rx, ry, Z) {
+    for (let k = 0; k < subs.length; k++) {
+        const lo = 2 * subs[k], hi = k + 1 < subs.length ? 2 * subs[k + 1] : geom.length;
+        if (hi - lo < 4) continue;                              // the core skips it too
+        const fx = (geom[lo] + rx) * Z, fy = (geom[lo + 1] + ry) * Z;
+        let ax = fx, ay = fy;
+        for (let o = lo + 2; o < hi; o += 2) {
+            const bx = (geom[o] + rx) * Z, by = (geom[o + 1] + ry) * Z;
+            if (!proofLine(ax, ay, bx, by)) return false;
+            ax = bx; ay = by;
+        }
+        if (!proofLine(ax, ay, fx, fy)) return false;
+    }
+    return true;
 }
 
 function emptyJob(opts, plates, paper, pool) {
@@ -1319,9 +1608,14 @@ function geomOf(d, q, Zq, cfg) {
     const e = d.e;
     if (e.bands) {
         const band = bandFor(d.o, q, Zq, cfg);
-        return band ? { kind: KIND_RINGS, geom: band.geom, subs: band.subs, box: band.box } : null;
+        if (!band) return null;
+        if (ROW_RUNS && !band.rows) { band.rows = rowRuns(KIND_RINGS, band.geom, band.subs); charge(e, rowBytes(band.rows)); }
+        return { kind: KIND_RINGS, geom: band.geom, subs: band.subs, box: band.box, rows: ROW_RUNS ? band.rows : null };
     }
     if (!e.geomLen) return null;
     flattenGeom(e, d.o);
-    return { kind: e.kind, geom: e.geom, subs: e.subs, box: null };
+    if (ROW_RUNS && !e.rows) { e.rows = rowRuns(e.kind, e.geom, e.subs); charge(e, rowBytes(e.rows)); }
+    return { kind: e.kind, geom: e.geom, subs: e.subs, box: null, rows: ROW_RUNS ? e.rows : null };
 }
+
+const rowBytes = (rows) => (rows ? rows.runs.byteLength + rows.subRun.byteLength : 0);

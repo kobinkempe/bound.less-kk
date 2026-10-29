@@ -164,8 +164,9 @@ THE RULES - these are not style preferences, each one cost something
         "deep cuts" attempt passed 458 tests and Kobin judged it worse and
         reverted it. Before claiming an improvement to erasing or drawing, get
         his acceptance criteria.
-    2.  DO NOT DESCRIBE THE ERASER AS WORKING. Every pass so far has failed in
-        real use. State what was measured, not what was intended.
+    2.  SAY WHAT WAS MEASURED, NOT WHAT WAS INTENDED. Do not assume the app
+        works because you fixed one bug: state what was checked, and where
+        (jsdom, headless Chromium, a real browser).
     3.  MEASURE IN A REAL BROWSER FOR ANYTHING ABOUT PAINT. Rasterizing the SVG
         to a canvas CANNOT see the compositing failures (F-Z: three wrong
         diagnoses were talked out of the right answer by canvas measurements).

@@ -1,8 +1,9 @@
 /* eslint-env worker */
 /* eslint-disable no-restricted-globals */
 /**
- * rasterWorker.js — one strip of plates, or one cut, per message (bundled to public/raster-worker.js
- * by `npm run build:worker`; plates and cuts share the pool, PLAN §1.6). A cut (`kind: "cut-job"`) runs
+ * rasterWorker.js — one strip of plates, one cut or one RAM-tier restore (`kind: "ram-restore"`, F161) per message
+ * (bundled to public/raster-worker.js by `npm run build:worker`; plates and cuts share the pool, PLAN §1.6). A `ram`
+ * job's whole plates also go back packed (`plateCodec.js`) from the RGBA scratch. A cut (`kind: "cut-job"`) runs
  * `cutJob` or `descentJob`, the functions the main thread would run (`runCut`), and answers
  * `kind: "cut-result"`. A strip's job arrives as RASTERISER-PLAN §3.3's transferred typed arrays,
  * `rasterCore.renderPlate` draws each plate into the one RGBA scratch, and the pixels, the
@@ -39,14 +40,18 @@ import {
     TIMINGS_PER_PLATE, COUNTS_PER_PLATE, GUARDS_PER_JOB, GUARD_NAMES,
 } from "../raster/rasterJob";
 import { renderPlate, coreStats, TW, TH } from "../raster/rasterCore";
+import { encodePlate, decodePlate } from "../raster/plateCodec";
 import { cutJob, unwireJob as unwireCut, wireResult as wireCutResult } from "../eraseJob";
 import { descentJob, unwireDescent, wireDescentResult } from "../eraseDescent";
 
 /** The one plate of scratch this worker ever holds (§3.5): 1.05 MB, allocated once. */
 const RGBA = new Uint8ClampedArray(TW * TH * 4);
+/** A restore's own scratch: restores run one at a time (`restoring`), between and during jobs. */
+let RESTORE = null;
+let restoring = Promise.resolve();
 
 /** The job's own buffers, handed back for the main thread's pool (§3.6). */
-const RECYCLE = ["geom", "meta", "attr", "subs", "rgb"];
+const RECYCLE = ["geom", "meta", "attr", "subs", "rgb", "runs", "subRun"];
 
 const CLOCK = typeof performance !== "undefined" ? performance : Date;
 
@@ -80,7 +85,8 @@ export async function runJob(msg, opts) {
         : (typeof createImageBitmap === "function" && typeof ImageData === "function");
     const bitmaps = useBitmap ? new Array(nPlates).fill(null) : null;
     const pixels = useBitmap ? null : new Array(nPlates).fill(null);
-    let serialiseMs = 0;
+    const packed = job.ram && !job.clips ? new Array(nPlates).fill(null) : null;
+    let serialiseMs = 0, encodeMs = 0;
 
     for (let p = 0; p < nPlates; p++) {
         const t0 = clock.now();
@@ -94,6 +100,8 @@ export async function runJob(msg, opts) {
 
         const drawn = counts[p * COUNTS_PER_PLATE + 1];
         if (drawn > 0) {
+            // The RAM tier's copy (F161), from the pixels this worker already holds.
+            if (packed) { const te = clock.now(); packed[p] = encodePlate(RGBA); encodeMs += clock.now() - te; }
             // Serialised here and not after the loop: the next plate overwrites RGBA (§3.5).
             if (useBitmap) {
                 const img = new ImageData(RGBA, TW, TH);
@@ -114,15 +122,41 @@ export async function runJob(msg, opts) {
     const out = wireResult({
         jobId: job.jobId, frameSeq: job.frameSeq, G: job.G,
         plates: job.plates, clips: job.clips || null,
-        bitmaps, pixels,
+        bitmaps, pixels, packed,
         timings, counts, guards,
-        recycled, serialiseMs,
+        recycled, serialiseMs, encodeMs,
     });
     // The tail — the guards and the transfer list — is serialisation too. Leaving it
     // out would leave a phase in no bucket, and the main thread's subtraction would report it as
     // queueing (§8.2). With it the three phases partition receipt-to-post; W2 asserts that.
     out.msg.serialiseMs = serialiseMs + (clock.now() - mark);
     return out;
+}
+
+/**
+ * One RAM-tier plate unpacked (F161): `{ id, bytes }` (`plateCodec`'s words) in, `{ kind: "ram-result", id, ok,
+ * bitmap | pixels, ms }` out — a bitmap where the scope makes one, else the plate's own pixels. Serialised (`restoring`):
+ * the bitmap path decodes into the one restore scratch and awaits its bitmap before the next. The inline path (no
+ * worker) runs this same function on the main thread.
+ * @returns {Promise<{ msg: object, transfer: any[] }>}
+ */
+export function runRestore(msg, opts) {
+    const p = restoring.then(() => restoreOne(msg, opts || {}));
+    restoring = p.catch(() => null);
+    return p;
+}
+
+async function restoreOne(msg, o) {
+    const useBitmap = o.bitmaps != null ? !!o.bitmaps : (typeof createImageBitmap === "function" && typeof ImageData === "function");
+    const t0 = CLOCK.now();
+    if (!useBitmap) {
+        const px = decodePlate(msg.bytes, new Uint8ClampedArray(TW * TH * 4));
+        return { msg: { kind: "ram-result", id: msg.id, ok: true, pixels: px, ms: CLOCK.now() - t0 }, transfer: [px.buffer] };
+    }
+    if (!RESTORE) RESTORE = new Uint8ClampedArray(TW * TH * 4);
+    decodePlate(msg.bytes, RESTORE);
+    const bitmap = await createImageBitmap(new ImageData(RESTORE, TW, TH));
+    return { msg: { kind: "ram-result", id: msg.id, ok: true, bitmap, ms: CLOCK.now() - t0 }, transfer: [bitmap] };
 }
 
 /**
@@ -140,6 +174,11 @@ export function runCut(kind, job) {
 if (typeof window === "undefined" && typeof self !== "undefined" && typeof self.postMessage === "function") {
     self.onmessage = (e) => {
         const msg = (e && e.data) || {};
+        if (msg.kind === "ram-restore") {
+            runRestore(msg).then((out) => self.postMessage(out.msg, out.transfer),
+                (err) => self.postMessage({ kind: "ram-result", id: msg.id, ok: false, err: String((err && err.message) || err) }));
+            return;
+        }
         if (msg.kind === "cut-job") {
             let out;
             try { out = runCut(msg.cut, msg.job); } catch (err) {
