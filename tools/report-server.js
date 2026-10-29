@@ -61,6 +61,7 @@ function createReportServer({ dir = DIR, partMax = PART_MAX, legacyMax = LEGACY_
                 src.unpipe(out); out.destroy();
                 fs.rm(file, { force: true }, () => {});
                 if (n > max * 4) req.destroy();
+                else req.resume();       // unpiping can leave the request paused: the rest would never drain and no reply go out
             }
         });
         req.on("end", () => { if (over) resolve(null); });
