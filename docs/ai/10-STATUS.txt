@@ -33,6 +33,25 @@ WHERE THE BUILD IS
     gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
     been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
+2026-10-29 - F171'S PARTIAL-STROKE LOSS FIXED LOCALLY; NOT DEPLOYED, UNVERIFIED BY KOBIN. A mid-gesture autosave
+    could hold the first samples under a stroke id; reload skipped the completed path's later add because that id
+    already existed. Replay now replaces the older copy while respecting newer frame snapshots. The complete
+    path was saved correctly. Eight focused checks pass. Chrome with the actual editor saver and IndexedDB:
+    original reader lost the last three quarters; fixed reader restored every native number and the full path.
+    Original drawing recovery is unverified. Evidence: outputs/f171-save-2026-10-29/. OPEN-FLAGS F171.
+2026-10-29 - F172 FIXED LOCALLY; NOT DEPLOYED, UNVERIFIED BY KOBIN. The zoom-out's down-tile walk climbed between
+    deep co-resident container chains, lost the local coordinates and skipped ceded ink. It now walks the cells'
+    co-residents together. His depth-22 report regains 8 missing pieces; both renderers show the purple continuation
+    in Chrome, including a 52-step zoom-out into depth 21. Five depth/hole regressions, five tile-patch checks and
+    the report probe pass, with stored native geometry unchanged. Full quick: 2,542/2,542, 219 suites; lint 0 errors.
+    This run allowed its temporary local test server; the earlier F171-run report tests and snapshot S7 pass.
+    The docmap rebuild remains blocked on the existing cloudLimits.js module entry; audits pass. OPEN-FLAGS F172.
+2026-10-29 - F171'S BLANK-VIEW CAUSE FOUND; CORRECTION LOCAL, NOT DEPLOYED. A restored camera was read as zoom
+    motion from the empty engine's view; the queue extrapolated it and left the actual view incomplete with no
+    jobs pending. A Stage reset now clears that motion. Three load/resize regressions pass; a local Chrome dot
+    canvas remained visible after refresh at 8.23x without panning. The partial-stroke loss is corrected above;
+    the debugging banner's exact effect is unconfirmed. Quick: 2,529 pass / 8 fail (7 local report-server
+    connections denied, snapshot S7's cache count); lint 0 errors. Reproduction and evidence: OPEN-FLAGS F171.
 2026-10-29 - THE BETA'S CLOUD LIMIT (Kobin): 200 MB an account, recycle bin included (cloud/cloudLimits.js),
     checked before a push writes any part; the owner's account exempt; his message in the save bar and the
     gallery, which shows the account's cloud use. No per-drawing limit (copies go up in parts). Quick suite

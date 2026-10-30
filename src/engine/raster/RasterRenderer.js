@@ -844,8 +844,13 @@ export default class RasterRenderer {
         this._pyrPrefetchKey = null;
         // A commit: a shape that landed in it opens its group first, before any patch step could publish its plates
         // while the path is still up (A3 §3.6); then the commit's patch step, in its task (`noteCommit`).
-        this._pyrOff = this.stage.onCommit(() => {
+        this._pyrOff = this.stage.onCommit((G, info) => {
             if (this._destroyed || !this._view) return;
+            if (info.reset) {
+                // A restored camera is not motion from the previous document's view (F171).
+                this._pyrMot.frame = null; this._pyrMot.moving = false; this._pyrMot.dir = 0;
+                this.queue.setMotion(null);
+            }
             if (this.live.held.length) this._pyrLive(this._view);
             if (pyr.noteCommit()) Promise.resolve().then(() => this._pyrCommitStep());
         });

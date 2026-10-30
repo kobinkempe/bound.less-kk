@@ -431,7 +431,11 @@ export class OpLog {
                     const rec = fresh(seq, op, e, [e.level]);
                     if (e.k === "mark") marks.set(e.obj.id, rec);
                     if (stale(seq, [e.level])) break;
-                    if (!doc.getById(e.obj.id)) doc.insertAt(live(e.obj), e.level, at(e.index));
+                    const cur = doc.getById(e.obj.id);
+                    if (cur && stale(seq, [cur.level])) break;
+                    // A mid-stroke snapshot may already hold this id with only its first samples (F171).
+                    if (cur) { doc.removeById(e.obj.id); made.set(e.obj.id, cur.obj); }
+                    doc.insertAt(live(e.obj), e.level, at(e.index));
                     break;
                 }
                 case "put": {

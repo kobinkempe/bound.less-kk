@@ -582,30 +582,31 @@ export default class TileStore {
     }
 
     /**
-     * The frames a down tile of F can read: every non-ancestor at depth >= F whose cell, grown by
-     * one (invariant 2 bounds a whole subtree to that, as `_ringNatives` and the lasso rely on),
-     * meets `rect` in F's units — F's subtree, then outward through each ancestor the other
-     * children's subtrees, a subtree whose cell misses the tile skipped whole. Ascending depth. A frame
-     * sharing F's cell is not one: its natives are drawn live with F's (A1 C3, `nativesIn`).
+     * Non-ancestor frames at or below F whose reach meets `rect`, coarse first. Walk co-residents
+     * together: climbing between deep copies of the same cell loses local coordinates (F172).
      */
     _downSources(F, rect) {
         const Fd = this._depth(F);
-        const out = [];
+        const out = [], seen = new Set();
         const visit = (id, s, tx, ty) => {
+            if (seen.has(id)) return;
             const reach = REACH * s * (1 + 1e-9);
             if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
+            seen.add(id);
             const f = this.lm.frame(id);
             if (f.depth >= Fd && this.doc.count(id) && !this.lm.sameCell(id, F)) out.push(id);
             for (const c of this.lm.childrenOf(id)) if (c.centre) visit(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
         };
-        visit(F, 1, 0, 0);
-        let child = this.lm.frame(F), s = 1, tx = 0, ty = 0;
+        for (const f of this.lm.cellFrames(F)) visit(f.id, 1, 0, 0);
+        let child = this.lm.residentOf(F), s = 1, tx = 0, ty = 0;
         while (child && child.parent != null) {
             const c = child.centre;
             if (!c) break;
             s *= R; tx -= c.x * s; ty -= c.y * s;
-            for (const sib of this.lm.childrenOf(child.parent)) if (sib.id !== child.id && sib.centre) visit(sib.id, s / R, sib.centre.x * s + tx, sib.centre.y * s + ty);
-            child = this.lm.frame(child.parent);
+            for (const p of this.lm.cellFrames(child.parent)) for (const sib of this.lm.childrenOf(p.id)) {
+                if (!this.lm.sameCell(sib.id, child.id) && sib.centre) visit(sib.id, s / R, sib.centre.x * s + tx, sib.centre.y * s + ty);
+            }
+            child = this.lm.residentOf(child.parent);
         }
         out.sort((a, b) => this._depth(a) - this._depth(b));
         return out;

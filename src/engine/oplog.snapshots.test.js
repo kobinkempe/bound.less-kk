@@ -50,4 +50,27 @@ describe("replay takes what the snapshots hold (F98)", () => {
         expect(E.doc._undo[0]._seq).toBe(6);
         expect(E.doc._redo.length).toBe(5);
     });
+
+    test.each(["add", "mark"])("F171 a completed %s replaces the same id saved mid-gesture", (k) => {
+        const complete = { ...stroke(1), ...(k === "mark" ? { erase: true, targets: [] } : {}) };
+        const partial = { ...complete, pts: complete.pts.slice(0, 1) };
+        const E = load({ 0: [partial] });
+        const entries = [raw(5, { k, level: "0", index: 0, obj: complete }, ["0"])];
+        const log = new OpLog(E);
+        log.replay(entries, { 0: 4 }, ["0"]);
+        expect(E.doc.getById(1).obj.pts).toEqual(complete.pts);
+        const obj = E.doc.getById(1).obj;
+        log.replay(entries, { 0: 4 }, ["0"]);
+        expect(E.doc.list("0")).toHaveLength(1);
+        expect(E.doc.getById(1).obj.pts).toEqual(complete.pts);
+        expect(E.doc.getById(1).obj).toBe(obj);
+    });
+
+    test("F171 an older add leaves a newer snapshot in another frame intact", () => {
+        const current = { ...stroke(1), pts: [[500, 600], [530, 620]] };
+        const E = load({ 0: [], [H]: [current] });
+        new OpLog(E).replay([raw(5, { k: "add", level: "0", index: 0, obj: stroke(1) }, ["0"])], { 0: 4, [H]: 10 }, ["0", H]);
+        expect(E.doc.getById(1).level).toBe(H);
+        expect(E.doc.getById(1).obj.pts).toEqual(current.pts);
+    });
 });
