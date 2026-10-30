@@ -106,8 +106,11 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         expect(R.queue.report().queued[4] + R.queue.report().inFlight[4]).toBe(0);
         // The view's and the pen-up's jobs answered until none is left (the stroke's group asks again at the new level).
         const before4 = () => { const r = R.queue.report(); let n = 0; for (let p = 0; p < 4; p++) n += r.queued[p] + r.inFlight[p]; return n; };
+        // A prefetch plan may only go out while nothing of the view's is queued or in flight: checked where it is pushed (a
+        // slow runner can ask the view's cells again between rounds, which the priorities order correctly).
+        const early = [], push = R.queue.push.bind(R.queue);
+        R.queue.push = (jobs, ...a) => { if (jobs.some((j) => j.prio === 4) && before4()) early.push(before4()); return push(jobs, ...a); };
         for (let k = 0; k < 20 && (k === 0 || before4()); k++) {
-            expect(R.queue.report().queued[4] + R.queue.report().inFlight[4]).toBe(0);    // nothing prefetched meanwhile
             await g.run();
             await settle(E, 1);
         }
@@ -115,6 +118,7 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         const q = R.queue.report();
         expect(q.pushed).toBeGreaterThan(1);
         expect(E.plates.view.far.size).toBeGreaterThan(0);
+        expect(early).toEqual([]);                                      // nothing prefetched while the view's jobs were out
         const pushed = q.pushed;
         await settle(E, 3);                                             // the same view: no second plan
         expect(R.queue.report().pushed).toBe(pushed);

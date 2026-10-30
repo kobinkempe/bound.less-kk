@@ -4604,7 +4604,7 @@ tiles, retained heap the same within 1 MB; plates stay inside their 144 MiB budg
 `.claude/REVIEW-2026-10-06/mem.md`.
 
 <a id="f172"></a>
-### F172 — FIXED LOCALLY 2026-10-29 (Chrome local report replay and jsdom; not deployed, unverified by Kobin). Ceded ink disappears while zooming out.
+### F172 — FIXED and DEPLOYED 2026-10-29 (60c71e5; Chrome local report replay and jsdom; Kobin tried the build, no ceded ink missing reported). Ceded ink disappears while zooming out.
 
 Kobin: "during zoom out ... the tile cutouts for erasers are disappearing."
 
@@ -4619,7 +4619,7 @@ Manual report: `.kobin-reports/Manual Report/kobin-report-2026-10-29T22-03-34-56
 **Verification:** `tile.down.coResidents.test.js` checks depths 0, 1, 4, 6 and 22, including ink beside a real hole, the hole remaining empty, unique candidates and rejection of a distant child. All 5 pass; the existing `tile.patch.test.js` adds 5 passing checks. `f172.probe.js` replays the saved report, checks all 8 members, samples its ink through 24 quarter-octave zoom-out steps and verifies that the serialized natives did not change. The probe passes. In real Chrome, a local bundle of the current engine replayed that report: the purple continuation appears in both renderers at the matching camera, and 52 quarter-octave steps crossed from depth 22 to 21 without the rectangular gap. This checks the report's extract, not every view of the whole drawing. Evidence and logs: `outputs/f172-2026-10-29/` (`before-report-raster.png`, `after-report-raster.png`, `after-report-svg.png`, `after-zoom-out-raster.png`, `after-zoom-out-svg.png`, `regression-before.txt`, `final-regression.txt`, `report-fixed-probe.txt`). Full quick suite with access to its temporary local test server: **2,542 / 2,542 tests, 219 / 219 suites passed** (`quick-tests.txt`, 760.9 s). Lint has 0 errors and 9 warnings in unchanged files; lint of the three F172 source/probe/test files is clean. The docmap rebuild is still blocked by its existing missing module entry for `cloudLimits.js`; coverage and stale-name audits pass, and the failed rebuild's generated inventory was restored.
 
 <a id="f171"></a>
-### F171 — FIXED LOCALLY 2026-10-29 (Chrome; not deployed, unverified by Kobin). Ink is missing after refresh; a named canvas can also open blank.
+### F171 — FIXED and DEPLOYED 2026-10-29 (60c71e5; Chrome; Kobin tried the build: "the blank canvas is gone"). Ink is missing after refresh; a named canvas can also open blank.
 
 Kobin: "when I opened a new canvas and drew a line, then refreshed, I saw nothing. Once I panned or zoomed, the picture appeared. Once I named the canvas, this issue went away." That report suggested a missing first picture. The reproduction below does not establish that all the ink survives in the document.
 
