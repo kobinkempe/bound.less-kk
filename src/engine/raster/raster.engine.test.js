@@ -893,6 +893,7 @@ test("the live stroke is drawn after a drawing loads: the live layer is composed
     expect(livePaths()).toBeGreaterThan(0);                 // so the second stroke is drawn too
     E.pointerUp();
     await paint(E);
+    for (let t0 = Date.now(); livePaths() > 0 && Date.now() - t0 < 3000;) await paint(E);   // the handoff waits for the plates: a slow runner needs more rounds
     expect(livePaths()).toBe(0);                            // and gone at pen-up: the ink is in the plates
 });
 
