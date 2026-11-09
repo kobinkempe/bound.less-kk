@@ -121,7 +121,15 @@ export function displacementDigits(d, n) {
  * (W); one level below that, exactly G.
  */
 export function digitValue(digitDepth, inDepth) {
-    return G * Math.pow(R, inDepth - digitDepth + 1);
+    return G * powR(inDepth - digitDepth + 1);
+}
+
+/** R^k for an integer k, exactly: a power of two built by exact steps (Math.pow is the engine's own, OPEN-FLAGS F176). */
+export function powR(k) {
+    let v = 1;
+    for (let i = 0; i < k; i++) v *= R;
+    for (let i = 0; i > k; i--) v /= R;
+    return v;
 }
 
 /**
@@ -147,7 +155,7 @@ export function applyDigits(chain, firstIndex, digits) {
     for (let k = digits.length - 1; k >= 0; k--) {
         const pos = firstIndex + k;
         if (pos < len) break;
-        residue += digits[k] * G * Math.pow(R, len - pos);
+        residue += digits[k] * G * powR(len - pos);
     }
     let carry = 0;
     for (let pos = len - 1; pos >= 0; pos--) {

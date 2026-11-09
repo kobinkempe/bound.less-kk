@@ -12,8 +12,9 @@
  * Scalars and a caller-owned `out`, because the flattener calls the midpoint once per
  * chord inside the worker's inner loop and must allocate nothing there.
  *
- * Layering: this file imports nothing.
+ * Layering: this file imports only detMath, which imports nothing.
  */
+import { sin, tan, hypot } from "./detMath";
 
 /**
  * The bulge coefficient of a sweep, `tan(sweep/4)/2`. Two uses, and both are why it is
@@ -26,7 +27,7 @@
  * @returns {number}
  */
 export function bulgeK(sweep) {
-    return Math.tan(sweep / 4) / 2;
+    return tan(sweep / 4) / 2;
 }
 
 /**
@@ -74,7 +75,7 @@ export function sagittaOf(ax, ay, bx, by, sweep) {
     if (!(a > 0)) return 0;
     if (a > Math.PI) return Infinity;
     const dx = bx - ax, dy = by - ay;
-    return (Math.hypot(dx, dy) / 2) * Math.abs(Math.tan(a / 4));
+    return (hypot(dx, dy) / 2) * Math.abs(tan(a / 4));
 }
 
 /**
@@ -99,8 +100,8 @@ function segRatio(theta) {
         const t2 = theta * theta;
         return (theta / 3) * (1 + t2 / 30 + (t2 * t2) / 840);
     }
-    const s = Math.sin(theta / 2);
-    return (theta - Math.sin(theta)) / (2 * s * s);
+    const s = sin(theta / 2);
+    return (theta - sin(theta)) / (2 * s * s);
 }
 
 /**

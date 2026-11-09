@@ -72,7 +72,7 @@
  * promoted object (moved one level UP by `scaleGeometry`) shifts the other way.
  */
 import { W, G, R, HALF_W } from "../frameLattice";
-import { displacementDigits } from "../frameLattice";
+import { displacementDigits, powR } from "../frameLattice";
 
 /** The move grid: 2^-10 of a level's unit, a quarter pixel at its deepest zoom. */
 export const SNAP = 1 / 1024;
@@ -193,7 +193,7 @@ export function shiftAt(below, k0) {
         if (!e) continue;
         any = true;
         if (k > k0) {
-            const f = Math.pow(R, k0 - k);          // a power of two: exact
+            const f = powR(k0 - k);
             rx += e[0] * f; ry += e[1] * f;
             continue;
         }

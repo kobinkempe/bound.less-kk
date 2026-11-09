@@ -9,7 +9,8 @@
 import { RANK, levelCell } from "./PyramidStore";
 import { levelKey } from "./level";
 
-export const FIRST_VIEW_VERSION = 1;
+/** 3: the derivation changed (F173's corners; F174–F177's ring, seam, arc and maths fixes), so an older set is not shown. */
+export const FIRST_VIEW_VERSION = 3;
 /** A part's bytes at most: one Firestore document of the cloud copy's size (`canvasSync.js`, 700 KiB). */
 export const PART_BYTES = 700 * 1024;
 const MAGIC = 0x56464c42;   // "BLFV"

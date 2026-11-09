@@ -34,11 +34,12 @@ import {
 import { strokeOutline } from "./clipperBoolean";
 import {
     loopsBBox, clipShapeToRect, flattenShape, transformLoops, transformLoopsAbout, insideShape,
-    pieceBBox, loopsArea, flatPieces, insideTester,
+    pieceBBox, loopsArea, flatPieces, insideTester, rederiveJoins,
 } from "./arcShape";
 import { Grid } from "./arcPerimeter";
 import { chopFreezeLoops, freezeRadius } from "./freeze";
 import { childTilePhase, tilePhase, TileGrid } from "../frameLattice";
+import { hypot } from "./detMath";
 
 // Object bbox in its own frame. Cached on the object: geometry is immutable once
 // the stroke is finished (only the live in-progress stroke still grows).
@@ -440,7 +441,7 @@ export function rectSubtract(rect, holes) {
 export function bandRings(tpts, lw, rect, clipRect, cfg, opts = {}) {
     const base = cfg.base;
     const half = lw / 2;
-    const tdiag = Math.hypot(rect.right - rect.left, rect.bottom - rect.top);
+    const tdiag = hypot(rect.right - rect.left, rect.bottom - rect.top);
     const mega = (opts.span || 0) > 20 * tdiag || half > 4 * tdiag;
     const curved = !!opts.curved && tpts.length > 2;
     let cpts;
@@ -503,9 +504,18 @@ export function bandRings(tpts, lw, rect, clipRect, cfg, opts = {}) {
 // classifier. Padding is used at its maximum (ignoring opacity) — classifying
 // something as "edge" that could have been "solid" only costs a little work,
 // while the reverse paints over detail, so the conservative direction is safe.
+/**
+ * The edge's translation for `o`. A ring native keeps its home cell's coordinates and carries that cell's origin in the
+ * parent's units (`o.cellOff`, whole frames), so `t` gains `cellOff · s`: exact integers on the lattice (OPEN-FLAGS F174).
+ */
+export const edgeT = (o, s, t) => (o.cellOff ? { x: t.x + o.cellOff[0] * s, y: t.y + o.cellOff[1] * s } : t);
+/** A native of the cell at `off` (whole frames, in the parent's units) as the chain reads it: itself, never moved. */
+export const ringNative = (o, off) => (off[0] || off[1] ? { ...o, cellOff: off } : o);
+
 export function classifyUp(o, s, t, rect, cfg, live, off) {
     const base = cfg.base;
     const f = s / base;
+    t = edgeT(o, s, t);
     const b = bboxOf(o, live);
     const half = o.type === "fill" ? 0 : ((o.lwFrame || 0) * f) / 2;   // a shape has no lwFrame: its box is its ink (F142)
     const pad = seamPadFor(cfg);
@@ -533,7 +543,7 @@ export function classifyUp(o, s, t, rect, cfg, live, off) {
     const hw = (prect.right - prect.left) / 2, hh = (prect.bottom - prect.top) / 2;
     for (const p of o.pts) {
         const px = (p[0] * s + t.x) / base + ox, py = (p[1] * s + t.y) / base + oy;
-        if (Math.hypot(Math.abs(px - cx) + hw, Math.abs(py - cy) + hh) < half) return "solid";
+        if (hypot(Math.abs(px - cx) + hw, Math.abs(py - cy) + hh) < half) return "solid";
     }
     return "edge";
 }
@@ -565,37 +575,12 @@ export function solidQuad(o, rect, opts = {}) {
 // space, and where a moved object's picture is read from is decided at render
 // time from its table (TileStore._rerouteGroups, LevelMap.objShift).
 //
-// BACKWARDS COMPATIBILITY, and the decision that has to be made before the
-// true 1.0 (Kobin, 2026-09-05). Every deep picture in every saved drawing is
-// DERIVED, by this function and the ones it calls (`chopFreezeLoops`, the
-// clip in `clipShapeToRect`, the arc cut points in `arcPerimeter`), from the
-// stored home geometry — nothing below an object's home level is stored unless
-// an erase ceded it. So the last bit of arithmetic here IS the picture eight
-// levels down: change the freeze test, the chop, a cut formula or the order
-// of one addition, and every existing drawing's detail drawn against a
-// coarse object moves by that change times 4096 per level (F43 measured a
-// last-bit change as a screen at level 7 and an empty tile at 8). Two ways
-// out, not yet chosen: (a) store what has been looked at — cede a coarse
-// object's chain down to any tile that holds references, the way an erase
-// does (F42), so those bits are no longer derived and this function can
-// change freely; the cost is natives per level per reference site, and a
-// cost analysis is owed before deciding; (b) keep pictures derived and
-// version the derivation — a saved drawing records which arithmetic it was
-// drawn under, and old files keep running the old one. Until one is chosen,
-// ANY CHANGE TO THIS PATH (F44's three layers most of all) is a compatibility
-// event for shipped drawings, and shipping it needs Kobin's explicit call.
-// Three such changes are already in the working tree and not deployed: F55
-// (no move offset enters this hop any more) and F43 (a cut line's or arc's
-// deep cuts come from its canonical line or arc — `mapLine`,
-// `reanchorCutLines`, `reanchorCutArcs` in arcShape.js, `settleCut` in
-// freeze.js), both 2026-09-05 and neither changing the bits of an unmoved,
-// uncut piece; and F44's one-radius freeze (2026-09-06, freeze.js rule 2),
-// which changes WHICH pieces freeze — every arc over ~8.8e12 units now
-// freezes where the old test refused it — and so shifts the deep picture of
-// every existing drawing with a curved stroke zoomed past its third
-// crossing, by up to the tolerance times 4096 per level. Kobin asked for the
-// gate knowing that; the next deploy is the compatibility event.
-export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
+// COMPATIBILITY. Nothing below an object's home is stored unless an erase ceded it, so every deep picture is
+// derived here and in what this calls (`chopFreezeLoops`, `clipShapeToRect`, the cut points in `arcPerimeter`):
+// a change to the freeze test, the chop, a cut formula or the order of one addition moves every saved drawing's
+// deep picture by that change times 4096 a level (F43). Shipping one is a compatibility event and needs Kobin's
+// call; the 1.0 decision (store what has been looked at, or version the derivation) is not made (ROADMAP §2).
+export function deriveStep(parentObjs, s, t0, rect, level, opts, out) {
     const { cfg, width: W, opacityGroups, live } = opts;
     // The child frame's address sequence, for the chord cache (see flatChords).
     const addrSeq = opts.addrSeq || 0;
@@ -608,6 +593,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
     // of. `ox`/`oy` stay as names so the arithmetic below reads as it did.
     const ox = 0, oy = 0;
     for (const o of parentObjs) {
+        const t = edgeT(o, s, t0);
         // Seam pad (see seamPad): per-object, because whether overlap is safe
         // depends on the object's own opacity.
         const pad = seams.pad(o, rect, cfg, opacityGroups);
@@ -679,20 +665,25 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
             let res;
             if (far !== null) res = far ? { loops: [], rings: rectRing(objRect), covered: true } : { loops: [], rings: [], covered: false };
             else {
-                const moved = transformLoopsAbout(o.loops, cx, cy, f, ox, oy);
-                const chopped = chopFreezeLoops(moved, phase, ftol, cells);
-                res = shapeLoopsInRect(chopped, objRect, { freezeR: freezeRadius(ftol) });
+                // A cut's corners are re-solved at this level before the chop and again after its freeze (F173);
+                // the cap, the parent level's tolerance, keeps a correction invisible a level up.
+                const fr = freezeRadius(ftol), cap = ftol * f;
+                const moved = rederiveJoins(transformLoopsAbout(o.loops, cx, cy, f, ox, oy), cap, fr);
+                const chopped = rederiveJoins(chopFreezeLoops(moved, phase, ftol, cells), cap, fr);
+                res = shapeLoopsInRect(chopped, objRect, { freezeR: fr });
             }
             const { loops: kept, rings, covered } = res;
-            // `clip` is the rectangle the piece was cut on. The selection
-            // indicator reads it to tell a cut from an edge (F39): a straight
-            // piece lying along it is a seam, and the ants skip it.
+            // `clip` is the rectangle the piece was cut on, its parent's included: the selection indicator reads
+            // it to tell a cut from an edge (F39). A parent cut to its owner's square passes that side down (F181).
+            const k = o.clip && o.clip.left != null ? o.clip : null;
+            const clip = k ? { left: Math.max(objRect.left, (k.left - cx) * f), top: Math.max(objRect.top, (k.top - cy) * f),
+                right: Math.min(objRect.right, (k.right - cx) * f), bottom: Math.min(objRect.bottom, (k.bottom - cy) * f) } : objRect;
             if (kept.length) {
                 tag({ type: "shape", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, loops: kept, tile: phase, clip: objRect });
+                    opacity: o.opacity, loops: kept, tile: phase, clip });
             } else if (rings.length) {
                 const piece = { type: "fill", origin: "inherited", id: o.id, z: o.z, color: o.color,
-                    opacity: o.opacity, polys: rings, clip: objRect };
+                    opacity: o.opacity, polys: rings, clip };
                 if (covered) piece.covers = true;
                 tag(piece);
             }
@@ -737,7 +728,7 @@ export function deriveStep(parentObjs, s, t, rect, level, opts, out) {
                 const polys = bandRings(tpts, lw, rect, crect, cfg, {
                     curved: curvedP(o),
                     chords: () => flatChords(o, level, tpts, cfg, live, addrSeq),
-                    span: Math.hypot(b.x1 - b.x0, b.y1 - b.y0) * (s / base),
+                    span: hypot(b.x1 - b.x0, b.y1 - b.y0) * (s / base),
                     window: ew,
                     legacyOffset: cfg.fatWidthPx == null,
                     decimate: opts.decimate,
@@ -796,5 +787,5 @@ export function levelFactor(H, L, records, base) {
 // (`enter`) — the view-independent minify cull/fade measure (BUG-04's fade tag).
 export function projectedSizePx(o, f, cfg, live) {
     const b = bboxOf(o, live);
-    return (Math.hypot(b.x1 - b.x0, b.y1 - b.y0) + (o.lwFrame || 0)) * f * cfg.enter;
+    return (hypot(b.x1 - b.x0, b.y1 - b.y0) + (o.lwFrame || 0)) * f * cfg.enter;
 }

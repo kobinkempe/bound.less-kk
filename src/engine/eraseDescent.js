@@ -18,9 +18,9 @@
  * add `squareInk` to it to watch or fault the square ink the descent reads.
  */
 import LevelMap from "./LevelMap";
-import { R as CROSS_RATIO, W as FRAME_W, childTilePhase } from "./frameLattice";
-import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf } from "./geometry/derive";
-import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop } from "./geometry/arcShape";
+import { R as CROSS_RATIO, W as FRAME_W, childTilePhase, TileGrid } from "./frameLattice";
+import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf, ringNative, edgeT, tilePhaseOf } from "./geometry/derive";
+import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop, clipShapeToRect } from "./geometry/arcShape";
 import { shiftDown, pictureTable, ownTableFor } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
@@ -58,8 +58,9 @@ export class VirtualDoc {
 /**
  * The store's piece for object `id` in square (i, j) of frame F, derived from the level
  * above exactly as `TileStore._bakeUp` derives every parent object of that tile — for
- * this one object. `_squareInk`'s own filter follows: shape loops, or a covering fill's
- * clip as a rect loop.
+ * this one object — as `{ loops, clip, tile, square }`: shape loops, or a covering fill
+ * as a rect loop. `square` is the object's own tiles that the square reaches, unpadded
+ * (deriveStep's `grid.span(cells)`): the rect a cede gives the kid (OPEN-FLAGS F178).
  */
 export function squareInkOf(world, vdoc, id, F, i, j) {
     const { lm, cfg, opacityGroups } = world;
@@ -75,18 +76,13 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
     if (!v) return null;
     let o = v.obj;
     if (String(v.level) !== String(parentId)) {
-        // A ring native (TileStore._ringNatives): homed in a cell around the parent, it
-        // reaches this tile translated into the parent's coordinates, if its box meets
-        // the tile's pre-image there at all.
-        const pr = lm.rectToParent(rect, F);
-        const inG = lm.mapRectF(pr, parentId, v.level);
-        if (!inG) return null;
-        const b = bboxOf(o, null);
-        if (b.x1 < inG.left || b.x0 > inG.right || b.y1 < inG.top || b.y0 > inG.bottom) return null;
-        const d = lm.projectF(o, v.level, parentId);
-        if (!d) return null;
-        d.origin = o.origin;
-        o = d;
+        // A ring native (TileStore._ringNatives), if its box meets the tile's pre-image: in its own cell's
+        // coordinates, with that cell's origin in the parent's (F174).
+        const off = lm.cellOffset(v.level, parentId);
+        if (!off) return null;
+        const pr = lm.rectToParent(rect, F), b = bboxOf(o, null);
+        if (b.x1 < pr.left - off[0] || b.x0 > pr.right - off[0] || b.y1 < pr.top - off[1] || b.y0 > pr.bottom - off[1]) return null;
+        o = ringNative(o, off);
     }
     const tier = classifyUp(o, rec.s, rec.t, rect, cfg, null, null);
     if (tier === "empty") return null;
@@ -100,6 +96,9 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
             childCurved: () => false,
         }, objs);
     }
+    const t = edgeT(o, rec.s, rec.t);
+    const grid = TileGrid.at(tilePhaseOf(o)).child({ x: -t.x / rec.s, y: -t.y / rec.s }, rec.s / cfg.base);
+    const square = grid.span(grid.range(rect));
     let loops = null, clip = null, tile = null;
     for (const p of objs) {
         if (p.id !== id) continue;
@@ -107,13 +106,12 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
             loops = loops ? loops.concat(p.loops) : p.loops;
             clip = clip || p.clip; tile = tile || p.tile;
         } else if (p.type === "fill" && p.covers && p.clip) {
-            const r = asLTRB(p.clip);
-            loops = (loops || []).concat(rectLoop(r));
+            loops = (loops || []).concat(rectLoop(square));
             clip = clip || p.clip;
         }
     }
     if (!loops || !loops.length || !clip) return null;
-    return { loops, clip: asLTRB(clip), tile };
+    return { loops, clip: asLTRB(clip), tile, square };
 }
 
 /**
@@ -215,8 +213,18 @@ export function descentJob(world, input) {
                     const cur = crec.obj;
                     const ink = squareInk(world, vdoc, cid, F0n, 0, 0);
                     if (!ink) { why = "tile holds none of its ink"; continue; }
-                    if (i === pref.i0 && j === pref.j0 && covers(ink.clip, needIn)) only = true;
-                    const groups = shapeComponents(ink.loops);
+                    const Rc = ink.square;
+                    if (i === pref.i0 && j === pref.j0 && covers(Rc, needIn)) only = true;
+                    // The kid is the piece on its own square, cut at the vertices the chop put on its sides; the
+                    // seam pad past them stays with the next square's chain, in that square's numbers (F178).
+                    const inSq = clipShapeToRect(ink.loops, Rc, { ...boolOpts, endsOnSides: true });
+                    if (inSq.stats && inSq.stats.openChains) {
+                        const s = inSq.stats;
+                        stats.seals.push({ id: cur.id, open: s.openChains, area: s.sealedArea, weld: s.weld, retriedAt: s.retriedAt || 0, cede: true });
+                        return { refused: "a square's clip needed a seal", stats, inkless: false };
+                    }
+                    if (!inSq.loops.length) { why = "tile holds none of its ink"; continue; }
+                    const groups = shapeComponents(inSq.loops);
                     const solid = dropDust(groups, cur.w, dustBarFor(E.bakePx, lm.frameFactor(HE, F0n)));
                     stats.dust += groups.length - solid.length;
                     if (!solid.length) { why = "the tile's ink is degenerate"; continue; }
@@ -237,7 +245,6 @@ export function descentJob(world, input) {
                         specs = solid.map((g) => ({ loops: g }));
                     }
                     inked = true;
-                    const Rc = ink.clip;
                     const wParent = lm.mapRectF(Rc, F0n, crec.level);
                     if (!wParent || !(wParent.right > wParent.left) || !(wParent.bottom > wParent.top)) { why = "the tile maps to nothing in the parent"; continue; }
                     const pcur = cur.tile || [0, 0];
@@ -250,6 +257,12 @@ export function descentJob(world, input) {
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
                         { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownTableFor(kidT, frameShift(lm, home)), boolOpts,
                         dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id);
+                    if (step && step.unresolved) {
+                        // The whole descent is refused, so the target stays as it was (F173).
+                        const s = step.unresolved;
+                        stats.seals.push({ id: cur.id, open: s.openChains, area: s.sealedArea, weld: s.weld, retriedAt: s.retriedAt || 0, cede: true });
+                        return { refused: "a parent's cede needed a seal", stats, inkless: false };
+                    }
                     if (!step) { why = "cedeTileById refused"; continue; }
                     const spec = (p) => ({ vid: p.obj.id, level: p.level, obj: p.obj });
                     const dust = (step.dust || []).slice();

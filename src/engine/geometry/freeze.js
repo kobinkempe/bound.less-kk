@@ -71,9 +71,10 @@
  * and the carrying code in arcShape and arcPerimeter were deleted, and a
  * piece has no seam fields. The endpoint guard is the whole of the rule now.
  */
-import { ptAt, subPiece, canonArc, arcDir, arcPieceOf, canonPos } from "./arcPerimeter";
+import { ptAt, subPiece, canonArc, arcDir, arcPieceOf, canonPos, canonOf } from "./arcPerimeter";
 import { sagittaOf } from "./chordMath";
-import { TILE, ENTER, TileGrid } from "../frameLattice";
+import { TILE, ENTER, TileGrid, R as HOP } from "../frameLattice";
+import { acos, asin, hypot } from "./detMath";
 
 const TAU = Math.PI * 2;
 
@@ -115,7 +116,7 @@ export function freezePiece(p) {
 function arcCuts(p, k, axis, out) {
     const u = (k - p.C[axis]) / p.r;
     if (!(u > -1 && u < 1)) return out;
-    const t = axis === 0 ? Math.acos(u) : Math.asin(u);
+    const t = axis === 0 ? acos(u) : asin(u);
     const t2 = axis === 0 ? -t : Math.PI - t;
     for (let n = 0; n < 2; n++) {
         const d = wrap((n ? t2 : t) - p.a0);
@@ -157,7 +158,7 @@ function arcCuts(p, k, axis, out) {
 export function chordFrame(p) {
     const A = p.A, B = p.B;
     const dx = B[0] - A[0], dy = B[1] - A[1];
-    const L = Math.hypot(dx, dy);
+    const L = hypot(dx, dy);
     const r = Math.abs(p.r), half = L / 2;
     if (!(L > 0) || !(r > half)) return null;
     const ux = dx / L, uy = dy / L;
@@ -238,6 +239,47 @@ export function chordHit(f, a) {
     return { x: f.Mx + a * f.ux + h * f.nx, y: f.My + a * f.uy + h * f.ny,
         tx: f.ux + hp * f.nx, ty: f.uy + hp * f.ny, s: (a + f.half) / f.L };
 }
+/**
+ * A line chopped on the grid lines `xs`, `ys` (OPEN-FLAGS F181), or null where none crosses it. A crossing is the
+ * canonical line's, from differences, `t = (g − P) / (Q − P)` on the crossed axis, with that coordinate g itself, so
+ * frames a whole number of tiles apart compute the same bits. A cut line is chopped as its canonical line and each
+ * fragment trimmed to the piece's stretch: one it covers whole is a plain line between the crossings, as the uncut
+ * line's chop makes it, the rest are cut lines on their fragment. The piece's own ends keep their points.
+ */
+function chopLine(p, xs, ys) {
+    const [P, Q] = canonOf(p), dx = Q[0] - P[0], dy = Q[1] - P[1];
+    const recs = [];
+    if (dx !== 0) for (const g of xs) if ((g - P[0]) * (g - Q[0]) < 0) { const t = (g - P[0]) / dx; recs.push({ t, pt: [g, P[1] + t * dy] }); }
+    if (dy !== 0) for (const g of ys) if ((g - P[1]) * (g - Q[1]) < 0) { const t = (g - P[1]) / dy; recs.push({ t, pt: [P[0] + t * dx, g] }); }
+    if (!recs.length) return null;
+    recs.sort((a, b) => a.t - b.t);
+    const ts = [0], pts = [P];
+    for (const r of recs) if (r.t > ts[ts.length - 1] + EPS && r.t < 1 - EPS) { ts.push(r.t); pts.push(r.pt); }
+    if (ts.length === 1) return null;
+    ts.push(1); pts.push(Q);
+    const fwd = !p.P || p.sb >= p.sa, Plo = fwd ? p.A : p.B, Phi = fwd ? p.B : p.A;
+    // An own end standing on a crossing (a cede border's corner, which `borderJoin` solves by this arithmetic) is it.
+    const posOf = (s, V) => { for (let k = 1; k < ts.length - 1; k++) if (pts[k][0] === V[0] && pts[k][1] === V[1]) return ts[k]; return s; };
+    const lo = p.P ? posOf(Math.min(p.sa, p.sb), Plo) : 0, hi = p.P ? posOf(Math.max(p.sa, p.sb), Phi) : 1;
+    const last = ts.length - 2;
+    let kLo = 0, kHi = last;
+    while (kLo < last && ts[kLo + 1] <= lo) kLo++;
+    while (kHi > 0 && ts[kHi] >= hi) kHi--;
+    if (kLo > kHi) return null;
+    const out = [];
+    for (let k = kLo; k <= kHi; k++) {
+        const s0 = ts[k], s1 = ts[k + 1], L = s1 - s0, F0 = pts[k], F1 = pts[k + 1];
+        const a = k === kLo ? (lo - s0) / L : 0, b = k === kHi ? (hi - s0) / L : 1;
+        const A = k === kLo ? Plo : F0, B = k === kHi ? Phi : F1;
+        const whole = a === 0 && b === 1 && A[0] === F0[0] && A[1] === F0[1] && B[0] === F1[0] && B[1] === F1[1];
+        const q = { line: true, A: fwd ? A : B, B: fwd ? B : A, src: p.src, ci: p.ci, rl: p.rl };
+        if (!whole) { q.P = F0; q.Q = F1; q.sa = fwd ? a : b; q.sb = fwd ? b : a; }
+        out.push(q);
+    }
+    if (!fwd) out.reverse();
+    return out;
+}
+
 /** Chord abscissae at which the arc meets the line `axis = k`, strictly inside the piece. */
 function chordCuts(f, k, axis, out) {
     for (const { a } of chordLineRoots(f, axis === 0 ? 1 : 0, axis === 0 ? 0 : 1, k)) {
@@ -255,12 +297,11 @@ function chordCuts(f, k, axis, out) {
  * their endpoints bit for bit, and a freeze changes a piece's curvature and
  * nothing else, so the chain still closes exactly where it did.
  *
- * cells is the window of tiles whose pieces come out FULLY chopped — the
- * caller's cache rect, expressed in tiles. Anything outside it is passed
- * through exactly as it arrived: it has not been cut at every grid line that
- * crosses it, so its extent is not the object's own and it must not be measured
- * for straightness. It is also, by construction, outside the rect the caller is
- * about to clip to, so it is already on its way to being discarded.
+ * cells is the caller's cache rect in tiles; the pieces come out FULLY chopped
+ * over those tiles and one more on each side, which holds the seam pad (F175).
+ * Anything beyond is passed through as it arrived: it has not been cut at every
+ * grid line that crosses it, so it must not be measured for straightness, and
+ * it lies outside the rect the caller is about to clip to.
  *
  * COMPATIBILITY: the chop and the freeze decide the stored-to-derived chain's
  * bits at every level below an object's home, and those bits are not stored
@@ -276,8 +317,10 @@ export function chopFreezeLoops(loops, phase, tol, cells) {
     const px = phase[0], py = phase[1];
     const h = TILE / 2;
     const xs = [], ys = [];
-    for (let i = cells.i0; i <= cells.i1 + 1; i++) xs.push(px + i * TILE - h);
-    for (let j = cells.j0; j <= cells.j1 + 1; j++) ys.push(py + j * TILE - h);
+    // One line past each side: the seam pad lies in the tiles next door, and a stretch there is chopped and frozen
+    // as their own chain does it, not left a stub the clip straightens to the whole stub's chord (OPEN-FLAGS F175).
+    for (let i = cells.i0 - 1; i <= cells.i1 + 2; i++) xs.push(px + i * TILE - h);
+    for (let j = cells.j0 - 1; j <= cells.j1 + 2; j++) ys.push(py + j * TILE - h);
     const xlo = xs[0], xhi = xs[xs.length - 1], ylo = ys[0], yhi = ys[ys.length - 1];
 
     // A piece's extent, WITHOUT going near its centre. The arc never leaves its
@@ -333,18 +376,30 @@ export function chopFreezeLoops(loops, phase, tol, cells) {
         return arcPieceOf(kf, lo, hi, Plo, Phi, dir);
     };
 
+    // A cede's border (F178): a cut arc ending on one of this pass's lines, where a line lying on that grid line takes
+    // over, ends at its canonical arc's own cut point there, and the line follows as a plain line. Both sides of the
+    // border then hold the chain's pieces from this level down. `snapTol` is the level above's tolerance, here.
+    const xset = new Set(xs), yset = new Set(ys), snapTol = tol * HOP;
+    const borderAt = (q, V) => {
+        if (!q.line) return null;
+        if (q.A[0] === q.B[0] && V[0] === q.A[0] && xset.has(V[0])) return { ax: 0, g: V[0] };
+        if (q.A[1] === q.B[1] && V[1] === q.A[1] && yset.has(V[1])) return { ax: 1, g: V[1] };
+        return null;
+    };
+
     const cuts = [];
     return loops.map((loop) => {
-        const out = [];
-        for (const p of loop) {
-            // A LINE IS ALREADY WHAT A FREEZE WOULD MAKE IT. Cutting one on a
-            // tile boundary yields two pieces of the same line, so the chop
-            // changes nothing about it and nothing downstream can read a
-            // difference — and below the freeze depth a shape is ALL lines,
-            // which is exactly where this runs most often. Skipping them is why
-            // the chop costs what a bounding box costs rather than what the clip
-            // it precedes costs.
-            if (p.line) { out.push(p); continue; }
+        const out = [], n = loop.length, lineAt = [];   // per line: its index, then its first and last piece in `out`
+        let snaps = null;   // vertex i (the start of piece i) -> its new point
+        for (let i = 0; i < n; i++) {
+            const p = loop[i];
+            // A line is chopped too, so its pieces' supports are the grid's crossings and never a window's (F181).
+            if (p.line) {
+                const first = out.length, parts = chopLine(p, xs, ys);
+                if (parts) for (const q of parts) out.push(q); else out.push(p);
+                lineAt.push(i, first, out.length - 1);
+                continue;
+            }
             // A CUT arc is chopped as its CANONICAL arc would be (F43): the
             // same box, the same grid lines, the same cuts and cut points, the
             // same fragments re-parametrised the same way and settled by the
@@ -362,16 +417,15 @@ export function chopFreezeLoops(loops, phase, tol, cells) {
             const cf = Math.abs(k.r) >= R ? chordFrame(k) : null;
             const recs = [];
             if (cf) {
-                for (let n = 0; n < xs.length; n++) { const g = xs[n]; if (g > b[0] && g < b[2]) for (const a of chordCuts(cf, g, 0, [])) recs.push({ s: (a + cf.half) / cf.L, pt: chordPt(cf, a, 0, g) }); }
-                for (let n = 0; n < ys.length; n++) { const g = ys[n]; if (g > b[1] && g < b[3]) for (const a of chordCuts(cf, g, 1, [])) recs.push({ s: (a + cf.half) / cf.L, pt: chordPt(cf, a, 1, g) }); }
+                for (const g of xs) if (g > b[0] && g < b[2]) for (const a of chordCuts(cf, g, 0, [])) recs.push({ s: (a + cf.half) / cf.L, pt: chordPt(cf, a, 0, g), ax: 0, g });
+                for (const g of ys) if (g > b[1] && g < b[3]) for (const a of chordCuts(cf, g, 1, [])) recs.push({ s: (a + cf.half) / cf.L, pt: chordPt(cf, a, 1, g), ax: 1, g });
             } else {
-                cuts.length = 0;
-                for (let n = 0; n < xs.length; n++) { const g = xs[n]; if (g > b[0] && g < b[2]) arcCuts(k, g, 0, cuts); }
-                for (let n = 0; n < ys.length; n++) { const g = ys[n]; if (g > b[1] && g < b[3]) arcCuts(k, g, 1, cuts); }
-                for (const s of cuts) recs.push({ s, pt: null });
+                for (const g of xs) if (g > b[0] && g < b[2]) { cuts.length = 0; for (const s of arcCuts(k, g, 0, cuts)) recs.push({ s, pt: null, ax: 0, g }); }
+                for (const g of ys) if (g > b[1] && g < b[3]) { cuts.length = 0; for (const s of arcCuts(k, g, 1, cuts)) recs.push({ s, pt: null, ax: 1, g }); }
             }
             recs.sort((x, y) => x.s - y.s);
-            const ptOf = (rec) => rec.pt || ptAt(k, rec.s);
+            // A cut stands on its grid line, as a line's does: the crossed coordinate is g itself (F181).
+            const ptOf = (rec) => { if (!rec.pt) { rec.pt = ptAt(k, rec.s); rec.pt[rec.ax] = rec.g; } return rec.pt; };
             if (!p.K) {
                 if (!recs.length) { out.push(settle(p)); continue; }
                 let prev = 0, A = p.A;
@@ -384,9 +438,23 @@ export function chopFreezeLoops(loops, phase, tol, cells) {
                 out.push(settle(subPiece(p, prev, 1, A, p.B)));
                 continue;
             }
-            const dir = arcDir(p), ua = p.ua, ub = p.ub;
-            const ownLo = dir > 0 ? p.A : p.B, ownHi = dir > 0 ? p.B : p.A;
+            const dir = arcDir(p);
+            let ua = p.ua, ub = p.ub, ownLo = dir > 0 ? p.A : p.B, ownHi = dir > 0 ? p.B : p.A;
             if (!recs.length) { out.push(settleCut(k, ua, ub, ownLo, ownHi, dir)); continue; }
+            for (const isA of [true, false]) {
+                const at = isA ? borderAt(loop[(i + n - 1) % n], p.A) : borderAt(loop[(i + 1) % n], p.B);
+                if (!at) continue;
+                const V = isA ? p.A : p.B, low = isA === (dir > 0);
+                let best = null, bd = snapTol;
+                for (const rec of recs) {
+                    if (rec.ax !== at.ax || rec.g !== at.g) continue;
+                    const pt = ptOf(rec), d = hypot(pt[0] - V[0], pt[1] - V[1]);
+                    if (d <= bd) { best = rec; best.pt = pt; bd = d; }
+                }
+                if (!best || !(low ? best.s < ub : best.s > ua)) continue;
+                if (low) { ua = best.s; ownLo = best.pt; } else { ub = best.s; ownHi = best.pt; }
+                (snaps || (snaps = new Map())).set(isA ? i : (i + 1) % n, best.pt);
+            }
             // The chain's fragments of K, in K's direction...
             const frags = [];
             let prev = 0, A = k.A;
@@ -410,6 +478,15 @@ export function chopFreezeLoops(loops, phase, tol, cells) {
             }
             if (dir < 0) mine.reverse();
             for (const q of mine) out.push(q);
+        }
+        if (snaps) {
+            const plain = (q, A, B) => ({ line: true, A, B, src: q.src, ci: q.ci, rl: q.rl });
+            for (let m = 0; m < lineAt.length; m += 3) {
+                const i = lineAt[m], f = lineAt[m + 1], l = lineAt[m + 2], a = snaps.get(i), b = snaps.get((i + 1) % n);
+                if (f === l) { if (a || b) out[f] = plain(out[f], a || out[f].A, b || out[f].B); continue; }
+                if (a) out[f] = plain(out[f], a, out[f].B);
+                if (b) out[l] = plain(out[l], out[l].A, b);
+            }
         }
         return out;
     });

@@ -86,15 +86,17 @@ describe("FG-2 — the chop freezes by the radius alone", () => {
     });
     test("a piece reaching past the outermost line is not measured at all", () => {
         const R = freezeRadius(TOL);
-        // The arc runs on past the right line: an unbounded stub, whose chord
-        // could be wrong inside the window. The chop cuts it at the line and
-        // freezes the inside part; the outside part stays an arc.
-        const out = chopFreezeLoops(shape(R * 1.001, -TILE / 2, TILE), [0, 0], TOL, cells);
+        // The chop's lines run one tile past `cells` each way, so the seam pad is chopped and frozen as the tile next
+        // door does it (F175). An arc running on past the last of them is an unbounded stub, whose chord could be
+        // wrong inside the window: cut at the line, the inside frozen, the outside left an arc.
+        const out = chopFreezeLoops(shape(R * 1.001, -TILE / 2, 2 * TILE), [0, 0], TOL, cells);
         const pieces = out[0];
-        const inside = pieces.filter((p) => Math.max(p.A[0], p.B[0]) <= TILE / 2 + 1e-6);
-        const outside = pieces.filter((p) => Math.max(p.A[0], p.B[0]) > TILE / 2 + 1e-6 && !p.line);
+        const inside = pieces.filter((p) => Math.max(p.A[0], p.B[0]) <= 1.5 * TILE + 1e-6);
+        const pad = inside.filter((p) => Math.min(p.A[0], p.B[0]) >= TILE / 2 - 1e-6 && p.A[1] !== 50000);   // not the closing line
+        const outside = pieces.filter((p) => Math.max(p.A[0], p.B[0]) > 1.5 * TILE + 1e-6 && !p.line);
         expect(inside.length).toBeGreaterThan(0);
         expect(inside.every((p) => p.line)).toBe(true);
+        expect(pad.length).toBe(1);                       // the tile next door's stretch: one frozen chord
         expect(outside.length).toBe(1);
     });
 });

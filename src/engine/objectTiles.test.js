@@ -41,7 +41,7 @@ import { translateLoops, loopsBBox } from "./geometry/arcShape";
 import { pieceBBox } from "./geometry/arcPerimeter";
 import { chopFreezeLoops, pieceSagitta, tileWindow, tileClipRect, freezeRadius } from "./geometry/freeze";
 import { TILE, W, R, G, tilePhase, childTilePhase, objTileRange, objTileRect } from "./frameLattice";
-import { shapeTol, seamPad } from "./geometry/derive";
+import { shapeTol } from "./geometry/derive";
 import Document from "./Document";
 
 jest.setTimeout(300000);
@@ -545,24 +545,11 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         }
     });
 
-    test("a ceded piece is CHOPPED on the OBJECT's grid, and attached on the render's window", () => {
-        // Draft 2's open question 6, which section 6.6 claims to close: "two
-        // cedes made either side of a move land on the same grid and cannot
-        // partially overlap." They can only fail to overlap cleanly if the rect
-        // is cut on something the move slid out from under.
-        //
-        // WHAT THIS PINNED UNTIL 2026-09-04, AND WHAT IT PINS NOW. The attach
-        // rect used to be a block of the object's own tiles, and this asserted
-        // it sat a whole number of tiles from the object's phase. Since F42 a
-        // cede hands over the piece the tile store holds for one cache square
-        // — that piece is what the deeper levels derive from, and the kid has
-        // to be it bit for bit — so the attach rect is that piece's window: a
-        // FRAME square grown by the seam pad. What still rides with the object
-        // is the grid the piece was chopped on (`tile`), which is where a
-        // curve becomes a line, and that is the part a move must not slide.
-        // The "cannot partially overlap" worry is answered differently now:
-        // the parent is CUT at the window, so a second cede can only ever hand
-        // over what is left.
+    test("a ceded piece is CHOPPED on the OBJECT's grid, and attached on the object's own tiles", () => {
+        // Section 6.6: a move must not slide the grid a cede cuts on. A cede hands over the store's piece for one cache
+        // square (F42) cut to the object's own tiles that square reaches, unpadded (F178), so the attach rect sits a
+        // whole number of tiles from the object's phase, spans whole tiles, and for a moved object is off the frame's
+        // grid. The parent is cut at the same rect, so a second cede can only hand over what is left.
         const E = mkEngine();
         const o = drawStroke(E, [[250, 300], [550, 300]], 30);
         nudge(E, o.id, 400, 300, 9, 0);          // a grid that does not line up with the squares
@@ -573,25 +560,16 @@ describe("OT-4 — a drawn object carries its grid through the engine", () => {
         const kids = [];
         for (const L of E.doc.levels()) for (const q of E.doc.at(L)) if (!q.erase && q.attachRect) kids.push({ obj: q, level: L });
         expect(kids.length).toBeGreaterThan(0);
-        const pad = seamPad(o, E.cfg, true);
         let offFrameGrid = 0;
         for (const k of kids) {
             const ph = k.obj.tile || [0, 0];
-            // The attach rect is the render piece's window: the object's own
-            // tiles that the cache square reaches, grown by the seam pad. So
-            // it sits a whole number of tiles from the object's phase, less
-            // the pad — and spans one tile per axis for an unmoved object, two
-            // for a moved one whose grid straddles the square.
-            const ix = (k.obj.attachRect.x0 + pad - ph[0] + TILE / 2) / TILE;
-            const iy = (k.obj.attachRect.y0 + pad - ph[1] + TILE / 2) / TILE;
+            const ix = (k.obj.attachRect.x0 - ph[0] + TILE / 2) / TILE;
+            const iy = (k.obj.attachRect.y0 - ph[1] + TILE / 2) / TILE;
             expect(Math.abs(ix - Math.round(ix))).toBeLessThan(1e-6);
             expect(Math.abs(iy - Math.round(iy))).toBeLessThan(1e-6);
-            const nx = (k.obj.attachRect.x1 - k.obj.attachRect.x0 - 2 * pad) / TILE;
+            const nx = (k.obj.attachRect.x1 - k.obj.attachRect.x0) / TILE;
             expect(Math.abs(nx - Math.round(nx))).toBeLessThan(1e-6);
-            // ...and, for at least one of them, NOT on the frame's grid — which
-            // is the whole difference the move makes, and what keeps a chop
-            // where it was.
-            const fx = (k.obj.attachRect.x0 + pad + TILE / 2) / TILE;
+            const fx = (k.obj.attachRect.x0 + TILE / 2) / TILE;
             if (Math.abs(fx - Math.round(fx)) > 1e-6) offFrameGrid++;
         }
         expect(offFrameGrid).toBeGreaterThan(0);

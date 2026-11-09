@@ -34,6 +34,7 @@
  * that fragment, not everything downstream of it.
  */
 import { arcTangent, arcDist, offsetArc, BiarcPen } from "./biarc";
+import { sin, cos, atan2, hypot } from "./detMath";
 
 const TAU = Math.PI * 2;
 const norm = (d) => d - TAU * Math.floor(d / TAU);   // into [0, TAU)
@@ -47,7 +48,7 @@ export function ptAt(p, s) {
     if (s >= 1) return [p.B[0], p.B[1]];
     if (p.line) return [p.A[0] + (p.B[0] - p.A[0]) * s, p.A[1] + (p.B[1] - p.A[1]) * s];
     const th = p.a0 + p.sweep * s;
-    return [p.C[0] + p.r * Math.cos(th), p.C[1] + p.r * Math.sin(th)];
+    return [p.C[0] + p.r * cos(th), p.C[1] + p.r * sin(th)];
 }
 
 /** Two arcs on one circle, to `tol` in centre and radius. Lines are never "the same circle". */
@@ -70,7 +71,7 @@ export function paramOf(p, q, eps) {
         const slack = eps / Math.sqrt(L2);
         return (s >= -slack && s <= 1 + slack) ? Math.min(1, Math.max(0, s)) : null;
     }
-    const th = Math.atan2(q[1] - p.C[1], q[0] - p.C[0]);
+    const th = atan2(q[1] - p.C[1], q[0] - p.C[0]);
     const d = norm(th - p.a0);
     // Signed offset along the sweep, then normalised to [0,1].
     const along = p.sweep > 0 ? d : d - TAU;
@@ -89,7 +90,7 @@ export function pieceBBox(p) {
             const d = norm(th - p.a0);
             const inside = p.sweep > 0 ? (d <= p.sweep) : ((d - TAU) >= p.sweep);
             if (!inside) continue;
-            const x = p.C[0] + p.r * Math.cos(th), y = p.C[1] + p.r * Math.sin(th);
+            const x = p.C[0] + p.r * cos(th), y = p.C[1] + p.r * sin(th);
             if (x < x0) x0 = x; if (x > x1) x1 = x;
             if (y < y0) y0 = y; if (y > y1) y1 = y;
         }
@@ -192,17 +193,13 @@ export function cutLine(p, s0, s1, A, B, ta, tb) {
  * K: it is its own canonical arc and its derivation is untouched by any of
  * this.
  *
- * WHY THE CHAIN'S OWN NUMBERS, AND NOT THE HOME ARC. The chain re-anchors at
- * every level: the level-m piece is the level-(m−1) piece chopped on the tile
- * grid (`subPiece`, which re-parametrises the angle) and re-cut on the padded
- * window. "The same bits as the uncut arc" therefore means carrying, at every
- * level, the very fragment the chain would have carried — re-parametrised the
- * same way, ending at the same crossings — and expressing the surviving
- * stretch as positions on it. `chopFreezeLoops` (freeze.js) does that at the
- * chop and `reanchorCutArcs` (arcShape.js) after the window clip, mirroring
- * `reanchorCutLines`. Measured before this: a 12-px nick at level 3 on an arc
- * of radius 2.6e16 (at level 4) moved the level-4 picture 0.0946 units and the
- * level-5 one by 4096 times that (OPEN-FLAGS F43).
+ * WHY THE CHAIN'S OWN NUMBERS, AND NOT THE HOME ARC. The level-m piece is the
+ * level-(m−1) piece chopped on the tile grid (`subPiece` re-parametrises the
+ * angle), so K is the very fragment the chain carries, ending at the same
+ * crossings, and the surviving stretch is positions on it. `chopFreezeLoops`
+ * (freeze.js) re-anchors K at the chop; the window clip only trims (F181).
+ * Before this a 12-px nick at level 3 moved the level-5 picture by 4096 × 0.0946
+ * units (OPEN-FLAGS F43).
  *
  * ORIENTATION. K is never reversed: a piece travelling K the other way says
  * so with the sign of its own sweep (`arcDir`), and its positions stay in K's
@@ -227,7 +224,7 @@ export function arcSpan(p) { return p.K ? [p.ua, p.ub] : [0, 1]; }
  * answer for a crossing it accepted.
  */
 export function arcPos(k, pt) {
-    const th = Math.atan2(pt[1] - k.C[1], pt[0] - k.C[0]);
+    const th = atan2(pt[1] - k.C[1], pt[0] - k.C[0]);
     const d = norm(th - k.a0);
     const along = k.sweep > 0 ? d : d - TAU;
     return Math.min(1, Math.max(0, along / k.sweep));
@@ -274,8 +271,8 @@ function cap(pivot, r, from, to, tangent) {
     // against it at the start), which is a half turn; the sign says which way
     // round, and picking it from the tangent rather than from the endpoints is
     // what keeps a cap from ever being drawn the long way round.
-    const a0 = Math.atan2(from[1] - pivot[1], from[0] - pivot[0]);
-    const mid = Math.atan2(tangent[1], tangent[0]);
+    const a0 = atan2(from[1] - pivot[1], from[0] - pivot[0]);
+    const mid = atan2(tangent[1], tangent[0]);
     const forward = norm(mid - a0) < Math.PI;
     return { line: false, C: [pivot[0], pivot[1]], r, a0,
         sweep: forward ? Math.PI : -Math.PI, A: from, B: to, src: -1 };
@@ -344,7 +341,7 @@ export class ChainBuilder {
         if (a[0] !== b[0] || a[1] !== b[1]) return false;
         const t0 = this.T[0], t1 = this.T[n];
         let mx = t0[0] + t1[0], my = t0[1] + t1[1];
-        const len = Math.hypot(mx, my);
+        const len = hypot(mx, my);
         // Exactly opposed tangents: the stroke doubles back onto its own start,
         // which is a genuine cusp and genuinely wants caps — but it wants the
         // two DIFFERENT halves of one circle, and by default it gets the same
@@ -463,39 +460,53 @@ function circleCircle(C1, r1, C2, r2, out) {
 // A crossing on a segment A→B comes back as [x, y, t]: the point, computed as
 // `A + t·(B − A)`, and the parameter it was computed at. A cut line keeps `t`
 // as the position of its new end on its canonical line (F43), so recomputing
-// the end from that position gives back the very same bits.
-function circleSegment(C, r, A, B, out) {
-    const dx = B[0] - A[0], dy = B[1] - A[1];
-    const fx = A[0] - C[0], fy = A[1] - C[1];
-    const a = dx * dx + dy * dy;
-    if (a <= 0) return out;
-    const b = 2 * (fx * dx + fy * dy);
-    const c = fx * fx + fy * fy - r * r;
-    const disc = b * b - 4 * a * c;
-    if (disc < 0) return out;
-    const sq = Math.sqrt(disc);
-    for (const t of [(-b - sq) / (2 * a), (-b + sq) / (2 * a)]) {
-        if (t >= -1e-9 && t <= 1 + 1e-9) out.push([A[0] + t * dx, A[1] + t * dy, t]);
+// the end from that position gives back the very same bits. `t` is kept in
+// [lo, hi] (with 1e-9 of slack).
+//
+// Solved about the foot of C on the line, the half chord as (r − d)(r + d) with d
+// C's distance from the line. The textbook `b² − 4ac` cancels two near-equal huge
+// numbers when a small circle meets a long line: it put a saved corner 7.3e-7
+// units off its circle (r 2.4, line 1.3e5 long), which four levels down was a
+// screen (F173).
+function circleSegment(C, r, A, B, out, lo = 0, hi = 1) {
+    const dx = B[0] - A[0], dy = B[1] - A[1], L = hypot(dx, dy);
+    if (!(L > 0)) return out;
+    const ux = dx / L, uy = dy / L, vx = C[0] - A[0], vy = C[1] - A[1];
+    const foot = vx * ux + vy * uy, d = vx * uy - vy * ux;
+    const h2 = (r - d) * (r + d);
+    if (!(h2 >= 0)) return out;
+    const h = Math.sqrt(h2);
+    for (const t of [(foot - h) / L, (foot + h) / L]) {
+        if (t >= lo - 1e-9 && t <= hi + 1e-9) out.push([A[0] + t * dx, A[1] + t * dy, t]);
     }
     return out;
 }
 
-function segSeg(A, B, C, D, out) {
+/** `t` on A→B kept in [t0, t1], `u` on C→D in [u0, u1], each with 1e-9 of slack. */
+function segSeg(A, B, C, D, out, t0 = 0, t1 = 1, u0 = 0, u1 = 1) {
     const r1x = B[0] - A[0], r1y = B[1] - A[1];
     const r2x = D[0] - C[0], r2y = D[1] - C[1];
     const den = r1x * r2y - r1y * r2x;
     if (den === 0) return out;
     const t = ((C[0] - A[0]) * r2y - (C[1] - A[1]) * r2x) / den;
     const u = ((C[0] - A[0]) * r1y - (C[1] - A[1]) * r1x) / den;
-    if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) {
+    if (t >= t0 - 1e-9 && t <= t1 + 1e-9 && u >= u0 - 1e-9 && u <= u1 + 1e-9) {
         out.push([A[0] + t * r1x, A[1] + t * r1y, t]);
     }
     return out;
 }
-/** Where the line P→Q meets the segment C→D, as [x, y, t] on P→Q — the boolean's own arithmetic, exported for the clip's re-anchoring (F43). */
-export function lineCrossSeg(P, Q, C, D) { return segSeg(P, Q, C, D, []); }
-/** Where the circle (C, r) meets the segment A→B, as [x, y, t] on A→B — the boolean's own arithmetic, exported for the clip's re-anchoring of cut arcs (F43). */
+/** Where the circle (C, r) meets the segment A→B, as [x, y, t] on A→B — the boolean's own arithmetic. */
 export function circleCrossSeg(C, r, A, B) { return circleSegment(C, r, A, B, []); }
+/** The crossings of two whole supports — the lines through P→Q and U→V, the circle and a line, two circles — for a join re-solved at a new level (F173). */
+export function lineLineRoots(P, Q, U, V) { return segSeg(P, Q, U, V, [], -Infinity, Infinity, -Infinity, Infinity); }
+export function circleLineRoots(C, r, P, Q) { return circleSegment(C, r, P, Q, [], -Infinity, Infinity); }
+export function circleCircleRoots(C1, r1, C2, r2) { return circleCircle(C1, r1, C2, r2, []); }
+
+/**
+ * A line's extent on its canonical segment: [0, 1], or wider where a re-solved
+ * join (F173) has carried a cut line's end a tolerance past P or Q.
+ */
+const canonSpan = (p) => (p.P ? [Math.min(0, p.sa, p.sb), Math.max(1, p.sa, p.sb)] : [0, 1]);
 
 /**
  * Candidate crossing POINTS of two pieces, before range filtering. A cut LINE
@@ -508,9 +519,12 @@ export function pieceIntersections(p, q) {
     const out = [];
     const [pA, pB] = p.line ? canonOf(p) : [null, null];
     const [qA, qB] = q.line ? canonOf(q) : [null, null];
-    if (p.line && q.line) return segSeg(pA, pB, qA, qB, out);
-    if (p.line) return circleSegment(q.C, q.r, pA, pB, out);
-    if (q.line) return circleSegment(p.C, p.r, qA, qB, out);
+    if (p.line && q.line) {
+        const [t0, t1] = canonSpan(p), [u0, u1] = canonSpan(q);
+        return segSeg(pA, pB, qA, qB, out, t0, t1, u0, u1);
+    }
+    if (p.line) { const [t0, t1] = canonSpan(p); return circleSegment(q.C, q.r, pA, pB, out, t0, t1); }
+    if (q.line) { const [t0, t1] = canonSpan(q); return circleSegment(p.C, p.r, qA, qB, out, t0, t1); }
     return circleCircle(p.C, p.r, q.C, q.r, out);
 }
 
@@ -905,7 +919,7 @@ export class ArcBakeJob {
                     const p = pieces[this.i];
                     const bb = pieceBBox(p);
                     const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
-                    const half = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]) / 2;
+                    const half = hypot(bb[2] - bb[0], bb[3] - bb[1]) / 2;
                     // Conservative: only drop when the WHOLE bbox is buried.
                     // Sampling the piece instead is what dropped real boundary in F19.
                     if (oracle.buried(cx, cy, r, margin + half)) continue;
@@ -990,7 +1004,7 @@ export class ArcBakeJob {
                     let xs = pieceIntersections(live[i], live[j]);
                     // Two circles all but tangent meet at two points a rounding apart, placed by a
                     // square root of noise: one point, where they touch (OPEN-FLAGS F89).
-                    if (xs.length === 2 && Math.hypot(xs[0][0] - xs[1][0], xs[0][1] - xs[1][1]) < tolT) {
+                    if (xs.length === 2 && hypot(xs[0][0] - xs[1][0], xs[0][1] - xs[1][1]) < tolT) {
                         xs = [[(xs[0][0] + xs[1][0]) / 2, (xs[0][1] + xs[1][1]) / 2]];
                     }
                     for (const q of xs) {
@@ -1172,9 +1186,9 @@ export class ArcBakeJob {
                     // with nowhere to yield.
                     w.area += (pc.A[0] - w.ox) * (pc.B[1] - w.oy) - (pc.B[0] - w.ox) * (pc.A[1] - w.oy);
                     if (pc.line || !isFinite(pc.r)) {
-                        w.per += Math.hypot(pc.B[0] - pc.A[0], pc.B[1] - pc.A[1]);
+                        w.per += hypot(pc.B[0] - pc.A[0], pc.B[1] - pc.A[1]);
                     } else {
-                        w.area += pc.r * pc.r * (pc.sweep - Math.sin(pc.sweep));
+                        w.area += pc.r * pc.r * (pc.sweep - sin(pc.sweep));
                         w.per += Math.abs(pc.r * pc.sweep);
                     }
                     n++;

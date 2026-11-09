@@ -42,10 +42,11 @@
 import { Loop } from "./geometry/loop";
 import {
     deriveStep, classifyUp, solidQuad, projectedSizePx, bboxOf, seamPad, seamPadFor, padRect, shapeRingsInRect,
-    shapeTol, freezeR,
+    shapeTol, freezeR, ringNative, tilePhaseOf,
 } from "./geometry/derive";
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
-import { R, G, REACH } from "./frameLattice";
+import { clipShapeToRect, rectLoop } from "./geometry/arcShape";
+import { R, G, W, REACH, TileGrid, carryDigit, cellEdge, cellCentre, childTilePhase } from "./frameLattice";
 import { perfNow } from "./now";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
@@ -102,9 +103,11 @@ export default class TileStore {
         this.ramBytes = null;             // a probe's override of the tier's budget (bytes); else `cfg.tileRamMiB`
         this.ramStats = { puts: 0, restores: 0, stale: 0, flushes: 0, evicted: 0 };
         this._tileSubs = null;            // `onTile` listeners
+        this._vf = new Map();             // virtual owners: key -> the frame a cell no frame holds would be (`_nb`)
+        this._parts = new WeakMap();      // an owner's piece -> its part (`_ownPart`)
         this._unsub = doc.subscribe((ev) => this._onDoc(ev));
     }
-    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); this._idTiles.clear(); this._ramClear(); this._tileSubs = null; }
+    destroy() { if (this._unsub) this._unsub(); this.cache.clear(); this._idTiles.clear(); this._vf.clear(); this._ramClear(); this._tileSubs = null; }
 
     // ---- the tile hook (A2 §2.9) ----
     /**
@@ -149,10 +152,11 @@ export default class TileStore {
         this._tileEv({ kind: "drop", key, tile });
         return true;
     }
-    _clearTiles() { this.cache.clear(); this._warm.clear(); this._idTiles.clear(); this._ramClear(); this._tileEv({ kind: "clear" }); }
+    _clearTiles() { this.cache.clear(); this._warm.clear(); this._idTiles.clear(); this._vf.clear(); this._ramClear(); this._tileEv({ kind: "clear" }); }
     /** An evicted tile still current goes to the RAM tier, then out of the cache (a drop for every listener). */
     _spill(key) {
         const tile = this.cache.get(key);
+        if (tile && tile.virtual) return this._dropTile(key);
         const cap = this.ramBytes != null ? this.ramBytes : (this.cfg.tileRamMiB != null ? this.cfg.tileRamMiB : TILE_RAM_MIB) * 1048576;
         if (tile && cap > 0 && tile.epoch === this._epoch && tile.seq === this.chainSeq(tile.level)) {
             const n = tileBytes(tile);
@@ -226,7 +230,12 @@ export default class TileStore {
     bumpEpoch() { this._epoch++; this._clearTiles(); }
 
     // ---- helpers ----
-    _depth(frameId) { const d = this.lm.depthOf(frameId); return d == null ? 0 : d; }
+    _depth(frameId) {
+        const d = this.lm.depthOf(frameId);
+        if (d != null) return d;
+        const v = this._vf.get(String(frameId));
+        return v ? v.depth : 0;
+    }
 
     // ---- document content bounds (by depth) ----
     _minContentDepth() {
@@ -371,31 +380,34 @@ export default class TileStore {
 
     // ---- magnify chain (upContent): chain through the PARENT frame ----
     _ensureUp(F, i, j) {
-        const cf = this.lm.frameFor(F); if (!cf) return { level: F, dir: "up", i, j, objs: [], epoch: this._epoch, lru: this._clock };
+        const cf = this._fr(F); if (!cf) return { level: F, dir: "up", i, j, objs: [], epoch: this._epoch, lru: this._clock };
         F = cf.id;
         const key = F + "|up|" + i + "," + j;
         const hit = this.cache.get(key);
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         this._pins.add(key); // protect this tile (and its parents) during recursion
-        const kept = this._ramTake(key, seq);
+        const kept = cf.virtual ? null : this._ramTake(key, seq);
         if (kept) { kept.lru = ++this._clock; this._setTile(key, kept); return kept; }
-        const objs = this._bakeUp(F, i, j);   // a tile's parents are baked with it
+        const src = [];
+        const objs = this._bakeUp(F, i, j, src);   // a tile's parents are baked with it
         const tile = { level: F, dir: "up", i, j, objs, epoch: this._epoch, seq: this.chainSeq(F), lru: ++this._clock };
+        if (src.length) tile.src = src;            // the tiles it was read from (`framesLeft` keeps them)
+        if (cf.virtual) tile.virtual = true;
         this._setTile(key, tile);
         return tile;
     }
-    _bakeUp(F, i, j) {
-        const frame = this.lm.frame(F);
+    _bakeUp(F, i, j, src = null) {
+        const frame = this._fr(F);
         const parentId = frame && frame.parent;
         const rec = frame && frame.edge;         // maps parent -> F
-        if (!parentId || !rec) return [];        // root / no coarser neighbour -> nothing to magnify
+        if (parentId == null || !rec) return [];  // root / no coarser neighbour -> nothing to magnify
         const rect = this.lm.tileRect(F, i, j);
         // Nothing coarser-or-equal to the parent has content -> up is empty.
         if (this._depth(parentId) < this._minContentDepth()) return [];
         // Parent objects = upContent(parent) over this tile's pre-image + natives(parent).
-        const pr = this.lm.rectToParent(rect, F);
-        const parentObjs = this._upPiecesOver(parentId, pr, null);
+        const pr = this._rectToParent(rect, F);
+        const parentObjs = this._upPiecesOver(parentId, pr, null, src);
         // No offsets enter here (F55). A tile is a pure function of stored bits
         // and the object's own grid; where a moved object's picture is read
         // from is decided at read time, from its table (`_rerouteGroups`). The parent's cell is every
@@ -419,51 +431,199 @@ export default class TileStore {
         return flattenAll(objs);
     }
     /**
-     * The parent's up-pieces over rect `pr` (parent units) — every object's, or
-     * one object's when `only` is an id.
+     * The parent's up-pieces over rect `pr` (parent units) — every object's, or one object's when `only` is an id —
+     * read from the tile (0, 0) of the frame owning each parent square `pr` touches, in that frame's coordinates
+     * (its origin in the parent's units as `cellOff`, like a ring native). No tile reads a tile other than (0, 0),
+     * so a frame's view of its neighbour is never inherited (OPEN-FLAGS F180). `src` collects the tiles read.
+     *
+     * Where `pr` touches more than one square (a frame on its parent's edge), a shape on its frame's grid is read
+     * from each owner cut to the owner's square, as the descent cedes it (F178), so every point comes from one
+     * owner's numbers and the twin of a cede is the cede (F181 part 2); the pieces abut on the line between the
+     * squares, whose `clip` keeps it a seam. Anything else takes the square holding the centre, whose window holds
+     * the whole pre-image (the pad is wider than half a cell), the others only past a bare window: both squares'
+     * pieces made a doubled edge 4096x apart a level (F42).
      */
-    _upPiecesOver(parentId, pr, only) {
-        const parentObjs = [];
-        const take = (o) => { if (only == null || o.id === only) parentObjs.push(o); };
-        const prange = this.lm.tileRange(parentId, pr);
-        if (prange.i0 === prange.i1 && prange.j0 === prange.j1) {
-            for (const o of this._ensureUp(parentId, prange.i0, prange.j0).objs) take(o);
-        } else {
-            // THE PRE-IMAGE STRADDLES TWO PARENT SQUARES — a child cell at the
-            // extreme digit is centred on its parent's edge, which is exactly
-            // where a square boundary falls. Each square holds its own piece of
-            // an object, clipped to its own padded window, and the two windows
-            // overlap by the pad on either side of the boundary; the pad (48
-            // units) is wider than half a cell (16), so the square that holds
-            // the pre-image's CENTRE holds the whole pre-image on its own.
-            // Until 2026-09-04 both squares' pieces went in, and the child
-            // derived two copies of the same ink. Same ink, not the same bits:
-            // each copy's clip vertices were rounded on a different rectangle,
-            // and 4,096x per crossing later the two copies were thousands of
-            // units apart — a doubled, diverging edge, and no single answer to
-            // "where is the ink" for the erase to agree with (F42). So one
-            // square per object: the centre square's piece whenever its window
-            // covers the pre-image, the others' only when it does not (a bare
-            // window, whose pieces abut instead of overlapping). The erase's
-            // descent cedes the same square by the same rule, so the kid it
-            // mints is the piece this derivation was already reading.
-            const cx = (pr.left + pr.right) / 2, cy = (pr.top + pr.bottom) / 2;
-            const pc = this.lm.tileRange(parentId, { left: cx, right: cx, top: cy, bottom: cy });
-            const covered = new Set();
-            for (const o of this._ensureUp(parentId, pc.i0, pc.j0).objs) {
-                if (only != null && o.id !== only) continue;
-                parentObjs.push(o);
-                const c = o.clip;
-                if (c && c.left <= pr.left && c.right >= pr.right && c.top <= pr.top && c.bottom >= pr.bottom) covered.add(o.id);
+    _upPiecesOver(parentId, pr, only, src = null) {
+        const out = [];
+        const sq = this._owners(parentId, pr);
+        for (const s of sq) {
+            s.objs = s.N != null ? this._ensureUp(s.N, 0, 0).objs : [];
+            if (src && s.N != null) src.push(s.N + "|up|0,0");
+        }
+        if (sq.length === 1) {
+            for (const o of sq[0].objs) if (only == null || o.id === only) out.push(ringNative(o, sq[0].off));
+            return out;
+        }
+        const owned = new Map(), parts = new Map();   // id -> on its frame's grid; id -> its owners' pieces, null if a cut needs a seal
+        const isOwned = (id) => {
+            let v = owned.get(id);
+            if (v === undefined) {
+                const rec = this.doc.getById(id);
+                owned.set(id, (v = !!rec && rec.obj.type === "shape" && this._onGridAt(rec, parentId)));
             }
-            for (let pi = prange.i0; pi <= prange.i1; pi++) {
-                for (let pj = prange.j0; pj <= prange.j1; pj++) {
-                    if (pi === pc.i0 && pj === pc.j0) continue;
-                    for (const o of this._ensureUp(parentId, pi, pj).objs) if (!covered.has(o.id)) take(o);
-                }
+            return v;
+        };
+        // Past the pre-image and twice the seam pad (as `_cellNatives`), deriveStep culls a piece: it is not cut.
+        const m = (2 * seamPadFor(this.cfg)) / R + 1e-9 * (1 + Math.abs(pr.left) + Math.abs(pr.right) + Math.abs(pr.top) + Math.abs(pr.bottom));
+        const near = new Map();   // id -> [piece, square] reaching the pre-image
+        for (const s of sq) {
+            const x0 = pr.left - s.off[0] - m, x1 = pr.right - s.off[0] + m, y0 = pr.top - s.off[1] - m, y1 = pr.bottom - s.off[1] + m;
+            for (const o of s.objs) {
+                if ((only != null && o.id !== only) || !isOwned(o.id)) continue;
+                const b = bboxOf(o, null);
+                if (b.x1 < x0 || b.x0 > x1 || b.y1 < y0 || b.y0 > y1) continue;
+                let l = near.get(o.id);
+                if (!l) near.set(o.id, (l = []));
+                l.push([o, s]);
             }
         }
-        return parentObjs;
+        for (const [id, l] of near) {
+            // Covering every square it reaches, it has no edge here: one covering piece is the same ink, and far cheaper.
+            if (l.every(([o]) => o.type === "fill" && o.covers)) continue;
+            let list = [];
+            for (const [o, s] of l) {
+                const p = this._ownPart(o);
+                if (p === false) { list = null; break; }
+                if (p) list.push(ringNative(p, s.off));
+            }
+            parts.set(id, list);
+        }
+        for (const list of parts.values()) if (list) out.push(...list);
+        const cx = (pr.left + pr.right) / 2, cy = (pr.top + pr.bottom) / 2;
+        const pc = this.lm.tileRange(parentId, { left: cx, right: cx, top: cy, bottom: cy });
+        const c = sq.find((s) => s.i === pc.i0 && s.j === pc.j0);
+        const covered = new Set();
+        const rest = (o) => (only == null || o.id === only) && !parts.get(o.id);
+        if (c) {
+            const r = { left: pr.left - c.off[0], right: pr.right - c.off[0], top: pr.top - c.off[1], bottom: pr.bottom - c.off[1] };
+            for (const o of c.objs) {
+                if (!rest(o)) continue;
+                out.push(ringNative(o, c.off));
+                const k = o.clip;
+                if (k && k.left <= r.left && k.right >= r.right && k.top <= r.top && k.bottom >= r.bottom) covered.add(o.id);
+            }
+        }
+        for (const s of sq) if (s !== c) for (const o of s.objs) if (rest(o) && !covered.has(o.id)) out.push(ringNative(o, s.off));
+        return out;
+    }
+    /**
+     * The parent squares `pr` touches, each `{i, j, off, N}`: its origin in the parent's units and the key of the
+     * frame owning it (real or virtual, `_nb`), null where nothing can be.
+     */
+    _owners(parentId, pr) {
+        const r = this.lm.tileRange(parentId, pr), out = [];
+        for (let i = r.i0; i <= r.i1; i++) {
+            for (let j = r.j0; j <= r.j1; j++) out.push({ i, j, off: [i * W, j * W], N: (i || j) ? this._nb(parentId, i, j) : String(parentId) });
+        }
+        return out;
+    }
+    /**
+     * Whether native `rec`'s grid at frame `F`'s depth is the frames' own (deriveStep's phase there is 0), so the descent
+     * cuts its kids there on the bare square (`squareInkOf`). A phase of whole cells, as a promoted native has, is 0 a
+     * level down.
+     */
+    _onGridAt(rec, F) {
+        let t = tilePhaseOf(rec.obj);
+        for (let k = this._depth(F) - this.lm.depthOf(rec.level); k > 0 && (t[0] || t[1]); k--) t = [childTilePhase(t[0], 0, R), childTilePhase(t[1], 0, R)];
+        return !t[0] && !t[1];
+    }
+    /**
+     * Piece `o` of an owner's tile (0, 0) cut to the owner's square, as `eraseDescent` cuts a kid: a shape's loops,
+     * or a covering fill as the square itself. Null when nothing is left, false when the cut needs a seal. Kept per
+     * piece: every tile along a frame's edge reads the same owners' pieces.
+     */
+    _ownPart(o) {
+        let p = this._parts.get(o);
+        if (p !== undefined) return p;
+        p = false;
+        const sq = TileGrid.CACHE.rect(0, 0);
+        let loops = null;
+        if (o.type === "shape") loops = o.loops.map((l) => (l instanceof Loop ? l.toPieces() : l));   // the numbers the descent cuts
+        else if (o.type === "fill" && o.covers) loops = rectLoop(sq);
+        const res = loops && clipShapeToRect(loops, sq, { freezeR: freezeR(this.cfg), endsOnSides: true });
+        if (res && !(res.stats && res.stats.openChains)) {
+            p = null;
+            if (res.loops.length) {
+                const k = o.clip;
+                const clip = k ? { left: Math.max(k.left, sq.left), top: Math.max(k.top, sq.top), right: Math.min(k.right, sq.right), bottom: Math.min(k.bottom, sq.bottom) } : sq;
+                p = { type: "shape", origin: o.origin, id: o.id, z: o.z, color: o.color, opacity: o.opacity, loops: res.loops, tile: o.tile || [0, 0], clip };
+                if (o.editId != null) p.editId = o.editId;
+            }
+        }
+        this._parts.set(o, p);
+        return p;
+    }
+
+    // ---- frames the lattice lacks (OPEN-FLAGS F181) ----
+    // A square's owner may be a cell no frame holds. Its tiles are a function of its address, so it is derived as a
+    // frame would be and never minted (a read never mints, F94): a VIRTUAL frame, kept here, keyed
+    // "<parent key>/<i>,<j>~", or "<root>@<i>,<j>~" beside a lattice root, where nothing is coarser.
+    /** Frame `key`: the lattice's, or a virtual one. */
+    _fr(key) { return this.lm.frameFor(key) || this._vf.get(String(key)) || null; }
+    _parentOf(key) { const f = this._fr(key); return f ? f.parent : null; }
+    _rectToParent(rect, key) {
+        const f = this._fr(key);
+        if (!f || !f.virtual) return this.lm.rectToParent(rect, key);
+        const c = f.centre;
+        return { left: rect.left / R + c.x, top: rect.top / R + c.y, right: rect.right / R + c.x, bottom: rect.bottom / R + c.y };
+    }
+    /**
+     * The frame `di, dj` cells from `key` at its depth: a lattice frame's id, else a virtual frame's key (`make`),
+     * else null. The same carry as `LevelMap.neighbour`, which mints.
+     */
+    _nb(key, di, dj, make = true) {
+        if (!di && !dj) return String(key);
+        const f = this._fr(key);
+        if (!f) return null;
+        if (f.parent == null) {
+            const b = f.beside || { A: f.id, i: 0, j: 0 }, i = b.i + di, j = b.j + dj;
+            if (!i && !j) return b.A;
+            if (!make) return null;
+            const k = b.A + "@" + i + "," + j + "~";
+            if (!this._vf.has(k)) this._vf.set(k, { id: k, parent: null, depth: f.depth, cell: null, edge: null, centre: null, addrSeq: 0, virtual: true, beside: { A: b.A, i, j } });
+            return k;
+        }
+        const ci = carryDigit(f.cell.i + di), cj = carryDigit(f.cell.j + dj);
+        const p = ci.carry || cj.carry ? this._nb(f.parent, ci.carry, cj.carry, make) : String(f.parent);
+        if (p == null) return null;
+        if (this.lm.frame(p)) { const c = this.lm.findCellChild(p, ci.digit, cj.digit); if (c) return c.id; }
+        if (!make) return null;
+        const k = p + "/" + ci.digit + "," + cj.digit + "~";
+        if (!this._vf.has(k)) {
+            this._vf.set(k, { id: k, parent: p, depth: this._depth(p) + 1, cell: { i: ci.digit, j: cj.digit }, edge: cellEdge(ci.digit, cj.digit),
+                centre: cellCentre(ci.digit, cj.digit), addrSeq: 0, virtual: true });
+        }
+        return k;
+    }
+    /** The lattice frame `di, dj` cells from `key` (which may be virtual), or null. */
+    _peekReal(key, di, dj) { const k = this._nb(key, di, dj, false); return k != null ? this.lm.frame(k) || null : null; }
+    /** A virtual frame a frame has since been minted at (or under whose address one was), or whose root grew a parent. */
+    _vStale(v) {
+        if (v.beside) { const a = this.lm.frame(v.beside.A); return !a || a.parent != null; }
+        if (this.lm.frame(v.parent)) return !!this.lm.findCellChild(v.parent, v.cell.i, v.cell.j);
+        const p = this._vf.get(v.parent);
+        return !p || this._vStale(p);
+    }
+    /** Virtual frames and their tiles: every one, or those whose key starts at lattice frame `F`. */
+    _dropVirtual(F = null) {
+        const hit = (k) => F == null || k.startsWith(F + "/") || k.startsWith(F + "@");
+        for (const [key, tile] of [...this.cache]) if (tile.virtual && hit(String(tile.level))) this._dropTile(key);
+        for (const k of [...this._vf.keys()]) if (hit(k)) this._vf.delete(k);
+    }
+    /** `rect` in virtual frame `from`'s units, mapped to lattice frame `to`: up its chain exactly, then `mapRectF`. */
+    _mapRect(rect, from, to) {
+        let f = this._fr(from), r = rect;
+        while (f && f.virtual) {
+            if (f.beside) {
+                const dx = f.beside.i * W, dy = f.beside.j * W;
+                r = { left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy };
+                f = this.lm.frame(f.beside.A);
+                break;
+            }
+            r = this._rectToParent(r, f.id);
+            f = this._fr(f.parent);
+        }
+        return f ? this.lm.mapRectF(r, f.id, to) : null;
     }
 
     /**
@@ -483,42 +643,26 @@ export default class TileStore {
     }
 
     /**
-     * Natives of the cells AROUND `parentId`, translated into its coordinates.
-     *
-     * THE UNCLE, and why it stopped being a corner case. A frame used to be a
-     * region anchored wherever you first crossed into it, so coarse content that
-     * mattered was almost always on your own branch and "coarser, off-branch"
-     * was a curiosity the design deferred. A cell is about three screens wide:
-     * zoom in a little off-centre and the camera shifts to the next cell along,
-     * and ink that is right there on screen is suddenly in a SIBLING of your
-     * ancestor — coarser than you, not an ancestor, so the magnify chain skipped
-     * it and the down path skipped it too, and it simply vanished.
-     *
-     * Invariant 2 is what makes this cheap and complete: an object never extends
-     * past its frame's immediate neighbours, so the ring of eight is the whole
-     * of it. Applied at every step of the chain, it covers uncles at any depth.
-     * Neighbouring cells' origins differ by whole frames, so the translation is
-     * exact, and nothing is minted just because a tile was looked at.
+     * Natives of the eight cells around `parentId` whose boxes meet `rect` (the uncle: ink on screen homed in a
+     * sibling of an ancestor; invariant 2 makes the ring of eight complete). Each comes in its own cell's
+     * coordinates with that cell's origin in the parent's units, `cellOff` (whole frames, `LevelMap.cellOffset`),
+     * which `deriveStep` folds into the edge: one exact subtraction, as the home side's chain does. Taking it through
+     * the common parent rounded it and moved its deep picture 4096x a level (OPEN-FLAGS F174).
      */
     _ringNatives(parentId, rect) {
         const out = [];
-        for (const C of this.lm.peekRing(parentId)) {
-            let inG;
-            for (const G of this.lm.cellFrames(C.id)) {      // every frame sharing the neighbour's cell (A1 C3)
-                if (!this.doc.list(G.id).length) continue;
-                // Ask the neighbour's own spatial index, in ITS coordinates, rather
-                // than scanning every native it holds: this runs on every up-bake,
-                // for eight cells, and a linear scan there is what a drag over a
-                // crowded document feels.
-                if (inG === undefined) inG = this.lm.mapRectF(rect, parentId, G.id);
-                if (!inG) break;
-                for (const o of this.doc.queryRect(G.id, inG)) {
-                    const d = this.lm.projectF(o, G.id, parentId);
-                    if (!d) continue;
-                    // Keep the ORIGIN: a native translated into the cell next door is
-                    // still a native, and the magnify step treats natives as curved.
-                    d.origin = o.origin;
-                    out.push(d);
+        const virt = !this.lm.frame(String(parentId));
+        for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+                const C = (di || dj) ? (virt ? this._peekReal(parentId, di, dj) : this.lm.peekNeighbour(parentId, di, dj)) : null;
+                if (!C) continue;
+                // C's origin in the parent's units, and the pre-image in C's: whole frames, exact.
+                const off = [di * W, dj * W];
+                const inG = { left: rect.left - off[0], right: rect.right - off[0], top: rect.top - off[1], bottom: rect.bottom - off[1] };
+                for (const G of this.lm.cellFrames(C.id)) {      // every frame sharing the neighbour's cell (A1 C3)
+                    if (!this.doc.list(G.id).length) continue;
+                    // The neighbour's own spatial index, in its coordinates: this runs on every up-bake, for eight cells.
+                    for (const o of this.doc.queryRect(G.id, inG)) out.push(ringNative(o, off));
                 }
             }
         }
@@ -582,31 +726,45 @@ export default class TileStore {
     }
 
     /**
-     * Non-ancestor frames at or below F whose reach meets `rect`, coarse first. Walk co-residents
-     * together: climbing between deep copies of the same cell loses local coordinates (F172).
+     * Non-ancestor frames at or below F whose reach meets `rect`, coarse first. Walk co-residents together (F172). A
+     * frame at or above F's depth is placed by digits, whole frames from F's own cell at its depth, against `rect`
+     * climbed there: summed in F's units, a sibling's place k levels up cancels ~2^(16+12k) and the neighbour's ink
+     * was pruned from about five levels up (OPEN-FLAGS F179). Below F the float placement is small and stays.
      */
     _downSources(F, rect) {
         const Fd = this._depth(F);
         const out = [], seen = new Set();
-        const visit = (id, s, tx, ty) => {
+        const take = (id) => { if (this._depth(id) >= Fd && this.doc.count(id) && !this.lm.sameCell(id, F)) out.push(id); };
+        const deep = (id, s, tx, ty) => {
             if (seen.has(id)) return;
             const reach = REACH * s * (1 + 1e-9);
             if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
-            seen.add(id);
-            const f = this.lm.frame(id);
-            if (f.depth >= Fd && this.doc.count(id) && !this.lm.sameCell(id, F)) out.push(id);
-            for (const c of this.lm.childrenOf(id)) if (c.centre) visit(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
+            seen.add(id); take(id);
+            for (const c of this.lm.childrenOf(id)) if (c.centre) deep(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
         };
-        for (const f of this.lm.cellFrames(F)) visit(f.id, 1, 0, 0);
-        let child = this.lm.residentOf(F), s = 1, tx = 0, ty = 0;
-        while (child && child.parent != null) {
-            const c = child.centre;
-            if (!c) break;
-            s *= R; tx -= c.x * s; ty -= c.y * s;
-            for (const p of this.lm.cellFrames(child.parent)) for (const sib of this.lm.childrenOf(p.id)) {
-                if (!this.lm.sameCell(sib.id, child.id) && sib.centre) visit(sib.id, s / R, sib.centre.x * s + tx, sib.centre.y * s + ty);
+        const anc = [], rects = [];   // k levels up: F's cell there, and `rect` in its units
+        const flat = (id, k, nx, ny) => {
+            if (seen.has(id)) return;
+            const r = rects[k], reach = REACH * (1 + 1e-9), cx = nx * W, cy = ny * W;
+            if (cx + reach < r.left || cx - reach > r.right || cy + reach < r.top || cy - reach > r.bottom) return;
+            seen.add(id); take(id);
+            for (const c of this.lm.childrenOf(id)) {
+                if (!c.centre) continue;
+                if (k === 0) deep(c.id, 1 / R, cx + c.centre.x, cy + c.centre.y);
+                else flat(c.id, k - 1, nx * R + c.cell.i - anc[k - 1].cell.i, ny * R + c.cell.j - anc[k - 1].cell.j);
             }
-            child = this.lm.residentOf(child.parent);
+        };
+        for (let f = this.lm.residentOf(F); f; f = f.parent != null ? this.lm.residentOf(f.parent) : null) {
+            anc.push(f);
+            rects.push(anc.length === 1 ? rect : this.lm.mapRectF(rect, F, f.id));
+            if (!f.centre) break;
+        }
+        for (const f of this.lm.cellFrames(F)) flat(f.id, 0, 0, 0);
+        for (let k = 0; k + 1 < anc.length && rects[k + 1]; k++) {
+            const child = anc[k];
+            for (const p of this.lm.cellFrames(anc[k + 1].id)) for (const sib of this.lm.childrenOf(p.id)) {
+                if (!this.lm.sameCell(sib.id, child.id) && sib.centre) flat(sib.id, k, sib.cell.i - child.cell.i, sib.cell.j - child.cell.j);
+            }
         }
         out.sort((a, b) => this._depth(a) - this._depth(b));
         return out;
@@ -666,7 +824,7 @@ export default class TileStore {
         const hit = this._chainSeq.get(F);
         if (hit !== undefined) return hit;
         let n = 0;
-        for (let id = F; id != null; id = this.lm.parentOf(id)) { const f = this.lm.frame(id); if (f && f.addrSeq) n += f.addrSeq; }
+        for (let id = F; id != null; id = this._parentOf(id)) { const f = this.lm.frame(id); if (f && f.addrSeq) n += f.addrSeq; }
         this._chainSeq.set(F, n);
         return n;
     }
@@ -675,6 +833,7 @@ export default class TileStore {
     // (invariant 2), at the old address and the new - is dropped. Tiles OF the moved subtree
     // go stale through `chainSeq`. F55 stands: a table change drops nothing.
     _onFrameEvent(ev) {
+        this._dropVirtual();   // where the lattice holds a frame, and what it holds, is what a virtual frame is keyed on
         const foot = [];
         const cur = this.lm.frame(ev.frame);
         if (cur && cur.parent != null) foot.push([cur.parent, cur.cell.i, cur.cell.j]);
@@ -734,11 +893,13 @@ export default class TileStore {
         for (const [key, e] of this._ram) if (String(e[0].level) === F) { this._ram.delete(key); this._ramBytes -= e[1]; }
         if (this._rrMemo) for (const [k, m] of this._rrMemo) if (k === F || [...m.groups.values()].some((g) => g.F0 === F)) this._rrMemo.delete(k);
         this._chainSeq.delete(F);
+        this._dropVirtual(F);   // the virtual frames keyed under it
     }
     /** Whether a tile still stands: dropped in a drag's batch mode unless on screen, or when its frame is gone (RENDER-1). */
     _tileLive(key, tile) {
         if (this._batch && !this._pins.has(key)) { this._dropTile(key); return false; }
-        if (!this.lm.frame(tile.level)) { this._dropTile(key); return false; }
+        const v = tile.virtual ? this._vf.get(String(tile.level)) : null;
+        if (tile.virtual ? !v || this._vStale(v) : !this.lm.frame(tile.level)) { this._dropTile(key); return false; }
         return true;
     }
     /** Native `id`'s pieces out of the tiles that hold them (the id → tiles index, not a scan of the cache). */
@@ -780,8 +941,8 @@ export default class TileStore {
             let A = via.get(F);
             if (A === undefined) { A = this._upVia(H, F); via.set(F, A); }
             if (A == null) continue;
-            if (this.lm.sameCell(this.lm.parentOf(F), A)) {
-                const d = A === H ? o : this._ringCopy(o, H, A, this.lm.rectToParent(this.lm.tileRect(F, tile.i, tile.j), F));
+            if (this.lm.sameCell(this._parentOf(F), A)) {
+                const d = A === H ? o : this._ringCopy(o, H, A, this._rectToParent(this.lm.tileRect(F, tile.i, tile.j), F));
                 if (d) this._appendUp(tile, [d]);
             } else if (this._reaches(o, H, tile)) chained.push([key, tile]);
         }
@@ -796,49 +957,69 @@ export default class TileStore {
         const dH = this._depth(H);
         if (dH >= this._depth(F)) return null;
         let A = F;
-        while (A != null && this._depth(A) > dH) A = this.lm.parentOf(A);
+        while (A != null && this._depth(A) > dH) A = this._parentOf(A);
         if (A == null) return null;
         A = String(A);
         if (this.lm.sameCell(A, H)) return H;
-        for (const G of this.lm.peekRing(A)) if (this.lm.sameCell(G.id, H)) return A;
+        if (this.lm.frame(A)) { for (const G of this.lm.peekRing(A)) if (this.lm.sameCell(G.id, H)) return A; return null; }
+        return this._cellOff(H, A) ? A : null;
+    }
+    /** Where cell `H`'s origin sits in `A`'s units when it is one of the eight around `A` (`LevelMap.cellOffset`; `A` may be virtual). */
+    _cellOff(H, A) {
+        if (this.lm.frame(String(A))) return this.lm.cellOffset(H, A);
+        for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+                const n = (di || dj) ? this._peekReal(A, di, dj) : null;
+                if (n && this.lm.sameCell(n.id, H)) return [di * W, dj * W];
+            }
+        }
         return null;
     }
     /** `o` (a native of `H`, in `A`'s ring) as `_ringNatives(A, pr)` hands it over, or null when it does not. */
     _ringCopy(o, H, A, pr) {
-        const inH = this.lm.mapRectF(pr, A, H);
-        if (!inH || !this.doc.queryRect(H, inH).includes(o)) return null;
-        const d = this.lm.projectF(o, H, A);
-        if (!d) return null;
-        d.origin = o.origin;
-        return d;
+        const off = this._cellOff(H, A);
+        if (!off) return null;
+        const inH = { left: pr.left - off[0], right: pr.right - off[0], top: pr.top - off[1], bottom: pr.bottom - off[1] };
+        return this.doc.queryRect(H, inH).includes(o) ? ringNative(o, off) : null;
     }
     /** Whether `o`'s box, at `H`, meets the up tile's rect grown by the seam pad (classifyUp's cull). */
     _reaches(o, H, tile) {
-        const r = this.lm.mapRectF(padRect(this.lm.tileRect(tile.level, tile.i, tile.j), seamPadFor(this.cfg)), tile.level, H);
+        const r = this._mapRect(padRect(this.lm.tileRect(tile.level, tile.i, tile.j), seamPadFor(this.cfg)), tile.level, H);
         const half = o.type === "fill" ? 0 : (o.lwFrame || 0) / 2;
         return !r || this._overlaps(r, bboxOf(o, this.live), half);
     }
     _appendChained(key, tile, o) {
         const F = tile.level;
-        const frame = this.lm.frame(F);
-        const P = frame && frame.parent != null ? this.lm.frameFor(frame.parent) : null;
+        const frame = this._fr(F);
+        const P = frame && frame.parent != null ? this._fr(frame.parent) : null;
         if (!P || !frame.edge) return;
-        const pr = this.lm.rectToParent(this.lm.tileRect(F, tile.i, tile.j), F);
-        const r = this.lm.tileRange(P.id, pr);
-        const seq = this.chainSeq(P.id);
-        for (let i = r.i0; i <= r.i1; i++) {
-            for (let j = r.j0; j <= r.j1; j++) {
-                const p = this.cache.get(P.id + "|up|" + i + "," + j);
-                if (!p || p.epoch !== this._epoch || p.seq !== seq) { this._dropTile(key); return; }
-            }
+        const pr = this._rectToParent(this.lm.tileRect(F, tile.i, tile.j), F);
+        for (const s of this._owners(P.id, pr)) {
+            if (s.N == null || this.peek(s.N + "|up|0,0")) continue;
+            // An owner across the parent's edge that the cache no longer holds (frame GC, eviction, a virtual frame
+            // dropped) is baked again from its parents when they are here: the chain below it is not.
+            if (!(s.i || s.j) || !this._rebake(s.N)) { this._dropTile(key); return; }
         }
         const from = this._upPiecesOver(P.id, pr, o.id);
         if (from.length) this._appendUp(tile, from);
     }
+    /** Frame `N`'s tile (0, 0) baked when every tile it is read from is current (the document already has the change). */
+    _rebake(N) {
+        const f = this._fr(N);
+        if (!f) return false;
+        if (f.parent != null) {
+            const pr = this._rectToParent(this.lm.tileRect(N, 0, 0), N);
+            for (const s of this._owners(f.parent, pr)) if (s.N != null && !this.peek(s.N + "|up|0,0")) return false;
+        }
+        const pins = this._pins;
+        this._pins = new Set(pins);
+        try { this._ensureUp(N, 0, 0); } finally { this._pins = pins; }
+        return true;
+    }
     /** `_bakeUp`'s derivation of `objs` (the parent's pieces or natives) into `tile`, appended. */
     _appendUp(tile, objs) {
         const F = tile.level;
-        const frame = this.lm.frame(F);
+        const frame = this._fr(F);
         const rec = frame && frame.edge;
         if (!rec) return;
         const rect = this.lm.tileRect(F, tile.i, tile.j);
@@ -897,11 +1078,22 @@ export default class TileStore {
     framesLeft(F) {
         const keep = new Set();
         for (let id = F; id != null; id = this.lm.parentOf(id)) keep.add(String(id));
+        // ...and the tiles those were read from, theirs too: a square's owner across a parent's edge (F181).
+        const from = new Set(), stack = [];
+        for (const tile of this.cache.values()) if (keep.has(String(tile.level)) && tile.src) stack.push(...tile.src);
+        while (stack.length) {
+            const k = stack.pop();
+            if (from.has(k)) continue;
+            from.add(k);
+            const t = this.cache.get(k);
+            if (t && t.src) stack.push(...t.src);
+        }
         let n = 0;
-        for (const [key, tile] of this.cache) {
-            if (keep.has(String(tile.level)) || this._pins.has(key) || this._warm.has(key)) continue;
+        for (const [key, tile] of [...this.cache]) {
+            if (keep.has(String(tile.level)) || from.has(key) || this._pins.has(key) || this._warm.has(key)) continue;
             this._spill(key); n++;
         }
+        for (const k of [...this._vf.keys()]) if (!this.cache.has(k + "|up|0,0")) this._vf.delete(k);
         return n;
     }
 

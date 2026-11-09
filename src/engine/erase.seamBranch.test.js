@@ -40,9 +40,11 @@ describe("F129 an erase two or more crossings under ink homed in the next cell",
         const { E, id } = scene(levels, extra);
         const home = E.doc.getById(id).level;
         expect(E.lm.framePath(home, E.cam.frame).up.length).toBeGreaterThan(0);   // the case: across the home's edge
-        expect(E._hitTest(400, 250, 0)).not.toBeNull();
+        // A pixel off x = 400: the zoom keeps it on the line between two frames' squares, where the band's two
+        // owners' pieces abut, and a pick with no slack lands in neither (F181; a real pick has 6 px).
+        expect(E._hitTest(401, 250, 0)).not.toBeNull();
         erase(E, 250);
         expect(E._eraseStrokes().length).toBe(0);
-        expect(E._hitTest(400, 250, 0)).toBeNull();                               // red before: the ink shows again
+        expect(E._hitTest(401, 250, 0)).toBeNull();                               // red before: the ink shows again
     });
 });

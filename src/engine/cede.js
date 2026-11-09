@@ -12,8 +12,12 @@
  * is: every piece inherits the source's `targetOf`, and `handledBy` plus `by` (A2 §4.3). The
  * remnant's dust (F66, the mark's `dustBar`) goes whole, and its boxes, in the parent's stored
  * coordinates, ride the parent's removal (A2 §4.5).
+ *
+ * A hole cut that needs a seal returns `{ unresolved: stats }` and changes nothing: a rectangle cut from
+ * a sound shape never does, so the shape disagrees with itself at a corner, and storing the seal's chords
+ * would make them permanent diagonals (F173).
  */
-import { subtractShape, rectLoop, shapeComponents, dropDust } from "./geometry/arcShape";
+import { subtractShape, rectLoop, shapeComponents, dropDust, onRectSides } from "./geometry/arcShape";
 import { cloneBelow, ownTableOf } from "./geometry/offsets";
 import { inheritErase } from "./eraseRule";
 import { dustBoxes } from "./eraseJob";
@@ -25,7 +29,9 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
     if (src.type === "fill" && doc.fillToShapeById) doc.fillToShapeById(id);
     if (src.type !== "shape") return null;     // callers resolve strokes first
     const R = { left: holeInParent.x0, top: holeInParent.y0, right: holeInParent.x1, bottom: holeInParent.y1 };
-    const groups = shapeComponents(subtractShape(src.loops, rectLoop(R), boolOpts).loops);
+    const cut = subtractShape(src.loops, rectLoop(R), { ...boolOpts, endsOnSides: true });   // a square ceded beside an earlier one
+    if (cut.stats && cut.stats.openChains) return { unresolved: cut.stats };
+    const groups = shapeComponents(cut.loops);
     const keep = dropDust(groups, src.w, dustBar);
     const dust = dustBoxes(groups, keep);
     const removed = doc.removeById(id, { by, dust });
@@ -43,7 +49,10 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
         inheritErase(obj, src, by);
         return { obj: doc.add(obj, lvl, { by }), level: String(lvl) };
     };
-    const parents = keep.map((loops) => mk(loops, removed.level, src.attachRect, src.tile, ownTableOf(src)));
+    // The remnant's border lines become cut lines on the hole's exact sides, so the level below re-solves a corner
+    // the hole cut against the side itself. A kid's border meets its ink at the chop's own vertices, which the chain
+    // carries as they are, so its lines stay plain (F178).
+    const parents = keep.map((loops) => mk(onRectSides(loops, holeInParent), removed.level, src.attachRect, src.tile, ownTableOf(src)));
     const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(kidBelow)));
     return { removed, parents, kids, pieces: parents.concat(kids), dust };
 }

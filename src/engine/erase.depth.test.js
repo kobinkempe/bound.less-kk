@@ -41,6 +41,7 @@
 import { useEngines, mkEngine, drawStroke, eraseGesture, painted } from "./__testkit__/harness";
 import { inks } from "./__testkit__/ink";
 import { tileContent } from "./__oracles__/renderList";
+import { loopArea } from "./geometry/arcShape";
 
 jest.setTimeout(300000);
 useEngines();
@@ -87,14 +88,12 @@ const descendOnEdge = (E, n, col = 400, y0 = 250, y1 = 300) => {
     }
 };
 const inkAt = (E, sx, sy) => inks(painted(E), E.cam.screenToFrame(sx, sy));
-/** Every shape loop the store holds for frame F's nine central squares. */
-const storeLoops = (E, F) => {
+const pieceStr = (p) => JSON.stringify(p.line ? [0, p.A[0], p.A[1], p.B[0], p.B[1]] : [1, p.A[0], p.A[1], p.B[0], p.B[1], p.C[0], p.C[1], p.r, p.a0, p.sweep]);
+const piecesOf = (loops) => loops.flatMap((loop) => loop.map((p) => p));
+/** Every shape piece the store holds for frame F's own square. */
+const storePieces = (E, F) => {
     const out = new Set();
-    for (let i = -1; i <= 1; i++) {
-        for (let j = -1; j <= 1; j++) {
-            for (const o of E.store._ensureUp(F, i, j).objs) if (o.type === "shape") for (const s of loopStrs(o.loops)) out.add(s);
-        }
-    }
+    for (const o of E.store._ensureUp(F, 0, 0).objs) if (o.type === "shape") for (const p of piecesOf(o.loops)) out.add(pieceStr(p));
     return out;
 };
 
@@ -109,12 +108,15 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         expect(inkAt(E, 400, y + 12)).toBe(true);
         expect(inkAt(E, 400, y - 12)).toBe(false);
 
-        // What the render chain holds for every level the descent will pass
-        // through, BEFORE the erase.
+        // What the render chain holds for every square the descent may cede
+        // (each frame on the path and its neighbours), BEFORE the erase.
         const before = new Map();
         for (let d = 1; d < n; d++) {
             const F = E.lm.pathFrameAt(E.cam.frame, d);
-            before.set(F, storeLoops(E, F));
+            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+                const N = i || j ? E.lm.neighbour(F, i, j).id : F;
+                before.set(N, storePieces(E, N));
+            }
         }
         // ...and what each cede is minted FROM, as it happens. (By the end of
         // the descent the level-1 kid has itself been cut by the level-2 cede,
@@ -122,7 +124,7 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         const minted = [];
         const orig = E._applyDescent.bind(E);
         E._applyDescent = (Erec, target, r, ctx) => {
-            if (r.steps) for (const st of r.steps) for (const k of st.kids) minted.push({ level: k.level, loops: loopStrs(k.obj.loops) });
+            if (r.steps) for (const st of r.steps) for (const k of st.kids) minted.push({ level: k.level, pieces: piecesOf(k.obj.loops), rect: k.obj.attachRect });
             return orig(Erec, target, r, ctx);
         };
 
@@ -142,15 +144,22 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
             const F = E.lm.pathFrameAt(E.cam.frame, d);
             expect([d, familyAt(E, key, F).some((o) => o.attachRect != null)]).toEqual([d, true]);
         }
-        // ...and every intermediate kid was minted from loops the render chain
-        // already held for that level — the same bits, loop for loop.
+        // ...and every intermediate kid is the piece the render chain already
+        // held for its square, cut to that square: each of its pieces is one
+        // of the chain's, the same bits, or a border on the square (F178).
         // A kid lives in a private co-resident of the chain's frame at its cell (A1 C4): read it as that cell's resident.
         const cellOf = (level) => E.lm.residentOf(level).id;
         const inter = minted.map((m) => ({ ...m, level: cellOf(m.level) })).filter((m) => depthOf(m.level) < n);
         expect(inter.length).toBeGreaterThanOrEqual(n - 1);
         for (const m of inter) {
-            const had = before.get(m.level);
-            expect([depthOf(m.level), had && m.loops.every((s) => had.has(s))]).toEqual([depthOf(m.level), true]);
+            const had = before.get(m.level), R = m.rect;
+            const onSide = (p) => p.line && ((p.A[0] === p.B[0] && (p.A[0] === R.x0 || p.A[0] === R.x1)) || (p.A[1] === p.B[1] && (p.A[1] === R.y0 || p.A[1] === R.y1)));
+            // Under a frame on its parent's edge the square is ceded from both parents' squares, and the two kids
+            // share the line between them, run the opposite ways.
+            const twins = inter.filter((t) => t !== m && t.level === m.level).flatMap((t) => t.pieces.map(pieceStr));
+            const seam = (p) => p.line && twins.includes(pieceStr({ line: true, A: p.B, B: p.A }));
+            const own = m.pieces.filter((p) => !onSide(p) && !seam(p));
+            expect([depthOf(m.level), own.length > 0 && !!had && own.every((p) => had.has(pieceStr(p)))]).toEqual([depthOf(m.level), true]);
         }
     });
 
@@ -257,12 +266,20 @@ describe("F43 — a cut anywhere on a line moves the line's picture nowhere else
         descendOnEdge(E, 6);
         const F = E.cam.frame;
         const shot = { ...E.cam.state() };
+        // The line's picture: every piece but the tile's own clip and a seam two members of the family share (the view
+        // sits on the nick's square's side, where the kid meets the parent's remnant, F178), bit for bit; and the area.
         const pieces = () => {
             E.store.bumpEpoch();
-            return tileContent(E.store, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape").map((o) => loopStrs(o.loops).join("|")).sort();
+            const objs = tileContent(E.store, F, E.cam.frameWindow(0)).filter((o) => o.type === "shape");
+            const ps = objs.flatMap((o) => piecesOf(o.loops).map((p) => ({ p, c: o.clip })));
+            const strs = new Set(ps.map(({ p }) => pieceStr(p)));
+            const onClip = (p, c) => p.line && !!c && ((p.A[0] === p.B[0] && (p.A[0] === c.left || p.A[0] === c.right)) || (p.A[1] === p.B[1] && (p.A[1] === c.top || p.A[1] === c.bottom)));
+            const seam = (p) => p.line && strs.has(pieceStr({ line: true, A: p.B, B: p.A }));
+            return { edge: ps.filter(({ p, c }) => !onClip(p, c) && !seam(p)).map(({ p }) => pieceStr(p)).sort(),
+                area: objs.reduce((a, o) => a + o.loops.reduce((s, l) => s + loopArea(l), 0), 0) };
         };
         const was = pieces();
-        expect(was.length).toBeGreaterThan(0);
+        expect(was.edge.length).toBeGreaterThan(0);
         let guard = 0;
         while (E.activeLevel > 2 && guard++ < 600) E.zoomAt(400, 288, 1000);
         expect(E.activeLevel).toBe(2);
@@ -276,7 +293,9 @@ describe("F43 — a cut anywhere on a line moves the line's picture nowhere else
         expect(inkAt(E, 700, y + 60)).toBe(true);          // and only a nick's worth (the size is a radius: ~35 px deep)
         expect(inkAt(E, 400, edgeAt(E, 400, 150, 400) + 12)).toBe(true);   // the edge under the deep view is untouched
         E.cam.set(shot);
-        expect(pieces()).toEqual(was);
+        const now = pieces();
+        expect(now.edge).toEqual(was.edge);
+        expect(Math.abs(now.area - was.area)).toBeLessThanOrEqual(1e-9 * Math.abs(was.area));
     });
     test("the same nick on a CURVED edge leaves the arc's picture three crossings down bit-identical", () => {
         // The arc half of F43 (Kobin, 2026-09-05: "fix arcs, too"). A cut arc

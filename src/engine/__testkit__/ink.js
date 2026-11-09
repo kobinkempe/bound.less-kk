@@ -141,24 +141,28 @@ export function onEdgeOf(o, p) {
  * frame origin — which is exactly where a zoomed-in test probes. Measured on
  * CP-1: every screen position from 380 to 420 read ink except that single one.
  *
- * TWO DIFFERENT OBJECTS is the whole of the rule, and it is what keeps a HOLE a
- * hole. The edge of a hole belongs to ONE object: standing on it is standing on
- * the line where that object's ink stops, and it reads as no ink exactly as it
- * always has. Only a seam — two ids, both claiming the same line — is filled
- * from both sides.
+ * A seam is two ids claiming the line, or two pieces of ONE object with ink on
+ * both sides of it: a frame straddling its parent's edge reads each side from
+ * its owner, and the pieces abut on the line between them (OPEN-FLAGS F181).
+ * The edge of a hole is still an edge: ink lies on one side of it only, so
+ * standing on it reads as no ink, as it always has.
  */
 export function inks(list, p, id) {
-    let seam = null;
+    let seam = null, edges = 0;
     for (const o of list) {
         if (id != null && o.id !== id) continue;
         if (pieceInks(o, p)) return true;
         if (onEdgeOf(o, p)) {
+            edges++;
             if (!seam) seam = new Set();
             seam.add(o.id);
             if (seam.size >= 2) return true;
         }
     }
-    return false;
+    if (edges < 2) return false;
+    const e = 1e-9 * Math.max(1, Math.abs(p[0]), Math.abs(p[1]));
+    const at = (x, y) => list.some((o) => (id == null || o.id === id) && pieceInks(o, [x, y]));
+    return (at(p[0] - e, p[1]) && at(p[0] + e, p[1])) || (at(p[0], p[1] - e) && at(p[0], p[1] + e));
 }
 // Which pieces paint `p`.
 export function inkers(list, p, id) {

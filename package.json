@@ -149,6 +149,139 @@
     "overrides": [
       {
         "files": [
+          "src/engine/geometry/arcPerimeter.js",
+          "src/engine/geometry/arcShape.js",
+          "src/engine/geometry/chordMath.js",
+          "src/engine/geometry/derive.js",
+          "src/engine/geometry/freeze.js",
+          "src/engine/geometry/loop.js",
+          "src/engine/geometry/offsets.js",
+          "src/engine/geometry/polyline.js",
+          "src/engine/frameLattice.js",
+          "src/engine/LevelMap.js",
+          "src/engine/TileStore.js",
+          "src/engine/cede.js",
+          "src/engine/eraseDescent.js",
+          "src/engine/eraseJob.js"
+        ],
+        "rules": {
+          "no-restricted-properties": [
+            "error",
+            {
+              "object": "Math",
+              "property": "sin",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "cos",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "tan",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "atan",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "atan2",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "acos",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "asin",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "hypot",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "pow",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "exp",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "expm1",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "log",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "log1p",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "log2",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "log10",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "cbrt",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "sinh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "cosh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "tanh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "asinh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "acosh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            },
+            {
+              "object": "Math",
+              "property": "atanh",
+              "message": "The derivation chain uses geometry/detMath.js, the same bits in every browser (OPEN-FLAGS F176); a display-only call says why with `// eslint-disable-next-line no-restricted-properties -- <why>`."
+            }
+          ]
+        }
+      },
+      {
+        "files": [
           "**/*.test.js",
           "**/*.probe.js",
           "src/engine/__testkit__/**",

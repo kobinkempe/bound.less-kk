@@ -144,6 +144,42 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       cut pieces. The decision still gates the next deploy (WORKLIST item 6); the tree now
       adds the subtree move's op-log entries and frame addresses (4c99a8a) and the raster
       renderer, neither of which changes the tile chain's arithmetic.
+      **2026-11-02:** the derivation audit (`review/DERIVATION-AUDIT-2026-11-02.md`) found four more
+      places the chain disagrees with itself, OPEN-FLAGS F174–F177: a stroke across its home cell's edge
+      rounded through the common parent (high), the browser's Math library, a seam-pad stub at an arc's first
+      freeze, and a latent straighten. Each fix is a recipe change, to decide with F173's (uncommitted on
+      main) before 1.0 and ship as one compatibility event. Later that day Kobin's own corner story added
+      F178 (a ceded square's border steps 2+ levels below the cede), and his Chrome 155 turned out to
+      disagree with V8 8.4's maths on 3–17% of calls, so F176's fix must match today's Chrome, not fdlibm.
+      None of the fixes costs speed (measured). **Decided the same night (Kobin):** build all five. Old
+      canvases may change, except "Local Magnum Opus" on his dev account, which is migrated to the new
+      recipe (a copy first; he approves the replacement). F176's own maths therefore need not match Chrome.
+      **Built so far** (main, committed 2026-11-09, not deployed; jsdom): F174, F175, F176 (the chain's own fdlibm port), F177, and
+      F179, found on the way (maps between nearby frames); F178 in part (H11's 3 bottom cede seams exact, the bite's near; the left seams are F181's).
+      F180, also found on the way, is open and not a recipe change. **F181**, found verifying F178 (on
+      committed main too): neighbouring frames whose parents differ show a straight edge from two supports
+      (1,650 px three levels below a bar's home); F178's last straight-edge seam is that step. Its fix is a
+      redesign of how a frame inherits lines, designed and not built. Verifying (2026-11-03) added F178
+      part 7 (a corner is re-solved only where a cut made one of its ends). **Kobin (2026-11-03): build
+      F181, F180 and F178's remainder before the migration.** Then the full verification and the Magnum
+      Opus migration. **F181 part (1) built** the same day (lines chopped on the grid, the window clip only
+      trims): the step is 0 at every depth to seven, and so are F178's left seams. F178's bite seam is
+      diagnosed (the kid's pad holds the next square in the kid's coordinates), with its fix designed:
+      cede the bare square. **F178 built** that evening: the kid is the store's piece cut to its bare
+      square, so the next square keeps its own numbers, and every H11 seam is 0 at every depth below all
+      three cedes (four defects the bare square exposed were fixed on the way, two of them in
+      severance and a test of translucent ink; F182 filed, low). The last slow suite found a fifth,
+      F183: a contact shorter than the coarser square's lattice step read as a cut (a 98 % neck split
+      four levels down); its inner part is fixed. Part (2) and F180 were built that night: every tile
+      reads each parent square from its owner, a shape across a frame's parent edge is cut to each
+      owner's square as the descent cuts it, and an owner the lattice lacks is derived for its address,
+      never minted. Every H12 chain is ≤ 9.3e-9 px to six levels down, H11's last 0.35 px is 0, and a
+      new probe finds two owners' crossings of the line between them bit-identical. Verified in jsdom
+      (2026-11-04: quick, erase, typecheck, lint, H1–H14), and in Chrome 155 the owner-line tiles are the
+      same bits as node's. **The Magnum Opus migrated as a copy (2026-11-04, OPEN-FLAGS F173):** every
+      tile where he drew detail is within 1.2e-4 px of the old picture; two old cedes were repaired on the
+      copy, as a new cede stores them, to 0 px at every depth. "Local Magnum Opus (new recipe)" is in his
+      gallery; replacing the original waits for Kobin. Paint in a browser still to look at.
 
 ## 3. Performance and bugs
 

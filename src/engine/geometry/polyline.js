@@ -25,6 +25,7 @@
  * `clipper-lib`, which was true of three of its functions and of nothing else in
  * it. Those three moved to `clipperBoolean.js`; the name is now literal.
  */
+import { sin, cos, atan2, acos, asin, hypot } from "./detMath";
 
 // ---- faithful curve flattening (mirrors Two.js) ----
 // Two.js draws a "curved" open path as piecewise cubic Beziers whose handles are
@@ -40,17 +41,17 @@ const HALF_PI = Math.PI / 2;
 // Two.js does (anchors are `relative` with controls initialised to 0,0).
 // Exported: curveOutline.js builds the SAME spline's cubics to offset them.
 export function controlsFor(a, b, c) {
-    const d1 = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    const d2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
+    const d1 = hypot(a[0] - b[0], a[1] - b[1]);
+    const d2 = hypot(c[0] - b[0], c[1] - b[1]);
     if (d1 < 0.0001 || d2 < 0.0001) return { left: [b[0], b[1]], right: [b[0], b[1]] };
-    const a1 = Math.atan2(a[1] - b[1], a[0] - b[0]);
-    const a2 = Math.atan2(c[1] - b[1], c[0] - b[0]);
+    const a1 = atan2(a[1] - b[1], a[0] - b[0]);
+    const a2 = atan2(c[1] - b[1], c[0] - b[0]);
     const e1 = d1 * 0.33, e2 = d2 * 0.33;
     let mid = (a1 + a2) / 2;
     mid += (a2 < a1) ? HALF_PI : -HALF_PI;
-    const left = [Math.cos(mid) * e1 + b[0], Math.sin(mid) * e1 + b[1]];
+    const left = [cos(mid) * e1 + b[0], sin(mid) * e1 + b[1]];
     mid -= Math.PI;
-    const right = [Math.cos(mid) * e2 + b[0], Math.sin(mid) * e2 + b[1]];
+    const right = [cos(mid) * e2 + b[0], sin(mid) * e2 + b[1]];
     return { left, right };
 }
 
@@ -120,12 +121,12 @@ export function flattenCurve(pts, tol) {
 function rectDistMin(bx0, by0, bx1, by1, rect) {
     const dx = Math.max(rect.left - bx1, bx0 - rect.right, 0);
     const dy = Math.max(rect.top - by1, by0 - rect.bottom, 0);
-    return Math.hypot(dx, dy);
+    return hypot(dx, dy);
 }
 function rectDistMax(bx0, by0, bx1, by1, rect) {
     const dx = Math.max(Math.abs(bx0 - rect.right), Math.abs(bx1 - rect.left));
     const dy = Math.max(Math.abs(by0 - rect.bottom), Math.abs(by1 - rect.top));
-    return Math.hypot(dx, dy);
+    return hypot(dx, dy);
 }
 function flattenCubicNear(p0, p1, p2, p3, tol2, rect, rIn, rOut, out, depth) {
     // The curve lies inside its control hull, hence inside the hull's bbox.
@@ -199,24 +200,24 @@ export function netRingsArea(rings) {
 export function capsulePoly(a, b, r, segs = 24) {
     const half = Math.max(4, segs >> 1);
     const dx = b[0] - a[0], dy = b[1] - a[1];
-    const len = Math.hypot(dx, dy);
+    const len = hypot(dx, dy);
     const out = [];
     if (len < 1e-12) {
         const n = half * 2;
         for (let i = 0; i < n; i++) {
             const t = (i / n) * 2 * Math.PI;
-            out.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]);
+            out.push([a[0] + r * cos(t), a[1] + r * sin(t)]);
         }
         return out;
     }
-    const base = Math.atan2(dy, dx) + Math.PI / 2; // a's left-side normal
+    const base = atan2(dy, dx) + Math.PI / 2; // a's left-side normal
     for (let i = 0; i <= half; i++) {              // cap sweeping behind a
         const t = base + (i / half) * Math.PI;
-        out.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]);
+        out.push([a[0] + r * cos(t), a[1] + r * sin(t)]);
     }
     for (let i = 0; i <= half; i++) {              // cap sweeping past b
         const t = base + Math.PI + (i / half) * Math.PI;
-        out.push([b[0] + r * Math.cos(t), b[1] + r * Math.sin(t)]);
+        out.push([b[0] + r * cos(t), b[1] + r * sin(t)]);
     }
     return out;
 }
@@ -324,19 +325,19 @@ export function strokeStripNear(pts, width, rect, opts = {}) {
     if (opts.joins === "round") return strokeStripRound(pts, width, opts);
     const half = width / 2;
     const out = [];
-    const diagR = Math.hypot(rect.right - rect.left, rect.bottom - rect.top);
+    const diagR = hypot(rect.right - rect.left, rect.bottom - rect.top);
     const rcx = (rect.left + rect.right) / 2, rcy = (rect.top + rect.bottom) / 2;
     const capPiece = (p) => {
         const dx = rcx - p[0], dy = rcy - p[1];
-        const dist = Math.hypot(dx, dy);
+        const dist = hypot(dx, dy);
         if (dist - diagR > half) return; // this cap disc can't reach the window
-        const phi = Math.atan2(dy, dx);
+        const phi = atan2(dy, dx);
         // angular half-span that subtends the window from the disc centre, padded 4x
-        const delta = Math.min(Math.PI, 4 * Math.asin(Math.min(1, diagR / Math.max(dist, diagR))));
+        const delta = Math.min(Math.PI, 4 * asin(Math.min(1, diagR / Math.max(dist, diagR))));
         const K = 96, ring = [[p[0], p[1]]];
         for (let k = 0; k <= K; k++) {
             const a = phi - delta + (2 * delta * k) / K;
-            ring.push([p[0] + Math.cos(a) * half, p[1] + Math.sin(a) * half]);
+            ring.push([p[0] + cos(a) * half, p[1] + sin(a) * half]);
         }
         out.push(ring);
     };
@@ -345,7 +346,7 @@ export function strokeStripNear(pts, width, rect, opts = {}) {
         const n = pts.length, nx = [], ny = [];
         for (let i = 0; i < n - 1; i++) {
             const dx = pts[i + 1][0] - pts[i][0], dy = pts[i + 1][1] - pts[i][1];
-            const len = Math.hypot(dx, dy) || 1;
+            const len = hypot(dx, dy) || 1;
             nx.push(-dy / len); ny.push(dx / len);
         }
         // The miter ribbon: the OUTER boundary, which matches the level-0 curve
@@ -358,7 +359,7 @@ export function strokeStripNear(pts, width, rect, opts = {}) {
         for (let i = 0; i < n; i++) {
             const a = Math.max(0, i - 1), b = Math.min(n - 2, i);
             let mx = (nx[a] + nx[b]) / 2, my = (ny[a] + ny[b]) / 2;
-            const ml = Math.hypot(mx, my);
+            const ml = hypot(mx, my);
             if (ml < 1e-12) { mx = nx[b]; my = ny[b]; } else { mx /= ml; my /= ml; }
             const dot = mx * nx[b] + my * ny[b];
             const sc = half / Math.max(0.5, dot);
@@ -423,7 +424,7 @@ export function strokeStripRound(pts, width, opts = {}) {
     // The widest angle one chord may span: sagitta half·(1 − cos(θ/2)) ≤ tol. Past tol ≥ half
     // the argument leaves [−1, 1] and the clamp makes it one chord, which is that same rule at
     // a radius under the tolerance — §4.4's own answer for a sub-pixel arc.
-    const step = half > 0 ? 2 * Math.acos(Math.max(-1, Math.min(1, 1 - tol / half))) : Math.PI;
+    const step = half > 0 ? 2 * acos(Math.max(-1, Math.min(1, 1 - tol / half))) : Math.PI;
     const w = new RingWriter(opts.out);
     const p = [];
     for (const q of pts) {
@@ -436,7 +437,7 @@ export function strokeStripRound(pts, width, opts = {}) {
     const n = p.length, dx = [], dy = [];
     for (let i = 0; i < n - 1; i++) {
         const ex = p[i + 1][0] - p[i][0], ey = p[i + 1][1] - p[i][1];
-        const len = Math.hypot(ex, ey);
+        const len = hypot(ex, ey);
         dx.push(ex / len); dy.push(ey / len);
         // the segment's own rectangle: ±half along its normal (−dy, dx)
         const ox = (-ey / len) * half, oy = (ex / len) * half;
@@ -448,21 +449,21 @@ export function strokeStripRound(pts, width, opts = {}) {
     for (let i = 1; i < n - 1; i++) {
         const cross = dx[i - 1] * dy[i] - dy[i - 1] * dx[i];
         const dot = dx[i - 1] * dx[i] + dy[i - 1] * dy[i];
-        const turn = Math.atan2(cross, dot);
+        const turn = atan2(cross, dot);
         if (turn === 0) continue;
         // The OUTER side of the turn is the one the rectangles leave open; the inner notch is
         // already covered by them. A reversal (|turn| = π) has no outer side, so it takes a disc.
         if (Math.abs(Math.abs(turn) - Math.PI) < 1e-12) { disc(w, p[i][0], p[i][1], half, step); continue; }
         const s = cross > 0 ? -1 : 1;
-        const a0 = Math.atan2(s * dx[i - 1], -s * dy[i - 1]);   // angle of s·(−dy, dx)·half
+        const a0 = atan2(s * dx[i - 1], -s * dy[i - 1]);   // angle of s·(−dy, dx)·half
         fanAt(w, p[i][0], p[i][1], half, a0, turn, step);
     }
     // The caps: a half-disc past each true end, swept from one offset to the other through the
     // direction of travel. Round at both ends is what `Renderer._pushStroke` asks the browser
     // for (`Renderer.js:1222-1223`), so the picture does not change with the rasteriser.
-    fanAt(w, p[0][0], p[0][1], half, Math.atan2(dx[0], -dy[0]), Math.PI, step);
+    fanAt(w, p[0][0], p[0][1], half, atan2(dx[0], -dy[0]), Math.PI, step);
     const L = n - 2;
-    fanAt(w, p[n - 1][0], p[n - 1][1], half, Math.atan2(-dx[L], dy[L]), Math.PI, step);
+    fanAt(w, p[n - 1][0], p[n - 1][1], half, atan2(-dx[L], dy[L]), Math.PI, step);
     return w.done();
 }
 
@@ -473,7 +474,7 @@ function fanAt(w, cx, cy, r, a0, delta, step) {
     const k = Math.max(1, Math.ceil(Math.abs(delta) / step));
     for (let i = 0; i <= k; i++) {
         const a = a0 + (delta * i) / k;
-        w.pt(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        w.pt(cx + cos(a) * r, cy + sin(a) * r);
     }
     w.close();
 }
@@ -485,7 +486,7 @@ function disc(w, cx, cy, r, step) {
     const k = Math.max(3, Math.ceil((2 * Math.PI) / step));
     for (let i = 0; i < k; i++) {
         const a = (2 * Math.PI * i) / k;
-        w.pt(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        w.pt(cx + cos(a) * r, cy + sin(a) * r);
     }
     w.close();
 }

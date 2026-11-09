@@ -18,6 +18,7 @@ import {
     colorAt, raster, rasterDiff, families, natives,
 } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
+import { pieceInks } from "./__testkit__/ink";
 
 jest.setTimeout(300000);
 useEngines();
@@ -76,34 +77,25 @@ describe("ST-2 — a translucent object cut in two does not darken along the cut
     // Layers: already-cut shapes (5) + tile boundaries (7) + multi-layer erase
     // (3). Behaviour 5, and the one case where a perfect cut can still look wrong.
     //
-    // Pieces of an OPAQUE object may overlap freely — that is how the seam
-    // hairline between tiles is suppressed. Pieces of a translucent one may not:
-    // two 0.4 layers read as 0.64, which is a visible dark stripe down the
-    // middle of flat colour. seamPad is conditional on exactly this.
-    test.each([[0], [1], [2], [3]])("depth %i: no two pieces of it overlap", (d) => {
+    // Two 0.4 layers read as 0.64, a dark stripe down flat colour. In opacity-groups mode (the default) a family's
+    // pieces paint at full opacity into one group that takes the opacity once (Renderer.render, rasterPack), so
+    // pieces may overlap by the seam pad inside it; without groups seamPad is 0 and no two pieces may overlap.
+    const DEPTHS_GROUPS = [];
+    for (const og of [true, false]) for (const d of [0, 1, 2, 3]) DEPTHS_GROUPS.push([d, og]);
+    test.each(DEPTHS_GROUPS)("depth %i, opacity groups %p: no point is painted twice", (d, og) => {
         const E = mkEngine();
+        E.setOpacityGroups(og);
         drawStyled(E, [[-200, 300], [1000, 300]], { color: BLUE, opacity: 0.4, width: 120 });
         descend(E, d, 400, 300);
         erase(E, [[400, 250], [400, 350]], 18);
-        // Sample densely and count how many DIFFERENT pieces paint each point.
+        // Sample densely and count what paints each point at its own opacity: a group, or a piece.
         const list = painted(E);
+        const paintOf = (o) => (!og ? o : o.editId != null && E.renderer._fade(o) >= 1 ? "f" + o.editId : "o" + o.id);
         let worst = 0;
         for (let i = 0; i < 90; i++) {
             for (let j = 0; j < 60; j++) {
                 const p = E.cam.screenToFrame((i + 0.5) * (800 / 90), (j + 0.5) * (600 / 60));
-                let n = 0;
-                for (const o of list) {
-                    if (o.type !== "fill") { n += 0; continue; }
-                    let w = 0;
-                    for (const ring of o.polys) {
-                        for (let k = 0; k < ring.length; k++) {
-                            const a = ring[k], b = ring[(k + 1) % ring.length];
-                            if (a[1] <= p[1]) { if (b[1] > p[1] && (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) > 0) w++; }
-                            else if (b[1] <= p[1] && (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < 0) w--;
-                        }
-                    }
-                    if (w !== 0) n++;
-                }
+                const n = new Set(list.filter((o) => pieceInks(o, p)).map(paintOf)).size;
                 if (n > worst) worst = n;
             }
         }

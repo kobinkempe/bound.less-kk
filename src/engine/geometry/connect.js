@@ -138,6 +138,52 @@ export function arcsTouch(A, B, tol = 1e-6) {
 }
 
 /**
+ * Do two outlines share a stretch (longer than `tol`) of one axis-parallel line? Kids ceded into one square from two
+ * parents, under a frame that straddles its parent's edge, meet on that edge inside the square (OPEN-FLAGS F178).
+ */
+export function axisAbut(A, B, tol) {
+    const runs = (rings) => {
+        const out = [[], []];   // per axis: [the line, low end, high end]
+        for (const ring of rings || []) {
+            for (let i = 0, n = ring.length; i < n; i++) {
+                const a = ring[i], b = ring[(i + 1) % n];
+                for (let ax = 0; ax < 2; ax++) {
+                    const o = 1 - ax;
+                    if (Math.abs(a[ax] - b[ax]) <= tol) out[ax].push([(a[ax] + b[ax]) / 2, Math.min(a[o], b[o]), Math.max(a[o], b[o])]);
+                }
+            }
+        }
+        return out;
+    };
+    const ra = runs(A), rb = runs(B);
+    for (let ax = 0; ax < 2; ax++) {
+        for (const [c, lo, hi] of ra[ax]) {
+            for (const [c2, lo2, hi2] of rb[ax]) if (Math.abs(c - c2) <= tol && Math.min(hi, hi2) - Math.max(lo, lo2) > tol) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The axis-parallel edges of `rings` off `rect`'s sides, as two-point rings for `axisAbut`: where a kid was cut on a
+ * coarser square's side running through its own square, under a frame that straddles its parent's edge (F178).
+ */
+export function innerRuns(rings, rect, tol) {
+    const R = asRect(rect);
+    const out = [];
+    for (const ring of rings || []) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+            const a = ring[i], b = ring[(i + 1) % n];
+            const v = Math.abs(a[0] - b[0]) <= tol, h = Math.abs(a[1] - b[1]) <= tol;
+            if (v === h) continue;   // not axis-parallel, or a point
+            const c = v ? a[0] : a[1], lo = v ? R.x0 : R.y0, hi = v ? R.x1 : R.y1;
+            if (Math.abs(c - lo) > tol && Math.abs(c - hi) > tol) out.push([a, b]);
+        }
+    }
+    return out;
+}
+
+/**
  * The perimeter parameters a point sits at, or [] if it is not on the rect at
  * all. A corner gives two, for the same reason `sidesOf` does.
  *

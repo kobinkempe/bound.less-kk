@@ -38,7 +38,7 @@
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
 import { hasOffsets, shiftAt, hasDigits, addOffset } from "./geometry/offsets";
 import {
-    R, TILE, TileGrid, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
+    R, W, TILE, TileGrid, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
     displacementDigits, applyDigits, tilePhase, childTilePhase,
 } from "./frameLattice";
 
@@ -980,6 +980,31 @@ export default class LevelMap {
         downIds.reverse();
         return { up: upIds, down: downIds };
     }
+    /**
+     * `framePath` for the float maps: up only to the shallower end's depth, then `side` (whole frames, that depth's
+     * units), then down. Through the common cell, a map between two nearby frames rounds at that cell's scale, 4096x
+     * coarser a level up: 4.8 px three levels up and the ink gone at six (OPEN-FLAGS F179). `side` is the two cells'
+     * digit differences folded from the top, exact while the cells are near; past 2^35 frames apart it falls back to
+     * `framePath`'s route.
+     */
+    floatPath(fromKey, toKey) {
+        const p = this.framePath(fromKey, toKey);
+        if (!p || !p.up.length || !p.down.length) return p;
+        const ck = "f|" + p.up[0] + "|" + p.down[p.down.length - 1];
+        const hit = this._paths.get(ck);
+        if (hit !== undefined) return hit;
+        const dF = this.frames.get(p.up[0]).depth, dC = dF - p.up.length;
+        const dS = Math.min(dF, dC + p.down.length);
+        let nx = 0, ny = 0;
+        for (let l = dC + 1; l <= dS; l++) {
+            const a = this.frames.get(p.up[dF - l]).cell, b = this.frames.get(p.down[l - dC - 1]).cell;
+            nx = nx * R + (a.i - b.i); ny = ny * R + (a.j - b.j);
+        }
+        const built = Math.abs(nx) > 0x800000000 || Math.abs(ny) > 0x800000000 ? p
+            : { up: p.up.slice(0, dF - dS), side: [nx * W, ny * W], down: p.down.slice(dS - dC) };
+        this._paths.set(ck, built);
+        return built;
+    }
     frameFactor(fromId, toId) {
         const path = this.framePath(fromId, toId);
         if (!path) return null;
@@ -990,10 +1015,11 @@ export default class LevelMap {
         return f;
     }
     mapPointF(p, fromId, toId) {
-        const path = this.framePath(fromId, toId);
+        const path = this.floatPath(fromId, toId);
         if (!path) return null;
         let x = p[0], y = p[1];
         for (const id of path.up) { const c = this.frames.get(id).centre; if (!c) return null; x = x / R + c.x; y = y / R + c.y; }
+        if (path.side) { x += path.side[0]; y += path.side[1]; }
         for (const id of path.down) { const c = this.frames.get(id).centre; if (!c) return null; x = (x - c.x) * R; y = (y - c.y) * R; }
         return [x, y];
     }
@@ -1002,6 +1028,21 @@ export default class LevelMap {
         const b = this.mapPointF([rect.right, rect.bottom], fromId, toId);
         if (!a || !b) return null;
         return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
+    }
+    /**
+     * Where cell `fromId`'s origin sits in `toId`'s units when it is `toId`'s cell or one of the eight around it:
+     * whole frames, found by digits (exact however far up the two cells meet); null past that. Cells, not frames: a
+     * private frame is its cell's (F124). A ring native is derived through this, never through the parent (F174).
+     */
+    cellOffset(fromId, toId) {
+        if (this.sameCell(fromId, toId)) return [0, 0];
+        for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+                const n = (di || dj) ? this.peekNeighbour(toId, di, dj) : null;
+                if (n && this.sameCell(n.id, fromId)) return [di * W, dj * W];
+            }
+        }
+        return null;
     }
     /**
      * WHERE AN OBJECT'S PICTURE IS at frame `F` (F55, geometry/offsets.js).
@@ -1124,14 +1165,15 @@ export default class LevelMap {
                 a = s.F0; pre = s.rem;
             }
         }
-        const path = this.framePath(a, b);
+        const path = this.floatPath(a, b);
         if (!path) return null;
-        const up = [], down = [];
+        const up = [], down = [], side = path.side;
         for (const id of path.up) { const c = this.frames.get(id).centre; if (!c) return null; up.push(c.x, c.y); }
         for (const id of path.down) { const c = this.frames.get(id).centre; if (!c) return null; down.push(c.x, c.y); }
         return (x, y, out) => {
             if (pre) { x = x - pre[0]; y = y - pre[1]; }
             for (let k = 0; k < up.length; k += 2) { x = x / R + up[k]; y = y / R + up[k + 1]; }
+            if (side) { x += side[0]; y += side[1]; }
             for (let k = 0; k < down.length; k += 2) { x = (x - down[k]) * R; y = (y - down[k + 1]) * R; }
             if (post) { x = x + post[0]; y = y + post[1]; }
             out[0] = x; out[1] = y;
@@ -1140,12 +1182,13 @@ export default class LevelMap {
     }
     /** Loops through the exact chain from one frame to another — what `projectF` does to a shape's loops. */
     projectLoops(loops, fromId, toId) {
-        const path = this.framePath(fromId, toId);
+        const path = this.floatPath(fromId, toId);
         if (!path) return null;
         for (const id of path.up) {
             const c = this.frames.get(id).centre;
             loops = transformLoops(loops, 1 / R, c.x, c.y);
         }
+        if (path.side) loops = transformLoops(loops, 1, path.side[0], path.side[1]);
         for (const id of path.down) {
             const c = this.frames.get(id).centre;
             loops = transformLoopsAbout(loops, c.x, c.y, R);
@@ -1173,10 +1216,11 @@ export default class LevelMap {
     projectF(o, homeId, toId) {
         const f = this.frameFactor(homeId, toId);
         if (f == null) return null;
-        const path = this.framePath(homeId, toId);
+        const path = this.floatPath(homeId, toId), side = path.side;
         const mapAll = (src) => {
             let pts = src;
             for (const id of path.up) { const c = this.frames.get(id).centre; pts = pts.map(([x, y]) => [x / R + c.x, y / R + c.y]); }
+            if (side) pts = pts.map(([x, y]) => [x + side[0], y + side[1]]);
             for (const id of path.down) { const c = this.frames.get(id).centre; pts = pts.map(([x, y]) => [(x - c.x) * R, (y - c.y) * R]); }
             return pts;
         };
@@ -1192,6 +1236,7 @@ export default class LevelMap {
                 const c = this.frames.get(id).centre;
                 loops = transformLoops(loops, 1 / R, c.x, c.y);
             }
+            if (side) loops = transformLoops(loops, 1, side[0], side[1]);
             for (const id of path.down) {
                 const c = this.frames.get(id).centre;
                 loops = transformLoopsAbout(loops, c.x, c.y, R);

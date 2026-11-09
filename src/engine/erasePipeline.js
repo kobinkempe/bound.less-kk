@@ -23,7 +23,7 @@ import {
     W as FRAME_W,
 } from "./frameLattice";
 import Document from "./Document";
-import { Groups, arcsTouch, contactArcs } from "./geometry/connect";
+import { Groups, arcsTouch, contactArcs, axisAbut, innerRuns } from "./geometry/connect";
 import { bboxOf, freezeR } from "./geometry/derive";
 import { encodeBelow } from "./geometry/offsets";
 import { reachBox } from "./placementModel";
@@ -1145,8 +1145,9 @@ class ErasePipeline {
             // exact clip that made them put them exactly on the rect, with no
             // lattice to round a corner off and turn an attached patch into an
             // offshoot of its own.
-            const kidArcs = contactArcs(this._inkOutline(kid.obj, rectTol(R)), R, rectTol(R));
-            if (!kidArcs.length) continue;
+            const kidRings = this._inkOutline(kid.obj, rectTol(R));
+            const kidArcs = contactArcs(kidRings, R, rectTol(R));
+            const inner = innerRuns(kidRings, R, rectTol(R));
             // ONE LEVEL COARSER, and touching — a GEOMETRIC test, not a check
             // that the two frames are literally parent and child.
             //
@@ -1182,10 +1183,14 @@ class ErasePipeline {
                     if (Rj.x1 < R.x0 - rectTol(R) || Rj.x0 > R.x1 + rectTol(R) || Rj.y1 < R.y0 - rectTol(R) || Rj.y0 > R.y1 + rectTol(R)) continue;
                     let rings = this._inkOutline(up.obj, rectTol(R));
                     if (d[0] || d[1]) rings = rings.map((ring) => ring.map((p) => [p[0] + d[0], p[1] + d[1]]));
-                    if (arcsTouch(kidArcs, contactArcs(rings, R, rectTol(R)), rectTol(R) / rectSpan(R))) G.union(i, j);
+                    if (kidArcs.length && arcsTouch(kidArcs, contactArcs(rings, R, rectTol(R)), rectTol(R) / rectSpan(R))) G.union(i, j);
+                    // Two kids of one square, from the parents either side of a frame on its parent's edge (F178).
+                    else if (!d[0] && !d[1] && axisAbut(kidRings, rings, rectTol(R))) G.union(i, j);
                     continue;
                 }
-                if (upDepth !== kidDepth - 1) continue;
+                if (upDepth == null || upDepth >= kidDepth) continue;
+                const near = upDepth === kidDepth - 1;
+                if (!(near && kidArcs.length) && !inner.length) continue;
                 const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
                 // The kid's window is in unmoved numbers (it is the store's
                 // piece for the square), so it maps to the parent's stored
@@ -1193,10 +1198,23 @@ class ErasePipeline {
                 // level (F55) — the exact chain, no remainder involved.
                 const upT = this.doc.tableOf(up.obj, up.level);
                 const upF0 = upT ? this.lm.objShift(upT, up.level, kid.level) : null;
-                const Rp = upF0 ? this.lm.mapRectF(Rk, upF0.F0, up.level) : this.lm.mapRectF(Rk, kid.level, up.level);
+                const from = upF0 ? upF0.F0 : kid.level;
+                const Rp = this.lm.mapRectF(Rk, from, up.level);
                 if (!Rp) continue;
-                const at = Math.max(rectTol(R) / rectSpan(R), rectTol(Rp) / rectSpan(Rp));
-                if (arcsTouch(kidArcs, contactArcs(this._inkOutline(up.obj, rectTol(Rp)), Rp, rectTol(Rp)), at)) G.union(i, j);
+                const ub = bboxOf(up.obj, null), pt = rectTol(Rp);
+                if (ub.x1 < Rp.left - pt || ub.x0 > Rp.right + pt || ub.y1 < Rp.top - pt || ub.y0 > Rp.bottom + pt) continue;
+                const upRings = this._inkOutline(up.obj, pt);
+                const at = Math.max(rectTol(R) / rectSpan(R), pt / rectSpan(Rp));
+                if (near && kidArcs.length && arcsTouch(kidArcs, contactArcs(upRings, Rp, pt), at)) G.union(i, j);
+                else if (inner.length) {
+                    // A kid cut on a coarser square's side inside its own square meets a member at any depth above across
+                    // that side, before or without the member's own cede (F178). A stretch shorter than the member's
+                    // lattice step (8 of the kid's units a level up) is judged at the kid's step: DS-2's neck was 2 (F183).
+                    const runs = inner.map(([a, b]) => [this.lm.mapPointF(a, from, up.level), this.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
+                    const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
+                    const tk = Math.max(rectTol(R) * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
+                    if (axisAbut(runs, upRings, pt) || axisAbut(runs, upRings, tk)) G.union(i, j);
+                }
             }
         }
         const ids = members.map((_, i) => i);
@@ -1208,16 +1226,7 @@ class ErasePipeline {
      * What to add to frame `B`'s coordinates to read them in frame `A`, a cell of the same depth at most one
      * away; null past that. Cells, not frames: a kid in a private frame is its cell's (F124, A1 C4).
      */
-    _cellOffset(A, B) {
-        if (this.lm.sameCell(A, B)) return [0, 0];
-        for (let di = -1; di <= 1; di++) {
-            for (let dj = -1; dj <= 1; dj++) {
-                const n = (di || dj) ? this.lm.peekNeighbour(A, di, dj) : null;
-                if (n && this.lm.sameCell(n.id, B)) return [di * FRAME_W, dj * FRAME_W];
-            }
-        }
-        return null;
-    }
+    _cellOffset(A, B) { return this.lm.cellOffset(B, A); }
     /**
      * Re-label a family into its connected components. Returns true if it came
      * apart. Pure identity: no geometry is touched, because by now there is none

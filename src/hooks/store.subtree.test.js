@@ -219,17 +219,19 @@ describe("a multi-drop subtree drag survives the store (F98)", () => {
 // OPEN-FLAGS F138: a reload's replay skips what the store's rows hold, and a frame the header does not list held nothing
 // at the write (F98). The model fuzz's one-snapshot store lacked that rule and brought these back.
 describe("history over frames emptied and taken again survives the store (F138)", () => {
-    test("an undone cede whose private frames were collected, one id taken by a later cede: the undone kids stay out", async () => {
+    // The kid's private frame (A1 C4) and its parent. Zoomed in on x = 400, the edge between two cells, the frame
+    // straddles its parent's edge, and each owner's square has a kid and a parent of its own (F178).
+    test.each([[410, 1], [400, 2]])("an undone cede whose private frames were collected, ids taken by a later cede: the undone kids stay out (x = %i)", async (x, owners) => {
         let view = await mount("c3");
-        const e = E(), at = [400, 301];
+        const e = E(), at = [x, 301];
         const priv = () => [...e.lm.frames.values()].filter((f) => f.private != null).map((f) => f.id);
         act(() => {
             drawStroke(e, [[50, 300], [300, 305], [550, 298], [750, 302]], 30);
             for (let i = 0; i < 6; i++) e.zoomFactorAt(at[0], at[1], 16);
             erase(e, [[380, 250], [400, 300], [420, 350]], 12);
         });
-        const first = priv();
-        expect(first.length).toBe(2);                           // the kid's private frame (A1 C4) and its parent
+        const first = priv(), ups = first.filter((id) => e.lm.depthOf(id) === 1), kids = first.filter((id) => e.lm.depthOf(id) === 2);
+        expect([ups.length, kids.length, first.length]).toEqual([owners, owners, 2 * owners]);
         await save();
         act(() => { e.undo(); drawStroke(e, [[100, 100], [140, 120]], 4); });   // a fresh op: the redo goes
         await save();
@@ -240,8 +242,8 @@ describe("history over frames emptied and taken again survives the store (F138)"
             for (let i = 0; i < 4; i++) e.zoomFactorAt(at[0], at[1], 1 / 16);
             erase(e, [[396, 280], [400, 300], [404, 320]], 3);
         });
-        expect(priv()).toContain(first[0]);                     // the freed id taken again...
-        expect(e.lm.frame(first[1])).toBeUndefined();           // ...and its kid's not
+        expect(priv()).toEqual(expect.arrayContaining(ups));   // the freed ids taken again...
+        for (const k of kids) expect(e.lm.frame(k)).toBeUndefined();   // ...and their kids' not
         await save();
         const before = state(e);
         act(() => view.unmount());

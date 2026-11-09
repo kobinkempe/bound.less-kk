@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-10-20. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-11-02. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -33,6 +33,109 @@ WHERE THE BUILD IS
     gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
     been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
+2026-11-09 - COMMITTED, NOT DEPLOYED: the F173-F183 recipe round (with the Magnum Opus migration notes). Kobin
+    tested the tree first and found nothing new but the logged selection issues.
+
+2026-11-04 - TWO DEFECTS FROM KOBIN'S PHONE REPORTS (16:49, 16:53), OPEN: F184 a deep eraser misses a native many
+    levels up (its box, mapped up 12 levels, is a point on the native's box corner; an exact test rejects it);
+    F185 a deep move of a moved native is not dirtied (the footprint lands ~1e31 units off; the plates keep the old
+    picture, the object snaps back). jsdom on his drawing; both also in committed e24ef67, where that native was not
+    drawn at that view at all. Not fixed.
+
+2026-11-04 - THE MAGNUM OPUS MIGRATED, AS A COPY (OPEN-FLAGS F173; outputs/magnum-opus-migration-2026-11-04/).
+    Backed up first (the Download form and the raw store with its log). Old recipe (e24ef67, in Kobin's Chrome 155)
+    against new (node) at 4,724 sites: every home and ancestor tile within 1.2e-4 px; below a native, over 1/4 px
+    only from three levels down, where nothing is stored. 27 of 29 cedes meet their neighbours at 0 px 1-4 levels
+    below; two old one-level cedes stepped ~20 px three below and were repaired on the copy, as a new cede stores
+    them (exact hole sides; the kid's edge split at the owner line on the remnant's support): 0 px at every depth,
+    4 of 43,209 natives changed (<= 3.2e-10 px), every other site bit-identical; Chrome = node at all 4,724 sites.
+    "Local Magnum Opus (new recipe)" (mw1yjvcybk6bhrbn) is in his gallery; the original is untouched and replacing
+    it waits for him. Not measured: paint in a browser (his window was minimized).
+
+2026-11-02 - THE DERIVATION AUDIT (review/DERIVATION-AUDIT-2026-11-02.md; jsdom only). Every way the same
+    ink gets two deep pictures, written as stories, for Kobin to decide recipe changes before 1.0. Filed:
+    F174 (high) a stroke across its home cell's edge is rounded when the neighbouring cell's frames read it (7 px
+    two levels down, 12,374 px three down; the jump shows when the camera's frame changes); F176 the chain's
+    six transcendental Math calls are not the same in every browser (one last bit on 10% of calls: 1,427 px four
+    down; all Kobin's devices are Chrome); F175 (low) a tile seam one level below an arc's first freeze; F177
+    latent (no stored piece is straight enough). Clean: a home erase leaves deep tiles away from the bite
+    bit-identical and refreshes the cache; corners where two bites meet stay on both circles; F173's fix moves
+    ink nobody erased by at most 0.017 px. Magnum Opus: 111 natives cross their cell, 0 detail on the far side.
+    Later the same day (Kobin's follow-up questions): his corner story (detail on the frozen line a few tiles
+    over, then a deep erase beside the corner) leaves the corner, the ceded square's neighbours and the detail's
+    line unchanged, but filed F178 (medium): a ceded square's own border steps 17-595 px two levels below the
+    cede. In his Chrome 155, sin/cos/atan2/acos/asin differ from V8 8.4's (2020) on 3-17% of inputs, so F176 is a
+    Chrome-update risk too and an fdlibm port would not match today's Chrome. No fix costs speed (jsdom timings;
+    the port is as fast as Chrome's built-ins).
+    DECIDED that night (Kobin): build F174-F178. Old canvases may change, except "Local Magnum Opus" on his dev
+    account, which is migrated to the new recipe (backed up, delivered as a copy, replaced only at his word). So
+    F176's maths need only be deterministic, not Chrome's. Being built on main, uncommitted; deploy gate unchanged.
+    F174 BUILT (ring natives keep their home's coordinates; jsdom: both sides agree to <= 2e-9 px through six
+    levels). Verifying it found F179 (maps between nearby frames climbed to their common cell: a neighbour's ink
+    4.8 px off three levels up, gone at six) - BUILT, 0 px to six up - and F180 (a frame's view of its neighbour's
+    square differs in a last bit; 0.25 px 6 levels below one frame edge; open, not a recipe change).
+    F177 BUILT (a straightened arc's fragments go back onto the arc; H3: 0 move, was up to 220,000 px).
+    F175 BUILT (the chop applies one more grid line each side; H1's seam step 2.3e-7 px, was 45-283 px).
+    2026-11-03: F176 BUILT (geometry/detMath.js, the chain's own fdlibm; a lint rule keeps Math's approximated
+    functions out of the chain's files; H8: 0 move at every share and depth, was 1,427 px four down). jsdom's maths
+    is already fdlibm's, so no jsdom number moved; on Chrome deep pictures move once (the migration measures it).
+    F178 BUILT IN PART: the kid keeps the chain's supports in its right/bottom seam pads; the border's lines sit
+    on the rect's exact sides and its corners are re-solved against them; a plain arc whose end a cut line
+    overwrites keeps its extent as K; a re-solve never moves a line's support. H11: the 3 bottom seams match the
+    uncut twin at every depth, the bite's 0.08 px three levels below (was 85,000); the kid's own cells and the
+    eight neighbours bit-identical; both left seams are F181's step, moved onto the border. Verifying it filed F181 (medium, recipe, on committed main too; H14): two neighbouring frames
+    whose parents differ show a straight edge from two different supports, no erase anywhere (a bar 1,650 px
+    three levels below its home). Fix designed, not built.
+    Verification the same day: typecheck 0 errors, lint 0 errors, test:quick 2,573/2,573, test:erase 463/463
+    (jsdom). It found F178 part 7, built: a corner is re-solved only where a cut made one of its ends, so a
+    sharp vertex the ink was drawn with is carried as the uncut ink carries it (H11 byte-identical; the
+    Magnum Opus has 9,164 such vertices of two uncut pieces). Kobin then decided: build F181, F180 and F178's
+    remainder before the Magnum Opus migration.
+    F181 PART (1) BUILT (jsdom, a recipe change): lines are chopped on the object's tile grid (freeze.chopLine),
+    an arc's cut stands on its grid line, and the window clip only trims (the re-anchoring is deleted). H14: 0 px
+    at every depth to seven (was 1,650 px three below); H11: F178's left seams and the twin's own boundary step 0.
+    F178's bite seam diagnosed (the kid's pad holds the next square in the kid's coarser coordinates); fix
+    designed: cede the bare square. Still to build: that, F181 part (2) and F180.
+    test:quick with part (1): 226/226 suites, 2,574/2,574 tests, 432 s.
+    F178 BUILT (the bare-square cede): the kid is the store's piece cut to the object's own tiles of its square;
+    the remnant's hole and the kid's attachRect are that square; a frame on its parent's edge has its square ceded
+    from both parents, and severance joins the two kids. Fixed on the way: the boolean could not cut an arc of
+    radius 8e11 at the chop's vertex on a tile line (arcShape endsOnSides), and a border's position drifted 4096x a
+    level from its end (arcShape.mapLine). H11: every seam 0 at every depth below all three cedes; 0.35 px, not
+    growing, in a straddling frame's pad is F181 part (2). H14 unchanged, H12 byte-identical; erase/depth/geometry
+    388/388 (F42, F43, RR-9, OT-4 restated for the bare square); oracles 102/102. Filed F182 (low, by reasoning).
+    test:erase then failed two, both fixed: severance split a whole stroke between the cuts of a straddling
+    frame's two halves (a kid now also meets the member across a coarser square's side inside its own square,
+    connect.innerRuns), and ST-2 counted seam-pad overlap that opacity groups composite once (restated for both
+    modes). Erase/select/connect/regression 343/343; erase.styles and erase.severance pass. fidelity.compare
+    passed (2,703 s). erase.deepsever failed DS-2 four levels down: the eraser cut the neck's two halves as two
+    jobs, and between them the left half's new kid met the other half, one level up, along the owner line over
+    2 units, under the coarser square's lattice step (8 kid units), so the stroke split. Filed F183 and fixed
+    its inner part: an inner contact is judged at the kid's own step too, against a member at any depth above.
+    deepsever + severance 25/25; connect, unresolved, depth, curve.depth 41/41. F183's square-side doorway keeps
+    its tolerance (old drawings' holes may need it): open, low.
+    F181 PART (2) AND F180 BUILT (owner reads, jsdom): every tile reads each parent square from its owner's
+    tile (0, 0), never a tile (+-1); a shape across a frame's parent edge is cut to each owner's square as the
+    descent cuts a kid; an owner the lattice lacks is derived for its address, never minted. H12: every chain
+    <= 9.3e-9 px at every depth to six, none growing (was 3 px); H11's last 0.35 px is 0; H14 and H13
+    unchanged. A new probe for two owners' crossings of the line between them (risk D): bit-identical on 8
+    kinds of edge, siblings and cousins, real or virtual owners; the step is 0 five levels down. Cost:
+    none measurable on ordinary camera paths (pen +2 %, Magnum Opus −3 %, inside the runs' spread); where every level of the path straddles its parent's edge, the worst case, a cold pass is +29 % on the pen and inside the spread on Magnum Opus, and the deepest frame's nine tiles re-derive in 24 ms against 4. Fixed while measuring: a promoted native (a phase of whole cells) took the old
+    rule; a straddler's rebuild cut every piece of both owners (205 ms, now ~25). ownerReads.test.js (4 tests)
+    is new and four tests were restated. Open: phased shapes, strokes and fills keep the old rule there.
+    Verified 2026-11-04 (jsdom): test:quick 226/227 suites and 2,578/2,579 tests (the one, a timing window in raster.pyramid, passes alone 3 of 3 and failed the same way under load on 2026-11-03, before these changes), test:erase 467/467, typecheck 0, lint 0 errors,
+    H1-H10 no regression, detmath bit for bit; the worker bundles rebuilt. Chrome 155: the owner-line chains
+    hash the same as node's (5 scenes); paint across the owner line not measured yet. Next: the migration.
+2026-11-01 - F173 FIXED LOCALLY ON MAIN; NOT COMMITTED, NOT DEPLOYED, UNVERIFIED BY KOBIN. A corner an erase cut
+    drifted off its circle 4096x a level, and a deep erase's parent cede sealed it into diagonals. Now each level
+    re-solves a cut's corner from its two supports (Kobin's recipe), on a stable line-circle solver
+    (arcShape.rederiveJoins in deriveStep; arcPerimeter.circleSegment), and a cede that needs a seal is refused.
+    jsdom: 13 new tests (7 fail with the re-solve off); his 10-31 reports replayed (crossing error 7,196 -> 1.5e-5
+    units; his erase seals nothing). Quick 2,563/2,564 (Q4 load-flaky, green alone); slow erase suites 463/463
+    (the rest of test:slow not run); typecheck 0; lint 0 errors.
+    His Chrome, test canvas: no change across crossings at the corner; descents to level 5 cut cleanly. It moves
+    deep pictures where a corner had drifted (a compatibility event); the Magnum Opus plan is in OPEN-FLAGS F173.
+    The 10-31 opt-in trial (?joinRecipe=1) is set aside in stash@{0}.
 2026-10-29 - F171'S PARTIAL-STROKE LOSS FIXED LOCALLY; NOT DEPLOYED, UNVERIFIED BY KOBIN. A mid-gesture autosave
     could hold the first samples under a stroke id; reload skipped the completed path's later add because that id
     already existed. Replay now replaces the older copy while respecting newer frame snapshots. The complete

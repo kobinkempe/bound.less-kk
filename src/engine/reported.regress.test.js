@@ -29,7 +29,8 @@ import path from "path";
 import {
     useEngines, mkEngine, drawStroke, eraseGesture, erase, drag, click, descend, paintedAll,
 } from "./__testkit__/harness";
-import { loopArea, meanWidth, decodeLoops, encodeLoops } from "./geometry/arcShape";
+import { loopArea, meanWidth, decodeLoops, encodeLoops, clipShapeToRect } from "./geometry/arcShape";
+import { TileGrid } from "./frameLattice";
 import { pieceInks } from "./__testkit__/ink";
 import { loadFixture } from "./__testkit__/legacyFixture";
 
@@ -420,7 +421,8 @@ describe("RR-9 — an erase nine crossings below two MOVED objects (2026-09-06, 
         let cx = 0, cy = 0; for (const [x, y] of e.pts) { cx += x; cy += y; } cx /= e.pts.length; cy /= e.pts.length;
         const cellOf = (x, y) => [Math.round(x / 131072), Math.round(y / 131072)];
         // The render chain's piece for each object in the unmoved square under
-        // the eraser, at every level: what every kid has to be.
+        // the eraser, at every level, on the object's own tiles of that square:
+        // what every kid has to be (a cede gives the kid the bare square, F178).
         const chain = { 309: {}, 310: {} };
         for (const id of [309, 310]) {
             const rec = E.doc.getById(id);
@@ -430,54 +432,50 @@ describe("RR-9 — an erase nine crossings below two MOVED objects (2026-09-06, 
                 const sh = E.lm.objShift(rec.obj.below, rec.level, F);
                 const cell = cellOf(up[0] - sh.rem[0], up[1] - sh.rem[1]);
                 const objs = E.store._ensureUp(sh.F0, cell[0], cell[1]).objs.filter((o) => o.id === id);
-                chain[id][d] = objs.length === 1 && objs[0].type === "fill" && objs[0].covers ? "covers" : objs.map((o) => area(o)).reduce((a, b) => a + b, 0);
+                const onSquare = (o) => {
+                    const g = TileGrid.at(o.tile), sq = g.span(g.range(E.lm.tileRect(sh.F0, cell[0], cell[1])));
+                    return clipShapeToRect(o.loops, sq, { endsOnSides: true }).loops.reduce((a, l) => a + loopArea(l), 0);
+                };
+                chain[id][d] = objs.length === 1 && objs[0].type === "fill" && objs[0].covers ? "covers" : objs.map(onSquare).reduce((a, b) => a + b, 0);
             }
         }
         expect(chain[309][10]).toBe("covers");                              // the eraser is on solid ink of 309
-        expect(chain[310][10]).toBeGreaterThan(1.4e10);                     // ...and 310's piece there is a wedge
-        expect(chain[310][10]).toBeLessThan(1.5e10);
+        // 310's piece under the eraser nine levels below its home is the derivation's own bits: a wedge at level 10
+        // before F181's line chop, the whole square since (its edge leaves the square from level 6). So which objects
+        // the eraser reaches is read off the picture, as for the level-0 stroke (id 30, cut since the one-radius
+        // freeze of 2026-09-06 moved its deep picture).
         const listBefore = paintedAll(E);
-        const wedgeBefore = listBefore.find((o) => o.id === 310);
-        expect(wedgeBefore && area(wedgeBefore)).toBeCloseTo(chain[310][10], -5);
-        // Which objects have ink under the eraser's path, by the picture: those
-        // and only those may be cut. (The level-0 stroke, id 30, was refused in
-        // Kobin's own run and is cut since the one-radius freeze of 2026-09-06
-        // moved its deep picture — the shift the F44 design warned of — so the
-        // list is read off the picture rather than pinned.)
         const inkedBy = (id) => e.pts.some((p) => listBefore.some((o) => o.id === id && !o.erase && pieceInks(o, p)));
         expect(inkedBy(309)).toBe(true);
-        expect(inkedBy(310)).toBe(false);
+        const painted0 = { 309: listBefore.find((o) => o.id === 309), 310: listBefore.find((o) => o.id === 310) };
         const { inScale, inPanX, inPanY } = E.cam;
         E.setEraserSize(e.px);
         eraseGesture(E, e.pts.map(([x, y]) => [x * inScale + inPanX, y * inScale + inPanY]));
         if (typeof E.flushBakes === "function") E.flushBakes();
         E.flushErases();
         const note = E.journal.filter((j) => j.kind === "erase").slice(-1)[0];
-        // 310: the descent reaches level 10, finds no ink of it under the
-        // eraser, refuses, and unwinds (F47). One native, no kids, the wedge
-        // painted exactly as before.
         const targets = note.cuts.map((c) => c.target);
         expect(targets).toContain(309);
-        expect(targets).not.toContain(310);
         for (const t of targets) expect([t, inkedBy(t)]).toEqual([t, true]);
-        expect(note.refused.some((r) => r.target === 310 && /grazing/.test(r.why))).toBe(true);
-        expect(all(E).filter((r) => r.o.editId === 310 || r.o.id === 310)).toHaveLength(1);
-        const wedgeAfter = paintedAll(E).find((o) => o.id === 310);
-        expect(wedgeAfter && area(wedgeAfter)).toBe(area(wedgeBefore));
-        // 309: nine links, every intermediate kid the chain's covering square
-        // (less the doorway to the next level), the last one the square less
-        // the notch; and every kid homed in the frame whose cell it fills.
-        const kids = all(E).filter((r) => r.o.editId === 309 && r.o.attachRect);
-        expect(kids.map((r) => r.lvl.split("/").length - 1).sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        const full = 131168 * 131168;
-        for (const r of kids) {
-            const d = r.lvl.split("/").length - 1;
-            const R = r.o.attachRect;
-            expect(cellOf((R.x0 + R.x1) / 2, (R.y0 + R.y1) / 2)).toEqual([0, 0]);
-            expect(chain[309][d]).toBe("covers");
-            const a = area(r.o);
-            if (d < 10) expect(a).toBeGreaterThan(full * (1 - 1e-6));       // the doorway is a millionth of the square
-            else { expect(a).toBeGreaterThan(full * 0.999); expect(a).toBeLessThan(full); }   // the notch
+        for (const id of [309, 310]) {
+            if (!targets.includes(id)) {
+                // Not reached: the descent finds none of its ink under the eraser and unwinds (F47); one native, painted as before.
+                expect(all(E).filter((r) => r.o.editId === id || r.o.id === id)).toHaveLength(1);
+                expect(area(paintedAll(E).find((o) => o.id === id))).toBe(area(painted0[id]));
+                continue;
+            }
+            // Cut: nine links, every kid homed in the frame whose cell it fills and holding the chain's piece there
+            // (less the doorway to the next level), the last one that piece less the notch.
+            const kids = all(E).filter((r) => r.o.editId === id && r.o.attachRect);
+            expect(kids.map((r) => r.lvl.split("/").length - 1).sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            for (const r of kids) {
+                const d = r.lvl.split("/").length - 1;
+                const R = r.o.attachRect, full = (R.x1 - R.x0) * (R.y1 - R.y0);
+                expect(cellOf((R.x0 + R.x1) / 2, (R.y0 + R.y1) / 2)).toEqual([0, 0]);
+                const want = chain[id][d] === "covers" ? full : chain[id][d], a = area(r.o);
+                if (d < 10) expect([id, d, Math.abs(a - want) <= full * 1e-6]).toEqual([id, d, true]);   // the doorway is a millionth of the square
+                else { expect(a).toBeGreaterThan(want - full * 1e-3); expect(a).toBeLessThan(want); }   // the notch
+            }
         }
     });
 });
