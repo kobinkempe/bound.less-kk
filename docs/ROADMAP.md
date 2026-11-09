@@ -180,6 +180,10 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       tile where he drew detail is within 1.2e-4 px of the old picture; two old cedes were repaired on the
       copy, as a new cede stores them, to 0 px at every depth. "Local Magnum Opus (new recipe)" is in his
       gallery; replacing the original waits for Kobin. Paint in a browser still to look at.
+      **F184–F186 fixed (2026-11-08, jsdom; his phone reports of 11-04):** below its home a native's picture is
+      derived, so a stored box mapped across many levels can miss it (6e31 units twelve levels down). The drop sweeps
+      what the camera frame drew; the erase prefilters, `covers` and the lasso barrier grow the stored side by a
+      derivation bound; the ants box a deep member by its drawn items. Audit: `.claude/F184-F185-PLAN.md`.
 
 ## 3. Performance and bugs
 

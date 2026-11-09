@@ -887,18 +887,31 @@ class Overlays {
      * makes a selected frame itself (DESIGN.md §10) is the same entry before and after. Null when a native is not drawn.
      */
     _selMembersAt(table, F) {
-        const out = new Map(), memo = new Map();
+        const out = new Map(), memo = new Map(), drawn = new Map(), deep = new Map();
+        // Below its home a native's stored box maps ~1e31 off and a drop "moves it by 0": there it is boxed by its drawn
+        // items, the pieces the ants are made of (OPEN-FLAGS F186).
+        const isDeep = (id) => {
+            let v = deep.get(id);
+            if (v === undefined) { const rec = this.doc.getById(id); v = !!rec && this.stage.model.slackOf(rec.obj, F) > 0; deep.set(id, v); }
+            return v;
+        };
         const put = (id) => {
             const rec = this.doc.getById(id);
-            const r = rec && this.stage.placeNative(rec.obj, F).box();
+            const r = rec && (drawn.has(id) ? drawn.get(id) : this.stage.placeNative(rec.obj, F).box());
             if (!r) return false;
             out.set(id, r);
             return true;
         };
+        const seen = [];
         for (const item of this.stage.items()) {
-            if (out.has(item.id) || (!table.ids.has(item.id) && !this._selFrameOf(item.id, table, memo))) continue;
-            if (!put(item.id)) return null;
+            if (!table.ids.has(item.id) && !this._selFrameOf(item.id, table, memo)) continue;
+            if (!deep.has(item.id)) seen.push(item.id);
+            if (!isDeep(item.id)) continue;
+            const { off } = this.stage.placed(item), b = item.box, u = drawn.get(item.id);
+            const r = { left: b.left + off[0], top: b.top + off[1], right: b.right + off[0], bottom: b.bottom + off[1] };
+            drawn.set(item.id, u ? { left: Math.min(u.left, r.left), top: Math.min(u.top, r.top), right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) } : r);
         }
+        for (const id of seen) if (!put(id)) return null;
         for (const id of table.ids) if (!out.has(id) && !put(id)) return null;
         for (const f of table.frames) {
             this.lm.walk(f, (g) => {

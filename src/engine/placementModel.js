@@ -13,9 +13,11 @@
  */
 import { REACH, R, cellCentre } from "./frameLattice";
 import { hasOffsets, shiftAt } from "./geometry/offsets";
-import { bboxOf } from "./geometry/derive";
+import { bboxOf, freezeTol } from "./geometry/derive";
 
 const ZERO = Object.freeze([0, 0]);
+/** A rect grown by `m` on every side. */
+export const grown = (r, m) => (m ? { left: r.left - m, top: r.top - m, right: r.right + m, bottom: r.bottom + m } : r);
 const EVERYWHERE = Object.freeze({ left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity });
 const NO_GROUPS = new Map();
 const NONE = Object.freeze({ rev: "none", groups: NO_GROUPS, groupOf: () => undefined, missing: 0 });
@@ -49,7 +51,28 @@ export function drawnBox(o, live = null) {
  */
 export function createPlacementModel({ doc, lm, store }) {
     const groupsAt = (F) => (doc.hasOffsets() ? store._rerouteGroups(F) : null);
+    const tol = freezeTol(lm.cfg || {});
+    const SLACK = 2 * (tol > 0 ? tol : 1 / 2048);
     const model = {
+        /**
+         * How far a native's picture in frame F may sit from its stored geometry, in its home's units (OPEN-FLAGS F184,
+         * F185). Below the home the picture is derived: each level re-solves a cut's corners by up to the level above's
+         * tolerance (F173's cap), which sums to about one home-level tolerance however deep; doubled. Mapped twelve levels
+         * that is ~1e40 units, where the stored box alone lands ~1e31 off. 0 at or above the home: the stored geometry.
+         * A test that must not miss the picture grows the stored side by it where that costs no rendering (an erase's
+         * candidates, `covers`); dirt takes the drawn pieces where it has them (`Stage._drawnSweep`) and this elsewhere.
+         */
+        slack(home, F) {
+            const hd = home != null ? lm.depthOf(String(home)) : null, d = lm.depthOf(String(F));
+            return hd != null && d != null && d > hd ? SLACK : 0;
+        },
+
+        /** `slack` for native `o` seen from F. */
+        slackOf(o, F) {
+            const rec = o ? doc.getById(o.id) : null;
+            return model.slack(rec ? rec.level : o && o._home, F);
+        },
+
         /**
          * The natives drawn live when the camera is in frame F, as stored: those of F's cell (F and its
          * co-residents, A1 C3), less those whose picture carried out of it (their group reads another
@@ -155,21 +178,23 @@ export function createPlacementModel({ doc, lm, store }) {
         /**
          * A native's drawn rectangle at a given state — `{home, table, rect}`, `table` its picture table
          * then (`table`, `tableBefore`), `rect` in the home's units — as seen from frame G: the footprint a
-         * change dirties (A2 §2.5), before or after.
+         * change dirties (A2 §2.5), before or after; grown by `slack` below the home (F185).
          */
         footprint(state, G) {
-            return lm.mapRectObj(state.rect, state.home, String(G), state.table, state.home, false);
+            return lm.mapRectObj(grown(state.rect, model.slack(state.home, G)), state.home, String(G), state.table, state.home, false);
         },
 
         /**
-         * `footprint` for many rects of one state (F153): `fn(left, top, right, bottom, out)` is its answer for that rect,
-         * bit for bit, written into `out` (a new object without one); null where it is null.
+         * `footprint` for many rects of one state (F153): `fn(left, top, right, bottom, out)` is its answer for that rect
+         * grown by `grow` (the caller's slack: `footprint`'s, bit for bit), written into `out` (a new object without one);
+         * null where it is null. Below the home a drop sweeps its drawn pieces where it can (`Stage._sweepMap`, F185).
          */
-        footprintMapper(state, G) {
+        footprintMapper(state, G, grow = 0) {
             const m = lm.mapperObj(state.home, String(G), state.table, state.home, false);
             if (!m) return null;
             const a = [0, 0], b = [0, 0];
             return (left, top, right, bottom, out = {}) => {
+                if (grow) { left -= grow; top -= grow; right += grow; bottom += grow; }
                 m(left, top, a); m(right, bottom, b);
                 out.left = Math.min(a[0], b[0]); out.top = Math.min(a[1], b[1]); out.right = Math.max(a[0], b[0]); out.bottom = Math.max(a[1], b[1]);
                 return out;

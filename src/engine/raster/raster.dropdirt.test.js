@@ -295,6 +295,29 @@ describe("a drop's dirt is sound (F153)", () => {
         expect(falseExact(E).bad).toEqual([]);
     });
 
+    // Below its home a native is drawn from derived pieces, which the stored boundary need not land on (F185): the
+    // camera frame sweeps the pieces it drew. Tight too: a slack on the stored boxes would dirty every cell this deep.
+    for (const depth of [2, 6]) {
+        test(`D6 a square moved at its home, dropped ${depth} levels below it at its edge: swept as drawn`, async () => {
+            const E = mkEngine();
+            const sq = addShape(E, "0", box({ left: -400, top: -400, right: 0, bottom: 400 }), "rgb(26,95,180)");
+            E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 400, inPanY: 300 });
+            E._render(); await settle(E);
+            await select(E, [sq.id]);
+            await dragDrop(E, 40, 0);                          // its right edge to x = 40, a table at its home
+            await settle(E);
+            // Down along that edge: cells 1 and 1024 put it at depth 2's origin, then each centre cell.
+            let F = E.lm.cellChild(E.lm.cellChild("0", 1, 0).id, 1024, 0).id;
+            for (let k = 3; k <= depth; k++) F = E.lm.cellChild(F, 0, 0).id;
+            E.cam.set({ activeLevel: depth, frame: F, inScale: 1, inPanX: 400, inPanY: 300 });
+            E._render(); await settle(E);
+            await select(E, [sq.id]);
+            expect(await soundAfterDrop(E, 40, 20)).toBeGreaterThan(0);   // plates away from the edge's band kept
+            const sweep = E.stage._dirtLog.flatMap((e) => e.states).filter((s) => s.kind === "sweep").pop();
+            expect(sweep.drawn && sweep.drawn.F).toBe(String(F));
+        });
+    }
+
     for (const seed of [11, 23, 37, 41, 53, 67]) {
         test(`D5 seed ${seed}: random natives, a random selection, delta and drag kind`, async () => {
             const E = mkEngine();

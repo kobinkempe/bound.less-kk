@@ -33,8 +33,19 @@ WHERE THE BUILD IS
     gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
     been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
-2026-11-09 - COMMITTED, NOT DEPLOYED: the F173-F183 recipe round (with the Magnum Opus migration notes). Kobin
-    tested the tree first and found nothing new but the logged selection issues.
+2026-11-09 - COMMITTED, NOT DEPLOYED: the F173-F183 recipe round (266afeb, with the Magnum Opus notes), then
+    F184-F186 on top of it. Kobin tested the tree first and found nothing new but the logged selection issues.
+
+2026-11-08 - F184 AND F185 FIXED (jsdom on his drawing; committed 2026-11-09, NOT deployed; Kobin tried the tree in
+    his browser 2026-11-09).
+    One cause: below its home a native's picture is DERIVED (F173 re-solves cut corners each level), and sits up to
+    a home-level tolerance from its stored geometry - 6e31 units twelve levels down. The drop now sweeps what the
+    camera frame drew (Stage._drawnSweep; Kobin's call: no slack on the drop's dirt, it would undo F153); the erase
+    prefilters, covers' group boxes and the lasso barrier grow the stored side by that bound (placementModel.slack).
+    F186 (found auditing, same cause): the ants after a deep drop stayed at the old place; fixed (overlays._selMembersAt
+    boxes a member below its home by its drawn items). Measured: 20 stale plates -> 0; erase 74's mark again finds and
+    cuts 67 (one candidate added); the ants follow the ink. Tests:
+    src/engine/reported.deep.test.js (needs .kobin-reports). Audit table: .claude/F184-F185-PLAN.md.
 
 2026-11-04 - TWO DEFECTS FROM KOBIN'S PHONE REPORTS (16:49, 16:53), OPEN: F184 a deep eraser misses a native many
     levels up (its box, mapped up 12 levels, is a point on the native's box corner; an exact test rejects it);

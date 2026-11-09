@@ -21,7 +21,7 @@
  *     the held natives at their placement plus the pointer's delta.
  */
 import { perfNow } from "./now";
-import { drawnBox, ZERO } from "./placementModel";
+import { drawnBox, grown, ZERO } from "./placementModel";
 import { translateLoops, pieceBBox } from "./geometry/arcShape";
 import { familyTraits } from "./raster/rasterPack";
 import { inLineage } from "./eraseRule";
@@ -194,9 +194,15 @@ const lookOf = (o) => o.color + "|" + o.opacity + "|" + o.z + "|" + o.editId + "
  * it has no piece.
  */
 function sweepBoxes(o) {
-    const geom = geomOf(o);
-    if (!geom) return null;
     const pb = [];
+    return pushPieceBoxes(o, pb) ? boxTree(pb) : null;
+}
+
+/** A shape's or fill's boundary pieces' boxes onto `pb`, moved by `off` (none: the numbers as they are); false for a stroke. */
+function pushPieceBoxes(o, pb, off = null) {
+    const geom = geomOf(o);
+    if (!geom) return false;
+    const n0 = pb.length;
     if (o.type === "shape") {
         for (const loop of geom) for (const p of loop) { const b = pieceBBox(p); pb.push(b[0], b[1], b[2], b[3]); }
     } else {
@@ -207,6 +213,12 @@ function sweepBoxes(o) {
             }
         }
     }
+    if (off && (off[0] || off[1])) for (let k = n0; k < pb.length; k += 4) { pb[k] += off[0]; pb[k + 1] += off[1]; pb[k + 2] += off[0]; pb[k + 3] += off[1]; }
+    return true;
+}
+
+/** Boxes in loop order as `sweepBoxes`' tree; null when there are none. */
+function boxTree(pb) {
     if (!pb.length) return null;
     let L = Float64Array.from(pb);
     const v = [L];
@@ -562,10 +574,11 @@ export default class Stage {
     hold({ ids, frames = [] }) {
         if (this._hold) this.release();
         const h = { ids: new Set(ids), frames: frames.map(String), start: [], nat: new Map(), queue: [],
-            d: null, dFrame: null, view: false, dVer: 0, dIn: new Map(), homes: new Map() };
+            d: null, dFrame: null, view: false, dVer: 0, dIn: new Map(), homes: new Map(), F: this.frame };
         for (const id of h.ids) {
             const rec = this.doc.getById(id);
-            if (rec) h.nat.set(id, { s: this._stateOf(rec.obj, rec.level), geom: geomOf(rec.obj), look: lookOf(rec.obj) });
+            if (rec) h.nat.set(id, { s: this._stateOf(rec.obj, rec.level), geom: geomOf(rec.obj), look: lookOf(rec.obj),
+                pl: this.frame != null ? this.model.placement(rec.obj, this.frame) : null });
         }
         for (const f of h.frames) { const s = this._frameState(f, null); if (s) h.start.push(s); }
         this._hold = h;
@@ -625,7 +638,11 @@ export default class Stage {
                 const boxes = sweeps && was && now && moved.get(id) !== false && was.geom && geomOf(rec.obj) === was.geom && lookOf(rec.obj) === was.look
                     ? sweepBoxes(rec.obj) : null;
                 if (boxes) {
-                    this._foot.push({ kind: "sweep", s0: was.s, s1: now, boxes, bytes: boxes.reduce((n, L) => n + L.byteLength, 0), maps: null });
+                    // Below the home its pieces are derived, not its stored loops magnified: there the camera frame
+                    // sweeps what it drew (F185).
+                    const drawn = this.model.slack(now.home, this.frame) > 0 && h.F === this.frame ? this._drawnSweep(id, rec.obj, was.pl) : null;
+                    const bytes = boxes.reduce((n, L) => n + L.byteLength, 0) + (drawn ? drawn.bytes : 0);
+                    this._foot.push({ kind: "sweep", s0: was.s, s1: now, boxes, bytes, maps: null, drawn });
                     this.stats.swept++;
                 } else {
                     if (was) this._foot.push(was.s);
@@ -777,7 +794,8 @@ export default class Stage {
      * Where group `g`'s natives are drawn in the camera frame, their boxes' union (null: none is); kept until a member
      * changes (`_reconcile`). Members with one home and one own table map alike, through steps monotone per axis, so
      * their stored boxes are united first and mapped once: the same box, bit for bit (a map per member was 5.5 s of a
-     * Magnum Opus zoom-out in jsdom). Called only outside a drag's hold.
+     * Magnum Opus zoom-out in jsdom). Grown by the model's `slack` below the home, so `covers` never skips a group whose
+     * derived picture is in the rect (F184). Called only outside a drag's hold.
      */
     _groupBox(g) {
         if (g.box !== undefined) return g.box;
@@ -795,9 +813,10 @@ export default class Stage {
             u.left = Math.min(u.left, r.left); u.top = Math.min(u.top, r.top); u.right = Math.max(u.right, r.right); u.bottom = Math.max(u.bottom, r.bottom);
         }
         let b = null;
-        for (const byT of runs.values()) {
+        for (const [home, byT] of runs) {
+            const m = this.model.slack(home, this.frame);
             for (const [nat, u] of byT.values()) {
-                const r = this.placeNative(nat, this.frame).fromStored(u);
+                const r = this.placeNative(nat, this.frame).fromStored(grown(u, m));
                 if (!r) continue;
                 b = b ? { left: Math.min(b.left, r.left), top: Math.min(b.top, r.top), right: Math.max(b.right, r.right), bottom: Math.max(b.bottom, r.bottom) }
                     : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
@@ -1039,16 +1058,51 @@ export default class Stage {
     }
 
     /**
+     * Dropped native `nat`'s pieces as the camera frame drew them at the drag's start (its items at rest), for its sweep
+     * there (F185): `{ F, T, d, A, B, win, bytes }` — `T` their boxes as `sweepBoxes`' tree at the old offset, `d` what
+     * the drop adds to it, `A`/`B` the whole box before and after, `win` where the pieces read are the whole picture before
+     * and after (their tile block, less the move). Null when they are not: no items, a stroke piece, its source frame
+     * F0 moved, a tile of the block unread, an item at another offset.
+     */
+    _drawnSweep(id, nat, pl0) {
+        const pl1 = pl0 && this.model.placement(nat, this.frame);
+        if (!pl1 || String(pl1.F0) !== String(pl0.F0)) return null;
+        const gk = this._gOf.get(id), g = gk !== undefined ? this._groups.get(gk) : null;
+        const F0 = g ? g.F0 : this.frame, r = g ? g.range : this._winRange;
+        if (!r || F0 !== String(pl0.F0)) return null;
+        for (const key of this._rangeKeys(F0, r)) if (this._missing.has(key)) return null;
+        const off = pl0.rem, pb = [];
+        let n = 0;
+        for (const it of this.itemsOf(id)) {
+            if (it.key === "own") continue;
+            if (!sameOff(it.off, off) || !pushPieceBoxes(it.piece, pb, off)) return null;
+            n++;
+        }
+        const T = n ? boxTree(pb) : null;
+        if (!T) return null;
+        const d = [pl1.rem[0] - off[0], pl1.rem[1] - off[1]], top = T[T.length - 1];
+        const A = { left: top[0], top: top[1], right: top[2], bottom: top[3] };
+        const a = this.lm.tileRect(F0, r.i0, r.j0), b = this.lm.tileRect(F0, r.i1, r.j1);
+        const win = { left: a.left + off[0] + Math.max(0, d[0]), top: a.top + off[1] + Math.max(0, d[1]),
+            right: b.right + off[0] + Math.min(0, d[0]), bottom: b.bottom + off[1] + Math.min(0, d[1]) };
+        return { F: String(this.frame), T, d, A, B: { left: A.left + d[0], top: A.top + d[1], right: A.right + d[0], bottom: A.bottom + d[1] },
+            win, bytes: T.reduce((k, L) => k + L.byteLength, 0) };
+    }
+
+    /**
      * Sweep `s`'s placement mappers into frame G, before and after, its whole boxes there, and its tree's hulls there as
-     * queries map them (`H`, a level each); kept for the lattice they were made in, for SWEEP_MAPS frames.
+     * queries map them (`H`, a level each); kept for the lattice they were made in, for SWEEP_MAPS frames. Below a home the
+     * stored boxes are grown by the model's slack (cells off the drawn pieces, other frames); `D` the drawn sweep in the
+     * frame that drew it (`_drawnSweep`).
      */
     _sweepMap(s, G) {
         const lat = this._latKey(), maps = s.maps || (s.maps = new Map());
         let m = maps.get(G);
         if (m && m.lat === lat) return m;
         if (m) this._unmap(s, m);
-        const m0 = this.model.footprintMapper(s.s0, G), m1 = this.model.footprintMapper(s.s1, G), a = s.s0.rect, b = s.s1.rect;
-        m = { lat, m0, m1, A: m0 && m0(a.left, a.top, a.right, a.bottom), B: m1 && m1(b.left, b.top, b.right, b.bottom), H: [], P: {}, Q: {} };
+        const m0 = this.model.footprintMapper(s.s0, G, this.model.slack(s.s0.home, G)), m1 = this.model.footprintMapper(s.s1, G, this.model.slack(s.s1.home, G));
+        const a = s.s0.rect, b = s.s1.rect, D = s.drawn && s.drawn.F === String(G) ? s.drawn : null;
+        m = { lat, m0, m1, A: m0 && m0(a.left, a.top, a.right, a.bottom), B: m1 && m1(b.left, b.top, b.right, b.bottom), H: [], P: {}, Q: {}, D };
         maps.delete(G);
         maps.set(G, m);
         if (maps.size > SWEEP_MAPS) { const k0 = maps.keys().next().value; this._unmap(s, maps.get(k0)); maps.delete(k0); }
@@ -1086,7 +1140,13 @@ export default class Stage {
      * does. A side that does not map into G is its whole box.
      */
     _sweepIn(s, G, box, any = false) {
-        const m = this._sweepMap(s, G), { m0, m1, A, B } = m;
+        const m = this._sweepMap(s, G), D = m.D;
+        if (D && inside(box, D.win)) return this._treeIn(D.T, (k, i, h) => this._drawnHull(D, k, i, h), D.A, D.B, box, any);
+        return this._treeIn(s.boxes, m.m0 && m.m1 ? (k, i, h) => this._hull(s, m, k, i, h) : null, m.A, m.B, box, any);
+    }
+
+    /** `_sweepIn`'s descent: tree `lv`, node (k, i)'s hull from `hull(k, i, out)` (null: no tree, the whole boxes), cut to A or B. */
+    _treeIn(lv, hull, A, B, box, any) {
         const inA = !!A && meets(A, box), inB = !!B && meets(B, box);
         if (!inA && !inB) return any ? false : null;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -1101,12 +1161,12 @@ export default class Stage {
             return true;
         };
         let hit = false;
-        if (!m0 || !m1) hit = !!((inA && take(EVERYWHERE, A)) | (inB && take(EVERYWHERE, B)));
+        if (!hull) hit = !!((inA && take(EVERYWHERE, A)) | (inB && take(EVERYWHERE, B)));
         else {
-            const lv = s.boxes, h = {}, stack = [lv.length - 1, 0];
+            const h = {}, stack = [lv.length - 1, 0];
             while (stack.length) {
                 const i = stack.pop(), k = stack.pop();
-                if (!meets(this._hull(s, m, k, i, h), box)) continue;
+                if (!meets(hull(k, i, h), box)) continue;
                 if (k > 0 && (any || !inside(h, box))) {
                     if (i * 2 + 1 < lv[k - 1].length / 4) stack.push(k - 1, i * 2 + 1);
                     stack.push(k - 1, i * 2);
@@ -1122,10 +1182,22 @@ export default class Stage {
         return hit ? { left: x0, top: y0, right: x1, bottom: y1 } : null;
     }
 
+    /** A drawn sweep's hull of node (k, i): its box where it was and where the drop put it, into `out`. */
+    _drawnHull(D, k, i, out) {
+        const L = D.T[k], o = i * 4, dx = D.d[0], dy = D.d[1];
+        out.left = Math.min(L[o], L[o] + dx); out.top = Math.min(L[o + 1], L[o + 1] + dy);
+        out.right = Math.max(L[o + 2], L[o + 2] + dx); out.bottom = Math.max(L[o + 3], L[o + 3] + dy);
+        return out;
+    }
+
     /** `_sweepIn(s, G, c.box, true)` for each cell of `cells` not hit yet, in one descent of the tree (a commit's dirt): sets `hit[k]`. */
     _sweepCells(s, G, cells, hit) {
-        const m = this._sweepMap(s, G), { m0, m1, A, B } = m, near = [];
-        for (let k = 0; k < cells.length; k++) if (!hit[k] && ((A && meets(A, cells[k].box)) || (B && meets(B, cells[k].box)))) near.push(k);
+        const m = this._sweepMap(s, G), { m0, m1, A, B, D } = m, near = [], dh = D && ((k, i, h) => this._drawnHull(D, k, i, h));
+        for (let k = 0; k < cells.length; k++) {
+            if (hit[k]) continue;
+            if (D && inside(cells[k].box, D.win)) { if (this._treeIn(D.T, dh, D.A, D.B, cells[k].box, true)) hit[k] = 1; continue; }
+            if ((A && meets(A, cells[k].box)) || (B && meets(B, cells[k].box))) near.push(k);
+        }
         if (!near.length) return;
         if (!m0 || !m1) { for (const k of near) hit[k] = 1; return; }
         const lv = s.boxes, h = {}, stack = [[lv.length - 1, 0, near]];
@@ -1738,6 +1810,11 @@ class Placement {
     constructor(stage, nat, F, d = null) { this.stage = stage; this.nat = nat; this.F = F; this.d = d; }
     /** Its drawn box (bbox, and half its pen for a stroke) in F's units, where its picture is. */
     box() { return shiftBy(this.stage.model.fromStored(this.nat, this.F, drawnBox(this.nat, this.stage.store.live)), this.d, 1); }
+    /** `box` grown by the model's `slack`: a box its picture cannot leave, for a test that must not miss it (F184). */
+    reach() {
+        const m = this.stage.model, b = drawnBox(this.nat, this.stage.store.live);
+        return shiftBy(m.fromStored(this.nat, this.F, grown(b, m.slackOf(this.nat, this.F))), this.d, 1);
+    }
     /** An input made in F — a point, a rect or loops — in the native's stored coordinates. */
     toStored(x) { return this.stage.model.toStored(this.nat, this.F, shiftBy(x, this.d, -1)); }
     /** The native's stored point, rect or loops as drawn in F. */

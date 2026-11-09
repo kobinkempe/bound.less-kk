@@ -26,7 +26,7 @@ import Document from "./Document";
 import { Groups, arcsTouch, contactArcs, axisAbut, innerRuns } from "./geometry/connect";
 import { bboxOf, freezeR } from "./geometry/derive";
 import { encodeBelow } from "./geometry/offsets";
-import { reachBox } from "./placementModel";
+import { reachBox, grown } from "./placementModel";
 import {
     flattenShape,
     insideShape,
@@ -585,7 +585,8 @@ class ErasePipeline {
      * eraser's box reaches (`_rectMayTouch`), less `exclude`; ascending ids. From the frames' indexes
      * for a native drawn at its stored bits; a displaced one (F41/F55, a shifted frame's, A1 C1)
      * through its picture table, the box mapped once per (home, table) — mapped per object, 19,547
-     * moved natives took 300 ms on the Magnum Opus (TESTER-2). Once per mark (EC-1).
+     * moved natives took 300 ms on the Magnum Opus (TESTER-2). Once per mark (EC-1). The box is grown
+     * by the model's `slack` where the mark is below a home: there the picture is derived (F184).
      */
     _candidatesUnder(Erec, exclude = null) {
         const E = Erec.obj, HE = Erec.level, zE = zOf(E);
@@ -597,8 +598,9 @@ class ErasePipeline {
         const keep = (o) => !o.erase && !out.has(o.id) && !(exclude && exclude.has(o.id)) && zOf(o) < zE;
         for (const k of this.doc.levels()) {
             if (this.lm.frameFactor(k, HE) == null) continue;
-            const r = this.lm.mapRectF(rectE, HE, k);
-            if (!r) continue;
+            const r0 = this.lm.mapRectF(rectE, HE, k);
+            if (!r0) continue;
+            const r = grown(r0, this.stage.model.slack(k, HE));
             for (const o of this.doc.queryRect(k, r)) if (!this.doc.tableOf(o, k) && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
         }
         const rectIn = new Map();
@@ -704,8 +706,13 @@ class ErasePipeline {
      * An eraser's rect, drawn in frame `HE`, in the coordinates object `o` is STORED in (its home):
      * the scene's `placeNative` (A2 §2.6) — for a moved object (F41/F55) the remainder off, then the
      * exact chain from the frame its picture is read from; with no table the chain alone, bit for bit.
+     * Grown by the model's `slack` where HE is below the home: a prefilter, so it may reach further
+     * than the picture, never less (F184: twelve levels up the rect was a point on `o`'s corner).
      */
-    _eraserRectInto(rect, HE, o) { return this.stage.placeNative(o, HE).toStored(rect); }
+    _eraserRectInto(rect, HE, o) {
+        const r = this.stage.placeNative(o, HE).toStored(rect);
+        return r && grown(r, this.stage.model.slackOf(o, HE));
+    }
     /** The same, for the eraser's LOOPS. */
     _eraserLoopsInto(loops, HE, o) { return this.stage.placeNative(o, HE).toStored(loops); }
     /** Mark E's loops in `o`'s stored coordinates, memoised per (home, picture table): targets moved together share it (A2 §4.7). */
@@ -1510,12 +1517,12 @@ class ErasePipeline {
             then(b);
         }, sel ? sel.ids : []);
     }
-    /** A lasso's barrier (H5): every pending pair whose target's drawn box meets the loop's box, wherever its mark is. */
+    /** A lasso's barrier (H5): every pending pair whose target's drawn box (its `reach`, F184) meets the loop's box, wherever its mark is. */
     _lassoBarrier(poly, then) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (const [x, y] of poly) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
         const F = this.cam.frame;
-        const meets = (rec) => { const r = this.stage.placeNative(rec.obj, F).box(); return !!r && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1; };
+        const meets = (rec) => { const r = this.stage.placeNative(rec.obj, F).reach(); return !!r && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1; };
         return this._eraseBarrier("lasso", () => this._pendingPairs(meets), then);
     }
     /** The engine status's erase part: the pending marks, and whether a gesture waits on their cuts (the editor's chip). */
