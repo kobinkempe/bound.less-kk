@@ -183,6 +183,49 @@ export default class LevelMap {
         }
         return out;
     }
+    /**
+     * The frames near F, each once, co-residents together (F172): `fn(f, k, s, x, y, a)` is asked of each and returns true
+     * to descend into its kids. `a` is F's resident k levels up, and f's units map into a's as p·s + (x, y). A frame at or
+     * above F's depth is placed by whole cells from `a` (s = 1, exact). Summed as floats in F's units, a place k levels up
+     * cancels ~2^(16+12k): from about five levels up a neighbour's subtree was lost (F179), and a co-resident chain parting
+     * 20 levels up from F's was never reached (F170). Below F the float place is small (k = 0). F's ancestors and their
+     * co-residents are asked at (k, 1, 0, 0); their kids on F's side are not.
+     */
+    nearWalk(F, fn) {
+        const anc = [];
+        for (let f = this.residentOf(F); f; f = f.parent != null ? this.residentOf(f.parent) : null) {
+            anc.push(f);
+            if (!f.centre) break;
+        }
+        const seen = new Set();
+        const deep = (f, s, x, y) => {
+            if (seen.has(f.id)) return;
+            seen.add(f.id);
+            if (!fn(f, 0, s, x, y, anc[0])) return;
+            for (const c of this.childrenOf(f.id)) if (c.centre) deep(c, s / R, c.centre.x * s + x, c.centre.y * s + y);
+        };
+        const flat = (f, k, nx, ny) => {
+            if (k === 0) { deep(f, 1, nx * W, ny * W); return; }
+            if (seen.has(f.id)) return;
+            seen.add(f.id);
+            if (!fn(f, k, 1, nx * W, ny * W, anc[k])) return;
+            for (const c of this.childrenOf(f.id)) {
+                if (c.centre) flat(c, k - 1, nx * R + c.cell.i - anc[k - 1].cell.i, ny * R + c.cell.j - anc[k - 1].cell.j);
+            }
+        };
+        for (const f of this.cellFrames(F)) flat(f, 0, 0, 0);
+        for (let k = 0; k + 1 < anc.length; k++) {
+            const child = anc[k];
+            for (const p of this.cellFrames(anc[k + 1].id)) {
+                if (seen.has(p.id)) continue;
+                seen.add(p.id);
+                if (!fn(p, k + 1, 1, 0, 0, anc[k + 1])) continue;
+                for (const sib of this.childrenOf(p.id)) {
+                    if (!this.sameCell(sib.id, child.id) && sib.centre) flat(sib, k, sib.cell.i - child.cell.i, sib.cell.j - child.cell.j);
+                }
+            }
+        }
+    }
     /** `fn(frame)` over the subtree `rootId` stands for: the root, its kids and theirs. */
     walk(rootId, fn) {
         const stack = [this.frames.get(rootId)];

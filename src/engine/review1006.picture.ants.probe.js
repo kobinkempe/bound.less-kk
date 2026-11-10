@@ -73,7 +73,7 @@ test("R2: the ants the engine decides at the report's camera and selection", asy
         log(`table level ${L}: objs ${info.objs.map((o) => o.id)} frame ${!!info.frame}; drawn rect ${r ? JSON.stringify([toScr(E, [r.left, r.top]), toScr(E, [r.right, r.bottom])]) : "null"} span ${r ? r2(Math.max(r.right - r.left, r.bottom - r.top) * E.cam.inScale) : "-"} px`);
     }
     for (const fr of table.frames) {
-        const r = E._selFrameContent(fr, E.cam.frame);
+        const r = E._selFramePoints(fr, E.cam.frame, E.cam.frameWindow(0)).reduce((a, q) => (a ? { left: Math.min(a.left, q.left), top: Math.min(a.top, q.top), right: Math.max(a.right, q.right), bottom: Math.max(a.bottom, q.bottom) } : q), null);
         log(`frame ${fr}: content (F103) ${r ? JSON.stringify([toScr(E, [r.left, r.top]), toScr(E, [r.right, r.bottom])]) : "null"} span ${r ? r2(Math.max(r.right - r.left, r.bottom - r.top) * E.cam.inScale) : "-"} px`);
         E.lm.walk(fr, (g) => { const ink = E._selFrameInk(g, E.cam.frame); log(`   subtree frame ${g.id} natives ${E.doc.count(g.id)} shift ${JSON.stringify(g.shift || null)} cell ${JSON.stringify(g.cell)} parent ${g.parent} private ${!!g.private} ink ${ink ? JSON.stringify([toScr(E, [ink.left, ink.top]), toScr(E, [ink.right, ink.bottom])]) : "null"}`); });
     }
@@ -139,7 +139,7 @@ test("R2: the ants the engine decides at the report's camera and selection", asy
         log(`${label}: ${d.runs.length} runs, marks ${JSON.stringify(d.marks.map((m) => ({ C: toScr(E, m.pieces[0].C), rPx: r2(m.pieces[0].r * E.cam.inScale) })))}`); return a; };
     E._setSelection(sel.ids, sel.frames.filter((x) => x !== FR), true); again("(1) without the frame entry " + FR);
     E._setSelection(sel.ids, sel.frames, true);
-    const orig = E._selFrameContent; E._selFrameContent = () => null; again("(2) F103 fallback silenced"); E._selFrameContent = orig;
+    const orig = E._selFramePoints; E._selFramePoints = () => []; again("(2) F103 fallback silenced"); E._selFramePoints = orig;
     E._setSelection([], sel.frames, true); again("(3) frames only, no ids");
     E._setSelection(sel.ids, sel.frames, true); again("(4) the report's selection again");
     fs.mkdirSync(OUT, { recursive: true });

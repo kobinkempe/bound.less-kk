@@ -33,6 +33,49 @@ WHERE THE BUILD IS
     gitignored) is on branch performance, from b2291ce, UNCOMMITTED. Nothing has
     been deployed since 2026-09-08 - until 2026-10-29: 75a7178 DEPLOYED (Kobin: tiles stay as they are for 1.0).
 
+2026-11-09 - F170 AND F146 FIXED (jsdom on Kobin's reports; NOT committed, NOT deployed). His step 3: the selection
+    issues, two new reports (05:48 "I couldn't select by lasso", 05:53 "a circle circling nothing").
+    F170: the pieces sat in a co-resident chain (a cede's private frames) sharing the camera's cell but parting
+    from its chain 20-23 levels up; the lasso's walk summed float offsets out to where they part (4096^20) and never
+    reached them. The render list had that walk until F172/F179. Now one walk, LevelMap.nearWalk, for the lasso,
+    the erase's frame pass and TileStore._downSources (_downSources the same candidates on 158,400 frame/rect pairs).
+    F146: F103's fallback dot fired for a selected frame whose pieces are traced as the selection's own ids; a frame
+    is shown when any content under it is drawn in the window or has a mark, and the fallback boxes a native with a
+    table of its own where it is drawn. Kobin: no big circle; the fallback is now a speck at each place its content
+    lies (_selFramePoints, mergePoints; t7). His 14:15 report (a dot inside a lassoed rectangle had no speck): the
+    frame counted as shown because the rectangle's kid in it was drawn; now specks are per undrawn object, skipping
+    own ids, drawn natives and pieces of drawn families (t8; reported.selection.test.js 14:15). test:quick
+    2,606/2,606 after it; lint 0. His 17:41 report (a hole too small to trace showed nothing): a whole ring under
+    the run minimum is a speck, and so is a family's undrawn ceded leaf, which carries the cut (his rule; t9, t10).
+    His 18:04 report (a ~5-10 px circle): the leaf rule circled a DRAWN leaf whose square is all seams, and F73's
+    frame-member dot did the same for a frame-only selection; now a drawn leaf shows through its family and a drawn
+    frame member with no run is a speck at each edge too short to trace (t11; the 18:04 report test). test:quick
+    2,612/2,613: raster.engine.test.js's plate-in-flight test failed once with probes running beside it, and
+    passed 30/30 three times alone; lint and typecheck 0. Kobin asked whether selecting a shape with many deep
+    erasures looks at each: it does, and the ceded-leaf check paired the members (6.4 s a decision at 1,000
+    erasures, jsdom); now one walk up per member, 80-87 ms, linear (__review__/family-scale.probe.js). test:quick
+    2,615/2,615 after it.
+    F187 FIXED (jsdom): the screen-edge ants did not crawl with the camera still (the tick repainted only the body;
+    raster.overlay.test.js G7). F188 FIXED (jsdom): in his 18:40 report two of six erasures had no speck at the report's
+    view and three none a level out. Kobin's frame rule is built: a cut shape is read down to the first ceded square
+    under 2 px (overlays._selCutWalk over LevelMap.nearWalk, through the frames _selTable keeps as `under`), which is
+    one dot with nothing under it read, and none where the shape's ants end at it; seams come from a piece's own
+    square and its family's one level down; cededLeaf is gone. All six erasures shown from every view
+    (reported.selection.test.js F188). A decision at 1,000 deep erasures: 4 placements, 0.21-0.29 ms, as with none
+    (80-87 ms before; t12, t13; __review__/family-scale.probe.js). A cut at a piece's own level needed no stored
+    loops (__review__/own-cut.probe.js). Still linear in pieces: _setSelection and _selTable (24 ms at 5,005) and
+    the move. test:quick 2,618/2,619: raster.pyramid.test.js's prefetch-quiet timing test failed with the typecheck
+    running beside the suite, and passed 38/38 three times alone; lint and typecheck 0.
+    test:quick 2,610/2,610. Kobin tried it ("the selection seems to be working correctly"); committed 2026-11-10.
+    Tests: select.nearWalk.test.js, selection.indicator.test.js t5/t6, reported.selection.test.js (needs
+    .kobin-reports); each fails on the old code. test:quick 2,602/2,602, test:erase 471/471, typecheck and lint 0.
+    Not measured in a browser; Kobin tries it before any commit.
+    The reference pages (tools/docmaps) are still not rebuilt: rebuild.py stops at extract.MODFILE, now missing
+    cloudLimits.js (since 10-29) and geometry/detMath.js (the F176 round); nearWalk is new, _lassoWalk gone.
+
+2026-11-09 - PUSHED TO ORIGIN (Kobin's word), NOT DEPLOYED. THE MAGNUM OPUS REPLACED: the original (mu34hlxc1t16986e)
+    in the app's bin, the migrated copy (mw1yjvcybk6bhrbn) renamed "Local Magnum Opus" and saved to his account.
+
 2026-11-09 - COMMITTED, NOT DEPLOYED: the F173-F183 recipe round (266afeb, with the Magnum Opus notes), then
     F184-F186 on top of it. Kobin tested the tree first and found nothing new but the logged selection issues.
 

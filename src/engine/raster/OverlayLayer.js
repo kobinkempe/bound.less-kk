@@ -149,6 +149,8 @@ export default class OverlayLayer {
         this._edgeRuns = [];
         this._edgeDec = { runs: [], marks: [], inkPx: null };
         this._edgeView = { k: 1, tx: 0, ty: 0 };
+        /** The last `show()`'s edge shift, for the crawl tick's strips. */
+        this._shift = null;
 
         /** `report()`'s one object (FC5). Per tick: the ms, the dashes, the stamps, the pixels. */
         this._rep = {
@@ -445,6 +447,8 @@ export default class OverlayLayer {
         }
         this._phase = (this._phase + 1) % ANT_PHASES;
         this._paint(this._phase, this._planeDirty);
+        // The strips crawl with the body (G7): without this they kept the last camera step's phase (Kobin, 2026-11-09).
+        if (this._dec.edges && this._dec.edges.length) this._paintEdges(this._dec, this._shift);
         this._note();
     }
 
@@ -519,6 +523,7 @@ export default class OverlayLayer {
 
         this.freeze();
         this._arm();
+        this._shift = shift || null;
         this._paintEdges(dec, shift);
         if (!repaint) this._maybeUncovered();
     }

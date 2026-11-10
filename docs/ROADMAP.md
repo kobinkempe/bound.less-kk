@@ -179,11 +179,23 @@ compression on the main thread, not the quota: five successful autosaves cost 29
       same bits as node's. **The Magnum Opus migrated as a copy (2026-11-04, OPEN-FLAGS F173):** every
       tile where he drew detail is within 1.2e-4 px of the old picture; two old cedes were repaired on the
       copy, as a new cede stores them, to 0 px at every depth. "Local Magnum Opus (new recipe)" is in his
-      gallery; replacing the original waits for Kobin. Paint in a browser still to look at.
+      gallery; on 2026-11-09, at Kobin's word, it replaced the original (renamed "Local Magnum Opus", the
+      original in the app's bin). Paint in a browser still to look at.
       **F184–F186 fixed (2026-11-08, jsdom; his phone reports of 11-04):** below its home a native's picture is
       derived, so a stored box mapped across many levels can miss it (6e31 units twelve levels down). The drop sweeps
       what the camera frame drew; the erase prefilters, `covers` and the lasso barrier grow the stored side by a
       derivation bound; the ants box a deep member by its drawn items. Audit: `.claude/F184-F185-PLAN.md`.
+      **F170 and F146 fixed (2026-11-09, jsdom; his reports of 10-07, 10-29 and 11-09; committed 2026-11-10):** the lasso
+      and the erase's frame pass walk frames as the render list does (`LevelMap.nearWalk`: co-residents together,
+      whole cells above the camera's depth), so a co-resident chain parting 20 levels up is reached; F103's dot no
+      longer circles a frame whose pieces are drawn with ants, sits where a moved native is drawn, and is a speck at
+      each place culled content lies, never one circle round all of it (Kobin's call); a hole or a cut leaf too
+      small to trace is a speck where it is, and no drawn piece is circled whole (his reports 17:41, 18:04).
+      **The families' frame tree in the indicator is built (2026-11-09, jsdom; committed 2026-11-10; F188):** a decision reads a cut shape down to the first
+      ceded square under 2 px (`_selCutWalk`), one dot with nothing under it read and none where the ants end at it;
+      seams from a piece's own square and its family's one level down. 0.21–0.29 ms at 1,000 erasures nine levels
+      down, as with none (6.4 s, then 80–87 ms, before). Left for item 11: making a selection lists every piece
+      (`_setSelection` and `_selTable`, 24 ms at 5,005), and a move moves each piece.
 
 ## 3. Performance and bugs
 
@@ -1459,6 +1471,14 @@ something"
 
 Newest first. Recorded so nothing is re-investigated. Each block is the text that used to
 sit at the top of `50-TODO.txt`, unchanged.
+
+### 2026-11-09 - the selection issues F170 and F146 (main, committed 2026-11-10)
+
+    One frame walk, LevelMap.nearWalk, for the lasso (selection._lassoFind), the erase's frame pass
+    (erasePipeline._eraseFramesPass) and the down tiles (TileStore._downSources): co-residents together, frames
+    at or above F's depth placed by whole cells. Deleted: selection._lassoWalk and the erase pass's copy of it
+    (float offsets summed out to the common ancestor; a co-resident chain parting 20 levels up was never
+    reached, F170). _downSources gives the same candidates (__review__/downsources-identity.probe.js).
 
 ### 2026-10-12 to 2026-10-20 - the performance round (branch `performance`, committed as cef36c3 on 2026-10-20, later work uncommitted)
 

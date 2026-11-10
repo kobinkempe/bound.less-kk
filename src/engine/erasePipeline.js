@@ -634,27 +634,17 @@ class ErasePipeline {
         if (!polys.length) return 0;
         const inside = (rect) => insideShape(E.loops, [rect.left, rect.top]) && polys.every((p) => polygonMissesRect(p, rect));
         const covered = [];
-        // The lasso's walk (`_lassoFind`): out from the mark's frame, one hop at a time, a
-        // frame's box +-REACH in its units brought into HE's; a covered frame is taken and
-        // not descended into, one blocked by z is, its kids judged on their own.
-        const visit = (id, s, tx, ty, skip) => {
-            const own = reachBox(this.lm.frame(id), s, tx, ty, tol);
-            if (own.right < box.x0 || own.left > box.x1 || own.bottom < box.y0 || own.top > box.y1) return;
-            if (id !== HE && inside(own) && this.doc.maxZUnder(id) < zE) { covered.push(id); return; }
-            for (const c of this.lm.childrenOf(id)) {
-                if (!c || c.id === skip || !c.centre) continue;
-                visit(c.id, s / CROSS_RATIO, c.centre.x * s + tx, c.centre.y * s + ty, null);
-            }
-        };
-        visit(HE, 1, 0, 0, null);
-        let child = this.lm.frame(HE), s = 1, tx = 0, ty = 0;
-        while (child && child.parent != null) {
-            const c = child.centre;
-            if (!c) break;
-            s *= CROSS_RATIO; tx -= c.x * s; ty -= c.y * s;
-            visit(child.parent, s, tx, ty, child.id);
-            child = this.lm.frame(child.parent);
-        }
+        // The lasso's walk (`LevelMap.nearWalk`): a frame's box ±REACH, placed in the units of the mark's frame's resident
+        // k levels up; a covered frame (in HE's units, k = 0) is taken and not descended into, one blocked by z is, its kids
+        // judged on their own. Never HE's own cell.
+        const rects = [{ left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 }];
+        this.lm.nearWalk(HE, (f, k, s, x, y, a) => {
+            const r = rects[k] !== undefined ? rects[k] : (rects[k] = this.lm.mapRectF(rects[0], HE, a.id));
+            const own = reachBox(f, s, x, y, k ? 0 : tol);
+            if (!r || own.right < r.left || own.left > r.right || own.bottom < r.top || own.top > r.bottom) return false;
+            if (!k && !this.lm.sameCell(f.id, HE) && inside(own) && this.doc.maxZUnder(f.id) < zE) { covered.push(f.id); return false; }
+            return true;
+        });
         let n = 0;
         if (!covered.length) return 0;
         const op = this._eraseOp(E);

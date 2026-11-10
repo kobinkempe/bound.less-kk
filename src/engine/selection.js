@@ -14,7 +14,6 @@
  * Mixed into `KobinEngine.prototype` - see `mixin.js`. Split out of
  * `KobinEngine.js` on 2026-08-31.
  */
-import { R as CROSS_RATIO } from "./frameLattice";
 import { reachBox } from "./placementModel";
 import { bboxOf } from "./geometry/derive";
 import { distToPolyline, windingOfPoint } from "./geometry/hittest";
@@ -292,9 +291,11 @@ class Selection {
      * true, and no move rewrites a stored coordinate (DESIGN.md §8); break either
      * and this starts missing things rather than merely being slow.
      *
-     * The walk goes OUTWARD from the active frame, one hop at a time, because
-     * that is the only direction in which the scale factor stays a number: from
-     * the root it would be R^depth before the first useful comparison.
+     * The walk is `LevelMap.nearWalk`: out from the active frame through its
+     * ancestors, co-residents together, every frame at or above the active
+     * frame's depth placed by whole cells. Summed as floats in the active
+     * frame's units, a co-resident chain parting 20 levels up was never reached
+     * and its natives could not be lassoed (OPEN-FLAGS F170).
      *
      * Returns `{ ids, frames }`: the object ids found one by one, and the ids of
      * the ENCLOSED frames, each standing for its whole subtree.
@@ -310,25 +311,20 @@ class Selection {
         const found = [];
         const frames = [];
         const ink = loopTester(poly);
-        // An enclosed frame is ONE entry of the selection. Its natives and its whole
-        // subtree are inside the loop by invariant 2, tables included, so nothing under
-        // it is read: O(1) per enclosed frame.
-        const takeAll = (id) => { frames.push(id); };
         const inked = this._inkedFrames();
         // Enclosed frames holding part of a family the loop does not bound: read as straddling (LASSO-1).
         const noWhole = new Set();
-        // `s`/`tx`/`ty` carry the frame's coordinates into the active frame's.
-        // Used only for the two FRAME-level decisions, which are coarse; every
-        // per-object rect still goes through `mapRectF` hop by hop.
-        const visit = (id, s, tx, ty, skip) => {
-            if (!inked.has(id)) return;                                       // nothing under it to select
-            const fr = this.lm.frame(id), own = reachBox(fr, s, tx, ty);
-            if (own.right < box.left || own.left > box.right
-                || own.bottom < box.top || own.top > box.bottom) return;      // out of reach
-            // Enclosed: one entry. Never a private frame (A1 C4): its natives are judged with their families.
-            if (fr.private == null && !noWhole.has(id) && rectInsidePolygon(poly, own)) { takeAll(id); return; }
-            for (const o of this.doc.queryRect(id, { left: (box.left - tx) / s, top: (box.top - ty) / s,
-                right: (box.right - tx) / s, bottom: (box.bottom - ty) / s })) {
+        const F = this.cam.frame, boxes = [box];   // the loop's box in the units of F's resident k levels up
+        // The frame decisions are coarse; every per-object rect still goes through `mapRectF` hop by hop.
+        const visit = (fr, k, s, x, y, a) => {
+            if (!inked.has(fr.id)) return false;                              // nothing under it to select
+            const b = boxes[k] !== undefined ? boxes[k] : (boxes[k] = this.lm.mapRectF(box, F, a.id));
+            const own = reachBox(fr, s, x, y);
+            if (!b || own.right < b.left || own.left > b.right || own.bottom < b.top || own.top > b.bottom) return false;   // out of reach
+            // Enclosed: one entry, its natives and whole subtree inside by invariant 2, tables included, so nothing under
+            // it is read. Never a private frame (A1 C4): its natives are judged with their families.
+            if (!k && fr.private == null && !noWhole.has(fr.id) && rectInsidePolygon(poly, own)) { frames.push(fr.id); return false; }
+            for (const o of this.doc.queryRect(fr.id, { left: (b.left - x) / s, top: (b.top - y) / s, right: (b.right - x) / s, bottom: (b.bottom - y) / s })) {
                 if (o.erase) continue;
                 const r = this._rectInActive(o);
                 if (!r) continue;
@@ -340,17 +336,14 @@ class Selection {
                 // in Kobin's 2026-09-03 screenshot, F32. So where the box at
                 // least meets the loop's own box, the ink itself is asked.
                 if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
-                if (this._inkInsidePolygon(o, id, ink)) found.push(o.id);
+                if (this._inkInsidePolygon(o, fr.id, ink)) found.push(o.id);
             }
-            for (const c of this.lm.childrenOf(id)) {
-                if (c.id === skip || !c.centre) continue;
-                visit(c.id, s / CROSS_RATIO, c.centre.x * s + tx, c.centre.y * s + ty, null);
-            }
+            return true;
         };
         for (let pass = 0; pass < LASSO_PASSES; pass++) {
             found.length = 0; frames.length = 0;
             if (this._ufMemo) this._ufMemo.delete(frames);   // refilled in place: `_underFrames`' memo keys on the array
-            this._lassoWalk(visit);
+            this.lm.nearWalk(F, visit);
             const away = this._lassoMoved(poly, box, ink, found, frames);
             const torn = frames.length ? this._tornUnder(frames, found) : null;
             if ((!torn || !torn.size) && !away.size) break;
@@ -380,18 +373,6 @@ class Selection {
             if (ok) out.push(id);
         }
         return { ids: out, frames };
-    }
-    /** The lasso's frame walk: the active frame and everything under it, then out through each ancestor. */
-    _lassoWalk(visit) {
-        visit(this.cam.frame, 1, 0, 0, null);
-        let child = this.lm.frame(this.cam.frame), s = 1, tx = 0, ty = 0;
-        while (child && child.parent != null) {
-            const c = child.centre;
-            if (!c) break;
-            s *= CROSS_RATIO; tx -= c.x * s; ty -= c.y * s;
-            visit(child.parent, s, tx, ty, child.id);                        // skipping the branch already done
-            child = this.lm.frame(child.parent);
-        }
     }
     /**
      * Is the family of `o` bounded by the loop: every piece found, a pending mark, or under an

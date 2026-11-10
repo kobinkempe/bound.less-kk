@@ -479,8 +479,8 @@ own. Measured on the same cuts: 2,630 → 175 ms and 2,377 → 143 ms, results i
 
 **An erase covering a frame takes it whole** (2026-09-15; Kobin's rule, the subtree
 move's counterpart in §8). At the mark's registration, before its targets are taken, the frames under
-the mark's own are walked as the lasso walks them (out from the mark's frame, one hop
-at a time, a subtree skipped when its box misses the mark): a frame whose cell plus the
+the mark's own are walked as the lasso walks them (`LevelMap.nearWalk`: out from the mark's
+frame, a subtree skipped when its box misses the mark): a frame whose cell plus the
 reach its content may have (invariant 2), grown by the flatten's tolerance, lies inside
 the mark's ink, and under which nothing is drawn above the mark (`Document.maxZUnder`,
 an upper bound kept per frame index: a native drawn since the mark, or a piece a cut
@@ -1022,7 +1022,7 @@ Five things in it are load-bearing and none is obvious:
 | | |
 |---|---|
 | `upContent(F)` | **ancestor** frames' objects, magnified into F, built by **chaining** one crossing at a time through the parent's tiles. Magnify must chain: a composed long jump cancels catastrophically. Classified empty / solid / edge, where **solid** replaces a tile-covering band with a 4-vertex quad so geometry can never outgrow a tile. |
-| `downContent(F)` | every **non-ancestor** frame at depth ≥ F, projected directly (net factor ≤ 1, so it cannot explode). A view-independent cull drops sub-pixel content; a fade band tags size. Candidates come from the frame tree (`_downSources`): F's subtree and, outward, each ancestor's other subtrees, a subtree skipped whole when its cell grown by one misses the tile (invariant 2), and a frame skipped whole when its index's extent misses the tile or its largest object is under the cull (`Document.frameExtent`). The scan rests on invariant 2 as the ring does: a native overhanging its frame's neighbourhood is not found by a down tile. |
+| `downContent(F)` | every **non-ancestor** frame at depth ≥ F, projected directly (net factor ≤ 1, so it cannot explode). A view-independent cull drops sub-pixel content; a fade band tags size. Candidates come from the frame tree (`_downSources`, on `LevelMap.nearWalk`): F's subtree and, outward, each ancestor's other subtrees, a subtree skipped whole when its cell grown by one misses the tile (invariant 2), and a frame skipped whole when its index's extent misses the tile or its largest object is under the cull (`Document.frameExtent`). The scan rests on invariant 2 as the ring does: a native overhanging its frame's neighbourhood is not found by a down tile. |
 | `nativesIn(F)` | the natives drawn live in F (`placementModel.js`): its own, read straight out of the Document, less those whose picture its shift carries out, plus those carried in (A1 C1). A plain read, because a cut parent's stored rings **are** the rings to paint. |
 | `ringNatives` | the eight cells around each step of the up-chain. A cell is about three screens across, so zooming in slightly off-centre puts on-screen ink into a **sibling** of your ancestor — coarser than you, not an ancestor, so both other paths skipped it and it vanished. Invariant 2 is what makes the ring complete. |
 
@@ -1036,11 +1036,16 @@ one, and an object far *larger* than the view is never selected, because a loop
 drawn on screen cannot contain it — which is the same set of objects whose motion
 the engine cannot record accurately.
 
-`_lassoFind` walks the frame tree **outward** from the active frame, one hop at a
-time, giving every frame one of three answers: *out of reach* (skip it and its
-whole subtree), *enclosed* (take everything below, no per-object test at all), or
-*straddling* (ask its own spatial index). Outward rather than down from the root,
-because that is the only direction in which the scale factor stays a number.
+`_lassoFind` walks the frame tree **outward** from the active frame, giving every
+frame one of three answers: *out of reach* (skip it and its whole subtree),
+*enclosed* (take everything below, no per-object test at all), or *straddling* (ask
+its own spatial index). Outward rather than down from the root, because that is the
+only direction in which the scale factor stays a number. The walk is
+`LevelMap.nearWalk`, shared with the down tiles and the erase's frame pass: a cell's
+co-residents are walked together, and a frame at or above the active frame's depth is
+placed by whole cells from the active frame's ancestor at its depth. Placed by floats
+summed in the active frame's units, a co-resident chain parting 20 levels up was never
+reached and its pieces could not be lassoed (F170).
 Measured on a six-level tower of twelve objects: a loop round the whole canvas
 tests **2** of them. An object with a displacement table is indexed at its stored
 bits and drawn elsewhere, so after the walk every one the active frame can reach is
@@ -1108,10 +1113,26 @@ its runs under the half-pixel minimum, or culled from the table — is a dot of 
 where its picture is, unless it is a re-homed family's kid, which shows through its
 family (F73). A selected frame is one box, its own cell (`_selTable`): a dot under
 2 px, and above it the pieces on screen homed under it are traced from the scene's
-items, a member drawn but too small for a run a dot from its piece; the frame's
-natives are never read. A selected frame that shows nothing that way — its content culled from the
-table, three levels under a lasso made from far away — is a dot where its content is, from its
-subtree's index extents (`_selFrameContent`, F103). There is no budget: every selected piece on screen is
+items, a member drawn but too small for a run a speck at each edge too short to
+trace (a piece whose edges are all seams, a family's window, has none); the frame's
+natives are never read. What a selected frame holds that the list does not draw — content culled from
+the table, three levels under a lasso made from far away — is a speck at each place it lies, never one
+circle round all of it (`_selFramePoints`, F103; Kobin, 2026-11-09). A frame of its subtree whose content
+spans under 2 px is one point from its index extent; any other, or one holding a native with a table of
+its own, is boxed native by native where they are drawn. No speck for what needs none: the selection's own
+ids (their own dots), what is drawn, and a piece of a drawn family in a frame large enough to read, which shows
+through that family's ants
+(F146: a frame of a family's pieces traced as ids drew a circle beside them; a frame counted as shown whole
+hid a dot beside a drawn rectangle's kid). A whole ring shorter than the run minimum (a hole, or an island
+in a piece) is a speck too. A cut shape, a family in more than one frame, is read down to the first ceded square
+too small to read (`_selCutWalk`: `LevelMap.nearWalk` through the frames holding or containing its pieces; Kobin,
+2026-11-09). In a frame whose cell is 2 px or more its drawn pieces are traced, the seams taken from each piece's
+own square and its family's squares one level down. A frame whose cell is under 2 px is one dot and nothing under
+it is read: a ceded square exists only because an erase cut the shape inside it. No dot where the shape's ants end
+at the square, a nick on the outline being invisible at that level. So a decision costs the frames read, not the
+erasures below them (F188). In a frame that is read, a piece the list does not draw is a dot when no piece lies
+under its frame (the chain's leaf, which holds the cut) or none of its family is drawn; a drawn piece never is,
+its square being all seams (his report 18:04). There is no budget: every selected piece on screen is
 outlined, and what a full selection costs is the repaint of its length, which
 the roadmap holds.
 

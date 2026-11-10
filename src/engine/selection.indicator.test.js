@@ -25,7 +25,7 @@ import { useEngines as hUseEngines, mkEngine as hMkEngine, drawStroke as hDrawSt
 import KobinEngine from "./KobinEngine";
 import { loopRuns, runLength, circleLoop, onRectEdge } from "./geometry/antRuns";
 import { rectTol } from "./rectMath";
-import { rectLoop, subtractShape } from "./geometry/arcShape";
+import { rectLoop, subtractShape, reverseLoop } from "./geometry/arcShape";
 
 jest.setTimeout(60000);
 
@@ -642,7 +642,11 @@ describe("selection indicator (engine)", () => {
         expect(table.cross.has(parent.id)).toBe(true);
         expect(table.byLevel.get(kid.id).boxes.size).toBe(0);
         const got = E._selectionAnts();
-        expect(got.marks.length).toBe(0);
+        // No dot for the frame; the piece, a leaf of the family too small to draw, is a speck of its own (2026-11-09).
+        expect(got.marks.length).toBe(1);
+        expect(Number(/A([\d.]+),/.exec(got.marks[0].d)[1])).toBeLessThanOrEqual(1);
+        const m = markCentrePx(got, got.marks[0]), p = E.cam.levelPointToScreen(kid.id, 0, 0);
+        expect(Math.hypot(m[0] - p[0], m[1] - p[1])).toBeLessThan(1.5);
         expect(got.runs.length).toBeGreaterThan(0);
     });
 
@@ -923,6 +927,233 @@ describe("a selected frame in the indicator (subtree O(1), 2026-09-15)", () => {
         // F's cell is 32 px here: the dot is on the content, not the cell's centre
         const cell = E.cam.levelPointToScreen(F.id, 0, 0);
         expect(Math.hypot(cell[0] - pic[0], cell[1] - pic[1])).toBeGreaterThan(3);
+    });
+    // OPEN-FLAGS F146 (Kobin's reports 2026-10-07 03:17 and 2026-11-09 05:53, "a circle circling nothing"): a family
+    // selected by id with its pieces' frame selected whole. `_selTable` lists the frame's piece as an id, so it was traced
+    // as the selection's own and the frame never counted as shown: F103's dot circled ink that already had ants.
+    test("t5 a selected frame whose content is drawn and traced as the selection's own ids has no dot", () => {
+        const E = hMkEngine(800, 600);
+        const X = E.lm.cellChild("0", 0, 1);                                 // 320 px at inScale 10
+        const piece = (frame, x, y, w, h) => E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), editId: 9999,
+            loops: rectLoop({ left: x, top: y, right: x + w, bottom: y + h }), color: "#123", opacity: 1 }, frame);
+        const kid = piece(X.id, -40000, -4000, 80000, 8000);                // 195 x 20 px, around (400, 300)
+        const parent = piece("0", -8, 20, 16, 4);                            // 160 x 40 px, around (400, 200)
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: 400, inPanY: -20 });
+        E.setTool("select");
+        E._setSelection([parent.id], [X.id]);
+        const { got } = markAt(E);
+        expect(E._selTable(E.selection).ids.has(kid.id)).toBe(true);        // the family's piece is an id
+        expect(E._lastList.some((p) => p.id === kid.id)).toBe(true);
+        expect(got.runs.length).toBeGreaterThan(0);
+        expect(got.marks.length).toBe(0);                                    // red before: one dot, 98 px across the kid
+    });
+    // F146's third defect: F103's dot was placed by the frame's extent through the frame's shift, where a native with a
+    // table of its own is stored, not drawn. A move at the native's home writes its table (above it, the address).
+    test("t6 the dot for a selected frame's culled content sits where a moved native is drawn", () => {
+        const E = hMkEngine(800, 600);
+        const F = E.lm.cellChild("0", 4, 4);
+        const o = rect(E, F.id, 1000, 1000, 1, 1);                          // 0.09 px at "0"'s deepest zoom: culled
+        E.cam.set({ activeLevel: 1, frame: F.id, inScale: 0.05, inPanX: 400, inPanY: 300 });
+        E.setTool("select");
+        E._setSelection([o.id]);
+        E._render();
+        E._dragSel = { start: [300, 300], moved: false };
+        E._beginHold();
+        for (let k = 1; k <= 8; k++) E._dragSelection(300 + 50 * k, 300 + 25 * k);   // 8000, 4000 units of F
+        E._pointerUp();
+        expect(E.doc.getById(o.id).level).toBe(F.id);
+        expect(E.doc.hasOwnTable(o)).toBe(true);
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: -880, inPanY: -980 });   // F's 320 px cell around (400, 300)
+        E._setSelection([], [F.id]);
+        const { got, c } = markAt(E);
+        expect(E._lastList.some((p) => p.id === o.id)).toBe(false);
+        const pic = pictureCentrePx(E, o, F.id), bits = bitsCentrePx(E, o, F.id);
+        expect(Math.hypot(pic[0] - bits[0], pic[1] - bits[1])).toBeGreaterThan(20);
+        expect(got.marks.length).toBe(1);
+        expect(Math.hypot(c[0] - pic[0], c[1] - pic[1])).toBeLessThan(1.5);   // red before: on the stored bits
+    });
+    // F103's dot for culled content is a speck at each place it lies, never one circle round all of it (Kobin,
+    // 2026-11-09: "I don't like the big fallback circle").
+    test("t7 a selected frame's culled content far apart is a speck at each place, not a circle round both", () => {
+        const E = hMkEngine(800, 600);
+        const X = E.lm.cellChild("0", 0, 1);                                 // 320 px at inScale 10, around (400, 300)
+        const a = rect(E, X.id, -40000, 0, 1, 1), b = rect(E, X.id, 40000, 0, 1, 1);   // 0.09 px at "0"'s deepest zoom: culled
+        const Y = E.lm.cellChild(X.id, -1250, 0);                            // a level further down, on a's place
+        const c = rect(E, Y.id, 0, 0, 100, 100);
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: 400, inPanY: -20 });
+        E.setTool("select");
+        E._setSelection([], [X.id]);
+        const { got } = markAt(E);
+        for (const o of [a, b, c]) expect(E._lastList.some((p) => p.id === o.id)).toBe(false);
+        expect(got.marks.length).toBe(2);                                    // red before: one circle, 98 px in radius
+        const radiusPx = (m) => Number(/A([\d.]+),/.exec(m.d)[1]);
+        for (const m of got.marks) expect(radiusPx(m)).toBeLessThanOrEqual(1);
+        const at = got.marks.map((m) => markCentrePx(got, m));
+        for (const [o, L] of [[a, X.id], [b, X.id], [c, Y.id]]) {
+            const p = pictureCentrePx(E, o, L);
+            expect(at.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1.5)).toBe(true);
+        }
+    });
+    // Kobin's report 2026-11-09 14:15: a lasso took a rectangle's pieces by id and the frame holding its drawn kid and,
+    // deeper, a dot of its own; the frame counted as shown and the dot had no speck. A speck per undrawn thing; the
+    // rectangle's deep kid, its ceded leaf, holds a cut and has one too (t10).
+    test("t8 a culled dot in a selected frame beside a drawn object's pieces is a speck, and so is the object's culled leaf", () => {
+        const E = hMkEngine(800, 600);
+        const X = E.lm.cellChild("0", 0, 1);                                 // 320 px at inScale 10, around (400, 300)
+        const piece = (frame, x, y, w, h, editId) => E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), ...(editId ? { editId } : {}),
+            loops: rectLoop({ left: x, top: y, right: x + w, bottom: y + h }), color: "#123", opacity: 1 }, frame);
+        const parent = piece("0", -8, 20, 16, 4, 9999);                      // drawn: 160 x 40 px around (400, 200)
+        const kid = piece(X.id, -40000, -4000, 80000, 8000, 9999);           // drawn: 195 x 20 px around (400, 300)
+        const Z = E.lm.cellChild(X.id, 1000, 0), deepKid = piece(Z.id, 0, 0, 100, 100, 9999);   // culled, at x 478
+        const Y = E.lm.cellChild(X.id, -1250, 100), dot = piece(Y.id, 0, 0, 100, 100);         // culled, at (302, 308)
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: 400, inPanY: -20 });
+        E.setTool("select");
+        E._setSelection([parent.id], [X.id]);
+        const { got } = markAt(E);
+        for (const o of [deepKid, dot]) expect(E._lastList.some((p) => p.id === o.id)).toBe(false);
+        expect(E._lastList.some((p) => p.id === kid.id)).toBe(true);
+        expect(got.runs.length).toBeGreaterThan(0);
+        expect(got.marks.length).toBe(2);                                    // red before: none (this morning), one circle round all (committed)
+        const at = got.marks.map((m) => markCentrePx(got, m));
+        for (const [o, L] of [[dot, Y.id], [deepKid, Z.id]]) {
+            const p = pictureCentrePx(E, o, L);
+            expect(at.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1.5)).toBe(true);
+        }
+        for (const m of got.marks) expect(Number(/A([\d.]+),/.exec(m.d)[1])).toBeLessThanOrEqual(1);
+    });
+    // Kobin's report 2026-11-09 17:41: the hole round an island, too small for a run, showed nothing until a zoom in
+    // made its ring half a pixel long.
+    test("t9 a selected object's hole too small to trace is a speck where it is", () => {
+        const E = hMkEngine(800, 600);
+        const loops = rectLoop({ left: 100, top: 100, right: 300, bottom: 300 }).concat(rectLoop({ left: 250, top: 150, right: 250.05, bottom: 150.05 }).map(reverseLoop));
+        const o = E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), loops, color: "#123", opacity: 1 }, "0");
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 1, inPanX: 0, inPanY: 0 });
+        E.setTool("select");
+        E._setSelection([o.id]);
+        const { got } = markAt(E);
+        expect(got.runs.length).toBeGreaterThan(0);
+        expect(got.marks.length).toBe(1);                                    // red before: none
+        const m = markCentrePx(got, got.marks[0]);
+        expect(Math.hypot(m[0] - 250.025, m[1] - 150.025)).toBeLessThan(1);
+    });
+    // Kobin: "if the object has a ceded section, at the most descended child (the descendant without children of its
+    // own), it would be guaranteed that additional edges should be shown". The leaf holds the cut; a kid above it does not.
+    test("t10 an undrawn ceded leaf of a drawn object is a speck; an undrawn kid with one under it is none", () => {
+        const E = hMkEngine(800, 600);
+        const X = E.lm.cellChild("0", 0, 1);                                 // 320 px at inScale 10, around (400, 300)
+        const Y = E.lm.cellChild(X.id, 1250, 0), Z = E.lm.cellChild(Y.id, 0, 0);
+        const piece = (frame, x, y, w, h) => E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), editId: 9999,
+            loops: rectLoop({ left: x, top: y, right: x + w, bottom: y + h }), color: "#123", opacity: 1 }, frame);
+        const parent = piece("0", -8, 20, 16, 4);                            // drawn: 160 x 40 px around (400, 200)
+        const kid = piece(X.id, -40000, 0, 1, 1);                            // culled, at (302, 300), with the leaf under X
+        const leaf = piece(Z.id, 0, 0, 100, 100);                            // culled, at (498, 300)
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 10, inPanX: 400, inPanY: -20 });
+        E.setTool("select");
+        E._setSelection([parent.id]);
+        const { got } = markAt(E);
+        for (const o of [kid, leaf]) expect(E._lastList.some((p) => p.id === o.id)).toBe(false);
+        expect(got.marks.length).toBe(1);                                    // red before: none
+        const m = markCentrePx(got, got.marks[0]), p = pictureCentrePx(E, leaf, Z.id);
+        expect(Math.hypot(m[0] - p[0], m[1] - p[1])).toBeLessThan(1.5);
+    });
+    // Kobin's report 2026-11-09 18:04: a drawn ceded leaf, its square all seams and its hole too small for a run, was
+    // circled whole, taken as a selected id (t10's rule) and as a piece of a selected frame (F73's rule from the piece).
+    test("t11 a drawn ceded leaf whose square is all seams is its hole's speck, never a circle round the square", () => {
+        const E = hMkEngine(800, 600);
+        const K = E.lm.cellChild("0", 2, 1);                                 // [0, 4096] of K is (64..65, 32..33) of "0"
+        const key = E.doc.allocId();
+        const P = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1,
+            loops: subtractShape(rectLoop({ left: 60, top: 28, right: 69, bottom: 37 }), rectLoop({ left: 64, top: 32, right: 65, bottom: 33 })).loops };
+        const Q = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1,
+            loops: subtractShape(rectLoop({ left: 0, top: 0, right: 4096, bottom: 4096 }), rectLoop({ left: 2000, top: 2000, right: 2008, bottom: 2008 })).loops,
+            attachRect: { x0: 0, y0: 0, x1: 4096, y1: 4096 } };
+        E.doc.add(P, "0"); E.doc.add(Q, K.id);
+        E.cam.set({ activeLevel: 0, frame: "0", inScale: 5, inPanX: 400 - 64.5 * 5, inPanY: 300 - 32.5 * 5 });   // the square 5 px across
+        E.setTool("select");
+        const hole = E.cam.levelPointToScreen(K.id, 2004, 2004);
+        for (const [ids, frames] of [[[P.id], []], [[], [K.id]]]) {
+            E._setSelection(ids, frames);
+            const { got, c } = markAt(E);
+            expect(E._lastList.some((p) => p.id === Q.id)).toBe(true);
+            expect(got.marks.length).toBe(1);
+            expect(Number(/A([\d.]+),/.exec(got.marks[0].d)[1])).toBeLessThanOrEqual(1);   // red before: 2.5 px round the square
+            expect(Math.hypot(c[0] - hole[0], c[1] - hole[1])).toBeLessThan(1);
+        }
+    });
+    // Kobin, 2026-11-09: "these shouldn't require a full walk ... if a sub-pixel cede of an eraser exists, that means
+    // there is erased detail beneath it which should be shown as a dot". A ceded square under 2 px is one dot and nothing
+    // under it is read, so a decision's work does not grow with the erasures below it (OPEN-FLAGS F188).
+    test("t12 a cut family's decision stops at the first square under 2 px: 1,000 erasures below cost what one does", () => {
+        const C = 65536, sq = (x0, y0, x1, y1) => rectLoop({ left: x0, top: y0, right: x1, bottom: y1 })[0];
+        const hole = (i, j, h = 16) => reverseLoop(sq(i * 32 - h, j * 32 - h, i * 32 + h, j * 32 + h));
+        // A home, a chain of four kids, and under the fourth N chains of five more: N erasures nine levels down.
+        const work = (N) => {
+            const E = hMkEngine(800, 600);
+            const key = E.doc.allocId(), cell = sq(-C, -C, C, C);
+            const add = (level, loops, kid) => E.doc.add({ type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1, loops,
+                ...(kid ? { attachRect: { x0: -C, y0: -C, x1: C, y1: C } } : {}) }, level);
+            const home = add("0", [sq(0, 0, 1000, 1000), hole(10, 10)], false);
+            let F = E.lm.cellChild("0", 10, 10);
+            for (let d = 1; d < 4; d++) { add(F.id, [cell, hole(0, 0)], true); F = E.lm.cellChild(F.id, 0, 0); }
+            const at = [];
+            for (let i = 0; i < N; i++) at.push([(i % 64) * 4 - 128, Math.floor(i / 64) * 4 - 128]);
+            add(F.id, [cell, ...at.map(([i, j]) => hole(i, j))], true);
+            for (const [i, j] of at) {
+                let G = E.lm.cellChild(F.id, i, j);
+                for (let d = 5; d < 9; d++) { add(G.id, [cell, hole(0, 0)], true); G = E.lm.cellChild(G.id, 0, 0); }
+                add(G.id, [cell, reverseLoop(sq(-1, -1, 1, 1))], true);
+            }
+            E.cam.set({ activeLevel: 0, frame: "0", inScale: 0.4, inPanX: 0, inPanY: 0 });   // the first kid's square 12.8 px, the second's 0.003
+            E.setTool("select");
+            E._setSelection([home.id]);
+            E._render();
+            const members = E._selTable(E.selection).ids.size;               // the table is made once a selection
+            const n = { placed: 0, asked: 0, got: 0 };
+            const pn = E.stage.placeNative, nw = E.lm.nearWalk, gb = E.doc.getById;
+            E.stage.placeNative = function (...a) { n.placed++; return pn.apply(this, a); };
+            E.lm.nearWalk = function (F0, fn) { return nw.call(this, F0, (...a) => { n.asked++; return fn(...a); }); };
+            E.doc.getById = function (...a) { n.got++; return gb.apply(this, a); };
+            E._selDec = null;
+            const got = E._selectionAnts();
+            E.stage.placeNative = pn; E.lm.nearWalk = nw; E.doc.getById = gb;
+            return { members, ...n, runs: got.runs.length, marks: got.marks.length };
+        };
+        const one = work(1), many = work(1000);
+        expect(one.members).toBe(10);
+        expect(many.members).toBe(5005);
+        expect(one.runs).toBeGreaterThan(0);
+        expect(one.marks).toBe(1);                                           // the square under the first kid's
+        expect(one.asked).toBeGreaterThan(0);
+        expect({ ...many, members: 0 }).toEqual({ ...one, members: 0 });   // red before: a placement per member, 5,000 more
+    });
+    // His exception: "if its already on the edge ... additional ants wouldn't be needed as the nick would be invisible".
+    test("t13 a ceded square under 2 px is a dot inside the ink, and none where the family's ants end at it", () => {
+        const C = 65536;
+        const look = (i, j) => {
+            const E = hMkEngine(800, 600);
+            const K = E.lm.cellChild("0", i, j), key = E.doc.allocId();
+            const cell = { left: i * 32 - 16, top: j * 32 - 16, right: i * 32 + 16, bottom: j * 32 + 16 };
+            const P = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1,
+                loops: subtractShape(rectLoop({ left: 0, top: 0, right: 4000, bottom: 4000 }), rectLoop(cell)).loops };
+            // The kid: the square's ink, below the outline y = 0 of "0" where the square straddles it, less a small cut.
+            const top = Math.max(-C, -j * 32 * 4096);
+            const Q = { type: "shape", origin: "native", id: E.doc.allocId(), editId: key, color: "#123", opacity: 1,
+                loops: subtractShape(rectLoop({ left: -C, top, right: C, bottom: C }), rectLoop({ left: -100, top: 20000, right: 100, bottom: 20200 })).loops,
+                attachRect: { x0: -C, y0: -C, x1: C, y1: C } };
+            E.doc.add(P, "0"); E.doc.add(Q, K.id);
+            E.cam.set({ activeLevel: 0, frame: "0", inScale: 0.05, inPanX: 300, inPanY: 200 });   // the square 1.6 px across
+            E.setTool("select");
+            E._setSelection([P.id]);
+            return { E, K, got: markAt(E).got };
+        };
+        const inside = look(10, 10);
+        expect(inside.got.runs.length).toBeGreaterThan(0);
+        expect(inside.got.marks.length).toBe(1);
+        const c = markCentrePx(inside.got, inside.got.marks[0]), want = inside.E.cam.levelPointToScreen(inside.K.id, 0, 0);
+        expect(Math.hypot(c[0] - want[0], c[1] - want[1])).toBeLessThan(1.5);
+        const nick = look(10, 0);                                            // the square straddles the outline
+        expect(nick.got.runs.length).toBeGreaterThan(0);
+        expect(nick.got.marks.length).toBe(0);
     });
 });
 

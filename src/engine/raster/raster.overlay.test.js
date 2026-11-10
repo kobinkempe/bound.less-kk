@@ -376,6 +376,27 @@ describe("G7 — the edge runs crawl in phase with the body ants", () => {
         }
     });
 
+    // Kobin, 2026-11-09: "The edges of the screen are just showing static ants". The test above steps the camera at
+    // every phase; with the camera still, a tick repainted the body and left the strips at the last step's phase.
+    test("with the camera still, each crawl tick moves the strips' dashes with the body's", () => {
+        const { layer, timers } = mkLayer();
+        const dec = mkDec("edges", { edges: [{ side: "top", from: 200, to: 800, chevron: false }] });
+        layer.show(dec, mkView());
+        timers.resume();
+        const strip = layer._strips[SIDES_TOP], row = Math.round(ANT_LOOK.W / 2), iv = new Float64Array(512);
+        for (let k = 1; k <= 4; k++) {
+            timers.tick();
+            expect(layer._phase).toBe(k);
+            const got = rowIntervals(strip.buf, row).map(([a, b]) => [a - 200, b - 200]);
+            const n = dashIntervals(600, ANT_LOOK.ON, ANT_LOOK.OFF, k, iv, true);
+            expect(got.length).toBe(n);
+            for (let i = 0; i < n; i++) {
+                expect(Math.abs(got[i][0] - iv[2 * i])).toBeLessThanOrEqual(0.75);   // red before: phase 0's dashes
+                expect(Math.abs(got[i][1] - iv[2 * i + 1])).toBeLessThanOrEqual(0.75);
+            }
+        }
+    });
+
     test("all four sides are painted, each in its own strip, and nowhere else", () => {
         const { layer } = mkLayer();
         const edges = [

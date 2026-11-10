@@ -725,47 +725,17 @@ export default class TileStore {
         return flattenAll(objs);
     }
 
-    /**
-     * Non-ancestor frames at or below F whose reach meets `rect`, coarse first. Walk co-residents together (F172). A
-     * frame at or above F's depth is placed by digits, whole frames from F's own cell at its depth, against `rect`
-     * climbed there: summed in F's units, a sibling's place k levels up cancels ~2^(16+12k) and the neighbour's ink
-     * was pruned from about five levels up (OPEN-FLAGS F179). Below F the float placement is small and stays.
-     */
+    /** Non-ancestor frames at or below F whose reach meets `rect`, coarse first (`LevelMap.nearWalk`: F172, F179). */
     _downSources(F, rect) {
         const Fd = this._depth(F);
-        const out = [], seen = new Set();
-        const take = (id) => { if (this._depth(id) >= Fd && this.doc.count(id) && !this.lm.sameCell(id, F)) out.push(id); };
-        const deep = (id, s, tx, ty) => {
-            if (seen.has(id)) return;
+        const out = [], rects = [rect];   // `rect` in the units of F's resident k levels up
+        this.lm.nearWalk(F, (f, k, s, x, y, a) => {
+            const r = rects[k] !== undefined ? rects[k] : (rects[k] = this.lm.mapRectF(rect, F, a.id));
             const reach = REACH * s * (1 + 1e-9);
-            if (tx + reach < rect.left || tx - reach > rect.right || ty + reach < rect.top || ty - reach > rect.bottom) return;
-            seen.add(id); take(id);
-            for (const c of this.lm.childrenOf(id)) if (c.centre) deep(c.id, s / R, c.centre.x * s + tx, c.centre.y * s + ty);
-        };
-        const anc = [], rects = [];   // k levels up: F's cell there, and `rect` in its units
-        const flat = (id, k, nx, ny) => {
-            if (seen.has(id)) return;
-            const r = rects[k], reach = REACH * (1 + 1e-9), cx = nx * W, cy = ny * W;
-            if (cx + reach < r.left || cx - reach > r.right || cy + reach < r.top || cy - reach > r.bottom) return;
-            seen.add(id); take(id);
-            for (const c of this.lm.childrenOf(id)) {
-                if (!c.centre) continue;
-                if (k === 0) deep(c.id, 1 / R, cx + c.centre.x, cy + c.centre.y);
-                else flat(c.id, k - 1, nx * R + c.cell.i - anc[k - 1].cell.i, ny * R + c.cell.j - anc[k - 1].cell.j);
-            }
-        };
-        for (let f = this.lm.residentOf(F); f; f = f.parent != null ? this.lm.residentOf(f.parent) : null) {
-            anc.push(f);
-            rects.push(anc.length === 1 ? rect : this.lm.mapRectF(rect, F, f.id));
-            if (!f.centre) break;
-        }
-        for (const f of this.lm.cellFrames(F)) flat(f.id, 0, 0, 0);
-        for (let k = 0; k + 1 < anc.length && rects[k + 1]; k++) {
-            const child = anc[k];
-            for (const p of this.lm.cellFrames(anc[k + 1].id)) for (const sib of this.lm.childrenOf(p.id)) {
-                if (!this.lm.sameCell(sib.id, child.id) && sib.centre) flat(sib.id, k, sib.cell.i - child.cell.i, sib.cell.j - child.cell.j);
-            }
-        }
+            if (!r || x + reach < r.left || x - reach > r.right || y + reach < r.top || y - reach > r.bottom) return false;
+            if (this._depth(f.id) >= Fd && this.doc.count(f.id) && !this.lm.sameCell(f.id, F)) out.push(f.id);
+            return true;
+        });
         out.sort((a, b) => this._depth(a) - this._depth(b));
         return out;
     }

@@ -29,8 +29,8 @@ import {
 } from "./geometry/antRuns";
 import { rectSpan, rectTol } from "./rectMath";
 import { translateLoops } from "./geometry/arcShape";
-import { HALF_W } from "./frameLattice";
-import { withShifted } from "./placementModel";
+import { HALF_W, R as CROSS_RATIO } from "./frameLattice";
+import { withShifted, reachBox } from "./placementModel";
 
 
 // ---- selection indicator ----------------------------------------------------
@@ -65,6 +65,24 @@ const SEL_MIN_TRACE_PX = 0.5;
 // on every frame of the crawl; a quarter screen is the same order as the
 // tile changes that re-render the drawing anyway.
 const SEL_KEEP_FRACTION = 0.5;
+// Points in one `max` square of a grid whose union stays within `max`, unioned: F103's points, so a scatter stays a
+// scatter of specks. O(points).
+function mergePoints(rects, max) {
+    const out = [], cells = new Map();
+    for (const r of rects) {
+        const k = Math.floor((r.left + r.right) / 2 / max) + "," + Math.floor((r.top + r.bottom) / 2 / max);
+        const here = cells.get(k) || [];
+        let hit = false;
+        for (const c of here) {
+            const l = Math.min(c.left, r.left), t = Math.min(c.top, r.top), rr = Math.max(c.right, r.right), b = Math.max(c.bottom, r.bottom);
+            if (rr - l <= max && b - t <= max) { c.left = l; c.top = t; c.right = rr; c.bottom = b; hit = true; break; }
+        }
+        if (hit) continue;
+        const c = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        here.push(c); cells.set(k, here); out.push(c);
+    }
+    return out;
+}
 // Rects within `gap` of each other, unioned: what several specks on one pixel become.
 function mergeClose(rects, gap) {
     const out = [];
@@ -528,6 +546,13 @@ class Overlays {
      * ants are the family's edge, drawn from the pieces, and a frame holding
      * nothing else is not marked at all.
      *
+     * A CUT SHAPE IS READ DOWN TO THE FIRST SQUARE UNDER A MARK (`_selCutWalk`;
+     * Kobin, 2026-11-09). Its pieces in frames large enough to read are traced;
+     * a ceded square whose cell is under SEL_FRAME_MARK_PX is one dot — it
+     * exists because an erase cut the shape inside it — and nothing under it
+     * is read; no dot where the shape's ants end at the square, a nick on the
+     * outline being invisible at that level (OPEN-FLAGS F188).
+     *
      * A SELECTED FRAME (the subtree move, DESIGN.md §10) is one entry whose
      * box is its own cell: a dot under SEL_FRAME_MARK_PX, and above it the
      * pieces on screen homed under it are traced, a piece too small for a run
@@ -581,11 +606,15 @@ class Overlays {
      * dropped, with each frame's union boxes of its selected members (in that
      * frame's units, one box per displacement table — F68: a translation keeps a
      * box a box, so `_selFrameRect` maps each once) and the set of every member
-     * id. Cached against the selection object and the document's revision.
+     * id. A family in more than one frame, a cut shape, is `cross`: `under` is every
+     * frame holding or containing one of its members, the tree `_selCutWalk` reads,
+     * and `inner` those containing one (a member's frame not in it is a leaf);
+     * `moved` its members with a table of their own; `plain` every other id. Cached
+     * against the selection object, the document's revision and the lattice's addresses.
      */
     _selTable(s) {
         const c = this._selTableCache;
-        if (c && c.sel === s && c.rev === this.doc.rev) return c.table;
+        if (c && c.sel === s && c.rev === this.doc.rev && c.epoch === this.lm.addrEpoch) return c.table;
         const seen = new Set();
         const byLevel = new Map();
         const ids = new Set();
@@ -593,7 +622,8 @@ class Overlays {
         // Members of a family that spans more than one frame: they are drawn
         // through their pieces whatever their frame's mark, and do not count
         // toward it.
-        const cross = new Set();
+        const cross = new Set(), under = new Set(), inner = new Set(), moved = [], plain = [];
+        const up = (f) => (f.parent != null ? this.lm.frame(f.parent) : null);
         for (const id of s.ids) {
             const group = this.doc.editGroup(id);
             let spans = false;
@@ -606,7 +636,22 @@ class Overlays {
                 let e = byLevel.get(m.level);
                 if (!e) { e = { objs: [], boxes: new Map() }; byLevel.set(m.level, e); }
                 e.objs.push(m.obj);
-                if (spans) { cross.add(m.obj.id); continue; }
+                if (spans) {
+                    cross.add(m.obj.id);
+                    // Its frame and every frame above; one already there has its own above it.
+                    let f = this.lm.frame(m.level);
+                    if (f && !under.has(f.id)) {
+                        under.add(f.id);
+                        for (f = up(f); f; f = up(f)) {
+                            const had = under.has(f.id);
+                            under.add(f.id); inner.add(f.id);
+                            if (had) break;
+                        }
+                    }
+                    if (this.doc.hasOwnTable(m.obj)) moved.push(m.obj);
+                    continue;
+                }
+                plain.push(m.obj.id);
                 const b = bboxOf(m.obj, this.store.live);
                 if (!b) continue;
                 const T = this.doc.tableOf(m.obj, m.level);
@@ -632,9 +677,52 @@ class Overlays {
             const b = withShifted({ left: -HALF_W, top: -HALF_W, right: HALF_W, bottom: HALF_W }, fr.shift ? fr.shift[0] : 0, fr.shift ? fr.shift[1] : 0);
             e.boxes.set("frame:" + f, { nat: null, box: { x0: b.left, y0: b.top, x1: b.right, y1: b.bottom } });
         }
-        const table = { byLevel, ids, levelOf, cross, frames, count: seen.size + frames.size };
-        this._selTableCache = { sel: s, rev: this.doc.rev, table };
+        // The frames with a box, which may be one mark: a cut family's have none, and a decision reads only these.
+        const boxed = [...byLevel].filter(([, e]) => e.boxes.size);
+        const table = { byLevel, boxed, ids, levelOf, cross, under, inner, moved, plain, frames, count: seen.size + frames.size };
+        this._selTableCache = { sel: s, rev: this.doc.rev, epoch: this.lm.addrEpoch, table };
         return table;
+    }
+
+    /**
+     * The selected cut families as seen from frame F (Kobin, 2026-11-09): `nearWalk` through the frames holding or
+     * containing their members (`table.under`), those in reach of `win`. A frame whose cell is under SEL_FRAME_MARK_PX
+     * is ONE dot and nothing under it is read: a ceded square exists because an erase cut the shape inside it. Returns
+     * the dots (`at` where the frame's members are drawn, no wider than its cell, else its cell; `sq` their squares), the frames read (`seen`),
+     * and each family's squares by depth, placed in F's units: the seams of its pieces a level up (`squares`, keyed
+     * `editKey:depth`). O(frames read and their kids), whatever lies under a dot (OPEN-FLAGS F188).
+     */
+    _selCutWalk(table, F, sc, win) {
+        const dots = [], seen = [], squares = new Map(), wins = [win];
+        const union = (a, r) => (a ? { left: Math.min(a.left, r.left), top: Math.min(a.top, r.top), right: Math.max(a.right, r.right), bottom: Math.max(a.bottom, r.bottom) } : r);
+        this.lm.nearWalk(F, (f, k, s, x, y, a) => {
+            if (!table.under.has(f.id)) return false;
+            const w = wins[k] !== undefined ? wins[k] : (wins[k] = this.lm.mapRectF(win, F, a.id));
+            const reach = reachBox(f, s, x, y);
+            if (!w || reach.right < w.left || reach.left > w.right || reach.bottom < w.top || reach.top > w.bottom) return false;
+            const dot = !k && 2 * HALF_W * s * sc < SEL_FRAME_MARK_PX;
+            const info = table.byLevel.get(f.id);
+            let at = null, sq = null;
+            for (const o of info ? info.objs : []) {
+                if (!table.cross.has(o.id)) continue;
+                const P = this.stage.placeNative(o, F), A = o.attachRect;
+                const r = A ? P.fromStored({ left: A.x0, top: A.y0, right: A.x1, bottom: A.y1 }) : null;
+                if (r) {
+                    const key = this.doc.editKey(o) + ":" + f.depth, list = squares.get(key);
+                    if (list) list.push(clipRect(r)); else squares.set(key, [clipRect(r)]);
+                    if (dot) sq = union(sq, r);
+                }
+                const b = dot ? P.box() : null;
+                if (b) at = union(at, b);
+            }
+            if (!dot) { seen.push(f.id); return true; }
+            const h = HALF_W * s, cx = at ? (at.left + at.right) / 2 : x, cy = at ? (at.top + at.bottom) / 2 : y;
+            const cell = { left: x - h, top: y - h, right: x + h, bottom: y + h };
+            const here = at ? { left: Math.max(at.left, cx - h), top: Math.max(at.top, cy - h), right: Math.min(at.right, cx + h), bottom: Math.min(at.bottom, cy + h) } : cell;
+            dots.push({ at: here, sq: sq || at || cell });
+            return false;
+        });
+        return { dots, seen, squares };
     }
     /**
      * Where a frame's selected members are DRAWN, in F's units: each box through a member of its
@@ -653,15 +741,32 @@ class Overlays {
     }
 
     /**
-     * A selected frame's content where it is drawn, in F's units: the union of its subtree's frames' own
-     * natives (`_selFrameInk`). O(frames); no list is read (F103).
+     * Where a selected frame's content that `skip` leaves is, as points in F's units, those in `win` (F103). A frame of
+     * its subtree whose natives span under SEL_FRAME_MARK_PX here is one point, its index extent through its shift; any
+     * other is boxed native by native where each is drawn, and so is a frame holding a native with a table of its own,
+     * whose extent is where those are stored (F146). A frame wholly outside `win` is not read. A native over
+     * SEL_OBJECT_DOT_PX here is no point.
      */
-    _selFrameContent(f, F) {
-        let out = null;
+    _selFramePoints(f, F, win, skip = () => false) {
+        const out = [], sc = this.cam.inScale;
+        const inWin = (r) => !!r && r.right >= win.left && r.left <= win.right && r.bottom >= win.top && r.top <= win.bottom;
+        const span = (r) => Math.max(r.right - r.left, r.bottom - r.top) * sc;
+        let moved = null;
         this.lm.walk(f, (g) => {
-            const r = this._selFrameInk(g, F);
-            if (!r) return;
-            out = out ? { left: Math.min(out.left, r.left), top: Math.min(out.top, r.top), right: Math.max(out.right, r.right), bottom: Math.max(out.bottom, r.bottom) } : r;
+            if (!this.doc.count(g.id)) return;
+            if (!moved) {
+                moved = new Set();
+                for (const id of this.doc.offsetIds()) { const rec = this.doc.getById(id); if (rec) moved.add(String(rec.level)); }
+            }
+            const ext = moved.has(g.id) ? null : this._selFrameInk(g, F);
+            if (ext && !inWin(ext)) return;
+            const left = this.doc.list(g.id).filter((o) => !o.erase && !skip(o));
+            if (!left.length) return;
+            if (ext && span(ext) < SEL_FRAME_MARK_PX) { out.push(ext); return; }
+            for (const o of left) {
+                const r = this.stage.placeNative(o, F).box();
+                if (inWin(r) && span(r) < SEL_OBJECT_DOT_PX) out.push(r);
+            }
         });
         return out;
     }
@@ -740,10 +845,36 @@ class Overlays {
         const win = this.cam.frameWindow(SEL_KEEP_FRACTION * Math.max(this.width, this.height) / sc);
         const keep = { x0: win.left, y0: win.top, x1: win.right, y1: win.bottom };
 
+        // What of the selection the list draws, each native's family key by id: these and their families need no speck
+        // (F103, F146).
+        const keyOf = new Map(), drawnFamilies = new Set();
+        // The cut families' walk. A frame from depth `deepAt` down has a cell under SEL_FRAME_MARK_PX: what is homed there
+        // shows as its square's dot, never as a piece.
+        const cut = table.under.size ? this._selCutWalk(table, F, sc, win) : null;
+        let deepAt = this.lm.frame(F).depth;
+        for (let px = 2 * HALF_W * sc; px >= SEL_FRAME_MARK_PX; px /= CROSS_RATIO) deepAt++;
+        const deep = (level) => { const f = this.lm.frame(level); return !!f && f.depth >= deepAt; };
+        // Where the cut families' open runs end, by 2 px cell: a dot there would sit on traced ants.
+        const ends = new Map(), endCell = SEL_FRAME_MARK_PX / sc;
+        const noteEnd = (p) => {
+            const k = Math.floor(p[0] / endCell) + "," + Math.floor(p[1] / endCell), a = ends.get(k);
+            if (a) a.push(p); else ends.set(k, [p]);
+        };
+        const endIn = (r) => {
+            const t = SEL_MIN_RUN_PX / sc, x0 = r.left - t, x1 = r.right + t, y0 = r.top - t, y1 = r.bottom + t;
+            if (!ends.size || !(x1 - x0 < 8 * endCell && y1 - y0 < 8 * endCell)) return false;
+            for (let i = Math.floor(x0 / endCell); i <= Math.floor(x1 / endCell); i++) {
+                for (let j = Math.floor(y0 / endCell); j <= Math.floor(y1 / endCell); j++) {
+                    for (const p of ends.get(i + "," + j) || []) if (p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1) return true;
+                }
+            }
+            return false;
+        };
+        const inWin = (r) => !!r && r.right >= win.left && r.left <= win.right && r.bottom >= win.top && r.top <= win.bottom;
+
         // ---- frames that are one mark -------------------------------------------
         const marked = new Set();
-        for (const [L, info] of table.byLevel) {
-            if (!info.boxes.size) continue;
+        for (const [L, info] of table.boxed) {
             const r = this._selFrameRect(info, L, F);
             if (!r) { marked.add(L); continue; }         // unreachable from here: nothing to show
             const span = Math.max(r.right - r.left, r.bottom - r.top) * sc;
@@ -764,13 +895,19 @@ class Overlays {
         const frameOf = (id) => this._selFrameOf(id, table, underFrame);
         const seamCache = new Map();
         const traced = new Set();
-        const small = [];
-        const shownFrames = new Set();           // selected frames with a run or a dot from a piece
+        const small = [], shortOf = new Map();
         for (const item of items) {
             const own = table.ids.has(item.id);
             const fr = own ? null : frameOf(item.id);
             if (!own && !fr) continue;
-            if (own && marked.has(table.levelOf.get(item.id)) && !table.cross.has(item.id)) continue;
+            const isCut = own && table.cross.has(item.id);
+            if (isCut && deep(table.levelOf.get(item.id))) continue;       // under its square's dot
+            if (!keyOf.has(item.id)) {
+                const rec = this.doc.getById(item.id), key = rec ? this.doc.editKey(rec.obj) : null;
+                keyOf.set(item.id, key);
+                if (rec) drawnFamilies.add(key);
+            }
+            if (own && marked.has(table.levelOf.get(item.id)) && !isCut) continue;
             if (fr && marked.has(fr)) continue;
             // The ants show what is DRAWN: the scene's geometry, shifted by its offset (F41).
             const { geom: piece, off } = this.stage.placed(item);
@@ -794,22 +931,33 @@ class Overlays {
             const sizePx = bounds ? Math.min(bounds.x1 - bounds.x0, bounds.y1 - bounds.y0) * sc : Infinity;
             inkPx = Math.min(inkPx, thickPx, sizePx);
 
-            const rects = this._selSeamRects(piece, off, table, F, seamCache);
+            const rects = this._selSeamRects(piece, off, table, F, seamCache, cut && cut.squares);
+            const short = fr && sizePx < SEL_OBJECT_DOT_PX ? [] : null;
             for (const loop of loops) {
                 for (const seamRun of loopRuns(loop, rects)) {
                     for (const run of clipRunToRect(seamRun, keep)) {
                         const len = runLength(run.pieces) * sc;
-                        if (len < SEL_MIN_RUN_PX) continue;
+                        if (len < SEL_MIN_RUN_PX) {
+                            // A whole ring under the minimum, a hole or an island too small to trace, is a speck (Kobin, 2026-11-09).
+                            const b = (run.closed || short) && loopsBounds([run.pieces]);
+                            if (b) (run.closed ? small : short).push({ left: b.x0, top: b.y0, right: b.x1, bottom: b.y1 });
+                            continue;
+                        }
                         runs.push({ ...retained(run.pieces, run.closed), len });
                         traced.add(piece.id);
-                        if (fr) shownFrames.add(fr);
+                        if (!isCut || run.closed) continue;
+                        const p0 = run.pieces[0], p1 = run.pieces[run.pieces.length - 1];
+                        noteEnd(Array.isArray(p0) ? p0[0] : p0.A);
+                        noteEnd(Array.isArray(p1) ? p1[3] : p1.B);
                     }
                 }
             }
-            // A frame member drawn but too small for a run is a dot where it is drawn (F73's
-            // rule, from the piece: the frame's natives are not read).
-            if (fr && !traced.has(piece.id) && bounds && sizePx < SEL_OBJECT_DOT_PX) { small.push({ left: bounds.x0, top: bounds.y0, right: bounds.x1, bottom: bounds.y1 }); shownFrames.add(fr); }
+            if (short && short.length) shortOf.set(piece.id, (shortOf.get(piece.id) || []).concat(short));
         }
+        // A frame member drawn but too small for a run is a speck at each edge too short to trace (F73's rule, from the
+        // piece: the frame's natives are not read). A piece whose edges are all seams, a family's window, has none
+        // (report 2026-11-09 18:04: its whole box was circled).
+        for (const [id, rs] of shortOf) if (!traced.has(id)) for (const r of rs) small.push(r);
 
         // ---- selected objects too small to trace: a dot each (F73) ----------------
         // A frame whose content spans the screen can hold a member a fraction of a
@@ -817,24 +965,40 @@ class Overlays {
         // its runs fall under SEL_MIN_RUN_PX and it drew nothing. Every member without
         // a run — culled from the list, or traced to nothing — that is under
         // SEL_OBJECT_DOT_PX is a dot where its picture is; dots on one pixel are one.
-        for (const id of table.ids) {
-            if (traced.has(id) || table.cross.has(id) || marked.has(table.levelOf.get(id))) continue;   // a family's kid shows through its family
+        // A cut family's members are not in this loop: they show through their pieces and the dots below.
+        const dotAt = (o) => {
+            const r = this._rectInActive(o);
+            if (inWin(r) && Math.max(r.right - r.left, r.bottom - r.top) * sc < SEL_OBJECT_DOT_PX) small.push(r);
+        };
+        for (const id of table.plain) {
+            if (traced.has(id) || marked.has(table.levelOf.get(id))) continue;
             const rec = this.doc.getById(id);
-            if (!rec) continue;
-            const r = this._rectInActive(rec.obj);
-            if (!r || r.right < win.left || r.left > win.right || r.bottom < win.top || r.top > win.bottom) continue;
-            if (Math.max(r.right - r.left, r.bottom - r.top) * sc >= SEL_OBJECT_DOT_PX) continue;
-            small.push(r);
+            if (rec) dotAt(rec.obj);
         }
-        // A selected frame over the mark size whose content is culled from the list showed nothing
-        // at all: a dot where its content is drawn (F103).
+        // ---- cut families: a dot at each ceded square too small to read (the walk; Kobin, 2026-11-09) ----
+        // None where the family's ants end at the square: a nick on the outline is invisible at this level.
+        for (const d of cut ? cut.dots : []) if (inWin(d.at) && !endIn(d.sq)) small.push(d.at);
+        // In a frame read, a member the list does not draw is a dot as above when none of its family is drawn, or when
+        // no member lies under its frame: a chain is ceded down to the erase that cut it, so its leaf holds that cut.
+        // A drawn member has none: its edges are traced, ring specks, or seams (his report 18:04: a square circled whole).
+        const lone = (o) => !keyOf.has(o.id) && (!drawnFamilies.has(this.doc.editKey(o)) || !table.inner.has(table.levelOf.get(o.id)));
+        for (const f of cut ? cut.seen : []) {
+            const info = table.byLevel.get(f);
+            for (const o of info ? info.objs : []) if (table.cross.has(o.id) && lone(o)) dotAt(o);
+        }
+        // A member with a table of its own is drawn off its frame's place, where the walk may not have looked.
+        for (const o of table.moved) if (!keyOf.has(o.id) && (deep(table.levelOf.get(o.id)) || lone(o))) dotAt(o);
+        // Content of a selected frame the list does not draw (culled, F103) is a speck at each place it lies, never one
+        // circle round all of it (Kobin, 2026-11-09: "a spinning point selection for each space where there's something
+        // below"). Not the selection's ids (the dots above), nor what is drawn, nor a piece of a drawn family in a frame
+        // large enough to read (F146); in a smaller frame it is a ceded square, and a point.
+        const points = [];
+        const skip = (o) => table.ids.has(o.id) || keyOf.has(o.id) || (drawnFamilies.has(this.doc.editKey(o)) && !deep(o._home));
         for (const fr of table.frames) {
-            if (marked.has(fr) || shownFrames.has(fr)) continue;
-            const r = this._selFrameContent(fr, F);
-            if (!r || r.right < win.left || r.left > win.right || r.bottom < win.top || r.top > win.bottom) continue;
-            small.push(r);
+            if (marked.has(fr)) continue;
+            for (const r of this._selFramePoints(fr, F, win, skip)) points.push(r);
         }
-        for (const r of mergeClose(small, SEL_FRAME_MARK_PX / sc)) {
+        for (const r of mergeClose(small, SEL_FRAME_MARK_PX / sc).concat(mergePoints(points, SEL_FRAME_MARK_PX / sc))) {
             const span = Math.max(r.right - r.left, r.bottom - r.top) * sc;
             const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
             marks.push(retained(circleLoop(cx, cy, Math.max(SEL_MIN_TRACE_PX, span) / 2 / sc), true));
@@ -985,13 +1149,14 @@ class Overlays {
 
     /**
      * The rectangles a piece may have been cut on, in the active frame's units:
-     * the tile that clipped it (`piece.clip`), and the attach windows of every
-     * member of its family — the piece that fills a window has that window as
-     * its edge, and the piece it was cut from has it as its hole. A straight
-     * piece lying along any of them is a seam and gets no ants, which is
-     * "no ants on the tile edge" and the F37 join rule in one test.
+     * the tile that clipped it (`piece.clip`), its own attach window — the piece
+     * that fills a window has it as its edge — and its family's windows a level
+     * down, where the piece a window was cut from has its hole: `squares`, the cut
+     * walk's, for a family selected by id, else every member's. A straight piece
+     * lying along any of them is a seam and gets no ants, which is "no ants on
+     * the tile edge" and the F37 join rule in one test.
      */
-    _selSeamRects(piece, off, table, F, cache) {
+    _selSeamRects(piece, off, table, F, cache, squares = null) {
         const key = piece.id;
         // Everything here is where the ink is DRAWN: a piece with an offset
         // (F41) has its clip shifted by it too.
@@ -1004,18 +1169,18 @@ class Overlays {
         }
         rects = [];
         const rec = this.doc.getById(piece.id);
-        if (rec) {
-            for (const m of this.doc.editGroup(rec.obj)) {
-                const R = m.obj.attachRect;
-                if (!R) continue;
-                const Rl = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
-                // Where the MEMBER is drawn (`placeNative`, its own table, F55). The traced piece's offset
-                // is not the member's: a kid ceded three levels below a move carries no table, and
-                // shifted by its parent's half-frame offset its window missed the hole's edge, which
-                // drew a square of ants inside the ink (F125).
-                const mapped = this.stage.placeNative(m.obj, F).fromStored(Rl);
-                if (mapped) rects.push(clipRect(mapped));
-            }
+        // A window where its MEMBER is drawn (`placeNative`, its own table, F55), not at the traced piece's offset (F125).
+        const push = (o) => {
+            const R = o.attachRect;
+            const mapped = R ? this.stage.placeNative(o, F).fromStored({ left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 }) : null;
+            if (mapped) rects.push(clipRect(mapped));
+        };
+        const f = rec && squares && table.cross.has(piece.id) ? this.lm.frame(rec.level) : null;
+        if (f) {
+            push(rec.obj);
+            for (const r of squares.get(this.doc.editKey(rec.obj) + ":" + (f.depth + 1)) || []) rects.push(r);
+        } else if (rec) {
+            for (const m of this.doc.editGroup(rec.obj)) push(m.obj);
         }
         cache.set(key, rects);
         return piece.clip ? rects.concat([own()]) : rects;

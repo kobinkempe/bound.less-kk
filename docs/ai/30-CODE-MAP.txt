@@ -437,8 +437,8 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                         barriers, parked while cuts are out;
                                         _deriveTargetOf / _eraseLoaded at a load;
                                         pruning a spent mark's id; DESIGN.md §7)
-                      overlays.js       selection indicator + erase debug ~930
-                      selection.js      select, hit-test, drag            ~830
+                      overlays.js       selection indicator + erase debug ~1280
+                      selection.js      select, hit-test, drag            ~1030
                       instruments.js    LongFrames, EventLatency,
                                         GrowthLog, FrameMeter            ~295
                       report.js         the dev report: sections, the
@@ -516,7 +516,10 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     cellChild/neighbour do the
                     carry arithmetic; merge adopts frames another copy minted
                     and ensureId mints the frame an id names (F67, 2026-09-08);
-                    displaceFrame is the whole of a deep move;
+                    displaceFrame is the whole of a deep move; nearWalk is
+                    the frame walk near F (co-residents together, whole cells
+                    at or above F's depth) for the lasso, the erase's frame
+                    pass and the down tiles (F170, F172, F179);
                     framePath/frameFactor/mapRectF/projectF are the transforms,
                     and they go ONE EDGE AT A TIME because a composed long jump
                     cancels catastrophically. _paths caches the tree walk, which
@@ -634,7 +637,8 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     which fetches its pieces from the frame the table names
                     (LevelMap.objShift) over the window less the remainder.
                     _downSources enumerates a down tile's candidate frames
-                    from the tree, subtrees pruned by cell + REACH;
+                    from the tree (LevelMap.nearWalk), subtrees pruned by
+                    cell + REACH;
                     _bakeDown skips a frame whole by frameExtent. A tile is
                     stamped with chainSeq (the addrSeq sum up its frame's
                     ancestry), so a re-address rebuilds it on lookup; the

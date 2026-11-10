@@ -266,7 +266,7 @@ SELECTING AND MOVING
   the lasso path
     _applyLasso -> _lassoBarrier(poly) (the erase barrier; the loop stays drawn while
       parked) -> _judgeLasso -> _lassoFind(poly)
-      visit(frame, s, tx, ty)
+      lm.nearWalk(F, visit): visit(frame, k, s, x, y, a)
         out of reach  -> skip the frame AND its subtree
         enclosed      -> takeAll(frame) with no per-object test
         straddling    -> doc.queryRect(frame, box) then _rectInActive per object
