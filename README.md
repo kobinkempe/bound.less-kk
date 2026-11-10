@@ -35,7 +35,7 @@ The interesting problem: browsers (and doubles) give out long before "infinite."
 | `src/cloud/` | The cloud copy mirrors the local store in gzipped chunks, its manifest written last. One editor at a time: a Web Lock on the device, a lease in the cloud, and a token on every local write, so a tab that has lost the pen writes nothing |
 | `scaleBar/` | The real-unit scale system: unit catalogs, preference "ladders," and sticky per-session display choices |
 
-The suite is about 3,200 Jest tests in about 240 files, about 2,500 of them in the quick run that CI makes on every push (the whole suite runs nightly). Beside the unit tests it holds oracles — independent implementations the shipping code is checked against, among them the whole pre-arc engine — seeded fuzzers that run random edits against a frozen copy of the previous document model, and a fidelity harness that replays recorded drawings (kept locally, not in git) and checks the rendered ink against ground truth computed straight from the document. The geometry is type-checked through JSDoc, and a lint rule enforces the layering (the engine never imports the UI; the geometry imports only itself and the lattice constants). What only a browser shows — its compositing and its frame timing — is measured in one: in Chrome, and with a headless-Chromium harness in [`tools/harnesses/`](tools/harnesses).
+The suite is about 3,300 Jest tests in about 260 files, about 2,600 of them in the quick run that CI makes on every push (the whole suite runs nightly). Beside the unit tests it holds oracles — independent implementations the shipping code is checked against, among them the whole pre-arc engine — seeded fuzzers that run random edits against a frozen copy of the previous document model, and a fidelity harness that replays recorded drawings (kept locally, not in git) and checks the rendered ink against ground truth computed straight from the document. The geometry is type-checked through JSDoc, and a lint rule enforces the layering (the engine never imports the UI; the geometry imports only itself and the lattice constants). What only a browser shows — its compositing and its frame timing — is measured in one: in Chrome, and with a headless-Chromium harness in [`tools/harnesses/`](tools/harnesses).
 
 **[`DESIGN.md`](DESIGN.md) is the whole design in one document** — why the coordinates work the way they do, and what each decision cost to learn. The design history it was distilled from — bugs, dead ends, measured perf wins (one pathological tile bake went from 585 s to 550 ms) — is in [`docs/issue-log.md`](docs/issue-log.md) and [`docs/reference/`](docs/reference). [`review/rebuild/`](review/rebuild) is the record of the renderer and document-model rebuild of September–October 2026: its designs, its plan, the logs of the AI agents that built and reviewed it, and the final audit.
 
@@ -60,7 +60,7 @@ Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in 
 
 ## Roadmap
 
-The plan of record is [`docs/ROADMAP.md`](docs/ROADMAP.md): fix autosave, deploy, performance and bugs, then UX, with the structural work running underneath. Product features queued there:
+The plan of record is [`docs/ROADMAP.md`](docs/ROADMAP.md). Autosave and the performance work are done and deployed; the last bugs are being closed ahead of 1.0, then UX, with the structural work running underneath. Product features queued there:
 
 - A redesign of the Scenes experience
 - Public canvases with a share link, and sharing a canvas with another account
