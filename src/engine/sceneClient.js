@@ -124,8 +124,9 @@ const boxSize = (out) => {
 
 /**
  * An object as the index sees it (§6 rule 2): `w`, the width it counts with, in its home's units —
- * a shape's thickness now (meanWidth) capped at its pen, a stroke's pen, a pen-less fill its size
- * as one chunk — `raw`, its chunk records (Float64Array: x0, y0, x1, y1, len, in stored
+ * a shape's thickness now (meanWidth) capped at its pen, a ceded patch's thickness alone (its `w`
+ * is its family home's pen in the home's units, F84), a stroke's pen, a pen-less fill its size as
+ * one chunk — `raw`, its chunk records (Float64Array: x0, y0, x1, y1, len, in stored
  * coordinates), and `loops`, the first chunk of each closed loop (an outline, a fill's ring; null
  * for a raw stroke's open centreline). Computed when asked (nothing is kept on the object): the
  * client asks only for an object the index has not got or whose geometry changed.
@@ -136,10 +137,11 @@ export function sceneGeom(o) {
         if (o.type === "shape" && o.loops) {
             if (w == null) {
                 // one walk at the pen's chunk size; a second only where the piece is much thinner than its pen
-                const first = walkLoops(o.loops, o.w > 0 ? CHUNK * o.w : Infinity);
+                const pen = o.attachRect != null ? 0 : o.w;
+                const first = walkLoops(o.loops, pen > 0 ? CHUNK * pen : Infinity);
                 const mw = first.per > 0 ? (2 * first.area) / first.per : 0;
-                w = o.w > 0 ? Math.max(Math.min(o.w, mw), o.w * 1e-6) : Math.max(boxSize(first.out), 1e-12) / CHUNK;
-                if (o.w > 0 && (w >= o.w / 2 || first.out.length <= 5)) { walk = first; w = w || o.w; if (walk.out.length / 5 <= MAX_CHUNKS) break; }
+                w = pen > 0 ? Math.max(Math.min(pen, mw), pen * 1e-6) : o.attachRect != null && mw > 0 ? mw : Math.max(boxSize(first.out), 1e-12) / CHUNK;
+                if (pen > 0 && (w >= pen / 2 || first.out.length <= 5)) { walk = first; w = w || pen; if (walk.out.length / 5 <= MAX_CHUNKS) break; }
             }
             walk = walkLoops(o.loops, CHUNK * w * grow);
         } else if (o.type === "stroke" && o.pts) {
@@ -160,13 +162,26 @@ export function sceneGeom(o) {
 
 /**
  * Ink the index holds: not an eraser mark, not a stroke still being drawn, and not a ceded patch
- * (storage, §6 row 14) while its family keeps ink outside patches — with none left, the patch is
- * the drawing (review 2026-09-22).
+ * (storage, §6 row 14) while its family keeps ink outside patches. With none left the family's
+ * shallowest patches are the drawing and the deeper ones their storage (F189).
  */
-const isInk = (doc, o) => !!o && !o.erase && !doc._pending.has(o) && (o.attachRect == null || orphanPatch(doc, o));
-const orphanPatch = (doc, o) => {
-    for (const r of doc.editGroup(o)) if (r.obj !== o && !r.obj.erase && r.obj.attachRect == null) return false;
-    return true;
+const isInk = (doc, lm, o) => !!o && !o.erase && !doc._pending.has(o) && (o.attachRect == null || topPatch(doc, lm, o));
+const topPatch = (doc, lm, o) => {
+    let top = Infinity;
+    for (const r of doc.editGroup(o)) {
+        if (r.obj.erase) continue;
+        if (r.obj.attachRect == null) return false;
+        const d = lm.depthOf(r.level);
+        if (d != null && d < top) top = d;
+    }
+    const d = lm.depthOf(o._home);
+    return d == null || d <= top;
+};
+/** Is a footprint this wide framable at its coordinates: at least 256 float64 steps across (F189)? */
+const framable = (w, boxes) => {
+    let m = 0;
+    for (let i = 0; i < boxes.length; i += 5) m = Math.max(m, Math.abs(boxes[i]), Math.abs(boxes[i + 1]), Math.abs(boxes[i + 2]), Math.abs(boxes[i + 3]));
+    return w > m * 2 ** -44;
 };
 
 export class SceneClient {
@@ -244,6 +259,11 @@ export class SceneClient {
                 for (const o of this.doc.list(ev.frame)) this.dirty.add(o.id);
                 break;
             case "refile": this.frameEv++; break;   // the frame diff at the flush
+            case "rekey":
+                // a family parted or joined: which patches are the drawing is asked again of every patch family
+                for (const id of ev.ids) { const r = this.doc.getById(id); if (r && r.obj.attachRect != null) this.patchFam.add(this.doc.editKey(r.obj)); }
+                for (const k of this.patchFam) this.famDirty.add(k);
+                break;
             default: break;
         }
         this._schedule();
@@ -278,42 +298,64 @@ export class SceneClient {
         if (ev.op && ev.op.strokeId != null) this._footprint(ev.op.strokeId, ev.step);
     }
     /**
-     * §6 row 14b: an eraser FINER than the ink it cut is detail at its own width. Per cut, the mark's
-     * chunks within its reach of the cut object become an index item (id −its first host piece), in
-     * the stored coordinates of a surviving piece that hosts it: it moves with its host, goes with
-     * the gesture's undo, and is dropped when no piece of the host's family is left in the frame.
-     * One per cut, so a swipe across two drawings leaves two footprints and bridges nothing. A
-     * coarser eraser is removal.
+     * §6 row 14b: an eraser FINER than the ink it cut is detail at its own width. One footprint per
+     * gesture and family (id −its first host piece): the mark's chunks within its reach of the cut
+     * object, as an index item in the stored coordinates of a surviving piece that hosts it. It is
+     * filed in the deepest frame the gesture's cut reached, where the eraser was drawn: at the cut
+     * object's home a carve four crossings down is narrower than one float64 step (F189). It moves
+     * with its host, goes with the gesture's undo, and is dropped when no piece of the host's family
+     * is left in the frame. A swipe across two drawings leaves two footprints and bridges nothing.
+     * A coarser eraser is removal.
      */
     _footprint(markId, step) {
         const mark = this.doc.getById(markId);
         const src = step.removed.obj;
-        if (!mark || !src || src.erase || src.attachRect != null) return;
-        // the cut object's width as the index holds it (else computed); the mark's chunks kept for its gesture
-        const rs = this.geom.has(src.id) ? undefined : this.sent.get(src.id);
-        const g = rs != null ? { w: this.recW[rs] } : sceneGeom(src);
-        let eg = this.markGeo.get(markId);
-        if (!eg) { eg = sceneGeom(mark.obj); if (eg) this.markGeo.set(markId, eg); }
-        if (!g || !eg) return;
-        const HO = String(step.removed.level);
-        const f = this.lm.frameFactor(mark.level, HO);
+        if (!mark || !src || src.erase) return;
         const pen = mark.obj.w > 0 ? mark.obj.w : mark.obj.lwFrame;
-        if (f == null || !(pen > 0) || !(pen * f < g.w)) return;
-        const host = step.pieces.find((pc) => pc && pc.obj && String(pc.level) === HO && !pc.obj.erase);
-        if (!host) return;
-        const box = src.loops ? loopsBBox(src.loops) : null;
-        if (!box) return;
-        const w = pen * f, reach = REACH * w;
-        const boxes = [];
-        const raw = eg.raw;
-        for (let i = 0; i < raw.length; i += 5) {
-            const r = this.lm.mapRectObj({ left: raw[i], top: raw[i + 1], right: raw[i + 2], bottom: raw[i + 3] }, mark.level, HO, this.doc.tableOf(host.obj, HO), HO, true);
-            if (!r || r.left - box.x1 > reach || box.x0 - r.right > reach || r.top - box.y1 > reach || box.y0 - r.bottom > reach) continue;
-            boxes.push(r.left, r.top, r.right, r.bottom, raw[i + 4] * f);
+        if (!(pen > 0)) return;
+        let host = null, hd = -Infinity;   // depths run negative above the first frame
+        for (const pc of step.pieces) {
+            const d = pc && pc.obj && !pc.obj.erase ? this.lm.depthOf(pc.level) : null;
+            if (d != null && d > hd) { hd = d; host = pc; }
         }
-        if (!boxes.length) return;
-        const fr = this.lm.frame(HO);
-        this.foot.set(host.obj.id, { id: host.obj.id, e: markId, host: host.obj.id, key: this.doc.editKey(host.obj), home: HO, depth: fr ? fr.depth : null, w, boxes, off: false, raw: null, t: null });
+        if (!host) return;
+        const key = this.doc.editKey(host.obj);
+        let fp = null;
+        for (const q of this.foot.values()) if (q.e === markId && q.key === key && !q.drop) { fp = q; break; }
+        let eg = this.markGeo.get(markId);   // the mark's chunks, kept for its gesture
+        if (!eg) { eg = sceneGeom(mark.obj); if (eg) this.markGeo.set(markId, eg); }
+        if (!eg) return;
+        const raw = eg.raw;
+        const mapped = (i, to, T) => this.lm.mapRectObj({ left: raw[i], top: raw[i + 1], right: raw[i + 2], bottom: raw[i + 3] }, mark.level, to, T, to, true);
+        if (!fp) {
+            // finer than the ink it cut (its width as the index holds it, else computed), measured at that object's home
+            const HO = String(step.removed.level), f0 = this.lm.frameFactor(mark.level, HO);
+            const rs = this.geom.has(src.id) ? undefined : this.sent.get(src.id);
+            const g = rs != null ? { w: this.recW[rs] } : sceneGeom(src);
+            const box = src.loops ? loopsBBox(src.loops) : null;
+            if (f0 == null || !g || !box || !(pen * f0 < g.w)) return;
+            const reach = REACH * pen * f0, T = this.doc.tableOf(src, HO), ix = [];
+            for (let i = 0; i < raw.length; i += 5) {
+                const r = mapped(i, HO, T);
+                if (r && !(r.left - box.x1 > reach || box.x0 - r.right > reach || r.top - box.y1 > reach || box.y0 - r.bottom > reach)) ix.push(i);
+            }
+            if (!ix.length) return;
+            fp = { id: host.obj.id, e: markId, host: null, key, home: null, depth: -Infinity, w: 0, boxes: [], ix, off: false, raw: null, t: null };
+        }
+        if (hd > fp.depth) {
+            const H = String(host.level), f = this.lm.frameFactor(mark.level, H), T = this.doc.tableOf(host.obj, H);
+            const boxes = [];
+            if (f != null) for (const i of fp.ix || []) {
+                const r = mapped(i, H, T);
+                if (r) boxes.push(r.left, r.top, r.right, r.bottom, raw[i + 4] * f);
+            }
+            if (boxes.length) { fp.host = host.obj.id; fp.home = H; fp.depth = hd; fp.w = pen * f; fp.boxes = boxes; fp.raw = null; fp.t = null; }
+        } else if (fp.host === src.id) {
+            const heir = step.pieces.find((pc) => pc && pc.obj && !pc.obj.erase && String(pc.level) === fp.home);
+            if (heir) fp.host = heir.obj.id;
+        }
+        if (!fp.boxes.length) return;
+        this.foot.set(fp.id, fp);
         this.footDirty = true;
         this._capFoot();
     }
@@ -331,7 +373,7 @@ export class SceneClient {
     _footItems(items) {
         for (const fp of [...this.foot.values()]) {
             const id = -fp.id, s = this.fsent.get(id);
-            if (fp.drop) {
+            if (fp.drop || !framable(fp.w, fp.boxes)) {
                 if (s) { items.push({ id, gone: true }); this.fsent.delete(id); }
                 this.foot.delete(fp.id);
                 continue;
@@ -502,7 +544,7 @@ export class SceneClient {
             const o = rec && rec.obj;
             const s = this.sent.get(id);
             if (o && o.attachRect != null && !o.erase) this.patchFam.add(doc.editKey(o));
-            const ink = isInk(doc, o), fresh = s === undefined || this.geom.has(id);
+            const ink = isInk(doc, this.lm, o), fresh = s === undefined || this.geom.has(id);
             const g = ink && fresh ? sceneGeom(o) : null;
             this.geom.delete(id);
             if (!ink || (fresh && !g)) {
@@ -590,7 +632,8 @@ export class SceneClient {
     _loadFoot(list) {
         this.foot = new Map();
         for (const e of Array.isArray(list) ? list : []) {
-            if (!e || !Number.isInteger(e.id) || !Array.isArray(e.raw) || e.raw.length % 5 || !(e.w > 0)) continue;
+            // one too narrow for its coordinates is not read (filed at the cut object's home before F189)
+            if (!e || !Number.isInteger(e.id) || !Array.isArray(e.raw) || e.raw.length % 5 || !(e.w > 0) || !framable(e.w, e.raw)) continue;
             const fr = this.lm.frame(String(e.home));
             this.foot.set(e.id, { id: e.id, e: e.e, host: e.host, key: e.key, home: String(e.home), depth: fr ? fr.depth : null, w: e.w, boxes: e.raw.slice(), off: !!e.off, raw: null, t: null });
         }

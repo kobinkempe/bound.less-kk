@@ -691,7 +691,11 @@ The R3 scope, plus the product items that used to live in the README.
       Chrome). An indicator is the UX half;
       the other half is the load itself, which is to be measured (store read, decode,
       lattice load, first render, each timed) and fixed if the renderer work does not
-      fix it. Not started.
+      fix it. Kobin, 2026-11-10: load the immediate view first and show it, and let the
+      rest of the canvas load while that part is on screen (not to be worked on yet).
+      Measured the same day in his Chrome (`perfLog`): a canvas with no local copy took
+      about a minute to appear, about 18 s with nothing logged and then the cloud pull of
+      the whole canvas (47 frames, 1,164 log entries) in 41 s. Not started.
 
 ## The structural lane
 

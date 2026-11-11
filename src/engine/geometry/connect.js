@@ -21,6 +21,7 @@
  * towards contact: corners count on both sides, a bare vertex touch counts as an
  * arc, and the tolerance is generous.
  */
+import { outlineEdges } from "./arcShape";
 
 export function asRect(r) {
     if (!r) return null;
@@ -29,17 +30,17 @@ export function asRect(r) {
         : { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom };
 }
 
-// The sides a point lies on, within `tol`. A corner lies on TWO, which is why
-// this is a list and not a number: a ring that turns the corner has to be able
-// to stay on the boundary through it, or a contact reads as two separate ones.
-function sidesOf(R, x, y, tol) {
-    const out = [];
+// The sides a point lies on, within `tol`, as bits (1 << side). A corner lies on TWO: a ring that turns the corner
+// has to be able to stay on the boundary through it, or a contact reads as two separate ones.
+function sideBits(R, x, y, tol) {
     const inX = x >= R.x0 - tol && x <= R.x1 + tol;
     const inY = y >= R.y0 - tol && y <= R.y1 + tol;
-    if (inX && Math.abs(y - R.y0) <= tol) out.push(0);
-    if (inY && Math.abs(x - R.x1) <= tol) out.push(1);
-    if (inX && Math.abs(y - R.y1) <= tol) out.push(2);
-    if (inY && Math.abs(x - R.x0) <= tol) out.push(3);
+    return (inX && Math.abs(y - R.y0) <= tol ? 1 : 0) | (inY && Math.abs(x - R.x1) <= tol ? 2 : 0)
+        | (inX && Math.abs(y - R.y1) <= tol ? 4 : 0) | (inY && Math.abs(x - R.x0) <= tol ? 8 : 0);
+}
+function sidesOf(R, x, y, tol) {
+    const bits = sideBits(R, x, y, tol), out = [];
+    for (let s = 0; s < 4; s++) if (bits & (1 << s)) out.push(s);
     return out;
 }
 function tOn(R, side, x, y) {
@@ -86,22 +87,40 @@ export function contactArcs(rings, rect, tol = 0) {
     const arcs = [];
     for (const ring of rings) {
         const n = ring.length;
-        if (!n) continue;
-        const on = ring.map((p) => sidesOf(R, p[0], p[1], eps));
         for (let i = 0; i < n; i++) {
             const a = ring[i], b = ring[(i + 1) % n];
-            const sa = on[i], sb = on[(i + 1) % n];
-            if (!sa.length) continue;
-            let shared = -1;
-            for (const s of sa) if (sb.indexOf(s) >= 0) { shared = s; break; }
-            if (shared >= 0) {
-                const t0 = tOn(R, shared, a[0], a[1]), t1 = tOn(R, shared, b[0], b[1]);
-                arcs.push(t0 <= t1 ? [t0, t1] : [t1, t0]);
-            } else {
-                for (const s of sa) { const t = tOn(R, s, a[0], a[1]); arcs.push([t, t]); }
-            }
+            edgeArc(arcs, R, a[0], a[1], b[0], b[1], eps);
         }
     }
+    return merge(arcs, span > 0 ? eps / span : 1e-9);
+}
+/** One edge's contact with `R`: the stretch on a side both ends lie on, or the start's point on each of its sides. */
+function edgeArc(arcs, R, ax, ay, bx, by, eps) {
+    const sa = sideBits(R, ax, ay, eps);
+    if (!sa) return;
+    const both = sa & sideBits(R, bx, by, eps);
+    if (both) {
+        const s = both & 1 ? 0 : both & 2 ? 1 : both & 4 ? 2 : 3;
+        const t0 = tOn(R, s, ax, ay), t1 = tOn(R, s, bx, by);
+        arcs.push(t0 <= t1 ? [t0, t1] : [t1, t0]);
+    } else {
+        for (let s = 0; s < 4; s++) if (sa & (1 << s)) { const t = tOn(R, s, ax, ay); arcs.push([t, t]); }
+    }
+}
+/**
+ * `contactArcs(flattenShape(loops, ftol) moved by (dx, dy), rect, tol)` from an `outlineIndex` of the loops, reading
+ * only the pieces that reach the rect's sides (OPEN-FLAGS F190). The same arcs: an edge off the sides adds none.
+ */
+export function outlineContact(ix, rect, ftol, tol = 0, dx = 0, dy = 0) {
+    const R = asRect(rect);
+    if (!R || !ix) return [];
+    const span = Math.max(R.x1 - R.x0, R.y1 - R.y0, 1e-12);
+    const eps = Math.max(tol, span * 1e-9);
+    // Twice the tolerance, and the rounding of the shift, on both sides of the band.
+    const m = 2 * eps + 8 * Number.EPSILON * Math.max(Math.abs(R.x0 - dx), Math.abs(R.x1 - dx), Math.abs(R.y0 - dy), Math.abs(R.y1 - dy), Math.abs(dx), Math.abs(dy));
+    const arcs = [];
+    outlineEdges(ix, ftol, [R.x0 - dx - m, R.y0 - dy - m, R.x1 - dx + m, R.y1 - dy + m], [R.x0 - dx + m, R.y0 - dy + m, R.x1 - dx - m, R.y1 - dy - m],
+        (ax, ay, bx, by) => edgeArc(arcs, R, ax + dx, ay + dy, bx + dx, by + dy, eps));
     return merge(arcs, span > 0 ? eps / span : 1e-9);
 }
 
@@ -141,27 +160,41 @@ export function arcsTouch(A, B, tol = 1e-6) {
  * Do two outlines share a stretch (longer than `tol`) of one axis-parallel line? Kids ceded into one square from two
  * parents, under a frame that straddles its parent's edge, meet on that edge inside the square (OPEN-FLAGS F178).
  */
-export function axisAbut(A, B, tol) {
-    const runs = (rings) => {
-        const out = [[], []];   // per axis: [the line, low end, high end]
-        for (const ring of rings || []) {
-            for (let i = 0, n = ring.length; i < n; i++) {
-                const a = ring[i], b = ring[(i + 1) % n];
-                for (let ax = 0; ax < 2; ax++) {
-                    const o = 1 - ax;
-                    if (Math.abs(a[ax] - b[ax]) <= tol) out[ax].push([(a[ax] + b[ax]) / 2, Math.min(a[o], b[o]), Math.max(a[o], b[o])]);
-                }
-            }
+export function axisAbut(A, B, tol) { return runsAbut(axisRuns(A, tol), axisRuns(B, tol), tol); }
+/** An edge, if it is axis-parallel to `tol`, as a run on its axis: [the line, low end, high end]. */
+function edgeRun(out, ax0, ay0, bx0, by0, tol) {
+    if (Math.abs(ax0 - bx0) <= tol) out[0].push([(ax0 + bx0) / 2, Math.min(ay0, by0), Math.max(ay0, by0)]);
+    if (Math.abs(ay0 - by0) <= tol) out[1].push([(ay0 + by0) / 2, Math.min(ax0, bx0), Math.max(ax0, bx0)]);
+}
+/** The axis-parallel edges of `rings`, per axis, for `runsAbut`. */
+export function axisRuns(rings, tol) {
+    const out = [[], []];
+    for (const ring of rings || []) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+            const a = ring[i], b = ring[(i + 1) % n];
+            edgeRun(out, a[0], a[1], b[0], b[1], tol);
         }
-        return out;
-    };
-    const ra = runs(A), rb = runs(B);
+    }
+    return out;
+}
+/** Do two sets of runs share a stretch longer than `tol` of one line? */
+export function runsAbut(ra, rb, tol) {
     for (let ax = 0; ax < 2; ax++) {
         for (const [c, lo, hi] of ra[ax]) {
             for (const [c2, lo2, hi2] of rb[ax]) if (Math.abs(c - c2) <= tol && Math.min(hi, hi2) - Math.max(lo, lo2) > tol) return true;
         }
     }
     return false;
+}
+/**
+ * `axisRuns(flattenShape(loops, ftol), tol)` from an `outlineIndex`, but only the runs that can abut one inside
+ * `box` ([x0, y0, x1, y1]): the pieces within `tol` of it (OPEN-FLAGS F190).
+ */
+export function outlineRuns(ix, ftol, tol, box) {
+    const out = [[], []];
+    const m = 2 * tol + 8 * Number.EPSILON * Math.max(Math.abs(box[0]), Math.abs(box[1]), Math.abs(box[2]), Math.abs(box[3]));
+    outlineEdges(ix, ftol, [box[0] - m, box[1] - m, box[2] + m, box[3] + m], null, (ax, ay, bx, by) => edgeRun(out, ax, ay, bx, by, tol), tol);
+    return out;
 }
 
 /**
@@ -174,13 +207,29 @@ export function innerRuns(rings, rect, tol) {
     for (const ring of rings || []) {
         for (let i = 0, n = ring.length; i < n; i++) {
             const a = ring[i], b = ring[(i + 1) % n];
-            const v = Math.abs(a[0] - b[0]) <= tol, h = Math.abs(a[1] - b[1]) <= tol;
-            if (v === h) continue;   // not axis-parallel, or a point
-            const c = v ? a[0] : a[1], lo = v ? R.x0 : R.y0, hi = v ? R.x1 : R.y1;
-            if (Math.abs(c - lo) > tol && Math.abs(c - hi) > tol) out.push([a, b]);
+            edgeInner(out, R, a[0], a[1], b[0], b[1], tol);
         }
     }
     return out;
+}
+function edgeInner(out, R, ax, ay, bx, by, tol) {
+    const v = Math.abs(ax - bx) <= tol, h = Math.abs(ay - by) <= tol;
+    if (v === h) return;   // not axis-parallel, or a point
+    const c = v ? ax : ay, lo = v ? R.x0 : R.y0, hi = v ? R.x1 : R.y1;
+    if (Math.abs(c - lo) > tol && Math.abs(c - hi) > tol) out.push([[ax, ay], [bx, by]]);
+}
+
+/**
+ * A re-homed piece's side of its doorway from an `outlineIndex` of its loops, with no ring built: what
+ * `contactArcs`, `innerRuns` and `axisRuns` give for `flattenShape(loops, tol)` on its window (OPEN-FLAGS F190).
+ */
+export function outlineDoor(ix, rect, tol) {
+    const R = asRect(rect), inner = [], runs = [[], []];
+    outlineEdges(ix, tol, null, null, (ax, ay, bx, by) => {
+        edgeInner(inner, R, ax, ay, bx, by, tol);
+        edgeRun(runs, ax, ay, bx, by, tol);
+    }, tol);
+    return { arcs: outlineContact(ix, R, tol, tol), inner, runs };
 }
 
 /**

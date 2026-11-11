@@ -12,11 +12,32 @@ import KobinEngine from "../KobinEngine";
 import { pieceInks, inks } from "./ink";
 import { underMask } from "../eraseRule";
 import { encodeLoops } from "../geometry/arcShape";
+import { familyComponentsRef } from "../__oracles__/familyComponents";
+
+/**
+ * Every family check a suite's engine makes is made again by the whole-outline rule (F190): the engine keeps answers
+ * and reads outlines by piece, and must give the same classes. `on` false switches the second check off (timing).
+ */
+export const familyCheck = { on: true, misses: [], calls: 0 };
+const famSig = (c) => JSON.stringify([c.members.map((m) => m.level + "#" + m.obj.id), c.classes, c.unresolved]);
+const famOwn = KobinEngine.prototype._familyComponents;
+KobinEngine.prototype._familyComponents = function (key) {
+    const got = famOwn.call(this, key);
+    if (!familyCheck.on) return got;
+    familyCheck.calls++;
+    const a = famSig(got), b = famSig(familyComponentsRef(this, key));
+    if (a !== b) familyCheck.misses.push({ key, engine: a, rule: b });
+    return got;
+};
 
 const live = [];
 /** Register per-file cleanup. Call at the top level of a describe/test file. */
 export function useEngines() {
-    afterEach(() => { while (live.length) { try { live.pop().destroy(); } catch (e) { /* ignore */ } } });
+    afterEach(() => {
+        while (live.length) { try { live.pop().destroy(); } catch (e) { /* ignore */ } }
+        const misses = familyCheck.misses.splice(0);
+        if (misses.length) throw new Error("_familyComponents differs from the whole-outline rule: " + JSON.stringify(misses.slice(0, 2)));
+    });
 }
 export function mkEngine(w = 800, h = 600, opts = null) {
     const host = document.createElement("div");

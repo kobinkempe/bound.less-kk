@@ -18,18 +18,19 @@ export const JOIN_PX = 2250;         // ink closer than this joins
 export const ZOOM_SPREAD = 16;       // a scene holds widths within 16× of each other (stroke widths, Kobin 2026-09-22)
 export const CHUNK_PX = 1500;        // long objects are measured in pieces this long
 export const STRAY_RUN_PX = 3000;    // a lonely stretch of one object this long is stray
-export const MAX_SPAN_PX = 4500;     // a wider scene gets part records
 export const MAX_PARTS = 12;         // at most this many a scene (Kobin 2026-09-23)
-export const MAX_SIBLINGS = 20;      // more side-by-side scenes than this are grouped into regions
 export const FRAME_PAD = 0.1;        // framing margin, of the frame's longer side
 export const MATCH_OVERLAP = 0.5;    // a kept-aside name returns to a scene covering this much of its frame
-export const ECHO_ZOOM = 3;          // nested scenes whose frames hold each other's centres within 3× are one row (Kobin 2026-09-23)
-export const ECHO_UP = 8;            // generations up a scene looks for a row to join
+export const THUMB_PX = 320;         // a row's picture, 320 × 240 (storage/thumbnails.js)
+export const SEEN_PX = 0.25;         // a stroke narrower than this in the picture is too small to see (F189)
 
 export const REACH = JOIN_PX / REF_STROKE_PX;                     // 900 widths
 export const CHUNK = CHUNK_PX / REF_STROKE_PX;                    // 600 widths
 export const STRAY_CHUNKS = Math.round(STRAY_RUN_PX / CHUNK_PX);  // 2
 export const SPREAD_OCT = Math.log2(ZOOM_SPREAD);                 // 4
+export const SEEN_LOG = Math.log2(THUMB_PX / SEEN_PX);            // a view at most 1,280 widths wide shows the stroke
+/** The width of the 4:3 picture that holds rect `r`: the side a view is measured by. */
+export const viewSide = (r) => Math.max(r.w, (r.h * 4) / 3);
 export const MAX_CHUNKS = 2048;      // an item's chunk index fits 11 bits of a grid entry
 export const TOMB_MAX = 256;
 
@@ -41,9 +42,8 @@ const EPS_L = 1e-9;
 // an item's numbers in SceneIndex.XD (8 a slot): its table's residual, width, absolute log width, ink
 // mass, the mass and log width it was filed with, and its reach in its scene's anchor units
 const XTX = 0, XTY = 1, XW = 2, XL = 3, XMASS = 4, XFMASS = 5, XFL = 6, XT = 7;
-const ECHO_LOG = Math.log2(ECHO_ZOOM);
-/** A frame's absolute log size (its longer side, less 12 per depth): comparable across frames. */
-const frameLog = (f, depth) => Math.log2(Math.max(f.w, f.h)) - LOG_R * depth;
+/** A view's absolute log size (`viewSide`, less 12 per depth): comparable across frames. */
+const viewLog = (r, depth) => Math.log2(viewSide(r)) - LOG_R * depth;
 // Above this many seeds a split check labels the whole scene: the interleaved search's rounds cost
 // the seed count each.
 const SEEDS_MAX = 32;
@@ -190,9 +190,7 @@ export const MAX_IDS = 1e7;
 const newTag = () => Math.floor(Math.random() * 2176782336).toString(36);
 /** A scene's picture key: its session tag and version. */
 const keyOf = (S) => (S.vtag ? S.vtag + "-" : "") + S.version.toString(36);
-/** A row's picture key: its scene's, or for a row of several, a hash of theirs and the frame shown. */
-const rowKey = (R) => (R.members.length === 1 ? keyOf(R.S) : "e" + fnv(R.members.map(keyOf).join(".") + "|" + R.shown.idn.id));
-/** FNV-1a of a string, base 36: a region's picture key from its scenes' keys. */
+/** FNV-1a of a string, base 36: a shared row's picture key from its units' keys and places. */
 const fnv = (str) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
 /**
  * A scene's grid, packed: per band a `CellTab` (cell key → segment) for `all` and for `own`, and one
@@ -278,7 +276,8 @@ const padInk = (r, wmin) => {
 /**
  * A wide scene's parts: its valid chunk boxes `{x0, y0, x1, y1, mass}` cut in two at the emptiest
  * line across the long axis (a mass histogram over the middle 60 %), the widest piece first, until
- * every piece fits `limit` or there are MAX_PARTS. Leaves in the order of the cut tree.
+ * every piece fits `limit` or there are MAX_PARTS. Leaves `{b, ps}` (box, chunk boxes) in the order
+ * of the cut tree.
  */
 export function cutParts(pts, limit) {
     const box = (ps) => { const b = EMPTY_BB(); for (const q of ps) { if (q.x0 < b[0]) b[0] = q.x0; if (q.y0 < b[1]) b[1] = q.y0; if (q.x1 > b[2]) b[2] = q.x1; if (q.y1 > b[3]) b[3] = q.y1; } return b; };
@@ -290,23 +289,29 @@ export function cutParts(pts, limit) {
         for (let i = 1; i < open.length; i++) if (side(open[i].b) > side(open[bi].b)) bi = i;
         const P = open.splice(bi, 1)[0], b = P.b, w = b[2] - b[0], h = b[3] - b[1];
         if (Math.max(w, h) <= limit || P.depth >= 12 || P.ps.length < 2 || n >= MAX_PARTS) { done.push(P); continue; }
-        const ax = w >= h ? 0 : 1, lo = b[ax] + 0.2 * (ax ? h : w), span = 0.6 * (ax ? h : w);
+        // positions as a fraction of the piece's long side from its edge: a chunk spanning the piece sits at
+        // exactly 0.5 whatever the scene's origin (in coordinates, rounding put it either side of the middle bin)
+        const ax = w >= h ? 0 : 1, b0 = b[ax], L = ax ? h : w;
+        const at01 = (q) => ((ax ? q.y0 : q.x0) - b0 + ((ax ? q.y1 : q.x1) - b0)) / (2 * L);
         const BINS = 32, bins = new Float64Array(BINS);
         for (const q of P.ps) {
-            const c = ax ? (q.y0 + q.y1) / 2 : (q.x0 + q.x1) / 2;
-            const i = Math.floor(((c - lo) / span) * BINS);
+            const i = Math.floor(((at01(q) - 0.2) / 0.6) * BINS);
             if (i >= 0 && i < BINS) bins[i] += q.mass;
         }
+        // the emptiest bin, the middle one of a tie: masses within 1e-9 tie, so the scene's origin cannot decide
         let at = 0;
-        for (let i = 1; i < BINS; i++) if (bins[i] < bins[at] || (bins[i] === bins[at] && Math.abs(i - BINS / 2) < Math.abs(at - BINS / 2))) at = i;
-        const cutAt = lo + ((at + 0.5) / BINS) * span;
+        for (let i = 1; i < BINS; i++) {
+            const tie = Math.abs(bins[i] - bins[at]) <= 1e-9 * bins[at];
+            if ((!tie && bins[i] < bins[at]) || (tie && Math.abs(i - BINS / 2) < Math.abs(at - BINS / 2))) at = i;
+        }
+        const cutAt = 0.2 + ((at + 0.5) / BINS) * 0.6;
         const A = [], B = [];
-        for (const q of P.ps) ((ax ? (q.y0 + q.y1) / 2 : (q.x0 + q.x1) / 2) < cutAt ? A : B).push(q);
+        for (const q of P.ps) (at01(q) < cutAt ? A : B).push(q);
         if (!A.length || !B.length) { done.push(P); continue; }
         open.push({ ps: A, b: box(A), depth: P.depth + 1, path: P.path + "0" }, { ps: B, b: box(B), depth: P.depth + 1, path: P.path + "1" });
         n++;
     }
-    return done.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map((P) => P.b);
+    return done.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map((P) => ({ b: P.b, ps: P.ps }));
 }
 const ONE_LOOP = Object.freeze([0]);
 /** A record's closed loops (first chunk of each) that lie in its `n` chunks, or null; one loop is a shared [0]. */
@@ -390,10 +395,8 @@ export class SceneIndex {
         this.tombs = [];
         this._tombClock = 0;
         this._stamp = 0;
-        this.regions = new Map();        // parent row's founder id ("" for the top) -> [{ idn, kids: Set(founder id) }]
-        this.regionOf = new Map();       // row identity scene -> its region, as of the last batch
-        this.rows = [];                  // the panel's rows (echo pairs folded), as of the last batch
-        this.rowOf = new Map();          // scene -> its row
+        this.rows = [];                  // the panel's rows in list order, as of the last batch (`_rows`)
+        this.rowOf = new Map();          // scene -> the row it is in whole (none for a scene shown as its parts)
         this.stats = { queries: 0, cells: 0, entries: 0 };
     }
 
@@ -1169,7 +1172,7 @@ export class SceneIndex {
      * One batch `{frames, items, renames, restore}`. Frames first (scenes in a frame that went move up
      * the old tree); each item record is gone, new, re-shaped, re-placed or `attr` (a z change). Then:
      * scenes moved whole (origin), removals with pieces filed back and split checks, inserts in id
-     * order, moved ink re-joining, heirs, names reclaimed, frames, parents, rows, parts, regions.
+     * order, moved ink re-joining, heirs, names reclaimed, frames, parents, parts, rows.
      * Returns `{scenes, changed, export, ms, stats}`.
      */
     apply(batch = {}) {
@@ -1393,18 +1396,37 @@ export class SceneIndex {
             if (!S.frameDirty) continue;
             S.frame = this._frameOf(S);
             S.frameL = [S.Lmin, S.Lmax];
+            S.medL = this._medianL(S);
             S.frameDirty = false;
             changed.push(S);
         }
         this._reclaim(legacy);
         this._parents(changed);
-        this._echoes();
         for (const S of changed) this._parts(S);
         for (const S of changed) this._keyCheck(S);
-        this._regions();
+        this._rows();
         return { scenes: this.records(), changed: changed.map((S) => S.idn.id), export: this.exportState(),
             ms: now() - t0, stats: this.stats };
     }
+    /**
+     * The absolute log width most of a scene's ink is drawn at: its members' L, weighted by the
+     * ink's length (mass · width), at the half-way point (F189: "most of the strokes").
+     */
+    _medianL(S) {
+        const n = S.members.size;
+        if (!n) return -Infinity;
+        const l = new Float64Array(n), w = new Float64Array(n), id = new Float64Array(n), ix = new Uint32Array(n);
+        let k = 0, top = -Infinity;
+        for (const m of S.members) { l[k] = this.XD[m.slot * 8 + XL]; w[k] = this.XD[m.slot * 8 + XMASS]; id[k] = m.id; ix[k] = k; if (l[k] > top) top = l[k]; k++; }
+        ix.sort((a, b) => l[a] - l[b] || id[a] - id[b]);
+        let tot = 0;
+        for (let i = 0; i < n; i++) { w[ix[i]] *= 2 ** (l[ix[i]] - top); tot += w[ix[i]]; }
+        let acc = 0;
+        for (let i = 0; i < n; i++) { acc += w[ix[i]]; if (acc >= tot / 2) return l[ix[i]]; }
+        return top;
+    }
+    /** Is S's own view wider than its strokes can be seen in (SEEN_PX at the median width)? */
+    _wide(S) { return !!S.frame && viewLog(S.frame, this._depth(S.anchor)) > S.medL + SEEN_LOG + EPS_L; }
     /**
      * A restored scene whose frame or parts differ from the saved ones (a framing rule changed since
      * the save) gets a new version, so its thumbnails are made again; the saved ones are dropped.
@@ -1419,105 +1441,197 @@ export class SceneIndex {
         if (!same) { S.version = this.ver++; S.vtag = this.vtag; }
     }
     /**
-     * Part records for a scene wider than MAX_SPAN_PX at the zoom where its thickest stroke is
-     * REF_STROKE_PX: at most MAX_PARTS pieces (`cutParts`). Output only; a part keeps its id and a
-     * name it was given while it covers MATCH_OVERLAP of its previous frame.
+     * Part records for a scene whose own view is wider than its strokes can be seen in (`_wide`):
+     * pieces of at most the side where its median stroke is SEEN_PX in the picture, padded, at most
+     * MAX_PARTS (`cutParts`). Each part carries its share of the ink and of the members. Output
+     * only; a part keeps its id and a name it was given while it covers MATCH_OVERLAP of its
+     * previous frame.
      */
     _parts(S) {
         const prev = S.parts || [];
         S.parts = [];
-        if (!S.frame || S.members.size < 2) return;
+        if (!S.frame || S.members.size < 2 || !this._wide(S)) return;
         let Tmax = 0;
         for (const m of S.members) if (this.XD[m.slot * 8 + XT] > Tmax) Tmax = this.XD[m.slot * 8 + XT];
-        const limit = (MAX_SPAN_PX / JOIN_PX) * Tmax;
-        if (Math.max(S.frame.w, S.frame.h) <= limit) return;
+        const limit = 2 ** (S.medL + SEEN_LOG + LOG_R * this._depth(S.anchor)) / (1 + 2 * FRAME_PAD);
         const pts = [];
-        const several = S.members.size > 1;
         for (const m of S.members) {
-            const loc = this.LP, wm = this.XD[m.slot * 8 + XT] / REACH;
+            const loc = this.LP, wm = this.XD[m.slot * 8 + XT] / REACH, lw = this.XD[m.slot * 8 + XMASS] / Math.max(m.fn, 1);
             for (let k = 0; k < m.fn; k++) {
-                if (several && m.fn >= 3 && !this._valid(S, m, k)) continue;
+                if (m.fn >= 3 && !this._valid(S, m, k)) continue;
                 const o = m.lo + 4 * k;
-                pts.push({ x0: loc[o], y0: loc[o + 1], x1: loc[o + 2], y1: loc[o + 3], mass: Math.max(loc[o + 2] - loc[o], loc[o + 3] - loc[o + 1], wm) / wm });
+                pts.push({ x0: loc[o], y0: loc[o + 1], x1: loc[o + 2], y1: loc[o + 3], mass: Math.max(loc[o + 2] - loc[o], loc[o + 3] - loc[o + 1], wm) / wm, m, ink: lw });
             }
         }
         const leaves = cutParts(pts, limit);
         if (leaves.length < 2) return;
-        const rects = leaves.map((r) => padInk(r, Tmax / REACH));   // local: a scene moved whole keeps its parts
+        const rects = leaves.map((lf) => padInk(lf.b, Tmax / REACH));   // local: a scene moved whole keeps its parts
         const pairs = [];
         rects.forEach((r, i) => prev.forEach((q, j) => { const c = rectCover(q.rect, r); if (c >= MATCH_OVERLAP) pairs.push([c, i, j]); }));
         pairs.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
         const idn = new Array(rects.length), usedP = new Set();
         for (const [, i, j] of pairs) { if (idn[i] || usedP.has(j)) continue; idn[i] = prev[j].idn; usedP.add(j); }
-        S.parts = rects.map((rect, i) => ({ idn: idn[i] || { id: "p" + this.pseq, seq: this.pseq++, name: null, named: false }, rect }));
+        S.parts = rects.map((rect, i) => {
+            let mass = 0;
+            const who = new Set();
+            for (const q of leaves[i].ps) { mass += q.ink; who.add(q.m); }
+            return { idn: idn[i] || { id: "p" + this.pseq, seq: this.pseq++, name: null, named: false }, rect, mass, count: who.size };
+        });
     }
     /**
-     * Regions: more than MAX_SIBLINGS rows under one parent row (or at the top) are grouped by their
-     * frames' centres, split at the median across the wider spread until every group fits. Output
-     * only. Rows are named by their founders (a rename or a fold does not change one), and a region
-     * keeps the id and name of any earlier region holding MATCH_OVERLAP of its rows.
+     * The panel's rows (F189; Kobin 2026-11-10: no sub-scenes, one flat list). Every row is a view.
+     * A scene is one unit, or, when its strokes cannot be seen in its own view, its parts are (a
+     * renamed one stays a unit as well). Units close together share a row, the square holding them
+     * all, when for each of them that square is at most ZOOM_SPREAD times its own view and its
+     * median stroke is at least SEEN_PX in the picture: the pairs that pass are joined smallest
+     * square first, each join checked against every member, and two renamed units never share a
+     * row. A row takes the id and name of its renamed unit, else of its coarsest (then oldest). The
+     * rows inside no other come first, heaviest ink first, each followed by the rows inside it
+     * (`_parents`); a scene's parts stay together, in the cut tree's order. Output only.
      */
-    _regions() {
-        const groups = new Map();
-        for (const R of this.rows) {
-            const P = R.up;
-            let a = groups.get(P); if (!a) { a = []; groups.set(P, a); } a.push(R);
-        }
-        const next = new Map();
-        this.regionOf = new Map();
-        const pool = [];
-        for (const regs of this.regions.values()) for (const q of regs) pool.push(q);
-        const taken = new Set();
-        for (const [P, list] of groups) {
-            if (list.length <= MAX_SIBLINGS) continue;
-            const key = P ? P.founder.idn.id : "";
-            const ref = P ? P.shown.anchor : list.reduce((a, R) => (R.mass > a.mass ? R : a)).shown.anchor;
-            const pts = [];
-            for (const R of list) {
-                const T = R.shown, M = this.frames.map(T.anchor, ref);
-                if (!M) continue;
-                const f = T.frame;
-                pts.push({ S: R.founder, R, x: (f.x + f.w / 2) * M.s + M.ox, y: (f.y + f.h / 2) * M.s + M.oy,
-                    r: { x: f.x * M.s + M.ox, y: f.y * M.s + M.oy, w: f.w * M.s, h: f.h * M.s } });
-            }
-            const out = [];
-            const split = (ps) => {
-                if (ps.length <= MAX_SIBLINGS) { out.push(ps); return; }
-                let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-                for (const q of ps) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
-                const byX = x1 - x0 >= y1 - y0;
-                const sorted = ps.slice().sort((a, b) => (byX ? a.x - b.x : a.y - b.y) || a.S.idn.seq - b.S.idn.seq);
-                const h = sorted.length >> 1;
-                split(sorted.slice(0, h)); split(sorted.slice(h));
+    _rows() {
+        const dep = (a) => this._depth(a);
+        const units = [];
+        for (const S of [...this.scenes].sort((a, b) => a.idn.seq - b.idn.seq)) {
+            if (!S.frame) continue;
+            const d = dep(S.anchor), seen = S.medL + SEEN_LOG, P = S.parts || [];
+            const add = (k, idn, rect, mass, count, key) => {
+                const v = viewLog(rect, d);
+                units.push({ S, k, idn, anchor: S.anchor, rect, v, lim: Math.min(v + SPREAD_OCT, seen), mass, count, key, row: null });
             };
-            split(pts);
-            const prev = pool;
-            const pairs = [];
-            out.forEach((g, i) => {
-                const ids = new Set(g.map((q) => q.S.idn.id));
-                prev.forEach((q, j) => {
-                    if (taken.has(q)) return;
-                    let both = 0; for (const id of ids) if (q.kids.has(id)) both++;
-                    const jac = both / (ids.size + q.kids.size - both);
-                    if (jac >= MATCH_OVERLAP) pairs.push([jac, i, j]);
-                });
-            });
-            pairs.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
-            const idn = new Array(out.length), used = new Set();
-            for (const [, i, j] of pairs) { if (idn[i] || used.has(j)) continue; idn[i] = prev[j].idn; used.add(j); taken.add(prev[j]); }
-            const regs = [];
-            out.forEach((g, i) => {
-                if (g.length < 2) return;
-                let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-                for (const q of g) { x0 = Math.min(x0, q.r.x); y0 = Math.min(y0, q.r.y); x1 = Math.max(x1, q.r.x + q.r.w); y1 = Math.max(y1, q.r.y + q.r.h); }
-                const reg = { idn: idn[i] || { id: "r" + this.rseq, seq: this.rseq++, name: null, named: false },
-                    kids: new Set(g.map((q) => q.S.idn.id)), level: ref, rect: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, rows: g.map((q) => q.R) };
-                regs.push(reg);
-                for (const q of g) this.regionOf.set(q.R.S, reg);
-            });
-            next.set(key, regs);
+            if (!P.length || S.idn.named) add(-1, S.idn, S.frame, S.mass, S.members.size, keyOf(S));
+            P.forEach((pt, k) => add(k, pt.idn, { x: pt.rect.x + S.ox, y: pt.rect.y + S.oy, w: pt.rect.w, h: pt.rect.h }, pt.mass, pt.count, keyOf(S) + "." + (k + 1)));
         }
-        this.regions = next;
+        const place = (r, from, to) => {
+            if (from === to) return r;
+            const M = this.frames.map(from, to);
+            return M ? { x: r.x * M.s + M.ox, y: r.y * M.s + M.oy, w: r.w * M.s, h: r.h * M.s } : null;
+        };
+        // the square holding A and B (units or rows so far), in the coarser of their frames (A's on a tie)
+        const both = (A, B) => {
+            const ref = dep(B.anchor) < dep(A.anchor) ? B.anchor : A.anchor;
+            const a = place(A.rect, A.anchor, ref), b = place(B.rect, B.anchor, ref);
+            if (!a || !b) return null;
+            const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+            const rect = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+            return { ref, rect, v: viewLog(rect, dep(ref)) };
+        };
+        // candidate pairs: centres within each one's limit of each other, swept in their root frame
+        const roots = new Map();
+        const root = (a) => {
+            let r = roots.get(a);
+            if (r === undefined) {
+                r = a;
+                for (let f = this.frames.get(a), g = 0; f && f.parent != null && g < 4096; g++) { r = f.parent; f = this.frames.get(r); }
+                roots.set(a, r);
+            }
+            return r;
+        };
+        const pos = [];
+        units.forEach((u, i) => {
+            const rt = root(u.anchor), M = this.frames.map(u.anchor, rt);
+            if (!M) return;
+            const cx = (u.rect.x + u.rect.w / 2) * M.s + M.ox, cy = (u.rect.y + u.rect.h / 2) * M.s + M.oy;
+            if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+            pos.push({ i, rt, cx, cy, reach: 2 ** (u.lim + LOG_R * dep(rt)) + (Math.abs(cx) + Math.abs(cy) + 1) * 2 ** -30 });
+        });
+        pos.sort((a, b) => a.cx - b.cx || a.i - b.i);
+        const pairs = [];
+        for (let a = 0; a < pos.length; a++) {
+            const p = pos[a];
+            for (let b = a + 1; b < pos.length && pos[b].cx - p.cx <= p.reach; b++) {
+                const q = pos[b], dy = Math.abs(q.cy - p.cy);
+                if (q.rt !== p.rt || dy > p.reach || q.cx - p.cx > q.reach || dy > q.reach) continue;
+                const U = units[p.i], V = units[q.i];
+                if (U.idn.named && V.idn.named) continue;
+                const s = both(U, V);
+                if (s && s.v <= Math.min(U.lim, V.lim) + EPS_L) pairs.push({ v: Math.round(s.v * 1e9) / 1e9, a: Math.min(p.i, q.i), b: Math.max(p.i, q.i) });
+            }
+        }
+        pairs.sort((x, y) => x.v - y.v || x.a - y.a || x.b - y.b);
+        const grp = units.map((u) => ({ units: [u], anchor: u.anchor, rect: u.rect, lim: u.lim, named: u.idn.named ? u : null }));
+        const up = units.map((u, i) => i);
+        const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
+        for (const { a, b } of pairs) {
+            const ra = find(a), rb = find(b);
+            if (ra === rb) continue;
+            const A = grp[ra], B = grp[rb];
+            if (A.named && B.named) continue;
+            const s = both(A, B);
+            if (!s || s.v > Math.min(A.lim, B.lim) + EPS_L) continue;
+            up[rb] = ra;
+            grp[ra] = { units: A.units.concat(B.units), anchor: s.ref, rect: s.rect, lim: Math.min(A.lim, B.lim), named: A.named || B.named };
+        }
+        const coarse = (a, b) => b.S.Lmax - a.S.Lmax || (a.k < 0 ? 0 : 1) - (b.k < 0 ? 0 : 1) || a.S.idn.seq - b.S.idn.seq || a.k - b.k;
+        const rows = [];
+        units.forEach((u, i) => {
+            if (find(i) !== i) return;
+            const R = grp[i];
+            R.units.sort(coarse);
+            R.top = R.units[0];          // the coarsest: what the list orders it by
+            R.lead = R.named || R.top;   // whose id and name it shows
+            R.mass = 0; R.count = 0;
+            for (const v of R.units) { R.mass += v.mass; R.count += v.count; v.row = R; }
+            if (R.units.length === 1) R.key = R.top.key;
+            else {
+                // its units' keys and places in it: a member moved within the square is another picture
+                const V = viewSide(R.rect), q = (t) => Math.round((t / V) * 1e4), at = [];
+                for (const v of R.units) {
+                    const r = place(v.rect, v.anchor, R.anchor);
+                    at.push(v.key + "@" + (r ? [q(r.x - R.rect.x), q(r.y - R.rect.y), q(r.w), q(r.h)].join(",") : "-"));
+                }
+                R.key = "g" + fnv(at.sort().join("|"));
+            }
+            rows.push(R);
+        });
+        // nesting, for the order only: under the row of the nearest coarser scene (`_parents`) not in it
+        this.rowOf = new Map();
+        const partsOf = new Map();
+        for (const v of units) {
+            if (v.k < 0) this.rowOf.set(v.S, v.row);
+            else { let a = partsOf.get(v.S); if (!a) partsOf.set(v.S, (a = [])); a.push(v); }
+        }
+        const holds = (S, R) => (this.rowOf.get(S) === R) || (partsOf.get(S) || []).some((v) => v.row === R);
+        for (const R of rows) {
+            const C = R.top;
+            let P = C.S.parent;
+            for (let g = 0; P && g < 1e6; g++) {
+                if (!this.scenes.has(P)) { P = null; break; }
+                if ((this.rowOf.has(P) || partsOf.has(P)) && !holds(P, R)) break;
+                P = P.parent;
+            }
+            R.up = null;
+            if (!P) continue;
+            R.up = this.rowOf.get(P) || null;
+            if (R.up) continue;
+            // P is listed as its parts: the one holding C's centre, else its first
+            const ps = partsOf.get(P), M = this.frames.map(C.anchor, P.anchor);
+            const cx = M ? (C.rect.x + C.rect.w / 2) * M.s + M.ox : NaN, cy = M ? (C.rect.y + C.rect.h / 2) * M.s + M.oy : NaN;
+            const inside = ps.find((v) => cx >= v.rect.x && cx <= v.rect.x + v.rect.w && cy >= v.rect.y && cy <= v.rect.y + v.rect.h);
+            R.up = (inside || ps[0]).row;
+        }
+        const kids = new Map(), tops = [];
+        for (const R of rows) { if (R.up && R.up !== R) { let a = kids.get(R.up); if (!a) kids.set(R.up, (a = [])); a.push(R); } else tops.push(R); }
+        const out = [], done = new Set();
+        const emit = (list) => {
+            const blocks = new Map();
+            for (const R of list) {
+                const L = R.lead, key = L.k >= 0 ? L.S : R;
+                let b = blocks.get(key);
+                if (!b) blocks.set(key, (b = { rows: [], mass: L.k >= 0 ? L.S.mass : R.mass, seq: L.S.idn.seq }));
+                b.rows.push(R);
+            }
+            // a block (one row, or one scene's parts) together, then what is inside each of its rows
+            for (const b of [...blocks.values()].sort((x, y) => y.mass - x.mass || x.seq - y.seq)) {
+                b.rows.sort((x, y) => x.lead.k - y.lead.k);
+                const fresh = b.rows.filter((R) => !done.has(R));
+                for (const R of fresh) { done.add(R); out.push(R); }
+                for (const R of fresh) { const k = kids.get(R); if (k) emit(k); }
+            }
+        };
+        emit(tops);
+        for (const R of rows) if (!done.has(R)) { done.add(R); out.push(R); }
+        this.rows = out;
     }
     /** Scenes born this batch take a kept-aside id and name whose frame they cover by MATCH_OVERLAP. */
     _reclaim(legacy) {
@@ -1569,61 +1683,6 @@ export class SceneIndex {
             S.parent = best;
         }
     }
-    /**
-     * The panel's rows (§6 principle 1; Kobin 2026-09-23, "two scenes for Saturn"). Top-down, a
-     * scene joins the row of its nearest ancestor (ECHO_UP generations) whose tightest frame and its
-     * own hold each other's centres at sizes within ECHO_ZOOM, while the row's frames span at most
-     * ZOOM_SPREAD; two renamed scenes never share one. A row with a renamed member is that member
-     * (its id, name, frame and parts); else it keeps its first member's id and name and shows its
-     * tightest frame (Kobin 2026-09-23). Output only.
-     */
-    _echoes() {
-        const dep = new Map();
-        const depth = (S) => {
-            let d = dep.get(S);
-            if (d != null) return d;
-            d = 0;
-            for (let q = S.parent; q && this.scenes.has(q) && d < 1e6; q = q.parent) d++;
-            dep.set(S, d);
-            return d;
-        };
-        const list = [...this.scenes].filter((S) => S.frame).sort((a, b) => depth(a) - depth(b) || a.idn.seq - b.idn.seq);
-        this.rows = []; this.rowOf = new Map();
-        for (const S of list) {
-            let R = null;
-            for (let P = S.parent, g = 0; P && g < ECHO_UP && this.scenes.has(P); P = P.parent, g++) {
-                const Q = this.rowOf.get(P);
-                if (Q && this._echoJoins(Q, S)) { R = Q; break; }
-            }
-            const ls = frameLog(S.frame, this._depth(S.anchor));
-            if (R) {
-                R.members.push(S);
-                if (ls < R.tightLog) { R.tight = S; R.tightLog = ls; }
-                if (ls > R.looseLog) R.looseLog = ls;
-                if (S.idn.named) R.named = S;
-            } else {
-                R = { S, founder: S, tight: S, tightLog: ls, looseLog: ls, named: S.idn.named ? S : null, members: [S], up: null };
-                this.rows.push(R);
-            }
-            this.rowOf.set(S, R);
-        }
-        for (const R of this.rows) {
-            if (R.named) R.S = R.named;
-            R.shown = R.named || R.tight;
-            const P = R.founder.parent;
-            R.up = P && this.scenes.has(P) ? this.rowOf.get(P) || null : null;
-            R.mass = 0; R.count = 0;
-            for (const S of R.members) { R.mass += S.mass; R.count += S.members.size; }
-        }
-    }
-    /** Does `S` echo row `R`: its frame and R's tightest hold each other's centres, within ECHO_ZOOM, the row's span within ZOOM_SPREAD? */
-    _echoJoins(R, S) {
-        if (S.idn.named && R.named) return false;
-        const ls = frameLog(S.frame, this._depth(S.anchor));
-        if (Math.abs(ls - R.tightLog) > ECHO_LOG + EPS_L) return false;
-        if (Math.max(R.looseLog, ls) - Math.min(R.tightLog, ls) > SPREAD_OCT + EPS_L) return false;
-        return this._contains(R.tight, S) && this._contains(S, R.tight);
-    }
     _contains(P, S) {
         if (!P.frame || !S.frame) return false;
         const M = this.frames.map(S.anchor, P.anchor);
@@ -1632,54 +1691,24 @@ export class SceneIndex {
         return cx >= P.frame.x && cx <= P.frame.x + P.frame.w && cy >= P.frame.y && cy <= P.frame.y + P.frame.h;
     }
     /**
-     * The panel's list, one record per row (`_echoes`): roots by ink, heaviest first, each followed by
-     * its parts and its child rows, a crowd of siblings under its regions. A record carries its row's
-     * id and name and the frame of the scene it shows; `parent` is the parent row's id, `region` the
-     * region it is listed under; parts and regions carry `kind`.
+     * The panel's list, one record per row (`_rows`), flat: a row's id and name (a part's is its
+     * scene's name and number), its frame and square, its picture key, how many objects it holds;
+     * a part's record carries `kind`, a shared row's `group` (its units' ids).
      */
     records() {
-        const kids = new Map(), roots = [];
-        for (const R of this.rows) {
-            if (R.up) { let a = kids.get(R.up); if (!a) { a = []; kids.set(R.up, a); } a.push(R); } else roots.push(R);
-        }
-        const byInk = (a, b) => b.mass - a.mass || a.S.idn.seq - b.S.idn.seq;
-        const live = new Set(this.rows), out = [];
-        const visit = (R, depth, parentId, reg) => {
-            const S = R.S, T = R.shown;
-            out.push({ id: S.idn.id, name: S.idn.name, level: T.anchor, rect: { ...T.frame },
-                ...(parentId ? { parent: parentId } : {}), ...(reg ? { region: reg.idn.id } : {}), depth, hash: rowKey(R),
-                auto: !S.idn.named, pinned: !!S.idn.named, count: R.count });
-            (T.parts || []).forEach((pt, k) => out.push({ id: pt.idn.id, kind: "part", name: pt.idn.named ? pt.idn.name : S.idn.name + " · " + (k + 1),
-                level: T.anchor, rect: { x: pt.rect.x + T.ox, y: pt.rect.y + T.oy, w: pt.rect.w, h: pt.rect.h }, parent: S.idn.id, depth: depth + 1, hash: keyOf(T) + "." + (k + 1),
-                auto: !pt.idn.named, pinned: !!pt.idn.named }));
-            const k = kids.get(R);
-            if (k) emit(k, depth + 1, S.idn.id);
-        };
-        const emit = (list, depth, parentId) => {
-            list.sort(byInk);
-            const done = new Set();
-            for (const R of list) {
-                if (done.has(R)) continue;
-                const reg = this.regionOf.get(R.S);
-                if (!reg) { visit(R, depth, parentId, null); continue; }
-                const inReg = reg.rows.filter((q) => live.has(q)).sort(byInk);
-                out.push({ id: reg.idn.id, kind: "region", name: reg.idn.named ? reg.idn.name : inReg[0].S.idn.name + " and " + (inReg.length - 1) + " more",
-                    level: reg.level, rect: { ...reg.rect }, ...(parentId ? { parent: parentId } : {}), depth,
-                    hash: "r" + fnv(inReg.map(rowKey).join(".")), auto: !reg.idn.named, pinned: !!reg.idn.named,
-                    count: inReg.reduce((a, q) => a + q.count, 0) });
-                for (const q of inReg) { done.add(q); visit(q, depth + 1, parentId, reg); }
-            }
-        };
-        emit(roots, 0, null);
-        return out;
+        return this.rows.map((R) => {
+            const L = R.lead, S = L.S;
+            const name = L.k < 0 ? S.idn.name : L.idn.named ? L.idn.name : S.idn.name + " · " + (L.k + 1);
+            return { id: L.idn.id, ...(L.k >= 0 ? { kind: "part" } : {}), name, level: R.anchor, rect: { ...R.rect }, depth: 0, hash: R.key,
+                auto: !L.idn.named, pinned: !!L.idn.named, count: R.count, ...(R.units.length > 1 ? { group: R.units.map((v) => v.idn.id) } : {}) };
+        });
     }
-    /** A user's name for a scene, part or region. A renamed scene keeps its id and name through a merge with an unnamed one and gives its row its id. */
+    /** A user's name for a scene or a part. A renamed scene keeps its id and name through a merge with an unnamed one and gives its row its id. */
     rename(id, name) {
         if (typeof name !== "string" || !name.trim()) return false;
         const S = this.byId.get(id);
         let idn = S ? S.idn : null;
         if (!idn) for (const T of this.scenes) for (const pt of T.parts || []) if (pt.idn.id === id) idn = pt.idn;
-        if (!idn) for (const regs of this.regions.values()) for (const r of regs) if (r.idn.id === id) idn = r.idn;
         if (!idn) return false;
         idn.name = name.trim().slice(0, 120);
         idn.named = true;
@@ -1687,7 +1716,7 @@ export class SceneIndex {
     }
 
     // ------------------------------------------------------------------ saving
-    /** The saved state (meta.sceneIndex): scene shells (member strings cached per scene, parts), the kept-aside names, the regions. */
+    /** The saved state (meta.sceneIndex): scene shells (member strings cached per scene, parts), the kept-aside names. */
     exportState() {
         const scenes = [...this.scenes].sort((a, b) => a.idn.seq - b.idn.seq).map((S) => {
             // `m` the objects, `e` the erase footprints (item id −mark), each as sorted ids
@@ -1703,9 +1732,8 @@ export class SceneIndex {
                 ...(S.parts && S.parts.length ? { parts: S.parts.map((pt) => ({ id: pt.idn.id, seq: pt.idn.seq, name: pt.idn.name, named: pt.idn.named, rect: { ...pt.rect } })) } : {}) };
         });
         const tomb = this.tombs.map((t) => ({ ...t, rect: { ...t.rect } }));
-        const regions = [];
-        for (const [parent, regs] of this.regions) for (const r of regs) regions.push({ id: r.idn.id, seq: r.idn.seq, name: r.idn.name, named: r.idn.named, parent, kids: [...r.kids] });
-        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, scenes, tomb, ...(regions.length ? { regions } : {}) };
+        // `rseq` numbered the regions of the nested list (until F189); kept so an older build reading this file numbers on
+        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, scenes, tomb };
     }
     /**
      * A load: the saved scenes as shells, each object filed straight into its saved scene (no
@@ -1722,12 +1750,7 @@ export class SceneIndex {
         this.frames.settle();
         if (st) {
             this.seq = Math.max(1, st.seq | 0); this.ver = Math.max(1, st.ver | 0);
-            this.pseq = Math.max(1, st.pseq | 0); this.rseq = Math.max(1, st.rseq | 0);
-            for (const r of st.regions || []) {
-                const key = r.parent || "";
-                let a = this.regions.get(key); if (!a) { a = []; this.regions.set(key, a); }
-                a.push({ idn: { id: r.id, seq: r.seq, name: r.name, named: !!r.named }, kids: new Set(r.kids || []) });
-            }
+            this.pseq = Math.max(1, st.pseq | 0); this.rseq = Math.max(1, st.rseq | 0);   // a saved file's `regions` are not read (F189)
             this.tombs = (st.tomb || []).map((t) => ({ ...t, rect: { ...t.rect } }));
             for (const t of this.tombs) this._tombClock = Math.max(this._tombClock, t.t || 0);
         } else this.seq = Math.max(this.seq, batch.restore.seq | 0, 1);
@@ -1780,12 +1803,12 @@ export class SceneIndex {
         for (const x of loose) if (!x.scene) this._insert(x);
         if (legacy) for (const S of this.scenes) S.idn.born = this.batchNo;
         for (const S of this.scenes) S.frameDirty = true;
-        // names given before the restore went out; a part's or a region's once they exist (after _finish)
+        // names given before the restore went out; a part's once it exists (after _finish)
         const late = [];
         for (const [id, name] of batch.renames || []) if (!this.rename(id, name)) late.push([id, name]);
         let out = this._finish(t0, legacy);
         if (late.length && late.some(([id, name]) => this.rename(id, name))) {
-            this._echoes(); this._regions();   // a name can part two scenes' row
+            this._rows();   // a name can part two units' row
             out = { ...out, scenes: this.records(), export: this.exportState() };
         }
         for (const S of this.scenes) S.idn.born = -1;

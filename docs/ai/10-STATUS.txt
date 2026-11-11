@@ -35,7 +35,22 @@ WHERE THE BUILD IS
     2026-11-10: main 84356de DEPLOYED (the recipe round F173-F183, F184-F186, the selection work F170/F146/F187/F188).
     Kobin that day: autosave and performance are done, the bugs are being wrapped up, and the deploy after this
     one is to be 1.0. Filed and open: F189 (scenes do not follow moves) and F190 (a delay before the next zoom
-    after an erase cuts a shape).
+    after an erase cuts a shape). Both diagnosed the same day in jsdom on his report (OPEN-FLAGS): F190 is the
+    whole-family connectivity check run on the main thread after each cut (2.1 s a check on his drawing); F189 is
+    carvings filed in a coarse shape's coordinates, ceded squares counted as drawings, and nesting by stroke
+    width. F190 BUILT the same day, uncommitted: the family check reads each neighbour's outline by piece near the
+    kid's window and keeps a pair's answer while both are unchanged; the same classes as the whole-outline rule
+    (__oracles__/familyComponents.js, checked beside every family check the suites make), 2.1 s -> 20 ms a cut on
+    his report's family in jsdom; the phone not measured. F189 BUILT the same day, uncommitted (Kobin agreed the
+    fixes and asked for a flat list): a carving is filed where the eraser was drawn, one per gesture and family; in
+    a family of ceded squares alone only the shallowest are ink; the list is flat, every row a view - near scenes
+    share the square holding them when each is at least 1/16 of it and its median stroke is a quarter pixel in the
+    320-px picture, and a scene too wide for that is listed as its parts. jsdom: his report 11 rows -> 6, all
+    framed; 2 still flat colour (squares split off on the phone, inside the strokes' ink; not looked into).
+    F191 filed and FIXED the same night, uncommitted (OPEN-FLAGS): ants of an earlier selection stayed on the
+    phone's screen beside the next one's. The phone's hidden-page release dropped the ants' buffer but kept the
+    overlay canvas's pixels, and the next paint copied only the rows it touched; a new plane now empties its
+    canvas. Measured in jsdom and on a real canvas in the desktop app's Chromium; the phone not measured.
 
 2026-11-09 - F170 AND F146 FIXED (jsdom on Kobin's reports; committed and deployed 2026-11-10). His step 3: the selection
     issues, two new reports (05:48 "I couldn't select by lasso", 05:53 "a circle circling nothing").

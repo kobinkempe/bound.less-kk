@@ -229,20 +229,21 @@ export default class OverlayLayer {
         this._rep.stripBytes = bytes;
     }
 
-    /** The plane, allocated on the first `show()` and never across `hide()`/`show()` (FC1). */
+    /**
+     * The plane, allocated on the first `show()` and never across `hide()`/`show()` (FC1). A new or resized plane is
+     * empty, so the canvas is emptied with it (setting its size): a release drops the plane while the element keeps its
+     * pixels, and the blit copies only the rows a paint touched (OPEN-FLAGS F191).
+     */
     _ensurePlane() {
         const w = this.planeW, h = this.planeH;
-        if (!this.buf) {
-            this.buf = new OverlayBuffer(w, h);
+        let fresh = false;
+        if (!this.buf) { this.buf = new OverlayBuffer(w, h); fresh = true; } else fresh = this.buf.resize(w, h);
+        if (fresh) {
             this._img = this._mkImg(this.buf.data, w, h);
             if (!this._img) this._rep.noImageData++;
             this._rep.allocs++;
             this._planeDirty = true;
-        } else if (this.buf.resize(w, h)) {
-            this._img = this._mkImg(this.buf.data, w, h);
-            if (!this._img) this._rep.noImageData++;
-            this._rep.allocs++;
-            this._planeDirty = true;
+            if (this._canvas) { this._canvas.width = w; this._canvas.height = h; }
         }
         this._mountStrips();
         return this.buf;

@@ -177,10 +177,16 @@ ERASING   [HOT at gesture time, deferred for the geometry]
       _familyComponents(key)
         _familyMembers(key)                 every native sharing the editId
         for each member with an attachRect:
-          contactArcs(_inkOutline(kid), R, tol)
-          for each member one level coarser, touching:
-            lm.mapRectF(R, kid.level, up.level)
-            arcsTouch(kidArcs, upArcs, tol)  -> Groups.union
+          _doorOf(kid)                      its contact with its own window, inner
+                                            and axis runs; kept while unchanged
+          for each other member (F190: the answer kept per pair while both
+          members and the mapping between them are unchanged):
+            same depth:  _joinedBeside      the neighbour's pieces near the
+                                            kid's window (outlineContact)
+            coarser:     lm.mapRectF(R, from, up.level)
+                         _joinedAbove       outlineContact one level up; inner
+                                            runs against outlineRuns (F178)
+            arcsTouch / runsAbut  -> Groups.union
       re-label each component with a fresh editId; no geometry is touched
 
 SELECTING AND MOVING

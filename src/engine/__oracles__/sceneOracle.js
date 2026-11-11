@@ -9,11 +9,12 @@
  */
 import { R } from "../frameLattice";
 import {
-    REACH, STRAY_CHUNKS, SPREAD_OCT, FRAME_PAD, JOIN_PX, MATCH_OVERLAP, TOMB_MAX, ECHO_ZOOM, ECHO_UP, MAX_SPAN_PX, MAX_PARTS,
+    REACH, STRAY_CHUNKS, SPREAD_OCT, FRAME_PAD, MATCH_OVERLAP, TOMB_MAX, MAX_PARTS, SEEN_LOG, viewSide,
 } from "../sceneIndex";
 
 const LOG_R = Math.log2(R);
 const fits = (lo, hi) => hi - lo <= SPREAD_OCT + 1e-9;
+const vlog = (r, depth) => Math.log2(viewSide(r)) - LOG_R * depth;
 
 /** p_to = p·s + o along the tree path (up to the common ancestor, then down). */
 function frameMap(frames, from, to) {
@@ -133,40 +134,61 @@ export class SceneOracle {
         const pad = FRAME_PAD * Math.max(w, h);
         return { x: x - pad, y: y - pad, w: w + 2 * pad, h: h + 2 * pad };
     }
+    /** The ink-length-weighted median of the members' L (ties by id): where most of the scene's ink is drawn. */
+    _medianL(S) {
+        const xs = [...S.members].sort((a, b) => a.L - b.L || a.id - b.id);
+        if (!xs.length) return -Infinity;
+        const top = Math.max(...xs.map((m) => m.L));
+        const w = xs.map((m) => m.mass * 2 ** (m.L - top));
+        let tot = 0; for (const v of w) tot += v;
+        let acc = 0;
+        for (let i = 0; i < xs.length; i++) { acc += w[i]; if (acc >= tot / 2) return xs[i].L; }
+        return top;
+    }
     /**
-     * How many parts a scene gets: the full tree of cuts (each piece wider than MAX_SPAN_PX at the
-     * thickest width cut at the emptiest of 32 bins over its middle 60 %), then expanded from the
-     * root, the widest open piece first, while fewer than MAX_PARTS.
+     * A scene's parts, framed (in its frame's F): none unless its own view is wider than its median
+     * stroke can be seen in (1,280 widths); then the full tree of cuts (each piece wider than that,
+     * less the padding, cut at the emptiest of 32 bins over its middle 60 %), expanded from the
+     * root, the widest open piece first, while fewer than MAX_PARTS; leaves in the tree's order.
      */
-    _partCount(S, fr) {
-        if (S.members.size < 2) return 0;
-        const limit = (MAX_SPAN_PX / JOIN_PX) * fr.Tmax;
-        if (Math.max(fr.rect.w, fr.rect.h) <= limit) return 0;
+    _parts(S, fr) {
+        if (S.members.size < 2) return [];
+        const medL = this._medianL(S);
+        if (!(vlog(fr.rect, this._depth(fr.F)) > medL + SEEN_LOG + 1e-9)) return [];
+        const limit = 2 ** (medL + SEEN_LOG + LOG_R * this._depth(fr.F)) / (1 + 2 * FRAME_PAD);
         const pts = fr.valid.map(({ q, wm }) => ({ x0: q[0], y0: q[1], x1: q[2], y1: q[3], mass: Math.max(q[2] - q[0], q[3] - q[1], wm) / wm }));
         const node = (ps, depth) => {
             let b = [Infinity, Infinity, -Infinity, -Infinity];
             for (const q of ps) b = [Math.min(b[0], q.x0), Math.min(b[1], q.y0), Math.max(b[2], q.x1), Math.max(b[3], q.y1)];
-            const w = b[2] - b[0], h = b[3] - b[1], nd = { side: Math.max(w, h), kids: null };
+            const w = b[2] - b[0], h = b[3] - b[1], nd = { side: Math.max(w, h), kids: null, b };
             if (nd.side <= limit || depth >= 12 || ps.length < 2) return nd;
-            const ax = w >= h ? 0 : 1, lo = b[ax] + 0.2 * (ax ? h : w), span = 0.6 * (ax ? h : w);
+            const ax = w >= h ? 0 : 1, b0 = b[ax], L = ax ? h : w;
+            const t = (q) => ((ax ? q.y0 : q.x0) - b0 + ((ax ? q.y1 : q.x1) - b0)) / (2 * L);   // along the long side, 0..1
             const bins = new Array(32).fill(0);
-            for (const q of ps) { const i = Math.floor(((((ax ? q.y0 + q.y1 : q.x0 + q.x1) / 2) - lo) / span) * 32); if (i >= 0 && i < 32) bins[i] += q.mass; }
+            for (const q of ps) { const i = Math.floor(((t(q) - 0.2) / 0.6) * 32); if (i >= 0 && i < 32) bins[i] += q.mass; }
             let at = 0;
-            for (let i = 1; i < 32; i++) if (bins[i] < bins[at] || (bins[i] === bins[at] && Math.abs(i - 16) < Math.abs(at - 16))) at = i;
-            const c = lo + ((at + 0.5) / 32) * span;
-            const A = ps.filter((q) => ((ax ? q.y0 + q.y1 : q.x0 + q.x1) / 2) < c), B = ps.filter((q) => ((ax ? q.y0 + q.y1 : q.x0 + q.x1) / 2) >= c);
+            for (let i = 1; i < 32; i++) {
+                const tie = Math.abs(bins[i] - bins[at]) <= 1e-9 * bins[at];
+                if ((!tie && bins[i] < bins[at]) || (tie && Math.abs(i - 16) < Math.abs(at - 16))) at = i;
+            }
+            const c = 0.2 + ((at + 0.5) / 32) * 0.6;
+            const A = ps.filter((q) => t(q) < c), B = ps.filter((q) => t(q) >= c);
             if (A.length && B.length) nd.kids = [node(A, depth + 1), node(B, depth + 1)];
             return nd;
         };
-        let open = [node(pts, 0)], n = 1;
-        const leaves = [];
+        const root = node(pts, 0);
+        let open = [root], n = 1;
+        const opened = new Set();
         while (open.length) {
             const P = open.reduce((a, q) => (q.side > a.side ? q : a));
             open = open.filter((q) => q !== P);
-            if (!P.kids || n >= MAX_PARTS) { leaves.push(P); continue; }
-            open.push(...P.kids); n++;
+            if (!P.kids || n >= MAX_PARTS) continue;
+            opened.add(P); open.push(...P.kids); n++;
         }
-        return leaves.length < 2 ? 0 : leaves.length;
+        const leaves = [];
+        const walk = (nd) => { if (opened.has(nd)) nd.kids.forEach(walk); else leaves.push(nd); };
+        walk(root);
+        return leaves.length < 2 ? [] : leaves.map((nd) => this._pad(nd.b, fr.Tmax / REACH));
     }
     _tomb(S) {
         const fr = this.frameOf(S);
@@ -476,7 +498,11 @@ export class SceneOracle {
         }
         this.tombs = this.tombs.filter((t) => !usedT.has(t));
     }
-    /** `{id: {name, named, members: [ids], parent, row}}` — what the test compares; `row` the id of the panel row it is listed under. */
+    /**
+     * `{id: {name, named, members: [ids], parent, parts, row}}` — what the test compares; `row` the
+     * row holding the scene whole, named by its lead unit (`s<n>`, or `s<n>·k` for a part), null for a
+     * scene listed as its parts.
+     */
     result() {
         const frames = new Map();
         for (const S of this.scenes.values()) {
@@ -501,40 +527,50 @@ export class SceneOracle {
                 if (!(cx >= pf.rect.x && cx <= pf.rect.x + pf.rect.w && cy >= pf.rect.y && cy <= pf.rect.y + pf.rect.h)) continue;
                 if (phi < bestHi || (phi === bestHi && P.idn.seq < bestSeq)) { best = P; bestHi = phi; bestSeq = P.idn.seq; }
             }
-            out[S.idn.id] = { name: S.idn.name, named: S.idn.named, members: [...S.members].map((m) => m.id).sort((a, b) => a - b), parent: best ? best.idn.id : null, parts: this._partCount(S, fr) };
+            const parts = this._parts(S, fr);
+            out[S.idn.id] = { name: S.idn.name, named: S.idn.named, members: [...S.members].map((m) => m.id).sort((a, b) => a - b), parent: best ? best.idn.id : null, parts: parts.length, row: null };
             parentOf.set(S, best);
+            fr.parts = parts;
         }
-        // rows: top-down, a scene joins the row of its nearest ancestor (ECHO_UP up) whose tightest frame
-        // and its own hold each other's centres within ECHO_ZOOM, the row spanning at most 16×
-        const holds = (P, S) => {
-            const a = frames.get(S), b = frames.get(P);
-            const M = frameMap(this.frames, a.F, b.F);
-            if (!M) return false;
-            const cx = (a.rect.x + a.rect.w / 2) * M.s + M.ox, cy = (a.rect.y + a.rect.h / 2) * M.s + M.oy;
-            return cx >= b.rect.x && cx <= b.rect.x + b.rect.w && cy >= b.rect.y && cy <= b.rect.y + b.rect.h;
+        // rows (F189): every pair of units whose square passes both units' limits, smallest square first,
+        // each join checked against every member; at most one renamed unit a row
+        const units = [];
+        for (const S of [...this.scenes.values()].sort((a, b) => a.idn.seq - b.idn.seq)) {
+            const fr = frames.get(S), d = this._depth(fr.F), seen = this._medianL(S) + SEEN_LOG;
+            const add = (k, rect) => { const v = vlog(rect, d); units.push({ S, k, F: fr.F, rect, lim: Math.min(v + SPREAD_OCT, seen), named: k < 0 && S.idn.named }); };
+            if (!fr.parts.length || S.idn.named) add(-1, fr.rect);
+            fr.parts.forEach((r, k) => add(k, r));
+        }
+        const square = (A, B) => {
+            const F = this._depth(B.F) < this._depth(A.F) ? B.F : A.F;
+            const put = (X) => { const M = frameMap(this.frames, X.F, F); return M && { x: X.rect.x * M.s + M.ox, y: X.rect.y * M.s + M.oy, w: X.rect.w * M.s, h: X.rect.h * M.s }; };
+            const a = put(A), b = put(B);
+            if (!a || !b) return null;
+            const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+            const rect = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+            return { F, rect, v: vlog(rect, this._depth(F)) };
         };
-        const size = (S) => { const f = frames.get(S); return Math.log2(Math.max(f.rect.w, f.rect.h)) - LOG_R * this._depth(f.F); };
-        const depthOf = (S) => { let d = 0; for (let q = parentOf.get(S); q; q = parentOf.get(q)) d++; return d; };
-        const order = [...this.scenes.values()].sort((a, b) => depthOf(a) - depthOf(b) || a.idn.seq - b.idn.seq);
-        const rowOf = new Map(), rows = [];
-        for (const S of order) {
-            let R = null;
-            for (let P = parentOf.get(S), g = 0; P && g < ECHO_UP; P = parentOf.get(P), g++) {
-                const Q = rowOf.get(P);
-                if (S.idn.named && Q.members.some((m) => m.idn.named)) continue;
-                const t = Q.members.reduce((a, m) => (size(m) < size(a) ? m : a));
-                const lo = Math.min(...Q.members.map(size), size(S)), hi = Math.max(...Q.members.map(size), size(S));
-                if (Math.abs(size(S) - size(t)) > Math.log2(ECHO_ZOOM) + 1e-9 || hi - lo > SPREAD_OCT + 1e-9) continue;
-                if (holds(t, S) && holds(S, t)) { R = Q; break; }
-            }
-            if (!R) { R = { members: [] }; rows.push(R); }
-            R.members.push(S);
-            rowOf.set(S, R);
+        const pairs = [];
+        for (let a = 0; a < units.length; a++) for (let b = a + 1; b < units.length; b++) {
+            if (units[a].named && units[b].named) continue;
+            const s = square(units[a], units[b]);
+            if (s && s.v <= Math.min(units[a].lim, units[b].lim) + 1e-9) pairs.push({ v: Math.round(s.v * 1e9) / 1e9, a, b });
         }
-        for (const R of rows) {
-            const named = R.members.find((m) => m.idn.named);
-            const id = (named || R.members[0]).idn.id;
-            for (const S of R.members) out[S.idn.id].row = id;
+        pairs.sort((x, y) => x.v - y.v || x.a - y.a || x.b - y.b);
+        const rowOf = units.map((u) => ({ units: [u], F: u.F, rect: u.rect, lim: u.lim, named: u.named }));
+        for (const { a, b } of pairs) {
+            const A = rowOf[a], B = rowOf[b];
+            if (A === B || (A.named && B.named)) continue;
+            const s = square(A, B);
+            if (!s || s.v > Math.min(A.lim, B.lim) + 1e-9) continue;
+            const R = { units: A.units.concat(B.units), F: s.F, rect: s.rect, lim: Math.min(A.lim, B.lim), named: A.named || B.named };
+            for (const u of R.units) rowOf[units.indexOf(u)] = R;
+        }
+        const Lmax = (S) => this._range(S)[1];
+        for (const R of new Set(rowOf)) {
+            const lead = R.units.find((u) => u.named) || R.units.slice().sort((a, b) => Lmax(b.S) - Lmax(a.S) || (a.k < 0 ? 0 : 1) - (b.k < 0 ? 0 : 1) || a.S.idn.seq - b.S.idn.seq || a.k - b.k)[0];
+            const id = lead.k < 0 ? lead.S.idn.id : lead.S.idn.id + "·" + lead.k;
+            for (const u of R.units) if (u.k < 0) out[u.S.idn.id].row = id;
         }
         return out;
     }

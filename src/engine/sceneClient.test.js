@@ -2,7 +2,7 @@
  * The scene index through a real engine (SCENES-PLAN §7.4, §7.6): events to items, the saved
  * state in the file, a load that computes nothing, the migration of an old file, the worker path.
  */
-import { useEngines, mkEngine, drawStroke, erase, drag, pan, families, descend, camShot, camRestore } from "./__testkit__/harness";
+import { useEngines, mkEngine, drawStroke, erase, drag, pan, families, descend, ascend, camShot, camRestore } from "./__testkit__/harness";
 import KobinEngine from "./KobinEngine";
 import { SceneIndex } from "./sceneIndex";
 import { sceneGeom } from "./sceneClient";
@@ -13,6 +13,11 @@ useEngines();
 afterEach(() => jest.restoreAllMocks());   // a failed test's spy never leaks into the next
 const BLUE = "#1133cc";
 const scenes = (E) => E.refreshScenes();
+/** The rows of the scenes holding an erase footprint (an item of negative id). */
+const carved = (E, list = E.docMeta.scenes || []) => {
+    const ids = new Set([...E._sceneClient.core.items.values()].filter((x) => x.id < 0 && x.scene).map((x) => x.scene.idn.id));
+    return list.filter((s) => ids.has(s.id));
+};
 function reload(E, mutate) {
     const doc = JSON.parse(JSON.stringify(E.serializeDrawing({ name: "t" })));
     if (mutate) mutate(doc);
@@ -160,15 +165,29 @@ describe("erase footprints (SCENES-PLAN §6 row 14b)", () => {
         erase(E, [[380, 300], [420, 300]], 8);
         camRestore(E, home);
     };
-    test("a fine eraser two levels down on a coarse stroke makes a child scene framed on the carving", () => {
+    test("a fine eraser two levels down on a coarse stroke makes a scene of its own, framed on the carving where it was drawn", () => {
         const E = mkEngine();
         fine(E);
         const list = scenes(E);
         expect(list.length).toBe(2);
         const [top, kid] = list;
-        expect(kid.parent).toBe(top.id);
+        expect(carved(E, list)).toEqual([kid]);                       // listed right after the stroke it is in
+        expect(E.lm.depthOf(kid.level)).toBe(E.lm.depthOf(top.level) + 2);   // in the eraser's frame, not the stroke's (F189)
+        expect(E._sceneClient.foot.size).toBe(1);                     // one for the gesture, however many squares it cut
         const M = E.lm.frameFactor(kid.level, top.level);
         expect(kid.rect.w * M).toBeLessThan(top.rect.w / 1000);   // framed on the carving, not the stroke
+    });
+    test("a carving one level below a drawing above the first frame is a scene too (depths run negative there)", () => {
+        const E = mkEngine();
+        ascend(E, -2);
+        drawStroke(E, [[100, 300], [700, 300]], 80, BLUE);
+        const top = camShot(E);
+        descend(E, -1, 400, 300);
+        erase(E, [[380, 300], [420, 300]], 8);
+        camRestore(E, top);
+        const list = scenes(E);
+        expect(list.length).toBe(2);
+        expect(carved(E, list).map((s) => E.lm.depthOf(s.level))).toEqual([-1]);
     });
     test("an eraser about the ink's own width just edits its scene; a coarser one is removal", () => {
         const E = mkEngine();
@@ -205,11 +224,13 @@ describe("erase footprints (SCENES-PLAN §6 row 14b)", () => {
         const E = mkEngine();
         fine(E);
         const [top, kid] = scenes(E);
-        const n = E.lm.neighbour("0", 1, 0);
-        for (const o of [...E.doc.list("0")]) E.doc.rehomeById(o.id, n.id);   // the whole drawing one cell over
+        const fp = [...E._sceneClient.foot.values()][0], h = E.doc.getById(fp.host);
+        const n = E.lm.neighbour(String(h.level), 1, 0);
+        E.doc.rehomeById(fp.host, n.id);                              // the piece with the hole, one cell over
         const back = scenes(E);
         expect(back.map((s) => s.id).sort()).toEqual([top.id, kid.id].sort());
-        expect(back.find((s) => s.id === kid.id).parent).toBe(top.id);
+        expect(E._sceneClient.foot.get(fp.id).home).toBe(n.id);
+        expect(carved(E, back).map((s) => s.id)).toEqual([kid.id]);
     });
     test("an undone carving rides the save, and a redo after a reload (the op log replayed) brings its scene back", () => {
         const E = mkEngine();
@@ -229,7 +250,7 @@ describe("erase footprints (SCENES-PLAN §6 row 14b)", () => {
         F.redo(); F.flushErases();
         const back = scenes(F);
         expect(back.length).toBe(2);
-        expect(back.find((s) => s.parent)).toMatchObject({ id: kid.id });
+        expect(carved(F, back).map((s) => s.id)).toEqual([kid.id]);
     });
     test("a fresh action after an undo drops the undone carving; more than the cap drops the oldest", () => {
         const E = mkEngine();
@@ -243,14 +264,14 @@ describe("erase footprints (SCENES-PLAN §6 row 14b)", () => {
         const G = mkEngine();
         G._sceneClient.footMax = 1;
         fine(G);
-        const first = scenes(G).find((s) => s.parent);
+        const [first] = carved(G, scenes(G));
         const home = camShot(G);
         descend(G, 2, 200, 300);
         erase(G, [[180, 300], [220, 300]], 8);
         camRestore(G, home);
         const list = scenes(G);
         expect(G._sceneClient.foot.size).toBe(1);
-        expect(list.filter((s) => s.parent).length).toBe(1);
+        expect(carved(G, list).length).toBe(1);
         expect(list.find((s) => s.id === first.id)).toBeFalsy();   // the older carving's scene went with it
     });
 });
@@ -266,16 +287,16 @@ describe("ceded patches (review 2026-09-22)", () => {
         const all = () => E.doc.levels().flatMap((L) => E.doc.list(L).map((o) => o));
         const patches = all().filter((o) => o.attachRect != null && !o.erase);
         expect(patches.length).toBeGreaterThan(0);
-        const top = scenes(E).filter((s) => !s.parent && !s.kind);
-        expect(top.length).toBe(1);
+        const drawing = () => { const list = scenes(E); const c = carved(E, list); return list.filter((s) => !s.kind && !c.includes(s)); };
+        expect(drawing().length).toBe(1);                // the stroke; its ceded squares are storage
+        expect(carved(E).length).toBe(1);
         const rem = all().filter((o) => o.attachRect == null && !o.erase && E.doc.editKey(o) === E.doc.editKey(patches[0]));
         expect(rem.length).toBeGreaterThan(0);
         for (const o of rem) E.doc.removeById(o.id);
         const left = scenes(E).filter((s) => !s.kind);
         expect(left.length).toBeGreaterThan(0);          // the patches' ink is listed
         for (const o of rem) E.doc.insertAt(o, "0");
-        const back = scenes(E).filter((s) => !s.parent && !s.kind);
-        expect(back.length).toBe(1);                     // the patches are storage again, in the remnant's scene
+        expect(drawing().length).toBe(1);                // the patches are storage again, in the remnant's scene
     });
 });
 
@@ -337,8 +358,8 @@ describe("closed outlines through the client (review follow-up)", () => {
     });
 });
 
-describe("echo rows through the client (Kobin 2026-09-23: two scenes for Saturn)", () => {
-    test("a fat-stroke body and its fine rings around it are one row, framed on the rings", () => {
+describe("one square for scenes close together, through the client (F189)", () => {
+    test("a fat-stroke body and its fine rings around it are one row, the square holding both; renamed, it keeps it", () => {
         const E = mkEngine();
         drawStroke(E, [[80, 300], [720, 300]], 64, BLUE);           // the body: two fat strokes, framed ~845 wide
         drawStroke(E, [[80, 330], [720, 330]], 64, BLUE);
@@ -349,12 +370,15 @@ describe("echo rows through the client (Kobin 2026-09-23: two scenes for Saturn)
         expect(E._sceneClient.core.scenes.size).toBe(2);
         expect(list.length).toBe(1);
         expect(list[0].count).toBe(5);
-        const core = E._sceneClient.core, rings = core.items.get(E.doc.list("0").find((o) => o.lwFrame === 2 || o.w === 2).id).scene;
-        expect(list[0].rect).toEqual(rings.frame);                     // the tighter: the rings' frame
+        expect(list[0].group.length).toBe(2);
+        const fr = [...E._sceneClient.core.scenes].map((S) => S.frame);   // both anchored in "0"
+        expect(list[0].rect.x).toBeCloseTo(Math.min(...fr.map((f) => f.x)), 6);
+        expect(list[0].rect.y).toBeCloseTo(Math.min(...fr.map((f) => f.y)), 6);
+        expect(list[0].rect.x + list[0].rect.w).toBeCloseTo(Math.max(...fr.map((f) => f.x + f.w)), 6);
         expect(E.renameScene(list[0].id, "Saturn")).toBe(true);         // the row's id is the body's
         const [named] = scenes(E).filter((s) => !s.kind);
-        expect(named.name).toBe("Saturn");
-        expect(named.rect).toEqual(core.byId.get(list[0].id).frame);    // a renamed member shows its own frame (Kobin 2026-09-23)
+        expect([named.id, named.name]).toEqual([list[0].id, "Saturn"]);
+        expect(named.rect).toEqual(list[0].rect);                       // the square it showed
     });
 });
 
@@ -371,33 +395,28 @@ describe("erase pieces are storage", () => {
     });
 });
 
-describe("parts and regions through the file", () => {
-    // 45 marks far apart (regions: more than 20 side by side) and a panorama (parts: wider than 4,500 px at 2.5 px)
-    const crowd = (E) => {
-        for (let i = 0; i < 45; i++) drawStroke(E, [[i * 5000, 300], [i * 5000 + 30, 300]], 1, BLUE);
-        for (let i = 0; i < 40; i++) drawStroke(E, [[i * 500, 100300], [i * 500 + 300, 100500]], 1, BLUE);
-    };
-    test("renamed parts and regions, and the part and region counters, survive serializeDrawing and loadDrawing", () => {
+describe("parts through the file", () => {
+    // a panorama of 40 strokes 1 wide over 19,800: too wide for its strokes to be seen, so its parts are its rows
+    const panorama = (E) => { for (let i = 0; i < 40; i++) drawStroke(E, [[i * 500, 100300], [i * 500 + 300, 100500]], 1, BLUE); };
+    test("a renamed part and the part counter survive serializeDrawing and loadDrawing; the list is flat", () => {
         const E = mkEngine();
-        crowd(E);
+        panorama(E);
         const list = scenes(E);
-        const part = list.find((s) => s.kind === "part"), region = list.find((s) => s.kind === "region");
-        expect(part && region).toBeTruthy();
+        expect(list.length).toBeGreaterThan(1);
+        expect(list.every((s) => s.kind === "part" && !s.depth)).toBe(true);
+        const part = list[2];
         expect(E.renameScene(part.id, "Bridge")).toBe(true);
-        expect(E.renameScene(region.id, "Harbour row")).toBe(true);
         scenes(E);
         const saved = E.serializeDrawing({ name: "t" }).meta.sceneIndex;
         expect(saved.pseq).toBeGreaterThan(1);
-        expect(saved.rseq).toBeGreaterThan(1);
+        expect(saved.regions).toBeUndefined();
         const F = reload(E);
-        expect(F.docMeta.scenes.find((s) => s.id === region.id).kind).toBe("region");   // the stored list, before the index lands
+        expect(F.docMeta.scenes.find((s) => s.id === part.id).name).toBe("Bridge");   // the stored list, before the index lands
         const back = scenes(F);
         expect(back.find((s) => s.id === part.id).name).toBe("Bridge");
-        expect(back.find((s) => s.id === region.id).name).toBe("Harbour row");
-        const again = F.serializeDrawing({ name: "t" }).meta.sceneIndex;
-        expect([again.pseq, again.rseq]).toEqual([saved.pseq, saved.rseq]);
-        // a region's picture key survives the file whole, so its thumbnail is not re-made
-        expect(F.docMeta.scenes.find((s) => s.id === region.id).hash).toBe(E.docMeta.scenes.find((s) => s.id === region.id).hash);
+        expect(F.serializeDrawing({ name: "t" }).meta.sceneIndex.pseq).toBe(saved.pseq);
+        // a part's picture key survives the file, so its thumbnail is not re-made
+        expect(back.find((s) => s.id === part.id).hash).toBe(E.docMeta.scenes.find((s) => s.id === part.id).hash);
         F.destroy();
     });
 });

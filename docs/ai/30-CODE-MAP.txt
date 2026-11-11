@@ -472,7 +472,10 @@ KobinEngine.js      THE FACADE, 1,409 lines on 2026-09-22. Routes input to a col
                                      one cache square at a time, one crossing
                                      at a time, each kid being the tile
                                      store's own piece - _squareInk, F42)
-                      severance      _familyComponents / _resplitFamily
+                      severance      _familyComponents / _resplitFamily; a
+                                     member's doorway data and each pair's
+                                     answer are kept while unchanged (_doorOf,
+                                     _joinedBeside, _joinedAbove - F190)
                       selection      _hitTest, _lassoFind (the frame-tree walk),
                                      _dragSelection (a step writes nothing:
                                      the displacement, snapped to 2^-10 units
@@ -760,8 +763,10 @@ worker/sceneWorker.js as chunk records, per-scene band grids (all/own), insert w
                     stray groups and greedy merges, seeded or full split checks,
                     rigid moves by origin, re-joins through the moved ink,
                     kept-aside names and heirs, frames that go re-anchored up the
-                    old tree (_framesGone, _staticRef), parents, parts, regions,
-                    exportState/restore; its oracle is
+                    old tree (_framesGone, _staticRef), parents, parts (a scene
+                    too wide for its median stroke to be seen, _wide/_medianL),
+                    the flat rows (_rows: units joined into squares smallest
+                    first, F189), exportState/restore; its oracle is
                     __oracles__/sceneOracle.js. sceneClient keeps a dirty set from
                     the Document's events (erase pieces hinted to their source's
                     scene; fine-eraser footprints from the op channel's bake
@@ -772,7 +777,9 @@ worker/sceneWorker.js as chunk records, per-scene band grids (all/own), insert w
                     file once; a generation per restore drops a result from the
                     document before, a failed worker is rebuilt inline, a prep
                     spanning a frame event is folded (_sendPrepared, _fold), ceded
-                    patches count only when their family has nothing else.
+                    patches count only when their family has nothing else, and then
+                    only its shallowest; a footprint is one per gesture and family,
+                    filed where the eraser was drawn (_footprint, F189).
                     It replaced scenes.js, the all-pairs clustering that
                     took 129.6 s on the Magnum Opus.
 frameLattice.js     The address arithmetic. Pure integers and powers of two.
@@ -947,6 +954,11 @@ connect.js          Contact along a shared tile edge, as intervals in a
                     NORMALIZED perimeter parameter. contactArcs / arcsTouch /
                     arcOverlaps / tOfPoint, plus Groups (union-find).
                     arcsTouch requires a shared STRETCH, not a shared point.
+                    axisRuns / runsAbut / innerRuns: stretches of one
+                    axis-parallel line (F178). outlineContact / outlineRuns /
+                    outlineDoor are the same answers read from the pieces near
+                    a window (arcShape's outlineIndex / outlineEdges), with no
+                    ring built (F190).
 hittest.js          distToPolyline and windingOfPoint are what the engine picks
                     with; windingOfPoint is polyline's windingAt re-exported
                     (2026-09-07 - the two were identical copies).
@@ -979,6 +991,10 @@ NOT SHIPPED - src/engine/__oracles__/
                         sub-scanlines a pixel row (raster/raster.oracle.test.js).
     sceneOracle.js      the scene index's rules by brute force (being built
                         with sceneIndex.js).
+    familyComponents.js is a family still one object, each pair from two whole
+                        outlines with nothing kept (the check before F190).
+                        erase.family.test.js, and beside every family check
+                        a suite's engine makes (__testkit__/harness.js).
 
 THE SCALE BAR - src/engine/scaleBar/
 

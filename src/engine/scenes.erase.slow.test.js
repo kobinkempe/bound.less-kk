@@ -47,7 +47,7 @@ const twoCompositions = (E) => {
 };
 
 describe("SC-1 — a deep cut adds its carving and nothing else", () => {
-    test.each([[1], [2], [3], [4]])("a cut %i crossing(s) down adds one child scene, made of the footprint alone", (n) => {
+    test.each([[1], [2], [3], [4]])("a cut %i crossing(s) down adds one scene, made of the footprint alone, in the eraser's frame", (n) => {
         const E = mkEngine();
         twoCompositions(E);
         const before = list(E);
@@ -61,8 +61,10 @@ describe("SC-1 — a deep cut adds its carving and nothing else", () => {
         expect(after.length).toBe(before.length + 1);
         const carved = carvings(E);
         expect(carved.length).toBe(1);
-        const kid = after.find((s) => s.id === carved[0]);
-        expect(kid.parent).toBeTruthy();                 // nested under what it carved
+        const kid = after.find((s) => s.id === carved[0]), core = E._sceneClient.core, K = core.byId.get(kid.id);
+        expect(K.parent).toBeTruthy();                   // nested in the index under what it carved: listed right after it
+        expect(after.indexOf(kid)).toBe(after.findIndex((s) => s.id === core.rowOf.get(K.parent).lead.idn.id) + 1);
+        expect(E.lm.depthOf(kid.level)).toBe(E.lm.depthOf(home.frame) + n);   // framed where the eraser was drawn (F189)
         for (const s of before) expect(after.some((a) => a.id === s.id)).toBe(true);
     });
     test("a cut at the ink's own level that leaves a shower of loose pieces adds nothing", () => {

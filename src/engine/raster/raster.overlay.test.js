@@ -640,6 +640,46 @@ describe("§15.3 Q6 — hide keeps the plane, onStoreRelease frees it, destroy f
         expect(layer.report().repaints).toBe(r0 + 1);
     });
 
+    test("F191: after a release the canvas holds no ants of the selection before it", () => {
+        // A canvas that keeps its pixels as a browser's does: `putImageData` writes them, setting a size empties them.
+        const keep = (w, h) => {
+            const c = document.createElement("canvas");
+            let W = 0, H = 0;
+            const ctx = {
+                px: null,
+                putImageData(img, dx, dy, x, y, ww, hh) {
+                    for (let r = y; r < y + hh; r++) for (let q = x; q < x + ww; q++) {
+                        for (let b = 0; b < 4; b++) ctx.px[(r * W + q) * 4 + b] = img.data[(r * img.width + q) * 4 + b];
+                    }
+                },
+            };
+            const reset = () => { ctx.px = new Uint8ClampedArray(W * H * 4); };
+            Object.defineProperty(c, "width", { get: () => W, set: (v) => { W = v; reset(); } });
+            Object.defineProperty(c, "height", { get: () => H, set: (v) => { H = v; reset(); } });
+            c.width = w; c.height = h;
+            c.getContext = () => ctx;
+            return c;
+        };
+        const litRows = (px, w) => {
+            const rows = new Set();
+            for (let i = 3; i < px.length; i += 4) if (px[i]) rows.add(Math.floor((i - 3) / 4 / w));
+            return [...rows].sort((a, b) => a - b);
+        };
+        const at = (y) => mkDec("y" + y, { runs: [{ pieces: [line(200, y, 1300, y)], closed: false, len: 1100 }] });
+        for (const hideFirst of [true, false]) {
+            const layer = new OverlayLayer(document.createElement("div"), { width: CSS_W, height: CSS_H, dpr: 1, makeCanvas: keep,
+                makeImageData: mkImg, setTimer: () => 1, clearTimer: () => {}, now: () => 0, reducedMotion: true });
+            layer.show(at(650), mkView());
+            if (hideFirst) layer.hide();             // a tool change, then the page hidden (Kobin's report 03:49)
+            layer.onStoreRelease("hidden");
+            layer.show(at(300), mkView());
+            const shown = litRows(layer._canvas.getContext("2d").px, layer._canvas.width);
+            expect(shown.length).toBeGreaterThan(0);
+            expect(shown).toEqual(litRows(layer.buf.data, layer.buf.width));
+            expect(shown.some((y) => y > 600)).toBe(false);
+        }
+    });
+
     test("`destroy()` stops the clock and detaches", () => {
         const { layer, host, timers } = mkLayer();
         layer.show(mkDec(), mkView());

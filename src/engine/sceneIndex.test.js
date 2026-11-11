@@ -1,10 +1,10 @@
 /**
  * The scene index against its oracle (SCENES-PLAN §7.6): random drawings over three frames with
  * mixed widths, long lines, erasures (pieces), moves (partial and whole), a frame re-filed, renames
- * and a save/load round trip — the same scenes (members, ids, names, parents, rows) after every batch.
+ * and a save/load round trip — the same scenes (members, ids, names, parents, parts, rows) after every batch.
  * Plus the focused cases the plan lists.
  */
-import { SceneIndex, CHUNK, REACH, encodeIds, decodeIds } from "./sceneIndex";
+import { SceneIndex, CHUNK, REACH, encodeIds, decodeIds, viewSide } from "./sceneIndex";
 import { SceneOracle } from "./__oracles__/sceneOracle";
 
 function rng(seed) {
@@ -44,12 +44,13 @@ const FRAMES = [
     { id: "0/3,1", parent: "0", depth: 1, cx: 96, cy: 32 },
 ];
 
-/** The index's scenes in the oracle's shape (`row`: the panel row it is listed under; `parts`: how many). */
+/** The index's scenes in the oracle's shape (`row`: the row holding it whole, by its lead unit; `parts`: how many). */
 function stateOf(ix) {
     const out = {};
     for (const S of ix.scenes) {
         const P = S.parent && ix.scenes.has(S.parent) ? S.parent : null, R = ix.rowOf.get(S);
-        out[S.idn.id] = { name: S.idn.name, named: S.idn.named, members: [...S.members].map((m) => m.id).sort((a, b) => a - b), parent: P ? P.idn.id : null, row: R ? R.S.idn.id : S.idn.id, parts: (S.parts || []).length };
+        const row = R ? (R.lead.k < 0 ? R.lead.S.idn.id : R.lead.S.idn.id + "·" + R.lead.k) : null;
+        out[S.idn.id] = { name: S.idn.name, named: S.idn.named, members: [...S.members].map((m) => m.id).sort((a, b) => a - b), parent: P ? P.idn.id : null, parts: (S.parts || []).length, row };
     }
     return out;
 }
@@ -358,16 +359,17 @@ describe("focused: joining, bridging, splitting", () => {
 });
 
 describe("focused: 16× nesting both ways", () => {
-    test("fine detail more than 16× thinner on a coarse drawing is a child scene", () => {
+    test("fine detail more than 16× thinner on a coarse drawing is a scene of its own, listed flat right after the drawing", () => {
         const ix = fresh();
         const coarse = stroke(0, 0, 20000, 0, 32, "0", 10);
         ix.apply({ items: [coarse] });
         const fine = [stroke(10000, 10, 10100, 10, 1), stroke(10000, 30, 10100, 30, 1)];   // 32× thinner
         const out = ix.apply({ items: fine });
         expect(ix.scenes.size).toBe(2);
-        const kid = out.scenes.find((r) => r.id === sceneOf(ix, fine[0].id).idn.id);
-        expect(kid.parent).toBe(sceneOf(ix, coarse.id).idn.id);
-        expect(kid.depth).toBe(1);
+        const K = sceneOf(ix, fine[0].id);
+        expect(K.parent).toBe(sceneOf(ix, coarse.id));             // nested in the index, which orders the list
+        expect(out.scenes.map((r) => r.id)).toEqual([sceneOf(ix, coarse.id).idn.id, K.idn.id]);
+        for (const r of out.scenes) { expect(r.depth).toBe(0); expect(r.parent).toBeUndefined(); }
     });
     test("a big picture drawn later around a small one makes it a child, id and name kept", () => {
         const ix = fresh();
@@ -381,7 +383,8 @@ describe("focused: 16× nesting both ways", () => {
         const rec = out.scenes.find((r) => r.name === "Ladybird");
         expect(rec).toBeTruthy();
         expect(rec.id).toBe(s.idn.id);
-        expect(rec.parent).toBe(sceneOf(ix, daisy[0].id).idn.id);
+        expect(sceneOf(ix, small[0].id).parent).toBe(sceneOf(ix, daisy[0].id));
+        expect(out.scenes.map((r) => r.id)).toEqual([sceneOf(ix, daisy[0].id).idn.id, s.idn.id]);   // after the picture it is in
     });
     test("pieces of an erased stroke 16× thinner than its scene leave it for a child scene", () => {
         const ix = fresh();
@@ -531,26 +534,27 @@ describe("focused: names", () => {
     });
 });
 
-describe("phase 2: parts and regions", () => {
+describe("parts (F189: a scene too wide for its strokes to be seen is listed as its parts)", () => {
     // a panorama: strokes side by side along 20,000 widths, each within reach of the next
     const panorama = (x0 = 0, n = 40, gap = 500) => { const out = []; for (let i = 0; i < n; i++) out.push(stroke(x0 + i * gap, 0, x0 + i * gap + 300, 200, 1, "0", 6)); return out; };
-    test("a panorama is one scene with part records, each no wider than MAX_SPAN_PX, cut at the emptiest places", () => {
+    test("a panorama whose strokes cannot be seen in its own view is listed as its parts, each a view they can be seen in", () => {
         const ix = fresh();
-        const out = ix.apply({ items: panorama(0, 24) });        // under the 12-part cap
-        const scenesOnly = out.scenes.filter((r) => !r.kind);
-        expect(scenesOnly.length).toBe(1);
+        const out = ix.apply({ items: panorama(0, 12) });        // 5,800 wide: 4.5 times what a 1-wide pen can be seen across
+        expect(ix.scenes.size).toBe(1);
         const parts = out.scenes.filter((r) => r.kind === "part");
-        expect(parts.length).toBeGreaterThanOrEqual(6);
+        expect(parts.length).toBe(out.scenes.length);            // no row for the whole
+        expect(parts.length).toBeGreaterThanOrEqual(5);
         expect(parts.length).toBeLessThanOrEqual(12);
-        for (const p of parts) { expect(p.parent).toBe(scenesOnly[0].id); expect(Math.max(p.rect.w, p.rect.h)).toBeLessThanOrEqual(1800 * 1.25); }
-        expect(out.scenes.indexOf(parts[0])).toBe(1);            // listed right under their scene
+        for (const p of parts) { expect(p.depth).toBe(0); expect(viewSide(p.rect)).toBeLessThanOrEqual(1280); }
+        expect(parts.map((p) => p.rect.x)).toEqual(parts.map((p) => p.rect.x).sort((a, b) => a - b));   // the cut tree's order
     });
     test("the cut falls in the emptiest place between two dense halves", () => {
         const ix = fresh();
         const left = [], right = [];
-        for (let i = 0; i < 30; i++) left.push(stroke(i * 40, 0, i * 40 + 30, 30, 1, "0", 3));
-        for (let i = 0; i < 30; i++) right.push(stroke(2000 + i * 40, 0, 2000 + i * 40 + 30, 30, 1, "0", 3));
-        const bridge = [stroke(1200, 0, 1500, 0, 1, "0", 3), stroke(1600, 0, 1900, 0, 1, "0", 3)];
+        // a 1.5-wide pen is seen across 1,920: the whole (3,190 of ink) is too wide, each half is not
+        for (let i = 0; i < 30; i++) left.push(stroke(i * 40, 0, i * 40 + 30, 30, 1.5, "0", 3));
+        for (let i = 0; i < 30; i++) right.push(stroke(2000 + i * 40, 0, 2000 + i * 40 + 30, 30, 1.5, "0", 3));
+        const bridge = [stroke(1200, 0, 1500, 0, 1.5, "0", 3), stroke(1600, 0, 1900, 0, 1.5, "0", 3)];
         const out = ix.apply({ items: [...left, ...right, ...bridge] });
         const parts = out.scenes.filter((r) => r.kind === "part");
         expect(parts.length).toBe(2);
@@ -575,21 +579,14 @@ describe("phase 2: parts and regions", () => {
         expect(p2.map((p) => p.id)).toEqual(p0.map((p) => p.id));
         expect(p2.find((p) => p.name === "Bridge")).toBeTruthy();
     });
-    test("more than MAX_SIBLINGS scenes side by side are grouped into regions, each scene listed under one", () => {
+    test("scenes far apart are rows of their own in one flat list: no regions", () => {
         const ix = fresh();
         const dots = [];
         for (let i = 0; i < 45; i++) dots.push(stroke(i * 5000, (i % 3) * 5000, i * 5000 + 50, (i % 3) * 5000, 1, "0", 2));
         const out = ix.apply({ items: dots });
-        const regions = out.scenes.filter((r) => r.kind === "region");
-        const scenesOnly = out.scenes.filter((r) => !r.kind);
-        expect(scenesOnly.length).toBe(45);
-        expect(regions.length).toBeGreaterThanOrEqual(3);
-        for (const r of regions) expect(scenesOnly.filter((s) => s.region === r.id).length).toBeLessThanOrEqual(20);
-        for (const s of scenesOnly) { expect(s.region).toBeTruthy(); expect(s.depth).toBe(1); }
-        // a change elsewhere keeps the regions' ids
-        const again = ix.apply({ items: [stroke(0, 90000, 50, 90000, 1, "0", 2)] });
-        const ids = again.scenes.filter((r) => r.kind === "region").map((r) => r.id);
-        for (const r of regions) expect(ids).toContain(r.id);
+        expect(out.scenes.length).toBe(45);
+        for (const r of out.scenes) { expect(r.kind).toBeUndefined(); expect(r.region).toBeUndefined(); expect(r.depth).toBe(0); expect(r.group).toBeUndefined(); }
+        expect(ix.exportState().regions).toBeUndefined();
     });
 });
 
@@ -786,13 +783,13 @@ describe("review 2026-09-22: nits", () => {
     });
 });
 
-describe("echo rows (Kobin 2026-09-23: \"why are there two scenes for Saturn?\")", () => {
-    // Saturn: a body of two fat strokes (frame 960 × 260) and its rings, 64× thinner (a child
-    // scene), around it (frame 960 for rings(400), 720 for rings(300)): the same subject
+describe("one square for scenes close together (F189, Kobin 2026-11-10: no sub-scenes)", () => {
+    // Saturn: a body of two fat strokes (frame 960 × 260) and its rings, 64× thinner (a scene of its
+    // own, nested in the index), around it (frame 720 for rings(300))
     const body = () => [stroke(-300, 0, 500, 0, 64), stroke(-300, 100, 500, 100, 64)];
-    const rings = (r) => [stroke(100 - r, 50, 100 + r, 50), stroke(100, 50 - r, 100, 50 + r), stroke(100 - r, 50 - r, 100 + r, 50 + r)];
+    const rings = (r, w = 1) => [stroke(100 - r, 50, 100 + r, 50, w), stroke(100, 50 - r, 100, 50 + r, w), stroke(100 - r, 50 - r, 100 + r, 50 + r, w)];
     const rows = (ix) => ix.records().filter((r) => !r.kind);
-    test("a scene and its detail whose frames hold each other's centres within 3× are one row, framed on the tighter", () => {
+    test("a scene and its detail, at most 16× apart in size with their strokes seen, are one row: the square holding both", () => {
         const ix = fresh();
         const b = body(), g = rings(300);
         ix.apply({ items: [...b, ...g] });
@@ -801,13 +798,24 @@ describe("echo rows (Kobin 2026-09-23: \"why are there two scenes for Saturn?\")
         expect(T.parent).toBe(S);
         const list = rows(ix);
         expect(list.length).toBe(1);
-        expect(list[0].id).toBe(S.idn.id);                       // the coarser, first scene's id
-        expect(list[0].rect).toEqual(T.frame);                   // the tighter picture
+        expect(list[0].id).toBe(S.idn.id);                       // the coarser scene's id
+        expect(list[0].group.slice().sort()).toEqual([S.idn.id, T.idn.id].sort());
+        const x0 = Math.min(S.frame.x, T.frame.x), y0 = Math.min(S.frame.y, T.frame.y);
+        expect(list[0].rect.x).toBeCloseTo(x0, 6); expect(list[0].rect.y).toBeCloseTo(y0, 6);
+        expect(list[0].rect.w).toBeCloseTo(Math.max(S.frame.x + S.frame.w, T.frame.x + T.frame.w) - x0, 6);
+        expect(list[0].rect.h).toBeCloseTo(Math.max(S.frame.y + S.frame.h, T.frame.y + T.frame.h) - y0, 6);
         expect(list[0].count).toBe(5);
     });
-    test("detail more than 3× smaller than its parent's frame keeps its own row", () => {
+    test("a detail whose strokes cannot be seen in the square holding both keeps its own row, listed after", () => {
         const ix = fresh();
-        ix.apply({ items: [...body(), ...rings(100)] });         // frame 240 in a frame of 960
+        const b = body(), g = rings(100, 1 / 2);                 // the rings' pen is seen across 640, the body's frame is 960
+        ix.apply({ items: [...b, ...g] });
+        expect(rows(ix).map((r) => r.id)).toEqual([sceneOf(ix, b[0].id).idn.id, sceneOf(ix, g[0].id).idn.id]);
+        expect(rows(ix).every((r) => !r.group)).toBe(true);
+    });
+    test("a detail more than 16× smaller than the square holding both keeps its own row", () => {
+        const ix = fresh();
+        ix.apply({ items: [...body(), ...rings(10)] });           // its view 32 in the body's 960
         expect(rows(ix).length).toBe(2);
     });
     test("a renamed scene gives the row its id and name; two renamed scenes keep two rows", () => {
@@ -822,9 +830,9 @@ describe("echo rows (Kobin 2026-09-23: \"why are there two scenes for Saturn?\")
         list = rows(ix);
         expect(list.map((r) => r.name).sort()).toEqual(["Body", "Saturn"]);
     });
-    test("a chain of echoes is one row while its frames span 16×; the next link starts a row", () => {
+    test("a chain of nested scenes: a scene joins a row while the square passes it; strokes too thin for any square are alone", () => {
         // five nested strokes on one centre, each 2.5× shorter and 20× thinner than the last (one member
-        // each, so no stray run): frames 1,200, 480, 192, 77, 31
+        // each, so no stray run): views 1,200, 480, 192, 77, 31; the last three are thinner than 1/1,280 of their own
         const ix = fresh(), or = new SceneOracle();
         or.apply({ frames: F0 });
         const levels = [0, 1, 2, 3, 4].map((k) => { const l = 1000 / 2.5 ** k, w = 1000 / 24 / 20 ** k; return [stroke(-l / 2, 0, l / 2, 0, w)]; });
@@ -832,42 +840,37 @@ describe("echo rows (Kobin 2026-09-23: \"why are there two scenes for Saturn?\")
         ix.apply(batch);
         const orc = or.apply(batch);
         expect(ix.scenes.size).toBe(5);
-        expect(rows(ix).length).toBe(2);                          // 2.5⁴ = 39 > 16: the fifth starts its own row
+        expect(rows(ix).map((r) => (r.group || [r.id]).length)).toEqual([2, 1, 1, 1]);
         expect(Object.entries(stateOf(ix)).sort()).toEqual(Object.entries(orc).sort());
     });
-    test("a renamed region keeps its id and name when its parent row shows another scene, and through a save and load", () => {
+    test("a shared row renamed keeps its square, its picture and its name, through a save and load", () => {
         const ix = fresh();
-        const b = body(), g = rings(400);
-        // 25 marks 32× thinner than the rings, 100 apart: 25 child scenes of the Saturn row, so regions
-        const crowd = [];
-        for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) crowd.push(stroke(-100 + i * 100, -150 + j * 100, -98 + i * 100, -150 + j * 100, 1 / 32));
-        ix.apply({ items: [...b, ...g, ...crowd] });
-        const reg = ix.records().find((r) => r.kind === "region");
-        expect(reg).toBeTruthy();
-        ix.apply({ renames: [[reg.id, "Moons"]] });
-        ix.apply({ renames: [[sceneOf(ix, g[0].id).idn.id, "Rings"]] });   // the parent row now shows (and is) the rings
-        expect(rows(ix).find((r) => r.name === "Rings")).toBeTruthy();
-        const find = (x) => x.records().find((r) => r.kind === "region" && r.id === reg.id);
-        expect(find(ix) && find(ix).name).toBe("Moons");
+        const b = body(), g = rings(300);
+        ix.apply({ items: [...b, ...g] });
+        const [r0] = rows(ix);
+        ix.apply({ renames: [[r0.id, "Saturn"]] });
+        const [r1] = rows(ix);
+        expect([r1.id, r1.name, r1.group.length]).toEqual([r0.id, "Saturn", 2]);
+        expect(r1.rect).toEqual(r0.rect);
+        expect(r1.hash).toBe(r0.hash);                            // the same picture
         const iy = new SceneIndex();
-        iy.apply({ restore: { state: JSON.parse(JSON.stringify(ix.exportState())) }, frames: F0, items: [...b, ...g, ...crowd] });
-        expect(find(iy) && find(iy).name).toBe("Moons");
+        iy.apply({ restore: { state: JSON.parse(JSON.stringify(ix.exportState())) }, frames: F0, items: [...b, ...g] });
+        const [r2] = rows(iy);
+        expect([r2.id, r2.name, r2.group.length]).toEqual([r0.id, "Saturn", 2]);
+        expect(r2.hash).toBe(r0.hash);
     });
-    test("a renamed region keeps its id and name when a coarser scene drawn round its parent folds into the parent's row", () => {
+    test("a member moved within its square changes the row's picture key; the square moved whole keeps it", () => {
         const ix = fresh();
-        const g = rings(400);
-        const crowd = [];
-        for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) crowd.push(stroke(-100 + i * 100, -150 + j * 100, -98 + i * 100, -150 + j * 100, 1 / 32));
-        ix.apply({ items: [...g, ...crowd] });
-        const reg = ix.records().find((r) => r.kind === "region");
-        ix.apply({ renames: [[reg.id, "Moons"]] });
-        const b = body();
-        ix.apply({ items: b });                                   // the body: its row now starts at the body
-        expect(ix.rowOf.get(sceneOf(ix, g[0].id)).founder).toBe(sceneOf(ix, b[0].id));
-        const got = ix.records().find((r) => r.kind === "region" && r.id === reg.id);
-        expect(got && got.name).toBe("Moons");
+        const b = body(), g = rings(300);
+        ix.apply({ items: [...b, ...g] });
+        const k0 = rows(ix)[0].hash;
+        ix.apply({ items: g.map((r) => ({ id: r.id, home: "0", w: r.w, t: [40, 0] })) });   // the rings alone, 40 to the right
+        const k1 = rows(ix)[0].hash;
+        expect(k1).not.toBe(k0);
+        ix.apply({ items: [...b.map((r) => ({ id: r.id, home: "0", w: r.w, t: [5000, 3000] })), ...g.map((r) => ({ id: r.id, home: "0", w: r.w, t: [5040, 3000] }))] });   // both, by one displacement
+        expect(rows(ix)[0].hash).toBe(k1);
     });
-    test("an echo's rows agree with the oracle, and the stored list keeps their ids through a save and load", () => {
+    test("the rows agree with the oracle, and the stored list keeps their ids through a save and load", () => {
         const ix = fresh(), or = new SceneOracle();
         or.apply({ frames: F0 });
         const b = body(), g = rings(400), far = [stroke(90000, 0, 90300, 0), stroke(90000, 60, 90300, 60)];
@@ -881,9 +884,9 @@ describe("echo rows (Kobin 2026-09-23: \"why are there two scenes for Saturn?\")
     });
 });
 
-describe("Kobin's decisions of 2026-09-23 evening: no minimum frame, 12 parts, a named row shows its own frame", () => {
+describe("no minimum frame and 12 parts (Kobin 2026-09-23 evening); a shared row's square (F189)", () => {
     const rows = (ix) => ix.records().filter((r) => !r.kind);
-    const parts = (ix, id) => ix.records().filter((r) => r.kind === "part" && r.parent === id);
+    const parts = (ix) => ix.records().filter((r) => r.kind === "part");
     test("a zero-size ink box (one point) is framed on one width of ink and 10 %; a fat stroke on its ink", () => {
         const ix = fresh();
         const pt = { id: ++uid, home: "0", w: 2, raw: new Float64Array([50, 70, 50, 70, 2]), t: null };
@@ -904,7 +907,7 @@ describe("Kobin's decisions of 2026-09-23 evening: no minimum frame, 12 parts, a
         const b = band();
         ix.apply({ items: b });
         const orc = or.apply({ items: b });
-        const S = sceneOf(ix, b[0].id), ps = parts(ix, S.idn.id);
+        const ps = parts(ix);
         expect(ps.length).toBe(12);
         const w = ps.map((p) => p.rect.w).sort((x, y) => x - y);
         expect(w[11] / w[0]).toBeLessThan(2.5);                   // even: no piece left twice the size of another's split
@@ -918,26 +921,27 @@ describe("Kobin's decisions of 2026-09-23 evening: no minimum frame, 12 parts, a
         const ix = fresh();
         const b = band();
         ix.apply({ items: b });
-        const S = sceneOf(ix, b[0].id), before = parts(ix, S.idn.id).map((p) => p.id);
+        const before = parts(ix).map((p) => p.id);
         ix.apply({ items: [stroke(5000, 30, 5100, 30)] });
-        expect(parts(ix, S.idn.id).map((p) => p.id)).toEqual(before);
+        expect(parts(ix).map((p) => p.id)).toEqual(before);
     });
     // Saturn: a body of two fat strokes and its rings 64× thinner, 1.33× apart: the rings the tighter
     const body = () => [stroke(-300, 0, 500, 0, 64), stroke(-300, 100, 500, 100, 64)];
     const rings = () => [stroke(-200, 50, 400, 50), stroke(100, -250, 100, 350), stroke(-200, -250, 400, 350)];
-    test("a folded row with a renamed member shows that member's frame; unnamed, the tightest", () => {
+    test("a shared row shows the square holding its scenes; renamed, it keeps that square and its picture", () => {
         const ix = fresh();
         const b = body(), g = rings();
         ix.apply({ items: [...b, ...g] });
         const B = sceneOf(ix, b[0].id), G = sceneOf(ix, g[0].id);
         expect(rows(ix).length).toBe(1);
-        expect(rows(ix)[0].rect).toEqual(G.frame);                // the tighter
-        const key = rows(ix)[0].hash;
+        const r0 = rows(ix)[0], x0 = Math.min(B.frame.x, G.frame.x);
+        expect(r0.rect.x).toBeCloseTo(x0, 6);
+        expect(r0.rect.w).toBeCloseTo(Math.max(B.frame.x + B.frame.w, G.frame.x + G.frame.w) - x0, 6);
         ix.apply({ renames: [[B.idn.id, "Saturn"]] });
         const [r] = rows(ix);
-        expect(r.hash).not.toBe(key);                             // another picture
         expect([r.id, r.name]).toEqual([B.idn.id, "Saturn"]);
-        expect(r.rect).toEqual(B.frame);                          // the renamed member's own frame
+        expect(r.rect).toEqual(r0.rect);
+        expect(r.hash).toBe(r0.hash);
         expect(r.level).toBe(B.anchor);
     });
     test("a restored scene whose saved frame differs from the rule's gets a new picture key; one that matches keeps its key", () => {

@@ -1149,26 +1149,32 @@ zoom and (2) frames a picture of it, less long stray marks; levels never split o
 Every distance is in **stroke widths**, the width an object counts with being its
 thickness now, capped at its pen: ink closer than 900 widths joins (`JOIN_PX` 2,250
 px at the zoom where the stroke is 2.5 px), and a scene holds widths within 16×
-(`ZOOM_SPREAD`) — finer detail inside it is a **child** scene, a coarser picture
-drawn around it a parent. A lonely run of one object longer than two chunks is
+(`ZOOM_SPREAD`) — finer detail inside it is a scene of its own, a coarser picture
+drawn around it its parent (which orders the list). A lonely run of one object longer than two chunks is
 **stray**: not framed, and it never bridges two drawings. A whole scene moved is
 one origin change; part of one leaves and re-joins where it lands; removing ink
 split-checks what is left, the side with more ink keeping the id and name (a
 renamed scene keeps its own through a merge). Storage never makes a scene —
 erase pieces keep their object's scene and re-homed patches (`attachRect`) are
-not indexed while their family has other ink (a family of patches alone is the
-drawing, and is) — but a **fine eraser's carving is detail**: its footprint, at the
-eraser's width, is a child scene framed on the carving. Wide scenes get **parts** (at most 12),
-crowds of siblings **regions**. Names set aside by a merge or an erase come back
-to a scene covering their frame (undo, a split, a redraw). Nested scenes whose frames show the
-same subject (each holding the other's centre, within 3×) are **one row** of the list, framed
-on the tighter, or on its renamed member (Kobin 2026-09-23: "two scenes for Saturn"). A frame is
-the ink and 10 %, with no minimum. The index is packed into typed arrays (grids as cell tables over
+not indexed while their family has other ink (in a family of patches alone the
+shallowest patches are the drawing) — but a **fine eraser's carving is detail**: its footprint,
+at the eraser's width, one per gesture and shape, filed in the frame the eraser was drawn in, is a
+scene framed on the carving. Names set aside by a merge or an erase come back to a scene covering
+their frame (undo, a split, a redraw). A frame is the ink and 10 %, with no minimum. The index is
+packed into typed arrays (grids as cell tables over
 one pool, chunks in shared pools) and the main thread keeps three numbers an object: 26 MB on the
 Magnum Opus where it was 79 (SCENES-PLAN §7.8). Its main-thread tick waits out a stroke, a drag,
 a lasso, a cut in flight, rastering, a pan and a zoom step (`_camBusy`, 2026-09-24 SC-1), up to
 3 s, and runs in idle time forced after 5 s at most. A worker that fails a batch is replaced and
 the index restarts from the last saved state, three times, before it goes inline (SC-3).
+
+**The list is flat** (F189, Kobin 2026-11-10: "I don't really want sub-scenes"): every row is a
+view. A scene's strokes can be seen in a view at most 1,280 times its median stroke width wide
+(`SEEN_PX`, a quarter pixel in the 320-px picture); a scene wider than that is listed as its
+**parts** (at most 12). Scenes close together share one row, the square holding them, when for
+each of them that square is at most 16 times its own view and its strokes can be seen in it;
+otherwise each is its own row. The rows inside no other come first, heaviest ink first, each
+followed by the rows inside it.
 
 ---
 

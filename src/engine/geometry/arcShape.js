@@ -827,6 +827,104 @@ export function flattenShape(loops, tol) {
     return out;
 }
 
+const HALF_PI = Math.PI / 2;
+
+/**
+ * A shape's outline indexed by piece, so `outlineEdges` can read the edges near a window and leave the rest
+ * unflattened (OPEN-FLAGS F190). A piece's box holds every vertex `flattenShape` gives it at any tolerance: its two
+ * ends, the arc's own ends and the axis extremes its sweep reaches, and a margin over the rounding of `ptAt`.
+ */
+export function outlineIndex(loops) {
+    const rows = [];
+    for (const loop of loops) {
+        const n = loop.length;
+        if (!n) continue;
+        const box = new Float64Array(4 * n), first = loop.at(0).A;
+        let sx = first[0], sy = first[1], k = 0;
+        for (const p of loop) {
+            let x0 = Math.min(sx, p.B[0]), x1 = Math.max(sx, p.B[0]), y0 = Math.min(sy, p.B[1]), y1 = Math.max(sy, p.B[1]);
+            if (!p.line && isFinite(p.r) && p.r > 0) {
+                const cx = p.C[0], cy = p.C[1], r = p.r, e = p.a0 + p.sweep;
+                for (const th of [p.a0, e]) {
+                    // eslint-disable-next-line no-restricted-properties -- a filter's bound inside the margin below; no result holds these bits
+                    const x = cx + r * Math.cos(th), y = cy + r * Math.sin(th);
+                    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+                }
+                const lo = Math.min(p.a0, e) - 1e-9, hi = Math.max(p.a0, e) + 1e-9;
+                if (hi - lo >= 4 * HALF_PI) { x0 = Math.min(x0, cx - r); x1 = Math.max(x1, cx + r); y0 = Math.min(y0, cy - r); y1 = Math.max(y1, cy + r); }
+                else for (let q = Math.ceil(lo / HALF_PI); q <= Math.floor(hi / HALF_PI); q++) {
+                    const d = ((q % 4) + 4) % 4;
+                    if (d === 0) x1 = Math.max(x1, cx + r); else if (d === 1) y1 = Math.max(y1, cy + r);
+                    else if (d === 2) x0 = Math.min(x0, cx - r); else y0 = Math.min(y0, cy - r);
+                }
+                const m = 1e-12 * (Math.abs(cx) + Math.abs(cy) + r);
+                x0 -= m; y0 -= m; x1 += m; y1 += m;
+            }
+            box[4 * k] = x0; box[4 * k + 1] = y0; box[4 * k + 2] = x1; box[4 * k + 3] = y1;
+            sx = p.B[0]; sy = p.B[1]; k++;
+        }
+        rows.push({ loop, n, box, first: [first[0], first[1]], closed: first[0] === sx && first[1] === sy, lastB: [sx, sy] });
+    }
+    return { rows };
+}
+
+/** Does `flattenShape` keep this loop's ring at `tol`? It drops one of fewer than three vertices. */
+function ringKept(row, tol) {
+    if (row.n >= 3) return true;
+    let v = row.closed ? 0 : 1;
+    for (const p of row.loop) v += arcSteps(p, tol);
+    return v >= 3;
+}
+
+/**
+ * Can a step of arc `p`, cut into `n` equal steps, lie within `tol` of axis-parallel? False only when none of the
+ * steps between two computed points can: such a step's middle angle is then further than asin(tol / chord) from every
+ * axis direction. The first and last step end on the piece's carried ends and are not covered.
+ */
+function stepMayAlign(p, n, tol) {
+    // eslint-disable-next-line no-restricted-properties -- a filter's bound with its own margins; no result holds these bits
+    const chord = 2 * p.r * Math.abs(Math.sin(Math.abs(p.sweep) / n / 2)) * (1 - 1e-9);
+    const q = (tol + 1e-15 * (Math.abs(p.C[0]) + Math.abs(p.C[1]) + p.r)) / chord;
+    if (!(q < 1)) return true;
+    // eslint-disable-next-line no-restricted-properties -- as above
+    const w = Math.asin(q) + 1e-9, e = p.a0 + p.sweep;
+    return Math.ceil((Math.min(p.a0, e) - w) / HALF_PI) <= Math.floor((Math.max(p.a0, e) + w) / HALF_PI);
+}
+
+/**
+ * `fn(ax, ay, bx, by)` for the edges of `flattenShape(loops, tol)`, in its order, on every piece whose box meets
+ * `out` ([x0, y0, x1, y1]) and does not lie inside `inn` (the same form, or null). The same vertices bit for bit:
+ * a piece's steps depend on the piece and the tolerance alone. With `axisTol` set the reader wants only edges within
+ * that of axis-parallel, and an arc that cannot hold one gives its first and last edge alone.
+ */
+export function outlineEdges(ix, tol, out, inn, fn, axisTol = -1) {
+    for (const row of ix.rows) {
+        if (!ringKept(row, tol)) continue;
+        const { loop, n, box } = row, packed = loop instanceof Loop;
+        for (let k = 0; k < n; k++) {
+            const o = 4 * k;
+            if (out && (box[o + 2] < out[0] || box[o] > out[2] || box[o + 3] < out[1] || box[o + 1] > out[3])) continue;
+            if (inn && box[o] > inn[0] && box[o + 2] < inn[2] && box[o + 1] > inn[1] && box[o + 3] < inn[3]) continue;
+            const p = loop.at(k), s = k === 0 ? row.first : packed ? p.A : loop[k - 1].B;
+            const steps = arcSteps(p, tol);
+            if (axisTol >= 0 && steps > 2 && !stepMayAlign(p, steps, axisTol)) {
+                const q = ptAt(p, 1 / steps), z = ptAt(p, (steps - 1) / steps);
+                fn(s[0], s[1], q[0], q[1]);
+                fn(z[0], z[1], p.B[0], p.B[1]);
+                continue;
+            }
+            let ax = s[0], ay = s[1];
+            for (let i = 1; i < steps; i++) {
+                const q = ptAt(p, i / steps);
+                fn(ax, ay, q[0], q[1]);
+                ax = q[0]; ay = q[1];
+            }
+            fn(ax, ay, p.B[0], p.B[1]);
+        }
+        if (!row.closed) fn(row.lastB[0], row.lastB[1], row.first[0], row.first[1]);
+    }
+}
+
 /** Polygon rings as loops of line pieces — legacy fills coming in the door. */
 export function shapeFromRings(rings) {
     const out = [];

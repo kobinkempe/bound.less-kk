@@ -23,12 +23,13 @@ import {
     W as FRAME_W,
 } from "./frameLattice";
 import Document from "./Document";
-import { Groups, arcsTouch, contactArcs, axisAbut, innerRuns } from "./geometry/connect";
+import { Groups, arcsTouch, contactArcs, axisAbut, innerRuns, axisRuns, runsAbut, outlineContact, outlineRuns, outlineDoor } from "./geometry/connect";
 import { bboxOf, freezeR } from "./geometry/derive";
 import { encodeBelow } from "./geometry/offsets";
 import { reachBox, grown } from "./placementModel";
 import {
     flattenShape,
+    outlineIndex,
     insideShape,
     intersectShape,
     loopsArea,
@@ -1127,24 +1128,106 @@ class ErasePipeline {
         }
         return out;
     }
-    /** Connected components of one edit family, as arrays of member indices. */
-    _familyComponents(key) {
-        const members = this._familyMembers(key);
-        const G = new Groups(members.length);
-        for (let i = 0; i < members.length; i++) {
-            const kid = members[i], R = kid.obj.attachRect;
-            if (!R) continue;                       // not a re-homed piece: no doorway
-            const kidDepth = this.lm.depthOf(kid.level);
-            if (kidDepth == null) continue;
+    /**
+     * What the doorway test reads of one member, kept while the member is unchanged (F190): a kid's contact with its
+     * own window, and its answer for each neighbour. Held for one family at a time (`_familyComponents`).
+     */
+    _doorOf(o) {
+        const R = o.attachRect, src = o.type === "shape" ? o.loops : o.type === "fill" ? o.polys : o.pts, ver = o._ver || 0;
+        let D = this._door.get(o);
+        if (D && D.src === src && D.ver === ver && D.R === R) return D;
+        D = { src, ver, R, tol: 0, arcs: null, inner: null, runs: null, ix: undefined, pairs: new WeakMap() };
+        if (R) {
             // Flattened only for the CONTACT test. The stretches that matter lie
             // ON the rect's boundary and are straight lines there, so flattening
             // reproduces them exactly however coarse it is elsewhere — and the
             // exact clip that made them put them exactly on the rect, with no
             // lattice to round a corner off and turn an attached patch into an
             // offshoot of its own.
-            const kidRings = this._inkOutline(kid.obj, rectTol(R));
-            const kidArcs = contactArcs(kidRings, R, rectTol(R));
-            const inner = innerRuns(kidRings, R, rectTol(R));
+            D.tol = rectTol(R);
+            const ix = this._doorIx(D, o);
+            if (ix) Object.assign(D, outlineDoor(ix, R, D.tol));
+            else {
+                const rings = this._inkOutline(o, D.tol);
+                D.arcs = contactArcs(rings, R, D.tol);
+                D.inner = innerRuns(rings, R, D.tol);
+                D.runs = axisRuns(rings, D.tol);
+            }
+        }
+        this._door.set(o, D);
+        return D;
+    }
+    /** A shape's outline by piece, for reading it near a window; null for a member that is not a shape. */
+    _doorIx(D, o) { return D.ix !== undefined ? D.ix : (D.ix = o.type === "shape" ? outlineIndex(o.loops) : null); }
+    /**
+     * A kid and a neighbour at its own depth, `d` away in the kid's units: joined if the neighbour's outline shares
+     * a stretch of the kid's window, or (two kids of one square, F178) a stretch of a line inside it.
+     */
+    _joinedBeside(kd, ud, up, d) {
+        const R = kd.R, tol = kd.tol;
+        if (kd.arcs.length) {
+            const ix = this._doorIx(ud, up);
+            let arcs;
+            if (ix) arcs = outlineContact(ix, R, tol, tol, d[0], d[1]);
+            else {
+                let rings = this._inkOutline(up, tol);
+                if (d[0] || d[1]) rings = rings.map((ring) => ring.map((p) => [p[0] + d[0], p[1] + d[1]]));
+                arcs = contactArcs(rings, R, tol);
+            }
+            if (arcsTouch(kd.arcs, arcs, tol / rectSpan(R))) return true;
+        }
+        if (d[0] || d[1]) return false;
+        return runsAbut(kd.runs, ud.tol === tol ? ud.runs : axisRuns(this._inkOutline(up, tol), tol), tol);
+    }
+    /**
+     * A kid and a member at a coarser depth, where the kid's window is `Rp` (mapped from frame `from`): joined across
+     * the window's boundary (one level up only), or across a coarser square's side inside the kid's own square.
+     */
+    _joinedAbove(kd, ud, up, Rp, pt, near, from) {
+        const R = kd.R, ix = this._doorIx(ud, up.obj);
+        let whole = null;
+        const rings = () => whole || (whole = this._inkOutline(up.obj, pt));
+        if (near && kd.arcs.length) {
+            const arcs = ix ? outlineContact(ix, Rp, pt, pt) : contactArcs(rings(), Rp, pt);
+            if (arcsTouch(kd.arcs, arcs, Math.max(kd.tol / rectSpan(R), pt / rectSpan(Rp)))) return true;
+        }
+        if (!kd.inner.length) return false;
+        // A kid cut on a coarser square's side inside its own square meets a member at any depth above across
+        // that side, before or without the member's own cede (F178). A stretch shorter than the member's
+        // lattice step (8 of the kid's units a level up) is judged at the kid's step: DS-2's neck was 2 (F183).
+        const runs = kd.inner.map(([a, b]) => [this.lm.mapPointF(a, from, up.level), this.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
+        if (!runs.length) return false;
+        const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
+        const tk = Math.max(kd.tol * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
+        if (!ix) return axisAbut(runs, rings(), pt) || axisAbut(runs, rings(), tk);
+        const box = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const run of runs) for (const p of run) {
+            if (p[0] < box[0]) box[0] = p[0]; if (p[1] < box[1]) box[1] = p[1]; if (p[0] > box[2]) box[2] = p[0]; if (p[1] > box[3]) box[3] = p[1];
+        }
+        return runsAbut(axisRuns(runs, pt), outlineRuns(ix, pt, pt, box), pt) || runsAbut(axisRuns(runs, tk), outlineRuns(ix, pt, tk, box), tk);
+    }
+    /**
+     * Connected components of one edit family, as arrays of member indices.
+     *
+     * A cut changes a piece or two of a family of dozens, so each pair's answer is kept while its two members and
+     * the mapping between them are unchanged, and a pair that is evaluated reads only the neighbour's pieces near
+     * the kid's window (F190: the whole family from whole outlines was 2 s a cut on a 38-member family). The answers
+     * are those of the whole-outline rule (`__oracles__/familyComponents.js`).
+     */
+    _familyComponents(key) {
+        const members = this._familyMembers(key);
+        const G = new Groups(members.length);
+        // Kept for the families last checked: an erase gesture cuts one family many times.
+        const kept = this._doors || (this._doors = new Map());
+        this._door = kept.get(key) || new WeakMap();
+        kept.delete(key); kept.set(key, this._door);
+        if (kept.size > 4) kept.delete(kept.keys().next().value);
+        for (let i = 0; i < members.length; i++) {
+            const kid = members[i], R = kid.obj.attachRect;
+            if (!R) continue;                       // not a re-homed piece: no doorway
+            const kidDepth = this.lm.depthOf(kid.level);
+            if (kidDepth == null) continue;
+            const kd = this._doorOf(kid.obj), tol = kd.tol;
             // ONE LEVEL COARSER, and touching — a GEOMETRIC test, not a check
             // that the two frames are literally parent and child.
             //
@@ -1177,17 +1260,18 @@ class ErasePipeline {
                     const d = this._cellOffset(kid.level, up.level);
                     if (!d) continue;
                     const r = up.obj.attachRect, Rj = { x0: r.x0 + d[0], y0: r.y0 + d[1], x1: r.x1 + d[0], y1: r.y1 + d[1] };
-                    if (Rj.x1 < R.x0 - rectTol(R) || Rj.x0 > R.x1 + rectTol(R) || Rj.y1 < R.y0 - rectTol(R) || Rj.y0 > R.y1 + rectTol(R)) continue;
-                    let rings = this._inkOutline(up.obj, rectTol(R));
-                    if (d[0] || d[1]) rings = rings.map((ring) => ring.map((p) => [p[0] + d[0], p[1] + d[1]]));
-                    if (kidArcs.length && arcsTouch(kidArcs, contactArcs(rings, R, rectTol(R)), rectTol(R) / rectSpan(R))) G.union(i, j);
-                    // Two kids of one square, from the parents either side of a frame on its parent's edge (F178).
-                    else if (!d[0] && !d[1] && axisAbut(kidRings, rings, rectTol(R))) G.union(i, j);
+                    if (Rj.x1 < R.x0 - tol || Rj.x0 > R.x1 + tol || Rj.y1 < R.y0 - tol || Rj.y0 > R.y1 + tol) continue;
+                    const ud = this._doorOf(up.obj);
+                    let e = kd.pairs.get(up.obj);
+                    if (!e || e.ud !== ud || !e.beside || e.dx !== d[0] || e.dy !== d[1]) {
+                        kd.pairs.set(up.obj, e = { ud, beside: true, dx: d[0], dy: d[1], joined: this._joinedBeside(kd, ud, up.obj, d) });
+                    }
+                    if (e.joined) G.union(i, j);
                     continue;
                 }
                 if (upDepth == null || upDepth >= kidDepth) continue;
                 const near = upDepth === kidDepth - 1;
-                if (!(near && kidArcs.length) && !inner.length) continue;
+                if (!(near && kd.arcs.length) && !kd.inner.length) continue;
                 const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
                 // The kid's window is in unmoved numbers (it is the store's
                 // piece for the square), so it maps to the parent's stored
@@ -1200,18 +1284,15 @@ class ErasePipeline {
                 if (!Rp) continue;
                 const ub = bboxOf(up.obj, null), pt = rectTol(Rp);
                 if (ub.x1 < Rp.left - pt || ub.x0 > Rp.right + pt || ub.y1 < Rp.top - pt || ub.y0 > Rp.bottom + pt) continue;
-                const upRings = this._inkOutline(up.obj, pt);
-                const at = Math.max(rectTol(R) / rectSpan(R), pt / rectSpan(Rp));
-                if (near && kidArcs.length && arcsTouch(kidArcs, contactArcs(upRings, Rp, pt), at)) G.union(i, j);
-                else if (inner.length) {
-                    // A kid cut on a coarser square's side inside its own square meets a member at any depth above across
-                    // that side, before or without the member's own cede (F178). A stretch shorter than the member's
-                    // lattice step (8 of the kid's units a level up) is judged at the kid's step: DS-2's neck was 2 (F183).
-                    const runs = inner.map(([a, b]) => [this.lm.mapPointF(a, from, up.level), this.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
-                    const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
-                    const tk = Math.max(rectTol(R) * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
-                    if (axisAbut(runs, upRings, pt) || axisAbut(runs, upRings, tk)) G.union(i, j);
+                // The answer holds for these two members, this window and this mapping: the frames and the lattice's addresses.
+                const ud = this._doorOf(up.obj), epoch = this.lm.addrEpoch;
+                let e = kd.pairs.get(up.obj);
+                if (!e || e.ud !== ud || e.beside || e.near !== near || e.from !== from || e.to !== up.level || e.epoch !== epoch
+                    || e.l !== Rp.left || e.t !== Rp.top || e.r !== Rp.right || e.b !== Rp.bottom) {
+                    kd.pairs.set(up.obj, e = { ud, beside: false, near, from, to: up.level, epoch, l: Rp.left, t: Rp.top, r: Rp.right, b: Rp.bottom,
+                        joined: this._joinedAbove(kd, ud, up, Rp, pt, near, from) });
                 }
+                if (e.joined) G.union(i, j);
             }
         }
         const ids = members.map((_, i) => i);
