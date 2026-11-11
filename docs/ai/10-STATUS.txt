@@ -1,6 +1,6 @@
 ================================================================================
 BOUND.LESS - CURRENT STATUS
-Written 2026-08-28, updated 2026-11-10. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
+Written 2026-08-28, updated 2026-11-11. THIS FILE IS A SNAPSHOT. docs/OPEN-FLAGS.md is the
 authoritative live list; when the two disagree, OPEN-FLAGS wins and this file is
 out of date.
 ================================================================================
@@ -51,6 +51,10 @@ WHERE THE BUILD IS
     phone's screen beside the next one's. The phone's hidden-page release dropped the ants' buffer but kept the
     overlay canvas's pixels, and the next paint copied only the rows it touched; a new plane now empties its
     canvas. Measured in jsdom and on a real canvas in the desktop app's Chromium; the phone not measured.
+    2026-11-11: main a7d2577 (F189-F191) DEPLOYED at Kobin's word, after his testing on the phone and in Chrome
+    ("I haven't seen any issues"). The open flags were gone through at his word: every flag waiting on his
+    check, and every flag logged before the part it names was rebuilt, is closed (OPEN-FLAGS, 2026-11-11). Left
+    open, all low and none seen by him: F141, F167 (ROADMAP S9), F61, F84, F85, F182, F183's square-side part.
 
 2026-11-09 - F170 AND F146 FIXED (jsdom on Kobin's reports; committed and deployed 2026-11-10). His step 3: the selection
     issues, two new reports (05:48 "I couldn't select by lasso", 05:53 "a circle circling nothing").
