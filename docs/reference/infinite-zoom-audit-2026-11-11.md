@@ -249,13 +249,14 @@ a hand zoom's.
 | ~7–9 million frames | The "download as .json" export: one string over V8's 536,870,888 characters (measured: "Invalid string length"). Local saves go to IndexedDB without a string. | export; a hand zoom only |
 | ~10¹³ levels | With a scale set, the bar's length moves in 2 % steps; 15 % at 10¹⁴; at 10¹⁵ it no longer follows the zoom. The zoom log is one double, depth × 3.61 + the in-level part, and its last bit grows with depth (computed with the app's scale-bar code, `__review__/deep-labels.node.js`). | display |
 | ~10¹⁴ levels apart | The scene list measures widths from one base depth; ink that far from it is grouped and framed coarsely. | display |
-| 2⁵³ − 1 ≈ 9.0×10¹⁵ levels | Depth itself: one more and `depth + 1 === depth`. The camera stops there (`MAX_DEPTH`); measured above. | hard, the model |
+| 2⁵³ − 1 ≈ 9.0×10¹⁵ levels | Depth itself: one more and `depth + 1 === depth`. The camera stops there in 1.0 (`MAX_DEPTH`); measured above. From 1.1 a depth past it is base-10¹⁵ limbs, as many as it needs, and there is no stop (`depth-overflow-design-2026-11-13.md`). | hard in 1.0; none after |
+| a depth 2×10⁷ digits long (10¹⁹ ⁹⁹⁹ ⁹⁹⁹ levels) | From 1.1, the test computer: every step works in the app (its built-in pane, measured 2026-11-13), each in seconds (a crossing 9–27 s), the tab holding 2.8 of its 4.2 GB; jsdom went to 3×10⁷ digits. A step's cost grows with the depth's digits. | time and memory (1.1) |
 
 The last two are out of reach: at ten levels a second, 10¹³ levels is 30,000 years of zooming. What would move each:
 the walks become per-frame memos (each frame keeps what its walks need, extended a level at a time, as `_upTo` does
 for tiles); the memory and `Map` walls need runs of empty frames kept as one record (a chain of (0, 0) cells is a
 count), the same compact chain F199's fix proposes for the save; the scale bar needs the in-level zoom carried apart
-from depth; depth past 2⁵³ needs a BigInt.
+from depth; depth past 2⁵³ needs a bigger integer (built after 1.0: `depth-overflow-design-2026-11-13.md`).
 
 ## Is anything else stopping infinite zoom?
 

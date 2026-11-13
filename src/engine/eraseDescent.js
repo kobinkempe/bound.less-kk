@@ -26,6 +26,7 @@ import { Loop } from "./geometry/loop";
 import { canonPos } from "./geometry/arcPerimeter";
 import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
 import { cede } from "./cede";
+import * as dm from "./depth";
 
 const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
 /** Loops rounded once onto the grid of numbers near 3W (2^-34 within a frame of 0), where a move by whole frames is exact (F182). */
@@ -191,14 +192,14 @@ export function descentJob(world, input) {
     // Each crossing cedes a piece into the next level, so the run levels this job crosses become frames, here in its
     // lattice; they are in `minted`, and the engine's merge unfolds the same levels under the same ids.
     const dHO = lm.depthOf(HO), dHE = lm.depthOf(HE);
-    if (dHO != null && dHE > dHO) lm.unfoldLevels(HE, dHO + 1, Math.min(dHE, dHO + 1 + (input.links > 0 ? input.links : Infinity)));
+    if (dHO != null && dm.gt(dHE, dHO)) lm.unfoldLevels(HE, dm.add(dHO, 1), Number.isSafeInteger(input.links) && input.links > 0 ? dm.min(dHE, dm.add(dHO, 1 + input.links)) : dHE);
     // Ink homed in a ring neighbour of the mark's chain at the home's depth reaches the descent there as a
     // ring native: descend the mark's own chain below that neighbour (REVIEWER-3 ERASE-4, F129).
     const path0 = lm.framePath(HO, HE);
     const ringA = path0 && path0.up.length ? path0.down.find((f) => lm.depthOf(f) === dHO) : null;
     let near = false;
     if (ringA) for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) { const n = (di || dj) ? lm.peekNeighbour(HO, di, dj) : null; if (n && String(n.id) === String(ringA)) near = true; }
-    const path = near ? { up: [], down: path0.down.filter((f) => lm.depthOf(f) > dHO) } : path0;
+    const path = near ? { up: [], down: path0.down.filter((f) => dm.gt(lm.depthOf(f), dHO)) } : path0;
     if (!path || path.up.length || !path.down.length) return { refused: "not a pure descent", stats };
     if (!E.loops || !E.loops.length) return { refused: "eraser has no perimeter", stats };
     const clipAtHE = E.loops;
@@ -236,7 +237,7 @@ export function descentJob(world, input) {
             if (T0 && !shift) { why = "the picture's frame cannot be found in " + F; unread = true; continue; }
             const F0 = shift ? shift.F0 : F;
             const rem = shift ? shift.rem : [0, 0];
-            const kdep = c0rec ? lm.depthOf(F) - lm.depthOf(c0rec.level) : 1;
+            const kdep = c0rec ? dm.sub(lm.depthOf(F), lm.depthOf(c0rec.level)) : 1;
             const kidT = T0 ? shiftDown(T0, kdep) : undefined;   // a kid's picture table, less its frame's shift at the cede
             let need = { left: eraseAtF.left - rem[0], right: eraseAtF.right - rem[0],
                 top: eraseAtF.top - rem[1], bottom: eraseAtF.bottom - rem[1] };
@@ -321,7 +322,7 @@ export function descentJob(world, input) {
                     const step = cede(vdoc, cid, home, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
                         { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownTableFor(kidT, frameShift(lm, home)), boolOpts,
-                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id, lm.depthOf(home) - lm.depthOf(crec.level));
+                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id, dm.sub(lm.depthOf(home), lm.depthOf(crec.level)));
                     if (step && step.unresolved) {
                         // The whole descent is refused, so the target stays as it was (F173).
                         const s = step.unresolved;
@@ -351,7 +352,7 @@ export function descentJob(world, input) {
     const minted = [];
     for (const f of lm.frames.values()) {
         if (had.has(f.id) && had.get(f.id) === f.parent) continue;
-        minted.push({ id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j, ...(f.private != null ? { private: f.private } : {}) });
+        minted.push({ id: f.id, parent: f.parent, depth: dm.toJSON(f.depth), i: f.cell.i, j: f.cell.j, ...(f.private != null ? { private: f.private } : {}) });
     }
     return partial ? { steps, stats, minted, partial } : { steps, stats, minted };
 }

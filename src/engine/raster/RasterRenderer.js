@@ -37,6 +37,7 @@ import { prefetchPlan, farKeysOf, PREFETCH_RETRY_MS } from "./prefetch";
 import { captureFirstView } from "./firstView";
 import { COMPOSE_IMAGES, LEVEL_STEP, MOVE_PLANE_PLATES, MOVE_PLANE_PLATES_PHONE, levelFor, zOf } from "./level";
 import { R } from "../frameLattice";
+import * as dm from "../depth";
 
 /** The camera must hold its view this long before the drag plane is aimed at it: a zoom would re-render it every step. */
 const PLANE_QUIET_MS = 150;
@@ -1436,7 +1437,7 @@ export default class RasterRenderer {
             if (!box || !og || d0 == null || d1 == null) return null;
             h.box = box; h.frameId = F;
             if (h.group) this.pyramid.moveGroup(h.group, box);
-            return { s: Math.pow(R, d1 - d0), og: { x: og[0], y: og[1] } };
+            return { s: Math.pow(R, dm.toNumber(dm.sub(d1, d0))), og: { x: og[0], y: og[1] } };
         }, viewCenter(this.cam));
         for (const h of lost) this._pyrTakeDown(h, false);
     }

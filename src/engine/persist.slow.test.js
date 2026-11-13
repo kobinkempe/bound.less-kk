@@ -7,7 +7,8 @@
 import { loadFixture, convertLegacySnapshot, isLegacySnapshot } from "./__testkit__/legacyFixture";
 import fs from "fs";
 import path from "path";
-import { FORMAT, VERSION, encodeDrawing, decodeDrawing } from "./persist";
+import { FORMAT, FILE_VERSION, encodeDrawing, decodeDrawing, fileVersionOf, compareFileVersions } from "./persist";
+import { APP_VERSION } from "../version";
 import KobinEngine from "./KobinEngine";
 
 jest.setTimeout(30000);
@@ -63,15 +64,28 @@ const sampleParts = () => ({
     },
 });
 
+describe("the file's version (Kobin, 2026-11-13)", () => {
+    test("is the app's major and minor; a whole number (1.0 or before) reads as 1.0; a newer one asks for a reload", () => {
+        expect(FILE_VERSION).toBe(APP_VERSION.split(".").slice(0, 2).join("."));
+        expect(FILE_VERSION).toBe("1.1");
+        expect([1, 2, 5].map(fileVersionOf)).toEqual(["1.0", "1.0", "1.0"]);
+        expect(["1.1", "2.0", "10.12"].map(fileVersionOf)).toEqual(["1.1", "2.0", "10.12"]);
+        expect([0, -1, 1.5, "1", "1.1.0", "01.1", "1.01", "v1.1", null].map(fileVersionOf)).toEqual(Array(9).fill(null));
+        expect([["1.0", "1.1"], ["1.1", "1.1"], ["1.10", "1.9"], ["2.0", "1.99"]].map(([a, b]) => Math.sign(compareFileVersions(a, b)))).toEqual([-1, 0, 1, 1]);
+        const old = { format: FORMAT, version: 4, natives: {} };
+        expect(decodeDrawing(old).version).toBe("1.0");
+        expect(decodeDrawing({ ...old, version: FILE_VERSION }).version).toBe(FILE_VERSION);
+        expect(() => decodeDrawing({ ...old, version: "1.2" })).toThrow("this drawing was saved by a newer version of bound.less (1.2; this page is 1.1): reload to update");
+    });
+});
+
 describe("format encode/decode", () => {
     test("encode -> decode round-trips camera, crossings, natives and meta", () => {
         const parts = sampleParts();
         const doc = encodeDrawing({ ...parts, meta: { name: "boat scene", createdAt: "2026-01-01T00:00:00.000Z" } });
         expect(doc.format).toBe(FORMAT);
-        // A drawing with nothing in it that the version-1 format cannot hold
-        // is written as version 1 whatever VERSION is, so it opens in any
-        // build (the next test is the drawing that cannot be).
-        expect(doc.version).toBe(1);
+        // A file says the version of the app that saved it (its major and minor).
+        expect(doc.version).toBe(FILE_VERSION);
         expect(doc.meta.name).toBe("boat scene");
         expect(doc.meta.createdAt).toBe("2026-01-01T00:00:00.000Z");
         expect(typeof doc.meta.modifiedAt).toBe("string");
@@ -81,19 +95,17 @@ describe("format encode/decode", () => {
         expect(d.natives).toEqual(parts.natives);
         expect(d.meta.name).toBe("boat scene");
     });
-    test("a drawing holding a CUT line is written as version 2 and round-trips the line's canonical points", () => {
+    test("a drawing holding a CUT line round-trips the line's canonical points", () => {
         // F43 (2026-09-05): a line piece that has been cut carries the line it
         // was cut from (`P`, `Q`) and where its ends sit on it (`sa`, `sb`),
-        // encoded as code 2. A version-1 reader would take that record for an
-        // arc, so the file says version 2 — and only then.
+        // encoded as code 2.
         const parts = sampleParts();
         parts.natives[0].push({
             type: "shape", origin: "native", id: 5, color: "#000000", opacity: 1,
             loops: [[0, 0, 2, 0, 0, 10, 0, 0.2, 0.8, 8, 0, 0, 8, 5, 0, 0, 0]],
         });
         const doc = encodeDrawing({ ...parts, meta: { name: "cut" } });
-        expect(doc.version).toBe(2);
-        expect(VERSION).toBe(5);   // 3: a frame shift in the lattice (A1 C1); 4: a hashed frame id (F192); 5: a run or stretch name (store.model.test.js)
+        expect(doc.version).toBe(FILE_VERSION);
         const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
         expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
     });
@@ -106,7 +118,7 @@ describe("format encode/decode", () => {
             loops: [[100, 0, 3, 0, 0, 100, 0, Math.PI / 2, 0, Math.PI, 100, 0, -100, 0, 0, 0.5, 0, 100, 0, 100, 0]],
         });
         const doc = encodeDrawing({ ...parts, meta: { name: "cut arc" } });
-        expect(doc.version).toBe(2);
+        expect(doc.version).toBe(FILE_VERSION);
         const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
         expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
     });
@@ -160,7 +172,8 @@ describe("format encode/decode", () => {
         ["not an object", "hello"],
         ["an array", [1, 2]],
         ["random JSON", { some: "junk" }],
-        ["a newer version", { format: FORMAT, version: VERSION + 1, natives: {} }],
+        ["a newer version", { format: FORMAT, version: "99.0", natives: {} }],
+        ["a version that is neither a whole number nor major.minor", { format: FORMAT, version: "1.1.0", natives: {} }],
         ["a missing version", { format: FORMAT, natives: {} }],
         ["a bad camera", { format: FORMAT, version: 1, camera: { activeLevel: 0.5 }, natives: {} }],
         ["non-finite geometry", { format: FORMAT, version: 1, natives: { 0: [{ type: "stroke", id: 1, pts: [[0, NaN]], lwFrame: 1 }] } }],

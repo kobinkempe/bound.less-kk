@@ -130,6 +130,10 @@ describe("localCanvases", () => {
         expect(depthLabel(0)).toBe("Surface level");
         expect(depthLabel(1)).toBe("Surface level");
         expect(depthLabel(3)).toBe("3 levels deep");
+        expect(depthLabel(Number.MAX_SAFE_INTEGER)).toBe("9007199254740991 levels deep");
+        expect(depthLabel("18446744073709551616")).toBe("1.8×10¹⁹ levels deep");
+        expect(depthLabel(`1${"0".repeat(100)}1`)).toBe("10¹⁰¹ levels deep");
+        expect(depthLabel(`1${"0".repeat(1999999)}7`)).toBe("10^(2×10⁶) levels deep");
         expect(deletedLabel(new Date().toISOString())).toBe("Deleted just now");
         expect(deletedLabel("garbage")).toBe("Deleted");
     });

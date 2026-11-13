@@ -4800,6 +4800,12 @@ back took 0.7 and 0.2 ms of camera work. Saved locally and reloaded: the same le
 were, the scene list (one scene; the index's base 2⁵³ − 1, from the file) and the undo history (undo and redo of the
 move); no long task after the reload.
 
+**Version 1.1 (2026-11-13):** the 2⁵³ stop is gone, and there is no other. A
+depth past 2⁵³ is base-10¹⁵ limbs, as many as it needs (`src/engine/depth.js`), a file holds it as its digits (files
+say the app's version from 1.1), and the camera crosses at every depth. Tested in the app's built-in pane to a depth
+twenty million digits long (10¹⁹ ⁹⁹⁹ ⁹⁹⁹ levels), every step working, each in seconds; in jsdom to thirty million
+(`docs/reference/depth-overflow-design-2026-11-13.md`).
+
 <a id="f201"></a>
 ### F201 — FIXED 2026-11-12 (jsdom; found in Chrome), uncommitted. Joining or splitting two co-resident chains recursed a call a level.
 

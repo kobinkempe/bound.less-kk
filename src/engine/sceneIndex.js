@@ -11,6 +11,7 @@
  * `__oracles__/sceneOracle.js` implements the same rules by brute force.
  */
 import { R } from "./frameLattice";
+import * as dm from "./depth";
 
 // ---- the tunable constants (SCENES-PLAN §6), one place ----
 export const REF_STROKE_PX = 2.5;    // distances are px at the zoom where the stroke is this wide
@@ -71,19 +72,22 @@ const bandOf = (t) => { const b = Math.floor(Math.log2(t)); return b > -1100 ? (
 const nextKey = (k) => (k + 1 > k ? k + 1 : Infinity);
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-/** The scene worker's record of LevelMap frame `f`; a run is `rn` empty levels above it, each in cell (rx, ry). */
+/**
+ * The scene worker's record of LevelMap frame `f`; a run is `rn` empty levels above it, each in cell (rx, ry). It crosses
+ * postMessage, so a depth or run past 2^53 goes as its digits (`FrameTable.update` parses them).
+ */
 export function frameRecord(f) {
     const c = f.centre, run = f.run;
-    return { id: f.id, parent: f.parent == null ? null : f.parent, depth: f.depth, cx: c ? c.x : 0, cy: c ? c.y : 0,
-        sx: f.shift ? f.shift[0] : 0, sy: f.shift ? f.shift[1] : 0, rn: run ? run.n : 0, rx: run ? run.c.x : 0, ry: run ? run.c.y : 0 };
+    return { id: f.id, parent: f.parent == null ? null : f.parent, depth: dm.toJSON(f.depth), cx: c ? c.x : 0, cy: c ? c.y : 0,
+        sx: f.shift ? f.shift[0] : 0, sy: f.shift ? f.shift[1] : 0, rn: run ? dm.toJSON(run.n) : 0, rx: run ? run.c.x : 0, ry: run ? run.c.y : 0 };
 }
 /** Is `r`, a record sent, still frame `f`? Field by field: a string key a frame a tick was the cost (SC-2). */
 export function sameFrameRecord(r, f) {
     const c = f.centre, run = f.run;
-    return !!r && r.parent === (f.parent == null ? null : f.parent) && r.depth === f.depth
+    return !!r && r.parent === (f.parent == null ? null : f.parent) && r.depth === dm.toJSON(f.depth)
         && r.cx === (c ? c.x : 0) && r.cy === (c ? c.y : 0)
         && r.sx === (f.shift ? f.shift[0] : 0) && r.sy === (f.shift ? f.shift[1] : 0)
-        && r.rn === (run ? run.n : 0) && r.rx === (run ? run.c.x : 0) && r.ry === (run ? run.c.y : 0);
+        && r.rn === (run ? dm.toJSON(run.n) : 0) && r.rx === (run ? run.c.x : 0) && r.ry === (run ? run.c.y : 0);
 }
 const sameAddr = (a, b) => a.parent === b.parent && a.depth === b.depth && a.cx === b.cx && a.cy === b.cy
     && a.rn === b.rn && a.rx === b.rx && a.ry === b.ry;
@@ -110,8 +114,8 @@ export class FrameTable {
         for (const r of recs) {
             const was = this.cur.get(r.id) || null;
             if (r.gone) { if (was) { this.prev.set(r.id, was); this.cur.delete(r.id); gone.add(r.id); } continue; }
-            const f = { id: r.id, parent: r.parent == null ? null : r.parent, depth: r.depth,
-                cx: r.cx || 0, cy: r.cy || 0, sx: r.sx || 0, sy: r.sy || 0, rn: r.rn || 0, rx: r.rx || 0, ry: r.ry || 0 };
+            const f = { id: r.id, parent: r.parent == null ? null : r.parent, depth: dm.parse(r.depth),
+                cx: r.cx || 0, cy: r.cy || 0, sx: r.sx || 0, sy: r.sy || 0, rn: r.rn ? dm.parse(r.rn) : 0, rx: r.rx || 0, ry: r.ry || 0 };
             if (was && sameAddr(was, f)) {
                 if (was.sx !== f.sx || was.sy !== f.sy) { shifted.add(f.id); this.prev.set(f.id, was); this.cur.set(f.id, f); }
                 continue;
@@ -125,17 +129,17 @@ export class FrameTable {
             if (!this._samePlace(f)) { moved.add(f.id); continue; }
             const w = this.prev.get(f.id);
             if (w.sx !== f.sx || w.sy !== f.sy) shifted.add(f.id);
-            if (f.rn > w.rn && gone.size) this._foldedInto(f, gone);
+            if (dm.gt(f.rn, w.rn) && gone.size) this._foldedInto(f, gone);
         }
         this._maps.clear(); this._old.clear();
         return { moved, shifted, gone };
     }
     /** Frames gone this batch whose levels a fold put in `f`'s run (`foldInto`: their id → f's). */
     _foldedInto(f, gone) {
-        const top = f.depth - f.rn;
+        const top = dm.sub(f.depth, f.rn);
         for (let a = this.prev.get(f.id); a && a.parent != null;) {
             a = this._rec(a.parent, true);
-            if (!a || a.depth < top) break;
+            if (!a || dm.lt(a.depth, top)) break;
             if (gone.has(a.id)) (this.foldInto || (this.foldInto = new Map())).set(a.id, f.id);
         }
     }
@@ -163,16 +167,16 @@ export class FrameTable {
             }
             if (!ok) continue;
             const K = runs.get(f.parent + "\u0001" + M.cx + "\u0001" + M.cy);
-            if (!K || M.depth >= K.depth || M.depth < K.depth - K.rn) continue;
+            if (!K || dm.ge(M.depth, K.depth) || dm.lt(M.depth, dm.sub(K.depth, K.rn))) continue;
             let a = on.get(K); if (!a) { a = []; on.set(K, a); } a.push(M);
         }
         for (const [K, ms] of on) {
-            ms.sort((a, b) => b.depth - a.depth);
+            ms.sort((a, b) => dm.cmp(b.depth, a.depth));
             let below = K;
             for (let k = 0; k <= ms.length; k++) {
-                const M = ms[k], top = M ? M.depth : K.depth - K.rn - 1;
+                const M = ms[k], top = M ? M.depth : dm.sub(dm.sub(K.depth, K.rn), 1);
                 if (M && M.depth === below.depth) continue;   // two at one level: the first stands for it
-                this.prev.set(below.id, { ...below, parent: M ? M.id : K.parent, rn: below.depth - top - 1 });
+                this.prev.set(below.id, { ...below, parent: M ? M.id : K.parent, rn: dm.sub(dm.sub(below.depth, top), 1) });
                 if (M) below = { id: M.id, parent: null, depth: M.depth, cx: K.rx, cy: K.ry, sx: 0, sy: 0, rn: 0, rx: K.rx, ry: K.ry };
             }
         }
@@ -184,9 +188,9 @@ export class FrameTable {
         for (let g = 0, cap = 2 * (this.cur.size + this.prev.size) + 4; g < cap; g++) {
             if (g > 0 && ma === 0 && mb === 0 && a.id === b.id) return true;
             if ((ma ? a.rx : a.cx) !== (mb ? b.rx : b.cx) || (ma ? a.ry : a.cy) !== (mb ? b.ry : b.cy)) return false;
-            const t = ma > 0 && mb > 0 ? Math.min(a.rn - ma, b.rn - mb) + 1 : 1;
-            if (ma + t > a.rn) { if (a.parent == null) return false; a = this._rec(a.parent, true); ma = 0; } else ma += t;
-            if (mb + t > b.rn) { if (b.parent == null) return false; b = this.cur.get(b.parent); mb = 0; } else mb += t;
+            const t = dm.gt(ma, 0) && dm.gt(mb, 0) ? dm.add(dm.min(dm.sub(a.rn, ma), dm.sub(b.rn, mb)), 1) : 1;
+            if (dm.gt(dm.add(ma, t), a.rn)) { if (a.parent == null) return false; a = this._rec(a.parent, true); ma = 0; } else ma = dm.add(ma, t);
+            if (dm.gt(dm.add(mb, t), b.rn)) { if (b.parent == null) return false; b = this.cur.get(b.parent); mb = 0; } else mb = dm.add(mb, t);
             if (!a || !b) return false;
         }
         return false;
@@ -209,17 +213,17 @@ export class FrameTable {
     /** Frame `id` mapped up to `depth`: the position there `{f, m}` and `p = p_id · s + o`. */
     _up(id, depth, old) {
         let f = this._rec(id, old), s = 1, ox = 0, oy = 0;
-        while (f && f.depth > depth) {
+        while (f && dm.gt(f.depth, depth)) {
             if (f.parent == null) return null;
             s /= R; ox = ox / R + f.cx; oy = oy / R + f.cy;
             if (f.rn) {
-                const k = Math.min(f.rn, f.depth - 1 - depth);
-                for (let m = 0; m < k; m++) {
+                const k = dm.min(f.rn, dm.sub(dm.sub(f.depth, 1), depth));
+                for (let m = 0; dm.lt(m, k); m++) {
                     const s2 = s / R, x2 = ox / R + f.rx, y2 = oy / R + f.ry;
                     if (s2 === s && Object.is(x2, ox) && Object.is(y2, oy)) break;
                     s = s2; ox = x2; oy = y2;
                 }
-                if (k < f.rn) return { f, m: k + 1, s, ox, oy };
+                if (dm.lt(k, f.rn)) return { f, m: dm.add(k, 1), s, ox, oy };
             }
             f = this._rec(f.parent, old);
         }
@@ -234,16 +238,16 @@ export class FrameTable {
         let fa = A.f, ma = A.m, fb = B.f, mb = B.m, lv = 0;
         while (fa !== fb || ma !== mb) {
             if (!fa || !fb || (ma === fa.rn && fa.parent == null) || (mb === fb.rn && fb.parent == null)) return null;
-            const t = ma > 0 && mb > 0 ? Math.min(fa.rn - ma, fb.rn - mb) + 1 : 1;
-            if ((lv += t) > 4097) return null;
+            const t = dm.gt(ma, 0) && dm.gt(mb, 0) ? dm.add(dm.min(dm.sub(fa.rn, ma), dm.sub(fb.rn, mb)), 1) : 1;
+            if (dm.gt(lv = dm.add(lv, t), 4097)) return null;
             seg.push(ma ? fa.rx : fa.cx, ma ? fa.ry : fa.cy, mb ? fb.rx : fb.cx, mb ? fb.ry : fb.cy, t);
-            if (ma + t > fa.rn) { fa = this._rec(fa.parent, old); ma = 0; } else ma += t;
-            if (mb + t > fb.rn) { fb = this._rec(fb.parent, old); mb = 0; } else mb += t;
+            if (dm.gt(dm.add(ma, t), fa.rn)) { fa = this._rec(fa.parent, old); ma = 0; } else ma = dm.add(ma, t);
+            if (dm.gt(dm.add(mb, t), fb.rn)) { fb = this._rec(fb.parent, old); mb = 0; } else mb = dm.add(mb, t);
         }
         let ox = 0, oy = 0;
         for (let i = seg.length - 5; i >= 0; i -= 5) {
             const ax = seg[i], ay = seg[i + 1], bx = seg[i + 2], by = seg[i + 3];
-            for (let k = seg[i + 4]; k > 0; k--) {
+            for (let k = dm.toNumber(seg[i + 4]); k > 0; k--) {
                 const nx = (ox + ax - bx) * R, ny = (oy + ay - by) * R;
                 if (Object.is(nx, ox) && Object.is(ny, oy)) break;
                 ox = nx; oy = ny;
@@ -261,7 +265,7 @@ export class FrameTable {
         let out = null;
         const a = this._rec(from, useOld), b = this._rec(to, useOld);
         if (a && b) {
-            const d = Math.min(a.depth, b.depth);
+            const d = dm.min(a.depth, b.depth);
             const A = this._up(from, d, useOld), B = this._up(to, d, useOld);
             const off = A && B ? this._across(A, B, useOld) : null;
             if (off) out = { s: A.s / B.s, ox: (A.ox + off[0] - B.ox) / B.s, oy: (A.oy + off[1] - B.oy) / B.s };
@@ -535,12 +539,12 @@ export class SceneIndex {
     }
 
     // ------------------------------------------------------------------ items
-    /** A frame's depth less `base`, the one place depths enter the widths: 0 for a frame not yet known. */
+    /** A frame's depth less `base`, the one place depths enter the widths, as a Number (exact within 2^53 of it): 0 for a frame not yet known. */
     _depth(id) {
         const d = this.frames.depth(id);
         if (d == null) return 0;
-        if (this.base == null) this.base = Math.abs(d) < BASE_FROM ? 0 : d;
-        return d - this.base;
+        if (this.base == null) this.base = dm.lt(dm.abs(d), BASE_FROM) ? 0 : d;
+        return dm.toNumber(dm.sub(d, this.base));
     }
     /** Room in the raw pool and the number column for a batch's new items, in one allocation each. */
     _reserve(items) {
@@ -1000,7 +1004,7 @@ export class SceneIndex {
             if (ref != null) { this._reanchorOld(S, ref); continue; }
             // none near: the coarsest member's home, where the members are now
             let h = null;
-            for (const m of S.members) { const d = this.frames.depth(m.home); if (d != null && (h == null || d < this.frames.depth(h))) h = m.home; }
+            for (const m of S.members) { const d = this.frames.depth(m.home); if (d != null && (h == null || dm.lt(d, this.frames.depth(h)))) h = m.home; }
             if (h != null) this._reanchor(S, h, true);
         }
         for (const t of this.tombs) {
@@ -1927,7 +1931,7 @@ export class SceneIndex {
         });
         const tomb = this.tombs.map((t) => ({ ...t, rect: { ...t.rect } }));
         // `rseq` numbered the regions of the nested list (until F189); kept so an older build reading this file numbers on
-        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, ...(this.base ? { base: this.base } : {}), scenes, tomb };
+        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, ...(this.base ? { base: dm.toJSON(this.base) } : {}), scenes, tomb };
     }
     /**
      * A load: the saved scenes as shells, each object filed straight into its saved scene (no
@@ -1948,7 +1952,8 @@ export class SceneIndex {
             this.tombs = (st.tomb || []).map((t) => ({ ...t, rect: { ...t.rect } }));
             for (const t of this.tombs) this._tombClock = Math.max(this._tombClock, t.t || 0);
             // the saved widths' base; a state without one measured from 0
-            this.base = Number.isSafeInteger(st.base) ? st.base : (st.scenes && st.scenes.length) || this.tombs.length ? 0 : null;
+            const base = dm.parse(st.base);   // past 2^53 its digits
+            this.base = base != null ? base : (st.scenes && st.scenes.length) || this.tombs.length ? 0 : null;
         } else this.seq = Math.max(this.seq, batch.restore.seq | 0, 1);
         const dirty = new Set(st && st.dirty ? st.dirty : []);
         const shells = st ? st.scenes || [] : [];

@@ -36,44 +36,29 @@
 
 import { validateScaleDef } from "./scaleBar";
 import { APP_VERSION } from "../version";
+import * as dm from "./depth";
 import { inDigit, tilePhase } from "./frameLattice";
 import {
-    validEncodedLoops, encodedLoopsWellFormed, encodedLoopsNeedV2, repairLoops, decodeLoops,
+    validEncodedLoops, encodedLoopsWellFormed, repairLoops, decodeLoops,
     encodeLoops,
 } from "./geometry/arcShape";
 
 export const FORMAT = "boundless-drawing";
-// Version 2 (2026-09-05, F43): a shape's loops may carry a CUT LINE record
-// (code 2 in `arcShape.encodeLoops` — the line a piece was cut from and the
-// positions of its ends on it) or a CUT ARC record (code 3 — the piece's own
-// arc, the arc it was cut from and its positions on it). A version-1 reader
-// would read either as an arc, so a file that holds one is written as
-// version 2 and a version-1 build refuses it with a clear message; a drawing
-// with no cut piece in it is still written as version 1 and opens anywhere.
-// Version 3 (2026-09-29, A1 C1): a frame's `shift` in the lattice is its natives' placement,
-// composed on read (DESIGN.md §8). A version-2 build reads it as a pending entry to settle into
-// their tables, and the deployed build before 4c99a8a drops it, so a drawing whose lattice
-// carries a shift is written as version 3 and those builds refuse it. The same holds for a
-// co-resident (`shadowOf`, A1 C3: an older build merges it or drops its cell) and a private frame
-// (`private`, A1 C4). A lattice with none of the three is written exactly as before.
-// Version 4 (2026-11-11, OPEN-FLAGS F192): a frame named `h<code>:i,j`, which a version-3 build refuses as "not a
-// valid frame id"; a lattice holding one is version 4, so that build says the drawing is newer. Path ids alone: as before.
-// Version 5 (2026-11-12, F199/F202, the compact lattice): a frame's `run` (n empty levels above it) and a stretch name
-// `s<code>:i,j*k`, which a version-4 build would read as a frame a level above its parent, or refuse.
-export const VERSION = 5;
-
-const latticeFrames = (crossings) => (crossings && crossings.__lattice && Array.isArray(crossings.frames) ? crossings.frames : []);
-/** True when a serialized lattice (`LevelMap.serialize`) has a frame with a non-zero shift, a co-resident or a private frame. */
-export function latticeNeedsV3(crossings) {
-    return latticeFrames(crossings).some((f) => !!f && ((Array.isArray(f.shift) && (f.shift[0] || f.shift[1])) || f.shadowOf != null || f.private != null));
+// THE FILE'S VERSION (Kobin, 2026-11-13): the version of the app that saved it, its major and minor ("1.1"; a patch
+// release does not change a file), so a reader runs its compatibility code for older files only. A file from 1.0 or
+// before carries a whole number (1–5, the lowest of the format numbers it was written under then) and reads as "1.0".
+// A version newer than this app's is refused: the page is out of date, and a reload brings the new one.
+/** This app's file version: APP_VERSION's major and minor. */
+export const FILE_VERSION = APP_VERSION.split(".").slice(0, 2).join(".");
+/** A file's version as "major.minor": a whole number (1.0 or before) is "1.0"; null when it is neither. */
+export function fileVersionOf(v) {
+    if (Number.isInteger(v) && v >= 1) return "1.0";
+    return typeof v === "string" && /^[1-9]\d*\.(?:0|[1-9]\d*)$/.test(v) ? v : null;
 }
-/** True when a serialized lattice has a hashed frame id (F192). */
-export function latticeNeedsV4(crossings) {
-    return latticeFrames(crossings).some((f) => !!f && typeof f.id === "string" && f.id.charCodeAt(0) === 104 && FRAME_ID.test(f.id));   // "h"
-}
-/** True when a serialized lattice has a run or a stretch name (the compact lattice). */
-export function latticeNeedsV5(crossings) {
-    return latticeFrames(crossings).some((f) => !!f && (f.run != null || (typeof f.id === "string" && f.id.charCodeAt(0) === 115)));   // "s"
+/** Version `a` against `b` ("major.minor" each): negative, 0 or positive. */
+export function compareFileVersions(a, b) {
+    const [x, y] = a.split(".").map(Number), [p, q] = b.split(".").map(Number);
+    return x !== p ? x - p : y - q;
 }
 
 // ---- encode ----
@@ -86,51 +71,38 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
         createdAt: decoded.createdAt,
         modifiedAt: now,
         app: "bound.less",
-        appVersion: APP_VERSION,   // the build that wrote it; `version` above is the format's
+        appVersion: APP_VERSION,   // the build that wrote it, patch included; `version` is its major and minor
     };
     if (decoded.scaleDef) outMeta.scaleDef = decoded.scaleDef;
     if (decoded.scenes) outMeta.scenes = decoded.scenes;
-    if (decoded.sceneIndex) outMeta.sceneIndex = decoded.sceneIndex;
-    // The lowest version that holds the drawing, so an unaffected one still opens in any build: 5 with a run or a
-    // stretch name, 4 when a frame id is hashed, 3 when a frame carries a shift or is a co-resident or private, 2 when
-    // a shape holds a cut piece (F43), else 1.
-    let version = latticeNeedsV5(crossings) ? 5 : latticeNeedsV4(crossings) ? 4 : latticeNeedsV3(crossings) ? 3 : 1;
-    for (const l of Object.keys(natives || {})) {
-        if (version >= 2) break;
-        for (const o of natives[l] || []) {
-            if (o && o.type === "shape" && encodedLoopsNeedV2(o.loops)) { version = 2; break; }
-        }
-    }
+    if (decoded.sceneIndex) outMeta.sceneIndex = { ...decoded.sceneIndex, ...(decoded.sceneIndex.base ? { base: dm.toJSON(decoded.sceneIndex.base) } : {}) };
+    const cam = { activeLevel: dm.toJSON(camera.activeLevel), inScale: camera.inScale, inPanX: camera.inPanX, inPanY: camera.inPanY };
     return {
         format: FORMAT,
-        version,
+        version: FILE_VERSION,
         meta: outMeta,
-        camera: {
-            activeLevel: camera.activeLevel, inScale: camera.inScale,
-            inPanX: camera.inPanX, inPanY: camera.inPanY,
-            ...(camera.frame != null ? { frame: camera.frame } : {}),
-        },
+        camera: { ...cam, ...(camera.frame != null ? { frame: camera.frame } : {}) },
         crossings: crossings || {},
         natives: natives || {},
     };
 }
 
 // ---- decode ----
-// Returns { meta, camera, crossings, natives } (validated, ready for the
-// engine) or THROWS with a human-readable reason. Accepts kobin-1 files and
-// legacy dev-0 snapshots.
+// Returns { version, meta, camera, crossings, natives } (validated, ready for the engine; `version` the file's,
+// "1.0" for a file from 1.0 or before) or THROWS with a human-readable reason. Accepts kobin-1 files and legacy dev-0
+// snapshots.
 export function decodeDrawing(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         throw new Error("not a drawing: expected a JSON object");
     }
     if (raw.format === FORMAT) {
-        if (!Number.isInteger(raw.version) || raw.version < 1) {
-            throw new Error("not a drawing: missing or invalid version");
-        }
-        if (raw.version > VERSION) {
-            throw new Error(`this drawing was saved by a newer version of bound.less (file v${raw.version}, app reads up to v${VERSION})`);
+        const version = fileVersionOf(raw.version);
+        if (version == null) throw new Error("not a drawing: missing or invalid version");
+        if (compareFileVersions(version, FILE_VERSION) > 0) {
+            throw new Error(`this drawing was saved by a newer version of bound.less (${version}; this page is ${FILE_VERSION}): reload to update`);
         }
         return {
+            version,
             meta: decodeMeta(raw.meta),
             camera: decodeCamera(raw.camera),
             crossings: decodeCrossings(raw.crossings),
@@ -211,7 +183,8 @@ function decodeSceneIndex(si) {
     const dirty = (Array.isArray(si.dirty) ? si.dirty : []).filter((id) => Number.isInteger(id));
     const pos = (v) => (Number.isInteger(v) && v > 0 ? v : 1);
     const out = { v: 3, seq: pos(si.seq), ver: pos(si.ver), pseq: pos(si.pseq), rseq: pos(si.rseq), scenes, tomb, dirty };
-    if (Number.isSafeInteger(si.base) && si.base) out.base = si.base;   // the depth its widths are measured from
+    const base = dm.parse(si.base);
+    if (base) out.base = base;   // the depth its widths are measured from (past 2^53 its digits)
     if (Array.isArray(si.regions)) {
         out.regions = si.regions.filter((r) => named(r) && typeof r.parent === "string" && Array.isArray(r.kids) && r.kids.every((k) => typeof k === "string"))
             .slice(0, 4096).map((r) => ({ id: r.id, seq: Number.isInteger(r.seq) ? r.seq : 0, name: nameOf(r), named: !!r.named, parent: r.parent, kids: r.kids.slice(0, 4096) }));
@@ -260,7 +233,7 @@ function cloneScene(s) {
 function decodeCamera(c) {
     if (c == null) return { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 };
     const out = {
-        activeLevel: c.activeLevel == null ? 0 : c.activeLevel,
+        activeLevel: c.activeLevel == null ? 0 : dm.parse(c.activeLevel),   // past 2^53 its digits (from 1.1)
         inScale: c.inScale == null ? 1 : c.inScale,
         inPanX: c.inPanX == null ? 0 : c.inPanX,
         inPanY: c.inPanY == null ? 0 : c.inPanY,
@@ -271,7 +244,7 @@ function decodeCamera(c) {
         if (typeof c.frame !== "string" || !c.frame) throw new Error("bad camera: frame must be a non-empty string");
         out.frame = c.frame;
     }
-    if (!Number.isInteger(out.activeLevel)) throw new Error("bad camera: activeLevel must be an integer");
+    if (out.activeLevel == null) throw new Error("bad camera: activeLevel must be an integer");
     if (!isFiniteNum(out.inScale) || out.inScale <= 0) throw new Error("bad camera: inScale must be a positive number");
     if (!isFiniteNum(out.inPanX) || !isFiniteNum(out.inPanY)) throw new Error("bad camera: pan must be finite");
     return out;
@@ -299,19 +272,21 @@ function decodeCrossings(cr) {
     if (!Array.isArray(cr.frames)) throw new Error("bad frames: expected a frames array");
     const ids = new Set();
     const outOfRange = [];
-    const depthOf = new Map(cr.frames.map((f) => [f && f.id, f && f.depth]));
+    const depthOf = new Map(cr.frames.map((f) => [f && f.id, f && dm.parse(f.depth)]));
     for (const f of cr.frames) {
         if (!f || typeof f.id !== "string" || !f.id) throw new Error("bad frames: each frame needs a string id");
         if (ids.has(f.id)) throw new Error(`bad frames: duplicate frame id ${f.id}`);
         ids.add(f.id);
-        if (!Number.isInteger(f.depth)) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
+        const depth = dm.parse(f.depth);   // past 2^53 its digits (from 1.1)
+        if (depth == null) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
         if (f.parent != null && typeof f.parent !== "string") throw new Error(`bad frames: frame ${f.id} parent must be a string`);
         if (!Number.isInteger(f.i) || !Number.isInteger(f.j)) throw new Error(`bad frames: frame ${f.id} cell must be integers`);
         // A run: n ≥ 1 empty levels of a cell off its parent's edge, between the frame and its parent.
         if (f.run != null) {
-            const r = f.run, pd = depthOf.get(f.parent);
-            if (!Array.isArray(r) || r.length !== 3 || !r.every(Number.isSafeInteger) || r[0] < 1 || Math.abs(r[1]) > 2046 || Math.abs(r[2]) > 2046
-                || f.parent == null || (pd !== undefined && pd + r[0] + 1 !== f.depth)) throw new Error(`bad frames: frame ${f.id} run does not fit`);
+            const r = f.run, pd = depthOf.get(f.parent), n = Array.isArray(r) ? dm.parse(r[0]) : null;
+            if (!Array.isArray(r) || r.length !== 3 || n == null || !Number.isSafeInteger(r[1]) || !Number.isSafeInteger(r[2]) || dm.lt(n, 1)
+                || Math.abs(r[1]) > 2046 || Math.abs(r[2]) > 2046
+                || f.parent == null || (pd != null && dm.add(dm.add(pd, n), 1) !== depth)) throw new Error(`bad frames: frame ${f.id} run does not fit`);
         }
         // NOT fatal, deliberately. A build before 2026-08-21 could mint a cell
         // just outside the range (`LevelMap.cellChild` — the view centre drifting
@@ -356,7 +331,7 @@ function decodeNatives(n) {
             const table = o.below;
             if (table != null) {
                 if (!Array.isArray(table) || !table.every((t) => Array.isArray(t) && t.length === 3
-                    && Number.isInteger(t[0]) && t[0] >= 0 && isFiniteNum(t[1]) && isFiniteNum(t[2]))) {
+                    && dm.parse(t[0]) != null && dm.ge(dm.parse(t[0]), 0) && isFiniteNum(t[1]) && isFiniteNum(t[2]))) {
                     throw new Error(`bad object ${o.id}: below (offsets under the home) is malformed`);
                 }
             }

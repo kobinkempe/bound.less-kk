@@ -31,6 +31,7 @@ import { rectSpan, rectTol } from "./rectMath";
 import { translateLoops } from "./geometry/arcShape";
 import { HALF_W, R as CROSS_RATIO } from "./frameLattice";
 import { withShifted, reachBox } from "./placementModel";
+import * as dm from "./depth";
 
 
 // ---- selection indicator ----------------------------------------------------
@@ -464,7 +465,7 @@ class Overlays {
                 // member's own frame, and the arc overlap decides — a wrong
                 // candidate simply shares no arc and records nothing.
                 for (const up of members) {
-                    if (up === kid || this.lm.depthOf(up.level) !== kidDepth - 1) continue;
+                    if (up === kid || this.lm.depthOf(up.level) !== dm.sub(kidDepth, 1)) continue;
                     if (up.obj.type !== "shape" && up.obj.type !== "fill") continue;
                     const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
                     // The kid's window is unmoved numbers; it reaches the
@@ -709,7 +710,7 @@ class Overlays {
                 const P = this.stage.placeNative(o, F), A = o.attachRect;
                 const r = A ? P.fromStored({ left: A.x0, top: A.y0, right: A.x1, bottom: A.y1 }) : null;
                 if (r) {
-                    const key = this.doc.editKey(o) + ":" + f.depth, list = squares.get(key);
+                    const key = `${this.doc.editKey(o)}:${f.depth}`, list = squares.get(key);
                     if (list) list.push(clipRect(r)); else squares.set(key, [clipRect(r)]);
                     if (dot) sq = union(sq, r);
                 }
@@ -852,9 +853,10 @@ class Overlays {
         // The cut families' walk. A frame from depth `deepAt` down has a cell under SEL_FRAME_MARK_PX: what is homed there
         // shows as its square's dot, never as a piece.
         const cut = table.under.size ? this._selCutWalk(table, F, sc, win) : null;
-        let deepAt = this.lm.frame(F).depth;
-        for (let px = 2 * HALF_W * sc; px >= SEL_FRAME_MARK_PX; px /= CROSS_RATIO) deepAt++;
-        const deep = (level) => { const f = this.lm.frame(level); return !!f && f.depth >= deepAt; };
+        let markLevels = 0;
+        for (let px = 2 * HALF_W * sc; px >= SEL_FRAME_MARK_PX; px /= CROSS_RATIO) markLevels++;
+        const deepAt = dm.add(this.lm.frame(F).depth, markLevels);
+        const deep = (level) => { const f = this.lm.frame(level); return !!f && dm.ge(f.depth, deepAt); };
         // Where the cut families' open runs end, by 2 px cell: a dot there would sit on traced ants.
         const ends = new Map(), endCell = SEL_FRAME_MARK_PX / sc;
         const noteEnd = (p) => {
@@ -1179,7 +1181,7 @@ class Overlays {
         const f = rec && squares && table.cross.has(piece.id) ? this.lm.frame(rec.level) : null;
         if (f) {
             push(rec.obj);
-            for (const r of squares.get(this.doc.editKey(rec.obj) + ":" + (f.depth + 1)) || []) rects.push(r);
+            for (const r of squares.get(`${this.doc.editKey(rec.obj)}:${dm.add(f.depth, 1)}`) || []) rects.push(r);
         } else if (rec) {
             for (const m of this.doc.editGroup(rec.obj)) push(m.obj);
         }

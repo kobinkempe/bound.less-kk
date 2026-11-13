@@ -294,4 +294,5 @@ Kobin chose exact runs only: no "forgetful stretches" (rewriting a path through 
 - The scene list's widths are exact near its base depth. Ink far from it (a canvas drawn near the top and also
   10¹⁴ levels down, which only a jump can reach) has its widths rounded, a quarter octave at 10¹⁴ levels off and
   16 octaves at 2⁵³, so the list groups and frames that ink coarsely.
-- Depth itself stops at 2⁵³ ≈ 9×10¹⁵, where `depth + 1 === depth`.
+- Depth itself stops at 2⁵³ ≈ 9×10¹⁵, where `depth + 1 === depth`. From 1.1: past it
+  a depth is base-10¹⁵ limbs, as many as it needs, and the camera has no stop (`depth-overflow-design-2026-11-13.md`).

@@ -9,7 +9,7 @@ import { BASE, ENTER, EXIT, G } from "./frameLattice";
 import { mkEngine, useEngines } from "./__testkit__/harness";
 import { collectFrames } from "./frameGc";
 import { rectLoop } from "./geometry/arcShape";
-import { decodeDrawing, latticeNeedsV3 } from "./persist";
+import { decodeDrawing, FILE_VERSION } from "./persist";
 import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
 useEngines();
@@ -198,21 +198,17 @@ describe("co-residents in the engine", () => {
         expect(E.doc.list(B).some((o) => E._isSelected(o.id))).toBe(false);
     });
 
-    test("a lattice with a co-resident needs version 3, is read back with it, and is refused by a version-2 reader", () => {
+    test("a lattice with a co-resident is read back with it, and is refused by a reader of whole-number versions", () => {
         const { E, A, B } = fixture();
         const file = () => JSON.parse(JSON.stringify(E.serializeDrawing()));
-        expect(latticeNeedsV3(file().crossings)).toBe(false);
-        expect(file().version).toBe(4);                                 // its frames' names (OPEN-FLAGS F192)
+        expect(file().crossings.frames.some((r) => r.shadowOf != null)).toBe(false);
         moveFrame(E, A, 64);
         const d = file();
-        expect(latticeNeedsV3(d.crossings)).toBe(true);
+        expect(d.version).toBe(FILE_VERSION);
         expect(decodeDrawing(d).crossings.frames.find((r) => r.id === A).shadowOf).toBe(B);
-        expect(() => decodeV2(d)).toThrow("file v4, app reads up to v2");
+        expect(() => decodeV2(d)).toThrow("missing or invalid version");
         E.undo();
-        expect(latticeNeedsV3(file().crossings)).toBe(false);
-        // Each of the three needs version 3 on its own; a private frame alone in its cell has no co-residency to trip it.
-        const one = (f) => latticeNeedsV3({ __lattice: true, frames: [{ id: "1", parent: null, depth: 1, i: 0, j: 0 }, { id: "x", parent: "1", depth: 2, i: 1, j: 1, ...f }] });
-        expect([one({}), one({ shift: [3, 0] }), one({ shadowOf: "1" }), one({ private: "1" })]).toEqual([false, true, true, true]);
+        expect(file().crossings.frames.some((r) => r.shadowOf != null)).toBe(false);
     });
 
     test("frame GC promotes: an emptied resident is forgotten and its co-resident takes the cell, its ink drawn", () => {

@@ -13,6 +13,37 @@ Release notes: CHANGELOG.md; git tag v1.0.0. DEPLOYED 2026-11-13 from eb8b7d8 at
 word (checked live: the badge, "Download .svgi"); GitHub Release v1.0.0. The plan from here: docs/ROADMAP.md's first
 section (big projects, medium features, easy knock-outs).
 
+VERSION 1.1 (2026-11-13, at Kobin's word; CHANGELOG.md, git tag v1.1.0): DEPTH PAST 2^53, NO DEEPEST LEVEL.
+The README's claim (Kobin's words): tested at zooms that are hard to write down, including
+10^(36,123,599,...)x, the full exponent 20 million digits long. The work:
+Kobin's "an overflow integer ... dynamically so overflows could keep being added", and then (the same
+day, of a first build on BigInt with a stop at 10^100,000 levels) "I don't want that as the premise of
+the app is truly infinite zoom". A depth or a run length is a Number while it is a safe integer and past
++-(2^53 - 1) a Deep: base-10^15 limbs, as many as it needs, interned (=== and Map keys hold), throwing
+on any native < + - so a missed site fails loudly (src/engine/depth.js: add, sub, cmp, lt/le/gt/ge,
+min, max, parse, toJSON, toNumber, log10Abs; every depth sum and comparison goes through it). NO CAMERA
+STOP. Found every site three ways: the quick suite run with every depth a Deep (115 sites), a static
+scan (2 more), the deep tests. A file holds a depth past 2^53 as its digits. FILE VERSIONS (Kobin, the same day): a file says the
+version of the app that saved it, its major and minor - this release is 1.1 (package 1.1.0, the badge
+"Version 1.1"); a file from 1.0 or before (whole numbers 1-5) reads as "1.0"; a newer one is refused with
+a reload hint (persist.FILE_VERSION). TESTED in the app (the desktop app's built-in Chromium pane, a
+Surface Laptop 3, local saves, 2026-11-13): RUN-D's steps work at depths 1,000, 100K, 1M, 10M and 20M
+digits long; at 1M digits each takes under a second; at 20M digits (10^19,999,999 levels) each takes
+seconds (a crossing 9-27 s, a save 11.5 s, a reload <= 8.2 s) and the tab holds 2.8 of its 4.2 GB: the
+test computer struggling, so the testing stopped there. jsdom (depth.limits.probe.js): to 30M digits
+(24 s, a 343 MB file, 2.7 of Node's 4.1 GB). The zoom label, and a scene's in the scene list, past
+~5 x 10^307 levels read the log's log ("10^(3.6x10^100,000)x"); the gallery badge past 2^53 reads like
+"1.8x10^19 levels deep"; the dev panel's LEVEL past 40 digits gives its ends and its length. Checked in jsdom: depth.test.js (4,000 sums against BigInt);
+lattice.depth.big.test.js (a lattice 2^53 - 40, 2^53 + 7, 2^64, 10^100 and -10^100 levels down answers
+as the same lattice at the top, to the bit; a run straddling 2^53; a 2^60-level stretch; move tables
+keyed past 2^53); lattice.runs.deep.test.js (RUN-D at 2^53 + 2, 2^64 and 10^100 with an erase, undo
+and redo; a hand zoom across 2^53; a jump 10^100 levels up; zooms crossing both ways past 10^100,000
+either way); store.deep.test.js (a subtree drag 2^64 down through the
+store, a download and the cloud); compat v1.1.svgi. Suites on the release tree (2026-11-13): test:quick
+2,769 of 2,769 (254 suites); all 26 slow suites pass (689 tests, 2,687 s beside the dev server); lint 0
+errors, typecheck 0. The design and the measurements:
+docs/reference/depth-overflow-design-2026-11-13.md.
+
 WHERE THE BUILD IS
 
     The arc pipeline (F21/F22) and the frame lattice are both IN and are the

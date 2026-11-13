@@ -1,6 +1,6 @@
 {
   "name": "boundless",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "homepage": ".",
   "private": true,
   "dependencies": {
@@ -75,7 +75,8 @@
               "from": "./src/engine",
               "except": [
                 "./geometry",
-                "./frameLattice.js"
+                "./frameLattice.js",
+                "./depth.js"
               ]
             },
             {

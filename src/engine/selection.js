@@ -22,6 +22,7 @@ import { insideTester, loopsBBox } from "./geometry/arcShape";
 import { rectInsidePolygon, loopTester } from "./geometry/lasso";
 import { addOffset, sameBelow, snapDisplacement, sameShift, internBelow, encodeBelow } from "./geometry/offsets";
 import { underMask } from "./eraseRule";
+import * as dm from "./depth";
 
 // How close to a selected frame's mark a press counts as pressing the frame.
 const SEL_FRAME_HIT_PX = 8;
@@ -189,7 +190,7 @@ class Selection {
         if (!s) return out;
         const fr = [];
         for (const id of ids) { const f = this.lm.frame(id); if (f) fr.push(f); }
-        for (const f of fr.sort((p, q) => p.depth - q.depth)) {
+        for (const f of fr.sort((p, q) => dm.cmp(p.depth, q.depth))) {
             if (this._underFrames(f.id, s.frames) || this._underFrames(f.id, out)) continue;
             out.push(f.id);
         }
@@ -753,13 +754,13 @@ class Selection {
         };
         for (const f of all) {
             if (this._underFrames(f, all.filter((x) => x !== f))) continue;
-            if (this.lm.depthOf(f) > camDepth) { take(f); continue; }
+            if (dm.gt(this.lm.depthOf(f), camDepth)) { take(f); continue; }
             const stack = [f];
             while (stack.length) {
                 const id = stack.pop();
                 for (const o of this.doc.list(id)) d.natives.push({ obj: o, level: id });
                 for (const c of this.lm.childrenOf(id)) {
-                    if (c.depth <= camDepth) stack.push(c.id);
+                    if (dm.le(c.depth, camDepth)) stack.push(c.id);
                     else if (this.doc.count(c.id) || this.lm.childrenOf(c.id).length) take(c.id);
                 }
             }
@@ -820,7 +821,7 @@ class Selection {
         const depth = this.lm.depthOf(from);
         if (depth == null) return { why: "home frame has no depth" };
         let frame = from, r;
-        if (depth <= camDepth) r = addOffset(T, camDepth - depth, tx, ty);
+        if (dm.le(depth, camDepth)) r = addOffset(T, dm.sub(camDepth, depth), tx, ty);
         else {
             const put = this.lm.displaceFrame(from, camDepth, tx, ty);
             if (!put) return { why: "displaceFrame refused: no frame at the camera's depth on this member's ancestry" };

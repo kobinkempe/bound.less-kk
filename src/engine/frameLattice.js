@@ -44,8 +44,6 @@ export const ENTER = 256;          // 2^8
 export const EXIT = 1 / 32;        // 2^-5, keeps the 2x hysteresis
 export const R = ENTER / BASE;     // 4096 = 2^12 — the crossing ratio
 export const W = 131072;           // 2^17 — a frame, and a tile, in its own units
-/** The deepest level either way, 2^53 − 1: past it `depth + 1 === depth` (F202). The camera stops there. */
-export const MAX_DEPTH = Number.MAX_SAFE_INTEGER;
 export const G = W / R;            // 32 = 2^5 — a child cell, in PARENT units
 export const HALF_W = W / 2;       // 65536
 export const REACH = W + HALF_W;   // invariant 2: an object never reaches past its frame's immediate neighbours
@@ -120,7 +118,7 @@ export function displacementDigits(d, n) {
 export function displacementDigitsSparse(d, n) {
     const digits = [];
     let m = d / G;
-    for (let k = 0; k < n; k++) {
+    for (let k = 0, N = bound(n); k < N; k++) {
         const a = Math.trunc(m);
         digits.push(a);
         m = (m - a) * R;
@@ -138,8 +136,12 @@ export function digitValue(digitDepth, inDepth) {
     return G * powR(inDepth - digitDepth + 1);
 }
 
+/** A level count as a loop bound: one past 2^53 (a Deep, depth.js) as ±Infinity, which the loops here never reach. */
+const bound = (n) => (typeof n === "number" ? n : String(n)[0] === "-" ? -Infinity : Infinity);
+
 /** R^k for an integer k, exactly: a power of two built by exact steps (Math.pow is the engine's own, OPEN-FLAGS F176). */
 export function powR(k) {
+    k = bound(k);
     let v = 1;
     for (let i = 0; i < k && v !== Infinity; i++) v *= R;   // past ±1,075 levels it is ∞ or 0 and stays so
     for (let i = 0; i > k && v !== 0; i--) v /= R;

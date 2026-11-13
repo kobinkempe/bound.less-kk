@@ -38,7 +38,11 @@ Files: from 1.0 every file version a release has written keeps opening (`src/eng
 7. **Keyboard and accessibility** — nothing is reachable by keyboard (§4).
 8. **The whole drawing's export** — Export SVG gives the view; the export from the render list (raster stage 8).
 9. **The toolchain** (S6: Vite, React 18, Vitest) — unseen by users; unblocks AI scene names.
-10. **Depth past 2⁵³** (*his*: an overflow integer, growing as needed) — being built after 1.0.
+10. ~~**Depth past 2⁵³**~~ (*his*: an overflow integer, growing as needed): **done, release 1.1** (2026-11-13):
+    past 2⁵³ a depth is base-10¹⁵ limbs, as many as it needs
+    (`src/engine/depth.js`), the camera has no stop, and a file says the app's version (1.1); tested in the app to a
+    depth twenty million digits long, where each step takes seconds on the test laptop
+    (`docs/reference/depth-overflow-design-2026-11-13.md`).
 11. **The hand zoom's memory wall** — a hand zoom keeps a frame a level (Kobin's 1b), so a tab's memory ends it at a
     few million levels; the exact-anchor camera is the fix (`docs/reference/compact-lattice-design-2026-11-12.md`).
 

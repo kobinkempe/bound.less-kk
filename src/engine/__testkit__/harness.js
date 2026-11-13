@@ -13,6 +13,7 @@ import { pieceInks, inks } from "./ink";
 import { underMask } from "../eraseRule";
 import { encodeLoops } from "../geometry/arcShape";
 import { familyComponentsRef } from "../__oracles__/familyComponents";
+import { lt, gt } from "../depth";
 
 /**
  * Every family check a suite's engine makes is made again by the whole-outline rule (F190): the engine keeps answers
@@ -93,7 +94,7 @@ export function pan(E, dx, dy) { E.setTool("pan"); E.panBy(dx, dy); }
 // ---- navigation ----
 export function descend(E, n, sx = 400, sy = 300) {
     let guard = 0;
-    while (E.activeLevel < n && guard++ < 600) E.zoomAt(sx, sy, -1000);
+    while (lt(E.activeLevel, n) && guard++ < 600) E.zoomAt(sx, sy, -1000);
     return E.activeLevel;
 }
 /**
@@ -108,7 +109,7 @@ export function descend(E, n, sx = 400, sy = 300) {
  */
 export function ascend(E, n, sx = 400, sy = 300) {
     let guard = 0;
-    while (E.activeLevel > n && guard++ < 600) E.zoomAt(sx, sy, 1000);
+    while (gt(E.activeLevel, n) && guard++ < 600) E.zoomAt(sx, sy, 1000);
     return E.activeLevel;
 }
 /** The pristine camera a fresh engine starts with: level 0, 1:1, unpanned. */

@@ -47,6 +47,7 @@ import {
 import { flattenCurve, clipPolylineToRect, clipRingsToRect } from "./geometry/polyline";
 import { clipShapeToRect, rectLoop } from "./geometry/arcShape";
 import { R, G, W, REACH, TileGrid, carryDigit, cellEdge, cellCentre, childTilePhase } from "./frameLattice";
+import * as dm from "./depth";
 import { perfNow } from "./now";
 
 const GLOBAL_CAP = 512;   // total cached tiles before LRU eviction
@@ -253,7 +254,7 @@ export default class TileStore {
     _minContentDepth() {
         if (this._minDepthMemo !== undefined) return this._minDepthMemo;   // `_warmUp`'s: one read, one document
         let m = Infinity;
-        for (const k of this.doc.levels()) if (this.doc.count(k)) { const d = this._depth(k); if (d < m) m = d; }
+        for (const k of this.doc.levels()) if (this.doc.count(k)) { const d = this._depth(k); if (dm.lt(d, m)) m = d; }
         return m;
     }
 
@@ -400,7 +401,7 @@ export default class TileStore {
         const seq = this.chainSeq(F);
         if (hit && hit.epoch === this._epoch && hit.seq === seq) { hit.lru = ++this._clock; return hit; }
         // A run level's tile (0, 0) is baked with its run, not from every level above it.
-        if (cf.runOf != null && !i && !j && cf.runOf !== this._inRun) { const K = this.lm.frame(cf.runOf); return this._runTile(K, K.depth - cf.depth); }
+        if (cf.runOf != null && !i && !j && cf.runOf !== this._inRun) { const K = this.lm.frame(cf.runOf); return this._runTile(K, dm.sub(K.depth, cf.depth)); }
         this._pins.add(key); // protect this tile (and its parents) during recursion
         const kept = cf.virtual ? null : this._ramTake(key, seq);
         if (kept) { kept.lru = ++this._clock; this._setTile(key, kept); return kept; }
@@ -425,9 +426,9 @@ export default class TileStore {
             const reads = (G, a, b) => {
                 let f = this._fr(G);
                 // A level of another run is baked with its run (`_runTile`), which reads what the run's top reads.
-                if (f && f.runOf != null && f.runOf !== this._inRun) { const K = this.lm.frame(f.runOf); G = K.id + "^" + K.run.n; f = this._fr(G); a = 0; b = 0; }
+                if (f && f.runOf != null && f.runOf !== this._inRun) { const K = this.lm.frame(f.runOf); G = `${K.id}^${K.run.n}`; f = this._fr(G); a = 0; b = 0; }
                 const p = f && f.parent;
-                if (p == null || !f.edge || this._depth(p) < this._minDepthMemo) return [];
+                if (p == null || !f.edge || dm.lt(this._depth(p), this._minDepthMemo)) return [];
                 return this._owners(p, this._rectToParent(this.lm.tileRect(G, a, b), G));
             };
             const stack = [[F, i, j, false]], seen = new Set();
@@ -463,7 +464,7 @@ export default class TileStore {
         if (parentId == null || !rec) return [];  // root / no coarser neighbour -> nothing to magnify
         const rect = this.lm.tileRect(F, i, j);
         // Nothing coarser-or-equal to the parent has content -> up is empty.
-        if (this._depth(parentId) < this._minContentDepth()) return [];
+        if (dm.lt(this._depth(parentId), this._minContentDepth())) return [];
         // Parent objects = upContent(parent) over this tile's pre-image + natives(parent).
         const pr = this._rectToParent(rect, F);
         const parentObjs = this._upPiecesOver(parentId, pr, null, src, over);
@@ -583,7 +584,7 @@ export default class TileStore {
      */
     _onGridAt(rec, F) {
         let t = tilePhaseOf(rec.obj);
-        for (let k = this._depth(F) - this.lm.depthOf(rec.level); k > 0 && (t[0] || t[1]); k--) t = [childTilePhase(t[0], 0, R), childTilePhase(t[1], 0, R)];
+        for (let k = dm.sub(this._depth(F), this.lm.depthOf(rec.level)); dm.gt(k, 0) && (t[0] || t[1]); k = dm.sub(k, 1)) t = [childTilePhase(t[0], 0, R), childTilePhase(t[1], 0, R)];
         return !t[0] && !t[1];
     }
     /**
@@ -637,12 +638,12 @@ export default class TileStore {
     _runLevel(key) {
         const s = String(key), at = s.lastIndexOf("^");
         if (at < 0) return null;
-        const K = this.lm.frame(s.slice(0, at)), k = +s.slice(at + 1);
-        if (!K || !K.run || !Number.isInteger(k) || k < 1 || k > K.run.n) return null;
+        const K = this.lm.frame(s.slice(0, at)), k = dm.parse(s.slice(at + 1));
+        if (!K || !K.run || k == null || dm.lt(k, 1) || dm.gt(k, K.run.n)) return null;
         let v = this._rl.get(s);
         if (v && v.runRef === K.run && v.top === K.parent) return v;
         const r = K.run;
-        v = { id: s, parent: k < r.n ? K.id + "^" + (k + 1) : K.parent, depth: K.depth - k, cell: { i: r.i, j: r.j },
+        v = { id: s, parent: dm.lt(k, r.n) ? `${K.id}^${dm.add(k, 1)}` : K.parent, depth: dm.sub(K.depth, k), cell: { i: r.i, j: r.j },
             edge: cellEdge(r.i, r.j), centre: r.c, addrSeq: 0, virtual: true, runOf: K.id, runRef: r, top: K.parent };
         this._rl.set(s, v);
         return v;
@@ -664,12 +665,12 @@ export default class TileStore {
     /** Run level at depth `d` of the run `key` is part of or below, as its key, or null. */
     _runKeyAt(key, d) {
         const K = this._runFrame(key);
-        return K && d >= K.depth - K.run.n && d < this._depth(key) ? K.id + "^" + (K.depth - d) : null;
+        return K && dm.ge(d, dm.sub(K.depth, K.run.n)) && dm.lt(d, this._depth(key)) ? `${K.id}^${dm.sub(K.depth, d)}` : null;
     }
     /** The first frame up `F`'s chain at or above depth `d`, a run level as its key. */
     _upAt(F, d) {
         let A = F == null ? null : String(F);
-        while (A != null && this._depth(A) > d) {
+        while (A != null && dm.gt(this._depth(A), d)) {
             const r = this._runKeyAt(A, d);
             if (r) return r;
             A = this._seqUp(A);
@@ -685,22 +686,22 @@ export default class TileStore {
         const was = this._inRun;
         this._inRun = K.id;
         try {
-            const at = (m) => K.id + "^" + m;
+            const at = (m) => `${K.id}^${m}`;
             let fix = this._fixOf(K);
             if (!fix) {
                 let prev = null;
-                for (let m = K.run.n; m >= 1; m--) {
+                for (let m = K.run.n; dm.ge(m, 1); m = dm.sub(m, 1)) {
                     const t = this._ensureUp(at(m), 0, 0);
                     if (m === k) return t;
                     if (prev && samePieces(prev.objs, t.objs)) { fix = this._setFix(K, m, t, prev); break; }
                     prev = t;
                 }
             }
-            if (k >= fix.m) return this._ensureUp(at(k), 0, 0);
-            const objs = this._bakeUp(at(k), 0, 0, null, new Map([[at(k + 1), fix.t.objs]]));
+            if (dm.ge(k, fix.m)) return this._ensureUp(at(k), 0, 0);
+            const objs = this._bakeUp(at(k), 0, 0, null, new Map([[at(dm.add(k, 1)), fix.t.objs]]));
             const tile = { level: at(k), dir: "up", i: 0, j: 0, objs, epoch: this._epoch, seq: this.chainSeq(at(k)), lru: ++this._clock,
-                virtual: true, src: [at(fix.m) + "|up|0,0"] };
-            this._setTile(at(k) + "|up|0,0", tile);
+                virtual: true, src: [`${at(fix.m)}|up|0,0`] };
+            this._setTile(`${at(k)}|up|0,0`, tile);
             return tile;
         } finally { this._inRun = was; }
     }
@@ -708,7 +709,7 @@ export default class TileStore {
     _fixOf(K) {
         const f = this._fix.get(K.id);
         if (!f || f.runRef !== K.run) return null;
-        const a = this.peek(K.id + "^" + (f.m + 1) + "|up|0,0"), t = this.peek(K.id + "^" + f.m + "|up|0,0");
+        const a = this.peek(`${K.id}^${dm.add(f.m, 1)}|up|0,0`), t = this.peek(`${K.id}^${f.m}|up|0,0`);
         return a === f.a && t === f.t && a.objs === f.ao && t.objs === f.to && a.objs.length === f.al && t.objs.length === f.tl ? f : null;
     }
     _setFix(K, m, t, a) {
@@ -746,7 +747,7 @@ export default class TileStore {
         if (!make) return null;
         const k = p + "/" + ci.digit + "," + cj.digit + "~";
         if (!this._vf.has(k)) {
-            this._vf.set(k, { id: k, parent: p, depth: this._depth(p) + 1, cell: { i: ci.digit, j: cj.digit }, edge: cellEdge(ci.digit, cj.digit),
+            this._vf.set(k, { id: k, parent: p, depth: dm.add(this._depth(p), 1), cell: { i: ci.digit, j: cj.digit }, edge: cellEdge(ci.digit, cj.digit),
                 centre: cellCentre(ci.digit, cj.digit), addrSeq: 0, virtual: true });
         }
         return k;
@@ -782,7 +783,7 @@ export default class TileStore {
             if (f.runOf != null) {
                 // Up the run's levels by its cell, each `_rectToParent`'s step, until the numbers repeat.
                 const K = this.lm.frame(f.runOf), c = f.centre;
-                for (let s = K.run.n - (K.depth - f.depth) + 1; s > 0; s--) {
+                for (let s = dm.add(dm.sub(K.run.n, dm.sub(K.depth, f.depth)), 1); dm.gt(s, 0); s = dm.sub(s, 1)) {
                     const q = { left: r.left / R + c.x, top: r.top / R + c.y, right: r.right / R + c.x, bottom: r.bottom / R + c.y };
                     const same = Object.is(q.left, r.left) && Object.is(q.top, r.top) && Object.is(q.right, r.right) && Object.is(q.bottom, r.bottom);
                     r = q;
@@ -904,10 +905,10 @@ export default class TileStore {
             const r = rects[k] !== undefined ? rects[k] : (rects[k] = up(a));
             const reach = REACH * s * (1 + 1e-9);
             if (!r || x + reach < r.left || x - reach > r.right || y + reach < r.top || y - reach > r.bottom) return false;
-            if (this._depth(f.id) >= Fd && this.doc.count(f.id) && !this.lm.sameCell(f.id, F)) out.push(f.id);
+            if (dm.ge(this._depth(f.id), Fd) && this.doc.count(f.id) && !this.lm.sameCell(f.id, F)) out.push(f.id);
             return true;
         });
-        out.sort((a, b) => this._depth(a) - this._depth(b));
+        out.sort((a, b) => dm.cmp(this._depth(a), this._depth(b)));
         return out;
     }
 
@@ -1041,13 +1042,13 @@ export default class TileStore {
         if (!held || (!held.size && !gone.length)) return;
         this._held = new Map(); this._gone = []; this._cont = new Map();
         let top = Infinity;
-        for (const [, H] of held.values()) top = Math.min(top, this._depth(H));
+        for (const [, H] of held.values()) top = dm.min(top, this._depth(H));
         this._memo = { top, chains: new Map(), at: new Map(), rects: new Map(), owners: new Map(), renamed: new Map() };
         try {
             // The tiles' frames lie on the camera's chain almost all: walked once from its deepest, the others join it.
             let deep = null, dd = -Infinity;
-            for (const tile of this.cache.values()) { const d = tile.dir === "up" ? this._depth(tile.level) : -Infinity; if (d > dd) { dd = d; deep = tile.level; } }
-            if (deep != null && dd >= top) this._chainMemo(deep);
+            for (const tile of this.cache.values()) { const d = tile.dir === "up" ? this._depth(tile.level) : -Infinity; if (dm.gt(d, dd)) { dd = d; deep = tile.level; } }
+            if (deep != null && dm.ge(dd, top)) this._chainMemo(deep);
             const kidsOf = new Map();   // removed id -> [[kid, level]] that continue it
             for (const [k, from] of cont) { const h = held.get(k); if (h) (kidsOf.get(from) || kidsOf.set(from, []).get(from)).push(h); }
             for (const id of gone) { const kids = kidsOf.get(id); if (kids) this._renameDeep(id, kids); else this._removeObject(id); }
@@ -1072,9 +1073,10 @@ export default class TileStore {
                 const dT = this._depth(tile.level);
                 for (const [k, K] of kids) {
                     const A = k.attachRect, dK = this._depth(K), kf = this.lm.frame(K);
-                    if (!A || !kf || kf.shift || dT < dK + 2 || this.doc.tableOf(k, K)) continue;   // a moved kid's picture is elsewhere
-                    const a = this.lm.frame(this._upTo(tile.level, dK + 1));
-                    if (!a || !a.centre || a.shift || this._depth(a.id) !== dK + 1 || a.parent == null || !this.lm.sameCell(a.parent, K)) continue;
+                    const dK1 = dm.add(dK, 1);
+                    if (!A || !kf || kf.shift || dm.le(dT, dK1) || this.doc.tableOf(k, K)) continue;   // a moved kid's picture is elsewhere
+                    const a = this.lm.frame(this._upTo(tile.level, dK1));
+                    if (!a || !a.centre || a.shift || this._depth(a.id) !== dK1 || a.parent == null || !this.lm.sameCell(a.parent, K)) continue;
                     const c = a.centre;
                     if (c.x - m >= A.x0 && c.x + m <= A.x1 && c.y - m >= A.y0 && c.y + m <= A.y1) { to = k; break; }
                 }
@@ -1121,7 +1123,7 @@ export default class TileStore {
             if (hit) { next = hit; break; }
             const d = this._depth(A);
             ids.push(String(A)); depths.push(d);
-            if (d <= this._memo.top) break;
+            if (dm.le(d, this._memo.top)) break;
         }
         m = { ids, depths, next };
         for (let k = 0; k < ids.length; k++) at.set(ids[k], [m, k]);
@@ -1134,7 +1136,7 @@ export default class TileStore {
         for (;;) {
             const { ids, depths } = m;
             let lo = k, hi = depths.length;
-            while (lo < hi) { const mid = (lo + hi) >> 1; if (depths[mid] > d) lo = mid + 1; else hi = mid; }
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (dm.gt(depths[mid], d)) lo = mid + 1; else hi = mid; }
             if (lo < ids.length) {
                 const below = lo > k ? ids[lo - 1] : under;   // past d: d is a level of its run, if it has one
                 return (depths[lo] !== d && below != null && this._runKeyAt(below, d)) || ids[lo];
@@ -1226,7 +1228,7 @@ export default class TileStore {
             if (tile.dir === "down") {
                 // H is a down source for F iff non-ancestor and depth(H) ≥ depth(F); an ancestor is shallower, so the
                 // depth decides (asking `isAncestor` first walked F's chain to the root for every tile: F196).
-                if (dH >= this._depth(F)) this._appendDown(tile, o, H);
+                if (dm.ge(dH, this._depth(F))) this._appendDown(tile, o, H);
                 continue;
             }
             let A = via.get(F);
@@ -1237,7 +1239,7 @@ export default class TileStore {
                 if (d) this._appendUp(tile, [d]);
             } else if (this._memo || this._reaches(o, H, tile, ob || (ob = bboxOf(o, this.live)))) chained.push([key, tile]);
         }
-        chained.sort((a, b) => this._depth(a[1].level) - this._depth(b[1].level));
+        chained.sort((a, b) => dm.cmp(this._depth(a[1].level), this._depth(b[1].level)));
         for (const [key, tile] of chained) {
             if (this.cache.get(key) !== tile) continue;
             // Held adds: a tile none of whose owners holds a piece of `o` takes nothing, and is asked no box. A piece with a
@@ -1269,9 +1271,9 @@ export default class TileStore {
      */
     _upVia(H, F) {
         const dH = this._depth(H);
-        if (dH >= this._depth(F)) return null;
+        if (dm.ge(dH, this._depth(F))) return null;
         let A = F;
-        if (this._memo && dH >= this._memo.top) A = this._upTo(F, dH);   // the same walk, read off the held adds' shared walks
+        if (this._memo && dm.ge(dH, this._memo.top)) A = this._upTo(F, dH);   // the same walk, read off the held adds' shared walks
         else A = this._upAt(F, dH);
         if (A == null) return null;
         A = String(A);
@@ -1303,11 +1305,12 @@ export default class TileStore {
         let r;
         if (this._memo && this.lm.frame(tile.level)) {
             const dH = this._depth(H);
-            if (this._depth(tile.level) >= dH + 2) {
+            const dH1 = dm.add(dH, 1);
+            if (dm.gt(this._depth(tile.level), dH1)) {
                 // Two or more levels under H: the reach of the tile's ancestor one level under H (invariant 2) holds the tile,
                 // read off the shared chain walk. A walk from each tile to H was 640 ms of a 1,000-level cede's first job (F196).
-                const a = this.lm.frame(this._upTo(tile.level, dH + 1));
-                if (a && a.centre && !a.shift && a.parent != null && this._depth(a.id) === dH + 1 && this.lm.sameCell(a.parent, H)) {
+                const a = this.lm.frame(this._upTo(tile.level, dH1));
+                if (a && a.centre && !a.shift && a.parent != null && this._depth(a.id) === dH1 && this.lm.sameCell(a.parent, H)) {
                     const e = REACH / R;
                     r = { left: a.centre.x - e, top: a.centre.y - e, right: a.centre.x + e, bottom: a.centre.y + e };
                 }

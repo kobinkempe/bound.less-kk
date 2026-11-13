@@ -131,6 +131,8 @@ class SceneOps {
         const fit = fitView(s.rect, this.width, this.height);
         return this.lm.zoomLog10(s.level, fit ? fit.inScale : 0);
     }
+    /** log10 |sceneZoomLog10|, for a scene past a double's log (about 5 × 10^307 levels either way). */
+    sceneZoomLogLog10(s) { return this.lm.zoomLogLog10(s.level); }
 }
 
 export const sceneOps = SceneOps.prototype;

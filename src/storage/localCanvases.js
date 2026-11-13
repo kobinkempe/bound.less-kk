@@ -27,6 +27,8 @@ import {
     migrateLocalStorage, storageEstimate, requestPersistentStorage as requestPersist,
     packSlot, unpackSlot,
 } from "./db";
+import * as dm from "../engine/depth";
+import { formatLog10Value } from "../engine/scaleBar/nice";
 
 export { packSlot, unpackSlot };
 
@@ -92,15 +94,14 @@ function writeIndex(list) {
 
 /** A path id's depth ("<spine depth>[#n]/i,j/…": one level per segment below the first, ST-1); null for a hashed id. */
 const pathDepth = (id) => {
-    const segs = String(id).split("/");
-    const n = parseInt(segs[0], 10) + segs.length - 1;
-    return Number.isFinite(n) ? n : null;
+    const segs = String(id).split("/"), top = dm.parse(segs[0].split("#")[0]);
+    return top == null ? null : dm.add(top, segs.length - 1);
 };
 /** A document's frame depths, from its lattice (a hashed id, OPEN-FLAGS F192, does not say its depth). */
 const depthsOf = (doc) => {
     const frames = doc && doc.crossings && doc.crossings.frames;
     if (!Array.isArray(frames)) return pathDepth;
-    const m = new Map(frames.map((f) => [String(f.id), f.depth]));
+    const m = new Map(frames.map((f) => [String(f.id), dm.parse(f.depth)]));   // past 2^53 its digits
     return (id) => (m.has(String(id)) ? m.get(String(id)) : pathDepth(id));
 };
 
@@ -113,12 +114,13 @@ export function statsFromNatives(natives, depthOf = pathDepth) {
         if (!Array.isArray(arr) || arr.length === 0) continue;
         strokes += arr.length;
         const n = depthOf(lvl);
-        if (Number.isFinite(n)) {
-            if (n < minLevel) minLevel = n;
-            if (n > maxLevel) maxLevel = n;
+        if (dm.isDepth(n)) {
+            if (dm.lt(n, minLevel)) minLevel = n;
+            if (dm.gt(n, maxLevel)) maxLevel = n;
         }
     }
-    const levels = strokes > 0 && maxLevel >= minLevel ? maxLevel - minLevel + 1 : 0;
+    // A count past 2^53 is kept as its digits, so the gallery's index stays JSON.
+    const levels = strokes > 0 && dm.ge(maxLevel, minLevel) ? dm.toJSON(dm.add(dm.sub(maxLevel, minLevel), 1)) : 0;
     return { strokes, levels };
 }
 
@@ -591,10 +593,14 @@ export function deletedLabel(deletedAt) {
     return agoLabel("Deleted", deletedAt, "Deleted");
 }
 
-/** Badge copy: how deep the drawing goes, in engine levels (×4,096 each). */
+/**
+ * Badge copy: how many levels the drawing spans (×4,096 each); `levels` a number, or its digits past 2^53, which the
+ * badge gives in the zoom label's form ("1.8×10¹⁹ levels deep"; render it with SciText).
+ */
 export function depthLabel(levels) {
-    if (!levels || levels <= 1) return "Surface level";
-    return `${levels} levels deep`;
+    const n = dm.parse(levels);
+    if (n == null || dm.le(n, 1)) return "Surface level";
+    return `${dm.isBig(n) ? formatLog10Value(dm.log10Abs(n)) : n} levels deep`;
 }
 
 /**

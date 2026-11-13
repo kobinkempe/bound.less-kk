@@ -24,6 +24,7 @@ import { levelCell, restCell, cellBox, budgetBytes, pinnedBound, PLATE_BYTES } f
 import { renderPlate } from "./rasterCore";
 import { copyPlate, pastePatch, COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
 import { perfNow } from "../now";
+import * as dm from "../depth";
 
 /** The patch rule (e) draws the fresh coarser picture over the dirty rectangles while they are at most this share of the cell. */
 export const PATCH_MAX = 0.5;
@@ -334,7 +335,7 @@ export default class PicturePyramid {
         // The frame left's level offset when it is the view frame's parent or child: its finer levels rank as finer (F166).
         let leftShift = null;
         const fl = left != null && this.lm && this.lm.frame ? this.lm.frame(left) : null, fv = fl ? this.lm.frame(v.frameId) : null;
-        if (fl && fv && (String(fl.parent) === String(v.frameId) || String(fv.parent) === String(left))) leftShift = ((fv.depth - fl.depth) * 12) / v.S;
+        if (fl && fv && (String(fl.parent) === String(v.frameId) || String(fv.parent) === String(left))) leftShift = (dm.toNumber(dm.sub(fv.depth, fl.depth)) * 12) / v.S;
         this.store.setView({
             frame: v.frameId, level: v.level, S: v.S, ring: { i0: r.i0 - 1, i1: r.i1 + 1, j0: r.j0 - 1, j1: r.j1 + 1 },
             rest: this._rest ? { frame: this._rest.frame, Z: this._rest.Z } : null, path, left, leftShift,

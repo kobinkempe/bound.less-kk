@@ -24,7 +24,7 @@ cell's own small coordinates; and everything shown at any other depth is
 
 Every consequence in this document falls out of that.
 
-**Depth** (the infinite-zoom audit, `docs/reference/infinite-zoom-audit-2026-11-11.md`; the compact lattice, `docs/reference/compact-lattice-design-2026-11-12.md`). The camera (a frame and an `inScale`), the cells' digit addresses and the per-level derivation have no depth limit, a frame's name is the same length at every depth (F192), and the zoom is carried as its log10, so nothing multiplies a chain into one double (F167). A stretch of empty levels in one repeating cell is one frame with a run (F202): a jump far down mints one frame and a run, frame GC folds an empty frame around one frame into that frame's run, and every walk steps a run as one segment, stopping once its numbers repeat. A hand zoom still keeps a frame a level (its cell changes level to level; Kobin: runs come from jumps). Depth stops at 2⁵³ − 1 levels either way (`frameLattice.MAX_DEPTH`), where `depth + 1 === depth`: the camera stops a zoom at the crossing it cannot make. Measured in the desktop app's built-in Chromium pane (2026-11-12, local saves): at 2⁵³ − 1 levels, a zoom of 10^32,537,245,831,191,544×, the jump took 10 ms with 2 frames in the lattice, and a stroke, an erase with undo and redo, a lasso, a drag, a crossing each way, a save and a reload all worked, the scene list too. Measured in Chrome to 10,000 levels a frame a level. Two rules keep it so: a walk over a frame chain keeps its own stack (a recursion a level overflowed at about 1,000 and 9,500 levels: F194, F200, F201), and a rect or point needed at every level of a chain is mapped up it once (`LevelMap.rectUpChain`, `rectsUp`), never through a path a level (O(depth²): F195, F197). A deep erase lands as descent jobs of 8 crossings, each a short task, the tiles taking each job's net change (F196); its candidates come from the near-frame walk (F198). The scene index measures widths from a base depth, so they stay exact far down. Past 512 KB the cloud manifest keeps its lattice and frame list in an index chunk (F199). What remains: a hand-zoomed chain is a frame a level, so a tab's memory (a few million levels) and V8's `Map` cap (2²⁴ frames) bound a hand zoom, and the scale bar steps from about 10¹³ levels.
+**Depth** (the infinite-zoom audit, `docs/reference/infinite-zoom-audit-2026-11-11.md`; the compact lattice, `docs/reference/compact-lattice-design-2026-11-12.md`). The camera (a frame and an `inScale`), the cells' digit addresses and the per-level derivation have no depth limit, a frame's name is the same length at every depth (F192), and the zoom is carried as its log10, so nothing multiplies a chain into one double (F167). A stretch of empty levels in one repeating cell is one frame with a run (F202): a jump far down mints one frame and a run, frame GC folds an empty frame around one frame into that frame's run, and every walk steps a run as one segment, stopping once its numbers repeat. A hand zoom still keeps a frame a level (its cell changes level to level; Kobin: runs come from jumps). **There is no deepest level** (release 1.1, `docs/reference/depth-overflow-design-2026-11-13.md`): a depth is a Number while it is a safe integer and past 2⁵³ a `Deep` (`src/engine/depth.js`), base-10¹⁵ limbs, as many as it needs, interned so `===` and `Map` keys hold, and throwing on any native `<`, `+` or `-` so a site that was missed fails loudly; every sum and comparison of depths goes through `depth.js`, and a depth crossing `postMessage` or IndexedDB goes as its digits. The camera crosses at every depth (1.0 stopped at 2⁵³ − 1, where `depth + 1 === depth`). What grows with depth is the cost of a step that reads its digits (a level's name, a save). Measured in the desktop app's built-in Chromium pane (2026-11-13, a Surface Laptop 3, local saves): a depth a million digits long takes under a second a step; at twenty million digits (10¹⁹ ⁹⁹⁹ ⁹⁹⁹ levels, a zoom of 10^(3.6 × 10¹⁹ ⁹⁹⁹ ⁹⁹⁹)×) a jump, a crossing each way, a stroke, a lasso, a drag, an erase with undo and redo, a save and a reload all worked, each in seconds (a crossing 9–27 s), with the tab at 2.8 of its 4.2 GB: the test computer struggling, so the testing stopped there. jsdom went to thirty million digits. 1.0 was measured in the desktop app's built-in Chromium pane at its stop (2026-11-12, local saves): at 2⁵³ − 1 levels, a zoom of 10^32,537,245,831,191,544×, the jump took 10 ms with 2 frames in the lattice, and a stroke, an erase with undo and redo, a lasso, a drag, a crossing each way, a save and a reload all worked, the scene list too. Measured in Chrome to 10,000 levels a frame a level. Two rules keep it so: a walk over a frame chain keeps its own stack (a recursion a level overflowed at about 1,000 and 9,500 levels: F194, F200, F201), and a rect or point needed at every level of a chain is mapped up it once (`LevelMap.rectUpChain`, `rectsUp`), never through a path a level (O(depth²): F195, F197). A deep erase lands as descent jobs of 8 crossings, each a short task, the tiles taking each job's net change (F196); its candidates come from the near-frame walk (F198). The scene index measures widths from a base depth, so they stay exact far down. Past 512 KB the cloud manifest keeps its lattice and frame list in an index chunk (F199). What remains: a hand-zoomed chain is a frame a level, so a tab's memory (a few million levels) and V8's `Map` cap (2²⁴ frames) bound a hand zoom, and the scale bar steps from about 10¹³ levels.
 
 ### The five constants (`src/engine/frameLattice.js`)
 
@@ -1198,10 +1198,15 @@ the collaborators serialize: `Camera.state`, `LevelMap.serialize`,
 corrupt on; lenient about everything else, and unknown fields are preserved so an
 older build can open a file written by a newer one that only *adds*. A download is
 named `.svgi` from 1.0 (`src/drawingFile.js`); the name is never read, the content
-is. The file carries its format `version` (the lowest of 1–5 that holds it) and,
-from 1.0, `meta.appVersion`. **From 1.0 every file version a release has written
-keeps opening** (Kobin, 2026-11-13): `src/engine/compat.files.test.js` opens one
-frozen file per version, and a new version adds its file.
+is. **The file's `version` is the version of the app that saved it**, its major and
+minor (Kobin, 2026-11-13: `persist.FILE_VERSION`, "1.1"; a patch release does not
+change a file), so a reader runs its compatibility code for older files only; the
+full build is `meta.appVersion`. A file from 1.0 or before carries a whole number
+(1–5, the lowest format number it was written under then) and reads as "1.0"; a
+newer one is refused with a reload hint (a web app: backward compatibility is the
+promise, forward is not). **Every release's files keep opening**:
+`src/engine/compat.files.test.js` opens 1.0's five frozen files and one per release
+since, and a release adds its file.
 
 Two repairs happen at the door, both because a drawing that cannot be opened is
 worse than a drawing with one mended object: an unclosed loop is sealed
@@ -1225,10 +1230,11 @@ before, byte for byte (`hooks/store.model.test.js`). Measured against the deploy
 (0732252's `persist.js`, 2026-09-29): a shifted file and a store header with a shift are refused
 ("file v3, app reads up to v2"), a shift-free file is read; a store and a cloud copy reach the
 same check through `loadDrawing`. Since A1 C3/C4 a lattice with a co-resident or a private frame
-is written as version 3 too (`persist.latticeNeedsV3`): a build before them would merge a
-co-resident into its resident at the load and read a private frame as a shared one. Since
-2026-11-11 a lattice holding a hashed frame name (below) is version 4 (`latticeNeedsV4`): a
-version-3 build would refuse the name as "not a valid frame id", and says the drawing is newer.
+was written as version 3 too: a build before them would merge a co-resident into its resident
+at the load and read a private frame as a shared one. Since 2026-11-11 a lattice holding a hashed
+frame name (below) was version 4: a version-3 build would refuse the name as "not a valid frame
+id", and says the drawing is newer. (Those lowest-format numbers ended with 1.0; from 1.1 a file
+says the app's version, above.)
 
 **Frame ids.** A spine frame's id is its depth ("0", "-2"). Since 2026-11-11 any other frame
 is named `h<code>:i,j`: the code is 14 base-36 characters hashed from its parent's id

@@ -17,15 +17,18 @@ import {
  * from its anchor unit (L9). `onLadderId` hands the session's ladder to the scale dialog.
  */
 // The zoom and its log10, which carries it past the 85 levels a double holds (OPEN-FLAGS F167).
-const zoomOf = (E) => ({ z: E.cam.effectiveZoom(), log: E.cam.zoomLog10 ? E.cam.zoomLog10() : undefined });
+const zoomOf = (E) => {
+    const log = E.cam.zoomLog10 ? E.cam.zoomLog10() : undefined;
+    return { z: E.cam.effectiveZoom(), log, ll: log !== undefined && !Number.isFinite(log) ? E.cam.zoomLogLog10() : undefined };
+};
 
 export default function ScaleHud({ engineRef, engineReady, scaleDef, readOnly, onClear, onSetScale, onLadderId }) {
-    const [{ z: zoom, log: zoomLog10 }, setZoom] = useState(() => (engineRef.current ? zoomOf(engineRef.current) : { z: 1 }));
+    const [{ z: zoom, log: zoomLog10, ll: zoomLogLog10 }, setZoom] = useState(() => (engineRef.current ? zoomOf(engineRef.current) : { z: 1 }));
     useEffect(() => {
         const E = engineRef.current;
         if (!E) return undefined;
         setZoom(zoomOf(E));
-        return E.onZoom((z, log) => setZoom({ z, log }));
+        return E.onZoom((z, log, ll) => setZoom({ z, log, ll }));
     }, [engineRef, engineReady]);
 
     // The session belongs to the definition it was made from: a new one (commit, clear, load) resets it
@@ -84,7 +87,7 @@ export default function ScaleHud({ engineRef, engineReady, scaleDef, readOnly, o
     const [unitPickerOpen, setUnitPickerOpen] = useState(false);
     const scaleHudRef = useRef(null);
     const hud = hudBundle?.reading ?? null;
-    const scaleLabel = hud ? formatScaleLabel(hud) : zoomLabel(zoom, zoomLog10);
+    const scaleLabel = hud ? formatScaleLabel(hud) : zoomLabel(zoom, zoomLog10, zoomLogLog10);
 
     return (
         <>

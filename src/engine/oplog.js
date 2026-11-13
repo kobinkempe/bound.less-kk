@@ -30,6 +30,7 @@
  */
 import { encodeEntry, decodeEntry } from "./format2";
 import { encodeBelow, decodeBelow, internBelow } from "./geometry/offsets";
+import * as dm from "./depth";
 import { nativeFromRecord, UNDO_CAP } from "./Document";
 import { applySettle, unsettle, mergeLive, mergeReplay, unmergeReplay } from "./legacy/modelV1";
 
@@ -585,10 +586,12 @@ export class OpLog {
 
 // A settle record from a store written before C1, from the file: `[[id, table], ...]` in `encodeBelow`'s form.
 const settleLive = (s) => (s ? { dx: s.dx, dy: s.dy, tables: s.tables.map(([id, t]) => [id, decodeBelow(t)]), carries: (s.carries || []).map(([id, L]) => [id, L]) } : null);
+// A frame's address in file form: a depth or run past 2^53 as its digits.
+const atFile = (a) => ({ ...a, depth: dm.toJSON(a.depth), ...(a.run ? { run: { ...a.run, n: dm.toJSON(a.run.n) } } : {}) });
 // A deleted subtree's records in file form: each frame's natives and its address (A1 C3).
-const subtreeFile = (records) => records.map((r) => ({ frame: lvl(r.frame), objects: r.natives, ...(r.at ? { at: r.at } : {}) }));
+const subtreeFile = (records) => records.map((r) => ({ frame: lvl(r.frame), objects: r.natives, ...(r.at ? { at: atFile(r.at) } : {}) }));
 // A frame entry in file form (a legacy `merged` record came in an entry of its own).
-const frameFile = (e) => ({ id: lvl(e.id), depth: e.depth, from: e.from, to: e.to, shiftBefore: e.shiftBefore || null, shiftAfter: e.shiftAfter || null });
+const frameFile = (e) => ({ id: lvl(e.id), depth: dm.toJSON(e.depth), from: e.from, to: e.to, shiftBefore: e.shiftBefore || null, shiftAfter: e.shiftAfter || null });
 
 // A move's before/after geometry, as `setGeometryById` takes it: loops as pieces.
 function geomLive(g) {

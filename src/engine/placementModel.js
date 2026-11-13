@@ -14,6 +14,7 @@
 import { REACH, R, cellCentre } from "./frameLattice";
 import { hasOffsets, shiftAt } from "./geometry/offsets";
 import { bboxOf, freezeTol } from "./geometry/derive";
+import * as dm from "./depth";
 
 const ZERO = Object.freeze([0, 0]);
 /** A rect grown by `m` on every side. */
@@ -64,7 +65,7 @@ export function createPlacementModel({ doc, lm, store }) {
          */
         slack(home, F) {
             const hd = home != null ? lm.depthOf(String(home)) : null, d = lm.depthOf(String(F));
-            return hd != null && d != null && d > hd ? SLACK : 0;
+            return hd != null && d != null && dm.gt(d, hd) ? SLACK : 0;
         },
 
         /** `slack` for native `o` seen from F. */

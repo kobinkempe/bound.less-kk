@@ -44,8 +44,14 @@ const LINE_WIDTH = 12;
 
 const DRAW_TOOL_IDS = new Set(["pen", "pencil", "highlighter", "line"]);
 
-/** "at 240×" for a scene; its log carries a scene past the 85 levels a double holds (OPEN-FLAGS F167). */
-const sceneZoomLabel = (E, s) => (E ? zoomLabel(E.sceneZoom(s), E.sceneZoomLog10(s)) : zoomLabel(1));
+/** "at 240×" for a scene; its log carries a scene past the 85 levels a double holds (OPEN-FLAGS F167), its log's log one past 5 × 10^307. */
+const sceneZoomLabel = (E, s) => (E ? zoomLabel(E.sceneZoom(s), E.sceneZoomLog10(s), E.sceneZoomLogLog10(s)) : zoomLabel(1));
+
+/** The dev panel's LEVEL: a depth past 40 digits by its ends and its length. */
+const devLevel = (lv) => {
+    const s = String(lv), n = s.length - (s[0] === "-" ? 1 : 0);
+    return n <= 40 ? s : `${s.slice(0, 10)}…${s.slice(-10)} (${n.toLocaleString()} digits)`;
+};
 
 const TOOL_SECTIONS = [
     {
@@ -921,8 +927,8 @@ export default function CanvasEditor() {
                 </div>
                 {devUnlocked && devOpen && (
                     <div className="bl-dev-panel">
-                        <div><b>LEVEL:</b> {engine.status.level}</div>
-                        <div><b>zoom:</b> <SciText text={zoomLabel(engine.status.effectiveZoom, engine.status.zoomLog10)} /></div>
+                        <div><b>LEVEL:</b> {devLevel(engine.status.level)}</div>
+                        <div><b>zoom:</b> <SciText text={zoomLabel(engine.status.effectiveZoom, engine.status.zoomLog10, engine.status.zoomLogLog10)} /></div>
                         <div><b>inScale:</b> {engine.status.inScale.toFixed(3)}</div>
                         <div><b>objects:</b> {engine.status.objects}</div>
                         <div style={{ marginTop: 6 }}>

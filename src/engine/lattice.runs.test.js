@@ -6,7 +6,7 @@
 import LevelMap from "./LevelMap";
 import { BASE, ENTER, EXIT, R, W } from "./frameLattice";
 import { addOffset } from "./geometry/offsets";
-import { encodeDrawing, decodeDrawing } from "./persist";
+import { encodeDrawing, decodeDrawing, FILE_VERSION } from "./persist";
 import { mapCell, coarser, ownFloor } from "./raster/level";
 import { FrameTable, SceneIndex, CHUNK, frameRecord, sameFrameRecord } from "./sceneIndex";
 
@@ -358,11 +358,11 @@ describe("RUN-5 — edits through and beside runs", () => {
         expect(roots.length).toBeGreaterThan(5);
     });
 
-    test("a save with runs is version 5 and opens with them; a run that does not fit its depth is refused", () => {
+    test("a save with runs opens with them; a run that does not fit its depth is refused", () => {
         const { A, inked } = build(100);
         const { B } = folded(A, inked);
         const file = JSON.parse(JSON.stringify(encodeDrawing({ camera: { activeLevel: 0, inScale: 1, inPanX: 0, inPanY: 0 }, crossings: B.serialize(), natives: { 0: [] } })));
-        expect(file.version).toBe(5);
+        expect(file.version).toBe(FILE_VERSION);
         const C = mk();
         C.load(decodeDrawing(file).crossings);
         expect(bits(C.serialize())).toBe(bits(B.serialize()));

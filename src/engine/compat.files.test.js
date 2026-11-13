@@ -1,20 +1,25 @@
 /**
- * The compatibility promise (v1.0, Kobin 2026-11-13: the app keeps reading older file versions). `__testkit__/compat/`
- * holds one drawing file per file version, written by v1.0 (`compat.fixtures.probe.js`) and frozen: every later build
- * opens each with every object at its level. Never regenerate them; a new file version adds its own file.
+ * The compatibility promise (v1.0, Kobin 2026-11-13: the app keeps reading older files). `__testkit__/compat/` holds
+ * frozen drawing files: 1.0's five (whole-number versions 1–5, each a format 1.0 wrote; they read as "1.0") and one
+ * per release since, saved under its version (`persist.FILE_VERSION`). Every later build opens each with every object
+ * at its level. Never regenerate them; a release adds its own file.
  */
 import fs from "fs";
 import path from "path";
 import { useEngines, mkEngine, natives } from "./__testkit__/harness";
-import { decodeDrawing, VERSION } from "./persist";
+import { decodeDrawing, FILE_VERSION, fileVersionOf, compareFileVersions } from "./persist";
 
 useEngines();
 const DIR = path.join(__dirname, "__testkit__", "compat");
 const EXPECTED = JSON.parse(fs.readFileSync(path.join(DIR, "expected.json"), "utf8"));
 const ids = (E) => natives(E).map((n) => n.obj.id).sort((a, b) => a - b);
+/** Every release that saved files, oldest first; the newest is this app's. */
+const RELEASES = ["1.0", "1.1"];
 
-test("there is a file for every version this build writes", () => {
-    expect(Object.values(EXPECTED).map((e) => e.version).sort()).toEqual(Array.from({ length: VERSION }, (_, i) => i + 1));
+test("there is a file for every release's version, the newest this app's", () => {
+    expect(RELEASES[RELEASES.length - 1]).toBe(FILE_VERSION);
+    const have = [...new Set(Object.values(EXPECTED).map((e) => fileVersionOf(e.version)))].sort(compareFileVersions);
+    expect(have).toEqual(RELEASES);
 });
 
 describe.each(Object.keys(EXPECTED))("the %s file", (key) => {

@@ -4,6 +4,16 @@ Versions follow [semantic versioning](https://semver.org): a patch release fixes
 release may change how something works. Drawing files keep opening across releases: every file version a release has
 written opens in every later one (`src/engine/compat.files.test.js` holds one file per version).
 
+## 1.1.0 — 2026-11-13
+
+- **No deepest level.** The zoom is infinite, limited only by your computer: past 2⁵³ levels a level's depth grows
+  another 15 digits whenever it needs them, so the camera no longer stops at 2⁵³ − 1 levels. It has been tested at
+  zooms that are hard to write down, including 10<sup>36,123,599,479,677,743,425,648,667,366,939,163,212,182,785,775,453...</sup>× zoom (the full
+  exponent there would be 20 million digits long), where drawing, erasing, selecting, moving, saving and reloading all
+  still work.
+- **A file says the version of the app that saved it** (`"version": "1.1"`). Files from 1.0 open as before; a file
+  from a newer version asks for a reload.
+
 ## 1.0.0 — 2026-11-13
 
 The first numbered release of bound.less.

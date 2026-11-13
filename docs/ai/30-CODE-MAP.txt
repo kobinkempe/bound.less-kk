@@ -600,8 +600,8 @@ Camera.js           The view transform and the crossing state machine. Owns the
                     in-frame zoom is legal AND shifts laterally when the view has
                     walked out of its cell - but never under the pen, because a
                     stroke's samples are appended in the frame it started in.
-                    At MAX_DEPTH (frameLattice, 2^53 - 1) either way the zoom
-                    stops where it would cross (_atLimit, _scaleAboutCentre).
+                    No deepest level: a crossing is made at every depth
+                    (depth.js; 1.0 stopped at 2^53 - 1).
 Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     (id = creation order = z-order), undo/redo, the per-level
                     spatial index, and change events that carry the OLD footprint
@@ -749,6 +749,10 @@ Renderer.js        THE SVG RENDERER [HOT] - the .svg export's and the jsdom
                     calls curveOutline.strokeLoops itself (ensureOutline went with
                     B-PYRAMID-3) - the eraser shares that definition.
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
+                    The file's version is the app's major and minor
+                    (FILE_VERSION, "1.1"); a whole number (1.0 or before) reads
+                    as "1.0", a newer one is refused (Kobin, 2026-11-13). A
+                    depth or run past 2^53 is written as its digits.
                     Writes meta.appVersion (src/version.js, APP_VERSION, kept
                     equal to package.json's by version.test.js). The frozen
                     files compat.files.test.js opens, one per file version, are
@@ -841,6 +845,18 @@ worker/sceneWorker.js as chunk records, per-scene band grids (all/own; a chunk f
                     filed where the eraser was drawn (_footprint, F189).
                     It replaced scenes.js, the all-pairs clustering that
                     took 129.6 s on the Magnum Opus.
+depth.js            Depths and level counts of any size (2026-11-13, release
+                    1.1): a Number while a safe integer, a Deep past
+                    +-(2^53 - 1) - base-10^15 limbs, as many as it needs, no
+                    limit - one form per value. A Deep is interned (=== and Map
+                    keys hold) and throws on native < + - (a missed site fails
+                    loudly); String/JSON give its digits. add/sub (exact,
+                    Numbers included), cmp/lt/le/gt/ge/min/max/abs/neg, parse (a
+                    Number, a Deep or a canonical digit string of any length),
+                    toJSON (for a file or a structured clone: postMessage and
+                    IndexedDB drop a Deep's class), toNumber, log10Abs (the
+                    label past a double's range), isDepth/isBig. No BigInt.
+                    docs/reference/depth-overflow-design-2026-11-13.md.
 frameLattice.js     The address arithmetic. Pure integers and powers of two.
                     The constants, cellEdge/cellCentre/cellOf, carryDigit,
                     displacementDigits/applyDigits, the tile phase (tilePhase,

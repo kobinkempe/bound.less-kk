@@ -43,6 +43,7 @@ import { submit, cutSlots, cutQueue } from "./eraseWorkerClient";
 import { descentJob } from "./eraseDescent";
 import { rectSpan, rectTol } from "./rectMath";
 import { zOf, has, withId, withoutId, underMask, inheritErase } from "./eraseRule";
+import * as dm from "./depth";
 
 // The flatten tolerance of a mark judging whether it covers a frame whole, in the mark's frame's
 // units: a chord sits within it of its arc, so a frame box grown by it that misses every chord
@@ -612,7 +613,7 @@ class ErasePipeline {
             const own = reachBox(f, s, x, y, k ? pad : 0);
             if (!at || own.right < at.left || own.left > at.right || own.bottom < at.top || own.top > at.bottom) return false;
             if (!this.doc.count(f.id)) return true;
-            const onChain = k > 0 && s === 1 && x === 0 && y === 0;
+            const onChain = dm.gt(k, 0) && s === 1 && x === 0 && y === 0;
             if (!onChain && this.lm.frameFactor(f.id, HE) == null) return true;
             const r0 = onChain ? at : this.lm.mapRectF(rectE, HE, f.id);
             if (!r0) return true;
@@ -927,8 +928,8 @@ class ErasePipeline {
         const pureDescent = !!desc && !desc.up.length && desc.down.length > 0;
         const dHO = this.lm.depthOf(HO);
         const ringA = desc && desc.up.length ? desc.down.find((f) => this.lm.depthOf(f) === dHO) : null;
-        const ring = !!ringA && !!this._cellOffset(HO, ringA) && desc.down.some((f) => this.lm.depthOf(f) > dHO);
-        if (dHO < this.lm.depthOf(HE) && (pureDescent || ring)) {
+        const ring = !!ringA && !!this._cellOffset(HO, ringA) && desc.down.some((f) => dm.gt(this.lm.depthOf(f), dHO));
+        if (dm.lt(dHO, this.lm.depthOf(HE)) && (pureDescent || ring)) {
             return { kind: "descent", world: this._descentWorld(), input: { freezeR: this._boolOpts().freezeR, HE, links: this._descentLinks || DESCENT_LINKS,
                 target: { obj: o, level: HO }, E: { id: E.id, w: E.w, bakePx: E.bakePx, loops: E.loops } } };
         }
@@ -1247,12 +1248,12 @@ class ErasePipeline {
         // makes a family of d, and a path and a box a pair was O(d) a pair (F195: 152 s for 1,150 members).
         const depths = members.map((m) => this.lm.depthOf(m.level)), boxes = new Array(members.length);
         let top = Infinity;   // the shallowest member: no window is asked for above it, so no chain is walked past it
-        for (const d of depths) if (d != null && d < top) top = d;
+        for (const d of depths) if (d != null && dm.lt(d, top)) top = d;
         // A pair whose two members are already one class cannot change the classes, so it is not asked. Kids go shallow
         // first and meet their own depth and the one above before the coarser members, and those only while one is in
         // another class: on a connected chain no coarser pair is asked (a 300-level cede asked 45,000, 6.6 s: F196).
         const byDepth = (keep) => members.map((_, i) => i).filter((i) => depths[i] != null && keep(members[i].obj))
-            .sort((a, b) => depths[a] - depths[b] || a - b);
+            .sort((a, b) => dm.cmp(depths[a], depths[b]) || a - b);
         const kids = byDepth((o) => !!o.attachRect), ups = byDepth((o) => o.type === "shape" || o.type === "fill");
         const pc = new Array(members.length).fill(0);   // per root: how many of `ups[0..lo)` its class holds
         const join = (i, j) => {
@@ -1263,15 +1264,15 @@ class ErasePipeline {
         };
         let lo = 0, hi = 0;   // ups[0..lo) are coarser than the kid's parent, ups[lo..hi) at its depth or its parent's
         for (const i of kids) {
-            const kid = members[i], R = kid.obj.attachRect, kidDepth = depths[i];
-            for (; lo < ups.length && depths[ups[lo]] < kidDepth - 1; lo++) pc[G.find(ups[lo])]++;
-            for (; hi < ups.length && depths[ups[hi]] <= kidDepth; hi++);
+            const kid = members[i], R = kid.obj.attachRect, kidDepth = depths[i], kidUp = dm.sub(kidDepth, 1);
+            for (; lo < ups.length && dm.lt(depths[ups[lo]], kidUp); lo++) pc[G.find(ups[lo])]++;
+            for (; hi < ups.length && dm.le(depths[ups[hi]], kidDepth); hi++);
             const kd = this._doorOf(kid.obj), tol = kd.tol;
             // Up the kid's chain no further than the pass needs: its parent's depth, then the shallowest member's.
-            let need = kidDepth - 1, chain = null, chainTo = 0, runsUp = null, runsTo = 0;
+            let need = kidUp, chain = null, chainTo = 0, runsUp = null, runsTo = 0;
             /** The kid's inner runs in member frame `L`'s units, from one walk up its chain; null off the chain. */
             const runsAt = (L) => {
-                if (!runsUp || runsTo > need) {
+                if (!runsUp || dm.gt(runsTo, need)) {
                     const pts = [];
                     for (const [a, b] of kd.inner) pts.push(a, b);
                     runsUp = this.lm.pointsUpChain(pts, kid.level, runsTo = need);
@@ -1320,7 +1321,7 @@ class ErasePipeline {
                     if (e.joined) join(i, j);
                     return;
                 }
-                const near = upDepth === kidDepth - 1;
+                const near = upDepth === kidUp;
                 if (!(near && kd.arcs.length) && !kd.inner.length) return;
                 const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
                 // The kid's window is in unmoved numbers (it is the store's
@@ -1332,7 +1333,7 @@ class ErasePipeline {
                 const from = upF0 ? upF0.F0 : kid.level;
                 let Rp = null;
                 if (!upF0) {
-                    if (!chain || chainTo > need) chain = this.lm.rectUpChain(Rk, kid.level, chainTo = need);
+                    if (!chain || dm.gt(chainTo, need)) chain = this.lm.rectUpChain(Rk, kid.level, chainTo = need);
                     const A = this.lm.residentOf(up.level);
                     Rp = A ? chain.get(A.id) || null : null;
                 }

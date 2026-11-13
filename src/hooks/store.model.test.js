@@ -5,9 +5,9 @@
  * entry carrying `settled`, opened by the editor's own restore (the REAL hook over fake IndexedDB): it
  * loads to the oracle's picture, and undo then redo walk the oracle's pictures. The oracle writes the
  * store as the hook's saver does: its forced and unlisted frames snapshotted, then the drained log.
- * And the file's version: 3 only when the lattice carries a shift, refused by a version-2 reader, 4 once a
- * frame has a hashed name (OPEN-FLAGS F192); a drawing of path ids without a shift written byte for byte as
- * the model before C1 writes it.
+ * And the file: it says the version of the app that saved it, which the model before C1 (a reader of whole-number
+ * versions) refuses; a drawing of path ids without a shift is written as the model before C1 writes it, its
+ * version aside.
  */
 import React from "react";
 import { render, act } from "@testing-library/react";
@@ -17,8 +17,8 @@ import KobinEngine from "../engine/KobinEngine";
 import OracleEngine from "../engine/__oracles__/model-v1/KobinEngine";
 import { OpLog as OracleOpLog } from "../engine/__oracles__/model-v1/oplog";
 import { encodeObjects as oEncodeObjects } from "../engine/__oracles__/model-v1/format2";
-import { decodeDrawing as decodeV2, VERSION as READS_V2 } from "../engine/__oracles__/model-v1/persist";
-import { decodeDrawing, VERSION, latticeNeedsV3, latticeNeedsV4, latticeNeedsV5 } from "../engine/persist";
+import { decodeDrawing as decodeV2 } from "../engine/__oracles__/model-v1/persist";
+import { decodeDrawing, FILE_VERSION } from "../engine/persist";
 import { _resetDbForTests } from "../storage/db";
 import { writeCanvas2, getStoreHeader } from "../storage/localCanvases";
 import { fake } from "../engine/__testkit__/fakeFirestore";
@@ -205,57 +205,33 @@ describe("a store written before A1 C1 opens to the oracle's picture", () => {
         }
         expect(st.carried).toBeGreaterThan(0);                     // the middle shape, compared through its picture
         expect(st.carriedExact).toBe(st.carried);
-        // Saved again by the composed model: its lattice carries F's shift, so version 3, or 4 once this engine has
-        // named a frame (OPEN-FLAGS F192), or 5 once it has named one down a stretch (the compact lattice).
+        // Saved again by the composed model: its lattice carries F's shift, under this app's version.
         await act(async () => { expect(await api.flushSave()).toBe(true); });
         const h = await getStoreHeader("m1");
-        expect(latticeNeedsV3(h.crossings)).toBe(true);
-        expect(h.version).toBe(latticeNeedsV5(h.crossings) ? 5 : latticeNeedsV4(h.crossings) ? 4 : 3);
+        expect(h.crossings.frames.find((r) => r.id === f.F).shift).toBeTruthy();
+        expect(h.version).toBe(FILE_VERSION);
         act(() => view.unmount());
     });
 });
 
-describe("the file's version (PLAN §5.2 Q5)", () => {
-    test("3 only while the lattice carries a shift; a version-2 reader refuses it", () => {
+describe("the file's version", () => {
+    test("the app's that saved it, a shift or a hashed or stretch name included; the model before C1 refuses it", () => {
         const E = engine(KobinEngine);
         const { f, ids } = build(E);
         dragBy(E, [ids.cam], [], 0.4, 0);                           // an own table is not a shift
-        expect(E.serializeDrawing().version).toBe(1);
+        expect(E.serializeDrawing().version).toBe(FILE_VERSION);
         dragBy(E, [], [f.A], 0.3, 0);
         expect(E.lm.frame(f.A).shift).toBeTruthy();
-        const v3 = JSON.parse(JSON.stringify(E.serializeDrawing()));
-        expect(v3.version).toBe(3);
-        expect(VERSION).toBe(5);
-        expect(decodeDrawing(v3).crossings.frames.find((r) => r.id === f.A).shift).toEqual(E.lm.frame(f.A).shift);
-        expect(READS_V2).toBe(2);
-        expect(() => decodeV2(v3)).toThrow("this drawing was saved by a newer version of bound.less (file v3, app reads up to v2)");
-        expect(E.undo()).toBe(true);                                  // the shift gone, version 1 again
-        expect(E.lm.frame(f.A).shift).toBeFalsy();
-        expect(E.serializeDrawing().version).toBe(1);
+        const a = E.lm.cellChild("1", 7, 7);                         // a frame named by its parent's code (F192)
+        E.lm.cellChild(a.id, 7, 7);                                  // and one down a stretch (the compact lattice)
+        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));
+        expect(d.version).toBe(FILE_VERSION);
+        expect(decodeDrawing(d).crossings.frames.find((r) => r.id === f.A).shift).toEqual(E.lm.frame(f.A).shift);
+        expect(decodeDrawing(d).crossings.frames.filter((r) => /^[hs]/.test(r.id))).toHaveLength(2);
+        expect(() => decodeV2(d)).toThrow("not a drawing: missing or invalid version");
     });
 
-    test("4 once a frame has a hashed id (OPEN-FLAGS F192); an older reader says the drawing is newer", () => {
-        const E = engine(KobinEngine);
-        build(E);
-        expect(E.serializeDrawing().version).toBe(1);
-        E.lm.cellChild("1", 7, 7);                                       // a new frame: named by its parent's code
-        const v4 = JSON.parse(JSON.stringify(E.serializeDrawing()));
-        expect(v4.version).toBe(4);
-        expect(decodeDrawing(v4).crossings.frames.filter((r) => /^h/.test(r.id))).toHaveLength(1);
-        expect(() => decodeV2(v4)).toThrow("this drawing was saved by a newer version of bound.less (file v4, app reads up to v2)");
-    });
-
-    test("5 once a frame is named down a stretch (the compact lattice)", () => {
-        const E = engine(KobinEngine);
-        build(E);
-        const a = E.lm.cellChild("1", 7, 7);
-        E.lm.cellChild(a.id, 7, 7);                                      // in its parent's own cell: `s<code>:7,7*2`
-        const v5 = JSON.parse(JSON.stringify(E.serializeDrawing()));
-        expect(v5.version).toBe(5);
-        expect(decodeDrawing(v5).crossings.frames.filter((r) => /^s/.test(r.id))).toHaveLength(1);
-    });
-
-    test("a drawing without a shift is written byte for byte as the model before C1 writes it", () => {
+    test("a drawing without a shift is written as the model before C1 writes it, its version aside", () => {
         const files = [];
         for (const Kind of [OracleEngine, KobinEngine]) {
             const E = engine(Kind);
@@ -266,9 +242,10 @@ describe("the file's version (PLAN §5.2 Q5)", () => {
             const d = E.serializeDrawing({ name: "same", createdAt: "2026-09-29T00:00:00.000Z" });
             d.meta.modifiedAt = "stamped at encode";
             delete d.meta.appVersion;   // a stamp too; the model predates the field
+            expect(d.version).toBe(Kind === KobinEngine ? FILE_VERSION : 2);   // the model wrote the lowest format number
+            delete d.version;
             files.push(JSON.stringify(d));
         }
-        expect(JSON.parse(files[1]).version).toBe(2);
         expect(files[1]).toBe(files[0]);
     });
 });

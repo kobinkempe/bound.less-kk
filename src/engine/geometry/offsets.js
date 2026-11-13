@@ -73,6 +73,7 @@
  */
 import { W, G, R, HALF_W } from "../frameLattice";
 import { displacementDigitsSparse, powR } from "../frameLattice";
+import * as dm from "../depth";
 
 /** The move grid: 2^-10 of a level's unit, a quarter pixel at its deepest zoom. */
 export const SNAP = 1 / 1024;
@@ -81,7 +82,7 @@ export function snapDisplacement(v) { return Math.round(v * 1024) / 1024; }
 
 /** The offset at depth `k` below the home (k >= 0), or null. */
 export function offsetAt(below, k) {
-    if (!below || !(k >= 0)) return null;
+    if (!below || !dm.isDepth(k) || dm.lt(k, 0)) return null;
     const e = below[k];
     return e && (e[0] !== 0 || e[1] !== 0) ? e : null;
 }
@@ -111,7 +112,7 @@ export function internBelow(below) {
     if (!below) return undefined;
     if (SHARED.has(below)) return below;
     let key = "";
-    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) key += k + ":" + e[0] + "," + e[1] + ";"; });
+    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) key += `${k}:${e[0]},${e[1]};`; });
     if (!key) return undefined;
     const ref = POOL && POOL.get(key), hit = ref && ref.deref();
     if (hit) return hit;
@@ -145,18 +146,18 @@ const carryOf = (v) => Math.floor((v + HALF_W) / W);
  */
 export function addOffset(below, k, dx, dy) {
     const out = cloneBelow(below) || [];
-    if (!(k >= 0)) return { below: tidy(out), cellX: 0, cellY: 0 };
+    if (!dm.isDepth(k) || dm.lt(k, 0)) return { below: tidy(out), cellX: 0, cellY: 0 };
     const e = out[k] || put(out, k, [0, 0]);
     e[0] += dx; e[1] += dy;
     let cellX = 0, cellY = 0;
-    for (let m = k; m >= 0; m--) {
+    for (let m = k; dm.ge(m, 0); m = dm.sub(m, 1)) {
         const q = out[m];
         if (!q) break;
         const nx = carryOf(q[0]), ny = carryOf(q[1]);
         if (!nx && !ny) break;
         q[0] -= nx * W; q[1] -= ny * W;
-        if (m > 0) {
-            const p = out[m - 1] || put(out, m - 1, [0, 0]);
+        if (dm.gt(m, 0)) {
+            const m1 = dm.sub(m, 1), p = out[m1] || put(out, m1, [0, 0]);
             p[0] += nx * G; p[1] += ny * G;
         } else {
             cellX += nx; cellY += ny;
@@ -191,38 +192,38 @@ export function shiftAt(below, k0) {
         const e = offsetAt(below, k);
         if (!e) return;
         any = true;
-        if (k > k0) {
-            const f = powR(k0 - k);
+        if (dm.gt(k, k0)) {
+            const f = powR(dm.toNumber(dm.sub(k0, k)));
             rx += e[0] * f; ry += e[1] * f;
             return;
         }
-        const X = displacementDigitsSparse(e[0], k0 - k), Y = displacementDigitsSparse(e[1], k0 - k);
-        X.digits.forEach((v, i) => add(dx, k + 1 + i, v));
-        Y.digits.forEach((v, i) => add(dy, k + 1 + i, v));
+        const n = dm.sub(k0, k), X = displacementDigitsSparse(e[0], n), Y = displacementDigitsSparse(e[1], n);
+        X.digits.forEach((v, i) => add(dx, dm.add(k, 1 + i), v));
+        Y.digits.forEach((v, i) => add(dy, dm.add(k, 1 + i), v));
         rx += X.rest; ry += Y.rest;
     });
     if (!any) return out;
-    if (k0 < 0) { out.rem = [rx, ry]; return out; }
+    if (dm.lt(k0, 0)) { out.rem = [rx, ry]; return out; }
     // The remainder into [-W/2, W/2); what it carries goes into the digit at
     // k0 (or, at the home level, into the home-frame carry).
     const cx = carryOf(rx), cy = carryOf(ry);
     rx -= cx * W; ry -= cy * W;
-    if (k0 > 0) { add(dx, k0, cx); add(dy, k0, cy); } else { out.carry = [cx, cy]; }
+    if (dm.gt(k0, 0)) { add(dx, k0, cx); add(dy, k0, cy); } else { out.carry = [cx, cy]; }
     // Digits into the balanced range, carrying upward, finest first; out of depth 1 is home frames.
-    const keys = [...new Set([...dx.keys(), ...dy.keys()])].sort((a, b) => b - a);
+    const keys = [...new Set([...dx.keys(), ...dy.keys()])].sort((a, b) => dm.cmp(b, a));
     let q = 0, m = keys.length ? keys[0] : 0;
-    while (m >= 1) {
+    while (dm.ge(m, 1)) {
         const vx = dx.get(m) || 0, vy = dy.get(m) || 0;
         const ax = Math.floor((vx + R / 2) / R), ay = Math.floor((vy + R / 2) / R);
         if (ax || ay) {
             dx.set(m, vx - ax * R); dy.set(m, vy - ay * R);
-            if (m > 1) { add(dx, m - 1, ax); add(dy, m - 1, ay); m--; continue; }
+            if (dm.gt(m, 1)) { m = dm.sub(m, 1); add(dx, m, ax); add(dy, m, ay); continue; }
             out.carry[0] += ax; out.carry[1] += ay;
         }
-        while (q < keys.length && keys[q] >= m) q++;
+        while (q < keys.length && dm.ge(keys[q], m)) q++;
         m = q < keys.length ? keys[q] : 0;
     }
-    for (const lv of [...new Set([...dx.keys(), ...dy.keys()])].sort((a, b) => a - b)) {
+    for (const lv of [...new Set([...dx.keys(), ...dy.keys()])].sort(dm.cmp)) {
         const gx = dx.get(lv) || 0, gy = dy.get(lv) || 0;
         if (gx || gy) put(out.digits, lv, [gx, gy]);
     }
@@ -236,7 +237,7 @@ const LAST_INDEX = 4294967294;
 /** out[k] = v, returned. */
 function put(out, k, v) {
     out[k] = v;
-    if (k > LAST_INDEX && out.length < 64) out.length = 64;
+    if (dm.gt(k, LAST_INDEX) && out.length < 64) out.length = 64;
     return v;
 }
 /**
@@ -250,16 +251,16 @@ function eachIndex(a, fn) {
     }
     let ks = [], deep = false;
     for (const key of Object.keys(a)) {
-        const k = +key;
-        if (Number.isInteger(k) && k >= 0) { ks.push(k); if (k > LAST_INDEX) deep = true; }
+        const k = dm.parse(key);   // past 2^53 a key is a Deep's digits
+        if (k != null && dm.ge(k, 0)) { ks.push(k); if (dm.gt(k, LAST_INDEX)) deep = true; }
     }
-    if (deep) ks = ks.sort((x, y) => x - y);   // keys list indices first, then plain keys as they were added
+    if (deep) ks = ks.sort(dm.cmp);   // keys list indices first, then plain keys as they were added
     for (const k of ks) if (fn(k) === true) return true;
     return false;
 }
 
 /** `fn(m, [gx, gy])` for each level m ≥ 1 where `shiftAt`'s translation has whole cells (its digits are sparse). */
-export function eachDigit(sh, fn) { eachIndex(sh.digits, (m) => { if (m >= 1) fn(m, sh.digits[m]); }); }
+export function eachDigit(sh, fn) { eachIndex(sh.digits, (m) => { if (dm.ge(m, 1)) fn(m, sh.digits[m]); }); }
 
 /** Does this translation move the picture by any whole frame at depth k0? */
 export function hasDigits(sh) {
@@ -335,8 +336,8 @@ export function shiftDown(below, k) {
     const above = [];
     eachIndex(below, (m) => {
         const e = offsetAt(below, m);
-        if (e && m <= k) put(above, m, e);
-        else if (e) put(out, m - k, [e[0], e[1]]);
+        if (e && dm.le(m, k)) put(above, m, e);
+        else if (e) put(out, dm.sub(m, k), [e[0], e[1]]);
     });
     const sh = shiftAt(above, k);
     if (sh.rem[0] !== 0 || sh.rem[1] !== 0) out[0] = [sh.rem[0], sh.rem[1]];
@@ -347,7 +348,7 @@ export function shiftDown(below, k) {
 export function shiftUp(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
-    eachIndex(below, (m) => { const e = offsetAt(below, m); if (e) put(out, m + 1, [e[0], e[1]]); });
+    eachIndex(below, (m) => { const e = offsetAt(below, m); if (e) put(out, dm.add(m, 1), [e[0], e[1]]); });
     return tidy(out);
 }
 
@@ -370,7 +371,7 @@ export function sameBelow(a, b) {
 export function encodeBelow(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
-    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) out.push([k, e[0], e[1]]); });
+    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) out.push([dm.toJSON(k), e[0], e[1]]); });
     return out;
 }
 
@@ -380,9 +381,10 @@ export function decodeBelow(raw) {
     if (!Array.isArray(raw)) throw new Error("below: expected an array");
     const out = [];
     for (const t of raw) {
-        if (!Array.isArray(t) || t.length !== 3 || !Number.isInteger(t[0]) || t[0] < 0
+        const k = Array.isArray(t) ? dm.parse(t[0]) : null;   // a depth past 2^53 is its digits (from 1.1)
+        if (!Array.isArray(t) || t.length !== 3 || k == null || dm.lt(k, 0)
             || !Number.isFinite(t[1]) || !Number.isFinite(t[2])) throw new Error("below: each entry must be [k, ox, oy]");
-        put(out, t[0], [t[1], t[2]]);
+        put(out, k, [t[1], t[2]]);
     }
     return tidy(out);
 }

@@ -52,6 +52,7 @@ import { inheritErase, withId } from "./eraseRule";
 import { cede } from "./cede";
 import { Loop } from "./geometry/loop";
 import { bboxOf, EMPTY_SHAPE_BOX } from "./geometry/derive";
+import * as dm from "./depth";
 
 // Stored loops are Loops (geometry/loop.js): a piece read is a transient view, a piece
 // kept is eight doubles. Every way a shape enters the document or changes goes through
@@ -1019,7 +1020,7 @@ export default class Document {
         if (kidBelow === undefined && src) kidBelow = this.ownFor(shiftDown(this.tableOf(src), 1), level) || null;
         const rec = this.getById(id), lm = this.lm;
         const dKid = lm ? lm.depthOf(level) : null, dSrc = lm && rec ? lm.depthOf(rec.level) : null;
-        const kidLevels = dKid != null && dSrc != null ? dKid - dSrc : 1;
+        const kidLevels = dKid != null && dSrc != null ? dm.sub(dKid, dSrc) : 1;
         return cede(this, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by, kidLevels);
     }
     /**

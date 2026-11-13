@@ -14,6 +14,7 @@ import { ownTranslation } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
 import { openSceneWorker } from "./sceneWorkerClient";
 import { rasterWorkerReport } from "./raster/rasterWorkerClient";
+import * as dm from "./depth";
 
 // An item carries its OWN table's translation: the index adds its frame's shift itself (`sceneIndex`, `+ f.sx`).
 const ownT = ownTranslation;
@@ -172,10 +173,10 @@ const topPatch = (doc, lm, o) => {
         if (r.obj.erase) continue;
         if (r.obj.attachRect == null) return false;
         const d = lm.depthOf(r.level);
-        if (d != null && d < top) top = d;
+        if (d != null && dm.lt(d, top)) top = d;
     }
     const d = lm.depthOf(o._home);
-    return d == null || d <= top;
+    return d == null || dm.le(d, top);
 };
 /** Is a footprint this wide framable at its coordinates: at least 256 float64 steps across (F189)? */
 const framable = (w, boxes) => {
@@ -316,7 +317,7 @@ export class SceneClient {
         let host = null, hd = -Infinity;   // depths run negative above the first frame
         for (const pc of step.pieces) {
             const d = pc && pc.obj && !pc.obj.erase ? this.lm.depthOf(pc.level) : null;
-            if (d != null && d > hd) { hd = d; host = pc; }
+            if (d != null && dm.gt(d, hd)) { hd = d; host = pc; }
         }
         if (!host) return;
         const key = this.doc.editKey(host.obj);
@@ -342,7 +343,7 @@ export class SceneClient {
             if (!ix.length) return;
             fp = { id: host.obj.id, e: markId, host: null, key, home: null, depth: -Infinity, w: 0, boxes: [], ix, off: false, raw: null, t: null };
         }
-        if (hd > fp.depth) {
+        if (dm.gt(hd, fp.depth)) {
             const H = String(host.level), f = this.lm.frameFactor(mark.level, H), T = this.doc.tableOf(host.obj, H);
             const boxes = [];
             if (f != null) for (const i of fp.ix || []) {

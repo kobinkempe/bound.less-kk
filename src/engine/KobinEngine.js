@@ -57,6 +57,7 @@ import { files } from "./files";
 import { sceneOps } from "./sceneOps";
 import { leverDefaults, cleanLevers } from "./devLevers";
 import { initFrameGc, noteFrameEvent, noteCameraFrame, collectFrames, sweepFrames } from "./frameGc";
+import { lt as depthLt } from "./depth";
 
 // Eraser strokes paint in the canvas background color — visually "erased"
 // the instant they're drawn, before any geometry work happens.
@@ -418,7 +419,7 @@ export default class KobinEngine {
                 if (rec.level === this.cam.frame) return "same";
                 const d = this.lm.depthOf(rec.level), c = this.lm.depthOf(this.cam.frame);
                 if (d == null || c == null) return "unbaked";
-                return d < c ? "up" : "down";
+                return depthLt(d, c) ? "up" : "down";
             },
         );
         this._render();
@@ -1194,8 +1195,10 @@ export default class KobinEngine {
     // ---- status + ported BUG invariants ----
     _emit() {
         const zoom = this.cam.effectiveZoom(), zoomLog10 = this.cam.zoomLog10();
+        // Past about 5 × 10^307 levels the log itself overflows a double: the label reads its log (depth.js).
+        const zoomLogLog10 = Number.isFinite(zoomLog10) ? undefined : this.cam.zoomLogLog10();
         this.onStatus({
-            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: zoom, zoomLog10,
+            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: zoom, zoomLog10, zoomLogLog10,
             nearCross: this.cam.inScale > this.cfg.enter * 0.8, objects: this._lastList.length,
             lines: false, // per-origin curvature now; no global "line mode" level
             selection: this._selectionStatus(),
@@ -1204,7 +1207,7 @@ export default class KobinEngine {
         });
         if (this._zoomSubs && zoomLog10 !== this._zoomSeen) {
             this._zoomSeen = zoomLog10;
-            for (const cb of this._zoomSubs) cb(zoom, zoomLog10);
+            for (const cb of this._zoomSubs) cb(zoom, zoomLog10, zoomLogLog10);
         }
     }
     /**

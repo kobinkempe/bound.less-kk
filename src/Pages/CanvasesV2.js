@@ -7,6 +7,7 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../Components/ui/Dialog";
 import BrandLogo from "../Components/BrandLogo";
+import SciText from "../Components/ui/SciText";
 import "../Stylesheets/boundless-ui.css";
 import placeholderThumb from "../Images/ui/canvas-botanical.jpg";
 import {
@@ -354,7 +355,7 @@ export default function CanvasesV2() {
                                 {/* Menu clicks must not follow the card's Link */}
                                 <div className="bl-canvas-meta-actions"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-                                    <span className="bl-depth-badge">{depthLabel(c.levels)}</span>
+                                    <span className="bl-depth-badge"><SciText text={depthLabel(c.levels)} /></span>
                                     <div className="bl-popover-anchor bl-card-menu-anchor">
                                         <button type="button" className="bl-card-menu-btn" title="Canvas actions"
                                             onClick={() => setMenuFor(menuFor === c.id ? null : c.id)}>

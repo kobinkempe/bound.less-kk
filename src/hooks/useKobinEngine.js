@@ -1047,8 +1047,15 @@ export function fmtZoom(z) {
     return z.toFixed(2);
 }
 
-/** `zoomLog10`, when given, labels a zoom past a double's range, from 86 levels down (OPEN-FLAGS F167). */
-export function zoomLabel(zoom, zoomLog10) {
+/**
+ * `zoomLog10`, when given, labels a zoom past a double's range, from 86 levels down (OPEN-FLAGS F167); `zoomLogLog10`
+ * (log10 |zoomLog10|) one past the log's own range, about 5 × 10^307 levels either way (depth.js): "10^(3.6×10¹⁰⁰⁰)×".
+ */
+export function zoomLabel(zoom, zoomLog10, zoomLogLog10) {
+    if (!Number.isFinite(zoomLog10) && zoomLog10 != null && Number.isFinite(zoomLogLog10)) {
+        const e = `10^(${formatLog10Value(zoomLogLog10)})`;
+        return zoomLog10 > 0 ? `${e}×` : `1/${e}×`;
+    }
     if (!(zoom >= 1e-300 && zoom <= 1e300) && Number.isFinite(zoomLog10)) {
         return zoomLog10 >= 0 ? `${formatLog10Value(zoomLog10)}×` : `1/${formatLog10Value(-zoomLog10)}×`;
     }
