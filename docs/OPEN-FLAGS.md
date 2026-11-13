@@ -14,6 +14,9 @@ with the backlog detail and the DONE ledger. Flags are referenced from it by id.
 edit entries in place, delete them when they close. `docs/issue-log.md` is the historical
 log and is a different thing.
 
+**Version 1.1 (2026-11-13):** main dbbb1e1 (tag v1.1.0) committed, pushed and deployed: no deepest level (the note
+on depth past 2⁵³ under F202) and files that say the app's version.
+
 **Version 1.0 (2026-11-13):** main eb8b7d8 committed, pushed and deployed: every flag below marked uncommitted shipped in it.
 
 **2026-11-12 (shipped in 1.0):** the Chrome tests to 10,000 levels (the answer and the numbers: `docs/reference/infinite-zoom-audit-2026-11-11.md`). Found and fixed, jsdom-tested and checked in Chrome: F193, F194, F195, F197, F200, F201. Fixed at Kobin's word, in jsdom, then measured in Chrome: F196 (a deep erase lands as jobs of 8 crossings, each a short task: 1,000 levels in 10 s of tasks under 0.2 s, where it froze the page 158 s) and F198 (an erase's candidate scan). Open, for Kobin: F199 (the cloud manifest holds the whole lattice). The generated Code Map, Call Graph and Call Map are local files now; their published copies were deleted (Kobin). Then 100,000 and 1,000,000 levels (the desktop app's Chromium, local saves): everything tried works, nothing overflows; at a million levels every render takes seconds — **F202** filed, open, for Kobin. Where depth finally gives out, in order: the audit doc's table.

@@ -14,6 +14,8 @@ word (checked live: the badge, "Download .svgi"); GitHub Release v1.0.0. The pla
 section (big projects, medium features, easy knock-outs).
 
 VERSION 1.1 (2026-11-13, at Kobin's word; CHANGELOG.md, git tag v1.1.0): DEPTH PAST 2^53, NO DEEPEST LEVEL.
+DEPLOYED 2026-11-13 from dbbb1e1 at his word (checked live: the landing badge "Version 1.1", the new
+bundle); his portfolio updated (kobinkempe/portfolio 090bfcf).
 The README's claim (Kobin's words): tested at zooms that are hard to write down, including
 10^(36,123,599,...)x, the full exponent 20 million digits long. The work:
 Kobin's "an overflow integer ... dynamically so overflows could keep being added", and then (the same

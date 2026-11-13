@@ -1546,6 +1546,15 @@ something"
 
 ## Ledger — done
 
+### 2026-11-13 - version 1.1 (main dbbb1e1, tag v1.1.0, deployed 2026-11-13 at Kobin's word)
+
+    No deepest level: past 2⁵³ a depth is a Deep (src/engine/depth.js) and the camera stop is gone; tested in the
+    app's built-in pane to a depth 20 million digits long and in jsdom to 30 million
+    (docs/reference/depth-overflow-design-2026-11-13.md). Files say the app's version (1.1). README line 14 in
+    Kobin's words. Pushed to origin with the tag; `firebase deploy --only hosting` from dbbb1e1; checked live (the
+    landing badge "Version 1.1", the new bundle); Kobin's portfolio updated (kobinkempe/portfolio 090bfcf). No GitHub
+    Release this time. Tests: quick 2,769/2,769, slow 689/689.
+
 ### 2026-11-13 - version 1.0 (main eb8b7d8, tag v1.0.0, deployed 2026-11-13 at Kobin's word)
 
     The infinite-zoom round below, the compact lattice (F199, F202; docs/reference/compact-lattice-design-2026-11-12.md)
