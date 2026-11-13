@@ -1542,10 +1542,18 @@ something"
 
 ## Ledger — done
 
+### 2026-11-13 - version 1.0 (main eb8b7d8, tag v1.0.0, deployed 2026-11-13 at Kobin's word)
+
+    The infinite-zoom round below, the compact lattice (F199, F202; docs/reference/compact-lattice-design-2026-11-12.md)
+    and the 1.0 items: package 1.0.0, the landing badge, `.svgi` downloads, `meta.appVersion`, one frozen file per
+    file version (compat.files.test.js), CHANGELOG.md, this page's plan from 1.0. Pushed to origin with the tag;
+    `firebase deploy --only hosting` from eb8b7d8; checked live (the badge, the editor's "Download .svgi"); GitHub
+    Release v1.0.0; Kobin's portfolio updated (kobinkempe/portfolio d6998b8). Tests: quick 2,745/2,745, slow 687/687.
+
 Newest first. Recorded so nothing is re-investigated. Each block is the text that used to
 sit at the top of `50-TODO.txt`, unchanged.
 
-### 2026-11-11 to 2026-11-12 - the infinite-zoom audit, in jsdom and in Chrome to 10,000 levels (uncommitted)
+### 2026-11-11 to 2026-11-12 - the infinite-zoom audit, in jsdom and in Chrome to 10,000 levels (shipped in 1.0)
 
     Kobin: "is anything else stopping from actual infinite zoom?" The answer and every measurement:
     docs/reference/infinite-zoom-audit-2026-11-11.md. The ?svg mode removed (the page's engine is always the

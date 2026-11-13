@@ -9,7 +9,8 @@ VERSION 1.0 (2026-11-13, at Kobin's word): package.json 1.0.0 (src/version.js), 
 landing badge "Version 1.0" where it said "Beta", downloads named .svgi (.boundless and
 .boundless.json open too), meta.appVersion in every file, and the compatibility promise
 enforced by src/engine/compat.files.test.js (one frozen file per file version, v1-v5).
-Release notes: CHANGELOG.md; git tag v1.0.0. The plan from here: docs/ROADMAP.md's first
+Release notes: CHANGELOG.md; git tag v1.0.0. DEPLOYED 2026-11-13 from eb8b7d8 at his
+word (checked live: the badge, "Download .svgi"); GitHub Release v1.0.0. The plan from here: docs/ROADMAP.md's first
 section (big projects, medium features, easy knock-outs).
 
 WHERE THE BUILD IS
